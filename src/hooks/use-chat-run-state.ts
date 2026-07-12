@@ -3,6 +3,8 @@ import type { ChatStatus } from "ai"
 
 import * as React from "react"
 
+const maxClearedActiveRunIds = 512
+
 export interface ChatRunState {
   activities: Record<string, AssistantActivityEvent | undefined>
   applyActiveRun: (sessionId: string, run: ChatActiveRun | null, endedRunId?: string) => void
@@ -42,6 +44,10 @@ export function useChatRunState(): ChatRunState {
       }
       if (endedRunId) {
         clearedActiveRunIds.current.add(endedRunId)
+        if (clearedActiveRunIds.current.size > maxClearedActiveRunIds) {
+          const oldestRunId = clearedActiveRunIds.current.values().next().value
+          if (oldestRunId) clearedActiveRunIds.current.delete(oldestRunId)
+        }
       }
       setActiveRunStarts((current) => {
         if (!Object.hasOwn(current, sessionId)) {

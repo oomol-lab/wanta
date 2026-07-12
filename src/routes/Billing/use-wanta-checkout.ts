@@ -98,12 +98,10 @@ export function useWantaCheckout({
     try {
       const result = await updateWantaSubscription(preview.payload)
       const paymentUrl = result.paymentURL?.trim()
-      if (paymentUrl) await openExternalCheckout(paymentUrl)
-      else {
-        toast.success(t("billing.wantaSubscriptionUpdated"))
-        refresh()
-      }
       setPreview(null)
+      refresh()
+      if (paymentUrl) await openExternalCheckout(paymentUrl)
+      else toast.success(t("billing.wantaSubscriptionUpdated"))
     } catch (cause) {
       reportFailure("Wanta subscription update failed", cause)
     } finally {

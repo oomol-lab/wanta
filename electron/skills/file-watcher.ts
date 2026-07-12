@@ -40,39 +40,43 @@ export class SkillFileWatcher {
       }
       registeredPaths.add(pathname)
       try {
-        this.watchers.push(
-          watch(pathname, { persistent: false, recursive }, () => {
-            this.options.onFilesChanged()
-            this.scheduleInventoryChanged()
-            if (affectsRuntimeSkills) {
-              this.options.onRuntimeSkillsChanged()
-            }
-            if (syncRuntimeSkills) {
-              this.scheduleExternalRuntimeSync()
-            }
-          }),
-        )
+        const watcher = watch(pathname, { persistent: false, recursive }, () => {
+          this.options.onFilesChanged()
+          this.scheduleInventoryChanged()
+          if (affectsRuntimeSkills) {
+            this.options.onRuntimeSkillsChanged()
+          }
+          if (syncRuntimeSkills) {
+            this.scheduleExternalRuntimeSync()
+          }
+        })
+        watcher.on("error", (error) => this.reportWatchError(pathname, affectsRuntimeSkills, recursive, error))
+        this.watchers.push(watcher)
         logDiagnosticOnChange(`skill-service:watch:${pathname}`, "skill-service", "watching skill path", {
           affectsRuntimeSkills,
           pathname,
           recursive,
         })
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        const isMissing = message.includes("ENOENT")
-        logDiagnosticOnChange(
-          `skill-service:watch:${pathname}`,
-          "skill-service",
-          "failed to watch skill path",
-          { affectsRuntimeSkills, error: message, pathname, recursive },
-          isMissing ? "trace" : "warn",
-          isMissing
-            ? { affectsRuntimeSkills, missing: true, pathname, recursive }
-            : { affectsRuntimeSkills, error: message, pathname, recursive },
-        )
+        this.reportWatchError(pathname, affectsRuntimeSkills, recursive, error)
         // 目录可能尚不存在；focus/background refresh 仍会兜底发现后续变化。
       }
     }
+  }
+
+  private reportWatchError(pathname: string, affectsRuntimeSkills: boolean, recursive: boolean, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error)
+    const isMissing = message.includes("ENOENT")
+    logDiagnosticOnChange(
+      `skill-service:watch:${pathname}`,
+      "skill-service",
+      "failed to watch skill path",
+      { affectsRuntimeSkills, error: message, pathname, recursive },
+      isMissing ? "trace" : "warn",
+      isMissing
+        ? { affectsRuntimeSkills, missing: true, pathname, recursive }
+        : { affectsRuntimeSkills, error: message, pathname, recursive },
+    )
   }
 
   public dispose(): void {

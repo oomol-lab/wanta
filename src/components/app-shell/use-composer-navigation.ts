@@ -191,14 +191,22 @@ export function useComposerNavigation({
     setSearchOpen(false)
     setRoute("connections")
   }, [setRoute, setSearchOpen])
+  const handleSelectComposerProjectFolder = React.useCallback(
+    (): Promise<void> => handleSelectProjectDirectory("composer"),
+    [handleSelectProjectDirectory],
+  )
+  const handleSelectProjectFolder = React.useCallback(
+    (): Promise<void> => handleSelectProjectDirectory("sidebar"),
+    [handleSelectProjectDirectory],
+  )
 
   return {
     handleNewSession,
     handleOpenProjectDraft,
     handleReturnToConnections,
     handleSelectComposerProject,
-    handleSelectComposerProjectFolder: () => handleSelectProjectDirectory("composer"),
-    handleSelectProjectFolder: () => handleSelectProjectDirectory("sidebar"),
+    handleSelectComposerProjectFolder,
+    handleSelectProjectFolder,
     handleSelectSession,
     requestComposerFocus,
   }

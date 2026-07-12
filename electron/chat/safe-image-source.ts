@@ -15,7 +15,7 @@ export interface MaterializeAssistantArtifactsOptions {
 }
 
 export function dataImage(value: string): { bytes: Buffer; mime: string } | null {
-  const match = /^data:([^;,]+)((?:;[^,]*)*),(.*)$/su.exec(value)
+  const match = /^data:([^;,]+)((?:;[^;,]*)*),(.*)$/su.exec(value)
   if (!match) {
     return null
   }

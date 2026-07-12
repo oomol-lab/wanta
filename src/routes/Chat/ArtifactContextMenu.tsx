@@ -27,11 +27,17 @@ export function ArtifactContextMenu({
   onToggleInfo?: (item: LocalArtifactItem) => void
 }) {
   const t = useT()
+  const menuRef = React.useRef<HTMLDivElement | null>(null)
+  const restoreFocusRef = React.useRef<HTMLElement | null>(null)
 
   React.useEffect(() => {
     if (!menu) {
       return
     }
+    restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const focusFrame = window.requestAnimationFrame(() => {
+      menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+    })
     const close = (): void => onClose()
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
@@ -43,12 +49,32 @@ export function ArtifactContextMenu({
     window.addEventListener("scroll", close, true)
     window.addEventListener("keydown", handleKeyDown)
     return () => {
+      window.cancelAnimationFrame(focusFrame)
       window.removeEventListener("pointerdown", close)
       window.removeEventListener("resize", close)
       window.removeEventListener("scroll", close, true)
       window.removeEventListener("keydown", handleKeyDown)
+      restoreFocusRef.current?.focus()
+      restoreFocusRef.current = null
     }
   }, [menu, onClose])
+
+  const handleMenuKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return
+    const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    if (items.length === 0) return
+    event.preventDefault()
+    const currentIndex = items.indexOf(document.activeElement as HTMLElement)
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? items.length - 1
+          : event.key === "ArrowDown"
+            ? (currentIndex + 1 + items.length) % items.length
+            : (currentIndex - 1 + items.length) % items.length
+    items[nextIndex]?.focus()
+  }, [])
 
   if (!menu) {
     return null
@@ -61,11 +87,13 @@ export function ArtifactContextMenu({
 
   return createPortal(
     <div
+      ref={menuRef}
       role="menu"
       aria-label={menu.item.name}
       className="fixed z-[140] min-w-52 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg outline-hidden"
       style={{ left, top }}
       onContextMenu={(event) => event.preventDefault()}
+      onKeyDown={handleMenuKeyDown}
       onPointerDown={(event) => event.stopPropagation()}
     >
       <MenuAction

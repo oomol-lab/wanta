@@ -60,9 +60,9 @@ export function useConnectionProviderDetail({
       if (!workspaceKey) return
       const targetKey = connectionDetailCacheKey(workspaceKey, targetService)
       cacheRef.current.delete(targetKey)
-      if (loadedCacheKey === targetKey) clearState()
+      if (cacheKey === targetKey) clearState()
     },
-    [clearState, loadedCacheKey, workspaceKey],
+    [cacheKey, clearState, workspaceKey],
   )
 
   React.useEffect(() => {

@@ -71,9 +71,7 @@ export function PublishSkillDialog({
     }
     const skillId = skill?.id ?? null
     if (initializedSkillIdRef.current === skillId) {
-      if (managedOrganizations.length > 0) {
-        setAvailableOrganizations(managedOrganizations)
-      }
+      setAvailableOrganizations(managedOrganizations)
       return
     }
     initializedSkillIdRef.current = skillId

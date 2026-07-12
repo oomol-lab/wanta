@@ -107,22 +107,30 @@ export class OutputPersistence {
   private async ensureAuthorizationLoaded(): Promise<void> {
     if (this.authorizationLoaded) return
     if (this.authorizationLoad) return this.authorizationLoad
-    this.authorizationLoad = (async () => {
+    const load = (async () => {
       this.authorizationOverlays = (await this.stores.authorization?.read()) ?? new Map()
       this.authorizationLoaded = true
-      this.authorizationLoad = null
     })()
-    return this.authorizationLoad
+    this.authorizationLoad = load
+    try {
+      await load
+    } finally {
+      if (this.authorizationLoad === load) this.authorizationLoad = null
+    }
   }
 
   private async ensureStoppedLoaded(): Promise<void> {
     if (this.stoppedLoaded) return
     if (this.stoppedLoad) return this.stoppedLoad
-    this.stoppedLoad = (async () => {
+    const load = (async () => {
       this.stoppedGenerations = (await this.stores.stoppedGeneration?.read()) ?? new Map()
       this.stoppedLoaded = true
-      this.stoppedLoad = null
     })()
-    return this.stoppedLoad
+    this.stoppedLoad = load
+    try {
+      await load
+    } finally {
+      if (this.stoppedLoad === load) this.stoppedLoad = null
+    }
   }
 }

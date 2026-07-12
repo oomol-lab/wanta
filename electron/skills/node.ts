@@ -98,6 +98,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private defaultRegistrySkillInstallInFlight: Promise<void> | undefined
   private readonly externalRuntimeSynchronizer: ExternalSkillRuntimeSynchronizer
   private readonly registryRuntimeSynchronizer: RegistrySkillRuntimeSynchronizer
+  private runtimeSyncQueue: Promise<void> = Promise.resolve()
   private removedSkillStore: RemovedSkillStore | undefined
   private readonly options: SkillServiceOptions
   private readonly unsubscribeAuthStateChanged: () => void
@@ -253,10 +254,12 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     })
     assertOoSkillOperationResult(result, "skills.install")
     await this.forgetRemovedSkill(request)
-    await this.registryRuntimeSynchronizer.syncSkill(request.skillId, {
-      force: false,
-      packageName: request.packageName,
-    })
+    await this.enqueueRuntimeSync(() =>
+      this.registryRuntimeSynchronizer.syncSkill(request.skillId, {
+        force: false,
+        packageName: request.packageName,
+      }),
+    )
     this.notifyRuntimeSkillsChanged("install-registry-skill")
 
     return this.readAndPublishSkillInventory()
@@ -268,7 +271,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       rejectOnFailure: false,
     })
     assertOoSkillOperationResult(result, "skills.update")
-    await this.registryRuntimeSynchronizer.syncUpdated(request)
+    await this.enqueueRuntimeSync(() => this.registryRuntimeSynchronizer.syncUpdated(request))
     this.notifyRuntimeSkillsChanged("update-registry-skill")
 
     return this.readAndPublishSkillInventory()
@@ -514,7 +517,9 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     const store = this.getDefaultSkillInstallStore()
     let installStore = await store.read()
     const removedStore = await this.getRemovedSkillStore().read()
-    const syncedCachedRuntimeSkills = await this.registryRuntimeSynchronizer.syncMissing(removedStore)
+    const syncedCachedRuntimeSkills = await this.enqueueRuntimeSync(() =>
+      this.registryRuntimeSynchronizer.syncMissing(removedStore),
+    )
     let inventory = await this.readSharedSkillInventory({ writeManifest: true })
     if (syncedCachedRuntimeSkills) {
       this.notifyRuntimeSkillsChanged("sync-cached-registry-skills")
@@ -579,7 +584,16 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private async syncExternalAgentSkillsToRuntimeRoot(
     removedStore: Awaited<ReturnType<RemovedSkillStore["read"]>>,
   ): Promise<boolean> {
-    return this.externalRuntimeSynchronizer.sync(removedStore)
+    return this.enqueueRuntimeSync(() => this.externalRuntimeSynchronizer.sync(removedStore))
+  }
+
+  private enqueueRuntimeSync<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.runtimeSyncQueue.catch(() => undefined).then(operation)
+    this.runtimeSyncQueue = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
   }
 
   private async rememberDefaultRegistrySkillRemovedByUser(skillId: string): Promise<void> {

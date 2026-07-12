@@ -23,12 +23,10 @@ import type { SkillDeleteStoreTarget } from "./delete-plan.ts"
 import type { EnsureSkillPublishMetadataResult } from "./publish-metadata.ts"
 import type { InstalledSkill, SkillManifestRecord } from "./types.ts"
 import type { IConnectionService } from "@oomol/connection"
-import type { FSWatcher } from "node:fs"
 
 import { ConnectionService } from "@oomol/connection"
 import { app, shell } from "electron"
-import { watch } from "node:fs"
-import { access, readFile, readdir, realpath } from "node:fs/promises"
+import { access, readFile, readdir } from "node:fs/promises"
 import path from "node:path"
 import { buildOoEnv, buildOoMaintenanceEnv } from "../agent/oo.ts"
 import { resolveAgentSkillRoot, supportedAgents } from "../agents/catalog.ts"
@@ -47,6 +45,10 @@ import {
   createUpdateRegistrySkillArgs,
   readSkillPublishRequiredScope,
 } from "./actions.ts"
+import {
+  resolveAllowedSkillDocumentPath as resolveAllowedDocumentPath,
+  resolveAllowedSkillPath as resolveAllowedPath,
+} from "./allowed-path.ts"
 import { SkillService as SkillServiceName } from "./common.ts"
 import {
   DefaultSkillInstallStore,
@@ -66,6 +68,7 @@ import {
   removeSkillDirectoryIfSafe,
   replaceDirectory,
 } from "./file-operations.ts"
+import { SkillFileWatcher } from "./file-watcher.ts"
 import { SkillInventoryCache } from "./inventory-cache.ts"
 import { mergeInstalledSkillSnapshots, readSkillCoverageAgents } from "./inventory-snapshot.ts"
 import { buildSummary, groupInstalledSkills } from "./inventory.ts"
@@ -104,15 +107,13 @@ function normalizeAgentSortIndex(index: number): number {
 
 export class SkillServiceImpl extends ConnectionService<SkillService> implements IConnectionService<SkillService> {
   private readonly authService: AuthManager
-  private readonly watchers: FSWatcher[] = []
+  private readonly fileWatcher: SkillFileWatcher
   private versionReportCache: { generation: number; key: string; report: SkillVersionReport; time: number } | undefined
   private versionReportInFlight: { generation: number; key: string; promise: Promise<SkillVersionReport> } | undefined
   private versionReportCacheGeneration = 0
   private readonly inventoryCache = new SkillInventoryCache()
   private defaultRegistrySkillInstallInFlight: Promise<void> | undefined
   private externalRuntimeSkillSyncTail: Promise<void> = Promise.resolve()
-  private inventoryChangeTimer: NodeJS.Timeout | undefined
-  private runtimeSkillSyncTimer: NodeJS.Timeout | undefined
   private removedSkillStore: RemovedSkillStore | undefined
   private readonly options: SkillServiceOptions
   private readonly unsubscribeAuthStateChanged: () => void
@@ -124,6 +125,15 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     super(SkillServiceName)
     this.authService = authService
     this.options = options
+    this.fileWatcher = new SkillFileWatcher({
+      onExternalRuntimeSync: () => this.syncExternalRuntimeSkillsAndNotify("external-skill-files-changed"),
+      onFilesChanged: () => this.inventoryCache.invalidate(),
+      onInventoryChanged: async () => {
+        this.invalidateVersionReport()
+        await this.emitInventoryChanged()
+      },
+      onRuntimeSkillsChanged: () => this.notifyRuntimeSkillsChanged("skill-files-changed"),
+    })
     this.unsubscribeAuthStateChanged = this.authService.stateChanged.on(() => {
       this.invalidateVersionReport()
     })
@@ -442,30 +452,17 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   public override dispose(): void {
     this.isDisposed = true
 
-    for (const watcher of this.watchers) {
-      watcher.close()
-    }
-    this.watchers.length = 0
-
-    if (this.inventoryChangeTimer) {
-      clearTimeout(this.inventoryChangeTimer)
-      this.inventoryChangeTimer = undefined
-    }
-    if (this.runtimeSkillSyncTimer) {
-      clearTimeout(this.runtimeSkillSyncTimer)
-      this.runtimeSkillSyncTimer = undefined
-    }
+    this.fileWatcher.dispose()
 
     this.unsubscribeAuthStateChanged()
     super.dispose()
   }
 
   private startWatching(): void {
-    if (this.watchers.length > 0 || this.isDisposed) {
+    if (this.isDisposed) {
       return
     }
-
-    const watchedPaths = [
+    this.fileWatcher.start([
       { pathname: path.dirname(this.getManifestPath()), affectsRuntimeSkills: false, syncRuntimeSkills: false },
       { pathname: this.getSharedAgentSkillRoot(), affectsRuntimeSkills: true, syncRuntimeSkills: false },
       { pathname: this.getWantaSkillStoreRoot(), affectsRuntimeSkills: false, syncRuntimeSkills: false },
@@ -474,81 +471,11 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         affectsRuntimeSkills: false,
         syncRuntimeSkills: true,
       })),
-    ]
-    const registeredPaths = new Set<string>()
-    const recursive = process.platform === "darwin" || process.platform === "win32"
-
-    for (const { pathname, affectsRuntimeSkills, syncRuntimeSkills } of watchedPaths) {
-      if (registeredPaths.has(pathname)) {
-        continue
-      }
-      registeredPaths.add(pathname)
-      try {
-        this.watchers.push(
-          watch(pathname, { persistent: false, recursive }, () => {
-            this.inventoryCache.invalidate()
-            this.scheduleInventoryChanged()
-            if (affectsRuntimeSkills) {
-              this.notifyRuntimeSkillsChanged("skill-files-changed")
-            }
-            if (syncRuntimeSkills) {
-              this.scheduleExternalRuntimeSkillSync()
-            }
-          }),
-        )
-        logDiagnosticOnChange(`skill-service:watch:${pathname}`, "skill-service", "watching skill path", {
-          affectsRuntimeSkills,
-          pathname,
-          recursive,
-        })
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        const isMissing = message.includes("ENOENT")
-        logDiagnosticOnChange(
-          `skill-service:watch:${pathname}`,
-          "skill-service",
-          "failed to watch skill path",
-          { affectsRuntimeSkills, error: message, pathname, recursive },
-          isMissing ? "trace" : "warn",
-          isMissing
-            ? { affectsRuntimeSkills, missing: true, pathname, recursive }
-            : { affectsRuntimeSkills, error: message, pathname, recursive },
-        )
-        // 目录可能尚不存在；focus/background refresh 仍会兜底发现后续变化。
-      }
-    }
+    ])
   }
 
   private notifyRuntimeSkillsChanged(reason: string): void {
     this.options.onRuntimeSkillsChanged?.(reason)
-  }
-
-  private scheduleInventoryChanged(): void {
-    this.invalidateVersionReport()
-    if (this.inventoryChangeTimer) {
-      clearTimeout(this.inventoryChangeTimer)
-    }
-
-    this.inventoryChangeTimer = setTimeout(() => {
-      this.inventoryChangeTimer = undefined
-      void this.emitInventoryChanged()
-    }, 300)
-    this.inventoryChangeTimer.unref()
-  }
-
-  private scheduleExternalRuntimeSkillSync(): void {
-    if (this.runtimeSkillSyncTimer) {
-      clearTimeout(this.runtimeSkillSyncTimer)
-    }
-
-    this.runtimeSkillSyncTimer = setTimeout(() => {
-      this.runtimeSkillSyncTimer = undefined
-      void this.syncExternalRuntimeSkillsAndNotify("external-skill-files-changed").catch((error: unknown) => {
-        console.warn("[wanta] failed to sync external skills to runtime:", error)
-        logDiagnostic("skills", "failed to sync external skills to runtime", { error }, "warn")
-      })
-    }, 500)
-    this.runtimeSkillSyncTimer.unref()
   }
 
   private async syncExternalRuntimeSkillsAndNotify(reason: string): Promise<void> {
@@ -1181,44 +1108,19 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   }
 
   private async resolveAllowedSkillPath(requestPath: string): Promise<string> {
-    const resolvedRequestPath = path.resolve(requestPath)
-    const canonicalRequestPath = await realpath(resolvedRequestPath)
     const inventory = await this.readSharedSkillInventory({ writeManifest: false })
     const allowedPaths = inventory.groups.flatMap((group) =>
       group.hosts.flatMap((host) => [host.path, host.sourcePath]),
     )
-
-    for (const allowedPath of allowedPaths) {
-      if (!allowedPath) {
-        continue
-      }
-
-      const resolvedAllowedPath = path.resolve(allowedPath)
-      const canonicalAllowedPath = await realpath(resolvedAllowedPath).catch((error: unknown) => {
-        logDiagnostic("skills", "failed to resolve allowed skill path", { error, path: resolvedAllowedPath }, "warn")
-        return undefined
-      })
-      if (!canonicalAllowedPath) {
-        continue
-      }
-      if (
-        canonicalRequestPath === canonicalAllowedPath ||
-        canonicalRequestPath.startsWith(`${canonicalAllowedPath}${path.sep}`)
-      ) {
-        await access(canonicalRequestPath)
-        return canonicalRequestPath
-      }
-    }
-
-    throw new Error("Skill path is not allowed.")
+    return resolveAllowedPath(requestPath, allowedPaths)
   }
 
   private async resolveAllowedSkillDocumentPath(requestPath: string): Promise<string> {
-    const skillPath = await this.resolveAllowedSkillPath(requestPath)
-    const skillFilePath = path.join(skillPath, "SKILL.md")
-
-    await access(skillFilePath)
-    return skillFilePath
+    const inventory = await this.readSharedSkillInventory({ writeManifest: false })
+    const allowedPaths = inventory.groups.flatMap((group) =>
+      group.hosts.flatMap((host) => [host.path, host.sourcePath]),
+    )
+    return resolveAllowedDocumentPath(requestPath, allowedPaths)
   }
 
   private async readAuthSnapshot(): Promise<SkillVersionAuthSnapshot> {

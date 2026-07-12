@@ -49,7 +49,6 @@ import type {
   TurnOutputsRequest,
 } from "./common.ts"
 import type { SessionGeneration } from "./generation-registry.ts"
-import type { SessionPermissionGrant } from "./permission-request.ts"
 import type { StoppedGenerationStore, StoppedGenerations } from "./stopped-generations.ts"
 import type { StoredTurnOutputRecord, TurnOutputRecords, TurnOutputStore } from "./turn-outputs.ts"
 import type { IConnectionService } from "@oomol/connection"
@@ -87,6 +86,7 @@ import { normalizeChatError } from "./error.ts"
 import { GenerationRegistry } from "./generation-registry.ts"
 import { evaluateLocalAccessRequest, localAccessGrantForRequest } from "./local-access-policy.ts"
 import { directoryArtifacts, fileArtifact, localArtifactItem, readArtifactPack } from "./local-artifacts.ts"
+import { PermissionState } from "./permission-state.ts"
 import { attachmentPreview, localArtifactPreview } from "./previews.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
 import { ChatStreamEventBuffer } from "./stream-event-buffer.ts"
@@ -116,10 +116,6 @@ const generationActiveToolInactivityTimeoutMs = 10 * 60_000
 const questionRejectTimeoutMs = 5_000
 const defaultMaxDirectoryItems = 80
 const startedMessageLimit = 5_000
-
-function permissionReplyKey(sessionId: string, requestId: string): string {
-  return `${sessionId}\n${requestId}`
-}
 
 interface ActiveTurnOutput {
   artifactBaseline?: ArtifactSessionBaseline
@@ -277,11 +273,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private trustedPermissionPaths = new Map<string, Set<string>>()
   private trustedLocalPathRootsCache: { expiresAt: number; roots: string[] } | undefined
   private trustedLocalPathRootsGeneration = 0
-  private permissionModes = new Map<string, AgentPermissionMode>()
-  private permissionModeVersions = new Map<string, number>()
-  private sessionPermissionGrants = new Map<string, SessionPermissionGrant[]>()
-  private automaticPermissionReplies = new Set<string>()
-  private pendingPermissionRequests = new Map<string, ChatPermissionRequest>()
+  private readonly permissions = new PermissionState()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
   private transientArtifactBundles: ArtifactBundles = new Map()
@@ -337,11 +329,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.trustedAttachmentPaths.clear()
     this.trustedPermissionPaths.clear()
     this.invalidateTrustedLocalPathRoots()
-    this.permissionModes.clear()
-    this.permissionModeVersions.clear()
-    this.sessionPermissionGrants.clear()
-    this.automaticPermissionReplies.clear()
-    this.pendingPermissionRequests.clear()
+    this.permissions.clear()
     this.transientArtifactBundles.clear()
     this.authorizationOverlays.clear()
     this.authorizationOverlaysLoaded = false
@@ -759,19 +747,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private sessionPermissionMode(sessionId: string): AgentPermissionMode {
-    return this.permissionModes.get(sessionId) ?? "default"
+    return this.permissions.mode(sessionId)
   }
 
   private setSessionPermissionModeValue(sessionId: string, mode: AgentPermissionMode, version?: number): boolean {
-    if (typeof version === "number") {
-      const currentVersion = this.permissionModeVersions.get(sessionId) ?? 0
-      if (version < currentVersion) {
-        return false
-      }
-      this.permissionModeVersions.set(sessionId, version)
-    }
-    this.permissionModes.set(sessionId, mode)
-    return true
+    return this.permissions.setMode(sessionId, mode, version)
   }
 
   private addSessionPermissionGrant(sessionId: string, request: ChatPermissionRequest): void {
@@ -788,59 +768,28 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     const grant =
       candidate.kind === "python_dependency_install" && generationId ? { ...candidate, generationId } : candidate
-    const grants = this.sessionPermissionGrants.get(sessionId) ?? []
-    const exists = grants.some(
-      (item) =>
-        item.action === grant.action &&
-        item.kind === grant.kind &&
-        item.patterns.join("\n") === grant.patterns.join("\n") &&
-        item.generationId === grant.generationId &&
-        item.projectRoot === grant.projectRoot &&
-        item.processRoot === grant.processRoot,
-    )
-    if (!exists) {
-      this.sessionPermissionGrants.set(sessionId, [...grants, grant])
-    }
+    this.permissions.addGrant(sessionId, grant)
     this.rememberTrustedPermissionResources(sessionId, request)
   }
 
   private removeGenerationPermissionGrants(sessionId: string, generationId: string | undefined): void {
-    if (!generationId) {
-      return
-    }
-    const grants = this.sessionPermissionGrants.get(sessionId)
-    if (!grants) {
-      return
-    }
-    const retained = grants.filter((grant) => grant.generationId !== generationId)
-    if (retained.length === grants.length) {
-      return
-    }
-    if (retained.length > 0) {
-      this.sessionPermissionGrants.set(sessionId, retained)
-    } else {
-      this.sessionPermissionGrants.delete(sessionId)
-    }
+    this.permissions.removeGenerationGrants(sessionId, generationId)
   }
 
   private rememberPendingPermissionRequest(request: ChatPermissionRequest): void {
-    this.pendingPermissionRequests.set(permissionReplyKey(request.sessionId, request.id), request)
+    this.permissions.rememberPending(request)
   }
 
   private forgetPendingPermissionRequest(sessionId: string, requestId: string): void {
-    this.pendingPermissionRequests.delete(permissionReplyKey(sessionId, requestId))
+    this.permissions.forgetPending(sessionId, requestId)
   }
 
   private forgetSessionPendingPermissionRequests(sessionId: string): void {
-    for (const [key, request] of this.pendingPermissionRequests) {
-      if (request.sessionId === sessionId) {
-        this.pendingPermissionRequests.delete(key)
-      }
-    }
+    this.permissions.forgetSessionPending(sessionId)
   }
 
   private pendingPermissionRequest(sessionId: string, requestId: string): ChatPermissionRequest | undefined {
-    return this.pendingPermissionRequests.get(permissionReplyKey(sessionId, requestId))
+    return this.permissions.pending(sessionId, requestId)
   }
 
   private answerLocalAccessPermission(
@@ -851,7 +800,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const decision = evaluateLocalAccessRequest(request, {
       activeGenerationId: this.generations.get(request.sessionId)?.id,
       permissionMode: this.sessionPermissionMode(request.sessionId),
-      sessionGrants: this.sessionPermissionGrants.get(request.sessionId),
+      sessionGrants: this.permissions.sessionGrants(request.sessionId),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
     })
     if (!this.agent || decision.type !== "allow") {
@@ -860,11 +809,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const displaySessionId = this.displaySessionIdForEvent(request.sessionId)
     const displayRequest =
       displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId }
-    const replyKey = permissionReplyKey(request.sessionId, request.id)
-    if (this.automaticPermissionReplies.has(replyKey)) {
+    if (!this.permissions.beginAutomaticReply(request.sessionId, request.id)) {
       return true
     }
-    this.automaticPermissionReplies.add(replyKey)
     void this.agent
       .answerPermission(request.sessionId, request.id, "once")
       .then(() => {
@@ -897,7 +844,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         )
       })
       .finally(() => {
-        this.automaticPermissionReplies.delete(replyKey)
+        this.permissions.endAutomaticReply(request.sessionId, request.id)
       })
     return true
   }
@@ -999,24 +946,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   private rememberTrustedSubagentSession(parentSessionId: string, childSessionId: string): void {
     const projectRoot = this.trustedProjectRoots.get(parentSessionId)
-    const permissionMode = this.permissionModes.get(parentSessionId)
-    const permissionModeVersion = this.permissionModeVersions.get(parentSessionId)
-    const sessionGrants = this.sessionPermissionGrants.get(parentSessionId)
+    const copiedPermissionState = this.permissions.copySession(parentSessionId, childSessionId)
     const permissionPaths = this.trustedPermissionPaths.get(parentSessionId)
-    if (!projectRoot && !permissionMode && !sessionGrants && !permissionPaths) {
+    if (!projectRoot && !copiedPermissionState && !permissionPaths) {
       return
     }
     if (projectRoot) {
       this.trustedProjectRoots.set(childSessionId, projectRoot)
-    }
-    if (permissionMode) {
-      this.permissionModes.set(childSessionId, permissionMode)
-    }
-    if (typeof permissionModeVersion === "number") {
-      this.permissionModeVersions.set(childSessionId, permissionModeVersion)
-    }
-    if (sessionGrants) {
-      this.sessionPermissionGrants.set(childSessionId, [...sessionGrants])
     }
     if (permissionPaths) {
       this.trustedPermissionPaths.set(childSessionId, new Set(permissionPaths))
@@ -1034,11 +970,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     childSessionIds.delete(childSessionId)
     this.trustedProjectRoots.delete(childSessionId)
-    this.permissionModes.delete(childSessionId)
-    this.permissionModeVersions.delete(childSessionId)
-    this.sessionPermissionGrants.delete(childSessionId)
+    this.permissions.deleteSession(childSessionId)
     this.trustedPermissionPaths.delete(childSessionId)
-    this.forgetSessionPendingPermissionRequests(childSessionId)
     if (childSessionIds.size === 0) {
       this.trustedSubagentSessionsByParent.delete(parentSessionId)
     }
@@ -1052,11 +985,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     for (const childSessionId of childSessionIds) {
       this.trustedProjectRoots.delete(childSessionId)
-      this.permissionModes.delete(childSessionId)
-      this.permissionModeVersions.delete(childSessionId)
-      this.sessionPermissionGrants.delete(childSessionId)
+      this.permissions.deleteSession(childSessionId)
       this.trustedPermissionPaths.delete(childSessionId)
-      this.forgetSessionPendingPermissionRequests(childSessionId)
     }
     this.trustedSubagentSessionsByParent.delete(parentSessionId)
     this.invalidateTrustedLocalPathRoots()

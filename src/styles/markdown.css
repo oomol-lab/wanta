@@ -131,7 +131,7 @@
   }
 
   .oo-markdown pre,
-  .oo-message-response pre {
+  .oo-message-response pre:not([data-streamdown="code-block-body"]) {
     overflow-x: auto;
     border: 1px solid var(--oo-divider);
     border-radius: 8px;
@@ -140,7 +140,7 @@
   }
 
   .oo-markdown pre code,
-  .oo-message-response pre code {
+  .oo-message-response pre:not([data-streamdown="code-block-body"]) code {
     border-radius: 0;
     background: transparent;
     padding: 0;
@@ -249,108 +249,6 @@
   .oo-message-feedback-action-active:hover {
     background: transparent !important;
     color: var(--oo-feedback-active-foreground);
-  }
-
-  .oo-message-response [data-streamdown="code-block"] {
-    margin: 0.75rem 0;
-    gap: 0;
-    overflow: hidden;
-    border-radius: var(--radius-md);
-    background: var(--background);
-    padding: 0;
-  }
-
-  .oo-message-response [data-streamdown="code-block-header"] {
-    display: flex;
-    align-items: center;
-    border-bottom: 1px solid var(--border);
-    background: color-mix(in oklab, var(--muted) 80%, transparent);
-    padding: 0.5rem 0.75rem;
-    color: var(--muted-foreground);
-    font-size: 0.75rem;
-    line-height: 1rem;
-  }
-
-  .oo-message-response [data-streamdown="code-block-header"] span {
-    margin-left: 0;
-    min-width: 0;
-    overflow: hidden;
-    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-    letter-spacing: 0;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .oo-message-response [data-streamdown="code-block-actions"] {
-    gap: 0;
-    border: 0;
-    background: transparent;
-    padding: 0;
-    backdrop-filter: none;
-  }
-
-  .oo-message-response [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]) {
-    position: relative;
-    top: auto;
-    height: 2rem;
-    margin-top: -2.25rem;
-    padding-right: 0.75rem;
-  }
-
-  .oo-message-response [data-streamdown="code-block-actions"] button,
-  .oo-message-response [data-streamdown="code-block-actions"] a {
-    display: inline-flex;
-    width: 1.75rem;
-    height: 1.75rem;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    border-radius: 6px;
-    color: var(--muted-foreground);
-  }
-
-  .oo-message-response [data-streamdown="code-block-actions"] button:hover,
-  .oo-message-response [data-streamdown="code-block-actions"] a:hover {
-    background: color-mix(in oklab, var(--foreground) 8%, transparent);
-    color: var(--foreground);
-  }
-
-  .oo-message-response [data-streamdown="code-block-actions"] button:focus-visible,
-  .oo-message-response [data-streamdown="code-block-actions"] a:focus-visible {
-    outline: 2px solid var(--control-focus-ring);
-    outline-offset: 1px;
-  }
-
-  .oo-message-response [data-streamdown="code-block-actions"] svg {
-    width: 1rem;
-    height: 1rem;
-    background: transparent;
-    fill: none;
-  }
-
-  .oo-message-response [data-streamdown="code-block-body"] {
-    overflow-x: auto;
-    border: 0;
-    border-radius: 0;
-    background: var(--background);
-    padding: 0.875rem 1rem;
-    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-    font-size: 0.875rem;
-    line-height: 1.5;
-  }
-
-  .oo-message-response [data-streamdown="code-block-body"] pre {
-    margin: 0;
-    background: transparent;
-  }
-
-  .oo-message-response [data-streamdown="code-block-body"] code {
-    background: transparent;
-    padding: 0;
-  }
-
-  .oo-message-response [data-streamdown="code-block-body"] code > span {
-    display: block;
   }
 
   .oo-message-response [data-language] pre {
@@ -474,48 +372,6 @@
     outline: 2px solid var(--ring);
     outline-offset: 2px;
     border-radius: 8px;
-  }
-
-  .oo-markdown-image-actions {
-    position: absolute;
-    bottom: 0.75rem;
-    left: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transform: translateX(-50%);
-    border: 1px solid color-mix(in oklab, var(--oo-divider) 82%, transparent);
-    border-radius: 12px;
-    background: color-mix(in oklab, var(--background) 86%, transparent);
-    padding: 0.25rem;
-    box-shadow: 0 6px 18px color-mix(in oklab, black 18%, transparent);
-    opacity: 0;
-    backdrop-filter: blur(10px);
-    pointer-events: none;
-    transition: opacity 120ms ease-out;
-  }
-
-  .oo-markdown-image-preview:hover .oo-markdown-image-actions,
-  .oo-markdown-image-preview:focus-within .oo-markdown-image-actions {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .oo-markdown-image-action {
-    display: flex;
-    width: 2rem;
-    height: 2rem;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    color: var(--muted-foreground);
-    text-decoration: none;
-  }
-
-  .oo-markdown-image-action:hover {
-    background: var(--accent);
-    color: var(--foreground);
-    text-decoration: none;
   }
 
   .oo-markdown-image-viewer {

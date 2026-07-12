@@ -5,15 +5,30 @@ import type {
   MutableRefObject,
   PointerEvent,
   RefObject,
+  ReactElement,
   SetStateAction,
   WheelEvent,
 } from "react"
 
-import { DownloadIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react"
+import {
+  CopyIcon,
+  EllipsisIcon,
+  ExternalLinkIcon,
+  FolderOpenIcon,
+  MinusIcon,
+  PlusIcon,
+  SaveIcon,
+  XIcon,
+} from "lucide-react"
+import { ContextMenu as ContextMenuPrimitive } from "radix-ui"
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { toast } from "sonner"
 import { useChatService } from "@/components/AppContext"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useT } from "@/i18n/i18n"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
+import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
 type MarkdownImageProps = ComponentProps<"img"> & {
@@ -300,38 +315,30 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
 
   return (
     <figure className="oo-markdown-image-preview">
-      <button
-        type="button"
-        className="oo-markdown-image-open"
-        aria-label={t("chat.imagePreview.open", { name: previewTitle })}
-        onClick={() => setIsViewerOpen(true)}
-      >
-        <img
-          src={visibleSrc}
-          alt={alt ?? ""}
-          className={className}
-          draggable={false}
-          decoding="async"
-          {...props}
-          onError={handlePreviewError}
-        />
-      </button>
-      <div className="oo-markdown-image-actions">
-        <a
-          className="oo-markdown-image-action"
-          href={visibleSrc}
-          download={downloadName}
-          aria-label={t("chat.imagePreview.download")}
+      <ImageContextActions localPath={localPath}>
+        <button
+          type="button"
+          className="oo-markdown-image-open"
+          aria-label={t("chat.imagePreview.open", { name: previewTitle })}
+          onClick={() => setIsViewerOpen(true)}
         >
-          <DownloadIcon className="size-4" />
-        </a>
-      </div>
+          <img
+            src={visibleSrc}
+            alt={alt ?? ""}
+            className={className}
+            draggable={false}
+            decoding="async"
+            {...props}
+            onError={handlePreviewError}
+          />
+        </button>
+      </ImageContextActions>
       {isViewerOpen
         ? createPortal(
             <ImageViewer
               alt={alt ?? ""}
-              downloadName={downloadName}
               imageSize={imageSize}
+              localPath={localPath}
               onClose={() => setIsViewerOpen(false)}
               setImageSize={setImageSize}
               setStageSize={setStageSize}
@@ -353,9 +360,9 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
 
 interface ImageViewerProps {
   alt: string
-  downloadName: string
   dragRef: MutableRefObject<ImageViewerDragState | null>
   imageSize: ImageViewerSize | null
+  localPath?: string | null
   onClose: () => void
   setImageSize: Dispatch<SetStateAction<ImageViewerSize | null>>
   setStageSize: Dispatch<SetStateAction<ImageViewerSize | null>>
@@ -368,16 +375,176 @@ interface ImageViewerProps {
   viewerStateRef: MutableRefObject<ImageViewerState>
 }
 
+interface ImageFileActions {
+  copy: () => Promise<void>
+  open: () => Promise<void>
+  saveAs: () => Promise<void>
+  showInFolder: () => Promise<void>
+}
+
+function useImageFileActions(localPath: string): ImageFileActions {
+  const t = useT()
+  const chatService = useChatService()
+
+  const reportFailure = (scope: string, message: string, cause: unknown): void => {
+    reportRendererHandledError(scope, message, cause)
+    toast.error(userFacingErrorDescription(resolveUserFacingError(cause, { area: "artifact" }), t))
+  }
+
+  return {
+    copy: async () => {
+      try {
+        await chatService.invoke("copyLocalImage", { path: localPath })
+        toast.success(t("chat.imagePreview.copied"))
+      } catch (cause) {
+        reportFailure("chat.image.copy", "Failed to copy local image", cause)
+      }
+    },
+    open: async () => {
+      try {
+        await chatService.invoke("openLocalPath", { path: localPath })
+      } catch (cause) {
+        reportFailure("chat.image.open", "Failed to open local image", cause)
+      }
+    },
+    saveAs: async () => {
+      try {
+        const result = await chatService.invoke("saveLocalImageAs", { path: localPath })
+        if (result.saved) {
+          toast.success(t("chat.imagePreview.saved"))
+        }
+      } catch (cause) {
+        reportFailure("chat.image.saveAs", "Failed to save local image", cause)
+      }
+    },
+    showInFolder: async () => {
+      try {
+        await chatService.invoke("showLocalPathInFolder", { path: localPath })
+      } catch (cause) {
+        reportFailure("chat.image.showInFolder", "Failed to reveal local image", cause)
+      }
+    },
+  }
+}
+
+function ImageActionItems({ actions }: { actions: ImageFileActions }) {
+  const t = useT()
+  return (
+    <>
+      <DropdownMenuItem onSelect={() => void actions.copy()}>
+        <CopyIcon />
+        {t("chat.imagePreview.copy")}
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void actions.saveAs()}>
+        <SaveIcon />
+        {t("chat.imagePreview.saveAs")}
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void actions.open()}>
+        <ExternalLinkIcon />
+        {t("chat.imagePreview.openFile")}
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void actions.showInFolder()}>
+        <FolderOpenIcon />
+        {t("chat.imagePreview.showInFolder")}
+      </DropdownMenuItem>
+    </>
+  )
+}
+
+function ImageViewerActions({ localPath }: { localPath: string }) {
+  const t = useT()
+  const actions = useImageFileActions(localPath)
+  return (
+    <>
+      <button
+        type="button"
+        className="oo-markdown-image-viewer-action"
+        aria-label={t("chat.imagePreview.copy")}
+        onClick={() => void actions.copy()}
+      >
+        <CopyIcon className="size-4" />
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="oo-markdown-image-viewer-action"
+            aria-label={t("chat.imagePreview.moreActions")}
+          >
+            <EllipsisIcon className="size-5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="z-[170]">
+          <ImageActionItems actions={actions} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  )
+}
+
+function ImageContextActions({
+  children,
+  localPath,
+}: {
+  children: ReactElement
+  localPath: string | null | undefined
+}) {
+  const actions = useImageFileActions(localPath ?? "")
+  if (!localPath) return children
+  return (
+    <ContextMenuPrimitive.Root>
+      <ContextMenuPrimitive.Trigger asChild>{children}</ContextMenuPrimitive.Trigger>
+      <ContextMenuPrimitive.Portal>
+        <ContextMenuPrimitive.Content className="z-[180] min-w-52 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg outline-hidden">
+          <ContextMenuPrimitive.Item
+            className="relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground"
+            onSelect={() => void actions.copy()}
+          >
+            <CopyIcon className="size-4" />
+            <ImageActionLabel messageKey="chat.imagePreview.copy" />
+          </ContextMenuPrimitive.Item>
+          <ContextMenuPrimitive.Item
+            className="relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground"
+            onSelect={() => void actions.saveAs()}
+          >
+            <SaveIcon className="size-4" />
+            <ImageActionLabel messageKey="chat.imagePreview.saveAs" />
+          </ContextMenuPrimitive.Item>
+          <ContextMenuPrimitive.Item
+            className="relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground"
+            onSelect={() => void actions.open()}
+          >
+            <ExternalLinkIcon className="size-4" />
+            <ImageActionLabel messageKey="chat.imagePreview.openFile" />
+          </ContextMenuPrimitive.Item>
+          <ContextMenuPrimitive.Item
+            className="relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground"
+            onSelect={() => void actions.showInFolder()}
+          >
+            <FolderOpenIcon className="size-4" />
+            <ImageActionLabel messageKey="chat.imagePreview.showInFolder" />
+          </ContextMenuPrimitive.Item>
+        </ContextMenuPrimitive.Content>
+      </ContextMenuPrimitive.Portal>
+    </ContextMenuPrimitive.Root>
+  )
+}
+
+function ImageActionLabel({ messageKey }: { messageKey: Parameters<ReturnType<typeof useT>>[0] }) {
+  const t = useT()
+  return <>{t(messageKey)}</>
+}
+
 export function ImageViewerModal({
   alt,
-  downloadName,
   onClose,
+  localPath,
   src,
   title,
 }: {
   alt: string
-  downloadName: string
   onClose: () => void
+  localPath?: string | null
   src: string
   title: string
 }) {
@@ -395,8 +562,8 @@ export function ImageViewerModal({
   return createPortal(
     <ImageViewer
       alt={alt}
-      downloadName={downloadName}
       imageSize={imageSize}
+      localPath={localPath}
       onClose={onClose}
       setImageSize={setImageSize}
       setStageSize={setStageSize}
@@ -415,9 +582,9 @@ export function ImageViewerModal({
 
 function ImageViewer({
   alt,
-  downloadName,
   dragRef,
   imageSize,
+  localPath,
   onClose,
   setImageSize,
   setStageSize,
@@ -559,14 +726,7 @@ function ImageViewer({
   return (
     <div className="oo-markdown-image-viewer" role="dialog" aria-modal="true" aria-label={title}>
       <div className="oo-markdown-image-viewer-actions">
-        <a
-          className="oo-markdown-image-viewer-action"
-          href={src}
-          download={downloadName}
-          aria-label={t("chat.imagePreview.download")}
-        >
-          <DownloadIcon className="size-4" />
-        </a>
+        {localPath ? <ImageViewerActions localPath={localPath} /> : null}
         <button
           type="button"
           className="oo-markdown-image-viewer-action"
@@ -577,42 +737,44 @@ function ImageViewer({
         </button>
       </div>
 
-      <div
-        ref={stageRef}
-        className={cn("oo-markdown-image-viewer-stage", isDragging && "is-dragging")}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={stopDrag}
-        onPointerCancel={stopDrag}
-        onLostPointerCapture={clearDrag}
-        onWheel={handleWheel}
-      >
-        <div className="oo-markdown-image-viewer-center">
-          <div
-            className="oo-markdown-image-viewer-offset"
-            style={{ transform: `translate(${viewerState.offset.x}px, ${viewerState.offset.y}px)` }}
-          >
-            <img
-              src={src}
-              alt={alt}
-              className="oo-markdown-image-viewer-image"
-              draggable={false}
-              decoding="async"
-              onLoad={(event) => {
-                setImageSize({
-                  height: event.currentTarget.naturalHeight,
-                  width: event.currentTarget.naturalWidth,
-                })
-              }}
-              style={{
-                height: imageSize ? `${imageSize.height}px` : undefined,
-                transform: `scale(${viewerState.scale})`,
-                width: imageSize ? `${imageSize.width}px` : undefined,
-              }}
-            />
+      <ImageContextActions localPath={localPath}>
+        <div
+          ref={stageRef}
+          className={cn("oo-markdown-image-viewer-stage", isDragging && "is-dragging")}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={stopDrag}
+          onPointerCancel={stopDrag}
+          onLostPointerCapture={clearDrag}
+          onWheel={handleWheel}
+        >
+          <div className="oo-markdown-image-viewer-center">
+            <div
+              className="oo-markdown-image-viewer-offset"
+              style={{ transform: `translate(${viewerState.offset.x}px, ${viewerState.offset.y}px)` }}
+            >
+              <img
+                src={src}
+                alt={alt}
+                className="oo-markdown-image-viewer-image"
+                draggable={false}
+                decoding="async"
+                onLoad={(event) => {
+                  setImageSize({
+                    height: event.currentTarget.naturalHeight,
+                    width: event.currentTarget.naturalWidth,
+                  })
+                }}
+                style={{
+                  height: imageSize ? `${imageSize.height}px` : undefined,
+                  transform: `scale(${viewerState.scale})`,
+                  width: imageSize ? `${imageSize.width}px` : undefined,
+                }}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      </ImageContextActions>
 
       <div className="oo-markdown-image-viewer-zoom" aria-label={viewerPercent(viewerState.scale)}>
         <button

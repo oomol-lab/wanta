@@ -30,6 +30,7 @@ import type {
   LocalArtifactThumbnailRequest,
   LocalArtifactThumbnailResult,
   LocalArtifactGroup,
+  LocalImageRequest,
   LocalArtifactPack,
   MessageErrorEvent,
   OpenExternalUrlRequest,
@@ -38,6 +39,7 @@ import type {
   ResolveLocalArtifactsRequest,
   ResolveLocalArtifactsResult,
   SendMessageRequest,
+  SaveLocalImageAsResult,
   SetChatPermissionModeRequest,
   SetAgentOrganizationRequest,
   ShowLocalPathInFolderRequest,
@@ -54,7 +56,8 @@ import type { StoredTurnOutputRecord, TurnOutputRecords, TurnOutputStore } from 
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
-import { shell } from "electron"
+import { clipboard, dialog, nativeImage, shell } from "electron"
+import { copyFile, readFile } from "node:fs/promises"
 import os from "node:os"
 import { ActivityMetrics } from "../activity-metrics.ts"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
@@ -1316,6 +1319,34 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   public async getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {
     await this.assertTrustedLocalPath(req.path)
     return attachmentPreview(req, this.deps.createArtifactResourceUrl)
+  }
+
+  public async copyLocalImage(req: LocalImageRequest): Promise<void> {
+    const item = await localArtifactItem(req.path)
+    if (!item || item.kind !== "file" || !item.mime.startsWith("image/")) {
+      throw new Error("Image file does not exist.")
+    }
+    await this.assertTrustedLocalPath(item.path)
+    const bytes = await readFile(item.path)
+    const image = nativeImage.createFromBuffer(bytes)
+    if (image.isEmpty()) {
+      throw new Error("Image file could not be decoded.")
+    }
+    clipboard.writeImage(image)
+  }
+
+  public async saveLocalImageAs(req: LocalImageRequest): Promise<SaveLocalImageAsResult> {
+    const item = await localArtifactItem(req.path)
+    if (!item || item.kind !== "file" || !item.mime.startsWith("image/")) {
+      throw new Error("Image file does not exist.")
+    }
+    await this.assertTrustedLocalPath(item.path)
+    const result = await dialog.showSaveDialog({ defaultPath: item.name })
+    if (result.canceled || !result.filePath) {
+      return { saved: false }
+    }
+    await copyFile(item.path, result.filePath)
+    return { path: result.filePath, saved: true }
   }
 
   public async getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult> {

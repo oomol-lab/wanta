@@ -19,7 +19,7 @@ interface UseSessionTitleGenerationOptions {
   sessions: SessionInfo[]
 }
 
-interface UseSessionTitleGenerationResult {
+export interface UseSessionTitleGenerationResult {
   clearAutoFallbackTitle: (sessionId: string) => void
   getAutoFallbackTitle: (sessionId: string) => string | undefined
   isAutoRefreshable: (session: SessionInfo, allowPlaceholder: boolean, fallbackTitle?: string) => boolean

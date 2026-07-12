@@ -4,25 +4,19 @@ import type {
   AgentPermissionMode,
   ChatAttachment,
   ChatSessionSnapshot,
-  ChatActiveRun,
   ChatContextMention,
   GenerationStoppedEvent,
   ChatMessage,
-  ChatMessagePart,
   ChatOrganizationSkillContext,
   ChatPermissionReply,
   ChatPermissionRequest,
   ChatProjectContext,
   ChatQuestionRequest,
-  MessageDeltaEvent,
-  MessageReasoningDeltaEvent,
   ReasoningLevel,
-  ToolCallResultEvent,
-  ToolCallStartedEvent,
 } from "../../electron/chat/common.ts"
 import type { ModelChoice } from "../../electron/models/common.ts"
 import type { SessionScope } from "../../electron/session/common.ts"
-import type { TextDeltaEvent, TextDeltaKind } from "./chat-message-state.ts"
+import type { ChatMessagesMap } from "./use-chat-event-buffer.ts"
 import type { QuestionDraftStore } from "@/routes/Chat/question-fields"
 import type { ChatStatus } from "ai"
 
@@ -31,7 +25,6 @@ import {
   agentAttachments,
   appendOptimisticConversationTurn,
   applyCancelledToolParts,
-  coalesceTextDeltaEvent,
   ensureMessage,
   hasVisibleMessageDelta,
   markAssistantMessageToolsInterrupted,
@@ -47,33 +40,19 @@ import {
   setGenerationNoticePart,
   setAttachmentPart,
   setErrorPart,
-  setPart,
-  setReasoningPart,
-  setTextPart,
-  textDeltaKey,
   visibleChatError,
 } from "./chat-message-state.ts"
+import { useChatEventBuffer } from "./use-chat-event-buffer.ts"
+import { useChatRunState } from "./use-chat-run-state.ts"
 import { useChatService } from "@/components/AppContext"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
-type MessagesMap = Record<string, ChatMessage[]>
+type MessagesMap = ChatMessagesMap
 type PendingQuestionsMap = Record<string, ChatQuestionRequest[]>
 type PendingPermissionsMap = Record<string, ChatPermissionRequest[]>
 type CancelledToolPartsMap = Map<string, Set<string>>
-type PendingTextDelta = {
-  event: TextDeltaEvent
-  kind: TextDeltaKind
-}
-type PendingToolPart = {
-  messageId: string
-  part: ChatMessagePart
-  sessionId: string
-}
 
 const userStoppedToolCancelWindowMs = 30_000
-// 工具事件可能早于同一 text part 的尾部 delta 抵达；短暂等待可避免先露工具、再在上方补字。
-const toolPartSettleDelayMs = 240
-const toolPartMaxSettleDelayMs = 1200
 
 function questionDraftKey(sessionId: string, requestId: string): string {
   return `${sessionId}\0${requestId}`
@@ -114,85 +93,20 @@ export interface UseChat {
   setPermissionMode: (sessionId: string, mode: AgentPermissionMode) => number
 }
 
-function setSessionStatus(
-  statuses: Record<string, ChatStatus>,
-  sessionId: string,
-  status: ChatStatus,
-): Record<string, ChatStatus> {
-  return statuses[sessionId] === status ? statuses : { ...statuses, [sessionId]: status }
-}
-
-function sameAssistantActivity(
-  left: AssistantActivityEvent | undefined,
-  right: AssistantActivityEvent | undefined,
-): boolean {
-  if (!left || !right) {
-    return left === right
-  }
-  return (
-    left.sessionId === right.sessionId &&
-    left.messageId === right.messageId &&
-    left.phase === right.phase &&
-    left.message === right.message &&
-    left.attempt === right.attempt &&
-    left.nextRetryAt === right.nextRetryAt
-  )
-}
-
-function setSessionActivity(
-  activities: Record<string, AssistantActivityEvent | undefined>,
-  sessionId: string,
-  activity: AssistantActivityEvent | undefined,
-): Record<string, AssistantActivityEvent | undefined> {
-  if (sameAssistantActivity(activities[sessionId], activity)) {
-    return activities
-  }
-  if (!activity) {
-    if (!Object.hasOwn(activities, sessionId)) {
-      return activities
-    }
-    const next = { ...activities }
-    delete next[sessionId]
-    return next
-  }
-  return { ...activities, [sessionId]: activity }
-}
-
-function statusForActiveRun(run: ChatActiveRun): ChatStatus {
-  return run.phase === "sending" || run.phase === "submitted" ? "submitted" : "streaming"
-}
-
-function activityForActiveRun(run: ChatActiveRun): AssistantActivityEvent | undefined {
-  if (run.phase !== "sending" && run.phase !== "submitted" && run.phase !== "thinking") {
-    return undefined
-  }
-  return {
-    sessionId: run.sessionId,
-    ...(run.activeAssistantMessageId ? { messageId: run.activeAssistantMessageId } : {}),
-    phase: "thinking",
-  }
-}
-
 export function useChat(activeSessionId: string | null, visibleSessionId: string | null = activeSessionId): UseChat {
   const chatService = useChatService()
+  const { activities, applyActiveRun, getSessionRunStartedAt, getSessionStatus, setActivity, setStatus, statuses } =
+    useChatRunState()
   const [messagesMap, setMessagesMap] = React.useState<MessagesMap>({})
   const [pendingQuestionsMap, setPendingQuestionsMap] = React.useState<PendingQuestionsMap>({})
   const [pendingPermissionsMap, setPendingPermissionsMap] = React.useState<PendingPermissionsMap>({})
   const [permissionModes, setPermissionModes] = React.useState<Record<string, AgentPermissionMode>>({})
-  const [statuses, setStatuses] = React.useState<Record<string, ChatStatus>>({})
-  const [activities, setActivities] = React.useState<Record<string, AssistantActivityEvent | undefined>>({})
-  const [activeRunStarts, setActiveRunStarts] = React.useState<Record<string, number | undefined>>({})
   const [unreadSessionIds, setUnreadSessionIds] = React.useState<Set<string>>(() => new Set())
   const [globalError, setGlobalError] = React.useState<string | null>(null)
   const [errorsBySession, setErrorsBySession] = React.useState<Record<string, string | undefined>>({})
   const visibleSessionIdRef = React.useRef<string | null>(visibleSessionId)
   const userStoppedSessions = React.useRef(new Map<string, number>())
   const cancelledToolParts = React.useRef<CancelledToolPartsMap>(new Map())
-  const pendingTextDeltas = React.useRef(new Map<string, PendingTextDelta>())
-  const pendingTextFrame = React.useRef<number | null>(null)
-  const pendingToolParts = React.useRef(new Map<string, PendingToolPart>())
-  const pendingToolTimer = React.useRef<number | null>(null)
-  const pendingToolDelayStartedAt = React.useRef<number | null>(null)
   const pendingQuestionsMutationVersions = React.useRef(new Map<string, number>())
   const pendingPermissionsMutationVersions = React.useRef(new Map<string, number>())
   const activeRunMutationVersions = React.useRef(new Map<string, number>())
@@ -201,9 +115,17 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const pendingPermissionsMapRef = React.useRef(pendingPermissionsMap)
   const permissionModesRef = React.useRef(permissionModes)
   const permissionModeVersionsRef = React.useRef<Record<string, number>>({})
-  const clearedActiveRunIdsRef = React.useRef(new Set<string>())
   const questionDraftSnapshots = React.useRef(new Map<string, ReturnType<QuestionDraftStore["read"]>>())
   const answeredQuestionIds = React.useRef(new Map<string, Set<string>>())
+  const {
+    delayToolFlushForText: delayPendingToolFlushForText,
+    enqueueTextDelta,
+    enqueueToolCallResult,
+    enqueueToolCallStarted,
+    flushTextDeltas: flushPendingTextDeltas,
+    flushToolParts: flushPendingToolParts,
+    forgetToolPart: forgetPendingToolPart,
+  } = useChatEventBuffer(setMessagesMap, messagesMutationVersions)
 
   const updatePendingQuestionsMap = React.useCallback(
     (updater: (current: PendingQuestionsMap) => PendingQuestionsMap) => {
@@ -264,208 +186,9 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     )
   }, [])
 
-  const setStatus = React.useCallback((sessionId: string, status: ChatStatus) => {
-    setStatuses((current) => setSessionStatus(current, sessionId, status))
-  }, [])
-
-  const setActivity = React.useCallback((sessionId: string, activity: AssistantActivityEvent | undefined) => {
-    setActivities((current) => setSessionActivity(current, sessionId, activity))
-  }, [])
-
-  const applyActiveRun = React.useCallback(
-    (sessionId: string, run: ChatActiveRun | null, endedRunId?: string) => {
-      if (run) {
-        if (clearedActiveRunIdsRef.current.has(run.runId)) {
-          return
-        }
-        setActiveRunStarts((current) =>
-          current[run.sessionId] === run.startedAt ? current : { ...current, [run.sessionId]: run.startedAt },
-        )
-        setStatus(run.sessionId, statusForActiveRun(run))
-        setActivity(run.sessionId, activityForActiveRun(run))
-        return
-      }
-      if (endedRunId) {
-        clearedActiveRunIdsRef.current.add(endedRunId)
-      }
-      setActiveRunStarts((current) => {
-        if (!Object.hasOwn(current, sessionId)) {
-          return current
-        }
-        const next = { ...current }
-        delete next[sessionId]
-        return next
-      })
-      setStatuses((current) => {
-        const currentStatus = current[sessionId]
-        if (currentStatus !== "submitted" && currentStatus !== "streaming") {
-          return current
-        }
-        return setSessionStatus(current, sessionId, "ready")
-      })
-      setActivity(sessionId, undefined)
-    },
-    [setActivity, setStatus],
-  )
-
   const markActiveRunMutated = React.useCallback((sessionId: string): void => {
     activeRunMutationVersions.current.set(sessionId, (activeRunMutationVersions.current.get(sessionId) ?? 0) + 1)
   }, [])
-
-  const flushPendingTextDeltas = React.useCallback(() => {
-    if (pendingTextFrame.current !== null) {
-      window.cancelAnimationFrame(pendingTextFrame.current)
-      pendingTextFrame.current = null
-    }
-    if (pendingTextDeltas.current.size === 0) {
-      return
-    }
-    const queued = Array.from(pendingTextDeltas.current.values())
-    pendingTextDeltas.current.clear()
-    setMessagesMap((prev) => {
-      let nextMap: MessagesMap | null = null
-      for (const { event, kind } of queued) {
-        const baseMap = nextMap ?? prev
-        const currentMessages = baseMap[event.sessionId] ?? []
-        const nextMessages =
-          kind === "text"
-            ? setTextPart(currentMessages, event as MessageDeltaEvent)
-            : setReasoningPart(currentMessages, event as MessageReasoningDeltaEvent)
-        if (!nextMap) {
-          nextMap = { ...prev }
-        }
-        nextMap[event.sessionId] = nextMessages
-      }
-      return nextMap ?? prev
-    })
-  }, [])
-
-  const enqueueTextDelta = React.useCallback(
-    (kind: TextDeltaKind, event: TextDeltaEvent) => {
-      messagesMutationVersions.current.set(
-        event.sessionId,
-        (messagesMutationVersions.current.get(event.sessionId) ?? 0) + 1,
-      )
-      const key = textDeltaKey(kind, event)
-      const pending = pendingTextDeltas.current.get(key)
-      pendingTextDeltas.current.set(key, {
-        event: coalesceTextDeltaEvent(pending?.event, event),
-        kind,
-      })
-      if (pendingTextFrame.current === null) {
-        pendingTextFrame.current = window.requestAnimationFrame(() => {
-          pendingTextFrame.current = null
-          flushPendingTextDeltas()
-        })
-      }
-    },
-    [flushPendingTextDeltas],
-  )
-
-  const flushPendingToolParts = React.useCallback(() => {
-    if (pendingToolTimer.current !== null) {
-      window.clearTimeout(pendingToolTimer.current)
-      pendingToolTimer.current = null
-    }
-    pendingToolDelayStartedAt.current = null
-    flushPendingTextDeltas()
-    if (pendingToolParts.current.size === 0) {
-      return
-    }
-    const queued = Array.from(pendingToolParts.current.values())
-    pendingToolParts.current.clear()
-    setMessagesMap((prev) => {
-      let nextMap: MessagesMap | null = null
-      for (const { messageId, part, sessionId } of queued) {
-        const baseMap = nextMap ?? prev
-        const currentMessages = baseMap[sessionId] ?? []
-        const nextMessages = setPart(currentMessages, messageId, part)
-        if (!nextMap) {
-          nextMap = { ...prev }
-        }
-        nextMap[sessionId] = nextMessages
-      }
-      return nextMap ?? prev
-    })
-  }, [flushPendingTextDeltas])
-
-  const schedulePendingToolFlush = React.useCallback(() => {
-    if (pendingToolTimer.current !== null) {
-      window.clearTimeout(pendingToolTimer.current)
-    }
-    const now = Date.now()
-    pendingToolDelayStartedAt.current ??= now
-    const elapsed = now - pendingToolDelayStartedAt.current
-    const delay = Math.max(0, Math.min(toolPartSettleDelayMs, toolPartMaxSettleDelayMs - elapsed))
-    pendingToolTimer.current = window.setTimeout(() => {
-      pendingToolTimer.current = null
-      flushPendingToolParts()
-    }, delay)
-  }, [flushPendingToolParts])
-
-  const enqueueToolPart = React.useCallback(
-    (sessionId: string, messageId: string, part: ChatMessagePart) => {
-      messagesMutationVersions.current.set(sessionId, (messagesMutationVersions.current.get(sessionId) ?? 0) + 1)
-      pendingToolParts.current.set(`${sessionId}\0${messageId}\0${part.partId}`, { messageId, part, sessionId })
-      schedulePendingToolFlush()
-    },
-    [schedulePendingToolFlush],
-  )
-
-  const delayPendingToolFlushForText = React.useCallback(
-    (event: TextDeltaEvent) => {
-      for (const pending of pendingToolParts.current.values()) {
-        if (pending.sessionId === event.sessionId && pending.messageId === event.messageId) {
-          schedulePendingToolFlush()
-          return
-        }
-      }
-    },
-    [schedulePendingToolFlush],
-  )
-
-  const forgetPendingToolPart = React.useCallback((sessionId: string, messageId: string, partId: string) => {
-    pendingToolParts.current.delete(`${sessionId}\0${messageId}\0${partId}`)
-  }, [])
-
-  const enqueueToolCallStarted = React.useCallback(
-    (e: ToolCallStartedEvent) => {
-      enqueueToolPart(e.sessionId, e.messageId, {
-        kind: "tool",
-        partId: e.partId,
-        callId: e.callId,
-        tool: e.tool,
-        status: e.status,
-        input: e.input,
-        title: e.title,
-        metadata: e.metadata,
-        timing: e.timing,
-      })
-    },
-    [enqueueToolPart],
-  )
-
-  const enqueueToolCallResult = React.useCallback(
-    (e: ToolCallResultEvent, cancelled: boolean) => {
-      enqueueToolPart(e.sessionId, e.messageId, {
-        kind: "tool",
-        partId: e.partId,
-        callId: e.callId,
-        tool: e.tool,
-        status: e.status,
-        input: e.input,
-        output: e.output,
-        error: e.error,
-        title: e.title,
-        metadata: e.metadata,
-        timing: e.timing,
-        attachmentsCount: e.attachmentsCount,
-        authorization: e.authorization,
-        ...(cancelled ? { cancelled: true } : {}),
-      })
-    },
-    [enqueueToolPart],
-  )
 
   const markPendingQuestionsMutated = React.useCallback((sessionId: string) => {
     pendingQuestionsMutationVersions.current.set(
@@ -598,22 +321,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     },
     [chatService, setLocalPermissionMode],
   )
-
-  React.useEffect(() => {
-    return () => {
-      if (pendingTextFrame.current !== null) {
-        window.cancelAnimationFrame(pendingTextFrame.current)
-        pendingTextFrame.current = null
-      }
-      pendingTextDeltas.current.clear()
-      if (pendingToolTimer.current !== null) {
-        window.clearTimeout(pendingToolTimer.current)
-        pendingToolTimer.current = null
-      }
-      pendingToolDelayStartedAt.current = null
-      pendingToolParts.current.clear()
-    }
-  }, [])
 
   const rememberCancelledToolParts = React.useCallback((sessionId: string, partIds: string[]) => {
     if (partIds.length === 0) {
@@ -1235,14 +942,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const status = activeSessionId ? (statuses[activeSessionId] ?? "ready") : "ready"
   const activity = activeSessionId ? (activities[activeSessionId] ?? null) : null
   const messagesLoaded = activeSessionId ? Object.hasOwn(messagesMap, activeSessionId) : true
-  const getSessionStatus = React.useCallback(
-    (sessionId: string): ChatStatus => statuses[sessionId] ?? "ready",
-    [statuses],
-  )
-  const getSessionRunStartedAt = React.useCallback(
-    (sessionId: string): number | null => activeRunStarts[sessionId] ?? null,
-    [activeRunStarts],
-  )
   const hasUnreadSession = React.useCallback(
     (sessionId: string): boolean => unreadSessionIds.has(sessionId),
     [unreadSessionIds],

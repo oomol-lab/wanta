@@ -8,6 +8,7 @@ import type {
   ConnectionSummaryRequest,
   ConnectionWorkspace,
 } from "../../electron/connections/common.ts"
+import type { ConnectionErrorOperation } from "../lib/connections-error.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 import type { OAuthPendingOperation } from "./connection-oauth-pending.ts"
 import type { ConnectionBusy } from "./connections-state.ts"
@@ -59,6 +60,13 @@ interface ConnectionActionContext {
 
 interface ConnectionRefreshOptions {
   silent?: boolean
+}
+
+interface SummaryMutationOptions {
+  busy: ConnectionBusy
+  operation: ConnectionErrorOperation
+  refreshLabel: string
+  mutate: (workspace: ConnectionWorkspace) => Promise<void>
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
@@ -528,24 +536,24 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     [activateOAuthPending, beginAction, chatService, clearActiveOAuthPending, pollOAuthPending, setCurrentSummary],
   )
 
-  const disconnect = React.useCallback(
-    async (svc: string): Promise<boolean> => {
+  const runSummaryMutation = React.useCallback(
+    async ({ busy: actionBusy, operation, refreshLabel, mutate }: SummaryMutationOptions): Promise<boolean> => {
       const action = beginAction()
       if (!action) {
         dispatch({
           type: "actionErrorSet",
-          error: resolveConnectionError("Workspace is still loading.", "disconnect"),
+          error: resolveConnectionError("Workspace is still loading.", operation),
         })
         return false
       }
       const isCurrentAction = action.isCurrent
       dispatch({ type: "actionErrorSet", error: null })
-      dispatch({ type: "busySet", busy: "disconnect" })
+      dispatch({ type: "busySet", busy: actionBusy })
       try {
-        await disconnectProviderRequest(svc, action.currentWorkspace)
+        await mutate(action.currentWorkspace)
         const next = await getConnectionSummary(action.currentWorkspace, {
           forceRefresh: true,
-          refreshGeneration: `disconnect:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
+          refreshGeneration: `${refreshLabel}:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
         })
         if (isCurrentAction()) {
           setCurrentSummary(next)
@@ -553,7 +561,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         return isCurrentAction()
       } catch (err) {
         if (isCurrentAction()) {
-          dispatch({ type: "actionErrorSet", error: resolveConnectionError(err, "disconnect") })
+          dispatch({ type: "actionErrorSet", error: resolveConnectionError(err, operation) })
         }
         return false
       } finally {
@@ -565,41 +573,26 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     [beginAction, setCurrentSummary],
   )
 
+  const disconnect = React.useCallback(
+    async (svc: string): Promise<boolean> =>
+      runSummaryMutation({
+        busy: "disconnect",
+        operation: "disconnect",
+        refreshLabel: "disconnect",
+        mutate: (currentWorkspace) => disconnectProviderRequest(svc, currentWorkspace),
+      }),
+    [runSummaryMutation],
+  )
+
   const disconnectAccount = React.useCallback(
-    async (appId: string): Promise<boolean> => {
-      const action = beginAction()
-      if (!action) {
-        dispatch({
-          type: "actionErrorSet",
-          error: resolveConnectionError("Workspace is still loading.", "disconnect"),
-        })
-        return false
-      }
-      const isCurrentAction = action.isCurrent
-      dispatch({ type: "actionErrorSet", error: null })
-      dispatch({ type: "busySet", busy: "disconnect" })
-      try {
-        await disconnectAccountRequest(appId, action.currentWorkspace)
-        const next = await getConnectionSummary(action.currentWorkspace, {
-          forceRefresh: true,
-          refreshGeneration: `disconnect:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
-        })
-        if (isCurrentAction()) {
-          setCurrentSummary(next)
-        }
-        return isCurrentAction()
-      } catch (err) {
-        if (isCurrentAction()) {
-          dispatch({ type: "actionErrorSet", error: resolveConnectionError(err, "disconnect") })
-        }
-        return false
-      } finally {
-        if (isCurrentAction()) {
-          dispatch({ type: "busySet", busy: null })
-        }
-      }
-    },
-    [beginAction, setCurrentSummary],
+    async (appId: string): Promise<boolean> =>
+      runSummaryMutation({
+        busy: "disconnect",
+        operation: "disconnect",
+        refreshLabel: "disconnect",
+        mutate: (currentWorkspace) => disconnectAccountRequest(appId, currentWorkspace),
+      }),
+    [runSummaryMutation],
   )
 
   const setDefaultAccount = React.useCallback(
@@ -643,40 +636,14 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   )
 
   const updateAlias = React.useCallback(
-    async (appId: string, alias: string): Promise<boolean> => {
-      const action = beginAction()
-      if (!action) {
-        dispatch({
-          type: "actionErrorSet",
-          error: resolveConnectionError("Workspace is still loading.", "update_alias"),
-        })
-        return false
-      }
-      const isCurrentAction = action.isCurrent
-      dispatch({ type: "actionErrorSet", error: null })
-      dispatch({ type: "busySet", busy: "update_alias" })
-      try {
-        await updateAliasRequest(appId, alias, action.currentWorkspace)
-        const next = await getConnectionSummary(action.currentWorkspace, {
-          forceRefresh: true,
-          refreshGeneration: `update-alias:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
-        })
-        if (isCurrentAction()) {
-          setCurrentSummary(next)
-        }
-        return isCurrentAction()
-      } catch (err) {
-        if (isCurrentAction()) {
-          dispatch({ type: "actionErrorSet", error: resolveConnectionError(err, "update_alias") })
-        }
-        return false
-      } finally {
-        if (isCurrentAction()) {
-          dispatch({ type: "busySet", busy: null })
-        }
-      }
-    },
-    [beginAction, setCurrentSummary],
+    async (appId: string, alias: string): Promise<boolean> =>
+      runSummaryMutation({
+        busy: "update_alias",
+        operation: "update_alias",
+        refreshLabel: "update-alias",
+        mutate: (currentWorkspace) => updateAliasRequest(appId, alias, currentWorkspace),
+      }),
+    [runSummaryMutation],
   )
 
   const cancelPolling = React.useCallback(() => {

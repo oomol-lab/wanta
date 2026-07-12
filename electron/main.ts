@@ -1,14 +1,13 @@
 import type { AppCommand } from "./app-command.ts"
 import type { AppLocale } from "./app-locale.ts"
-import type { AttachmentPickerKind } from "./attachment-picker.ts"
 import type { AuthRuntimeAccount } from "./auth/store.ts"
 
 import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, session, shell } from "electron"
-import { stat } from "node:fs/promises"
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, session, shell } from "electron"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { AgentRefreshScheduler } from "./agent-refresh-scheduler.ts"
 import {
   ooBinaryName,
   opencodeBinaryName,
@@ -28,14 +27,12 @@ import {
   installArtifactResourceProtocol,
   registerArtifactResourceScheme,
 } from "./artifact-resource/protocol.ts"
-import { isAttachmentPickerKind } from "./attachment-picker.ts"
+import { registerAttachmentDialogHandlers } from "./attachment-dialog-handlers.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
 import { ArtifactBundleStore } from "./chat/artifact-bundles.ts"
-import { mimeFromPath } from "./chat/artifacts.ts"
 import { AuthorizationOverlayStore } from "./chat/authorization.ts"
-import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
 import { SpreadsheetPreviewWorkerClient } from "./chat/spreadsheet-preview-worker-client.ts"
 import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
@@ -78,24 +75,7 @@ const viteDevServerUrl = process.env["VITE_DEV_SERVER_URL"]
 const rendererDist = path.join(appRoot, "dist")
 const preloadPath = path.join(dirname, "preload.js")
 const macTrafficLightPosition = { x: 15, y: 17 }
-const skillRuntimeRefreshDelayMs = 1_500
-const skillRuntimeRefreshBusyRetryMs = 2_000
-const skillRuntimeRefreshMaxBusyRetries = 10
 const shutdownCleanupTimeoutMs = 5_000
-
-interface SelectedAttachmentPath {
-  name: string
-  mime: string
-  size: number
-  path: string
-  kind: "file" | "directory"
-}
-
-interface SaveClipboardAttachmentRequest {
-  name?: string
-  mime?: string
-  bytes: ArrayBuffer
-}
 
 // dev 用本地 scheme，生产用正式 scheme（R1 / 阶段 6）。
 const protocolScheme = viteDevServerUrl ? branding.devProtocolScheme : branding.protocolScheme
@@ -137,7 +117,6 @@ let agent: AgentManager | null = null
 let applyChain: Promise<void> = Promise.resolve()
 let agentRuntimeVersion = 0
 let appliedAgentRuntimeVersion = -1
-let pendingSkillRuntimeRefresh: NodeJS.Timeout | undefined
 
 const authStore = new AuthStore(app.getPath("userData"))
 const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
@@ -192,9 +171,15 @@ const authManager = new AuthManager({
   protocolScheme,
   applyAccount: applyAuthAccount,
 })
+const skillAgentRefresh = new AgentRefreshScheduler({
+  canRefresh: () => Boolean(authManager.activeAccount() && agent?.isReady()),
+  isBusy: () => chatService.hasActiveGeneration(),
+  isQuitting: () => isQuitting,
+  refresh: refreshAgentAfterSkillChange,
+})
 const authService = new AuthServiceImpl(authManager)
 const skillService = new SkillServiceImpl(authManager, {
-  onRuntimeSkillsChanged: scheduleAgentRefreshForSkillChange,
+  onRuntimeSkillsChanged: (reason) => skillAgentRefresh.schedule(reason),
 })
 const settingsService = new SettingsServiceImpl({
   store: settingsStore,
@@ -238,7 +223,7 @@ server.registerService(authService)
 server.registerService(updateService)
 server.registerService(gitService)
 settingsService.applyStartupTheme()
-registerAttachmentDialogHandler()
+registerAttachmentDialogHandlers(trustedAttachmentPaths)
 registerAppLocaleHandler()
 registerRendererErrorHandler()
 
@@ -342,10 +327,7 @@ if (isLocked) {
  */
 function reapAgentForShutdown(): Promise<void> {
   shutdownReap ??= (async () => {
-    if (pendingSkillRuntimeRefresh) {
-      clearTimeout(pendingSkillRuntimeRefresh)
-      pendingSkillRuntimeRefresh = undefined
-    }
+    skillAgentRefresh.dispose()
     // 退出观感：先藏窗口，回收（含最长宽限期）在后台进行，不让用户盯着卡住的窗口。
     mainWindow?.hide()
     windowsTrayLifecycle?.dispose()
@@ -429,129 +411,15 @@ function installMainProcessErrorHandlers(): void {
   })
 }
 
-function registerAttachmentDialogHandler(): void {
-  ipcMain.handle("wanta:select-attachment-paths", async (event, kind: unknown): Promise<SelectedAttachmentPath[]> => {
-    assertAttachmentPickerKind(kind)
-    const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
-    const properties = attachmentDialogProperties(kind, process.platform)
-    const result = parent
-      ? await dialog.showOpenDialog(parent, { properties })
-      : await dialog.showOpenDialog({ properties })
-    if (result.canceled) {
-      return []
-    }
-    const items = (await Promise.all(result.filePaths.map((filePath) => selectedAttachmentPath(filePath)))).filter(
-      (item): item is SelectedAttachmentPath => Boolean(item),
-    )
-    for (const item of items) {
-      rememberTrustedAttachmentPath(item.path)
-    }
-    return items
-  })
-  ipcMain.handle(
-    "wanta:save-clipboard-attachment",
-    async (_event, req: SaveClipboardAttachmentRequest): Promise<SelectedAttachmentPath> => {
-      const attachment = await saveClipboardAttachment(app.getPath("userData"), req)
-      rememberTrustedAttachmentPath(attachment.path)
-      return {
-        name: attachment.name,
-        mime: attachment.mime,
-        size: attachment.size,
-        path: attachment.path,
-        kind: "file",
-      }
-    },
-  )
-  ipcMain.handle("wanta:selected-attachment-path-for-file", async (_event, filePath: unknown) => {
-    if (typeof filePath !== "string" || !filePath.trim()) {
-      return null
-    }
-    const item = await selectedAttachmentPath(filePath)
-    if (item) {
-      rememberTrustedAttachmentPath(item.path)
-    }
-    return item
-  })
-  ipcMain.handle("wanta:select-project-directory", async (event): Promise<SelectedAttachmentPath | null> => {
-    const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
-    const options: Electron.OpenDialogOptions = {
-      properties: ["openDirectory", "createDirectory"],
-    }
-    const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
-    if (result.canceled || !result.filePaths[0]) {
-      return null
-    }
-    const directoryPath = result.filePaths[0]
-    return {
-      name: path.basename(directoryPath.replace(/[\\/]+$/, "")) || directoryPath,
-      mime: "inode/directory",
-      size: 0,
-      path: directoryPath,
-      kind: "directory",
-    }
-  })
-}
-
-function rememberTrustedAttachmentPath(filePath: string): void {
-  if (filePath.trim()) {
-    trustedAttachmentPaths.add(filePath)
-  }
-}
-
 function registerRendererErrorHandler(): void {
   ipcMain.on("wanta:renderer-error", (_event, input: unknown) => {
     const report = normalizeRendererErrorReport(input)
-    if (!report) {
-      return
-    }
+    if (!report) return
     const message = report.level === "error" ? "renderer error" : "renderer handled issue"
-    if (report.level === "error") {
-      console.error("[wanta] renderer error:", report)
-    } else {
-      console.warn("[wanta] renderer handled issue:", report)
-    }
+    if (report.level === "error") console.error("[wanta] renderer error:", report)
+    else console.warn("[wanta] renderer handled issue:", report)
     logDiagnostic("renderer", message, { ...report }, report.level)
   })
-}
-
-function assertAttachmentPickerKind(kind: unknown): asserts kind is AttachmentPickerKind {
-  if (!isAttachmentPickerKind(kind)) {
-    throw new Error("Invalid attachment picker kind.")
-  }
-}
-
-function attachmentDialogProperties(
-  kind: AttachmentPickerKind,
-  platform: NodeJS.Platform,
-): NonNullable<Electron.OpenDialogOptions["properties"]> {
-  switch (kind) {
-    case "file":
-      return ["openFile", "multiSelections"]
-    case "directory":
-      return ["openDirectory", "multiSelections"]
-    case "file-or-directory": {
-      if (platform !== "darwin") {
-        throw new Error("Selecting files and folders together is only supported on macOS.")
-      }
-      return ["openFile", "openDirectory", "multiSelections"]
-    }
-  }
-}
-
-async function selectedAttachmentPath(filePath: string): Promise<SelectedAttachmentPath | null> {
-  try {
-    const info = await stat(filePath)
-    const kind = info.isDirectory() ? "directory" : "file"
-    return {
-      name: path.basename(filePath.replace(/[\\/]+$/, "")) || filePath,
-      mime: kind === "directory" ? "inode/directory" : mimeFromPath(filePath),
-      size: kind === "file" ? info.size : 0,
-      path: filePath,
-      kind,
-    }
-  } catch {
-    return null
-  }
 }
 
 function runtimeErrorMessage(error: unknown): string {
@@ -701,64 +569,13 @@ function restartAgentForModelConfig(): void {
     })
 }
 
-function scheduleAgentRefreshForSkillChange(
-  reason: string,
-  delayMs = skillRuntimeRefreshDelayMs,
-  busyRetryCount = 0,
-): void {
-  if (isQuitting) {
-    return
-  }
-  if (pendingSkillRuntimeRefresh) {
-    clearTimeout(pendingSkillRuntimeRefresh)
-  }
-
-  pendingSkillRuntimeRefresh = setTimeout(() => {
-    pendingSkillRuntimeRefresh = undefined
-    refreshAgentForSkillChange(reason, busyRetryCount)
-  }, delayMs)
-  pendingSkillRuntimeRefresh.unref()
-}
-
-function refreshAgentForSkillChange(reason: string, busyRetryCount = 0): void {
-  if (isQuitting) {
-    return
-  }
-  if (!authManager.activeAccount() || !agent?.isReady()) {
-    return
-  }
-
-  if (chatService.hasActiveGeneration()) {
-    if (busyRetryCount < skillRuntimeRefreshMaxBusyRetries) {
-      scheduleAgentRefreshForSkillChange(reason, skillRuntimeRefreshBusyRetryMs, busyRetryCount + 1)
-      return
-    }
-    console.warn("[wanta] refreshing agent after skill change while generation is still active:", {
-      busyRetryCount,
-      reason,
-    })
-  }
-
+async function refreshAgentAfterSkillChange(_reason: string): Promise<void> {
   agentRuntimeVersion += 1
-  void authManager
-    .activeRuntimeAccount()
-    .then(async (account) => {
-      await applyAuthAccount(account)
-      // 会话中途过期：装配登出态后主动广播"未登录"，渲染层据此落回登录页（一致生命周期）。
-      if (!account) {
-        await authManager.broadcastAuthState()
-      }
-    })
-    .catch((error: unknown) => {
-      console.error("[wanta] failed to restart agent after skill change:", { error, reason })
-    })
+  const account = await authManager.activeRuntimeAccount()
+  await applyAuthAccount(account)
+  // 会话中途过期：装配登出态后主动广播"未登录"，渲染层据此落回登录页（一致生命周期）。
+  if (!account) await authManager.broadcastAuthState()
 }
-
-/**
- * dev：解析 oo 绝对路径（WANTA_OO_BIN 覆盖 > 项目本地 .oo-bin/，由 postinstall 下载）。生产由 extraResources 解析。
- * 不在此做存在性预检——主进程禁用同步 fs（阻塞渲染）；dev 缺失由 predev 守卫（scripts/check-oo.ts）提前报错退出，
- * 打包产物则一定内置 oo。
- */
 function resolveOoBin(): string {
   if (process.env["WANTA_OO_BIN"]) {
     return process.env["WANTA_OO_BIN"]

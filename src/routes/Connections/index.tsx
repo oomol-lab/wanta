@@ -6,56 +6,34 @@ import type {
   ConnectionProviderSummary,
   ConnectionUserOAuthClientConfigSummary,
 } from "../../../electron/connections/common.ts"
-import type { ConnectionCatalogFilter, ConnectionCategoryFilter, DisconnectTarget } from "./connection-route-model.ts"
+import type { ConnectionCatalogFilter, DisconnectTarget } from "./connection-route-model.ts"
 import type { ConnectionAuthIntent } from "./ConnectionProviderDetailPane.tsx"
 import type { UseConnections } from "@/hooks/useConnections"
-import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { ArrowLeft, ChevronDown, X } from "lucide-react"
+import { ArrowLeft, X } from "lucide-react"
 import * as React from "react"
 import { ConnectDialog } from "./ConnectDialog.tsx"
 import { getConnectionDetailErrorNotice, getConnectionListErrorNotice } from "./connection-error-display.ts"
 import { compareConnectionProvidersByRecommendation } from "./connection-provider-ranking.ts"
 import {
   buildCategoryFilters,
-  categoryFilterLimit,
-  categoryFilterPrefix,
-  connectionDetailCacheKey,
   detailPaneAnimationMs,
-  getFilterValue,
-  getFittingCategoryFilterCount,
-  getProviderActionLabel,
-  getProviderMeta,
-  getProviderStatusDisplayLabel,
-  getProviderStatusTone,
-  isConnectionDetailCacheKeyForService,
   isConnected,
   matchesProviderFilter,
   matchesProviderQuery,
-  parseFilterValue,
-  selectVisibleCategoryFilters,
-  shouldLoadProviderDetail,
 } from "./connection-route-model.ts"
+import {
+  ConnectionDrawerSkeleton,
+  ConnectionListToolbar,
+  ProviderCatalog,
+  ProviderListSkeleton,
+} from "./ConnectionCatalog.tsx"
 import { EmptyList, ProviderDetail, StatusNotice } from "./ConnectionProviderDetailPane.tsx"
 import { DisconnectDialog } from "./DisconnectDialog.tsx"
 import { shouldOpenOAuthClientDialog } from "./oauth-client-config.ts"
-import {
-  getProviderGridColumnCount,
-  getProviderGridVisibleRange,
-  providerGridCardHeightPx,
-  providerGridGapPx,
-} from "./provider-grid-virtualization.ts"
-import { ProviderIcon } from "./ProviderIcon.tsx"
+import { useConnectionProviderDetail } from "./use-connection-provider-detail.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
-import { SearchField } from "@/components/SearchField"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import {
   SplitViewBody,
   SplitViewDesktopDetailPane,
@@ -64,11 +42,9 @@ import {
   SplitViewMobileDetailPane,
   SplitViewRoot,
 } from "@/components/ui/split-view"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
 import { useT } from "@/i18n/i18n"
 import { getOAuthClientConfig } from "@/lib/connections-client"
-import { resolveConnectionError } from "@/lib/connections-error"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
@@ -108,10 +84,6 @@ export function ConnectionsPanel({
   const [activeFilter, setActiveFilter] = React.useState<ConnectionCatalogFilter>({ kind: "all" })
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
-  const [detail, setDetail] = React.useState<ConnectionProviderDetail | null>(null)
-  const [detailCacheKey, setDetailCacheKey] = React.useState<string | null>(null)
-  const [detailLoading, setDetailLoading] = React.useState(false)
-  const [detailError, setDetailError] = React.useState<UserFacingError | null>(null)
   const [detailPaneClosing, setDetailPaneClosing] = React.useState(false)
   const [dialog, setDialog] = React.useState<{
     appDetail?: ConnectionAppDetail | null
@@ -122,9 +94,8 @@ export function ConnectionsPanel({
   } | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState<DisconnectTarget | null>(null)
   const detailCloseTimerRef = React.useRef<number | null>(null)
-  const detailCacheRef = React.useRef<Map<string, ConnectionProviderDetail>>(new Map())
-  const detailRequestIdRef = React.useRef(0)
   const connectRequestIdRef = React.useRef(0)
+  const detailWorkspaceKeyRef = React.useRef<string | null>(summaryWorkspaceKey)
   const listPaneRef = React.useRef<HTMLDivElement | null>(null)
 
   const providers = summary?.providers ?? []
@@ -148,20 +119,19 @@ export function ConnectionsPanel({
   const selectedProvider = selectedProviderService
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
-  const selectedProviderNeedsDetail = selectedProvider ? shouldLoadProviderDetail(selectedProvider) : false
-  const selectedDetailService = selectedProvider?.service ?? null
-  const selectedDetailCacheKey =
-    summaryWorkspaceKey && selectedDetailService
-      ? connectionDetailCacheKey(summaryWorkspaceKey, selectedDetailService)
-      : null
-  const selectedProviderDetail = selectedDetailCacheKey && detailCacheKey === selectedDetailCacheKey ? detail : null
-  const selectedProviderDetailLoading = Boolean(selectedDetailCacheKey) && detailLoading
-  const selectedProviderDetailError = selectedDetailCacheKey ? detailError : null
+  const providerDetail = useConnectionProviderDetail({
+    getProviderDetail,
+    provider: selectedProvider,
+    workspaceKey: summaryWorkspaceKey,
+  })
+  const selectedProviderDetail = providerDetail.detail
+  const selectedProviderDetailLoading = providerDetail.loading
+  const selectedProviderDetailError = providerDetail.error
   const selectedProviderActionsBlocked = Boolean(
-    selectedProviderNeedsDetail && !selectedProviderDetail && selectedProviderDetailError,
+    providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError,
   )
   const selectedProviderActionsPending = Boolean(
-    selectedProviderNeedsDetail && !selectedProviderDetail && selectedProviderDetailLoading,
+    providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailLoading,
   )
   const detailErrorNotice = selectedProvider
     ? getConnectionDetailErrorNotice({
@@ -171,27 +141,8 @@ export function ConnectionsPanel({
       })
     : null
   const summaryLoading = busy === "refresh" && !summary
-  const listErrorNotice = getConnectionListErrorNotice({
-    summaryError,
-    detailError: detailErrorNotice?.error ?? null,
-  })
-
-  const deleteCachedDetailForService = React.useCallback(
-    (service: string): void => {
-      if (!summaryWorkspaceKey) {
-        return
-      }
-      const activeCacheKey = connectionDetailCacheKey(summaryWorkspaceKey, service)
-      for (const cacheKey of detailCacheRef.current.keys()) {
-        if (cacheKey === activeCacheKey && isConnectionDetailCacheKeyForService(cacheKey, service)) {
-          detailCacheRef.current.delete(cacheKey)
-        }
-      }
-    },
-    [summaryWorkspaceKey],
-  )
-
-  const detailWorkspaceKeyRef = React.useRef<string | null>(summaryWorkspaceKey)
+  const listErrorNotice = getConnectionListErrorNotice({ summaryError, detailError: detailErrorNotice?.error ?? null })
+  const deleteCachedDetailForService = providerDetail.invalidate
   React.useEffect(() => {
     if (detailWorkspaceKeyRef.current === summaryWorkspaceKey) {
       return
@@ -200,10 +151,6 @@ export function ConnectionsPanel({
     connectRequestIdRef.current += 1
     setDialog(null)
     setConfirmDisconnect(null)
-    setDetail(null)
-    setDetailCacheKey(null)
-    setDetailError(null)
-    setDetailLoading(false)
   }, [summaryWorkspaceKey])
 
   const clearDetailCloseTimer = React.useCallback(() => {
@@ -280,59 +227,6 @@ export function ConnectionsPanel({
     setNarrowPane("list")
   }, [clearDetailCloseTimer, filteredProviders, selectedProviderService, summary])
 
-  React.useEffect(() => {
-    if (!selectedDetailService || !selectedDetailCacheKey || !selectedProviderNeedsDetail) {
-      detailRequestIdRef.current += 1
-      setDetail(null)
-      setDetailCacheKey(null)
-      setDetailError(null)
-      setDetailLoading(false)
-      return
-    }
-
-    let cancelled = false
-    const requestId = detailRequestIdRef.current + 1
-    detailRequestIdRef.current = requestId
-    const cached = detailCacheRef.current.get(selectedDetailCacheKey)
-    if (cached) {
-      setDetail(cached)
-      setDetailCacheKey(selectedDetailCacheKey)
-      setDetailError(null)
-      setDetailLoading(false)
-      return
-    }
-
-    setDetail(null)
-    setDetailCacheKey(null)
-    setDetailLoading(true)
-    setDetailError(null)
-    void getProviderDetail(selectedDetailService)
-      .then((next) => {
-        if (!cancelled && detailRequestIdRef.current === requestId) {
-          detailCacheRef.current.set(selectedDetailCacheKey, next)
-          setDetail(next)
-          setDetailCacheKey(selectedDetailCacheKey)
-          setDetailError(null)
-        }
-      })
-      .catch((err) => {
-        if (!cancelled && detailRequestIdRef.current === requestId) {
-          setDetail(null)
-          setDetailCacheKey(null)
-          setDetailError(resolveConnectionError(err, "detail"))
-        }
-      })
-      .finally(() => {
-        if (!cancelled && detailRequestIdRef.current === requestId) {
-          setDetailLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [getProviderDetail, selectedDetailCacheKey, selectedDetailService, selectedProviderNeedsDetail])
-
   const connectProvider = React.useCallback(
     async (
       provider: ConnectionProviderSummary,
@@ -345,26 +239,7 @@ export function ConnectionsPanel({
       const requestId = connectRequestIdRef.current + 1
       connectRequestIdRef.current = requestId
       const requestIsCurrent = (): boolean => connectRequestIdRef.current === requestId
-      const loadProviderDetail = async (): Promise<ConnectionProviderDetail> => {
-        const providerDetailCacheKey = summaryWorkspaceKey
-          ? connectionDetailCacheKey(summaryWorkspaceKey, provider.service)
-          : null
-        if (providerDetailCacheKey) {
-          if (detailCacheKey === providerDetailCacheKey && detail) {
-            return detail
-          }
-          const cached = detailCacheRef.current.get(providerDetailCacheKey)
-          if (cached) {
-            return cached
-          }
-        }
-
-        const loaded = await getProviderDetail(provider.service)
-        if (providerDetailCacheKey && requestIsCurrent()) {
-          detailCacheRef.current.set(providerDetailCacheKey, loaded)
-        }
-        return loaded
-      }
+      const loadProviderDetail = () => providerDetail.loadCached(provider.service)
       try {
         if (authType === "oauth2") {
           const loaded = await loadProviderDetail()
@@ -413,20 +288,11 @@ export function ConnectionsPanel({
         setDialog({ detail: loaded, authType, appId, appDetail })
       } catch (err) {
         if (requestIsCurrent()) {
-          setDetailError(resolveConnectionError(err, "detail"))
+          providerDetail.reportError(err)
         }
       }
     },
-    [
-      connect,
-      deleteCachedDetailForService,
-      detail,
-      detailCacheKey,
-      getAppDetail,
-      getProviderDetail,
-      polling,
-      summaryWorkspaceKey,
-    ],
+    [connect, deleteCachedDetailForService, getAppDetail, polling, providerDetail],
   )
 
   const submitConnectDialog = React.useCallback(
@@ -516,13 +382,6 @@ export function ConnectionsPanel({
               : await disconnect(target.provider.service)
             if (ok) {
               deleteCachedDetailForService(target.provider.service)
-              if (
-                summaryWorkspaceKey &&
-                detailCacheKey === connectionDetailCacheKey(summaryWorkspaceKey, target.provider.service)
-              ) {
-                setDetail(null)
-                setDetailCacheKey(null)
-              }
               setConfirmDisconnect(null)
             }
           }}
@@ -657,465 +516,10 @@ export function ConnectionsPanel({
             : await disconnect(target.provider.service)
           if (ok) {
             deleteCachedDetailForService(target.provider.service)
-            if (
-              summaryWorkspaceKey &&
-              detailCacheKey === connectionDetailCacheKey(summaryWorkspaceKey, target.provider.service)
-            ) {
-              setDetail(null)
-              setDetailCacheKey(null)
-            }
             setConfirmDisconnect(null)
           }
         }}
       />
     </SplitViewRoot>
-  )
-}
-
-function ConnectionDrawerSkeleton() {
-  return (
-    <div className="grid gap-2" aria-hidden="true">
-      <div className="h-3 w-4/5 animate-pulse rounded-sm bg-muted" />
-      <div className="h-3 w-3/5 animate-pulse rounded-sm bg-muted" />
-      <div className="mt-1 h-8 w-28 animate-pulse rounded-md bg-muted" />
-    </div>
-  )
-}
-
-function ConnectionListToolbar({
-  activeFilter,
-  attentionCount,
-  categoryFilters,
-  connectedCount,
-  loading,
-  onFilterChange,
-  onQueryChange,
-  query,
-  totalCount,
-}: {
-  activeFilter: ConnectionCatalogFilter
-  attentionCount: number
-  categoryFilters: ConnectionCategoryFilter[]
-  connectedCount: number
-  loading: boolean
-  onFilterChange: (filter: ConnectionCatalogFilter) => void
-  onQueryChange: (query: string) => void
-  query: string
-  totalCount: number
-}) {
-  const t = useT()
-  const filterRowRef = React.useRef<HTMLDivElement | null>(null)
-  const filterMeasurementRef = React.useRef<HTMLDivElement | null>(null)
-  const [visibleCategoryCount, setVisibleCategoryCount] = React.useState(categoryFilterLimit)
-  const selectedCategory = activeFilter.kind === "category" ? activeFilter.category : null
-  const visibleCategoryFilters = selectVisibleCategoryFilters(categoryFilters, selectedCategory, visibleCategoryCount)
-  const overflowCategoryFilters = categoryFilters.filter(
-    (filter) => !visibleCategoryFilters.some((visibleFilter) => visibleFilter.label === filter.label),
-  )
-  const filterValue = getFilterValue(activeFilter)
-
-  React.useLayoutEffect(() => {
-    const filterRow = filterRowRef.current
-    const measurement = filterMeasurementRef.current
-    if (!filterRow || !measurement) {
-      return
-    }
-
-    const getMeasurement = (name: string): number | null => {
-      const element = measurement.querySelector<HTMLElement>(`[data-filter-measure="${name}"]`)
-      return element ? element.getBoundingClientRect().width : null
-    }
-
-    const updateVisibleCategoryCount = () => {
-      const availableWidth = filterRow.clientWidth
-      const allWidth = getMeasurement("all")
-      const connectedWidth = getMeasurement("connected")
-      const attentionWidth = getMeasurement("attention")
-      const moreWidth = getMeasurement("more")
-      const categoryWidths = categoryFilters.map((_, index) => getMeasurement(`category-${index}`))
-      if (
-        !availableWidth ||
-        allWidth === null ||
-        connectedWidth === null ||
-        attentionWidth === null ||
-        moreWidth === null ||
-        categoryWidths.some((width) => width === null)
-      ) {
-        return
-      }
-
-      const group = measurement.firstElementChild
-      const gap = group ? Number.parseFloat(window.getComputedStyle(group).gap) || 4 : 4
-      const categoryFilterWidths = new Map(
-        categoryFilters.map((filter, index) => [filter.label, categoryWidths[index] ?? 0]),
-      )
-      const nextCount = getFittingCategoryFilterCount({
-        availableWidth,
-        baseFilterWidths: [allWidth, connectedWidth, attentionWidth],
-        categoryFilterWidths,
-        filters: categoryFilters,
-        gap,
-        moreCategoriesWidth: moreWidth,
-        selectedCategory,
-      })
-
-      setVisibleCategoryCount((current) => (current === nextCount ? current : nextCount))
-    }
-
-    updateVisibleCategoryCount()
-    if (typeof ResizeObserver === "undefined") {
-      return
-    }
-
-    const observer = new ResizeObserver(updateVisibleCategoryCount)
-    observer.observe(filterRow)
-    return () => observer.disconnect()
-  }, [attentionCount, categoryFilters, connectedCount, loading, selectedCategory, totalCount])
-
-  return (
-    <div className="grid w-full min-w-0 gap-2">
-      <SearchField
-        value={query}
-        placeholder={t("connections.search")}
-        onChange={(event) => onQueryChange(event.currentTarget.value)}
-      />
-      <div ref={filterRowRef} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
-        <div className="oo-connection-filter-row flex min-w-0 items-center overflow-x-auto overflow-y-hidden">
-          <ToggleGroup
-            type="single"
-            variant="default"
-            size="sm"
-            spacing={1}
-            value={filterValue}
-            aria-label={t("connections.catalogView")}
-            className="flex min-w-max flex-nowrap gap-1"
-            onValueChange={(nextValue) => {
-              const nextFilter = parseFilterValue(nextValue)
-              if (nextFilter) {
-                onFilterChange(nextFilter)
-              }
-            }}
-          >
-            <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
-            <FilterToggleItem
-              count={loading ? null : connectedCount}
-              label={t("connections.filterConnected")}
-              value="connected"
-            />
-            <FilterToggleItem
-              count={loading ? null : attentionCount}
-              label={t("connections.needsAttention")}
-              value="attention"
-            />
-            {visibleCategoryFilters.map((filter) => (
-              <FilterToggleItem
-                key={filter.label}
-                count={filter.count}
-                label={filter.displayLabel}
-                value={`${categoryFilterPrefix}${filter.label}`}
-              />
-            ))}
-          </ToggleGroup>
-        </div>
-        {overflowCategoryFilters.length > 0 ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 rounded-md transition-[background-color,border-color,box-shadow,transform] active:translate-y-px data-[state=open]:border-[var(--accent-ring)] data-[state=open]:bg-[var(--accent-soft)] data-[state=open]:text-foreground data-[state=open]:shadow-[inset_0_0_0_1px_var(--accent-ring)]"
-              >
-                {t("connections.moreCategories")}
-                <ChevronDown className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={8} className="w-56">
-              <DropdownMenuLabel>{t("connections.category")}</DropdownMenuLabel>
-              {overflowCategoryFilters.map((filter) => (
-                <DropdownMenuItem
-                  key={filter.label}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] gap-3"
-                  onSelect={() => onFilterChange({ kind: "category", category: filter.label })}
-                >
-                  <span className="truncate">{filter.displayLabel}</span>
-                  <span className="oo-text-muted">{filter.count}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
-      </div>
-      <div ref={filterMeasurementRef} aria-hidden="true" className="pointer-events-none invisible absolute -z-10">
-        <ToggleGroup type="single" variant="default" size="sm" spacing={1} className="flex w-max flex-nowrap gap-1">
-          <span data-filter-measure="all">
-            <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
-          </span>
-          <span data-filter-measure="connected">
-            <FilterToggleItem
-              count={loading ? null : connectedCount}
-              label={t("connections.filterConnected")}
-              value="connected"
-            />
-          </span>
-          <span data-filter-measure="attention">
-            <FilterToggleItem
-              count={loading ? null : attentionCount}
-              label={t("connections.needsAttention")}
-              value="attention"
-            />
-          </span>
-          {categoryFilters.map((filter, index) => (
-            <span key={filter.label} data-filter-measure={`category-${index}`}>
-              <FilterToggleItem
-                count={filter.count}
-                label={filter.displayLabel}
-                value={`${categoryFilterPrefix}${filter.label}`}
-              />
-            </span>
-          ))}
-          <span data-filter-measure="more">
-            <Button variant="outline" size="sm" className="gap-1.5 rounded-md">
-              {t("connections.moreCategories")}
-              <ChevronDown className="size-4" />
-            </Button>
-          </span>
-        </ToggleGroup>
-      </div>
-    </div>
-  )
-}
-
-function FilterToggleItem({ count, label, value }: { count: number | null; label: string; value: string }) {
-  return (
-    <ToggleGroupItem
-      value={value}
-      className="group/filter max-w-48 cursor-pointer gap-1.5 rounded-md border border-[var(--oo-control-border)] px-2.5 transition-[background-color,border-color,color,box-shadow,transform] hover:border-[var(--selection-ring)] active:translate-y-px active:scale-[0.98] data-[state=on]:!border-[var(--accent-ring)] data-[state=on]:!bg-[var(--accent-soft)] data-[state=on]:!text-foreground data-[state=on]:!shadow-[inset_0_0_0_1px_var(--accent-ring)] data-[state=on]:hover:!bg-[var(--accent-soft)]"
-    >
-      <span className="truncate">{label}</span>
-      {count === null ? (
-        <span className="h-3 w-5 animate-pulse rounded-sm bg-muted" aria-hidden="true" />
-      ) : (
-        <span className="oo-text-micro oo-text-muted transition-colors group-data-[state=on]/filter:text-[var(--accent-strong)]">
-          {count}
-        </span>
-      )}
-    </ToggleGroupItem>
-  )
-}
-
-function ProviderListSkeleton() {
-  return (
-    <div
-      className="grid"
-      style={{ gap: providerGridGapPx, gridTemplateColumns: "repeat(auto-fill, minmax(13.5rem, 1fr))" }}
-      aria-hidden="true"
-    >
-      {Array.from({ length: 12 }, (_, index) => (
-        <div
-          key={index}
-          className="grid h-[68px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border bg-card px-2.5 py-1.5"
-        >
-          <div className="size-9 animate-pulse rounded-md bg-muted" />
-          <div className="grid gap-1.5">
-            <div className="h-4 w-32 animate-pulse rounded-sm bg-muted" />
-            <div className="h-3 w-24 animate-pulse rounded-sm bg-muted" />
-          </div>
-          <div className="h-3 w-12 animate-pulse rounded-sm bg-muted" />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function ProviderCatalog({
-  providers,
-  scrollParentRef,
-  selectedService,
-  onSelect,
-}: {
-  onSelect: (provider: ConnectionProviderSummary) => void
-  providers: ConnectionProviderSummary[]
-  scrollParentRef: React.RefObject<HTMLDivElement | null>
-  selectedService: string | null
-}) {
-  return (
-    <ProviderGrid
-      providers={providers}
-      scrollParentRef={scrollParentRef}
-      selectedService={selectedService}
-      onSelect={onSelect}
-    />
-  )
-}
-
-function ProviderGrid({
-  providers,
-  scrollParentRef,
-  selectedService,
-  onSelect,
-}: {
-  onSelect: (provider: ConnectionProviderSummary) => void
-  providers: ConnectionProviderSummary[]
-  scrollParentRef: React.RefObject<HTMLDivElement | null>
-  selectedService: string | null
-}) {
-  const gridRef = React.useRef<HTMLDivElement | null>(null)
-  const updateFrameRef = React.useRef<number | null>(null)
-  const [viewport, setViewport] = React.useState({
-    catalogTop: 0,
-    scrollTop: 0,
-    viewportHeight: 0,
-    width: 0,
-  })
-
-  const updateViewport = React.useCallback(() => {
-    const grid = gridRef.current
-    const scrollParent = scrollParentRef.current
-    if (!grid || !scrollParent) {
-      return
-    }
-
-    const gridRect = grid.getBoundingClientRect()
-    const parentRect = scrollParent.getBoundingClientRect()
-    const nextViewport = {
-      catalogTop: gridRect.top - parentRect.top + scrollParent.scrollTop,
-      scrollTop: scrollParent.scrollTop,
-      viewportHeight: scrollParent.clientHeight,
-      width: grid.clientWidth,
-    }
-
-    setViewport((current) =>
-      current.catalogTop === nextViewport.catalogTop &&
-      current.scrollTop === nextViewport.scrollTop &&
-      current.viewportHeight === nextViewport.viewportHeight &&
-      current.width === nextViewport.width
-        ? current
-        : nextViewport,
-    )
-  }, [scrollParentRef])
-
-  const scheduleViewportUpdate = React.useCallback(() => {
-    if (updateFrameRef.current !== null) {
-      return
-    }
-
-    updateFrameRef.current = window.requestAnimationFrame(() => {
-      updateFrameRef.current = null
-      updateViewport()
-    })
-  }, [updateViewport])
-
-  React.useLayoutEffect(() => {
-    updateViewport()
-  }, [providers.length, updateViewport])
-
-  React.useEffect(() => {
-    const grid = gridRef.current
-    const scrollParent = scrollParentRef.current
-    if (!grid || !scrollParent) {
-      return
-    }
-
-    const resizeObserver = new ResizeObserver(scheduleViewportUpdate)
-    resizeObserver.observe(grid)
-    resizeObserver.observe(scrollParent)
-    scrollParent.addEventListener("scroll", scheduleViewportUpdate, { passive: true })
-    scheduleViewportUpdate()
-
-    return () => {
-      resizeObserver.disconnect()
-      scrollParent.removeEventListener("scroll", scheduleViewportUpdate)
-      if (updateFrameRef.current !== null) {
-        window.cancelAnimationFrame(updateFrameRef.current)
-        updateFrameRef.current = null
-      }
-    }
-  }, [scheduleViewportUpdate, scrollParentRef])
-
-  const columnCount = React.useMemo(() => getProviderGridColumnCount(viewport.width), [viewport.width])
-  const visibleRange = React.useMemo(
-    () =>
-      getProviderGridVisibleRange({
-        catalogTop: viewport.catalogTop,
-        columnCount,
-        providerCount: providers.length,
-        scrollTop: viewport.scrollTop,
-        viewportHeight: viewport.viewportHeight,
-      }),
-    [columnCount, providers.length, viewport.catalogTop, viewport.scrollTop, viewport.viewportHeight],
-  )
-  const visibleProviders = React.useMemo(
-    () => providers.slice(visibleRange.startIndex, visibleRange.endIndex),
-    [providers, visibleRange.endIndex, visibleRange.startIndex],
-  )
-
-  return (
-    <div ref={gridRef} className="relative" style={{ height: visibleRange.totalHeight }}>
-      <div
-        className="absolute inset-x-0 top-0 grid will-change-transform"
-        style={{
-          gap: providerGridGapPx,
-          gridTemplateColumns: "repeat(auto-fill, minmax(13.5rem, 1fr))",
-          transform: `translateY(${visibleRange.topOffset}px)`,
-        }}
-      >
-        {visibleProviders.map((provider) => (
-          <ProviderCard
-            key={provider.service}
-            provider={provider}
-            selected={provider.service === selectedService}
-            onSelect={() => onSelect(provider)}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function ProviderCard({
-  provider,
-  selected,
-  onSelect,
-}: {
-  provider: ConnectionProviderSummary
-  selected: boolean
-  onSelect: () => void
-}) {
-  const t = useT()
-  const tone = getProviderStatusTone(provider)
-  const statusLabel = getProviderStatusDisplayLabel(provider, t)
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        "group/card relative grid min-w-0 cursor-pointer overflow-hidden rounded-md border bg-card px-2.5 py-1.5 text-left text-card-foreground transition-[background-color,border-color,box-shadow,transform] outline-none hover:border-[var(--selection-ring)] hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px",
-        selected &&
-          "border-[var(--accent-ring)] bg-[var(--accent-soft)] shadow-[inset_0_0_0_1px_var(--accent-ring)] before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-r-full before:bg-[var(--accent-strong)] hover:bg-[var(--accent-soft)]",
-      )}
-      style={{ height: providerGridCardHeightPx }}
-    >
-      <span className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
-        <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} />
-        <span className="grid min-w-0 gap-0.5">
-          <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
-          <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
-        </span>
-        <span className="flex shrink-0 items-center gap-1.5" title={statusLabel}>
-          <span
-            aria-label={statusLabel}
-            className={cn(
-              "size-1.5 rounded-full",
-              tone === "connected" && "bg-[var(--success)]",
-              tone === "attention" && "bg-[var(--warning)]",
-              tone === "available" && "bg-muted-foreground/40",
-            )}
-          />
-          <span className="oo-text-micro max-w-16 truncate font-medium text-muted-foreground">
-            {getProviderActionLabel(provider, t)}
-          </span>
-        </span>
-      </span>
-    </button>
   )
 }

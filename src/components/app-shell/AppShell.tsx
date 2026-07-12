@@ -1,18 +1,12 @@
-import type { AppCommand } from "../../../electron/app-command.ts"
 import type {
-  AgentMode,
   AgentPermissionMode,
   AgentRuntimeStatus,
   AuthorizationInfo,
-  ChatContextMention,
-  ChatOrganizationSkillContext,
   ChatPermissionReply,
-  ReasoningLevel,
 } from "../../../electron/chat/common.ts"
-import type { ModelChoice } from "../../../electron/models/common.ts"
-import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
+import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
-import type { ChatSendRequest, ChatSendResult, TurnRetryOptions } from "./app-shell-model.ts"
+import type { ChatSendRequest, ChatSendResult } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
@@ -27,35 +21,22 @@ import { PanelRightClose, PanelRightOpen } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
-import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
 import {
   activeProjectIdForComposer,
-  buildSessionTitleInput,
   chatSendAccepted,
   connectionWorkspaceSwitchKey,
   EMPTY_CONNECTION_PROVIDERS,
   existingSessionComposerDraftKey,
-  getUnlinkedProviderSkillRecommendations,
   initialRoute,
-  newSessionComposerDraftKey,
   newSessionComposerDraftKeyForScopeKey,
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
-  rememberTurnRetryOptions,
-  resolveNewSessionTarget,
-  resolveWorkspaceActivationState,
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
-  shouldClearWorkspaceSwitchTarget,
-  shouldShowRecommendedSkillEntry,
-  workspaceActivationBlocksInput,
   workspaceActivationHasFailed,
-  workspaceActivationIsPending,
   workspaceSelectionSwitchKey,
-  WORKSPACE_SWITCH_TIMEOUT_MS,
 } from "./app-shell-model.ts"
-import { buildProjectSidebarGroups, projectSidebarSessionsInRenderOrder } from "./app-sidebar-model.ts"
 import { AppShellArtifactsPanel } from "./AppShellArtifactsPanel.tsx"
 import { AppShellConnectionDrawer } from "./AppShellConnectionDrawer.tsx"
 import { AppShellMainTitlebar } from "./AppShellMainTitlebar.tsx"
@@ -63,37 +44,39 @@ import { AppShellNavigationSidebar } from "./AppShellNavigationSidebar.tsx"
 import { AppShellSessionProjectDialogs } from "./AppShellSessionProjectDialogs.tsx"
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
-import { compareRunningSessions, groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
+import { nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
+import { useAppShellCommands } from "./use-app-shell-commands.ts"
+import { useAppShellSidebarSessions } from "./use-app-shell-sidebar-sessions.ts"
+import { useAppShellSkillRecommendations } from "./use-app-shell-skill-recommendations.ts"
 import { useArtifactsPanelState } from "./use-artifacts-panel-state.ts"
 import { useChatConnectionRetry } from "./use-chat-connection-retry.ts"
 import { useChatQueueState } from "./use-chat-queue-state.ts"
+import { useComposerNavigation } from "./use-composer-navigation.ts"
+import { useComposerSubmission } from "./use-composer-submission.ts"
+import { useProjectActions } from "./use-project-actions.ts"
 import { useProjectSidebarCollapseState } from "./use-project-sidebar-collapse-state.ts"
+import { useSessionActions } from "./use-session-actions.ts"
 import { useSessionTitleGeneration } from "./use-session-title-generation.ts"
 import { useSidebarChromeState } from "./use-sidebar-chrome-state.ts"
+import { useWorkspaceActivation } from "./use-workspace-activation.ts"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
-import { useAppCommandEvents, useAppCommandShortcuts } from "@/hooks/useAppCommandShortcuts"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import { useOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
 import { useProjectGit } from "@/hooks/useProjectGit"
-import { useProviderSkillRecommendations } from "@/hooks/useProviderSkillRecommendations"
 import { useSessions } from "@/hooks/useSessions"
 import { useT } from "@/i18n/i18n"
 import { appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
-import { resolveManualUpdateCheckAction, shouldStartManualUpdateCheck } from "@/lib/manual-update-check"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { chatTurnAllowsDirectSend, chatTurnQueuesNewMessage, resolveChatTurnState } from "@/routes/Chat/chat-turn-state"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
-import { getInstallableOrganizationSkills } from "@/routes/Skills/skill-route-model"
-
-type ProjectSelectionSource = "composer" | "sidebar"
 
 const ArchivedRoute = React.lazy(() =>
   import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
@@ -137,16 +120,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const organizationSkills = useOrganizationSkills(organizationWorkspace.activeWorkspace, auth.state?.account?.id)
   const skillInventory = useSkillInventoryResource()
   const connections = useConnections(organizationWorkspace.connectionWorkspace)
-  const organizationSkillGroupById = React.useMemo(
-    () => new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group])),
-    [skillInventory.data?.groups],
-  )
-  const installableOrganizationSkills = React.useMemo(() => {
-    if (!organizationSkills.organizationId || !skillInventory.data) {
-      return []
-    }
-    return getInstallableOrganizationSkills(organizationSkillGroupById, organizationSkills.skills)
-  }, [organizationSkillGroupById, organizationSkills.organizationId, organizationSkills.skills, skillInventory.data])
   const sessionScope = React.useMemo(
     () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
     [organizationWorkspace.activeWorkspace],
@@ -177,10 +150,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     remove: removeSession,
     refresh: refreshSessions,
   } = useSessions({ enabled: sessionsEnabled, scope: sessionScope ?? undefined })
-  const [workspaceSwitchTargetKey, setWorkspaceSwitchTargetKey] = React.useState<string | null>(null)
-  const [workspaceSwitchTimedOutKey, setWorkspaceSwitchTimedOutKey] = React.useState<string | null>(null)
-  const workspaceSwitchStartedAt = React.useRef<number | null>(null)
-  const observedWorkspaceKeyRef = React.useRef<string | null>(null)
   const currentScopeKey = sessionScopeKey(sessionScope)
   const currentConnectionWorkspaceKey = organizationWorkspace.connectionWorkspace
     ? connectionWorkspaceSwitchKey(organizationWorkspace.connectionWorkspace)
@@ -198,25 +167,29 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const organizationSkillsSettled =
     !activeOrganizationId ||
     (activeOrganizationSkillsMatched && !organizationSkills.loading && organizationSkills.hasLoaded)
-  const workspaceActivationState = resolveWorkspaceActivationState({
-    agentScopeSyncError: connections.scopeSyncError,
-    agentScopeWorkspaceKey: connections.agentScopeWorkspaceKey,
-    connectionSettledWorkspaceKey: connections.summaryWorkspaceKey,
-    connectionWorkspaceKey: currentConnectionWorkspaceKey,
-    connectionsRefreshing: connections.busy === "refresh",
-    currentScopeKey,
-    loadedSessionScopeKey: sessionsLoadedScopeKey,
-    organizationSkillsError,
-    organizationSkillsSettled,
-    targetScopeKey: workspaceSwitchTargetKey,
-    workspaceMetadataError: organizationWorkspace.error,
+  const {
+    activationBlocked: workspaceActivationBlocked,
+    activationState: workspaceActivationState,
+    handleSwitchStart: handleWorkspaceSwitchStart,
+    navigationSwitching: workspaceNavigationSwitching,
+  } = useWorkspaceActivation({
+    activationInput: {
+      agentScopeSyncError: connections.scopeSyncError,
+      agentScopeWorkspaceKey: connections.agentScopeWorkspaceKey,
+      connectionSettledWorkspaceKey: connections.summaryWorkspaceKey,
+      connectionWorkspaceKey: currentConnectionWorkspaceKey,
+      connectionsRefreshing: connections.busy === "refresh",
+      currentScopeKey,
+      loadedSessionScopeKey: sessionsLoadedScopeKey,
+      organizationSkillsError,
+      organizationSkillsSettled,
+      workspaceMetadataError: organizationWorkspace.error,
+    },
+    activeWorkspaceKey,
+    hasLoadedOrganizations: organizationWorkspace.hasLoaded,
+    loadingOrganizations: organizationWorkspace.loading,
+    organizationIds: organizationWorkspace.organizations.map((organization) => organization.id),
   })
-  const workspaceSwitching = workspaceActivationIsPending(workspaceActivationState)
-  const workspaceSwitchTimedOut = Boolean(
-    workspaceSwitchTargetKey && workspaceSwitchTimedOutKey === workspaceSwitchTargetKey,
-  )
-  const workspaceNavigationSwitching = workspaceSwitching && !workspaceSwitchTimedOut
-  const workspaceActivationBlocked = workspaceActivationBlocksInput(workspaceActivationState)
   const sessionsSettledForCurrentScope = sessionsLoaded && sessionsLoadedScopeKey === currentScopeKey
   const visibleSessions = React.useMemo(
     () => (sessionsSettledForCurrentScope ? sessions : []),
@@ -234,66 +207,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     () => (sessionsSettledForCurrentScope ? projects : []),
     [projects, sessionsSettledForCurrentScope],
   )
-  const handleWorkspaceSwitchStart = React.useCallback((targetScopeKey: string): void => {
-    workspaceSwitchStartedAt.current = Date.now()
-    setWorkspaceSwitchTimedOutKey(null)
-    setWorkspaceSwitchTargetKey(targetScopeKey)
-  }, [])
-  React.useLayoutEffect(() => {
-    if (observedWorkspaceKeyRef.current === null) {
-      observedWorkspaceKeyRef.current = activeWorkspaceKey
-      return
-    }
-    if (observedWorkspaceKeyRef.current === activeWorkspaceKey) {
-      return
-    }
-    observedWorkspaceKeyRef.current = activeWorkspaceKey
-    // 组织管理页也能切 workspace，这里把非侧边栏入口并入同一套 activation 流。
-    handleWorkspaceSwitchStart(activeWorkspaceKey)
-  }, [activeWorkspaceKey, handleWorkspaceSwitchStart])
-  React.useEffect(() => {
-    if (!workspaceSwitchTargetKey) {
-      workspaceSwitchStartedAt.current = null
-      return
-    }
-    const shouldClearTarget = shouldClearWorkspaceSwitchTarget({
-      activeWorkspaceKey,
-      hasLoadedOrganizations: organizationWorkspace.hasLoaded,
-      loadingOrganizations: organizationWorkspace.loading,
-      organizationIds: organizationWorkspace.organizations.map((organization) => organization.id),
-      targetScopeKey: workspaceSwitchTargetKey,
-      workspaceSwitching,
-    })
-    if (shouldClearTarget) {
-      setWorkspaceSwitchTimedOutKey(null)
-      setWorkspaceSwitchTargetKey(null)
-    }
-  }, [
-    activeWorkspaceKey,
-    organizationWorkspace.hasLoaded,
-    organizationWorkspace.loading,
-    organizationWorkspace.organizations,
-    workspaceSwitchTargetKey,
-    workspaceSwitching,
-  ])
-  React.useEffect(() => {
-    if (!workspaceSwitchTargetKey) {
-      setWorkspaceSwitchTimedOutKey(null)
-      return
-    }
-    const startedAt = workspaceSwitchStartedAt.current ?? Date.now()
-    workspaceSwitchStartedAt.current = startedAt
-    const remainingMs = WORKSPACE_SWITCH_TIMEOUT_MS - (Date.now() - startedAt)
-    if (remainingMs <= 0) {
-      setWorkspaceSwitchTimedOutKey(workspaceSwitchTargetKey)
-      return
-    }
-    // 超时只释放 workspace 选择器，不把真实切换状态伪装成完成。
-    const timeoutId = window.setTimeout(() => {
-      setWorkspaceSwitchTimedOutKey((current) => current ?? workspaceSwitchTargetKey)
-    }, remainingMs)
-    return () => window.clearTimeout(timeoutId)
-  }, [workspaceSwitchTargetKey])
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [selectedSessionId, setSelectedSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
@@ -317,14 +230,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   } = useSidebarChromeState(appChromeRef)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [composerFocusRequest, setComposerFocusRequest] = React.useState(0)
-  const [renameSessionId, setRenameSessionId] = React.useState<string | null>(null)
-  const [archiveSessionId, setArchiveSessionId] = React.useState<string | null>(null)
-  const [archiveConfirming, setArchiveConfirming] = React.useState(false)
-  const [renameProjectId, setRenameProjectId] = React.useState<string | null>(null)
-  const [archiveProjectId, setArchiveProjectId] = React.useState<string | null>(null)
-  const [removeProjectId, setRemoveProjectId] = React.useState<string | null>(null)
-  const [archiveProjectConfirming, setArchiveProjectConfirming] = React.useState(false)
-  const [removeProjectConfirming, setRemoveProjectConfirming] = React.useState(false)
   const selectedSession = selectedSessionId
     ? (visibleSessions.find((session) => session.id === selectedSessionId) ?? null)
     : null
@@ -362,52 +267,16 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeProviders = connectionSummaryMatchesWorkspace
     ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
     : EMPTY_CONNECTION_PROVIDERS
-  const providerSkillRecommendationsEnabled = route === "chat" || route === "skills" || route === "organizations"
-  const providerSkillRecommendations = useProviderSkillRecommendations({
-    groupById: organizationSkillGroupById,
-    providers:
-      organizationSkills.organizationId && providerSkillRecommendationsEnabled
-        ? activeProviders
-        : EMPTY_CONNECTION_PROVIDERS,
+  const {
+    entryVisible: organizationSkillEntryVisible,
+    pendingInstallCount: recommendedSkillPendingInstallCount,
+    showcaseItems: organizationSkillShowcaseItems,
+  } = useAppShellSkillRecommendations({
+    activeProviders,
+    inventory: skillInventory.data,
+    organizationSkills,
+    route,
   })
-  const installableProviderSkillRecommendations = React.useMemo(
-    () => getUnlinkedProviderSkillRecommendations(organizationSkills.skills, providerSkillRecommendations.installable),
-    [organizationSkills.skills, providerSkillRecommendations.installable],
-  )
-  const recommendedSkillPendingInstallCount = skillInventory.data
-    ? installableOrganizationSkills.length + installableProviderSkillRecommendations.length
-    : undefined
-  const organizationSkillEntryVisible = shouldShowRecommendedSkillEntry({
-    organizationId: organizationSkills.organizationId,
-    organizationSkillCount: organizationSkills.skills.length,
-    providerRecommendationCount: installableProviderSkillRecommendations.length,
-  })
-  const organizationSkillShowcaseItems = React.useMemo<ChatOrganizationSkillContext[]>(() => {
-    const organizationShowcaseSkills =
-      installableOrganizationSkills.length > 0 ? installableOrganizationSkills : organizationSkills.skills
-    const organizationItems = organizationShowcaseSkills.map((skill) => ({
-      ...(skill.description ? { description: skill.description } : {}),
-      ...(skill.icon ? { icon: skill.icon } : {}),
-      id: skill.id,
-      name: skill.displayName || skill.skillName,
-      packageName: skill.packageName,
-      skillName: skill.skillName,
-      version: skill.version,
-    }))
-    const providerItems = installableProviderSkillRecommendations.map((recommendation) => {
-      const recommendedSkill = recommendation.package.skills.find((skill) => skill.name === recommendation.skillId)
-      return {
-        ...(recommendation.package.description ? { description: recommendation.package.description } : {}),
-        ...(recommendation.providerIconUrl ? { icon: recommendation.providerIconUrl } : {}),
-        id: `provider:${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`,
-        name: recommendation.package.displayName || recommendedSkill?.title || recommendation.skillId,
-        packageName: recommendation.packageName,
-        skillName: recommendation.skillId,
-        version: recommendation.package.version,
-      }
-    })
-    return [...organizationItems, ...providerItems]
-  }, [installableOrganizationSkills, installableProviderSkillRecommendations, organizationSkills.skills])
   const sharedConnectorCount =
     organizationWorkspace.activeWorkspace.type === "organization" && connectionSummaryMatchesWorkspace
       ? connections.summary?.connectedProviderCount
@@ -416,15 +285,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
   )
-  const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
-  const lastReasoningLevelBySession = React.useRef<Map<string, ReasoningLevel | undefined>>(new Map())
-  const lastModeBySession = React.useRef<Map<string, AgentMode | undefined>>(new Map())
-  const lastPermissionModeBySession = React.useRef<Map<string, AgentPermissionMode | undefined>>(new Map())
-  const lastContextMentionsBySession = React.useRef<Map<string, ChatContextMention[]>>(new Map())
-  const turnRetryOptionsBySession = React.useRef<Map<string, Map<string, TurnRetryOptions>>>(new Map())
   const composerDraftsByKey = React.useRef<Map<string, ComposerState>>(new Map())
   const lastChatProjectId = React.useRef<string | null>(null)
-  const sendInFlightKeysRef = React.useRef(new Set<string>())
   const workspaceResetKeyRef = React.useRef(activeWorkspaceKey)
   const previousActiveChatSessionIdRef = React.useRef<string | null>(null)
   const {
@@ -541,6 +403,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     rename,
     sessions: visibleSessions,
   })
+  const titleGeneration = React.useMemo(
+    () => ({ getAutoFallbackTitle, isAutoRefreshable, refreshGeneratedTitle, rememberAutoFallbackTitle }),
+    [getAutoFallbackTitle, isAutoRefreshable, refreshGeneratedTitle, rememberAutoFallbackTitle],
+  )
   const activeProjectId = React.useMemo(
     () => activeProjectIdForComposer({ activeSession, draftProjectId }),
     [activeSession, draftProjectId],
@@ -551,6 +417,32 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     }
     return visibleProjects.find((project) => project.id === activeProjectId)
   }, [activeProjectId, visibleProjects])
+  const handleProjectUnavailable = React.useCallback(
+    (projectId: string): void => {
+      if (lastChatProjectId.current === projectId) {
+        lastChatProjectId.current = null
+      }
+      if (activeProjectId !== projectId) {
+        return
+      }
+      if (activeChatSessionId) {
+        setSelectedSessionId(null)
+      }
+      setIsDraftSession(true)
+      setDraftProjectId(NO_DRAFT_PROJECT_ID)
+      setPendingChatTransition(null)
+      setRoute("chat")
+    },
+    [activeChatSessionId, activeProjectId],
+  )
+  const projectActions = useProjectActions({
+    archiveProject: archiveProjectAction,
+    onProjectUnavailable: handleProjectUnavailable,
+    pinProject: pinProjectAction,
+    projects: visibleProjects,
+    removeProject: removeProjectAction,
+    renameProject: renameProjectAction,
+  })
   const projectGit = useProjectGit(activeProject)
   const activeProjectContext = React.useMemo(
     () => projectContextFromProject(activeProject, projectGit.state),
@@ -571,16 +463,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeComposerDraftKey = activeChatSessionId
     ? existingSessionComposerDraftKey(currentScopeKey, activeChatSessionId)
     : newSessionComposerDraftKeyForScopeKey(newSessionDraftScopeKey, activeProjectId)
-  const activeComposerDraftKeyRef = React.useRef(activeComposerDraftKey)
-  activeComposerDraftKeyRef.current = activeComposerDraftKey
-  const currentScopeKeyRef = React.useRef(currentScopeKey)
-  currentScopeKeyRef.current = currentScopeKey
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
-  const renameSession = visibleSessions.find((s) => s.id === renameSessionId) ?? null
-  const renameProjectTarget = visibleProjects.find((project) => project.id === renameProjectId) ?? null
-  const archiveProjectTarget = visibleProjects.find((project) => project.id === archiveProjectId) ?? null
-  const removeProjectTarget = visibleProjects.find((project) => project.id === removeProjectId) ?? null
-  const archiveSession = visibleSessions.find((s) => s.id === archiveSessionId) ?? null
   const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
   const chatConnectionAuthIntent = activeChatConnectionDrawer?.authIntent ?? null
   const chatConnectionSelectedService = activeChatConnectionDrawer?.selectedService ?? null
@@ -614,53 +497,22 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     },
     [activeChatSessionId, activeChatTurnState, getSessionStatus],
   )
-  const sidebarSessionOrder = React.useMemo(
-    () => ({ getSessionRunStartedAt, isSessionRunning }),
-    [getSessionRunStartedAt, isSessionRunning],
-  )
-  const sidebarSessionGroups = React.useMemo(
-    () => groupSidebarSessions(visibleTaskSessions, sidebarSessionOrder),
-    [sidebarSessionOrder, visibleTaskSessions],
-  )
-  const projectPinnedSessions = React.useMemo(() => {
-    const pinnedProjectIds = new Set(visibleProjects.filter((project) => project.pinnedAt).map((project) => project.id))
-    return visibleProjectSessions
-      .filter(
-        (session) =>
-          session.projectId && !pinnedProjectIds.has(session.projectId) && session.pinnedAt && !session.archivedAt,
-      )
-      .sort((a, b) => compareRunningSessions(a, b, sidebarSessionOrder) || (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
-  }, [sidebarSessionOrder, visibleProjectSessions, visibleProjects])
-  const projectSidebarGroups = React.useMemo(
-    () =>
-      buildProjectSidebarGroups(visibleProjects, visibleProjectSessions, sidebarSessionOrder, { selectedSessionId }),
-    [selectedSessionId, sidebarSessionOrder, visibleProjectSessions, visibleProjects],
-  )
-  const projectPinnedGroups = React.useMemo(
-    () => projectSidebarGroups.filter((group) => group.project.pinnedAt),
-    [projectSidebarGroups],
-  )
-  const projectRegularGroups = React.useMemo(
-    () => projectSidebarGroups.filter((group) => !group.project.pinnedAt),
-    [projectSidebarGroups],
-  )
-  const selectableTaskSidebarSessions = React.useMemo(
-    () => [...sidebarSessionGroups.pinned, ...sidebarSessionGroups.regular],
-    [sidebarSessionGroups],
-  )
-  const selectableProjectSidebarSessions = React.useMemo(
-    () =>
-      projectSidebarSessionsInRenderOrder({
-        pinnedGroups: projectPinnedGroups,
-        pinnedSessions: projectPinnedSessions,
-        regularGroups: projectRegularGroups,
-      }),
-    [projectPinnedGroups, projectPinnedSessions, projectRegularGroups],
-  )
-  const selectableSidebarSessions = React.useMemo(
-    () => (sidebarSegment === "projects" ? selectableProjectSidebarSessions : selectableTaskSidebarSessions),
-    [selectableProjectSidebarSessions, selectableTaskSidebarSessions, sidebarSegment],
-  )
+  const {
+    pinnedProjectGroups: projectPinnedGroups,
+    pinnedProjectSessions: projectPinnedSessions,
+    projectGroups: projectSidebarGroups,
+    regularProjectGroups: projectRegularGroups,
+    selectableSessions: selectableSidebarSessions,
+    taskGroups: sidebarSessionGroups,
+  } = useAppShellSidebarSessions({
+    getSessionRunStartedAt,
+    isSessionRunning,
+    projectSessions: visibleProjectSessions,
+    projects: visibleProjects,
+    selectedSessionId,
+    sidebarSegment,
+    taskSessions: visibleTaskSessions,
+  })
   const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
   const needsDefaultSessionSelection =
     sessionsSettledForCurrentScope && !isDraftSession && !selectedSessionId && selectableSidebarSessions.length > 0
@@ -753,36 +605,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   }, [pendingCaughtUp])
 
   React.useEffect(() => {
-    if (renameSessionId && !renameSession) {
-      setRenameSessionId(null)
-    }
-  }, [renameSession, renameSessionId])
-
-  React.useEffect(() => {
-    if (renameProjectId && !renameProjectTarget) {
-      setRenameProjectId(null)
-    }
-  }, [renameProjectId, renameProjectTarget])
-
-  React.useEffect(() => {
-    if (archiveSessionId && !archiveSession) {
-      setArchiveSessionId(null)
-    }
-  }, [archiveSession, archiveSessionId])
-
-  React.useEffect(() => {
-    if (archiveProjectId && !archiveProjectTarget) {
-      setArchiveProjectId(null)
-    }
-  }, [archiveProjectId, archiveProjectTarget])
-
-  React.useEffect(() => {
-    if (removeProjectId && !removeProjectTarget) {
-      setRemoveProjectId(null)
-    }
-  }, [removeProjectId, removeProjectTarget])
-
-  React.useEffect(() => {
     if (
       draftProjectId &&
       draftProjectId !== NO_DRAFT_PROJECT_ID &&
@@ -817,288 +639,96 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const clearComposerDraft = React.useCallback((draftKey: string): void => {
     composerDraftsByKey.current.delete(draftKey)
   }, [])
-
-  const requestComposerFocus = React.useCallback((): void => {
-    setRoute("chat")
-    setSearchOpen(false)
-    setComposerFocusRequest((request) => request + 1)
-  }, [])
-
-  const handleReturnToConnections = React.useCallback((): void => {
-    setSearchOpen(false)
-    setRoute("connections")
-  }, [])
-
-  const startNewSessionDraft = React.useCallback(
-    (target: ReturnType<typeof resolveNewSessionTarget>, clearTargetDraft = true): void => {
-      const targetDraftKey = newSessionComposerDraftKey(sessionScope, target.projectId)
-      if (clearTargetDraft) {
-        clearComposerDraft(targetDraftKey)
+  const readLastProjectId = React.useCallback((): string | null => lastChatProjectId.current, [])
+  const {
+    handleNewSession,
+    handleOpenProjectDraft,
+    handleReturnToConnections,
+    handleSelectComposerProject,
+    handleSelectComposerProjectFolder,
+    handleSelectProjectFolder,
+    handleSelectSession,
+    requestComposerFocus,
+  } = useComposerNavigation({
+    activeChatSessionId,
+    activeSession,
+    assignSessionProject,
+    clearComposerDraft,
+    createProject,
+    draftProjectId,
+    isDraftSession,
+    lastProjectId: readLastProjectId,
+    route,
+    sessionScope,
+    setComposerFocusRequest,
+    setDraftPermissionMode,
+    setDraftProjectId,
+    setIsDraftSession,
+    setPendingChatTransition,
+    setRoute,
+    setSearchOpen,
+    setSelectedSessionId,
+    setSidebarSegment,
+    sidebarSegment,
+  })
+  const handleSessionArchived = React.useCallback(
+    (session: SessionInfo): void => {
+      clearComposerDraft(existingSessionComposerDraftKey(sessionRecordScopeKey(session.scope), session.id))
+      if (activeChatSessionId !== session.id) {
+        return
       }
-      setSelectedSessionId(null)
-      setIsDraftSession(true)
-      setDraftPermissionMode("default")
-      setDraftProjectId(target.projectId ?? NO_DRAFT_PROJECT_ID)
+      setSelectedSessionId(nextActiveSessionIdAfterArchive(selectableSidebarSessions, session.id))
+      setIsDraftSession(false)
       setPendingChatTransition(null)
       setRoute("chat")
-      setSidebarSegment(target.sidebarSegment)
-      setSearchOpen(false)
-      setComposerFocusRequest((request) => request + 1)
     },
-    [clearComposerDraft, sessionScope],
+    [activeChatSessionId, clearComposerDraft, selectableSidebarSessions],
   )
+  const sessionActions = useSessionActions({
+    archive,
+    clearAutoFallbackTitle,
+    isSessionRunning,
+    onArchived: handleSessionArchived,
+    pin,
+    rename,
+    sessions: visibleSessions,
+  })
 
-  const handleNewSession = React.useCallback((): void => {
-    startNewSessionDraft(
-      resolveNewSessionTarget({
-        activeSession,
-        draftProjectId,
-        lastProjectId: lastChatProjectId.current,
-        preferLastProject: route !== "chat",
-        sidebarSegment,
-      }),
-    )
-  }, [activeSession, draftProjectId, route, sidebarSegment, startNewSessionDraft])
-
-  const handleOpenProjectDraft = React.useCallback(
-    (project: SessionProject): void => {
-      // 项目入口用于切换当前草稿；仅“新建会话”操作才会显式清空该项目已有草稿。
-      startNewSessionDraft(resolveNewSessionTarget({ draftProjectId, explicitProjectId: project.id }), false)
+  const {
+    isDraftSendInFlight,
+    isSendInFlight,
+    memory: {
+      contextMentionsBySession: lastContextMentionsBySession,
+      modeBySession: lastModeBySession,
+      modelBySession: lastModelBySession,
+      permissionModeBySession: lastPermissionModeBySession,
+      reasoningLevelBySession: lastReasoningLevelBySession,
+      retryOptionsBySession: turnRetryOptionsBySession,
     },
-    [draftProjectId, startNewSessionDraft],
-  )
+    sendNow,
+  } = useComposerSubmission({
+    activeChatSessionId,
+    activeComposerDraftKey,
+    activeProject,
+    activeProjectContext,
+    activeSession,
+    createSession: create,
+    currentScopeKey,
+    displayedPermissionMode,
+    messages,
+    messagesLoaded,
+    organizationSkills: organizationSkills.chatContextSkills,
+    persistPermissionMode,
+    send,
+    sessionScope,
+    setIsDraftSession,
+    setPendingChatTransition,
+    setRoute,
+    setSelectedSessionId,
+    setSidebarSegment,
+    titleGeneration,
+  })
 
-  const handleSelectComposerProject = React.useCallback(
-    async (projectId: string | undefined): Promise<void> => {
-      if (activeChatSessionId && !isDraftSession) {
-        try {
-          await assignSessionProject(activeChatSessionId, projectId)
-          setSidebarSegment(projectId ? "projects" : "tasks")
-        } catch (cause) {
-          const notice = resolveUserFacingError(cause, { area: "session" })
-          toast.error(userFacingErrorDescription(notice, t))
-        }
-        return
-      }
-      setDraftProjectId(projectId ?? NO_DRAFT_PROJECT_ID)
-      setIsDraftSession(true)
-      setRoute("chat")
-      setSidebarSegment(projectId ? "projects" : "tasks")
-    },
-    [activeChatSessionId, assignSessionProject, isDraftSession, t],
-  )
-
-  const handleCreatedProject = React.useCallback(
-    async (project: SessionProject, source: ProjectSelectionSource): Promise<void> => {
-      if (source === "composer") {
-        await handleSelectComposerProject(project.id)
-        return
-      }
-      handleOpenProjectDraft(project)
-    },
-    [handleOpenProjectDraft, handleSelectComposerProject],
-  )
-
-  const handleSelectProjectDirectory = React.useCallback(
-    async (source: ProjectSelectionSource): Promise<void> => {
-      releaseTransientFocus()
-      const picker = globalThis.wanta?.selectProjectDirectory
-      if (!picker) {
-        toast.error(t("project.folderPickerUnavailable"))
-        return
-      }
-      try {
-        const directory = await picker()
-        if (!directory) {
-          return
-        }
-        const project = await createProject({ name: directory.name, path: directory.path })
-        await handleCreatedProject(project, source)
-      } catch (cause) {
-        const notice = resolveUserFacingError(cause, { area: "session" })
-        toast.error(userFacingErrorDescription(notice, t))
-      } finally {
-        releaseTransientFocus()
-      }
-    },
-    [createProject, handleCreatedProject, t],
-  )
-
-  const handleSelectProjectFolder = React.useCallback(async (): Promise<void> => {
-    await handleSelectProjectDirectory("sidebar")
-  }, [handleSelectProjectDirectory])
-
-  const handleSelectComposerProjectFolder = React.useCallback(async (): Promise<void> => {
-    await handleSelectProjectDirectory("composer")
-  }, [handleSelectProjectDirectory])
-
-  const handleSelectSession = React.useCallback((session: SessionInfo): void => {
-    setSelectedSessionId(session.id)
-    setIsDraftSession(false)
-    setDraftProjectId(null)
-    setRoute("chat")
-    setSidebarSegment(session.projectId ? "projects" : "tasks")
-  }, [])
-
-  const sendNow = React.useCallback(
-    async (request: ChatSendRequest): Promise<ChatSendResult> => {
-      const {
-        afterOptimisticSubmit,
-        attachments = [],
-        contextMentions = [],
-        mode,
-        model,
-        organizationSkills: requestOrganizationSkills,
-        permissionMode: permissionModeArg,
-        projectContext: requestProjectContext,
-        reasoningLevel,
-        sessionScope: requestSessionScope,
-        text,
-      } = request
-      const effectiveSessionScope = requestSessionScope ?? sessionScope
-      const effectiveScopeKey = sessionScopeKey(effectiveSessionScope)
-      const effectiveOrganizationSkills = requestOrganizationSkills ?? organizationSkills.chatContextSkills
-      const effectiveProjectContext = requestProjectContext ?? activeProjectContext
-      const sendKey = activeComposerDraftKey
-      const sendScopeKey = effectiveScopeKey
-      const isCurrentSendTarget = (): boolean =>
-        activeComposerDraftKeyRef.current === sendKey && currentScopeKeyRef.current === sendScopeKey
-      if (sendInFlightKeysRef.current.has(sendKey)) {
-        return { reason: "send_in_flight", status: "rejected" }
-      }
-      if (!effectiveSessionScope || currentScopeKey !== sendScopeKey) {
-        return { reason: "workspace_not_ready", status: "rejected" }
-      }
-      sendInFlightKeysRef.current.add(sendKey)
-      try {
-        setRoute("chat")
-        let sessionId = activeChatSessionId
-        const titleInput = { ...buildSessionTitleInput(messages, text, attachments), model }
-        const fallbackTitle = buildFallbackSessionTitle(titleInput)
-        const autoFallbackTitle = sessionId ? getAutoFallbackTitle(sessionId) : undefined
-        const allowPlaceholderTitle =
-          !sessionId || (activeSession ? isAutoRefreshable(activeSession, true, fallbackTitle) : false)
-        const shouldRefreshTitle =
-          !sessionId || (activeSession ? isAutoRefreshable(activeSession, allowPlaceholderTitle, fallbackTitle) : false)
-        const bridgeEmptySend = messagesLoaded && messages.length === 0
-        const createdAt = Date.now()
-        const selectedPermissionMode = permissionModeArg ?? displayedPermissionMode
-        if (bridgeEmptySend && isCurrentSendTarget()) {
-          setPendingChatTransition({
-            sessionId,
-            scopeKey: sendScopeKey,
-            text,
-            attachments,
-            contextMentions,
-            model,
-            reasoningLevel,
-            mode,
-            permissionMode: selectedPermissionMode,
-            createdAt,
-          })
-        }
-        if (!sessionId) {
-          let info: SessionInfo
-          try {
-            info = await create(fallbackTitle, effectiveProjectContext?.id ?? activeProject?.id)
-          } catch (error) {
-            if (bridgeEmptySend && isCurrentSendTarget()) {
-              setPendingChatTransition(null)
-            }
-            return { error, status: "failed" }
-          }
-          sessionId = info.id
-          rememberAutoFallbackTitle(sessionId, fallbackTitle)
-          if (isCurrentSendTarget()) {
-            setSelectedSessionId(sessionId)
-            setIsDraftSession(false)
-            setSidebarSegment(info.projectId ? "projects" : "tasks")
-            setPendingChatTransition((pending) =>
-              pending?.createdAt === createdAt && pending.scopeKey === sendScopeKey
-                ? { ...pending, sessionId: info.id }
-                : pending,
-            )
-          }
-        }
-        persistPermissionMode(sessionId, selectedPermissionMode)
-        if (shouldRefreshTitle) {
-          void refreshGeneratedTitle(
-            sessionId,
-            titleInput,
-            allowPlaceholderTitle,
-            !activeChatSessionId ? fallbackTitle : autoFallbackTitle,
-          )
-        }
-        lastModelBySession.current.set(sessionId, model)
-        lastReasoningLevelBySession.current.set(sessionId, reasoningLevel)
-        lastModeBySession.current.set(sessionId, mode)
-        lastPermissionModeBySession.current.set(sessionId, selectedPermissionMode)
-        lastContextMentionsBySession.current.set(sessionId, contextMentions)
-        rememberTurnRetryOptions(
-          turnRetryOptionsBySession.current,
-          sessionId,
-          chatTurnInputKey({ text, attachments }),
-          {
-            contextMentions,
-            organizationSkills: effectiveOrganizationSkills,
-            projectContext: effectiveProjectContext,
-            model,
-            reasoningLevel,
-            mode,
-            permissionMode: selectedPermissionMode,
-            sessionScope: effectiveSessionScope,
-          },
-        )
-        try {
-          const sendPromise = send(sessionId, text, attachments, {
-            contextMentions,
-            model,
-            organizationSkills: effectiveOrganizationSkills,
-            projectContext: effectiveProjectContext,
-            reasoningLevel,
-            sessionScope: effectiveSessionScope,
-            mode,
-            permissionMode: selectedPermissionMode,
-          })
-          afterOptimisticSubmit?.()
-          await sendPromise
-        } catch (error) {
-          if (bridgeEmptySend && isCurrentSendTarget()) {
-            setPendingChatTransition(null)
-          }
-          return { error, status: "failed" }
-        }
-        return { delivery: "sent", status: "accepted" }
-      } finally {
-        sendInFlightKeysRef.current.delete(sendKey)
-      }
-    },
-    [
-      activeSession,
-      activeChatSessionId,
-      activeComposerDraftKey,
-      activeProject?.id,
-      activeProjectContext,
-      create,
-      currentScopeKey,
-      displayedPermissionMode,
-      getAutoFallbackTitle,
-      isAutoRefreshable,
-      messages,
-      messagesLoaded,
-      organizationSkills.chatContextSkills,
-      refreshGeneratedTitle,
-      rememberAutoFallbackTitle,
-      send,
-      sessionScope,
-      persistPermissionMode,
-    ],
-  )
-
-  const isSendInFlight = React.useCallback(
-    (): boolean => sendInFlightKeysRef.current.has(activeComposerDraftKey),
-    [activeComposerDraftKey],
-  )
   const {
     activeQueueHeld,
     activeQueuedMessages,
@@ -1199,14 +829,18 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setDraftPermissionMode("default")
     setDraftProjectId(null)
     setPendingChatTransition(null)
-    setRenameSessionId(null)
-    setArchiveSessionId(null)
-    setRenameProjectId(null)
-    setArchiveProjectId(null)
-    setRemoveProjectId(null)
+    sessionActions.resetDialogs()
+    projectActions.resetDialogs()
     handleArtifactsReset()
     releaseTransientFocus()
-  }, [activeWorkspaceKey, clearRetries, handleArtifactsReset, holdQueuedSessionIfQueued])
+  }, [
+    activeWorkspaceKey,
+    clearRetries,
+    handleArtifactsReset,
+    holdQueuedSessionIfQueued,
+    projectActions.resetDialogs,
+    sessionActions.resetDialogs,
+  ])
 
   React.useEffect(() => {
     if (!sessionsSettledForCurrentScope || !activeChatSessionId) {
@@ -1235,10 +869,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         clearComposerDraft(draftKey)
         afterOptimisticSubmit?.()
       }
-      if (
-        activeChatSessionId &&
-        (!chatTurnAllowsDirectSend(activeChatTurnState) || sendInFlightKeysRef.current.has(draftKey))
-      ) {
+      if (activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isDraftSendInFlight(draftKey))) {
         queueActiveMessage(
           text,
           attachments,
@@ -1302,121 +933,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [activeChatSessionId, rejectQuestion],
   )
 
-  const handlePinSession = async (session: SessionInfo): Promise<void> => {
-    try {
-      await pin(session.id, !session.pinnedAt)
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-    }
-  }
-
-  const handleArchiveSessionRequest = (session: SessionInfo): void => {
-    if (isSessionRunning(session.id)) {
-      return
-    }
-    setArchiveSessionId(session.id)
-  }
-
-  const handleArchiveSession = async (session: SessionInfo): Promise<void> => {
-    if (isSessionRunning(session.id)) {
-      return
-    }
-    setArchiveConfirming(true)
-    try {
-      await archive(session.id)
-      clearComposerDraft(existingSessionComposerDraftKey(sessionRecordScopeKey(session.scope), session.id))
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-      return
-    } finally {
-      setArchiveConfirming(false)
-    }
-    if (activeChatSessionId === session.id) {
-      setSelectedSessionId(nextActiveSessionIdAfterArchive(selectableSidebarSessions, session.id))
-      setIsDraftSession(false)
-      setPendingChatTransition(null)
-      setRoute("chat")
-    }
-    setArchiveSessionId(null)
-  }
-
-  const handlePinProject = async (project: SessionProject): Promise<void> => {
-    try {
-      await pinProjectAction(project.id, !project.pinnedAt)
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-    }
-  }
-
-  const handleRenameProject = async (projectId: string, name: string): Promise<void> => {
-    try {
-      await renameProjectAction(projectId, name)
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-    }
-  }
-
-  const handleShowProjectInFolder = (project: SessionProject): void => {
-    void chatService.invoke("showLocalPathInFolder", { path: project.path }).catch((cause: unknown) => {
-      reportRendererHandledError("appShell.showProjectInFolder", "Failed to reveal project folder", cause)
-      const notice = resolveUserFacingError(cause, { area: "artifact" })
-      toast.error(userFacingErrorDescription(notice, t))
-    })
-  }
-
-  const clearActiveProjectIfNeeded = React.useCallback(
-    (projectId: string): void => {
-      if (lastChatProjectId.current === projectId) {
-        lastChatProjectId.current = null
-      }
-      if (activeProjectId !== projectId) {
-        return
-      }
-      if (activeChatSessionId) {
-        setSelectedSessionId(null)
-      }
-      setIsDraftSession(true)
-      setDraftProjectId(NO_DRAFT_PROJECT_ID)
-      setPendingChatTransition(null)
-      setRoute("chat")
-    },
-    [activeProjectId, activeChatSessionId],
-  )
-
-  const handleArchiveProject = async (project: SessionProject): Promise<void> => {
-    setArchiveProjectConfirming(true)
-    try {
-      await archiveProjectAction(project.id)
-      clearActiveProjectIfNeeded(project.id)
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-      return
-    } finally {
-      setArchiveProjectConfirming(false)
-    }
-    setArchiveProjectId(null)
-  }
-
-  const handleRemoveProject = async (project: SessionProject): Promise<void> => {
-    setRemoveProjectConfirming(true)
-    try {
-      await removeProjectAction(project.id)
-      clearActiveProjectIfNeeded(project.id)
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-      return
-    } finally {
-      setRemoveProjectConfirming(false)
-    }
-    setRemoveProjectId(null)
-  }
-
   const handleAuthorize = React.useCallback(
     (auth: AuthorizationInfo, source?: ChatTurnRetrySource): void => {
       // R5 闭环：打开聊天内连接抽屉并定位该 provider；记录原 action，待用户完成授权后自动重试。
@@ -1474,62 +990,32 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     ],
   )
   const handleOpenSearch = React.useCallback((): void => setSearchOpen(true), [])
-  const handleRenameSession = (sessionId: string, title: string): void => {
-    clearAutoFallbackTitle(sessionId)
-    void rename(sessionId, title).catch((cause: unknown) => {
-      console.error("[wanta] rename session failed", cause)
-      reportRendererHandledError("appShell.renameSession", "Failed to rename session", cause)
-      toast.error(t("session.renameFailed"))
-    })
-  }
   const handleChatStop = React.useCallback(async (): Promise<void> => {
     if (activeChatSessionId) {
       await stop(activeChatSessionId)
     }
   }, [activeChatSessionId, stop])
-  const showManualUpdateCheckResult = React.useCallback(
-    (state: Parameters<typeof resolveManualUpdateCheckAction>[0]): void => {
-      const action = resolveManualUpdateCheckAction(state)
-      const options = { id: "manual-update-check" }
-      switch (action.type) {
-        case "check":
-        case "checking":
-          toast.loading(t("nav.updateChecking"), options)
-          return
-        case "available":
-          toast.info(t("nav.updateAvailable", { version: action.version }), options)
-          return
-        case "downloading":
-          toast.info(t("nav.updateDownloading", { percent: action.percent }), options)
-          return
-        case "downloaded":
-          toast.info(t("nav.updateReady", { version: action.version }), options)
-          return
-        case "not-available":
-          toast.success(t("nav.updateUpToDate", { version: action.version }), options)
-          return
-        case "error":
-          toast.error(t("nav.updateCheckFailed"), options)
-          return
-        case "unavailable":
-          toast.info(t("nav.updateDevUnavailable"), options)
-      }
-    },
-    [t],
-  )
-  const handleManualUpdateCheck = React.useCallback(async (): Promise<void> => {
-    if (!shouldStartManualUpdateCheck(appUpdate.state)) {
-      showManualUpdateCheckResult(appUpdate.state)
-      return
-    }
-    showManualUpdateCheckResult({
-      channel: appUpdate.state?.channel ?? "stable",
-      currentVersion: appUpdate.state?.currentVersion ?? globalThis.wanta?.version ?? "—",
-      isPackaged: true,
-      status: { status: "checking" },
-    })
-    showManualUpdateCheckResult(await appUpdate.check())
-  }, [appUpdate, showManualUpdateCheckResult])
+  const handleOpenConnectionsCommand = React.useCallback((): void => {
+    handleReturnToConnections()
+    void connections.refresh({ forceRefresh: true })
+  }, [connections.refresh, handleReturnToConnections])
+  const handleOpenSettingsCommand = React.useCallback((): void => {
+    setSearchOpen(false)
+    setRoute("settings")
+  }, [])
+  const handleStopGenerationCommand = React.useCallback((): void => {
+    void handleChatStop()
+  }, [handleChatStop])
+  useAppShellCommands({
+    appUpdate,
+    onFocusComposer: requestComposerFocus,
+    onNewChat: handleNewSession,
+    onOpenConnections: handleOpenConnectionsCommand,
+    onOpenSearch: handleOpenSearch,
+    onOpenSettings: handleOpenSettingsCommand,
+    onStopGeneration: handleStopGenerationCommand,
+    onToggleSidebar: handleToggleSidebar,
+  })
   const handlePermissionModeChange = React.useCallback(
     (mode: AgentPermissionMode): void => {
       if (activeChatSessionId) {
@@ -1540,50 +1026,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     },
     [activeChatSessionId, setAndPersistPermissionMode],
   )
-  const runAppCommand = React.useCallback(
-    (command: AppCommand): void => {
-      switch (command) {
-        case APP_COMMANDS.checkForUpdates:
-          void handleManualUpdateCheck()
-          return
-        case APP_COMMANDS.openConnections:
-          handleReturnToConnections()
-          void connections.refresh({ forceRefresh: true })
-          return
-        case APP_COMMANDS.focusComposer:
-          requestComposerFocus()
-          return
-        case APP_COMMANDS.newChat:
-          handleNewSession()
-          return
-        case APP_COMMANDS.openSearch:
-          handleOpenSearch()
-          return
-        case APP_COMMANDS.openSettings:
-          setSearchOpen(false)
-          setRoute("settings")
-          return
-        case APP_COMMANDS.stopGeneration:
-          void handleChatStop()
-          return
-        case APP_COMMANDS.toggleSidebar:
-          handleToggleSidebar()
-          return
-      }
-    },
-    [
-      connections.refresh,
-      handleChatStop,
-      handleManualUpdateCheck,
-      handleNewSession,
-      handleOpenSearch,
-      handleReturnToConnections,
-      handleToggleSidebar,
-      requestComposerFocus,
-    ],
-  )
-  useAppCommandEvents(runAppCommand)
-  useAppCommandShortcuts(runAppCommand)
 
   const handleViewBilling = React.useCallback((target?: BillingDetailsTarget) => {
     setBillingInitialTarget(target ?? null)
@@ -1717,25 +1159,25 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         width={sidebarWidth}
         workspace={organizationWorkspace}
         workspaceSwitching={workspaceNavigationSwitching}
-        onArchiveProjectRequest={(project) => setArchiveProjectId(project.id)}
-        onArchiveSessionRequest={handleArchiveSessionRequest}
+        onArchiveProjectRequest={projectActions.requestArchive}
+        onArchiveSessionRequest={sessionActions.requestArchive}
         onLogout={() => void auth.logout()}
         onNavigate={setRoute}
         onNewSession={handleNewSession}
         onOpenConnections={handleOpenConnections}
         onOpenSearch={handleOpenSearch}
-        onPinProject={(project) => void handlePinProject(project)}
-        onPinSession={(session) => void handlePinSession(session)}
+        onPinProject={(project) => void projectActions.handlePin(project)}
+        onPinSession={(session) => void sessionActions.handlePin(session)}
         onProjectExpandedChange={handleProjectSidebarExpandedChange}
-        onRemoveProjectRequest={(project) => setRemoveProjectId(project.id)}
-        onRenameProjectRequest={(project) => setRenameProjectId(project.id)}
+        onRemoveProjectRequest={projectActions.requestRemove}
+        onRenameProjectRequest={projectActions.requestRename}
         onWorkspaceSwitchStart={handleWorkspaceSwitchStart}
-        onRenameSessionRequest={(session) => setRenameSessionId(session.id)}
+        onRenameSessionRequest={sessionActions.requestRename}
         onSelectProjectDraft={handleOpenProjectDraft}
         onSelectProjectFolder={() => void handleSelectProjectFolder()}
         onSelectSession={handleSelectSession}
         onSetSidebarSegment={setSidebarSegment}
-        onShowProjectInFolder={handleShowProjectInFolder}
+        onShowProjectInFolder={projectActions.handleShowInFolder}
         onSidebarResizeKeyDown={handleSidebarResizeKeyDown}
         onSidebarResizeStart={handleSidebarResizeStart}
         onToggleSidebar={handleToggleSidebar}
@@ -1765,7 +1207,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             workspace={organizationWorkspace.activeWorkspace}
             onArtifactsToggle={() => setArtifactsPanelOpen((open) => !open)}
             onOpenSearch={handleOpenSearch}
-            onRenameSession={handleRenameSession}
+            onRenameSession={sessionActions.handleRename}
             onToggleSidebar={handleToggleSidebar}
             onViewBilling={handleViewBilling}
           />
@@ -1886,27 +1328,27 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       </div>
 
       <AppShellSessionProjectDialogs
-        archiveConfirming={archiveConfirming}
-        archiveProjectConfirming={archiveProjectConfirming}
-        archiveProjectTarget={archiveProjectTarget}
-        archiveSession={archiveSession}
+        archiveConfirming={sessionActions.archiveConfirming}
+        archiveProjectConfirming={projectActions.archiveConfirming}
+        archiveProjectTarget={projectActions.archiveTarget}
+        archiveSession={sessionActions.archiveTarget}
         openSearch={searchOpen}
-        removeProjectConfirming={removeProjectConfirming}
-        removeProjectTarget={removeProjectTarget}
-        renameProjectTarget={renameProjectTarget}
-        renameSession={renameSession}
+        removeProjectConfirming={projectActions.removeConfirming}
+        removeProjectTarget={projectActions.removeTarget}
+        renameProjectTarget={projectActions.renameTarget}
+        renameSession={sessionActions.renameTarget}
         sessions={visibleSessions}
-        onArchiveProject={(project) => void handleArchiveProject(project)}
-        onArchiveSession={(session) => void handleArchiveSession(session)}
-        onCloseArchiveProject={() => setArchiveProjectId(null)}
-        onCloseArchiveSession={() => setArchiveSessionId(null)}
-        onCloseRemoveProject={() => setRemoveProjectId(null)}
-        onCloseRenameProject={() => setRenameProjectId(null)}
-        onCloseRenameSession={() => setRenameSessionId(null)}
+        onArchiveProject={(project) => void projectActions.handleArchive(project)}
+        onArchiveSession={(session) => void sessionActions.handleArchive(session)}
+        onCloseArchiveProject={projectActions.closeArchive}
+        onCloseArchiveSession={sessionActions.closeArchive}
+        onCloseRemoveProject={projectActions.closeRemove}
+        onCloseRenameProject={projectActions.closeRename}
+        onCloseRenameSession={sessionActions.closeRename}
         onCloseSearch={() => setSearchOpen(false)}
-        onRemoveProject={(project) => void handleRemoveProject(project)}
-        onRenameProject={(projectId, name) => void handleRenameProject(projectId, name)}
-        onRenameSession={handleRenameSession}
+        onRemoveProject={(project) => void projectActions.handleRemove(project)}
+        onRenameProject={(projectId, name) => void projectActions.handleRename(projectId, name)}
+        onRenameSession={sessionActions.handleRename}
         onSearchSelect={(session) => {
           handleSelectSession(session)
           setPendingChatTransition(null)

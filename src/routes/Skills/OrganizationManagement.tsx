@@ -1,12 +1,6 @@
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type {
-  Organization,
-  OrganizationAppAccess,
-  OrganizationMember,
-  OrganizationProviderOption,
-  OrganizationUserSummary,
-} from "../../../electron/organizations/common.ts"
-import type { BusyAction, LoadState, ProviderAccessForm } from "./organization-management-model.ts"
+import type { Organization } from "../../../electron/organizations/common.ts"
+import type { BusyAction, ProviderAccessForm } from "./organization-management-model.ts"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
 
@@ -16,19 +10,12 @@ import {
   buildGrantViews,
   buildOrganizationMemberViews,
   errorMessage,
-  errorState,
   initialProviderAccessForm,
   isConflictError,
-  loadState,
-  loadingState,
   maxOrganizationNameLength,
-  organizationManagementSnapshotsByAccountId,
   organizationNameValidation,
   providerOptionsWithSelected,
-  readyState,
-  readOrganizationManagementSnapshot,
   runtimeSkillRemoveBusyKey,
-  uniqueStrings,
 } from "./organization-management-model.ts"
 import {
   EmptyOrganizationsState,
@@ -51,28 +38,14 @@ import { RuntimeSkillRemoveConfirmDialog } from "./OrganizationSkillManageDialog
 import { useAuthStateResource, useSkillInventoryResource } from "@/components/AppDataHooks"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppI18n } from "@/i18n"
-import {
-  getOrganizationAppAccessResource,
-  getOrganizationMembersResource,
-  getOrganizationProviderOptionsResource,
-  getOrganizationUserSummariesResource,
-} from "@/lib/organization-details-resource"
 import { createOrganization, updateOrganization, uploadOrganizationAvatar } from "@/lib/organizations-client"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
 import { useProviderSkillPackageLookup } from "@/routes/Skills/provider-skill-package-lookup"
 import { buildProviderSkillRecommendations } from "@/routes/Skills/provider-skill-recommendations"
+import { useOrganizationDetails } from "@/routes/Skills/use-organization-details"
 import { useOrganizationMemberActions } from "@/routes/Skills/use-organization-member-actions"
 import { useOrganizationMemberSearch } from "@/routes/Skills/use-organization-member-search"
 import { useOrganizationSkillActions } from "@/routes/Skills/use-organization-skill-actions"
-
-type AsyncResult<T> = { ok: true; value: T } | { error: unknown; ok: false }
-
-function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
-  return promise.then(
-    (value) => ({ ok: true, value }),
-    (error: unknown) => ({ error, ok: false }),
-  )
-}
 
 export function OrganizationManagementRoute({
   connectedProviders = [],
@@ -99,19 +72,6 @@ export function OrganizationManagementRoute({
   const getWorkspaceOrganizationRole = workspace.getOrganizationRole
   const activeWorkspaceOrganizationId = activeWorkspace?.type === "organization" ? activeWorkspace.organizationId : null
   const activeWorkspaceIsPersonal = activeWorkspace?.type === "personal"
-  const initialSnapshot = readOrganizationManagementSnapshot(activeAccountId)
-  const [membersState, setMembersState] = React.useState<LoadState<OrganizationMember[]>>(
-    () => initialSnapshot?.membersState ?? loadState([]),
-  )
-  const [summariesState, setSummariesState] = React.useState<LoadState<Record<string, OrganizationUserSummary>>>(
-    () => initialSnapshot?.summariesState ?? loadState({}),
-  )
-  const [providerOptionsState, setProviderOptionsState] = React.useState<LoadState<OrganizationProviderOption[]>>(
-    () => initialSnapshot?.providerOptionsState ?? loadState([]),
-  )
-  const [appAccessState, setAppAccessState] = React.useState<LoadState<OrganizationAppAccess | null>>(
-    () => initialSnapshot?.appAccessState ?? loadState(null),
-  )
   const [busyAction, setBusyAction] = React.useState<BusyAction | null>(null)
   const [createOpen, setCreateOpen] = React.useState(false)
   const [createName, setCreateName] = React.useState("")
@@ -127,28 +87,9 @@ export function OrganizationManagementRoute({
   const [addMemberError, setAddMemberError] = React.useState<string | null>(null)
   const [membersPanelOpen, setMembersPanelOpen] = React.useState(false)
   const [providerAccessForm, setProviderAccessForm] = React.useState<ProviderAccessForm>(initialProviderAccessForm)
-  const detailsRequestId = React.useRef(0)
   const editAvatarUploadVersion = React.useRef(0)
-  const detailsOrganizationIdRef = React.useRef<string | null>(initialSnapshot?.detailsOrganizationId ?? null)
-  const skipInitialDetailsLoadRef = React.useRef(
-    Boolean(
-      initialSnapshot?.detailsOrganizationId && initialSnapshot.detailsOrganizationId === activeWorkspaceOrganizationId,
-    ),
-  )
-  const resetAccountIdRef = React.useRef<string | null>(null)
   const avatarPreviewUrls = workspace.organizationAvatarPreviewUrls
   const clearOrganizationAvatarPreview = workspace.clearOrganizationAvatarPreview
-  const {
-    activeSearchUserId,
-    memberInput,
-    memberSearch,
-    moveActiveSearchUser,
-    resetMemberSearch,
-    selectedSearchUserId,
-    setActiveSearchUserId,
-    setMemberInput,
-    setSelectedSearchUserId,
-  } = useOrganizationMemberSearch({ addMemberOpen, members: membersState.data })
 
   const organizations = workspace.organizations
   const selectedOrganizationId = activeWorkspaceOrganizationId
@@ -194,6 +135,24 @@ export function OrganizationManagementRoute({
     [connectedProviders, providerSkillPackageLookup.packagesByService, skillGroupById],
   )
   const canManage = activeWorkspace.type === "organization" ? activeWorkspace.canManage : false
+  const { appAccessState, membersState, providerOptionsState, reload, setAppAccessState, summariesState } =
+    useOrganizationDetails({
+      activeAccountId,
+      activeOrganizationId: activeWorkspaceOrganizationId,
+      canManage,
+      selectedOrganization,
+    })
+  const {
+    activeSearchUserId,
+    memberInput,
+    memberSearch,
+    moveActiveSearchUser,
+    resetMemberSearch,
+    selectedSearchUserId,
+    setActiveSearchUserId,
+    setMemberInput,
+    setSelectedSearchUserId,
+  } = useOrganizationMemberSearch({ addMemberOpen, members: membersState.data })
   const memberViews = React.useMemo(
     () =>
       buildOrganizationMemberViews({
@@ -255,145 +214,6 @@ export function OrganizationManagementRoute({
     }
   }, [editDuplicated, editName, t])
 
-  const resetOrganizationState = React.useCallback((accountId: string | null) => {
-    resetAccountIdRef.current = accountId
-    detailsRequestId.current += 1
-    detailsOrganizationIdRef.current = null
-    skipInitialDetailsLoadRef.current = false
-    setMembersState(loadState([]))
-    setSummariesState(loadState({}))
-    setProviderOptionsState(loadState([]))
-    setAppAccessState(loadState(null))
-  }, [])
-
-  const loadSelectedDetails = React.useCallback(
-    async (organization: Organization, canManageDetails: boolean, options: { forceRefresh?: boolean } = {}) => {
-      const requestId = detailsRequestId.current + 1
-      const preserveCurrentData = detailsOrganizationIdRef.current === organization.id
-      detailsRequestId.current = requestId
-      detailsOrganizationIdRef.current = null
-      setMembersState((current) => loadingState(preserveCurrentData ? current : loadState([])))
-      setSummariesState((current) => loadingState(preserveCurrentData ? current : loadState({})))
-      setProviderOptionsState(
-        canManageDetails ? (current) => loadingState(preserveCurrentData ? current : loadState([])) : loadState([]),
-      )
-      setAppAccessState(
-        canManageDetails ? (current) => loadingState(preserveCurrentData ? current : loadState(null)) : loadState(null),
-      )
-
-      try {
-        const resourceAccountId = activeAccountId ?? "anonymous"
-        const membersRequest = settle(
-          getOrganizationMembersResource(resourceAccountId, organization.id, { forceRefresh: options.forceRefresh }),
-        )
-        const providerOptionsRequest = canManageDetails
-          ? settle(
-              getOrganizationProviderOptionsResource(resourceAccountId, organization.id, organization.name, {
-                forceRefresh: options.forceRefresh,
-              }),
-            )
-          : Promise.resolve<AsyncResult<OrganizationProviderOption[]>>({ ok: true, value: [] })
-        const appAccessRequest = canManageDetails
-          ? settle(
-              getOrganizationAppAccessResource(resourceAccountId, organization.id, {
-                forceRefresh: options.forceRefresh,
-              }),
-            )
-          : Promise.resolve<AsyncResult<OrganizationAppAccess | null>>({ ok: true, value: null })
-        const fallbackUserIds = uniqueStrings([organization.creator_user_id, activeAccountId ?? ""])
-        const loadSummaries = (userIds: string[]): Promise<AsyncResult<Record<string, OrganizationUserSummary>>> =>
-          userIds.length > 0
-            ? settle(
-                getOrganizationUserSummariesResource(resourceAccountId, organization.id, userIds, {
-                  forceRefresh: options.forceRefresh,
-                }),
-              )
-            : Promise.resolve<AsyncResult<Record<string, OrganizationUserSummary>>>({ ok: true, value: {} })
-
-        const membersResult = await membersRequest
-        if (detailsRequestId.current !== requestId) {
-          return
-        }
-        if (!membersResult.ok) {
-          setMembersState((current) => errorState(current, membersResult.error))
-          setSummariesState((current) => errorState(current, membersResult.error))
-          const summariesResult = await loadSummaries(fallbackUserIds)
-          if (detailsRequestId.current !== requestId) {
-            return
-          }
-          if (summariesResult.ok) {
-            setSummariesState(readyState(summariesResult.value))
-          } else {
-            setSummariesState((current) => errorState(current, summariesResult.error))
-          }
-          return
-        }
-
-        const members = membersResult.value
-        setMembersState(readyState(members))
-
-        const userIds = uniqueStrings([...members.map((member) => member.user_id), ...fallbackUserIds])
-        const summariesRequest = loadSummaries(userIds)
-        const detailTasks = [
-          summariesRequest.then((summariesResult) => {
-            if (detailsRequestId.current !== requestId) {
-              return
-            }
-            if (summariesResult.ok) {
-              setSummariesState(readyState(summariesResult.value))
-            } else {
-              setSummariesState((current) => errorState(current, summariesResult.error))
-            }
-          }),
-        ]
-
-        if (!canManageDetails) {
-          setProviderOptionsState(loadState([]))
-          setAppAccessState(loadState(null))
-        } else {
-          detailTasks.push(
-            providerOptionsRequest.then((providerOptionsResult) => {
-              if (detailsRequestId.current !== requestId) {
-                return
-              }
-              if (providerOptionsResult.ok) {
-                setProviderOptionsState(readyState(providerOptionsResult.value))
-              } else {
-                setProviderOptionsState((current) => errorState(current, providerOptionsResult.error))
-              }
-            }),
-            appAccessRequest.then((appAccessResult) => {
-              if (detailsRequestId.current !== requestId) {
-                return
-              }
-              if (appAccessResult.ok) {
-                setAppAccessState(readyState(appAccessResult.value))
-              } else {
-                setAppAccessState((current) => errorState(current, appAccessResult.error))
-              }
-            }),
-          )
-        }
-
-        await Promise.all(detailTasks)
-        if (detailsRequestId.current === requestId) {
-          detailsOrganizationIdRef.current = organization.id
-        }
-      } catch (error) {
-        if (detailsRequestId.current !== requestId) {
-          return
-        }
-        setMembersState((current) => (current.status === "loading" ? errorState(current, error) : current))
-        setSummariesState((current) => (current.status === "loading" ? errorState(current, error) : current))
-        if (canManageDetails) {
-          setProviderOptionsState((current) => (current.status === "loading" ? errorState(current, error) : current))
-          setAppAccessState((current) => (current.status === "loading" ? errorState(current, error) : current))
-        }
-      }
-    },
-    [activeAccountId],
-  )
-
   const applySavedOrganization = React.useCallback(
     (organization: Organization, options?: { avatarFile?: File | null }) => {
       upsertWorkspaceOrganization(organization, options)
@@ -402,73 +222,12 @@ export function OrganizationManagementRoute({
   )
 
   React.useEffect(() => {
-    const snapshot = readOrganizationManagementSnapshot(activeAccountId)
-    if (!activeAccountId) {
-      if (resetAccountIdRef.current !== null || detailsOrganizationIdRef.current !== null) {
-        resetOrganizationState(null)
-      }
-      return
-    }
-    if (!snapshot) {
-      if (resetAccountIdRef.current !== activeAccountId) {
-        resetOrganizationState(activeAccountId)
-      }
-      return
-    }
-
-    resetAccountIdRef.current = null
-    setMembersState(snapshot.membersState)
-    setSummariesState(snapshot.summariesState)
-    setProviderOptionsState(snapshot.providerOptionsState)
-    setAppAccessState(snapshot.appAccessState)
-    detailsOrganizationIdRef.current = snapshot.detailsOrganizationId
-    skipInitialDetailsLoadRef.current = Boolean(
-      snapshot.detailsOrganizationId && snapshot.detailsOrganizationId === activeWorkspaceOrganizationId,
-    )
-  }, [activeAccountId, activeWorkspaceOrganizationId, resetOrganizationState])
-
-  React.useEffect(() => {
-    if (!activeAccountId) {
-      return
-    }
-
-    organizationManagementSnapshotsByAccountId.set(activeAccountId, {
-      appAccessState,
-      detailsOrganizationId: detailsOrganizationIdRef.current,
-      membersState,
-      providerOptionsState,
-      savedAt: Date.now(),
-      summariesState,
-    })
-  }, [activeAccountId, appAccessState, membersState, providerOptionsState, summariesState])
-
-  React.useEffect(() => {
     const handleWindowFocus = () => {
       void refreshWorkspace()
     }
     window.addEventListener("focus", handleWindowFocus)
     return () => window.removeEventListener("focus", handleWindowFocus)
   }, [refreshWorkspace])
-
-  React.useEffect(() => {
-    if (!selectedOrganization) {
-      detailsRequestId.current += 1
-      detailsOrganizationIdRef.current = null
-      setMembersState(loadState([]))
-      setSummariesState(loadState({}))
-      setProviderOptionsState(loadState([]))
-      setAppAccessState(loadState(null))
-      return
-    }
-
-    if (skipInitialDetailsLoadRef.current && detailsOrganizationIdRef.current === selectedOrganization.id) {
-      skipInitialDetailsLoadRef.current = false
-      return
-    }
-
-    skipInitialDetailsLoadRef.current = false
-    void loadSelectedDetails(selectedOrganization, canManage)
-  }, [canManage, loadSelectedDetails, selectedOrganization?.id, selectedOrganization?.name])
 
   const handleCreateOrganization = React.useCallback(
     async (event: React.FormEvent) => {
@@ -646,12 +405,6 @@ export function OrganizationManagementRoute({
     ],
   )
 
-  const reloadMembersAndAccess = React.useCallback(async () => {
-    if (selectedOrganization) {
-      await loadSelectedDetails(selectedOrganization, canManage, { forceRefresh: true })
-    }
-  }, [canManage, loadSelectedDetails, selectedOrganization])
-
   const handleSelectPersonalWorkspace = React.useCallback(() => {
     selectPersonalWorkspace()
   }, [selectPersonalWorkspace])
@@ -672,7 +425,7 @@ export function OrganizationManagementRoute({
     memberSearch,
     providerAccessError,
     providerAccessForm,
-    reloadDetails: reloadMembersAndAccess,
+    reloadDetails: reload,
     resetMemberSearch,
     selectedOrganization,
     selectedSearchUserId,

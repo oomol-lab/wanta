@@ -111,7 +111,7 @@ export function localImagePathFromSrc(src: string | undefined): string | null {
   if (!value || /^(?:https?:|data:|blob:|wanta:|wanta-local:)/i.test(value)) {
     return null
   }
-  if (value.startsWith("file://")) {
+  if (/^file:\/\//i.test(value)) {
     try {
       const url = new URL(value)
       const decoded = decodeURIComponent(url.pathname)
@@ -120,7 +120,7 @@ export function localImagePathFromSrc(src: string | undefined): string | null {
       return null
     }
   }
-  if (/^(?:~?[\\/]|[A-Za-z]:[\\/])/.test(value)) {
+  if (/^(?:[\\/]|[A-Za-z]:[\\/])/.test(value)) {
     return decodeLocalImagePath(value)
   }
   return null

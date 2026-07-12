@@ -17,6 +17,7 @@ import { logStoreReadFailure } from "../store-diagnostics.ts"
 import { isOperationalStateArtifact } from "./artifact-file-classification.ts"
 import { mimeFromPath, normalizeLocalPathCandidate } from "./artifacts.ts"
 import { localArtifactItem } from "./local-artifacts.ts"
+import { extractMarkdownImageSources } from "./markdown-images.ts"
 import { dataImage, remoteImage } from "./safe-image-source.ts"
 
 export { readResponseBodyWithinLimit } from "./safe-image-source.ts"
@@ -26,7 +27,6 @@ export type ArtifactBundles = Map<string, Map<string, ArtifactBundle>>
 const maxArtifactBaselineFiles = 10_000
 const maxAssistantArtifactSources = 32
 const maxConcurrentArtifactMaterializations = 4
-const markdownImagePattern = /!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\s*\)/gu
 
 interface PersistedArtifactBundles {
   version?: number
@@ -240,7 +240,7 @@ function markdownImageSources(messages: readonly ChatMessage[], messageId: strin
   if (!text) {
     return []
   }
-  return [...text.matchAll(markdownImagePattern)].map((match) => (match[1] ?? match[2] ?? "").trim()).filter(Boolean)
+  return extractMarkdownImageSources(text)
 }
 
 export function markdownImageCount(messages: readonly ChatMessage[], messageId: string): number {

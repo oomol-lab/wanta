@@ -4,6 +4,7 @@ import type { CustomRendererProps, StreamdownProps } from "streamdown"
 
 import { CheckIcon, CopyIcon } from "lucide-react"
 import { lazy, memo, Suspense, useEffect, useRef, useState } from "react"
+import { extractLocalImagePaths, normalizeLocalImageMarkdown } from "../../../electron/chat/markdown-images.ts"
 import {
   CodeBlock,
   CodeBlockActions,
@@ -21,8 +22,6 @@ import { cn } from "@/lib/utils"
 // streamdown 拉入整套 markdown 渲染管线（micromark/remark/rehype + mermaid + katex，约 1.1MB）。
 // 懒加载：聊天外壳先渲染，首条助手消息出现时才加载，不阻塞 AppShell 首帧。
 const Streamdown = lazy(() => import("streamdown").then((m) => ({ default: m.Streamdown })))
-const localImagePathPattern =
-  /(?:file:\/\/[^\s<>"'`，。；：、]+|(?:~?\/|[A-Za-z]:[\\/]).*?\.(?:avif|bmp|gif|jpe?g|png|svg|webp))(?=$|[\s<>"'`，。；：、,;:!?)\]])/gi
 const localPathStartPattern = /^(?:file:\/\/|~?[\\/]|[A-Za-z]:[\\/])/
 const singleLocalPathFencePattern =
   /(^|\n)([ \t]{0,3})(`{3,}|~{3,})[ \t]*(?:text|txt|path|file)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*\3[ \t]*(?=\n|$)/gi
@@ -393,18 +392,20 @@ function localImageAltText(value: string): string {
 
 function extractLocalImagePreviews(markdown: string): LocalImagePreview[] {
   const previews: LocalImagePreview[] = []
-  for (const match of markdown.matchAll(localImagePathPattern)) {
-    const candidate = match[0]?.trim()
+  for (const candidate of extractLocalImagePaths(markdown)) {
     if (
       candidate &&
-      !markdown.includes(`](${candidate})`) &&
-      !markdown.includes(`](<${candidate}>)`) &&
+      !hasValidMarkdownImageReference(markdown, candidate) &&
       !previews.some((preview) => preview.path === candidate)
     ) {
       previews.push({ path: candidate, alt: localImageAltText(candidate) })
     }
   }
   return previews
+}
+
+function hasValidMarkdownImageReference(markdown: string, path: string): boolean {
+  return markdown.includes(`](<${path}>)`) || (!/\s/.test(path) && markdown.includes(`](${path})`))
 }
 
 export function normalizeSingleLocalPathCodeFences(markdown: string): string {
@@ -529,7 +530,9 @@ export const MessageResponse = memo(
     const visibleChildren = useSmoothedText(typeof children === "string" ? children : "", smooth)
     const sourceChildren = typeof children === "string" && smooth ? visibleChildren : children
     const responseChildren =
-      typeof sourceChildren === "string" ? normalizeSingleLocalPathCodeFences(sourceChildren) : sourceChildren
+      typeof sourceChildren === "string"
+        ? normalizeLocalImageMarkdown(normalizeSingleLocalPathCodeFences(sourceChildren))
+        : sourceChildren
     const localImagePreviews = typeof responseChildren === "string" ? extractLocalImagePreviews(responseChildren) : []
     return (
       // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。

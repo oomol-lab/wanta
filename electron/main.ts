@@ -7,6 +7,7 @@ import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, session, shell } from "electron"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { AgentRefreshScheduler } from "./agent-refresh-scheduler.ts"
 import {
   ooBinaryName,
   opencodeBinaryName,
@@ -74,9 +75,6 @@ const viteDevServerUrl = process.env["VITE_DEV_SERVER_URL"]
 const rendererDist = path.join(appRoot, "dist")
 const preloadPath = path.join(dirname, "preload.js")
 const macTrafficLightPosition = { x: 15, y: 17 }
-const skillRuntimeRefreshDelayMs = 1_500
-const skillRuntimeRefreshBusyRetryMs = 2_000
-const skillRuntimeRefreshMaxBusyRetries = 10
 const shutdownCleanupTimeoutMs = 5_000
 
 // dev 用本地 scheme，生产用正式 scheme（R1 / 阶段 6）。
@@ -119,7 +117,6 @@ let agent: AgentManager | null = null
 let applyChain: Promise<void> = Promise.resolve()
 let agentRuntimeVersion = 0
 let appliedAgentRuntimeVersion = -1
-let pendingSkillRuntimeRefresh: NodeJS.Timeout | undefined
 
 const authStore = new AuthStore(app.getPath("userData"))
 const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
@@ -174,9 +171,15 @@ const authManager = new AuthManager({
   protocolScheme,
   applyAccount: applyAuthAccount,
 })
+const skillAgentRefresh = new AgentRefreshScheduler({
+  canRefresh: () => Boolean(authManager.activeAccount() && agent?.isReady()),
+  isBusy: () => chatService.hasActiveGeneration(),
+  isQuitting: () => isQuitting,
+  refresh: refreshAgentAfterSkillChange,
+})
 const authService = new AuthServiceImpl(authManager)
 const skillService = new SkillServiceImpl(authManager, {
-  onRuntimeSkillsChanged: scheduleAgentRefreshForSkillChange,
+  onRuntimeSkillsChanged: (reason) => skillAgentRefresh.schedule(reason),
 })
 const settingsService = new SettingsServiceImpl({
   store: settingsStore,
@@ -324,10 +327,7 @@ if (isLocked) {
  */
 function reapAgentForShutdown(): Promise<void> {
   shutdownReap ??= (async () => {
-    if (pendingSkillRuntimeRefresh) {
-      clearTimeout(pendingSkillRuntimeRefresh)
-      pendingSkillRuntimeRefresh = undefined
-    }
+    skillAgentRefresh.dispose()
     // 退出观感：先藏窗口，回收（含最长宽限期）在后台进行，不让用户盯着卡住的窗口。
     mainWindow?.hide()
     windowsTrayLifecycle?.dispose()
@@ -569,64 +569,13 @@ function restartAgentForModelConfig(): void {
     })
 }
 
-function scheduleAgentRefreshForSkillChange(
-  reason: string,
-  delayMs = skillRuntimeRefreshDelayMs,
-  busyRetryCount = 0,
-): void {
-  if (isQuitting) {
-    return
-  }
-  if (pendingSkillRuntimeRefresh) {
-    clearTimeout(pendingSkillRuntimeRefresh)
-  }
-
-  pendingSkillRuntimeRefresh = setTimeout(() => {
-    pendingSkillRuntimeRefresh = undefined
-    refreshAgentForSkillChange(reason, busyRetryCount)
-  }, delayMs)
-  pendingSkillRuntimeRefresh.unref()
-}
-
-function refreshAgentForSkillChange(reason: string, busyRetryCount = 0): void {
-  if (isQuitting) {
-    return
-  }
-  if (!authManager.activeAccount() || !agent?.isReady()) {
-    return
-  }
-
-  if (chatService.hasActiveGeneration()) {
-    if (busyRetryCount < skillRuntimeRefreshMaxBusyRetries) {
-      scheduleAgentRefreshForSkillChange(reason, skillRuntimeRefreshBusyRetryMs, busyRetryCount + 1)
-      return
-    }
-    console.warn("[wanta] refreshing agent after skill change while generation is still active:", {
-      busyRetryCount,
-      reason,
-    })
-  }
-
+async function refreshAgentAfterSkillChange(_reason: string): Promise<void> {
   agentRuntimeVersion += 1
-  void authManager
-    .activeRuntimeAccount()
-    .then(async (account) => {
-      await applyAuthAccount(account)
-      // 会话中途过期：装配登出态后主动广播"未登录"，渲染层据此落回登录页（一致生命周期）。
-      if (!account) {
-        await authManager.broadcastAuthState()
-      }
-    })
-    .catch((error: unknown) => {
-      console.error("[wanta] failed to restart agent after skill change:", { error, reason })
-    })
+  const account = await authManager.activeRuntimeAccount()
+  await applyAuthAccount(account)
+  // 会话中途过期：装配登出态后主动广播"未登录"，渲染层据此落回登录页（一致生命周期）。
+  if (!account) await authManager.broadcastAuthState()
 }
-
-/**
- * dev：解析 oo 绝对路径（WANTA_OO_BIN 覆盖 > 项目本地 .oo-bin/，由 postinstall 下载）。生产由 extraResources 解析。
- * 不在此做存在性预检——主进程禁用同步 fs（阻塞渲染）；dev 缺失由 predev 守卫（scripts/check-oo.ts）提前报错退出，
- * 打包产物则一定内置 oo。
- */
 function resolveOoBin(): string {
   if (process.env["WANTA_OO_BIN"]) {
     return process.env["WANTA_OO_BIN"]

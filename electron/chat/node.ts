@@ -3,7 +3,7 @@ import type { AgentEventConnectionStatus, AgentManager } from "../agent/manager.
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { SessionProjectStore } from "../session/project-store.ts"
 import type { ArtifactBundleStore, ArtifactBundles } from "./artifact-bundles.ts"
-import type { AuthorizationOverlayStore, AuthorizationOverlays } from "./authorization.ts"
+import type { AuthorizationOverlayStore } from "./authorization.ts"
 import type {
   AgentRuntimeStatus,
   AgentPermissionMode,
@@ -49,7 +49,7 @@ import type {
   TurnOutputsRequest,
 } from "./common.ts"
 import type { SessionGeneration } from "./generation-registry.ts"
-import type { StoppedGenerationStore, StoppedGenerations } from "./stopped-generations.ts"
+import type { StoppedGenerationStore } from "./stopped-generations.ts"
 import type { StoredTurnOutputRecord, TurnOutputRecords, TurnOutputStore } from "./turn-outputs.ts"
 import type { IConnectionService } from "@oomol/connection"
 
@@ -62,9 +62,9 @@ import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
 import { ServiceEvent } from "../service-events.ts"
 import { ActiveRunRegistry } from "./active-run-registry.ts"
-import { captureArtifactSessionBaseline, recordArtifactBundle } from "./artifact-bundles.ts"
+import { captureArtifactSessionBaseline } from "./artifact-bundles.ts"
 import { normalizeLocalPathCandidate } from "./artifacts.ts"
-import { applyAuthorizationOverlays, recordAuthorizationOverlay } from "./authorization.ts"
+import { applyAuthorizationOverlays } from "./authorization.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 import {
   buildContextMentionsSystem as buildContextMentionsSystemPrompt,
@@ -77,9 +77,10 @@ import { normalizeChatError } from "./error.ts"
 import { GenerationRegistry } from "./generation-registry.ts"
 import { evaluateLocalAccessRequest, localAccessGrantForRequest } from "./local-access-policy.ts"
 import { directoryArtifacts, fileArtifact, localArtifactItem, readArtifactPack } from "./local-artifacts.ts"
+import { OutputPersistence } from "./output-persistence.ts"
 import { PermissionState } from "./permission-state.ts"
 import { attachmentPreview, localArtifactPreview } from "./previews.ts"
-import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
+import { applyStoppedGenerations } from "./stopped-generations.ts"
 import { ChatStreamEventBuffer } from "./stream-event-buffer.ts"
 import { SubagentSessions } from "./subagent-sessions.ts"
 import { TrustedLocalAccess } from "./trusted-local-access.ts"
@@ -91,7 +92,7 @@ import {
 import { isPathInside, normalizeProjectPath } from "./turn-output-files.ts"
 import { finalizeTurnOutput as finalizeTurnOutputArtifacts } from "./turn-output-finalizer.ts"
 import { TurnOutputRegistry } from "./turn-output-registry.ts"
-import { publicTurnOutputRecord, recordTurnOutput } from "./turn-outputs.ts"
+import { publicTurnOutputRecord } from "./turn-outputs.ts"
 import { UserStopTracker } from "./user-stop-tracker.ts"
 
 export { buildContextMentionsSystem } from "./context-system.ts"
@@ -241,15 +242,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private readonly permissions = new PermissionState()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
-  private transientArtifactBundles: ArtifactBundles = new Map()
-  private authorizationOverlays: AuthorizationOverlays = new Map()
-  private authorizationOverlaysLoaded = false
-  private authorizationOverlaysLoadPromise: Promise<void> | null = null
-  private authorizationOverlayWritePromise: Promise<void> = Promise.resolve()
-  private stoppedGenerations: StoppedGenerations = new Map()
-  private stoppedGenerationsLoaded = false
-  private stoppedGenerationsLoadPromise: Promise<void> | null = null
-  private transientTurnOutputs: TurnOutputRecords = new Map()
+  private readonly outputPersistence: OutputPersistence
   private scopeMutationQueue: Promise<void> = Promise.resolve()
   private desiredWorkspaceOrganizationName: string | undefined
   private streamEventBuffer: ChatStreamEventBuffer | null = null
@@ -271,6 +264,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       generationIdForSession: (sessionId) => this.generations.get(sessionId)?.id,
       onRootsChanged: () => this.invalidateTrustedLocalPathRoots(),
     })
+    this.outputPersistence = new OutputPersistence(
+      {
+        artifactBundle: deps.artifactBundleStore,
+        authorization: deps.authorizationOverlayStore,
+        stoppedGeneration: deps.stoppedGenerationStore,
+        turnOutput: deps.turnOutputStore,
+      },
+      () => this.invalidateTrustedLocalPathRoots(),
+    )
   }
 
   public override dispose(): void {
@@ -297,14 +299,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.trustedAccess.clear()
     this.subagentSessions.clear()
     this.permissions.clear()
-    this.transientArtifactBundles.clear()
-    this.authorizationOverlays.clear()
-    this.authorizationOverlaysLoaded = false
-    this.authorizationOverlaysLoadPromise = null
-    this.stoppedGenerations.clear()
-    this.stoppedGenerationsLoaded = false
-    this.stoppedGenerationsLoadPromise = null
-    this.transientTurnOutputs.clear()
+    this.outputPersistence.reset()
     this.desiredWorkspaceOrganizationName = undefined
     this.startedMessages.clear()
     this.scopeMutationQueue = Promise.resolve()
@@ -1204,122 +1199,50 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.sessionActivity.emit({ sessionId, usedAt: Date.now() })
   }
 
-  private async ensureStoppedGenerationsLoaded(): Promise<void> {
-    if (this.stoppedGenerationsLoaded) {
-      return
-    }
-    if (this.stoppedGenerationsLoadPromise) {
-      return this.stoppedGenerationsLoadPromise
-    }
-    this.stoppedGenerationsLoadPromise = (async () => {
-      this.stoppedGenerations = (await this.deps.stoppedGenerationStore?.read()) ?? new Map()
-      this.stoppedGenerationsLoaded = true
-      this.stoppedGenerationsLoadPromise = null
-    })()
-    return this.stoppedGenerationsLoadPromise
+  private readTurnOutputs(): Promise<TurnOutputRecords> {
+    return this.outputPersistence.readTurnOutputs()
   }
 
-  private async readTurnOutputs(): Promise<TurnOutputRecords> {
-    return this.deps.turnOutputStore?.read() ?? this.transientTurnOutputs
-  }
-
-  private async readArtifactBundles(): Promise<ArtifactBundles> {
-    return this.deps.artifactBundleStore?.read() ?? this.transientArtifactBundles
-  }
-
-  private async rememberArtifactBundle(bundle: ArtifactBundle): Promise<void> {
-    if (this.deps.artifactBundleStore) {
-      await this.deps.artifactBundleStore.record(bundle)
-      this.invalidateTrustedLocalPathRoots()
-      return
-    }
-    recordArtifactBundle(this.transientArtifactBundles, bundle)
-    this.invalidateTrustedLocalPathRoots()
+  private readArtifactBundles(): Promise<ArtifactBundles> {
+    return this.outputPersistence.readArtifactBundles()
   }
 
   private async publishArtifactBundle(bundle: ArtifactBundle): Promise<void> {
-    await this.rememberArtifactBundle(bundle)
-    await this.send("artifactBundleUpdated", {
-      sessionId: bundle.sessionId,
-      messageId: bundle.messageId,
-    }).catch((error: unknown) => {
-      console.warn("[wanta] failed to emit artifact bundle update", error)
-      logDiagnostic(
-        "chat-service",
-        "failed to emit artifact bundle update",
-        { error, messageId: bundle.messageId, sessionId: bundle.sessionId },
-        "warn",
-      )
-    })
+    await this.outputPersistence.recordArtifactBundle(bundle)
+    await this.send("artifactBundleUpdated", { sessionId: bundle.sessionId, messageId: bundle.messageId }).catch(
+      (error: unknown) => {
+        console.warn("[wanta] failed to emit artifact bundle update", error)
+        logDiagnostic(
+          "chat-service",
+          "failed to emit artifact bundle update",
+          { error, messageId: bundle.messageId, sessionId: bundle.sessionId },
+          "warn",
+        )
+      },
+    )
   }
 
-  private async ensureAuthorizationOverlaysLoaded(): Promise<void> {
-    if (this.authorizationOverlaysLoaded) {
-      return
-    }
-    if (this.authorizationOverlaysLoadPromise) {
-      return this.authorizationOverlaysLoadPromise
-    }
-    this.authorizationOverlaysLoadPromise = (async () => {
-      this.authorizationOverlays = (await this.deps.authorizationOverlayStore?.read()) ?? new Map()
-      this.authorizationOverlaysLoaded = true
-      this.authorizationOverlaysLoadPromise = null
-    })()
-    return this.authorizationOverlaysLoadPromise
-  }
-
-  private async rememberAuthorizationOverlay(
+  private rememberAuthorizationOverlay(
     sessionId: string,
     messageId: string,
     partId: string,
     authorization: AuthorizationInfo,
   ): Promise<void> {
-    await this.ensureAuthorizationOverlaysLoaded()
-    if (!recordAuthorizationOverlay(this.authorizationOverlays, sessionId, messageId, partId, authorization)) {
-      return
-    }
-    const write = this.authorizationOverlayWritePromise
-      .catch((error: unknown) => {
-        this.logQueuedWriteFailure("authorization overlay", error)
-      })
-      .then(async () => {
-        await this.deps.authorizationOverlayStore?.write(this.authorizationOverlays)
-      })
-    this.authorizationOverlayWritePromise = write.then(
-      () => undefined,
-      () => undefined,
-    )
-    await write
+    return this.outputPersistence.recordAuthorization(sessionId, messageId, partId, authorization)
   }
 
-  private async rememberStoppedGeneration(
+  private rememberStoppedGeneration(
     sessionId: string,
     messageId: string,
     partIds: string[],
     stoppedAt = Date.now(),
   ): Promise<void> {
-    await this.ensureStoppedGenerationsLoaded()
-    if (!recordStoppedGeneration(this.stoppedGenerations, sessionId, messageId, partIds, stoppedAt)) {
-      return
-    }
-    await this.deps.stoppedGenerationStore?.write(this.stoppedGenerations)
+    return this.outputPersistence.recordStopped(sessionId, messageId, partIds, stoppedAt)
   }
 
-  private logQueuedWriteFailure(scope: string, error: unknown): void {
-    console.warn(`[wanta] previous ${scope} write failed:`, error)
-    logDiagnostic("chat-service", "previous queued write failed", { error, scope }, "warn")
+  private rememberTurnOutput(record: StoredTurnOutputRecord): Promise<void> {
+    return this.outputPersistence.recordTurnOutput(record)
   }
-
-  private async rememberTurnOutput(record: StoredTurnOutputRecord): Promise<void> {
-    if (this.deps.turnOutputStore) {
-      await this.deps.turnOutputStore.record(record)
-      this.invalidateTrustedLocalPathRoots()
-      return
-    }
-    recordTurnOutput(this.transientTurnOutputs, record)
-    this.invalidateTrustedLocalPathRoots()
-  }
-
   private async projectBaseline(project: ChatProjectContext | undefined): Promise<{
     baseline?: GitTurnBaseline
     projectRoot?: string
@@ -1553,11 +1476,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return []
     }
     const messages = await this.agent.getMessages(sessionId)
-    await this.ensureAuthorizationOverlaysLoaded()
-    await this.ensureStoppedGenerationsLoaded()
+    const [authorizationOverlays, stoppedGenerations] = await Promise.all([
+      this.outputPersistence.overlaysFor(sessionId),
+      this.outputPersistence.stoppedFor(sessionId),
+    ])
     const displayedMessages = applyStoppedGenerations(
-      applyAuthorizationOverlays(messages, this.authorizationOverlays.get(sessionId)),
-      this.stoppedGenerations.get(sessionId),
+      applyAuthorizationOverlays(messages, authorizationOverlays),
+      stoppedGenerations,
     )
     this.rememberTrustedMessageAttachments(sessionId, displayedMessages)
     return displayedMessages

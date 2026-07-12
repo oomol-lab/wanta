@@ -37,7 +37,6 @@ import {
   workspaceActivationHasFailed,
   workspaceSelectionSwitchKey,
 } from "./app-shell-model.ts"
-import { buildProjectSidebarGroups, projectSidebarSessionsInRenderOrder } from "./app-sidebar-model.ts"
 import { AppShellArtifactsPanel } from "./AppShellArtifactsPanel.tsx"
 import { AppShellConnectionDrawer } from "./AppShellConnectionDrawer.tsx"
 import { AppShellMainTitlebar } from "./AppShellMainTitlebar.tsx"
@@ -45,8 +44,9 @@ import { AppShellNavigationSidebar } from "./AppShellNavigationSidebar.tsx"
 import { AppShellSessionProjectDialogs } from "./AppShellSessionProjectDialogs.tsx"
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
-import { compareRunningSessions, groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
+import { nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
 import { useAppShellCommands } from "./use-app-shell-commands.ts"
+import { useAppShellSidebarSessions } from "./use-app-shell-sidebar-sessions.ts"
 import { useAppShellSkillRecommendations } from "./use-app-shell-skill-recommendations.ts"
 import { useArtifactsPanelState } from "./use-artifacts-panel-state.ts"
 import { useChatConnectionRetry } from "./use-chat-connection-retry.ts"
@@ -497,53 +497,22 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     },
     [activeChatSessionId, activeChatTurnState, getSessionStatus],
   )
-  const sidebarSessionOrder = React.useMemo(
-    () => ({ getSessionRunStartedAt, isSessionRunning }),
-    [getSessionRunStartedAt, isSessionRunning],
-  )
-  const sidebarSessionGroups = React.useMemo(
-    () => groupSidebarSessions(visibleTaskSessions, sidebarSessionOrder),
-    [sidebarSessionOrder, visibleTaskSessions],
-  )
-  const projectPinnedSessions = React.useMemo(() => {
-    const pinnedProjectIds = new Set(visibleProjects.filter((project) => project.pinnedAt).map((project) => project.id))
-    return visibleProjectSessions
-      .filter(
-        (session) =>
-          session.projectId && !pinnedProjectIds.has(session.projectId) && session.pinnedAt && !session.archivedAt,
-      )
-      .sort((a, b) => compareRunningSessions(a, b, sidebarSessionOrder) || (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
-  }, [sidebarSessionOrder, visibleProjectSessions, visibleProjects])
-  const projectSidebarGroups = React.useMemo(
-    () =>
-      buildProjectSidebarGroups(visibleProjects, visibleProjectSessions, sidebarSessionOrder, { selectedSessionId }),
-    [selectedSessionId, sidebarSessionOrder, visibleProjectSessions, visibleProjects],
-  )
-  const projectPinnedGroups = React.useMemo(
-    () => projectSidebarGroups.filter((group) => group.project.pinnedAt),
-    [projectSidebarGroups],
-  )
-  const projectRegularGroups = React.useMemo(
-    () => projectSidebarGroups.filter((group) => !group.project.pinnedAt),
-    [projectSidebarGroups],
-  )
-  const selectableTaskSidebarSessions = React.useMemo(
-    () => [...sidebarSessionGroups.pinned, ...sidebarSessionGroups.regular],
-    [sidebarSessionGroups],
-  )
-  const selectableProjectSidebarSessions = React.useMemo(
-    () =>
-      projectSidebarSessionsInRenderOrder({
-        pinnedGroups: projectPinnedGroups,
-        pinnedSessions: projectPinnedSessions,
-        regularGroups: projectRegularGroups,
-      }),
-    [projectPinnedGroups, projectPinnedSessions, projectRegularGroups],
-  )
-  const selectableSidebarSessions = React.useMemo(
-    () => (sidebarSegment === "projects" ? selectableProjectSidebarSessions : selectableTaskSidebarSessions),
-    [selectableProjectSidebarSessions, selectableTaskSidebarSessions, sidebarSegment],
-  )
+  const {
+    pinnedProjectGroups: projectPinnedGroups,
+    pinnedProjectSessions: projectPinnedSessions,
+    projectGroups: projectSidebarGroups,
+    regularProjectGroups: projectRegularGroups,
+    selectableSessions: selectableSidebarSessions,
+    taskGroups: sidebarSessionGroups,
+  } = useAppShellSidebarSessions({
+    getSessionRunStartedAt,
+    isSessionRunning,
+    projectSessions: visibleProjectSessions,
+    projects: visibleProjects,
+    selectedSessionId,
+    sidebarSegment,
+    taskSessions: visibleTaskSessions,
+  })
   const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
   const needsDefaultSessionSelection =
     sessionsSettledForCurrentScope && !isDraftSession && !selectedSessionId && selectableSidebarSessions.length > 0

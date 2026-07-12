@@ -1,12 +1,10 @@
 import type { AppCommand } from "./app-command.ts"
 import type { AppLocale } from "./app-locale.ts"
-import type { AttachmentPickerKind } from "./attachment-picker.ts"
 import type { AuthRuntimeAccount } from "./auth/store.ts"
 
 import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, session, shell } from "electron"
-import { stat } from "node:fs/promises"
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, session, shell } from "electron"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import {
@@ -28,14 +26,12 @@ import {
   installArtifactResourceProtocol,
   registerArtifactResourceScheme,
 } from "./artifact-resource/protocol.ts"
-import { isAttachmentPickerKind } from "./attachment-picker.ts"
+import { registerAttachmentDialogHandlers } from "./attachment-dialog-handlers.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
 import { ArtifactBundleStore } from "./chat/artifact-bundles.ts"
-import { mimeFromPath } from "./chat/artifacts.ts"
 import { AuthorizationOverlayStore } from "./chat/authorization.ts"
-import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
 import { SpreadsheetPreviewWorkerClient } from "./chat/spreadsheet-preview-worker-client.ts"
 import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
@@ -82,20 +78,6 @@ const skillRuntimeRefreshDelayMs = 1_500
 const skillRuntimeRefreshBusyRetryMs = 2_000
 const skillRuntimeRefreshMaxBusyRetries = 10
 const shutdownCleanupTimeoutMs = 5_000
-
-interface SelectedAttachmentPath {
-  name: string
-  mime: string
-  size: number
-  path: string
-  kind: "file" | "directory"
-}
-
-interface SaveClipboardAttachmentRequest {
-  name?: string
-  mime?: string
-  bytes: ArrayBuffer
-}
 
 // dev 用本地 scheme，生产用正式 scheme（R1 / 阶段 6）。
 const protocolScheme = viteDevServerUrl ? branding.devProtocolScheme : branding.protocolScheme
@@ -238,7 +220,7 @@ server.registerService(authService)
 server.registerService(updateService)
 server.registerService(gitService)
 settingsService.applyStartupTheme()
-registerAttachmentDialogHandler()
+registerAttachmentDialogHandlers(trustedAttachmentPaths)
 registerAppLocaleHandler()
 registerRendererErrorHandler()
 
@@ -429,129 +411,15 @@ function installMainProcessErrorHandlers(): void {
   })
 }
 
-function registerAttachmentDialogHandler(): void {
-  ipcMain.handle("wanta:select-attachment-paths", async (event, kind: unknown): Promise<SelectedAttachmentPath[]> => {
-    assertAttachmentPickerKind(kind)
-    const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
-    const properties = attachmentDialogProperties(kind, process.platform)
-    const result = parent
-      ? await dialog.showOpenDialog(parent, { properties })
-      : await dialog.showOpenDialog({ properties })
-    if (result.canceled) {
-      return []
-    }
-    const items = (await Promise.all(result.filePaths.map((filePath) => selectedAttachmentPath(filePath)))).filter(
-      (item): item is SelectedAttachmentPath => Boolean(item),
-    )
-    for (const item of items) {
-      rememberTrustedAttachmentPath(item.path)
-    }
-    return items
-  })
-  ipcMain.handle(
-    "wanta:save-clipboard-attachment",
-    async (_event, req: SaveClipboardAttachmentRequest): Promise<SelectedAttachmentPath> => {
-      const attachment = await saveClipboardAttachment(app.getPath("userData"), req)
-      rememberTrustedAttachmentPath(attachment.path)
-      return {
-        name: attachment.name,
-        mime: attachment.mime,
-        size: attachment.size,
-        path: attachment.path,
-        kind: "file",
-      }
-    },
-  )
-  ipcMain.handle("wanta:selected-attachment-path-for-file", async (_event, filePath: unknown) => {
-    if (typeof filePath !== "string" || !filePath.trim()) {
-      return null
-    }
-    const item = await selectedAttachmentPath(filePath)
-    if (item) {
-      rememberTrustedAttachmentPath(item.path)
-    }
-    return item
-  })
-  ipcMain.handle("wanta:select-project-directory", async (event): Promise<SelectedAttachmentPath | null> => {
-    const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
-    const options: Electron.OpenDialogOptions = {
-      properties: ["openDirectory", "createDirectory"],
-    }
-    const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
-    if (result.canceled || !result.filePaths[0]) {
-      return null
-    }
-    const directoryPath = result.filePaths[0]
-    return {
-      name: path.basename(directoryPath.replace(/[\\/]+$/, "")) || directoryPath,
-      mime: "inode/directory",
-      size: 0,
-      path: directoryPath,
-      kind: "directory",
-    }
-  })
-}
-
-function rememberTrustedAttachmentPath(filePath: string): void {
-  if (filePath.trim()) {
-    trustedAttachmentPaths.add(filePath)
-  }
-}
-
 function registerRendererErrorHandler(): void {
   ipcMain.on("wanta:renderer-error", (_event, input: unknown) => {
     const report = normalizeRendererErrorReport(input)
-    if (!report) {
-      return
-    }
+    if (!report) return
     const message = report.level === "error" ? "renderer error" : "renderer handled issue"
-    if (report.level === "error") {
-      console.error("[wanta] renderer error:", report)
-    } else {
-      console.warn("[wanta] renderer handled issue:", report)
-    }
+    if (report.level === "error") console.error("[wanta] renderer error:", report)
+    else console.warn("[wanta] renderer handled issue:", report)
     logDiagnostic("renderer", message, { ...report }, report.level)
   })
-}
-
-function assertAttachmentPickerKind(kind: unknown): asserts kind is AttachmentPickerKind {
-  if (!isAttachmentPickerKind(kind)) {
-    throw new Error("Invalid attachment picker kind.")
-  }
-}
-
-function attachmentDialogProperties(
-  kind: AttachmentPickerKind,
-  platform: NodeJS.Platform,
-): NonNullable<Electron.OpenDialogOptions["properties"]> {
-  switch (kind) {
-    case "file":
-      return ["openFile", "multiSelections"]
-    case "directory":
-      return ["openDirectory", "multiSelections"]
-    case "file-or-directory": {
-      if (platform !== "darwin") {
-        throw new Error("Selecting files and folders together is only supported on macOS.")
-      }
-      return ["openFile", "openDirectory", "multiSelections"]
-    }
-  }
-}
-
-async function selectedAttachmentPath(filePath: string): Promise<SelectedAttachmentPath | null> {
-  try {
-    const info = await stat(filePath)
-    const kind = info.isDirectory() ? "directory" : "file"
-    return {
-      name: path.basename(filePath.replace(/[\\/]+$/, "")) || filePath,
-      mime: kind === "directory" ? "inode/directory" : mimeFromPath(filePath),
-      size: kind === "file" ? info.size : 0,
-      path: filePath,
-      kind,
-    }
-  } catch {
-    return null
-  }
 }
 
 function runtimeErrorMessage(error: unknown): string {

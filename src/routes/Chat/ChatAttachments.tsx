@@ -265,7 +265,7 @@ export function AttachmentList({
       {imageViewer?.src ? (
         <ImageViewerModal
           alt={imageViewer.attachment.name}
-          downloadName={imageDownloadName(imageViewer.attachment)}
+          localPath={imageViewer.attachment.path}
           onClose={() => setImageViewer(null)}
           src={imageViewer.src}
           title={imageViewer.attachment.name || imageDownloadName(imageViewer.attachment)}

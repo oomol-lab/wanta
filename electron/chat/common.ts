@@ -409,6 +409,15 @@ export interface AttachmentPreviewResult {
   resourceUrl?: string
 }
 
+export interface LocalImageRequest {
+  path: string
+}
+
+export interface SaveLocalImageAsResult {
+  path?: string
+  saved: boolean
+}
+
 export interface LocalArtifactThumbnailRequest {
   path: string
 }
@@ -809,6 +818,8 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
   ClientInvokes: {
     sendMessage(req: SendMessageRequest): Promise<void>
     getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult>
+    copyLocalImage(req: LocalImageRequest): Promise<void>
+    saveLocalImageAs(req: LocalImageRequest): Promise<SaveLocalImageAsResult>
     getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult>
     getLocalArtifactThumbnail(req: LocalArtifactThumbnailRequest): Promise<LocalArtifactThumbnailResult>
     getTurnOutputs(req: TurnOutputsRequest): Promise<TurnOutputRecord[]>

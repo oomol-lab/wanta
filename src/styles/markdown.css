@@ -476,48 +476,6 @@
     border-radius: 8px;
   }
 
-  .oo-markdown-image-actions {
-    position: absolute;
-    bottom: 0.75rem;
-    left: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transform: translateX(-50%);
-    border: 1px solid color-mix(in oklab, var(--oo-divider) 82%, transparent);
-    border-radius: 12px;
-    background: color-mix(in oklab, var(--background) 86%, transparent);
-    padding: 0.25rem;
-    box-shadow: 0 6px 18px color-mix(in oklab, black 18%, transparent);
-    opacity: 0;
-    backdrop-filter: blur(10px);
-    pointer-events: none;
-    transition: opacity 120ms ease-out;
-  }
-
-  .oo-markdown-image-preview:hover .oo-markdown-image-actions,
-  .oo-markdown-image-preview:focus-within .oo-markdown-image-actions {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .oo-markdown-image-action {
-    display: flex;
-    width: 2rem;
-    height: 2rem;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    color: var(--muted-foreground);
-    text-decoration: none;
-  }
-
-  .oo-markdown-image-action:hover {
-    background: var(--accent);
-    color: var(--foreground);
-    text-decoration: none;
-  }
-
   .oo-markdown-image-viewer {
     position: fixed;
     inset: 0;

@@ -210,7 +210,7 @@ describe("MarkdownImage", () => {
     expect(localImagePathFromSrc("/tmp/output%23final/a%2Fb.png")).toBe("/tmp/output#final/a%2Fb.png")
   })
 
-  it("renders image previews as clickable buttons with a download action", () => {
+  it("renders remote image previews without a broken browser download action", () => {
     const html = renderToStaticMarkup(
       React.createElement(
         I18nContext.Provider,
@@ -230,7 +230,7 @@ describe("MarkdownImage", () => {
     )
 
     expect(html).toContain('aria-label="预览图片：output"')
-    expect(html).toContain('download="output.png"')
+    expect(html).not.toContain("download=")
   })
 })
 

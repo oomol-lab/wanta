@@ -9,7 +9,7 @@ import type {
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
-import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
+import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
 import type { ChatSendRequest, ChatSendResult, TurnRetryOptions } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
@@ -36,12 +36,10 @@ import {
   existingSessionComposerDraftKey,
   getUnlinkedProviderSkillRecommendations,
   initialRoute,
-  newSessionComposerDraftKey,
   newSessionComposerDraftKeyForScopeKey,
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
   rememberTurnRetryOptions,
-  resolveNewSessionTarget,
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
@@ -62,6 +60,7 @@ import { useAppShellCommands } from "./use-app-shell-commands.ts"
 import { useArtifactsPanelState } from "./use-artifacts-panel-state.ts"
 import { useChatConnectionRetry } from "./use-chat-connection-retry.ts"
 import { useChatQueueState } from "./use-chat-queue-state.ts"
+import { useComposerNavigation } from "./use-composer-navigation.ts"
 import { useProjectActions } from "./use-project-actions.ts"
 import { useProjectSidebarCollapseState } from "./use-project-sidebar-collapse-state.ts"
 import { useSessionActions } from "./use-session-actions.ts"
@@ -88,8 +87,6 @@ import { chatTurnAllowsDirectSend, chatTurnQueuesNewMessage, resolveChatTurnStat
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 import { getInstallableOrganizationSkills } from "@/routes/Skills/skill-route-model"
-
-type ProjectSelectionSource = "composer" | "sidebar"
 
 const ArchivedRoute = React.lazy(() =>
   import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
@@ -736,6 +733,38 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const clearComposerDraft = React.useCallback((draftKey: string): void => {
     composerDraftsByKey.current.delete(draftKey)
   }, [])
+  const readLastProjectId = React.useCallback((): string | null => lastChatProjectId.current, [])
+  const {
+    handleNewSession,
+    handleOpenProjectDraft,
+    handleReturnToConnections,
+    handleSelectComposerProject,
+    handleSelectComposerProjectFolder,
+    handleSelectProjectFolder,
+    handleSelectSession,
+    requestComposerFocus,
+  } = useComposerNavigation({
+    activeChatSessionId,
+    activeSession,
+    assignSessionProject,
+    clearComposerDraft,
+    createProject,
+    draftProjectId,
+    isDraftSession,
+    lastProjectId: readLastProjectId,
+    route,
+    sessionScope,
+    setComposerFocusRequest,
+    setDraftPermissionMode,
+    setDraftProjectId,
+    setIsDraftSession,
+    setPendingChatTransition,
+    setRoute,
+    setSearchOpen,
+    setSelectedSessionId,
+    setSidebarSegment,
+    sidebarSegment,
+  })
   const handleSessionArchived = React.useCallback(
     (session: SessionInfo): void => {
       clearComposerDraft(existingSessionComposerDraftKey(sessionRecordScopeKey(session.scope), session.id))
@@ -758,128 +787,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     rename,
     sessions: visibleSessions,
   })
-
-  const requestComposerFocus = React.useCallback((): void => {
-    setRoute("chat")
-    setSearchOpen(false)
-    setComposerFocusRequest((request) => request + 1)
-  }, [])
-
-  const handleReturnToConnections = React.useCallback((): void => {
-    setSearchOpen(false)
-    setRoute("connections")
-  }, [])
-
-  const startNewSessionDraft = React.useCallback(
-    (target: ReturnType<typeof resolveNewSessionTarget>, clearTargetDraft = true): void => {
-      const targetDraftKey = newSessionComposerDraftKey(sessionScope, target.projectId)
-      if (clearTargetDraft) {
-        clearComposerDraft(targetDraftKey)
-      }
-      setSelectedSessionId(null)
-      setIsDraftSession(true)
-      setDraftPermissionMode("default")
-      setDraftProjectId(target.projectId ?? NO_DRAFT_PROJECT_ID)
-      setPendingChatTransition(null)
-      setRoute("chat")
-      setSidebarSegment(target.sidebarSegment)
-      setSearchOpen(false)
-      setComposerFocusRequest((request) => request + 1)
-    },
-    [clearComposerDraft, sessionScope],
-  )
-
-  const handleNewSession = React.useCallback((): void => {
-    startNewSessionDraft(
-      resolveNewSessionTarget({
-        activeSession,
-        draftProjectId,
-        lastProjectId: lastChatProjectId.current,
-        preferLastProject: route !== "chat",
-        sidebarSegment,
-      }),
-    )
-  }, [activeSession, draftProjectId, route, sidebarSegment, startNewSessionDraft])
-
-  const handleOpenProjectDraft = React.useCallback(
-    (project: SessionProject): void => {
-      // 项目入口用于切换当前草稿；仅“新建会话”操作才会显式清空该项目已有草稿。
-      startNewSessionDraft(resolveNewSessionTarget({ draftProjectId, explicitProjectId: project.id }), false)
-    },
-    [draftProjectId, startNewSessionDraft],
-  )
-
-  const handleSelectComposerProject = React.useCallback(
-    async (projectId: string | undefined): Promise<void> => {
-      if (activeChatSessionId && !isDraftSession) {
-        try {
-          await assignSessionProject(activeChatSessionId, projectId)
-          setSidebarSegment(projectId ? "projects" : "tasks")
-        } catch (cause) {
-          const notice = resolveUserFacingError(cause, { area: "session" })
-          toast.error(userFacingErrorDescription(notice, t))
-        }
-        return
-      }
-      setDraftProjectId(projectId ?? NO_DRAFT_PROJECT_ID)
-      setIsDraftSession(true)
-      setRoute("chat")
-      setSidebarSegment(projectId ? "projects" : "tasks")
-    },
-    [activeChatSessionId, assignSessionProject, isDraftSession, t],
-  )
-
-  const handleCreatedProject = React.useCallback(
-    async (project: SessionProject, source: ProjectSelectionSource): Promise<void> => {
-      if (source === "composer") {
-        await handleSelectComposerProject(project.id)
-        return
-      }
-      handleOpenProjectDraft(project)
-    },
-    [handleOpenProjectDraft, handleSelectComposerProject],
-  )
-
-  const handleSelectProjectDirectory = React.useCallback(
-    async (source: ProjectSelectionSource): Promise<void> => {
-      releaseTransientFocus()
-      const picker = globalThis.wanta?.selectProjectDirectory
-      if (!picker) {
-        toast.error(t("project.folderPickerUnavailable"))
-        return
-      }
-      try {
-        const directory = await picker()
-        if (!directory) {
-          return
-        }
-        const project = await createProject({ name: directory.name, path: directory.path })
-        await handleCreatedProject(project, source)
-      } catch (cause) {
-        const notice = resolveUserFacingError(cause, { area: "session" })
-        toast.error(userFacingErrorDescription(notice, t))
-      } finally {
-        releaseTransientFocus()
-      }
-    },
-    [createProject, handleCreatedProject, t],
-  )
-
-  const handleSelectProjectFolder = React.useCallback(async (): Promise<void> => {
-    await handleSelectProjectDirectory("sidebar")
-  }, [handleSelectProjectDirectory])
-
-  const handleSelectComposerProjectFolder = React.useCallback(async (): Promise<void> => {
-    await handleSelectProjectDirectory("composer")
-  }, [handleSelectProjectDirectory])
-
-  const handleSelectSession = React.useCallback((session: SessionInfo): void => {
-    setSelectedSessionId(session.id)
-    setIsDraftSession(false)
-    setDraftProjectId(null)
-    setRoute("chat")
-    setSidebarSegment(session.projectId ? "projects" : "tasks")
-  }, [])
 
   const sendNow = React.useCallback(
     async (request: ChatSendRequest): Promise<ChatSendResult> => {

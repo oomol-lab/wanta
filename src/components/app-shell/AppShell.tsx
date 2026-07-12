@@ -64,6 +64,7 @@ import { useChatConnectionRetry } from "./use-chat-connection-retry.ts"
 import { useChatQueueState } from "./use-chat-queue-state.ts"
 import { useProjectActions } from "./use-project-actions.ts"
 import { useProjectSidebarCollapseState } from "./use-project-sidebar-collapse-state.ts"
+import { useSessionActions } from "./use-session-actions.ts"
 import { useSessionTitleGeneration } from "./use-session-title-generation.ts"
 import { useSidebarChromeState } from "./use-sidebar-chrome-state.ts"
 import { useWorkspaceActivation } from "./use-workspace-activation.ts"
@@ -252,9 +253,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   } = useSidebarChromeState(appChromeRef)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [composerFocusRequest, setComposerFocusRequest] = React.useState(0)
-  const [renameSessionId, setRenameSessionId] = React.useState<string | null>(null)
-  const [archiveSessionId, setArchiveSessionId] = React.useState<string | null>(null)
-  const [archiveConfirming, setArchiveConfirming] = React.useState(false)
   const selectedSession = selectedSessionId
     ? (visibleSessions.find((session) => session.id === selectedSessionId) ?? null)
     : null
@@ -532,8 +530,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const currentScopeKeyRef = React.useRef(currentScopeKey)
   currentScopeKeyRef.current = currentScopeKey
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
-  const renameSession = visibleSessions.find((s) => s.id === renameSessionId) ?? null
-  const archiveSession = visibleSessions.find((s) => s.id === archiveSessionId) ?? null
   const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
   const chatConnectionAuthIntent = activeChatConnectionDrawer?.authIntent ?? null
   const chatConnectionSelectedService = activeChatConnectionDrawer?.selectedService ?? null
@@ -706,18 +702,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   }, [pendingCaughtUp])
 
   React.useEffect(() => {
-    if (renameSessionId && !renameSession) {
-      setRenameSessionId(null)
-    }
-  }, [renameSession, renameSessionId])
-
-  React.useEffect(() => {
-    if (archiveSessionId && !archiveSession) {
-      setArchiveSessionId(null)
-    }
-  }, [archiveSession, archiveSessionId])
-
-  React.useEffect(() => {
     if (
       draftProjectId &&
       draftProjectId !== NO_DRAFT_PROJECT_ID &&
@@ -752,6 +736,28 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const clearComposerDraft = React.useCallback((draftKey: string): void => {
     composerDraftsByKey.current.delete(draftKey)
   }, [])
+  const handleSessionArchived = React.useCallback(
+    (session: SessionInfo): void => {
+      clearComposerDraft(existingSessionComposerDraftKey(sessionRecordScopeKey(session.scope), session.id))
+      if (activeChatSessionId !== session.id) {
+        return
+      }
+      setSelectedSessionId(nextActiveSessionIdAfterArchive(selectableSidebarSessions, session.id))
+      setIsDraftSession(false)
+      setPendingChatTransition(null)
+      setRoute("chat")
+    },
+    [activeChatSessionId, clearComposerDraft, selectableSidebarSessions],
+  )
+  const sessionActions = useSessionActions({
+    archive,
+    clearAutoFallbackTitle,
+    isSessionRunning,
+    onArchived: handleSessionArchived,
+    pin,
+    rename,
+    sessions: visibleSessions,
+  })
 
   const requestComposerFocus = React.useCallback((): void => {
     setRoute("chat")
@@ -1134,12 +1140,18 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setDraftPermissionMode("default")
     setDraftProjectId(null)
     setPendingChatTransition(null)
-    setRenameSessionId(null)
-    setArchiveSessionId(null)
+    sessionActions.resetDialogs()
     projectActions.resetDialogs()
     handleArtifactsReset()
     releaseTransientFocus()
-  }, [activeWorkspaceKey, clearRetries, handleArtifactsReset, holdQueuedSessionIfQueued, projectActions.resetDialogs])
+  }, [
+    activeWorkspaceKey,
+    clearRetries,
+    handleArtifactsReset,
+    holdQueuedSessionIfQueued,
+    projectActions.resetDialogs,
+    sessionActions.resetDialogs,
+  ])
 
   React.useEffect(() => {
     if (!sessionsSettledForCurrentScope || !activeChatSessionId) {
@@ -1235,46 +1247,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [activeChatSessionId, rejectQuestion],
   )
 
-  const handlePinSession = async (session: SessionInfo): Promise<void> => {
-    try {
-      await pin(session.id, !session.pinnedAt)
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-    }
-  }
-
-  const handleArchiveSessionRequest = (session: SessionInfo): void => {
-    if (isSessionRunning(session.id)) {
-      return
-    }
-    setArchiveSessionId(session.id)
-  }
-
-  const handleArchiveSession = async (session: SessionInfo): Promise<void> => {
-    if (isSessionRunning(session.id)) {
-      return
-    }
-    setArchiveConfirming(true)
-    try {
-      await archive(session.id)
-      clearComposerDraft(existingSessionComposerDraftKey(sessionRecordScopeKey(session.scope), session.id))
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-      return
-    } finally {
-      setArchiveConfirming(false)
-    }
-    if (activeChatSessionId === session.id) {
-      setSelectedSessionId(nextActiveSessionIdAfterArchive(selectableSidebarSessions, session.id))
-      setIsDraftSession(false)
-      setPendingChatTransition(null)
-      setRoute("chat")
-    }
-    setArchiveSessionId(null)
-  }
-
   const handleAuthorize = React.useCallback(
     (auth: AuthorizationInfo, source?: ChatTurnRetrySource): void => {
       // R5 闭环：打开聊天内连接抽屉并定位该 provider；记录原 action，待用户完成授权后自动重试。
@@ -1332,14 +1304,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     ],
   )
   const handleOpenSearch = React.useCallback((): void => setSearchOpen(true), [])
-  const handleRenameSession = (sessionId: string, title: string): void => {
-    clearAutoFallbackTitle(sessionId)
-    void rename(sessionId, title).catch((cause: unknown) => {
-      console.error("[wanta] rename session failed", cause)
-      reportRendererHandledError("appShell.renameSession", "Failed to rename session", cause)
-      toast.error(t("session.renameFailed"))
-    })
-  }
   const handleChatStop = React.useCallback(async (): Promise<void> => {
     if (activeChatSessionId) {
       await stop(activeChatSessionId)
@@ -1510,19 +1474,19 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         workspace={organizationWorkspace}
         workspaceSwitching={workspaceNavigationSwitching}
         onArchiveProjectRequest={projectActions.requestArchive}
-        onArchiveSessionRequest={handleArchiveSessionRequest}
+        onArchiveSessionRequest={sessionActions.requestArchive}
         onLogout={() => void auth.logout()}
         onNavigate={setRoute}
         onNewSession={handleNewSession}
         onOpenConnections={handleOpenConnections}
         onOpenSearch={handleOpenSearch}
         onPinProject={(project) => void projectActions.handlePin(project)}
-        onPinSession={(session) => void handlePinSession(session)}
+        onPinSession={(session) => void sessionActions.handlePin(session)}
         onProjectExpandedChange={handleProjectSidebarExpandedChange}
         onRemoveProjectRequest={projectActions.requestRemove}
         onRenameProjectRequest={projectActions.requestRename}
         onWorkspaceSwitchStart={handleWorkspaceSwitchStart}
-        onRenameSessionRequest={(session) => setRenameSessionId(session.id)}
+        onRenameSessionRequest={sessionActions.requestRename}
         onSelectProjectDraft={handleOpenProjectDraft}
         onSelectProjectFolder={() => void handleSelectProjectFolder()}
         onSelectSession={handleSelectSession}
@@ -1557,7 +1521,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             workspace={organizationWorkspace.activeWorkspace}
             onArtifactsToggle={() => setArtifactsPanelOpen((open) => !open)}
             onOpenSearch={handleOpenSearch}
-            onRenameSession={handleRenameSession}
+            onRenameSession={sessionActions.handleRename}
             onToggleSidebar={handleToggleSidebar}
             onViewBilling={handleViewBilling}
           />
@@ -1678,27 +1642,27 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       </div>
 
       <AppShellSessionProjectDialogs
-        archiveConfirming={archiveConfirming}
+        archiveConfirming={sessionActions.archiveConfirming}
         archiveProjectConfirming={projectActions.archiveConfirming}
         archiveProjectTarget={projectActions.archiveTarget}
-        archiveSession={archiveSession}
+        archiveSession={sessionActions.archiveTarget}
         openSearch={searchOpen}
         removeProjectConfirming={projectActions.removeConfirming}
         removeProjectTarget={projectActions.removeTarget}
         renameProjectTarget={projectActions.renameTarget}
-        renameSession={renameSession}
+        renameSession={sessionActions.renameTarget}
         sessions={visibleSessions}
         onArchiveProject={(project) => void projectActions.handleArchive(project)}
-        onArchiveSession={(session) => void handleArchiveSession(session)}
+        onArchiveSession={(session) => void sessionActions.handleArchive(session)}
         onCloseArchiveProject={projectActions.closeArchive}
-        onCloseArchiveSession={() => setArchiveSessionId(null)}
+        onCloseArchiveSession={sessionActions.closeArchive}
         onCloseRemoveProject={projectActions.closeRemove}
         onCloseRenameProject={projectActions.closeRename}
-        onCloseRenameSession={() => setRenameSessionId(null)}
+        onCloseRenameSession={sessionActions.closeRename}
         onCloseSearch={() => setSearchOpen(false)}
         onRemoveProject={(project) => void projectActions.handleRemove(project)}
         onRenameProject={(projectId, name) => void projectActions.handleRename(projectId, name)}
-        onRenameSession={handleRenameSession}
+        onRenameSession={sessionActions.handleRename}
         onSearchSelect={(session) => {
           handleSelectSession(session)
           setPendingChatTransition(null)

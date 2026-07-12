@@ -55,7 +55,7 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
-import { realpath, rm } from "node:fs/promises"
+import { rm } from "node:fs/promises"
 import os from "node:os"
 import { ActivityMetrics } from "../activity-metrics.ts"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
@@ -90,6 +90,7 @@ import { PermissionState } from "./permission-state.ts"
 import { attachmentPreview, localArtifactPreview } from "./previews.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
 import { ChatStreamEventBuffer } from "./stream-event-buffer.ts"
+import { TrustedLocalAccess } from "./trusted-local-access.ts"
 import {
   generationNoticeKindForInactivity,
   inactivityWatchdogActionForEvent,
@@ -235,8 +236,6 @@ interface ChatServiceDeps {
   onSetAgentOrganization?: (organizationName: string | undefined) => Promise<void> | void
 }
 
-const trustedLocalPathRootsCacheMs = 1_000
-
 interface StopSessionGenerationOptions {
   abortAgent: boolean
   reason: "system" | "user"
@@ -267,12 +266,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private connectionFailedSessions = new Set<string>()
   private childSessionsByParent = new Map<string, Set<string>>()
   private parentSessionByChild = new Map<string, string>()
-  private trustedProjectRoots = new Map<string, string>()
   private trustedSubagentSessionsByParent = new Map<string, Set<string>>()
-  private trustedAttachmentPaths = new Map<string, Set<string>>()
-  private trustedPermissionPaths = new Map<string, Set<string>>()
-  private trustedLocalPathRootsCache: { expiresAt: number; roots: string[] } | undefined
-  private trustedLocalPathRootsGeneration = 0
+  private readonly trustedAccess: TrustedLocalAccess
   private readonly permissions = new PermissionState()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
@@ -297,6 +292,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     super(ChatServiceName)
     this.agent = agent
     this.deps = deps
+    this.trustedAccess = new TrustedLocalAccess({
+      loadAdditionalRoots: () => this.loadAdditionalTrustedRoots(),
+      ...(deps.trustedAttachmentPaths ? { trustedAttachmentPaths: deps.trustedAttachmentPaths } : {}),
+    })
   }
 
   public override dispose(): void {
@@ -324,11 +323,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.connectionFailedSessions.clear()
     this.childSessionsByParent.clear()
     this.parentSessionByChild.clear()
-    this.trustedProjectRoots.clear()
+    this.trustedAccess.clear()
     this.trustedSubagentSessionsByParent.clear()
-    this.trustedAttachmentPaths.clear()
-    this.trustedPermissionPaths.clear()
-    this.invalidateTrustedLocalPathRoots()
     this.permissions.clear()
     this.transientArtifactBundles.clear()
     this.authorizationOverlays.clear()
@@ -755,7 +751,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private addSessionPermissionGrant(sessionId: string, request: ChatPermissionRequest): void {
-    const trustedProjectRoot = this.trustedProjectRoots.get(sessionId)
+    const trustedProjectRoot = this.trustedAccess.projectRoot(sessionId)
     const generationId = this.generations.get(sessionId)?.id
     const managedPythonProcessRoot = generationId ? this.activeTurnOutputs.get(generationId)?.processRoot : undefined
     const candidate = localAccessGrantForRequest(request, {
@@ -796,7 +792,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     emit: (event: string, data: unknown) => Promise<void>,
     request: ChatPermissionRequest,
   ): boolean {
-    const projectRoot = this.trustedProjectRoots.get(request.sessionId)
+    const projectRoot = this.trustedAccess.projectRoot(request.sessionId)
     const decision = evaluateLocalAccessRequest(request, {
       activeGenerationId: this.generations.get(request.sessionId)?.id,
       permissionMode: this.sessionPermissionMode(request.sessionId),
@@ -945,22 +941,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private rememberTrustedSubagentSession(parentSessionId: string, childSessionId: string): void {
-    const projectRoot = this.trustedProjectRoots.get(parentSessionId)
     const copiedPermissionState = this.permissions.copySession(parentSessionId, childSessionId)
-    const permissionPaths = this.trustedPermissionPaths.get(parentSessionId)
-    if (!projectRoot && !copiedPermissionState && !permissionPaths) {
+    const copiedLocalAccess = this.trustedAccess.copySession(parentSessionId, childSessionId)
+    if (!copiedPermissionState && !copiedLocalAccess) {
       return
-    }
-    if (projectRoot) {
-      this.trustedProjectRoots.set(childSessionId, projectRoot)
-    }
-    if (permissionPaths) {
-      this.trustedPermissionPaths.set(childSessionId, new Set(permissionPaths))
     }
     const childSessionIds = this.trustedSubagentSessionsByParent.get(parentSessionId) ?? new Set<string>()
     childSessionIds.add(childSessionId)
     this.trustedSubagentSessionsByParent.set(parentSessionId, childSessionIds)
-    this.invalidateTrustedLocalPathRoots()
   }
 
   private forgetTrustedSubagentSession(parentSessionId: string, childSessionId: string): void {
@@ -969,13 +957,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     childSessionIds.delete(childSessionId)
-    this.trustedProjectRoots.delete(childSessionId)
     this.permissions.deleteSession(childSessionId)
-    this.trustedPermissionPaths.delete(childSessionId)
+    this.trustedAccess.deleteSession(childSessionId)
     if (childSessionIds.size === 0) {
       this.trustedSubagentSessionsByParent.delete(parentSessionId)
     }
-    this.invalidateTrustedLocalPathRoots()
   }
 
   private forgetTrustedSubagentSessions(parentSessionId: string): void {
@@ -984,97 +970,39 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     for (const childSessionId of childSessionIds) {
-      this.trustedProjectRoots.delete(childSessionId)
       this.permissions.deleteSession(childSessionId)
-      this.trustedPermissionPaths.delete(childSessionId)
+      this.trustedAccess.deleteSession(childSessionId)
     }
     this.trustedSubagentSessionsByParent.delete(parentSessionId)
-    this.invalidateTrustedLocalPathRoots()
   }
 
   private rememberTrustedAttachments(sessionId: string, attachments: readonly ChatAttachment[] | undefined): void {
-    if (!attachments?.length) {
-      return
-    }
-    const paths = this.trustedAttachmentPaths.get(sessionId) ?? new Set<string>()
-    for (const attachment of attachments) {
-      if (attachment.path.trim()) {
-        paths.add(attachment.path)
-      }
-      if (attachment.agentPath?.trim()) {
-        paths.add(attachment.agentPath)
-      }
-    }
-    if (paths.size > 0) {
-      this.trustedAttachmentPaths.set(sessionId, paths)
-      this.invalidateTrustedLocalPathRoots()
-    }
+    this.trustedAccess.rememberAttachments(sessionId, attachments)
   }
 
   private rememberTrustedMessageAttachments(sessionId: string, messages: readonly ChatMessage[]): void {
-    const attachments: ChatAttachment[] = []
-    for (const message of messages) {
-      if (message.role !== "user") {
-        continue
-      }
-      for (const part of message.parts) {
-        if (part.kind === "attachment" && part.attachment) {
-          attachments.push(part.attachment)
-        }
-      }
-    }
-    this.rememberTrustedAttachments(sessionId, attachments)
+    this.trustedAccess.rememberMessageAttachments(sessionId, messages)
   }
 
   private rememberTrustedPermissionResources(sessionId: string, request: ChatPermissionRequest): void {
-    const paths = this.trustedPermissionPaths.get(sessionId) ?? new Set<string>()
-    for (const resource of [...request.resources, ...(request.save ?? [])]) {
-      const wildcardIndex = resource.search(/[*?[\]{}]/u)
-      const candidate = wildcardIndex === -1 ? resource : resource.slice(0, wildcardIndex).replace(/[\\/]+$/u, "")
-      const filePath = normalizeLocalPathCandidate(candidate, os.homedir())
-      if (filePath) {
-        paths.add(filePath)
-      }
-    }
-    if (paths.size > 0) {
-      this.trustedPermissionPaths.set(sessionId, paths)
-      this.invalidateTrustedLocalPathRoots()
-    }
+    this.trustedAccess.rememberPermissionResources(sessionId, request)
   }
 
   private invalidateTrustedLocalPathRoots(): void {
-    this.trustedLocalPathRootsGeneration += 1
-    this.trustedLocalPathRootsCache = undefined
+    this.trustedAccess.invalidate()
   }
 
   private async trustedLocalPathRoots(): Promise<string[]> {
-    const cached = this.trustedLocalPathRootsCache
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.roots
-    }
-    const generation = this.trustedLocalPathRootsGeneration
+    return this.trustedAccess.roots()
+  }
+
+  private async loadAdditionalTrustedRoots(): Promise<Iterable<string>> {
     const roots = new Set<string>()
     for (const active of this.activeTurnOutputs.values()) {
       roots.add(active.artifactRoot)
       roots.add(active.processRoot)
       if (active.projectRoot) {
         roots.add(active.projectRoot)
-      }
-    }
-    for (const projectRoot of this.trustedProjectRoots.values()) {
-      roots.add(projectRoot)
-    }
-    for (const paths of this.trustedAttachmentPaths.values()) {
-      for (const filePath of paths) {
-        roots.add(filePath)
-      }
-    }
-    for (const filePath of this.deps.trustedAttachmentPaths ?? []) {
-      roots.add(filePath)
-    }
-    for (const paths of this.trustedPermissionPaths.values()) {
-      for (const filePath of paths) {
-        roots.add(filePath)
       }
     }
     const [artifactBundles, turnOutputs] = await Promise.all([this.readArtifactBundles(), this.readTurnOutputs()])
@@ -1104,40 +1032,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       console.warn("[wanta] failed to read trusted project roots:", error)
       logDiagnostic("chat-service", "failed to read trusted project roots", { error }, "warn")
     }
-    const normalizedRoots = (
-      await Promise.all([...roots].filter((root) => root.trim()).map((root) => realpath(root).catch(() => null)))
-    ).filter((root): root is string => Boolean(root))
-    if (this.trustedLocalPathRootsGeneration !== generation) {
-      return this.trustedLocalPathRoots()
-    }
-    this.trustedLocalPathRootsCache = {
-      expiresAt: Date.now() + trustedLocalPathRootsCacheMs,
-      roots: normalizedRoots,
-    }
-    return normalizedRoots
+    return roots
   }
 
   private async isPathInTrustedRoots(filePath: string, roots: readonly string[]): Promise<boolean> {
-    const target = await realpath(filePath).catch(() => null)
-    if (!target) {
-      return false
-    }
-    for (const root of roots) {
-      if (isPathInside(root, target)) {
-        return true
-      }
-    }
-    return false
-  }
-
-  private async isTrustedLocalPath(filePath: string): Promise<boolean> {
-    return this.isPathInTrustedRoots(filePath, await this.trustedLocalPathRoots())
+    return this.trustedAccess.isPathInRoots(filePath, roots)
   }
 
   private async assertTrustedLocalPath(filePath: string): Promise<void> {
-    if (!(await this.isTrustedLocalPath(filePath))) {
-      throw new Error("Local path is not available from this conversation.")
-    }
+    await this.trustedAccess.assertPath(filePath)
   }
 
   private beginSessionGeneration(sessionId: string): SessionGeneration {
@@ -1434,12 +1337,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
         return
       }
-      if (trustedProjectRoot) {
-        this.trustedProjectRoots.set(req.sessionId, trustedProjectRoot)
-      } else {
-        this.trustedProjectRoots.delete(req.sessionId)
-      }
-      this.invalidateTrustedLocalPathRoots()
+      this.trustedAccess.setProjectRoot(req.sessionId, trustedProjectRoot)
       const project = await this.projectBaseline(req.projectContext)
       const artifactBaseline = await captureArtifactSessionBaseline(
         this.agent.artifactSessionDir(req.sessionId, artifactProjectRoot),

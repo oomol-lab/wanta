@@ -615,17 +615,52 @@ function sendAppCommand(command: AppCommand): void {
   send()
 }
 
+let applicationMenuIcons: {
+  about: Electron.NativeImage
+  checkForUpdates: Electron.NativeImage
+  services: Electron.NativeImage
+  settings: Electron.NativeImage
+} | null = null
+
+function macMenuSymbol(name: string): Electron.NativeImage {
+  const image = nativeImage.createFromNamedImage(name).resize({ height: 16 })
+  image.setTemplateImage(true)
+  return image
+}
+
+function macApplicationMenuIcons(): typeof applicationMenuIcons {
+  if (process.platform !== "darwin") {
+    return null
+  }
+  // 菜单会在语言切换时重建；保留 NativeImage 强引用，避免 AppKit 后续重绘时图标丢失。
+  applicationMenuIcons ??= {
+    about: macMenuSymbol("info.circle"),
+    checkForUpdates: macMenuSymbol("arrow.clockwise"),
+    services: macMenuSymbol("link"),
+    settings: macMenuSymbol("gearshape"),
+  }
+  return applicationMenuIcons
+}
+
 function installApplicationMenu(): void {
-  Menu.setApplicationMenu(
-    Menu.buildFromTemplate(
-      buildApplicationMenuTemplate({
-        developmentMode: shouldShowDevelopmentMenu(),
-        locale: activeLocale(),
-        onCommand: sendAppCommand,
-        platform: process.platform,
-      }),
-    ),
+  const macIcons = macApplicationMenuIcons()
+  const menu = Menu.buildFromTemplate(
+    buildApplicationMenuTemplate({
+      developmentMode: shouldShowDevelopmentMenu(),
+      locale: activeLocale(),
+      macIcons: macIcons ?? undefined,
+      onCommand: sendAppCommand,
+      platform: process.platform,
+    }),
   )
+  // macOS 会先为 Services role 放入系统图标；菜单构建后再替换，保留原生 Services 子菜单行为。
+  if (macIcons) {
+    const aboutItem = menu.getMenuItemById("app-about")
+    const servicesItem = menu.getMenuItemById("app-services")
+    if (aboutItem) aboutItem.icon = macIcons.about
+    if (servicesItem) servicesItem.icon = macIcons.services
+  }
+  Menu.setApplicationMenu(menu)
 }
 
 function activeLocale(): AppLocale {

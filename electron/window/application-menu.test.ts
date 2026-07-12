@@ -128,6 +128,37 @@ describe("buildApplicationMenuTemplate", () => {
     expect(onCommand).toHaveBeenCalledExactlyOnceWith(APP_COMMANDS.checkForUpdates)
   })
 
+  it("keeps stable native icons on custom macOS application menu items", () => {
+    const icons = {
+      about: { name: "about" },
+      checkForUpdates: { name: "check-for-updates" },
+      services: { name: "services" },
+      settings: { name: "settings" },
+    } as unknown as NonNullable<Parameters<typeof buildApplicationMenuTemplate>[0]["macIcons"]>
+    const template = menuTemplate({ locale: "en", macIcons: icons, platform: "darwin" })
+    const applicationMenu = findItem(template, branding.appName)
+    const submenu = Array.isArray(applicationMenu.submenu) ? applicationMenu.submenu : []
+
+    expect(findItem(submenu, "Check for Updates…").icon).toBe(icons.checkForUpdates)
+    expect(findItem(submenu, "Settings…").icon).toBe(icons.settings)
+    expect(findItem(submenu, `About ${branding.appName}`).id).toBe("app-about")
+    expect(findItem(submenu, "Services").id).toBe("app-services")
+  })
+
+  it("does not add macOS menu icons on other platforms", () => {
+    const icons = {
+      about: { name: "about" },
+      checkForUpdates: { name: "check-for-updates" },
+      services: { name: "services" },
+      settings: { name: "settings" },
+    } as unknown as NonNullable<Parameters<typeof buildApplicationMenuTemplate>[0]["macIcons"]>
+    const template = menuTemplate({ locale: "en", macIcons: icons, platform: "win32" })
+    const fileMenu = findItem(template, "File")
+    const submenu = Array.isArray(fileMenu.submenu) ? fileMenu.submenu : []
+
+    expect(findItem(submenu, "Settings…").icon).toBeUndefined()
+  })
+
   it("places the update check in the Windows Help menu", () => {
     const onCommand = vi.fn()
     const template = menuTemplate({ locale: "en", onCommand, platform: "win32" })

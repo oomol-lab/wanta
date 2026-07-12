@@ -1,5 +1,5 @@
 import type { AppCommand } from "../app-command.ts"
-import type { MenuItemConstructorOptions } from "electron"
+import type { MenuItemConstructorOptions, NativeImage } from "electron"
 
 import { APP_COMMANDS } from "../app-command.ts"
 import { normalizeAppLocale } from "../app-locale.ts"
@@ -9,6 +9,12 @@ import { applicationMenuLabels } from "./application-menu-messages.ts"
 interface ApplicationMenuOptions {
   developmentMode: boolean
   locale?: string
+  macIcons?: {
+    about: NativeImage
+    checkForUpdates: NativeImage
+    services: NativeImage
+    settings: NativeImage
+  }
   onCommand: (command: AppCommand) => void
   platform: NodeJS.Platform
 }
@@ -17,6 +23,7 @@ function settingsMenuItem(input: ApplicationMenuOptions, label: string): MenuIte
   return {
     accelerator: "CommandOrControl+,",
     click: () => input.onCommand(APP_COMMANDS.openSettings),
+    ...(input.platform === "darwin" && input.macIcons ? { icon: input.macIcons.settings } : {}),
     label,
   }
 }
@@ -38,15 +45,16 @@ export function buildApplicationMenuTemplate(input: ApplicationMenuOptions): Men
     template.push({
       label: branding.appName,
       submenu: [
-        roleMenuItem("about", label.about),
+        { ...roleMenuItem("about", label.about), id: "app-about" },
         {
           click: () => input.onCommand(APP_COMMANDS.checkForUpdates),
+          ...(input.macIcons ? { icon: input.macIcons.checkForUpdates } : {}),
           label: label.checkForUpdates,
         },
         { type: "separator" },
         settingsMenuItem(input, label.settings),
         { type: "separator" },
-        roleMenuItem("services", label.services),
+        { ...roleMenuItem("services", label.services), id: "app-services" },
         { type: "separator" },
         roleMenuItem("hide", label.hide),
         roleMenuItem("hideOthers", label.hideOthers),

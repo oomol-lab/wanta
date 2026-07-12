@@ -1,19 +1,13 @@
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type { Organization } from "../../../electron/organizations/common.ts"
 import type { BusyAction, ProviderAccessForm } from "./organization-management-model.ts"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
 
 import * as React from "react"
-import { toast } from "sonner"
 import {
   buildGrantViews,
   buildOrganizationMemberViews,
-  errorMessage,
   initialProviderAccessForm,
-  isConflictError,
-  maxOrganizationNameLength,
-  organizationNameValidation,
   providerOptionsWithSelected,
   runtimeSkillRemoveBusyKey,
 } from "./organization-management-model.ts"
@@ -38,11 +32,11 @@ import { RuntimeSkillRemoveConfirmDialog } from "./OrganizationSkillManageDialog
 import { useAuthStateResource, useSkillInventoryResource } from "@/components/AppDataHooks"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppI18n } from "@/i18n"
-import { createOrganization, updateOrganization, uploadOrganizationAvatar } from "@/lib/organizations-client"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
 import { useProviderSkillPackageLookup } from "@/routes/Skills/provider-skill-package-lookup"
 import { buildProviderSkillRecommendations } from "@/routes/Skills/provider-skill-recommendations"
 import { useOrganizationDetails } from "@/routes/Skills/use-organization-details"
+import { useOrganizationForms } from "@/routes/Skills/use-organization-forms"
 import { useOrganizationMemberActions } from "@/routes/Skills/use-organization-member-actions"
 import { useOrganizationMemberSearch } from "@/routes/Skills/use-organization-member-search"
 import { useOrganizationSkillActions } from "@/routes/Skills/use-organization-skill-actions"
@@ -73,21 +67,10 @@ export function OrganizationManagementRoute({
   const activeWorkspaceOrganizationId = activeWorkspace?.type === "organization" ? activeWorkspace.organizationId : null
   const activeWorkspaceIsPersonal = activeWorkspace?.type === "personal"
   const [busyAction, setBusyAction] = React.useState<BusyAction | null>(null)
-  const [createOpen, setCreateOpen] = React.useState(false)
-  const [createName, setCreateName] = React.useState("")
-  const [createAvatarFile, setCreateAvatarFile] = React.useState<File | null>(null)
-  const [createDuplicated, setCreateDuplicated] = React.useState(false)
-  const [editOpen, setEditOpen] = React.useState(false)
-  const [editOrganizationId, setEditOrganizationId] = React.useState<string | null>(null)
-  const [editName, setEditName] = React.useState("")
-  const [editAvatar, setEditAvatar] = React.useState("")
-  const [editAvatarFile, setEditAvatarFile] = React.useState<File | null>(null)
-  const [editDuplicated, setEditDuplicated] = React.useState(false)
   const [addMemberOpen, setAddMemberOpen] = React.useState(false)
   const [addMemberError, setAddMemberError] = React.useState<string | null>(null)
   const [membersPanelOpen, setMembersPanelOpen] = React.useState(false)
   const [providerAccessForm, setProviderAccessForm] = React.useState<ProviderAccessForm>(initialProviderAccessForm)
-  const editAvatarUploadVersion = React.useRef(0)
   const avatarPreviewUrls = workspace.organizationAvatarPreviewUrls
   const clearOrganizationAvatarPreview = workspace.clearOrganizationAvatarPreview
 
@@ -101,9 +84,6 @@ export function OrganizationManagementRoute({
       activeWorkspace.organization ?? organizations.find((item) => item.id === activeWorkspace.organizationId) ?? null
     )
   }, [activeWorkspace, organizations])
-  const editingOrganization = React.useMemo(() => {
-    return editOrganizationId ? (organizations.find((item) => item.id === editOrganizationId) ?? null) : null
-  }, [editOrganizationId, organizations])
   const selectedOrganizationSkills =
     selectedOrganization && organizationSkills?.organizationId === selectedOrganization.id ? organizationSkills : null
   const {
@@ -182,45 +162,6 @@ export function OrganizationManagementRoute({
     setMembersPanelOpen(false)
   }, [selectedOrganization?.id])
 
-  const createNameError = React.useMemo(() => {
-    if (!createName) {
-      return null
-    }
-    switch (organizationNameValidation(createName.trim())) {
-      case "empty":
-        return t("organizations.organizationNameRequired")
-      case "invalid":
-        return t("organizations.organizationNameInvalid")
-      case "too-long":
-        return t("organizations.organizationNameTooLong", { max: maxOrganizationNameLength })
-      case "valid":
-        return createDuplicated ? t("organizations.organizationNameDuplicated") : null
-    }
-  }, [createDuplicated, createName, t])
-
-  const editNameError = React.useMemo(() => {
-    if (!editName) {
-      return null
-    }
-    switch (organizationNameValidation(editName.trim())) {
-      case "empty":
-        return t("organizations.organizationNameRequired")
-      case "invalid":
-        return t("organizations.organizationNameInvalid")
-      case "too-long":
-        return t("organizations.organizationNameTooLong", { max: maxOrganizationNameLength })
-      case "valid":
-        return editDuplicated ? t("organizations.organizationNameDuplicated") : null
-    }
-  }, [editDuplicated, editName, t])
-
-  const applySavedOrganization = React.useCallback(
-    (organization: Organization, options?: { avatarFile?: File | null }) => {
-      upsertWorkspaceOrganization(organization, options)
-    },
-    [upsertWorkspaceOrganization],
-  )
-
   React.useEffect(() => {
     const handleWindowFocus = () => {
       void refreshWorkspace()
@@ -229,181 +170,15 @@ export function OrganizationManagementRoute({
     return () => window.removeEventListener("focus", handleWindowFocus)
   }, [refreshWorkspace])
 
-  const handleCreateOrganization = React.useCallback(
-    async (event: React.FormEvent) => {
-      event.preventDefault()
-      const orgName = createName.trim()
-      const validation = organizationNameValidation(orgName)
-      if (validation !== "valid") {
-        toast.error(
-          validation === "empty"
-            ? t("organizations.organizationNameRequired")
-            : validation === "invalid"
-              ? t("organizations.organizationNameInvalid")
-              : t("organizations.organizationNameTooLong", { max: maxOrganizationNameLength }),
-        )
-        return
-      }
-
-      setBusyAction("create")
-      try {
-        let organization = await createOrganization({ orgName })
-        if (createAvatarFile) {
-          const { avatar } = await uploadOrganizationAvatar(organization.id, createAvatarFile)
-          organization = await updateOrganization({
-            avatar,
-            orgId: organization.id,
-            orgName: organization.name,
-          })
-          applySavedOrganization(organization, { avatarFile: createAvatarFile })
-        } else {
-          applySavedOrganization(organization)
-        }
-        toast.success(t("organizations.createOrganizationSuccess"))
-        setCreateOpen(false)
-        setCreateName("")
-        setCreateAvatarFile(null)
-        setCreateDuplicated(false)
-        selectOrganizationWorkspace(organization.id)
-        await refreshWorkspace({ forceRefresh: true })
-      } catch (error) {
-        if (isConflictError(error)) {
-          setCreateDuplicated(true)
-          toast.error(t("organizations.organizationNameDuplicated"))
-        } else {
-          toast.error(errorMessage(error))
-        }
-      } finally {
-        setBusyAction(null)
-      }
-    },
-    [applySavedOrganization, createAvatarFile, createName, refreshWorkspace, selectOrganizationWorkspace, t],
-  )
-
-  const openEditOrganization = React.useCallback((organization: Organization) => {
-    setEditOrganizationId(organization.id)
-    setEditName(organization.name)
-    setEditAvatar(organization.avatar)
-    setEditAvatarFile(null)
-    setEditDuplicated(false)
-    setEditOpen(true)
-  }, [])
-
-  const closeEditOrganization = React.useCallback(() => {
-    if (busyAction === "updateOrganization" || busyAction === "uploadOrganizationAvatar") {
-      return
-    }
-    setEditOpen(false)
-    setEditOrganizationId(null)
-    setEditName("")
-    setEditAvatar("")
-    setEditAvatarFile(null)
-    setEditDuplicated(false)
-  }, [busyAction])
-
-  const handleEditAvatarFileChange = React.useCallback(
-    (file: File | null) => {
-      editAvatarUploadVersion.current += 1
-      setEditAvatarFile(file)
-      if (!file) {
-        return
-      }
-      if (!editingOrganization || !getWorkspaceOrganizationCanManage(editingOrganization)) {
-        setEditAvatarFile(null)
-        return
-      }
-
-      const version = editAvatarUploadVersion.current
-      setBusyAction("uploadOrganizationAvatar")
-      void uploadOrganizationAvatar(editingOrganization.id, file)
-        .then((uploaded) => {
-          if (editAvatarUploadVersion.current !== version) {
-            return
-          }
-          setEditAvatar(uploaded.avatar)
-        })
-        .catch((error) => {
-          if (editAvatarUploadVersion.current !== version) {
-            return
-          }
-          setEditAvatarFile(null)
-          toast.error(errorMessage(error))
-        })
-        .finally(() => {
-          if (editAvatarUploadVersion.current === version) {
-            setBusyAction((current) => (current === "uploadOrganizationAvatar" ? null : current))
-          }
-        })
-    },
-    [editingOrganization, getWorkspaceOrganizationCanManage],
-  )
-
-  const handleUpdateOrganization = React.useCallback(
-    async (event: React.FormEvent) => {
-      event.preventDefault()
-      if (!editingOrganization || !getWorkspaceOrganizationCanManage(editingOrganization)) {
-        return
-      }
-
-      const orgName = editName.trim()
-      const validation = organizationNameValidation(orgName)
-      if (validation !== "valid") {
-        toast.error(
-          validation === "empty"
-            ? t("organizations.organizationNameRequired")
-            : validation === "invalid"
-              ? t("organizations.organizationNameInvalid")
-              : t("organizations.organizationNameTooLong", { max: maxOrganizationNameLength }),
-        )
-        return
-      }
-
-      setBusyAction("updateOrganization")
-      try {
-        const avatar = editAvatar.trim()
-        const organization = await updateOrganization({
-          avatar,
-          orgId: editingOrganization.id,
-          orgName,
-        })
-        if (editAvatarFile || avatar !== editingOrganization.avatar) {
-          applySavedOrganization(organization, { avatarFile: editAvatarFile })
-        } else {
-          applySavedOrganization(organization)
-        }
-        toast.success(t("organizations.updateOrganizationSuccess"))
-        setEditOpen(false)
-        setEditOrganizationId(null)
-        setEditName("")
-        setEditAvatar("")
-        setEditAvatarFile(null)
-        setEditDuplicated(false)
-        applySavedOrganization(organization)
-        selectOrganizationWorkspace(organization.id)
-        await refreshWorkspace({ forceRefresh: true })
-      } catch (error) {
-        if (isConflictError(error)) {
-          setEditDuplicated(true)
-          toast.error(t("organizations.organizationNameDuplicated"))
-        } else {
-          toast.error(errorMessage(error))
-        }
-      } finally {
-        setBusyAction(null)
-      }
-    },
-    [
-      applySavedOrganization,
-      editAvatar,
-      editAvatarFile,
-      editName,
-      editingOrganization,
-      getWorkspaceOrganizationCanManage,
-      refreshWorkspace,
-      selectOrganizationWorkspace,
-      t,
-    ],
-  )
+  const organizationForms = useOrganizationForms({
+    busyAction,
+    canManageOrganization: getWorkspaceOrganizationCanManage,
+    organizations,
+    refreshWorkspace,
+    selectOrganization: selectOrganizationWorkspace,
+    setBusyAction,
+    upsertOrganization: upsertWorkspaceOrganization,
+  })
 
   const handleSelectPersonalWorkspace = React.useCallback(() => {
     selectPersonalWorkspace()
@@ -446,7 +221,7 @@ export function OrganizationManagementRoute({
             />
           </div>
         ) : showOrganizationEmptyState ? (
-          <EmptyOrganizationsState onCreate={() => setCreateOpen(true)} />
+          <EmptyOrganizationsState onCreate={organizationForms.create.openDialog} />
         ) : (
           <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
             {showOverviewLoading ? (
@@ -465,8 +240,8 @@ export function OrganizationManagementRoute({
                   avatarPreviewUrls={avatarPreviewUrls}
                   selectedOrganization={selectedOrganization}
                   selectedOrganizationId={selectedOrganizationId}
-                  onCreate={() => setCreateOpen(true)}
-                  onEdit={openEditOrganization}
+                  onCreate={organizationForms.create.openDialog}
+                  onEdit={organizationForms.edit.openDialog}
                   onAddMember={() => setAddMemberOpen(true)}
                   onOpenMembers={() => setMembersPanelOpen(true)}
                   onRemoteAvatarLoad={clearOrganizationAvatarPreview}
@@ -509,7 +284,7 @@ export function OrganizationManagementRoute({
                     organizations={organizations}
                     avatarPreviewUrls={avatarPreviewUrls}
                     getOrganizationRole={getWorkspaceOrganizationRole}
-                    onCreate={() => setCreateOpen(true)}
+                    onCreate={organizationForms.create.openDialog}
                     onRemoteAvatarLoad={clearOrganizationAvatarPreview}
                     onSelectOrganization={handleSelectOrganizationWorkspace}
                   />
@@ -545,41 +320,30 @@ export function OrganizationManagementRoute({
         )}
       </div>
       <CreateOrganizationDialog
-        avatarFile={createAvatarFile}
+        avatarFile={organizationForms.create.avatarFile}
         busy={busyAction === "create"}
-        name={createName}
-        nameError={createNameError}
-        open={createOpen}
-        onAvatarFileChange={setCreateAvatarFile}
-        onClose={() => {
-          if (busyAction !== "create") {
-            setCreateOpen(false)
-            setCreateAvatarFile(null)
-          }
-        }}
-        onNameChange={(value) => {
-          setCreateName(value)
-          setCreateDuplicated(false)
-        }}
-        onSubmit={handleCreateOrganization}
+        name={organizationForms.create.name}
+        nameError={organizationForms.create.nameError}
+        open={organizationForms.create.open}
+        onAvatarFileChange={organizationForms.create.setAvatarFile}
+        onClose={organizationForms.create.close}
+        onNameChange={organizationForms.create.setName}
+        onSubmit={organizationForms.create.submit}
       />
       <EditOrganizationDialog
-        avatar={editAvatar}
-        avatarFile={editAvatarFile}
+        avatar={organizationForms.edit.avatar}
+        avatarFile={organizationForms.edit.avatarFile}
         busy={busyAction === "updateOrganization"}
-        name={editName}
-        nameError={editNameError}
-        open={editOpen}
-        organization={editingOrganization}
+        name={organizationForms.edit.name}
+        nameError={organizationForms.edit.nameError}
+        open={organizationForms.edit.open}
+        organization={organizationForms.edit.organization}
         avatarUploading={busyAction === "uploadOrganizationAvatar"}
-        onAvatarChange={setEditAvatar}
-        onAvatarFileChange={handleEditAvatarFileChange}
-        onClose={closeEditOrganization}
-        onNameChange={(value) => {
-          setEditName(value)
-          setEditDuplicated(false)
-        }}
-        onSubmit={handleUpdateOrganization}
+        onAvatarChange={organizationForms.edit.setAvatar}
+        onAvatarFileChange={organizationForms.edit.changeAvatarFile}
+        onClose={organizationForms.edit.close}
+        onNameChange={organizationForms.edit.setName}
+        onSubmit={organizationForms.edit.submit}
       />
       <AddMemberDialog
         activeUserId={activeSearchUserId}

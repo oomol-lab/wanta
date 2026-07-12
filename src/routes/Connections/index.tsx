@@ -9,7 +9,6 @@ import type {
 import type { ConnectionCatalogFilter, DisconnectTarget } from "./connection-route-model.ts"
 import type { ConnectionAuthIntent } from "./ConnectionProviderDetailPane.tsx"
 import type { UseConnections } from "@/hooks/useConnections"
-import type { UserFacingError } from "@/lib/user-facing-error"
 
 import { ArrowLeft, X } from "lucide-react"
 import * as React from "react"
@@ -18,13 +17,10 @@ import { getConnectionDetailErrorNotice, getConnectionListErrorNotice } from "./
 import { compareConnectionProvidersByRecommendation } from "./connection-provider-ranking.ts"
 import {
   buildCategoryFilters,
-  connectionDetailCacheKey,
   detailPaneAnimationMs,
-  isConnectionDetailCacheKeyForService,
   isConnected,
   matchesProviderFilter,
   matchesProviderQuery,
-  shouldLoadProviderDetail,
 } from "./connection-route-model.ts"
 import {
   ConnectionDrawerSkeleton,
@@ -35,6 +31,7 @@ import {
 import { EmptyList, ProviderDetail, StatusNotice } from "./ConnectionProviderDetailPane.tsx"
 import { DisconnectDialog } from "./DisconnectDialog.tsx"
 import { shouldOpenOAuthClientDialog } from "./oauth-client-config.ts"
+import { useConnectionProviderDetail } from "./use-connection-provider-detail.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
 import {
@@ -48,7 +45,6 @@ import {
 import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
 import { useT } from "@/i18n/i18n"
 import { getOAuthClientConfig } from "@/lib/connections-client"
-import { resolveConnectionError } from "@/lib/connections-error"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
@@ -88,10 +84,6 @@ export function ConnectionsPanel({
   const [activeFilter, setActiveFilter] = React.useState<ConnectionCatalogFilter>({ kind: "all" })
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
-  const [detail, setDetail] = React.useState<ConnectionProviderDetail | null>(null)
-  const [detailCacheKey, setDetailCacheKey] = React.useState<string | null>(null)
-  const [detailLoading, setDetailLoading] = React.useState(false)
-  const [detailError, setDetailError] = React.useState<UserFacingError | null>(null)
   const [detailPaneClosing, setDetailPaneClosing] = React.useState(false)
   const [dialog, setDialog] = React.useState<{
     appDetail?: ConnectionAppDetail | null
@@ -102,9 +94,8 @@ export function ConnectionsPanel({
   } | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState<DisconnectTarget | null>(null)
   const detailCloseTimerRef = React.useRef<number | null>(null)
-  const detailCacheRef = React.useRef<Map<string, ConnectionProviderDetail>>(new Map())
-  const detailRequestIdRef = React.useRef(0)
   const connectRequestIdRef = React.useRef(0)
+  const detailWorkspaceKeyRef = React.useRef<string | null>(summaryWorkspaceKey)
   const listPaneRef = React.useRef<HTMLDivElement | null>(null)
 
   const providers = summary?.providers ?? []
@@ -128,20 +119,19 @@ export function ConnectionsPanel({
   const selectedProvider = selectedProviderService
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
-  const selectedProviderNeedsDetail = selectedProvider ? shouldLoadProviderDetail(selectedProvider) : false
-  const selectedDetailService = selectedProvider?.service ?? null
-  const selectedDetailCacheKey =
-    summaryWorkspaceKey && selectedDetailService
-      ? connectionDetailCacheKey(summaryWorkspaceKey, selectedDetailService)
-      : null
-  const selectedProviderDetail = selectedDetailCacheKey && detailCacheKey === selectedDetailCacheKey ? detail : null
-  const selectedProviderDetailLoading = Boolean(selectedDetailCacheKey) && detailLoading
-  const selectedProviderDetailError = selectedDetailCacheKey ? detailError : null
+  const providerDetail = useConnectionProviderDetail({
+    getProviderDetail,
+    provider: selectedProvider,
+    workspaceKey: summaryWorkspaceKey,
+  })
+  const selectedProviderDetail = providerDetail.detail
+  const selectedProviderDetailLoading = providerDetail.loading
+  const selectedProviderDetailError = providerDetail.error
   const selectedProviderActionsBlocked = Boolean(
-    selectedProviderNeedsDetail && !selectedProviderDetail && selectedProviderDetailError,
+    providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError,
   )
   const selectedProviderActionsPending = Boolean(
-    selectedProviderNeedsDetail && !selectedProviderDetail && selectedProviderDetailLoading,
+    providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailLoading,
   )
   const detailErrorNotice = selectedProvider
     ? getConnectionDetailErrorNotice({
@@ -151,27 +141,8 @@ export function ConnectionsPanel({
       })
     : null
   const summaryLoading = busy === "refresh" && !summary
-  const listErrorNotice = getConnectionListErrorNotice({
-    summaryError,
-    detailError: detailErrorNotice?.error ?? null,
-  })
-
-  const deleteCachedDetailForService = React.useCallback(
-    (service: string): void => {
-      if (!summaryWorkspaceKey) {
-        return
-      }
-      const activeCacheKey = connectionDetailCacheKey(summaryWorkspaceKey, service)
-      for (const cacheKey of detailCacheRef.current.keys()) {
-        if (cacheKey === activeCacheKey && isConnectionDetailCacheKeyForService(cacheKey, service)) {
-          detailCacheRef.current.delete(cacheKey)
-        }
-      }
-    },
-    [summaryWorkspaceKey],
-  )
-
-  const detailWorkspaceKeyRef = React.useRef<string | null>(summaryWorkspaceKey)
+  const listErrorNotice = getConnectionListErrorNotice({ summaryError, detailError: detailErrorNotice?.error ?? null })
+  const deleteCachedDetailForService = providerDetail.invalidate
   React.useEffect(() => {
     if (detailWorkspaceKeyRef.current === summaryWorkspaceKey) {
       return
@@ -180,10 +151,6 @@ export function ConnectionsPanel({
     connectRequestIdRef.current += 1
     setDialog(null)
     setConfirmDisconnect(null)
-    setDetail(null)
-    setDetailCacheKey(null)
-    setDetailError(null)
-    setDetailLoading(false)
   }, [summaryWorkspaceKey])
 
   const clearDetailCloseTimer = React.useCallback(() => {
@@ -260,59 +227,6 @@ export function ConnectionsPanel({
     setNarrowPane("list")
   }, [clearDetailCloseTimer, filteredProviders, selectedProviderService, summary])
 
-  React.useEffect(() => {
-    if (!selectedDetailService || !selectedDetailCacheKey || !selectedProviderNeedsDetail) {
-      detailRequestIdRef.current += 1
-      setDetail(null)
-      setDetailCacheKey(null)
-      setDetailError(null)
-      setDetailLoading(false)
-      return
-    }
-
-    let cancelled = false
-    const requestId = detailRequestIdRef.current + 1
-    detailRequestIdRef.current = requestId
-    const cached = detailCacheRef.current.get(selectedDetailCacheKey)
-    if (cached) {
-      setDetail(cached)
-      setDetailCacheKey(selectedDetailCacheKey)
-      setDetailError(null)
-      setDetailLoading(false)
-      return
-    }
-
-    setDetail(null)
-    setDetailCacheKey(null)
-    setDetailLoading(true)
-    setDetailError(null)
-    void getProviderDetail(selectedDetailService)
-      .then((next) => {
-        if (!cancelled && detailRequestIdRef.current === requestId) {
-          detailCacheRef.current.set(selectedDetailCacheKey, next)
-          setDetail(next)
-          setDetailCacheKey(selectedDetailCacheKey)
-          setDetailError(null)
-        }
-      })
-      .catch((err) => {
-        if (!cancelled && detailRequestIdRef.current === requestId) {
-          setDetail(null)
-          setDetailCacheKey(null)
-          setDetailError(resolveConnectionError(err, "detail"))
-        }
-      })
-      .finally(() => {
-        if (!cancelled && detailRequestIdRef.current === requestId) {
-          setDetailLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [getProviderDetail, selectedDetailCacheKey, selectedDetailService, selectedProviderNeedsDetail])
-
   const connectProvider = React.useCallback(
     async (
       provider: ConnectionProviderSummary,
@@ -325,26 +239,7 @@ export function ConnectionsPanel({
       const requestId = connectRequestIdRef.current + 1
       connectRequestIdRef.current = requestId
       const requestIsCurrent = (): boolean => connectRequestIdRef.current === requestId
-      const loadProviderDetail = async (): Promise<ConnectionProviderDetail> => {
-        const providerDetailCacheKey = summaryWorkspaceKey
-          ? connectionDetailCacheKey(summaryWorkspaceKey, provider.service)
-          : null
-        if (providerDetailCacheKey) {
-          if (detailCacheKey === providerDetailCacheKey && detail) {
-            return detail
-          }
-          const cached = detailCacheRef.current.get(providerDetailCacheKey)
-          if (cached) {
-            return cached
-          }
-        }
-
-        const loaded = await getProviderDetail(provider.service)
-        if (providerDetailCacheKey && requestIsCurrent()) {
-          detailCacheRef.current.set(providerDetailCacheKey, loaded)
-        }
-        return loaded
-      }
+      const loadProviderDetail = () => providerDetail.loadCached(provider.service)
       try {
         if (authType === "oauth2") {
           const loaded = await loadProviderDetail()
@@ -393,20 +288,11 @@ export function ConnectionsPanel({
         setDialog({ detail: loaded, authType, appId, appDetail })
       } catch (err) {
         if (requestIsCurrent()) {
-          setDetailError(resolveConnectionError(err, "detail"))
+          providerDetail.reportError(err)
         }
       }
     },
-    [
-      connect,
-      deleteCachedDetailForService,
-      detail,
-      detailCacheKey,
-      getAppDetail,
-      getProviderDetail,
-      polling,
-      summaryWorkspaceKey,
-    ],
+    [connect, deleteCachedDetailForService, getAppDetail, polling, providerDetail],
   )
 
   const submitConnectDialog = React.useCallback(
@@ -496,13 +382,6 @@ export function ConnectionsPanel({
               : await disconnect(target.provider.service)
             if (ok) {
               deleteCachedDetailForService(target.provider.service)
-              if (
-                summaryWorkspaceKey &&
-                detailCacheKey === connectionDetailCacheKey(summaryWorkspaceKey, target.provider.service)
-              ) {
-                setDetail(null)
-                setDetailCacheKey(null)
-              }
               setConfirmDisconnect(null)
             }
           }}
@@ -637,13 +516,6 @@ export function ConnectionsPanel({
             : await disconnect(target.provider.service)
           if (ok) {
             deleteCachedDetailForService(target.provider.service)
-            if (
-              summaryWorkspaceKey &&
-              detailCacheKey === connectionDetailCacheKey(summaryWorkspaceKey, target.provider.service)
-            ) {
-              setDetail(null)
-              setDetailCacheKey(null)
-            }
             setConfirmDisconnect(null)
           }
         }}

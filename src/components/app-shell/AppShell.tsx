@@ -2,7 +2,6 @@ import type {
   AgentPermissionMode,
   AgentRuntimeStatus,
   AuthorizationInfo,
-  ChatOrganizationSkillContext,
   ChatPermissionReply,
 } from "../../../electron/chat/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
@@ -28,7 +27,6 @@ import {
   connectionWorkspaceSwitchKey,
   EMPTY_CONNECTION_PROVIDERS,
   existingSessionComposerDraftKey,
-  getUnlinkedProviderSkillRecommendations,
   initialRoute,
   newSessionComposerDraftKeyForScopeKey,
   NO_DRAFT_PROJECT_ID,
@@ -36,7 +34,6 @@ import {
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
-  shouldShowRecommendedSkillEntry,
   workspaceActivationHasFailed,
   workspaceSelectionSwitchKey,
 } from "./app-shell-model.ts"
@@ -50,6 +47,7 @@ import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
 import { compareRunningSessions, groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
 import { useAppShellCommands } from "./use-app-shell-commands.ts"
+import { useAppShellSkillRecommendations } from "./use-app-shell-skill-recommendations.ts"
 import { useArtifactsPanelState } from "./use-artifacts-panel-state.ts"
 import { useChatConnectionRetry } from "./use-chat-connection-retry.ts"
 import { useChatQueueState } from "./use-chat-queue-state.ts"
@@ -70,7 +68,6 @@ import { useConnections } from "@/hooks/useConnections"
 import { useOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import { useOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
 import { useProjectGit } from "@/hooks/useProjectGit"
-import { useProviderSkillRecommendations } from "@/hooks/useProviderSkillRecommendations"
 import { useSessions } from "@/hooks/useSessions"
 import { useT } from "@/i18n/i18n"
 import { appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
@@ -80,7 +77,6 @@ import { cn } from "@/lib/utils"
 import { chatTurnAllowsDirectSend, chatTurnQueuesNewMessage, resolveChatTurnState } from "@/routes/Chat/chat-turn-state"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
-import { getInstallableOrganizationSkills } from "@/routes/Skills/skill-route-model"
 
 const ArchivedRoute = React.lazy(() =>
   import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
@@ -124,16 +120,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const organizationSkills = useOrganizationSkills(organizationWorkspace.activeWorkspace, auth.state?.account?.id)
   const skillInventory = useSkillInventoryResource()
   const connections = useConnections(organizationWorkspace.connectionWorkspace)
-  const organizationSkillGroupById = React.useMemo(
-    () => new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group])),
-    [skillInventory.data?.groups],
-  )
-  const installableOrganizationSkills = React.useMemo(() => {
-    if (!organizationSkills.organizationId || !skillInventory.data) {
-      return []
-    }
-    return getInstallableOrganizationSkills(organizationSkillGroupById, organizationSkills.skills)
-  }, [organizationSkillGroupById, organizationSkills.organizationId, organizationSkills.skills, skillInventory.data])
   const sessionScope = React.useMemo(
     () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
     [organizationWorkspace.activeWorkspace],
@@ -281,52 +267,16 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeProviders = connectionSummaryMatchesWorkspace
     ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
     : EMPTY_CONNECTION_PROVIDERS
-  const providerSkillRecommendationsEnabled = route === "chat" || route === "skills" || route === "organizations"
-  const providerSkillRecommendations = useProviderSkillRecommendations({
-    groupById: organizationSkillGroupById,
-    providers:
-      organizationSkills.organizationId && providerSkillRecommendationsEnabled
-        ? activeProviders
-        : EMPTY_CONNECTION_PROVIDERS,
+  const {
+    entryVisible: organizationSkillEntryVisible,
+    pendingInstallCount: recommendedSkillPendingInstallCount,
+    showcaseItems: organizationSkillShowcaseItems,
+  } = useAppShellSkillRecommendations({
+    activeProviders,
+    inventory: skillInventory.data,
+    organizationSkills,
+    route,
   })
-  const installableProviderSkillRecommendations = React.useMemo(
-    () => getUnlinkedProviderSkillRecommendations(organizationSkills.skills, providerSkillRecommendations.installable),
-    [organizationSkills.skills, providerSkillRecommendations.installable],
-  )
-  const recommendedSkillPendingInstallCount = skillInventory.data
-    ? installableOrganizationSkills.length + installableProviderSkillRecommendations.length
-    : undefined
-  const organizationSkillEntryVisible = shouldShowRecommendedSkillEntry({
-    organizationId: organizationSkills.organizationId,
-    organizationSkillCount: organizationSkills.skills.length,
-    providerRecommendationCount: installableProviderSkillRecommendations.length,
-  })
-  const organizationSkillShowcaseItems = React.useMemo<ChatOrganizationSkillContext[]>(() => {
-    const organizationShowcaseSkills =
-      installableOrganizationSkills.length > 0 ? installableOrganizationSkills : organizationSkills.skills
-    const organizationItems = organizationShowcaseSkills.map((skill) => ({
-      ...(skill.description ? { description: skill.description } : {}),
-      ...(skill.icon ? { icon: skill.icon } : {}),
-      id: skill.id,
-      name: skill.displayName || skill.skillName,
-      packageName: skill.packageName,
-      skillName: skill.skillName,
-      version: skill.version,
-    }))
-    const providerItems = installableProviderSkillRecommendations.map((recommendation) => {
-      const recommendedSkill = recommendation.package.skills.find((skill) => skill.name === recommendation.skillId)
-      return {
-        ...(recommendation.package.description ? { description: recommendation.package.description } : {}),
-        ...(recommendation.providerIconUrl ? { icon: recommendation.providerIconUrl } : {}),
-        id: `provider:${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`,
-        name: recommendation.package.displayName || recommendedSkill?.title || recommendation.skillId,
-        packageName: recommendation.packageName,
-        skillName: recommendation.skillId,
-        version: recommendation.package.version,
-      }
-    })
-    return [...organizationItems, ...providerItems]
-  }, [installableOrganizationSkills, installableProviderSkillRecommendations, organizationSkills.skills])
   const sharedConnectorCount =
     organizationWorkspace.activeWorkspace.type === "organization" && connectionSummaryMatchesWorkspace
       ? connections.summary?.connectedProviderCount

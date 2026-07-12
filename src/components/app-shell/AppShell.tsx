@@ -1,17 +1,13 @@
 import type {
-  AgentMode,
   AgentPermissionMode,
   AgentRuntimeStatus,
   AuthorizationInfo,
-  ChatContextMention,
   ChatOrganizationSkillContext,
   ChatPermissionReply,
-  ReasoningLevel,
 } from "../../../electron/chat/common.ts"
-import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
-import type { ChatSendRequest, ChatSendResult, TurnRetryOptions } from "./app-shell-model.ts"
+import type { ChatSendRequest, ChatSendResult } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
@@ -26,10 +22,8 @@ import { PanelRightClose, PanelRightOpen } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
-import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
 import {
   activeProjectIdForComposer,
-  buildSessionTitleInput,
   chatSendAccepted,
   connectionWorkspaceSwitchKey,
   EMPTY_CONNECTION_PROVIDERS,
@@ -39,7 +33,6 @@ import {
   newSessionComposerDraftKeyForScopeKey,
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
-  rememberTurnRetryOptions,
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
@@ -61,6 +54,7 @@ import { useArtifactsPanelState } from "./use-artifacts-panel-state.ts"
 import { useChatConnectionRetry } from "./use-chat-connection-retry.ts"
 import { useChatQueueState } from "./use-chat-queue-state.ts"
 import { useComposerNavigation } from "./use-composer-navigation.ts"
+import { useComposerSubmission } from "./use-composer-submission.ts"
 import { useProjectActions } from "./use-project-actions.ts"
 import { useProjectSidebarCollapseState } from "./use-project-sidebar-collapse-state.ts"
 import { useSessionActions } from "./use-session-actions.ts"
@@ -341,15 +335,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
   )
-  const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
-  const lastReasoningLevelBySession = React.useRef<Map<string, ReasoningLevel | undefined>>(new Map())
-  const lastModeBySession = React.useRef<Map<string, AgentMode | undefined>>(new Map())
-  const lastPermissionModeBySession = React.useRef<Map<string, AgentPermissionMode | undefined>>(new Map())
-  const lastContextMentionsBySession = React.useRef<Map<string, ChatContextMention[]>>(new Map())
-  const turnRetryOptionsBySession = React.useRef<Map<string, Map<string, TurnRetryOptions>>>(new Map())
   const composerDraftsByKey = React.useRef<Map<string, ComposerState>>(new Map())
   const lastChatProjectId = React.useRef<string | null>(null)
-  const sendInFlightKeysRef = React.useRef(new Set<string>())
   const workspaceResetKeyRef = React.useRef(activeWorkspaceKey)
   const previousActiveChatSessionIdRef = React.useRef<string | null>(null)
   const {
@@ -466,6 +453,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     rename,
     sessions: visibleSessions,
   })
+  const titleGeneration = React.useMemo(
+    () => ({ getAutoFallbackTitle, isAutoRefreshable, refreshGeneratedTitle, rememberAutoFallbackTitle }),
+    [getAutoFallbackTitle, isAutoRefreshable, refreshGeneratedTitle, rememberAutoFallbackTitle],
+  )
   const activeProjectId = React.useMemo(
     () => activeProjectIdForComposer({ activeSession, draftProjectId }),
     [activeSession, draftProjectId],
@@ -522,10 +513,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeComposerDraftKey = activeChatSessionId
     ? existingSessionComposerDraftKey(currentScopeKey, activeChatSessionId)
     : newSessionComposerDraftKeyForScopeKey(newSessionDraftScopeKey, activeProjectId)
-  const activeComposerDraftKeyRef = React.useRef(activeComposerDraftKey)
-  activeComposerDraftKeyRef.current = activeComposerDraftKey
-  const currentScopeKeyRef = React.useRef(currentScopeKey)
-  currentScopeKeyRef.current = currentScopeKey
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
   const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
   const chatConnectionAuthIntent = activeChatConnectionDrawer?.authIntent ?? null
@@ -788,165 +775,41 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     sessions: visibleSessions,
   })
 
-  const sendNow = React.useCallback(
-    async (request: ChatSendRequest): Promise<ChatSendResult> => {
-      const {
-        afterOptimisticSubmit,
-        attachments = [],
-        contextMentions = [],
-        mode,
-        model,
-        organizationSkills: requestOrganizationSkills,
-        permissionMode: permissionModeArg,
-        projectContext: requestProjectContext,
-        reasoningLevel,
-        sessionScope: requestSessionScope,
-        text,
-      } = request
-      const effectiveSessionScope = requestSessionScope ?? sessionScope
-      const effectiveScopeKey = sessionScopeKey(effectiveSessionScope)
-      const effectiveOrganizationSkills = requestOrganizationSkills ?? organizationSkills.chatContextSkills
-      const effectiveProjectContext = requestProjectContext ?? activeProjectContext
-      const sendKey = activeComposerDraftKey
-      const sendScopeKey = effectiveScopeKey
-      const isCurrentSendTarget = (): boolean =>
-        activeComposerDraftKeyRef.current === sendKey && currentScopeKeyRef.current === sendScopeKey
-      if (sendInFlightKeysRef.current.has(sendKey)) {
-        return { reason: "send_in_flight", status: "rejected" }
-      }
-      if (!effectiveSessionScope || currentScopeKey !== sendScopeKey) {
-        return { reason: "workspace_not_ready", status: "rejected" }
-      }
-      sendInFlightKeysRef.current.add(sendKey)
-      try {
-        setRoute("chat")
-        let sessionId = activeChatSessionId
-        const titleInput = { ...buildSessionTitleInput(messages, text, attachments), model }
-        const fallbackTitle = buildFallbackSessionTitle(titleInput)
-        const autoFallbackTitle = sessionId ? getAutoFallbackTitle(sessionId) : undefined
-        const allowPlaceholderTitle =
-          !sessionId || (activeSession ? isAutoRefreshable(activeSession, true, fallbackTitle) : false)
-        const shouldRefreshTitle =
-          !sessionId || (activeSession ? isAutoRefreshable(activeSession, allowPlaceholderTitle, fallbackTitle) : false)
-        const bridgeEmptySend = messagesLoaded && messages.length === 0
-        const createdAt = Date.now()
-        const selectedPermissionMode = permissionModeArg ?? displayedPermissionMode
-        if (bridgeEmptySend && isCurrentSendTarget()) {
-          setPendingChatTransition({
-            sessionId,
-            scopeKey: sendScopeKey,
-            text,
-            attachments,
-            contextMentions,
-            model,
-            reasoningLevel,
-            mode,
-            permissionMode: selectedPermissionMode,
-            createdAt,
-          })
-        }
-        if (!sessionId) {
-          let info: SessionInfo
-          try {
-            info = await create(fallbackTitle, effectiveProjectContext?.id ?? activeProject?.id)
-          } catch (error) {
-            if (bridgeEmptySend && isCurrentSendTarget()) {
-              setPendingChatTransition(null)
-            }
-            return { error, status: "failed" }
-          }
-          sessionId = info.id
-          rememberAutoFallbackTitle(sessionId, fallbackTitle)
-          if (isCurrentSendTarget()) {
-            setSelectedSessionId(sessionId)
-            setIsDraftSession(false)
-            setSidebarSegment(info.projectId ? "projects" : "tasks")
-            setPendingChatTransition((pending) =>
-              pending?.createdAt === createdAt && pending.scopeKey === sendScopeKey
-                ? { ...pending, sessionId: info.id }
-                : pending,
-            )
-          }
-        }
-        persistPermissionMode(sessionId, selectedPermissionMode)
-        if (shouldRefreshTitle) {
-          void refreshGeneratedTitle(
-            sessionId,
-            titleInput,
-            allowPlaceholderTitle,
-            !activeChatSessionId ? fallbackTitle : autoFallbackTitle,
-          )
-        }
-        lastModelBySession.current.set(sessionId, model)
-        lastReasoningLevelBySession.current.set(sessionId, reasoningLevel)
-        lastModeBySession.current.set(sessionId, mode)
-        lastPermissionModeBySession.current.set(sessionId, selectedPermissionMode)
-        lastContextMentionsBySession.current.set(sessionId, contextMentions)
-        rememberTurnRetryOptions(
-          turnRetryOptionsBySession.current,
-          sessionId,
-          chatTurnInputKey({ text, attachments }),
-          {
-            contextMentions,
-            organizationSkills: effectiveOrganizationSkills,
-            projectContext: effectiveProjectContext,
-            model,
-            reasoningLevel,
-            mode,
-            permissionMode: selectedPermissionMode,
-            sessionScope: effectiveSessionScope,
-          },
-        )
-        try {
-          const sendPromise = send(sessionId, text, attachments, {
-            contextMentions,
-            model,
-            organizationSkills: effectiveOrganizationSkills,
-            projectContext: effectiveProjectContext,
-            reasoningLevel,
-            sessionScope: effectiveSessionScope,
-            mode,
-            permissionMode: selectedPermissionMode,
-          })
-          afterOptimisticSubmit?.()
-          await sendPromise
-        } catch (error) {
-          if (bridgeEmptySend && isCurrentSendTarget()) {
-            setPendingChatTransition(null)
-          }
-          return { error, status: "failed" }
-        }
-        return { delivery: "sent", status: "accepted" }
-      } finally {
-        sendInFlightKeysRef.current.delete(sendKey)
-      }
+  const {
+    isDraftSendInFlight,
+    isSendInFlight,
+    memory: {
+      contextMentionsBySession: lastContextMentionsBySession,
+      modeBySession: lastModeBySession,
+      modelBySession: lastModelBySession,
+      permissionModeBySession: lastPermissionModeBySession,
+      reasoningLevelBySession: lastReasoningLevelBySession,
+      retryOptionsBySession: turnRetryOptionsBySession,
     },
-    [
-      activeSession,
-      activeChatSessionId,
-      activeComposerDraftKey,
-      activeProject?.id,
-      activeProjectContext,
-      create,
-      currentScopeKey,
-      displayedPermissionMode,
-      getAutoFallbackTitle,
-      isAutoRefreshable,
-      messages,
-      messagesLoaded,
-      organizationSkills.chatContextSkills,
-      refreshGeneratedTitle,
-      rememberAutoFallbackTitle,
-      send,
-      sessionScope,
-      persistPermissionMode,
-    ],
-  )
+    sendNow,
+  } = useComposerSubmission({
+    activeChatSessionId,
+    activeComposerDraftKey,
+    activeProject,
+    activeProjectContext,
+    activeSession,
+    createSession: create,
+    currentScopeKey,
+    displayedPermissionMode,
+    messages,
+    messagesLoaded,
+    organizationSkills: organizationSkills.chatContextSkills,
+    persistPermissionMode,
+    send,
+    sessionScope,
+    setIsDraftSession,
+    setPendingChatTransition,
+    setRoute,
+    setSelectedSessionId,
+    setSidebarSegment,
+    titleGeneration,
+  })
 
-  const isSendInFlight = React.useCallback(
-    (): boolean => sendInFlightKeysRef.current.has(activeComposerDraftKey),
-    [activeComposerDraftKey],
-  )
   const {
     activeQueueHeld,
     activeQueuedMessages,
@@ -1087,10 +950,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         clearComposerDraft(draftKey)
         afterOptimisticSubmit?.()
       }
-      if (
-        activeChatSessionId &&
-        (!chatTurnAllowsDirectSend(activeChatTurnState) || sendInFlightKeysRef.current.has(draftKey))
-      ) {
+      if (activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isDraftSendInFlight(draftKey))) {
         queueActiveMessage(
           text,
           attachments,

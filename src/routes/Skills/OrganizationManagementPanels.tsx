@@ -360,10 +360,13 @@ export function OrganizationSkillGuidePanel({
               </Badge>
             ) : null}
           </div>
-          <div className="oo-text-caption mt-0.5 grid gap-0.5 text-muted-foreground">
-            <p>{t("organizations.skillGuideDescription")}</p>
-            {!organizationSkills.canManage ? <p>{t("organizations.skillGuideReadOnlyHelp")}</p> : null}
-          </div>
+          <p className="oo-text-caption mt-0.5 text-muted-foreground">
+            {t(
+              organizationSkills.canManage
+                ? "organizations.skillGuideDescription"
+                : "organizations.skillGuideReadOnlyDescription",
+            )}
+          </p>
         </div>
       </div>
       <div className="min-h-0">

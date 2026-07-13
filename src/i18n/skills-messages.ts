@@ -155,7 +155,8 @@ export const skillsMessages = {
     "organizations.skillGuideSystemCount": "系统推荐 {{count}} 个",
     "organizations.skillGuideSystemLoading": "正在匹配系统推荐",
     "organizations.skillGuideReadOnlyBadge": "仅可查看组织配置",
-    "organizations.skillGuideReadOnlyHelp": "你仍可安装和管理本机 Skill；只有组织管理员可以修改组织推荐。",
+    "organizations.skillGuideReadOnlyDescription":
+      "本组织配置的 Skill，以及根据已连接服务生成的系统推荐；你仍可安装和管理本机 Skill，只有组织管理员可以修改组织推荐。",
     "organizations.skillGuideEmptyBadge": "未配置",
     "organizations.skillGuideConfigured": "已配置 Skill",
     "organizations.skillGuideCount": "{{enabled}} / {{count}} 已启用",
@@ -627,8 +628,8 @@ export const skillsMessages = {
     "organizations.skillGuideSystemCount": "{{count}} system recommendations",
     "organizations.skillGuideSystemLoading": "Matching system recommendations",
     "organizations.skillGuideReadOnlyBadge": "Organization settings view only",
-    "organizations.skillGuideReadOnlyHelp":
-      "You can still install and manage local Skills. Only organization admins can change organization recommendations.",
+    "organizations.skillGuideReadOnlyDescription":
+      "Skills configured by this organization, plus system recommendations based on connected services; you can still install and manage local Skills, but only organization admins can change organization recommendations.",
     "organizations.skillGuideEmptyBadge": "Not configured",
     "organizations.skillGuideConfigured": "Configured Skills",
     "organizations.skillGuideCount": "{{enabled}} / {{count}} enabled",

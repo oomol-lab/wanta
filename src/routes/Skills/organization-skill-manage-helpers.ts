@@ -11,7 +11,11 @@ import {
   organizationSkillPackageKey,
   organizationSkillPackageLinked,
 } from "./organization-management-model.ts"
-import { canInstallPublicSkill, getOrganizationSkillRuntimeStatus } from "./skill-route-model.ts"
+import {
+  canInstallPublicSkill,
+  getOrganizationSkillRuntimeStatus,
+  shouldOpenPublicSkillManagement,
+} from "./skill-route-model.ts"
 
 export function looksLikeSkillPackageName(query: string): boolean {
   const normalized = query.trim()
@@ -79,7 +83,7 @@ export function canInstallProviderRecommendationRuntime(recommendation: Provider
 }
 
 export function canOpenManagedProviderRecommendation(recommendation: ProviderSkillRecommendation): boolean {
-  return recommendation.installState === "installed" || recommendation.installState === "name-conflict"
+  return shouldOpenPublicSkillManagement(recommendation.installState)
 }
 
 export type OrganizationSkillRecommendationItem =
@@ -184,6 +188,15 @@ export function canOpenManagedOrganizationSkill(state: OrganizationSkillRuntimeS
     state === "local-conflict" ||
     state === "same-id-different-package" ||
     state === "unknown-conflict"
+  )
+}
+
+export function shouldOpenOrganizationSkillManagement(state: OrganizationSkillRuntimeState): boolean {
+  return (
+    state === "external-only" ||
+    state === "installed-same" ||
+    state === "installed-modified" ||
+    state === "installed-version-mismatch"
   )
 }
 

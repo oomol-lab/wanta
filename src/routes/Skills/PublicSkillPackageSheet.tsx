@@ -22,6 +22,7 @@ import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 interface PublicSkillPackageSheetProps {
+  additionalActions?: React.ReactNode
   groupById: ManagedSkillGroupById
   installingKey: string | null
   locale: string
@@ -32,6 +33,7 @@ interface PublicSkillPackageSheetProps {
 }
 
 export function PublicSkillPackageSheet({
+  additionalActions,
   groupById,
   installingKey,
   locale,
@@ -126,6 +128,7 @@ export function PublicSkillPackageSheet({
         </div>
         <div className="min-h-0 overflow-auto p-3">
           <PublicSkillPackageDetail
+            additionalActions={additionalActions}
             groupById={groupById}
             installingKey={installingKey}
             locale={locale}
@@ -140,6 +143,7 @@ export function PublicSkillPackageSheet({
 }
 
 interface PublicSkillPackageDetailProps {
+  additionalActions?: React.ReactNode
   className?: string
   groupById: ManagedSkillGroupById
   installingKey: string | null
@@ -150,6 +154,7 @@ interface PublicSkillPackageDetailProps {
 }
 
 function PublicSkillPackageDetail({
+  additionalActions,
   className,
   groupById,
   installingKey,
@@ -214,7 +219,10 @@ function PublicSkillPackageDetail({
                         : t("organizations.skillManageInstallRuntime")}
                 </Button>
               )}
+              {additionalActions}
             </div>
+          ) : additionalActions ? (
+            <div className="flex min-w-0 flex-wrap gap-1">{additionalActions}</div>
           ) : null}
         </CardContent>
       </InspectorCard>

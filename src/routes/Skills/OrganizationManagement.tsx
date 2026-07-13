@@ -1,15 +1,16 @@
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { BusyAction, ProviderAccessForm } from "./organization-management-model.ts"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
 
+import { RefreshCwIcon } from "lucide-react"
 import * as React from "react"
 import {
   buildGrantViews,
   buildOrganizationMemberViews,
   initialProviderAccessForm,
   providerOptionsWithSelected,
-  runtimeSkillRemoveBusyKey,
 } from "./organization-management-model.ts"
 import {
   EmptyOrganizationsState,
@@ -28,9 +29,26 @@ import {
   ProviderAccessDialog,
 } from "./OrganizationMembersPanel.tsx"
 import { OrganizationMembersSheet } from "./OrganizationMembersSheet.tsx"
-import { RuntimeSkillRemoveConfirmDialog } from "./OrganizationSkillManageDialog.tsx"
+import { PublicSkillPackageSheet } from "./PublicSkillPackageSheet.tsx"
+import {
+  getPublicPackagePrimaryInstallSkill,
+  getPublicPackagePrimarySkill,
+  getPublicSkillInstallKey,
+  getGroupStatus,
+  getRuntimeHosts,
+  getSkillVersionCheck,
+  getSkillVersionCheckKey,
+  getSelectedManagedSkillGroup,
+} from "./skill-route-model.ts"
+import { SkillDetailContent } from "./SkillDetailContent.tsx"
+import { SkillManagementSheet } from "./SkillUiParts.tsx"
+import { useSkillService } from "@/components/AppContext"
 import { useAuthStateResource, useSkillInventoryResource } from "@/components/AppDataHooks"
+import { useHomeSummaryResource, useSkillVersionReportResource } from "@/components/AppDataHooks"
+import { DeleteSkillConfirmDialog } from "@/components/DeleteSkillConfirmDialog"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useSkillObjectActions } from "@/components/useSkillObjectActions"
 import { useAppI18n } from "@/i18n"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
 import { useProviderSkillPackageLookup } from "@/routes/Skills/provider-skill-package-lookup"
@@ -52,9 +70,12 @@ export function OrganizationManagementRoute({
   organizationSkills?: UseOrganizationSkills
   workspace: UseOrganizationWorkspace
 }) {
-  const { t } = useAppI18n()
+  const { locale, t } = useAppI18n()
   const authResource = useAuthStateResource()
   const skillInventory = useSkillInventoryResource()
+  const skillVersions = useSkillVersionReportResource()
+  const homeSummary = useHomeSummaryResource()
+  const skillService = useSkillService()
   const activeAccount = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
   const activeAccountId = activeAccount?.id
   const activeWorkspace = workspace.activeWorkspace
@@ -70,6 +91,11 @@ export function OrganizationManagementRoute({
   const [addMemberOpen, setAddMemberOpen] = React.useState(false)
   const [addMemberError, setAddMemberError] = React.useState<string | null>(null)
   const [membersPanelOpen, setMembersPanelOpen] = React.useState(false)
+  const [managedSkillId, setManagedSkillId] = React.useState<string | null>(null)
+  const [selectedPackage, setSelectedPackage] = React.useState<PublicSkillPackage | null>(null)
+  const [updatingRegistrySkillId, setUpdatingRegistrySkillId] = React.useState<string | null>(null)
+  const [managedSkillError, setManagedSkillError] = React.useState<{ cause: unknown; skillId: string } | null>(null)
+  const updateRegistryInFlightRef = React.useRef(false)
   const [providerAccessForm, setProviderAccessForm] = React.useState<ProviderAccessForm>(initialProviderAccessForm)
   const avatarPreviewUrls = workspace.organizationAvatarPreviewUrls
   const clearOrganizationAvatarPreview = workspace.clearOrganizationAvatarPreview
@@ -92,9 +118,6 @@ export function OrganizationManagementRoute({
     addOrganizationSkillFromRecommendation,
     installRuntimeSkill,
     installRuntimeSkills,
-    removeRuntimeSkill,
-    runtimeSkillRemoveTarget,
-    setRuntimeSkillRemoveTarget,
   } = useOrganizationSkillActions({
     busyAction,
     organizationSkills: selectedOrganizationSkills,
@@ -104,6 +127,69 @@ export function OrganizationManagementRoute({
     () => new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group])),
     [skillInventory.data?.groups],
   )
+  const selectedPackagePrimarySkill = selectedPackage ? getPublicPackagePrimarySkill(selectedPackage) : undefined
+  const selectedPackageInstallSkill = selectedPackage
+    ? (getPublicPackagePrimaryInstallSkill(skillGroupById, selectedPackage) ?? selectedPackagePrimarySkill)
+    : undefined
+  const selectedPackageInstallBusy = Boolean(
+    selectedPackage &&
+    selectedPackageInstallSkill &&
+    busyAction === `installSkill:${selectedPackage.name}:${selectedPackageInstallSkill.name}`,
+  )
+  const selectedPackageAddBusy = Boolean(
+    selectedPackage &&
+    selectedPackagePrimarySkill &&
+    busyAction === `addSkill:${selectedPackage.name}:${selectedPackagePrimarySkill.name}`,
+  )
+  const managedSkill = getSelectedManagedSkillGroup(skillInventory.data?.groups ?? [], managedSkillId)
+  const managedSkillStatus = managedSkill ? getGroupStatus(managedSkill, t, getRuntimeHosts(managedSkill)) : null
+  const skillVersionCheckByKey = React.useMemo(
+    () =>
+      new Map(
+        (skillVersions.data?.skills ?? []).map((check) => [
+          getSkillVersionCheckKey(check.skillId, check.packageName),
+          check,
+        ]),
+      ),
+    [skillVersions.data?.skills],
+  )
+  const managedSkillVersionCheck = getSkillVersionCheck(skillVersionCheckByKey, managedSkill)
+  const { copySkillPath, isRemovingSkill, openSkillFolder, removeSkill, removeTarget, setRemoveTarget } =
+    useSkillObjectActions({ onDeleted: () => setManagedSkillId(null) })
+
+  const updateRegistrySkill = React.useCallback(
+    async (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => {
+      const packageName = skill.packageName?.trim()
+      if (updateRegistryInFlightRef.current || skill.kind !== "registry" || !packageName) {
+        return
+      }
+      updateRegistryInFlightRef.current = true
+      setUpdatingRegistrySkillId(skill.id)
+      setManagedSkillError(null)
+      try {
+        const nextInventory = await skillService.invoke("updateRegistrySkill", { packageName, skillId: skill.id })
+        skillInventory.setData(nextInventory)
+        await skillVersions.refresh({ forceRefresh: true, silent: true })
+        homeSummary.invalidate()
+      } catch (cause) {
+        setManagedSkillError({ cause, skillId: skill.id })
+      } finally {
+        updateRegistryInFlightRef.current = false
+        setUpdatingRegistrySkillId(null)
+      }
+    },
+    [homeSummary, skillInventory, skillService, skillVersions],
+  )
+  const openManagedSkill = React.useCallback((skillId: string) => {
+    setSelectedPackage(null)
+    setManagedSkillError(null)
+    setManagedSkillId(skillId)
+  }, [])
+  const openPackageDetail = React.useCallback((pkg: PublicSkillPackage) => {
+    setManagedSkillId(null)
+    setManagedSkillError(null)
+    setSelectedPackage(pkg)
+  }, [])
   const providerSkillPackageLookup = useProviderSkillPackageLookup(connectedProviders)
   const providerSkillRecommendations = React.useMemo(
     () =>
@@ -160,6 +246,9 @@ export function OrganizationManagementRoute({
 
   React.useEffect(() => {
     setMembersPanelOpen(false)
+    setManagedSkillId(null)
+    setManagedSkillError(null)
+    setSelectedPackage(null)
   }, [selectedOrganization?.id])
 
   React.useEffect(() => {
@@ -266,7 +355,8 @@ export function OrganizationManagementRoute({
                         onAddMarketPackage={addOrganizationSkillFromPackage}
                         onInstallRuntimeSkill={installRuntimeSkill}
                         onInstallRuntimeSkills={installRuntimeSkills}
-                        onRequestRemoveRuntimeSkill={setRuntimeSkillRemoveTarget}
+                        onOpenManagedSkill={openManagedSkill}
+                        onOpenPackageDetail={openPackageDetail}
                       />
                     ) : (
                       <Panel
@@ -319,6 +409,87 @@ export function OrganizationManagementRoute({
           </div>
         )}
       </div>
+      {managedSkill ? (
+        <SkillManagementSheet
+          title={managedSkill.name}
+          onClose={() => {
+            setManagedSkillId(null)
+            setManagedSkillError(null)
+          }}
+        >
+          <SkillDetailContent
+            copySkillPath={copySkillPath}
+            inventoryInitialLoading={skillInventory.isInitialLoading}
+            isRemovingSkill={isRemovingSkill}
+            isSkillLinkedToOrganization={Boolean(
+              selectedOrganizationSkills?.skills.some((skill) => skill.packageName === managedSkill.packageName),
+            )}
+            openSkillFolder={openSkillFolder}
+            publishSkill={() => undefined}
+            publishingSkillId={null}
+            requestRemoveSkill={(skill) => setRemoveTarget({ skill })}
+            requestOrganizationLink={() => undefined}
+            selectedPlanError={managedSkillError?.skillId === managedSkill.id ? managedSkillError.cause : null}
+            selectedSkill={managedSkill}
+            selectedStatus={managedSkillStatus}
+            selectedVersionCheck={managedSkillVersionCheck}
+            showOrganizationLinkAction={false}
+            showPublishAction={false}
+            updateRegistrySkill={updateRegistrySkill}
+            updatingRegistrySkillId={updatingRegistrySkillId}
+          />
+        </SkillManagementSheet>
+      ) : null}
+      {selectedPackage ? (
+        <PublicSkillPackageSheet
+          groupById={skillGroupById}
+          installingKey={
+            selectedPackageInstallBusy
+              ? getPublicSkillInstallKey(selectedPackage, selectedPackageInstallSkill?.name)
+              : null
+          }
+          locale={locale}
+          pkg={selectedPackage}
+          additionalActions={
+            canManage &&
+            !selectedOrganizationSkills?.skills.some((skill) => skill.packageName === selectedPackage.name) &&
+            selectedPackagePrimarySkill ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={Boolean(busyAction)}
+                onClick={() =>
+                  void addOrganizationSkillFromPackage(selectedPackage, {
+                    installRuntime: false,
+                    skillName: selectedPackagePrimarySkill.name,
+                  })
+                }
+              >
+                {selectedPackageAddBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+                {selectedPackageAddBusy ? t("skills.organizationAdding") : t("organizations.skillManageAddOnly")}
+              </Button>
+            ) : null
+          }
+          onClose={() => setSelectedPackage(null)}
+          onInstall={(pkg, skillName) => {
+            const targetSkillName = skillName ?? getPublicPackagePrimarySkill(pkg)?.name
+            if (targetSkillName) {
+              void installRuntimeSkill({ packageName: pkg.name, skillName: targetSkillName })
+            }
+          }}
+          onOpenManagedSkill={openManagedSkill}
+        />
+      ) : null}
+      <DeleteSkillConfirmDialog
+        isRemoving={isRemovingSkill}
+        target={removeTarget}
+        onConfirm={removeSkill}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setRemoveTarget(null)
+          }
+        }}
+      />
       <CreateOrganizationDialog
         avatarFile={organizationForms.create.avatarFile}
         busy={busyAction === "create"}
@@ -383,16 +554,6 @@ export function OrganizationManagementRoute({
         onClose={memberActions.closeProviderAccess}
         onFormChange={setProviderAccessForm}
         onSubmit={memberActions.saveProviderAccess}
-      />
-      <RuntimeSkillRemoveConfirmDialog
-        busy={runtimeSkillRemoveTarget ? busyAction === runtimeSkillRemoveBusyKey(runtimeSkillRemoveTarget) : false}
-        target={runtimeSkillRemoveTarget}
-        onClose={() => {
-          if (!busyAction?.startsWith("removeSkill:")) {
-            setRuntimeSkillRemoveTarget(null)
-          }
-        }}
-        onConfirm={() => void removeRuntimeSkill()}
       />
     </>
   )

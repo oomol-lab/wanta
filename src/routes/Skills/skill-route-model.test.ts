@@ -15,6 +15,7 @@ import {
   isEmojiIcon,
   matchesInstalledSkillFilter,
   publicPackageCatalogReducer,
+  shouldOpenPublicSkillManagement,
   skillDocumentPreviewSource,
 } from "./skill-route-model.ts"
 
@@ -97,6 +98,15 @@ test("external installed public skills remain installable into Wanta", () => {
 
   assert.equal(getPublicSkillInstallState(groupById, pkg, "demo"), "external-installed")
   assert.equal(getPublicPackageInstallState(groupById, pkg), "external-installed")
+})
+
+test("downloaded public skills open management directly", () => {
+  assert.equal(shouldOpenPublicSkillManagement("installed"), true)
+  assert.equal(shouldOpenPublicSkillManagement("external-installed"), true)
+  assert.equal(shouldOpenPublicSkillManagement("partially-installed"), false)
+  assert.equal(shouldOpenPublicSkillManagement("name-conflict"), false)
+  assert.equal(shouldOpenPublicSkillManagement("installable"), false)
+  assert.equal(shouldOpenPublicSkillManagement("unavailable"), false)
 })
 
 test("mixed installed and external public skills remain installable into Wanta", () => {

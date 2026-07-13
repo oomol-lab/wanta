@@ -4,7 +4,6 @@ import type { BusyAction, MemberView } from "./organization-management-model.ts"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations.ts"
-import type { RuntimeSkillRemoveTarget } from "@/routes/Skills/skill-route-model.ts"
 
 import { Building2Icon, CheckIcon, ChevronsUpDownIcon, PencilIcon, PlusIcon } from "lucide-react"
 import * as React from "react"
@@ -299,7 +298,8 @@ export function OrganizationSkillGuidePanel({
   onAddMarketPackage,
   onInstallRuntimeSkill,
   onInstallRuntimeSkills,
-  onRequestRemoveRuntimeSkill,
+  onOpenManagedSkill,
+  onOpenPackageDetail,
 }: {
   busyAction: BusyAction | null
   groupById: ReadonlyMap<string, ManagedSkillGroup>
@@ -322,7 +322,8 @@ export function OrganizationSkillGuidePanel({
   ) => Promise<void>
   onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
   onInstallRuntimeSkills: (skills: readonly { packageName: string; skillName: string }[]) => void
-  onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
+  onOpenManagedSkill: (skillName: string) => void
+  onOpenPackageDetail: (pkg: PublicSkillPackage) => void
 }) {
   const { t } = useAppI18n()
   const statusLabel = organizationSkillGuideStatus(organizationSkills, t)
@@ -336,6 +337,7 @@ export function OrganizationSkillGuidePanel({
             <Badge variant="outline" className="max-w-full shrink-0">
               <span className="truncate">{statusLabel}</span>
             </Badge>
+            {!organizationSkills.canManage ? <Badge variant="outline">{t("organizations.readOnly")}</Badge> : null}
           </div>
           <p className="oo-text-caption mt-0.5 truncate text-muted-foreground">
             {t("organizations.skillGuideDescription")}
@@ -357,7 +359,8 @@ export function OrganizationSkillGuidePanel({
           onAddMarketPackage={onAddMarketPackage}
           onInstallRuntimeSkill={onInstallRuntimeSkill}
           onInstallRuntimeSkills={onInstallRuntimeSkills}
-          onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
+          onOpenManagedSkill={onOpenManagedSkill}
+          onOpenPackageDetail={onOpenPackageDetail}
         />
       </div>
     </section>

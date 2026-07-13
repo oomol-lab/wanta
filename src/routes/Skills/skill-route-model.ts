@@ -705,6 +705,10 @@ export function canInstallPublicSkill(state: PublicSkillInstallState): boolean {
   return state === "installable" || state === "partially-installed" || state === "external-installed"
 }
 
+export function shouldOpenPublicSkillManagement(state: PublicSkillInstallState): boolean {
+  return state === "installed" || state === "external-installed"
+}
+
 export function getPublicSkillInstallKey(pkg: PublicSkillPackage, skillName: string | undefined): string {
   return `${pkg.id}:${skillName ?? ""}`
 }

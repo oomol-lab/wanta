@@ -2,7 +2,6 @@ import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/sk
 import type { BusyAction } from "./organization-management-model.ts"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations"
-import type { RuntimeSkillRemoveTarget } from "@/routes/Skills/skill-route-model"
 
 import { ChevronDownIcon, PackageIcon, RefreshCwIcon } from "lucide-react"
 import * as React from "react"
@@ -66,8 +65,9 @@ export function OrganizationSkillManageDialog({
   onClose = () => undefined,
   onInstallRuntimeSkill,
   onInstallRuntimeSkills,
+  onOpenManagedSkill,
+  onOpenPackageDetail,
   onOpenAdvanced,
-  onRequestRemoveRuntimeSkill,
   open = true,
   organizationSkills,
   providerRecommendationsLoading = false,
@@ -93,8 +93,9 @@ export function OrganizationSkillManageDialog({
   onClose?: () => void
   onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
   onInstallRuntimeSkills: (skills: readonly { packageName: string; skillName: string }[]) => void
+  onOpenManagedSkill: (skillName: string) => void
+  onOpenPackageDetail: (pkg: PublicSkillPackage) => void
   onOpenAdvanced?: () => void
-  onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
   open?: boolean
   organizationSkills: UseOrganizationSkills
   providerRecommendationsLoading?: boolean
@@ -598,8 +599,8 @@ export function OrganizationSkillManageDialog({
                           skillName: item.skill.skillName,
                         })
                       }
+                      onOpenManagedSkill={() => onOpenManagedSkill(item.skill.skillName)}
                       onRemove={() => setOrganizationRemoveTarget(item.skill)}
-                      onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
                       onToggleEnabled={() => void updateOrganizationSkill(item.skill, { enabled: !item.skill.enabled })}
                     />
                   ) : (
@@ -607,17 +608,16 @@ export function OrganizationSkillManageDialog({
                       key={item.id}
                       busyAction={busyAction}
                       canManage={organizationSkills.canManage}
-                      groupById={groupById}
                       recommendation={item.recommendation}
                       onAdd={() => onAddRecommendation(item.recommendation, { installRuntime: false })}
-                      onAddAndInstall={() => onAddRecommendation(item.recommendation, { installRuntime: true })}
                       onInstallRuntime={() =>
                         onInstallRuntimeSkill({
                           packageName: item.recommendation.packageName,
                           skillName: item.recommendation.skillId,
                         })
                       }
-                      onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
+                      onOpenManagedSkill={() => onOpenManagedSkill(item.recommendation.skillId)}
+                      onOpenPackageDetail={() => onOpenPackageDetail(item.recommendation.package)}
                     />
                   ),
                 )}
@@ -675,12 +675,9 @@ export function OrganizationSkillManageDialog({
                       linked={organizationSkillPackageLinked(linkedPackageKeys, pkg.name)}
                       pkg={pkg}
                       onAdd={(skillName) => onAddMarketPackage(pkg, { installRuntime: false, skillName })}
-                      onAddAndInstall={(skillName) => onAddMarketPackage(pkg, { installRuntime: true, skillName })}
-                      onManageLinked={() => {
-                        setActiveTab("recommendations")
-                        setRecommendationSourceFilter("configured")
-                        setSearchQuery(pkg.name)
-                      }}
+                      onInstallRuntime={(skillName) => onInstallRuntimeSkill({ packageName: pkg.name, skillName })}
+                      onOpenManagedSkill={onOpenManagedSkill}
+                      onOpenPackageDetail={() => onOpenPackageDetail(pkg)}
                     />
                   ))}
                   <div ref={marketLoadMoreAnchorRef} className="h-px" aria-hidden="true" />

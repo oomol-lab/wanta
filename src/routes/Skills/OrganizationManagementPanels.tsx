@@ -5,8 +5,9 @@ import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations.ts"
 
-import { Building2Icon, CheckIcon, ChevronsUpDownIcon, PencilIcon, PlusIcon } from "lucide-react"
+import { Building2Icon, CheckIcon, ChevronsUpDownIcon, LockKeyholeIcon, PencilIcon, PlusIcon } from "lucide-react"
 import * as React from "react"
+import { planProviderSkillRecommendationBulkLinks } from "./organization-management-model.ts"
 import {
   AccountWorkspaceAvatar,
   OrganizationAvatar,
@@ -280,9 +281,7 @@ function organizationSkillGuideStatus(
   if (organizationSkills.error) {
     return t("organizations.skillGuideLoadFailed")
   }
-  return skillCount > 0
-    ? t("organizations.skillGuideEnabledCount", { count: skillCount })
-    : t("organizations.skillGuideEmptyBadge")
+  return t("organizations.skillGuideEnabledCount", { count: skillCount })
 }
 
 export function OrganizationSkillGuidePanel({
@@ -327,20 +326,46 @@ export function OrganizationSkillGuidePanel({
 }) {
   const { t } = useAppI18n()
   const statusLabel = organizationSkillGuideStatus(organizationSkills, t)
+  const systemRecommendationCount = React.useMemo(
+    () => planProviderSkillRecommendationBulkLinks(providerRecommendations, organizationSkills.skills).linkable.length,
+    [organizationSkills.skills, providerRecommendations],
+  )
+  const organizationSkillsReady =
+    organizationSkills.apiEnabled && organizationSkills.hasLoaded && !organizationSkills.error
 
   return (
     <section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
       <div className="flex min-h-14 min-w-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--oo-divider)] px-3 py-[7px]">
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <h2 className="oo-text-title min-w-0 truncate text-foreground">{t("organizations.skillGuideTitle")}</h2>
-            <Badge variant="outline" className="max-w-full shrink-0">
+            <Badge variant="muted" className="max-w-full shrink-0">
               <span className="truncate">{statusLabel}</span>
             </Badge>
-            {!organizationSkills.canManage ? <Badge variant="outline">{t("organizations.readOnly")}</Badge> : null}
+            {organizationSkillsReady && providerRecommendationsLoading ? (
+              <Badge variant="muted" className="max-w-full shrink-0">
+                <span className="truncate">{t("organizations.skillGuideSystemLoading")}</span>
+              </Badge>
+            ) : organizationSkillsReady && systemRecommendationCount > 0 ? (
+              <Badge variant="muted" className="max-w-full shrink-0">
+                <span className="truncate">
+                  {t("organizations.skillGuideSystemCount", { count: systemRecommendationCount })}
+                </span>
+              </Badge>
+            ) : null}
+            {!organizationSkills.canManage ? (
+              <Badge variant="muted" className="max-w-full shrink-0">
+                <LockKeyholeIcon className="size-3" />
+                <span className="truncate">{t("organizations.skillGuideReadOnlyBadge")}</span>
+              </Badge>
+            ) : null}
           </div>
-          <p className="oo-text-caption mt-0.5 truncate text-muted-foreground">
-            {t("organizations.skillGuideDescription")}
+          <p className="oo-text-caption mt-0.5 text-muted-foreground">
+            {t(
+              organizationSkills.canManage
+                ? "organizations.skillGuideDescription"
+                : "organizations.skillGuideReadOnlyDescription",
+            )}
           </p>
         </div>
       </div>

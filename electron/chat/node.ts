@@ -94,6 +94,7 @@ import { applyStoppedGenerations } from "./stopped-generations.ts"
 import { ChatStreamEventBuffer } from "./stream-event-buffer.ts"
 import { SubagentSessions } from "./subagent-sessions.ts"
 import { TrustedLocalAccess } from "./trusted-local-access.ts"
+import { resolveChatTurnExecution } from "./turn-execution.ts"
 import {
   generationNoticeKindForInactivity,
   inactivityWatchdogActionForEvent,
@@ -1100,7 +1101,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.rememberTrustedAttachments(req.sessionId, req.attachments)
     const organizationName = organizationNameFromRequest(req)
     const bugReport = parseBugReportCommand(req.text)
-    const effectiveMode = bugReport ? "build" : req.mode
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
     let processDir: string | undefined
@@ -1118,7 +1118,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         return
       }
       const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
-      const artifactProjectRoot = effectiveMode === "plan" ? undefined : trustedProjectRoot
+      const execution = resolveChatTurnExecution({
+        ...(bugReport ? { forcedMode: "build" } : {}),
+        requestedMode: req.mode,
+        ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
+      })
+      const artifactProjectRoot = execution.artifactProjectRoot
       ;[artifactDir, processDir] = await Promise.all([
         this.agent.createArtifactDir(req.sessionId, artifactProjectRoot),
         this.agent.createProcessDir(req.sessionId),
@@ -1178,7 +1183,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           attachments: req.attachments,
           artifactDir,
           processDir,
-          mode: effectiveMode,
+          mode: execution.mode,
           model: req.model,
           organizationName,
           reasoningLevel: req.reasoningLevel,

@@ -143,8 +143,7 @@ function EmptyStateActions({
       : hasCurrentTools
         ? t("chat.emptyPersonalConnectorsManageAction")
         : t("chat.emptyPersonalConnectorsConnectAction")
-  const openCurrentTools =
-    workspaceType === "organization" && !hasConnectionIssue ? onOpenOrganizations : onOpenConnections
+  const openCurrentTools = onOpenConnections
   const pendingOrganizationSkillCount = organizationSkillPendingInstallCount ?? organizationSkillShowcaseItems.length
   const organizationSkillMeta =
     pendingOrganizationSkillCount > 0
@@ -158,14 +157,16 @@ function EmptyStateActions({
 
   return (
     <div className="w-full pl-2 text-muted-foreground">
-      <div className="grid min-w-0 justify-start gap-1 overflow-hidden">
+      <div className="grid min-w-0 justify-start gap-1">
         <EmptyCapabilityAction
           icon={workspaceType === "organization" ? <Building2 className="size-4" /> : <Plug className="size-4" />}
           title={currentToolsTitle}
           meta={currentToolsMeta}
           actionLabel={currentToolsAction}
           ariaLabel={
-            workspaceType === "organization" ? t("chat.emptyOrganizationsAria") : t("chat.emptyPersonalConnectorsAria")
+            workspaceType === "organization"
+              ? t("chat.emptySharedConnectorsAria")
+              : t("chat.emptyPersonalConnectorsAria")
           }
           highlighted={hasConnectionIssue}
           onClick={openCurrentTools}
@@ -228,18 +229,18 @@ function EmptyCapabilityAction({
       >
         {icon}
       </span>
-      <span className="oo-text-control flex min-w-0 items-center gap-1.5">
-        <span className="min-w-0 truncate font-medium">{title}</span>
+      <span className="oo-text-control flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+        <span className="font-medium">{title}</span>
         <span className="shrink-0 opacity-60" aria-hidden="true">
           ·
         </span>
         {highlighted ? (
-          <span className="oo-pending-skill-status min-w-0">
+          <span className="oo-pending-skill-status">
             <span className="oo-pending-skill-dot" aria-hidden="true" />
-            <span className="min-w-0 truncate">{meta}</span>
+            <span>{meta}</span>
           </span>
         ) : (
-          <span className="min-w-0 truncate">{meta}</span>
+          <span>{meta}</span>
         )}
       </span>
       <span

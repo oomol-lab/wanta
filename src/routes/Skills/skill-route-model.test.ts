@@ -15,6 +15,7 @@ import {
   isEmojiIcon,
   matchesInstalledSkillFilter,
   publicPackageCatalogReducer,
+  shouldPreloadNextSkillPage,
   shouldOpenPublicSkillManagement,
   skillDocumentPreviewSource,
 } from "./skill-route-model.ts"
@@ -75,6 +76,18 @@ test("publicPackageCatalogReducer ignores stale requests and appends unique pack
   assert.deepEqual(cleared.items, [])
   assert.equal(cleared.next, null)
   assert.equal(cleared.status, "loading")
+})
+
+test("shouldPreloadNextSkillPage starts before the user reaches the pagination footer", () => {
+  const element = {
+    clientHeight: 800,
+    scrollHeight: 2_000,
+    scrollTop: 550,
+  } as HTMLElement
+
+  assert.equal(shouldPreloadNextSkillPage(element), false)
+  element.scrollTop = 650
+  assert.equal(shouldPreloadNextSkillPage(element), true)
 })
 
 test("getPublicPackageInstallState distinguishes installed, conflict, and installable skills", () => {

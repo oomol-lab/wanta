@@ -1,5 +1,7 @@
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 
+import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
+
 export interface EmptyStateConnectionSummary {
   availableCount: number
   needsAttentionCount: number
@@ -14,14 +16,14 @@ export function summarizeEmptyStateConnections(
   let needsAttentionCount = 0
 
   for (const provider of providers) {
-    if (provider.status === "connected") {
+    if (provider.status === "connected" && !isConnectionlessNoAuthProvider(provider)) {
       computedAvailableCount += 1
     } else if (provider.status === "needs_attention") {
       needsAttentionCount += 1
     }
   }
 
-  // 服务端摘要可能覆盖未出现在当前目录页中的连接，不能因前端目录不完整而把真实总数显示少。
+  // connectedProviderCount 已排除免配置 Provider；服务端摘要仍可能覆盖未出现在当前目录页中的真实连接。
   const availableCount = Math.max(computedAvailableCount, connectedProviderCount - needsAttentionCount, 0)
   return { availableCount, needsAttentionCount }
 }

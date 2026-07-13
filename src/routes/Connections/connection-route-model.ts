@@ -66,7 +66,7 @@ export function isConnectionDetailCacheKeyForService(cacheKey: string, service: 
 }
 
 export function isConnected(provider: ConnectionProviderSummary): boolean {
-  return provider.status === "connected"
+  return provider.status === "connected" && !isNoAuthReadyProvider(provider)
 }
 
 export function isNoAuthReadyProvider(provider: ConnectionProviderSummary): boolean {
@@ -94,7 +94,7 @@ export function getProviderStatusLabel(provider: ConnectionProviderSummary, t: T
     case "available":
       return t("connections.providerAvailable")
     case "connected":
-      return null
+      return isNoAuthReadyProvider(provider) ? t("connections.noSetupRequired") : null
   }
 }
 

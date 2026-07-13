@@ -10,6 +10,7 @@ import {
   getFittingCategoryFilterCount,
   getProviderAccountValue,
   getProviderMeta,
+  getProviderStatusDisplayLabel,
   isConnectionDetailCacheKeyForService,
   isConnected,
   isNoAuthReadyProvider,
@@ -34,7 +35,7 @@ function provider(overrides: Partial<ConnectionProviderSummary>): ConnectionProv
   }
 }
 
-test("virtual no-auth ready providers count as connected", () => {
+test("virtual no-auth ready providers stay outside configured connection counts", () => {
   const ready = provider({
     actionKind: "no_auth",
     authTypes: ["no_auth"],
@@ -43,7 +44,7 @@ test("virtual no-auth ready providers count as connected", () => {
     status: "connected",
   })
 
-  assert.equal(isConnected(ready), true)
+  assert.equal(isConnected(ready), false)
   assert.equal(isNoAuthReadyProvider(ready), true)
   assert.equal(shouldLoadProviderDetail(ready), false)
   assert.equal(
@@ -53,6 +54,10 @@ test("virtual no-auth ready providers count as connected", () => {
   assert.equal(
     getProviderAccountValue(ready, (key, vars) => translate("en", key, vars)),
     "No account required",
+  )
+  assert.equal(
+    getProviderStatusDisplayLabel(ready, (key, vars) => translate("en", key, vars)),
+    "No setup needed",
   )
 })
 

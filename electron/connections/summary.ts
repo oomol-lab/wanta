@@ -654,17 +654,22 @@ export function mergeConnectionSummary({
   }
 
   const computedConnectedProviderCount = providers.filter(
-    (provider) => provider.status === "connected" || provider.status === "needs_attention",
+    (provider) =>
+      (provider.status === "connected" && !isConnectionlessNoAuthProvider(provider)) ||
+      provider.status === "needs_attention",
   ).length
+  const connectionlessNoAuthProviderCount = providers.filter(isConnectionlessNoAuthProvider).length
+  // 上游摘要把免配置 Provider 也计入 connected；UI 的“已连接”只表示用户实际建立过连接。
+  const backendConnectedProviderCount = Math.max(
+    0,
+    (asNumber(appListSummary?.connectedProviderCount) ?? 0) - connectionlessNoAuthProviderCount,
+  )
 
   return {
     ...createEmptyConnectionSummary("ready", undefined, workspace),
     activeConnections: visibleApps.filter((app) => app.status === "active").length,
     apps: visibleApps,
-    connectedProviderCount: Math.max(
-      asNumber(appListSummary?.connectedProviderCount) ?? 0,
-      computedConnectedProviderCount,
-    ),
+    connectedProviderCount: Math.max(backendConnectedProviderCount, computedConnectedProviderCount),
     connectableProviderCount: asNumber(appListSummary?.connectableProviderCount) ?? 0,
     needsAttention: visibleApps.filter((app) => app.status === "reauth_required" || app.status === "error").length,
     providerCount,

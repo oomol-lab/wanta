@@ -13,7 +13,7 @@ import {
   getPublicSkillInstallActionLabel,
   getPublicSkillInstallKey,
   getPublicSkillInstallStateLabel,
-  isNearScrollBottom,
+  shouldPreloadNextSkillPage,
   shouldOpenPublicSkillManagement,
 } from "./skill-route-model.ts"
 import { SkillErrorNotice } from "./SkillErrorNotice.tsx"
@@ -117,7 +117,7 @@ export function DiscoverSkillsPane({
 
   const handleScroll = React.useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
-      if (!canLoadMore || autoLoadRequestedRef.current || !isNearScrollBottom(event.currentTarget)) {
+      if (!canLoadMore || autoLoadRequestedRef.current || !shouldPreloadNextSkillPage(event.currentTarget)) {
         return
       }
 
@@ -176,7 +176,7 @@ export function DiscoverSkillsPane({
           </div>
         )}
         {next ? (
-          <div className="flex justify-center py-2">
+          <div className="flex min-h-12 items-center justify-center py-2">
             <Button
               type="button"
               variant="outline"

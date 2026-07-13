@@ -12,6 +12,7 @@ import type { TranslateFn as TFunction } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 export const discoverAutoLoadThresholdPx = 160
+export const discoverPreloadMinimumThresholdPx = 480
 
 export type SkillSelectionKey = string
 export type SkillPageTab = "discover" | "installed" | "recommended" | "organization"
@@ -196,6 +197,12 @@ export function publicPackageCatalogReducer(
 
 export function isNearScrollBottom(element: HTMLElement): boolean {
   return element.scrollHeight - element.scrollTop - element.clientHeight <= discoverAutoLoadThresholdPx
+}
+
+/** 在用户真正触底前预取下一页，避免分页网络等待表现为滚动卡顿。 */
+export function shouldPreloadNextSkillPage(element: HTMLElement): boolean {
+  const threshold = Math.max(discoverPreloadMinimumThresholdPx, element.clientHeight * 0.75)
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= threshold
 }
 
 export function getRuntimeHosts(group: ManagedSkillGroup): ManagedSkillHostCoverage[] {

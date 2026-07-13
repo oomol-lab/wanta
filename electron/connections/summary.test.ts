@@ -113,6 +113,17 @@ test("pure no_auth provider is ready even when the workspace has no app row", ()
   assert.equal(quickchart?.appCount, 0)
   assert.deepEqual(quickchart?.apps, [])
   assert.equal(quickchart?.canDisconnect, false)
+  assert.equal(summary.connectedProviderCount, 0)
+})
+
+test("connected provider count excludes no-auth providers from the backend total", () => {
+  const summary = mergeConnectionSummary({
+    apps: [{ id: "app-1", service: "gmail", status: "active", authType: "oauth2", updatedAt: 5 }],
+    meta: { summary: { connectedProviderCount: 2 } },
+    providers,
+    usage: emptyUsage,
+  })
+
   assert.equal(summary.connectedProviderCount, 1)
 })
 
@@ -145,7 +156,7 @@ test("merge preserves multiple apps for one provider", () => {
   const gmail = summary.providers.find((provider) => provider.service === "gmail")
 
   assert.equal(summary.activeConnections, 2)
-  assert.equal(summary.connectedProviderCount, 2)
+  assert.equal(summary.connectedProviderCount, 1)
   assert.equal(gmail?.status, "connected")
   assert.equal(gmail?.appCount, 2)
   assert.equal(gmail?.accountLabel, "second@example.com")

@@ -238,6 +238,7 @@ export const enMessages = {
   "chat.emptySharedConnectorsTitle": "Team shared tools",
   "chat.emptySharedConnectorsAction": "View",
   "chat.emptySharedConnectorsAria": "Open connections to view team shared tools",
+  "chat.emptySharedConnectorsAttentionAria": "Open connections to resolve team shared tool issues",
   "chat.emptyPersonalConnectorsTitle": "My tools",
   "chat.emptyPersonalConnectorsManageAction": "Manage",
   "chat.emptyPersonalConnectorsConnectAction": "Connect",

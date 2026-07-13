@@ -513,7 +513,7 @@ function getProviderActionKind(authTypes: Exclude<ConnectionAuthType, null>[]): 
 export function isConnectionlessNoAuthProvider(
   provider: Pick<ConnectionProviderSummary, "appCount" | "authTypes" | "status">,
 ): boolean {
-  return provider.status === "connected" && provider.authTypes.includes("no_auth") && provider.appCount === 0
+  return provider.authTypes.includes("no_auth") && provider.appCount === 0
 }
 
 export function normalizeApp(item: RawApp): ConnectionAppSummary | undefined {
@@ -655,10 +655,12 @@ export function mergeConnectionSummary({
 
   const computedConnectedProviderCount = providers.filter(
     (provider) =>
-      (provider.status === "connected" && !isConnectionlessNoAuthProvider(provider)) ||
-      provider.status === "needs_attention",
+      (provider.status === "connected" || provider.status === "needs_attention") &&
+      !isConnectionlessNoAuthProvider(provider),
   ).length
-  const connectionlessNoAuthProviderCount = providers.filter(isConnectionlessNoAuthProvider).length
+  const connectionlessNoAuthProviderCount = providers.filter(
+    (provider) => provider.status === "connected" && isConnectionlessNoAuthProvider(provider),
+  ).length
   // 上游摘要把免配置 Provider 也计入 connected；UI 的“已连接”只表示用户实际建立过连接。
   const backendConnectedProviderCount = Math.max(
     0,

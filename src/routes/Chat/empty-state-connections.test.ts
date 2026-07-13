@@ -2,7 +2,7 @@ import type { ConnectionProvider } from "../../../electron/connections/common.ts
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { summarizeEmptyStateConnections } from "./empty-state-connections.ts"
+import { resolveCurrentToolsPresentation, summarizeEmptyStateConnections } from "./empty-state-connections.ts"
 
 function provider(service: string, status: ConnectionProvider["status"]): ConnectionProvider {
   return {
@@ -49,11 +49,51 @@ test("summarizeEmptyStateConnections preserves a larger backend provider total",
 
 test("summarizeEmptyStateConnections excludes connectionless no-auth providers", () => {
   const noAuth = provider("quickchart", "connected")
-  noAuth.actionKind = "no_auth"
-  noAuth.authTypes = ["no_auth"]
+  noAuth.actionKind = "api_key"
+  noAuth.authTypes = ["no_auth", "api_key"]
 
   assert.deepEqual(summarizeEmptyStateConnections([noAuth], 0), {
     availableCount: 0,
     needsAttentionCount: 0,
   })
+})
+
+test("summarizeEmptyStateConnections excludes connectionless no-auth providers that need attention", () => {
+  const noAuth = provider("quickchart", "needs_attention")
+  noAuth.actionKind = "api_key"
+  noAuth.authTypes = ["no_auth", "api_key"]
+
+  assert.deepEqual(summarizeEmptyStateConnections([noAuth], 0), {
+    availableCount: 0,
+    needsAttentionCount: 0,
+  })
+})
+
+test("resolveCurrentToolsPresentation keeps organization issue copy and action aligned", () => {
+  assert.deepEqual(resolveCurrentToolsPresentation("organization", { availableCount: 2, needsAttentionCount: 1 }), {
+    actionKey: "chat.emptyCurrentConnectorsCheckAction",
+    ariaLabelKey: "chat.emptySharedConnectorsAttentionAria",
+    highlighted: true,
+    meta: {
+      key: "chat.emptyCurrentConnectorsAttentionMeta",
+      vars: { available: 2, attention: 1 },
+    },
+    titleKey: "chat.emptySharedConnectorsTitle",
+  })
+})
+
+test("resolveCurrentToolsPresentation covers personal tool and empty states", () => {
+  assert.equal(
+    resolveCurrentToolsPresentation("personal", { availableCount: 2, needsAttentionCount: 0 }).actionKey,
+    "chat.emptyPersonalConnectorsManageAction",
+  )
+  assert.equal(
+    resolveCurrentToolsPresentation("personal", { availableCount: 0, needsAttentionCount: 0 }).actionKey,
+    "chat.emptyPersonalConnectorsConnectAction",
+  )
+  assert.equal(resolveCurrentToolsPresentation("personal", null).meta.key, "chat.emptyCurrentConnectorsUnavailableMeta")
+  assert.equal(
+    resolveCurrentToolsPresentation("personal", undefined).meta.key,
+    "chat.emptyCurrentConnectorsLoadingMeta",
+  )
 })

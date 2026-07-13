@@ -71,7 +71,7 @@ export function isConnected(provider: ConnectionProviderSummary): boolean {
 }
 
 export function isNoAuthReadyProvider(provider: ConnectionProviderSummary): boolean {
-  return isConnectionlessNoAuthProvider(provider)
+  return provider.status === "connected" && isConnectionlessNoAuthProvider(provider)
 }
 
 export function shouldLoadProviderDetail(provider: ConnectionProviderSummary): boolean {

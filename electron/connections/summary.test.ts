@@ -82,6 +82,7 @@ test("virtual no_auth app in error becomes needs_attention", () => {
 
   assert.equal(quickchart?.status, "needs_attention")
   assert.equal(quickchart?.appCount, 0)
+  assert.equal(summary.connectedProviderCount, 0)
 })
 
 test("virtual no_auth app in active status marks provider ready without a manageable account", () => {

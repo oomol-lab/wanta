@@ -27,6 +27,7 @@ import { BillingRequestScopeContext } from "./billing-request-scope-context.ts"
 import { chatTurnShowsGenerating, resolveChatTurnState } from "./chat-turn-state.ts"
 import { ChatComposer } from "./ChatComposer.tsx"
 import { ChatTimeline } from "./ChatTimeline.tsx"
+import { resolveCurrentToolsPresentation } from "./empty-state-connections.ts"
 import { FullAccessConfirmDialog } from "./FullAccessConfirmDialog.tsx"
 import { BrandIcon } from "@/components/BrandIcon"
 import { ErrorNotice } from "@/components/ErrorNotice"
@@ -118,32 +119,7 @@ function EmptyStateActions({
   onOpenOrganizations?: () => void
 }) {
   const t = useT()
-  const currentToolsTitle =
-    workspaceType === "organization" ? t("chat.emptySharedConnectorsTitle") : t("chat.emptyPersonalConnectorsTitle")
-  const currentToolsMeta = connectionSummary
-    ? connectionSummary.needsAttentionCount > 0
-      ? t("chat.emptyCurrentConnectorsAttentionMeta", {
-          available: connectionSummary.availableCount,
-          attention: connectionSummary.needsAttentionCount,
-        })
-      : connectionSummary.availableCount > 0
-        ? t("chat.emptyCurrentConnectorsMeta", { count: connectionSummary.availableCount })
-        : t("chat.emptyCurrentConnectorsEmptyMeta")
-    : connectionSummary === null
-      ? t("chat.emptyCurrentConnectorsUnavailableMeta")
-      : t("chat.emptyCurrentConnectorsLoadingMeta")
-  const hasConnectionIssue = Boolean(connectionSummary?.needsAttentionCount)
-  const hasCurrentTools = Boolean(
-    connectionSummary && connectionSummary.availableCount + connectionSummary.needsAttentionCount > 0,
-  )
-  const currentToolsAction = hasConnectionIssue
-    ? t("chat.emptyCurrentConnectorsCheckAction")
-    : workspaceType === "organization"
-      ? t("chat.emptySharedConnectorsAction")
-      : hasCurrentTools
-        ? t("chat.emptyPersonalConnectorsManageAction")
-        : t("chat.emptyPersonalConnectorsConnectAction")
-  const openCurrentTools = onOpenConnections
+  const currentTools = resolveCurrentToolsPresentation(workspaceType, connectionSummary)
   const pendingOrganizationSkillCount = organizationSkillPendingInstallCount ?? organizationSkillShowcaseItems.length
   const organizationSkillMeta =
     pendingOrganizationSkillCount > 0
@@ -160,16 +136,12 @@ function EmptyStateActions({
       <div className="grid min-w-0 justify-start gap-1">
         <EmptyCapabilityAction
           icon={workspaceType === "organization" ? <Building2 className="size-4" /> : <Plug className="size-4" />}
-          title={currentToolsTitle}
-          meta={currentToolsMeta}
-          actionLabel={currentToolsAction}
-          ariaLabel={
-            workspaceType === "organization"
-              ? t("chat.emptySharedConnectorsAria")
-              : t("chat.emptyPersonalConnectorsAria")
-          }
-          highlighted={hasConnectionIssue}
-          onClick={openCurrentTools}
+          title={t(currentTools.titleKey)}
+          meta={t(currentTools.meta.key, currentTools.meta.vars)}
+          actionLabel={t(currentTools.actionKey)}
+          ariaLabel={t(currentTools.ariaLabelKey)}
+          highlighted={currentTools.highlighted}
+          onClick={onOpenConnections}
         />
         <EmptyCapabilityAction
           icon={<PlugZap className="size-4" />}

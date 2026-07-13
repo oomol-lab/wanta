@@ -225,6 +225,7 @@ export const zhCNMessages = {
   "chat.emptySharedConnectorsTitle": "团队共享工具",
   "chat.emptySharedConnectorsAction": "查看",
   "chat.emptySharedConnectorsAria": "打开连接器，查看团队共享工具",
+  "chat.emptySharedConnectorsAttentionAria": "打开连接器，处理团队共享工具问题",
   "chat.emptyPersonalConnectorsTitle": "我的工具",
   "chat.emptyPersonalConnectorsManageAction": "管理",
   "chat.emptyPersonalConnectorsConnectAction": "连接",

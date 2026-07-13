@@ -281,9 +281,7 @@ function organizationSkillGuideStatus(
   if (organizationSkills.error) {
     return t("organizations.skillGuideLoadFailed")
   }
-  return skillCount > 0
-    ? t("organizations.skillGuideEnabledCount", { count: skillCount })
-    : t("organizations.skillGuideEmptyBadge")
+  return t("organizations.skillGuideEnabledCount", { count: skillCount })
 }
 
 export function OrganizationSkillGuidePanel({
@@ -339,17 +337,17 @@ export function OrganizationSkillGuidePanel({
     <section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
       <div className="flex min-h-14 min-w-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--oo-divider)] px-3 py-[7px]">
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <h2 className="oo-text-title min-w-0 truncate text-foreground">{t("organizations.skillGuideTitle")}</h2>
-            <Badge variant="outline" className="max-w-full shrink-0">
+            <Badge variant="muted" className="max-w-full shrink-0">
               <span className="truncate">{statusLabel}</span>
             </Badge>
             {organizationSkillsReady && providerRecommendationsLoading ? (
-              <Badge variant="outline" className="max-w-full shrink-0">
+              <Badge variant="muted" className="max-w-full shrink-0">
                 <span className="truncate">{t("organizations.skillGuideSystemLoading")}</span>
               </Badge>
             ) : organizationSkillsReady && systemRecommendationCount > 0 ? (
-              <Badge variant="outline" className="max-w-full shrink-0">
+              <Badge variant="muted" className="max-w-full shrink-0">
                 <span className="truncate">
                   {t("organizations.skillGuideSystemCount", { count: systemRecommendationCount })}
                 </span>

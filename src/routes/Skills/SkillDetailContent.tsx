@@ -418,7 +418,7 @@ function SkillPeek({
                     {isUpdatingRegistrySkill ? t("skills.updatingRegistry") : t("skills.restoreRegistryVersion")}
                   </Button>
                 ) : null}
-                {localPublishPath ? (
+                {canPublishLocalSkill ? (
                   <Button
                     type="button"
                     variant="outline"

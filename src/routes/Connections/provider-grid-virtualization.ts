@@ -21,6 +21,16 @@ export interface ProviderGridVisibleRange {
   totalHeight: number
 }
 
+export interface ProviderGridCenteredScrollTopInput {
+  catalogTop: number
+  columnCount: number
+  itemIndex: number
+  rowGap?: number
+  rowHeight?: number
+  scrollHeight: number
+  viewportHeight: number
+}
+
 export function getProviderGridColumnCount(
   width: number,
   minColumnWidth = providerGridMinColumnWidthPx,
@@ -51,6 +61,26 @@ export function getProviderGridTotalHeight(
   }
 
   return rowCount * rowHeight + (rowCount - 1) * rowGap
+}
+
+/** 根据重排后的实际列数，将目标卡片尽可能定位到滚动视口中央。 */
+export function getProviderGridCenteredScrollTop({
+  catalogTop,
+  columnCount,
+  itemIndex,
+  rowGap = providerGridGapPx,
+  rowHeight = providerGridCardHeightPx,
+  scrollHeight,
+  viewportHeight,
+}: ProviderGridCenteredScrollTopInput): number {
+  const safeColumnCount = Math.max(1, columnCount)
+  const safeItemIndex = Math.max(0, itemIndex)
+  const safeViewportHeight = Math.max(0, viewportHeight)
+  const rowIndex = Math.floor(safeItemIndex / safeColumnCount)
+  const itemCenter = catalogTop + rowIndex * (rowHeight + rowGap) + rowHeight / 2
+  const centeredScrollTop = itemCenter - safeViewportHeight / 2
+  const maxScrollTop = Math.max(0, scrollHeight - safeViewportHeight)
+  return Math.min(Math.max(0, centeredScrollTop), maxScrollTop)
 }
 
 export function getProviderGridVisibleRange({

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  getProviderGridCenteredScrollTop,
   getProviderGridColumnCount,
   getProviderGridRowCount,
   getProviderGridTotalHeight,
@@ -7,6 +8,67 @@ import {
   providerGridCardHeightPx,
   providerGridGapPx,
 } from "./provider-grid-virtualization.ts"
+
+it("centers the selected card using the reflowed column count", () => {
+  expect(
+    getProviderGridCenteredScrollTop({
+      catalogTop: 120,
+      columnCount: 1,
+      itemIndex: 14,
+      scrollHeight: 4_000,
+      viewportHeight: 600,
+    }),
+  ).toBe(918)
+  expect(
+    getProviderGridCenteredScrollTop({
+      catalogTop: 120,
+      columnCount: 3,
+      itemIndex: 14,
+      scrollHeight: 4_000,
+      viewportHeight: 600,
+    }),
+  ).toBe(158)
+})
+
+it("centered selection scroll position clamps to the list boundaries", () => {
+  expect(
+    getProviderGridCenteredScrollTop({
+      catalogTop: 20,
+      columnCount: 1,
+      itemIndex: 0,
+      scrollHeight: 1_200,
+      viewportHeight: 600,
+    }),
+  ).toBe(0)
+  expect(
+    getProviderGridCenteredScrollTop({
+      catalogTop: 20,
+      columnCount: 1,
+      itemIndex: 100,
+      scrollHeight: 1_200,
+      viewportHeight: 600,
+    }),
+  ).toBe(600)
+})
+
+it("centered selection includes a leading setup-free card in the item index", () => {
+  const withoutLeadingCard = getProviderGridCenteredScrollTop({
+    catalogTop: 200,
+    columnCount: 3,
+    itemIndex: 2,
+    scrollHeight: 2_000,
+    viewportHeight: 100,
+  })
+  const withLeadingCard = getProviderGridCenteredScrollTop({
+    catalogTop: 200,
+    columnCount: 3,
+    itemIndex: 3,
+    scrollHeight: 2_000,
+    viewportHeight: 100,
+  })
+
+  expect(withLeadingCard - withoutLeadingCard).toBe(providerGridCardHeightPx + providerGridGapPx)
+})
 
 describe("provider grid virtualization", () => {
   it("matches the responsive grid column formula", () => {

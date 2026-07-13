@@ -140,6 +140,11 @@ export function ConnectionsPanel({
   const selectedProvider = selectedProviderService
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
+  const setupFreeGroupSelected = Boolean(
+    !setupFreeExpanded &&
+    selectedProvider &&
+    setupFreeProviders.some((provider) => provider.service === selectedProvider.service),
+  )
   const providerDetail = useConnectionProviderDetail({
     getProviderDetail,
     provider: selectedProvider,
@@ -448,16 +453,13 @@ export function ConnectionsPanel({
               <EmptyList summary={summary} hasQuery={Boolean(normalizedQuery)} />
             ) : (
               <ProviderCatalog
+                leadingCardSelected={setupFreeGroupSelected}
                 leadingCard={
                   setupFreeProviders.length > 0 ? (
                     <SetupFreeProviderCard
                       expanded={setupFreeExpanded}
                       providers={setupFreeProviders}
-                      selected={Boolean(
-                        !setupFreeExpanded &&
-                        selectedProvider &&
-                        setupFreeProviders.some((provider) => provider.service === selectedProvider.service),
-                      )}
+                      selected={setupFreeGroupSelected}
                       onExpandedChange={setSetupFreeExpanded}
                     />
                   ) : undefined

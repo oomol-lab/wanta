@@ -16,6 +16,7 @@ import {
   selectVisibleCategoryFilters,
 } from "./connection-route-model.ts"
 import {
+  getProviderGridCenteredScrollTop,
   getProviderGridColumnCount,
   getProviderGridVisibleRange,
   providerGridCardHeightPx,
@@ -308,12 +309,14 @@ export function ProviderListSkeleton() {
 
 export function ProviderCatalog({
   leadingCard,
+  leadingCardSelected = false,
   providers,
   scrollParentRef,
   selectedService,
   onSelect,
 }: {
   leadingCard?: React.ReactNode
+  leadingCardSelected?: boolean
   onSelect: (provider: ConnectionProviderSummary) => void
   providers: ConnectionProviderSummary[]
   scrollParentRef: React.RefObject<HTMLDivElement | null>
@@ -322,6 +325,7 @@ export function ProviderCatalog({
   return (
     <ProviderGrid
       leadingCard={leadingCard}
+      leadingCardSelected={leadingCardSelected}
       providers={providers}
       scrollParentRef={scrollParentRef}
       selectedService={selectedService}
@@ -392,12 +396,14 @@ export function SetupFreeProviderCard({
 
 function ProviderGrid({
   leadingCard,
+  leadingCardSelected,
   providers,
   scrollParentRef,
   selectedService,
   onSelect,
 }: {
   leadingCard?: React.ReactNode
+  leadingCardSelected: boolean
   onSelect: (provider: ConnectionProviderSummary) => void
   providers: ConnectionProviderSummary[]
   scrollParentRef: React.RefObject<HTMLDivElement | null>
@@ -405,6 +411,8 @@ function ProviderGrid({
 }) {
   const gridRef = React.useRef<HTMLDivElement | null>(null)
   const updateFrameRef = React.useRef<number | null>(null)
+  const selectionCenterTimerRef = React.useRef<number | null>(null)
+  const pendingSelectionRef = React.useRef<string | null>(null)
   const [viewport, setViewport] = React.useState({
     catalogTop: 0,
     scrollTop: 0,
@@ -452,9 +460,62 @@ function ProviderGrid({
   const leadingCardCount = leadingCard ? 1 : 0
   const itemCount = providers.length + leadingCardCount
 
+  const centerPendingSelection = React.useCallback(() => {
+    const service = pendingSelectionRef.current
+    const grid = gridRef.current
+    const scrollParent = scrollParentRef.current
+    if (!service || !grid || !scrollParent) {
+      return
+    }
+
+    const providerIndex = providers.findIndex((provider) => provider.service === service)
+    const itemIndex = providerIndex >= 0 ? providerIndex + leadingCardCount : leadingCardSelected ? 0 : -1
+    if (itemIndex < 0) {
+      return
+    }
+
+    const gridRect = grid.getBoundingClientRect()
+    const parentRect = scrollParent.getBoundingClientRect()
+    const catalogTop = gridRect.top - parentRect.top + scrollParent.scrollTop
+    const nextScrollTop = getProviderGridCenteredScrollTop({
+      catalogTop,
+      columnCount: getProviderGridColumnCount(grid.clientWidth),
+      itemIndex,
+      scrollHeight: scrollParent.scrollHeight,
+      viewportHeight: scrollParent.clientHeight,
+    })
+
+    pendingSelectionRef.current = null
+    scrollParent.scrollTo({ top: nextScrollTop })
+    scheduleViewportUpdate()
+  }, [leadingCardCount, leadingCardSelected, providers, scheduleViewportUpdate, scrollParentRef])
+
+  const schedulePendingSelectionCenter = React.useCallback(() => {
+    if (!pendingSelectionRef.current) {
+      return
+    }
+    if (selectionCenterTimerRef.current !== null) {
+      window.clearTimeout(selectionCenterTimerRef.current)
+    }
+    selectionCenterTimerRef.current = window.setTimeout(() => {
+      selectionCenterTimerRef.current = null
+      centerPendingSelection()
+    }, 80)
+  }, [centerPendingSelection])
+
   React.useLayoutEffect(() => {
     updateViewport()
   }, [itemCount, updateViewport])
+
+  React.useLayoutEffect(() => {
+    pendingSelectionRef.current = selectedService
+    if (selectedService) {
+      schedulePendingSelectionCenter()
+    } else if (selectionCenterTimerRef.current !== null) {
+      window.clearTimeout(selectionCenterTimerRef.current)
+      selectionCenterTimerRef.current = null
+    }
+  }, [leadingCardSelected, providers, schedulePendingSelectionCenter, selectedService])
 
   React.useEffect(() => {
     const grid = gridRef.current
@@ -463,7 +524,11 @@ function ProviderGrid({
       return
     }
 
-    const resizeObserver = new ResizeObserver(scheduleViewportUpdate)
+    const handleResize = () => {
+      scheduleViewportUpdate()
+      schedulePendingSelectionCenter()
+    }
+    const resizeObserver = new ResizeObserver(handleResize)
     resizeObserver.observe(grid)
     resizeObserver.observe(scrollParent)
     scrollParent.addEventListener("scroll", scheduleViewportUpdate, { passive: true })
@@ -477,7 +542,16 @@ function ProviderGrid({
         updateFrameRef.current = null
       }
     }
-  }, [scheduleViewportUpdate, scrollParentRef])
+  }, [schedulePendingSelectionCenter, scheduleViewportUpdate, scrollParentRef])
+
+  React.useEffect(
+    () => () => {
+      if (selectionCenterTimerRef.current !== null) {
+        window.clearTimeout(selectionCenterTimerRef.current)
+      }
+    },
+    [],
+  )
 
   const columnCount = React.useMemo(() => getProviderGridColumnCount(viewport.width), [viewport.width])
   const visibleRange = React.useMemo(

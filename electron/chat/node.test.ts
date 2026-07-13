@@ -1612,6 +1612,44 @@ test("sendMessage passes selected context, organization skills, and project as p
   assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", undefined]])
 })
 
+test("sendMessage turns /bug-report into a Markdown artifact-only turn", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-bug-report-"))
+  const artifactDir = path.join(root, "artifacts")
+  const bridge = createBridgeAgent()
+  bridge.createArtifactDir.mockResolvedValue(artifactDir)
+  const service = new ChatServiceImpl(bridge.agent, {
+    bugReportRuntime: {
+      appCommit: "abc123",
+      appVersion: "1.2.3",
+      platform: "darwin",
+    },
+  })
+
+  try {
+    await service.sendMessage({
+      mode: "plan",
+      model: { id: "oopilot", kind: "builtin" },
+      permissionMode: "default",
+      scope: { type: "personal" },
+      sessionId: "session-1",
+      text: "/bug-report Focus on the authorization state mismatch.",
+    })
+
+    assert.equal(bridge.promptStreaming.mock.calls.length, 1)
+    assert.equal(bridge.promptStreaming.mock.calls[0]?.[1], "/bug-report Focus on the authorization state mismatch.")
+    const options = bridge.promptStreaming.mock.calls[0]?.[2] as { mode?: string; system?: string } | undefined
+    assert.equal(options?.mode, "build")
+    assert.match(options?.system ?? "", /built-in \/bug-report command/)
+    assert.match(options?.system ?? "", /Focus on the authorization state mismatch/)
+    assert.match(options?.system ?? "", /wanta-bug-report\.md/)
+    assert.match(options?.system ?? "", /Wanta version: 1\.2\.3/)
+    assert.match(options?.system ?? "", /Build commit: abc123/)
+    assert.match(options?.system ?? "", /Do not reproduce the report body in the assistant response/)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
 test("build mode stores artifacts under the registered project", async () => {
   const bridge = createBridgeAgent()
   const projectPath = "/Users/example/code/wanta"

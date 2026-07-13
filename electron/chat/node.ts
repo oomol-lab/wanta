@@ -59,6 +59,7 @@ import { ConnectionService } from "@oomol/connection"
 import { clipboard, dialog, nativeImage, shell } from "electron"
 import { copyFile, readFile } from "node:fs/promises"
 import os from "node:os"
+import path from "node:path"
 import { ActivityMetrics } from "../activity-metrics.ts"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
@@ -68,6 +69,12 @@ import { ActiveRunRegistry } from "./active-run-registry.ts"
 import { captureArtifactSessionBaseline } from "./artifact-bundles.ts"
 import { normalizeLocalPathCandidate } from "./artifacts.ts"
 import { applyAuthorizationOverlays } from "./authorization.ts"
+import {
+  BUG_REPORT_FILE_NAME,
+  bugReportModelLabel,
+  buildBugReportSystemPrompt,
+  parseBugReportCommand,
+} from "./bug-report.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 import {
   buildContextMentionsSystem as buildContextMentionsSystemPrompt,
@@ -211,6 +218,11 @@ interface ChatServiceDeps {
   stoppedGenerationStore?: StoppedGenerationStore
   trustedAttachmentPaths?: ReadonlySet<string>
   turnOutputStore?: TurnOutputStore
+  bugReportRuntime?: {
+    appCommit: string
+    appVersion: string
+    platform: NodeJS.Platform
+  }
   /** 渲染层切换组织 workspace 时，同步 agent 的组织作用域（main 持有 agent 与 activeAgentOrganizationName）。 */
   onSetAgentOrganization?: (organizationName: string | undefined) => Promise<void> | void
 }
@@ -1087,6 +1099,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     )
     this.rememberTrustedAttachments(req.sessionId, req.attachments)
     const organizationName = organizationNameFromRequest(req)
+    const bugReport = parseBugReportCommand(req.text)
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
     let processDir: string | undefined
@@ -1140,6 +1153,22 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
       })
       const promptGeneration = activeGeneration
+      const bugReportSystem = bugReport
+        ? buildBugReportSystemPrompt({
+            ...(bugReport.note ? { note: bugReport.note } : {}),
+            runtime: {
+              agentMode: "build",
+              appCommit: this.deps.bugReportRuntime?.appCommit ?? "unknown",
+              appVersion: this.deps.bugReportRuntime?.appVersion ?? "unknown",
+              generatedAt: new Date().toISOString(),
+              model: bugReportModelLabel(req.model),
+              permissionMode: this.sessionPermissionMode(req.sessionId),
+              platform: this.deps.bugReportRuntime?.platform ?? process.platform,
+              workspaceScope: req.scope?.type === "organization" ? "organization" : "personal",
+            },
+            targetFilePath: path.join(artifactDir, BUG_REPORT_FILE_NAME),
+          })
+        : undefined
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
       this.scheduleGenerationSubmitWatchdog(req.sessionId, promptGeneration.id)
@@ -1148,7 +1177,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           attachments: req.attachments,
           artifactDir,
           processDir,
-          mode: req.mode,
+          mode: bugReport ? "build" : req.mode,
           model: req.model,
           organizationName,
           reasoningLevel: req.reasoningLevel,
@@ -1158,6 +1187,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             buildContextMentionsSystemPrompt(req.contextMentions),
             buildProjectContextSystem(req.projectContext),
             buildPermissionModeSystem(req.permissionMode),
+            bugReportSystem,
           ),
         })
         .then(() => {

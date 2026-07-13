@@ -64,6 +64,8 @@ import {
 import { createHideOnCloseHandler, revealMainWindow } from "./window/window-close-behavior.ts"
 import { createWindowsTrayLifecycle } from "./window/windows-tray-lifecycle.ts"
 
+declare const __APP_COMMIT__: string | undefined
+
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.join(dirname, "..")
 process.env.APP_ROOT = appRoot
@@ -132,6 +134,11 @@ const spreadsheetPreviewWorker = new SpreadsheetPreviewWorkerClient()
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 组织作用域同步，
 // 经 ChatService.setAgentOrganization → onSetAgentOrganization 回调（渲染层切 workspace 时调用）。
 const chatService = new ChatServiceImpl(null, {
+  bugReportRuntime: {
+    appCommit: typeof __APP_COMMIT__ === "string" ? __APP_COMMIT__ : "unknown",
+    appVersion: app.getVersion(),
+    platform: process.platform,
+  },
   createArtifactThumbnail: async (filePath) => {
     const image = await nativeImage.createThumbnailFromPath(filePath, { height: 160, width: 160 })
     return { dataUrl: image.isEmpty() ? null : image.toDataURL() }

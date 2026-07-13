@@ -423,6 +423,8 @@ export const enMessages = {
   "chat.commandSkillsDescription": "Choose skill context for this turn",
   "chat.commandConnections": "Connections",
   "chat.commandConnectionsDescription": "Choose connector context for this turn",
+  "chat.commandBugReport": "Bug report",
+  "chat.commandBugReportDescription": "Generate a Markdown report for Wanta developers from this task",
   "chat.commandAttachFile": "Attach file",
   "chat.commandAttachFileDescription": "Add a file from disk as context",
   "chat.commandAttachFileOrFolder": "Attach file or folder",

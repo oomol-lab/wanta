@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   nextPaletteIndex,
   resolveComposerPaletteKeyAction,
+  slashCommandDraftReplacement,
   shouldOpenRootPaletteItem,
 } from "./composer-palette-logic.ts"
 
@@ -18,6 +19,11 @@ describe("composer palette logic", () => {
     expect(shouldOpenRootPaletteItem("slash", "root", "connections")).toBe(true)
     expect(shouldOpenRootPaletteItem("slash", "root", "creator-skill")).toBe(false)
     expect(shouldOpenRootPaletteItem("skill", "skills", "skills")).toBe(false)
+  })
+
+  it("inserts the bug report command without submitting it", () => {
+    expect(slashCommandDraftReplacement("bug-report")).toBe("/bug-report ")
+    expect(slashCommandDraftReplacement("billing")).toBeUndefined()
   })
 
   it("resolves keyboard actions without UI state mutation", () => {

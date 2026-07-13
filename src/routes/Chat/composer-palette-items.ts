@@ -7,7 +7,7 @@ import type { ComposerPaletteItem } from "./ComposerPalette.tsx"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 
-import { File, FileImage, Folder, Package, Plug, SlidersHorizontal } from "lucide-react"
+import { Bug, File, FileImage, Folder, Package, Plug, SlidersHorizontal } from "lucide-react"
 import * as React from "react"
 import { connectionAppDisplayLabel as connectionAppUiDisplayLabel } from "../../../electron/connections/summary.ts"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source"
@@ -24,6 +24,7 @@ export type SlashCommandAction =
   | "attach-file"
   | "attach-folder"
   | "billing"
+  | "bug-report"
   | "connections"
   | "creator-skill"
   | "skills"
@@ -657,6 +658,16 @@ export function slashCommandItems({
       kind: "slash",
       meta: "context",
       title: t("chat.commandConnections"),
+    },
+    {
+      action: "bug-report",
+      description: t("chat.commandBugReportDescription"),
+      icon: React.createElement(Bug, { className: "size-4" }),
+      id: "bug-report",
+      keywords: ["bug", "report", "issue", "feedback", "问题", "报告", "反馈"],
+      kind: "slash",
+      meta: "command",
+      title: t("chat.commandBugReport"),
     },
     ...attachmentItems,
     {

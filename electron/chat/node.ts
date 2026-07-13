@@ -1100,6 +1100,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.rememberTrustedAttachments(req.sessionId, req.attachments)
     const organizationName = organizationNameFromRequest(req)
     const bugReport = parseBugReportCommand(req.text)
+    const effectiveMode = bugReport ? "build" : req.mode
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
     let processDir: string | undefined
@@ -1117,7 +1118,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         return
       }
       const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
-      const artifactProjectRoot = req.mode === "plan" ? undefined : trustedProjectRoot
+      const artifactProjectRoot = effectiveMode === "plan" ? undefined : trustedProjectRoot
       ;[artifactDir, processDir] = await Promise.all([
         this.agent.createArtifactDir(req.sessionId, artifactProjectRoot),
         this.agent.createProcessDir(req.sessionId),
@@ -1177,7 +1178,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           attachments: req.attachments,
           artifactDir,
           processDir,
-          mode: bugReport ? "build" : req.mode,
+          mode: effectiveMode,
           model: req.model,
           organizationName,
           reasoningLevel: req.reasoningLevel,

@@ -1650,6 +1650,63 @@ test("sendMessage turns /bug-report into a Markdown artifact-only turn", async (
   }
 })
 
+test("plan mode bug report uses the forced Build artifact directory and publishes its file", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-plan-bug-report-"))
+  const projectPath = path.join(root, "project")
+  const sessionArtifactDir = path.join(projectPath, ".wanta", "artifacts", "session-1")
+  const artifactDir = path.join(sessionArtifactDir, "turn-1")
+  const processDir = path.join(root, "process")
+  await mkdir(artifactDir, { recursive: true })
+  await mkdir(processDir, { recursive: true })
+
+  const bridge = createBridgeAgent()
+  bridge.artifactSessionDir.mockReturnValue(sessionArtifactDir)
+  bridge.createArtifactDir.mockResolvedValue(artifactDir)
+  bridge.createProcessDir.mockResolvedValue(processDir)
+  const artifactBundleStore = new ArtifactBundleStore(root)
+  const service = new ChatServiceImpl(bridge.agent, {
+    artifactBundleStore,
+    projectStore: projectStore([
+      {
+        createdAt: 1_000,
+        id: "project-1",
+        name: "wanta",
+        path: projectPath,
+        updatedAt: 1_000,
+      },
+    ]),
+  })
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  try {
+    await service.sendMessage({
+      mode: "plan",
+      projectContext: { id: "project-1", name: "wanta", path: projectPath },
+      sessionId: "session-1",
+      text: "/bug-report",
+    })
+
+    assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", projectPath]])
+    assert.deepEqual(bridge.artifactSessionDir.mock.calls, [["session-1", projectPath]])
+    assert.equal(bridge.promptStreaming.mock.calls[0]?.[2]?.mode, "build")
+
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    await writeFile(path.join(artifactDir, "wanta-bug-report.md"), "# Wanta Bug Report\n", "utf8")
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await waitForCondition(() => events.some((event) => event.event === "artifactBundleUpdated"))
+
+    const bundle = (await artifactBundleStore.read()).get("session-1")?.get("assistant-1")
+    assert.equal(bundle?.rootPath, artifactDir)
+    assert.equal(bundle?.items[0]?.name, "wanta-bug-report.md")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
 test("build mode stores artifacts under the registered project", async () => {
   const bridge = createBridgeAgent()
   const projectPath = "/Users/example/code/wanta"

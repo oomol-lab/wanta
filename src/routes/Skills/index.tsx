@@ -766,7 +766,7 @@ export function SkillsRoute({
         )}
       </section>
       {selectedSkill ? (
-        <SkillManagementSheet title={selectedSkill.name} onClose={() => setSelectedSkillId(null)}>
+        <SkillManagementSheet subjectName={selectedSkill.name} onClose={() => setSelectedSkillId(null)}>
           <SkillDetailContent {...detailContentProps} />
         </SkillManagementSheet>
       ) : null}

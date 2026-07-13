@@ -74,7 +74,11 @@ export function getOoCommand(): string {
   return process.env["OO_CLI_PATH"] || process.env["WANTA_OO_BIN"] || "oo"
 }
 
-function environmentValue(env: NodeJS.ProcessEnv, name: string, platform: NodeJS.Platform): string | undefined {
+export function getEnvironmentValue(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  platform: NodeJS.Platform,
+): string | undefined {
   const directValue = env[name]
   if (directValue || platform !== "win32") {
     return directValue
@@ -85,11 +89,11 @@ function environmentValue(env: NodeJS.ProcessEnv, name: string, platform: NodeJS
 }
 
 export function getOoPath(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string {
-  const homeDirectory = environmentValue(env, platform === "win32" ? "USERPROFILE" : "HOME", platform)
-  const pathValue = environmentValue(env, "PATH", platform)
-  const appData = environmentValue(env, "APPDATA", platform)
-  const localAppData = environmentValue(env, "LOCALAPPDATA", platform)
-  const programData = environmentValue(env, "ProgramData", platform)
+  const homeDirectory = getEnvironmentValue(env, platform === "win32" ? "USERPROFILE" : "HOME", platform)
+  const pathValue = getEnvironmentValue(env, "PATH", platform)
+  const appData = getEnvironmentValue(env, "APPDATA", platform)
+  const localAppData = getEnvironmentValue(env, "LOCALAPPDATA", platform)
+  const programData = getEnvironmentValue(env, "ProgramData", platform)
   const pathParts =
     platform === "win32"
       ? [

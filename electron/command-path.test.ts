@@ -1,10 +1,11 @@
 import assert from "node:assert/strict"
 import path from "node:path"
-import { test } from "vitest"
+import { test, vi } from "vitest"
 import {
   expandWindowsEnvironmentVariables,
   mergePathValues,
   parseWindowsRegistryPath,
+  resetUserCommandPathCacheForTest,
   resolveUserCommandPath,
 } from "./command-path.ts"
 
@@ -89,6 +90,62 @@ test("resolveUserCommandPath does not invoke a Unix login shell on Windows", asy
     "C:\\Users\\test\\AppData\\Local\\Microsoft\\WinGet\\Links",
   ])
   assert.doesNotMatch(result, /homebrew|\/usr\/bin|\/bin/)
+})
+
+test("resolveUserCommandPath retries an empty Windows registry PATH result", async () => {
+  resetUserCommandPathCacheForTest()
+  let calls = 0
+  const windowsPathReader = async (): Promise<readonly string[]> => {
+    calls += 1
+    return calls === 1 ? [] : ["C:\\Recovered\\bin"]
+  }
+  const options = {
+    env: process.env,
+    platform: "win32" as const,
+    windowsPathReader,
+  }
+
+  try {
+    const first = await resolveUserCommandPath(options)
+    const second = await resolveUserCommandPath(options)
+    const third = await resolveUserCommandPath(options)
+
+    assert.equal(calls, 2)
+    assert.doesNotMatch(first, /C:\\Recovered\\bin/i)
+    assert.match(second, /C:\\Recovered\\bin/i)
+    assert.equal(third, second)
+  } finally {
+    resetUserCommandPathCacheForTest()
+  }
+})
+
+test("resolveUserCommandPath refreshes a successful Windows registry PATH after its TTL", async () => {
+  resetUserCommandPathCacheForTest()
+  const now = vi.spyOn(Date, "now").mockReturnValue(1_000)
+  let calls = 0
+  const options = {
+    env: process.env,
+    platform: "win32" as const,
+    windowsPathReader: async (): Promise<readonly string[]> => {
+      calls += 1
+      return [`C:\\Registry-${calls}\\bin`]
+    },
+  }
+
+  try {
+    const first = await resolveUserCommandPath(options)
+    const cached = await resolveUserCommandPath(options)
+    now.mockReturnValue(31_001)
+    const refreshed = await resolveUserCommandPath(options)
+
+    assert.equal(calls, 2)
+    assert.equal(cached, first)
+    assert.match(first, /C:\\Registry-1\\bin/i)
+    assert.match(refreshed, /C:\\Registry-2\\bin/i)
+  } finally {
+    now.mockRestore()
+    resetUserCommandPathCacheForTest()
+  }
 })
 
 test("Windows PATH merging uses semicolons and removes case-insensitive duplicates", () => {

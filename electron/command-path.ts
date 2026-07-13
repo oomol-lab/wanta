@@ -3,7 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 import { logDiagnosticOnChange } from "./diagnostics-log.ts"
-import { getOoPath } from "./oo-command.ts"
+import { getEnvironmentValue, getOoPath } from "./oo-command.ts"
 
 const execFileAsync = promisify(execFile)
 const shellPathTimeoutMs = 2_000
@@ -12,6 +12,7 @@ const pathStartMarker = "__WANTA_PATH_START__"
 const pathEndMarker = "__WANTA_PATH_END__"
 const windowsUserEnvironmentKey = "HKCU\\Environment"
 const windowsMachineEnvironmentKey = "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment"
+const windowsRegistryPathCacheTtlMs = 30_000
 
 export interface ResolveUserCommandPathOptions {
   env?: NodeJS.ProcessEnv
@@ -25,6 +26,7 @@ export interface ResolveUserCommandPathOptions {
 
 let loginShellPathInFlight: Promise<string | undefined> | undefined
 let windowsRegistryPathsInFlight: Promise<readonly string[]> | undefined
+let windowsRegistryPathsCache: { expiresAt: number; paths: readonly string[] } | undefined
 
 export function mergePathValues(
   values: readonly (string | undefined)[],
@@ -48,14 +50,6 @@ export function mergePathValues(
   }
 
   return parts.join(delimiter)
-}
-
-function environmentValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
-  const directValue = env[name]
-  if (directValue) {
-    return directValue
-  }
-  return Object.entries(env).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1]
 }
 
 function userShell(platform: NodeJS.Platform, explicitShell: string | undefined): string | undefined {
@@ -119,7 +113,7 @@ async function readLoginShellPath(shell: string, env: NodeJS.ProcessEnv): Promis
 }
 
 export function expandWindowsEnvironmentVariables(value: string, env: NodeJS.ProcessEnv): string {
-  return value.replace(/%([^%]+)%/g, (match, name: string) => environmentValue(env, name) ?? match)
+  return value.replace(/%([^%]+)%/g, (match, name: string) => getEnvironmentValue(env, name, "win32") ?? match)
 }
 
 export function parseWindowsRegistryPath(output: string, env: NodeJS.ProcessEnv): string | undefined {
@@ -160,13 +154,36 @@ async function readWindowsRegistryPath(
 }
 
 async function readWindowsRegistryPaths(env: NodeJS.ProcessEnv): Promise<readonly string[]> {
-  const systemRoot = environmentValue(env, "SystemRoot") ?? "C:\\Windows"
+  const systemRoot = getEnvironmentValue(env, "SystemRoot", "win32") ?? "C:\\Windows"
   const regExe = path.win32.join(systemRoot, "System32", "reg.exe")
   const [machinePath, userPath] = await Promise.all([
     readWindowsRegistryPath(regExe, windowsMachineEnvironmentKey, "machine", env),
     readWindowsRegistryPath(regExe, windowsUserEnvironmentKey, "user", env),
   ])
   return [machinePath, userPath].filter((value): value is string => Boolean(value))
+}
+
+async function readCachedWindowsRegistryPaths(
+  reader: (env: NodeJS.ProcessEnv) => Promise<readonly string[]>,
+  env: NodeJS.ProcessEnv,
+): Promise<readonly string[]> {
+  const now = Date.now()
+  if (windowsRegistryPathsCache && windowsRegistryPathsCache.expiresAt > now) {
+    return windowsRegistryPathsCache.paths
+  }
+
+  const promise = (windowsRegistryPathsInFlight ??= reader(env))
+  try {
+    const paths = await promise
+    if (paths.length > 0) {
+      windowsRegistryPathsCache = { expiresAt: now + windowsRegistryPathCacheTtlMs, paths }
+    }
+    return paths
+  } finally {
+    if (windowsRegistryPathsInFlight === promise) {
+      windowsRegistryPathsInFlight = undefined
+    }
+  }
 }
 
 export async function resolveUserCommandPath(options: ResolveUserCommandPathOptions = {}): Promise<string> {
@@ -178,8 +195,8 @@ export async function resolveUserCommandPath(options: ResolveUserCommandPathOpti
 
   if (platform === "win32") {
     const reader = options.windowsPathReader ?? readWindowsRegistryPaths
-    if (env === process.env && !options.windowsPathReader) {
-      windowsRegistryPaths = await (windowsRegistryPathsInFlight ??= reader(env))
+    if (env === process.env) {
+      windowsRegistryPaths = await readCachedWindowsRegistryPaths(reader, env)
     } else {
       windowsRegistryPaths = await reader(env)
     }
@@ -210,4 +227,5 @@ export async function resolveUserCommandPath(options: ResolveUserCommandPathOpti
 export function resetUserCommandPathCacheForTest(): void {
   loginShellPathInFlight = undefined
   windowsRegistryPathsInFlight = undefined
+  windowsRegistryPathsCache = undefined
 }

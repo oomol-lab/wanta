@@ -219,6 +219,7 @@ export interface ConnectionSummary {
   status: ConnectionBackendStatus
   activeConnections: number
   apps: ConnectionAppSummary[]
+  /** 用户实际配置或授权过的 Provider 种类数，不包含无需账号即可使用的免配置 Provider。 */
   connectedProviderCount: number
   connectableProviderCount: number
   needsAttention: number

@@ -40,7 +40,7 @@ test("getConnectedProviderSkillCandidates keeps configured active providers as p
     provider("notion", { status: "available" }),
     provider("gmail", { displayName: "Gmail Duplicate" }),
     provider("amap", { appStatus: undefined }),
-    provider("quickchart", { actionKind: "no_auth", appCount: 0, appStatus: undefined }),
+    provider("quickchart", { actionKind: "no_auth", appCount: 0, appStatus: undefined, authTypes: ["no_auth"] }),
     provider("posthog", { displayName: "PostHog" }),
     provider("google_bigquery"),
     provider("bad service"),
@@ -164,13 +164,15 @@ test("getInstallableProviderSkillRecommendations de-duplicates the same runtime 
 
 function provider(
   service: string,
-  options: Partial<Pick<ConnectionProvider, "actionKind" | "appCount" | "appStatus" | "displayName" | "status">> = {},
+  options: Partial<
+    Pick<ConnectionProvider, "actionKind" | "appCount" | "appStatus" | "authTypes" | "displayName" | "status">
+  > = {},
 ): ConnectionProvider {
   return {
     actionKind: options.actionKind ?? "oauth2",
     appCount: options.appCount ?? 1,
     apps: [],
-    authTypes: ["oauth2"],
+    authTypes: options.authTypes ?? ["oauth2"],
     canDisconnect: true,
     categoryLabels: [],
     displayName: options.displayName ?? service[0]?.toUpperCase() + service.slice(1),

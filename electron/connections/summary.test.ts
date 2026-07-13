@@ -82,6 +82,7 @@ test("virtual no_auth app in error becomes needs_attention", () => {
 
   assert.equal(quickchart?.status, "needs_attention")
   assert.equal(quickchart?.appCount, 0)
+  assert.equal(summary.connectedProviderCount, 0)
 })
 
 test("virtual no_auth app in active status marks provider ready without a manageable account", () => {
@@ -99,6 +100,27 @@ test("virtual no_auth app in active status marks provider ready without a manage
   assert.equal(quickchart?.canDisconnect, false)
 })
 
+test("mixed no_auth and API key providers remain setup-free until the user configures an account", () => {
+  const summary = mergeConnectionSummary({
+    apps: [{ id: "no_auth:pubmed", service: "pubmed", status: "active", authType: "no_auth" }],
+    meta: { summary: { connectedProviderCount: 1 } },
+    providers: [
+      {
+        service: "pubmed",
+        displayName: "PubMed",
+        authTypes: ["no_auth" as const, "api_key" as const],
+      },
+    ],
+    usage: emptyUsage,
+  })
+  const pubmed = summary.providers[0]
+
+  assert.equal(pubmed?.status, "connected")
+  assert.equal(pubmed?.actionKind, "api_key")
+  assert.equal(pubmed?.appCount, 0)
+  assert.equal(summary.connectedProviderCount, 0)
+})
+
 test("pure no_auth provider is ready even when the workspace has no app row", () => {
   const summary = mergeConnectionSummary({
     apps: [],
@@ -113,6 +135,17 @@ test("pure no_auth provider is ready even when the workspace has no app row", ()
   assert.equal(quickchart?.appCount, 0)
   assert.deepEqual(quickchart?.apps, [])
   assert.equal(quickchart?.canDisconnect, false)
+  assert.equal(summary.connectedProviderCount, 0)
+})
+
+test("connected provider count excludes no-auth providers from the backend total", () => {
+  const summary = mergeConnectionSummary({
+    apps: [{ id: "app-1", service: "gmail", status: "active", authType: "oauth2", updatedAt: 5 }],
+    meta: { summary: { connectedProviderCount: 2 } },
+    providers,
+    usage: emptyUsage,
+  })
+
   assert.equal(summary.connectedProviderCount, 1)
 })
 
@@ -145,7 +178,7 @@ test("merge preserves multiple apps for one provider", () => {
   const gmail = summary.providers.find((provider) => provider.service === "gmail")
 
   assert.equal(summary.activeConnections, 2)
-  assert.equal(summary.connectedProviderCount, 2)
+  assert.equal(summary.connectedProviderCount, 1)
   assert.equal(gmail?.status, "connected")
   assert.equal(gmail?.appCount, 2)
   assert.equal(gmail?.accountLabel, "second@example.com")

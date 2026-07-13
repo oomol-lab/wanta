@@ -45,6 +45,7 @@ export type ConnectionCatalogFilter =
   | { kind: "attention" }
   | { kind: "category"; category: string }
   | { kind: "connected" }
+  | { kind: "setup-free" }
 
 export interface ConnectionCategoryFilter {
   count: number
@@ -66,15 +67,15 @@ export function isConnectionDetailCacheKeyForService(cacheKey: string, service: 
 }
 
 export function isConnected(provider: ConnectionProviderSummary): boolean {
-  return provider.status === "connected"
+  return provider.status === "connected" && !isNoAuthReadyProvider(provider)
 }
 
 export function isNoAuthReadyProvider(provider: ConnectionProviderSummary): boolean {
-  return isConnectionlessNoAuthProvider(provider)
+  return provider.status === "connected" && isConnectionlessNoAuthProvider(provider)
 }
 
 export function shouldLoadProviderDetail(provider: ConnectionProviderSummary): boolean {
-  return !isNoAuthReadyProvider(provider)
+  return !isNoAuthReadyProvider(provider) || provider.authTypes.some((authType) => authType !== "no_auth")
 }
 
 export function getProviderStatusTone(provider: ConnectionProviderSummary): "attention" | "available" | "connected" {
@@ -94,7 +95,7 @@ export function getProviderStatusLabel(provider: ConnectionProviderSummary, t: T
     case "available":
       return t("connections.providerAvailable")
     case "connected":
-      return null
+      return isNoAuthReadyProvider(provider) ? t("connections.noSetupRequired") : null
   }
 }
 
@@ -221,7 +222,7 @@ export function getProviderActionLabel(provider: ConnectionProviderSummary, t: T
     case "needs_attention":
       return t("connections.reconnect")
     case "connected":
-      return t("connections.manage")
+      return isNoAuthReadyProvider(provider) ? t("connections.viewDetails") : t("connections.manage")
     case "available":
       return t("connections.connect")
   }
@@ -346,7 +347,7 @@ export function getFilterValue(filter: ConnectionCatalogFilter): string {
 }
 
 export function parseFilterValue(value: string): ConnectionCatalogFilter | null {
-  if (value === "all" || value === "connected" || value === "attention") {
+  if (value === "all" || value === "connected" || value === "attention" || value === "setup-free") {
     return { kind: value }
   }
   if (value.startsWith(categoryFilterPrefix)) {
@@ -433,6 +434,8 @@ export function matchesProviderFilter(provider: ConnectionProviderSummary, filte
       return isConnected(provider)
     case "attention":
       return provider.status === "needs_attention"
+    case "setup-free":
+      return isNoAuthReadyProvider(provider)
     case "category":
       return getProviderCategoryRawLabels(provider).includes(filter.category)
   }

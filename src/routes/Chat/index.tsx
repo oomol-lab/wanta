@@ -11,6 +11,7 @@ import type {
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ChatTurnRetrySource } from "./chat-turns.ts"
 import type { ComposerState } from "./composer-state.ts"
+import type { EmptyStateConnectionSummary } from "./empty-state-connections.ts"
 import type { QuestionDraftStore } from "./question-fields.ts"
 import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app-shell-model"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
@@ -20,12 +21,13 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
 import type { ChatStatus } from "ai"
 
-import { Building2, ChevronRight, Package, PlugZap } from "lucide-react"
+import { Building2, ChevronRight, Package, Plug, PlugZap } from "lucide-react"
 import * as React from "react"
 import { BillingRequestScopeContext } from "./billing-request-scope-context.ts"
 import { chatTurnShowsGenerating, resolveChatTurnState } from "./chat-turn-state.ts"
 import { ChatComposer } from "./ChatComposer.tsx"
 import { ChatTimeline } from "./ChatTimeline.tsx"
+import { resolveCurrentToolsPresentation } from "./empty-state-connections.ts"
 import { FullAccessConfirmDialog } from "./FullAccessConfirmDialog.tsx"
 import { BrandIcon } from "@/components/BrandIcon"
 import { ErrorNotice } from "@/components/ErrorNotice"
@@ -60,7 +62,9 @@ interface ChatAreaProps {
   queuedMessages: QueuedChatMessage[]
   placeholder: string
   contextBar?: React.ReactNode
-  sharedConnectorCount?: number
+  emptyStateConnectionSummary?: EmptyStateConnectionSummary | null
+  workspaceType: "organization" | "personal"
+  canManageWorkspaceConnections: boolean
   organizationSkillEntryVisible?: boolean
   organizationSkillPendingInstallCount?: number
   organizationSkillShowcaseItems?: OrganizationSkillShowcaseItem[]
@@ -96,25 +100,26 @@ interface OrganizationSkillShowcaseItem {
 }
 
 function EmptyStateActions({
+  canManageWorkspaceConnections,
+  connectionSummary,
   organizationSkillEntryVisible = false,
   organizationSkillPendingInstallCount,
   organizationSkillShowcaseItems = [],
-  sharedConnectorCount,
+  workspaceType,
   onOpenConnections,
   onOpenOrganizations,
 }: {
   organizationSkillEntryVisible?: boolean
   organizationSkillPendingInstallCount?: number
   organizationSkillShowcaseItems?: OrganizationSkillShowcaseItem[]
-  sharedConnectorCount?: number
+  canManageWorkspaceConnections: boolean
+  connectionSummary?: EmptyStateConnectionSummary | null
+  workspaceType: "organization" | "personal"
   onOpenConnections?: () => void
   onOpenOrganizations?: () => void
 }) {
   const t = useT()
-  const sharedConnectorMeta =
-    typeof sharedConnectorCount === "number"
-      ? t("chat.emptySharedConnectorsMeta", { count: sharedConnectorCount })
-      : t("chat.emptySharedConnectorsMetaFallback")
+  const currentTools = resolveCurrentToolsPresentation(workspaceType, connectionSummary)
   const pendingOrganizationSkillCount = organizationSkillPendingInstallCount ?? organizationSkillShowcaseItems.length
   const organizationSkillMeta =
     pendingOrganizationSkillCount > 0
@@ -128,20 +133,25 @@ function EmptyStateActions({
 
   return (
     <div className="w-full pl-2 text-muted-foreground">
-      <div className="grid min-w-0 justify-start gap-1 overflow-hidden">
+      <div className="grid min-w-0 justify-start gap-1">
         <EmptyCapabilityAction
-          icon={<Building2 className="size-4" />}
-          title={t("chat.emptySharedConnectorsTitle")}
-          meta={sharedConnectorMeta}
-          actionLabel={t("chat.emptySharedConnectorsAction")}
-          ariaLabel={t("chat.emptyOrganizationsAria")}
-          onClick={onOpenOrganizations}
+          icon={workspaceType === "organization" ? <Building2 className="size-4" /> : <Plug className="size-4" />}
+          title={t(currentTools.titleKey)}
+          meta={t(currentTools.meta.key, currentTools.meta.vars)}
+          actionLabel={t(currentTools.actionKey)}
+          ariaLabel={t(currentTools.ariaLabelKey)}
+          highlighted={currentTools.highlighted}
+          onClick={onOpenConnections}
         />
         <EmptyCapabilityAction
           icon={<PlugZap className="size-4" />}
-          title={t("chat.emptyConnectorsTitle")}
-          meta={t("chat.emptyConnectorsMeta")}
-          actionLabel={t("chat.emptyConnectorsAction")}
+          title={t("chat.emptyMoreConnectorsTitle")}
+          meta={t("chat.emptyMoreConnectorsMeta")}
+          actionLabel={
+            canManageWorkspaceConnections
+              ? t("chat.emptyMoreConnectorsAddAction")
+              : t("chat.emptyMoreConnectorsBrowseAction")
+          }
           ariaLabel={t("chat.emptyConnectorsAria")}
           onClick={onOpenConnections}
         />
@@ -191,18 +201,18 @@ function EmptyCapabilityAction({
       >
         {icon}
       </span>
-      <span className="oo-text-control flex min-w-0 items-center gap-1.5">
-        <span className="min-w-0 truncate font-medium">{title}</span>
+      <span className="oo-text-control flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+        <span className="font-medium">{title}</span>
         <span className="shrink-0 opacity-60" aria-hidden="true">
           ·
         </span>
         {highlighted ? (
-          <span className="oo-pending-skill-status min-w-0">
+          <span className="oo-pending-skill-status">
             <span className="oo-pending-skill-dot" aria-hidden="true" />
-            <span className="min-w-0 truncate">{meta}</span>
+            <span>{meta}</span>
           </span>
         ) : (
-          <span className="min-w-0 truncate">{meta}</span>
+          <span>{meta}</span>
         )}
       </span>
       <span
@@ -241,7 +251,9 @@ export const ChatArea = React.memo(function ChatArea({
   initialComposerState,
   initialSendPending,
   providers,
-  sharedConnectorCount,
+  emptyStateConnectionSummary,
+  workspaceType,
+  canManageWorkspaceConnections,
   organizationSkillEntryVisible,
   organizationSkillPendingInstallCount,
   organizationSkillShowcaseItems,
@@ -362,10 +374,12 @@ export const ChatArea = React.memo(function ChatArea({
         <div className="flex flex-col gap-3">
           {composer}
           <EmptyStateActions
+            canManageWorkspaceConnections={canManageWorkspaceConnections}
+            connectionSummary={emptyStateConnectionSummary}
             organizationSkillEntryVisible={organizationSkillEntryVisible}
             organizationSkillPendingInstallCount={organizationSkillPendingInstallCount}
             organizationSkillShowcaseItems={organizationSkillShowcaseItems}
-            sharedConnectorCount={sharedConnectorCount}
+            workspaceType={workspaceType}
             onOpenConnections={onOpenConnections}
             onOpenOrganizations={onOpenOrganizations}
           />

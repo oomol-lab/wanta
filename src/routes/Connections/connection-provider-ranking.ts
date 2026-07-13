@@ -1,5 +1,7 @@
 import type { ConnectionProviderSummary } from "../../../electron/connections/common.ts"
 
+import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
+
 export const recommendedConnectionServicePriority = [
   "gmail",
   "googlesheets",
@@ -65,7 +67,7 @@ function getConnectionProviderStatusWeight(provider: ConnectionProviderSummary):
     return 0
   }
   if (provider.status === "connected") {
-    return 1
+    return isConnectionlessNoAuthProvider(provider) ? 3 : 1
   }
   return 2
 }

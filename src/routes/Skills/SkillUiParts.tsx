@@ -147,7 +147,7 @@ export function SkillIconFrame({
   if (isImageIcon(normalizedIcon)) {
     return (
       <span className={cn(frameClassName, "overflow-hidden")}>
-        <img alt="" src={normalizedIcon} className="size-full object-contain p-1.5" />
+        <img alt="" src={normalizedIcon} loading="lazy" decoding="async" className="size-full object-contain p-1.5" />
       </span>
     )
   }

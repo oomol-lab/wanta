@@ -9,11 +9,16 @@ import {
   getConnectionAppNote,
   getFittingCategoryFilterCount,
   getProviderAccountValue,
+  getProviderActionLabel,
   getProviderMeta,
+  getProviderStatusDisplayLabel,
+  getProviderStatusTone,
   isConnectionDetailCacheKeyForService,
   isConnected,
   isNoAuthReadyProvider,
+  matchesProviderFilter,
   normalizeConnectionAliasInput,
+  parseFilterValue,
   selectVisibleCategoryFilters,
   shouldLoadProviderDetail,
 } from "./connection-route-model.ts"
@@ -34,7 +39,7 @@ function provider(overrides: Partial<ConnectionProviderSummary>): ConnectionProv
   }
 }
 
-test("virtual no-auth ready providers count as connected", () => {
+test("virtual no-auth ready providers stay outside configured connection counts", () => {
   const ready = provider({
     actionKind: "no_auth",
     authTypes: ["no_auth"],
@@ -43,7 +48,7 @@ test("virtual no-auth ready providers count as connected", () => {
     status: "connected",
   })
 
-  assert.equal(isConnected(ready), true)
+  assert.equal(isConnected(ready), false)
   assert.equal(isNoAuthReadyProvider(ready), true)
   assert.equal(shouldLoadProviderDetail(ready), false)
   assert.equal(
@@ -53,6 +58,10 @@ test("virtual no-auth ready providers count as connected", () => {
   assert.equal(
     getProviderAccountValue(ready, (key, vars) => translate("en", key, vars)),
     "No account required",
+  )
+  assert.equal(
+    getProviderStatusDisplayLabel(ready, (key, vars) => translate("en", key, vars)),
+    "No setup needed",
   )
 })
 
@@ -69,6 +78,28 @@ test("managed no-auth accounts are not treated as connectionless providers", () 
   assert.equal(isConnected(ready), true)
   assert.equal(isNoAuthReadyProvider(ready), false)
   assert.equal(shouldLoadProviderDetail(ready), true)
+})
+
+test("mixed direct and API key providers are setup-free before configuration", () => {
+  const ready = provider({
+    actionKind: "api_key",
+    authTypes: ["no_auth", "api_key"],
+    displayName: "PubMed",
+    service: "pubmed",
+    status: "connected",
+  })
+  const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
+
+  assert.equal(isNoAuthReadyProvider(ready), true)
+  assert.equal(isConnected(ready), false)
+  assert.equal(shouldLoadProviderDetail(ready), true)
+  assert.equal(matchesProviderFilter(ready, { kind: "setup-free" }), true)
+  assert.equal(getProviderStatusTone(ready), "connected")
+  assert.equal(getProviderActionLabel(ready, t), "View")
+})
+
+test("setup-free catalog filters round trip", () => {
+  assert.deepEqual(parseFilterValue("setup-free"), { kind: "setup-free" })
 })
 
 test("buildCredentialSummaryDisplayValues keeps only non-secret display values", () => {

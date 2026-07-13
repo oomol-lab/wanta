@@ -3,8 +3,14 @@ import type { ChatErrorKind, ChatErrorSeverity } from "./chat-error.ts"
 import { AlertTriangle, CheckIcon, CopyIcon, ExternalLink, RefreshCw } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { BillingRequestScopeContext } from "./billing-request-scope-context.ts"
 import { resolveChatError } from "./chat-error.ts"
 import { canAutoPromptPayment } from "./payment-auto-prompt.ts"
+import {
+  clearPaymentRecoveryPending,
+  hasPaymentRecoveryPending,
+  markPaymentRecoveryPending,
+} from "./payment-recovery-storage.ts"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { useT } from "@/i18n/i18n"
@@ -21,57 +27,10 @@ interface ChatErrorNoticeProps {
   onViewBilling?: () => void
 }
 
-const paymentRecoveryPendingKey = "wanta-payment-recovery-pending"
-const legacyPaymentRecoveryPendingKey = "lumo-payment-recovery-pending"
-const paymentRecoveryPendingTtlMs = 24 * 60 * 60 * 1000
 const copyFeedbackMs = 1_500
 const CreditPurchaseModal = React.lazy(() =>
   import("@/routes/Billing/CreditPurchaseModal").then((module) => ({ default: module.CreditPurchaseModal })),
 )
-
-function markPaymentRecoveryPending(): void {
-  try {
-    localStorage.setItem(
-      paymentRecoveryPendingKey,
-      JSON.stringify({ expiresAt: Date.now() + paymentRecoveryPendingTtlMs }),
-    )
-  } catch {
-    // localStorage 不可用时只跳过跨刷新恢复；当前弹窗仍可手动刷新余额。
-  }
-}
-
-function clearPaymentRecoveryPending(): void {
-  try {
-    localStorage.removeItem(paymentRecoveryPendingKey)
-    localStorage.removeItem(legacyPaymentRecoveryPendingKey)
-  } catch {
-    // 忽略存储不可用。
-  }
-}
-
-function hasPaymentRecoveryPending(): boolean {
-  try {
-    const currentRaw = localStorage.getItem(paymentRecoveryPendingKey)
-    const legacyRaw = currentRaw === null ? localStorage.getItem(legacyPaymentRecoveryPendingKey) : null
-    const raw = currentRaw ?? legacyRaw
-    if (!raw) {
-      return false
-    }
-    const parsed = JSON.parse(raw) as { expiresAt?: unknown }
-    const expiresAt = typeof parsed.expiresAt === "number" ? parsed.expiresAt : 0
-    if (Date.now() <= expiresAt) {
-      if (legacyRaw !== null) {
-        localStorage.setItem(paymentRecoveryPendingKey, raw)
-        localStorage.removeItem(legacyPaymentRecoveryPendingKey)
-      }
-      return true
-    }
-    clearPaymentRecoveryPending()
-    return false
-  } catch {
-    return false
-  }
-}
 
 function autoPromptStorageKey(autoOpenKey: string): string {
   return `wanta-payment-dialog-opened:${autoOpenKey}`
@@ -132,6 +91,7 @@ export function ChatErrorNotice({
   onViewBilling,
 }: ChatErrorNoticeProps) {
   const t = useT()
+  const billingRequestScope = React.useContext(BillingRequestScopeContext)
   const error = resolveChatError(message, { errorCode, errorKind })
   const [purchaseDialogOpen, setPurchaseDialogOpen] = React.useState(false)
   const [confirmDialogOpen, setConfirmDialogOpen] = React.useState(false)
@@ -144,26 +104,57 @@ export function ChatErrorNotice({
   const [diagnosticsCopied, setDiagnosticsCopied] = React.useState(false)
   const confirmAutoPromptedRef = React.useRef(false)
   const copyFeedbackTimerRef = React.useRef<number | undefined>(undefined)
+  const balanceRequestIdRef = React.useRef(0)
   const isPaymentRequired = error.kind === "payment_required"
 
-  const refreshBalance = React.useCallback(async (): Promise<boolean> => {
+  const refreshBalance = React.useCallback(async (): Promise<boolean | null> => {
+    const requestId = ++balanceRequestIdRef.current
+    if (!billingRequestScope) {
+      setBalance(null)
+      setBalanceChecked(false)
+      setBalanceLoading(false)
+      setHasCredits(null)
+      setRefreshFailed(false)
+      return null
+    }
     setBalanceLoading(true)
     setRefreshFailed(false)
     try {
-      const result = await getCreditBalance()
+      const result = await getCreditBalance(billingRequestScope)
+      if (requestId !== balanceRequestIdRef.current) {
+        return null
+      }
       setBalance(result.balance)
       setHasCredits(result.hasCredits)
       return result.hasCredits
     } catch {
+      if (requestId !== balanceRequestIdRef.current) {
+        return null
+      }
       setBalance(null)
       setHasCredits(null)
       setRefreshFailed(true)
       return false
     } finally {
-      setBalanceChecked(true)
-      setBalanceLoading(false)
+      if (requestId === balanceRequestIdRef.current) {
+        setBalanceChecked(true)
+        setBalanceLoading(false)
+      }
     }
-  }, [])
+  }, [billingRequestScope])
+
+  React.useEffect(() => {
+    balanceRequestIdRef.current += 1
+    setBalance(null)
+    setBalanceChecked(false)
+    setBalanceLoading(false)
+    setHasCredits(null)
+    setRecovered(false)
+    setRefreshFailed(false)
+    setPurchaseDialogOpen(false)
+    setConfirmDialogOpen(false)
+    confirmAutoPromptedRef.current = false
+  }, [billingCacheScope, billingRequestScope])
 
   React.useEffect(() => {
     setBalance(null)
@@ -185,7 +176,7 @@ export function ChatErrorNotice({
         return
       }
       if (hasCredits) {
-        clearPaymentRecoveryPending()
+        clearPaymentRecoveryPending(billingCacheScope, billingRequestScope)
         setRecovered(true)
         setPurchaseDialogOpen(false)
         setConfirmDialogOpen(false)
@@ -194,7 +185,7 @@ export function ChatErrorNotice({
     return () => {
       cancelled = true
     }
-  }, [isPaymentRequired, refreshBalance])
+  }, [billingCacheScope, billingRequestScope, isPaymentRequired, refreshBalance])
 
   React.useEffect(() => {
     const promptKey = autoOpenKey
@@ -207,11 +198,11 @@ export function ChatErrorNotice({
     if (!markAutoPromptOpened(promptKey)) {
       return
     }
-    if (hasPaymentRecoveryPending()) {
+    if (hasPaymentRecoveryPending(billingCacheScope, billingRequestScope)) {
       return
     }
     setPurchaseDialogOpen(true)
-  }, [autoOpenKey, balanceChecked, hasCredits, isPaymentRequired, recovered])
+  }, [autoOpenKey, balanceChecked, billingCacheScope, billingRequestScope, hasCredits, isPaymentRequired, recovered])
 
   React.useEffect(() => {
     confirmAutoPromptedRef.current = false
@@ -241,11 +232,19 @@ export function ChatErrorNotice({
     ) {
       return
     }
-    if (hasPaymentRecoveryPending()) {
+    if (hasPaymentRecoveryPending(billingCacheScope, billingRequestScope)) {
       confirmAutoPromptedRef.current = true
       setConfirmDialogOpen(true)
     }
-  }, [balanceChecked, confirmDialogOpen, hasCredits, isPaymentRequired, recovered])
+  }, [
+    balanceChecked,
+    billingCacheScope,
+    billingRequestScope,
+    confirmDialogOpen,
+    hasCredits,
+    isPaymentRequired,
+    recovered,
+  ])
 
   const handleCopyDiagnostics = React.useCallback(() => {
     void writeClipboardText(error.diagnostics).then((didCopy) => {
@@ -266,15 +265,18 @@ export function ChatErrorNotice({
   }, [error.diagnostics, t])
 
   const handleCheckoutOpened = React.useCallback(() => {
-    markPaymentRecoveryPending()
+    markPaymentRecoveryPending(billingCacheScope, billingRequestScope)
     confirmAutoPromptedRef.current = true
     setConfirmDialogOpen(true)
-  }, [])
+  }, [billingCacheScope, billingRequestScope])
 
   const handlePaymentCompleted = React.useCallback(async () => {
     const hasCredits = await refreshBalance()
+    if (hasCredits === null) {
+      return
+    }
     if (hasCredits) {
-      clearPaymentRecoveryPending()
+      clearPaymentRecoveryPending(billingCacheScope, billingRequestScope)
       setRecovered(true)
       setPurchaseDialogOpen(false)
       setConfirmDialogOpen(false)
@@ -282,7 +284,7 @@ export function ChatErrorNotice({
     }
     setRefreshFailed(true)
     setConfirmDialogOpen(false)
-  }, [refreshBalance])
+  }, [billingCacheScope, billingRequestScope, refreshBalance])
 
   const title = recovered ? t("chatError.paymentReturn.updatedTitle") : t(error.titleKey)
   const description = recovered
@@ -361,6 +363,7 @@ export function ChatErrorNotice({
               <CreditPurchaseModal
                 cacheScope={billingCacheScope}
                 open={purchaseDialogOpen}
+                requestScope={billingRequestScope}
                 onClose={() => setPurchaseDialogOpen(false)}
                 onCheckoutOpened={handleCheckoutOpened}
                 onViewDetails={onViewBilling}

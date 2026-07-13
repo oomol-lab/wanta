@@ -14,6 +14,7 @@ import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 export type WantaLoadingTarget = WantaSubscriptionPlan | "checkout" | "seats"
 
 export interface WantaCheckoutPreview {
+  organizationId: string
   payload: WantaSubscriptionChangePayload
   preview: WantaSubscriptionPreviewResult
 }
@@ -21,6 +22,7 @@ export interface WantaCheckoutPreview {
 export function useWantaCheckout({
   currentAdditionalSeats,
   openExternalCheckout,
+  organizationId,
   pendingAdditionalSeats,
   pendingPaymentUrl,
   pendingPlan,
@@ -28,6 +30,7 @@ export function useWantaCheckout({
 }: {
   currentAdditionalSeats: number
   openExternalCheckout: (url: string) => Promise<void>
+  organizationId: string | null
   pendingAdditionalSeats: number | null
   pendingPaymentUrl: string | null
   pendingPlan: WantaSubscriptionPlan | null
@@ -36,6 +39,13 @@ export function useWantaCheckout({
   const t = useT()
   const [loading, setLoading] = React.useState<WantaLoadingTarget | null>(null)
   const [preview, setPreview] = React.useState<WantaCheckoutPreview | null>(null)
+  const requestIdRef = React.useRef(0)
+
+  React.useEffect(() => {
+    requestIdRef.current += 1
+    setLoading(null)
+    setPreview(null)
+  }, [organizationId])
 
   const reportFailure = React.useCallback(
     (operation: string, cause: unknown) => {
@@ -49,13 +59,19 @@ export function useWantaCheckout({
   const openPendingPayment = React.useCallback(
     async (target: WantaLoadingTarget) => {
       if (!pendingPaymentUrl) return false
+      const requestId = requestIdRef.current + 1
+      requestIdRef.current = requestId
       setLoading(target)
       try {
         await openExternalCheckout(pendingPaymentUrl)
       } catch (cause) {
-        reportFailure("Opening pending Wanta payment failed", cause)
+        if (requestIdRef.current === requestId) {
+          reportFailure("Opening pending Wanta payment failed", cause)
+        }
       } finally {
-        setLoading(null)
+        if (requestIdRef.current === requestId) {
+          setLoading(null)
+        }
       }
       return true
     },
@@ -64,16 +80,26 @@ export function useWantaCheckout({
 
   const loadPreview = React.useCallback(
     async (payload: WantaSubscriptionChangePayload, target: WantaLoadingTarget) => {
+      if (!organizationId) return
+      const requestId = requestIdRef.current + 1
+      requestIdRef.current = requestId
       setLoading(target)
       try {
-        setPreview({ payload, preview: await previewWantaSubscription(payload) })
+        const nextPreview = await previewWantaSubscription(organizationId, payload)
+        if (requestIdRef.current === requestId) {
+          setPreview({ organizationId, payload, preview: nextPreview })
+        }
       } catch (cause) {
-        reportFailure("Wanta subscription preview failed", cause)
+        if (requestIdRef.current === requestId) {
+          reportFailure("Wanta subscription preview failed", cause)
+        }
       } finally {
-        setLoading(null)
+        if (requestIdRef.current === requestId) {
+          setLoading(null)
+        }
       }
     },
-    [reportFailure],
+    [organizationId, reportFailure],
   )
 
   const choosePlan = React.useCallback(
@@ -96,7 +122,7 @@ export function useWantaCheckout({
     if (!preview) return
     setLoading("checkout")
     try {
-      const result = await updateWantaSubscription(preview.payload)
+      const result = await updateWantaSubscription(preview.organizationId, preview.payload)
       const paymentUrl = result.paymentURL?.trim()
       setPreview(null)
       refresh()

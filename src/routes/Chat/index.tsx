@@ -14,6 +14,7 @@ import type { ComposerState } from "./composer-state.ts"
 import type { QuestionDraftStore } from "./question-fields.ts"
 import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app-shell-model"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
+import type { BillingRequestScope } from "@/lib/billing-client"
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
@@ -21,6 +22,7 @@ import type { ChatStatus } from "ai"
 
 import { Building2, ChevronRight, Package, PlugZap } from "lucide-react"
 import * as React from "react"
+import { BillingRequestScopeContext } from "./billing-request-scope-context.ts"
 import { chatTurnShowsGenerating, resolveChatTurnState } from "./chat-turn-state.ts"
 import { ChatComposer } from "./ChatComposer.tsx"
 import { ChatTimeline } from "./ChatTimeline.tsx"
@@ -34,6 +36,7 @@ import { cn } from "@/lib/utils"
 interface ChatAreaProps {
   activeSessionId: string | null
   billingCacheScope: string
+  billingRequestScope: BillingRequestScope | null
   composerDraftKey: string
   composerFocusRequest: number
   messages: ChatMessage[]
@@ -218,6 +221,7 @@ function EmptyCapabilityAction({
 export const ChatArea = React.memo(function ChatArea({
   activeSessionId,
   billingCacheScope,
+  billingRequestScope,
   composerDraftKey,
   composerFocusRequest,
   messages,
@@ -393,19 +397,23 @@ export const ChatArea = React.memo(function ChatArea({
   )
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
-      <div className="flex min-w-0 flex-1 flex-col pb-4">
-        <div className="flex min-h-0 flex-1 overflow-hidden">{content}</div>
+    <BillingRequestScopeContext.Provider value={billingRequestScope}>
+      <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col pb-4">
+          <div className="flex min-h-0 flex-1 overflow-hidden">{content}</div>
 
-        {showCenteredEmptyState ? null : (
-          <div className={cn("mx-auto flex w-full flex-col gap-2 px-4", CHAT_CONTENT_MAX_WIDTH_CLASS)}>{composer}</div>
-        )}
+          {showCenteredEmptyState ? null : (
+            <div className={cn("mx-auto flex w-full flex-col gap-2 px-4", CHAT_CONTENT_MAX_WIDTH_CLASS)}>
+              {composer}
+            </div>
+          )}
+        </div>
+        <FullAccessConfirmDialog
+          open={fullAccessDialogOpen}
+          onClose={() => setFullAccessDialogOpen(false)}
+          onConfirm={confirmFullAccess}
+        />
       </div>
-      <FullAccessConfirmDialog
-        open={fullAccessDialogOpen}
-        onClose={() => setFullAccessDialogOpen(false)}
-        onConfirm={confirmFullAccess}
-      />
-    </div>
+    </BillingRequestScopeContext.Provider>
   )
 })

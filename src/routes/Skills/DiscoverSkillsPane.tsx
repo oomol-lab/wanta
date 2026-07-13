@@ -14,6 +14,7 @@ import {
   getPublicSkillInstallKey,
   getPublicSkillInstallStateLabel,
   isNearScrollBottom,
+  shouldOpenPublicSkillManagement,
 } from "./skill-route-model.ts"
 import { SkillErrorNotice } from "./SkillErrorNotice.tsx"
 import { SkillListRow } from "./SkillListRow.tsx"
@@ -300,7 +301,13 @@ function PublicSkillPackageRow({
           </Button>
         ) : null
       }
-      onSelect={onSelect}
+      onSelect={() => {
+        if (primarySkill && shouldOpenPublicSkillManagement(state)) {
+          onOpenManagedSkill(primarySkill.name)
+          return
+        }
+        onSelect()
+      }}
     />
   )
 }

@@ -18,6 +18,7 @@ import {
   organizationRuntimeStatusLabel,
   organizationRuntimeStatusTone,
   providerRecommendationSkillDescription,
+  shouldOpenOrganizationSkillManagement,
   shouldShowOrganizationRuntimeStatusOnCard,
 } from "./organization-skill-manage-helpers.ts"
 import { OrganizationRecommendationRemoveConfirmDialog } from "./OrganizationSkillManageRows.tsx"
@@ -84,6 +85,13 @@ export function OrganizationSkillsPane({
     UseOrganizationSkills["skills"][number] | null
   >(null)
   const [selectedItemId, setSelectedItemId] = React.useState<string | null>(null)
+  const openManagedSkill = React.useCallback(
+    (skillName: string) => {
+      setSelectedItemId(null)
+      onOpenManagedSkill(skillName)
+    },
+    [onOpenManagedSkill],
+  )
 
   if (workspace.activeWorkspace.type !== "organization") {
     return (
@@ -223,7 +231,7 @@ export function OrganizationSkillsPane({
                     onInstallRuntime={() =>
                       onInstallRuntimeSkill({ packageName: item.skill.packageName, skillName: item.skill.skillName })
                     }
-                    onOpenManagedSkill={() => onOpenManagedSkill(item.skill.skillName)}
+                    onOpenManagedSkill={() => openManagedSkill(item.skill.skillName)}
                     onSelect={() => setSelectedItemId(item.id)}
                   />
                 ) : (
@@ -238,7 +246,7 @@ export function OrganizationSkillsPane({
                         skillName: item.recommendation.skillId,
                       })
                     }
-                    onOpenManagedSkill={() => onOpenManagedSkill(item.recommendation.skillId)}
+                    onOpenManagedSkill={() => openManagedSkill(item.recommendation.skillId)}
                     onSelect={() => setSelectedItemId(item.id)}
                   />
                 ),
@@ -274,7 +282,7 @@ export function OrganizationSkillsPane({
             onDisableConfiguredSkill={(skill) => void updateOrganizationSkill(skill, { enabled: false })}
             onEnableConfiguredSkill={(skill) => void updateOrganizationSkill(skill, { enabled: true })}
             onInstallRuntimeSkill={onInstallRuntimeSkill}
-            onOpenManagedSkill={onOpenManagedSkill}
+            onOpenManagedSkill={openManagedSkill}
             onRemoveConfiguredSkill={setOrganizationRemoveTarget}
           />
         </SkillManagementSheet>
@@ -440,7 +448,13 @@ function OrganizationConfiguredSkillCard({
           ) : null}
         </>
       }
-      onSelect={onSelect}
+      onSelect={() => {
+        if (shouldOpenOrganizationSkillManagement(runtimeStatus.state)) {
+          onOpenManagedSkill()
+          return
+        }
+        onSelect()
+      }}
     />
   )
 }
@@ -514,7 +528,13 @@ function OrganizationRecommendedSkillCard({
           ) : null}
         </>
       }
-      onSelect={onSelect}
+      onSelect={() => {
+        if (canOpenManage) {
+          onOpenManagedSkill()
+          return
+        }
+        onSelect()
+      }}
     />
   )
 }

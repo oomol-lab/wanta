@@ -7,6 +7,8 @@ import { test } from "vitest"
 import {
   buildInstallableOrganizationRecommendationSkills,
   buildOrganizationSkillRecommendationItems,
+  canOpenManagedProviderRecommendation,
+  shouldOpenOrganizationSkillManagement,
 } from "./organization-skill-manage-helpers.ts"
 
 function organizationSkill(input: Partial<OrganizationSkillConfigItem>): OrganizationSkillConfigItem {
@@ -116,4 +118,25 @@ test("buildInstallableOrganizationRecommendationSkills includes runtime-missing 
     { packageName: "oo-gmail", skillName: "gmail" },
     { packageName: "oo-slack", skillName: "slack" },
   ])
+})
+
+test("downloaded organization skills open management directly", () => {
+  assert.equal(shouldOpenOrganizationSkillManagement("installed-same"), true)
+  assert.equal(shouldOpenOrganizationSkillManagement("installed-modified"), true)
+  assert.equal(shouldOpenOrganizationSkillManagement("installed-version-mismatch"), true)
+  assert.equal(shouldOpenOrganizationSkillManagement("external-only"), true)
+  assert.equal(shouldOpenOrganizationSkillManagement("missing"), false)
+  assert.equal(shouldOpenOrganizationSkillManagement("local-conflict"), false)
+  assert.equal(shouldOpenOrganizationSkillManagement("same-id-different-package"), false)
+  assert.equal(shouldOpenOrganizationSkillManagement("unknown-conflict"), false)
+})
+
+test("provider recommendations use the same direct-management policy as the market", () => {
+  assert.equal(canOpenManagedProviderRecommendation(providerRecommendation({ installState: "installed" })), true)
+  assert.equal(
+    canOpenManagedProviderRecommendation(providerRecommendation({ installState: "external-installed" })),
+    true,
+  )
+  assert.equal(canOpenManagedProviderRecommendation(providerRecommendation({ installState: "name-conflict" })), false)
+  assert.equal(canOpenManagedProviderRecommendation(providerRecommendation({ installState: "installable" })), false)
 })

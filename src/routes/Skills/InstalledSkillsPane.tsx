@@ -21,7 +21,7 @@ import {
 } from "./skill-route-model.ts"
 import { SkillErrorNotice } from "./SkillErrorNotice.tsx"
 import { SkillListRow } from "./SkillListRow.tsx"
-import { SkillIconFrame, SkillManagementSheet, SkillPageScrollArea } from "./SkillUiParts.tsx"
+import { SkillIconFrame, SkillPageScrollArea } from "./SkillUiParts.tsx"
 import { AgentIcon } from "@/components/AgentIcon"
 import { AppIcons } from "@/components/AppIcons"
 import { Badge } from "@/components/ui/badge"
@@ -34,11 +34,8 @@ const publishableSkillBadgeClassName = "oo-badge-info oo-text-micro h-5 shrink-0
 interface InstalledSkillsPaneProps {
   cliUpdateError: string | null
   cliVersionCheck: SkillVersionReport["cli"] | undefined
-  detailContent: React.ReactNode
   groups: ManagedSkillGroup[]
   isExecutingCliUpdate: boolean
-  isDetailOpen: boolean
-  onCloseDetail: () => void
   onSelectSkill: (skillId: string) => void
   onUpdateCli: () => void
   selectedSkill: ManagedSkillGroup | undefined
@@ -50,11 +47,8 @@ interface InstalledSkillsPaneProps {
 export function InstalledSkillsPane({
   cliUpdateError,
   cliVersionCheck,
-  detailContent,
   groups,
   isExecutingCliUpdate,
-  isDetailOpen,
-  onCloseDetail,
   onSelectSkill,
   onUpdateCli,
   selectedSkill,
@@ -91,12 +85,6 @@ export function InstalledSkillsPane({
           </div>
         )}
       </div>
-
-      {isDetailOpen && selectedSkill ? (
-        <SkillManagementSheet title={selectedSkill.name} onClose={onCloseDetail}>
-          {detailContent}
-        </SkillManagementSheet>
-      ) : null}
     </SkillPageScrollArea>
   )
 }

@@ -45,6 +45,7 @@ import {
 import { SkillDetailContent } from "./SkillDetailContent.tsx"
 import { SkillPageHeader } from "./SkillPageHeader.tsx"
 import { OrganizationLinkDialog, PublishSkillDialog } from "./SkillPublishDialogs.tsx"
+import { SkillManagementSheet } from "./SkillUiParts.tsx"
 import { useOrganizationSkillActions } from "./use-organization-skill-actions.ts"
 import { useSkillService } from "@/components/AppContext"
 import {
@@ -155,7 +156,6 @@ export function SkillsRoute({
   const [updatingRegistrySkillId, setUpdatingRegistrySkillId] = React.useState<string | null>(null)
   const [organizationSkillBusyAction, setOrganizationSkillBusyAction] = React.useState<BusyAction | null>(null)
   const [isExecutingCliUpdate, setIsExecutingCliUpdate] = React.useState(false)
-  const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
   const publishSkillInFlightRef = React.useRef(false)
   const updateRegistryInFlightRef = React.useRef(false)
   const cliUpdateInFlightRef = React.useRef(false)
@@ -167,7 +167,6 @@ export function SkillsRoute({
     useSkillObjectActions({
       onDeleted: () => {
         setSelectedSkillId(null)
-        setNarrowPane("list")
         homeSummaryResource.invalidate()
       },
     })
@@ -195,7 +194,7 @@ export function SkillsRoute({
       return matchesInstalledSkillFilter(group, installedFilter, getSkillVersionCheck(versionCheckByKey, group))
     })
   }, [installedFilter, installedGroups, versionCheckByKey])
-  const selectedSkill = getSelectedManagedSkillGroup(searchedGroups, selectedSkillId)
+  const selectedSkill = getSelectedManagedSkillGroup(inventory?.groups ?? [], selectedSkillId)
   const selectedStatus = selectedSkill ? getGroupStatus(selectedSkill, t, getRuntimeHosts(selectedSkill)) : null
   const selectedVersionCheck = getSkillVersionCheck(versionCheckByKey, selectedSkill)
   const managedOrganizationOptions = React.useMemo<ManagedOrganizationOption[]>(() => {
@@ -254,7 +253,6 @@ export function SkillsRoute({
 
   const selectSkill = React.useCallback((skillId: SkillSelectionKey) => {
     setSelectedSkillId(skillId)
-    setNarrowPane("detail")
   }, [])
 
   const loadPublicSkillPackages = React.useCallback(
@@ -368,11 +366,9 @@ export function SkillsRoute({
   }, [activePackageCatalog.items, activePackageCatalog.selectedId])
 
   const openManagedPublicSkill = React.useCallback((skillName: string) => {
-    setActiveTab("installed")
-    setInstalledFilter("all")
-    setQuery("")
+    dispatchPublicPackageCatalog({ id: null, type: "select" })
+    dispatchMyPublishedPackageCatalog({ id: null, type: "select" })
     setSelectedSkillId(skillName)
-    setNarrowPane("detail")
   }, [])
 
   const installPublicSkill = React.useCallback(
@@ -754,10 +750,8 @@ export function SkillsRoute({
           <InstalledSkillsPane
             cliUpdateError={cliUpdateError}
             cliVersionCheck={versionResource.data?.cli}
-            detailContent={<SkillDetailContent {...detailContentProps} />}
             groups={filteredInstalledGroups}
             isExecutingCliUpdate={isExecutingCliUpdate}
-            isDetailOpen={narrowPane === "detail"}
             updateRegistrySkill={updateRegistrySkill}
             updatingRegistrySkillId={updatingRegistrySkillId}
             versionCheckByKey={versionCheckByKey}
@@ -766,14 +760,16 @@ export function SkillsRoute({
                 ? selectedSkill
                 : undefined
             }
-            onCloseDetail={() => setNarrowPane("list")}
-            onSelectSkill={(skillId) => {
-              selectSkill(skillId)
-            }}
+            onSelectSkill={selectSkill}
             onUpdateCli={executeCliUpdate}
           />
         )}
       </section>
+      {selectedSkill ? (
+        <SkillManagementSheet title={selectedSkill.name} onClose={() => setSelectedSkillId(null)}>
+          <SkillDetailContent {...detailContentProps} />
+        </SkillManagementSheet>
+      ) : null}
       <DeleteSkillConfirmDialog
         isRemoving={isRemovingSkill}
         target={removeTarget}

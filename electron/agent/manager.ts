@@ -20,6 +20,7 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { ActivityMetrics } from "../activity-metrics.ts"
 import { branding } from "../branding.ts"
+import { resolveUserCommandPath } from "../command-path.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
@@ -277,10 +278,12 @@ export class AgentManager {
       ooBinPath,
     })
     const ooDir = path.dirname(ooBinPath)
+    const commandPath = await resolveUserCommandPath({ preferredDirectories: [ooDir] })
     const env: Record<string, string> = {
       ...ooEnv,
-      // WANTA_OO_BIN 已给绝对路径；同时前置注入 PATH 作兜底。
-      PATH: `${ooDir}${path.delimiter}${process.env.PATH ?? ""}`,
+      // WANTA 自带 oo/rg 目录保持最高优先级；其后合并用户登录 shell PATH，
+      // 让 Finder/Dock 启动的 GUI 也能发现用户在终端中安装的 CLI。
+      PATH: commandPath,
     }
 
     const sidecar = new OpencodeSidecar({

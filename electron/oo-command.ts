@@ -74,18 +74,41 @@ export function getOoCommand(): string {
   return process.env["OO_CLI_PATH"] || process.env["WANTA_OO_BIN"] || "oo"
 }
 
-export function getOoPath(env: NodeJS.ProcessEnv = process.env): string {
-  const homeDirectory = env["HOME"] || env["USERPROFILE"]
-  const pathParts = [
-    env["PATH"],
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    "/usr/bin",
-    "/bin",
-    homeDirectory ? path.join(homeDirectory, ".local", "bin") : undefined,
-  ].filter((part): part is string => Boolean(part))
+function environmentValue(env: NodeJS.ProcessEnv, name: string, platform: NodeJS.Platform): string | undefined {
+  const directValue = env[name]
+  if (directValue || platform !== "win32") {
+    return directValue
+  }
 
-  return pathParts.join(path.delimiter)
+  const entry = Object.entries(env).find(([key]) => key.toLowerCase() === name.toLowerCase())
+  return entry?.[1]
+}
+
+export function getOoPath(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string {
+  const homeDirectory = environmentValue(env, platform === "win32" ? "USERPROFILE" : "HOME", platform)
+  const pathValue = environmentValue(env, "PATH", platform)
+  const appData = environmentValue(env, "APPDATA", platform)
+  const localAppData = environmentValue(env, "LOCALAPPDATA", platform)
+  const programData = environmentValue(env, "ProgramData", platform)
+  const pathParts =
+    platform === "win32"
+      ? [
+          pathValue,
+          appData ? path.win32.join(appData, "npm") : undefined,
+          homeDirectory ? path.win32.join(homeDirectory, "scoop", "shims") : undefined,
+          programData ? path.win32.join(programData, "chocolatey", "bin") : undefined,
+          localAppData ? path.win32.join(localAppData, "Microsoft", "WinGet", "Links") : undefined,
+        ]
+      : [
+          pathValue,
+          "/opt/homebrew/bin",
+          "/usr/local/bin",
+          "/usr/bin",
+          "/bin",
+          homeDirectory ? path.join(homeDirectory, ".local", "bin") : undefined,
+        ]
+
+  return pathParts.filter((part): part is string => Boolean(part)).join(platform === "win32" ? ";" : ":")
 }
 
 export function normalizeOoCliVersion(output: string): string | undefined {

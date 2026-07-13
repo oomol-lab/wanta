@@ -284,6 +284,8 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /concrete URL.*local web tools/s)
   assert.match(WANTA_SYSTEM_PROMPT, /Locate and read the relevant context before editing/)
   assert.match(WANTA_SYSTEM_PROMPT, /Use focused validation when feasible/)
+  assert.match(WANTA_SYSTEM_PROMPT, /do not conclude from one PATH lookup that it is not installed/)
+  assert.match(WANTA_SYSTEM_PROMPT, /registered PATH on Windows/)
   assert.match(WANTA_SYSTEM_PROMPT, new RegExp(`${branding.organizationName} connectors`))
   assert.match(WANTA_SYSTEM_PROMPT, /list_apps\(service\?\)/)
   assert.match(WANTA_SYSTEM_PROMPT, /inventory questions about connected providers.*list_apps/s)

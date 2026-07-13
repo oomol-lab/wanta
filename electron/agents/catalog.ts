@@ -3,13 +3,11 @@ import { access } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
+import { resetUserCommandPathCacheForTest, resolveUserCommandPath } from "../command-path.ts"
 import { logDiagnosticOnChange } from "../diagnostics-log.ts"
-import { getOoPath } from "../oo-command.ts"
 
 const execFileAsync = promisify(execFile)
 const agentDiscoveryCacheMs = 5_000
-const shellPathTimeoutMs = 1_500
-const maxShellPathBuffer = 64 * 1024
 
 export interface AgentDiscoveryEntry {
   agent: SupportedAgent
@@ -35,7 +33,6 @@ interface AgentDiscoveryCache {
 
 let defaultAgentDiscoveryCache: AgentDiscoveryCache | undefined
 let defaultAgentDiscoveryInFlight: Promise<AgentDiscoveryEntry[]> | undefined
-let loginShellPathInFlight: Promise<string | undefined> | undefined
 
 export interface SupportedAgent {
   canDiscoverFromSkillRoot?: boolean
@@ -146,76 +143,10 @@ export async function pathExists(pathname: string): Promise<boolean> {
   }
 }
 
-function mergePathValues(values: Array<string | undefined>): string {
-  const seen = new Set<string>()
-  const parts: string[] = []
-
-  for (const value of values) {
-    for (const part of value?.split(path.delimiter) ?? []) {
-      const trimmedPart = part.trim()
-      if (!trimmedPart || seen.has(trimmedPart)) {
-        continue
-      }
-
-      seen.add(trimmedPart)
-      parts.push(trimmedPart)
-    }
-  }
-
-  return parts.join(path.delimiter)
-}
-
-async function readLoginShellPath(env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
-  if (process.platform === "win32") {
-    return undefined
-  }
-
-  const shell = env["SHELL"]?.trim()
-  if (!shell) {
-    return undefined
-  }
-
-  try {
-    const { stdout } = await execFileAsync(shell, ["-lc", 'printf "%s" "$PATH"'], {
-      env,
-      maxBuffer: maxShellPathBuffer,
-      timeout: shellPathTimeoutMs,
-    })
-    return stdout.trim() || undefined
-  } catch (error) {
-    logDiagnosticOnChange(
-      `agent-discovery:login-shell-path:${shell}`,
-      "agent-discovery",
-      "login shell path unavailable",
-      { error: error instanceof Error ? error.message : String(error), shell },
-      "trace",
-      { shell },
-    )
-    return undefined
-  }
-}
-
-async function resolveCommandPath(env: NodeJS.ProcessEnv = process.env): Promise<string> {
-  let shellPath: string | undefined
-
-  if (env === process.env) {
-    const promise = (loginShellPathInFlight ??= readLoginShellPath(env))
-    shellPath = await promise
-
-    if (!shellPath && loginShellPathInFlight === promise) {
-      loginShellPathInFlight = undefined
-    }
-  } else {
-    shellPath = await readLoginShellPath(env)
-  }
-
-  return mergePathValues([shellPath, getOoPath(env)])
-}
-
 export function resetAgentDiscoveryCachesForTest(): void {
   defaultAgentDiscoveryCache = undefined
   defaultAgentDiscoveryInFlight = undefined
-  loginShellPathInFlight = undefined
+  resetUserCommandPathCacheForTest()
 }
 
 export async function detectCliCommand(
@@ -227,7 +158,7 @@ export async function detectCliCommand(
   }
 
   const env = options.env ?? process.env
-  const pathEnv = options.pathEnv ?? (await resolveCommandPath(env))
+  const pathEnv = options.pathEnv ?? (await resolveUserCommandPath({ env, homeDirectory: options.homeDirectory }))
 
   for (const command of commands) {
     try {
@@ -269,7 +200,7 @@ async function readAgentDiscoveryUncached(
 ): Promise<AgentDiscoveryEntry[]> {
   const env = options.env ?? process.env
   const homeDirectory = options.homeDirectory ?? os.homedir()
-  const pathEnv = options.pathEnv ?? (await resolveCommandPath(env))
+  const pathEnv = options.pathEnv ?? (await resolveUserCommandPath({ env, homeDirectory }))
 
   const startDiagnosticFields = {
     agentIds: agents.map((agent) => agent.id),

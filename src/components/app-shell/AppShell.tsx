@@ -78,6 +78,7 @@ import { cn } from "@/lib/utils"
 import { chatTurnAllowsDirectSend, chatTurnQueuesNewMessage, resolveChatTurnState } from "@/routes/Chat/chat-turn-state"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
+import { summarizeEmptyStateConnections } from "@/routes/Chat/empty-state-connections"
 
 const ArchivedRoute = React.lazy(() =>
   import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
@@ -282,6 +283,15 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     organizationWorkspace.activeWorkspace.type === "organization" && connectionSummaryMatchesWorkspace
       ? connections.summary?.connectedProviderCount
       : undefined
+  const emptyStateConnectionSummary = connectionSummaryMatchesWorkspace
+    ? connections.summary
+      ? summarizeEmptyStateConnections(connections.summary.providers, connections.summary.connectedProviderCount)
+      : null
+    : activeProvidersLoading
+      ? undefined
+      : null
+  const canManageWorkspaceConnections =
+    organizationWorkspace.activeWorkspace.type === "personal" || organizationWorkspace.activeWorkspace.canManage
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
@@ -1264,7 +1274,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       initialComposerState={initialComposerState}
                       initialSendPending={initialSendPending}
                       composerFocusRequest={composerFocusRequest}
-                      sharedConnectorCount={sharedConnectorCount}
+                      canManageWorkspaceConnections={canManageWorkspaceConnections}
+                      emptyStateConnectionSummary={emptyStateConnectionSummary}
+                      workspaceType={organizationWorkspace.activeWorkspace.type}
                       organizationSkillEntryVisible={organizationSkillEntryVisible}
                       organizationSkillShowcaseItems={organizationSkillShowcaseItems}
                       organizationSkillPendingInstallCount={recommendedSkillPendingInstallCount}

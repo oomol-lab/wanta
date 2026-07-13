@@ -5,22 +5,22 @@ import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill
 import type { RuntimeSkillRemoveTarget } from "@/routes/Skills/skill-route-model"
 
 import {
-  CheckCircle2Icon,
   Link2OffIcon,
   MoreHorizontalIcon,
-  PackageMinusIcon,
   PackageIcon,
   PauseCircleIcon,
   PlayCircleIcon,
   RefreshCwIcon,
 } from "lucide-react"
-import { runtimeSkillRemoveBusyKey } from "./organization-management-model.ts"
 import {
   canInstallProviderRecommendationRuntime,
+  canOpenManagedProviderRecommendation,
   organizationRuntimeStatusLabel,
   organizationRuntimeStatusTone,
   providerRecommendationSkillDescription,
+  shouldOpenOrganizationSkillManagement,
 } from "./organization-skill-manage-helpers.ts"
+import { SkillListRow } from "./SkillListRow.tsx"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source"
 import { SkillIcon } from "@/components/SkillIcon"
 import { Badge } from "@/components/ui/badge"
@@ -53,10 +53,10 @@ import {
   getPublicPackagePrimaryInstallSkill,
   getPublicPackagePrimarySkill,
   getPublicSkillInstallStateLabel,
-  getRuntimeSkillRemoveTarget,
   getSkillRowStatusBadgeClassName,
   isEmojiIcon,
   isImageIcon,
+  shouldOpenPublicSkillManagement,
 } from "@/routes/Skills/skill-route-model"
 
 const skillManageMenuLabelClassName = "oo-text-caption-compact px-2 py-1 text-muted-foreground"
@@ -225,8 +225,9 @@ export function OrganizationSkillMarketRow({
   groupById,
   linked,
   onAdd,
-  onAddAndInstall,
-  onManageLinked,
+  onInstallRuntime,
+  onOpenManagedSkill,
+  onOpenPackageDetail,
   pkg,
 }: {
   busyAction: BusyAction | null
@@ -234,8 +235,9 @@ export function OrganizationSkillMarketRow({
   groupById: ReadonlyMap<string, ManagedSkillGroup>
   linked: boolean
   onAdd: (skillName?: string) => Promise<void>
-  onAddAndInstall: (skillName?: string) => Promise<void>
-  onManageLinked: () => void
+  onInstallRuntime: (skillName: string) => void
+  onOpenManagedSkill: (skillName: string) => void
+  onOpenPackageDetail: () => void
   pkg: PublicSkillPackage
 }) {
   const { t } = useAppI18n()
@@ -244,91 +246,66 @@ export function OrganizationSkillMarketRow({
   const installState = getPublicPackageInstallState(groupById, pkg)
   const canInstallRuntime = canInstallPublicSkill(installState)
   const targetSkillName = canInstallRuntime ? primaryInstallSkill?.name : primarySkill?.name
-  const busy = targetSkillName ? busyAction === `addSkill:${pkg.name}:${targetSkillName}` : false
-  const disabled = Boolean(busyAction && !busy)
+  const addBusy = targetSkillName ? busyAction === `addSkill:${pkg.name}:${targetSkillName}` : false
+  const installBusy = targetSkillName ? busyAction === `installSkill:${pkg.name}:${targetSkillName}` : false
+  const disabled = Boolean(busyAction && !addBusy && !installBusy)
   const canLink = canManage && Boolean(primarySkill) && !linked
   const skillDescription = primarySkill?.description ?? pkg.description
   const skillLine = primarySkill
     ? `${pkg.name} · ${primarySkill.name} · ${pkg.version}`
     : `${pkg.name} · ${pkg.version}`
-  const primaryLabel = busy
-    ? t("skills.organizationAdding")
-    : canInstallRuntime
-      ? t("organizations.skillManageAddAndInstall")
-      : t("organizations.skillManageAddOnly")
+  const opensManagement = Boolean(primarySkill && shouldOpenPublicSkillManagement(installState))
 
   return (
-    <div
-      className={cn(
-        "grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 md:items-center",
-        "md:grid-cols-[auto_minmax(0,1fr)_auto_auto]",
-      )}
-    >
-      <OrganizationSkillIconFrame icon={pkg.icon} />
-      <div className="grid min-w-0 gap-0.5">
-        <div className="oo-text-label min-w-0 truncate text-foreground">{pkg.displayName}</div>
-        {skillDescription ? (
-          <div className="oo-text-caption line-clamp-1 text-foreground/75">{skillDescription}</div>
-        ) : null}
-        <div className="oo-text-caption-compact min-w-0 truncate text-muted-foreground" title={skillLine}>
+    <SkillListRow
+      icon={<OrganizationSkillIconFrame icon={pkg.icon} />}
+      showTrailingDivider
+      title={pkg.displayName}
+      description={skillDescription}
+      badges={
+        <Badge variant={linked ? "secondary" : "outline"}>
+          {linked ? t("skills.organizationAdded") : getPublicSkillInstallStateLabel(installState, t)}
+        </Badge>
+      }
+      meta={
+        <div className="min-w-0 truncate" title={skillLine}>
           {skillLine}
         </div>
-      </div>
-      <Badge className="shrink-0 justify-self-start md:justify-self-end" variant={linked ? "secondary" : "outline"}>
-        {linked ? t("skills.organizationAdded") : getPublicSkillInstallStateLabel(installState, t)}
-      </Badge>
-      <div className="flex min-w-0 flex-wrap justify-start gap-2 md:justify-end">
-        {linked ? (
-          <Button type="button" variant="outline" size="sm" onClick={onManageLinked}>
-            {t("skills.discoverOpenManage")}
-          </Button>
-        ) : !canManage ? (
-          <Badge variant="outline">{t("organizations.readOnly")}</Badge>
-        ) : canInstallRuntime && canLink ? (
-          <div className="inline-flex items-center gap-0">
+      }
+      actions={
+        <>
+          {primarySkill && opensManagement ? (
+            <Button type="button" variant="ghost" size="sm" onClick={() => onOpenManagedSkill(primarySkill.name)}>
+              {t("skills.installedManage")}
+            </Button>
+          ) : null}
+          {canInstallRuntime && targetSkillName ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={disabled || installBusy || !targetSkillName}
+              onClick={() => onInstallRuntime(targetSkillName)}
+            >
+              {installBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
+              {installBusy ? t("skills.registryInstalling") : t("organizations.skillManageInstallRuntime")}
+            </Button>
+          ) : null}
+          {!linked && canManage && canLink ? (
             <Button
               type="button"
               size="sm"
-              className="rounded-r-none"
-              disabled={disabled || busy || !targetSkillName}
-              onClick={() => void onAddAndInstall(targetSkillName)}
+              disabled={disabled || addBusy}
+              onClick={() => void onAdd(primarySkill?.name)}
             >
-              {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
-              {primaryLabel}
+              {addBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+              {addBusy ? t("skills.organizationAdding") : t("organizations.skillManageAddOnly")}
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  className="-ml-px w-[var(--oo-control-height-compact)] rounded-l-none border-l border-primary-foreground/25 px-0"
-                  disabled={disabled || busy}
-                  aria-label={t("organizations.skillManageMoreActions")}
-                >
-                  <MoreHorizontalIcon className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => void onAdd(primarySkill?.name)}>
-                  {t("organizations.skillManageLinkOnly")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        ) : (
-          <Button
-            type="button"
-            size="sm"
-            disabled={disabled || busy || !canLink}
-            onClick={() => void onAdd(primarySkill?.name)}
-          >
-            {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
-            {primaryLabel}
-          </Button>
-        )}
-      </div>
-    </div>
+          ) : null}
+        </>
+      }
+      onSelect={primarySkill && opensManagement ? () => onOpenManagedSkill(primarySkill.name) : onOpenPackageDetail}
+    />
   )
 }
 
@@ -337,23 +314,16 @@ function OrganizationConfiguredSkillActionsMenu({
   canManage,
   enabled,
   onRemove,
-  onRequestRemoveRuntimeSkill,
   onToggleEnabled,
-  removeBusy,
-  runtimeRemoveTarget,
 }: {
   busy: boolean
   canManage: boolean
   enabled: boolean
   onRemove: () => void
-  onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
   onToggleEnabled: () => void
-  removeBusy: boolean
-  runtimeRemoveTarget: RuntimeSkillRemoveTarget | null
 }) {
   const { t } = useAppI18n()
-  const hasRuntimeRemoveAction = Boolean(runtimeRemoveTarget)
-  if (!canManage && !hasRuntimeRemoveAction) {
+  if (!canManage) {
     return null
   }
 
@@ -365,125 +335,31 @@ function OrganizationConfiguredSkillActionsMenu({
           variant="ghost"
           size="sm"
           className="w-[var(--oo-control-height-compact)] px-0"
-          disabled={busy || removeBusy}
+          disabled={busy}
           aria-label={t("organizations.skillManageMoreActions")}
         >
-          {busy || removeBusy ? (
-            <RefreshCwIcon className="size-3.5 animate-spin" />
-          ) : (
-            <MoreHorizontalIcon className="size-4" />
-          )}
+          {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <MoreHorizontalIcon className="size-4" />}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        {canManage ? (
-          <>
-            <DropdownMenuLabel className={skillManageMenuLabelClassName}>
-              {t("organizations.skillManageOrganizationSection")}
-            </DropdownMenuLabel>
-            <DropdownMenuItem onSelect={onToggleEnabled}>
-              {enabled ? (
-                <PauseCircleIcon className={skillManageMenuIconClassName} />
-              ) : (
-                <PlayCircleIcon className={skillManageMenuIconClassName} />
-              )}
-              {enabled
-                ? t("organizations.skillManagePauseRecommendation")
-                : t("organizations.skillManageResumeRecommendation")}
-            </DropdownMenuItem>
-          </>
-        ) : null}
-        {runtimeRemoveTarget ? (
-          <>
-            {canManage ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuLabel className={skillManageMenuLabelClassName}>
-              {t("organizations.skillManageRuntimeSection")}
-            </DropdownMenuLabel>
-            <DropdownMenuItem onSelect={() => onRequestRemoveRuntimeSkill(runtimeRemoveTarget)}>
-              <PackageMinusIcon className={skillManageMenuIconClassName} />
-              {t("organizations.skillManageRemoveRuntime")}
-            </DropdownMenuItem>
-          </>
-        ) : null}
-        {canManage ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-              <Link2OffIcon className="size-4" />
-              {t("organizations.skillManageUnrecommend")}
-            </DropdownMenuItem>
-          </>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-function OrganizationRecommendedSkillActionsMenu({
-  addBusy,
-  busy,
-  canManage,
-  onAdd,
-  onRequestRemoveRuntimeSkill,
-  removeBusy,
-  runtimeRemoveTarget,
-}: {
-  addBusy: boolean
-  busy: boolean
-  canManage: boolean
-  onAdd: () => Promise<void>
-  onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
-  removeBusy: boolean
-  runtimeRemoveTarget: RuntimeSkillRemoveTarget | null
-}) {
-  const { t } = useAppI18n()
-  const hasRuntimeRemoveAction = Boolean(runtimeRemoveTarget)
-  if (!canManage && !hasRuntimeRemoveAction) {
-    return null
-  }
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="w-[var(--oo-control-height-compact)] px-0"
-          disabled={busy || addBusy || removeBusy}
-          aria-label={t("organizations.skillManageMoreActions")}
-        >
-          {busy || addBusy || removeBusy ? (
-            <RefreshCwIcon className="size-3.5 animate-spin" />
+        <DropdownMenuLabel className={skillManageMenuLabelClassName}>
+          {t("organizations.skillManageOrganizationSection")}
+        </DropdownMenuLabel>
+        <DropdownMenuItem onSelect={onToggleEnabled}>
+          {enabled ? (
+            <PauseCircleIcon className={skillManageMenuIconClassName} />
           ) : (
-            <MoreHorizontalIcon className="size-4" />
+            <PlayCircleIcon className={skillManageMenuIconClassName} />
           )}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        {canManage ? (
-          <>
-            <DropdownMenuLabel className={skillManageMenuLabelClassName}>
-              {t("organizations.skillManageOrganizationSection")}
-            </DropdownMenuLabel>
-            <DropdownMenuItem onSelect={() => void onAdd()}>
-              <CheckCircle2Icon className={skillManageMenuIconClassName} />
-              {t("organizations.skillManageAddOnly")}
-            </DropdownMenuItem>
-          </>
-        ) : null}
-        {canManage && runtimeRemoveTarget ? <DropdownMenuSeparator /> : null}
-        {runtimeRemoveTarget ? (
-          <>
-            <DropdownMenuLabel className={skillManageMenuLabelClassName}>
-              {t("organizations.skillManageRuntimeSection")}
-            </DropdownMenuLabel>
-            <DropdownMenuItem onSelect={() => onRequestRemoveRuntimeSkill(runtimeRemoveTarget)}>
-              <PackageMinusIcon className={skillManageMenuIconClassName} />
-              {t("organizations.skillManageRemoveRuntime")}
-            </DropdownMenuItem>
-          </>
-        ) : null}
+          {enabled
+            ? t("organizations.skillManagePauseRecommendation")
+            : t("organizations.skillManageResumeRecommendation")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+          <Link2OffIcon className="size-4" />
+          {t("organizations.skillManageUnrecommend")}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -598,8 +474,8 @@ export function OrganizationSkillManageRow({
   groupById,
   installBusy,
   onInstallRuntime,
+  onOpenManagedSkill,
   onRemove,
-  onRequestRemoveRuntimeSkill,
   onToggleEnabled,
   skill,
 }: {
@@ -609,8 +485,8 @@ export function OrganizationSkillManageRow({
   groupById: ReadonlyMap<string, ManagedSkillGroup>
   installBusy: boolean
   onInstallRuntime: () => void
+  onOpenManagedSkill: () => void
   onRemove: () => void
-  onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
   onToggleEnabled: () => void
   skill: UseOrganizationSkills["skills"][number]
 }) {
@@ -618,20 +494,17 @@ export function OrganizationSkillManageRow({
   const runtimeStatus = getOrganizationSkillRuntimeStatus(groupById, skill)
   const runtimeTone = organizationRuntimeStatusTone(runtimeStatus.state)
   const runtimeInstallable = runtimeStatus.state === "missing" || runtimeStatus.state === "external-only"
-  const runtimeRemoveTarget = getRuntimeSkillRemoveTarget(groupById, {
-    displayName: skill.displayName,
-    packageName: skill.packageName,
-    skillName: skill.skillName,
-  })
-  const removeBusy = runtimeRemoveTarget ? busyAction === runtimeSkillRemoveBusyKey(runtimeRemoveTarget) : false
-  const menuBusy = Boolean(busyAction && !removeBusy) || busy || installBusy
+  const menuBusy = Boolean(busyAction) || busy || installBusy
+  const opensManagement = shouldOpenOrganizationSkillManagement(runtimeStatus.state)
 
   return (
-    <div className="group/skill-row grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
-      <OrganizationSkillIconFrame icon={skill.icon} />
-      <div className="grid min-w-0 gap-0.5">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <div className="oo-text-label min-w-0 truncate text-foreground">{skill.displayName}</div>
+    <SkillListRow
+      icon={<OrganizationSkillIconFrame icon={skill.icon} />}
+      showTrailingDivider
+      title={skill.displayName}
+      description={skill.description}
+      badges={
+        <>
           <Badge variant="secondary" className="shrink-0">
             {t("organizations.skillManageConfigured")}
           </Badge>
@@ -641,56 +514,55 @@ export function OrganizationSkillManageRow({
           <Badge className={cn("shrink-0", getSkillRowStatusBadgeClassName(runtimeTone))} variant="outline">
             {organizationRuntimeStatusLabel(runtimeStatus.state, t)}
           </Badge>
-        </div>
-        {skill.description ? (
-          <div className="oo-text-caption line-clamp-1 text-foreground/75">{skill.description}</div>
-        ) : null}
-        <div
-          className="oo-text-caption-compact min-w-0 truncate text-muted-foreground"
-          title={`${skill.packageName} · ${skill.skillName} · ${skill.version}`}
-        >
+        </>
+      }
+      meta={
+        <div className="min-w-0 truncate" title={`${skill.packageName} · ${skill.skillName} · ${skill.version}`}>
           {skill.packageName} · {skill.skillName} · {skill.version}
         </div>
-      </div>
-      <div className="flex min-w-0 flex-wrap justify-start gap-2 md:justify-end">
-        {runtimeInstallable ? (
-          <Button type="button" variant="outline" size="sm" disabled={installBusy} onClick={onInstallRuntime}>
-            {installBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
-            {installBusy ? t("skills.registryInstalling") : t("organizations.skillManageInstallRuntime")}
-          </Button>
-        ) : null}
-        <OrganizationConfiguredSkillActionsMenu
-          busy={menuBusy}
-          canManage={canManage}
-          enabled={skill.enabled}
-          removeBusy={removeBusy}
-          runtimeRemoveTarget={runtimeRemoveTarget}
-          onRemove={onRemove}
-          onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
-          onToggleEnabled={onToggleEnabled}
-        />
-      </div>
-    </div>
+      }
+      actions={
+        <>
+          {runtimeInstallable ? (
+            <Button type="button" variant="outline" size="sm" disabled={installBusy} onClick={onInstallRuntime}>
+              {installBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
+              {installBusy ? t("skills.registryInstalling") : t("organizations.skillManageInstallRuntime")}
+            </Button>
+          ) : null}
+          {opensManagement ? (
+            <Button type="button" variant="ghost" size="sm" onClick={onOpenManagedSkill}>
+              {t("skills.installedManage")}
+            </Button>
+          ) : null}
+          <OrganizationConfiguredSkillActionsMenu
+            busy={menuBusy}
+            canManage={canManage}
+            enabled={skill.enabled}
+            onRemove={onRemove}
+            onToggleEnabled={onToggleEnabled}
+          />
+        </>
+      }
+      onSelect={opensManagement ? onOpenManagedSkill : undefined}
+    />
   )
 }
 
 export function OrganizationSkillRecommendationRow({
   busyAction,
   canManage,
-  groupById,
   onAdd,
-  onAddAndInstall,
   onInstallRuntime,
-  onRequestRemoveRuntimeSkill,
+  onOpenManagedSkill,
+  onOpenPackageDetail,
   recommendation,
 }: {
   busyAction: BusyAction | null
   canManage: boolean
-  groupById: ReadonlyMap<string, ManagedSkillGroup>
   onAdd: () => Promise<void>
-  onAddAndInstall: () => Promise<void>
   onInstallRuntime: () => void
-  onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
+  onOpenManagedSkill: () => void
+  onOpenPackageDetail: () => void
   recommendation: ProviderSkillRecommendation
 }) {
   const { t } = useAppI18n()
@@ -701,96 +573,55 @@ export function OrganizationSkillRecommendationRow({
   const installBusy = busyAction === installBusyKey || busyAction === "installSkillBatch"
   const disabled = Boolean(busyAction && !addBusy && !installBusy)
   const skillDescription = providerRecommendationSkillDescription(recommendation)
-  const runtimeRemoveTarget = getRuntimeSkillRemoveTarget(
-    groupById,
-    {
-      displayName: recommendation.package.displayName,
-      packageName: recommendation.packageName,
-      skillName: recommendation.skillId,
-    },
-    { requirePackageMatch: true },
-  )
-  const runtimeRemoveBusy = runtimeRemoveTarget ? busyAction === runtimeSkillRemoveBusyKey(runtimeRemoveTarget) : false
-  const menuBusy = Boolean(busyAction && !addBusy && !runtimeRemoveBusy)
+  const menuBusy = Boolean(busyAction && !addBusy)
+  const opensManagement = canOpenManagedProviderRecommendation(recommendation)
 
   return (
-    <div className="group/skill-row grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
-      <OrganizationSkillIconFrame icon={recommendation.package.icon} />
-      <div className="grid min-w-0 gap-0.5">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <div className="oo-text-label min-w-0 truncate text-foreground">{recommendation.package.displayName}</div>
+    <SkillListRow
+      icon={<OrganizationSkillIconFrame icon={recommendation.package.icon} />}
+      showTrailingDivider
+      title={recommendation.package.displayName}
+      description={skillDescription}
+      badges={
+        <>
           <Badge variant="secondary" className="shrink-0">
             {t("organizations.skillManageRecommended")}
           </Badge>
-        </div>
-        {skillDescription ? (
-          <div className="oo-text-caption line-clamp-1 text-foreground/75">{skillDescription}</div>
-        ) : null}
-        <div
-          className="oo-text-caption-compact min-w-0 truncate text-muted-foreground"
-          title={recommendation.packageName}
-        >
+        </>
+      }
+      meta={
+        <div className="min-w-0 truncate" title={recommendation.packageName}>
           {recommendation.providerDisplayName} · {recommendation.packageName} · {recommendation.skillId}
         </div>
-      </div>
-      <div className="flex min-w-0 flex-wrap justify-start gap-2 md:justify-end">
-        {runtimeRemoveTarget ? (
-          <OrganizationRecommendedSkillActionsMenu
-            addBusy={addBusy}
-            busy={menuBusy}
-            canManage={canManage}
-            removeBusy={runtimeRemoveBusy}
-            runtimeRemoveTarget={runtimeRemoveTarget}
-            onAdd={onAdd}
-            onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
-          />
-        ) : canInstallRuntime ? (
-          <div className="inline-flex items-center gap-0">
+      }
+      actions={
+        <>
+          {opensManagement ? (
+            <Button type="button" variant="ghost" size="sm" onClick={onOpenManagedSkill}>
+              {t("skills.installedManage")}
+            </Button>
+          ) : null}
+          {canInstallRuntime ? (
             <Button
               type="button"
-              variant={canManage ? "default" : "outline"}
+              variant="outline"
               size="sm"
-              className={cn(canManage && "rounded-r-none")}
               disabled={disabled || installBusy}
               onClick={onInstallRuntime}
             >
               {installBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
               {installBusy ? t("skills.registryInstalling") : t("organizations.skillManageInstallRuntime")}
             </Button>
-            {canManage ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="default"
-                    size="sm"
-                    className="-ml-px w-[var(--oo-control-height-compact)] rounded-l-none border-l border-primary-foreground/25 px-0"
-                    disabled={disabled || addBusy || installBusy}
-                    aria-label={t("organizations.skillManageMoreActions")}
-                  >
-                    <MoreHorizontalIcon className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => void onAddAndInstall()}>
-                    {t("organizations.skillManageAddAndInstall")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void onAdd()}>
-                    {t("organizations.skillManageLinkOnly")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-          </div>
-        ) : !canManage ? (
-          <Badge variant="outline">{getPublicSkillInstallStateLabel(recommendation.installState, t)}</Badge>
-        ) : (
-          <Button type="button" size="sm" disabled={disabled || addBusy} onClick={() => void onAdd()}>
-            {addBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
-            {t("organizations.skillManageAddOnly")}
-          </Button>
-        )}
-      </div>
-    </div>
+          ) : null}
+          {canManage ? (
+            <Button type="button" size="sm" disabled={menuBusy || addBusy} onClick={() => void onAdd()}>
+              {addBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+              {t("organizations.skillManageAddOnly")}
+            </Button>
+          ) : null}
+        </>
+      }
+      onSelect={opensManagement ? onOpenManagedSkill : onOpenPackageDetail}
+    />
   )
 }

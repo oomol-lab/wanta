@@ -151,6 +151,7 @@ export interface SkillDetailContentProps {
   publishingSkillId: string | null
   requestRemoveSkill: (skill: ManagedSkillGroup) => void
   requestOrganizationLink: (skill: ManagedSkillGroup) => void
+  showPublishAction?: boolean
   showOrganizationLinkAction: boolean
   selectedPlanError: unknown
   selectedSkill: ManagedSkillGroup | undefined
@@ -170,6 +171,7 @@ export function SkillDetailContent({
   publishingSkillId,
   requestRemoveSkill,
   requestOrganizationLink,
+  showPublishAction = true,
   selectedPlanError,
   selectedSkill,
   selectedStatus,
@@ -199,6 +201,7 @@ export function SkillDetailContent({
         selectedSkill={selectedSkill}
         selectedStatus={selectedStatus}
         showOrganizationLinkAction={showOrganizationLinkAction}
+        showPublishAction={showPublishAction}
         selectedVersionCheck={selectedVersionCheck}
         updateRegistrySkill={updateRegistrySkill}
         updatingRegistrySkillId={updatingRegistrySkillId}
@@ -222,6 +225,7 @@ interface SkillPeekProps {
   selectedSkill: ManagedSkillGroup
   selectedStatus: ReturnType<typeof getGroupStatus>
   showOrganizationLinkAction: boolean
+  showPublishAction: boolean
   selectedVersionCheck?: SkillVersionReport["skills"][number]
   updateRegistrySkill: (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => void
   updatingRegistrySkillId: string | null
@@ -240,6 +244,7 @@ function SkillPeek({
   selectedSkill,
   selectedStatus,
   showOrganizationLinkAction,
+  showPublishAction,
   selectedVersionCheck,
   updateRegistrySkill,
   updatingRegistrySkillId,
@@ -254,7 +259,7 @@ function SkillPeek({
   const canRestoreRegistrySkill = selectedSkill.kind === "registry" && Boolean(selectedSkill.packageName?.trim())
   const isUpdatingRegistrySkill = updatingRegistrySkillId === selectedSkill.id
   const localPublishPath = getLocalSkillPublishPath(selectedSkill)
-  const canPublishLocalSkill = Boolean(localPublishPath)
+  const canPublishLocalSkill = showPublishAction && Boolean(localPublishPath)
   const isPublishingSkill = publishingSkillId === selectedSkill.id
   const attentionHosts = runtimeHosts.filter(
     (host) => host.controlState === "modified" || host.controlState === "source-missing",

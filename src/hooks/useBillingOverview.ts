@@ -1,4 +1,5 @@
 import type { BillingOverviewResult, BillingPeriodDays } from "../../electron/chat/common.ts"
+import type { BillingRequestScope } from "../lib/billing-client.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
@@ -17,6 +18,7 @@ interface BillingOverviewCacheEntry {
 export interface UseBillingOverviewOptions {
   cacheScope?: string
   enabled?: boolean
+  requestScope?: BillingRequestScope | null
   staleMs?: number
 }
 
@@ -35,11 +37,24 @@ const overviewCache = new Map<string, Map<BillingPeriodDays, BillingOverviewCach
 
 export function useBillingOverview(
   days: BillingPeriodDays,
-  { cacheScope = "default", enabled = true, staleMs = defaultStaleMs }: UseBillingOverviewOptions = {},
+  {
+    cacheScope = "default",
+    enabled = true,
+    requestScope = { type: "personal" },
+    staleMs = defaultStaleMs,
+  }: UseBillingOverviewOptions = {},
 ): UseBillingOverview {
   // 顶部浮层、购买弹窗和账单详情页展示的是同一个账单实体，只是读取字段不同。缓存边界
   // 必须按账号/工作区（由调用方的 cacheScope 提供）划分，不能再按页面展示形态拆成两份。
-  const cacheScopeKey = cacheScope
+  const requestCanManageBilling = requestScope?.type === "organization" ? requestScope.canManageBilling : false
+  const requestOrganizationId = requestScope?.type === "organization" ? requestScope.organizationId : ""
+  const requestOrganizationName = requestScope?.type === "organization" ? requestScope.organizationName : ""
+  const requestScopeType = requestScope?.type ?? "blocked"
+  const requestScopeKey =
+    requestScopeType === "organization"
+      ? `organization:${requestOrganizationId}:${requestOrganizationName}:${requestCanManageBilling}`
+      : requestScopeType
+  const cacheScopeKey = `${cacheScope}\u0000${requestScopeKey}`
   const [data, setData] = React.useState<BillingOverviewResult | null>(() => cachedData(cacheScopeKey, days))
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
@@ -62,6 +77,9 @@ export function useBillingOverview(
 
   const refresh = React.useCallback(
     async ({ force = false }: RefreshBillingOverviewOptions = {}): Promise<BillingOverviewResult | null> => {
+      if (requestScopeType === "blocked") {
+        return null
+      }
       const currentRequest = requestId.current + 1
       requestId.current = currentRequest
       const entry = cacheEntry(cacheScopeKey, days)
@@ -75,7 +93,16 @@ export function useBillingOverview(
       setError(null)
 
       // 手动刷新也复用已在途请求，避免浮层、详情页或重试按钮同时触发时又发起一套账单聚合请求。
-      const promise = entry.promise ?? startBillingOverviewRequest(entry, () => getBillingOverview(days))
+      const scope: BillingRequestScope =
+        requestScopeType === "organization"
+          ? {
+              canManageBilling: requestCanManageBilling,
+              organizationId: requestOrganizationId,
+              organizationName: requestOrganizationName,
+              type: "organization",
+            }
+          : { type: "personal" }
+      const promise = entry.promise ?? startBillingOverviewRequest(entry, () => getBillingOverview(days, scope))
 
       try {
         const nextData = await promise
@@ -103,14 +130,22 @@ export function useBillingOverview(
         }
       }
     },
-    [cacheScopeKey, days, staleMs],
+    [
+      cacheScopeKey,
+      days,
+      requestCanManageBilling,
+      requestOrganizationId,
+      requestOrganizationName,
+      requestScopeType,
+      staleMs,
+    ],
   )
 
   React.useEffect(() => {
-    if (enabled) {
+    if (enabled && requestScopeType !== "blocked") {
       void refresh()
     }
-  }, [enabled, refresh])
+  }, [enabled, refresh, requestScopeType])
 
   return { data, loading, error, refresh }
 }

@@ -33,6 +33,7 @@ import { useAuth } from "@/hooks/useAuth"
 import { useBillableSeats } from "@/hooks/useBillableSeats"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
+import { billingRequestScopeForWorkspace, canManageWantaBilling } from "@/lib/billing-scope"
 
 interface BillingRouteProps {
   cacheScope: string
@@ -54,7 +55,11 @@ export function BillingRoute({
   const chatService = useChatService()
   const [period, setPeriod] = React.useState<BillingPeriodDays>(30)
   const [purchaseOpen, setPurchaseOpen] = React.useState(false)
-  const { data, error, loading, refresh } = useBillingOverview(period, { cacheScope })
+  const billingRequestScope = React.useMemo(() => billingRequestScopeForWorkspace(workspace), [workspace])
+  const { data, error, loading, refresh } = useBillingOverview(period, {
+    cacheScope,
+    requestScope: billingRequestScope,
+  })
   const seatState = useBillableSeats(workspace)
   const planComparisonRef = React.useRef<HTMLElement | null>(null)
   // 会话过期：引导重新登录刷新会话，并避免在错误下方继续显示误导性的 "$0" 余额标题。
@@ -112,6 +117,8 @@ export function BillingRoute({
     [data?.wantaPendingPayment, wantaOverview.additionalSeats, wantaOverview.currentPlan],
   )
   const pendingWantaPaymentUrl = pendingWantaPaymentTargets.paymentUrl
+  const wantaOrganizationId = canManageWantaBilling(workspace) ? workspace.organizationId : null
+  const showWantaPlans = wantaOrganizationId !== null
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const availableShare =
@@ -141,6 +148,7 @@ export function BillingRoute({
   const wantaCheckout = useWantaCheckout({
     currentAdditionalSeats: wantaOverview.additionalSeats,
     openExternalCheckout,
+    organizationId: wantaOrganizationId,
     pendingAdditionalSeats: pendingWantaPaymentTargets.additionalSeats,
     pendingPaymentUrl: pendingWantaPaymentUrl || null,
     pendingPlan: pendingWantaPaymentTargets.plan,
@@ -154,20 +162,38 @@ export function BillingRoute({
     isSubmitting: wantaLoading !== null,
   })
   React.useEffect(() => {
-    if (initialTarget !== "plans") {
+    if (initialTarget !== "plans" || !showWantaPlans) {
       return
     }
     const frame = window.requestAnimationFrame(() => {
       planComparisonRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [initialTarget])
+  }, [initialTarget, showWantaPlans])
 
   React.useEffect(() => {
     if (initialTarget === "credits") {
       setPurchaseOpen(true)
     }
   }, [initialTarget])
+
+  const balanceOverview = (
+    <BalanceOverview
+      averageDailySpend={averageDailySpend}
+      modelSpend={modelSpend}
+      coverageDays={coverageDays}
+      currentCredit={currentCredit}
+      loading={(loading && !data) || isSessionExpired}
+      totalEvents={totalEvents}
+      totalSpend={totalSpend}
+      availableShare={availableShare}
+      period={period}
+      topUpDisabled={isSessionExpired}
+      onPeriodChange={setPeriod}
+      onRefresh={() => void refresh({ force: true })}
+      onTopUp={openUsagePurchase}
+    />
+  )
 
   return (
     <>
@@ -193,48 +219,40 @@ export function BillingRoute({
 
         {!billingContext.canManage ? <BillingManagePermissionNotice /> : null}
 
-        <PlanSeatOverviewPanel
-          loading={(loading && !data) || isSessionExpired}
-          overview={wantaOverview}
-          seatLoading={seatState.loading}
-          workspaceLabel={billingContext.workspaceLabel}
-        />
+        {showWantaPlans ? (
+          <>
+            <PlanSeatOverviewPanel
+              loading={(loading && !data) || isSessionExpired}
+              overview={wantaOverview}
+              seatLoading={seatState.loading}
+              workspaceLabel={billingContext.workspaceLabel}
+            />
 
-        <PlanComparison
-          ref={planComparisonRef}
-          currentPlan={wantaOverview.currentPlan}
-          disabled={wantaActionDisabled}
-          loadingPlan={wantaLoading}
-          pendingPaymentPlan={pendingWantaPaymentTargets.plan}
-          onChoosePlan={wantaCheckout.choosePlan}
-        />
+            <PlanComparison
+              ref={planComparisonRef}
+              currentPlan={wantaOverview.currentPlan}
+              disabled={wantaActionDisabled}
+              loadingPlan={wantaLoading}
+              pendingPaymentPlan={pendingWantaPaymentTargets.plan}
+              onChoosePlan={wantaCheckout.choosePlan}
+            />
 
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)]">
-          <AdditionalSeatsPanel
-            currentAdditionalSeats={wantaOverview.additionalSeats}
-            disabled={wantaActionDisabled}
-            loading={wantaLoading !== null}
-            pendingAdditionalSeats={pendingWantaPaymentTargets.additionalSeats}
-            workspaceLabel={billingContext.workspaceLabel}
-            onUpdateSeats={wantaCheckout.updateSeats}
-          />
+            <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)]">
+              <AdditionalSeatsPanel
+                currentAdditionalSeats={wantaOverview.additionalSeats}
+                disabled={wantaActionDisabled}
+                loading={wantaLoading !== null}
+                pendingAdditionalSeats={pendingWantaPaymentTargets.additionalSeats}
+                workspaceLabel={billingContext.workspaceLabel}
+                onUpdateSeats={wantaCheckout.updateSeats}
+              />
 
-          <BalanceOverview
-            averageDailySpend={averageDailySpend}
-            modelSpend={modelSpend}
-            coverageDays={coverageDays}
-            currentCredit={currentCredit}
-            loading={(loading && !data) || isSessionExpired}
-            totalEvents={totalEvents}
-            totalSpend={totalSpend}
-            availableShare={availableShare}
-            period={period}
-            topUpDisabled={isSessionExpired}
-            onPeriodChange={setPeriod}
-            onRefresh={() => void refresh({ force: true })}
-            onTopUp={openUsagePurchase}
-          />
-        </section>
+              {balanceOverview}
+            </section>
+          </>
+        ) : (
+          balanceOverview
+        )}
 
         <UsageDetailsDisclosure
           balanceLots={data?.balance?.items ?? []}
@@ -256,6 +274,7 @@ export function BillingRoute({
       <CreditPurchaseModal
         cacheScope={cacheScope}
         open={purchaseOpen}
+        requestScope={billingRequestScope}
         showViewDetails={false}
         onClose={() => {
           setPurchaseOpen(false)

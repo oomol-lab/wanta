@@ -31,7 +31,7 @@ function urlOf(input: string | URL | Request): URL {
 function stubWantaSubscriptionFetch(data: Record<string, unknown>): { requestBody: () => string } {
   let body = ""
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-    expect(urlOf(input).pathname).toBe("/api/user/subscriptions/wanta")
+    expect(urlOf(input).pathname).toBe("/api/org/team-1/subscriptions/wanta")
     body = String(init?.body ?? "")
     return Response.json({ data, success: true })
   })
@@ -58,10 +58,10 @@ describe("billing-client", () => {
     let status = 401
     vi.stubGlobal("fetch", async () => new Response("nope", { status }))
 
-    expect((await rejection(() => getCreditBalance())).message).toBe(billingAuthRequiredMessage)
+    expect((await rejection(() => getCreditBalance({ type: "personal" }))).message).toBe(billingAuthRequiredMessage)
 
     status = 403
-    const error = await rejection(() => getCreditBalance())
+    const error = await rejection(() => getCreditBalance({ type: "personal" }))
     expect(error.message).not.toBe(billingAuthRequiredMessage)
     expect(error).toBeInstanceOf(OomolHttpError)
     expect((error as OomolHttpError).status).toBe(403)
@@ -79,9 +79,12 @@ describe("billing-client", () => {
     expect((await rejection(() => getBillingSummary(30))).message).toBe(billingAuthRequiredMessage)
   })
 
-  it("includes pending Wanta payment in lightweight billing summaries", async () => {
-    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+  it("scopes organization billing reads and includes pending Wanta payment", async () => {
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = urlOf(input)
+      if (url.hostname === "insight.oomol.com") {
+        expect(new Headers(init?.headers).get("x-oo-organization-name")).toBe("acme")
+      }
       if (url.pathname === "/v1/balance/available") {
         return Response.json({
           data: {
@@ -94,7 +97,7 @@ describe("billing-client", () => {
       if (url.pathname === "/v1/stats/billing" || url.pathname === "/v1/stats/metering") {
         return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
       }
-      if (url.pathname === "/api/user/subscriptions") {
+      if (url.pathname === "/api/org/team-1/subscriptions") {
         return Response.json({
           data: {
             features: [],
@@ -106,7 +109,7 @@ describe("billing-client", () => {
           success: true,
         })
       }
-      if (url.pathname === "/api/user/subscriptions/wanta/pending_payment") {
+      if (url.pathname === "/api/org/team-1/subscriptions/wanta/pending_payment") {
         return Response.json({
           data: {
             additionalSeats: 2,
@@ -129,10 +132,39 @@ describe("billing-client", () => {
       throw new Error(`Unexpected billing test URL: ${url.pathname}`)
     })
 
-    const summary = await getBillingSummary(30)
+    const summary = await getBillingSummary(30, {
+      canManageBilling: true,
+      organizationId: "team-1",
+      organizationName: "acme",
+      type: "organization",
+    })
 
     expect(summary.wantaPendingPayment?.paymentURL).toBe("https://console.example.com/wanta-pay")
     expect(summary.wantaPendingPayment?.additionalSeats).toBe(2)
+    expect(summary.subscription?.plan).toBe("wanta_plus")
+  })
+
+  it("does not request organization subscriptions for members without billing permission", async () => {
+    const paths: string[] = []
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = urlOf(input)
+      paths.push(url.pathname)
+      if (url.pathname === "/v1/balance/available") {
+        return Response.json({ data: { items: [], total: { currentCredit: "0", originalCredit: "0" } } })
+      }
+      return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
+    })
+
+    const summary = await getBillingSummary(30, {
+      canManageBilling: false,
+      organizationId: "team-1",
+      organizationName: "acme",
+      type: "organization",
+    })
+
+    expect(paths.some((path) => path.startsWith("/api/org/"))).toBe(false)
+    expect(summary.subscription).toBeNull()
+    expect(summary.wantaPendingPayment).toBeNull()
   })
 
   it("resolves the console top-up checkout URL", async () => {
@@ -146,8 +178,9 @@ describe("billing-client", () => {
   })
 
   it("reads wrapped balance payloads for payment-required recovery", async () => {
-    vi.stubGlobal("fetch", async () =>
-      Response.json({
+    vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get("x-oo-organization-name")).toBe("acme")
+      return Response.json({
         data: {
           items: [
             { currentCredit: "7.5", originalCredit: "10", serviceScope: "general" },
@@ -155,10 +188,15 @@ describe("billing-client", () => {
           ],
           total: { currentCredit: "27.5", originalCredit: "30" },
         },
-      }),
-    )
+      })
+    })
 
-    const result = await getCreditBalance()
+    const result = await getCreditBalance({
+      canManageBilling: true,
+      organizationId: "team-1",
+      organizationName: "acme",
+      type: "organization",
+    })
 
     expect(result).toEqual({ balance: "$7.5", hasCredits: true })
   })
@@ -175,7 +213,7 @@ describe("billing-client", () => {
       targetPlan: "wanta_plus",
     })
 
-    const result = await updateWantaSubscription({ additional_seats: 0, plan: "wanta_plus" })
+    const result = await updateWantaSubscription("team-1", { additional_seats: 0, plan: "wanta_plus" })
 
     expect(JSON.parse(request.requestBody())).toEqual({ additional_seats: 0, plan: "wanta_plus" })
     expect(result.paymentURL).toBe("https://console.example.com/wanta-checkout")
@@ -184,7 +222,7 @@ describe("billing-client", () => {
   it("requests a Wanta plan preview before submission", async () => {
     let body = ""
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-      expect(urlOf(input).pathname).toBe("/api/user/subscriptions/wanta/preview")
+      expect(urlOf(input).pathname).toBe("/api/org/team%2Fa%20b/subscriptions/wanta/preview")
       body = String(init?.body ?? "")
       return Response.json({
         data: {
@@ -200,7 +238,7 @@ describe("billing-client", () => {
       })
     })
 
-    const preview = await previewWantaSubscription({ additional_seats: 0, plan: "wanta_plus" })
+    const preview = await previewWantaSubscription("team/a b", { additional_seats: 0, plan: "wanta_plus" })
 
     expect(JSON.parse(body)).toEqual({ additional_seats: 0, plan: "wanta_plus" })
     expect(preview).toEqual({
@@ -226,7 +264,7 @@ describe("billing-client", () => {
       targetPlan: null,
     })
 
-    const result = await updateWantaSubscription({ additional_seats: 1 })
+    const result = await updateWantaSubscription("team-1", { additional_seats: 1 })
 
     expect(JSON.parse(request.requestBody())).toEqual({ additional_seats: 1 })
     expect(result.paymentURL).toBe("https://console.example.com/wanta-seat-checkout")

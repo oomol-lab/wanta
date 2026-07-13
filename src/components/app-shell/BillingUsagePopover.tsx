@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/useAuth"
 import { useBillableSeats } from "@/hooks/useBillableSeats"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
+import { billingRequestScopeForWorkspace, canManageWantaBilling } from "@/lib/billing-scope"
 import { cn } from "@/lib/utils"
 import { buildCategorySummaries, formatCredit, getSummary, statsTotalCredit, toNumber } from "@/routes/Billing/usage.ts"
 import { buildWantaSubscriptionOverview } from "@/routes/Billing/wanta-subscription-model.ts"
@@ -46,9 +47,11 @@ export function BillingUsagePopover({
   const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   const [open, setOpen] = React.useState(false)
   const seatState = useBillableSeats(workspace, open)
+  const billingRequestScope = React.useMemo(() => billingRequestScopeForWorkspace(workspace), [workspace])
   const { data, error, loading, refresh } = useBillingOverview(usagePeriodDays, {
     cacheScope,
     enabled: open,
+    requestScope: billingRequestScope,
     staleMs: cacheFreshMs,
   })
   // 会话过期后全局登录态会失效：重新登录刷新会话，而非误导用户去充值。
@@ -82,6 +85,7 @@ export function BillingUsagePopover({
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const modelSpend = getSummary(summaries, "model").credit
   const connectorSpend = getSummary(summaries, "link").credit
+  const showWantaPlanSection = canManageWantaBilling(workspace)
   const billableSeats = workspace.type === "organization" ? Math.max(1, seatState.count ?? 1) : 1
   const wantaOverview = React.useMemo(
     () =>
@@ -94,10 +98,18 @@ export function BillingUsagePopover({
       }),
     [billableSeats, data?.subscription, data?.wantaPendingPayment, sharedConnectorCount, workspace],
   )
-  const showPlanPrompt = Boolean(data && !error && wantaOverview.recommendedAction === "choose_plan")
-  const showPendingPaymentPrompt = Boolean(data && !error && wantaOverview.recommendedAction === "continue_payment")
-  const showUpgradePrompt = Boolean(data && !error && wantaOverview.recommendedAction === "upgrade_plan")
-  const showSeatPrompt = Boolean(data && !error && wantaOverview.recommendedAction === "add_seats")
+  const showPlanPrompt = Boolean(
+    showWantaPlanSection && data && !error && wantaOverview.recommendedAction === "choose_plan",
+  )
+  const showPendingPaymentPrompt = Boolean(
+    showWantaPlanSection && data && !error && wantaOverview.recommendedAction === "continue_payment",
+  )
+  const showUpgradePrompt = Boolean(
+    showWantaPlanSection && data && !error && wantaOverview.recommendedAction === "upgrade_plan",
+  )
+  const showSeatPrompt = Boolean(
+    showWantaPlanSection && data && !error && wantaOverview.recommendedAction === "add_seats",
+  )
   const availableShare =
     originalCredit > 0
       ? Math.max(0, Math.min(100, (currentCredit / originalCredit) * 100))
@@ -195,64 +207,66 @@ export function BillingUsagePopover({
               <BillingUsageSkeleton />
             ) : (
               <>
-                <section className="rounded-lg border border-border p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="oo-text-label flex items-center gap-2 text-foreground">
-                        <ShieldCheckIcon className="size-4 text-muted-foreground" />
-                        <span>
-                          {wantaOverview.currentPlan
-                            ? wantaPlanLabel(wantaOverview.currentPlan, t)
-                            : t("billing.wantaNoPlan")}
-                        </span>
+                {showWantaPlanSection ? (
+                  <section className="rounded-lg border border-border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="oo-text-label flex items-center gap-2 text-foreground">
+                          <ShieldCheckIcon className="size-4 text-muted-foreground" />
+                          <span>
+                            {wantaOverview.currentPlan
+                              ? wantaPlanLabel(wantaOverview.currentPlan, t)
+                              : t("billing.wantaNoPlan")}
+                          </span>
+                        </div>
+                        <div className="oo-text-caption-compact mt-1 text-muted-foreground">
+                          {seatState.loading
+                            ? t("billing.popover.planSeatsLoading")
+                            : wantaOverview.seatCapacity === null
+                              ? t("billing.popover.planMembers", { count: wantaOverview.usedSeats })
+                              : t("billing.popover.planSeats", {
+                                  count: wantaOverview.usedSeats,
+                                  limit: wantaOverview.seatCapacity,
+                                })}
+                          {sharedConnectorCount === undefined
+                            ? ""
+                            : ` · ${t("billing.popover.sharedLinks", { count: sharedConnectorCount })}`}
+                        </div>
                       </div>
-                      <div className="oo-text-caption-compact mt-1 text-muted-foreground">
-                        {seatState.loading
-                          ? t("billing.popover.planSeatsLoading")
-                          : wantaOverview.seatCapacity === null
-                            ? t("billing.popover.planMembers", { count: wantaOverview.usedSeats })
-                            : t("billing.popover.planSeats", {
-                                count: wantaOverview.usedSeats,
-                                limit: wantaOverview.seatCapacity,
-                              })}
-                        {sharedConnectorCount === undefined
-                          ? ""
-                          : ` · ${t("billing.popover.sharedLinks", { count: sharedConnectorCount })}`}
-                      </div>
+                      <PlanStatusBadge
+                        clickable={wantaOverview.currentPlan === null}
+                        label={
+                          wantaOverview.hasPendingPayment
+                            ? t("billing.wantaPaymentPending")
+                            : showSeatPrompt
+                              ? t("billing.popover.seatLimitHint")
+                              : showUpgradePrompt
+                                ? t("billing.popover.upgradeHint")
+                                : wantaOverview.currentPlan === null
+                                  ? t("billing.popover.planInactive")
+                                  : t("billing.popover.planActive")
+                        }
+                        variant={
+                          wantaOverview.hasPendingPayment || showUpgradePrompt || showPlanPrompt || showSeatPrompt
+                            ? "default"
+                            : "outline"
+                        }
+                        onClick={() => openDetails("plans")}
+                      />
                     </div>
-                    <PlanStatusBadge
-                      clickable={wantaOverview.currentPlan === null}
-                      label={
-                        wantaOverview.hasPendingPayment
-                          ? t("billing.wantaPaymentPending")
-                          : showSeatPrompt
-                            ? t("billing.popover.seatLimitHint")
+                    <p className="oo-text-caption mt-3 text-muted-foreground">
+                      {wantaOverview.hasPendingPayment
+                        ? t("billing.popover.pendingPaymentRecommendation")
+                        : showSeatPrompt
+                          ? t("billing.popover.seatRecommendation")
+                          : wantaOverview.currentPlan === null
+                            ? t("billing.popover.noPlanRecommendation")
                             : showUpgradePrompt
-                              ? t("billing.popover.upgradeHint")
-                              : wantaOverview.currentPlan === null
-                                ? t("billing.popover.planInactive")
-                                : t("billing.popover.planActive")
-                      }
-                      variant={
-                        wantaOverview.hasPendingPayment || showUpgradePrompt || showPlanPrompt || showSeatPrompt
-                          ? "default"
-                          : "outline"
-                      }
-                      onClick={() => openDetails("plans")}
-                    />
-                  </div>
-                  <p className="oo-text-caption mt-3 text-muted-foreground">
-                    {wantaOverview.hasPendingPayment
-                      ? t("billing.popover.pendingPaymentRecommendation")
-                      : showSeatPrompt
-                        ? t("billing.popover.seatRecommendation")
-                        : wantaOverview.currentPlan === null
-                          ? t("billing.popover.noPlanRecommendation")
-                          : showUpgradePrompt
-                            ? t("billing.popover.proRecommendation")
-                            : t("billing.popover.planDescription")}
-                  </p>
-                </section>
+                              ? t("billing.popover.proRecommendation")
+                              : t("billing.popover.planDescription")}
+                    </p>
+                  </section>
+                ) : null}
 
                 <section className="grid gap-3">
                   <div className="flex items-start justify-between gap-3">

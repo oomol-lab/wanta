@@ -71,6 +71,7 @@ import { useProjectGit } from "@/hooks/useProjectGit"
 import { useSessions } from "@/hooks/useSessions"
 import { useT } from "@/i18n/i18n"
 import { appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
+import { billingRequestScopeForWorkspace } from "@/lib/billing-scope"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
@@ -1040,6 +1041,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       ? `organization:${organizationWorkspace.activeWorkspace.organizationId}`
       : "personal"
   const billingCacheScope = `${auth.state?.account?.id ?? "authenticated"}:${billingWorkspaceCacheScope}`
+  const billingRequestScope = React.useMemo(
+    () => billingRequestScopeForWorkspace(organizationWorkspace.activeWorkspace),
+    [organizationWorkspace.activeWorkspace],
+  )
   const newChatShortcut = appCommandShortcutLabel(APP_COMMANDS.newChat)
   const newChatLabel = labelWithShortcut(
     sidebarSegment === "projects" && activeProject ? t("project.newTask") : t("sidebar.newSession"),
@@ -1238,6 +1243,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                     <ChatArea
                       activeSessionId={activeChatSessionId}
                       billingCacheScope={billingCacheScope}
+                      billingRequestScope={billingRequestScope}
                       composerDraftKey={activeComposerDraftKey}
                       messages={bridgeInitialSendPending ? [] : messages}
                       permissionMode={displayedPermissionMode}

@@ -30,6 +30,15 @@ const billingOptionalRequestSoftTimeoutMs = 3_000
 const billingCreditUsagesMaxPages = 100
 export const wantaSubscriptionPlans: readonly WantaSubscriptionPlan[] = ["wanta_plus", "wanta_pro"]
 
+export type BillingRequestScope =
+  | { type: "personal" }
+  | {
+      canManageBilling: boolean
+      organizationId: string
+      organizationName: string
+      type: "organization"
+    }
+
 /** 会话过期/缺失的哨兵文案（与 oomol-http 的 authRequiredMessage 同字面量）；resolveUserFacingError 据此归为 auth_required。 */
 export const billingAuthRequiredMessage = authRequiredMessage
 
@@ -375,25 +384,35 @@ function settleWithSoftTimeout<T>(
   })
 }
 
-function fetchAuthenticatedJson(url: URL): Promise<unknown> {
-  return oomolFetchJson<unknown>(url, { timeoutMs: billingRequestTimeoutMs })
+function billingScopeHeaders(scope: BillingRequestScope): HeadersInit | undefined {
+  if (scope.type !== "organization" || !scope.organizationName.trim()) {
+    return undefined
+  }
+  return { "x-oo-organization-name": scope.organizationName }
 }
 
-export async function getCreditBalance(): Promise<CreditBalanceResult> {
+function fetchAuthenticatedJson(url: URL, scope: BillingRequestScope = { type: "personal" }): Promise<unknown> {
+  return oomolFetchJson<unknown>(url, {
+    headers: billingScopeHeaders(scope),
+    timeoutMs: billingRequestTimeoutMs,
+  })
+}
+
+export async function getCreditBalance(scope: BillingRequestScope): Promise<CreditBalanceResult> {
   const url = new URL("/v1/balance/available", insightBaseUrl)
-  return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url)))
+  return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url, scope)))
 }
 
-async function getCreditUsages(nextToken?: string): Promise<CreditUsages> {
+async function getCreditUsages(scope: BillingRequestScope, nextToken?: string): Promise<CreditUsages> {
   const url = new URL("/v1/balance/available", insightBaseUrl)
   if (nextToken) {
     url.searchParams.set("nextToken", nextToken)
   }
-  return readCreditUsages(unwrapApiData<unknown>(await fetchAuthenticatedJson(url)))
+  return readCreditUsages(unwrapApiData<unknown>(await fetchAuthenticatedJson(url, scope)))
 }
 
-async function getAllCreditUsages(): Promise<CreditUsages> {
-  const firstPage = await getCreditUsages()
+async function getAllCreditUsages(scope: BillingRequestScope): Promise<CreditUsages> {
+  const firstPage = await getCreditUsages(scope)
   const items = [...firstPage.items]
   let nextToken = firstPage.nextToken
   let pageCount = 1
@@ -404,7 +423,7 @@ async function getAllCreditUsages(): Promise<CreditUsages> {
       break
     }
     seenTokens.add(nextToken)
-    const nextPage = await getCreditUsages(nextToken)
+    const nextPage = await getCreditUsages(scope, nextToken)
     if (nextPage.items.length === 0) {
       break
     }
@@ -415,44 +434,63 @@ async function getAllCreditUsages(): Promise<CreditUsages> {
   return { ...firstPage, items, nextToken: undefined }
 }
 
-async function getCreditSpendStats(days: number): Promise<BillingSpendStats> {
+async function getCreditSpendStats(days: number, scope: BillingRequestScope): Promise<BillingSpendStats> {
   const { endTime, startTime } = statsRange(days)
   const url = new URL("/v1/stats/billing", insightBaseUrl)
   url.searchParams.set("granularity", "daily")
   url.searchParams.set("startTime", String(startTime))
   url.searchParams.set("endTime", String(endTime))
-  return unwrapApiData<BillingSpendStats>(await fetchAuthenticatedJson(url))
+  return unwrapApiData<BillingSpendStats>(await fetchAuthenticatedJson(url, scope))
 }
 
-async function getCreditMeteringStats(days: number): Promise<BillingSpendStats> {
+async function getCreditMeteringStats(days: number, scope: BillingRequestScope): Promise<BillingSpendStats> {
   const { endTime, startTime } = statsRange(days)
   const url = new URL("/v1/stats/metering", insightBaseUrl)
   url.searchParams.set("granularity", "daily")
   url.searchParams.set("startTime", String(startTime))
   url.searchParams.set("endTime", String(endTime))
-  return unwrapApiData<BillingSpendStats>(await fetchAuthenticatedJson(url))
+  return unwrapApiData<BillingSpendStats>(await fetchAuthenticatedJson(url, scope))
 }
 
-async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
-  const url = new URL("/api/user/subscriptions", consoleServerBaseUrl)
+async function getSubscriptionStatus(scope: BillingRequestScope): Promise<SubscriptionStatus | null> {
+  if (scope.type === "organization" && !scope.canManageBilling) {
+    return null
+  }
+  const path =
+    scope.type === "organization"
+      ? `/api/org/${encodeURIComponent(scope.organizationId)}/subscriptions`
+      : "/api/user/subscriptions"
+  const url = new URL(path, consoleServerBaseUrl)
   return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url))
 }
 
-async function getWantaPendingPayment(): Promise<WantaPendingPaymentResult | null> {
-  const url = new URL("/api/user/subscriptions/wanta/pending_payment", consoleServerBaseUrl)
+async function getWantaPendingPayment(scope: BillingRequestScope): Promise<WantaPendingPaymentResult | null> {
+  if (scope.type !== "organization" || !scope.canManageBilling) {
+    return null
+  }
+  const url = new URL(
+    `/api/org/${encodeURIComponent(scope.organizationId)}/subscriptions/wanta/pending_payment`,
+    consoleServerBaseUrl,
+  )
   return readWantaPendingPayment(await fetchAuthenticatedJson(url))
 }
 
-export async function getBillingSummary(days: number): Promise<BillingSummaryResult> {
-  return getBillingOverview(days)
+export async function getBillingSummary(
+  days: number,
+  scope: BillingRequestScope = { type: "personal" },
+): Promise<BillingSummaryResult> {
+  return getBillingOverview(days, scope)
 }
 
-export async function getBillingOverview(days: number): Promise<BillingOverviewResult> {
-  const balancePromise = getAllCreditUsages()
-  const spendPromise = getCreditSpendStats(days)
-  const meteringPromise = getCreditMeteringStats(days)
-  const subscriptionPromise = getSubscriptionStatus()
-  const wantaPendingPaymentPromise = getWantaPendingPayment()
+export async function getBillingOverview(
+  days: number,
+  scope: BillingRequestScope = { type: "personal" },
+): Promise<BillingOverviewResult> {
+  const balancePromise = getAllCreditUsages(scope)
+  const spendPromise = getCreditSpendStats(days, scope)
+  const meteringPromise = getCreditMeteringStats(days, scope)
+  const subscriptionPromise = getSubscriptionStatus(scope)
+  const wantaPendingPaymentPromise = getWantaPendingPayment(scope)
 
   preventEarlyUnhandledRejection(subscriptionPromise)
   preventEarlyUnhandledRejection(wantaPendingPaymentPromise)
@@ -484,9 +522,10 @@ export async function getBillingOverview(days: number): Promise<BillingOverviewR
 }
 
 export async function updateWantaSubscription(
+  organizationId: string,
   payload: WantaSubscriptionChangePayload,
 ): Promise<WantaSubscriptionUpdateResult> {
-  const url = new URL("/api/user/subscriptions/wanta", consoleServerBaseUrl)
+  const url = new URL(`/api/org/${encodeURIComponent(organizationId)}/subscriptions/wanta`, consoleServerBaseUrl)
   return readWantaSubscriptionUpdate(
     await oomolFetchJson<unknown>(url, {
       body: JSON.stringify(payload),
@@ -498,9 +537,13 @@ export async function updateWantaSubscription(
 }
 
 export async function previewWantaSubscription(
+  organizationId: string,
   payload: WantaSubscriptionChangePayload,
 ): Promise<WantaSubscriptionPreviewResult> {
-  const url = new URL("/api/user/subscriptions/wanta/preview", consoleServerBaseUrl)
+  const url = new URL(
+    `/api/org/${encodeURIComponent(organizationId)}/subscriptions/wanta/preview`,
+    consoleServerBaseUrl,
+  )
   return readWantaSubscriptionPreview(
     await oomolFetchJson<unknown>(url, {
       body: JSON.stringify(payload),

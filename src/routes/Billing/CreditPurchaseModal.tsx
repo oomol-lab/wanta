@@ -1,4 +1,5 @@
 import type { RechargePrice } from "../../../electron/chat/common.ts"
+import type { BillingRequestScope } from "@/lib/billing-client"
 
 import { CreditCardIcon, ExternalLinkIcon, LogInIcon, RefreshCwIcon } from "lucide-react"
 import * as React from "react"
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils"
 export interface CreditPurchaseModalProps {
   cacheScope: string
   open: boolean
+  requestScope?: BillingRequestScope | null
   onClose: () => void
   onCheckoutOpened?: () => void
   onViewDetails?: () => void
@@ -63,12 +65,13 @@ export function CreditPurchaseModal({
   onClose,
   onViewDetails,
   open,
+  requestScope,
   showViewDetails = true,
 }: CreditPurchaseModalProps) {
   const t = useT()
   const { login } = useAuth()
   const chatService = useChatService()
-  const overview = useBillingOverview(30, { cacheScope, enabled: open })
+  const overview = useBillingOverview(30, { cacheScope, enabled: open, requestScope })
   const isSessionExpired = overview.error?.kind === "auth_required"
   const handleSignIn = React.useCallback(() => {
     void login().then(() => overview.refresh({ force: true }))

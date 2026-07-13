@@ -31,11 +31,11 @@ export function SkillPageScrollArea({
 export function SkillManagementSheet({
   children,
   onClose,
-  title,
+  subjectName,
 }: {
   children: React.ReactNode
   onClose: () => void
-  title: string
+  subjectName: string
 }) {
   const { t } = useAppI18n()
   const sheetRef = React.useRef<HTMLElement | null>(null)
@@ -66,7 +66,7 @@ export function SkillManagementSheet({
         ref={sheetRef}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-label={t("skills.managementDialogLabel", { name: subjectName })}
         tabIndex={-1}
         className="absolute top-0 right-0 grid h-full w-[min(30rem,calc(100vw-2rem))] grid-rows-[auto_minmax(0,1fr)] border-l bg-background shadow-xl [-webkit-app-region:no-drag]"
         onKeyDown={(event) => {
@@ -110,7 +110,7 @@ export function SkillManagementSheet({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="oo-border-divider flex min-w-0 items-center justify-between gap-3 border-b px-3 py-2 [-webkit-app-region:no-drag]">
-          <div className="oo-text-label min-w-0 truncate">{title}</div>
+          <div className="oo-text-label min-w-0 truncate">{t("skills.managementTitle")}</div>
           <Button
             type="button"
             variant="ghost"

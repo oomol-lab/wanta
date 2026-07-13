@@ -411,7 +411,7 @@ export function OrganizationManagementRoute({
       </div>
       {managedSkill ? (
         <SkillManagementSheet
-          title={managedSkill.name}
+          subjectName={managedSkill.name}
           onClose={() => {
             setManagedSkillId(null)
             setManagedSkillError(null)

@@ -265,7 +265,7 @@ export function OrganizationSkillsPane({
       )}
       {selectedOrganizationItem ? (
         <SkillManagementSheet
-          title={
+          subjectName={
             selectedOrganizationItem.type === "configured"
               ? selectedOrganizationItem.skill.displayName
               : selectedOrganizationItem.recommendation.package.displayName

@@ -9,12 +9,16 @@ import {
   getConnectionAppNote,
   getFittingCategoryFilterCount,
   getProviderAccountValue,
+  getProviderActionLabel,
   getProviderMeta,
   getProviderStatusDisplayLabel,
+  getProviderStatusTone,
   isConnectionDetailCacheKeyForService,
   isConnected,
   isNoAuthReadyProvider,
+  matchesProviderFilter,
   normalizeConnectionAliasInput,
+  parseFilterValue,
   selectVisibleCategoryFilters,
   shouldLoadProviderDetail,
 } from "./connection-route-model.ts"
@@ -74,6 +78,28 @@ test("managed no-auth accounts are not treated as connectionless providers", () 
   assert.equal(isConnected(ready), true)
   assert.equal(isNoAuthReadyProvider(ready), false)
   assert.equal(shouldLoadProviderDetail(ready), true)
+})
+
+test("mixed direct and API key providers are setup-free before configuration", () => {
+  const ready = provider({
+    actionKind: "api_key",
+    authTypes: ["no_auth", "api_key"],
+    displayName: "PubMed",
+    service: "pubmed",
+    status: "connected",
+  })
+  const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
+
+  assert.equal(isNoAuthReadyProvider(ready), true)
+  assert.equal(isConnected(ready), false)
+  assert.equal(shouldLoadProviderDetail(ready), true)
+  assert.equal(matchesProviderFilter(ready, { kind: "setup-free" }), true)
+  assert.equal(getProviderStatusTone(ready), "connected")
+  assert.equal(getProviderActionLabel(ready, t), "View")
+})
+
+test("setup-free catalog filters round trip", () => {
+  assert.deepEqual(parseFilterValue("setup-free"), { kind: "setup-free" })
 })
 
 test("buildCredentialSummaryDisplayValues keeps only non-secret display values", () => {

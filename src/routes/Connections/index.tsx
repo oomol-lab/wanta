@@ -19,6 +19,7 @@ import {
   buildCategoryFilters,
   detailPaneAnimationMs,
   isConnected,
+  isNoAuthReadyProvider,
   matchesProviderFilter,
   matchesProviderQuery,
 } from "./connection-route-model.ts"
@@ -27,6 +28,7 @@ import {
   ConnectionListToolbar,
   ProviderCatalog,
   ProviderListSkeleton,
+  SetupFreeProviderCard,
 } from "./ConnectionCatalog.tsx"
 import { EmptyList, ProviderDetail, StatusNotice } from "./ConnectionProviderDetailPane.tsx"
 import { DisconnectDialog } from "./DisconnectDialog.tsx"
@@ -82,6 +84,7 @@ export function ConnectionsPanel({
   } = connections
   const [query, setQuery] = React.useState("")
   const [activeFilter, setActiveFilter] = React.useState<ConnectionCatalogFilter>({ kind: "all" })
+  const [setupFreeExpanded, setSetupFreeExpanded] = React.useState(false)
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
   const [detailPaneClosing, setDetailPaneClosing] = React.useState(false)
@@ -107,6 +110,7 @@ export function ConnectionsPanel({
     () => providers.filter((provider) => provider.status === "needs_attention").length,
     [providers],
   )
+  const setupFreeCount = React.useMemo(() => providers.filter(isNoAuthReadyProvider).length, [providers])
   const catalogProviders = React.useMemo(
     () => providers.filter((provider) => matchesProviderFilter(provider, activeFilter)),
     [activeFilter, providers],
@@ -116,6 +120,23 @@ export function ConnectionsPanel({
       .filter((provider) => matchesProviderQuery(provider, normalizedQuery, t))
       .sort(compareConnectionProvidersByRecommendation)
   }, [catalogProviders, normalizedQuery, t])
+  const groupSetupFreeProviders = !normalizedQuery && (activeFilter.kind === "all" || activeFilter.kind === "category")
+  const setupFreeProviders = React.useMemo(
+    () => (groupSetupFreeProviders ? filteredProviders.filter(isNoAuthReadyProvider) : []),
+    [filteredProviders, groupSetupFreeProviders],
+  )
+  const normalProviders = React.useMemo(
+    () =>
+      groupSetupFreeProviders
+        ? filteredProviders.filter((provider) => !isNoAuthReadyProvider(provider))
+        : filteredProviders,
+    [filteredProviders, groupSetupFreeProviders],
+  )
+  const displayedProviders = React.useMemo(
+    () =>
+      groupSetupFreeProviders && setupFreeExpanded ? [...setupFreeProviders, ...normalProviders] : normalProviders,
+    [groupSetupFreeProviders, normalProviders, setupFreeExpanded, setupFreeProviders],
+  )
   const selectedProvider = selectedProviderService
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
@@ -400,6 +421,7 @@ export function ConnectionsPanel({
           connectedCount={connectedCount}
           loading={summaryLoading}
           query={query}
+          setupFreeCount={setupFreeCount}
           totalCount={summary?.providerCount ?? providers.length}
           onFilterChange={setActiveFilter}
           onQueryChange={setQuery}
@@ -422,11 +444,25 @@ export function ConnectionsPanel({
             ) : null}
             {summaryLoading ? (
               <ProviderListSkeleton />
-            ) : filteredProviders.length === 0 ? (
+            ) : displayedProviders.length === 0 && setupFreeProviders.length === 0 ? (
               <EmptyList summary={summary} hasQuery={Boolean(normalizedQuery)} />
             ) : (
               <ProviderCatalog
-                providers={filteredProviders}
+                leadingCard={
+                  setupFreeProviders.length > 0 ? (
+                    <SetupFreeProviderCard
+                      expanded={setupFreeExpanded}
+                      providers={setupFreeProviders}
+                      selected={Boolean(
+                        !setupFreeExpanded &&
+                        selectedProvider &&
+                        setupFreeProviders.some((provider) => provider.service === selectedProvider.service),
+                      )}
+                      onExpandedChange={setSetupFreeExpanded}
+                    />
+                  ) : undefined
+                }
+                providers={displayedProviders}
                 scrollParentRef={listPaneRef}
                 selectedService={selectedProvider?.service ?? null}
                 onSelect={(provider) => selectProvider(provider.service)}

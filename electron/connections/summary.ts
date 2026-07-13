@@ -511,9 +511,9 @@ function getProviderActionKind(authTypes: Exclude<ConnectionAuthType, null>[]): 
 }
 
 export function isConnectionlessNoAuthProvider(
-  provider: Pick<ConnectionProviderSummary, "actionKind" | "appCount" | "status">,
+  provider: Pick<ConnectionProviderSummary, "appCount" | "authTypes" | "status">,
 ): boolean {
-  return provider.status === "connected" && provider.actionKind === "no_auth" && provider.appCount === 0
+  return provider.status === "connected" && provider.authTypes.includes("no_auth") && provider.appCount === 0
 }
 
 export function normalizeApp(item: RawApp): ConnectionAppSummary | undefined {

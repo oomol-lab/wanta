@@ -204,9 +204,7 @@ export function ProviderDetail({
         ) : (
           <dl className="overflow-hidden rounded-md border">
             {noAuthReady ? null : <DetailRow label={t("connections.account")} value={accountValue} />}
-            {noAuthReady ? null : (
-              <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
-            )}
+            <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
             <DetailRow label={t("connections.category")} value={formatProviderCategoryLabels(provider, t)} />
             <DetailRow label={t("connections.service")} value={provider.service} mono />
             {noAuthReady ? null : (
@@ -284,8 +282,11 @@ function ConnectionPanel({
   )
   const authTypes = detail?.authTypes.length ? detail.authTypes : provider.authTypes
   const usableAuthTypes = authTypes.length > 0 ? authTypes : currentAuthType ? [currentAuthType] : []
+  const configurableAuthTypes = isNoAuthReadyProvider(provider)
+    ? usableAuthTypes.filter((authType) => authType !== "no_auth")
+    : usableAuthTypes
   const activeAuthType =
-    selectedAuthType && usableAuthTypes.includes(selectedAuthType) ? selectedAuthType : usableAuthTypes[0]
+    selectedAuthType && configurableAuthTypes.includes(selectedAuthType) ? selectedAuthType : configurableAuthTypes[0]
   const isPolling = isConnectionServicePollingTarget(polling, provider.service)
   const authorizationBlocked = polling !== null && !isPolling
   const noAuthReady = isNoAuthReadyProvider(provider)
@@ -307,24 +308,30 @@ function ConnectionPanel({
               ? t("connections.connectedConnections")
               : isConnected(provider)
                 ? t("connections.connectedConnection")
-                : t("connections.connectProvider")}
+                : noAuthReady
+                  ? t("connections.optionalConfiguration")
+                  : t("connections.connectProvider")}
           </h3>
           {detailLoading ? <Loader className="oo-icon-muted shrink-0" size={16} /> : null}
         </div>
-        {noAuthReady ? null : (
+        {configurableAuthTypes.length > 0 ? (
           <AuthTypeToggleGroup
-            authTypes={usableAuthTypes}
+            authTypes={configurableAuthTypes}
             value={activeAuthType ?? null}
             onChange={setSelectedAuthType}
           />
-        )}
+        ) : null}
       </div>
 
       {noAuthReady ? (
         <div className="oo-text-caption oo-text-muted rounded-md border bg-muted/30 px-3 py-2">
-          {t("connections.noAuthReadyDescription")}
+          {configurableAuthTypes.length > 0
+            ? t("connections.noAuthOptionalConfigurationDescription")
+            : t("connections.noAuthReadyDescription")}
         </div>
-      ) : activeAuthType ? (
+      ) : null}
+
+      {activeAuthType ? (
         <div className="flex flex-wrap items-center gap-2">
           {isPolling ? (
             <>
@@ -362,13 +369,15 @@ function ConnectionPanel({
               )}
               {authIntent
                 ? t("connections.connectAndContinue")
-                : provider.apps.length > 0
-                  ? t("connections.addConnection")
-                  : t("connections.connectProvider")}
+                : noAuthReady
+                  ? t("connections.configureAuth", { auth: formatAuthTypes([activeAuthType], t) })
+                  : provider.apps.length > 0
+                    ? t("connections.addConnection")
+                    : t("connections.connectProvider")}
             </Button>
           )}
         </div>
-      ) : (
+      ) : noAuthReady ? null : (
         <div className="oo-text-caption oo-text-muted">{t("connections.unsupportedConnectionDescription")}</div>
       )}
 

@@ -25,6 +25,7 @@ import { randomUUID } from "node:crypto"
 import path from "node:path"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { SessionService as SessionServiceName } from "./common.ts"
+import { normalizeKnowledgeBaseIds } from "./metadata-store.ts"
 
 interface SessionServiceDeps {
   activityStore?: SessionActivityStore
@@ -283,8 +284,10 @@ export class SessionServiceImpl
     if (!this.agent) return
     await this.ensureMetadataLoaded()
     const current = this.sessionMetadata.get(req.id) ?? {}
-    const knowledgeBaseIds = [...new Set(req.knowledgeBaseIds.map((id) => id.trim()).filter(Boolean))]
-    if (JSON.stringify(current.knowledgeBaseIds ?? []) === JSON.stringify(knowledgeBaseIds)) return
+    const knowledgeBaseIds = normalizeKnowledgeBaseIds(req.knowledgeBaseIds) ?? []
+    const currentIds = current.knowledgeBaseIds ?? []
+    const currentIdSet = new Set(currentIds)
+    if (currentIds.length === knowledgeBaseIds.length && knowledgeBaseIds.every((id) => currentIdSet.has(id))) return
     const next = { ...current }
     if (knowledgeBaseIds.length > 0) next.knowledgeBaseIds = knowledgeBaseIds
     else delete next.knowledgeBaseIds

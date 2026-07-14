@@ -25,24 +25,28 @@ const baseMermaidPlugin = createMermaidPlugin({
   },
 })
 
-const safeMermaidPlugin: DiagramPlugin = {
-  ...baseMermaidPlugin,
-  getMermaid(config) {
-    const instance = baseMermaidPlugin.getMermaid({
-      ...config,
-      securityLevel: "strict",
-      startOnLoad: false,
-      suppressErrorRendering: true,
-    })
-    return {
-      ...instance,
-      async render(id, source) {
-        validateMermaidSource(source)
-        return await instance.render(id, source)
-      },
-    }
-  },
+export function wrapMermaidPluginWithValidation(plugin: DiagramPlugin): DiagramPlugin {
+  return {
+    ...plugin,
+    getMermaid(config) {
+      const instance = plugin.getMermaid({
+        ...config,
+        securityLevel: "strict",
+        startOnLoad: false,
+        suppressErrorRendering: true,
+      })
+      return {
+        ...instance,
+        async render(id, source) {
+          validateMermaidSource(source)
+          return await instance.render(id, source)
+        },
+      }
+    },
+  }
 }
+
+const safeMermaidPlugin = wrapMermaidPluginWithValidation(baseMermaidPlugin)
 
 function MermaidError({ chart, error, retry }: MermaidErrorComponentProps) {
   const t = useT()
@@ -205,7 +209,10 @@ export function MessageStreamdown({
     [defaultMermaidOptions, mermaid],
   )
   const normalizedControls = messageStreamdownControls(controls)
-  const diagramPlugin = plugins?.mermaid ?? safeMermaidPlugin
+  const diagramPlugin = useMemo(
+    () => (plugins?.mermaid ? wrapMermaidPluginWithValidation(plugins.mermaid) : safeMermaidPlugin),
+    [plugins?.mermaid],
+  )
   const renderers = [
     ...(plugins?.renderers ?? []),
     { language: "mermaid", component: MermaidRenderer },

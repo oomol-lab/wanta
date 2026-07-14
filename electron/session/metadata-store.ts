@@ -28,7 +28,7 @@ function normalizePermissionMode(value: unknown): SessionPermissionMode | undefi
   return value === "full_access" || value === "default" ? value : undefined
 }
 
-function normalizeKnowledgeBaseIds(value: unknown): string[] | undefined {
+export function normalizeKnowledgeBaseIds(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined
   const ids = [...new Set(value.flatMap((item) => (typeof item === "string" && item.trim() ? [item.trim()] : [])))]
   return ids.length > 0 ? ids : undefined

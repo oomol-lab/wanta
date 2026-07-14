@@ -93,6 +93,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const localCreatedSessionsRef = React.useRef(new Map<string, SessionInfo>())
   const permissionModeWriteQueuesRef = React.useRef(new Map<string, Promise<void>>())
   const permissionModeWriteVersionsRef = React.useRef(new Map<string, number>())
+  const knowledgeBasesWriteQueuesRef = React.useRef(new Map<string, Promise<void>>())
+  const knowledgeBasesWriteVersionsRef = React.useRef(new Map<string, number>())
   const scopeKey = sessionScopeKey(requestScope)
   const currentScopeKeyRef = React.useRef(scopeKey)
   currentScopeKeyRef.current = scopeKey
@@ -287,8 +289,22 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     async (id: string, knowledgeBaseIds: string[]) => {
       const mutationScopeKey = scopeKey
       const normalizedIds = [...new Set(knowledgeBaseIds.map((item) => item.trim()).filter(Boolean))]
-      await sessionService.invoke("setKnowledgeBases", { id, knowledgeBaseIds: normalizedIds })
-      if (!isCurrentScope(mutationScopeKey)) return
+      const version = (knowledgeBasesWriteVersionsRef.current.get(id) ?? 0) + 1
+      knowledgeBasesWriteVersionsRef.current.set(id, version)
+      const previousWrite = knowledgeBasesWriteQueuesRef.current.get(id) ?? Promise.resolve()
+      const queuedWrite = previousWrite
+        .catch(() => undefined)
+        .then(() => sessionService.invoke("setKnowledgeBases", { id, knowledgeBaseIds: normalizedIds }))
+      const trackedWrite = queuedWrite.catch(() => undefined).then(() => undefined)
+      knowledgeBasesWriteQueuesRef.current.set(id, trackedWrite)
+      void trackedWrite.finally(() => {
+        if (knowledgeBasesWriteQueuesRef.current.get(id) === trackedWrite) {
+          knowledgeBasesWriteQueuesRef.current.delete(id)
+        }
+      })
+
+      await queuedWrite
+      if (knowledgeBasesWriteVersionsRef.current.get(id) !== version || !isCurrentScope(mutationScopeKey)) return
       setSessions((current) =>
         current.map((session) => {
           if (session.id !== id) return session

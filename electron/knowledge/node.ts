@@ -33,14 +33,17 @@ function summaryFromInspection(
   inspect: WikiGraphInspect,
   cover: Buffer | null,
 ): KnowledgeBaseRecord {
+  const encodedCover = coverDataUrl(cover)
   return {
     ...base,
     title: metadata.title?.trim() || path.basename(base.sourceFileName, path.extname(base.sourceFileName)),
-    authors: (metadata.authors ?? []).filter((author) => typeof author === "string" && author.trim()),
+    authors: (metadata.authors ?? []).flatMap((author) =>
+      typeof author === "string" && author.trim() ? [author.trim()] : [],
+    ),
     ...(metadata.publisher?.trim() ? { publisher: metadata.publisher.trim() } : {}),
     ...(metadata.publishedAt?.trim() ? { publishedAt: metadata.publishedAt.trim() } : {}),
     ...(metadata.language?.trim() ? { language: metadata.language.trim() } : {}),
-    ...(coverDataUrl(cover) ? { coverDataUrl: coverDataUrl(cover) } : {}),
+    ...(encodedCover ? { coverDataUrl: encodedCover } : {}),
     capabilities: {
       fullTextSearch: inspect.index?.querySupport === true,
       knowledgeGraph: wikiGraphCoverageReady(inspect.coverage?.knowledgeGraph),

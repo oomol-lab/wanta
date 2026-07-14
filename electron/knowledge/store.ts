@@ -48,6 +48,7 @@ export class KnowledgeStore {
   private readonly rootDir: string
   private readonly filesDir: string
   private readonly libraryFile: string
+  private mutationQueue: Promise<void> = Promise.resolve()
 
   public constructor(userDataDir: string) {
     this.rootDir = path.join(userDataDir, "knowledge-bases")
@@ -103,22 +104,33 @@ export class KnowledgeStore {
   }
 
   public async save(record: KnowledgeBaseRecord): Promise<void> {
-    const records = (await this.listRecords()).filter((item) => item.id !== record.id)
-    records.push(record)
-    await this.write(records)
+    await this.enqueueMutation(async () => {
+      const records = (await this.listRecords()).filter((item) => item.id !== record.id)
+      records.push(record)
+      await this.write(records)
+    })
   }
 
   public async remove(id: string): Promise<void> {
-    const records = await this.listRecords()
-    const record = records.find((item) => item.id === id)
-    if (!record) return
-    if (path.dirname(record.filePath) !== this.filesDir) throw new Error("Invalid managed knowledge base path")
-    await rm(record.filePath, { force: true })
-    await this.write(records.filter((item) => item.id !== id))
+    await this.enqueueMutation(async () => {
+      const records = await this.listRecords()
+      const record = records.find((item) => item.id === id)
+      if (!record) return
+      if (path.dirname(record.filePath) !== this.filesDir) throw new Error("Invalid managed knowledge base path")
+      await rm(record.filePath, { force: true })
+      await this.write(records.filter((item) => item.id !== id))
+    })
   }
 
   public async discardManagedFile(filePath: string): Promise<void> {
     if (path.dirname(filePath) === this.filesDir) await rm(filePath, { force: true })
+  }
+
+  /** 串行化实例内的读改写事务，避免并发更新互相覆盖。 */
+  private async enqueueMutation(mutation: () => Promise<void>): Promise<void> {
+    const queued = this.mutationQueue.catch(() => undefined).then(mutation)
+    this.mutationQueue = queued.catch(() => undefined)
+    await queued
   }
 
   private async write(records: KnowledgeBaseRecord[]): Promise<void> {

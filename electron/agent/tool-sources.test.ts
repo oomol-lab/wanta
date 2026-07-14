@@ -10,6 +10,8 @@ describe("query_knowledge guidance", () => {
     expect(source).toContain("Evidence counts are passage counts, not confidence scores")
     expect(source).toContain("Never invoke the WikiGraph CLI directly")
     expect(source).toContain("expose managed archive paths")
+    expect(source).toContain("sanitizeErrorMessage(error, archivePath)")
+    expect(source).toContain('replaceAll(value, "[managed knowledge archive]")')
   })
 })
 

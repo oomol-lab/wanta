@@ -29,4 +29,25 @@ describe("KnowledgeStore", () => {
     expect(second.duplicate?.id).toBe(first.id)
     expect(await fileSha256(source)).toBe(first.fingerprint)
   })
+
+  it("serializes concurrent record mutations without losing updates", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-knowledge-"))
+    const store = new KnowledgeStore(path.join(dir, "user-data"))
+    const record = (id: string) => ({
+      id,
+      filePath: path.join(dir, `${id}.wikg`),
+      fingerprint: `${id}-fingerprint`,
+      importedAt: 1,
+      size: 1,
+      sourceFileName: `${id}.wikg`,
+      title: id,
+      authors: [],
+      capabilities: { fullTextSearch: true, knowledgeGraph: false, readingGraph: false, summary: false },
+      statistics: {},
+    })
+
+    await Promise.all([store.save(record("first")), store.save(record("second"))])
+
+    expect((await store.listRecords()).map((item) => item.id).sort()).toEqual(["first", "second"])
+  })
 })

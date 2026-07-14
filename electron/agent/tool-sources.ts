@@ -651,6 +651,14 @@ function archiveUri(filePath) {
   return "wikg://" + normalized
 }
 
+function sanitizeErrorMessage(error, archivePath) {
+  let message = String((error && (error.stderr || error.message)) || error || "Knowledge query failed").trim()
+  const pathVariants = [String(archivePath || ""), String(archivePath || "").replaceAll("\\", "/")].filter(Boolean)
+  for (const value of pathVariants) message = message.replaceAll(value, "[managed knowledge archive]")
+  message = message.replace(/wikg:\/\/[^\s"']+/gi, "[managed knowledge archive]")
+  return (message || "Knowledge query failed").slice(0, 500)
+}
+
 function relativeObject(value) {
   const normalized = String(value || "").trim().replace(/^wikg:\/\//, "").replace(/^\/+|\/+$/g, "")
   if (!normalized || normalized.includes("..") || !/^(chapter|entity|triple)(\/|$)/.test(normalized)) {
@@ -688,8 +696,10 @@ export default tool({
     budget: tool.schema.number().optional().describe("Pack context budget from 500 to 12000."),
   },
   async execute(args) {
+    let archivePath = ""
     try {
       const record = await recordFor(String(args.knowledgeBaseId || "").trim())
+      archivePath = record.filePath
       const root = archiveUri(record.filePath)
       const operation = String(args.operation || "")
       if (operation === "inspect") return await run([root, "inspect", "--json"])
@@ -729,8 +739,7 @@ export default tool({
       }
       throw new Error("unsupported knowledge operation")
     } catch (error) {
-      const value = error || {}
-      return JSON.stringify({ status: "error", message: String(value.stderr || value.message || error).trim() })
+      return JSON.stringify({ status: "error", message: sanitizeErrorMessage(error, archivePath) })
     }
   },
 })

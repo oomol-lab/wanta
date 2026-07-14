@@ -55,9 +55,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
     async (sourcePath?: string) => {
       setBusy("import")
       try {
-        const imported = await service.invoke("importKnowledgeBase", sourcePath)
-        if (imported) await load()
-        return imported
+        return await service.invoke("importKnowledgeBase", sourcePath)
       } catch (cause) {
         console.error("[wanta] import knowledge base failed", cause)
         reportRendererHandledError("knowledge", "import knowledge base failed", cause)
@@ -67,7 +65,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
         setBusy(null)
       }
     },
-    [load, service],
+    [service],
   )
 
   const refresh = React.useCallback(
@@ -75,7 +73,6 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
       setBusy("refresh")
       try {
         await service.invoke("refresh", id)
-        await load()
       } catch (cause) {
         console.error("[wanta] refresh knowledge base failed", cause)
         reportRendererHandledError("knowledge", "refresh knowledge base failed", cause)
@@ -84,7 +81,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
         setBusy(null)
       }
     },
-    [load, service],
+    [service],
   )
 
   const remove = React.useCallback(
@@ -92,7 +89,6 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
       setBusy("remove")
       try {
         await service.invoke("remove", id)
-        await load()
         return true
       } catch (cause) {
         console.error("[wanta] remove knowledge base failed", cause)
@@ -103,7 +99,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
         setBusy(null)
       }
     },
-    [load, service],
+    [service],
   )
 
   const reveal = React.useCallback(

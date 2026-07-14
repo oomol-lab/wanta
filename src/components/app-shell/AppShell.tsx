@@ -252,18 +252,26 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     Boolean(selectedSession) && sessionRecordScopeKey(selectedSession?.scope) === currentScopeKey
   const activeChatSessionId = selectedSessionMatchesScope ? selectedSessionId : null
   const activeSession = selectedSessionMatchesScope ? (selectedSession ?? undefined) : undefined
-  const activeKnowledgeBaseIds = knowledgeBaseBetaEnabled
-    ? (activeSession?.knowledgeBaseIds ?? draftKnowledgeBaseIds)
-    : []
-  const activeKnowledgeBases = activeKnowledgeBaseIds.flatMap((id) => {
-    const item = knowledgeLibrary.items.find((candidate) => candidate.id === id)
-    return item ? [item] : []
-  })
-  const pinnedKnowledgeMentions = activeKnowledgeBases.map((item) => ({
-    id: item.id,
-    kind: "knowledge" as const,
-    name: item.title,
-  }))
+  const activeKnowledgeBaseIds = activeSession?.knowledgeBaseIds ?? draftKnowledgeBaseIds
+  const activeKnowledgeBases = React.useMemo(
+    () =>
+      knowledgeBaseBetaEnabled
+        ? activeKnowledgeBaseIds.flatMap((id) => {
+            const item = knowledgeLibrary.items.find((candidate) => candidate.id === id)
+            return item ? [item] : []
+          })
+        : [],
+    [activeKnowledgeBaseIds, knowledgeBaseBetaEnabled, knowledgeLibrary.items],
+  )
+  const pinnedKnowledgeMentions = React.useMemo(
+    () =>
+      activeKnowledgeBases.map((item) => ({
+        id: item.id,
+        kind: "knowledge" as const,
+        name: item.title,
+      })),
+    [activeKnowledgeBases],
+  )
 
   React.useEffect(() => {
     if (!appSettings.loading && !knowledgeBaseBetaEnabled && route === "knowledge") {
@@ -440,10 +448,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       void setSessionKnowledgeBases(sessionId, ids).catch((cause: unknown) => {
         console.error("[wanta] persist session knowledge bases failed", cause)
         reportRendererHandledError("appShell.knowledgeBases", "Failed to persist session knowledge bases", cause)
-        toast.error(cause instanceof Error ? cause.message : String(cause))
+        toast.error(userFacingErrorDescription(resolveUserFacingError(cause, { area: "session" }), t))
       })
     },
-    [setSessionKnowledgeBases],
+    [setSessionKnowledgeBases, t],
   )
   const {
     clearAutoFallbackTitle,
@@ -1117,19 +1125,22 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     },
     [activeChatSessionId, activeKnowledgeBaseIds, persistKnowledgeBaseIds],
   )
-  const pinnedKnowledgeContextBar =
-    pinnedKnowledgeMentions.length > 0 ? (
-      <div className="flex min-w-0 items-center gap-2 px-1">
-        <span className="oo-text-caption shrink-0 font-medium text-muted-foreground">{t("knowledge.pinned")}</span>
-        <ContextMentionChips
-          className="min-w-0 flex-1"
-          mentions={pinnedKnowledgeMentions}
-          onRemove={(mention) => {
-            if (mention.kind === "knowledge") handleRemoveKnowledgeBaseReference(mention.id)
-          }}
-        />
-      </div>
-    ) : null
+  const pinnedKnowledgeContextBar = React.useMemo(
+    () =>
+      pinnedKnowledgeMentions.length > 0 ? (
+        <div className="flex min-w-0 items-center gap-2 px-1">
+          <span className="oo-text-caption shrink-0 font-medium text-muted-foreground">{t("knowledge.pinned")}</span>
+          <ContextMentionChips
+            className="min-w-0 flex-1"
+            mentions={pinnedKnowledgeMentions}
+            onRemove={(mention) => {
+              if (mention.kind === "knowledge") handleRemoveKnowledgeBaseReference(mention.id)
+            }}
+          />
+        </div>
+      ) : null,
+    [handleRemoveKnowledgeBaseReference, pinnedKnowledgeMentions, t],
+  )
   const handleOpenOrganizations = React.useCallback(() => setRoute("organizations"), [])
   const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
@@ -1334,7 +1345,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                   workspace={organizationWorkspace}
                 />
               ) : route === "knowledge" && knowledgeBaseBetaEnabled ? (
-                <KnowledgeRoute onStartChat={handleStartKnowledgeChat} />
+                <KnowledgeRoute knowledge={knowledgeLibrary} onStartChat={handleStartKnowledgeChat} />
               ) : route === "organizations" ? (
                 <OrganizationManagementRoute
                   connectedProviders={activeProviders}

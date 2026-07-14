@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest"
+import type { DiagramPlugin } from "streamdown"
+
+import { describe, expect, it, vi } from "vitest"
 import {
   mermaidRendererControls,
   messageStreamdownControls,
   nativeMessageStreamdownControls,
+  wrapMermaidPluginWithValidation,
 } from "./message-streamdown.tsx"
 
 describe("messageStreamdownControls", () => {
@@ -45,5 +48,19 @@ describe("messageStreamdownControls", () => {
       code: { copy: true, download: false },
       mermaid: false,
     })
+  })
+
+  it("validates Mermaid source for caller-provided plugins", async () => {
+    const render = vi.fn(async () => ({ diagramType: "flowchart", svg: "<svg />" }))
+    const plugin = {
+      getMermaid: vi.fn(() => ({ render })),
+    } as unknown as DiagramPlugin
+    const wrapped = wrapMermaidPluginWithValidation(plugin)
+    const instance = wrapped.getMermaid({} as never)
+
+    await expect(instance.render("diagram", "flowchart TD\nclick A https://example.com")).rejects.toThrow(
+      "Mermaid click actions are not supported",
+    )
+    expect(render).not.toHaveBeenCalled()
   })
 })

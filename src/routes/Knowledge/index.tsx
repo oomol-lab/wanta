@@ -1,4 +1,5 @@
 import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
+import type { UseKnowledgeBases } from "@/hooks/useKnowledgeBases"
 import type { LucideIcon } from "lucide-react"
 
 import {
@@ -45,7 +46,6 @@ import {
   SplitViewMobileDetailPane,
   SplitViewRoot,
 } from "@/components/ui/split-view"
-import { useKnowledgeBases } from "@/hooks/useKnowledgeBases"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
@@ -75,7 +75,7 @@ function knowledgeActions({
   onStartChat,
   t,
 }: {
-  busy: ReturnType<typeof useKnowledgeBases>["busy"]
+  busy: UseKnowledgeBases["busy"]
   item: KnowledgeBaseSummary
   onRefresh: (id: string) => void
   onRemove: (item: KnowledgeBaseSummary) => void
@@ -208,9 +208,14 @@ function KnowledgeCover({ item, className }: { item: KnowledgeBaseSummary; class
   )
 }
 
-export function KnowledgeRoute({ onStartChat }: { onStartChat: (item: KnowledgeBaseSummary) => void }) {
+export function KnowledgeRoute({
+  knowledge,
+  onStartChat,
+}: {
+  knowledge: UseKnowledgeBases
+  onStartChat: (item: KnowledgeBaseSummary) => void
+}) {
   const t = useT()
-  const knowledge = useKnowledgeBases()
   const [query, setQuery] = React.useState("")
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [removeTarget, setRemoveTarget] = React.useState<KnowledgeBaseSummary | null>(null)
@@ -431,7 +436,7 @@ function KnowledgeLibraryContent({
   onSelect,
   onStartChat,
 }: {
-  busy: ReturnType<typeof useKnowledgeBases>["busy"]
+  busy: UseKnowledgeBases["busy"]
   error: string | null
   items: KnowledgeBaseSummary[]
   loading: boolean
@@ -536,7 +541,7 @@ function KnowledgeDetail({
   onRemove,
   onReveal,
 }: {
-  busy: ReturnType<typeof useKnowledgeBases>["busy"]
+  busy: UseKnowledgeBases["busy"]
   item: KnowledgeBaseSummary
   onClose: () => void
   onStartChat: (item: KnowledgeBaseSummary) => void

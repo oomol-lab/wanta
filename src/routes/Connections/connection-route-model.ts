@@ -45,7 +45,7 @@ export type ConnectionCatalogFilter =
   | { kind: "attention" }
   | { kind: "category"; category: string }
   | { kind: "connected" }
-  | { kind: "setup-free" }
+  | { kind: "directly-available" }
 
 export interface ConnectionCategoryFilter {
   count: number
@@ -67,22 +67,27 @@ export function isConnectionDetailCacheKeyForService(cacheKey: string, service: 
 }
 
 export function isConnected(provider: ConnectionProviderSummary): boolean {
-  return provider.status === "connected" && !isNoAuthReadyProvider(provider)
+  return provider.status === "connected" && !isDirectlyAvailableProvider(provider)
 }
 
-export function isNoAuthReadyProvider(provider: ConnectionProviderSummary): boolean {
+export function isDirectlyAvailableProvider(provider: ConnectionProviderSummary): boolean {
   return provider.status === "connected" && isConnectionlessNoAuthProvider(provider)
 }
 
 export function shouldLoadProviderDetail(provider: ConnectionProviderSummary): boolean {
-  return !isNoAuthReadyProvider(provider) || provider.authTypes.some((authType) => authType !== "no_auth")
+  return !isDirectlyAvailableProvider(provider) || provider.authTypes.some((authType) => authType !== "no_auth")
 }
 
-export function getProviderStatusTone(provider: ConnectionProviderSummary): "attention" | "available" | "connected" {
+export function getProviderStatusTone(
+  provider: ConnectionProviderSummary,
+): "attention" | "available" | "connected" | "directly-available" {
   if (provider.status === "needs_attention") {
     return "attention"
   }
-  if (provider.status === "connected") {
+  if (isDirectlyAvailableProvider(provider)) {
+    return "directly-available"
+  }
+  if (isConnected(provider)) {
     return "connected"
   }
   return "available"
@@ -95,7 +100,7 @@ export function getProviderStatusLabel(provider: ConnectionProviderSummary, t: T
     case "available":
       return t("connections.providerAvailable")
     case "connected":
-      return isNoAuthReadyProvider(provider) ? t("connections.noSetupRequired") : null
+      return isDirectlyAvailableProvider(provider) ? t("connections.directlyAvailable") : null
   }
 }
 
@@ -163,7 +168,7 @@ export function getProviderDescription(provider: ConnectionProviderSummary, t: T
     case "needs_attention":
       return t("connections.providerNeedsAttentionDescription", { name: provider.displayName })
     case "connected":
-      if (isNoAuthReadyProvider(provider)) {
+      if (isDirectlyAvailableProvider(provider)) {
         return t("connections.noAuthReadyDescription")
       }
       if (provider.appCount > 1) {
@@ -176,7 +181,7 @@ export function getProviderDescription(provider: ConnectionProviderSummary, t: T
 }
 
 export function getProviderAccountValue(provider: ConnectionProviderSummary, t: TranslateFn): string {
-  if (isNoAuthReadyProvider(provider)) {
+  if (isDirectlyAvailableProvider(provider)) {
     return t("connections.noAccountRequired")
   }
   if (provider.appCount === 1 && provider.accountLabel) {
@@ -222,7 +227,7 @@ export function getProviderActionLabel(provider: ConnectionProviderSummary, t: T
     case "needs_attention":
       return t("connections.reconnect")
     case "connected":
-      return isNoAuthReadyProvider(provider) ? t("connections.viewDetails") : t("connections.manage")
+      return isDirectlyAvailableProvider(provider) ? t("connections.directlyAvailable") : t("connections.manage")
     case "available":
       return t("connections.connect")
   }
@@ -251,8 +256,8 @@ export function formatProviderCategoryLabels(provider: ConnectionProviderSummary
 }
 
 export function getProviderMeta(provider: ConnectionProviderSummary, t: TranslateFn): string {
-  if (isNoAuthReadyProvider(provider)) {
-    return t("connections.noAccountRequired")
+  if (isDirectlyAvailableProvider(provider)) {
+    return getProviderCategoryLabel(provider, t)
   }
   if (provider.status === "connected" && provider.appCount === 1 && provider.accountLabel) {
     return provider.accountLabel
@@ -347,7 +352,7 @@ export function getFilterValue(filter: ConnectionCatalogFilter): string {
 }
 
 export function parseFilterValue(value: string): ConnectionCatalogFilter | null {
-  if (value === "all" || value === "connected" || value === "attention" || value === "setup-free") {
+  if (value === "all" || value === "connected" || value === "attention" || value === "directly-available") {
     return { kind: value }
   }
   if (value.startsWith(categoryFilterPrefix)) {
@@ -434,8 +439,8 @@ export function matchesProviderFilter(provider: ConnectionProviderSummary, filte
       return isConnected(provider)
     case "attention":
       return provider.status === "needs_attention"
-    case "setup-free":
-      return isNoAuthReadyProvider(provider)
+    case "directly-available":
+      return isDirectlyAvailableProvider(provider)
     case "category":
       return getProviderCategoryRawLabels(provider).includes(filter.category)
   }

@@ -74,14 +74,15 @@ export function summarizeEmptyStateConnections(
   let needsAttentionCount = 0
 
   for (const provider of providers) {
-    if (provider.status === "connected" && !isConnectionlessNoAuthProvider(provider)) {
+    if (provider.status === "connected") {
       computedAvailableCount += 1
     } else if (provider.status === "needs_attention" && !isConnectionlessNoAuthProvider(provider)) {
       needsAttentionCount += 1
     }
   }
 
-  // connectedProviderCount 已排除免配置 Provider；服务端摘要仍可能覆盖未出现在当前目录页中的真实连接。
+  // 服务端计数不含免配置 Provider，但可能覆盖未出现在当前目录页中的真实连接。
+  // 两者取较大值，让首页同时体现真实连接和当前目录中可直接使用的工具。
   const availableCount = Math.max(computedAvailableCount, connectedProviderCount - needsAttentionCount, 0)
   return { availableCount, needsAttentionCount }
 }

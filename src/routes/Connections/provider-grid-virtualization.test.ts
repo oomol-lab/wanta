@@ -51,7 +51,7 @@ it("centered selection scroll position clamps to the list boundaries", () => {
   ).toBe(600)
 })
 
-it("centered selection includes a leading setup-free card in the item index", () => {
+it("centers based on the supplied item index", () => {
   const withoutLeadingCard = getProviderGridCenteredScrollTop({
     catalogTop: 200,
     columnCount: 3,

@@ -67,7 +67,7 @@ function getConnectionProviderStatusWeight(provider: ConnectionProviderSummary):
     return 0
   }
   if (provider.status === "connected") {
-    return isConnectionlessNoAuthProvider(provider) ? 3 : 1
+    return isConnectionlessNoAuthProvider(provider) ? 2 : 1
   }
   return 2
 }

@@ -100,7 +100,7 @@ test("virtual no_auth app in active status marks provider ready without a manage
   assert.equal(quickchart?.canDisconnect, false)
 })
 
-test("mixed no_auth and API key providers remain setup-free until the user configures an account", () => {
+test("mixed no_auth and API key providers remain directly available until the user configures an account", () => {
   const summary = mergeConnectionSummary({
     apps: [{ id: "no_auth:pubmed", service: "pubmed", status: "active", authType: "no_auth" }],
     meta: { summary: { connectedProviderCount: 1 } },

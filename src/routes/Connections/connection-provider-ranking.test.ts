@@ -51,16 +51,16 @@ describe("connection provider recommendation ranking", () => {
     ).toEqual(["gmail", "googlesheets", "github", "quickchart"])
   })
 
-  test("places setup-free providers after ordinary connectable providers", () => {
-    const setupFree = {
-      ...provider("quickchart", "connected", "QuickChart"),
+  test("mixes directly available and connectable providers by recommendation", () => {
+    const directlyAvailable = {
+      ...provider("gmail", "connected", "Gmail"),
       actionKind: "no_auth" as const,
       appCount: 0,
       appStatus: undefined,
       authTypes: ["no_auth" as const],
     }
 
-    expect(sortedServices([setupFree, provider("notion", "available", "Notion")])).toEqual(["notion", "quickchart"])
+    expect(sortedServices([directlyAvailable, provider("notion", "available", "Notion")])).toEqual(["gmail", "notion"])
   })
 
   test("falls back to display name for providers outside the recommendation table", () => {

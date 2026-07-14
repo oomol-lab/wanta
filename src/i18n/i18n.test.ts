@@ -8,6 +8,8 @@ test("translate returns locale-specific strings", () => {
   assert.equal(translate("en", "settings.title"), "Settings")
   assert.equal(translate("zh-CN", "connections.connect"), "连接")
   assert.equal(translate("en", "connections.connect"), "Connect")
+  assert.equal(translate("zh-CN", "connections.directlyAvailable"), "直接可用")
+  assert.equal(translate("en", "connections.directlyAvailable"), "Ready to use")
 })
 
 test("translate interpolates {var}", () => {

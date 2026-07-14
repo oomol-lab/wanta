@@ -47,13 +47,13 @@ test("summarizeEmptyStateConnections preserves a larger backend provider total",
   })
 })
 
-test("summarizeEmptyStateConnections excludes connectionless no-auth providers", () => {
+test("summarizeEmptyStateConnections includes connectionless no-auth providers as available tools", () => {
   const noAuth = provider("quickchart", "connected")
   noAuth.actionKind = "api_key"
   noAuth.authTypes = ["no_auth", "api_key"]
 
   assert.deepEqual(summarizeEmptyStateConnections([noAuth], 0), {
-    availableCount: 0,
+    availableCount: 1,
     needsAttentionCount: 0,
   })
 })

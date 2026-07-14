@@ -99,7 +99,18 @@ test("mixed direct and API key providers are directly available before configura
 })
 
 test("availability catalog filters round trip", () => {
+  assert.deepEqual(parseFilterValue("available-tools"), { kind: "available-tools" })
   assert.deepEqual(parseFilterValue("directly-available"), { kind: "directly-available" })
+})
+
+test("available tools filter combines connected and directly available providers", () => {
+  const connected = provider({ appCount: 1, status: "connected" })
+  const directlyAvailable = provider({ actionKind: "no_auth", authTypes: ["no_auth"], status: "connected" })
+
+  assert.equal(matchesProviderFilter(connected, { kind: "available-tools" }), true)
+  assert.equal(matchesProviderFilter(directlyAvailable, { kind: "available-tools" }), true)
+  assert.equal(matchesProviderFilter(provider({ status: "available" }), { kind: "available-tools" }), false)
+  assert.equal(matchesProviderFilter(provider({ status: "needs_attention" }), { kind: "available-tools" }), false)
 })
 
 test("buildCredentialSummaryDisplayValues keeps only non-secret display values", () => {

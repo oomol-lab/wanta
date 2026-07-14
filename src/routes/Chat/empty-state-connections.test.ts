@@ -74,6 +74,7 @@ test("resolveCurrentToolsPresentation keeps organization issue copy and action a
     actionKey: "chat.emptyCurrentConnectorsCheckAction",
     ariaLabelKey: "chat.emptySharedConnectorsAttentionAria",
     highlighted: true,
+    targetFilter: { kind: "attention" },
     meta: {
       key: "chat.emptyCurrentConnectorsAttentionMeta",
       vars: { available: 2, attention: 1 },
@@ -87,9 +88,17 @@ test("resolveCurrentToolsPresentation covers personal tool and empty states", ()
     resolveCurrentToolsPresentation("personal", { availableCount: 2, needsAttentionCount: 0 }).actionKey,
     "chat.emptyPersonalConnectorsManageAction",
   )
+  assert.deepEqual(
+    resolveCurrentToolsPresentation("personal", { availableCount: 2, needsAttentionCount: 0 }).targetFilter,
+    { kind: "available-tools" },
+  )
   assert.equal(
     resolveCurrentToolsPresentation("personal", { availableCount: 0, needsAttentionCount: 0 }).actionKey,
     "chat.emptyPersonalConnectorsConnectAction",
+  )
+  assert.deepEqual(
+    resolveCurrentToolsPresentation("personal", { availableCount: 0, needsAttentionCount: 0 }).targetFilter,
+    { kind: "all" },
   )
   assert.equal(resolveCurrentToolsPresentation("personal", null).meta.key, "chat.emptyCurrentConnectorsUnavailableMeta")
   assert.equal(

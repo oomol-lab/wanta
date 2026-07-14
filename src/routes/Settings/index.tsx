@@ -1,4 +1,5 @@
 import type { AuthAccountSummary } from "../../../electron/auth/common.ts"
+import type { CompletionNotificationCondition } from "../../../electron/settings/common.ts"
 import type { UpdateChannel } from "../../../electron/update/common.ts"
 import type { ThemePreference } from "@/components/theme-context"
 import type { UseAppUpdate } from "@/hooks/useAppUpdate"
@@ -6,6 +7,7 @@ import type { Locale } from "@/i18n/i18n"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
 import {
+  BellRingIcon,
   CheckIcon,
   CopyIcon,
   DownloadIcon,
@@ -26,9 +28,11 @@ import { SectionHeading } from "@/components/SectionHeading"
 import { useTheme } from "@/components/theme-context"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
+import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppSettings } from "@/hooks/useAppSettings"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
+import { useAttention } from "@/hooks/useAttention"
 import { useAuth } from "@/hooks/useAuth"
 import { useI18n } from "@/i18n/i18n"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
@@ -50,6 +54,12 @@ const channelOptions = [
   { value: "beta", labelKey: "settings.channelBeta" },
 ] as const
 
+const completionNotificationOptions = [
+  { value: "never", labelKey: "settings.notificationNever" },
+  { value: "background", labelKey: "settings.notificationBackground" },
+  { value: "always", labelKey: "settings.notificationAlways" },
+] as const
+
 const copyFeedbackMs = 3000
 
 export function SettingsRoute({ onBack }: { onBack: () => void }) {
@@ -58,6 +68,7 @@ export function SettingsRoute({ onBack }: { onBack: () => void }) {
   const auth = useAuth()
   const update = useAppUpdate()
   const appSettings = useAppSettings()
+  const attention = useAttention()
 
   return (
     <PageRouteShell backLabel={t("settings.backToApp")} contentClassName="max-w-[60rem] gap-6" onBack={onBack}>
@@ -80,6 +91,14 @@ export function SettingsRoute({ onBack }: { onBack: () => void }) {
         </SettingsSection>
 
         <SettingsSection title={t("settings.groupApplication")}>
+          <NotificationSettings
+            loading={appSettings.loading}
+            settings={appSettings.settings}
+            onConditionChange={appSettings.setCompletionNotificationCondition}
+            onSoundChange={appSettings.setNotificationSoundEnabled}
+            onBadgeChange={appSettings.setUnreadBadgeEnabled}
+            onTest={attention.testCompletionNotification}
+          />
           <AboutSettings update={update} />
           <SettingsItem title={t("settings.updateChannel")} description={t("settings.channelHint")}>
             <UpdateChannelSettings update={update} />
@@ -100,6 +119,96 @@ export function SettingsRoute({ onBack }: { onBack: () => void }) {
   )
 }
 
+function NotificationSettings({
+  loading,
+  onBadgeChange,
+  onConditionChange,
+  onSoundChange,
+  onTest,
+  settings,
+}: {
+  loading: boolean
+  onBadgeChange: (enabled: boolean) => Promise<void>
+  onConditionChange: (condition: CompletionNotificationCondition) => Promise<void>
+  onSoundChange: (enabled: boolean) => Promise<void>
+  onTest: () => Promise<void>
+  settings: ReturnType<typeof useAppSettings>["settings"]
+}) {
+  const { t } = useI18n()
+  const [saving, setSaving] = React.useState(false)
+  const disabled = loading || saving
+
+  const save = React.useCallback(
+    (task: Promise<void>) => {
+      setSaving(true)
+      void task
+        .catch((error: unknown) => {
+          toast.error(t("settings.notificationsUpdateFailed"))
+          console.error("[wanta] update notification setting failed", error)
+        })
+        .finally(() => setSaving(false))
+    },
+    [t],
+  )
+
+  return (
+    <>
+      <SettingsItem title={t("settings.notifications")} description={t("settings.notificationsDescription")}>
+        <ToggleGroup
+          type="single"
+          value={settings.completionNotificationCondition}
+          onValueChange={(value) => {
+            if (value) save(onConditionChange(value as CompletionNotificationCondition))
+          }}
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          className="flex-wrap justify-end max-[760px]:grid max-[760px]:w-full max-[760px]:grid-cols-3"
+        >
+          {completionNotificationOptions.map((option) => (
+            <ToggleGroupItem key={option.value} value={option.value} className="max-[760px]:w-full">
+              {t(option.labelKey)}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </SettingsItem>
+      <SettingsItem title={t("settings.notificationSound")} description={t("settings.notificationSoundDescription")}>
+        <Switch
+          checked={settings.notificationSoundEnabled}
+          disabled={disabled}
+          aria-label={t("settings.notificationSound")}
+          onCheckedChange={(enabled) => save(onSoundChange(enabled))}
+        />
+      </SettingsItem>
+      <SettingsItem title={t("settings.notificationBadge")} description={t("settings.notificationBadgeDescription")}>
+        <Switch
+          checked={settings.unreadBadgeEnabled}
+          disabled={disabled}
+          aria-label={t("settings.notificationBadge")}
+          onCheckedChange={(enabled) => save(onBadgeChange(enabled))}
+        />
+      </SettingsItem>
+      <SettingsItem title={t("settings.notificationTestTitle")} description={t("settings.notificationTestDescription")}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          onClick={() => {
+            void onTest().catch((error: unknown) => {
+              toast.error(t("settings.notificationTestFailed"))
+              console.error("[wanta] test notification failed", error)
+            })
+          }}
+        >
+          <BellRingIcon className="size-4" />
+          {t("settings.notificationTest")}
+        </Button>
+      </SettingsItem>
+    </>
+  )
+}
+
 function KnowledgeBetaToggle({
   enabled,
   loading,
@@ -114,33 +223,20 @@ function KnowledgeBetaToggle({
   const disabled = loading || saving
 
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      aria-label={t("settings.knowledgeBeta")}
+    <Switch
+      checked={enabled}
       disabled={disabled}
-      onClick={() => {
+      aria-label={t("settings.knowledgeBeta")}
+      onCheckedChange={(next) => {
         setSaving(true)
-        void onChange(!enabled)
+        void onChange(next)
           .catch((error: unknown) => {
             toast.error(t("settings.knowledgeBetaUpdateFailed"))
             console.error("[wanta] update knowledge beta setting failed", error)
           })
           .finally(() => setSaving(false))
       }}
-      className={cn(
-        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors disabled:opacity-50",
-        enabled ? "border-foreground bg-foreground" : "border-border bg-muted",
-      )}
-    >
-      <span
-        className={cn(
-          "block size-4 rounded-full bg-background shadow-sm transition-transform",
-          enabled ? "translate-x-6" : "translate-x-1",
-        )}
-      />
-    </button>
+    />
   )
 }
 
@@ -168,7 +264,7 @@ function SettingsItem({
         <h3 className="oo-text-label truncate text-foreground">{title}</h3>
         {description ? <div className="oo-text-caption mt-0.5 max-w-[44rem]">{description}</div> : null}
       </div>
-      <div className="min-w-0 justify-self-end max-[760px]:justify-self-start">{children}</div>
+      <div className="min-w-0 justify-self-end max-[760px]:w-full max-[760px]:justify-self-stretch">{children}</div>
     </section>
   )
 }

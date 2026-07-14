@@ -226,6 +226,8 @@ interface ChatServiceDeps {
   }
   /** 渲染层切换组织 workspace 时，同步 agent 的组织作用域（main 持有 agent 与 activeAgentOrganizationName）。 */
   onSetAgentOrganization?: (organizationName: string | undefined) => Promise<void> | void
+  /** 正常完成且产物已收尾后通知主进程 attention 域；停止和错误路径不触发。 */
+  onSessionCompleted?: (input: { runId: string; sessionId: string }) => Promise<void> | void
 }
 
 interface StopSessionGenerationOptions {
@@ -486,6 +488,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         if (translated.event === "messageCompleted") {
           const sessionId = translated.data.sessionId
           const messageId = this.activeAssistantMessages.get(sessionId)
+          const completedRunId = this.activeRuns.get(sessionId)?.runId
           this.generations.clearInactivityWatchdog(sessionId)
           void this.finalizeTurnOutput(sessionId, messageId)
             .catch((error: unknown) => {
@@ -498,6 +501,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               this.activeRuns.delete(sessionId)
               this.emitSessionActivity(sessionId)
               this.sendBestEffort(emit, translated.event, translated.data, { sessionId })
+              if (completedRunId) {
+                void Promise.resolve(this.deps.onSessionCompleted?.({ runId: completedRunId, sessionId })).catch(
+                  (error: unknown) => {
+                    console.warn("[wanta] failed to record completed task attention:", error)
+                  },
+                )
+              }
             })
           continue
         }

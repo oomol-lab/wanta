@@ -30,6 +30,7 @@ import { normalizeKnowledgeBaseIds } from "./metadata-store.ts"
 interface SessionServiceDeps {
   activityStore?: SessionActivityStore
   metadataStore?: SessionMetadataStore
+  onSessionArchived?: (sessionId: string) => Promise<void> | void
   onSessionRemoved?: (sessionId: string) => Promise<void> | void
   projectStore?: SessionProjectStore
 }
@@ -376,6 +377,7 @@ export class SessionServiceImpl
       }
       throw error
     }
+    await Promise.all([...previousMetadata.keys()].map((sessionId) => this.deps.onSessionArchived?.(sessionId)))
     this.broadcastChangedBestEffort("archive project")
   }
 
@@ -446,6 +448,7 @@ export class SessionServiceImpl
     delete next.pinnedAt
     this.sessionMetadata.set(id, next)
     await this.persistMetadata()
+    await this.deps.onSessionArchived?.(id)
     this.broadcastChangedBestEffort("archive session")
   }
 

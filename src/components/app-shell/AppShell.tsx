@@ -62,10 +62,11 @@ import { useSessionTitleGeneration } from "./use-session-title-generation.ts"
 import { useSidebarChromeState } from "./use-sidebar-chrome-state.ts"
 import { useWorkspaceActivation } from "./use-workspace-activation.ts"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
-import { useChatService } from "@/components/AppContext"
+import { useAttentionService, useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { useAppSettings } from "@/hooks/useAppSettings"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
+import { useAttention } from "@/hooks/useAttention"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useKnowledgeBases } from "@/hooks/useKnowledgeBases"
@@ -121,7 +122,9 @@ function RouteLoadingFallback({ className }: { className?: string }) {
 
 export function AppShell({ auth }: { auth: UseAuth }) {
   const t = useT()
+  const attentionService = useAttentionService()
   const chatService = useChatService()
+  const attention = useAttention()
   const appUpdate = useAppUpdate()
   const appSettings = useAppSettings()
   const [ready, setReady] = React.useState(false)
@@ -289,7 +292,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     error,
     getSessionStatus,
     getSessionRunStartedAt,
-    hasUnreadSession,
     permissionMode,
     setPermissionMode: setChatPermissionMode,
     send,
@@ -298,7 +300,42 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     answerQuestion,
     rejectQuestion,
     questionDrafts,
-  } = useChat(activeChatSessionId, route === "chat" ? activeChatSessionId : null)
+  } = useChat(activeChatSessionId)
+  const hasUnreadSession = attention.hasUnreadSession
+
+  React.useEffect(() => {
+    const syncVisibleSession = (): void => {
+      const visible = document.visibilityState === "visible" && document.hasFocus() && route === "chat"
+      void attentionService
+        .invoke("setVisibleSession", {
+          ...(activeChatSessionId ? { sessionId: activeChatSessionId } : {}),
+          visible,
+        })
+        .catch((error: unknown) => {
+          reportRendererHandledError("attention", "sync visible session failed", error)
+        })
+    }
+    syncVisibleSession()
+    document.addEventListener("visibilitychange", syncVisibleSession)
+    window.addEventListener("focus", syncVisibleSession)
+    window.addEventListener("blur", syncVisibleSession)
+    return () => {
+      document.removeEventListener("visibilitychange", syncVisibleSession)
+      window.removeEventListener("focus", syncVisibleSession)
+      window.removeEventListener("blur", syncVisibleSession)
+    }
+  }, [activeChatSessionId, attentionService, route])
+
+  React.useEffect(
+    () =>
+      attentionService.serverEvents.on("openSessionRequested", ({ sessionId }) => {
+        setSelectedSessionId(sessionId)
+        setIsDraftSession(false)
+        setPendingChatTransition(null)
+        setRoute("chat")
+      }),
+    [attentionService],
+  )
   const connectionSummaryMatchesWorkspace =
     Boolean(currentConnectionWorkspaceKey) && connections.summaryWorkspaceKey === currentConnectionWorkspaceKey
   const activeProvidersLoading =

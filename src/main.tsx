@@ -1,6 +1,7 @@
 import { ConnectionClient } from "@oomol/connection"
 import { ElectronClientAdapter } from "@oomol/connection-electron-adapter/client"
 import { createRoot } from "react-dom/client"
+import { AttentionService } from "../electron/attention/common.ts"
 import { AuthService } from "../electron/auth/common.ts"
 import { ChatService } from "../electron/chat/common.ts"
 import { GitService } from "../electron/git/common.ts"
@@ -37,6 +38,7 @@ if (!hasElectronConnectionBridge()) {
   client.start()
 
   const chatService = client.use(ChatService)
+  const attentionService = client.use(AttentionService)
   const gitService = client.use(GitService)
   const knowledgeService = client.use(KnowledgeService)
   const sessionService = client.use(SessionService)
@@ -49,6 +51,7 @@ if (!hasElectronConnectionBridge()) {
   createRoot(rootElement).render(
     <AppContext.Provider
       value={{
+        attentionService,
         chatService,
         gitService,
         knowledgeService,

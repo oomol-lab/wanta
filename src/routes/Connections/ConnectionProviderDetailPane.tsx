@@ -22,7 +22,7 @@ import {
   getProviderStatusDisplayLabel,
   getProviderStatusTone,
   isConnected,
-  isNoAuthReadyProvider,
+  isDirectlyAvailableProvider,
 } from "./connection-route-model.ts"
 import { AuthTypeToggleGroup, ConnectionAccountsList } from "./ConnectionAccountsList.tsx"
 import { ProviderUsagePanel } from "./ConnectionUsagePanel.tsx"
@@ -50,7 +50,17 @@ function ProviderStatusBadge({ provider }: { provider: ConnectionProviderSummary
   const t = useT()
   const tone = getProviderStatusTone(provider)
   return (
-    <Badge variant={tone === "connected" ? "success" : tone === "attention" ? "warning" : "muted"}>
+    <Badge
+      variant={
+        tone === "connected"
+          ? "success"
+          : tone === "attention"
+            ? "warning"
+            : tone === "directly-available"
+              ? "secondary"
+              : "muted"
+      }
+    >
       {getProviderStatusDisplayLabel(provider, t)}
     </Badge>
   )
@@ -124,7 +134,7 @@ export function ProviderDetail({
   const currentAuthType = getDefaultAuthType(provider)
   const usage = summary?.usage.services.find((item) => item.service === provider.service)
   const accountValue = getProviderAccountValue(provider, t)
-  const noAuthReady = isNoAuthReadyProvider(provider)
+  const directlyAvailable = isDirectlyAvailableProvider(provider)
 
   return (
     <div className="grid min-w-0 gap-3">
@@ -203,11 +213,11 @@ export function ProviderDetail({
           <ProviderDetailsSkeleton />
         ) : (
           <dl className="overflow-hidden rounded-md border">
-            {noAuthReady ? null : <DetailRow label={t("connections.account")} value={accountValue} />}
+            {directlyAvailable ? null : <DetailRow label={t("connections.account")} value={accountValue} />}
             <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
             <DetailRow label={t("connections.category")} value={formatProviderCategoryLabels(provider, t)} />
             <DetailRow label={t("connections.service")} value={provider.service} mono />
-            {noAuthReady ? null : (
+            {directlyAvailable ? null : (
               <DetailRow label={t("connections.updatedAt")} value={formatDateTime(provider.connectedUpdatedAt, t)} />
             )}
           </dl>
@@ -282,14 +292,14 @@ function ConnectionPanel({
   )
   const authTypes = detail?.authTypes.length ? detail.authTypes : provider.authTypes
   const usableAuthTypes = authTypes.length > 0 ? authTypes : currentAuthType ? [currentAuthType] : []
-  const configurableAuthTypes = isNoAuthReadyProvider(provider)
+  const configurableAuthTypes = isDirectlyAvailableProvider(provider)
     ? usableAuthTypes.filter((authType) => authType !== "no_auth")
     : usableAuthTypes
   const activeAuthType =
     selectedAuthType && configurableAuthTypes.includes(selectedAuthType) ? selectedAuthType : configurableAuthTypes[0]
   const isPolling = isConnectionServicePollingTarget(polling, provider.service)
   const authorizationBlocked = polling !== null && !isPolling
-  const noAuthReady = isNoAuthReadyProvider(provider)
+  const directlyAvailable = isDirectlyAvailableProvider(provider)
 
   React.useEffect(() => {
     setSelectedAuthType(currentAuthType)
@@ -308,7 +318,7 @@ function ConnectionPanel({
               ? t("connections.connectedConnections")
               : isConnected(provider)
                 ? t("connections.connectedConnection")
-                : noAuthReady
+                : directlyAvailable
                   ? t("connections.optionalConfiguration")
                   : t("connections.connectProvider")}
           </h3>
@@ -323,7 +333,7 @@ function ConnectionPanel({
         ) : null}
       </div>
 
-      {noAuthReady ? (
+      {directlyAvailable ? (
         <div className="oo-text-caption oo-text-muted rounded-md border bg-muted/30 px-3 py-2">
           {configurableAuthTypes.length > 0
             ? t("connections.noAuthOptionalConfigurationDescription")
@@ -369,7 +379,7 @@ function ConnectionPanel({
               )}
               {authIntent
                 ? t("connections.connectAndContinue")
-                : noAuthReady
+                : directlyAvailable
                   ? t("connections.configureAuth", { auth: formatAuthTypes([activeAuthType], t) })
                   : provider.apps.length > 0
                     ? t("connections.addConnection")
@@ -377,7 +387,7 @@ function ConnectionPanel({
             </Button>
           )}
         </div>
-      ) : noAuthReady ? null : (
+      ) : directlyAvailable ? null : (
         <div className="oo-text-caption oo-text-muted">{t("connections.unsupportedConnectionDescription")}</div>
       )}
 

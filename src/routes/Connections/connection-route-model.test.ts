@@ -15,7 +15,8 @@ import {
   getProviderStatusTone,
   isConnectionDetailCacheKeyForService,
   isConnected,
-  isNoAuthReadyProvider,
+  isDirectlyAvailableProvider,
+  isUsableProvider,
   matchesProviderFilter,
   normalizeConnectionAliasInput,
   parseFilterValue,
@@ -39,7 +40,7 @@ function provider(overrides: Partial<ConnectionProviderSummary>): ConnectionProv
   }
 }
 
-test("virtual no-auth ready providers stay outside configured connection counts", () => {
+test("directly available providers stay outside configured connection counts", () => {
   const ready = provider({
     actionKind: "no_auth",
     authTypes: ["no_auth"],
@@ -49,11 +50,12 @@ test("virtual no-auth ready providers stay outside configured connection counts"
   })
 
   assert.equal(isConnected(ready), false)
-  assert.equal(isNoAuthReadyProvider(ready), true)
+  assert.equal(isDirectlyAvailableProvider(ready), true)
+  assert.equal(isUsableProvider(ready), true)
   assert.equal(shouldLoadProviderDetail(ready), false)
   assert.equal(
     getProviderMeta(ready, (key, vars) => translate("en", key, vars)),
-    "No account required",
+    "Uncategorized",
   )
   assert.equal(
     getProviderAccountValue(ready, (key, vars) => translate("en", key, vars)),
@@ -61,7 +63,7 @@ test("virtual no-auth ready providers stay outside configured connection counts"
   )
   assert.equal(
     getProviderStatusDisplayLabel(ready, (key, vars) => translate("en", key, vars)),
-    "No setup needed",
+    "Ready to use",
   )
 })
 
@@ -76,11 +78,12 @@ test("managed no-auth accounts are not treated as connectionless providers", () 
   })
 
   assert.equal(isConnected(ready), true)
-  assert.equal(isNoAuthReadyProvider(ready), false)
+  assert.equal(isDirectlyAvailableProvider(ready), false)
+  assert.equal(isUsableProvider(ready), true)
   assert.equal(shouldLoadProviderDetail(ready), true)
 })
 
-test("mixed direct and API key providers are setup-free before configuration", () => {
+test("mixed direct and API key providers are directly available before configuration", () => {
   const ready = provider({
     actionKind: "api_key",
     authTypes: ["no_auth", "api_key"],
@@ -90,16 +93,19 @@ test("mixed direct and API key providers are setup-free before configuration", (
   })
   const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
 
-  assert.equal(isNoAuthReadyProvider(ready), true)
+  assert.equal(isDirectlyAvailableProvider(ready), true)
   assert.equal(isConnected(ready), false)
+  assert.equal(isUsableProvider(ready), true)
   assert.equal(shouldLoadProviderDetail(ready), true)
-  assert.equal(matchesProviderFilter(ready, { kind: "setup-free" }), true)
-  assert.equal(getProviderStatusTone(ready), "connected")
-  assert.equal(getProviderActionLabel(ready, t), "View")
+  assert.equal(matchesProviderFilter(ready, { kind: "directly-available" }), true)
+  assert.equal(matchesProviderFilter(ready, { kind: "usable" }), true)
+  assert.equal(getProviderStatusTone(ready), "directly-available")
+  assert.equal(getProviderActionLabel(ready, t), "Ready to use")
 })
 
-test("setup-free catalog filters round trip", () => {
-  assert.deepEqual(parseFilterValue("setup-free"), { kind: "setup-free" })
+test("availability catalog filters round trip", () => {
+  assert.deepEqual(parseFilterValue("directly-available"), { kind: "directly-available" })
+  assert.deepEqual(parseFilterValue("usable"), { kind: "usable" })
 })
 
 test("buildCredentialSummaryDisplayValues keeps only non-secret display values", () => {

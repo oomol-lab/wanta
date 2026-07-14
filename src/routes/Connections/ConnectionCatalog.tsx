@@ -24,6 +24,7 @@ import {
 } from "./provider-grid-virtualization.ts"
 import { ProviderIcon } from "./ProviderIcon.tsx"
 import { SearchField } from "@/components/SearchField"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -51,23 +52,25 @@ export function ConnectionListToolbar({
   attentionCount,
   categoryFilters,
   connectedCount,
+  directlyAvailableCount,
   loading,
   onFilterChange,
   onQueryChange,
   query,
-  setupFreeCount,
   totalCount,
+  usableCount,
 }: {
   activeFilter: ConnectionCatalogFilter
   attentionCount: number
   categoryFilters: ConnectionCategoryFilter[]
   connectedCount: number
+  directlyAvailableCount: number
   loading: boolean
   onFilterChange: (filter: ConnectionCatalogFilter) => void
   onQueryChange: (query: string) => void
   query: string
-  setupFreeCount: number
   totalCount: number
+  usableCount: number
 }) {
   const t = useT()
   const filterRowRef = React.useRef<HTMLDivElement | null>(null)
@@ -95,17 +98,19 @@ export function ConnectionListToolbar({
     const updateVisibleCategoryCount = () => {
       const availableWidth = filterRow.clientWidth
       const allWidth = getMeasurement("all")
+      const usableWidth = getMeasurement("usable")
       const connectedWidth = getMeasurement("connected")
       const attentionWidth = getMeasurement("attention")
-      const setupFreeWidth = getMeasurement("setup-free")
+      const directlyAvailableWidth = getMeasurement("directly-available")
       const moreWidth = getMeasurement("more")
       const categoryWidths = categoryFilters.map((_, index) => getMeasurement(`category-${index}`))
       if (
         !availableWidth ||
         allWidth === null ||
+        usableWidth === null ||
         connectedWidth === null ||
         attentionWidth === null ||
-        setupFreeWidth === null ||
+        directlyAvailableWidth === null ||
         moreWidth === null ||
         categoryWidths.some((width) => width === null)
       ) {
@@ -119,7 +124,7 @@ export function ConnectionListToolbar({
       )
       const nextCount = getFittingCategoryFilterCount({
         availableWidth,
-        baseFilterWidths: [allWidth, connectedWidth, attentionWidth, setupFreeWidth],
+        baseFilterWidths: [allWidth, usableWidth, connectedWidth, directlyAvailableWidth, attentionWidth],
         categoryFilterWidths,
         filters: categoryFilters,
         gap,
@@ -138,7 +143,16 @@ export function ConnectionListToolbar({
     const observer = new ResizeObserver(updateVisibleCategoryCount)
     observer.observe(filterRow)
     return () => observer.disconnect()
-  }, [attentionCount, categoryFilters, connectedCount, loading, selectedCategory, setupFreeCount, totalCount])
+  }, [
+    attentionCount,
+    categoryFilters,
+    connectedCount,
+    directlyAvailableCount,
+    loading,
+    selectedCategory,
+    totalCount,
+    usableCount,
+  ])
 
   return (
     <div className="grid w-full min-w-0 gap-2">
@@ -166,19 +180,24 @@ export function ConnectionListToolbar({
           >
             <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
             <FilterToggleItem
+              count={loading ? null : usableCount}
+              label={t("connections.filterUsable")}
+              value="usable"
+            />
+            <FilterToggleItem
               count={loading ? null : connectedCount}
               label={t("connections.filterConnected")}
               value="connected"
             />
             <FilterToggleItem
+              count={loading ? null : directlyAvailableCount}
+              label={t("connections.filterDirectlyAvailable")}
+              value="directly-available"
+            />
+            <FilterToggleItem
               count={loading ? null : attentionCount}
               label={t("connections.needsAttention")}
               value="attention"
-            />
-            <FilterToggleItem
-              count={loading ? null : setupFreeCount}
-              label={t("connections.filterSetupFree")}
-              value="setup-free"
             />
             {visibleCategoryFilters.map((filter) => (
               <FilterToggleItem
@@ -223,6 +242,13 @@ export function ConnectionListToolbar({
           <span data-filter-measure="all">
             <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
           </span>
+          <span data-filter-measure="usable">
+            <FilterToggleItem
+              count={loading ? null : usableCount}
+              label={t("connections.filterUsable")}
+              value="usable"
+            />
+          </span>
           <span data-filter-measure="connected">
             <FilterToggleItem
               count={loading ? null : connectedCount}
@@ -230,18 +256,18 @@ export function ConnectionListToolbar({
               value="connected"
             />
           </span>
+          <span data-filter-measure="directly-available">
+            <FilterToggleItem
+              count={loading ? null : directlyAvailableCount}
+              label={t("connections.filterDirectlyAvailable")}
+              value="directly-available"
+            />
+          </span>
           <span data-filter-measure="attention">
             <FilterToggleItem
               count={loading ? null : attentionCount}
               label={t("connections.needsAttention")}
               value="attention"
-            />
-          </span>
-          <span data-filter-measure="setup-free">
-            <FilterToggleItem
-              count={loading ? null : setupFreeCount}
-              label={t("connections.filterSetupFree")}
-              value="setup-free"
             />
           </span>
           {categoryFilters.map((filter, index) => (
@@ -308,15 +334,11 @@ export function ProviderListSkeleton() {
 }
 
 export function ProviderCatalog({
-  leadingCard,
-  leadingCardSelected = false,
   providers,
   scrollParentRef,
   selectedService,
   onSelect,
 }: {
-  leadingCard?: React.ReactNode
-  leadingCardSelected?: boolean
   onSelect: (provider: ConnectionProviderSummary) => void
   providers: ConnectionProviderSummary[]
   scrollParentRef: React.RefObject<HTMLDivElement | null>
@@ -324,8 +346,6 @@ export function ProviderCatalog({
 }) {
   return (
     <ProviderGrid
-      leadingCard={leadingCard}
-      leadingCardSelected={leadingCardSelected}
       providers={providers}
       scrollParentRef={scrollParentRef}
       selectedService={selectedService}
@@ -334,76 +354,12 @@ export function ProviderCatalog({
   )
 }
 
-export function SetupFreeProviderCard({
-  expanded,
-  onExpandedChange,
-  providers,
-  selected,
-}: {
-  expanded: boolean
-  onExpandedChange: (expanded: boolean) => void
-  providers: ConnectionProviderSummary[]
-  selected: boolean
-}) {
-  const t = useT()
-  const representativeProviders = providers.slice(0, 3)
-
-  return (
-    <button
-      type="button"
-      aria-expanded={expanded}
-      aria-label={`${t("connections.filterSetupFree")}, ${t("connections.setupFreeGroupCount", { count: providers.length })}, ${expanded ? t("connections.collapse") : t("connections.expand")}`}
-      className={cn(
-        "group/card relative grid min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_auto] items-center gap-x-2 gap-y-1 overflow-hidden rounded-md border bg-card px-2.5 py-2 text-left text-card-foreground transition-[background-color,border-color,box-shadow,transform] outline-none hover:border-[var(--selection-ring)] hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px",
-        selected &&
-          "border-[var(--accent-ring)] bg-[var(--accent-soft)] shadow-[inset_0_0_0_1px_var(--accent-ring)] before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-r-full before:bg-[var(--accent-strong)] hover:bg-[var(--accent-soft)]",
-      )}
-      style={{ height: providerGridCardHeightPx }}
-      onClick={() => onExpandedChange(!expanded)}
-    >
-      <span className="flex min-w-0 items-center pl-0.5" aria-hidden="true">
-        {representativeProviders.map((provider, index) => (
-          <span key={provider.service} className={cn(index > 0 && "-ml-1.5", "rounded-md ring-2 ring-card")}>
-            <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="showcase" />
-          </span>
-        ))}
-      </span>
-      <span
-        aria-label={t("connections.noSetupRequired")}
-        className="size-1.5 place-self-center rounded-full bg-[var(--success)]"
-        title={t("connections.noSetupRequired")}
-      />
-      <span className="min-w-0">
-        <span className="oo-text-control min-w-0 truncate font-medium">
-          {t("connections.filterSetupFree")}
-          <span className="px-1 text-muted-foreground" aria-hidden="true">
-            ·
-          </span>
-          <span className="oo-text-micro font-normal text-muted-foreground">
-            {t("connections.setupFreeGroupCount", { count: providers.length })}
-          </span>
-        </span>
-      </span>
-      <ChevronDown
-        className={cn(
-          "size-3.5 place-self-center text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
-          expanded && "rotate-180",
-        )}
-      />
-    </button>
-  )
-}
-
 function ProviderGrid({
-  leadingCard,
-  leadingCardSelected,
   providers,
   scrollParentRef,
   selectedService,
   onSelect,
 }: {
-  leadingCard?: React.ReactNode
-  leadingCardSelected: boolean
   onSelect: (provider: ConnectionProviderSummary) => void
   providers: ConnectionProviderSummary[]
   scrollParentRef: React.RefObject<HTMLDivElement | null>
@@ -457,8 +413,7 @@ function ProviderGrid({
     })
   }, [updateViewport])
 
-  const leadingCardCount = leadingCard ? 1 : 0
-  const itemCount = providers.length + leadingCardCount
+  const itemCount = providers.length
 
   const centerPendingSelection = React.useCallback(() => {
     const service = pendingSelectionRef.current
@@ -469,7 +424,7 @@ function ProviderGrid({
     }
 
     const providerIndex = providers.findIndex((provider) => provider.service === service)
-    const itemIndex = providerIndex >= 0 ? providerIndex + leadingCardCount : leadingCardSelected ? 0 : -1
+    const itemIndex = providerIndex
     if (itemIndex < 0) {
       return
     }
@@ -488,7 +443,7 @@ function ProviderGrid({
     pendingSelectionRef.current = null
     scrollParent.scrollTo({ top: nextScrollTop })
     scheduleViewportUpdate()
-  }, [leadingCardCount, leadingCardSelected, providers, scheduleViewportUpdate, scrollParentRef])
+  }, [providers, scheduleViewportUpdate, scrollParentRef])
 
   const schedulePendingSelectionCenter = React.useCallback(() => {
     if (!pendingSelectionRef.current) {
@@ -515,7 +470,7 @@ function ProviderGrid({
       window.clearTimeout(selectionCenterTimerRef.current)
       selectionCenterTimerRef.current = null
     }
-  }, [leadingCardSelected, providers, schedulePendingSelectionCenter, selectedService])
+  }, [providers, schedulePendingSelectionCenter, selectedService])
 
   React.useEffect(() => {
     const grid = gridRef.current
@@ -569,11 +524,7 @@ function ProviderGrid({
     const items: Array<{ key: string; node: React.ReactNode }> = []
     for (let offset = 0; offset < visibleRange.endIndex - visibleRange.startIndex; offset += 1) {
       const index = visibleRange.startIndex + offset
-      if (leadingCard && index === 0) {
-        items.push({ key: "setup-free-group", node: leadingCard })
-        continue
-      }
-      const provider = providers[index - leadingCardCount]
+      const provider = providers[index]
       if (provider) {
         items.push({
           key: provider.service,
@@ -588,15 +539,7 @@ function ProviderGrid({
       }
     }
     return items
-  }, [
-    leadingCard,
-    leadingCardCount,
-    onSelect,
-    providers,
-    selectedService,
-    visibleRange.endIndex,
-    visibleRange.startIndex,
-  ])
+  }, [onSelect, providers, selectedService, visibleRange.endIndex, visibleRange.startIndex])
 
   return (
     <div ref={gridRef} className="relative" style={{ height: visibleRange.totalHeight }}>
@@ -645,20 +588,31 @@ function ProviderCard({
           <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
           <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
         </span>
-        <span className="flex shrink-0 items-center gap-1.5" title={statusLabel}>
-          <span
-            aria-label={statusLabel}
-            className={cn(
-              "size-1.5 rounded-full",
-              tone === "connected" && "bg-[var(--success)]",
-              tone === "attention" && "bg-[var(--warning)]",
-              tone === "available" && "bg-muted-foreground/40",
-            )}
-          />
-          <span className="oo-text-micro max-w-16 truncate font-medium text-muted-foreground">
-            {getProviderActionLabel(provider, t)}
+        {tone === "directly-available" ? (
+          <Badge
+            variant="secondary"
+            className="max-w-24 border border-[var(--accent-ring)] bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] text-[var(--accent-strong)]"
+            title={statusLabel}
+          >
+            <span className="truncate">{statusLabel}</span>
+          </Badge>
+        ) : (
+          <span className="flex shrink-0 items-center gap-1.5" title={statusLabel}>
+            {tone === "connected" || tone === "attention" ? (
+              <span
+                aria-label={statusLabel}
+                className={cn(
+                  "size-2 rounded-full",
+                  tone === "connected" && "oo-connection-active-dot",
+                  tone === "attention" && "bg-[var(--warning)]",
+                )}
+              />
+            ) : null}
+            <span className="oo-text-micro max-w-16 truncate font-medium text-muted-foreground">
+              {getProviderActionLabel(provider, t)}
+            </span>
           </span>
-        </span>
+        )}
       </span>
     </button>
   )

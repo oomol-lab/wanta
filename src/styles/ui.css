@@ -376,6 +376,12 @@
     color: var(--oo-info-foreground);
   }
 
+  /* 已连接状态点需要在浅色和深色背景上都足够醒目。 */
+  .oo-connection-active-dot {
+    background: color-mix(in oklab, var(--success) 82%, white);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--success) 18%, transparent);
+  }
+
   .oo-badge-outline {
     border: 1px solid var(--oo-divider);
     color: var(--muted-foreground);

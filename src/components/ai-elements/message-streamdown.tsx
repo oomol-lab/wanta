@@ -1,3 +1,4 @@
+import type { MermaidRendererControls } from "./mermaid-renderer.tsx"
 import type {
   CustomRenderer,
   DiagramPlugin,
@@ -10,6 +11,7 @@ import { createMermaidPlugin } from "@streamdown/mermaid"
 import { useEffect, useMemo, useState } from "react"
 import { Streamdown } from "streamdown"
 import { isRetryableMermaidError, mermaidParseErrorLine, validateMermaidSource } from "./mermaid-policy.ts"
+import { MermaidRenderer, MermaidRendererProvider } from "./mermaid-renderer.tsx"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 
@@ -133,6 +135,37 @@ export function messageStreamdownControls(controls: StreamdownProps["controls"])
   }
 }
 
+export function mermaidRendererControls(controls: StreamdownProps["controls"]): MermaidRendererControls {
+  if (controls === false) {
+    return { copy: false, fullscreen: false }
+  }
+  if (controls === true || controls === undefined) {
+    return { copy: true, fullscreen: true }
+  }
+  const mermaid = controls.mermaid
+  if (mermaid === false) {
+    return { copy: false, fullscreen: false }
+  }
+  if (mermaid === true || mermaid === undefined) {
+    return { copy: true, fullscreen: true }
+  }
+  return {
+    copy: mermaid.copy !== false,
+    fullscreen: mermaid.fullscreen !== false,
+  }
+}
+
+/** Mermaid 控件由 Wanta 自己渲染，避免 Streamdown 再创建不符合窗口规范的全屏 Portal。 */
+export function nativeMessageStreamdownControls(controls: StreamdownProps["controls"]): StreamdownProps["controls"] {
+  if (controls === false) {
+    return false
+  }
+  if (controls === true || controls === undefined) {
+    return { table: true, code: true, mermaid: false }
+  }
+  return { ...controls, mermaid: false }
+}
+
 function useStreamdownTranslations(): Partial<StreamdownTranslations> {
   const t = useT()
   return {
@@ -171,19 +204,32 @@ export function MessageStreamdown({
     }),
     [defaultMermaidOptions, mermaid],
   )
-  const renderers = [...(plugins?.renderers ?? []), ...defaultRenderers]
+  const normalizedControls = messageStreamdownControls(controls)
+  const diagramPlugin = plugins?.mermaid ?? safeMermaidPlugin
+  const renderers = [
+    ...(plugins?.renderers ?? []),
+    { language: "mermaid", component: MermaidRenderer },
+    ...defaultRenderers,
+  ]
 
   return (
-    <Streamdown
-      {...props}
-      controls={messageStreamdownControls(controls)}
-      mermaid={mermaidOptions}
-      plugins={{
-        ...plugins,
-        mermaid: plugins?.mermaid ?? safeMermaidPlugin,
-        renderers,
-      }}
-      translations={{ ...localizedTranslations, ...translations }}
-    />
+    <MermaidRendererProvider
+      config={mermaidOptions.config ?? {}}
+      controls={mermaidRendererControls(normalizedControls)}
+      errorComponent={mermaidOptions.errorComponent ?? MermaidError}
+      plugin={diagramPlugin}
+    >
+      <Streamdown
+        {...props}
+        controls={nativeMessageStreamdownControls(normalizedControls)}
+        mermaid={mermaidOptions}
+        plugins={{
+          ...plugins,
+          mermaid: diagramPlugin,
+          renderers,
+        }}
+        translations={{ ...localizedTranslations, ...translations }}
+      />
+    </MermaidRendererProvider>
   )
 }

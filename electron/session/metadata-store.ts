@@ -10,6 +10,7 @@ export interface SessionMetadata {
   scope?: SessionScope
   projectId?: string
   permissionMode?: SessionPermissionMode
+  knowledgeBaseIds?: string[]
   pinnedAt?: number
   archivedAt?: number
 }
@@ -25,6 +26,12 @@ function validTimestamp(value: unknown): value is number {
 
 function normalizePermissionMode(value: unknown): SessionPermissionMode | undefined {
   return value === "full_access" || value === "default" ? value : undefined
+}
+
+function normalizeKnowledgeBaseIds(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const ids = [...new Set(value.flatMap((item) => (typeof item === "string" && item.trim() ? [item.trim()] : [])))]
+  return ids.length > 0 ? ids : undefined
 }
 
 function normalizeScope(value: unknown): SessionScope | undefined {
@@ -72,13 +79,22 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
     if (permissionMode) {
       next.permissionMode = permissionMode
     }
+    const knowledgeBaseIds = normalizeKnowledgeBaseIds(source.knowledgeBaseIds)
+    if (knowledgeBaseIds) next.knowledgeBaseIds = knowledgeBaseIds
     if (validTimestamp(source.pinnedAt)) {
       next.pinnedAt = source.pinnedAt
     }
     if (validTimestamp(source.archivedAt)) {
       next.archivedAt = source.archivedAt
     }
-    if (next.scope || next.projectId || next.permissionMode || next.pinnedAt || next.archivedAt) {
+    if (
+      next.scope ||
+      next.projectId ||
+      next.permissionMode ||
+      next.knowledgeBaseIds ||
+      next.pinnedAt ||
+      next.archivedAt
+    ) {
       metadata.set(id, next)
     }
   }
@@ -103,17 +119,26 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
     if (permissionMode) {
       next.permissionMode = permissionMode
     }
+    const knowledgeBaseIds = normalizeKnowledgeBaseIds(entry.knowledgeBaseIds)
+    if (knowledgeBaseIds) next.knowledgeBaseIds = knowledgeBaseIds
     if (validTimestamp(entry.pinnedAt)) {
       next.pinnedAt = entry.pinnedAt
     }
     if (validTimestamp(entry.archivedAt)) {
       next.archivedAt = entry.archivedAt
     }
-    if (next.scope || next.projectId || next.permissionMode || next.pinnedAt || next.archivedAt) {
+    if (
+      next.scope ||
+      next.projectId ||
+      next.permissionMode ||
+      next.knowledgeBaseIds ||
+      next.pinnedAt ||
+      next.archivedAt
+    ) {
       sessions[id] = next
     }
   }
-  return { version: 3, sessions }
+  return { version: 4, sessions }
 }
 
 /** 会话展示元数据：置顶和归档属于 Wanta 侧边栏状态，不修改 OpenCode 会话本体。 */

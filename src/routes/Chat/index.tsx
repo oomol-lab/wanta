@@ -63,6 +63,7 @@ interface ChatAreaProps {
   queuedMessages: QueuedChatMessage[]
   placeholder: string
   contextBar?: React.ReactNode
+  pinnedContextBar?: React.ReactNode
   emptyStateConnectionSummary?: EmptyStateConnectionSummary | null
   workspaceType: "organization" | "personal"
   canManageWorkspaceConnections: boolean
@@ -262,6 +263,7 @@ export const ChatArea = React.memo(function ChatArea({
   queuedMessages,
   placeholder,
   contextBar,
+  pinnedContextBar,
   organizationSkills,
   onComposerStateChange,
   onSend,
@@ -373,6 +375,7 @@ export const ChatArea = React.memo(function ChatArea({
           <h2 className="oo-text-empty-title mx-auto max-w-2xl">{emptyTitle ?? t("chat.emptyTitle")}</h2>
         </div>
         <div className="flex flex-col gap-3">
+          {pinnedContextBar}
           {composer}
           <EmptyStateActions
             canManageWorkspaceConnections={canManageWorkspaceConnections}
@@ -419,6 +422,7 @@ export const ChatArea = React.memo(function ChatArea({
 
           {showCenteredEmptyState ? null : (
             <div className={cn("mx-auto flex w-full flex-col gap-2 px-4", CHAT_CONTENT_MAX_WIDTH_CLASS)}>
+              {pinnedContextBar}
               {composer}
             </div>
           )}

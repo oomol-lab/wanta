@@ -4,6 +4,7 @@ import type {
   AuthorizationInfo,
   ChatPermissionReply,
 } from "../../../electron/chat/common.ts"
+import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
 import type { ChatSendRequest, ChatSendResult } from "./app-shell-model.ts"
@@ -63,9 +64,11 @@ import { useWorkspaceActivation } from "./use-workspace-activation.ts"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
+import { useAppSettings } from "@/hooks/useAppSettings"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
+import { useKnowledgeBases } from "@/hooks/useKnowledgeBases"
 import { useOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import { useOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
 import { useProjectGit } from "@/hooks/useProjectGit"
@@ -79,6 +82,7 @@ import { cn } from "@/lib/utils"
 import { chatTurnAllowsDirectSend, chatTurnQueuesNewMessage, resolveChatTurnState } from "@/routes/Chat/chat-turn-state"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
+import { ContextMentionChips } from "@/routes/Chat/ContextMentionChips"
 import { summarizeEmptyStateConnections } from "@/routes/Chat/empty-state-connections"
 
 const ArchivedRoute = React.lazy(() =>
@@ -91,6 +95,9 @@ const ConnectionsPanel = React.lazy(() =>
 )
 const OrganizationManagementRoute = React.lazy(() =>
   import("@/routes/Skills/OrganizationManagement").then((module) => ({ default: module.OrganizationManagementRoute })),
+)
+const KnowledgeRoute = React.lazy(() =>
+  import("@/routes/Knowledge").then((module) => ({ default: module.KnowledgeRoute })),
 )
 const SettingsRoute = React.lazy(() =>
   import("@/routes/Settings").then((module) => ({ default: module.SettingsRoute })),
@@ -116,12 +123,15 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const t = useT()
   const chatService = useChatService()
   const appUpdate = useAppUpdate()
+  const appSettings = useAppSettings()
   const [ready, setReady] = React.useState(false)
   const [billingInitialTarget, setBillingInitialTarget] = React.useState<BillingDetailsTarget | null>(null)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
   const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
   const organizationSkills = useOrganizationSkills(organizationWorkspace.activeWorkspace, auth.state?.account?.id)
   const skillInventory = useSkillInventoryResource()
+  const knowledgeBaseBetaEnabled = appSettings.settings.knowledgeBaseBetaEnabled
+  const knowledgeLibrary = useKnowledgeBases(knowledgeBaseBetaEnabled)
   const connections = useConnections(organizationWorkspace.connectionWorkspace)
   const sessionScope = React.useMemo(
     () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
@@ -140,6 +150,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     createProject,
     assignSessionProject,
     setSessionPermissionMode,
+    setSessionKnowledgeBases,
     renameProject: renameProjectAction,
     pinProject: pinProjectAction,
     archiveProject: archiveProjectAction,
@@ -214,6 +225,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const [selectedSessionId, setSelectedSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [draftPermissionMode, setDraftPermissionMode] = React.useState<AgentPermissionMode>("default")
+  const [draftKnowledgeBaseIds, setDraftKnowledgeBaseIds] = React.useState<string[]>([])
   const [draftProjectId, setDraftProjectId] = React.useState<string | null>(null)
   const [sidebarSegment, setSidebarSegment] = React.useState<SidebarSegment>(() =>
     readStoredSidebarSegment(globalThis.localStorage),
@@ -240,6 +252,24 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     Boolean(selectedSession) && sessionRecordScopeKey(selectedSession?.scope) === currentScopeKey
   const activeChatSessionId = selectedSessionMatchesScope ? selectedSessionId : null
   const activeSession = selectedSessionMatchesScope ? (selectedSession ?? undefined) : undefined
+  const activeKnowledgeBaseIds = knowledgeBaseBetaEnabled
+    ? (activeSession?.knowledgeBaseIds ?? draftKnowledgeBaseIds)
+    : []
+  const activeKnowledgeBases = activeKnowledgeBaseIds.flatMap((id) => {
+    const item = knowledgeLibrary.items.find((candidate) => candidate.id === id)
+    return item ? [item] : []
+  })
+  const pinnedKnowledgeMentions = activeKnowledgeBases.map((item) => ({
+    id: item.id,
+    kind: "knowledge" as const,
+    name: item.title,
+  }))
+
+  React.useEffect(() => {
+    if (!appSettings.loading && !knowledgeBaseBetaEnabled && route === "knowledge") {
+      setRoute("chat")
+    }
+  }, [appSettings.loading, knowledgeBaseBetaEnabled, route])
 
   const {
     messages,
@@ -404,6 +434,16 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       persistPermissionMode(sessionId, mode)
     },
     [persistPermissionMode, setChatPermissionMode],
+  )
+  const persistKnowledgeBaseIds = React.useCallback(
+    (sessionId: string, ids: string[]): void => {
+      void setSessionKnowledgeBases(sessionId, ids).catch((cause: unknown) => {
+        console.error("[wanta] persist session knowledge bases failed", cause)
+        reportRendererHandledError("appShell.knowledgeBases", "Failed to persist session knowledge bases", cause)
+        toast.error(cause instanceof Error ? cause.message : String(cause))
+      })
+    },
+    [setSessionKnowledgeBases],
   )
   const {
     clearAutoFallbackTitle,
@@ -600,11 +640,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           ? t("connections.title")
           : route === "skills"
             ? t("skills.title")
-            : route === "organizations"
-              ? t("organizations.title")
-              : route === "archived"
-                ? t("archived.title")
-                : (activeSession?.title ?? t("chat.newSession"))
+            : route === "knowledge" && knowledgeBaseBetaEnabled
+              ? t("knowledge.title")
+              : route === "organizations"
+                ? t("organizations.title")
+                : route === "archived"
+                  ? t("archived.title")
+                  : (activeSession?.title ?? t("chat.newSession"))
   const titlebarEditable = route === "chat" && Boolean(activeSession)
 
   React.useEffect(() => {
@@ -655,6 +697,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const readLastProjectId = React.useCallback((): string | null => lastChatProjectId.current, [])
   const {
     handleNewSession,
+    handleNewTaskSession,
     handleOpenProjectDraft,
     handleSelectComposerProject,
     handleSelectComposerProjectFolder,
@@ -683,6 +726,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setSidebarSegment,
     sidebarSegment,
   })
+  const handleNewSessionWithKnowledgeReset = React.useCallback((): void => {
+    setDraftKnowledgeBaseIds([])
+    handleNewSession()
+  }, [handleNewSession])
   const handleSessionArchived = React.useCallback(
     (session: SessionInfo): void => {
       clearComposerDraft(existingSessionComposerDraftKey(sessionRecordScopeKey(session.scope), session.id))
@@ -729,7 +776,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     displayedPermissionMode,
     messages,
     messagesLoaded,
+    knowledgeBaseIds: activeKnowledgeBaseIds,
     organizationSkills: organizationSkills.chatContextSkills,
+    persistKnowledgeBaseIds,
     persistPermissionMode,
     send,
     sessionScope,
@@ -843,6 +892,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setSelectedSessionId(null)
     setIsDraftSession(false)
     setDraftPermissionMode("default")
+    setDraftKnowledgeBaseIds([])
     setDraftProjectId(null)
     setPendingChatTransition(null)
     sessionActions.resetDialogs()
@@ -880,6 +930,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         reasoningLevel,
         text,
       } = request
+      const effectiveContextMentions = [
+        ...contextMentions.filter((mention) => mention.kind !== "knowledge"),
+        ...pinnedKnowledgeMentions,
+      ]
       const draftKey = activeComposerDraftKey
       const clearSubmittedDraft = (): void => {
         clearComposerDraft(draftKey)
@@ -889,7 +943,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         queueActiveMessage(
           text,
           attachments,
-          contextMentions,
+          effectiveContextMentions,
           model,
           reasoningLevel,
           mode,
@@ -904,7 +958,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       const result = await sendNow({
         afterOptimisticSubmit: clearSubmittedDraft,
         attachments,
-        contextMentions,
+        contextMentions: effectiveContextMentions,
         mode,
         model,
         permissionMode,
@@ -924,6 +978,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       activeProjectContext,
       clearComposerDraft,
       organizationSkills.chatContextSkills,
+      pinnedKnowledgeMentions,
       queueActiveMessage,
       releaseActiveQueue,
       sendNow,
@@ -1025,7 +1080,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   useAppShellCommands({
     appUpdate,
     onFocusComposer: requestComposerFocus,
-    onNewChat: handleNewSession,
+    onNewChat: handleNewSessionWithKnowledgeReset,
     onOpenConnections: handleOpenConnectionsCommand,
     onOpenSearch: handleOpenSearch,
     onOpenSettings: handleOpenSettingsCommand,
@@ -1047,6 +1102,34 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setBillingInitialTarget(target ?? null)
     setRoute("billing")
   }, [])
+  const handleStartKnowledgeChat = React.useCallback(
+    (item: KnowledgeBaseSummary): void => {
+      handleNewTaskSession()
+      setDraftKnowledgeBaseIds([item.id])
+    },
+    [handleNewTaskSession],
+  )
+  const handleRemoveKnowledgeBaseReference = React.useCallback(
+    (id: string): void => {
+      const nextIds = activeKnowledgeBaseIds.filter((item) => item !== id)
+      if (activeChatSessionId) persistKnowledgeBaseIds(activeChatSessionId, nextIds)
+      else setDraftKnowledgeBaseIds(nextIds)
+    },
+    [activeChatSessionId, activeKnowledgeBaseIds, persistKnowledgeBaseIds],
+  )
+  const pinnedKnowledgeContextBar =
+    pinnedKnowledgeMentions.length > 0 ? (
+      <div className="flex min-w-0 items-center gap-2 px-1">
+        <span className="oo-text-caption shrink-0 font-medium text-muted-foreground">{t("knowledge.pinned")}</span>
+        <ContextMentionChips
+          className="min-w-0 flex-1"
+          mentions={pinnedKnowledgeMentions}
+          onRemove={(mention) => {
+            if (mention.kind === "knowledge") handleRemoveKnowledgeBaseReference(mention.id)
+          }}
+        />
+      </div>
+    ) : null
   const handleOpenOrganizations = React.useCallback(() => setRoute("organizations"), [])
   const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
@@ -1173,6 +1256,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         projectSessions={visibleProjectSessions}
         projectSidebarGroups={projectSidebarGroups}
         sessionsError={sessionsError}
+        showKnowledge={knowledgeBaseBetaEnabled}
         sidebarSegment={sidebarSegment}
         sidebarSessionGroups={sidebarSessionGroups}
         taskSessions={visibleTaskSessions}
@@ -1183,7 +1267,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         onArchiveSessionRequest={sessionActions.requestArchive}
         onLogout={() => void auth.logout()}
         onNavigate={setRoute}
-        onNewSession={handleNewSession}
+        onNewSession={handleNewSessionWithKnowledgeReset}
         onOpenConnections={() => handleOpenConnections()}
         onOpenSearch={handleOpenSearch}
         onPinProject={(project) => void projectActions.handlePin(project)}
@@ -1249,6 +1333,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                   organizationSkills={organizationSkills}
                   workspace={organizationWorkspace}
                 />
+              ) : route === "knowledge" && knowledgeBaseBetaEnabled ? (
+                <KnowledgeRoute onStartChat={handleStartKnowledgeChat} />
               ) : route === "organizations" ? (
                 <OrganizationManagementRoute
                   connectedProviders={activeProviders}
@@ -1294,6 +1380,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       queueHeld={activeQueueHeld}
                       queuedMessages={activeQueuedMessages}
                       contextBar={composerProjectContext}
+                      pinnedContextBar={pinnedKnowledgeContextBar}
                       placeholder={
                         startupError
                           ? t("error.agent.title")

@@ -27,6 +27,7 @@ import { useTheme } from "@/components/theme-context"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { useAppSettings } from "@/hooks/useAppSettings"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAuth } from "@/hooks/useAuth"
 import { useI18n } from "@/i18n/i18n"
@@ -56,6 +57,7 @@ export function SettingsRoute({ onBack }: { onBack: () => void }) {
   const { locale, setLocale, t } = useI18n()
   const auth = useAuth()
   const update = useAppUpdate()
+  const appSettings = useAppSettings()
 
   return (
     <PageRouteShell backLabel={t("settings.backToApp")} contentClassName="max-w-[60rem] gap-6" onBack={onBack}>
@@ -83,8 +85,62 @@ export function SettingsRoute({ onBack }: { onBack: () => void }) {
             <UpdateChannelSettings update={update} />
           </SettingsItem>
         </SettingsSection>
+
+        <SettingsSection title={t("settings.groupBetaFeatures")}>
+          <SettingsItem title={t("settings.knowledgeBeta")} description={t("settings.knowledgeBetaDescription")}>
+            <KnowledgeBetaToggle
+              enabled={appSettings.settings.knowledgeBaseBetaEnabled}
+              loading={appSettings.loading}
+              onChange={appSettings.setKnowledgeBaseBetaEnabled}
+            />
+          </SettingsItem>
+        </SettingsSection>
       </div>
     </PageRouteShell>
+  )
+}
+
+function KnowledgeBetaToggle({
+  enabled,
+  loading,
+  onChange,
+}: {
+  enabled: boolean
+  loading: boolean
+  onChange: (enabled: boolean) => Promise<void>
+}) {
+  const { t } = useI18n()
+  const [saving, setSaving] = React.useState(false)
+  const disabled = loading || saving
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={t("settings.knowledgeBeta")}
+      disabled={disabled}
+      onClick={() => {
+        setSaving(true)
+        void onChange(!enabled)
+          .catch((error: unknown) => {
+            toast.error(t("settings.knowledgeBetaUpdateFailed"))
+            console.error("[wanta] update knowledge beta setting failed", error)
+          })
+          .finally(() => setSaving(false))
+      }}
+      className={cn(
+        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors disabled:opacity-50",
+        enabled ? "border-foreground bg-foreground" : "border-border bg-muted",
+      )}
+    >
+      <span
+        className={cn(
+          "block size-4 rounded-full bg-background shadow-sm transition-transform",
+          enabled ? "translate-x-6" : "translate-x-1",
+        )}
+      />
+    </button>
   )
 }
 

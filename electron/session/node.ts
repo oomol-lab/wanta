@@ -7,6 +7,7 @@ import type {
   GenerateSessionTitleRequest,
   GenerateSessionTitleResult,
   SetSessionPermissionModeRequest,
+  SetSessionKnowledgeBasesRequest,
   SessionInfo,
   SessionPlacement,
   SessionProject,
@@ -276,6 +277,20 @@ export class SessionServiceImpl
     this.setMetadataEntry(req.id, next)
     await this.persistMetadata()
     this.broadcastChangedBestEffort("set session permission mode")
+  }
+
+  public async setKnowledgeBases(req: SetSessionKnowledgeBasesRequest): Promise<void> {
+    if (!this.agent) return
+    await this.ensureMetadataLoaded()
+    const current = this.sessionMetadata.get(req.id) ?? {}
+    const knowledgeBaseIds = [...new Set(req.knowledgeBaseIds.map((id) => id.trim()).filter(Boolean))]
+    if (JSON.stringify(current.knowledgeBaseIds ?? []) === JSON.stringify(knowledgeBaseIds)) return
+    const next = { ...current }
+    if (knowledgeBaseIds.length > 0) next.knowledgeBaseIds = knowledgeBaseIds
+    else delete next.knowledgeBaseIds
+    this.setMetadataEntry(req.id, next)
+    await this.persistMetadata()
+    this.broadcastChangedBestEffort("set session knowledge bases")
   }
 
   public async renameProject(req: { id: string; name: string }): Promise<void> {
@@ -596,7 +611,14 @@ export class SessionServiceImpl
   }
 
   private setMetadataEntry(id: string, metadata: SessionMetadata): void {
-    if (metadata.scope || metadata.projectId || metadata.permissionMode || metadata.pinnedAt || metadata.archivedAt) {
+    if (
+      metadata.scope ||
+      metadata.projectId ||
+      metadata.permissionMode ||
+      metadata.knowledgeBaseIds ||
+      metadata.pinnedAt ||
+      metadata.archivedAt
+    ) {
       this.sessionMetadata.set(id, metadata)
     } else {
       this.sessionMetadata.delete(id)
@@ -624,6 +646,7 @@ export class SessionServiceImpl
       scope,
       ...(project ? { projectId: project.id } : {}),
       ...(metadata?.permissionMode ? { permissionMode: metadata.permissionMode } : {}),
+      ...(metadata?.knowledgeBaseIds ? { knowledgeBaseIds: metadata.knowledgeBaseIds } : {}),
       ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
       ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
       ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),
@@ -656,6 +679,7 @@ export class SessionServiceImpl
           scope,
           ...(project ? { projectId: project.id } : {}),
           ...(metadata?.permissionMode ? { permissionMode: metadata.permissionMode } : {}),
+          ...(metadata?.knowledgeBaseIds ? { knowledgeBaseIds: metadata.knowledgeBaseIds } : {}),
           ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
           ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
           ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),

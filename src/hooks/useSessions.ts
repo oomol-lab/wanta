@@ -58,6 +58,7 @@ export interface UseSessions {
   createProject: (req: CreateProjectRequest) => Promise<SessionProject>
   assignSessionProject: (sessionId: string, projectId?: string) => Promise<void>
   setSessionPermissionMode: (id: string, permissionMode: SessionInfo["permissionMode"]) => Promise<void>
+  setSessionKnowledgeBases: (id: string, knowledgeBaseIds: string[]) => Promise<void>
   renameProject: (id: string, name: string) => Promise<void>
   pinProject: (id: string, pinned: boolean) => Promise<void>
   archiveProject: (id: string) => Promise<void>
@@ -282,6 +283,25 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     [isCurrentScope, scopeKey, sessionService],
   )
 
+  const setSessionKnowledgeBases = React.useCallback(
+    async (id: string, knowledgeBaseIds: string[]) => {
+      const mutationScopeKey = scopeKey
+      const normalizedIds = [...new Set(knowledgeBaseIds.map((item) => item.trim()).filter(Boolean))]
+      await sessionService.invoke("setKnowledgeBases", { id, knowledgeBaseIds: normalizedIds })
+      if (!isCurrentScope(mutationScopeKey)) return
+      setSessions((current) =>
+        current.map((session) => {
+          if (session.id !== id) return session
+          const next = { ...session }
+          if (normalizedIds.length > 0) next.knowledgeBaseIds = normalizedIds
+          else delete next.knowledgeBaseIds
+          return next
+        }),
+      )
+    },
+    [isCurrentScope, scopeKey, sessionService],
+  )
+
   const removeProject = React.useCallback(
     async (id: string) => {
       const mutationScopeKey = scopeKey
@@ -425,6 +445,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     createProject,
     assignSessionProject,
     setSessionPermissionMode,
+    setSessionKnowledgeBases,
     renameProject,
     pinProject,
     archiveProject,

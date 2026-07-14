@@ -1,6 +1,16 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { buildPermissionModeSystem } from "./context-system.ts"
+import { buildContextMentionsSystem, buildPermissionModeSystem } from "./context-system.ts"
+
+test("buildContextMentionsSystem describes a pinned knowledge base without exposing a path", () => {
+  const prompt = buildContextMentionsSystem([{ id: "kb-1", kind: "knowledge", name: "西游记" }]) ?? ""
+
+  assert.match(prompt, /query_knowledge/)
+  assert.match(prompt, /kb-1/)
+  assert.match(prompt, /西游记/)
+  assert.match(prompt, /Never modify/)
+  assert.doesNotMatch(prompt, /\/Users\//)
+})
 
 test("buildPermissionModeSystem describes default access", () => {
   const prompt = buildPermissionModeSystem("default")

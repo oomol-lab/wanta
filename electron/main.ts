@@ -40,6 +40,8 @@ import { TurnOutputStore } from "./chat/turn-outputs.ts"
 import { parseConnectionOAuthCallback } from "./connections/domain.ts"
 import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./diagnostics-log.ts"
 import { GitServiceImpl } from "./git/node.ts"
+import { KnowledgeServiceImpl } from "./knowledge/node.ts"
+import { KnowledgeStore } from "./knowledge/store.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
 import { installOomolCorsShim } from "./net/oomol-cors.ts"
@@ -99,6 +101,8 @@ const server = new ConnectionServer(new ElectronServerAdapter())
 
 const settingsStore = new SettingsStore(app.getPath("userData"))
 const modelsStore = new ModelsStore(app.getPath("userData"))
+const knowledgeStore = new KnowledgeStore(app.getPath("userData"))
+const wikiGraphCliPath = path.join(app.getAppPath(), "node_modules", "wiki-graph", "dist", "cli.js")
 // 二进制解析：生产从打包 Resources/bin（extraResources），dev 从 node_modules（opencode）与 .oo-bin（oo）。
 const opencodeBinPath = app.isPackaged
   ? resolveBundledBin(process.resourcesPath, opencodeBinaryName())
@@ -205,6 +209,10 @@ const updateService = new UpdateServiceImpl({
 const gitService = new GitServiceImpl({
   projectStore: sessionProjectStore,
 })
+const knowledgeService = new KnowledgeServiceImpl({
+  runtime: { executablePath: process.execPath, cliPath: wikiGraphCliPath },
+  store: knowledgeStore,
+})
 
 chatService.sessionActivity.on(({ sessionId, usedAt }) => {
   void sessionService.recordUseAndEmit(sessionId, usedAt).catch((error: unknown) => {
@@ -229,6 +237,7 @@ server.registerService(settingsService)
 server.registerService(authService)
 server.registerService(updateService)
 server.registerService(gitService)
+server.registerService(knowledgeService)
 settingsService.applyStartupTheme()
 registerAttachmentDialogHandlers(trustedAttachmentPaths)
 registerAppLocaleHandler()
@@ -506,6 +515,9 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     authToken: account.sessionToken,
     opencodeBinPath,
     ooBinPath,
+    wikiGraphCliPath,
+    wikiGraphExecutablePath: process.execPath,
+    knowledgeRegistryPath: knowledgeStore.registryPath(),
     bundledSkillsDir,
     organizationName: activeAgentOrganizationName,
     rootDir: path.join(app.getPath("userData"), "agent"),

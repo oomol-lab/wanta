@@ -12,6 +12,7 @@ type ProjectSelectionSource = "composer" | "sidebar"
 
 export interface ComposerNavigationController {
   handleNewSession: () => void
+  handleNewTaskSession: () => void
   handleOpenProjectDraft: (project: SessionProject) => void
   handleReturnToConnections: () => void
   handleSelectComposerProject: (projectId: string | undefined) => Promise<void>
@@ -107,6 +108,9 @@ export function useComposerNavigation({
       }),
     )
   }, [activeSession, draftProjectId, lastProjectId, route, sidebarSegment, startNewSessionDraft])
+  const handleNewTaskSession = React.useCallback((): void => {
+    startNewSessionDraft({ sidebarSegment: "tasks" })
+  }, [startNewSessionDraft])
   const handleOpenProjectDraft = React.useCallback(
     (project: SessionProject): void => {
       // 项目入口用于切换当前草稿；仅“新建会话”操作才会显式清空该项目已有草稿。
@@ -202,6 +206,7 @@ export function useComposerNavigation({
 
   return {
     handleNewSession,
+    handleNewTaskSession,
     handleOpenProjectDraft,
     handleReturnToConnections,
     handleSelectComposerProject,

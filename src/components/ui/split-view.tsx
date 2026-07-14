@@ -45,7 +45,7 @@ function SplitViewHeader({ children, className, narrowPane, ...props }: SplitVie
 }
 
 interface SplitViewBodyProps extends React.ComponentProps<"div"> {
-  desktopLayout?: "default" | "narrow-list" | "single"
+  desktopLayout?: "compact-detail" | "default" | "narrow-list" | "single"
 }
 
 function SplitViewBody({ children, className, desktopLayout = "default", ...props }: SplitViewBodyProps) {
@@ -54,6 +54,7 @@ function SplitViewBody({ children, className, desktopLayout = "default", ...prop
       data-slot="split-view-body"
       className={cn(
         "grid min-h-0 overflow-hidden",
+        desktopLayout === "compact-detail" && "min-[960px]:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]",
         desktopLayout === "default" && "min-[960px]:grid-cols-[minmax(0,1fr)_minmax(24rem,min(46%,34rem))]",
         desktopLayout === "narrow-list" && "min-[960px]:grid-cols-[minmax(24rem,31rem)_minmax(22rem,1fr)]",
         desktopLayout === "single" && "min-[960px]:grid-cols-[minmax(0,1fr)]",

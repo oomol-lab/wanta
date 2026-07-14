@@ -1,0 +1,32 @@
+import { mkdtemp, readFile, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { describe, expect, it } from "vitest"
+import { fileSha256, KnowledgeStore } from "./store.ts"
+
+describe("KnowledgeStore", () => {
+  it("copies imports into its managed directory and deduplicates by content", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-knowledge-"))
+    const source = path.join(dir, "西游记.wikg")
+    await writeFile(source, "knowledge archive")
+    const store = new KnowledgeStore(path.join(dir, "user-data"))
+    const first = await store.copyForImport(source)
+    expect(first.duplicate).toBeNull()
+    expect(await readFile(first.managedPath, "utf-8")).toBe("knowledge archive")
+    await store.save({
+      id: first.id,
+      filePath: first.managedPath,
+      fingerprint: first.fingerprint,
+      importedAt: 1,
+      size: first.size,
+      sourceFileName: "西游记.wikg",
+      title: "西游记",
+      authors: ["吴承恩"],
+      capabilities: { fullTextSearch: true, knowledgeGraph: true, readingGraph: true, summary: true },
+      statistics: { contentChapters: 100 },
+    })
+    const second = await store.copyForImport(source)
+    expect(second.duplicate?.id).toBe(first.id)
+    expect(await fileSha256(source)).toBe(first.fingerprint)
+  })
+})

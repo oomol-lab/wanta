@@ -311,6 +311,8 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /Workspace identity is invariant for a turn/)
   assert.match(WANTA_SYSTEM_PROMPT, /never omit or change it to recover from an error/)
   assert.match(WANTA_SYSTEM_PROMPT, /Use Mermaid for processes, timelines, hierarchies/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Do not use plain, text, or unlabeled fenced code blocks/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Do not repeat a Mermaid diagram as an ASCII or plain-text diagram/)
   assert.match(WANTA_SYSTEM_PROMPT, /5-8 core nodes and 5-12 core edges/)
   assert.match(WANTA_SYSTEM_PROMPT, /Chinese quotation marks such as “嫂嫂”/)
   assert.match(WANTA_SYSTEM_PROMPT, /style, classDef, linkStyle/)

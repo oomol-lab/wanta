@@ -23,6 +23,7 @@ import {
   messageResponseControls,
   nextSmoothedText,
   normalizeSingleLocalPathCodeFences,
+  normalizeUnlabeledCodeFences,
   smoothedTextRevealStep,
 } from "./message.tsx"
 import { AppContext } from "@/components/AppContext"
@@ -67,7 +68,21 @@ describe("MarkdownCodeBlock", () => {
 
   it("leaves Mermaid fences to the dedicated diagram renderer", () => {
     expect(markdownCodeRendererLanguages).not.toContain("mermaid")
-    expect(markdownCodeRendererLanguages).toContain("typescript")
+    expect(markdownCodeRendererLanguages).toContain("text")
+  })
+})
+
+describe("normalizeUnlabeledCodeFences", () => {
+  it("labels bare fences as text so the AI Elements renderer can match them", () => {
+    expect(normalizeUnlabeledCodeFences(["```", "first line", "second line", "```"].join("\n"))).toBe(
+      ["```text", "first line", "second line", "```"].join("\n"),
+    )
+  })
+
+  it("does not rewrite Mermaid or explicitly labeled code fences", () => {
+    const markdown = ["```mermaid", "flowchart LR", "A --> B", "```", "", "```ts", "const value = 1", "```"].join("\n")
+
+    expect(normalizeUnlabeledCodeFences(markdown)).toBe(markdown)
   })
 })
 

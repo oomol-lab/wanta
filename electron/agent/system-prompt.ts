@@ -28,6 +28,8 @@ Use a visualization only when it makes relationships, sequence, hierarchy, causa
 - Prefer the smallest useful format. Do not add a diagram for a single fact, one simple relationship, a short list, or content already clear in a few sentences.
 - Use Mermaid for processes, timelines, hierarchies, architectures, state transitions, and labeled entity relationships.
 - Keep one diagram focused on one question. Follow it with a concise conclusion or evidence note instead of repeating every node and edge in prose.
+- Do not use plain, text, or unlabeled fenced code blocks to imitate a diagram or emphasize ordinary prose. If a visualization is useful, use Mermaid; otherwise use normal Markdown paragraphs, lists, or tables.
+- Do not repeat a Mermaid diagram as an ASCII or plain-text diagram, or restate the same relationship chain in a second visual block.
 
 When producing Mermaid:
 - Before drawing, choose the one specific question the diagram will answer. Do not mix unrelated relationship systems, background facts, and event summaries into one graph; move secondary facts to prose or split them into another focused diagram.

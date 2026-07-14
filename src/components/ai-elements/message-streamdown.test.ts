@@ -1,12 +1,16 @@
 import type { DiagramPlugin } from "streamdown"
 
+import * as React from "react"
+import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import {
+  MessageStreamdown,
   mermaidRendererControls,
   messageStreamdownControls,
   nativeMessageStreamdownControls,
   wrapMermaidPluginWithValidation,
 } from "./message-streamdown.tsx"
+import { I18nContext, translate } from "@/i18n/i18n"
 
 describe("messageStreamdownControls", () => {
   it("adds compact product-owned Mermaid controls without changing existing code controls", () => {
@@ -62,5 +66,28 @@ describe("messageStreamdownControls", () => {
       "Mermaid click actions are not supported",
     )
     expect(render).not.toHaveBeenCalled()
+  })
+
+  it("keeps Mermaid fences on the dedicated Wanta renderer", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(
+        I18nContext.Provider,
+        {
+          value: {
+            locale: "zh-CN",
+            setLocale: () => undefined,
+            t: (key, vars) => translate("zh-CN", key, vars),
+          },
+        },
+        React.createElement(
+          MessageStreamdown,
+          { defaultRenderers: [] },
+          ["```mermaid", "flowchart LR", "A[Start] --> B[Done]", "```"].join("\n"),
+        ),
+      ),
+    )
+
+    expect(html).toContain("oo-mermaid-loading")
+    expect(html).not.toContain('data-streamdown="code-block"')
   })
 })

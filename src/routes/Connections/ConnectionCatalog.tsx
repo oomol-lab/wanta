@@ -124,7 +124,7 @@ export function ConnectionListToolbar({
       )
       const nextCount = getFittingCategoryFilterCount({
         availableWidth,
-        baseFilterWidths: [availableToolsWidth, allWidth, connectedWidth, directlyAvailableWidth, attentionWidth],
+        baseFilterWidths: [allWidth, availableToolsWidth, connectedWidth, directlyAvailableWidth, attentionWidth],
         categoryFilterWidths,
         filters: categoryFilters,
         gap,
@@ -178,12 +178,12 @@ export function ConnectionListToolbar({
               }
             }}
           >
+            <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
             <FilterToggleItem
               count={loading ? null : availableToolsCount}
               label={t("connections.filterAvailableTools")}
               value="available-tools"
             />
-            <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
             <FilterToggleItem
               count={loading ? null : connectedCount}
               label={t("connections.filterConnected")}
@@ -239,15 +239,15 @@ export function ConnectionListToolbar({
       </div>
       <div ref={filterMeasurementRef} aria-hidden="true" className="pointer-events-none invisible absolute -z-10">
         <ToggleGroup type="single" variant="default" size="sm" spacing={1} className="flex w-max flex-nowrap gap-1">
+          <span data-filter-measure="all">
+            <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
+          </span>
           <span data-filter-measure="available-tools">
             <FilterToggleItem
               count={loading ? null : availableToolsCount}
               label={t("connections.filterAvailableTools")}
               value="available-tools"
             />
-          </span>
-          <span data-filter-measure="all">
-            <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
           </span>
           <span data-filter-measure="connected">
             <FilterToggleItem

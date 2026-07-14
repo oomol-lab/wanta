@@ -61,7 +61,7 @@ test("directly available providers stay outside configured connection counts", (
   )
   assert.equal(
     getProviderStatusDisplayLabel(ready, (key, vars) => translate("en", key, vars)),
-    "Ready to use",
+    "No setup",
   )
 })
 
@@ -95,7 +95,7 @@ test("mixed direct and API key providers are directly available before configura
   assert.equal(shouldLoadProviderDetail(ready), true)
   assert.equal(matchesProviderFilter(ready, { kind: "directly-available" }), true)
   assert.equal(getProviderStatusTone(ready), "directly-available")
-  assert.equal(getProviderActionLabel(ready, t), "Ready to use")
+  assert.equal(getProviderActionLabel(ready, t), "No setup")
 })
 
 test("availability catalog filters round trip", () => {

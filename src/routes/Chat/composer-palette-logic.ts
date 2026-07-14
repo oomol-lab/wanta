@@ -6,6 +6,7 @@ export type RootPaletteAction =
   | "attach-file-or-folder"
   | "attach-folder"
   | "billing"
+  | "bug-report"
   | "connections"
   | "creator-skill"
   | "skills"
@@ -28,6 +29,10 @@ export function shouldOpenRootPaletteItem(
   action: RootPaletteAction | undefined,
 ): boolean {
   return triggerKind === "slash" && paletteMode === "root" && (action === "skills" || action === "connections")
+}
+
+export function slashCommandDraftReplacement(action: RootPaletteAction): string | undefined {
+  return action === "bug-report" ? "/bug-report " : undefined
 }
 
 export function resolveComposerPaletteKeyAction({

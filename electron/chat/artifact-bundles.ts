@@ -574,19 +574,34 @@ export async function buildArtifactBundle(input: {
   sessionId: string
   materializedOrigins?: ReadonlyMap<string, ArtifactItemOrigin>
 }): Promise<ArtifactBundle | null> {
+  const { artifactRoot, materializedOrigins = new Map<string, ArtifactItemOrigin>() } = input
+  const group = await managedArtifactGroup(artifactRoot, materializedOrigins)
+  if (!group) {
+    return null
+  }
+  return buildArtifactBundleFromGroup({ ...input, group })
+}
+
+export function buildArtifactBundleFromGroup(input: {
+  artifactRoot: string
+  completedAt: number
+  createdAt: number
+  generatedPreviewCount: number
+  group: LocalArtifactGroup
+  messageId: string
+  sessionId: string
+  materializedOrigins?: ReadonlyMap<string, ArtifactItemOrigin>
+}): ArtifactBundle | null {
   const {
     artifactRoot,
     materializedOrigins = new Map<string, ArtifactItemOrigin>(),
     completedAt,
     createdAt,
     generatedPreviewCount,
+    group,
     messageId,
     sessionId,
   } = input
-  const group = await managedArtifactGroup(artifactRoot, materializedOrigins)
-  if (!group) {
-    return null
-  }
   if (group.items.length === 0) {
     return generatedPreviewCount > 0
       ? {

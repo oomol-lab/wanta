@@ -405,6 +405,8 @@ export const zhCNMessages = {
   "chat.commandSkillsDescription": "选择本轮要带上的技能上下文",
   "chat.commandConnections": "Connections",
   "chat.commandConnectionsDescription": "选择本轮要使用的连接器上下文",
+  "chat.commandBugReport": "问题报告",
+  "chat.commandBugReportDescription": "根据当前任务生成一份供 Wanta 开发者使用的 Markdown 报告",
   "chat.commandAttachFile": "添加文件",
   "chat.commandAttachFileDescription": "从磁盘添加文件作为上下文",
   "chat.commandAttachFileOrFolder": "添加文件或文件夹",

@@ -7,9 +7,15 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, test, vi } from "vitest"
-import { ArtifactBundleStore, buildArtifactBundle, recordArtifactBundle } from "./artifact-bundles.ts"
+import {
+  ArtifactBundleStore,
+  buildArtifactBundle,
+  buildArtifactBundleFromGroup,
+  recordArtifactBundle,
+} from "./artifact-bundles.ts"
 import { AuthorizationOverlayStore } from "./authorization.ts"
 import { buildContextMentionsSystem, ChatServiceImpl, isAbortErrorMessage } from "./node.ts"
+import { resolveChatTurnExecution } from "./turn-execution.ts"
 import { TurnOutputStore } from "./turn-outputs.ts"
 
 afterEach(() => {
@@ -1610,6 +1616,81 @@ test("sendMessage passes selected context, organization skills, and project as p
   assert.match(options?.system ?? "", /use this project directory as an absolute path/)
   assert.match(options?.system ?? "", /Do not mention the full project directory/)
   assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", undefined]])
+})
+
+test("sendMessage turns /bug-report into a Markdown artifact-only turn", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-bug-report-"))
+  const artifactDir = path.join(root, "artifacts")
+  const bridge = createBridgeAgent()
+  bridge.createArtifactDir.mockResolvedValue(artifactDir)
+  const service = new ChatServiceImpl(bridge.agent, {
+    bugReportRuntime: {
+      appCommit: "abc123",
+      appVersion: "1.2.3",
+      platform: "darwin",
+    },
+  })
+
+  try {
+    await service.sendMessage({
+      mode: "plan",
+      model: { id: "oopilot", kind: "builtin" },
+      permissionMode: "default",
+      scope: { type: "personal" },
+      sessionId: "session-1",
+      text: "/bug-report Focus on the authorization state mismatch.",
+    })
+
+    assert.equal(bridge.promptStreaming.mock.calls.length, 1)
+    assert.equal(bridge.promptStreaming.mock.calls[0]?.[1], "/bug-report Focus on the authorization state mismatch.")
+    const options = bridge.promptStreaming.mock.calls[0]?.[2] as { mode?: string; system?: string } | undefined
+    assert.equal(options?.mode, "build")
+    assert.match(options?.system ?? "", /built-in \/bug-report command/)
+    assert.match(options?.system ?? "", /Focus on the authorization state mismatch/)
+    assert.match(options?.system ?? "", /wanta-bug-report\.md/)
+    assert.match(options?.system ?? "", /Wanta version: 1\.2\.3/)
+    assert.match(options?.system ?? "", /Build commit: abc123/)
+    assert.match(options?.system ?? "", /Do not reproduce the report body in the assistant response/)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("plan mode bug report resolves a Build artifact root and bundle in memory", () => {
+  const projectPath = "/projects/wanta"
+  const artifactRoot = `${projectPath}/.wanta/artifacts/session-1/turn-1`
+  const execution = resolveChatTurnExecution({
+    forcedMode: "build",
+    requestedMode: "plan",
+    trustedProjectRoot: projectPath,
+  })
+  const bundle = buildArtifactBundleFromGroup({
+    artifactRoot,
+    completedAt: 2,
+    createdAt: 1,
+    generatedPreviewCount: 0,
+    group: {
+      items: [
+        {
+          kind: "file",
+          mime: "text/markdown",
+          name: "wanta-bug-report.md",
+          path: `${artifactRoot}/wanta-bug-report.md`,
+          size: 20,
+        },
+      ],
+      totalItems: 1,
+      truncated: false,
+    },
+    messageId: "assistant-1",
+    sessionId: "session-1",
+  })
+
+  assert.deepEqual(execution, { artifactProjectRoot: projectPath, mode: "build" })
+  assert.equal(bundle?.rootPath, artifactRoot)
+  assert.equal(bundle?.kind, "document")
+  assert.equal(bundle?.display, "single")
+  assert.equal(bundle?.items[0]?.name, "wanta-bug-report.md")
 })
 
 test("build mode stores artifacts under the registered project", async () => {

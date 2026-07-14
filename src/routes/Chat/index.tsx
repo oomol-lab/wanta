@@ -9,6 +9,7 @@ import type {
   ChatQuestionRequest,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { ConnectionCatalogFilter } from "../Connections/connection-route-model.ts"
 import type { ChatTurnRetrySource } from "./chat-turns.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { EmptyStateConnectionSummary } from "./empty-state-connections.ts"
@@ -86,7 +87,7 @@ interface ChatAreaProps {
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
   onTurnOutputAvailable: (selection: TurnOutputSelection) => void
-  onOpenConnections?: () => void
+  onOpenConnections?: (filter?: ConnectionCatalogFilter) => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onOpenOrganizations?: () => void
   onViewBilling?: () => void
@@ -115,7 +116,7 @@ function EmptyStateActions({
   canManageWorkspaceConnections: boolean
   connectionSummary?: EmptyStateConnectionSummary | null
   workspaceType: "organization" | "personal"
-  onOpenConnections?: () => void
+  onOpenConnections?: (filter?: ConnectionCatalogFilter) => void
   onOpenOrganizations?: () => void
 }) {
   const t = useT()
@@ -141,7 +142,7 @@ function EmptyStateActions({
           actionLabel={t(currentTools.actionKey)}
           ariaLabel={t(currentTools.ariaLabelKey)}
           highlighted={currentTools.highlighted}
-          onClick={onOpenConnections}
+          onClick={() => onOpenConnections?.(currentTools.targetFilter)}
         />
         <EmptyCapabilityAction
           icon={<PlugZap className="size-4" />}
@@ -153,7 +154,7 @@ function EmptyStateActions({
               : t("chat.emptyMoreConnectorsBrowseAction")
           }
           ariaLabel={t("chat.emptyConnectorsAria")}
-          onClick={onOpenConnections}
+          onClick={() => onOpenConnections?.({ kind: "all" })}
         />
         {organizationSkillEntryVisible ? (
           <EmptyCapabilityAction

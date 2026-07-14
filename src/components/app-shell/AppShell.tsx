@@ -15,6 +15,7 @@ import type { BillingDetailsTarget } from "@/components/app-shell/BillingUsagePo
 import type { UseAuth } from "@/hooks/useAuth"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
+import type { ConnectionCatalogFilter } from "@/routes/Connections/connection-route-model.ts"
 import type { ChatStatus } from "ai"
 
 import { PanelRightClose, PanelRightOpen } from "lucide-react"
@@ -293,6 +294,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const canManageWorkspaceConnections =
     organizationWorkspace.activeWorkspace.type === "personal" || organizationWorkspace.activeWorkspace.canManage
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
+  const [connectionCatalogFilter, setConnectionCatalogFilter] = React.useState<ConnectionCatalogFilter>({ kind: "all" })
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
   )
@@ -654,7 +656,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const {
     handleNewSession,
     handleOpenProjectDraft,
-    handleReturnToConnections,
     handleSelectComposerProject,
     handleSelectComposerProjectFolder,
     handleSelectProjectFolder,
@@ -773,19 +774,23 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setSelectedSessionId,
   })
 
-  const handleOpenConnections = React.useCallback((): void => {
-    cancelRetryForDrawer(activeComposerDraftKey)
-    setChatConnectionDrawers((current) => {
-      if (!Object.hasOwn(current, activeComposerDraftKey)) {
-        return current
-      }
-      const next = { ...current }
-      delete next[activeComposerDraftKey]
-      return next
-    })
-    setSelectedService(null)
-    setRoute("connections")
-  }, [activeComposerDraftKey, cancelRetryForDrawer])
+  const handleOpenConnections = React.useCallback(
+    (filter: ConnectionCatalogFilter = { kind: "all" }): void => {
+      cancelRetryForDrawer(activeComposerDraftKey)
+      setChatConnectionDrawers((current) => {
+        if (!Object.hasOwn(current, activeComposerDraftKey)) {
+          return current
+        }
+        const next = { ...current }
+        delete next[activeComposerDraftKey]
+        return next
+      })
+      setSelectedService(null)
+      setConnectionCatalogFilter(filter)
+      setRoute("connections")
+    },
+    [activeComposerDraftKey, cancelRetryForDrawer],
+  )
 
   const handleOpenChatConnectionProvider = React.useCallback(
     (service: string): void => {
@@ -1007,9 +1012,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     }
   }, [activeChatSessionId, stop])
   const handleOpenConnectionsCommand = React.useCallback((): void => {
-    handleReturnToConnections()
+    handleOpenConnections()
     void connections.refresh({ forceRefresh: true })
-  }, [connections.refresh, handleReturnToConnections])
+  }, [connections.refresh, handleOpenConnections])
   const handleOpenSettingsCommand = React.useCallback((): void => {
     setSearchOpen(false)
     setRoute("settings")
@@ -1179,7 +1184,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         onLogout={() => void auth.logout()}
         onNavigate={setRoute}
         onNewSession={handleNewSession}
-        onOpenConnections={handleOpenConnections}
+        onOpenConnections={() => handleOpenConnections()}
         onOpenSearch={handleOpenSearch}
         onPinProject={(project) => void projectActions.handlePin(project)}
         onPinSession={(session) => void sessionActions.handlePin(session)}
@@ -1231,7 +1236,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             <React.Suspense fallback={<RouteLoadingFallback />}>
               {route === "connections" ? (
                 <div className="h-full min-h-0 p-0">
-                  <ConnectionsPanel connections={connections} selectedService={selectedService} />
+                  <ConnectionsPanel
+                    connections={connections}
+                    requestedFilter={connectionCatalogFilter}
+                    selectedService={selectedService}
+                  />
                 </div>
               ) : route === "skills" ? (
                 <SkillsRoute

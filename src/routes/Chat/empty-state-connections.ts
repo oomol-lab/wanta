@@ -1,4 +1,5 @@
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { ConnectionCatalogFilter } from "../Connections/connection-route-model.ts"
 import type { MessageKey } from "@/i18n/i18n"
 
 import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
@@ -12,6 +13,7 @@ export interface CurrentToolsPresentation {
   actionKey: MessageKey
   ariaLabelKey: MessageKey
   highlighted: boolean
+  targetFilter: ConnectionCatalogFilter
   meta: { key: MessageKey; vars?: Record<string, string | number> }
   titleKey: MessageKey
 }
@@ -59,6 +61,11 @@ export function resolveCurrentToolsPresentation(
           : "chat.emptySharedConnectorsAria"
         : "chat.emptyPersonalConnectorsAria",
     highlighted: hasConnectionIssue,
+    targetFilter: hasConnectionIssue
+      ? { kind: "attention" }
+      : hasCurrentTools
+        ? { kind: "available-tools" }
+        : { kind: "all" },
     meta,
     titleKey:
       workspaceType === "organization" ? "chat.emptySharedConnectorsTitle" : "chat.emptyPersonalConnectorsTitle",

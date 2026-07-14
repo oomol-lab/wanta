@@ -56,6 +56,7 @@ interface ConnectionsPanelProps {
   connections: UseConnections
   onClose?: () => void
   presentation?: "drawer" | "page"
+  requestedFilter?: ConnectionCatalogFilter
   selectedService?: string | null
 }
 
@@ -64,6 +65,7 @@ export function ConnectionsPanel({
   connections,
   onClose,
   presentation = "page",
+  requestedFilter,
   selectedService,
 }: ConnectionsPanelProps) {
   const t = useT()
@@ -82,7 +84,7 @@ export function ConnectionsPanel({
     summaryError,
   } = connections
   const [query, setQuery] = React.useState("")
-  const [activeFilter, setActiveFilter] = React.useState<ConnectionCatalogFilter>({ kind: "all" })
+  const [activeFilter, setActiveFilter] = React.useState<ConnectionCatalogFilter>(requestedFilter ?? { kind: "all" })
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
   const [detailPaneClosing, setDetailPaneClosing] = React.useState(false)
@@ -109,6 +111,7 @@ export function ConnectionsPanel({
     [providers],
   )
   const directlyAvailableCount = React.useMemo(() => providers.filter(isDirectlyAvailableProvider).length, [providers])
+  const availableToolsCount = connectedCount + directlyAvailableCount
   const catalogProviders = React.useMemo(
     () => providers.filter((provider) => matchesProviderFilter(provider, activeFilter)),
     [activeFilter, providers],
@@ -192,6 +195,15 @@ export function ConnectionsPanel({
   }, [clearDetailCloseTimer, selectedProviderService])
 
   const requestedService = authIntent?.service ?? selectedService
+
+  React.useEffect(() => {
+    if (!requestedFilter) {
+      return
+    }
+
+    setQuery("")
+    setActiveFilter(requestedFilter)
+  }, [requestedFilter])
 
   React.useEffect(() => {
     if (!requestedService) {
@@ -398,6 +410,7 @@ export function ConnectionsPanel({
         <ConnectionListToolbar
           activeFilter={activeFilter}
           attentionCount={attentionCount}
+          availableToolsCount={availableToolsCount}
           categoryFilters={categoryFilters}
           connectedCount={connectedCount}
           directlyAvailableCount={directlyAvailableCount}

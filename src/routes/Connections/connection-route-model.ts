@@ -43,6 +43,7 @@ export const categoryMessageKeysByRawLabel: Record<string, MessageKey> = {
 export type ConnectionCatalogFilter =
   | { kind: "all" }
   | { kind: "attention" }
+  | { kind: "available-tools" }
   | { kind: "category"; category: string }
   | { kind: "connected" }
   | { kind: "directly-available" }
@@ -352,7 +353,13 @@ export function getFilterValue(filter: ConnectionCatalogFilter): string {
 }
 
 export function parseFilterValue(value: string): ConnectionCatalogFilter | null {
-  if (value === "all" || value === "connected" || value === "attention" || value === "directly-available") {
+  if (
+    value === "all" ||
+    value === "available-tools" ||
+    value === "connected" ||
+    value === "attention" ||
+    value === "directly-available"
+  ) {
     return { kind: value }
   }
   if (value.startsWith(categoryFilterPrefix)) {
@@ -435,6 +442,8 @@ export function matchesProviderFilter(provider: ConnectionProviderSummary, filte
   switch (filter.kind) {
     case "all":
       return true
+    case "available-tools":
+      return isConnected(provider) || isDirectlyAvailableProvider(provider)
     case "connected":
       return isConnected(provider)
     case "attention":

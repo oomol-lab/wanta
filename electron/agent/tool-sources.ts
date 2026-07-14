@@ -676,7 +676,7 @@ async function run(args) {
 
 export default tool({
   description:
-    "Query a WikiGraph knowledge base pinned to the conversation. Supports read-only inspect, search, related, evidence, and pack operations. Prefer entity/triple search for relationship questions and retrieve evidence before stating a factual relationship. Never use this tool to modify an archive.",
+    "Query a WikiGraph knowledge base pinned to the conversation. Supports read-only inspect, search, related, evidence, and pack operations. Prefer entity/triple search for relationship questions and retrieve evidence before stating a factual relationship. For relationship diagrams, resolve aliases from entity identifiers, use triple results as candidates, verify important edges with evidence, and use source search for identity-sensitive or context-ambiguous relationships. Evidence counts are passage counts, not confidence scores. Never invoke the WikiGraph CLI directly, expose managed archive paths, or modify an archive.",
   args: {
     knowledgeBaseId: tool.schema.string().describe("The exact knowledgeBaseId provided in the current conversation context."),
     operation: tool.schema.enum(["inspect", "search", "related", "evidence", "pack"]),

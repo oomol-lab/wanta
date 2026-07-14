@@ -56,7 +56,7 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
       lines.push(`- ${quoted(knowledgeBase.name)}; knowledgeBaseId: ${quoted(knowledgeBase.id)}`)
     }
     lines.push(
-      "Use query_knowledge when the user's request depends on these knowledge bases. Prefer entity and triple retrieval for relationship questions, retrieve evidence before presenting factual relationships, and cite chapter/source handles when available. Never modify a knowledge base.",
+      "Use query_knowledge when the user's request depends on these knowledge bases. Prefer entity and triple retrieval for relationship questions, retrieve evidence before presenting factual relationships, and cite chapter/source handles when available. For a requested relationship diagram, choose one specific question, keep the Mermaid graph focused on roughly 5-8 core entities, merge verified aliases, move secondary facts to prose, and use dotted edges for inference or uncertainty. Do not emit style directives or hard-coded colors. Never invoke the WikiGraph CLI directly or expose managed archive paths. Never modify a knowledge base.",
     )
   }
   return lines.join("\n")

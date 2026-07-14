@@ -9,6 +9,10 @@ test("buildContextMentionsSystem describes a pinned knowledge base without expos
   assert.match(prompt, /kb-1/)
   assert.match(prompt, /西游记/)
   assert.match(prompt, /Never modify/)
+  assert.match(prompt, /Mermaid graph focused/)
+  assert.match(prompt, /5-8 core entities/)
+  assert.match(prompt, /Do not emit style directives/)
+  assert.match(prompt, /Never invoke the WikiGraph CLI directly/)
   assert.doesNotMatch(prompt, /\/Users\//)
 })
 

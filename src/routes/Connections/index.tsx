@@ -20,7 +20,6 @@ import {
   detailPaneAnimationMs,
   isConnected,
   isDirectlyAvailableProvider,
-  isUsableProvider,
   matchesProviderFilter,
   matchesProviderQuery,
 } from "./connection-route-model.ts"
@@ -105,7 +104,6 @@ export function ConnectionsPanel({
   const normalizedQuery = deferredQuery.trim().toLowerCase()
   const categoryFilters = React.useMemo(() => buildCategoryFilters(providers, t), [providers, t])
   const connectedCount = React.useMemo(() => providers.filter(isConnected).length, [providers])
-  const usableCount = React.useMemo(() => providers.filter(isUsableProvider).length, [providers])
   const attentionCount = React.useMemo(
     () => providers.filter((provider) => provider.status === "needs_attention").length,
     [providers],
@@ -406,7 +404,6 @@ export function ConnectionsPanel({
           loading={summaryLoading}
           query={query}
           totalCount={summary?.providerCount ?? providers.length}
-          usableCount={usableCount}
           onFilterChange={setActiveFilter}
           onQueryChange={setQuery}
         />

@@ -16,7 +16,6 @@ import {
   isConnectionDetailCacheKeyForService,
   isConnected,
   isDirectlyAvailableProvider,
-  isUsableProvider,
   matchesProviderFilter,
   normalizeConnectionAliasInput,
   parseFilterValue,
@@ -51,7 +50,6 @@ test("directly available providers stay outside configured connection counts", (
 
   assert.equal(isConnected(ready), false)
   assert.equal(isDirectlyAvailableProvider(ready), true)
-  assert.equal(isUsableProvider(ready), true)
   assert.equal(shouldLoadProviderDetail(ready), false)
   assert.equal(
     getProviderMeta(ready, (key, vars) => translate("en", key, vars)),
@@ -79,7 +77,6 @@ test("managed no-auth accounts are not treated as connectionless providers", () 
 
   assert.equal(isConnected(ready), true)
   assert.equal(isDirectlyAvailableProvider(ready), false)
-  assert.equal(isUsableProvider(ready), true)
   assert.equal(shouldLoadProviderDetail(ready), true)
 })
 
@@ -95,17 +92,14 @@ test("mixed direct and API key providers are directly available before configura
 
   assert.equal(isDirectlyAvailableProvider(ready), true)
   assert.equal(isConnected(ready), false)
-  assert.equal(isUsableProvider(ready), true)
   assert.equal(shouldLoadProviderDetail(ready), true)
   assert.equal(matchesProviderFilter(ready, { kind: "directly-available" }), true)
-  assert.equal(matchesProviderFilter(ready, { kind: "usable" }), true)
   assert.equal(getProviderStatusTone(ready), "directly-available")
   assert.equal(getProviderActionLabel(ready, t), "Ready to use")
 })
 
 test("availability catalog filters round trip", () => {
   assert.deepEqual(parseFilterValue("directly-available"), { kind: "directly-available" })
-  assert.deepEqual(parseFilterValue("usable"), { kind: "usable" })
 })
 
 test("buildCredentialSummaryDisplayValues keeps only non-secret display values", () => {

@@ -934,7 +934,6 @@ export const zhCNMessages = {
   "connections.manage": "管理",
   "connections.needsAttention": "需要处理",
   "connections.filterAll": "全部",
-  "connections.filterUsable": "可用",
   "connections.filterConnected": "已连接",
   "connections.filterDirectlyAvailable": "直接可用",
   "connections.directlyAvailable": "直接可用",

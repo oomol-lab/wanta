@@ -46,7 +46,6 @@ export type ConnectionCatalogFilter =
   | { kind: "category"; category: string }
   | { kind: "connected" }
   | { kind: "directly-available" }
-  | { kind: "usable" }
 
 export interface ConnectionCategoryFilter {
   count: number
@@ -73,10 +72,6 @@ export function isConnected(provider: ConnectionProviderSummary): boolean {
 
 export function isDirectlyAvailableProvider(provider: ConnectionProviderSummary): boolean {
   return provider.status === "connected" && isConnectionlessNoAuthProvider(provider)
-}
-
-export function isUsableProvider(provider: ConnectionProviderSummary): boolean {
-  return isConnected(provider) || isDirectlyAvailableProvider(provider)
 }
 
 export function shouldLoadProviderDetail(provider: ConnectionProviderSummary): boolean {
@@ -357,13 +352,7 @@ export function getFilterValue(filter: ConnectionCatalogFilter): string {
 }
 
 export function parseFilterValue(value: string): ConnectionCatalogFilter | null {
-  if (
-    value === "all" ||
-    value === "usable" ||
-    value === "connected" ||
-    value === "attention" ||
-    value === "directly-available"
-  ) {
+  if (value === "all" || value === "connected" || value === "attention" || value === "directly-available") {
     return { kind: value }
   }
   if (value.startsWith(categoryFilterPrefix)) {
@@ -448,8 +437,6 @@ export function matchesProviderFilter(provider: ConnectionProviderSummary, filte
       return true
     case "connected":
       return isConnected(provider)
-    case "usable":
-      return isUsableProvider(provider)
     case "attention":
       return provider.status === "needs_attention"
     case "directly-available":

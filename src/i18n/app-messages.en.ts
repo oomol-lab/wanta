@@ -975,7 +975,6 @@ export const enMessages = {
   "connections.manage": "Manage",
   "connections.needsAttention": "Needs attention",
   "connections.filterAll": "All",
-  "connections.filterUsable": "Usable",
   "connections.filterConnected": "Connected",
   "connections.filterDirectlyAvailable": "Ready to use",
   "connections.directlyAvailable": "Ready to use",

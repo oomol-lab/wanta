@@ -58,7 +58,6 @@ export function ConnectionListToolbar({
   onQueryChange,
   query,
   totalCount,
-  usableCount,
 }: {
   activeFilter: ConnectionCatalogFilter
   attentionCount: number
@@ -70,7 +69,6 @@ export function ConnectionListToolbar({
   onQueryChange: (query: string) => void
   query: string
   totalCount: number
-  usableCount: number
 }) {
   const t = useT()
   const filterRowRef = React.useRef<HTMLDivElement | null>(null)
@@ -98,7 +96,6 @@ export function ConnectionListToolbar({
     const updateVisibleCategoryCount = () => {
       const availableWidth = filterRow.clientWidth
       const allWidth = getMeasurement("all")
-      const usableWidth = getMeasurement("usable")
       const connectedWidth = getMeasurement("connected")
       const attentionWidth = getMeasurement("attention")
       const directlyAvailableWidth = getMeasurement("directly-available")
@@ -107,7 +104,6 @@ export function ConnectionListToolbar({
       if (
         !availableWidth ||
         allWidth === null ||
-        usableWidth === null ||
         connectedWidth === null ||
         attentionWidth === null ||
         directlyAvailableWidth === null ||
@@ -124,7 +120,7 @@ export function ConnectionListToolbar({
       )
       const nextCount = getFittingCategoryFilterCount({
         availableWidth,
-        baseFilterWidths: [allWidth, usableWidth, connectedWidth, directlyAvailableWidth, attentionWidth],
+        baseFilterWidths: [allWidth, connectedWidth, directlyAvailableWidth, attentionWidth],
         categoryFilterWidths,
         filters: categoryFilters,
         gap,
@@ -143,16 +139,7 @@ export function ConnectionListToolbar({
     const observer = new ResizeObserver(updateVisibleCategoryCount)
     observer.observe(filterRow)
     return () => observer.disconnect()
-  }, [
-    attentionCount,
-    categoryFilters,
-    connectedCount,
-    directlyAvailableCount,
-    loading,
-    selectedCategory,
-    totalCount,
-    usableCount,
-  ])
+  }, [attentionCount, categoryFilters, connectedCount, directlyAvailableCount, loading, selectedCategory, totalCount])
 
   return (
     <div className="grid w-full min-w-0 gap-2">
@@ -179,11 +166,6 @@ export function ConnectionListToolbar({
             }}
           >
             <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
-            <FilterToggleItem
-              count={loading ? null : usableCount}
-              label={t("connections.filterUsable")}
-              value="usable"
-            />
             <FilterToggleItem
               count={loading ? null : connectedCount}
               label={t("connections.filterConnected")}
@@ -241,13 +223,6 @@ export function ConnectionListToolbar({
         <ToggleGroup type="single" variant="default" size="sm" spacing={1} className="flex w-max flex-nowrap gap-1">
           <span data-filter-measure="all">
             <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
-          </span>
-          <span data-filter-measure="usable">
-            <FilterToggleItem
-              count={loading ? null : usableCount}
-              label={t("connections.filterUsable")}
-              value="usable"
-            />
           </span>
           <span data-filter-measure="connected">
             <FilterToggleItem

@@ -104,7 +104,7 @@ export function buildOpencodeConfig({ authToken, customModels = [] }: OpencodeCo
     },
     agent: {
       [WANTA_BUILD_AGENT_NAME]: {
-        description: "OOMOL connector + local coding assistant",
+        description: "OOMOL connector + local knowledge and coding assistant",
         mode: "primary",
         prompt: WANTA_SYSTEM_PROMPT,
         // 不再下发 tools 禁用表：所有内置工具默认启用。

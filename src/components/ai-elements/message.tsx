@@ -1,6 +1,6 @@
 import type { UIMessage } from "ai"
 import type { ComponentProps, HTMLAttributes, ReactNode } from "react"
-import type { StreamdownProps } from "streamdown"
+import type { CustomRenderer, CustomRendererProps, StreamdownProps } from "streamdown"
 
 import { CheckIcon, CopyIcon } from "lucide-react"
 import { isValidElement, lazy, memo, Suspense, useEffect, useRef, useState } from "react"
@@ -13,15 +13,17 @@ import {
   CodeBlockHeader,
   CodeBlockTitle,
 } from "./code-block.tsx"
+import { normalizeMermaidMarkdown } from "./mermaid-policy.ts"
 import { MarkdownImage } from "./message-image.tsx"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
-// streamdown 拉入整套 markdown 渲染管线（micromark/remark/rehype + mermaid + katex，约 1.1MB）。
-// 懒加载：聊天外壳先渲染，首条助手消息出现时才加载，不阻塞 AppShell 首帧。
-const Streamdown = lazy(() => import("streamdown").then((m) => ({ default: m.Streamdown })))
+// Streamdown 与 Mermaid 都较大，统一放进懒加载运行时，避免阻塞 AppShell 首帧。
+const Streamdown = lazy(() =>
+  import("./message-streamdown.tsx").then((module) => ({ default: module.MessageStreamdown })),
+)
 const localPathStartPattern = /^(?:file:\/\/|~?[\\/]|[A-Za-z]:[\\/])/
 const singleLocalPathFencePattern =
   /(^|\n)([ \t]{0,3})(`{3,}|~{3,})[ \t]*(?:text|txt|path|file)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*\3[ \t]*(?=\n|$)/gi
@@ -111,11 +113,6 @@ export type MessageResponseProps = StreamdownProps & {
 
 type MarkdownInlineCodeProps = ComponentProps<"code"> & {
   node?: unknown
-}
-
-type MarkdownCodeBlockProps = ComponentProps<"code"> & {
-  node?: unknown
-  "data-block"?: string
 }
 
 type MarkdownLocalPathProps = Omit<ComponentProps<"button">, "value"> & {
@@ -273,16 +270,15 @@ export function markdownCodeLanguage(className: string | undefined): string {
   )
 }
 
-export function MarkdownCodeBlock({ children, className, node: _, ref: _ref }: MarkdownCodeBlockProps) {
+function MarkdownCodeRenderer({ code, language }: CustomRendererProps) {
   const t = useT()
-  const code = markdownCodeText(children)
-  const language = markdownCodeLanguage(className)
+  const normalizedLanguage = markdownCodeLanguage(`language-${language}`)
 
   return (
-    <CodeBlock className="my-3 w-full" code={code} language={language}>
+    <CodeBlock className="my-3 w-full" code={code} language={normalizedLanguage}>
       <CodeBlockHeader>
         <CodeBlockTitle>
-          <CodeBlockFilename>{language}</CodeBlockFilename>
+          <CodeBlockFilename>{normalizedLanguage}</CodeBlockFilename>
         </CodeBlockTitle>
         <CodeBlockActions>
           <CodeBlockCopyButton aria-label={t("chat.copyCode")} />
@@ -293,9 +289,60 @@ export function MarkdownCodeBlock({ children, className, node: _, ref: _ref }: M
 }
 
 const messageResponseComponents = {
-  code: MarkdownCodeBlock,
   img: MarkdownImage,
 } satisfies MessageResponseProps["components"]
+
+// Mermaid 由 Streamdown 的专用渲染器处理；其它常见代码语言继续复用 Wanta 的代码块。
+export const markdownCodeRendererLanguages = [
+  "",
+  "bash",
+  "c",
+  "c#",
+  "c++",
+  "cjs",
+  "cpp",
+  "cs",
+  "csharp",
+  "css",
+  "diff",
+  "go",
+  "html",
+  "java",
+  "javascript",
+  "js",
+  "json",
+  "jsx",
+  "markdown",
+  "md",
+  "mjs",
+  "php",
+  "plain",
+  "plaintext",
+  "py",
+  "python",
+  "rb",
+  "rs",
+  "ruby",
+  "rust",
+  "scss",
+  "sh",
+  "shell",
+  "sql",
+  "text",
+  "ts",
+  "tsx",
+  "typescript",
+  "xml",
+  "yaml",
+  "yml",
+] as const
+
+const messageResponseRenderers = [
+  {
+    language: [...markdownCodeRendererLanguages],
+    component: MarkdownCodeRenderer,
+  },
+] satisfies CustomRenderer[]
 
 interface LocalImagePreview {
   path: string
@@ -455,7 +502,7 @@ export const MessageResponse = memo(
     const sourceChildren = typeof children === "string" && smooth ? visibleChildren : children
     const responseChildren =
       typeof sourceChildren === "string"
-        ? normalizeLocalImageMarkdown(normalizeSingleLocalPathCodeFences(sourceChildren))
+        ? normalizeMermaidMarkdown(normalizeLocalImageMarkdown(normalizeSingleLocalPathCodeFences(sourceChildren)))
         : sourceChildren
     const localImagePreviews = typeof responseChildren === "string" ? extractLocalImagePreviews(responseChildren) : []
     return (
@@ -470,6 +517,7 @@ export const MessageResponse = memo(
               ...components,
             }}
             controls={messageResponseControls(controls)}
+            defaultRenderers={messageResponseRenderers}
             lineNumbers={lineNumbers ?? false}
             plugins={plugins}
             {...props}

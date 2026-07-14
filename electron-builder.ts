@@ -8,6 +8,7 @@ export default {
     "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   appId: branding.appId,
   asar: true,
+  asarUnpack: ["node_modules/sqlite3/**"],
   productName: branding.appName,
   directories: {
     buildResources: "resources",

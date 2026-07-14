@@ -310,6 +310,13 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /Do not use it as a health check/)
   assert.match(WANTA_SYSTEM_PROMPT, /Workspace identity is invariant for a turn/)
   assert.match(WANTA_SYSTEM_PROMPT, /never omit or change it to recover from an error/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Use Mermaid for processes, timelines, hierarchies/)
+  assert.match(WANTA_SYSTEM_PROMPT, /5-8 core nodes and 5-12 core edges/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Chinese quotation marks such as “嫂嫂”/)
+  assert.match(WANTA_SYSTEM_PROMPT, /style, classDef, linkStyle/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Use query_knowledge rather than invoking the WikiGraph CLI directly/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Evidence counts are supporting passage counts, not confidence/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Do not expose managed archive paths or raw CLI commands/)
 })
 
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {

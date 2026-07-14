@@ -16,6 +16,7 @@ import {
 } from "./ChatMessageActions.tsx"
 import { ContextMentionChips } from "./ContextMentionChips.tsx"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
+import { visibleUserContextMentions } from "./message-context.ts"
 import { copyableMessageText, shouldCollapseUserMessageText, visibleUserText } from "./message-text.ts"
 import { renderBlocks } from "./render-blocks.ts"
 import { normalizeServiceSlug } from "./tool-display.ts"
@@ -62,7 +63,7 @@ export function MessageBubble({
     const attachments = message.parts
       .filter((p) => p.kind === "attachment" && p.attachment)
       .map((p) => attachmentWithPreview(p.attachment as ChatAttachment))
-    const contextMentions = message.contextMentions ?? []
+    const contextMentions = visibleUserContextMentions(message.contextMentions)
     const collapsible = shouldCollapseUserMessageText(visibleText)
     if (!visibleText && attachments.length === 0 && contextMentions.length === 0) {
       return null

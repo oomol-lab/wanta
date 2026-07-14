@@ -38,7 +38,9 @@ export function initialComposerState(): ComposerState {
 }
 
 export function contextMentionKey(mention: ChatContextMention): string {
-  return mention.kind === "skill" ? `skill:${mention.id}` : `connection:${mention.service}:${mention.appId ?? ""}`
+  if (mention.kind === "skill") return `skill:${mention.id}`
+  if (mention.kind === "knowledge") return `knowledge:${mention.id}`
+  return `connection:${mention.service}:${mention.appId ?? ""}`
 }
 
 function sameContextMention(left: ChatContextMention, right: ChatContextMention): boolean {

@@ -17,6 +17,7 @@ import {
 import {
   compactLocalPath,
   markdownCodeLanguage,
+  markdownCodeRendererLanguages,
   markdownCodeText,
   messageClassName,
   messageResponseControls,
@@ -37,6 +38,7 @@ const appContext = {
   chatService: mockService,
   connectionsService: mockService,
   gitService: mockService,
+  knowledgeService: mockService,
   modelsService: mockService,
   sessionService: mockService,
   settingsService: mockService,
@@ -61,6 +63,11 @@ describe("MarkdownCodeBlock", () => {
     expect(markdownCodeText(["first\n", React.createElement("span", { key: "second" }, "second"), "\nthird"])).toBe(
       "first\nsecond\nthird",
     )
+  })
+
+  it("leaves Mermaid fences to the dedicated diagram renderer", () => {
+    expect(markdownCodeRendererLanguages).not.toContain("mermaid")
+    expect(markdownCodeRendererLanguages).toContain("typescript")
   })
 })
 

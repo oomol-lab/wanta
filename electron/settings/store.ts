@@ -4,11 +4,13 @@ import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface PersistedSettings {
   themeSource?: string
+  /** 知识库仍为 Beta 功能；缺失或非 true 时默认关闭。 */
+  knowledgeBaseBetaEnabled?: boolean
   /** 更新渠道（"stable" | "beta"）；缺失/非法按未设置处理（见 update/channel.ts）。 */
   updateChannel?: string
 }
 
-/** 设置持久化到 userData/settings.json。仅存非密配置（themeSource 等），不存凭证（R8）。 */
+/** 设置持久化到 userData/settings.json。仅存非密配置（themeSource、Beta 开关等），不存凭证（R8）。 */
 export class SettingsStore {
   private readonly file: string
 

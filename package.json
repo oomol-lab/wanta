@@ -30,7 +30,8 @@
     "@opencode-ai/sdk": "1.17.13",
     "diff": "9.0.0",
     "electron-updater": "6.8.9",
-    "react-diff-view": "3.3.3"
+    "react-diff-view": "3.3.3",
+    "wiki-graph": "0.3.0"
   },
   "devDependencies": {
     "@electron-internal/extract-zip": "1.0.2",
@@ -41,6 +42,7 @@
     "@oomol/connection": "0.2.28",
     "@oomol/connection-electron-adapter": "0.2.12",
     "@opencode-ai/plugin": "1.17.13",
+    "@streamdown/mermaid": "1.0.2",
     "@tailwindcss/vite": "4.3.0",
     "@types/js-yaml": "4.0.9",
     "@types/node": "24.13.2",

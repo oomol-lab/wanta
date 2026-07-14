@@ -1,6 +1,7 @@
 /* Streamdown（ai-elements MessageResponse 的 Markdown 渲染器）的样式类位于 node_modules
    里，Tailwind v4 默认不扫描 node_modules，需显式声明 @source 才能生成这些类。 */
-@source "../node_modules/streamdown/dist";
+@source "../../node_modules/streamdown/dist";
+@source "../../node_modules/@streamdown/mermaid/dist";
 
 @custom-variant dark (&:is(.dark *));
 

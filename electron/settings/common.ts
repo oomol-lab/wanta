@@ -6,13 +6,18 @@ export type ThemeSource = "system" | "light" | "dark"
 
 export interface AppSettings {
   themeSource: ThemeSource
+  knowledgeBaseBetaEnabled: boolean
 }
 
 export type SettingsService = typeof SettingsService
 export const SettingsService = serviceName("settings-service") as ServiceName<{
-  ServerEvents: Record<never, never>
+  ServerEvents: {
+    settingsChanged: AppSettings
+  }
   ClientInvokes: {
+    getSettings(): Promise<AppSettings>
     /** 同步 Electron nativeTheme.themeSource。 */
     setThemeSource(source: ThemeSource): Promise<void>
+    setKnowledgeBaseBetaEnabled(enabled: boolean): Promise<void>
   }
 }>

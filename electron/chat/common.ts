@@ -383,6 +383,11 @@ export type ChatContextMention =
       kind: "connection"
       service: string
     }
+  | {
+      id: string
+      kind: "knowledge"
+      name: string
+    }
 
 export interface ChatAttachment {
   id: string

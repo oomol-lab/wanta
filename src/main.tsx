@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client"
 import { AuthService } from "../electron/auth/common.ts"
 import { ChatService } from "../electron/chat/common.ts"
 import { GitService } from "../electron/git/common.ts"
+import { KnowledgeService } from "../electron/knowledge/common.ts"
 import { ModelsService } from "../electron/models/common.ts"
 import { SessionService } from "../electron/session/common.ts"
 import { SettingsService } from "../electron/settings/common.ts"
@@ -37,6 +38,7 @@ if (!hasElectronConnectionBridge()) {
 
   const chatService = client.use(ChatService)
   const gitService = client.use(GitService)
+  const knowledgeService = client.use(KnowledgeService)
   const sessionService = client.use(SessionService)
   const skillService = client.use(SkillService)
   const modelsService = client.use(ModelsService)
@@ -49,6 +51,7 @@ if (!hasElectronConnectionBridge()) {
       value={{
         chatService,
         gitService,
+        knowledgeService,
         sessionService,
         skillService,
         modelsService,

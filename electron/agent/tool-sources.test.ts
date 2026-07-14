@@ -2,6 +2,19 @@ import { afterEach, describe, expect, it } from "vitest"
 import { connectionInventoryError, linkWorkspaceArgs } from "./link-workspace.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
+describe("query_knowledge guidance", () => {
+  it("keeps relationship diagrams evidence-first without exposing archive paths", () => {
+    const source = AGENT_TOOL_FILES["query_knowledge.ts"] ?? ""
+
+    expect(source).toContain("resolve aliases from entity identifiers")
+    expect(source).toContain("Evidence counts are passage counts, not confidence scores")
+    expect(source).toContain("Never invoke the WikiGraph CLI directly")
+    expect(source).toContain("expose managed archive paths")
+    expect(source).toContain("sanitizeErrorMessage(error, archivePath)")
+    expect(source).toContain('replaceAll(value, "[managed knowledge archive]")')
+  })
+})
+
 interface LoadedTool {
   execute: (
     args: { action: string; connectionName?: string; params?: string; service: string },

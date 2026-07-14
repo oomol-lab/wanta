@@ -4,7 +4,7 @@
 
 ## 1. 产品定位
 
-Wanta 是一个 Electron 桌面 AI Agent 聊天客户端。用户用自然语言提需求，Agent 理解后调度 OOMOL connector 云服务（约 600 个 SaaS provider、6000+ action）并把结果流式返回到聊天区；现已放开本地能力（bash / 文件读写 / 写脚本执行），典型用法是"从多个 connector action 拉数据 → 写小脚本 join / 聚合 / 格式化"。
+Wanta 是一个 Electron 桌面 AI Agent 聊天客户端。用户用自然语言提需求，Agent 理解后调度 OOMOL connector 云服务（约 600 个 SaaS provider、6000+ action）、本地工具和会话引用的 WikiGraph 知识库，并把结果流式返回到聊天区；现已放开本地能力（bash / 文件读写 / 写脚本执行），典型用法是"从多个 connector action 拉数据 → 写小脚本 join / 聚合 / 格式化"。
 
 - **目标用户与解决的问题**：非开发者（运营/分析/行政等知识工作者）。他们的数据散落在各 SaaS（GA、邮箱、issue tracker、表格、存储……），手工跨服务取数、对账、汇总既繁琐又难自动化；Wanta 让这一切变成一句自然语言——授权一次，之后由 Agent 自己发现 action、查 schema、调用并把结果整理好。
 - **核心数据流**：用户消息 → OpenCode Agent → OOMOL connector（经 `oo` CLI）/ 本地工具 → 流式回复。
@@ -18,6 +18,7 @@ Wanta 是一个 Electron 桌面 AI Agent 聊天客户端。用户用自然语言
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **OOMOL 云端** | LLM 网关（`https://llm.<endpoint>/v1`，内置模型默认 Auto，即 `oomol/oopilot`；GPT 5.5 选项为 `openai/gpt-5.5`）；connector 网关（`https://connector.<endpoint>`）；console（授权管理页）；hub（浏览器登录页）；api（账号 API）；static（自动更新分发）。全部由 `electron/domain.ts` 从单一 endpoint 派生。                                                                                                                                                                               |
 | **oo CLI**     | Agent 调用 connector 的唯一通道。作为黑盒**二进制**内置（dev 在 `.oo-bin/`，打包进 `Resources/bin`），只经 `OO_*` 环境变量控制（`electron/agent/oo.ts`），不改其源码。版本由 `scripts/oo-cli.ts` 的 `OO_CLI_VERSION` 单一锁定。**不再是 npm 依赖**——会话记录显示曾依赖 `@oomol-lab/oo-cli`，因 EACCES 问题改为项目自管理下载（见 [key-decisions.md §6](key-decisions.md)）。oo-cli 跑在 Bun 上无法 import 进 Node/Electron，库化被否（论证见 [key-decisions.md §3](key-decisions.md)）。 |
+| **WikiGraph**  | 本地 `.wikg` 知识库的解析与检索运行时。`wiki-graph@0.3.0` 作为精确版本的项目依赖随应用打包，主进程和 Agent 自定义只读工具都通过 Electron 的 Node 模式执行 CLI；知识库文件复制到 `userData/knowledge-bases/files` 统一管理。该能力当前属于默认关闭的 Beta 功能，用户在设置中开启后才显示知识库菜单并允许会话引用；开关持久化在本机 `settings.json`。会话只持久化知识库 ID，不把原始归档作为聊天附件发送。                                                                                 |
 | **oo-desktop** | 姊妹应用 + 工程化基线（独立仓库，不在本仓库内；本机路径因开发机而异）。Wanta 是新建独立仓库（不 fork），但构建/打包/CI/IPC 服务划分/UI 风格全部对齐 oo-desktop，保证两 App UI 不割裂、降低维护成本。注意已知差异：connector 鉴权头（Wanta 用 `Authorization: Bearer <会话 token>`，**不带** `x-oomol-user-uuid`；oo-desktop 用 auth.toml 账号 key 裸头——勿照抄）。                                                                                                                       |
 | **OpenCode**   | Agent 内核。spawn 已发布二进制 `opencode-ai@1.17.13`（sidecar），主进程经 `@opencode-ai/sdk@1.17.13` HTTP+SSE 驱动。纯配置级定制，零源码改动。调研时（2026-05）未发现 OpenCode 用于非 IDE/通用 agent 负载的社区先例，Wanta 是第一个已知案例（立项时定位非编码 agent，后放开了本地编码能力）。                                                                                                                                                                                            |
 

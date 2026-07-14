@@ -1,1 +1,9 @@
-export type AppShellRoute = "archived" | "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
+export type AppShellRoute =
+  | "archived"
+  | "billing"
+  | "chat"
+  | "connections"
+  | "knowledge"
+  | "organizations"
+  | "skills"
+  | "settings"

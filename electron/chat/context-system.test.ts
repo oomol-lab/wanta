@@ -1,6 +1,20 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { buildPermissionModeSystem } from "./context-system.ts"
+import { buildContextMentionsSystem, buildPermissionModeSystem } from "./context-system.ts"
+
+test("buildContextMentionsSystem describes a pinned knowledge base without exposing a path", () => {
+  const prompt = buildContextMentionsSystem([{ id: "kb-1", kind: "knowledge", name: "西游记" }]) ?? ""
+
+  assert.match(prompt, /query_knowledge/)
+  assert.match(prompt, /kb-1/)
+  assert.match(prompt, /西游记/)
+  assert.match(prompt, /Never modify/)
+  assert.match(prompt, /Mermaid graph focused/)
+  assert.match(prompt, /5-8 core entities/)
+  assert.match(prompt, /Do not emit style directives/)
+  assert.match(prompt, /Never invoke the WikiGraph CLI directly/)
+  assert.doesNotMatch(prompt, /\/Users\//)
+})
 
 test("buildPermissionModeSystem describes default access", () => {
   const prompt = buildPermissionModeSystem("default")

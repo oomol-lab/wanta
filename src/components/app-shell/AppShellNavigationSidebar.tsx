@@ -6,7 +6,7 @@ import type { SidebarSessionGroups } from "./sidebar-sessions.ts"
 import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { Building2, FolderPlus, Package, Plug, SquarePen } from "lucide-react"
+import { Building2, FolderPlus, LibraryBig, Package, Plug, SquarePen } from "lucide-react"
 import * as React from "react"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { SIDEBAR_MAX_WIDTH_PX, SIDEBAR_MIN_WIDTH_PX } from "./app-shell-model.ts"
@@ -65,6 +65,7 @@ export function AppShellNavigationSidebar({
   projectSidebarGroups,
   selectedSessionId,
   sessionsError,
+  showKnowledge,
   sidebarSegment,
   sidebarSessionGroups,
   taskSessions,
@@ -110,6 +111,7 @@ export function AppShellNavigationSidebar({
   projectSidebarGroups: ProjectSidebarGroup[]
   selectedSessionId: string | null
   sessionsError: UserFacingError | null
+  showKnowledge: boolean
   sidebarSegment: SidebarSegment
   sidebarSessionGroups: SidebarSessionGroups
   taskSessions: SessionInfo[]
@@ -210,6 +212,19 @@ export function AppShellNavigationSidebar({
             <Package className="size-4 shrink-0" />
             <span className="oo-sidebar-nav-label truncate">{t("skills.title")}</span>
           </button>
+          {showKnowledge ? (
+            <button
+              type="button"
+              onClick={() => onNavigate("knowledge")}
+              className={cn(
+                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+                activeRoute === "knowledge" && "bg-sidebar-accent text-sidebar-accent-foreground",
+              )}
+            >
+              <LibraryBig className="size-4 shrink-0" />
+              <span className="oo-sidebar-nav-label truncate">{t("knowledge.title")}</span>
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => onNavigate("organizations")}

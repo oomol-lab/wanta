@@ -259,6 +259,312 @@
     word-break: normal;
   }
 
+  .oo-mermaid-card {
+    position: relative;
+    margin: 0.75rem 0 !important;
+    border: 1px solid var(--oo-border-subtle);
+    border-radius: var(--oo-radius-panel) !important;
+    background: var(--oo-artifact-preview-canvas) !important;
+    overflow: hidden !important;
+  }
+
+  .oo-mermaid-inline-actions {
+    position: absolute;
+    top: 0.625rem;
+    right: 0.625rem;
+    z-index: 10;
+    display: flex;
+    gap: 0.125rem;
+    border: 1px solid var(--oo-overlay-border);
+    border-radius: var(--radius-md);
+    border-color: var(--oo-overlay-border);
+    background: color-mix(in oklab, var(--background) 88%, transparent);
+    padding: 0.1875rem;
+    box-shadow: 0 3px 12px color-mix(in oklab, var(--foreground) 8%, transparent);
+    opacity: 0.58;
+    transition: opacity 120ms ease;
+  }
+
+  .oo-mermaid-card:hover .oo-mermaid-inline-actions,
+  .oo-mermaid-card:focus-within .oo-mermaid-inline-actions {
+    opacity: 1;
+  }
+
+  .oo-mermaid-inline-action {
+    display: flex;
+    width: 1.625rem;
+    height: 1.625rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: calc(var(--radius-md) - 2px);
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+
+  .oo-mermaid-inline-action:hover {
+    background: var(--muted);
+    color: var(--foreground);
+  }
+
+  .oo-mermaid-inline-action:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+
+  .oo-mermaid-canvas {
+    padding: 1.25rem !important;
+    overflow: hidden !important;
+  }
+
+  .oo-mermaid-inline-diagram {
+    display: flex;
+    width: 100% !important;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .oo-mermaid-inline-diagram svg {
+    display: block;
+    width: auto !important;
+    max-width: 100% !important;
+    max-height: min(720px, 70vh);
+    height: auto !important;
+    font-family: var(--font-sans) !important;
+  }
+
+  .oo-mermaid-loading {
+    display: flex;
+    min-height: 96px;
+    align-items: center;
+    justify-content: center;
+    margin: 0.75rem 0;
+    border: 1px solid var(--oo-border-subtle);
+    border-radius: var(--oo-radius-panel);
+    background: var(--oo-artifact-preview-canvas);
+    color: var(--muted-foreground);
+    font-size: var(--oo-font-caption);
+  }
+
+  .oo-mermaid-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    overflow: hidden;
+    background: var(--background);
+    color: var(--foreground);
+    -webkit-app-region: no-drag;
+  }
+
+  .oo-mermaid-viewer-titlebar {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 3;
+    display: flex;
+    height: var(--app-titlebar-height);
+    align-items: center;
+    justify-content: center;
+    border-bottom: 1px solid var(--oo-border-subtle);
+    background: var(--background);
+    padding: 0 0.75rem 0 5rem;
+    -webkit-app-region: drag;
+  }
+
+  .oo-mermaid-viewer-titlebar h2 {
+    max-width: min(32rem, 50vw);
+    margin: 0;
+    overflow: hidden;
+    font-size: var(--oo-font-body);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .oo-mermaid-viewer-actions {
+    position: absolute;
+    top: 50%;
+    right: 0.75rem;
+    display: flex;
+    gap: 0.25rem;
+    transform: translateY(-50%);
+    -webkit-app-region: no-drag;
+  }
+
+  :root[data-platform="win32"] .oo-mermaid-viewer-actions,
+  :root[data-platform="linux"] .oo-mermaid-viewer-actions,
+  :root[data-dev-window-controls="windows"] .oo-mermaid-viewer-actions {
+    right: calc(var(--window-control-right-space) + 0.75rem);
+  }
+
+  .oo-mermaid-viewer-action {
+    display: flex;
+    width: 2rem;
+    height: 2rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+  }
+
+  .oo-mermaid-viewer-action:hover {
+    background: var(--muted);
+    color: var(--foreground);
+  }
+
+  .oo-mermaid-viewer-action:focus-visible,
+  .oo-mermaid-viewer-zoom-button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+
+  .oo-mermaid-viewer-stage {
+    position: absolute;
+    inset: var(--app-titlebar-height) 0 0;
+    z-index: 1;
+    overflow: hidden;
+    background: var(--oo-artifact-preview-canvas);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-app-region: no-drag;
+  }
+
+  .oo-mermaid-viewer-stage.is-dragging {
+    cursor: grabbing;
+  }
+
+  .oo-mermaid-viewer-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .oo-mermaid-viewer-diagram {
+    transform-origin: center;
+    will-change: transform;
+  }
+
+  .oo-mermaid-viewer-diagram svg {
+    display: block;
+    width: 100% !important;
+    max-width: none !important;
+    height: 100% !important;
+    max-height: none !important;
+    font-family: var(--font-sans) !important;
+    pointer-events: none;
+  }
+
+  .oo-mermaid-viewer-zoom {
+    position: absolute;
+    bottom: 1.25rem;
+    left: 50%;
+    z-index: 3;
+    display: flex;
+    height: 2.5rem;
+    align-items: center;
+    gap: 0.25rem;
+    transform: translateX(-50%);
+    border: 1px solid var(--oo-overlay-border);
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--background) 92%, transparent);
+    padding: 0.1875rem;
+    color: var(--foreground);
+    box-shadow: 0 8px 24px color-mix(in oklab, var(--foreground) 14%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-app-region: no-drag;
+  }
+
+  .oo-mermaid-viewer-zoom-button {
+    display: flex;
+    width: 2rem;
+    height: 2rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+
+  .oo-mermaid-viewer-zoom-button:hover {
+    background: var(--muted);
+    color: var(--foreground);
+  }
+
+  .oo-mermaid-viewer-zoom-button:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+
+  .oo-mermaid-viewer-percent {
+    min-width: 3rem;
+    text-align: center;
+    font-size: var(--oo-font-caption);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  .oo-mermaid-viewer-zoom-divider {
+    width: 1px;
+    height: 1.25rem;
+    background: var(--oo-border-subtle);
+  }
+
+  .oo-mermaid-error {
+    min-height: 0;
+    margin: 0.75rem 0;
+    border: 1px solid color-mix(in oklab, var(--destructive) 26%, transparent);
+    border-radius: var(--oo-radius-panel);
+    background: var(--oo-danger-surface);
+    padding: 1rem;
+  }
+
+  .oo-mermaid-error-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .oo-mermaid-error-title {
+    margin: 0;
+    color: var(--foreground);
+    font-size: var(--oo-font-body);
+    font-weight: 600;
+  }
+
+  .oo-mermaid-error-description {
+    margin: 0.125rem 0 0;
+    color: var(--muted-foreground);
+    font-size: var(--oo-font-caption);
+  }
+
+  .oo-mermaid-error-details {
+    margin-top: 0.625rem;
+    color: var(--muted-foreground);
+    font-size: var(--oo-font-caption);
+  }
+
+  .oo-mermaid-error-details summary {
+    cursor: pointer;
+  }
+
+  .oo-mermaid-error-details pre {
+    max-height: 220px;
+    margin-top: 0.5rem;
+    overflow: auto;
+    white-space: pre;
+  }
+
   .oo-message-response [data-language] pre {
     margin: 0;
     border: 0;

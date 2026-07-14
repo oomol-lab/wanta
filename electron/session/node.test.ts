@@ -174,6 +174,21 @@ test("setPermissionMode persists full access and clears default", async () => {
   assert.deepEqual(await persistedMetadata.read(), new Map())
 })
 
+test("setKnowledgeBases normalizes, persists, and clears session references", async () => {
+  const persistedMetadata = metadataStore()
+  const service = new SessionServiceImpl(agentWithSessions([]), {
+    metadataStore: persistedMetadata,
+  })
+
+  await service.setKnowledgeBases({ id: "session", knowledgeBaseIds: [" first ", "first", "", "second"] })
+
+  assert.deepEqual(await persistedMetadata.read(), new Map([["session", { knowledgeBaseIds: ["first", "second"] }]]))
+
+  await service.setKnowledgeBases({ id: "session", knowledgeBaseIds: [] })
+
+  assert.deepEqual(await persistedMetadata.read(), new Map())
+})
+
 test("list filters sessions by requested scope", async () => {
   const service = new SessionServiceImpl(
     agentWithSessions([

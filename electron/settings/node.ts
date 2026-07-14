@@ -40,7 +40,11 @@ export class SettingsServiceImpl
     const persisted = this.deps.store.read()
     const themeSource: ThemeSource =
       persisted.themeSource === "light" || persisted.themeSource === "dark" ? persisted.themeSource : "system"
-    return { themeSource }
+    return { knowledgeBaseBetaEnabled: persisted.knowledgeBaseBetaEnabled === true, themeSource }
+  }
+
+  public getSettings(): Promise<AppSettings> {
+    return Promise.resolve(this.current())
   }
 
   /** 启动时把持久化的 themeSource 应用到 nativeTheme（窗口背景一致）。 */
@@ -54,6 +58,14 @@ export class SettingsServiceImpl
     nativeTheme.themeSource = source
     this.applyWindowsTitleBarOverlay()
     this.deps.store.write({ ...this.deps.store.read(), themeSource: source })
+    return Promise.resolve()
+  }
+
+  public setKnowledgeBaseBetaEnabled(enabled: boolean): Promise<void> {
+    this.deps.store.write({ ...this.deps.store.read(), knowledgeBaseBetaEnabled: enabled })
+    void this.send("settingsChanged", this.current()).catch((error: unknown) => {
+      console.warn("[wanta] settings broadcast failed:", error)
+    })
     return Promise.resolve()
   }
 

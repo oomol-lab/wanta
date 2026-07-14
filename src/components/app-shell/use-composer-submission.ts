@@ -48,7 +48,9 @@ export function useComposerSubmission({
   messages,
   messagesLoaded,
   organizationSkills,
+  knowledgeBaseIds,
   persistPermissionMode,
+  persistKnowledgeBaseIds,
   send,
   sessionScope,
   setIsDraftSession,
@@ -69,7 +71,9 @@ export function useComposerSubmission({
   messages: Parameters<typeof buildSessionTitleInput>[0]
   messagesLoaded: boolean
   organizationSkills: ChatOrganizationSkillContext[]
+  knowledgeBaseIds: string[]
   persistPermissionMode: (sessionId: string, mode: AgentPermissionMode) => void
+  persistKnowledgeBaseIds: (sessionId: string, ids: string[]) => void
   send: UseChat["send"]
   sessionScope: SessionScope | null
   setIsDraftSession: React.Dispatch<React.SetStateAction<boolean>>
@@ -177,6 +181,7 @@ export function useComposerSubmission({
           }
         }
         persistPermissionMode(sessionId, selectedPermissionMode)
+        persistKnowledgeBaseIds(sessionId, knowledgeBaseIds)
         if (shouldRefreshTitle) {
           void titleGeneration.refreshGeneratedTitle(
             sessionId,
@@ -236,6 +241,8 @@ export function useComposerSubmission({
       messages,
       messagesLoaded,
       organizationSkills,
+      knowledgeBaseIds,
+      persistKnowledgeBaseIds,
       persistPermissionMode,
       send,
       sessionScope,

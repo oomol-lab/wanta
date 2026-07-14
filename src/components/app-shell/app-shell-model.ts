@@ -224,6 +224,7 @@ export function initialRoute(): Route {
   return route === "settings" ||
     route === "connections" ||
     route === "skills" ||
+    route === "knowledge" ||
     route === "organizations" ||
     route === "billing" ||
     route === "archived"

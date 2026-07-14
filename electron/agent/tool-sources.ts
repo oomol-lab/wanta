@@ -630,10 +630,126 @@ export default tool({
 })
 `
 
+const QUERY_KNOWLEDGE_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
+import { execFile } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import { promisify } from "node:util"
+
+const execFileAsync = promisify(execFile)
+const EXECUTABLE = process.env.WANTA_WIKIGRAPH_EXECUTABLE || ""
+const CLI = process.env.WANTA_WIKIGRAPH_CLI || ""
+const REGISTRY = process.env.WANTA_KNOWLEDGE_REGISTRY || ""
+const OPTIONS = {
+  encoding: "utf8",
+  env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NO_COLOR: "1" },
+  maxBuffer: 8 * 1024 * 1024,
+  timeout: 60 * 1000,
+}
+
+function archiveUri(filePath) {
+  const normalized = String(filePath || "").replaceAll("\\", "/")
+  return "wikg://" + normalized
+}
+
+function sanitizeErrorMessage(error, archivePath) {
+  let message = String((error && (error.stderr || error.message)) || error || "Knowledge query failed").trim()
+  const pathVariants = [String(archivePath || ""), String(archivePath || "").replaceAll("\\", "/")].filter(Boolean)
+  for (const value of pathVariants) message = message.replaceAll(value, "[managed knowledge archive]")
+  message = message.replace(/wikg:\/\/[^\s"']+/gi, "[managed knowledge archive]")
+  return (message || "Knowledge query failed").slice(0, 500)
+}
+
+function relativeObject(value) {
+  const normalized = String(value || "").trim().replace(/^wikg:\/\//, "").replace(/^\/+|\/+$/g, "")
+  if (!normalized || normalized.includes("..") || !/^(chapter|entity|triple)(\/|$)/.test(normalized)) {
+    throw new Error("objectUri must be an archive-relative chapter, entity, or triple URI")
+  }
+  return normalized
+}
+
+async function recordFor(id) {
+  if (!REGISTRY) throw new Error("knowledge registry is unavailable")
+  const parsed = JSON.parse(await readFile(REGISTRY, "utf8"))
+  const records = Array.isArray(parsed && parsed.records) ? parsed.records : []
+  const record = records.find((item) => item && item.id === id)
+  if (!record || typeof record.filePath !== "string") throw new Error("knowledge base not found")
+  return record
+}
+
+async function run(args) {
+  if (!EXECUTABLE || !CLI) throw new Error("WikiGraph runtime is unavailable")
+  const result = await execFileAsync(EXECUTABLE, [CLI, ...args], OPTIONS)
+  return String(result.stdout || "").trim() || "{}"
+}
+
+export default tool({
+  description:
+    "Query a WikiGraph knowledge base pinned to the conversation. Supports read-only inspect, search, related, evidence, and pack operations. Prefer entity/triple search for relationship questions and retrieve evidence before stating a factual relationship. For relationship diagrams, resolve aliases from entity identifiers, use triple results as candidates, verify important edges with evidence, and use source search for identity-sensitive or context-ambiguous relationships. Evidence counts are passage counts, not confidence scores. Never invoke the WikiGraph CLI directly, expose managed archive paths, or modify an archive.",
+  args: {
+    knowledgeBaseId: tool.schema.string().describe("The exact knowledgeBaseId provided in the current conversation context."),
+    operation: tool.schema.enum(["inspect", "search", "related", "evidence", "pack"]),
+    query: tool.schema.string().optional().describe("Search text for search, related, or evidence."),
+    objectUri: tool.schema.string().optional().describe("Archive-relative URI returned by a previous result, such as wikg://entity/Q11773777 or wikg://triple/Q11773777/uses/Q834090."),
+    scope: tool.schema.enum(["auto", "source", "entity", "triple"]).optional(),
+    limit: tool.schema.number().optional().describe("Maximum result count from 1 to 20."),
+    evidenceLimit: tool.schema.number().optional().describe("Evidence snippets per entity/triple from 0 to 5."),
+    budget: tool.schema.number().optional().describe("Pack context budget from 500 to 12000."),
+  },
+  async execute(args) {
+    let archivePath = ""
+    try {
+      const record = await recordFor(String(args.knowledgeBaseId || "").trim())
+      archivePath = record.filePath
+      const root = archiveUri(record.filePath)
+      const operation = String(args.operation || "")
+      if (operation === "inspect") return await run([root, "inspect", "--json"])
+      const query = String(args.query || "").trim()
+      const limit = Math.min(20, Math.max(1, Number(args.limit) || 8))
+      const evidence = Math.min(5, Math.max(0, Number(args.evidenceLimit) || 2))
+      if (operation === "search") {
+        if (!query) throw new Error("query is required for search")
+        const scope = String(args.scope || "auto")
+        const scopes = scope === "auto" ? ["entity", "triple", "source"] : [scope]
+        const groups = {}
+        for (const item of scopes) {
+          const target = item === "source" ? root : root + "/" + item
+          const argv = [target, "--query", query, "--limit", String(limit)]
+          if (item === "entity" || item === "triple") argv.push("--evidence", String(evidence))
+          argv.push("--json")
+          groups[item] = JSON.parse(await run(argv))
+        }
+        return JSON.stringify({ knowledgeBaseId: record.id, title: record.title, groups: groups })
+      }
+      const object = root + "/" + relativeObject(args.objectUri)
+      if (operation === "related") {
+        const argv = [object, "related", "--limit", String(limit), "--evidence", String(evidence)]
+        if (query) argv.push("--query", query)
+        argv.push("--json")
+        return await run(argv)
+      }
+      if (operation === "evidence") {
+        const argv = [object, "evidence", "--limit", String(limit)]
+        if (query) argv.push("--query", query)
+        argv.push("--json")
+        return await run(argv)
+      }
+      if (operation === "pack") {
+        const budget = Math.min(12000, Math.max(500, Number(args.budget) || 4000))
+        return await run([object, "pack", "--budget", String(budget), "--json"])
+      }
+      throw new Error("unsupported knowledge operation")
+    } catch (error) {
+      return JSON.stringify({ status: "error", message: sanitizeErrorMessage(error, archivePath) })
+    }
+  },
+})
+`
+
 /** workspace 写入用：文件名 → 源码。 */
 export const AGENT_TOOL_FILES: Readonly<Record<string, string>> = {
   "search_actions.ts": SEARCH_ACTIONS_TOOL_TS,
   "list_apps.ts": LIST_APPS_TOOL_TS,
   "inspect_action.ts": INSPECT_ACTION_TOOL_TS,
   "call_action.ts": CALL_ACTION_TOOL_TS,
+  "query_knowledge.ts": QUERY_KNOWLEDGE_TOOL_TS,
 }

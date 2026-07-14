@@ -1,7 +1,7 @@
 import type { ChatContextMention } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 
-import { Plug, X } from "lucide-react"
+import { LibraryBig, Plug, X } from "lucide-react"
 import { connectionAppDisplayLabel } from "../../../electron/connections/summary.ts"
 import { contextMentionKey } from "./composer-state.ts"
 import { normalizeServiceSlug } from "./tool-display.ts"
@@ -38,6 +38,7 @@ function contextMentionLabel(mention: ChatContextMention, provider?: ConnectionP
   if (mention.kind === "skill") {
     return mention.name
   }
+  if (mention.kind === "knowledge") return mention.name
   const accountLabel = connectionAccountLabel(mention, provider)
   return accountLabel ? `${mention.displayName} ${accountLabel}` : mention.displayName
 }
@@ -46,6 +47,7 @@ function contextMentionTitle(mention: ChatContextMention, provider?: ConnectionP
   if (mention.kind === "skill") {
     return mention.description
   }
+  if (mention.kind === "knowledge") return mention.name
   return contextMentionLabel(mention, provider)
 }
 
@@ -87,18 +89,27 @@ export function ContextMentionChips({
         return (
           <span
             key={contextMentionKey(mention)}
-            className="oo-border-divider oo-text-body flex h-8 max-w-full items-center gap-2 rounded-lg border bg-background/70 px-2 shadow-xs"
+            className={cn(
+              "oo-border-divider oo-text-body flex h-8 max-w-full min-w-0 items-center gap-2 rounded-lg border bg-background/70 px-2 shadow-xs",
+              mention.kind === "knowledge" && "max-w-96",
+            )}
             title={contextMentionTitle(mention, provider)}
           >
             {mention.kind === "connection" && provider ? (
               <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
             ) : (
               <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                {mention.kind === "skill" ? <SkillMentionIcon icon={mention.icon} /> : <Plug className="size-3.5" />}
+                {mention.kind === "skill" ? (
+                  <SkillMentionIcon icon={mention.icon} />
+                ) : mention.kind === "knowledge" ? (
+                  <LibraryBig className="size-3.5" />
+                ) : (
+                  <Plug className="size-3.5" />
+                )}
               </span>
             )}
-            <span className="flex min-w-0 items-center">
-              {mention.kind === "skill" ? (
+            <span className="flex min-w-0 flex-1 items-center">
+              {mention.kind === "skill" || mention.kind === "knowledge" ? (
                 <span className="min-w-0 truncate font-medium text-foreground">{mention.name}</span>
               ) : (
                 <>

@@ -340,6 +340,7 @@ function ProviderGrid({
   scrollParentRef: React.RefObject<HTMLDivElement | null>
   selectedService: string | null
 }) {
+  const itemCount = providers.length
   const gridRef = React.useRef<HTMLDivElement | null>(null)
   const updateFrameRef = React.useRef<number | null>(null)
   const selectionCenterTimerRef = React.useRef<number | null>(null)
@@ -367,15 +368,35 @@ function ProviderGrid({
       width: grid.clientWidth,
     }
 
-    setViewport((current) =>
-      current.catalogTop === nextViewport.catalogTop &&
-      current.scrollTop === nextViewport.scrollTop &&
-      current.viewportHeight === nextViewport.viewportHeight &&
-      current.width === nextViewport.width
+    setViewport((current) => {
+      if (
+        current.catalogTop !== nextViewport.catalogTop ||
+        current.viewportHeight !== nextViewport.viewportHeight ||
+        current.width !== nextViewport.width
+      ) {
+        return nextViewport
+      }
+
+      const columnCount = getProviderGridColumnCount(nextViewport.width)
+      const currentRange = getProviderGridVisibleRange({
+        catalogTop: current.catalogTop,
+        columnCount,
+        providerCount: itemCount,
+        scrollTop: current.scrollTop,
+        viewportHeight: current.viewportHeight,
+      })
+      const nextRange = getProviderGridVisibleRange({
+        catalogTop: nextViewport.catalogTop,
+        columnCount,
+        providerCount: itemCount,
+        scrollTop: nextViewport.scrollTop,
+        viewportHeight: nextViewport.viewportHeight,
+      })
+      return currentRange.startIndex === nextRange.startIndex && currentRange.endIndex === nextRange.endIndex
         ? current
-        : nextViewport,
-    )
-  }, [scrollParentRef])
+        : nextViewport
+    })
+  }, [itemCount, scrollParentRef])
 
   const scheduleViewportUpdate = React.useCallback(() => {
     if (updateFrameRef.current !== null) {
@@ -387,8 +408,6 @@ function ProviderGrid({
       updateViewport()
     })
   }, [updateViewport])
-
-  const itemCount = providers.length
 
   const centerPendingSelection = React.useCallback(() => {
     const service = pendingSelectionRef.current
@@ -504,11 +523,7 @@ function ProviderGrid({
         items.push({
           key: provider.service,
           node: (
-            <ProviderCard
-              provider={provider}
-              selected={provider.service === selectedService}
-              onSelect={() => onSelect(provider)}
-            />
+            <ProviderCard provider={provider} selected={provider.service === selectedService} onSelect={onSelect} />
           ),
         })
       }
@@ -534,14 +549,14 @@ function ProviderGrid({
   )
 }
 
-function ProviderCard({
+const ProviderCard = React.memo(function ProviderCard({
   provider,
   selected,
   onSelect,
 }: {
   provider: ConnectionProviderSummary
   selected: boolean
-  onSelect: () => void
+  onSelect: (provider: ConnectionProviderSummary) => void
 }) {
   const t = useT()
   const tone = getProviderStatusTone(provider)
@@ -549,7 +564,7 @@ function ProviderCard({
   return (
     <button
       type="button"
-      onClick={onSelect}
+      onClick={() => onSelect(provider)}
       className={cn(
         "group/card relative grid min-w-0 cursor-pointer overflow-hidden rounded-md border bg-card px-2.5 py-1.5 text-left text-card-foreground transition-[background-color,border-color,box-shadow,transform] outline-none hover:border-[var(--selection-ring)] hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px",
         selected &&
@@ -591,4 +606,4 @@ function ProviderCard({
       </span>
     </button>
   )
-}
+})

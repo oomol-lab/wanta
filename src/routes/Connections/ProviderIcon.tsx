@@ -33,8 +33,9 @@ export function ProviderIcon({
           alt=""
           className="oo-entity-icon-image"
           style={imageDim}
-          loading="lazy"
+          loading="eager"
           decoding="async"
+          draggable={false}
           onError={() => setFailed(true)}
         />
       </span>

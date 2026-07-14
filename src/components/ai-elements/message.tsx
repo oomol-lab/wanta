@@ -27,7 +27,6 @@ const Streamdown = lazy(() =>
 const localPathStartPattern = /^(?:file:\/\/|~?[\\/]|[A-Za-z]:[\\/])/
 const singleLocalPathFencePattern =
   /(^|\n)([ \t]{0,3})(`{3,}|~{3,})[ \t]*(?:text|txt|path|file)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*\3[ \t]*(?=\n|$)/gi
-
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"]
 }
@@ -294,7 +293,6 @@ const messageResponseComponents = {
 
 // Mermaid 由 Streamdown 的专用渲染器处理；其它常见代码语言继续复用 Wanta 的代码块。
 export const markdownCodeRendererLanguages = [
-  "",
   "bash",
   "c",
   "c#",
@@ -390,6 +388,37 @@ export function normalizeSingleLocalPathCodeFences(markdown: string): string {
       return `${prefix}${indent}\`${value}\``
     },
   )
+}
+
+/**
+ * Streamdown 的自定义 renderer 不匹配空语言名；为无标签 fenced block 补上 text，
+ * 使其继续使用 AI Elements 代码块，同时不拦截 Mermaid 专用 renderer。
+ */
+export function normalizeUnlabeledCodeFences(markdown: string): string {
+  const parts = markdown.split(/(\r?\n)/)
+
+  for (let index = 0; index < parts.length; index += 2) {
+    const opening = parts[index].match(/^([ \t]{0,3})(`{3,}|~{3,})([^\r\n]*)$/)
+    if (!opening) continue
+
+    const openingFence = opening[2]
+    let closingIndex = -1
+    for (let candidateIndex = index + 2; candidateIndex < parts.length; candidateIndex += 2) {
+      const closing = parts[candidateIndex].match(/^[ \t]{0,3}(`+|~+)[ \t]*$/)
+      if (closing && closing[1][0] === openingFence[0] && closing[1].length >= openingFence.length) {
+        closingIndex = candidateIndex
+        break
+      }
+    }
+
+    if (closingIndex < 0) continue
+    if (opening[3].trim().length === 0) {
+      parts[index] = `${opening[1]}${openingFence}text`
+    }
+    index = closingIndex
+  }
+
+  return parts.join("")
 }
 
 const defaultMessageResponseControls = {
@@ -502,7 +531,11 @@ export const MessageResponse = memo(
     const sourceChildren = typeof children === "string" && smooth ? visibleChildren : children
     const responseChildren =
       typeof sourceChildren === "string"
-        ? normalizeMermaidMarkdown(normalizeLocalImageMarkdown(normalizeSingleLocalPathCodeFences(sourceChildren)))
+        ? normalizeMermaidMarkdown(
+            normalizeUnlabeledCodeFences(
+              normalizeLocalImageMarkdown(normalizeSingleLocalPathCodeFences(sourceChildren)),
+            ),
+          )
         : sourceChildren
     const localImagePreviews = typeof responseChildren === "string" ? extractLocalImagePreviews(responseChildren) : []
     return (

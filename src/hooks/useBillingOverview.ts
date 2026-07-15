@@ -48,10 +48,8 @@ export function useBillingOverview(
   // 必须按账号/工作区（由调用方的 cacheScope 提供）划分，不能再按页面展示形态拆成两份。
   const requestOrganizationId = requestScope?.organizationId ?? ""
   const requestOrganizationName = requestScope?.organizationName ?? ""
-  const requestScopeType = requestScope ? "organization" : "blocked"
-  const requestScopeKey = requestScope
-    ? `organization:${requestOrganizationId}:${requestOrganizationName}`
-    : requestScopeType
+  const requestScopeReady = requestScope !== null
+  const requestScopeKey = requestScope ? `organization:${requestOrganizationId}:${requestOrganizationName}` : "blocked"
   const cacheScopeKey = `${cacheScope}\u0000${requestScopeKey}`
   const [data, setData] = React.useState<BillingOverviewResult | null>(() => cachedData(cacheScopeKey, days))
   const [loading, setLoading] = React.useState(false)
@@ -75,7 +73,7 @@ export function useBillingOverview(
 
   const refresh = React.useCallback(
     async ({ force = false }: RefreshBillingOverviewOptions = {}): Promise<BillingOverviewResult | null> => {
-      if (requestScopeType === "blocked") {
+      if (!requestScopeReady) {
         return null
       }
       const currentRequest = requestId.current + 1
@@ -123,14 +121,14 @@ export function useBillingOverview(
         }
       }
     },
-    [cacheScopeKey, days, requestOrganizationId, requestOrganizationName, requestScopeType, staleMs],
+    [cacheScopeKey, days, requestOrganizationId, requestOrganizationName, requestScopeReady, staleMs],
   )
 
   React.useEffect(() => {
-    if (enabled && requestScopeType !== "blocked") {
+    if (enabled && requestScopeReady) {
       void refresh()
     }
-  }, [enabled, refresh, requestScopeType])
+  }, [enabled, refresh, requestScopeReady])
 
   return { data, loading, error, refresh }
 }

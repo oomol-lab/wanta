@@ -425,6 +425,13 @@ export const enMessages = {
   "chat.contextAttachFolderDescription": "Choose a folder from disk for this turn",
   "chat.contextGeneratedArtifactDescription": "Reference a generated file from this chat",
   "chat.contextGeneratedImageDescription": "Reference a generated image from this chat",
+  "chat.knowledgePaletteEmptyDescription": "Open the library and import a book",
+  "chat.knowledgePaletteEmptyTitle": "Import knowledge base",
+  "chat.knowledgePaletteFailedDescription": "Open knowledge management and try again",
+  "chat.knowledgePaletteFailedTitle": "Knowledge bases are unavailable",
+  "chat.knowledgePaletteLoadingDescription": "Reading imported books",
+  "chat.knowledgePaletteLoadingTitle": "Loading knowledge bases",
+  "chat.knowledgePaletteSelected": "Referenced",
   "chat.paletteSkillsHeader": "Choose Skill",
   "chat.paletteConnectionsHeader": "Choose Connection",
   "chat.paletteContextHeader": "Reference context",
@@ -1179,18 +1186,43 @@ export const enMessages = {
   "settings.groupBetaFeatures": "Beta features",
   "settings.notifications": "Task notifications",
   "settings.notificationsDescription": "Choose when completed tasks should send a system notification.",
+  "settings.notificationSystemStatus": "System notifications",
+  "settings.notificationMacInitialDescription":
+    "System access hasn't been verified. Select Enable and test; macOS will ask for notification access the first time.",
+  "settings.notificationWindowsInitialDescription":
+    "Windows usually has no separate first-use prompt. Send a test notification to check system settings and installation.",
+  "settings.notificationGenericInitialDescription":
+    "Send a test notification to check whether this system can receive Wanta notifications.",
+  "settings.notificationTestAcceptedDescription":
+    "The system accepted the test notification. If you didn't see or hear it, check Focus, Do Not Disturb, banners, and sound settings.",
+  "settings.notificationTestFailedDescription":
+    "The system couldn't create the test notification. Allow Wanta in system settings, then test again.",
+  "settings.notificationTestTimedOutDescription":
+    "The system returned no clear result. Check Notification Center and system notification settings, then test again.",
+  "settings.notificationDevelopmentUnavailable":
+    "macOS development mode is not signed as an installed app. Test notifications with a signed build.",
+  "settings.notificationUnsupported": "App notifications are not supported on this system.",
+  "settings.notificationStatusLoading": "Checking system notification support…",
+  "settings.notificationOpenSystemSettings": "Open system settings",
+  "settings.notificationOpenMacSettings": "Open Wanta notification settings",
+  "settings.notificationOpenWindowsSettings": "Open Windows notification settings",
+  "settings.notificationSettingsOpenFailed": "Couldn't open system notification settings",
   "settings.notificationNever": "Never",
   "settings.notificationBackground": "Background only",
   "settings.notificationAlways": "Always",
   "settings.notificationSound": "Play system notification sound",
-  "settings.notificationSoundDescription": "Allow the system to play a sound with task completion notifications.",
+  "settings.notificationSoundDescription":
+    "Ask the system to play a sound for task completion notifications. System settings, Do Not Disturb, and device volume still control whether sound plays.",
   "settings.notificationBadge": "Show unread badge on the app icon",
   "settings.notificationBadgeDescription": "Show a badge in the Dock or taskbar when completed tasks are unread.",
-  "settings.notificationTestTitle": "Test notification",
-  "settings.notificationTestDescription": "Send a test system notification using the current sound setting.",
+  "settings.notificationEnableAndTest": "Enable and test notifications",
   "settings.notificationTest": "Send test notification",
+  "settings.notificationRetest": "Test again",
+  "settings.notificationTestSent":
+    "The system accepted the test notification. Check Focus or Do Not Disturb if you didn't see it.",
   "settings.notificationsUpdateFailed": "Couldn't update notification settings",
   "settings.notificationTestFailed": "Couldn't send a test notification",
+  "settings.notificationTestTimedOut": "The system didn't confirm the test notification. Check notification settings.",
   "settings.knowledgeBeta": "Knowledge bases",
   "settings.knowledgeBetaDescription":
     "Enable local WikiGraph knowledge bases. While disabled, the Knowledge menu is hidden and conversations do not use knowledge bases.",

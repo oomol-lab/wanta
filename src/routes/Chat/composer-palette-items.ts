@@ -2,12 +2,13 @@ import type { ChatOrganizationSkillContext } from "../../../electron/chat/common
 import type { LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
 import type { ConnectionAppSummary } from "../../../electron/connections/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type { ComposerPaletteItem } from "./ComposerPalette.tsx"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 
-import { Bug, File, FileImage, Folder, Package, Plug, SlidersHorizontal } from "lucide-react"
+import { Bug, File, FileImage, Folder, LibraryBig, Package, Plug, SlidersHorizontal } from "lucide-react"
 import * as React from "react"
 import { connectionAppDisplayLabel as connectionAppUiDisplayLabel } from "../../../electron/connections/summary.ts"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source"
@@ -18,6 +19,7 @@ import { isEmojiIcon, isImageIcon } from "@/routes/Skills/skill-route-model"
 
 export const creatorSkillId = "oo-create-skill"
 const builtInSkillIds = new Set([creatorSkillId, "oo", "oo-find-skills", "oo-publish-skill"])
+const knowledgeContextPreviewLimit = 4
 
 export type SlashCommandAction =
   | "attach-file-or-folder"
@@ -78,17 +80,39 @@ export interface ArtifactPaletteItem extends ComposerPaletteItem {
   kind: "artifact"
 }
 
+export interface KnowledgePaletteItem extends ComposerPaletteItem {
+  kind: "knowledge"
+  knowledgeBase: KnowledgeBaseSummary
+  selected: boolean
+}
+
+export interface KnowledgeLibraryPaletteItem extends ComposerPaletteItem {
+  kind: "knowledge-library"
+}
+
 export type ChatComposerPaletteItem =
   | ArtifactPaletteItem
   | AttachmentPaletteItem
   | ConnectionAccountPaletteItem
   | ConnectionProviderPaletteItem
+  | KnowledgeLibraryPaletteItem
+  | KnowledgePaletteItem
   | SkillPaletteItem
   | SlashCommandPaletteItem
 
 export interface CreatorSkillPaletteCopy {
   description: string
   title: string
+}
+
+export interface KnowledgePaletteCopy {
+  emptyDescription: string
+  emptyTitle: string
+  failedDescription: string
+  failedTitle: string
+  loadingDescription: string
+  loadingTitle: string
+  selected: string
 }
 
 function supportsCombinedAttachmentPicker(platform: NodeJS.Platform | undefined): boolean {
@@ -464,17 +488,91 @@ export function buildConnectionAccountPaletteItems(
     })
 }
 
+function knowledgeDescription(item: KnowledgeBaseSummary): string {
+  return [...item.authors, item.publisher].filter(Boolean).join(" · ")
+}
+
+function knowledgeIcon(item: KnowledgeBaseSummary): React.ReactNode {
+  if (item.coverDataUrl) {
+    return React.createElement("img", {
+      alt: "",
+      className: "size-6 rounded-sm object-cover",
+      src: item.coverDataUrl,
+    })
+  }
+  return React.createElement(LibraryBig, { className: "size-4" })
+}
+
+export function buildKnowledgePaletteItems(
+  items: KnowledgeBaseSummary[],
+  selectedIds: readonly string[],
+  copy: KnowledgePaletteCopy,
+  state: { error: boolean; loading: boolean },
+): Array<KnowledgeLibraryPaletteItem | KnowledgePaletteItem> {
+  const selected = new Set(selectedIds)
+  if (items.length === 0) {
+    const unavailable = state.loading
+      ? { description: copy.loadingDescription, disabled: true, title: copy.loadingTitle }
+      : state.error
+        ? { description: copy.failedDescription, title: copy.failedTitle }
+        : { description: copy.emptyDescription, title: copy.emptyTitle }
+    return [
+      {
+        ...unavailable,
+        icon: React.createElement(LibraryBig, { className: "size-4" }),
+        id: "knowledge-library",
+        keywords: ["knowledge", "library", "book", "知识库", "书"],
+        kind: "knowledge-library",
+        meta: "knowledge",
+      },
+    ]
+  }
+
+  return items
+    .slice()
+    .sort((left, right) => {
+      const leftSelected = selected.has(left.id)
+      const rightSelected = selected.has(right.id)
+      if (leftSelected !== rightSelected) return leftSelected ? -1 : 1
+      return right.importedAt - left.importedAt || left.title.localeCompare(right.title)
+    })
+    .map((item): KnowledgePaletteItem => {
+      const isSelected = selected.has(item.id)
+      return {
+        description: knowledgeDescription(item),
+        icon: knowledgeIcon(item),
+        id: `knowledge:${item.id}`,
+        keywords: [item.title, ...item.authors, item.publisher, item.publishedAt, item.sourceFileName].filter(
+          (value): value is string => Boolean(value),
+        ),
+        kind: "knowledge",
+        knowledgeBase: item,
+        meta: isSelected ? copy.selected : "knowledge",
+        selected: isSelected,
+        title: item.title,
+      }
+    })
+}
+
 export function buildContextPaletteItems({
   artifactItems = [],
   connectionItems,
+  knowledgeItems = [],
   platform,
   t,
 }: {
   artifactItems?: ArtifactPaletteItem[]
   connectionItems: ConnectionProviderPaletteItem[]
+  knowledgeItems?: Array<KnowledgeLibraryPaletteItem | KnowledgePaletteItem>
   platform?: NodeJS.Platform
   t: TranslateFn
-}): Array<ArtifactPaletteItem | AttachmentPaletteItem | ConnectionProviderPaletteItem> {
+}): Array<
+  | ArtifactPaletteItem
+  | AttachmentPaletteItem
+  | ConnectionProviderPaletteItem
+  | KnowledgeLibraryPaletteItem
+  | KnowledgePaletteItem
+> {
   const attachmentItems: AttachmentPaletteItem[] = supportsCombinedAttachmentPicker(platform)
     ? [
         {
@@ -507,7 +605,13 @@ export function buildContextPaletteItems({
           title: t("chat.attachFolderAction"),
         },
       ]
-  return [...attachmentItems, ...artifactItems, ...connectionItems]
+  return [
+    ...knowledgeItems.slice(0, knowledgeContextPreviewLimit),
+    ...attachmentItems,
+    ...artifactItems,
+    ...connectionItems,
+    ...knowledgeItems.slice(knowledgeContextPreviewLimit),
+  ]
 }
 
 function packDisplayItems(pack: LocalArtifactPack): LocalArtifactItem[] {

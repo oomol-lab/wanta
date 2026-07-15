@@ -1,4 +1,5 @@
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
@@ -9,6 +10,7 @@ import {
   buildConnectionAccountPaletteItems,
   buildConnectionPaletteItems,
   buildContextPaletteItems,
+  buildKnowledgePaletteItems,
   buildSlashRootPaletteItems,
   buildSkillPaletteItems,
   filterComposerPaletteItems,
@@ -41,6 +43,13 @@ const translations: Record<string, string> = {
   "chat.contextAttachFolderDescription": "Choose a folder from disk for this turn",
   "chat.contextGeneratedArtifactDescription": "Reference a generated file from this chat",
   "chat.contextGeneratedImageDescription": "Reference a generated image from this chat",
+  "chat.knowledgePaletteEmptyDescription": "Open the library and import a book",
+  "chat.knowledgePaletteEmptyTitle": "Import knowledge base",
+  "chat.knowledgePaletteFailedDescription": "Open knowledge management and try again",
+  "chat.knowledgePaletteFailedTitle": "Knowledge bases are unavailable",
+  "chat.knowledgePaletteLoadingDescription": "Reading imported books",
+  "chat.knowledgePaletteLoadingTitle": "Loading knowledge bases",
+  "chat.knowledgePaletteSelected": "Referenced",
   "chat.connectionAccountCount": "{count} accounts",
   "chat.connectionConnectDescription": "Connect it to use this connector",
   "chat.connectionDefaultAccountDescription": "Default · {account}",
@@ -60,6 +69,40 @@ const connectionPaletteCopy = {
   needsAttention: "Needs attention",
   setDefault: t("chat.connectionSetDefault"),
   unsupportedProvider: t("chat.connectionUnsupportedDescription"),
+}
+const knowledgePaletteCopy = {
+  emptyDescription: translations["chat.knowledgePaletteEmptyDescription"] ?? "",
+  emptyTitle: translations["chat.knowledgePaletteEmptyTitle"] ?? "",
+  failedDescription: translations["chat.knowledgePaletteFailedDescription"] ?? "",
+  failedTitle: translations["chat.knowledgePaletteFailedTitle"] ?? "",
+  loadingDescription: translations["chat.knowledgePaletteLoadingDescription"] ?? "",
+  loadingTitle: translations["chat.knowledgePaletteLoadingTitle"] ?? "",
+  selected: translations["chat.knowledgePaletteSelected"] ?? "",
+}
+
+function knowledgeBase(
+  id: string,
+  title: string,
+  importedAt: number,
+  authors: string[] = [],
+  publisher?: string,
+): KnowledgeBaseSummary {
+  return {
+    authors,
+    capabilities: {
+      fullTextSearch: true,
+      knowledgeGraph: true,
+      readingGraph: false,
+      summary: true,
+    },
+    id,
+    importedAt,
+    ...(publisher ? { publisher } : {}),
+    size: 1024,
+    sourceFileName: `${id}.wikg`,
+    statistics: {},
+    title,
+  }
 }
 
 function runtimeSkillGroup(
@@ -336,9 +379,21 @@ describe("composer palette items", () => {
       (service) => `Use ${service}`,
       connectionPaletteCopy,
     )
-    const items = buildContextPaletteItems({ artifactItems: artifacts, connectionItems: connections, t })
+    const knowledgeItems = buildKnowledgePaletteItems(
+      [knowledgeBase("journey", "Journey to the West", 1, ["Wu Cheng'en"], "People's Literature")],
+      [],
+      knowledgePaletteCopy,
+      { error: false, loading: false },
+    )
+    const items = buildContextPaletteItems({
+      artifactItems: artifacts,
+      connectionItems: connections,
+      knowledgeItems,
+      t,
+    })
 
     expect(items.map((item) => item.id)).toEqual([
+      "knowledge:journey",
       "context:attach-file",
       "context:attach-folder",
       "artifact:/tmp/artifacts/corgi.png",
@@ -346,6 +401,70 @@ describe("composer palette items", () => {
       "connection-provider:gmail",
       "connection-provider:slack",
     ])
+  })
+
+  it("orders selected knowledge first and searches book metadata", () => {
+    const items = buildKnowledgePaletteItems(
+      [
+        knowledgeBase("recent", "Modern Essays", 20, ["Lin Yu"], "Literature Press"),
+        knowledgeBase("journey", "Journey to the West", 10, ["Wu Cheng'en"], "People's Literature"),
+      ],
+      ["journey"],
+      knowledgePaletteCopy,
+      { error: false, loading: false },
+    )
+
+    expect(items.map((item) => item.id)).toEqual(["knowledge:journey", "knowledge:recent"])
+    expect(items[0]).toMatchObject({
+      description: "Wu Cheng'en · People's Literature",
+      kind: "knowledge",
+      meta: "Referenced",
+      selected: true,
+    })
+    expect(filterComposerPaletteItems(items, "cheng").map((item) => item.id)).toEqual(["knowledge:journey"])
+    expect(filterComposerPaletteItems(items, "people").map((item) => item.id)).toEqual(["knowledge:journey"])
+  })
+
+  it("keeps existing context actions visible before the rest of a large library", () => {
+    const knowledgeItems = buildKnowledgePaletteItems(
+      Array.from({ length: 6 }, (_, index) => knowledgeBase(`book-${index}`, `Book ${index}`, 10 - index)),
+      [],
+      knowledgePaletteCopy,
+      { error: false, loading: false },
+    )
+    const items = buildContextPaletteItems({ connectionItems: [], knowledgeItems, t })
+
+    expect(items.map((item) => item.id)).toEqual([
+      "knowledge:book-0",
+      "knowledge:book-1",
+      "knowledge:book-2",
+      "knowledge:book-3",
+      "context:attach-file",
+      "context:attach-folder",
+      "knowledge:book-4",
+      "knowledge:book-5",
+    ])
+    expect(filterComposerPaletteItems(items, "Book 5").map((item) => item.id)).toEqual(["knowledge:book-5"])
+  })
+
+  it("offers knowledge management when the library is empty or unavailable", () => {
+    const empty = buildKnowledgePaletteItems([], [], knowledgePaletteCopy, { error: false, loading: false })
+    const loading = buildKnowledgePaletteItems([], [], knowledgePaletteCopy, { error: false, loading: true })
+    const failed = buildKnowledgePaletteItems([], [], knowledgePaletteCopy, { error: true, loading: false })
+
+    expect(empty[0]).toMatchObject({
+      kind: "knowledge-library",
+      title: "Import knowledge base",
+    })
+    expect(empty[0]).not.toHaveProperty("disabled")
+    expect(loading[0]).toMatchObject({
+      disabled: true,
+      title: "Loading knowledge bases",
+    })
+    expect(failed[0]).toMatchObject({
+      title: "Knowledge bases are unavailable",
+    })
+    expect(failed[0]).not.toHaveProperty("disabled")
   })
 
   it("merges file and folder context actions on macOS", () => {

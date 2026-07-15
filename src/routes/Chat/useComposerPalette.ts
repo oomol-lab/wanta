@@ -8,6 +8,8 @@ import type {
   ConnectionAccountPaletteItem,
   ConnectionPaletteItem,
   ConnectionProviderPaletteItem,
+  KnowledgeLibraryPaletteItem,
+  KnowledgePaletteItem,
   SkillPaletteItem,
   SlashCommandPaletteItem,
 } from "./composer-palette-items.ts"
@@ -32,7 +34,13 @@ import { detectComposerTrigger } from "./composer-triggers.ts"
 
 interface UseComposerPaletteOptions {
   connectionItems: ConnectionProviderPaletteItem[]
-  contextItems: Array<ArtifactPaletteItem | AttachmentPaletteItem | ConnectionProviderPaletteItem>
+  contextItems: Array<
+    | ArtifactPaletteItem
+    | AttachmentPaletteItem
+    | ConnectionProviderPaletteItem
+    | KnowledgeLibraryPaletteItem
+    | KnowledgePaletteItem
+  >
   disabled: boolean
   dismissedTriggerKey: string | null
   dispatch: React.Dispatch<ComposerAction>
@@ -42,8 +50,10 @@ interface UseComposerPaletteOptions {
   onAddArtifactAttachment: (item: ArtifactPaletteItem) => void
   onAddContextMention: (mention: ChatContextMention) => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
+  onOpenKnowledgeLibrary?: () => void
   onRequestSetDefaultConnection?: (item: ConnectionAccountPaletteItem, selectConnection: () => void) => void
   onSelectAttachments: (kind: AttachmentPickerKind) => void
+  onSelectKnowledgeBase: (id: string) => void
   onViewBilling?: () => void
   skillItems: SkillPaletteItem[]
   slashItems: SlashCommandPaletteItem[]
@@ -80,8 +90,10 @@ export function useComposerPalette({
   onAddArtifactAttachment,
   onAddContextMention,
   onOpenConnectionProvider,
+  onOpenKnowledgeLibrary,
   onRequestSetDefaultConnection,
   onSelectAttachments,
+  onSelectKnowledgeBase,
   onViewBilling,
   skillItems,
   slashItems,
@@ -318,6 +330,26 @@ export function useComposerPalette({
     [dispatch, focusDraftAt, onAddArtifactAttachment],
   )
 
+  const applyKnowledgeItem = React.useCallback(
+    (item: KnowledgePaletteItem, currentTrigger: ComposerTrigger) => {
+      if (!item.selected) {
+        onSelectKnowledgeBase(item.knowledgeBase.id)
+      }
+      dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
+      focusDraftAt(currentTrigger.start)
+    },
+    [dispatch, focusDraftAt, onSelectKnowledgeBase],
+  )
+
+  const applyKnowledgeLibraryItem = React.useCallback(
+    (currentTrigger: ComposerTrigger) => {
+      dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
+      onOpenKnowledgeLibrary?.()
+      focusDraftAt(currentTrigger.start)
+    },
+    [dispatch, focusDraftAt, onOpenKnowledgeLibrary],
+  )
+
   const onSelect = React.useCallback(
     (item: ChatComposerPaletteItem | undefined) => {
       if (!item || item.disabled || !activeTrigger) {
@@ -341,6 +373,12 @@ export function useComposerPalette({
         case "artifact":
           applyArtifactItem(item, activeTrigger)
           return
+        case "knowledge":
+          applyKnowledgeItem(item, activeTrigger)
+          return
+        case "knowledge-library":
+          applyKnowledgeLibraryItem(activeTrigger)
+          return
         case "skill":
           applySkillItem(item, activeTrigger)
       }
@@ -350,6 +388,8 @@ export function useComposerPalette({
       applyArtifactItem,
       applyAttachmentItem,
       applyConnectionItem,
+      applyKnowledgeItem,
+      applyKnowledgeLibraryItem,
       applySkillItem,
       applySlashCommand,
       paletteMode,

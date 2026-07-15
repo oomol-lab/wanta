@@ -1168,6 +1168,15 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     },
     [activeChatSessionId, activeKnowledgeBaseIds, persistKnowledgeBaseIds],
   )
+  const handleAddKnowledgeBaseReference = React.useCallback(
+    (id: string): void => {
+      if (activeKnowledgeBaseIds.includes(id)) return
+      const nextIds = [...activeKnowledgeBaseIds, id]
+      if (activeChatSessionId) persistKnowledgeBaseIds(activeChatSessionId, nextIds)
+      else setDraftKnowledgeBaseIds(nextIds)
+    },
+    [activeChatSessionId, activeKnowledgeBaseIds, persistKnowledgeBaseIds],
+  )
   const pinnedKnowledgeContextBar = React.useMemo(
     () =>
       activeKnowledgeBases.length > 0 ? (
@@ -1402,6 +1411,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       billingRequestScope={billingRequestScope}
                       composerDraftKey={activeComposerDraftKey}
                       messages={bridgeInitialSendPending ? [] : messages}
+                      knowledgeBaseIds={activeKnowledgeBaseIds}
+                      knowledgeEnabled={knowledgeBaseBetaEnabled}
+                      knowledgeError={knowledgeLibrary.error}
+                      knowledgeItems={knowledgeLibrary.items}
+                      knowledgeLoading={knowledgeLibrary.loading}
                       permissionMode={displayedPermissionMode}
                       pendingPermissions={bridgeInitialSendPending ? [] : pendingPermissions}
                       pendingQuestions={bridgeInitialSendPending ? [] : pendingQuestions}
@@ -1458,7 +1472,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       onTurnOutputAvailable={handleTurnOutputAvailable}
                       onOpenConnections={handleOpenConnections}
                       onOpenConnectionProvider={handleOpenChatConnectionProvider}
+                      onOpenKnowledgeLibrary={() => setRoute("knowledge")}
                       onOpenOrganizations={handleOpenOrganizations}
+                      onSelectKnowledgeBase={handleAddKnowledgeBaseReference}
                       onViewBilling={handleViewBilling}
                     />
                   </div>

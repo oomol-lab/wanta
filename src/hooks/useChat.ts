@@ -32,8 +32,6 @@ import {
   markLatestAssistantToolsCancelled,
   markQuestionToolAnswered,
   markQuestionToolsCancelled,
-  markSessionCompletedUnread,
-  markSessionViewed,
   mergeFetchedMessages,
   removePart,
   setConnectionStatusPart,
@@ -68,7 +66,6 @@ export interface UseChat {
   error: string | null
   getSessionStatus: (sessionId: string) => ChatStatus
   getSessionRunStartedAt: (sessionId: string) => number | null
-  hasUnreadSession: (sessionId: string) => boolean
   send: (
     sessionId: string,
     text: string,
@@ -93,7 +90,7 @@ export interface UseChat {
   setPermissionMode: (sessionId: string, mode: AgentPermissionMode) => number
 }
 
-export function useChat(activeSessionId: string | null, visibleSessionId: string | null = activeSessionId): UseChat {
+export function useChat(activeSessionId: string | null): UseChat {
   const chatService = useChatService()
   const { activities, applyActiveRun, getSessionRunStartedAt, getSessionStatus, setActivity, setStatus, statuses } =
     useChatRunState()
@@ -101,10 +98,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const [pendingQuestionsMap, setPendingQuestionsMap] = React.useState<PendingQuestionsMap>({})
   const [pendingPermissionsMap, setPendingPermissionsMap] = React.useState<PendingPermissionsMap>({})
   const [permissionModes, setPermissionModes] = React.useState<Record<string, AgentPermissionMode>>({})
-  const [unreadSessionIds, setUnreadSessionIds] = React.useState<Set<string>>(() => new Set())
   const [globalError, setGlobalError] = React.useState<string | null>(null)
   const [errorsBySession, setErrorsBySession] = React.useState<Record<string, string | undefined>>({})
-  const visibleSessionIdRef = React.useRef<string | null>(visibleSessionId)
   const userStoppedSessions = React.useRef(new Map<string, number>())
   const cancelledToolParts = React.useRef<CancelledToolPartsMap>(new Map())
   const pendingQuestionsMutationVersions = React.useRef(new Map<string, number>())
@@ -153,11 +148,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     (sessionId: string): AgentPermissionMode => permissionModesRef.current[sessionId] ?? "default",
     [],
   )
-
-  React.useEffect(() => {
-    visibleSessionIdRef.current = visibleSessionId
-    setUnreadSessionIds((current) => markSessionViewed(current, visibleSessionId))
-  }, [visibleSessionId])
 
   const patch = React.useCallback((sessionId: string, updater: (msgs: ChatMessage[]) => ChatMessage[]) => {
     messagesMutationVersions.current.set(sessionId, (messagesMutationVersions.current.get(sessionId) ?? 0) + 1)
@@ -622,7 +612,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         flushPendingToolParts()
         setStatus(e.sessionId, "ready")
         setActivity(e.sessionId, undefined)
-        setUnreadSessionIds((current) => markSessionCompletedUnread(current, e.sessionId, visibleSessionIdRef.current))
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("messageError", (e) => {
@@ -942,10 +931,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const status = activeSessionId ? (statuses[activeSessionId] ?? "ready") : "ready"
   const activity = activeSessionId ? (activities[activeSessionId] ?? null) : null
   const messagesLoaded = activeSessionId ? Object.hasOwn(messagesMap, activeSessionId) : true
-  const hasUnreadSession = React.useCallback(
-    (sessionId: string): boolean => unreadSessionIds.has(sessionId),
-    [unreadSessionIds],
-  )
   const questionDrafts = React.useMemo<QuestionDraftStore>(
     () => ({
       read: (sessionId, request, expectedDraftCount) => {
@@ -972,7 +957,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     error,
     getSessionStatus,
     getSessionRunStartedAt,
-    hasUnreadSession,
     send,
     stop,
     answerQuestion,

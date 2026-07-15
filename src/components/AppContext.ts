@@ -1,3 +1,4 @@
+import type { AttentionService } from "../../electron/attention/common.ts"
 import type { AuthService } from "../../electron/auth/common.ts"
 import type { ChatService } from "../../electron/chat/common.ts"
 import type { GitService } from "../../electron/git/common.ts"
@@ -12,6 +13,7 @@ import type { ConnectionClientService } from "@oomol/connection"
 import * as React from "react"
 
 export interface AppContextValue {
+  attentionService: ConnectionClientService<AttentionService>
   chatService: ConnectionClientService<ChatService>
   gitService: ConnectionClientService<GitService>
   knowledgeService: ConnectionClientService<KnowledgeService>
@@ -35,6 +37,10 @@ export function useAppContext(): AppContextValue {
 
 export function useChatService(): ConnectionClientService<ChatService> {
   return useAppContext().chatService
+}
+
+export function useAttentionService(): ConnectionClientService<AttentionService> {
+  return useAppContext().attentionService
 }
 
 export function useSessionService(): ConnectionClientService<SessionService> {

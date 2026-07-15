@@ -35,6 +35,7 @@ const mockService = {
 } as unknown
 
 const appContext = {
+  attentionService: mockService,
   authService: mockService,
   chatService: mockService,
   connectionsService: mockService,

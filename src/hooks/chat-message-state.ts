@@ -771,26 +771,6 @@ function preserveLocalErrorParts(
   return missing.length === 0 ? parts : [...parts, ...missing]
 }
 
-export function markSessionCompletedUnread(
-  unreadSessionIds: Set<string>,
-  completedSessionId: string,
-  visibleSessionId: string | null,
-): Set<string> {
-  if (completedSessionId === visibleSessionId || unreadSessionIds.has(completedSessionId)) {
-    return unreadSessionIds
-  }
-  return new Set(unreadSessionIds).add(completedSessionId)
-}
-
-export function markSessionViewed(unreadSessionIds: Set<string>, visibleSessionId: string | null): Set<string> {
-  if (!visibleSessionId || !unreadSessionIds.has(visibleSessionId)) {
-    return unreadSessionIds
-  }
-  const next = new Set(unreadSessionIds)
-  next.delete(visibleSessionId)
-  return next
-}
-
 export function visibleChatError(
   errorsBySession: Record<string, string | undefined>,
   globalError: string | null,

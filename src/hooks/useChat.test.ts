@@ -16,8 +16,6 @@ import {
   markLatestAssistantToolsCancelled,
   markQuestionToolAnswered,
   markQuestionToolsCancelled,
-  markSessionCompletedUnread,
-  markSessionViewed,
   mergeFetchedMessages,
   setConnectionStatusPart,
   setErrorPart,
@@ -367,20 +365,6 @@ describe("chat message identity reconciliation", () => {
     expect(mergeFetchedMessages(current, fetched)[0]?.parts).toEqual([
       { kind: "error", partId: "message-error-APIError", errorText: "The selected model does not exist." },
     ])
-  })
-
-  it("tracks completed sessions as unread only when they are not visible", () => {
-    const current = new Set<string>()
-
-    expect(markSessionCompletedUnread(current, "s1", "s1")).toBe(current)
-
-    const unread = markSessionCompletedUnread(current, "s2", "s1")
-    expect([...unread]).toEqual(["s2"])
-    expect(markSessionCompletedUnread(unread, "s2", "s1")).toBe(unread)
-
-    const viewed = markSessionViewed(unread, "s2")
-    expect([...viewed]).toEqual([])
-    expect(markSessionViewed(viewed, "s2")).toBe(viewed)
   })
 
   it("marks locally stopped running tools as cancelled and freezes their timing", () => {

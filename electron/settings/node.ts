@@ -1,5 +1,5 @@
 import type { WindowsTitleBarTheme } from "../window/title-bar-overlay.ts"
-import type { AppSettings, SettingsService, ThemeSource } from "./common.ts"
+import type { AppSettings, CompletionNotificationCondition, SettingsService, ThemeSource } from "./common.ts"
 import type { SettingsStore } from "./store.ts"
 import type { IConnectionService } from "@oomol/connection"
 
@@ -12,9 +12,10 @@ import {
   shouldApplyWindowsTitleBarTheme,
   windowBackgroundColorForMaterial,
 } from "../window/title-bar-overlay.ts"
-import { SettingsService as SettingsServiceName } from "./common.ts"
+import { DEFAULT_APP_SETTINGS, SettingsService as SettingsServiceName } from "./common.ts"
 
 export interface SettingsServiceDeps {
+  onSettingsChanged?: (settings: AppSettings) => Promise<void> | void
   store: SettingsStore
 }
 
@@ -39,8 +40,28 @@ export class SettingsServiceImpl
   public current(): AppSettings {
     const persisted = this.deps.store.read()
     const themeSource: ThemeSource =
-      persisted.themeSource === "light" || persisted.themeSource === "dark" ? persisted.themeSource : "system"
-    return { knowledgeBaseBetaEnabled: persisted.knowledgeBaseBetaEnabled === true, themeSource }
+      persisted.themeSource === "light" || persisted.themeSource === "dark"
+        ? persisted.themeSource
+        : DEFAULT_APP_SETTINGS.themeSource
+    const completionNotificationCondition: CompletionNotificationCondition =
+      persisted.completionNotificationCondition === "never" ||
+      persisted.completionNotificationCondition === "background" ||
+      persisted.completionNotificationCondition === "always"
+        ? persisted.completionNotificationCondition
+        : DEFAULT_APP_SETTINGS.completionNotificationCondition
+    return {
+      completionNotificationCondition,
+      knowledgeBaseBetaEnabled: booleanSetting(
+        persisted.knowledgeBaseBetaEnabled,
+        DEFAULT_APP_SETTINGS.knowledgeBaseBetaEnabled,
+      ),
+      notificationSoundEnabled: booleanSetting(
+        persisted.notificationSoundEnabled,
+        DEFAULT_APP_SETTINGS.notificationSoundEnabled,
+      ),
+      themeSource,
+      unreadBadgeEnabled: booleanSetting(persisted.unreadBadgeEnabled, DEFAULT_APP_SETTINGS.unreadBadgeEnabled),
+    }
   }
 
   public getSettings(): Promise<AppSettings> {
@@ -63,9 +84,29 @@ export class SettingsServiceImpl
 
   public setKnowledgeBaseBetaEnabled(enabled: boolean): Promise<void> {
     this.deps.store.write({ ...this.deps.store.read(), knowledgeBaseBetaEnabled: enabled })
-    void this.send("settingsChanged", this.current()).catch((error: unknown) => {
-      console.warn("[wanta] settings broadcast failed:", error)
-    })
+    this.settingsChanged()
+    return Promise.resolve()
+  }
+
+  public setCompletionNotificationCondition(condition: CompletionNotificationCondition): Promise<void> {
+    const normalized: CompletionNotificationCondition =
+      condition === "never" || condition === "background" || condition === "always"
+        ? condition
+        : DEFAULT_APP_SETTINGS.completionNotificationCondition
+    this.deps.store.write({ ...this.deps.store.read(), completionNotificationCondition: normalized })
+    this.settingsChanged()
+    return Promise.resolve()
+  }
+
+  public setNotificationSoundEnabled(enabled: boolean): Promise<void> {
+    this.deps.store.write({ ...this.deps.store.read(), notificationSoundEnabled: enabled })
+    this.settingsChanged()
+    return Promise.resolve()
+  }
+
+  public setUnreadBadgeEnabled(enabled: boolean): Promise<void> {
+    this.deps.store.write({ ...this.deps.store.read(), unreadBadgeEnabled: enabled })
+    this.settingsChanged()
     return Promise.resolve()
   }
 
@@ -82,6 +123,16 @@ export class SettingsServiceImpl
 
     nativeTheme.on("updated", this.handleNativeThemeUpdated)
     this.nativeThemeListenerInstalled = true
+  }
+
+  private settingsChanged(): void {
+    const settings = this.current()
+    void this.send("settingsChanged", settings).catch((error: unknown) => {
+      console.warn("[wanta] settings broadcast failed:", error)
+    })
+    void Promise.resolve(this.deps.onSettingsChanged?.(settings)).catch((error: unknown) => {
+      console.warn("[wanta] settings change handler failed:", error)
+    })
   }
 
   private applyWindowsTitleBarOverlay(): void {
@@ -111,4 +162,8 @@ export class SettingsServiceImpl
     }
     this.lastAppliedWindowsTitleBarTheme = nextTheme
   }
+}
+
+function booleanSetting(value: boolean | undefined, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback
 }

@@ -28,6 +28,8 @@ import {
   registerArtifactResourceScheme,
 } from "./artifact-resource/protocol.ts"
 import { registerAttachmentDialogHandlers } from "./attachment-dialog-handlers.ts"
+import { AttentionServiceImpl } from "./attention/node.ts"
+import { AttentionStore } from "./attention/store.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
@@ -100,6 +102,7 @@ let windowsTrayLifecycle: {
 const server = new ConnectionServer(new ElectronServerAdapter())
 
 const settingsStore = new SettingsStore(app.getPath("userData"))
+const attentionStore = new AttentionStore(app.getPath("userData"))
 const modelsStore = new ModelsStore(app.getPath("userData"))
 const knowledgeStore = new KnowledgeStore(app.getPath("userData"))
 const wikiGraphCliPath = path.join(app.getAppPath(), "node_modules", "wiki-graph", "dist", "cli.js")
@@ -159,16 +162,20 @@ const chatService = new ChatServiceImpl(null, {
   trustedAttachmentPaths,
   turnOutputStore,
   onSetAgentOrganization: handleAgentOrganizationChanged,
+  onSessionCompleted: (input) => attentionService.completeSession(input),
 })
 const sessionService = new SessionServiceImpl(null, {
   activityStore: sessionActivityStore,
   metadataStore: sessionMetadataStore,
+  onSessionArchived: (sessionId) => attentionService.removeSession(sessionId),
   onSessionRemoved: async (sessionId) => {
-    await Promise.all([artifactBundleStore.removeSession(sessionId), turnOutputStore.removeSession(sessionId)]).catch(
-      (error: unknown) => {
-        console.warn("[wanta] failed to clean removed session outputs", error)
-      },
-    )
+    await Promise.all([
+      artifactBundleStore.removeSession(sessionId),
+      attentionService.removeSession(sessionId),
+      turnOutputStore.removeSession(sessionId),
+    ]).catch((error: unknown) => {
+      console.warn("[wanta] failed to clean removed session outputs", error)
+    })
   },
   projectStore: sessionProjectStore,
 })
@@ -193,7 +200,15 @@ const skillService = new SkillServiceImpl(authManager, {
   onRuntimeSkillsChanged: (reason) => skillAgentRefresh.schedule(reason),
 })
 const settingsService = new SettingsServiceImpl({
+  onSettingsChanged: (settings) => attentionService.settingsChanged(settings),
   store: settingsStore,
+})
+const attentionService = new AttentionServiceImpl({
+  getLocale: activeLocale,
+  getSettings: () => settingsService.current(),
+  getWindow: () => mainWindow,
+  revealWindow: showMainWindow,
+  store: attentionStore,
 })
 // 更新渠道（stable/beta）持久化在同一 settings.json；服务内部仅打包态联网。
 const updateService = new UpdateServiceImpl({
@@ -230,6 +245,7 @@ if (!isLocked) {
 
 // 注册所有 service 实现，必须在 server.start() 之前。
 server.registerService(chatService)
+server.registerService(attentionService)
 server.registerService(sessionService)
 server.registerService(skillService)
 server.registerService(modelsService)
@@ -265,6 +281,9 @@ if (isLocked) {
       installOomolCorsShim(session.defaultSession)
       installApplicationMenu()
       createMainWindow()
+      void attentionService.initialize().catch((error: unknown) => {
+        console.warn("[wanta] failed to initialize task attention state:", error)
+      })
       // 打包态启动跨平台后台更新：延迟首查、周期检查、系统唤醒后补查；发现后后台下载，
       // 安装仍由用户点击重启或正常退出触发，避免打断 Agent 任务。
       updateService.startBackgroundChecks()
@@ -277,6 +296,9 @@ if (isLocked) {
           if (account) {
             return applyAuthAccount(account)
           }
+          void attentionService.clearAll().catch((error: unknown) => {
+            console.warn("[wanta] failed to clear signed-out task attention:", error)
+          })
           console.log("[wanta] not signed in (or session expired) — login page will be shown")
           return undefined
         })
@@ -501,10 +523,16 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
 
   if (!account || isQuitting) {
     activeAgentOrganizationName = undefined
+    await attentionService.clearAll().catch((error: unknown) => {
+      console.warn("[wanta] failed to clear attention state during sign-out:", error)
+    })
     return
   }
   if (previousAccountId && previousAccountId !== account.id) {
     activeAgentOrganizationName = undefined
+    await attentionService.clearAll().catch((error: unknown) => {
+      console.warn("[wanta] failed to clear attention state during account switch:", error)
+    })
   }
 
   const customModels = await modelsStore.runtimeCustomModels()

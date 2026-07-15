@@ -41,10 +41,20 @@ export function notificationPresentation(
   }
 
   switch (lastTestResult?.outcome) {
-    case "shown":
+    case "delivered":
       return {
-        descriptionKey: "settings.notificationTestAcceptedDescription",
+        descriptionKey: "settings.notificationTestDeliveredDescription",
         recovery: false,
+        settingsLabelKey: notificationSettingsLabelKey(capability.platform),
+        testLabelKey: "settings.notificationRetest",
+      }
+    case "accepted":
+      return {
+        descriptionKey:
+          capability.platform === "darwin"
+            ? "settings.notificationTestUnconfirmedDescription"
+            : "settings.notificationTestAcceptedDescription",
+        recovery: capability.platform === "darwin",
         settingsLabelKey: notificationSettingsLabelKey(capability.platform),
         testLabelKey: "settings.notificationRetest",
       }

@@ -1185,7 +1185,8 @@ export const enMessages = {
   "settings.groupApplication": "Application",
   "settings.groupBetaFeatures": "Beta features",
   "settings.notifications": "Task notifications",
-  "settings.notificationsDescription": "Choose when completed tasks should send a system notification.",
+  "settings.notificationsDescription":
+    "Choose when real task completions send notifications; the test button above ignores this setting.",
   "settings.notificationSystemStatus": "System notifications",
   "settings.notificationMacInitialDescription":
     "System access hasn't been verified. Select Enable and test; macOS will ask for notification access the first time.",
@@ -1193,8 +1194,12 @@ export const enMessages = {
     "Windows usually has no separate first-use prompt. Send a test notification to check system settings and installation.",
   "settings.notificationGenericInitialDescription":
     "Send a test notification to check whether this system can receive Wanta notifications.",
+  "settings.notificationTestDeliveredDescription":
+    "The test notification reached macOS Notification Center. If you didn't see or hear it, check banners, sound, Focus, Do Not Disturb, and screen-sharing settings.",
   "settings.notificationTestAcceptedDescription":
-    "The system accepted the test notification. If you didn't see or hear it, check Focus, Do Not Disturb, banners, and sound settings.",
+    "The system accepted the test notification request. If you didn't see or hear it, check Notification Center, banners, sound, Focus, and Do Not Disturb.",
+  "settings.notificationTestUnconfirmedDescription":
+    "macOS accepted the request, but Wanta couldn't confirm that it reached Notification Center. Check Notification Center, or open system settings and test again.",
   "settings.notificationTestFailedDescription":
     "The system couldn't create the test notification. Allow Wanta in system settings, then test again.",
   "settings.notificationTestTimedOutDescription":
@@ -1208,7 +1213,7 @@ export const enMessages = {
   "settings.notificationOpenWindowsSettings": "Open Windows notification settings",
   "settings.notificationSettingsOpenFailed": "Couldn't open system notification settings",
   "settings.notificationNever": "Never",
-  "settings.notificationBackground": "Background only",
+  "settings.notificationBackground": "When Wanta isn't focused",
   "settings.notificationAlways": "Always",
   "settings.notificationSound": "Play system notification sound",
   "settings.notificationSoundDescription":
@@ -1218,8 +1223,9 @@ export const enMessages = {
   "settings.notificationEnableAndTest": "Enable and test notifications",
   "settings.notificationTest": "Send test notification",
   "settings.notificationRetest": "Test again",
-  "settings.notificationTestSent":
-    "The system accepted the test notification. Check Focus or Do Not Disturb if you didn't see it.",
+  "settings.notificationTestDelivered": "Test notification delivered to Notification Center",
+  "settings.notificationTestAccepted": "The system accepted the test notification request",
+  "settings.notificationTestUnconfirmed": "The request was accepted, but delivery wasn't confirmed",
   "settings.notificationsUpdateFailed": "Couldn't update notification settings",
   "settings.notificationTestFailed": "Couldn't send a test notification",
   "settings.notificationTestTimedOut": "The system didn't confirm the test notification. Check notification settings.",

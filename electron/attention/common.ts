@@ -25,11 +25,14 @@ export interface NotificationCapability {
   status: NotificationCapabilityStatus
 }
 
-export type NotificationTestOutcome = "failed" | "shown" | "timed-out" | "unsupported"
+export type NotificationTestOutcome = "accepted" | "delivered" | "failed" | "timed-out" | "unsupported"
 
 export interface NotificationTestResult {
   error?: string
+  foundInHistory?: boolean
+  notificationId?: string
   outcome: NotificationTestOutcome
+  windowFocused?: boolean
 }
 
 export type AttentionService = typeof AttentionService

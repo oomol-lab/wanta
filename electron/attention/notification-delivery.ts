@@ -8,8 +8,8 @@ export interface NativeNotificationDelivery {
   show(): void
 }
 
-/** 把 Electron 的事件式通知投递转成可经 IPC 返回的确定结果。 */
-export function deliverNotification(
+/** 把 Electron 的事件式通知提交转成可经 IPC 返回的结果；show 只代表原生 API 接受请求。 */
+export function submitNotification(
   notification: NativeNotificationDelivery,
   timeoutMs: number,
 ): Promise<NotificationTestResult> {
@@ -23,7 +23,7 @@ export function deliverNotification(
       notification.removeFailedListener(handleFailed)
       resolve(result)
     }
-    const handleShow = (): void => finish({ outcome: "shown" })
+    const handleShow = (): void => finish({ outcome: "accepted" })
     const handleFailed = (error: string): void => {
       finish({ error: error || "Native notification delivery failed.", outcome: "failed" })
     }

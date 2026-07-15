@@ -14,13 +14,15 @@ import type { BrowserWindow as ElectronBrowserWindow, Event as ElectronEvent, Na
 import { ConnectionService } from "@oomol/connection"
 import { app, nativeImage, Notification, shell } from "electron"
 import { branding } from "../branding.ts"
+import { logDiagnostic } from "../diagnostics-log.ts"
 import { AttentionService as AttentionServiceName } from "./common.ts"
 import {
   notificationCapability,
   openFirstAvailableSystemSettingsUrl,
   systemNotificationSettingsUrls,
 } from "./notification-capability.ts"
-import { deliverNotification } from "./notification-delivery.ts"
+import { submitNotification } from "./notification-delivery.ts"
+import { waitForNotificationInHistory } from "./notification-history.ts"
 import { isSessionActivelyViewed, shouldShowCompletionNotification } from "./policy.ts"
 
 interface AttentionServiceDeps {
@@ -136,8 +138,15 @@ export class AttentionServiceImpl
       }
 
       const settings = this.deps.getSettings()
-      if (shouldShowCompletionNotification(settings.completionNotificationCondition, windowFocused)) {
+      const shouldNotify = shouldShowCompletionNotification(settings.completionNotificationCondition, windowFocused)
+      logDiagnostic("attention", "completion notification decision", {
+        condition: settings.completionNotificationCondition,
+        shouldNotify,
+        windowFocused,
+      })
+      if (shouldNotify) {
         void this.showNotification(req.sessionId, false).then((result) => {
+          logNotificationResult("completion notification completed", result)
           if (result.outcome === "failed" || result.outcome === "timed-out") {
             console.warn("[wanta] task completion notification was not delivered:", result)
           }
@@ -163,7 +172,10 @@ export class AttentionServiceImpl
   }
 
   public testCompletionNotification(): Promise<NotificationTestResult> {
-    return this.showNotification(null, true)
+    return this.showNotification(null, true).then((result) => {
+      logNotificationResult("notification test completed", result)
+      return result
+    })
   }
 
   public async openSystemNotificationSettings(): Promise<void> {
@@ -237,7 +249,7 @@ export class AttentionServiceImpl
     this.notifications.get(id)?.close()
     const notification = new Notification({
       body: test ? copy.testBody : copy.completedBody,
-      groupId: "task-completion",
+      ...(test ? {} : { groupId: "task-completion" }),
       id,
       silent: !this.deps.getSettings().notificationSoundEnabled,
       title: test ? copy.testTitle : copy.completedTitle,
@@ -262,7 +274,8 @@ export class AttentionServiceImpl
     }
     let showListener: (() => void) | null = null
     let failedEventListener: ((event: ElectronEvent, error: string) => void) | null = null
-    return deliverNotification(
+    const windowFocused = this.deps.getWindow()?.isFocused() === true
+    return submitNotification(
       {
         onFailed: (listener) => {
           failedEventListener = (_event, error) => listener(error)
@@ -281,11 +294,47 @@ export class AttentionServiceImpl
         show: () => notification.show(),
       },
       test ? notificationTestDeliveryTimeoutMs : notificationDeliveryTimeoutMs,
-    ).then((result) => {
+    ).then(async (result): Promise<NotificationTestResult> => {
       if (result.outcome === "failed") forget()
-      return result
+      const baseResult = { ...result, notificationId: id, windowFocused }
+      if (!test || process.platform !== "darwin" || result.outcome !== "accepted") return baseResult
+
+      try {
+        const foundInHistory = await waitForNotificationInHistory(id, () => Notification.getHistory())
+        if (foundInHistory) return { ...baseResult, foundInHistory, outcome: "delivered" }
+        return {
+          ...baseResult,
+          error: "The notification request was accepted but was not found in Notification Center.",
+          foundInHistory,
+        }
+      } catch (error) {
+        return {
+          ...baseResult,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      }
     })
   }
+}
+
+function logNotificationResult(message: string, result: NotificationTestResult): void {
+  logDiagnostic(
+    "attention",
+    message,
+    {
+      error: result.error,
+      foundInHistory: result.foundInHistory,
+      notificationId: result.notificationId,
+      outcome: result.outcome,
+      platform: process.platform,
+      windowFocused: result.windowFocused,
+    },
+    result.outcome === "failed" ||
+      result.outcome === "timed-out" ||
+      (result.outcome === "accepted" && result.error !== undefined)
+      ? "warn"
+      : "info",
+  )
 }
 
 function windowsUnreadOverlayIcon(): NativeImage {

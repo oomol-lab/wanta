@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { normalizeServiceSlug, parseToolAuthorization, toolDisplayLine, toolServiceSlug } from "./tool-display.ts"
+import {
+  normalizeServiceSlug,
+  parseToolAuthorization,
+  toolActionSummary,
+  toolDisplayLine,
+  toolServiceSlug,
+} from "./tool-display.ts"
 
 describe("tool display", () => {
   it("normalizes service slugs before dropping the oo prefix", () => {
@@ -42,6 +48,46 @@ describe("tool display", () => {
       detail: "gmail",
       detailKind: "text",
     })
+  })
+
+  it("renders knowledge queries without exposing the internal tool name", () => {
+    const t = (key: string, vars?: Record<string, string | number>) => `${key}:${vars?.detail ?? ""}`
+    const part = {
+      kind: "tool" as const,
+      partId: "p1",
+      tool: "query_knowledge",
+      status: "completed" as const,
+      input: { operation: "search", query: "唐僧师徒关系" },
+    }
+
+    expect(toolDisplayLine(t, part)).toEqual({
+      title: "chat.toolKnowledgeSearchGeneric:",
+      detail: "唐僧师徒关系",
+      detailKind: "text",
+    })
+    expect(toolActionSummary(t, part)).toBe("chat.toolKnowledgeSearch:唐僧师徒关系")
+  })
+
+  it("uses operation-specific knowledge query labels", () => {
+    const t = (key: string) => key
+    const expected = {
+      evidence: "chat.toolKnowledgeEvidenceGeneric",
+      inspect: "chat.toolKnowledgeInspectGeneric",
+      pack: "chat.toolKnowledgePackGeneric",
+      related: "chat.toolKnowledgeRelatedGeneric",
+    }
+
+    for (const [operation, title] of Object.entries(expected)) {
+      expect(
+        toolDisplayLine(t, {
+          kind: "tool",
+          partId: operation,
+          tool: "query_knowledge",
+          status: "completed",
+          input: { operation },
+        }).title,
+      ).toBe(title)
+    }
   })
 
   it("extracts the provider slug from an oo 1.3.0 dotted `connector schema` command", () => {

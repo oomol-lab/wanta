@@ -1,9 +1,9 @@
 import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 
-import { Check, ChevronDown, LibraryBig } from "lucide-react"
+import { ArrowRight, Check, ChevronDown, LibraryBig } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { useT } from "@/i18n/i18n"
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { useI18n } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 function knowledgeContextSummary(items: KnowledgeBaseSummary[], countLabel: (count: number) => string): string {
@@ -17,14 +17,16 @@ export function KnowledgeContextBar({
   activeItems,
   items,
   queuedMessageCount,
+  onOpenLibrary,
   onToggle,
 }: {
   activeItems: KnowledgeBaseSummary[]
   items: KnowledgeBaseSummary[]
   queuedMessageCount: number
+  onOpenLibrary: () => void
   onToggle: (id: string) => void
 }) {
-  const t = useT()
+  const { locale, t } = useI18n()
   const activeIds = new Set(activeItems.map((item) => item.id))
   const summary = knowledgeContextSummary(activeItems, (count) => t("knowledge.contextCount", { count }))
 
@@ -49,7 +51,7 @@ export function KnowledgeContextBar({
             size="sm"
             className="h-7 shrink-0 gap-1 rounded-lg px-2 text-muted-foreground hover:text-foreground"
           >
-            {t("knowledge.manageContext")}
+            {t("knowledge.selectContext")}
             <ChevronDown className="size-3.5" aria-hidden="true" />
           </Button>
         </PopoverTrigger>
@@ -66,7 +68,11 @@ export function KnowledgeContextBar({
           <div className="max-h-72 overflow-y-auto p-1.5">
             {items.map((item) => {
               const selected = activeIds.has(item.id)
-              const metadata = [item.authors.join("、"), item.publisher].filter(Boolean).join(" · ")
+              const authorLabel =
+                locale === "zh-CN"
+                  ? item.authors.join("、")
+                  : new Intl.ListFormat(locale, { style: "short", type: "conjunction" }).format(item.authors)
+              const metadata = [authorLabel, item.publisher].filter(Boolean).join(" · ")
               return (
                 <button
                   key={item.id}
@@ -103,6 +109,20 @@ export function KnowledgeContextBar({
                 </button>
               )
             })}
+          </div>
+          <div className="border-t p-1.5">
+            <PopoverClose asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-9 w-full justify-start gap-2 rounded-lg px-2 text-muted-foreground hover:text-foreground"
+                onClick={onOpenLibrary}
+              >
+                <LibraryBig className="size-4" aria-hidden="true" />
+                <span className="min-w-0 flex-1 text-left">{t("knowledge.openLibraryManagement")}</span>
+                <ArrowRight className="size-3.5" aria-hidden="true" />
+              </Button>
+            </PopoverClose>
           </div>
         </PopoverContent>
       </Popover>

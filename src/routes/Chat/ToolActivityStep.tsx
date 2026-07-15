@@ -14,6 +14,7 @@ import {
   FileText,
   FolderOpen,
   Globe,
+  LibraryBig,
   ListChecks,
   Loader2,
   Package,
@@ -140,6 +141,8 @@ function ToolActionIcon({ part }: { part: ChatMessagePart }) {
       return <SlidersHorizontal className={className} />
     case "call_action":
       return <PlayCircle className={className} />
+    case "query_knowledge":
+      return <LibraryBig className={className} />
     case "bash":
       return <SquareTerminal className={className} />
     case "read":

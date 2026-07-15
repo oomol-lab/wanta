@@ -1175,6 +1175,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           activeItems={activeKnowledgeBases}
           items={knowledgeLibrary.items}
           queuedMessageCount={activeQueuedMessages.length}
+          onOpenLibrary={() => setRoute("knowledge")}
           onToggle={handleToggleKnowledgeBaseReference}
         />
       ) : null,

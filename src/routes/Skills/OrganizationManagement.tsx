@@ -79,7 +79,6 @@ export function OrganizationManagementRoute({
   const activeAccount = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
   const activeAccountId = activeAccount?.id
   const activeWorkspace = workspace.activeWorkspace
-  const selectPersonalWorkspace = workspace.selectPersonal
   const selectOrganizationWorkspace = workspace.selectOrganization
   const refreshWorkspace = workspace.refresh
   const upsertWorkspaceOrganization = workspace.upsertOrganization
@@ -269,10 +268,6 @@ export function OrganizationManagementRoute({
     upsertOrganization: upsertWorkspaceOrganization,
   })
 
-  const handleSelectPersonalWorkspace = React.useCallback(() => {
-    selectPersonalWorkspace()
-  }, [selectPersonalWorkspace])
-
   const handleSelectOrganizationWorkspace = React.useCallback(
     (organizationId: string) => {
       selectOrganizationWorkspace(organizationId)
@@ -335,7 +330,6 @@ export function OrganizationManagementRoute({
                   onOpenMembers={() => setMembersPanelOpen(true)}
                   onRemoteAvatarLoad={clearOrganizationAvatarPreview}
                   onSelect={handleSelectOrganizationWorkspace}
-                  onSelectPersonal={handleSelectPersonalWorkspace}
                 />
                 {selectedOrganization ? (
                   <div className="grid min-h-0 min-w-0">

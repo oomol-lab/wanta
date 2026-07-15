@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { applyOrganizationPatchesToOverview, upsertOverviewOrganization } from "./organization-overview.ts"
+import {
+  applyOrganizationPatchesToOverview,
+  resolveOrganizationSelection,
+  upsertOverviewOrganization,
+} from "./organization-overview.ts"
 
 describe("organization overview patching", () => {
   it("updates existing organizations while preserving local role metadata", () => {
@@ -98,5 +102,28 @@ describe("organization overview patching", () => {
     ])
 
     expect(next.created[0]).toMatchObject({ avatar: "new.png", name: "new" })
+  })
+})
+
+describe("organization workspace selection", () => {
+  const organizations = [
+    { avatar: "", creator_user_id: "user-1", id: "first", name: "First" },
+    { avatar: "", creator_user_id: "user-2", id: "second", name: "Second" },
+  ]
+
+  it("keeps an existing organization selection", () => {
+    expect(resolveOrganizationSelection("second", organizations)).toBe("second")
+  })
+
+  it("falls back to the first organization when no organization is selected", () => {
+    expect(resolveOrganizationSelection(null, organizations)).toBe("first")
+  })
+
+  it("falls back to the first organization when the stored organization is unavailable", () => {
+    expect(resolveOrganizationSelection("missing", organizations)).toBe("first")
+  })
+
+  it("keeps the personal fallback when no organizations are available", () => {
+    expect(resolveOrganizationSelection(null, [])).toBeNull()
   })
 })

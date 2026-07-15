@@ -100,7 +100,7 @@ export const maxOrganizationNameLength = 100
 export const maxOrganizationAvatarLength = 4095
 export const minimumMemberSearchLength = 2
 
-const organizationNamePattern = /^[A-Za-z0-9._-]+$/
+const organizationNamePattern = /^[A-Za-z0-9._'-]+$/
 const organizationPageSnapshotTtlMs = 30_000
 
 export const initialProviderAccessForm: ProviderAccessForm = {

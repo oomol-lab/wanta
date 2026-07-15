@@ -66,13 +66,10 @@ function WorkspaceAvatar({
 }
 
 function WorkspaceMenuContent({
-  accountAvatarUrl,
-  accountName,
   loading,
   onManageOrganizations,
   onRefresh,
   onSelectOrganization,
-  onSelectPersonal,
   error,
   getOrganizationCanManage,
   getOrganizationRole,
@@ -80,8 +77,6 @@ function WorkspaceMenuContent({
   organizations,
   workspace,
 }: {
-  accountAvatarUrl?: string
-  accountName?: string
   error: UseOrganizationWorkspace["error"]
   getOrganizationCanManage: UseOrganizationWorkspace["getOrganizationCanManage"]
   getOrganizationRole: UseOrganizationWorkspace["getOrganizationRole"]
@@ -90,15 +85,11 @@ function WorkspaceMenuContent({
   onManageOrganizations: () => void
   onRefresh: () => void
   onSelectOrganization: (organizationId: string) => void
-  onSelectPersonal: () => void
   organizations: UseOrganizationWorkspace["organizations"]
   workspace: WorkspaceSelection
 }) {
   const t = useT()
   const activeKey = workspaceSelectionSwitchKey(workspace)
-  const personalLabel = accountName?.trim() || t("organizations.personal")
-  const personalDescription =
-    personalLabel === t("organizations.personal") ? t("organizations.workspace") : t("organizations.personal")
   const showBlockingError = Boolean(error && !hasLoaded)
   const showRefreshWarning = Boolean(error && hasLoaded)
   const workspaceItemClassName =
@@ -119,22 +110,6 @@ function WorkspaceMenuContent({
           <RefreshCw className={cn("size-4", loading && "animate-spin")} />
         </button>
       </div>
-      <button
-        type="button"
-        className={workspaceItemClassName}
-        onClick={onSelectPersonal}
-        data-active={activeKey === "personal"}
-      >
-        <WorkspaceAvatar
-          accountAvatarUrl={accountAvatarUrl}
-          accountName={accountName}
-          workspace={{ type: "personal" }}
-        />
-        <span className="min-w-0 flex-1 truncate">{personalLabel}</span>
-        <Badge variant="outline" className="flex w-full justify-end px-0 text-right font-normal">
-          {personalDescription}
-        </Badge>
-      </button>
       {showBlockingError && error ? (
         <div className="px-2 py-1.5">
           <ErrorNotice error={error} compact />
@@ -297,8 +272,6 @@ export function SidebarFooterControls({
       </button>
       {workspaceMenuOpen ? (
         <WorkspaceMenuContent
-          accountAvatarUrl={avatarUrl}
-          accountName={trimmedAccountName}
           error={workspace.error}
           getOrganizationCanManage={workspace.getOrganizationCanManage}
           getOrganizationRole={workspace.getOrganizationRole}
@@ -315,11 +288,6 @@ export function SidebarFooterControls({
             closeMenus()
             onWorkspaceSwitchStart(`organization:${organizationId}`)
             workspace.selectOrganization(organizationId)
-          }}
-          onSelectPersonal={() => {
-            closeMenus()
-            onWorkspaceSwitchStart("personal")
-            workspace.selectPersonal()
           }}
         />
       ) : null}

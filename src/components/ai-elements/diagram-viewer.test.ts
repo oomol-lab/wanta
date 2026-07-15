@@ -5,7 +5,9 @@ import {
   diagramViewerWheelAction,
   mermaidSvgSize,
   panDiagramViewerState,
+  pinchDiagramViewerState,
   zoomDiagramViewerState,
+  zoomDiagramViewerToScale,
 } from "./diagram-viewer.ts"
 
 describe("diagramViewerFitScale", () => {
@@ -23,13 +25,13 @@ describe("diagram viewer navigation", () => {
   const stage = { width: 800, height: 600 }
 
   it("clamps panning to the rendered diagram bounds", () => {
-    expect(clampDiagramViewerOffset({ x: 900, y: -900 }, 1, diagram, stage)).toEqual({ x: 200, y: -100 })
-    expect(clampDiagramViewerOffset({ x: 40, y: 40 }, 0.5, diagram, stage)).toEqual({ x: 0, y: 0 })
+    expect(clampDiagramViewerOffset({ x: 2000, y: -2000 }, 1, diagram, stage)).toEqual({ x: 936, y: -636 })
+    expect(clampDiagramViewerOffset({ x: 40, y: 40 }, 0.5, diagram, stage)).toEqual({ x: 40, y: 40 })
   })
 
   it("zooms and pans without leaving invalid offsets", () => {
     expect(zoomDiagramViewerState({ offset: { x: 200, y: 100 }, scale: 1 }, -0.5, diagram, stage)).toEqual({
-      offset: { x: 0, y: 0 },
+      offset: { x: 100, y: 50 },
       scale: 0.5,
     })
     expect(panDiagramViewerState({ offset: { x: 0, y: 0 }, scale: 1 }, 80, -60, diagram, stage)).toEqual({
@@ -38,15 +40,40 @@ describe("diagram viewer navigation", () => {
     })
   })
 
+  it("keeps the diagram point below the gesture anchor stationary while zooming", () => {
+    const largeDiagram = { width: 2000, height: 1600 }
+    expect(
+      zoomDiagramViewerToScale({ offset: { x: 0, y: 0 }, scale: 1 }, 2, { x: 100, y: 50 }, largeDiagram, stage),
+    ).toEqual({
+      offset: { x: -100, y: -50 },
+      scale: 2,
+    })
+  })
+
+  it("combines pinch zoom with movement of the gesture midpoint", () => {
+    expect(
+      pinchDiagramViewerState(
+        { offset: { x: 0, y: 0 }, scale: 1 },
+        2,
+        { x: 100, y: 0 },
+        { x: 120, y: 10 },
+        { width: 2000, height: 1600 },
+        stage,
+      ),
+    ).toEqual({
+      offset: { x: -80, y: 10 },
+      scale: 2,
+    })
+  })
+
   it("maps precision scrolling to pan and modifier or wheel scrolling to zoom", () => {
     expect(diagramViewerWheelAction({ deltaX: 8, deltaY: 12 })).toEqual({ kind: "pan", deltaX: -8, deltaY: -12 })
-    expect(diagramViewerWheelAction({ ctrlKey: true, deltaX: 0, deltaY: -10 })).toEqual({
-      kind: "zoom",
-      delta: 0.1,
-    })
+    const trackpadPinch = diagramViewerWheelAction({ ctrlKey: true, deltaX: 0, deltaY: -10 })
+    expect(trackpadPinch.kind).toBe("zoom")
+    expect(trackpadPinch.kind === "zoom" ? trackpadPinch.factor : 0).toBeCloseTo(2 ** 0.2)
     expect(diagramViewerWheelAction({ deltaMode: 1, deltaX: 0, deltaY: 3 })).toEqual({
+      factor: 2 ** -0.15,
       kind: "zoom",
-      delta: -0.1,
     })
   })
 })

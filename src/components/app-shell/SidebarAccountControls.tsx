@@ -27,27 +27,10 @@ function accountInitial(name?: string): string {
   return trimmed ? trimmed.charAt(0).toLocaleUpperCase() : "L"
 }
 
-function WorkspaceAvatar({
-  accountAvatarUrl,
-  accountName,
-  className = "size-7",
-  workspace,
-}: {
-  accountAvatarUrl?: string
-  accountName?: string
-  className?: string
-  workspace: WorkspaceSelection
-}) {
-  const avatarUrl =
-    workspace.type === "organization"
-      ? (workspace.avatarPreviewUrl ?? workspace.organization?.avatar)
-      : accountAvatarUrl
-  const fallback =
-    workspace.type === "organization"
-      ? organizationInitials(workspace.organization?.name ?? workspace.organizationId)
-      : accountInitial(accountName)
-  const fallbackStyle =
-    workspace.type === "organization" ? organizationAvatarStyle(workspace.organizationId) : undefined
+function WorkspaceAvatar({ className = "size-7", workspace }: { className?: string; workspace: WorkspaceSelection }) {
+  const avatarUrl = workspace.avatarPreviewUrl ?? workspace.organization?.avatar
+  const fallback = organizationInitials(workspace.organization?.name ?? workspace.organizationId)
+  const fallbackStyle = organizationAvatarStyle(workspace.organizationId)
 
   return (
     <span
@@ -133,9 +116,7 @@ function WorkspaceMenuContent({
             onClick={() => onSelectOrganization(organization.id)}
             data-active={selected}
           >
-            <WorkspaceAvatar
-              workspace={{ type: "organization", canManage, organization, organizationId: organization.id, role }}
-            />
+            <WorkspaceAvatar workspace={{ canManage, organization, organizationId: organization.id, role }} />
             <span className="min-w-0 flex-1 truncate">{organization.name}</span>
             <Badge variant="outline" className="flex w-full justify-end px-0 text-right font-normal">
               {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
@@ -249,12 +230,7 @@ export function SidebarFooterControls({
         title={workspaceButtonTitle}
         onClick={handleWorkspaceMenuTrigger}
       >
-        <WorkspaceAvatar
-          accountAvatarUrl={avatarUrl}
-          accountName={displayName}
-          className="size-7"
-          workspace={workspace.activeWorkspace}
-        />
+        <WorkspaceAvatar className="size-7" workspace={workspace.activeWorkspace} />
         <div className="oo-sidebar-nav-label min-w-0 flex-1">
           <div className="oo-text-body truncate text-sidebar-foreground" title={activeWorkspaceLabel}>
             {activeWorkspaceLabel}

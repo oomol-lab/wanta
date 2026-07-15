@@ -38,18 +38,16 @@ interface SessionServiceDeps {
 const invalidSessionScope: SessionScope = {
   organizationId: "__invalid__",
   organizationName: "__invalid__",
-  type: "organization",
 }
 
 function normalizeSessionScope(scope: SessionScope | undefined): SessionScope {
-  if (scope?.type === "organization") {
+  if (scope) {
     const organizationId = scope.organizationId.trim()
     const organizationName = scope.organizationName.trim()
     if (!organizationId || !organizationName) {
       return invalidSessionScope
     }
     return {
-      type: "organization",
       organizationId,
       organizationName,
     }
@@ -66,7 +64,7 @@ function normalizeRequestedSessionScope(scope: SessionScope | undefined): Sessio
   if (!organizationId || !organizationName) {
     throw new Error("Organization scope is invalid")
   }
-  return { type: "organization", organizationId, organizationName }
+  return { organizationId, organizationName }
 }
 
 function sessionScopeMatches(sessionScope: SessionScope | undefined, requestedScope: SessionScope): boolean {

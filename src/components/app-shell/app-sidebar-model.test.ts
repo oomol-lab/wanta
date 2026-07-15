@@ -11,7 +11,7 @@ function project(id: string, updatedAt: number): SessionProject {
     path: `/tmp/${id}`,
     createdAt: updatedAt,
     updatedAt,
-    scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+    scope: { organizationId: "org-id", organizationName: "org-name" },
   }
 }
 

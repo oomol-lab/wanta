@@ -9,6 +9,5 @@ export function billingRequestScopeForWorkspace(workspace: WorkspaceSelection): 
   return {
     organizationId: workspace.organizationId,
     organizationName: workspace.organization.name,
-    type: "organization",
   }
 }

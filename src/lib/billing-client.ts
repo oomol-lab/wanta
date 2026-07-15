@@ -25,7 +25,6 @@ const billingCreditUsagesMaxPages = 100
 export interface BillingRequestScope {
   organizationId: string
   organizationName: string
-  type: "organization"
 }
 
 /** 会话过期/缺失的哨兵文案（与 oomol-http 的 authRequiredMessage 同字面量）；resolveUserFacingError 据此归为 auth_required。 */

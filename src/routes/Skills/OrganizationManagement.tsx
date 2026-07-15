@@ -194,7 +194,7 @@ export function OrganizationManagementRoute({
       }),
     [connectedProviders, providerSkillPackageLookup.packagesByService, skillGroupById],
   )
-  const canManage = activeWorkspace.type === "organization" ? activeWorkspace.canManage : false
+  const canManage = activeWorkspace.canManage
   const { appAccessState, membersState, providerOptionsState, reload, setAppAccessState, summariesState } =
     useOrganizationDetails({
       activeAccountId,
@@ -217,7 +217,7 @@ export function OrganizationManagementRoute({
     () =>
       buildOrganizationMemberViews({
         account: activeAccount,
-        accountRole: activeWorkspace.type === "organization" ? activeWorkspace.role : null,
+        accountRole: activeWorkspace.role,
         members: membersState.data,
         organization: selectedOrganization,
         summaries: summariesState.data,

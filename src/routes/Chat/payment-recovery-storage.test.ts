@@ -18,11 +18,10 @@ function createStorage(): PaymentRecoveryStorage {
   }
 }
 
-function organizationScope(overrides: Partial<Extract<BillingRequestScope, { type: "organization" }>> = {}) {
+function organizationScope(overrides: Partial<BillingRequestScope> = {}): BillingRequestScope {
   return {
     organizationId: "team-1",
     organizationName: "acme",
-    type: "organization" as const,
     ...overrides,
   }
 }
@@ -68,7 +67,6 @@ describe("payment recovery storage", () => {
     const storage = createStorage()
     const scope = organizationScope()
     const secondaryScope = {
-      type: "organization",
       organizationId: "org-id",
       organizationName: "org-name",
     } as const

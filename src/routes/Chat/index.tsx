@@ -82,7 +82,6 @@ interface ChatAreaProps {
   onAnswerPermission: (requestId: string, reply: ChatPermissionReply) => Promise<void>
   onRejectQuestion: (requestId: string) => Promise<void>
   questionDrafts: QuestionDraftStore
-  onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onStop: () => Promise<void> | void
   onComposerStateChange?: (state: ComposerState) => void
   onQueuedMessageMove: (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => void
@@ -281,7 +280,6 @@ export const ChatArea = React.memo(function ChatArea({
   onAnswerPermission,
   onRejectQuestion,
   questionDrafts,
-  onSetDefaultConnection,
   onStop,
   onQueuedMessageMove,
   onQueuedMessageRemove,
@@ -357,7 +355,6 @@ export const ChatArea = React.memo(function ChatArea({
       onAnswerQuestion={onAnswerQuestion}
       onPermissionModeDefault={() => onPermissionModeChange("default")}
       onPermissionModeFullAccess={requestFullAccess}
-      onSetDefaultConnection={onSetDefaultConnection}
       onOpenConnectionProvider={onOpenConnectionProvider}
       onOpenKnowledgeLibrary={onOpenKnowledgeLibrary}
       onSelectKnowledgeBase={onSelectKnowledgeBase}

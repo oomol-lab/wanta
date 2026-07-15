@@ -14,12 +14,10 @@ describe("billingRequestScopeForWorkspace", () => {
       },
       organizationId: "team-1",
       role: "creator" as const,
-      type: "organization" as const,
     }
     expect(billingRequestScopeForWorkspace(workspace)).toEqual({
       organizationId: "team-1",
       organizationName: "acme",
-      type: "organization",
     })
   })
 
@@ -29,7 +27,6 @@ describe("billingRequestScopeForWorkspace", () => {
       organization: null,
       organizationId: "team-1",
       role: "creator" as const,
-      type: "organization" as const,
     }
     expect(billingRequestScopeForWorkspace(workspace)).toBeNull()
   })

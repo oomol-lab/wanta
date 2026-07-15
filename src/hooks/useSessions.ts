@@ -75,7 +75,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const organizationId = scope?.organizationId ?? ""
   const organizationName = scope?.organizationName ?? ""
   const requestScope = React.useMemo<SessionScope>(
-    () => ({ type: "organization", organizationId, organizationName }),
+    () => ({ organizationId, organizationName }),
     [organizationId, organizationName],
   )
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])

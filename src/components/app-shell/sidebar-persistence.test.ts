@@ -50,7 +50,6 @@ describe("sidebar persistence", () => {
   test("scopes collapsed project groups by account and workspace", () => {
     expect(
       projectSidebarCollapsedStorageKey(undefined, {
-        type: "organization",
         organizationId: "org-id",
         organizationName: "org-name",
       }),
@@ -58,14 +57,12 @@ describe("sidebar persistence", () => {
     expect(projectSidebarCollapsedStorageKey("account-a", null)).toBeNull()
     expect(
       projectSidebarCollapsedStorageKey("account-a", {
-        type: "organization",
         organizationId: "org-id",
         organizationName: "org-name",
       }),
     ).toBe("wanta.projectSidebarCollapsed:account-a:organization:org-id")
     expect(
       projectSidebarCollapsedStorageKey("account-a", {
-        type: "organization",
         organizationId: "org-a",
         organizationName: "Org A",
       }),

@@ -1,6 +1,5 @@
 import type {
   ConnectionConnectInput,
-  ConnectionAppSummary,
   ConnectionAppDetail,
   ConnectionExecutionLogRequest,
   ConnectionExecutionLogSummary,
@@ -23,7 +22,6 @@ import {
 } from "../../electron/connections/summary-model.ts"
 import {
   mergeConnectionSummary,
-  normalizeApp,
   normalizeConnectionAppDetail,
   normalizeApiKeyConfig,
   normalizeCustomCredentialConfig,
@@ -617,17 +615,4 @@ export async function updateAlias(appId: string, alias: string, workspace: Conne
     body: JSON.stringify({ alias: alias.trim() === "" ? null : alias.trim() }),
   })
   clearConnectorReadCache()
-}
-
-export async function setDefaultAccount(
-  service: string,
-  appId: string,
-  workspace: ConnectionWorkspace,
-): Promise<ConnectionAppSummary | null> {
-  const result = await requestConnector<RawApp>(`/v1/apps/services/${encodeURIComponent(service)}/default`, workspace, {
-    method: "PUT",
-    body: JSON.stringify({ appId }),
-  })
-  clearConnectorReadCache()
-  return normalizeApp(result.data) ?? null
 }

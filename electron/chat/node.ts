@@ -175,7 +175,7 @@ function runWorkspaceFromRequest(req: SendMessageRequest): ChatRunWorkspace {
   if (!organizationId || !organizationName) {
     throw new Error("Organization scope is invalid")
   }
-  return { type: "organization", organizationId, organizationName }
+  return { organizationId, organizationName }
 }
 
 function messageErrorSignature(message: string): string {
@@ -1174,7 +1174,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               model: bugReportModelLabel(req.model),
               permissionMode: this.sessionPermissionMode(req.sessionId),
               platform: this.deps.bugReportRuntime?.platform ?? process.platform,
-              workspaceScope: "organization",
             },
             targetFilePath: path.join(artifactDir, BUG_REPORT_FILE_NAME),
           })

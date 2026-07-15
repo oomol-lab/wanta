@@ -1,6 +1,5 @@
 export interface LinkWorkspaceIdentity {
   organizationName: string
-  scope: "organization"
 }
 
 export interface ConnectionInventoryError {

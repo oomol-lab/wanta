@@ -199,11 +199,11 @@ export function SkillsRoute({
   }, [workspace.getOrganizationCanManage, workspace.organizations])
   const selectedSkillLinkedToActiveOrganization = React.useMemo(() => {
     const packageName = selectedSkill?.packageName?.trim()
-    if (!packageName || workspace.activeWorkspace.type !== "organization") {
+    if (!packageName) {
       return false
     }
     return organizationSkills.skills.some((skill) => skill.packageName === packageName)
-  }, [organizationSkills.skills, selectedSkill?.packageName, workspace.activeWorkspace.type])
+  }, [organizationSkills.skills, selectedSkill?.packageName])
   const showSelectedSkillOrganizationLinkAction = Boolean(
     selectedSkill?.packageName?.trim() && managedOrganizationOptions.length > 0,
   )
@@ -225,20 +225,11 @@ export function SkillsRoute({
   }, [versionResource.data?.cli?.status])
 
   React.useEffect(() => {
-    if (activeTab === "organization" && workspace.activeWorkspace.type !== "organization") {
-      setActiveTab("discover")
-    }
-  }, [activeTab, workspace.activeWorkspace.type])
-
-  React.useEffect(() => {
     if (!focusRequest) {
       return
     }
-    if (focusRequest.tab === "organization" && workspace.activeWorkspace.type !== "organization") {
-      return
-    }
     setActiveTab(focusRequest.tab)
-  }, [focusRequest, workspace.activeWorkspace.type])
+  }, [focusRequest])
 
   const selectSkill = React.useCallback((skillId: SkillSelectionKey) => {
     setSelectedSkillId(skillId)
@@ -403,8 +394,7 @@ export function SkillsRoute({
     organizationSkills,
     setBusyAction: setOrganizationSkillBusyAction,
   })
-  const activeOrganizationId =
-    workspace.activeWorkspace.type === "organization" ? workspace.activeWorkspace.organizationId : null
+  const activeOrganizationId = workspace.activeWorkspace.organizationId
   const organizationHeaderInstallTargets = React.useMemo(() => {
     if (
       activeTab !== "organization" ||
@@ -476,10 +466,7 @@ export function SkillsRoute({
         versionPolicy: "pinned",
       })
 
-      if (
-        workspace.activeWorkspace.type === "organization" &&
-        workspace.activeWorkspace.organizationId === organizationId
-      ) {
+      if (workspace.activeWorkspace.organizationId === organizationId) {
         await organizationSkills.refresh({ forceRefresh: true })
       }
       toast.success(t("skills.organizationLinkDone", { name: target.title }))
@@ -679,9 +666,7 @@ export function SkillsRoute({
                 : loadPublicSkillPackages({ next: activePackageCatalog.next }))
             }
             onOpenManagedSkill={openManagedPublicSkill}
-            onOpenOrganizationRecommendations={
-              workspace.activeWorkspace.type === "organization" ? () => setActiveTab("organization") : undefined
-            }
+            onOpenOrganizationRecommendations={() => setActiveTab("organization")}
             onRetry={() => {
               if (discoveryFilter === "mine") {
                 if (authResource.data?.status === "authenticated") {

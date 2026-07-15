@@ -11,7 +11,6 @@ import { OomolHttpError } from "./oomol-http.ts"
 const billingScope = {
   organizationId: "team-1",
   organizationName: "acme",
-  type: "organization" as const,
 }
 
 afterEach(() => {
@@ -56,7 +55,6 @@ describe("billing-client", () => {
       (
         await rejection(() =>
           getCreditBalance({
-            type: "organization",
             organizationId: "org-id",
             organizationName: "org-name",
           }),
@@ -67,7 +65,6 @@ describe("billing-client", () => {
     status = 403
     const error = await rejection(() =>
       getCreditBalance({
-        type: "organization",
         organizationId: "org-id",
         organizationName: "org-name",
       }),
@@ -113,7 +110,6 @@ describe("billing-client", () => {
     const summary = await getBillingSummary(30, {
       organizationId: "team-1",
       organizationName: "acme",
-      type: "organization",
     })
 
     expect(summary.balance?.total.currentCredit).toBe("9")
@@ -148,7 +144,6 @@ describe("billing-client", () => {
     const result = await getCreditBalance({
       organizationId: "team-1",
       organizationName: "acme",
-      type: "organization",
     })
 
     expect(result).toEqual({ balance: "$7.5", hasCredits: true })

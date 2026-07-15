@@ -6,7 +6,6 @@ test("permission blocking takes precedence until every blocking request is remov
   const updates = vi.fn()
   const registry = new ActiveRunRegistry(updates)
   registry.create("session-1", "generation-1", {
-    type: "organization",
     organizationId: "org-id",
     organizationName: "org-name",
   })
@@ -25,12 +24,10 @@ test("permission blocking takes precedence until every blocking request is remov
 test("late cleanup cannot delete a replacement active run", () => {
   const registry = new ActiveRunRegistry(() => undefined)
   registry.create("session-1", "generation-1", {
-    type: "organization",
     organizationId: "org-id",
     organizationName: "org-name",
   })
   registry.create("session-1", "generation-2", {
-    type: "organization",
     organizationId: "org-id",
     organizationName: "org-name",
   })
@@ -42,7 +39,6 @@ test("late cleanup cannot delete a replacement active run", () => {
 test("assistant events advance active run presentation phases", () => {
   const registry = new ActiveRunRegistry(() => undefined)
   registry.create("session-1", "generation-1", {
-    type: "organization",
     organizationId: "org-id",
     organizationName: "org-name",
   })

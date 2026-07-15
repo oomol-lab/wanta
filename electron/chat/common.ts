@@ -232,7 +232,6 @@ export type ChatRunPhase =
 export interface ChatRunWorkspace {
   organizationId: string
   organizationName: string
-  type: "organization"
 }
 
 export interface ChatActiveRun {

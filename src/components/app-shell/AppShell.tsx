@@ -172,10 +172,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     ? connectionWorkspaceSwitchKey(organizationWorkspace.connectionWorkspace)
     : null
   const activeWorkspaceKey = workspaceSelectionSwitchKey(organizationWorkspace.activeWorkspace)
-  const activeOrganizationId =
-    organizationWorkspace.activeWorkspace.type === "organization"
-      ? organizationWorkspace.activeWorkspace.organizationId
-      : null
+  const activeOrganizationId = organizationWorkspace.activeWorkspace.organizationId || null
   const activeOrganizationSkillsMatched = organizationSkills.organizationId === activeOrganizationId
   const organizationSkillsError =
     activeOrganizationId && activeOrganizationSkillsMatched && !organizationSkills.loading
@@ -1451,7 +1448,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       onPermissionModeChange={handlePermissionModeChange}
                       onRejectQuestion={handleRejectQuestion}
                       questionDrafts={questionDrafts}
-                      onSetDefaultConnection={connections.setDefaultAccount}
                       onStop={handleChatStop}
                       onQueuedMessageMove={handleQueuedMessageMove}
                       onQueuedMessageRemove={handleQueuedMessageRemove}

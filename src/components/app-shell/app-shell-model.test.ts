@@ -364,7 +364,7 @@ describe("composer draft keys", () => {
   })
 
   test("separates drafts for projects in the same workspace", () => {
-    const scope = { type: "organization" as const, organizationId: "org-a", organizationName: "A" }
+    const scope = { organizationId: "org-a", organizationName: "A" }
 
     expect(newSessionComposerDraftKey(scope, "project-a")).not.toBe(newSessionComposerDraftKey(scope, "project-b"))
   })
@@ -381,21 +381,14 @@ describe("composer draft scope keys", () => {
   })
 
   test("separates new session drafts by workspace scope", () => {
-    expect(
-      newSessionComposerDraftKey({ type: "organization", organizationId: "org-a", organizationName: "A" }, undefined),
-    ).not.toBe(
-      newSessionComposerDraftKey(
-        { type: "organization", organizationId: "org-id", organizationName: "org-name" },
-        undefined,
-      ),
+    expect(newSessionComposerDraftKey({ organizationId: "org-a", organizationName: "A" }, undefined)).not.toBe(
+      newSessionComposerDraftKey({ organizationId: "org-id", organizationName: "org-name" }, undefined),
     )
   })
 
   test("normalizes persisted sessions without scope as unavailable workspace sessions", () => {
     expect(sessionRecordScopeKey(undefined)).toBe("workspace-loading")
-    expect(sessionRecordScopeKey({ type: "organization", organizationId: "org-a", organizationName: "A" })).toBe(
-      "organization:org-a",
-    )
+    expect(sessionRecordScopeKey({ organizationId: "org-a", organizationName: "A" })).toBe("organization:org-a")
   })
 })
 

@@ -4,7 +4,6 @@ export type ConnectionAppStatus = "active" | "reauth_required" | "error" | "disc
 export type ConnectionProviderStatus = "available" | "connected" | "needs_attention"
 export interface ConnectionWorkspace {
   organizationName: string
-  type: "organization"
 }
 export type ConnectionProviderActionKind =
   | "oauth2"

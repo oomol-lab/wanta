@@ -23,7 +23,6 @@ export interface WorkspaceSelection {
   avatarPreviewUrl?: string
   organizationId: string
   role: OrganizationRole | null
-  type: "organization"
 }
 
 export interface UseOrganizationWorkspace {
@@ -101,14 +100,14 @@ function readStoredOrganizationId(accountId: string | undefined): string | null 
       return null
     }
     const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== "object" || !("type" in parsed)) {
+    if (!parsed || typeof parsed !== "object") {
       return null
     }
-    if (legacyRaw !== null && parsed.type === "organization") {
+    if (legacyRaw !== null && "organizationId" in parsed) {
       window.localStorage.setItem(key, raw)
       window.localStorage.removeItem(legacyKey)
     }
-    if (parsed.type !== "organization" || !("organizationId" in parsed)) {
+    if (!("organizationId" in parsed)) {
       return null
     }
     return typeof parsed.organizationId === "string" && parsed.organizationId.trim() ? parsed.organizationId : null
@@ -124,7 +123,7 @@ function writeStoredWorkspace(accountId: string | undefined, organizationId: str
   try {
     const key = selectedWorkspaceStorageKey(accountId)
     if (organizationId) {
-      window.localStorage.setItem(key, JSON.stringify({ type: "organization", organizationId }))
+      window.localStorage.setItem(key, JSON.stringify({ organizationId }))
     } else {
       window.localStorage.removeItem(key)
     }
@@ -391,11 +390,9 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
         organization: null,
         organizationId: "",
         role: null,
-        type: "organization",
       }
     }
     return {
-      type: "organization",
       avatarPreviewUrl: organizationAvatarPreviewUrls[selectedOrganizationId],
       organizationId: selectedOrganizationId,
       organization: selectedOrganization,
@@ -404,7 +401,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     }
   }, [organizationAvatarPreviewUrls, overview, selectedOrganization, selectedOrganizationId])
   const connectionWorkspace = React.useMemo<ConnectionWorkspace | null>(() => {
-    return selectedOrganization?.name ? { type: "organization", organizationName: selectedOrganization.name } : null
+    return selectedOrganization?.name ? { organizationName: selectedOrganization.name } : null
   }, [selectedOrganization?.name, selectedOrganizationId])
 
   const selectOrganization = React.useCallback((organizationId: string) => {

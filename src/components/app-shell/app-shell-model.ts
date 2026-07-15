@@ -290,7 +290,7 @@ export function sessionScopeFromWorkspace(workspace: WorkspaceSelection): Sessio
   if (!organizationId || !organizationName) {
     return null
   }
-  return { type: "organization", organizationId, organizationName }
+  return { organizationId, organizationName }
 }
 
 export function workspaceSelectionSwitchKey(workspace: WorkspaceSelection): string {

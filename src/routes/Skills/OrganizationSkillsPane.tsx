@@ -79,7 +79,7 @@ export function OrganizationSkillsPane({
   workspace,
 }: OrganizationSkillsPaneProps) {
   const { t } = useAppI18n()
-  const canManage = workspace.activeWorkspace.type === "organization" && workspace.activeWorkspace.canManage
+  const canManage = workspace.activeWorkspace.canManage
   const [busyConfigId, setBusyConfigId] = React.useState<string | null>(null)
   const [organizationRemoveTarget, setOrganizationRemoveTarget] = React.useState<
     UseOrganizationSkills["skills"][number] | null
@@ -92,14 +92,6 @@ export function OrganizationSkillsPane({
     },
     [onOpenManagedSkill],
   )
-
-  if (workspace.activeWorkspace.type !== "organization") {
-    return (
-      <SkillPageScrollArea>
-        <div className="oo-text-body oo-text-muted px-1 py-3">{t("skills.organizationPersonalEmpty")}</div>
-      </SkillPageScrollArea>
-    )
-  }
 
   const activeOrganizationId = workspace.activeWorkspace.organizationId
   const selectedOrganizationSkills =

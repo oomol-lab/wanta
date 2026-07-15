@@ -21,7 +21,6 @@ import { TurnOutputStore } from "./turn-outputs.ts"
 const testOrganizationScope = {
   organizationId: "org-id",
   organizationName: "org-name",
-  type: "organization" as const,
 }
 
 afterEach(() => {
@@ -202,7 +201,7 @@ test("sendMessage waits for the request organization scope before prompting", as
   const service = new ChatServiceImpl(bridge.agent)
 
   const request = service.sendMessage({
-    scope: { type: "organization", organizationId: "org-id", organizationName: " acme-corp " },
+    scope: { organizationId: "org-id", organizationName: " acme-corp " },
     sessionId: "session-1",
     text: "hello",
   })
@@ -226,7 +225,7 @@ test("sendMessage exposes active run snapshots with the request workspace", asyn
   const events = captureServiceEvents(service)
 
   await service.sendMessage({
-    scope: { type: "organization", organizationId: "org-id", organizationName: " acme-corp " },
+    scope: { organizationId: "org-id", organizationName: " acme-corp " },
     sessionId: "session-1",
     text: "hello",
   })
@@ -234,7 +233,7 @@ test("sendMessage exposes active run snapshots with the request workspace", asyn
   const run = await service.getActiveRun("session-1")
   assert.equal(run?.sessionId, "session-1")
   assert.equal(run?.phase, "submitted")
-  assert.deepEqual(run?.workspace, { type: "organization", organizationId: "org-id", organizationName: "acme-corp" })
+  assert.deepEqual(run?.workspace, { organizationId: "org-id", organizationName: "acme-corp" })
   assert.ok(events.some((event) => event.event === "activeRunUpdated"))
 })
 
@@ -331,14 +330,14 @@ test("sendMessage allows concurrent generations in different organization scopes
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { type: "organization", organizationId: "org-a", organizationName: "org-a" },
+    scope: { organizationId: "org-a", organizationName: "org-a" },
     sessionId: "session-1",
     text: "first",
   })
   let secondCompleted = false
   const second = service
     .sendMessage({
-      scope: { type: "organization", organizationId: "org-b", organizationName: "org-b" },
+      scope: { organizationId: "org-b", organizationName: "org-b" },
       sessionId: "session-2",
       text: "second",
     })
@@ -364,14 +363,14 @@ test("sendMessage allows concurrent generations in the same organization scope",
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { type: "organization", organizationId: "org-a", organizationName: "org-a" },
+    scope: { organizationId: "org-a", organizationName: "org-a" },
     sessionId: "session-1",
     text: "first",
   })
   let secondCompleted = false
   const second = service
     .sendMessage({
-      scope: { type: "organization", organizationId: "org-a", organizationName: "org-a" },
+      scope: { organizationId: "org-a", organizationName: "org-a" },
       sessionId: "session-2",
       text: "second",
     })
@@ -401,7 +400,7 @@ test("setAgentOrganization applies only the latest queued workspace scope", asyn
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { type: "organization", organizationId: "org-a", organizationName: "org-a" },
+    scope: { organizationId: "org-a", organizationName: "org-a" },
     sessionId: "session-1",
     text: "first",
   })
@@ -435,7 +434,7 @@ test("setAgentOrganization is not superseded by per-turn organization scopes", a
   await waitForCondition(() => Boolean(releaseFirstScope))
   const secondSync = service.setAgentOrganization({ organizationName: "org-b" })
   await service.sendMessage({
-    scope: { type: "organization", organizationId: "org-c", organizationName: "org-c" },
+    scope: { organizationId: "org-c", organizationName: "org-c" },
     sessionId: "session-1",
     text: "turn scoped to org-c",
   })
@@ -457,7 +456,7 @@ test("setAgentOrganization does not interrupt active generations from other orga
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { type: "organization", organizationId: "org-a", organizationName: "org-a" },
+    scope: { organizationId: "org-a", organizationName: "org-a" },
     sessionId: "session-1",
     text: "first",
   })
@@ -481,7 +480,7 @@ test("setAgentOrganization does not wait on active generations for the requested
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { type: "organization", organizationId: "org-a", organizationName: "org-a" },
+    scope: { organizationId: "org-a", organizationName: "org-a" },
     sessionId: "session-1",
     text: "first",
   })
@@ -1517,7 +1516,6 @@ test("rejectQuestion resolves the waiting question without stopping the generati
   assert.equal(waitingRun?.phase, "awaiting_question")
   assert.equal(waitingRun?.sessionId, "session-1")
   assert.deepEqual(waitingRun?.workspace, {
-    type: "organization",
     organizationId: "org-id",
     organizationName: "org-name",
   })
@@ -1647,7 +1645,7 @@ test("sendMessage turns /bug-report into a Markdown artifact-only turn", async (
       mode: "plan",
       model: { id: "oopilot", kind: "builtin" },
       permissionMode: "default",
-      scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+      scope: { organizationId: "org-id", organizationName: "org-name" },
       sessionId: "session-1",
       text: "/bug-report Focus on the authorization state mismatch.",
     })

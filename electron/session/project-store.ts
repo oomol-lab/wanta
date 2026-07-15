@@ -15,13 +15,10 @@ function validTimestamp(value: unknown): value is number {
 }
 
 function normalizeScope(value: unknown): SessionScope | undefined {
-  if (!value || typeof value !== "object" || !("type" in value)) {
+  if (!value || typeof value !== "object") {
     return undefined
   }
   const source = value as Partial<SessionScope>
-  if (source.type !== "organization") {
-    return undefined
-  }
   const rawOrganizationId = "organizationId" in source ? source.organizationId : undefined
   const rawOrganizationName = "organizationName" in source ? source.organizationName : undefined
   const organizationId = typeof rawOrganizationId === "string" ? rawOrganizationId.trim() : undefined
@@ -29,7 +26,7 @@ function normalizeScope(value: unknown): SessionScope | undefined {
   if (!organizationId || !organizationName) {
     return undefined
   }
-  return { type: "organization", organizationId, organizationName }
+  return { organizationId, organizationName }
 }
 
 function normalizeProject(id: string, value: unknown): SessionProject | null {

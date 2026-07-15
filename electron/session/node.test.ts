@@ -12,7 +12,6 @@ import { SessionServiceImpl } from "./node.ts"
 const testOrganizationScope = {
   organizationId: "org-id",
   organizationName: "org-name",
-  type: "organization" as const,
 }
 
 function agentWithSessions(sessions: SessionInfo[]): AgentManager {
@@ -231,23 +230,23 @@ test("list filters sessions by requested scope", async () => {
       metadataStore: metadataStore(
         new Map([
           ["archived", { scope: testOrganizationScope }],
-          ["aaa", { scope: { type: "organization", organizationId: "aaa-id", organizationName: "aaa" } }],
-          ["netless", { scope: { type: "organization", organizationId: "netless-id", organizationName: "netless" } }],
+          ["aaa", { scope: { organizationId: "aaa-id", organizationName: "aaa" } }],
+          ["netless", { scope: { organizationId: "netless-id", organizationName: "netless" } }],
         ]),
       ),
     },
   )
 
   assert.deepEqual(
-    (
-      await service.list({ scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" } })
-    ).map((session) => session.id),
+    (await service.list({ scope: { organizationId: "org-id", organizationName: "org-name" } })).map(
+      (session) => session.id,
+    ),
     ["archived"],
   )
   assert.deepEqual(
     (
       await service.list({
-        scope: { type: "organization", organizationId: "aaa-id", organizationName: "aaa" },
+        scope: { organizationId: "aaa-id", organizationName: "aaa" },
       })
     ).map((session) => session.id),
     ["aaa"],
@@ -258,7 +257,7 @@ test("list rejects invalid organization scope requests", async () => {
   const service = new SessionServiceImpl(agentWithSessions([]))
 
   await assert.rejects(
-    () => service.list({ scope: { type: "organization", organizationId: "", organizationName: "Org" } }),
+    () => service.list({ scope: { organizationId: "", organizationName: "Org" } }),
     /Organization scope is invalid/,
   )
 })
@@ -270,7 +269,7 @@ test("list filters sessions by requested placement", async () => {
     path: "/Users/example/code/wanta",
     createdAt: 1_000,
     updatedAt: 1_000,
-    scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+    scope: { organizationId: "org-id", organizationName: "org-name" },
   }
   const archivedProject: SessionProject = {
     id: "archived-project",
@@ -279,7 +278,7 @@ test("list filters sessions by requested placement", async () => {
     createdAt: 1_000,
     updatedAt: 1_000,
     archivedAt: 4_000,
-    scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+    scope: { organizationId: "org-id", organizationName: "org-name" },
   }
   const scopedProject: SessionProject = {
     id: "scoped-project",
@@ -287,7 +286,7 @@ test("list filters sessions by requested placement", async () => {
     path: "/Users/example/code/scoped",
     createdAt: 1_000,
     updatedAt: 1_000,
-    scope: { type: "organization", organizationId: "org", organizationName: "Org" },
+    scope: { organizationId: "org", organizationName: "Org" },
   }
   const service = new SessionServiceImpl(
     agentWithSessions([
@@ -329,28 +328,28 @@ test("list filters sessions by requested placement", async () => {
           [
             "project-session",
             {
-              scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+              scope: { organizationId: "org-id", organizationName: "org-name" },
               projectId: project.id,
             },
           ],
           [
             "dangling-project-session",
             {
-              scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+              scope: { organizationId: "org-id", organizationName: "org-name" },
               projectId: "missing-project",
             },
           ],
           [
             "archived-project-session",
             {
-              scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+              scope: { organizationId: "org-id", organizationName: "org-name" },
               projectId: archivedProject.id,
             },
           ],
           [
             "scoped-project-session",
             {
-              scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+              scope: { organizationId: "org-id", organizationName: "org-name" },
               projectId: scopedProject.id,
             },
           ],
@@ -368,7 +367,7 @@ test("list filters sessions by requested placement", async () => {
 
   const allSessions = await service.list({
     placement: "all",
-    scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+    scope: { organizationId: "org-id", organizationName: "org-name" },
   })
   assert.deepEqual(
     allSessions.map((session) => ({ id: session.id, projectId: session.projectId })),
@@ -384,7 +383,7 @@ test("list filters sessions by requested placement", async () => {
     (
       await service.list({
         placement: "project",
-        scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+        scope: { organizationId: "org-id", organizationName: "org-name" },
       })
     ).map((session) => session.id),
     ["project-session"],
@@ -393,7 +392,7 @@ test("list filters sessions by requested placement", async () => {
     (
       await service.list({
         placement: "task",
-        scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+        scope: { organizationId: "org-id", organizationName: "org-name" },
       })
     ).map((session) => session.id),
     ["scoped-project-session", "archived-project-session", "dangling-project-session", "task"],
@@ -407,7 +406,7 @@ test("listArchived filters sessions by requested placement", async () => {
     path: "/Users/example/code/wanta",
     createdAt: 1_000,
     updatedAt: 1_000,
-    scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+    scope: { organizationId: "org-id", organizationName: "org-name" },
   }
   const service = new SessionServiceImpl(
     agentWithSessions([
@@ -431,14 +430,14 @@ test("listArchived filters sessions by requested placement", async () => {
             "archived-task",
             {
               archivedAt: 3_000,
-              scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+              scope: { organizationId: "org-id", organizationName: "org-name" },
             },
           ],
           [
             "archived-project",
             {
               archivedAt: 4_000,
-              scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+              scope: { organizationId: "org-id", organizationName: "org-name" },
               projectId: project.id,
             },
           ],
@@ -452,7 +451,7 @@ test("listArchived filters sessions by requested placement", async () => {
     (
       await service.listArchived({
         placement: "task",
-        scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+        scope: { organizationId: "org-id", organizationName: "org-name" },
       })
     ).map((session) => session.id),
     ["archived-task"],
@@ -461,7 +460,7 @@ test("listArchived filters sessions by requested placement", async () => {
     (
       await service.listArchived({
         placement: "project",
-        scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+        scope: { organizationId: "org-id", organizationName: "org-name" },
       })
     ).map((session) => session.id),
     ["archived-project"],
@@ -492,7 +491,7 @@ test("create persists the requested session scope", async () => {
     },
   )
 
-  const scope = { type: "organization" as const, organizationId: "aaa-id", organizationName: "aaa" }
+  const scope = { organizationId: "aaa-id", organizationName: "aaa" }
   const created = await service.create({ scope, title: "Scoped" })
 
   assert.deepEqual(created.scope, scope)
@@ -507,11 +506,11 @@ test("createProject reuses an existing project in the same scope", async () => {
 
   const first = await service.createProject({
     path: "/Users/example/code/wanta",
-    scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+    scope: { organizationId: "org-id", organizationName: "org-name" },
   })
   const second = await service.createProject({
     path: "/Users/example/code/wanta/",
-    scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+    scope: { organizationId: "org-id", organizationName: "org-name" },
   })
 
   assert.equal(first.id, second.id)
@@ -538,7 +537,7 @@ test("createProject restores an archived project with the same path", async () =
           createdAt: 1_000,
           pinnedAt: 2_000,
           updatedAt: 1_000,
-          scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+          scope: { organizationId: "org-id", organizationName: "org-name" },
         },
       ],
     ]),
@@ -549,7 +548,7 @@ test("createProject restores an archived project with the same path", async () =
 
   const restored = await service.createProject({
     path: "/Users/example/code/wanta",
-    scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+    scope: { organizationId: "org-id", organizationName: "org-name" },
   })
 
   assert.equal(restored.id, "project")
@@ -574,7 +573,7 @@ test("project actions rename, pin, and sort projects", async () => {
           path: "/Users/example/code/a",
           createdAt: 1_000,
           updatedAt: 1_000,
-          scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+          scope: { organizationId: "org-id", organizationName: "org-name" },
         },
       ],
       [
@@ -585,7 +584,7 @@ test("project actions rename, pin, and sort projects", async () => {
           path: "/Users/example/code/b",
           createdAt: 2_000,
           updatedAt: 2_000,
-          scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+          scope: { organizationId: "org-id", organizationName: "org-name" },
         },
       ],
     ]),
@@ -613,10 +612,10 @@ test("archiveProject hides the project and archives assigned sessions", async ()
         {
           pinnedAt: 2_000,
           projectId: "project",
-          scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+          scope: { organizationId: "org-id", organizationName: "org-name" },
         },
       ],
-      ["task", { scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" } }],
+      ["task", { scope: { organizationId: "org-id", organizationName: "org-name" } }],
     ]),
   )
   const persistedProjects = projectStore(
@@ -630,7 +629,7 @@ test("archiveProject hides the project and archives assigned sessions", async ()
           createdAt: 1_000,
           updatedAt: 1_000,
           pinnedAt: 2_000,
-          scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+          scope: { organizationId: "org-id", organizationName: "org-name" },
         },
       ],
     ]),
@@ -687,7 +686,7 @@ test("unarchive restores the assigned project when it was archived with the sess
           archivedAt: 3_000,
           pinnedAt: 2_000,
           projectId: "project",
-          scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+          scope: { organizationId: "org-id", organizationName: "org-name" },
         },
       ],
     ]),
@@ -704,7 +703,7 @@ test("unarchive restores the assigned project when it was archived with the sess
           createdAt: 1_000,
           pinnedAt: 2_000,
           updatedAt: 1_000,
-          scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+          scope: { organizationId: "org-id", organizationName: "org-name" },
         },
       ],
     ]),
@@ -745,7 +744,7 @@ test("archiveProject rolls back project state when metadata persistence fails", 
         {
           pinnedAt: 2_000,
           projectId: "project",
-          scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+          scope: { organizationId: "org-id", organizationName: "org-name" },
         },
       ],
     ]),
@@ -772,7 +771,7 @@ test("archiveProject rolls back project state when metadata persistence fails", 
           createdAt: 1_000,
           updatedAt: 1_000,
           pinnedAt: 2_000,
-          scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+          scope: { organizationId: "org-id", organizationName: "org-name" },
         },
       ],
     ]),
@@ -814,7 +813,7 @@ test("create persists project assignment when the project matches the session sc
     path: "/Users/example/code/wanta",
     createdAt: 1_000,
     updatedAt: 1_000,
-    scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+    scope: { organizationId: "org-id", organizationName: "org-name" },
   }
   const service = new SessionServiceImpl(
     {
@@ -841,7 +840,7 @@ test("create persists project assignment when the project matches the session sc
 
   const created = await service.create({
     projectId: "project",
-    scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+    scope: { organizationId: "org-id", organizationName: "org-name" },
     title: "Scoped",
   })
 
@@ -852,7 +851,7 @@ test("create persists project assignment when the project matches the session sc
       [
         "created",
         {
-          scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+          scope: { organizationId: "org-id", organizationName: "org-name" },
           projectId: "project",
         },
       ],
@@ -862,7 +861,7 @@ test("create persists project assignment when the project matches the session sc
 
 test("assignSessionProject persists only projects in the session scope", async () => {
   const persistedMetadata = metadataStore(
-    new Map([["session", { scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" } }]]),
+    new Map([["session", { scope: { organizationId: "org-id", organizationName: "org-name" } }]]),
   )
   const archiveProject: SessionProject = {
     id: "archive-project",
@@ -870,7 +869,7 @@ test("assignSessionProject persists only projects in the session scope", async (
     path: "/Users/example/code/archive",
     createdAt: 1_000,
     updatedAt: 1_000,
-    scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+    scope: { organizationId: "org-id", organizationName: "org-name" },
   }
   const organizationProject: SessionProject = {
     id: "organization-project",
@@ -878,7 +877,7 @@ test("assignSessionProject persists only projects in the session scope", async (
     path: "/Users/example/code/organization",
     createdAt: 5_000,
     updatedAt: 5_000,
-    scope: { type: "organization", organizationId: "org", organizationName: "Org" },
+    scope: { organizationId: "org", organizationName: "Org" },
   }
   const archivedProject: SessionProject = {
     id: "archived-project",
@@ -887,7 +886,7 @@ test("assignSessionProject persists only projects in the session scope", async (
     archivedAt: 6_000,
     createdAt: 6_000,
     updatedAt: 6_000,
-    scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+    scope: { organizationId: "org-id", organizationName: "org-name" },
   }
   const persistedProjects = projectStore(
     new Map([
@@ -910,7 +909,7 @@ test("assignSessionProject persists only projects in the session scope", async (
 
   assert.deepEqual(
     await persistedMetadata.read(),
-    new Map([["session", { scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" } }]]),
+    new Map([["session", { scope: { organizationId: "org-id", organizationName: "org-name" } }]]),
   )
   assert.equal((await persistedProjects.read()).get("organization-project")?.updatedAt, organizationProject.updatedAt)
 
@@ -918,7 +917,7 @@ test("assignSessionProject persists only projects in the session scope", async (
 
   assert.deepEqual(
     await persistedMetadata.read(),
-    new Map([["session", { scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" } }]]),
+    new Map([["session", { scope: { organizationId: "org-id", organizationName: "org-name" } }]]),
   )
   assert.equal((await persistedProjects.read()).get("archived-project")?.updatedAt, archivedProject.updatedAt)
 })
@@ -934,7 +933,7 @@ test("recordUseAndEmit keeps the assigned project's order unchanged", async () =
           path: "/Users/example/code/wanta",
           createdAt: 1_000,
           updatedAt: 1_000,
-          scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+          scope: { organizationId: "org-id", organizationName: "org-name" },
         },
       ],
     ]),
@@ -955,7 +954,7 @@ test("recordUseAndEmit keeps the assigned project's order unchanged", async () =
           [
             "session",
             {
-              scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+              scope: { organizationId: "org-id", organizationName: "org-name" },
               projectId: "project",
             },
           ],

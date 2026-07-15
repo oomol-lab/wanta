@@ -94,7 +94,6 @@ export function useBillingOverview(
       const scope: BillingRequestScope = {
         organizationId: requestOrganizationId,
         organizationName: requestOrganizationName,
-        type: "organization",
       }
       const promise = entry.promise ?? startBillingOverviewRequest(entry, () => getBillingOverview(days, scope))
 

@@ -18,6 +18,10 @@ import {
   uniqueStrings,
 } from "./organization-management-model.ts"
 import {
+  getCachedOrganizationAppAccess,
+  getCachedOrganizationMembers,
+  getCachedOrganizationProviderOptions,
+  getCachedOrganizationUserSummaries,
   getOrganizationAppAccessResource,
   getOrganizationMembersResource,
   getOrganizationProviderOptionsResource,
@@ -78,20 +82,50 @@ export function useOrganizationDetails({
   const load = React.useCallback(
     async (organization: Organization, canManageDetails: boolean, options: { forceRefresh?: boolean } = {}) => {
       const requestId = detailsRequestId.current + 1
+      const resourceAccountId = activeAccountId ?? "anonymous"
+      const cachedMembers = options.forceRefresh
+        ? null
+        : getCachedOrganizationMembers(resourceAccountId, organization.id)
+      const fallbackUserIds = uniqueStrings([organization.creator_user_id, activeAccountId ?? ""])
+      const cachedSummaryUserIds = cachedMembers
+        ? uniqueStrings([...cachedMembers.map((member) => member.user_id), ...fallbackUserIds])
+        : fallbackUserIds
+      const cachedSummaries = options.forceRefresh
+        ? null
+        : getCachedOrganizationUserSummaries(resourceAccountId, organization.id, cachedSummaryUserIds)
+      const cachedProviderOptions =
+        canManageDetails && !options.forceRefresh
+          ? getCachedOrganizationProviderOptions(resourceAccountId, organization.id)
+          : null
+      const cachedAppAccess =
+        canManageDetails && !options.forceRefresh
+          ? getCachedOrganizationAppAccess(resourceAccountId, organization.id)
+          : null
       const preserveCurrentData = detailsOrganizationIdRef.current === organization.id
       detailsRequestId.current = requestId
       detailsOrganizationIdRef.current = null
-      setMembersState((current) => loadingState(preserveCurrentData ? current : loadState([])))
-      setSummariesState((current) => loadingState(preserveCurrentData ? current : loadState({})))
+      setMembersState((current) =>
+        cachedMembers ? readyState(cachedMembers) : loadingState(preserveCurrentData ? current : loadState([])),
+      )
+      setSummariesState((current) =>
+        cachedSummaries ? readyState(cachedSummaries) : loadingState(preserveCurrentData ? current : loadState({})),
+      )
       setProviderOptionsState(
-        canManageDetails ? (current) => loadingState(preserveCurrentData ? current : loadState([])) : loadState([]),
+        canManageDetails
+          ? cachedProviderOptions
+            ? readyState(cachedProviderOptions)
+            : (current) => loadingState(preserveCurrentData ? current : loadState([]))
+          : loadState([]),
       )
       setAppAccessState(
-        canManageDetails ? (current) => loadingState(preserveCurrentData ? current : loadState(null)) : loadState(null),
+        canManageDetails
+          ? cachedAppAccess
+            ? readyState(cachedAppAccess)
+            : (current) => loadingState(preserveCurrentData ? current : loadState(null))
+          : loadState(null),
       )
 
       try {
-        const resourceAccountId = activeAccountId ?? "anonymous"
         const membersRequest = settle(
           getOrganizationMembersResource(resourceAccountId, organization.id, { forceRefresh: options.forceRefresh }),
         )
@@ -109,7 +143,6 @@ export function useOrganizationDetails({
               }),
             )
           : Promise.resolve<AsyncResult<OrganizationAppAccess | null>>({ ok: true, value: null })
-        const fallbackUserIds = uniqueStrings([organization.creator_user_id, activeAccountId ?? ""])
         const loadSummaries = (userIds: string[]): Promise<AsyncResult<Record<string, OrganizationUserSummary>>> =>
           userIds.length > 0
             ? settle(

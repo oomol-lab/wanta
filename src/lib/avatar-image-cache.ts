@@ -2,6 +2,8 @@ import { ooEndpoint } from "@/lib/domain"
 
 const avatarCacheMaxEntries = 128
 const avatarFailureTtlMs = 60_000
+const avatarFetchTimeoutMs = 8_000
+const avatarDirectFallbackTtlMs = 60_000
 
 interface AvatarCacheEntry {
   lastUsedAt: number
@@ -16,11 +18,13 @@ export interface AvatarImageCacheFetchOptions {
   createObjectUrl?: (blob: Blob) => string
   fetcher?: typeof fetch
   now?: () => number
+  requestCache?: RequestCache
   revokeObjectUrl?: (url: string) => void
 }
 
 const avatarCache = new Map<string, AvatarCacheEntry>()
 const avatarFailures = new Map<string, AvatarFailureEntry>()
+const avatarDirectFallbacks = new Map<string, AvatarFailureEntry>()
 const avatarInFlight = new Map<string, Promise<string>>()
 const avatarKeyGenerations = new Map<string, number>()
 const avatarRefreshInFlight = new Map<string, Promise<string>>()
@@ -90,6 +94,36 @@ export function clearAvatarImageFailure(src: string | undefined): void {
   }
 }
 
+export function shouldLoadAvatarImageDirectly(src: string | undefined, now = Date.now()): boolean {
+  const key = normalizeAvatarCacheKey(src)
+  if (!key) {
+    return false
+  }
+  const fallback = avatarDirectFallbacks.get(key)
+  if (!fallback) {
+    return false
+  }
+  if (fallback.expiresAt <= now) {
+    avatarDirectFallbacks.delete(key)
+    return false
+  }
+  return true
+}
+
+export function markAvatarImageDirectFallback(src: string | undefined, now = Date.now()): void {
+  const key = normalizeAvatarCacheKey(src)
+  if (key) {
+    avatarDirectFallbacks.set(key, { expiresAt: now + avatarDirectFallbackTtlMs })
+  }
+}
+
+export function clearAvatarImageDirectFallback(src: string | undefined): void {
+  const key = normalizeAvatarCacheKey(src)
+  if (key) {
+    avatarDirectFallbacks.delete(key)
+  }
+}
+
 function isFetchableAvatarKey(key: string): boolean {
   const protocol = new URL(key).protocol
   return protocol === "http:" || protocol === "https:"
@@ -134,6 +168,10 @@ export function dropCachedAvatarImage(
   if (!key) {
     return
   }
+  avatarKeyGenerations.set(key, (avatarKeyGenerations.get(key) ?? 0) + 1)
+  avatarInFlight.delete(key)
+  avatarFailures.delete(key)
+  avatarDirectFallbacks.delete(key)
   const cached = avatarCache.get(key)
   if (!cached) {
     return
@@ -158,10 +196,8 @@ export function refreshCachedAvatarImage(
   if (existingRefresh) {
     return existingRefresh
   }
-  avatarKeyGenerations.set(key, (avatarKeyGenerations.get(key) ?? 0) + 1)
-  avatarInFlight.delete(key)
   dropCachedAvatarImage(key, options)
-  const promise = loadCachedAvatarImage(key, options).finally(() => {
+  const promise = loadCachedAvatarImage(key, { ...options, requestCache: "reload" }).finally(() => {
     if (avatarRefreshInFlight.get(key) === promise) {
       avatarRefreshInFlight.delete(key)
     }
@@ -199,9 +235,10 @@ export async function loadCachedAvatarImage(
   const fetcher = options.fetcher ?? fetch
   const createObjectUrl = options.createObjectUrl ?? URL.createObjectURL.bind(URL)
   const promise = fetcher(key, {
-    cache: "reload",
+    cache: options.requestCache ?? "default",
     credentials: "include",
     referrerPolicy: "no-referrer",
+    signal: AbortSignal.timeout(avatarFetchTimeoutMs),
   })
     .then(async (response) => {
       if (!response.ok) {
@@ -226,6 +263,7 @@ export async function loadCachedAvatarImage(
       }
       putCachedAvatarImage(key, objectUrl, options)
       clearAvatarImageFailure(key)
+      clearAvatarImageDirectFallback(key)
       return objectUrl
     })
     .finally(() => {
@@ -246,6 +284,7 @@ export function clearAvatarImageCache(options: Pick<AvatarImageCacheFetchOptions
   }
   avatarCache.clear()
   avatarFailures.clear()
+  avatarDirectFallbacks.clear()
   avatarInFlight.clear()
   avatarKeyGenerations.clear()
   avatarRefreshInFlight.clear()

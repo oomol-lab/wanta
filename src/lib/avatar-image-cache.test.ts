@@ -3,11 +3,13 @@ import {
   clearAvatarImageCache,
   dropCachedAvatarImage,
   loadCachedAvatarImage,
+  markAvatarImageDirectFallback,
   markAvatarImageFailed,
   normalizeAvatarCacheKey,
   readCachedAvatarImage,
   refreshCachedAvatarImage,
   shouldFetchAvatarImage,
+  shouldLoadAvatarImageDirectly,
   shouldSkipAvatarImageLoad,
 } from "./avatar-image-cache.ts"
 import { apiBaseUrl } from "./domain.ts"
@@ -80,13 +82,22 @@ test("loadCachedAvatarImage includes credentials for OOMOL-hosted avatars", asyn
     },
   })
 
-  expect(requestInit).toMatchObject({ cache: "reload", credentials: "include" })
+  expect(requestInit).toMatchObject({ cache: "default", credentials: "include" })
+  expect(requestInit?.signal).toBeInstanceOf(AbortSignal)
 })
 
 test("markAvatarImageFailed suppresses reloads for a short ttl", () => {
   markAvatarImageFailed("https://example.com/a.png", 100)
   expect(shouldSkipAvatarImageLoad("https://example.com/a.png", 60_099)).toBe(true)
   expect(shouldSkipAvatarImageLoad("https://example.com/a.png", 60_100)).toBe(false)
+})
+
+test("markAvatarImageDirectFallback temporarily skips the authenticated blob fetch path", () => {
+  const avatarUrl = new URL("/avatar.png", apiBaseUrl).toString()
+  markAvatarImageDirectFallback(avatarUrl, 100)
+
+  expect(shouldLoadAvatarImageDirectly(avatarUrl, 60_099)).toBe(true)
+  expect(shouldLoadAvatarImageDirectly(avatarUrl, 60_100)).toBe(false)
 })
 
 test("dropCachedAvatarImage revokes and removes the cached object URL", async () => {
@@ -103,6 +114,36 @@ test("dropCachedAvatarImage revokes and removes the cached object URL", async ()
 
   expect(readCachedAvatarImage(avatarUrl)).toBeNull()
   expect(revoked).toEqual(["blob:avatar-1"])
+})
+
+test("dropCachedAvatarImage clears failure state even when no blob is cached", () => {
+  const avatarUrl = new URL("/avatar.png", apiBaseUrl).toString()
+  markAvatarImageFailed(avatarUrl)
+  markAvatarImageDirectFallback(avatarUrl)
+
+  dropCachedAvatarImage(avatarUrl)
+
+  expect(shouldSkipAvatarImageLoad(avatarUrl)).toBe(false)
+  expect(shouldLoadAvatarImageDirectly(avatarUrl)).toBe(false)
+})
+
+test("dropCachedAvatarImage prevents an in-flight request from restoring stale avatar bytes", async () => {
+  const avatarUrl = new URL("/avatar.png", apiBaseUrl).toString()
+  let resolveResponse: ((response: Response) => void) | undefined
+  const responsePromise = new Promise<Response>((resolve) => {
+    resolveResponse = resolve
+  })
+  const request = loadCachedAvatarImage(avatarUrl, {
+    createObjectUrl: () => "blob:stale-avatar",
+    fetcher: async () => responsePromise,
+    revokeObjectUrl: () => undefined,
+  })
+
+  dropCachedAvatarImage(avatarUrl)
+  resolveResponse?.(new Response(new Blob(["avatar"], { type: "image/png" })))
+
+  await expect(request).rejects.toThrow("Avatar cache was cleared.")
+  expect(readCachedAvatarImage(avatarUrl)).toBeNull()
 })
 
 test("clearAvatarImageCache prevents an in-flight request from repopulating the cache", async () => {
@@ -151,6 +192,20 @@ test("refreshCachedAvatarImage replaces a cached object URL", async () => {
 
   expect(readCachedAvatarImage(avatarUrl)).toBe("blob:avatar-2")
   expect(revoked).toEqual(["blob:avatar-1"])
+})
+
+test("refreshCachedAvatarImage bypasses the HTTP cache while normal loads reuse it", async () => {
+  const avatarUrl = new URL("/avatar.png", apiBaseUrl).toString()
+  const requestCaches: Array<RequestCache | undefined> = []
+  const fetcher = async (_input: string | URL | Request, init?: RequestInit) => {
+    requestCaches.push(init?.cache)
+    return new Response(new Blob(["avatar"], { type: "image/png" }))
+  }
+
+  await loadCachedAvatarImage(avatarUrl, { createObjectUrl: () => "blob:avatar-1", fetcher })
+  await refreshCachedAvatarImage(avatarUrl, { createObjectUrl: () => "blob:avatar-2", fetcher })
+
+  expect(requestCaches).toEqual(["default", "reload"])
 })
 
 test("refreshCachedAvatarImage deduplicates concurrent refreshes for the same key", async () => {

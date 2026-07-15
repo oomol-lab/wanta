@@ -81,6 +81,29 @@ export function getCachedOrganizationMembers(accountId: string, organizationId: 
   return readCached(resourceKey(accountId, organizationId, "members"))
 }
 
+export function getCachedOrganizationProviderOptions(
+  accountId: string,
+  organizationId: string,
+): OrganizationProviderOption[] | null {
+  return readCached(resourceKey(accountId, organizationId, "provider-options"))
+}
+
+export function getCachedOrganizationAppAccess(
+  accountId: string,
+  organizationId: string,
+): OrganizationAppAccess | null {
+  return readCached(resourceKey(accountId, organizationId, "app-access"))
+}
+
+export function getCachedOrganizationUserSummaries(
+  accountId: string,
+  organizationId: string,
+  userIds: string[],
+): Record<string, OrganizationUserSummary> | null {
+  const normalizedUserIds = Array.from(new Set(userIds.map((userId) => userId.trim()).filter(Boolean))).sort()
+  return readCached(resourceKey(accountId, organizationId, `user-summaries:${normalizedUserIds.join(",")}`))
+}
+
 export function getOrganizationMembersResource(
   accountId: string,
   organizationId: string,

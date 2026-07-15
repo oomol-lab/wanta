@@ -329,7 +329,11 @@ function logNotificationResult(message: string, result: NotificationTestResult):
       platform: process.platform,
       windowFocused: result.windowFocused,
     },
-    result.outcome === "failed" || result.outcome === "timed-out" ? "warn" : "info",
+    result.outcome === "failed" ||
+      result.outcome === "timed-out" ||
+      (result.outcome === "accepted" && result.error !== undefined)
+      ? "warn"
+      : "info",
   )
 }
 

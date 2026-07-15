@@ -523,12 +523,16 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
 
   if (!account || isQuitting) {
     activeAgentOrganizationName = undefined
-    await attentionService.clearAll()
+    await attentionService.clearAll().catch((error: unknown) => {
+      console.warn("[wanta] failed to clear attention state during sign-out:", error)
+    })
     return
   }
   if (previousAccountId && previousAccountId !== account.id) {
     activeAgentOrganizationName = undefined
-    await attentionService.clearAll()
+    await attentionService.clearAll().catch((error: unknown) => {
+      console.warn("[wanta] failed to clear attention state during account switch:", error)
+    })
   }
 
   const customModels = await modelsStore.runtimeCustomModels()

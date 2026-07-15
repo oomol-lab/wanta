@@ -329,12 +329,16 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   React.useEffect(
     () =>
       attentionService.serverEvents.on("openSessionRequested", ({ sessionId }) => {
+        const session = visibleSessions.find((candidate) => candidate.id === sessionId)
+        if (session) {
+          setSidebarSegment(session.projectId ? "projects" : "tasks")
+        }
         setSelectedSessionId(sessionId)
         setIsDraftSession(false)
         setPendingChatTransition(null)
         setRoute("chat")
       }),
-    [attentionService],
+    [attentionService, visibleSessions],
   )
   const connectionSummaryMatchesWorkspace =
     Boolean(currentConnectionWorkspaceKey) && connections.summaryWorkspaceKey === currentConnectionWorkspaceKey

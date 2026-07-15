@@ -44,7 +44,9 @@ export class SettingsServiceImpl
         ? persisted.themeSource
         : DEFAULT_APP_SETTINGS.themeSource
     const completionNotificationCondition: CompletionNotificationCondition =
-      persisted.completionNotificationCondition === "never" || persisted.completionNotificationCondition === "always"
+      persisted.completionNotificationCondition === "never" ||
+      persisted.completionNotificationCondition === "background" ||
+      persisted.completionNotificationCondition === "always"
         ? persisted.completionNotificationCondition
         : DEFAULT_APP_SETTINGS.completionNotificationCondition
     return {
@@ -88,7 +90,9 @@ export class SettingsServiceImpl
 
   public setCompletionNotificationCondition(condition: CompletionNotificationCondition): Promise<void> {
     const normalized: CompletionNotificationCondition =
-      condition === "never" || condition === "always" ? condition : "background"
+      condition === "never" || condition === "background" || condition === "always"
+        ? condition
+        : DEFAULT_APP_SETTINGS.completionNotificationCondition
     this.deps.store.write({ ...this.deps.store.read(), completionNotificationCondition: normalized })
     this.settingsChanged()
     return Promise.resolve()

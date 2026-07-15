@@ -200,6 +200,7 @@ export class AttentionServiceImpl
     const locale = this.deps.getLocale()
     const copy = messages[locale]
     const id = test ? `test-${Date.now()}` : `completion-${sessionId}`
+    this.notifications.get(id)?.close()
     const notification = new Notification({
       body: test ? copy.testBody : copy.completedBody,
       groupId: "task-completion",
@@ -209,7 +210,9 @@ export class AttentionServiceImpl
     })
     this.notifications.set(id, notification)
     const forget = (): void => {
-      this.notifications.delete(id)
+      if (this.notifications.get(id) === notification) {
+        this.notifications.delete(id)
+      }
     }
     notification.once("close", forget)
     notification.once("failed", (_event, error) => {
@@ -219,7 +222,9 @@ export class AttentionServiceImpl
     if (sessionId) {
       notification.once("click", () => {
         this.deps.revealWindow()
-        void this.markSessionViewed(sessionId)
+        void this.markSessionViewed(sessionId).catch((error: unknown) => {
+          console.warn("[wanta] failed to mark notification session as viewed:", error)
+        })
         void this.send("openSessionRequested", { sessionId }).catch((error: unknown) => {
           console.warn("[wanta] failed to route task completion notification:", error)
         })

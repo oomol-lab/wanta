@@ -11,15 +11,21 @@ export function useAttention(): {
 
   React.useEffect(() => {
     let active = true
+    let updateVersion = 0
+    const unsubscribe = service.serverEvents.on("attentionStateChanged", (state) => {
+      if (!active) return
+      updateVersion += 1
+      setUnreadSessionIds(new Set(state.unreadSessionIds))
+    })
+    const requestVersion = updateVersion
     void service.invoke("getAttentionState").then(
       (state) => {
-        if (active) setUnreadSessionIds(new Set(state.unreadSessionIds))
+        if (active && updateVersion === requestVersion) {
+          setUnreadSessionIds(new Set(state.unreadSessionIds))
+        }
       },
       (error: unknown) => reportRendererHandledError("attention", "load attention state failed", error),
     )
-    const unsubscribe = service.serverEvents.on("attentionStateChanged", (state) => {
-      if (active) setUnreadSessionIds(new Set(state.unreadSessionIds))
-    })
     return () => {
       active = false
       unsubscribe()

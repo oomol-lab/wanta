@@ -486,11 +486,11 @@ describe("composer palette items", () => {
       appStatus: "active",
       apps: [
         {
-          accountLabel: "personal@example.com",
-          alias: "personal",
+          accountLabel: "team@example.com",
+          alias: "team",
           authType: "oauth2",
           createdAt: 1,
-          id: "app-personal",
+          id: "app-team",
           isDefault: false,
           service: "gmail",
           status: "active",
@@ -534,7 +534,7 @@ describe("composer palette items", () => {
     const accountItems = buildConnectionAccountPaletteItems(provider, connectionPaletteCopy)
     expect(accountItems.map((item) => item.id)).toEqual([
       "connection-account:gmail:app-work",
-      "connection-account:gmail:app-personal",
+      "connection-account:gmail:app-team",
     ])
     expect(accountItems[0]).toMatchObject({
       appId: "app-work",
@@ -546,13 +546,13 @@ describe("composer palette items", () => {
       title: "work@example.com",
     })
     expect(accountItems[1]).toMatchObject({
-      appId: "app-personal",
+      appId: "app-team",
       description: "OAuth",
       isDefault: false,
       secondaryActionIconVisibility: "active",
       secondaryActionLabel: "Set default · Press right arrow",
       secondaryActionTitle: "Set default · Press right arrow",
-      title: "personal",
+      title: "team",
     })
     expect(accountItems[1]).not.toHaveProperty("secondaryActionActiveLabel")
   })
@@ -565,10 +565,10 @@ describe("composer palette items", () => {
       appStatus: "active",
       apps: [
         {
-          accountLabel: "personal@example.com",
+          accountLabel: "team@example.com",
           authType: "oauth2",
           createdAt: 1,
-          id: "app-personal",
+          id: "app-team",
           isDefault: false,
           service: "gmail",
           status: "active",
@@ -596,7 +596,7 @@ describe("composer palette items", () => {
     const accountItems = buildConnectionAccountPaletteItems(provider, { ...connectionPaletteCopy, setDefault: "" })
 
     expect(accountItems[1]).toMatchObject({
-      appId: "app-personal",
+      appId: "app-team",
       secondaryActionLabel: undefined,
       secondaryActionTitle: undefined,
     })

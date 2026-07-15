@@ -18,7 +18,6 @@ export function AppShellMainTitlebar({
   artifactsToggleLabel,
   billingCacheScope,
   isSidebarRestoring,
-  sharedConnectorCount,
   onArtifactsToggle,
   onOpenSearch,
   onRenameSession,
@@ -37,7 +36,6 @@ export function AppShellMainTitlebar({
   artifactsToggleLabel: string
   billingCacheScope: string
   isSidebarRestoring: boolean
-  sharedConnectorCount?: number
   onArtifactsToggle: () => void
   onOpenSearch: () => void
   onRenameSession: (sessionId: string, title: string) => void
@@ -77,12 +75,7 @@ export function AppShellMainTitlebar({
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         <AppUpdateTitlebarEntry update={appUpdate} />
-        <BillingUsagePopover
-          cacheScope={billingCacheScope}
-          sharedConnectorCount={sharedConnectorCount}
-          workspace={workspace}
-          onViewDetails={onViewBilling}
-        />
+        <BillingUsagePopover cacheScope={billingCacheScope} workspace={workspace} onViewDetails={onViewBilling} />
         {showArtifactsToggle ? (
           <button
             type="button"

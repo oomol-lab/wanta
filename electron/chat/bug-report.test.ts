@@ -38,7 +38,7 @@ describe("bug report command", () => {
         model: "builtin:oomol/oopilot",
         permissionMode: "default",
         platform: "darwin",
-        workspaceScope: "personal",
+        workspaceScope: "organization",
       },
       targetFilePath: "/tmp/artifacts/wanta-bug-report.md",
     })

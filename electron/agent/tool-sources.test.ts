@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { connectionInventoryError, linkWorkspaceArgs } from "./link-workspace.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
@@ -90,10 +90,13 @@ afterEach(() => {
   delete process.env.WANTA_ORGANIZATION_SCOPE_PATH
 })
 
+beforeEach(() => {
+  process.env.WANTA_ORGANIZATION_NAME = "org-a"
+})
+
 describe("list_apps embedded runtime", () => {
   it("converts trusted identities and inventory errors without runtime dependencies", () => {
     expect(linkWorkspaceArgs({ scope: "organization", organizationName: "org-a" })).toEqual(["--organization", "org-a"])
-    expect(linkWorkspaceArgs({ scope: "personal", organizationName: "" })).toEqual(["--personal"])
     expect(
       connectionInventoryError(
         { scope: "organization", organizationName: "org-a" },

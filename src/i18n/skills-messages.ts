@@ -18,19 +18,12 @@ export const skillsMessages = {
     "organizations.retry": "重试",
     "organizations.refreshWorkspaces": "刷新工作区",
     "organizations.loading": "加载中",
-    "organizations.personal": "个人空间",
     "organizations.workspace": "工作区",
     "organizations.workspaceSwitcher": "切换工作区",
     "organizations.workspaceGroup": "工作区",
     "organizations.manageOrganizations": "组织",
     "organizations.emptyOrganizations": "暂无组织",
     "organizations.emptyOrganizationsDescription": "需要和团队共享组织 Skill、连接器和成员配置时，可以创建组织。",
-    "organizations.personalWorkspaceTitle": "当前为个人空间",
-    "organizations.personalWorkspaceDescription":
-      "你可以继续在个人空间使用聊天、连接器和本地工具。组织只用于团队共享组织 Skill 和连接器配置。",
-    "organizations.personalWorkspaceCreate": "创建组织",
-    "organizations.personalWorkspaceSwitch": "切换组织",
-    "organizations.personalWorkspaceSwitchHint": "已有组织时，可以从这里切换进入对应的组织配置。",
     "organizations.loadFailed": "组织加载失败",
     "organizations.loadFailedDescription": "暂时无法读取工作区信息。请检查网络后重试。",
     "organizations.refreshFailedTitle": "工作区暂时无法刷新",
@@ -84,7 +77,7 @@ export const skillsMessages = {
     "organizations.disableMembersSuccess": "成员已停用",
     "organizations.addMemberSelectRequired": "请先从搜索结果中选择一个成员。",
     "organizations.addMemberUserNotFound": "未找到这个用户，请检查用户 ID 是否正确。",
-    "organizations.addMemberLimitExceeded": "当前组织的成员席位已满。请升级 Wanta 计划，或移除不再使用的成员后再添加。",
+    "organizations.addMemberLimitExceeded": "当前组织已达到成员上限。请移除不再使用的成员后再添加。",
     "organizations.memberIdentifier": "用户",
     "organizations.userSearchPlaceholder": "搜索用户名或输入用户 ID",
     "organizations.searchUsersInitial": "输入至少 2 个字符搜索用户",
@@ -482,7 +475,6 @@ export const skillsMessages = {
     "organizations.retry": "Retry",
     "organizations.refreshWorkspaces": "Refresh workspaces",
     "organizations.loading": "Loading",
-    "organizations.personal": "Personal",
     "organizations.workspace": "Workspace",
     "organizations.workspaceSwitcher": "Switch workspace",
     "organizations.workspaceGroup": "Workspaces",
@@ -490,13 +482,6 @@ export const skillsMessages = {
     "organizations.emptyOrganizations": "No organizations",
     "organizations.emptyOrganizationsDescription":
       "Create an organization when you need to share organization Skills, connections, and member settings with a team.",
-    "organizations.personalWorkspaceTitle": "Personal workspace selected",
-    "organizations.personalWorkspaceDescription":
-      "You can keep using chat, connections, and local tools in your personal workspace. Organizations are only for sharing organization Skills and connection settings with a team.",
-    "organizations.personalWorkspaceCreate": "Create organization",
-    "organizations.personalWorkspaceSwitch": "Switch organization",
-    "organizations.personalWorkspaceSwitchHint":
-      "When you already have organizations, switch here to open the matching organization settings.",
     "organizations.loadFailed": "Failed to load organizations",
     "organizations.loadFailedDescription":
       "Workspace information is unavailable right now. Check the network and retry.",
@@ -556,7 +541,7 @@ export const skillsMessages = {
     "organizations.addMemberSelectRequired": "Select a member from the search results first.",
     "organizations.addMemberUserNotFound": "User not found. Check the user ID and try again.",
     "organizations.addMemberLimitExceeded":
-      "This organization has reached its member seat limit. Upgrade the Wanta plan or remove an inactive member before adding someone new.",
+      "This organization has reached its member limit. Remove an inactive member before adding someone new.",
     "organizations.memberIdentifier": "User",
     "organizations.userSearchPlaceholder": "Search username or enter user ID",
     "organizations.searchUsersInitial": "Enter at least 2 characters to search users",
@@ -751,7 +736,7 @@ export const skillsMessages = {
       "Enter the published Skill package, Skill name, and version. Market-based selection can be added later.",
     "skills.organizationAddPackageTitle": "Add Skill Package",
     "skills.organizationAddPackageDescription":
-      "Choose a public Skill package, or select one from your personal account, and link it to this organization.",
+      "Choose a public Skill package, or select one of your published packages, and link it to this organization.",
     "skills.organizationAddSearch": "Search Skills",
     "skills.organizationAddSourcePublic": "Public",
     "skills.organizationAddSourceMine": "Mine",

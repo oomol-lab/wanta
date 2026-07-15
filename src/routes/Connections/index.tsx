@@ -142,7 +142,6 @@ export function ConnectionsPanel({
     ? getConnectionDetailErrorNotice({
         actionError,
         detailError: selectedProviderDetailError,
-        workspace: summary?.workspace ?? null,
       })
     : null
   const summaryLoading = busy === "refresh" && !summary

@@ -165,21 +165,15 @@ function createMessageErrorPayload(sessionId: string, message: string, messageId
 }
 
 function organizationNameFromRequest(req: SendMessageRequest): string | undefined {
-  if (req.scope?.type !== "organization") {
-    return undefined
-  }
-  const organizationName = req.scope.organizationName.trim()
+  const organizationName = req.scope?.organizationName.trim()
   return organizationName ? organizationName : undefined
 }
 
 function runWorkspaceFromRequest(req: SendMessageRequest): ChatRunWorkspace {
-  if (req.scope?.type !== "organization") {
-    return { type: "personal" }
-  }
-  const organizationId = req.scope.organizationId.trim()
-  const organizationName = req.scope.organizationName.trim()
+  const organizationId = req.scope?.organizationId.trim() ?? ""
+  const organizationName = req.scope?.organizationName.trim() ?? ""
   if (!organizationId || !organizationName) {
-    return { type: "personal" }
+    throw new Error("Organization scope is invalid")
   }
   return { type: "organization", organizationId, organizationName }
 }
@@ -1180,7 +1174,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               model: bugReportModelLabel(req.model),
               permissionMode: this.sessionPermissionMode(req.sessionId),
               platform: this.deps.bugReportRuntime?.platform ?? process.platform,
-              workspaceScope: req.scope?.type === "organization" ? "organization" : "personal",
+              workspaceScope: "organization",
             },
             targetFilePath: path.join(artifactDir, BUG_REPORT_FILE_NAME),
           })
@@ -1530,7 +1524,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void> {
-    const organizationName = req.organizationName?.trim() ? req.organizationName.trim() : undefined
+    const organizationName = req.organizationName.trim()
+    if (!organizationName) {
+      throw new Error("Organization name is required")
+    }
     this.desiredWorkspaceOrganizationName = organizationName
     await this.runWithScopeMutation(async () => {
       if (this.desiredWorkspaceOrganizationName !== organizationName) {

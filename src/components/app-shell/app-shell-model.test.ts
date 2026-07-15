@@ -20,15 +20,15 @@ import {
 
 const readyInput = {
   agentScopeSyncError: null,
-  agentScopeWorkspaceKey: "personal",
-  connectionSettledWorkspaceKey: "personal",
-  connectionWorkspaceKey: "personal",
+  agentScopeWorkspaceKey: "organization:acme",
+  connectionSettledWorkspaceKey: "organization:acme",
+  connectionWorkspaceKey: "organization:acme",
   connectionsRefreshing: false,
-  currentScopeKey: "personal",
-  loadedSessionScopeKey: "personal",
+  currentScopeKey: "organization:acme",
+  loadedSessionScopeKey: "organization:acme",
   organizationSkillsError: null,
   organizationSkillsSettled: true,
-  targetScopeKey: "personal",
+  targetScopeKey: "organization:acme",
   workspaceMetadataError: null,
 }
 
@@ -117,7 +117,7 @@ describe("workspace activation state", () => {
   test("reports the first pending activation phase", () => {
     const state = resolveWorkspaceActivationState({ ...readyInput, loadedSessionScopeKey: "organization:old" })
 
-    expect(state).toEqual({ phase: "sessions", status: "activating", targetScopeKey: "personal" })
+    expect(state).toEqual({ phase: "sessions", status: "activating", targetScopeKey: "organization:acme" })
     expect(workspaceActivationIsPending(state)).toBe(true)
     expect(workspaceActivationBlocksInput(state)).toBe(true)
     expect(workspaceActivationHasFailed(state)).toBe(false)
@@ -135,7 +135,7 @@ describe("workspace activation state", () => {
       error: activationError,
       reason: "agent_scope",
       status: "failed",
-      targetScopeKey: "personal",
+      targetScopeKey: "organization:acme",
     })
     expect(workspaceActivationIsPending(state)).toBe(false)
     expect(workspaceActivationBlocksInput(state)).toBe(true)
@@ -170,7 +170,7 @@ describe("workspace activation state", () => {
       error: activationError,
       reason: "workspace_metadata",
       status: "failed",
-      targetScopeKey: "personal",
+      targetScopeKey: "organization:acme",
     })
     expect(workspaceActivationIsPending(state)).toBe(false)
     expect(workspaceActivationBlocksInput(state)).toBe(true)
@@ -187,7 +187,7 @@ describe("workspace activation state", () => {
       error: activationError,
       reason: "organization_skills",
       status: "failed",
-      targetScopeKey: "personal",
+      targetScopeKey: "organization:acme",
     })
     expect(workspaceActivationIsPending(state)).toBe(false)
     expect(workspaceActivationBlocksInput(state)).toBe(true)
@@ -197,7 +197,7 @@ describe("workspace activation state", () => {
   test("is idle once every target-scoped dependency settles", () => {
     const state = resolveWorkspaceActivationState(readyInput)
 
-    expect(state).toEqual({ status: "idle", targetScopeKey: "personal" })
+    expect(state).toEqual({ status: "idle", targetScopeKey: "organization:acme" })
   })
 })
 
@@ -258,7 +258,7 @@ describe("workspace switch target cleanup", () => {
     expect(
       shouldClearWorkspaceSwitchTarget({
         ...cleanupInput,
-        activeWorkspaceKey: "personal",
+        activeWorkspaceKey: "organization:acme",
         organizationIds: [],
       }),
     ).toBe(true)
@@ -268,7 +268,7 @@ describe("workspace switch target cleanup", () => {
     expect(
       shouldClearWorkspaceSwitchTarget({
         ...cleanupInput,
-        activeWorkspaceKey: "personal",
+        activeWorkspaceKey: "organization:acme",
       }),
     ).toBe(false)
   })
@@ -277,7 +277,7 @@ describe("workspace switch target cleanup", () => {
     expect(
       shouldClearWorkspaceSwitchTarget({
         ...cleanupInput,
-        activeWorkspaceKey: "personal",
+        activeWorkspaceKey: "organization:acme",
         hasLoadedOrganizations: false,
         loadingOrganizations: true,
         organizationIds: [],
@@ -376,18 +376,23 @@ describe("composer draft scope keys", () => {
       existingSessionComposerDraftKey("organization:org-b", "session-1"),
     )
     expect(existingSessionComposerDraftKey("organization:org-a", "session-1")).not.toBe(
-      existingSessionComposerDraftKey("personal", "session-1"),
+      existingSessionComposerDraftKey("organization:acme", "session-1"),
     )
   })
 
   test("separates new session drafts by workspace scope", () => {
     expect(
       newSessionComposerDraftKey({ type: "organization", organizationId: "org-a", organizationName: "A" }, undefined),
-    ).not.toBe(newSessionComposerDraftKey({ type: "personal" }, undefined))
+    ).not.toBe(
+      newSessionComposerDraftKey(
+        { type: "organization", organizationId: "org-id", organizationName: "org-name" },
+        undefined,
+      ),
+    )
   })
 
-  test("normalizes persisted sessions without scope as personal sessions", () => {
-    expect(sessionRecordScopeKey(undefined)).toBe("personal")
+  test("normalizes persisted sessions without scope as unavailable workspace sessions", () => {
+    expect(sessionRecordScopeKey(undefined)).toBe("workspace-loading")
     expect(sessionRecordScopeKey({ type: "organization", organizationId: "org-a", organizationName: "A" })).toBe(
       "organization:org-a",
     )

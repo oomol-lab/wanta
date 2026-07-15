@@ -16,7 +16,7 @@ export interface BugReportRuntimeContext {
   model: string
   permissionMode: AgentPermissionMode
   platform: NodeJS.Platform
-  workspaceScope: "organization" | "personal"
+  workspaceScope: "organization"
 }
 
 export function parseBugReportCommand(text: string): ParsedBugReportCommand | null {

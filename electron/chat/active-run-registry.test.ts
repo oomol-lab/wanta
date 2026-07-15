@@ -5,7 +5,11 @@ import { ActiveRunRegistry } from "./active-run-registry.ts"
 test("permission blocking takes precedence until every blocking request is removed", () => {
   const updates = vi.fn()
   const registry = new ActiveRunRegistry(updates)
-  registry.create("session-1", "generation-1", { type: "personal" })
+  registry.create("session-1", "generation-1", {
+    type: "organization",
+    organizationId: "org-id",
+    organizationName: "org-name",
+  })
 
   registry.addBlockingRequest("session-1", "question-1", "awaiting_question")
   registry.addBlockingRequest("session-1", "permission-1", "awaiting_permission")
@@ -20,8 +24,16 @@ test("permission blocking takes precedence until every blocking request is remov
 
 test("late cleanup cannot delete a replacement active run", () => {
   const registry = new ActiveRunRegistry(() => undefined)
-  registry.create("session-1", "generation-1", { type: "personal" })
-  registry.create("session-1", "generation-2", { type: "personal" })
+  registry.create("session-1", "generation-1", {
+    type: "organization",
+    organizationId: "org-id",
+    organizationName: "org-name",
+  })
+  registry.create("session-1", "generation-2", {
+    type: "organization",
+    organizationId: "org-id",
+    organizationName: "org-name",
+  })
 
   registry.delete("session-1", "generation-1")
   assert.equal(registry.get("session-1")?.generationId, "generation-2")
@@ -29,7 +41,11 @@ test("late cleanup cannot delete a replacement active run", () => {
 
 test("assistant events advance active run presentation phases", () => {
   const registry = new ActiveRunRegistry(() => undefined)
-  registry.create("session-1", "generation-1", { type: "personal" })
+  registry.create("session-1", "generation-1", {
+    type: "organization",
+    organizationId: "org-id",
+    organizationName: "org-name",
+  })
   registry.applyEvent({
     event: "messageDelta",
     data: { delta: "hello", messageId: "message-1", partId: "part-1", sessionId: "session-1", text: "hello" },

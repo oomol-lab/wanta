@@ -372,7 +372,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     appliedWorkspaceKey.current = key
     invalidateWorkspaceWork()
     dispatch({ type: "workspaceSyncStarted" })
-    const organizationName = workspace.type === "organization" ? workspace.organizationName : undefined
+    const organizationName = workspace.organizationName
     const generation = workspaceGeneration.current
     void (async () => {
       try {

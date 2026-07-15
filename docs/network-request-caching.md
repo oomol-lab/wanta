@@ -17,7 +17,7 @@
 | -------------------- | ------------------------------ | -------------------------------------- | -------------------------------------------- |
 | Skill catalog        | 账号、筛选和搜索词             | 2–10 分钟（组织配置另有本地持久缓存）  | 安装、卸载、认证切换时定向清理               |
 | Connections          | 工作区和请求路径               | 30 秒 + ETag / Last-Modified           | 认证切换、授权、断连、别名或默认项变更后清理 |
-| Billing overview     | 账号、工作区、统计周期         | 60 秒                                  | 充值、订阅或席位变更后强制刷新               |
+| Billing overview     | 账号、组织、统计周期           | 60 秒                                  | 充值后强制刷新                               |
 | Organization details | 账号、组织和详情资源           | 60 秒                                  | 成员或应用授权变更后清理该组织资源           |
 | Member search        | 单个添加成员弹窗、规范化查询词 | 60 秒                                  | 弹窗销毁后自然释放；输入变化时取消旧请求     |
 | Avatar images        | 当前登录账号和完整图片 URL     | 渲染进程生命周期；最多 128 个 Blob URL | 头像更新定向清理；换号或登出时全部清理       |
@@ -25,7 +25,7 @@
 ## 3. 组织详情资源
 
 `src/lib/organization-details-resource.ts` 是组织成员、成员摘要、Provider 选项和应用授权的共享读取层。
-组织管理页与账单席位统计复用同一份成员读取，防止同一组织同时打开管理页和账单浮层时下载两次成员列表。
+组织管理页的成员读取按账号与组织隔离缓存，成员变更后定向失效。
 
 成员增删、启用/停用成员、更新或撤销应用授权后，组织管理页调用
 `invalidateOrganizationDetailsResource(accountId, organizationId)`，下一次读取才会请求服务端。
@@ -36,7 +36,7 @@
 Provider 网格。`/v1/usage/daily` 与 `/v1/usage/services` 在后台补齐，不得阻塞目录骨架屏结束。
 
 连接器 GET 保留 30 秒缓存、ETag / Last-Modified 条件请求和在途合并。认证状态变更时必须调用
-`clearConnectorCache()`，避免个人工作区的内存结果跨账号复用。OAuth Client Config 为账号级短时资源，
+`clearConnectorCache()`，避免组织工作区的内存结果跨账号复用。OAuth Client Config 为账号级短时资源，
 保存配置后立即失效；OAuth 授权开始前只读取当前服务的 active App 基线，不重拉完整目录和用量。
 
 强制刷新不能简单复用任意旧请求，否则 mutation 后可能接受过时响应；同一 UI 刷新会携带同一个

@@ -39,9 +39,6 @@ function normalizeScope(value: unknown): SessionScope | undefined {
     return undefined
   }
   const source = value as Partial<SessionScope>
-  if (source.type === "personal") {
-    return { type: "personal" }
-  }
   if (source.type !== "organization") {
     return undefined
   }

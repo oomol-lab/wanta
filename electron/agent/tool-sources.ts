@@ -34,9 +34,10 @@ async function currentOrganizationName(sessionID) {
 
 async function currentIdentity(sessionID) {
   const organizationName = (await currentOrganizationName(sessionID)).trim()
-  return organizationName
-    ? { cacheKey: "organization:" + organizationName, organizationName: organizationName, scope: "organization" }
-    : { cacheKey: "personal", organizationName: "", scope: "personal" }
+  if (!organizationName) {
+    throw new Error("workspace identity is unavailable")
+  }
+  return { cacheKey: "organization:" + organizationName, organizationName: organizationName, scope: "organization" }
 }
 
 async function appendIdentityArgs(argv, identity, sessionID) {
@@ -46,9 +47,7 @@ async function appendIdentityArgs(argv, identity, sessionID) {
 }
 
 function linkWorkspaceArgs(identity) {
-  return identity.scope === "organization"
-    ? ["--organization", identity.organizationName]
-    : ["--personal"]
+  return ["--organization", identity.organizationName]
 }
 
 function connectionInventoryError(identity, message) {

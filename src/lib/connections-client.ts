@@ -120,7 +120,7 @@ function connectorOAuthReturnProtocol(): string {
 }
 
 function workspaceHeaders(workspace: ConnectionWorkspace): Record<string, string> {
-  return workspace.type === "organization" ? { "x-oo-organization-name": workspace.organizationName } : {}
+  return { "x-oo-organization-name": workspace.organizationName }
 }
 
 function clampExecutionLogLimit(value: number | undefined): number {

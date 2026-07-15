@@ -134,7 +134,7 @@ function deleteOrganizationSkillCacheEntry(cacheKey: string): void {
 }
 
 function organizationWorkspaceKey(workspace: WorkspaceSelection): string {
-  return workspace.type === "organization" ? workspace.organizationId : "personal"
+  return workspace.organizationId || "workspace-loading"
 }
 
 function organizationSkillCacheKey(workspace: WorkspaceSelection, accountId: string | undefined): string {
@@ -165,10 +165,10 @@ function toChatContextSkill(skill: OrganizationSkillConfigItem): OrganizationSki
 export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?: string): UseOrganizationSkills {
   const workspaceKey = organizationWorkspaceKey(workspace)
   const cacheKey = organizationSkillCacheKey(workspace, accountId)
-  const organizationId = workspace.type === "organization" ? workspace.organizationId : null
-  const organizationName = workspace.type === "organization" ? (workspace.organization?.name ?? null) : null
+  const organizationId = workspace.organizationId || null
+  const organizationName = workspace.organization?.name ?? null
   const remoteApiEnabled = organizationSkillsApiEnabled()
-  const canManage = workspace.type === "organization" && workspace.canManage
+  const canManage = workspace.canManage
   const [skills, setSkills] = React.useState<OrganizationSkillConfigItem[]>([])
   const [skillsOrganizationId, setSkillsOrganizationId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(false)

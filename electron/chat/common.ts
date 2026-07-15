@@ -229,9 +229,11 @@ export type ChatRunPhase =
   | "awaiting_permission"
   | "awaiting_question"
 
-export type ChatRunWorkspace =
-  | { type: "personal" }
-  | { organizationId: string; organizationName: string; type: "organization" }
+export interface ChatRunWorkspace {
+  organizationId: string
+  organizationName: string
+  type: "organization"
+}
 
 export interface ChatActiveRun {
   activeAssistantMessageId?: string
@@ -338,7 +340,7 @@ export interface SendMessageRequest {
   contextMentions?: ChatContextMention[]
   organizationSkills?: ChatOrganizationSkillContext[]
   projectContext?: ChatProjectContext
-  scope?: SessionScope
+  scope: SessionScope
   model?: ModelChoice
   permissionMode?: AgentPermissionMode
   permissionModeVersion?: number
@@ -665,12 +667,11 @@ export interface OpenExternalUrlRequest {
 }
 
 export interface SetAgentOrganizationRequest {
-  organizationName?: string
+  organizationName: string
 }
 
 export type RechargePrice = "5_USD" | "20_USD" | "100_USD"
 export type BillingPeriodDays = 7 | 30 | 90
-export type WantaSubscriptionPlan = "wanta_plus" | "wanta_pro"
 
 export interface CreditBalanceResult {
   balance: string | null
@@ -717,77 +718,10 @@ export interface BillingSpendStats {
   total: { totalCredit?: string; eventCount?: number; totalUsage?: string }
 }
 
-export interface SubscriptionStatus {
-  plans: string[]
-  plan: string | null
-  features: string[]
-  platforms: Record<string, string[]>
-  wanta?: WantaAdditionalSeatsData
-}
-
-export interface WantaAdditionalSeatsData {
-  additionalSeats: number
-  updatedAt: number | null
-  cached: boolean
-}
-
-export interface WantaSubscriptionChangePayload {
-  additional_seats?: number
-  plan?: WantaSubscriptionPlan | null
-}
-
-export interface WantaSubscriptionPreviewResult {
-  amountDue: number
-  changeTiming: "immediate" | "next_cycle"
-  currency: string | null
-  mode: "create" | "update"
-  targetAdditionalSeats: number
-  targetPlan: WantaSubscriptionPlan | null
-  total: number
-}
-
-export interface WantaSubscriptionUpdateResult {
-  subscriptionID: string
-  status: string
-  plan: WantaSubscriptionPlan | null
-  additionalSeats: number
-  targetPlan: WantaSubscriptionPlan | null
-  targetAdditionalSeats: number
-  currentPeriodEnd: number
-  latestInvoiceID: string | null
-  paymentRequired: boolean
-  paymentURL: string | null
-  invoiceStatus: string | null
-  amountRemaining: number | null
-  currency: string | null
-  pendingUpdate: boolean
-  pendingUpdateExpiresAt: number | null
-  scheduledUpdate: boolean
-  scheduledEffectiveAt: number | null
-}
-
-export interface WantaPendingPaymentResult {
-  subscriptionID: string | null
-  status: string | null
-  plan: WantaSubscriptionPlan | null
-  additionalSeats: number
-  currentPeriodEnd: number | null
-  latestInvoiceID: string | null
-  paymentRequired: boolean
-  paymentURL: string | null
-  invoiceStatus: string | null
-  amountRemaining: number | null
-  currency: string | null
-  pendingUpdate: boolean
-  pendingUpdateExpiresAt: number | null
-}
-
 export interface BillingOverviewResult {
   balance: CreditUsages | null
   spend: BillingSpendStats | null
   metering: BillingSpendStats | null
-  subscription: SubscriptionStatus | null
-  wantaPendingPayment: WantaPendingPaymentResult | null
 }
 
 export type BillingSummaryResult = BillingOverviewResult

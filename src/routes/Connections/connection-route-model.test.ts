@@ -171,11 +171,11 @@ test("normalizeConnectionAliasInput keeps connector-safe connection names", () =
 })
 
 test("connection detail cache keys separate workspaces for the same provider", () => {
-  const personalKey = connectionDetailCacheKey("personal", "canva")
+  const workspaceKey = connectionDetailCacheKey("organization:acme", "canva")
   const organizationKey = connectionDetailCacheKey("organization:Design", "canva")
 
-  assert.notEqual(personalKey, organizationKey)
-  assert.equal(isConnectionDetailCacheKeyForService(personalKey, "canva"), true)
+  assert.notEqual(workspaceKey, organizationKey)
+  assert.equal(isConnectionDetailCacheKeyForService(workspaceKey, "canva"), true)
   assert.equal(isConnectionDetailCacheKeyForService(organizationKey, "canva"), true)
   assert.equal(isConnectionDetailCacheKeyForService(organizationKey, "gmail"), false)
 })

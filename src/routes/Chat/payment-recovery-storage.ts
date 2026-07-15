@@ -13,7 +13,6 @@ export function paymentRecoveryPendingStorageKey(cacheScope: string, requestScop
   const requestScopeKey =
     requestScope.type === "organization"
       ? {
-          canManageBilling: requestScope.canManageBilling,
           organizationId: requestScope.organizationId,
           organizationName: requestScope.organizationName,
           type: requestScope.type,

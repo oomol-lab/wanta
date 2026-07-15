@@ -8,7 +8,7 @@
 
 本功能要满足：
 
-- 组织拥有自己的 Skill 配置；个人空间继续使用现有本地 / runtime Skill。
+- 组织拥有自己的 Skill 配置，并与当前组织的 runtime Skill 共同生效。
 - 用户切换组织时，连接器作用域与组织 Skill 作用域同步变化。
 - 成员可查看组织 Skill，组织 creator 可管理组织 Skill。
 - 配置结果必须进入 Agent 生效路径，而不是只显示在 UI 上。
@@ -262,11 +262,10 @@ Host: org-control.<endpoint>
 <SkillsRoute workspace={organizationWorkspace} />
 ```
 
-`SkillsRoute` 内根据 `workspace.activeWorkspace` 决定是否展示组织配置区域：
+`SkillsRoute` 内根据 `workspace.activeWorkspace` 决定组织配置区域状态：
 
-- personal：只显示现有 Discover / Installed。
-- organization 且组织对象未解析：显示 loading。
-- organization 已解析：显示组织配置 tab / section。
+- 组织对象未解析：显示 loading。
+- 组织已解析：显示组织配置 tab / section。
 
 ### 5.3 新增 hook
 
@@ -473,7 +472,7 @@ userData/agent/workspace/.opencode/skill/{skillName}/
 
 集成 / 手工验证：
 
-- 个人空间不显示组织 Skill 配置。
+- 组织身份未解析时不显示组织 Skill 配置。
 - 切组织 A → B 后列表、Composer、agent scope 同步变化。
 - 组织成员只读。
 - creator 添加 private Skill 后成员可见并能用于组织工作区。

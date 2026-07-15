@@ -10,14 +10,12 @@ afterEach(() => {
 })
 
 describe("AgentManager", () => {
-  it("pins raw connector CLI guidance to the current turn workspace", () => {
+  it("pins raw connector CLI guidance to the current organization", () => {
     const organization = buildWorkspaceIdentitySystem('team "quoted"')
     expect(organization).toContain('organization "team \\"quoted\\""')
     expect(organization).toContain('--organization "team \\"quoted\\""')
 
-    const personal = buildWorkspaceIdentitySystem(undefined)
-    expect(personal).toContain("workspace: personal")
-    expect(personal).toContain("--personal")
+    expect(() => buildWorkspaceIdentitySystem(undefined)).toThrow("Organization workspace identity is unavailable")
   })
 
   it("hides OpenCode subagent sessions from the user task list", () => {
@@ -321,10 +319,19 @@ describe("AgentManager", () => {
     })
     ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { session: { promptAsync } } }
     manager.buildAuthorizedSystem = async () => undefined
-
-    await manager.promptStreaming("session-1", "plan it", { mode: "plan", reasoningLevel: "high" })
-    await manager.promptStreaming("session-1", "build it", { reasoningLevel: "medium" })
-    await manager.promptStreaming("session-1", "default reasoning", { reasoningLevel: "default" })
+    await manager.promptStreaming("session-1", "plan it", {
+      mode: "plan",
+      organizationName: "acme",
+      reasoningLevel: "high",
+    })
+    await manager.promptStreaming("session-1", "build it", {
+      organizationName: "acme",
+      reasoningLevel: "medium",
+    })
+    await manager.promptStreaming("session-1", "default reasoning", {
+      organizationName: "acme",
+      reasoningLevel: "default",
+    })
 
     const calls = promptAsync.mock.calls as unknown as Array<[parameters: { agent?: string; variant?: string }]>
     expect(calls[0]?.[0].agent).toBe("plan")

@@ -186,11 +186,7 @@ export function SidebarFooterControls({
   const [accountMenuOpen, setAccountMenuOpen] = React.useState(false)
   const trimmedAccountName = accountName?.trim()
   const displayName = trimmedAccountName || t("settings.account")
-  const personalWorkspaceLabel = trimmedAccountName || t("organizations.personal")
-  const activeWorkspaceLabel =
-    workspace.activeWorkspace.type === "organization"
-      ? (workspace.activeWorkspace.organization?.name ?? t("organizations.workspace"))
-      : personalWorkspaceLabel
+  const activeWorkspaceLabel = workspace.activeWorkspace.organization?.name ?? t("organizations.workspace")
   const workspaceButtonTitle = workspaceSwitching ? t("sidebar.switchingAccount") : activeWorkspaceLabel
 
   React.useEffect(() => {

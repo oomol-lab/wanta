@@ -18,15 +18,17 @@ export interface SessionInfo {
 
 export type SessionPermissionMode = "default" | "full_access"
 
-export type SessionScope =
-  | { type: "personal" }
-  | { organizationId: string; organizationName: string; type: "organization" }
+export interface SessionScope {
+  organizationId: string
+  organizationName: string
+  type: "organization"
+}
 
 export type SessionPlacement = "all" | "project" | "task"
 
 export interface SessionScopeRequest {
   placement?: SessionPlacement
-  scope?: SessionScope
+  scope: SessionScope
 }
 
 export interface SessionProject {
@@ -43,7 +45,7 @@ export interface SessionProject {
 export interface CreateProjectRequest {
   name?: string
   path: string
-  scope?: SessionScope
+  scope: SessionScope
 }
 
 export interface AssignSessionProjectRequest {
@@ -67,7 +69,7 @@ export interface SessionsChangedEvent {
 
 export interface CreateSessionRequest {
   projectId?: string
-  scope?: SessionScope
+  scope: SessionScope
   title?: string
 }
 
@@ -88,10 +90,10 @@ export const SessionService = serviceName("session-service") as ServiceName<{
     sessionsChanged: SessionsChangedEvent
   }
   ClientInvokes: {
-    list(req?: SessionScopeRequest): Promise<SessionInfo[]>
-    listArchived(req?: SessionScopeRequest): Promise<SessionInfo[]>
-    listProjects(req?: SessionScopeRequest): Promise<SessionProject[]>
-    create(req?: CreateSessionRequest): Promise<SessionInfo>
+    list(req: SessionScopeRequest): Promise<SessionInfo[]>
+    listArchived(req: SessionScopeRequest): Promise<SessionInfo[]>
+    listProjects(req: SessionScopeRequest): Promise<SessionProject[]>
+    create(req: CreateSessionRequest): Promise<SessionInfo>
     createProject(req: CreateProjectRequest): Promise<SessionProject>
     assignSessionProject(req: AssignSessionProjectRequest): Promise<void>
     setPermissionMode(req: SetSessionPermissionModeRequest): Promise<void>

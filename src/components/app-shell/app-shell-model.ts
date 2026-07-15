@@ -285,9 +285,6 @@ export function chatMessageText(message: ChatMessage): string {
 }
 
 export function sessionScopeFromWorkspace(workspace: WorkspaceSelection): SessionScope | null {
-  if (workspace.type === "personal") {
-    return { type: "personal" }
-  }
   const organizationId = workspace.organizationId.trim()
   const organizationName = workspace.organization?.name.trim()
   if (!organizationId || !organizationName) {
@@ -297,19 +294,19 @@ export function sessionScopeFromWorkspace(workspace: WorkspaceSelection): Sessio
 }
 
 export function workspaceSelectionSwitchKey(workspace: WorkspaceSelection): string {
-  return workspace.type === "organization" ? `organization:${workspace.organizationId}` : "personal"
+  return workspace.organizationId ? `organization:${workspace.organizationId}` : "workspace-loading"
 }
 
 export function sessionScopeKey(scope: SessionScope | null): string {
   if (!scope) {
     return "workspace-loading"
   }
-  return scope.type === "organization" ? `organization:${scope.organizationId}` : "personal"
+  return `organization:${scope.organizationId}`
 }
 
 export function sessionRecordScopeKey(scope: SessionScope | undefined): string {
-  if (scope?.type !== "organization") {
-    return "personal"
+  if (!scope?.organizationId) {
+    return "workspace-loading"
   }
   return `organization:${scope.organizationId}`
 }
@@ -437,7 +434,7 @@ export function workspaceSwitchOrganizationId(scopeKey: string): string | null {
 }
 
 export function isWorkspaceSwitchTargetReachable(input: WorkspaceSwitchTargetReachableInput): boolean {
-  if (!input.targetScopeKey || input.targetScopeKey === "personal") {
+  if (!input.targetScopeKey || input.targetScopeKey === "workspace-loading") {
     return true
   }
   if (input.activeWorkspaceKey === input.targetScopeKey) {

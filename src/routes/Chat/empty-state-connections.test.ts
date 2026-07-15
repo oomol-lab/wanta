@@ -70,7 +70,7 @@ test("summarizeEmptyStateConnections excludes connectionless no-auth providers t
 })
 
 test("resolveCurrentToolsPresentation keeps organization issue copy and action aligned", () => {
-  assert.deepEqual(resolveCurrentToolsPresentation("organization", { availableCount: 2, needsAttentionCount: 1 }), {
+  assert.deepEqual(resolveCurrentToolsPresentation({ availableCount: 2, needsAttentionCount: 1 }), {
     actionKey: "chat.emptyCurrentConnectorsCheckAction",
     ariaLabelKey: "chat.emptySharedConnectorsAttentionAria",
     highlighted: true,
@@ -83,26 +83,17 @@ test("resolveCurrentToolsPresentation keeps organization issue copy and action a
   })
 })
 
-test("resolveCurrentToolsPresentation covers personal tool and empty states", () => {
+test("resolveCurrentToolsPresentation covers organization tool and empty states", () => {
   assert.equal(
-    resolveCurrentToolsPresentation("personal", { availableCount: 2, needsAttentionCount: 0 }).actionKey,
-    "chat.emptyPersonalConnectorsManageAction",
+    resolveCurrentToolsPresentation({ availableCount: 2, needsAttentionCount: 0 }).actionKey,
+    "chat.emptySharedConnectorsAction",
   )
-  assert.deepEqual(
-    resolveCurrentToolsPresentation("personal", { availableCount: 2, needsAttentionCount: 0 }).targetFilter,
-    { kind: "available-tools" },
-  )
-  assert.equal(
-    resolveCurrentToolsPresentation("personal", { availableCount: 0, needsAttentionCount: 0 }).actionKey,
-    "chat.emptyPersonalConnectorsConnectAction",
-  )
-  assert.deepEqual(
-    resolveCurrentToolsPresentation("personal", { availableCount: 0, needsAttentionCount: 0 }).targetFilter,
-    { kind: "all" },
-  )
-  assert.equal(resolveCurrentToolsPresentation("personal", null).meta.key, "chat.emptyCurrentConnectorsUnavailableMeta")
-  assert.equal(
-    resolveCurrentToolsPresentation("personal", undefined).meta.key,
-    "chat.emptyCurrentConnectorsLoadingMeta",
-  )
+  assert.deepEqual(resolveCurrentToolsPresentation({ availableCount: 2, needsAttentionCount: 0 }).targetFilter, {
+    kind: "available-tools",
+  })
+  assert.deepEqual(resolveCurrentToolsPresentation({ availableCount: 0, needsAttentionCount: 0 }).targetFilter, {
+    kind: "all",
+  })
+  assert.equal(resolveCurrentToolsPresentation(null).meta.key, "chat.emptyCurrentConnectorsUnavailableMeta")
+  assert.equal(resolveCurrentToolsPresentation(undefined).meta.key, "chat.emptyCurrentConnectorsLoadingMeta")
 })

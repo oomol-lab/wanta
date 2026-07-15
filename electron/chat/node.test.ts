@@ -18,6 +18,12 @@ import { buildContextMentionsSystem, ChatServiceImpl, isAbortErrorMessage } from
 import { resolveChatTurnExecution } from "./turn-execution.ts"
 import { TurnOutputStore } from "./turn-outputs.ts"
 
+const testOrganizationScope = {
+  organizationId: "org-id",
+  organizationName: "org-name",
+  type: "organization" as const,
+}
+
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
@@ -247,7 +253,7 @@ test("getSessionSnapshot returns messages, pending asks, and active run together
     },
   ])
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
 
   const snapshot = await service.getSessionSnapshot("session-1")
 
@@ -266,7 +272,7 @@ test("setAgent clears active run snapshots", async () => {
   const service = new ChatServiceImpl(bridge.agent)
   const events = captureServiceEvents(service)
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   assert.notEqual(await service.getActiveRun("session-1"), null)
 
   service.setAgent(null)
@@ -288,7 +294,7 @@ test("active run snapshots track permission waits and completion", async () => {
   const events = captureServiceEvents(service)
   service.startEventBridge()
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   bridge.emit({
     type: "permission.asked",
     properties: {
@@ -554,7 +560,7 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
   })
   assert.equal(events.length, abortEventCount)
 
-  await service.sendMessage({ sessionId: "session-1", text: "next" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "next" })
   bridge.emit({
     type: "message.updated",
     properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant" } },
@@ -608,7 +614,7 @@ test("stopGeneration finalizes process files produced before cancellation", asyn
     const events = captureServiceEvents(service)
     service.startEventBridge()
 
-    await service.sendMessage({ sessionId: "session-1", text: "hello" })
+    await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
     bridge.emit({
       type: "message.updated",
       properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -714,7 +720,7 @@ test("message completion records intermediate code files left in artifact root",
     const events = captureServiceEvents(service)
     service.startEventBridge()
 
-    await service.sendMessage({ sessionId: "session-1", text: "帮我生成一个 PPT" })
+    await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "帮我生成一个 PPT" })
     bridge.emit({
       type: "message.updated",
       properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -748,7 +754,7 @@ test("message completion publishes artifact-only outputs without turn output rec
     const events = captureServiceEvents(service)
     service.startEventBridge()
 
-    await service.sendMessage({ sessionId: "session-1", text: "Create a report" })
+    await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "Create a report" })
     bridge.emit({
       type: "message.updated",
       properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -802,7 +808,7 @@ test("message completion recovers files that a reused script writes into an old 
     const events = captureServiceEvents(service)
     service.startEventBridge()
 
-    await service.sendMessage({ sessionId: "session-1", text: "Create three mock files" })
+    await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "Create three mock files" })
     bridge.emit({
       type: "message.updated",
       properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -862,7 +868,7 @@ test("message completion exposes a failed artifact bundle when an image preview 
     const events = captureServiceEvents(service)
     service.startEventBridge()
 
-    await service.sendMessage({ sessionId: "session-1", text: "Create an image" })
+    await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "Create an image" })
     bridge.emit({
       type: "message.updated",
       properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -908,7 +914,7 @@ test("message completion materializes a data image preview into a ready artifact
     const events = captureServiceEvents(service)
     service.startEventBridge()
 
-    await service.sendMessage({ sessionId: "session-1", text: "Create an image" })
+    await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "Create an image" })
     bridge.emit({
       type: "message.updated",
       properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -965,7 +971,7 @@ test("message completion materializes assistant file attachments into managed ar
     const events = captureServiceEvents(service)
     service.startEventBridge()
 
-    await service.sendMessage({ sessionId: "session-1", text: "Create an image" })
+    await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "Create an image" })
     bridge.emit({
       type: "message.updated",
       properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -1014,9 +1020,9 @@ test("late prompt rejection does not clear the replacement generation output", a
     const events = captureServiceEvents(service)
     service.startEventBridge()
 
-    await service.sendMessage({ sessionId: "session-1", text: "first" })
+    await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "first" })
     await service.stopGeneration("session-1")
-    await service.sendMessage({ sessionId: "session-1", text: "second" })
+    await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "second" })
     rejectFirstPrompt?.(new Error("first failed late"))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -1049,7 +1055,7 @@ test("agent errors from multiple opencode channels produce one message error per
   const events = captureServiceEvents(service)
   service.startEventBridge()
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
 
   const error = {
     name: "APIError",
@@ -1071,7 +1077,7 @@ test("agent errors from multiple opencode channels produce one message error per
   const messageError = messageErrors[0] as { data: { message?: string } }
   assert.equal(messageError.data.message, "The selected model does not exist.")
 
-  await service.sendMessage({ sessionId: "session-1", text: "retry" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "retry" })
   bridge.emit({
     type: "message.updated",
     properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant", error } },
@@ -1089,7 +1095,7 @@ test("hasActiveGeneration tracks pending and completed assistant turns", async (
 
   assert.equal(service.hasActiveGeneration(), false)
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   assert.equal(service.hasActiveGeneration(), true)
 
   bridge.emit({
@@ -1180,7 +1186,7 @@ test("stopGeneration cancels a submitted turn before prompt streaming starts", a
   const service = new ChatServiceImpl(bridge.agent)
   const events = captureServiceEvents(service)
 
-  const sendPromise = service.sendMessage({ sessionId: "session-1", text: "hello" })
+  const sendPromise = service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   await vi.waitFor(() => {
     assert.equal(bridge.createArtifactDir.mock.calls.length, 1)
   })
@@ -1212,7 +1218,7 @@ test("sendMessage does not start the OpenCode submit watchdog before prompt stre
   const service = new ChatServiceImpl(bridge.agent)
   const events = captureServiceEvents(service)
 
-  const sendPromise = service.sendMessage({ sessionId: "session-1", text: "hello" })
+  const sendPromise = service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   await vi.waitFor(() => {
     assert.equal(bridge.createArtifactDir.mock.calls.length, 1)
   })
@@ -1248,7 +1254,7 @@ test("sendMessage releases a submitted turn when OpenCode never accepts it", asy
   const service = new ChatServiceImpl(bridge.agent)
   const events = captureServiceEvents(service)
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   assert.equal(service.hasActiveGeneration(), true)
 
   await vi.advanceTimersByTimeAsync(45_000)
@@ -1276,7 +1282,7 @@ test("sendMessage releases an accepted turn when OpenCode never acknowledges it"
   const service = new ChatServiceImpl(bridge.agent)
   const events = captureServiceEvents(service)
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   await Promise.resolve()
   assert.equal(service.hasActiveGeneration(), true)
 
@@ -1306,7 +1312,7 @@ test("sendMessage reports a stale turn without stopping it when OpenCode is sile
   const events = captureServiceEvents(service)
   service.startEventBridge()
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   bridge.emit({
     type: "message.updated",
     properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -1351,7 +1357,7 @@ test("sendMessage keeps a silent running tool alive past the short inactivity ti
   const events = captureServiceEvents(service)
   service.startEventBridge()
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   bridge.emit({
     type: "message.updated",
     properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -1390,7 +1396,7 @@ test("answerQuestion restarts inactivity monitoring after a waiting question", a
   const events = captureServiceEvents(service)
   service.startEventBridge()
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   bridge.emit({
     type: "message.updated",
     properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -1443,7 +1449,7 @@ test("answerPermission restarts inactivity monitoring after a waiting permission
   const events = captureServiceEvents(service)
   service.startEventBridge()
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   bridge.emit({
     type: "message.updated",
     properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -1475,7 +1481,7 @@ test("rejectQuestion resolves the waiting question without stopping the generati
   const service = new ChatServiceImpl(bridge.agent)
   service.startEventBridge()
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   bridge.emit({
     type: "message.updated",
     properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
@@ -1510,7 +1516,11 @@ test("rejectQuestion resolves the waiting question without stopping the generati
   assert.deepEqual(waitingRun?.blockingRequestIds, ["question-1"])
   assert.equal(waitingRun?.phase, "awaiting_question")
   assert.equal(waitingRun?.sessionId, "session-1")
-  assert.deepEqual(waitingRun?.workspace, { type: "personal" })
+  assert.deepEqual(waitingRun?.workspace, {
+    type: "organization",
+    organizationId: "org-id",
+    organizationName: "org-name",
+  })
 
   await service.rejectQuestion({ sessionId: "session-1", requestId: "question-1" })
 
@@ -1527,7 +1537,7 @@ test("rejectQuestion does not stop the generation when OpenCode rejects the canc
   bridge.rejectQuestion.mockRejectedValueOnce(new Error("reject failed"))
   const service = new ChatServiceImpl(bridge.agent)
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   assert.equal(service.hasActiveGeneration(), true)
 
   await assert.rejects(() => service.rejectQuestion({ sessionId: "session-1", requestId: "question-1" }), {
@@ -1544,7 +1554,7 @@ test("rejectQuestion times out without stopping the generation", async () => {
   bridge.rejectQuestion.mockImplementationOnce(() => new Promise<void>(() => undefined))
   const service = new ChatServiceImpl(bridge.agent)
 
-  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
   assert.equal(service.hasActiveGeneration(), true)
 
   const request = service.rejectQuestion({ sessionId: "session-1", requestId: "question-1" })
@@ -1562,6 +1572,7 @@ test("sendMessage passes selected context, organization skills, and project as p
   const service = new ChatServiceImpl(bridge.agent)
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     contextMentions: [
       { description: "Generate market-ready assets", id: "ecommerce-image-studio", kind: "skill", name: "Ecommerce" },
       {
@@ -1636,7 +1647,7 @@ test("sendMessage turns /bug-report into a Markdown artifact-only turn", async (
       mode: "plan",
       model: { id: "oopilot", kind: "builtin" },
       permissionMode: "default",
-      scope: { type: "personal" },
+      scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" },
       sessionId: "session-1",
       text: "/bug-report Focus on the authorization state mismatch.",
     })
@@ -1709,6 +1720,7 @@ test("build mode stores artifacts under the registered project", async () => {
   })
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     projectContext: { id: "project-1", name: "wanta", path: projectPath },
     sessionId: "session-1",
     text: "Create a report",
@@ -1723,6 +1735,7 @@ test("unregistered project context keeps artifacts in managed storage", async ()
   const service = new ChatServiceImpl(bridge.agent)
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     projectContext: { id: "project-1", name: "wanta", path: "/Users/example/code/wanta" },
     sessionId: "session-1",
     text: "Create a report",
@@ -1750,6 +1763,7 @@ test("trusted project permissions are approved without showing a permission card
   service.startEventBridge()
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     projectContext: {
       id: "project-1",
       name: "wanta",
@@ -1811,6 +1825,7 @@ test("trusted project permission approval restarts inactivity monitoring", async
   service.startEventBridge()
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     projectContext: {
       id: "project-1",
       name: "wanta",
@@ -1862,6 +1877,7 @@ test("trusted project permissions are approved for task subagent sessions", asyn
   service.startEventBridge()
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     projectContext: {
       id: "project-1",
       name: "wanta",
@@ -1931,6 +1947,7 @@ test("task subagent permission prompts pause the parent generation inactivity wa
   service.startEventBridge()
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     projectContext: {
       id: "project-1",
       name: "wanta",
@@ -1989,7 +2006,7 @@ test("task subagent activity keeps the parent generation fresh without trusted p
   const events = captureServiceEvents(service)
   service.startEventBridge()
 
-  await service.sendMessage({ sessionId: "parent-session", text: "Analyze broadly" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "parent-session", text: "Analyze broadly" })
   bridge.emit({
     type: "message.updated",
     properties: { info: { id: "assistant-1", sessionID: "parent-session", role: "assistant" } },
@@ -2040,7 +2057,7 @@ test("task subagent abort errors are attributed to the user-stopped parent gener
   const events = captureServiceEvents(service)
   service.startEventBridge()
 
-  await service.sendMessage({ sessionId: "parent-session", text: "Analyze broadly" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "parent-session", text: "Analyze broadly" })
   bridge.emit({
     type: "message.updated",
     properties: { info: { id: "assistant-1", sessionID: "parent-session", role: "assistant" } },
@@ -2093,7 +2110,7 @@ test("task subagent permission prompts are displayed on the parent run without t
   const events = captureServiceEvents(service)
   service.startEventBridge()
 
-  await service.sendMessage({ sessionId: "parent-session", text: "Analyze broadly" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "parent-session", text: "Analyze broadly" })
   bridge.emit({
     type: "message.updated",
     properties: { info: { id: "assistant-1", sessionID: "parent-session", role: "assistant" } },
@@ -2153,6 +2170,7 @@ test("full access mode propagates to active task subagents and clears their pare
   service.startEventBridge()
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     permissionMode: "default",
     permissionModeVersion: 1,
     sessionId: "parent-session",
@@ -2249,6 +2267,7 @@ test("trusted project permission approval does not cover paths outside the proje
   service.startEventBridge()
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     projectContext: {
       id: "project-1",
       name: "wanta",
@@ -2291,6 +2310,7 @@ test("trusted project read-only shell commands are approved without showing a pe
   service.startEventBridge()
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     projectContext: {
       id: "project-1",
       name: "wanta",
@@ -2494,7 +2514,7 @@ test("managed Python dependency task approval reuses only the active turn enviro
   const service = new ChatServiceImpl(bridge.agent)
   const events = captureServiceEvents(service)
   service.startEventBridge()
-  await service.sendMessage({ sessionId: "session-1", text: "Create a spreadsheet" })
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "Create a spreadsheet" })
 
   const command = `${processRoot}/.wanta-python/bin/python -m pip install openpyxl fpdf2`
   bridge.emit({
@@ -2547,6 +2567,7 @@ test("default command approvals still prompt unsafe package mutations", async ()
   service.startEventBridge()
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     projectContext: {
       id: "project-1",
       name: "wanta",
@@ -2613,6 +2634,7 @@ test("project dependency task approval avoids repeated prompts during the active
   service.startEventBridge()
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     projectContext: { id: "project-1", name: "wanta", path: projectPath },
     sessionId: "session-1",
     text: "Install and use the dependency",
@@ -2651,6 +2673,7 @@ test("project dependency task approval avoids repeated prompts during the active
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 1)
 
   await service.sendMessage({
+    scope: testOrganizationScope,
     projectContext: { id: "project-1", name: "wanta", path: projectPath },
     sessionId: "session-1",
     text: "Start a new task",

@@ -23,7 +23,7 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
 import type { ChatStatus } from "ai"
 
-import { Building2, ChevronRight, Package, Plug, PlugZap } from "lucide-react"
+import { Building2, ChevronRight, Package, PlugZap } from "lucide-react"
 import * as React from "react"
 import { BillingRequestScopeContext } from "./billing-request-scope-context.ts"
 import { chatTurnShowsGenerating, resolveChatTurnState } from "./chat-turn-state.ts"
@@ -71,7 +71,6 @@ interface ChatAreaProps {
   contextBar?: React.ReactNode
   pinnedContextBar?: React.ReactNode
   emptyStateConnectionSummary?: EmptyStateConnectionSummary | null
-  workspaceType: "organization" | "personal"
   canManageWorkspaceConnections: boolean
   organizationSkillEntryVisible?: boolean
   organizationSkillPendingInstallCount?: number
@@ -115,7 +114,6 @@ function EmptyStateActions({
   organizationSkillEntryVisible = false,
   organizationSkillPendingInstallCount,
   organizationSkillShowcaseItems = [],
-  workspaceType,
   onOpenConnections,
   onOpenOrganizations,
 }: {
@@ -124,12 +122,11 @@ function EmptyStateActions({
   organizationSkillShowcaseItems?: OrganizationSkillShowcaseItem[]
   canManageWorkspaceConnections: boolean
   connectionSummary?: EmptyStateConnectionSummary | null
-  workspaceType: "organization" | "personal"
   onOpenConnections?: (filter?: ConnectionCatalogFilter) => void
   onOpenOrganizations?: () => void
 }) {
   const t = useT()
-  const currentTools = resolveCurrentToolsPresentation(workspaceType, connectionSummary)
+  const currentTools = resolveCurrentToolsPresentation(connectionSummary)
   const pendingOrganizationSkillCount = organizationSkillPendingInstallCount ?? organizationSkillShowcaseItems.length
   const organizationSkillMeta =
     pendingOrganizationSkillCount > 0
@@ -145,7 +142,7 @@ function EmptyStateActions({
     <div className="w-full pl-2 text-muted-foreground">
       <div className="grid min-w-0 justify-start gap-1">
         <EmptyCapabilityAction
-          icon={workspaceType === "organization" ? <Building2 className="size-4" /> : <Plug className="size-4" />}
+          icon={<Building2 className="size-4" />}
           title={t(currentTools.titleKey)}
           meta={t(currentTools.meta.key, currentTools.meta.vars)}
           actionLabel={t(currentTools.actionKey)}
@@ -267,7 +264,6 @@ export const ChatArea = React.memo(function ChatArea({
   initialSendPending,
   providers,
   emptyStateConnectionSummary,
-  workspaceType,
   canManageWorkspaceConnections,
   organizationSkillEntryVisible,
   organizationSkillPendingInstallCount,
@@ -405,7 +401,6 @@ export const ChatArea = React.memo(function ChatArea({
             organizationSkillEntryVisible={organizationSkillEntryVisible}
             organizationSkillPendingInstallCount={organizationSkillPendingInstallCount}
             organizationSkillShowcaseItems={organizationSkillShowcaseItems}
-            workspaceType={workspaceType}
             onOpenConnections={onOpenConnections}
             onOpenOrganizations={onOpenOrganizations}
           />

@@ -20,7 +20,6 @@ export interface CurrentToolsPresentation {
 
 /** 集中推导首页当前工具入口，确保文案、状态与无障碍描述使用同一组条件。 */
 export function resolveCurrentToolsPresentation(
-  workspaceType: "organization" | "personal",
   connectionSummary: EmptyStateConnectionSummary | null | undefined,
 ): CurrentToolsPresentation {
   const hasConnectionIssue = Boolean(connectionSummary?.needsAttentionCount)
@@ -47,19 +46,8 @@ export function resolveCurrentToolsPresentation(
       : { key: "chat.emptyCurrentConnectorsLoadingMeta" as const }
 
   return {
-    actionKey: hasConnectionIssue
-      ? "chat.emptyCurrentConnectorsCheckAction"
-      : workspaceType === "organization"
-        ? "chat.emptySharedConnectorsAction"
-        : hasCurrentTools
-          ? "chat.emptyPersonalConnectorsManageAction"
-          : "chat.emptyPersonalConnectorsConnectAction",
-    ariaLabelKey:
-      workspaceType === "organization"
-        ? hasConnectionIssue
-          ? "chat.emptySharedConnectorsAttentionAria"
-          : "chat.emptySharedConnectorsAria"
-        : "chat.emptyPersonalConnectorsAria",
+    actionKey: hasConnectionIssue ? "chat.emptyCurrentConnectorsCheckAction" : "chat.emptySharedConnectorsAction",
+    ariaLabelKey: hasConnectionIssue ? "chat.emptySharedConnectorsAttentionAria" : "chat.emptySharedConnectorsAria",
     highlighted: hasConnectionIssue,
     targetFilter: hasConnectionIssue
       ? { kind: "attention" }
@@ -67,8 +55,7 @@ export function resolveCurrentToolsPresentation(
         ? { kind: "available-tools" }
         : { kind: "all" },
     meta,
-    titleKey:
-      workspaceType === "organization" ? "chat.emptySharedConnectorsTitle" : "chat.emptyPersonalConnectorsTitle",
+    titleKey: "chat.emptySharedConnectorsTitle",
   }
 }
 

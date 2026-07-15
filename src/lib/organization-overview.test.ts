@@ -123,7 +123,7 @@ describe("organization workspace selection", () => {
     expect(resolveOrganizationSelection("missing", organizations)).toBe("first")
   })
 
-  it("keeps the personal fallback when no organizations are available", () => {
+  it("keeps the empty result when no organizations are available", () => {
     expect(resolveOrganizationSelection(null, [])).toBeNull()
   })
 })

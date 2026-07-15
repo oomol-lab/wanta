@@ -17,7 +17,7 @@ test("SessionProjectStore persists local projects", async () => {
         path: "/Users/example/code/wanta",
         createdAt: 1_000,
         updatedAt: 2_000,
-        scope: { type: "personal" as const },
+        scope: { type: "organization" as const, organizationId: "org-id", organizationName: "org-name" },
         pinnedAt: 3_000,
       },
     ],

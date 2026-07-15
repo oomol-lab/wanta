@@ -128,10 +128,7 @@ export function useOrganizationSkillActions({
   ])
 
   const installRuntimeSkills = React.useCallback(
-    async (
-      skills: readonly { packageName: string; skillName: string }[],
-      source: "organization" | "personal" = "organization",
-    ) => {
+    async (skills: readonly { packageName: string; skillName: string }[]) => {
       const targets = skills.filter((skill) => skill.packageName.trim() && skill.skillName.trim())
       if (targets.length === 0 || !beginAction("installSkillBatch")) {
         return
@@ -157,23 +154,14 @@ export function useOrganizationSkillActions({
         homeSummaryResource.invalidate()
         if (installedCount > 0) {
           skillVersionReport.invalidate()
-          toast.success(
-            source === "personal"
-              ? t("skills.personalRecommendationsInstallDone", { count: installedCount })
-              : t("organizations.skillManageInstallMissingSuccess", { count: installedCount }),
-          )
+          toast.success(t("organizations.skillManageInstallMissingSuccess", { count: installedCount }))
         }
         if (failedCount > 0) {
           toast.error(
-            source === "personal"
-              ? t("skills.personalRecommendationsInstallFailed", {
-                  count: failedCount,
-                  error: errorMessage(firstError),
-                })
-              : t("organizations.skillManageInstallMissingFailed", {
-                  count: failedCount,
-                  error: errorMessage(firstError),
-                }),
+            t("organizations.skillManageInstallMissingFailed", {
+              count: failedCount,
+              error: errorMessage(firstError),
+            }),
           )
         }
       } finally {

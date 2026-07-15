@@ -60,7 +60,7 @@ function summary(apps: ConnectionAppSummary[]): ConnectionSummary {
       services: [],
       success: 0,
     },
-    workspace: { type: "personal" },
+    workspace: { type: "organization", organizationName: "org-name" },
   }
 }
 

@@ -6,9 +6,11 @@ import {
   dropCachedAvatarImage,
   loadCachedAvatarImage,
   markAvatarImageFailed,
+  markAvatarImageDirectFallback,
   normalizeAvatarCacheKey,
   readCachedAvatarImage,
   shouldFetchAvatarImage,
+  shouldLoadAvatarImageDirectly,
   shouldSkipAvatarImageLoad,
 } from "@/lib/avatar-image-cache"
 import { cn } from "@/lib/utils"
@@ -19,37 +21,51 @@ interface CachedAvatarImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement
 
 export function CachedAvatarImage({ className, onError, onLoad, src, style, ...props }: CachedAvatarImageProps) {
   const cacheKey = React.useMemo(() => normalizeAvatarCacheKey(src), [src])
+  const initialDirectFallback = Boolean(
+    cacheKey && shouldLoadAvatarImageDirectly(cacheKey) && !shouldSkipAvatarImageLoad(cacheKey),
+  )
   const [imageState, setImageState] = React.useState<{ cacheKey: string | null; src: string | null }>(() => ({
     cacheKey,
     src:
-      cacheKey && !shouldFetchAvatarImage(cacheKey) && !shouldSkipAvatarImageLoad(cacheKey)
+      cacheKey && ((!shouldFetchAvatarImage(cacheKey) && !shouldSkipAvatarImageLoad(cacheKey)) || initialDirectFallback)
         ? cacheKey
         : readCachedAvatarImage(src),
   }))
   const imageSrc = imageState.cacheKey === cacheKey ? imageState.src : null
-  const [visible, setVisible] = React.useState(false)
-  const remoteFallbackRef = React.useRef(false)
+  const [visible, setVisible] = React.useState(Boolean(imageState.src))
+  const remoteFallbackRef = React.useRef(initialDirectFallback)
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     remoteFallbackRef.current = false
-    setVisible(false)
     if (!cacheKey) {
+      setVisible(false)
       setImageState({ cacheKey, src: null })
       return
     }
 
+    if (shouldLoadAvatarImageDirectly(cacheKey) && !shouldSkipAvatarImageLoad(cacheKey)) {
+      remoteFallbackRef.current = true
+      setVisible(true)
+      setImageState({ cacheKey, src: cacheKey })
+      return
+    }
+
     if (!shouldFetchAvatarImage(cacheKey)) {
-      setImageState({ cacheKey, src: shouldSkipAvatarImageLoad(cacheKey) ? null : cacheKey })
+      const nextSrc = shouldSkipAvatarImageLoad(cacheKey) ? null : cacheKey
+      setVisible(Boolean(nextSrc))
+      setImageState({ cacheKey, src: nextSrc })
       return
     }
 
     const cached = readCachedAvatarImage(cacheKey)
     if (cached) {
+      setVisible(true)
       setImageState({ cacheKey, src: cached })
       return
     }
 
     if (shouldSkipAvatarImageLoad(cacheKey)) {
+      setVisible(false)
       setImageState({ cacheKey, src: null })
       return
     }
@@ -65,6 +81,7 @@ export function CachedAvatarImage({ className, onError, onLoad, src, style, ...p
       })
       .catch(() => {
         if (!cancelled) {
+          markAvatarImageDirectFallback(cacheKey)
           remoteFallbackRef.current = true
           setVisible(false)
           setImageState({ cacheKey, src: cacheKey })
@@ -88,13 +105,16 @@ export function CachedAvatarImage({ className, onError, onLoad, src, style, ...p
       draggable={props.draggable ?? false}
       referrerPolicy={props.referrerPolicy ?? "no-referrer"}
       onLoad={(event) => {
-        clearAvatarImageFailure(cacheKey)
+        if (!remoteFallbackRef.current) {
+          clearAvatarImageFailure(cacheKey)
+        }
         setVisible(true)
         onLoad?.(event)
       }}
       onError={(event) => {
         if (!remoteFallbackRef.current && imageSrc !== cacheKey) {
           dropCachedAvatarImage(cacheKey)
+          markAvatarImageDirectFallback(cacheKey)
           remoteFallbackRef.current = true
           setVisible(false)
           setImageState({ cacheKey, src: cacheKey })

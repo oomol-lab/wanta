@@ -5,7 +5,9 @@ import type { AppDataResources } from "@/components/AppDataContext"
 import * as React from "react"
 import { useAppContext } from "@/components/AppContext"
 import { AppDataContext } from "@/components/AppDataContext"
+import { clearAvatarImageCache } from "@/lib/avatar-image-cache"
 import { clearConnectorCache } from "@/lib/connections-client"
+import { clearOrganizationDetailsResources } from "@/lib/organization-details-resource"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { createResource } from "@/lib/resource-store"
 import { clearSkillCatalogCache } from "@/lib/skills-catalog-client"
@@ -32,6 +34,13 @@ function normalizeRefreshData(value: unknown): unknown {
 
 function isRefreshDataEqual<T>(current: T, next: T): boolean {
   return JSON.stringify(normalizeRefreshData(current)) === JSON.stringify(normalizeRefreshData(next))
+}
+
+function authCacheScope(state: AuthState | null): string | null {
+  if (!state) {
+    return null
+  }
+  return state.status === "authenticated" && state.account ? `account:${state.account.id}` : "unauthenticated"
 }
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
@@ -63,6 +72,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     return authService.serverEvents.on("authStateChanged", (nextAuthState) => {
       clearConnectorCache()
       clearSkillCatalogCache()
+      const currentAuthState = resources.authState.getSnapshot().data
+      if (authCacheScope(currentAuthState) !== authCacheScope(nextAuthState)) {
+        clearAvatarImageCache()
+        clearOrganizationDetailsResources()
+      }
       resources.authState.setData(nextAuthState)
       resources.skillInventory.invalidate()
       resources.skillVersions.invalidate()

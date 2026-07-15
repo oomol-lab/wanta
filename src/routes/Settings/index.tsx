@@ -185,9 +185,17 @@ function NotificationSettings({
               void onTest()
                 .then((result) => {
                   setLastTestResult(result)
-                  if (result.outcome === "shown") {
-                    toast.success(t("settings.notificationTestSent"))
-                    return
+                  switch (result.outcome) {
+                    case "delivered":
+                      toast.success(t("settings.notificationTestDelivered"))
+                      return
+                    case "accepted":
+                      if (capability?.platform === "darwin") {
+                        toast.warning(t("settings.notificationTestUnconfirmed"))
+                      } else {
+                        toast.success(t("settings.notificationTestAccepted"))
+                      }
+                      return
                   }
                   toast.error(t(notificationTestFailureKey(result)))
                   console.error("[wanta] test notification was not delivered", result)

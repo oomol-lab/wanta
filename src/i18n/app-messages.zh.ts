@@ -1141,15 +1141,19 @@ export const zhCNMessages = {
   "settings.groupApplication": "应用",
   "settings.groupBetaFeatures": "Beta 功能",
   "settings.notifications": "任务通知",
-  "settings.notificationsDescription": "选择任务完成后何时发送系统通知。",
+  "settings.notificationsDescription": "选择真实任务完成后何时发送通知；上方测试按钮不受此选项影响。",
   "settings.notificationSystemStatus": "系统通知",
   "settings.notificationMacInitialDescription":
     "尚未验证系统授权。点击“开启并测试通知”；首次使用时 macOS 会请求允许通知。",
   "settings.notificationWindowsInitialDescription":
     "Windows 通常不单独弹出首次授权；发送测试通知可检查系统设置和安装状态。",
   "settings.notificationGenericInitialDescription": "发送测试通知，检查当前系统是否可以接收 Wanta 通知。",
+  "settings.notificationTestDeliveredDescription":
+    "测试通知已送达 macOS 通知中心。若未看到或听到，请检查横幅、声音、专注/勿扰模式及屏幕共享设置。",
   "settings.notificationTestAcceptedDescription":
-    "系统已接受测试通知。若未看到或听到，请检查专注/勿扰模式、横幅和声音设置。",
+    "系统已接受测试通知请求。若未看到或听到，请检查通知中心、横幅、声音和专注/勿扰模式。",
+  "settings.notificationTestUnconfirmedDescription":
+    "macOS 已接受通知请求，但 Wanta 未能确认它已进入通知中心。请打开通知中心检查，或打开系统设置后重新测试。",
   "settings.notificationTestFailedDescription": "系统未能创建测试通知。请打开系统设置，允许 Wanta 通知后重新测试。",
   "settings.notificationTestTimedOutDescription": "系统没有返回明确结果。请检查通知中心和系统通知设置，然后重新测试。",
   "settings.notificationDevelopmentUnavailable": "macOS 开发模式未使用有效应用签名，请用签名后的安装包测试系统通知。",
@@ -1160,7 +1164,7 @@ export const zhCNMessages = {
   "settings.notificationOpenWindowsSettings": "打开 Windows 通知设置",
   "settings.notificationSettingsOpenFailed": "无法打开系统通知设置",
   "settings.notificationNever": "从不",
-  "settings.notificationBackground": "仅在后台",
+  "settings.notificationBackground": "Wanta 不在前台时",
   "settings.notificationAlways": "始终",
   "settings.notificationSound": "播放系统通知声音",
   "settings.notificationSoundDescription":
@@ -1170,7 +1174,9 @@ export const zhCNMessages = {
   "settings.notificationEnableAndTest": "开启并测试通知",
   "settings.notificationTest": "发送测试通知",
   "settings.notificationRetest": "重新测试",
-  "settings.notificationTestSent": "系统已接受测试通知；若未看到，请检查专注或勿扰模式",
+  "settings.notificationTestDelivered": "测试通知已送达通知中心",
+  "settings.notificationTestAccepted": "系统已接受测试通知请求",
+  "settings.notificationTestUnconfirmed": "系统接受了请求，但未确认通知已送达",
   "settings.notificationsUpdateFailed": "无法更新通知设置",
   "settings.notificationTestFailed": "无法发送测试通知",
   "settings.notificationTestTimedOut": "系统没有确认测试通知，请检查系统通知设置",

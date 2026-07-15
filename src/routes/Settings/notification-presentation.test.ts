@@ -45,7 +45,21 @@ describe("notificationPresentation", () => {
   it("promotes system settings only after a failed or unconfirmed test", () => {
     expect(notificationPresentation(capability("darwin"), { outcome: "failed" }).recovery).toBe(true)
     expect(notificationPresentation(capability("win32"), { outcome: "timed-out" }).recovery).toBe(true)
-    expect(notificationPresentation(capability("darwin"), { outcome: "shown" }).recovery).toBe(false)
+    expect(notificationPresentation(capability("darwin"), { outcome: "accepted" }).recovery).toBe(true)
+    expect(notificationPresentation(capability("darwin"), { outcome: "delivered" }).recovery).toBe(false)
+    expect(notificationPresentation(capability("win32"), { outcome: "accepted" }).recovery).toBe(false)
+  })
+
+  it("distinguishes confirmed macOS delivery from native request acceptance", () => {
+    expect(notificationPresentation(capability("darwin"), { outcome: "delivered" }).descriptionKey).toBe(
+      "settings.notificationTestDeliveredDescription",
+    )
+    expect(notificationPresentation(capability("darwin"), { outcome: "accepted" }).descriptionKey).toBe(
+      "settings.notificationTestUnconfirmedDescription",
+    )
+    expect(notificationPresentation(capability("win32"), { outcome: "accepted" }).descriptionKey).toBe(
+      "settings.notificationTestAcceptedDescription",
+    )
   })
 
   it("does not offer an authorization-like action in unsupported or unsigned development environments", () => {

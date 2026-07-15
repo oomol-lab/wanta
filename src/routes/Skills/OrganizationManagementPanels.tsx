@@ -5,7 +5,7 @@ import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations.ts"
 
-import { Building2Icon, CheckIcon, ChevronsUpDownIcon, LockKeyholeIcon, PencilIcon, PlusIcon } from "lucide-react"
+import { Building2Icon, ChevronsUpDownIcon, LockKeyholeIcon, PencilIcon, PlusIcon } from "lucide-react"
 import * as React from "react"
 import { planProviderSkillRecommendationBulkLinks } from "./organization-management-model.ts"
 import {
@@ -47,7 +47,6 @@ export function OrganizationSwitcherPanel({
   onOpenMembers,
   onRemoteAvatarLoad,
   onSelect,
-  onSelectPersonal,
   organizations,
   selectedOrganization,
   selectedOrganizationId,
@@ -66,7 +65,6 @@ export function OrganizationSwitcherPanel({
   onOpenMembers: () => void
   onRemoteAvatarLoad: (organizationId: string, file: File | null) => void
   onSelect: (organizationId: string) => void
-  onSelectPersonal: () => void
   organizations: Organization[]
   selectedOrganization: Organization | null
   selectedOrganizationId: string | null
@@ -167,32 +165,6 @@ export function OrganizationSwitcherPanel({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" sideOffset={6} className="w-[min(36rem,calc(100vw-2rem))]">
                 <DropdownMenuLabel>{t("organizations.selectWorkspace")}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className={cn(
-                    "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
-                    personalSelected && "bg-accent",
-                  )}
-                  onSelect={onSelectPersonal}
-                >
-                  <AccountWorkspaceAvatar
-                    avatarUrl={accountAvatarUrl}
-                    className="size-10 rounded-md text-sm"
-                    name={accountName}
-                  />
-                  <span className="grid min-h-10 min-w-0 content-center">
-                    <span className="flex min-h-5 min-w-0 items-center gap-2">
-                      <span className="oo-text-label truncate">{personalLabel}</span>
-                      {personalSelected ? (
-                        <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
-                      ) : null}
-                    </span>
-                    <span className="oo-text-caption-compact block truncate text-muted-foreground">
-                      {personalDescription}
-                    </span>
-                  </span>
-                  {personalSelected ? <CheckIcon className="size-4 justify-self-end" /> : null}
-                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {organizations.map((organization) => {
                   const role = getOrganizationRole(organization)

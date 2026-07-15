@@ -15,6 +15,15 @@ function capability(
 }
 
 describe("notificationPresentation", () => {
+  it("uses a neutral loading state before capability detection completes", () => {
+    expect(notificationPresentation(null, null)).toEqual({
+      descriptionKey: "settings.notificationStatusLoading",
+      recovery: false,
+      settingsLabelKey: "settings.notificationOpenSystemSettings",
+      testLabelKey: "settings.notificationTest",
+    })
+  })
+
   it("uses an explicit contextual enable action for an unverified macOS installation", () => {
     expect(notificationPresentation(capability("darwin"), null)).toEqual({
       descriptionKey: "settings.notificationMacInitialDescription",
@@ -46,5 +55,23 @@ describe("notificationPresentation", () => {
     expect(notificationPresentation(capability("other", "unsupported"), null).descriptionKey).toBe(
       "settings.notificationUnsupported",
     )
+  })
+
+  it("uses the unsupported result even when the platform capability is otherwise testable", () => {
+    expect(notificationPresentation(capability("win32"), { outcome: "unsupported" })).toEqual({
+      descriptionKey: "settings.notificationUnsupported",
+      recovery: false,
+      settingsLabelKey: "settings.notificationOpenWindowsSettings",
+      testLabelKey: "settings.notificationTest",
+    })
+  })
+
+  it("uses generic initial copy for other supported platforms", () => {
+    expect(notificationPresentation(capability("other"), null)).toEqual({
+      descriptionKey: "settings.notificationGenericInitialDescription",
+      recovery: false,
+      settingsLabelKey: "settings.notificationOpenSystemSettings",
+      testLabelKey: "settings.notificationTest",
+    })
   })
 })

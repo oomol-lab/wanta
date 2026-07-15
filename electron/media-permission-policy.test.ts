@@ -20,7 +20,11 @@ describe("isTrustedRendererUrl", () => {
 
   it("allows only files inside the packaged renderer directory", () => {
     expect(isTrustedRendererUrl("file:///app/dist/index.html", undefined, "file:///app/dist/")).toBe(true)
+    expect(isTrustedRendererUrl("file:///app/dist/assets/app.js", undefined, "file:///app/dist/")).toBe(true)
     expect(isTrustedRendererUrl("file:///tmp/untrusted.html", undefined, "file:///app/dist/")).toBe(false)
+    expect(isTrustedRendererUrl("file:///app/dist/../untrusted.html", undefined, "file:///app/dist/")).toBe(false)
+    expect(isTrustedRendererUrl("file:///app/dist/%2e%2e/untrusted.html", undefined, "file:///app/dist/")).toBe(false)
+    expect(isTrustedRendererUrl("https://example.test/index.html", undefined, "file:///app/dist/")).toBe(false)
     expect(isTrustedRendererUrl(undefined, undefined, "file:///app/dist/")).toBe(false)
   })
 })

@@ -39,10 +39,13 @@ export function useAttention(): {
 
   React.useEffect(() => {
     let active = true
+    let updateVersion = 0
     const refresh = (): void => {
+      updateVersion += 1
+      const requestVersion = updateVersion
       void service.invoke("getNotificationCapability").then(
         (capability) => {
-          if (active) setNotificationCapability(capability)
+          if (active && updateVersion === requestVersion) setNotificationCapability(capability)
         },
         (error: unknown) =>
           reportRendererHandledError("attention", "load system notification capability failed", error),

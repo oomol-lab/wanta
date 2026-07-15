@@ -44,6 +44,7 @@ import { AppShellConnectionDrawer } from "./AppShellConnectionDrawer.tsx"
 import { AppShellMainTitlebar } from "./AppShellMainTitlebar.tsx"
 import { AppShellNavigationSidebar } from "./AppShellNavigationSidebar.tsx"
 import { AppShellSessionProjectDialogs } from "./AppShellSessionProjectDialogs.tsx"
+import { KnowledgeContextBar } from "./KnowledgeContextBar.tsx"
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
 import { nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
@@ -83,7 +84,6 @@ import { cn } from "@/lib/utils"
 import { chatTurnAllowsDirectSend, chatTurnQueuesNewMessage, resolveChatTurnState } from "@/routes/Chat/chat-turn-state"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
-import { ContextMentionChips } from "@/routes/Chat/ContextMentionChips"
 import { summarizeEmptyStateConnections } from "@/routes/Chat/empty-state-connections"
 
 const ArchivedRoute = React.lazy(() =>
@@ -1158,9 +1158,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     },
     [handleNewTaskSession],
   )
-  const handleRemoveKnowledgeBaseReference = React.useCallback(
+  const handleToggleKnowledgeBaseReference = React.useCallback(
     (id: string): void => {
-      const nextIds = activeKnowledgeBaseIds.filter((item) => item !== id)
+      const nextIds = activeKnowledgeBaseIds.includes(id)
+        ? activeKnowledgeBaseIds.filter((item) => item !== id)
+        : [...activeKnowledgeBaseIds, id]
       if (activeChatSessionId) persistKnowledgeBaseIds(activeChatSessionId, nextIds)
       else setDraftKnowledgeBaseIds(nextIds)
     },
@@ -1168,19 +1170,16 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   )
   const pinnedKnowledgeContextBar = React.useMemo(
     () =>
-      pinnedKnowledgeMentions.length > 0 ? (
-        <div className="flex min-w-0 items-center gap-2 px-1">
-          <span className="oo-text-caption shrink-0 font-medium text-muted-foreground">{t("knowledge.pinned")}</span>
-          <ContextMentionChips
-            className="min-w-0 flex-1"
-            mentions={pinnedKnowledgeMentions}
-            onRemove={(mention) => {
-              if (mention.kind === "knowledge") handleRemoveKnowledgeBaseReference(mention.id)
-            }}
-          />
-        </div>
+      activeKnowledgeBases.length > 0 ? (
+        <KnowledgeContextBar
+          activeItems={activeKnowledgeBases}
+          items={knowledgeLibrary.items}
+          queuedMessageCount={activeQueuedMessages.length}
+          onOpenLibrary={() => setRoute("knowledge")}
+          onToggle={handleToggleKnowledgeBaseReference}
+        />
       ) : null,
-    [handleRemoveKnowledgeBaseReference, pinnedKnowledgeMentions, t],
+    [activeKnowledgeBases, activeQueuedMessages.length, handleToggleKnowledgeBaseReference, knowledgeLibrary.items],
   )
   const handleOpenOrganizations = React.useCallback(() => setRoute("organizations"), [])
   const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible

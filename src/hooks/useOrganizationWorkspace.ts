@@ -236,6 +236,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
   const [organizationAvatarPreviewUrls, setOrganizationAvatarPreviewUrls] = React.useState<Record<string, string>>({})
   const requestIdRef = React.useRef(0)
   const loadedAccountIdRef = React.useRef<string | undefined>(undefined)
+  const skipWorkspacePersistenceRef = React.useRef(false)
   const overviewRef = React.useRef<OrganizationOverview | null>(null)
   const organizationAvatarPreviewUrlsRef = React.useRef(new Map<string, string>())
 
@@ -244,12 +245,22 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
       return
     }
     loadedAccountIdRef.current = accountId
+    skipWorkspacePersistenceRef.current = true
     requestIdRef.current += 1
     overviewRef.current = null
     setOverview(null)
     setError(null)
     setSelectedOrganizationId(readStoredOrganizationId(accountId))
   }, [accountId])
+
+  React.useEffect(() => {
+    if (skipWorkspacePersistenceRef.current) {
+      // 切换账号的首轮 effect 仍持有旧选择，等待新账号的本地选择进入 state 后再持久化。
+      skipWorkspacePersistenceRef.current = false
+      return
+    }
+    writeStoredWorkspace(accountId, selectedOrganizationId)
+  }, [accountId, selectedOrganizationId])
 
   const refresh = React.useCallback(
     async (options: OrganizationWorkspaceRefreshOptions = {}): Promise<void> => {
@@ -277,14 +288,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
         setOverview(next)
         setError(null)
         const organizations = uniqueOrganizations(next)
-        setSelectedOrganizationId((current) => {
-          const resolved = resolveOrganizationSelection(current, organizations)
-          if (resolved === current) {
-            return current
-          }
-          writeStoredWorkspace(accountId, resolved)
-          return resolved
-        })
+        setSelectedOrganizationId((current) => resolveOrganizationSelection(current, organizations))
       } catch (err) {
         if (requestIdRef.current === requestId) {
           setError(workspaceError(err, hadOverview))
@@ -314,14 +318,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
       setError(null)
       setLoading(false)
       const organizations = uniqueOrganizations(next)
-      setSelectedOrganizationId((current) => {
-        const resolved = resolveOrganizationSelection(current, organizations)
-        if (resolved === current) {
-          return current
-        }
-        writeStoredWorkspace(accountId, resolved)
-        return resolved
-      })
+      setSelectedOrganizationId((current) => resolveOrganizationSelection(current, organizations))
     },
     [accountId],
   )
@@ -411,17 +408,12 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
   }, [selectedOrganization?.name, selectedOrganizationId])
 
   const selectPersonal = React.useCallback(() => {
-    writeStoredWorkspace(accountId, null)
     setSelectedOrganizationId(null)
-  }, [accountId])
+  }, [])
 
-  const selectOrganization = React.useCallback(
-    (organizationId: string) => {
-      writeStoredWorkspace(accountId, organizationId)
-      setSelectedOrganizationId(organizationId)
-    },
-    [accountId],
-  )
+  const selectOrganization = React.useCallback((organizationId: string) => {
+    setSelectedOrganizationId(organizationId)
+  }, [])
 
   const getOrganizationRole = React.useCallback(
     (organization: Organization): OrganizationRole => organizationRole(overview, organization) ?? "member",

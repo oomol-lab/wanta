@@ -1,4 +1,4 @@
-import type { DiagramViewerSize, DiagramViewerState } from "./diagram-viewer.ts"
+import type { DiagramViewerPoint, DiagramViewerSize, DiagramViewerState } from "./diagram-viewer.ts"
 import type { MermaidConfig } from "@streamdown/mermaid"
 import type { ComponentType, PointerEvent, ReactNode, WheelEvent } from "react"
 import type { CustomRendererProps, DiagramPlugin, MermaidErrorComponentProps } from "streamdown"
@@ -17,14 +17,15 @@ import {
 } from "react"
 import { createPortal } from "react-dom"
 import {
+  diagramViewerButtonScaleFactor,
   diagramViewerFitScale,
   diagramViewerMaxScale,
   diagramViewerMinScale,
-  diagramViewerScaleStep,
   diagramViewerWheelAction,
   mermaidSvgSize,
   panDiagramViewerState,
-  zoomDiagramViewerState,
+  pinchDiagramViewerState,
+  zoomDiagramViewerToScale,
 } from "./diagram-viewer.ts"
 import { useT } from "@/i18n/i18n"
 
@@ -44,13 +45,20 @@ interface MermaidRendererProviderProps extends MermaidRendererContextValue {
   children: ReactNode
 }
 
-interface DiagramViewerDragState {
-  originX: number
-  originY: number
-  pointerId: number
-  startX: number
-  startY: number
-}
+type DiagramViewerGestureState =
+  | {
+      kind: "pan"
+      pointerId: number
+      startPoint: DiagramViewerPoint
+      startState: DiagramViewerState
+    }
+  | {
+      kind: "pinch"
+      pointerIds: [number, number]
+      startDistance: number
+      startMidpoint: DiagramViewerPoint
+      startState: DiagramViewerState
+    }
 
 const MermaidRendererContext = createContext<MermaidRendererContextValue | null>(null)
 let mermaidRenderSequence = 0
@@ -83,6 +91,17 @@ async function copyText(value: string): Promise<boolean> {
     return true
   } catch {
     return false
+  }
+}
+
+function pointDistance(first: DiagramViewerPoint, second: DiagramViewerPoint): number {
+  return Math.hypot(second.x - first.x, second.y - first.y)
+}
+
+function pointMidpoint(first: DiagramViewerPoint, second: DiagramViewerPoint): DiagramViewerPoint {
+  return {
+    x: (first.x + second.x) / 2,
+    y: (first.y + second.y) / 2,
   }
 }
 
@@ -196,15 +215,25 @@ function MermaidViewer({ code, onClose, svg }: { code: string; onClose: () => vo
   const [dragging, setDragging] = useState(false)
   const stageRef = useRef<HTMLDivElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
-  const dragRef = useRef<DiagramViewerDragState | null>(null)
+  const viewerStateRef = useRef(viewerState)
+  const activePointersRef = useRef(new Map<number, DiagramViewerPoint>())
+  const gestureRef = useRef<DiagramViewerGestureState | null>(null)
   const userAdjustedRef = useRef(false)
+
+  const updateViewerState = useCallback((update: (current: DiagramViewerState) => DiagramViewerState): void => {
+    setViewerState((current) => {
+      const next = update(current)
+      viewerStateRef.current = next
+      return next
+    })
+  }, [])
 
   const fitToWindow = useCallback((): void => {
     if (stageSize.width <= 0 || stageSize.height <= 0) {
       return
     }
-    setViewerState({ offset: { x: 0, y: 0 }, scale: diagramViewerFitScale(stageSize, diagramSize) })
-  }, [diagramSize, stageSize])
+    updateViewerState(() => ({ offset: { x: 0, y: 0 }, scale: diagramViewerFitScale(stageSize, diagramSize) }))
+  }, [diagramSize, stageSize, updateViewerState])
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -231,18 +260,34 @@ function MermaidViewer({ code, onClose, svg }: { code: string; onClose: () => vo
       } else if (event.key === "+" || event.key === "=") {
         event.preventDefault()
         userAdjustedRef.current = true
-        setViewerState((current) => zoomDiagramViewerState(current, diagramViewerScaleStep, diagramSize, stageSize))
+        updateViewerState((current) =>
+          zoomDiagramViewerToScale(
+            current,
+            current.scale * diagramViewerButtonScaleFactor,
+            { x: 0, y: 0 },
+            diagramSize,
+            stageSize,
+          ),
+        )
       } else if (event.key === "-") {
         event.preventDefault()
         userAdjustedRef.current = true
-        setViewerState((current) => zoomDiagramViewerState(current, -diagramViewerScaleStep, diagramSize, stageSize))
+        updateViewerState((current) =>
+          zoomDiagramViewerToScale(
+            current,
+            current.scale / diagramViewerButtonScaleFactor,
+            { x: 0, y: 0 },
+            diagramSize,
+            stageSize,
+          ),
+        )
       }
     }
     document.addEventListener("keydown", onKeyDown)
     return () => {
       document.removeEventListener("keydown", onKeyDown)
     }
-  }, [diagramSize, fitToWindow, onClose, stageSize])
+  }, [diagramSize, fitToWindow, onClose, stageSize, updateViewerState])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -265,64 +310,135 @@ function MermaidViewer({ code, onClose, svg }: { code: string; onClose: () => vo
     }
   }, [fitToWindow])
 
-  const zoomBy = (delta: number): void => {
+  const zoomBy = (factor: number): void => {
     userAdjustedRef.current = true
-    setViewerState((current) => zoomDiagramViewerState(current, delta, diagramSize, stageSize))
+    updateViewerState((current) =>
+      zoomDiagramViewerToScale(current, current.scale * factor, { x: 0, y: 0 }, diagramSize, stageSize),
+    )
+  }
+
+  const stagePoint = (point: DiagramViewerPoint): DiagramViewerPoint => {
+    const rect = stageRef.current?.getBoundingClientRect()
+    if (!rect) {
+      return { x: 0, y: 0 }
+    }
+    return {
+      x: point.x - rect.left - rect.width / 2,
+      y: point.y - rect.top - rect.height / 2,
+    }
   }
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>): void => {
     event.preventDefault()
     userAdjustedRef.current = true
     const action = diagramViewerWheelAction(event)
-    setViewerState((current) =>
+    const anchor = stagePoint({ x: event.clientX, y: event.clientY })
+    updateViewerState((current) =>
       action.kind === "zoom"
-        ? zoomDiagramViewerState(current, action.delta, diagramSize, stageSize)
+        ? zoomDiagramViewerToScale(current, current.scale * action.factor, anchor, diagramSize, stageSize)
         : panDiagramViewerState(current, action.deltaX, action.deltaY, diagramSize, stageSize),
     )
   }
 
+  const startPan = (pointerId: number, point: DiagramViewerPoint): void => {
+    gestureRef.current = {
+      kind: "pan",
+      pointerId,
+      startPoint: point,
+      startState: viewerStateRef.current,
+    }
+    setDragging(true)
+  }
+
+  const startPinch = (): void => {
+    const pointers = Array.from(activePointersRef.current.entries()).slice(0, 2)
+    if (pointers.length < 2) {
+      return
+    }
+    const [[firstId, firstPoint], [secondId, secondPoint]] = pointers
+    gestureRef.current = {
+      kind: "pinch",
+      pointerIds: [firstId, secondId],
+      startDistance: Math.max(1, pointDistance(firstPoint, secondPoint)),
+      startMidpoint: stagePoint(pointMidpoint(firstPoint, secondPoint)),
+      startState: viewerStateRef.current,
+    }
+    setDragging(true)
+  }
+
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>): void => {
-    if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) {
+    if (event.pointerType === "mouse" && event.button !== 0) {
       return
     }
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
-    dragRef.current = {
-      originX: viewerState.offset.x,
-      originY: viewerState.offset.y,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
+    const point = { x: event.clientX, y: event.clientY }
+    activePointersRef.current.set(event.pointerId, point)
+    if (activePointersRef.current.size >= 2) {
+      startPinch()
+    } else {
+      startPan(event.pointerId, point)
     }
     userAdjustedRef.current = true
-    setDragging(true)
   }
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>): void => {
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) {
+    if (!activePointersRef.current.has(event.pointerId)) {
       return
     }
-    setViewerState((current) =>
-      panDiagramViewerState(
-        { ...current, offset: { x: drag.originX, y: drag.originY } },
-        event.clientX - drag.startX,
-        event.clientY - drag.startY,
+    const point = { x: event.clientX, y: event.clientY }
+    activePointersRef.current.set(event.pointerId, point)
+    const gesture = gestureRef.current
+    if (!gesture) {
+      return
+    }
+    if (gesture.kind === "pan") {
+      if (gesture.pointerId !== event.pointerId) {
+        return
+      }
+      updateViewerState(() =>
+        panDiagramViewerState(
+          gesture.startState,
+          point.x - gesture.startPoint.x,
+          point.y - gesture.startPoint.y,
+          diagramSize,
+          stageSize,
+        ),
+      )
+      return
+    }
+    const [firstPoint, secondPoint] = gesture.pointerIds.map((pointerId) => activePointersRef.current.get(pointerId))
+    if (!firstPoint || !secondPoint) {
+      return
+    }
+    updateViewerState(() =>
+      pinchDiagramViewerState(
+        gesture.startState,
+        pointDistance(firstPoint, secondPoint) / gesture.startDistance,
+        gesture.startMidpoint,
+        stagePoint(pointMidpoint(firstPoint, secondPoint)),
         diagramSize,
         stageSize,
       ),
     )
   }
 
-  const stopDragging = (event: PointerEvent<HTMLDivElement>): void => {
-    if (dragRef.current?.pointerId !== event.pointerId) {
-      return
-    }
-    dragRef.current = null
-    setDragging(false)
+  const finishPointer = (event: PointerEvent<HTMLDivElement>): void => {
+    activePointersRef.current.delete(event.pointerId)
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
+    if (activePointersRef.current.size >= 2) {
+      startPinch()
+      return
+    }
+    const remaining = activePointersRef.current.entries().next().value as [number, DiagramViewerPoint] | undefined
+    if (remaining) {
+      startPan(remaining[0], remaining[1])
+      return
+    }
+    gestureRef.current = null
+    setDragging(false)
   }
 
   const handleCopy = async (): Promise<void> => {
@@ -366,16 +482,11 @@ function MermaidViewer({ code, onClose, svg }: { code: string; onClose: () => vo
           userAdjustedRef.current = false
           fitToWindow()
         }}
-        onPointerCancel={stopDragging}
+        onPointerCancel={finishPointer}
         onPointerDown={handlePointerDown}
-        onLostPointerCapture={(event) => {
-          if (dragRef.current?.pointerId === event.pointerId) {
-            dragRef.current = null
-            setDragging(false)
-          }
-        }}
+        onLostPointerCapture={finishPointer}
         onPointerMove={handlePointerMove}
-        onPointerUp={stopDragging}
+        onPointerUp={finishPointer}
         onWheel={handleWheel}
       >
         <div className="oo-mermaid-viewer-center">
@@ -396,7 +507,7 @@ function MermaidViewer({ code, onClose, svg }: { code: string; onClose: () => vo
           className="oo-mermaid-viewer-zoom-button"
           aria-label={t("chat.diagramZoomOut")}
           disabled={viewerState.scale <= diagramViewerMinScale}
-          onClick={() => zoomBy(-diagramViewerScaleStep)}
+          onClick={() => zoomBy(1 / diagramViewerButtonScaleFactor)}
         >
           <MinusIcon className="size-4" />
         </button>
@@ -406,7 +517,7 @@ function MermaidViewer({ code, onClose, svg }: { code: string; onClose: () => vo
           className="oo-mermaid-viewer-zoom-button"
           aria-label={t("chat.diagramZoomIn")}
           disabled={viewerState.scale >= diagramViewerMaxScale}
-          onClick={() => zoomBy(diagramViewerScaleStep)}
+          onClick={() => zoomBy(diagramViewerButtonScaleFactor)}
         >
           <PlusIcon className="size-4" />
         </button>

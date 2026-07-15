@@ -8,18 +8,23 @@ export interface DiagramViewerOffset {
   y: number
 }
 
+export type DiagramViewerPoint = DiagramViewerOffset
+
 export interface DiagramViewerState {
   offset: DiagramViewerOffset
   scale: number
 }
 
-export type DiagramViewerWheelAction = { kind: "pan"; deltaX: number; deltaY: number } | { kind: "zoom"; delta: number }
+export type DiagramViewerWheelAction =
+  | { kind: "pan"; deltaX: number; deltaY: number }
+  | { factor: number; kind: "zoom" }
 
 export const diagramViewerMinScale = 0.1
-export const diagramViewerMaxScale = 3
-export const diagramViewerScaleStep = 0.1
+export const diagramViewerMaxScale = 4
+export const diagramViewerButtonScaleFactor = 1.2
 const diagramViewerMargin = 48
 const diagramViewerMaxFitScale = 1.25
+const diagramViewerMinimumVisible = 64
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
@@ -44,8 +49,10 @@ export function clampDiagramViewerOffset(
   diagramSize: DiagramViewerSize,
   stageSize: DiagramViewerSize,
 ): DiagramViewerOffset {
-  const maxX = Math.max(0, (diagramSize.width * scale - stageSize.width) / 2)
-  const maxY = Math.max(0, (diagramSize.height * scale - stageSize.height) / 2)
+  const scaledWidth = diagramSize.width * scale
+  const scaledHeight = diagramSize.height * scale
+  const maxX = Math.max(0, (scaledWidth + stageSize.width) / 2 - Math.min(diagramViewerMinimumVisible, scaledWidth))
+  const maxY = Math.max(0, (scaledHeight + stageSize.height) / 2 - Math.min(diagramViewerMinimumVisible, scaledHeight))
   return {
     x: clamp(offset.x, -maxX, maxX),
     y: clamp(offset.y, -maxY, maxY),
@@ -57,10 +64,54 @@ export function zoomDiagramViewerState(
   delta: number,
   diagramSize: DiagramViewerSize,
   stageSize: DiagramViewerSize,
+  anchor: DiagramViewerPoint = { x: 0, y: 0 },
 ): DiagramViewerState {
-  const scale = clamp(current.scale + delta, diagramViewerMinScale, diagramViewerMaxScale)
+  return zoomDiagramViewerToScale(current, current.scale + delta, anchor, diagramSize, stageSize)
+}
+
+export function zoomDiagramViewerToScale(
+  current: DiagramViewerState,
+  requestedScale: number,
+  anchor: DiagramViewerPoint,
+  diagramSize: DiagramViewerSize,
+  stageSize: DiagramViewerSize,
+): DiagramViewerState {
+  const scale = clamp(requestedScale, diagramViewerMinScale, diagramViewerMaxScale)
+  const ratio = scale / current.scale
   return {
-    offset: clampDiagramViewerOffset(current.offset, scale, diagramSize, stageSize),
+    offset: clampDiagramViewerOffset(
+      {
+        x: anchor.x - (anchor.x - current.offset.x) * ratio,
+        y: anchor.y - (anchor.y - current.offset.y) * ratio,
+      },
+      scale,
+      diagramSize,
+      stageSize,
+    ),
+    scale,
+  }
+}
+
+export function pinchDiagramViewerState(
+  start: DiagramViewerState,
+  scaleRatio: number,
+  startMidpoint: DiagramViewerPoint,
+  currentMidpoint: DiagramViewerPoint,
+  diagramSize: DiagramViewerSize,
+  stageSize: DiagramViewerSize,
+): DiagramViewerState {
+  const scale = clamp(start.scale * scaleRatio, diagramViewerMinScale, diagramViewerMaxScale)
+  const appliedRatio = scale / start.scale
+  return {
+    offset: clampDiagramViewerOffset(
+      {
+        x: currentMidpoint.x - (startMidpoint.x - start.offset.x) * appliedRatio,
+        y: currentMidpoint.y - (startMidpoint.y - start.offset.y) * appliedRatio,
+      },
+      scale,
+      diagramSize,
+      stageSize,
+    ),
     scale,
   }
 }
@@ -91,8 +142,21 @@ export function diagramViewerWheelAction(event: {
   metaKey?: boolean
   shiftKey?: boolean
 }): DiagramViewerWheelAction {
-  if (event.ctrlKey || event.metaKey || (event.deltaMode ?? 0) !== 0 || Math.abs(event.deltaY) >= 48) {
-    return { kind: "zoom", delta: -Math.sign(event.deltaY || 1) * diagramViewerScaleStep }
+  if (event.ctrlKey || event.metaKey) {
+    // 沿用 d3-zoom 的默认 wheelDelta 曲线；Chromium 用 Ctrl+wheel 表达触控板捏合，因此放大十倍响应。
+    const deltaModeFactor = event.deltaMode === 1 ? 0.05 : event.deltaMode ? 1 : 0.002
+    const modifierFactor = event.ctrlKey ? 10 : 1
+    return {
+      factor: 2 ** (-event.deltaY * deltaModeFactor * modifierFactor),
+      kind: "zoom",
+    }
+  }
+  if ((event.deltaMode ?? 0) !== 0 || (Math.abs(event.deltaY) >= 48 && Math.abs(event.deltaX) < 1)) {
+    const deltaModeFactor = event.deltaMode === 1 ? 0.05 : event.deltaMode ? 1 : 0.002
+    return {
+      factor: 2 ** (-event.deltaY * deltaModeFactor),
+      kind: "zoom",
+    }
   }
   if (event.shiftKey) {
     return { kind: "pan", deltaX: -event.deltaY, deltaY: 0 }

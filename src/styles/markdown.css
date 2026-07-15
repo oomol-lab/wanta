@@ -519,6 +519,30 @@
     background: var(--oo-border-subtle);
   }
 
+  @media (any-pointer: coarse) {
+    .oo-mermaid-viewer-actions {
+      gap: 0.375rem;
+    }
+
+    .oo-mermaid-viewer-action,
+    .oo-mermaid-viewer-zoom-button {
+      width: 2.75rem;
+      height: 2.75rem;
+    }
+
+    .oo-mermaid-viewer-zoom {
+      bottom: max(1rem, env(safe-area-inset-bottom));
+      height: 3.25rem;
+      gap: 0.375rem;
+      padding: 0.1875rem;
+    }
+
+    .oo-mermaid-viewer-percent {
+      min-width: 3.25rem;
+      font-size: var(--oo-font-body);
+    }
+  }
+
   .oo-mermaid-error {
     min-height: 0;
     margin: 0.75rem 0;

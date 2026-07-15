@@ -34,21 +34,19 @@ async function currentOrganizationName(sessionID) {
 
 async function currentIdentity(sessionID) {
   const organizationName = (await currentOrganizationName(sessionID)).trim()
-  return organizationName
-    ? { cacheKey: "organization:" + organizationName, organizationName: organizationName, scope: "organization" }
-    : { cacheKey: "personal", organizationName: "", scope: "personal" }
+  if (!organizationName) {
+    throw new Error("workspace identity is unavailable")
+  }
+  return { cacheKey: "organization:" + organizationName, organizationName: organizationName }
 }
 
 async function appendIdentityArgs(argv, identity, sessionID) {
   const current = identity || (await currentIdentity(sessionID))
   argv.push(...linkWorkspaceArgs(current))
-  return current.scope
 }
 
 function linkWorkspaceArgs(identity) {
-  return identity.scope === "organization"
-    ? ["--organization", identity.organizationName]
-    : ["--personal"]
+  return ["--organization", identity.organizationName]
 }
 
 function connectionInventoryError(identity, message) {
@@ -57,7 +55,6 @@ function connectionInventoryError(identity, message) {
     errorCode: "connection_inventory_unavailable",
     operation: "list_connected_apps",
     workspace: {
-      scope: identity.scope,
       organizationName: identity.organizationName,
     },
     message: message,
@@ -116,13 +113,12 @@ async function authorizedServices(sessionID) {
     return cached.authorization
   }
   const argv = ["connector", "apps"]
-  const scope = await appendIdentityArgs(argv, identity)
+  await appendIdentityArgs(argv, identity)
   argv.push("--json")
   try {
     const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
     const apps = parseApps(result.stdout)
     const authorization = {
-      scope: scope,
       services: new Set(apps.filter(isActiveApp).map(serviceFromApp).filter(Boolean)),
     }
     authorizedServicesCache.set(cacheKey, { createdAt: now, authorization: authorization })
@@ -219,7 +215,7 @@ async function normalizeSearchOutput(stdout, sessionID) {
         }
         const service = typeof item.service === "string" ? item.service : ""
         if (!authorization) {
-          return { ...item, authenticatedReliable: false, authenticatedScope: "active_workspace_unknown" }
+          return { ...item, authenticatedReliable: false }
         }
         const authTypes = authTypesByService ? authTypesByService.get(service) : null
         const noAuthReady = Array.isArray(authTypes) && isNoAuthOnly(authTypes)
@@ -228,7 +224,6 @@ async function normalizeSearchOutput(stdout, sessionID) {
           authenticated: noAuthReady || authorization.services.has(service),
           authenticatedReliable: true,
           noAuthReady: noAuthReady,
-          authenticatedScope: authorization.scope,
         }
       }),
     )

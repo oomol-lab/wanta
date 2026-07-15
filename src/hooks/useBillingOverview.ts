@@ -40,20 +40,19 @@ export function useBillingOverview(
   {
     cacheScope = "default",
     enabled = true,
-    requestScope = { type: "personal" },
+    requestScope = null,
     staleMs = defaultStaleMs,
   }: UseBillingOverviewOptions = {},
 ): UseBillingOverview {
   // 顶部浮层、购买弹窗和账单详情页展示的是同一个账单实体，只是读取字段不同。缓存边界
   // 必须按账号/工作区（由调用方的 cacheScope 提供）划分，不能再按页面展示形态拆成两份。
-  const requestCanManageBilling = requestScope?.type === "organization" ? requestScope.canManageBilling : false
-  const requestOrganizationId = requestScope?.type === "organization" ? requestScope.organizationId : ""
-  const requestOrganizationName = requestScope?.type === "organization" ? requestScope.organizationName : ""
-  const requestScopeType = requestScope?.type ?? "blocked"
-  const requestScopeKey =
-    requestScopeType === "organization"
-      ? `organization:${requestOrganizationId}:${requestOrganizationName}:${requestCanManageBilling}`
-      : requestScopeType
+  const requestCanManageBilling = requestScope?.canManageBilling ?? false
+  const requestOrganizationId = requestScope?.organizationId ?? ""
+  const requestOrganizationName = requestScope?.organizationName ?? ""
+  const requestScopeReady = requestScope !== null
+  const requestScopeKey = requestScope
+    ? `organization:${requestOrganizationId}:${requestOrganizationName}:${requestCanManageBilling}`
+    : "blocked"
   const cacheScopeKey = `${cacheScope}\u0000${requestScopeKey}`
   const [data, setData] = React.useState<BillingOverviewResult | null>(() => cachedData(cacheScopeKey, days))
   const [loading, setLoading] = React.useState(false)
@@ -77,7 +76,7 @@ export function useBillingOverview(
 
   const refresh = React.useCallback(
     async ({ force = false }: RefreshBillingOverviewOptions = {}): Promise<BillingOverviewResult | null> => {
-      if (requestScopeType === "blocked") {
+      if (!requestScopeReady) {
         return null
       }
       const currentRequest = requestId.current + 1
@@ -93,15 +92,11 @@ export function useBillingOverview(
       setError(null)
 
       // 手动刷新也复用已在途请求，避免浮层、详情页或重试按钮同时触发时又发起一套账单聚合请求。
-      const scope: BillingRequestScope =
-        requestScopeType === "organization"
-          ? {
-              canManageBilling: requestCanManageBilling,
-              organizationId: requestOrganizationId,
-              organizationName: requestOrganizationName,
-              type: "organization",
-            }
-          : { type: "personal" }
+      const scope: BillingRequestScope = {
+        canManageBilling: requestCanManageBilling,
+        organizationId: requestOrganizationId,
+        organizationName: requestOrganizationName,
+      }
       const promise = entry.promise ?? startBillingOverviewRequest(entry, () => getBillingOverview(days, scope))
 
       try {
@@ -136,16 +131,16 @@ export function useBillingOverview(
       requestCanManageBilling,
       requestOrganizationId,
       requestOrganizationName,
-      requestScopeType,
+      requestScopeReady,
       staleMs,
     ],
   )
 
   React.useEffect(() => {
-    if (enabled && requestScopeType !== "blocked") {
+    if (enabled && requestScopeReady) {
       void refresh()
     }
-  }, [enabled, refresh, requestScopeType])
+  }, [enabled, refresh, requestScopeReady])
 
   return { data, loading, error, refresh }
 }

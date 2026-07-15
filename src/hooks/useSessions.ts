@@ -14,8 +14,6 @@ import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 import { sessionScopeKey } from "@/components/app-shell/app-shell-model"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
-const personalSessionScope: SessionScope = { type: "personal" }
-
 export function mergeSessionsWithLocalCreated(
   remoteSessions: SessionInfo[],
   localCreatedSessions: Iterable<SessionInfo>,
@@ -55,7 +53,7 @@ export interface UseSessions {
   error: UserFacingError | null
   create: (title?: string, projectId?: string) => Promise<SessionInfo>
   listArchived: () => Promise<SessionInfo[]>
-  createProject: (req: CreateProjectRequest) => Promise<SessionProject>
+  createProject: (req: Omit<CreateProjectRequest, "scope">) => Promise<SessionProject>
   assignSessionProject: (sessionId: string, projectId?: string) => Promise<void>
   setSessionPermissionMode: (id: string, permissionMode: SessionInfo["permissionMode"]) => Promise<void>
   setSessionKnowledgeBases: (id: string, knowledgeBaseIds: string[]) => Promise<void>
@@ -72,17 +70,14 @@ export interface UseSessions {
   refresh: () => Promise<void>
 }
 
-export function useSessions({ enabled = true, scope }: { enabled?: boolean; scope?: SessionScope } = {}): UseSessions {
+export function useSessions({ enabled = true, scope }: { enabled?: boolean; scope: SessionScope | null }): UseSessions {
   const sessionService = useSessionService()
-  const scopeType = scope?.type ?? "personal"
-  const organizationId = scope?.type === "organization" ? scope.organizationId : ""
-  const organizationName = scope?.type === "organization" ? scope.organizationName : ""
-  const requestScope = React.useMemo<SessionScope>(() => {
-    if (scopeType === "organization") {
-      return { type: "organization", organizationId, organizationName }
-    }
-    return personalSessionScope
-  }, [organizationId, organizationName, scopeType])
+  const organizationId = scope?.organizationId ?? ""
+  const organizationName = scope?.organizationName ?? ""
+  const requestScope = React.useMemo<SessionScope>(
+    () => ({ organizationId, organizationName }),
+    [organizationId, organizationName],
+  )
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
   const [projects, setProjects] = React.useState<SessionProject[]>([])
   const [loaded, setLoaded] = React.useState(false)
@@ -210,7 +205,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   }, [requestScope, sessionService])
 
   const createProject = React.useCallback(
-    async (req: CreateProjectRequest) => {
+    async (req: Omit<CreateProjectRequest, "scope">) => {
       const mutationScopeKey = scopeKey
       const project = await sessionService.invoke("createProject", { ...req, scope: requestScope })
       if (isCurrentScope(mutationScopeKey)) {

@@ -28,6 +28,12 @@ function urlOf(input: string | URL | Request): URL {
   return new URL(typeof input === "string" || input instanceof URL ? input.toString() : input.url)
 }
 
+const organizationScope = {
+  canManageBilling: true,
+  organizationId: "team-1",
+  organizationName: "acme",
+} as const
+
 function stubWantaSubscriptionFetch(data: Record<string, unknown>): { requestBody: () => string } {
   let body = ""
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
@@ -58,10 +64,10 @@ describe("billing-client", () => {
     let status = 401
     vi.stubGlobal("fetch", async () => new Response("nope", { status }))
 
-    expect((await rejection(() => getCreditBalance({ type: "personal" }))).message).toBe(billingAuthRequiredMessage)
+    expect((await rejection(() => getCreditBalance(organizationScope))).message).toBe(billingAuthRequiredMessage)
 
     status = 403
-    const error = await rejection(() => getCreditBalance({ type: "personal" }))
+    const error = await rejection(() => getCreditBalance(organizationScope))
     expect(error.message).not.toBe(billingAuthRequiredMessage)
     expect(error).toBeInstanceOf(OomolHttpError)
     expect((error as OomolHttpError).status).toBe(403)
@@ -76,7 +82,7 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    expect((await rejection(() => getBillingSummary(30))).message).toBe(billingAuthRequiredMessage)
+    expect((await rejection(() => getBillingSummary(30, organizationScope))).message).toBe(billingAuthRequiredMessage)
   })
 
   it("scopes organization billing reads and includes pending Wanta payment", async () => {
@@ -136,7 +142,6 @@ describe("billing-client", () => {
       canManageBilling: true,
       organizationId: "team-1",
       organizationName: "acme",
-      type: "organization",
     })
 
     expect(summary.wantaPendingPayment?.paymentURL).toBe("https://console.example.com/wanta-pay")
@@ -159,7 +164,6 @@ describe("billing-client", () => {
       canManageBilling: false,
       organizationId: "team-1",
       organizationName: "acme",
-      type: "organization",
     })
 
     expect(paths.some((path) => path.startsWith("/api/org/"))).toBe(false)
@@ -195,7 +199,6 @@ describe("billing-client", () => {
       canManageBilling: true,
       organizationId: "team-1",
       organizationName: "acme",
-      type: "organization",
     })
 
     expect(result).toEqual({ balance: "$7.5", hasCredits: true })
@@ -288,7 +291,7 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    await getBillingSummary(30)
+    await getBillingSummary(30, organizationScope)
 
     expect(balanceRequests).toHaveLength(100)
     expect(balanceRequests[0]).toBe("first")
@@ -313,7 +316,7 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    const summary = await getBillingSummary(30)
+    const summary = await getBillingSummary(30, organizationScope)
 
     expect(summary.balance?.items.length).toBe(2)
     expect(balanceRequests).toEqual(["first", "repeat-token"])
@@ -341,7 +344,7 @@ describe("billing-client", () => {
       return new Promise<Response>(() => undefined)
     })
 
-    const overviewPromise = getBillingOverview(30)
+    const overviewPromise = getBillingOverview(30, organizationScope)
 
     await vi.advanceTimersByTimeAsync(3_000)
     const overview = await overviewPromise

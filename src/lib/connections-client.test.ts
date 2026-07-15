@@ -33,9 +33,9 @@ describe("connections-client", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(isProviderConnectionActive("gmail", { type: "personal" })).resolves.toBe(true)
-    await expect(isProviderConnectionActive("slack", { type: "personal" })).resolves.toBe(false)
-    await expect(getActiveConnectionAppIdsForService("gmail", { type: "personal" })).resolves.toEqual([
+    await expect(isProviderConnectionActive("gmail", { organizationName: "org-name" })).resolves.toBe(true)
+    await expect(isProviderConnectionActive("slack", { organizationName: "org-name" })).resolves.toBe(false)
+    await expect(getActiveConnectionAppIdsForService("gmail", { organizationName: "org-name" })).resolves.toEqual([
       "app-1",
       "app-2",
     ])
@@ -48,7 +48,7 @@ describe("connections-client", () => {
     const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ data: [] }))
     vi.stubGlobal("fetch", fetchMock)
 
-    await isProviderConnectionActive("gmail", { type: "organization", organizationName: "acme-corp" })
+    await isProviderConnectionActive("gmail", { organizationName: "acme-corp" })
 
     const [, init] = fetchMock.mock.calls[0] ?? []
     const headers = new Headers(init?.headers)
@@ -69,11 +69,13 @@ describe("connections-client", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getConnectionAppDetail("app-1", { type: "personal" })).resolves.toMatchObject({
+    await expect(getConnectionAppDetail("app-1", { organizationName: "org-name" })).resolves.toMatchObject({
       id: "app-1",
       credentialFields: [{ key: "roleArn", label: "Role ARN", displayValue: "role-a", secret: false }],
     })
-    await expect(getConnectionAppDetail("app-1", { type: "personal" })).resolves.toMatchObject({ id: "app-1" })
+    await expect(getConnectionAppDetail("app-1", { organizationName: "org-name" })).resolves.toMatchObject({
+      id: "app-1",
+    })
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1")
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
@@ -97,7 +99,7 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    const summary = await getConnectionCatalogSummary({ type: "personal" })
+    const summary = await getConnectionCatalogSummary({ organizationName: "org-name" })
 
     expect(summary.providers.map((provider) => provider.service)).toEqual(["gmail"])
     expect(summary.usageLoading).toBe(true)
@@ -106,7 +108,7 @@ describe("connections-client", () => {
     )
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/v1/usage/"))).toBe(false)
 
-    const usage = await getConnectionUsageSummary({ type: "personal" })
+    const usage = await getConnectionUsageSummary({ organizationName: "org-name" })
 
     expect(usage.calls).toBe(3)
     expect(usage.services).toMatchObject([{ calls: 3, service: "gmail" }])
@@ -126,7 +128,7 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getConnectionUsageSummary({ type: "personal" })).resolves.toEqual({
+    await expect(getConnectionUsageSummary({ organizationName: "org-name" })).resolves.toEqual({
       calls: 0,
       days: 7,
       errors: 0,
@@ -145,7 +147,7 @@ describe("connections-client", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await startOAuthConnect({ authType: "oauth2", service: "figma" }, { type: "personal" })
+    await startOAuthConnect({ authType: "oauth2", service: "figma" }, { organizationName: "org-name" })
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
     expect(body.returnUri).toBe(`${consoleBaseUrl}/app-connections/callback?protocol=wanta-local`)
@@ -164,7 +166,7 @@ describe("connections-client", () => {
         extra: { scopes: ["tweet.read", "users.read"] },
         secretExtra: { appBearerToken: "secret" },
       },
-      { type: "personal" },
+      { organizationName: "org-name" },
     )
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
@@ -185,7 +187,7 @@ describe("connections-client", () => {
         extra: { workspace: "prod" },
         service: "ably",
       },
-      { type: "personal" },
+      { organizationName: "org-name" },
     )
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
@@ -200,8 +202,8 @@ describe("connections-client", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     const [first, second] = await Promise.all([
-      startOAuthConnect({ authType: "oauth2", service: "gmail" }, { type: "personal" }),
-      startOAuthConnect({ authType: "oauth2", service: "gmail" }, { type: "personal" }),
+      startOAuthConnect({ authType: "oauth2", service: "gmail" }, { organizationName: "org-name" }),
+      startOAuthConnect({ authType: "oauth2", service: "gmail" }, { organizationName: "org-name" }),
     ])
 
     expect(first).toEqual(second)
@@ -216,8 +218,8 @@ describe("connections-client", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     await Promise.all([
-      startOAuthConnect({ appId: "app-1", authType: "oauth2", service: "gmail" }, { type: "personal" }),
-      startOAuthConnect({ appId: "app-2", authType: "oauth2", service: "gmail" }, { type: "personal" }),
+      startOAuthConnect({ appId: "app-1", authType: "oauth2", service: "gmail" }, { organizationName: "org-name" }),
+      startOAuthConnect({ appId: "app-2", authType: "oauth2", service: "gmail" }, { organizationName: "org-name" }),
     ])
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -244,10 +246,10 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    const request = { forceRefresh: true, refreshGeneration: "workspace:personal:refresh-1" }
+    const request = { forceRefresh: true, refreshGeneration: "workspace:organization:org-name:refresh-1" }
     await Promise.all([
-      getConnectionSummary({ type: "personal" }, request),
-      getConnectionSummary({ type: "personal" }, request),
+      getConnectionSummary({ organizationName: "org-name" }, request),
+      getConnectionSummary({ organizationName: "org-name" }, request),
     ])
 
     expect(fetchMock).toHaveBeenCalledTimes(4)
@@ -297,14 +299,14 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    const first = getActiveConnectionAppIdsForService("gmail", { type: "personal" })
-    const second = getActiveConnectionAppIdsForService("gmail", { type: "personal" })
+    const first = getActiveConnectionAppIdsForService("gmail", { organizationName: "org-name" })
+    const second = getActiveConnectionAppIdsForService("gmail", { organizationName: "org-name" })
     resolveSecondApps(Response.json({ data: [{ id: "new-app", service: "gmail", status: "active" }] }))
     await expect(second).resolves.toEqual(["new-app"])
     resolveFirstApps(Response.json({ data: [{ id: "old-app", service: "gmail", status: "active" }] }))
     await expect(first).resolves.toEqual(["old-app"])
 
-    const summary = await getConnectionSummary({ type: "personal" })
+    const summary = await getConnectionSummary({ organizationName: "org-name" })
     expect(summary.apps.map((app) => app.id)).toEqual(["new-app"])
     expect(appsRequestCount).toBe(2)
   })

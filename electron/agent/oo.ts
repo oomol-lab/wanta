@@ -25,7 +25,7 @@ export function isAuthBlocking(code: string | null): boolean {
 export interface OoEnvOptions {
   /** 网关鉴权凭证：现为会话 token（注入到 OO_API_KEY，网关层接受 cookie/token/api-key）。 */
   authToken: string
-  /** 当前组织工作区名称；未设置表示个人空间。 */
+  /** 当前组织工作区名称；未设置表示组织身份尚未解析。 */
   organizationName?: string
   /** 当前组织工作区状态文件；工具运行时读取，避免切换工作区时重启 sidecar。 */
   organizationScopePath?: string

@@ -229,9 +229,10 @@ export type ChatRunPhase =
   | "awaiting_permission"
   | "awaiting_question"
 
-export type ChatRunWorkspace =
-  | { type: "personal" }
-  | { organizationId: string; organizationName: string; type: "organization" }
+export interface ChatRunWorkspace {
+  organizationId: string
+  organizationName: string
+}
 
 export interface ChatActiveRun {
   activeAssistantMessageId?: string
@@ -338,7 +339,7 @@ export interface SendMessageRequest {
   contextMentions?: ChatContextMention[]
   organizationSkills?: ChatOrganizationSkillContext[]
   projectContext?: ChatProjectContext
-  scope?: SessionScope
+  scope: SessionScope
   model?: ModelChoice
   permissionMode?: AgentPermissionMode
   permissionModeVersion?: number
@@ -665,7 +666,7 @@ export interface OpenExternalUrlRequest {
 }
 
 export interface SetAgentOrganizationRequest {
-  organizationName?: string
+  organizationName: string
 }
 
 export type RechargePrice = "5_USD" | "20_USD" | "100_USD"

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { connectionInventoryError, linkWorkspaceArgs } from "./link-workspace.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
@@ -90,20 +90,20 @@ afterEach(() => {
   delete process.env.WANTA_ORGANIZATION_SCOPE_PATH
 })
 
+beforeEach(() => {
+  process.env.WANTA_ORGANIZATION_NAME = "org-a"
+})
+
 describe("list_apps embedded runtime", () => {
   it("converts trusted identities and inventory errors without runtime dependencies", () => {
-    expect(linkWorkspaceArgs({ scope: "organization", organizationName: "org-a" })).toEqual(["--organization", "org-a"])
-    expect(linkWorkspaceArgs({ scope: "personal", organizationName: "" })).toEqual(["--personal"])
+    expect(linkWorkspaceArgs({ organizationName: "org-a" })).toEqual(["--organization", "org-a"])
     expect(
-      connectionInventoryError(
-        { scope: "organization", organizationName: "org-a" },
-        "The connector apps request returned HTTP 403.",
-      ),
+      connectionInventoryError({ organizationName: "org-a" }, "The connector apps request returned HTTP 403."),
     ).toEqual({
       status: "error",
       errorCode: "connection_inventory_unavailable",
       operation: "list_connected_apps",
-      workspace: { scope: "organization", organizationName: "org-a" },
+      workspace: { organizationName: "org-a" },
       message: "The connector apps request returned HTTP 403.",
     })
   })
@@ -127,13 +127,13 @@ describe("list_apps embedded runtime", () => {
 
     const output = JSON.parse(await runtime.execute({ service: "posthog" }, { sessionID: "session-1" })) as {
       errorCode?: string
-      workspace?: { organizationName?: string; scope?: string }
+      workspace?: { organizationName?: string }
     }
 
     expect(commands).toEqual([["connector", "apps", "posthog", "--organization", "org-a", "--json"]])
     expect(output).toMatchObject({
       errorCode: "connection_inventory_unavailable",
-      workspace: { organizationName: "org-a", scope: "organization" },
+      workspace: { organizationName: "org-a" },
     })
   })
 

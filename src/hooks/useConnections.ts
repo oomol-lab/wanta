@@ -28,7 +28,6 @@ import {
   getConnectionSummary,
   getConnectionUsageSummary,
   isProviderConnectionActive,
-  setDefaultAccount as setDefaultAccountRequest,
   startOAuthConnect,
   updateAlias as updateAliasRequest,
 } from "../lib/connections-client.ts"
@@ -42,7 +41,6 @@ import {
   rememberOAuthPendingOperation,
 } from "./connection-oauth-pending.ts"
 import { connectionsStateReducer, initialConnectionsState } from "./connections-state.ts"
-import { applyDefaultAccountUpdate } from "./connections-summary-update.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 const POLL_INTERVAL_MS = 2000
@@ -125,7 +123,6 @@ export interface UseConnections {
   getExecutionLogs: (request: ConnectionExecutionLogRequest) => Promise<ConnectionExecutionLogSummary>
   isProviderActive: (service: string) => Promise<boolean>
   openExternal: (url: string) => Promise<void>
-  setDefaultAccount: (service: string, appId: string) => Promise<boolean>
   setSummary: (summary: ConnectionSummary) => void
   updateAlias: (appId: string, alias: string) => Promise<boolean>
 }
@@ -372,7 +369,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     appliedWorkspaceKey.current = key
     invalidateWorkspaceWork()
     dispatch({ type: "workspaceSyncStarted" })
-    const organizationName = workspace.type === "organization" ? workspace.organizationName : undefined
+    const organizationName = workspace.organizationName
     const generation = workspaceGeneration.current
     void (async () => {
       try {
@@ -595,46 +592,6 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     [runSummaryMutation],
   )
 
-  const setDefaultAccount = React.useCallback(
-    async (svc: string, appId: string): Promise<boolean> => {
-      const action = beginAction()
-      if (!action) {
-        dispatch({
-          type: "actionErrorSet",
-          error: resolveConnectionError("Workspace is still loading.", "set_default"),
-        })
-        return false
-      }
-      const isCurrentAction = action.isCurrent
-      dispatch({ type: "actionErrorSet", error: null })
-      dispatch({ type: "busySet", busy: "set_default" })
-      try {
-        const updatedApp = await setDefaultAccountRequest(svc, appId, action.currentWorkspace)
-        if (isCurrentAction() && summaryRef.current) {
-          setCurrentSummary(applyDefaultAccountUpdate(summaryRef.current, svc, appId, updatedApp))
-        }
-        const next = await getConnectionSummary(action.currentWorkspace, {
-          forceRefresh: true,
-          refreshGeneration: `set-default:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
-        })
-        if (isCurrentAction()) {
-          setCurrentSummary(applyDefaultAccountUpdate(next, svc, appId, updatedApp))
-        }
-        return isCurrentAction()
-      } catch (err) {
-        if (isCurrentAction()) {
-          dispatch({ type: "actionErrorSet", error: resolveConnectionError(err, "set_default") })
-        }
-        return false
-      } finally {
-        if (isCurrentAction()) {
-          dispatch({ type: "busySet", busy: null })
-        }
-      }
-    },
-    [beginAction, setCurrentSummary],
-  )
-
   const updateAlias = React.useCallback(
     async (appId: string, alias: string): Promise<boolean> =>
       runSummaryMutation({
@@ -710,7 +667,6 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     getExecutionLogs,
     isProviderActive,
     openExternal,
-    setDefaultAccount,
     setSummary: setCurrentSummary,
     updateAlias,
   }

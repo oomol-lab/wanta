@@ -15,7 +15,7 @@ export const discoverAutoLoadThresholdPx = 160
 export const discoverPreloadMinimumThresholdPx = 480
 
 export type SkillSelectionKey = string
-export type SkillPageTab = "discover" | "installed" | "recommended" | "organization"
+export type SkillPageTab = "discover" | "installed" | "organization"
 export type DiscoverSkillFilter = "all" | "mine"
 export type InstalledSkillFilter = "all" | "wanta" | "codex" | "claude-code" | "updates" | "local"
 export type SkillDocumentViewMode = "preview" | "raw"

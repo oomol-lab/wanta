@@ -266,8 +266,8 @@ describe("summarizeTurnProcess", () => {
           input: { service: "gmail", action: "fetch_emails", connectionName: "work" },
           output: authOutput,
         }),
-        tool("tool-personal", {
-          input: { service: "gmail", action: "fetch_emails", connectionName: "personal" },
+        tool("tool-primary", {
+          input: { service: "gmail", action: "fetch_emails", connectionName: "primary" },
           output: authOutput,
         }),
       ]),

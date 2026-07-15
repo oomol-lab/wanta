@@ -30,14 +30,11 @@ const billingOptionalRequestSoftTimeoutMs = 3_000
 const billingCreditUsagesMaxPages = 100
 export const wantaSubscriptionPlans: readonly WantaSubscriptionPlan[] = ["wanta_plus", "wanta_pro"]
 
-export type BillingRequestScope =
-  | { type: "personal" }
-  | {
-      canManageBilling: boolean
-      organizationId: string
-      organizationName: string
-      type: "organization"
-    }
+export interface BillingRequestScope {
+  canManageBilling: boolean
+  organizationId: string
+  organizationName: string
+}
 
 /** 会话过期/缺失的哨兵文案（与 oomol-http 的 authRequiredMessage 同字面量）；resolveUserFacingError 据此归为 auth_required。 */
 export const billingAuthRequiredMessage = authRequiredMessage
@@ -384,14 +381,14 @@ function settleWithSoftTimeout<T>(
   })
 }
 
-function billingScopeHeaders(scope: BillingRequestScope): HeadersInit | undefined {
-  if (scope.type !== "organization" || !scope.organizationName.trim()) {
+function billingScopeHeaders(scope?: BillingRequestScope): HeadersInit | undefined {
+  if (!scope?.organizationName.trim()) {
     return undefined
   }
   return { "x-oo-organization-name": scope.organizationName }
 }
 
-function fetchAuthenticatedJson(url: URL, scope: BillingRequestScope = { type: "personal" }): Promise<unknown> {
+function fetchAuthenticatedJson(url: URL, scope?: BillingRequestScope): Promise<unknown> {
   return oomolFetchJson<unknown>(url, {
     headers: billingScopeHeaders(scope),
     timeoutMs: billingRequestTimeoutMs,
@@ -453,19 +450,15 @@ async function getCreditMeteringStats(days: number, scope: BillingRequestScope):
 }
 
 async function getSubscriptionStatus(scope: BillingRequestScope): Promise<SubscriptionStatus | null> {
-  if (scope.type === "organization" && !scope.canManageBilling) {
+  if (!scope.canManageBilling) {
     return null
   }
-  const path =
-    scope.type === "organization"
-      ? `/api/org/${encodeURIComponent(scope.organizationId)}/subscriptions`
-      : "/api/user/subscriptions"
-  const url = new URL(path, consoleServerBaseUrl)
+  const url = new URL(`/api/org/${encodeURIComponent(scope.organizationId)}/subscriptions`, consoleServerBaseUrl)
   return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url))
 }
 
 async function getWantaPendingPayment(scope: BillingRequestScope): Promise<WantaPendingPaymentResult | null> {
-  if (scope.type !== "organization" || !scope.canManageBilling) {
+  if (!scope.canManageBilling) {
     return null
   }
   const url = new URL(
@@ -475,17 +468,11 @@ async function getWantaPendingPayment(scope: BillingRequestScope): Promise<Wanta
   return readWantaPendingPayment(await fetchAuthenticatedJson(url))
 }
 
-export async function getBillingSummary(
-  days: number,
-  scope: BillingRequestScope = { type: "personal" },
-): Promise<BillingSummaryResult> {
+export async function getBillingSummary(days: number, scope: BillingRequestScope): Promise<BillingSummaryResult> {
   return getBillingOverview(days, scope)
 }
 
-export async function getBillingOverview(
-  days: number,
-  scope: BillingRequestScope = { type: "personal" },
-): Promise<BillingOverviewResult> {
+export async function getBillingOverview(days: number, scope: BillingRequestScope): Promise<BillingOverviewResult> {
   const balancePromise = getAllCreditUsages(scope)
   const spendPromise = getCreditSpendStats(days, scope)
   const meteringPromise = getCreditMeteringStats(days, scope)

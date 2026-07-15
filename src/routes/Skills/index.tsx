@@ -25,7 +25,6 @@ import { DiscoverSkillsPane } from "./DiscoverSkillsPane.tsx"
 import { InstalledSkillsPane } from "./InstalledSkillsPane.tsx"
 import { OrganizationInstallMissingButton } from "./OrganizationSkillManageRows.tsx"
 import { OrganizationSkillsPane } from "./OrganizationSkillsPane.tsx"
-import { PersonalSkillRecommendationsPane } from "./PersonalSkillRecommendationsPane.tsx"
 import { skillErrorMessage } from "./skill-errors.ts"
 import {
   getGroupStatus,
@@ -54,9 +53,7 @@ import {
   useSkillInventoryResource,
   useSkillVersionReportResource,
 } from "@/components/AppDataHooks"
-import { AppIcons } from "@/components/AppIcons"
 import { DeleteSkillConfirmDialog } from "@/components/DeleteSkillConfirmDialog"
-import { Button } from "@/components/ui/button"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
 import { useProviderSkillRecommendations } from "@/hooks/useProviderSkillRecommendations"
 import { useAppI18n } from "@/i18n"
@@ -134,11 +131,9 @@ export function SkillsRoute({
   const [organizationFilter, setOrganizationFilter] = React.useState<OrganizationSkillFilter>("all")
   const [organizationQuery, setOrganizationQuery] = React.useState("")
   const [discoveryQuery, setDiscoveryQuery] = React.useState("")
-  const [recommendedQuery, setRecommendedQuery] = React.useState("")
   const deferredInstalledQuery = React.useDeferredValue(query)
   const deferredOrganizationQuery = React.useDeferredValue(organizationQuery)
   const deferredDiscoveryQuery = React.useDeferredValue(discoveryQuery)
-  const deferredRecommendedQuery = React.useDeferredValue(recommendedQuery)
   const [publicPackageCatalog, dispatchPublicPackageCatalog] = React.useReducer(
     publicPackageCatalogReducer,
     initialPublicPackageCatalogState,
@@ -204,11 +199,11 @@ export function SkillsRoute({
   }, [workspace.getOrganizationCanManage, workspace.organizations])
   const selectedSkillLinkedToActiveOrganization = React.useMemo(() => {
     const packageName = selectedSkill?.packageName?.trim()
-    if (!packageName || workspace.activeWorkspace.type !== "organization") {
+    if (!packageName) {
       return false
     }
     return organizationSkills.skills.some((skill) => skill.packageName === packageName)
-  }, [organizationSkills.skills, selectedSkill?.packageName, workspace.activeWorkspace.type])
+  }, [organizationSkills.skills, selectedSkill?.packageName])
   const showSelectedSkillOrganizationLinkAction = Boolean(
     selectedSkill?.packageName?.trim() && managedOrganizationOptions.length > 0,
   )
@@ -230,26 +225,11 @@ export function SkillsRoute({
   }, [versionResource.data?.cli?.status])
 
   React.useEffect(() => {
-    if (activeTab === "organization" && workspace.activeWorkspace.type !== "organization") {
-      setActiveTab("discover")
-    }
-  }, [activeTab, workspace.activeWorkspace.type])
-
-  React.useEffect(() => {
-    if (activeTab === "recommended" && workspace.activeWorkspace.type !== "personal") {
-      setActiveTab("discover")
-    }
-  }, [activeTab, workspace.activeWorkspace.type])
-
-  React.useEffect(() => {
     if (!focusRequest) {
       return
     }
-    if (focusRequest.tab === "organization" && workspace.activeWorkspace.type !== "organization") {
-      return
-    }
     setActiveTab(focusRequest.tab)
-  }, [focusRequest, workspace.activeWorkspace.type])
+  }, [focusRequest])
 
   const selectSkill = React.useCallback((skillId: SkillSelectionKey) => {
     setSelectedSkillId(skillId)
@@ -414,8 +394,7 @@ export function SkillsRoute({
     organizationSkills,
     setBusyAction: setOrganizationSkillBusyAction,
   })
-  const activeOrganizationId =
-    workspace.activeWorkspace.type === "organization" ? workspace.activeWorkspace.organizationId : null
+  const activeOrganizationId = workspace.activeWorkspace.organizationId
   const organizationHeaderInstallTargets = React.useMemo(() => {
     if (
       activeTab !== "organization" ||
@@ -487,10 +466,7 @@ export function SkillsRoute({
         versionPolicy: "pinned",
       })
 
-      if (
-        workspace.activeWorkspace.type === "organization" &&
-        workspace.activeWorkspace.organizationId === organizationId
-      ) {
+      if (workspace.activeWorkspace.organizationId === organizationId) {
         await organizationSkills.refresh({ forceRefresh: true })
       }
       toast.success(t("skills.organizationLinkDone", { name: target.title }))
@@ -631,36 +607,6 @@ export function SkillsRoute({
         onClick={() => installOrganizationRuntimeSkills(organizationHeaderInstallTargets)}
       />
     ) : null
-  const installPersonalRuntimeSkills = React.useCallback(
-    (skills: readonly { packageName: string; skillName: string }[]) =>
-      installOrganizationRuntimeSkills(skills, "personal"),
-    [installOrganizationRuntimeSkills],
-  )
-  const personalRecommendationInstallTargets = React.useMemo(
-    () =>
-      installableProviderSkillRecommendations.map((recommendation) => ({
-        packageName: recommendation.packageName,
-        skillName: recommendation.skillId,
-      })),
-    [installableProviderSkillRecommendations],
-  )
-  const personalRecommendationInstallAction =
-    activeTab === "recommended" && personalRecommendationInstallTargets.length > 1 ? (
-      <Button
-        type="button"
-        size="sm"
-        disabled={Boolean(organizationSkillBusyAction)}
-        onClick={() => installPersonalRuntimeSkills(personalRecommendationInstallTargets)}
-      >
-        {organizationSkillBusyAction === "installSkillBatch" ? (
-          <AppIcons.status.loading className="animate-spin" />
-        ) : (
-          <AppIcons.action.installPackage />
-        )}
-        {t("skills.personalRecommendationsInstallAll", { count: personalRecommendationInstallTargets.length })}
-      </Button>
-    ) : null
-
   return (
     <>
       <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
@@ -672,29 +618,17 @@ export function SkillsRoute({
           installedQuery={query}
           organizationFilter={organizationFilter}
           organizationQuery={organizationQuery}
-          organizationTabAvailable={workspace.activeWorkspace.type === "organization"}
+          organizationTabAvailable={Boolean(workspace.activeWorkspace.organizationId)}
           organizationAction={organizationInstallMissingAction}
-          recommendedAction={personalRecommendationInstallAction}
-          recommendedQuery={recommendedQuery}
-          recommendedTabAvailable={workspace.activeWorkspace.type === "personal"}
           onDiscoveryFilterChange={setDiscoveryFilter}
           onDiscoveryQueryChange={setDiscoveryQuery}
           onInstalledFilterChange={setInstalledFilter}
           onInstalledQueryChange={setQuery}
           onOrganizationFilterChange={setOrganizationFilter}
           onOrganizationQueryChange={setOrganizationQuery}
-          onRecommendedQueryChange={setRecommendedQuery}
           onTabChange={setActiveTab}
         />
-        {activeTab === "recommended" ? (
-          <PersonalSkillRecommendationsPane
-            busyAction={organizationSkillBusyAction}
-            isLoading={connectedProvidersLoading || providerSkillRecommendationsState.isLoading}
-            query={deferredRecommendedQuery}
-            recommendations={installableProviderSkillRecommendations}
-            onInstallRuntimeSkill={installOrganizationRuntimeSkill}
-          />
-        ) : activeTab === "organization" ? (
+        {activeTab === "organization" ? (
           <OrganizationSkillsPane
             busyAction={organizationSkillBusyAction}
             groupById={installedSkillGroupById}
@@ -732,9 +666,7 @@ export function SkillsRoute({
                 : loadPublicSkillPackages({ next: activePackageCatalog.next }))
             }
             onOpenManagedSkill={openManagedPublicSkill}
-            onOpenOrganizationRecommendations={
-              workspace.activeWorkspace.type === "organization" ? () => setActiveTab("organization") : undefined
-            }
+            onOpenOrganizationRecommendations={() => setActiveTab("organization")}
             onRetry={() => {
               if (discoveryFilter === "mine") {
                 if (authResource.data?.status === "authenticated") {

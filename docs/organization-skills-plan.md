@@ -8,7 +8,7 @@
 
 本功能要满足：
 
-- 组织拥有自己的 Skill 配置；个人空间继续使用现有本地 / runtime Skill。
+- 组织拥有自己的 Skill 配置，并与当前组织的 runtime Skill 共同生效。
 - 用户切换组织时，连接器作用域与组织 Skill 作用域同步变化。
 - 成员可查看组织 Skill，组织 creator 可管理组织 Skill。
 - 配置结果必须进入 Agent 生效路径，而不是只显示在 UI 上。
@@ -262,11 +262,10 @@ Host: org-control.<endpoint>
 <SkillsRoute workspace={organizationWorkspace} />
 ```
 
-`SkillsRoute` 内根据 `workspace.activeWorkspace` 决定是否展示组织配置区域：
+`SkillsRoute` 内根据 `workspace.activeWorkspace` 决定组织配置区域状态：
 
-- personal：只显示现有 Discover / Installed。
-- organization 且组织对象未解析：显示 loading。
-- organization 已解析：显示组织配置 tab / section。
+- 组织对象未解析：显示 loading。
+- 组织已解析：显示组织配置 tab / section。
 
 ### 5.3 新增 hook
 
@@ -292,7 +291,7 @@ interface UseOrganizationSkillConfig {
 
 建议在现有 Skills 页面中加入组织区域，而不是创建新主路由：
 
-- 顶部显示当前 workspace：个人 / 组织名。
+- 顶部显示当前组织名。
 - 组织态显示 `Organization Skills` section。
 - 已配置 Skill 列表展示：icon、displayName、packageName@version、enabled 状态、更新时间。
 - creator 可见操作：Add、Enable/Disable、Remove、Update version、Reorder。
@@ -312,7 +311,7 @@ Add Skill 面板：
 
 当前 `ChatComposer` 的 Skill palette 只来自 runtime inventory。组织态需要合并组织配置：
 
-- 组织 Skill 排在个人 runtime Skill 前。
+- 组织 Skill 排在本地 runtime Skill 前。
 - 同名 Skill 以组织配置优先。
 - 禁用的组织 Skill 不进入 palette。
 - 组织 Skill item 的 meta 显示 `organization`。
@@ -364,9 +363,9 @@ userData/agent/workspace/.opencode/skill/{skillName}/
 
 注意：
 
-- 不写 `~/.agents/skills`，避免污染个人和其他 agent。
+- 不写 `~/.agents/skills`，避免污染用户目录和其他 agent。
 - 不删除 bundled skills。
-- 不删除用户个人 runtime skills，除非明确采用“组织覆盖同名 skill”的策略。
+- 不删除用户本地 runtime skills，除非明确采用“组织覆盖同名 skill”的策略。
 - 同组织内禁止重复 `skillName`。
 - 切组织后同步完成再触发 agent refresh。
 
@@ -397,7 +396,7 @@ userData/agent/workspace/.opencode/skill/{skillName}/
 
 如果组织 id 已选中但 organization name 尚未解析：
 
-- 连接器请求必须保持 pending，并清空当前连接器 summary；不能沿用上一个组织或个人 workspace 的 `x-oo-organization-name`。
+- 连接器请求必须保持 pending，并清空当前连接器 summary；不能沿用上一个组织 workspace 的 `x-oo-organization-name`。
 - 组织 Skill 配置可按 org id 读取。
 - `chatService.setAgentOrganization` 应先清空主进程 agent 组织名，Agent connector tool 在新 organization name 可用并完成连接器 scope 刷新前暂停组织连接器调用。
 - organization name 可用后，先用新 organization name 刷新连接器 summary，再恢复 Agent connector tool 与 UI 操作，确保所有 connector/tool 请求都使用新的组织上下文。
@@ -422,7 +421,7 @@ userData/agent/workspace/.opencode/skill/{skillName}/
 - 后端或 Wanta 可检查组织 Skill 是否有新版本。
 - `latest` 策略仅给高级场景使用，UI 要明确提示会自动变化。
 
-更新检查可复用现有 registry version check 思路，但组织 Skill 的检查结果应与个人 Installed Skill 分开展示，避免用户误以为本地已安装 Skill 需要更新。
+更新检查可复用现有 registry version check 思路，但组织 Skill 的检查结果应与本地 Installed Skill 分开展示，避免用户误以为本地已安装 Skill 需要更新。
 
 ## 10. 实施阶段
 
@@ -473,7 +472,7 @@ userData/agent/workspace/.opencode/skill/{skillName}/
 
 集成 / 手工验证：
 
-- 个人空间不显示组织 Skill 配置。
+- 组织身份未解析时不显示组织 Skill 配置。
 - 切组织 A → B 后列表、Composer、agent scope 同步变化。
 - 组织成员只读。
 - creator 添加 private Skill 后成员可见并能用于组织工作区。
@@ -486,5 +485,5 @@ userData/agent/workspace/.opencode/skill/{skillName}/
 - 使用临时 share id 做长期组织配置会在过期后失效。
 - `latest` 自动漂移会造成组织内任务结果不可复现。
 - 组织 id 与组织 name 混用会导致 org-control 和 connector 作用域错乱。
-- runtime 同步若粗暴重建 `.opencode/skill/`，可能删掉 bundled skills 或个人 runtime skills。
+- runtime 同步若粗暴重建 `.opencode/skill/`，可能删掉 bundled skills 或本地 runtime skills。
 - 生成中重启 sidecar 会影响用户体验，必须沿用现有延迟刷新策略。

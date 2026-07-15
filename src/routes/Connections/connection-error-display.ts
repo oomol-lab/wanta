@@ -1,4 +1,3 @@
-import type { ConnectionWorkspace } from "../../../electron/connections/common.ts"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
 export interface ConnectionErrorNotice {
@@ -9,7 +8,6 @@ export interface ConnectionErrorNotice {
 interface DetailErrorNoticeInput {
   actionError: UserFacingError | null
   detailError: UserFacingError | null
-  workspace?: ConnectionWorkspace | null
 }
 
 interface ListErrorNoticeInput {
@@ -20,7 +18,6 @@ interface ListErrorNoticeInput {
 export function getConnectionDetailErrorNotice({
   actionError,
   detailError,
-  workspace,
 }: DetailErrorNoticeInput): ConnectionErrorNotice | null {
   if (actionError) {
     return { error: actionError, showDiagnosticsCopy: true }
@@ -31,7 +28,7 @@ export function getConnectionDetailErrorNotice({
   }
 
   return {
-    error: connectionDetailPermissionDisplayError(detailError, workspace),
+    error: connectionDetailPermissionDisplayError(detailError),
     showDiagnosticsCopy: true,
   }
 }
@@ -63,20 +60,14 @@ export function connectionErrorSignature(error: UserFacingError): string {
   ].join("\u001f")
 }
 
-function connectionDetailPermissionDisplayError(
-  error: UserFacingError,
-  workspace: ConnectionWorkspace | null | undefined,
-): UserFacingError {
+function connectionDetailPermissionDisplayError(error: UserFacingError): UserFacingError {
   if (error.kind !== "permission_denied" || error.titleKey !== "error.connections.permissionDetail.title") {
     return error
   }
 
   return {
     ...error,
-    descriptionKey:
-      workspace?.type === "organization"
-        ? "error.connections.permissionConfigure.organization.description"
-        : "error.connections.permissionConfigure.personal.description",
+    descriptionKey: "error.connections.permissionConfigure.organization.description",
     descriptionText: undefined,
     titleKey: "error.connections.permissionConfigure.title",
   }

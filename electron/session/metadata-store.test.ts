@@ -11,11 +11,11 @@ test("SessionMetadataStore persists scope, permission mode, knowledge, pinned, a
   const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-session-metadata-"))
   const store = new SessionMetadataStore(dir)
   const metadata = new Map<string, SessionMetadata>([
-    ["pinned", { pinnedAt: 1_000, scope: { type: "personal" } }],
+    ["pinned", { pinnedAt: 1_000, scope: { organizationId: "org-id", organizationName: "org-name" } }],
     ["archived", { archivedAt: 2_000 }],
     ["full-access", { permissionMode: "full_access" }],
     ["knowledge", { knowledgeBaseIds: ["journey-to-the-west", "characters"] }],
-    ["organization", { scope: { type: "organization", organizationId: "org-id", organizationName: "org-name" } }],
+    ["organization", { scope: { organizationId: "org-id", organizationName: "org-name" } }],
   ])
 
   await store.write(metadata)
@@ -46,8 +46,11 @@ test("SessionMetadataStore ignores corrupted organization scope fields", async (
     JSON.stringify({
       version: 2,
       sessions: {
-        valid: { pinnedAt: 1_000, scope: { type: "personal" } },
-        corrupted: { archivedAt: 2_000, scope: { organizationId: 123, organizationName: {}, type: "organization" } },
+        valid: {
+          pinnedAt: 1_000,
+          scope: { organizationId: "org-id", organizationName: "org-name" },
+        },
+        corrupted: { archivedAt: 2_000, scope: { organizationId: 123, organizationName: {} } },
         invalidPermission: { permissionMode: "root" },
         normalizedKnowledge: { knowledgeBaseIds: [" first ", "first", "", 123, "second"] },
       },
@@ -60,7 +63,7 @@ test("SessionMetadataStore ignores corrupted organization scope fields", async (
   assert.deepEqual(
     await store.read(),
     new Map<string, SessionMetadata>([
-      ["valid", { pinnedAt: 1_000, scope: { type: "personal" } }],
+      ["valid", { pinnedAt: 1_000, scope: { organizationId: "org-id", organizationName: "org-name" } }],
       ["corrupted", { archivedAt: 2_000 }],
       ["normalizedKnowledge", { knowledgeBaseIds: ["first", "second"] }],
     ]),

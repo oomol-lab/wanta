@@ -90,7 +90,7 @@ test("parseSearchAuthorizationSignal rejects ambiguous search results", () => {
   assert.equal(parseSearchAuthorizationSignal(JSON.stringify({ status: "error" })), null)
 })
 
-test("parseSearchAuthorizationSignal ignores search results with unreliable authentication scope", () => {
+test("parseSearchAuthorizationSignal ignores search results with unreliable authentication", () => {
   assert.equal(
     parseSearchAuthorizationSignal(
       JSON.stringify([
@@ -99,7 +99,6 @@ test("parseSearchAuthorizationSignal ignores search results with unreliable auth
           name: "list_projects",
           authenticated: false,
           authenticatedReliable: false,
-          authenticatedScope: "search_default_identity",
         },
       ]),
     ),

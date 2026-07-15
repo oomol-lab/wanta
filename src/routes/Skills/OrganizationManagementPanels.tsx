@@ -2,17 +2,12 @@ import type { Organization, OrganizationRole } from "../../../electron/organizat
 import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { BusyAction, MemberView } from "./organization-management-model.ts"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
-import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations.ts"
 
 import { Building2Icon, ChevronsUpDownIcon, LockKeyholeIcon, PencilIcon, PlusIcon } from "lucide-react"
 import * as React from "react"
 import { planProviderSkillRecommendationBulkLinks } from "./organization-management-model.ts"
-import {
-  AccountWorkspaceAvatar,
-  OrganizationAvatar,
-  OrganizationMemberAccessButton,
-} from "./OrganizationMembersPanel.tsx"
+import { OrganizationAvatar, OrganizationMemberAccessButton } from "./OrganizationMembersPanel.tsx"
 import {
   OrganizationSkillManageDialog,
   OrganizationSkillManageLoadingSkeleton,
@@ -33,9 +28,6 @@ import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 
 export function OrganizationSwitcherPanel({
-  activeWorkspace,
-  accountAvatarUrl,
-  accountName,
   avatarPreviewUrls,
   canManage,
   members,
@@ -51,9 +43,6 @@ export function OrganizationSwitcherPanel({
   selectedOrganization,
   selectedOrganizationId,
 }: {
-  activeWorkspace?: WorkspaceSelection
-  accountAvatarUrl?: string
-  accountName?: string
   avatarPreviewUrls: Record<string, string>
   canManage: boolean
   members: MemberView[]
@@ -71,23 +60,13 @@ export function OrganizationSwitcherPanel({
 }) {
   const { t } = useAppI18n()
   const countLabel = t("organizations.organizationCount", { count: organizations.length })
-  const personalSelected = activeWorkspace?.type === "personal"
-  const personalLabel = accountName?.trim() || t("organizations.personal")
-  const personalDescription =
-    personalLabel === t("organizations.personal") ? t("organizations.workspace") : t("organizations.personal")
 
   return (
     <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
       <div className="flex min-w-0 flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <div className="shrink-0">
-            {personalSelected ? (
-              <AccountWorkspaceAvatar
-                avatarUrl={accountAvatarUrl}
-                className="size-16 rounded-md text-lg"
-                name={accountName}
-              />
-            ) : selectedOrganization ? (
+            {selectedOrganization ? (
               <OrganizationAvatar
                 organization={selectedOrganization}
                 previewUrl={avatarPreviewUrls[selectedOrganization.id]}
@@ -103,9 +82,7 @@ export function OrganizationSwitcherPanel({
 
           <div className="grid min-h-16 min-w-0 content-center gap-1.5">
             <div className="flex min-w-0 items-baseline gap-3">
-              {personalSelected ? (
-                <span className="oo-text-dialog-title min-w-0 truncate text-foreground">{personalLabel}</span>
-              ) : selectedOrganization ? (
+              {selectedOrganization ? (
                 <>
                   <span className="oo-text-dialog-title min-w-0 truncate text-foreground">
                     {selectedOrganization.name}
@@ -129,7 +106,7 @@ export function OrganizationSwitcherPanel({
               />
             ) : (
               <div className="oo-text-caption min-w-0 truncate text-muted-foreground">
-                {personalSelected ? personalDescription : t("organizations.selectOrganization")}
+                {t("organizations.selectOrganization")}
               </div>
             )}
           </div>
@@ -168,7 +145,7 @@ export function OrganizationSwitcherPanel({
                 <DropdownMenuSeparator />
                 {organizations.map((organization) => {
                   const role = getOrganizationRole(organization)
-                  const selected = !personalSelected && organization.id === selectedOrganizationId
+                  const selected = organization.id === selectedOrganizationId
                   return (
                     <DropdownMenuItem
                       key={organization.id}
@@ -364,9 +341,7 @@ export function OrganizationSkillGuidePanel({
   )
 }
 
-export function OrganizationManagementSkeleton({ mode }: { mode: "organization" | "personal" }) {
-  const isPersonal = mode === "personal"
-
+export function OrganizationManagementSkeleton() {
   return (
     <>
       <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
@@ -376,16 +351,12 @@ export function OrganizationManagementSkeleton({ mode }: { mode: "organization" 
             <div className="grid min-h-16 min-w-0 content-center gap-1.5">
               <div className="flex min-w-0 items-baseline gap-3">
                 <Skeleton className="h-5 w-28 rounded-md" />
-                {isPersonal ? null : <Skeleton className="h-4 w-64 max-w-[48%] rounded-md" />}
+                <Skeleton className="h-4 w-64 max-w-[48%] rounded-md" />
               </div>
-              {isPersonal ? (
+              <div className="flex min-w-0 items-center gap-2">
                 <Skeleton className="h-4 w-20 rounded-md" />
-              ) : (
-                <div className="flex min-w-0 items-center gap-2">
-                  <Skeleton className="h-4 w-20 rounded-md" />
-                  <Skeleton className="h-6 w-16 rounded-full" />
-                </div>
-              )}
+                <Skeleton className="h-6 w-16 rounded-full" />
+              </div>
             </div>
           </div>
           <div className="grid min-w-0 gap-2 sm:h-16 sm:min-w-fit sm:shrink-0 sm:content-between sm:justify-items-end sm:gap-0">
@@ -398,39 +369,21 @@ export function OrganizationManagementSkeleton({ mode }: { mode: "organization" 
         </div>
       </section>
 
-      {isPersonal ? (
-        <section className="grid min-h-0 min-w-0 place-items-center overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background px-4 py-10">
-          <div className="grid w-full max-w-lg justify-items-center gap-4 text-center">
-            <Skeleton className="size-14 rounded-md" />
-            <div className="grid w-full min-w-0 justify-items-center gap-2">
-              <Skeleton className="h-5 w-36 rounded-md" />
-              <Skeleton className="h-4 w-96 max-w-full rounded-md" />
-              <Skeleton className="h-4 w-72 max-w-[86%] rounded-md" />
+      <section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+        <div className="flex min-h-14 min-w-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--oo-divider)] px-3 py-[7px]">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <Skeleton className="h-5 w-24 rounded-md" />
+              <Skeleton className="h-5 w-12 rounded-full" />
             </div>
-            <div className="flex min-w-0 flex-wrap items-center justify-center gap-2">
-              <Skeleton className="h-[var(--oo-control-height)] w-28 rounded-md" />
-              <Skeleton className="h-[var(--oo-control-height)] w-28 rounded-md" />
-            </div>
-            <Skeleton className="h-3.5 w-80 max-w-full rounded-md" />
+            <Skeleton className="mt-1.5 h-4 w-72 max-w-full rounded-md" />
           </div>
-        </section>
-      ) : (
-        <section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-          <div className="flex min-h-14 min-w-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--oo-divider)] px-3 py-[7px]">
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-2">
-                <Skeleton className="h-5 w-24 rounded-md" />
-                <Skeleton className="h-5 w-12 rounded-full" />
-              </div>
-              <Skeleton className="mt-1.5 h-4 w-72 max-w-full rounded-md" />
-            </div>
-            <Skeleton className="h-[var(--oo-control-height-compact)] w-28 shrink-0 rounded-md" />
-          </div>
-          <div className="min-h-0">
-            <OrganizationSkillManageLoadingSkeleton inline />
-          </div>
-        </section>
-      )}
+          <Skeleton className="h-[var(--oo-control-height-compact)] w-28 shrink-0 rounded-md" />
+        </div>
+        <div className="min-h-0">
+          <OrganizationSkillManageLoadingSkeleton inline />
+        </div>
+      </section>
     </>
   )
 }
@@ -455,86 +408,5 @@ export function EmptyOrganizationsState({ onCreate }: { onCreate: () => void }) 
         </Button>
       </div>
     </div>
-  )
-}
-
-export function PersonalWorkspaceState({
-  avatarPreviewUrls,
-  getOrganizationRole,
-  onCreate,
-  onRemoteAvatarLoad,
-  onSelectOrganization,
-  organizations,
-}: {
-  avatarPreviewUrls: Record<string, string>
-  getOrganizationRole: (organization: Organization) => OrganizationRole
-  onCreate: () => void
-  onRemoteAvatarLoad: (organizationId: string, file: File | null) => void
-  onSelectOrganization: (organizationId: string) => void
-  organizations: Organization[]
-}) {
-  const { t } = useAppI18n()
-
-  return (
-    <section className="grid min-h-0 min-w-0 place-items-center overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background px-4 py-10">
-      <div className="grid max-w-lg justify-items-center gap-4 text-center">
-        <div className="grid size-14 place-items-center rounded-md border border-[var(--oo-divider)] bg-[var(--oo-inspector-surface)] text-muted-foreground">
-          <Building2Icon className="size-7" />
-        </div>
-        <div className="grid min-w-0 gap-1.5">
-          <h2 className="oo-text-title text-foreground">{t("organizations.personalWorkspaceTitle")}</h2>
-          <p className="oo-text-body max-w-md text-muted-foreground">
-            {t("organizations.personalWorkspaceDescription")}
-          </p>
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-center gap-2">
-          <Button type="button" onClick={onCreate}>
-            <PlusIcon className="size-4" />
-            {t("organizations.personalWorkspaceCreate")}
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" disabled={organizations.length === 0}>
-                {t("organizations.personalWorkspaceSwitch")}
-                <ChevronsUpDownIcon className="size-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="center" sideOffset={8} className="w-[min(28rem,calc(100vw-2rem))]">
-              <DropdownMenuLabel>{t("organizations.selectOrganization")}</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {organizations.map((organization) => {
-                const role = getOrganizationRole(organization)
-                return (
-                  <DropdownMenuItem
-                    key={organization.id}
-                    className="grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2"
-                    onSelect={() => onSelectOrganization(organization.id)}
-                  >
-                    <OrganizationAvatar
-                      organization={organization}
-                      previewUrl={avatarPreviewUrls[organization.id]}
-                      className="size-10 rounded-md text-sm"
-                      onRemoteAvatarLoad={onRemoteAvatarLoad}
-                    />
-                    <span className="grid min-h-10 min-w-0 content-center">
-                      <span className="oo-text-label truncate">{organization.name}</span>
-                      <span className="oo-text-caption-compact block truncate font-mono text-muted-foreground">
-                        {organization.id}
-                      </span>
-                    </span>
-                    <Badge variant="secondary" className="justify-self-end">
-                      {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-                    </Badge>
-                  </DropdownMenuItem>
-                )
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <p className="oo-text-caption max-w-md text-muted-foreground">
-          {t("organizations.personalWorkspaceSwitchHint")}
-        </p>
-      </div>
-    </section>
   )
 }

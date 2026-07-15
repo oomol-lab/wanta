@@ -1,6 +1,5 @@
 export interface LinkWorkspaceIdentity {
   organizationName: string
-  scope: "organization" | "personal"
 }
 
 export interface ConnectionInventoryError {
@@ -13,7 +12,7 @@ export interface ConnectionInventoryError {
 
 /** 纯转换：把已解析且可信的 workspace 身份转成 oo CLI selector。 */
 export function linkWorkspaceArgs(identity: LinkWorkspaceIdentity): string[] {
-  return identity.scope === "organization" ? ["--organization", identity.organizationName] : ["--personal"]
+  return ["--organization", identity.organizationName]
 }
 
 /** 纯转换：把连接清单异常稳定化为模型可判断的结构。 */

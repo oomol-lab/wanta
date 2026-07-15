@@ -18,12 +18,11 @@ function createStorage(): PaymentRecoveryStorage {
   }
 }
 
-function organizationScope(overrides: Partial<Extract<BillingRequestScope, { type: "organization" }>> = {}) {
+function organizationScope(overrides: Partial<BillingRequestScope> = {}): BillingRequestScope {
   return {
     canManageBilling: true,
     organizationId: "team-1",
     organizationName: "acme",
-    type: "organization" as const,
     ...overrides,
   }
 }
@@ -34,14 +33,6 @@ describe("payment recovery storage", () => {
     const key = paymentRecoveryPendingStorageKey("user-1:organization:team-1", scope)
 
     expect(key).not.toBe(paymentRecoveryPendingStorageKey("user-2:organization:team-1", scope))
-    expect(key).not.toBe(
-      paymentRecoveryPendingStorageKey(
-        "user-1:organization:team-1",
-        organizationScope({
-          canManageBilling: false,
-        }),
-      ),
-    )
     expect(key).not.toBe(
       paymentRecoveryPendingStorageKey(
         "user-1:organization:team-1",
@@ -76,12 +67,16 @@ describe("payment recovery storage", () => {
   it("removes only the expired marker for the requested scope", () => {
     const storage = createStorage()
     const scope = organizationScope()
-    const personalScope = { type: "personal" } as const
+    const secondaryScope = {
+      canManageBilling: true,
+      organizationId: "org-id",
+      organizationName: "org-name",
+    } as const
 
     markPaymentRecoveryPending("user-1:organization:team-1", scope, storage, 1_000)
-    markPaymentRecoveryPending("user-1:personal", personalScope, storage, 2_000)
+    markPaymentRecoveryPending("user-1:organization:org-id", secondaryScope, storage, 2_000)
 
     expect(hasPaymentRecoveryPending("user-1:organization:team-1", scope, storage, 86_401_001)).toBe(false)
-    expect(hasPaymentRecoveryPending("user-1:personal", personalScope, storage, 86_401_001)).toBe(true)
+    expect(hasPaymentRecoveryPending("user-1:organization:org-id", secondaryScope, storage, 86_401_001)).toBe(true)
   })
 })

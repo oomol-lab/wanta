@@ -35,48 +35,41 @@ interface SessionServiceDeps {
   projectStore?: SessionProjectStore
 }
 
-const personalSessionScope: SessionScope = { type: "personal" }
+const invalidSessionScope: SessionScope = {
+  organizationId: "__invalid__",
+  organizationName: "__invalid__",
+}
 
 function normalizeSessionScope(scope: SessionScope | undefined): SessionScope {
-  if (scope?.type === "organization") {
+  if (scope) {
     const organizationId = scope.organizationId.trim()
     const organizationName = scope.organizationName.trim()
     if (!organizationId || !organizationName) {
-      return personalSessionScope
+      return invalidSessionScope
     }
     return {
-      type: "organization",
       organizationId,
       organizationName,
     }
   }
-  return personalSessionScope
+  return invalidSessionScope
 }
 
 function normalizeRequestedSessionScope(scope: SessionScope | undefined): SessionScope {
   if (!scope) {
-    return personalSessionScope
-  }
-  if (scope.type === "personal") {
-    return personalSessionScope
+    throw new Error("Organization scope is required")
   }
   const organizationId = scope.organizationId.trim()
   const organizationName = scope.organizationName.trim()
   if (!organizationId || !organizationName) {
     throw new Error("Organization scope is invalid")
   }
-  return { type: "organization", organizationId, organizationName }
+  return { organizationId, organizationName }
 }
 
 function sessionScopeMatches(sessionScope: SessionScope | undefined, requestedScope: SessionScope): boolean {
   const normalizedSessionScope = normalizeSessionScope(sessionScope)
-  if (requestedScope.type === "personal") {
-    return normalizedSessionScope.type === "personal"
-  }
-  return (
-    normalizedSessionScope.type === "organization" &&
-    normalizedSessionScope.organizationId === requestedScope.organizationId
-  )
+  return normalizedSessionScope.organizationId === requestedScope.organizationId
 }
 
 function normalizeSessionPlacement(placement: SessionPlacement | undefined): SessionPlacement {
@@ -133,7 +126,7 @@ export class SessionServiceImpl
     }
   }
 
-  public async list(req: SessionScopeRequest = {}): Promise<SessionInfo[]> {
+  public async list(req: SessionScopeRequest): Promise<SessionInfo[]> {
     if (!this.agent) {
       return []
     }
@@ -148,7 +141,7 @@ export class SessionServiceImpl
     )
   }
 
-  public async listArchived(req: SessionScopeRequest = {}): Promise<SessionInfo[]> {
+  public async listArchived(req: SessionScopeRequest): Promise<SessionInfo[]> {
     if (!this.agent) {
       return []
     }
@@ -163,7 +156,7 @@ export class SessionServiceImpl
     )
   }
 
-  public async listProjects(req: SessionScopeRequest = {}): Promise<SessionProject[]> {
+  public async listProjects(req: SessionScopeRequest): Promise<SessionProject[]> {
     if (!this.agent) {
       return []
     }
@@ -178,7 +171,7 @@ export class SessionServiceImpl
       })
   }
 
-  public async create(req: CreateSessionRequest = {}): Promise<SessionInfo> {
+  public async create(req: CreateSessionRequest): Promise<SessionInfo> {
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }

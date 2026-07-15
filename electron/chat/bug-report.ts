@@ -16,7 +16,6 @@ export interface BugReportRuntimeContext {
   model: string
   permissionMode: AgentPermissionMode
   platform: NodeJS.Platform
-  workspaceScope: "organization" | "personal"
 }
 
 export function parseBugReportCommand(text: string): ParsedBugReportCommand | null {
@@ -64,7 +63,6 @@ export function buildBugReportSystemPrompt(options: {
     `- Model: ${runtime.model}`,
     `- Agent mode: ${runtime.agentMode}`,
     `- Permission mode: ${runtime.permissionMode}`,
-    `- Workspace scope: ${runtime.workspaceScope}`,
     "",
     "The Markdown file must use this structure:",
     "# Wanta Bug Report",

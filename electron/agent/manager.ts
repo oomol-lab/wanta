@@ -50,7 +50,7 @@ export interface AgentManagerOptions {
   knowledgeRegistryPath?: string
   /** 内置 oo skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
-  /** 当前组织工作区名称；未设置表示个人空间。 */
+  /** 当前组织工作区名称；未设置表示组织身份尚未解析。 */
   organizationName?: string
   /** App 私有根目录（userData 下）：workspace / oo-store / isolation 都在其下。 */
   rootDir: string
@@ -935,10 +935,10 @@ export class AgentManager {
 
 export function buildWorkspaceIdentitySystem(organizationName?: string): string {
   const normalizedOrganizationName = normalizeOrganizationName(organizationName)
-  if (normalizedOrganizationName) {
-    return `Current-turn Link workspace: organization ${JSON.stringify(normalizedOrganizationName)}; raw oo selector: --organization ${JSON.stringify(normalizedOrganizationName)}.`
+  if (!normalizedOrganizationName) {
+    throw new Error("Organization workspace identity is unavailable")
   }
-  return "Current-turn Link workspace: personal; raw oo selector: --personal."
+  return `Current-turn Link workspace: organization ${JSON.stringify(normalizedOrganizationName)}; raw oo selector: --organization ${JSON.stringify(normalizedOrganizationName)}.`
 }
 
 function buildPromptParts(

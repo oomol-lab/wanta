@@ -182,7 +182,6 @@ export function ProviderDetail({
           <ConnectionPanel
             authIntent={authIntent}
             busy={busy}
-            canSetDefault={summary?.workspace.type !== "organization"}
             connections={connections}
             currentAuthType={currentAuthType}
             actionsPending={actionsPending}
@@ -257,7 +256,6 @@ function ConnectionPanel({
   actionsPending,
   authIntent,
   busy,
-  canSetDefault,
   connections,
   currentAuthType,
   detail,
@@ -271,7 +269,6 @@ function ConnectionPanel({
   actionsPending?: boolean
   authIntent?: ConnectionAuthIntent | null
   busy: UseConnections["busy"]
-  canSetDefault: boolean
   connections: UseConnections
   currentAuthType: Exclude<ConnectionAuthType, null> | null
   detail: ConnectionProviderDetail | null
@@ -394,7 +391,6 @@ function ConnectionPanel({
       {provider.apps.length > 0 ? (
         <ConnectionAccountsList
           busy={busy}
-          canSetDefault={canSetDefault}
           connections={connections}
           onConnect={onConnect}
           onDisconnect={onDisconnect}

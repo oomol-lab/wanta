@@ -55,7 +55,7 @@ export function projectSidebarCollapsedStorageKey(
   if (!accountId || !scope) {
     return null
   }
-  const scopeKey = scope.type === "organization" ? `organization:${scope.organizationId}` : "personal"
+  const scopeKey = `organization:${scope.organizationId}`
   return `${projectCollapsedStoragePrefix}:${accountId}:${scopeKey}`
 }
 

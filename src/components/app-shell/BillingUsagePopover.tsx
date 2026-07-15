@@ -86,11 +86,11 @@ export function BillingUsagePopover({
   const modelSpend = getSummary(summaries, "model").credit
   const connectorSpend = getSummary(summaries, "link").credit
   const showWantaPlanSection = canManageWantaBilling(workspace)
-  const billableSeats = workspace.type === "organization" ? Math.max(1, seatState.count ?? 1) : 1
+  const billableSeats = Math.max(1, seatState.count ?? 1)
   const wantaOverview = React.useMemo(
     () =>
       buildWantaSubscriptionOverview({
-        canManage: workspace.type === "organization" ? workspace.canManage : true,
+        canManage: workspace.canManage,
         memberCount: billableSeats,
         pendingPayment: data?.wantaPendingPayment ?? null,
         sharedConnectorCount,

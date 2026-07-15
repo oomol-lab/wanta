@@ -166,16 +166,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     unarchive,
     remove: removeSession,
     refresh: refreshSessions,
-  } = useSessions({ enabled: sessionsEnabled, scope: sessionScope ?? undefined })
+  } = useSessions({ enabled: sessionsEnabled, scope: sessionScope })
   const currentScopeKey = sessionScopeKey(sessionScope)
   const currentConnectionWorkspaceKey = organizationWorkspace.connectionWorkspace
     ? connectionWorkspaceSwitchKey(organizationWorkspace.connectionWorkspace)
     : null
   const activeWorkspaceKey = workspaceSelectionSwitchKey(organizationWorkspace.activeWorkspace)
-  const activeOrganizationId =
-    organizationWorkspace.activeWorkspace.type === "organization"
-      ? organizationWorkspace.activeWorkspace.organizationId
-      : null
+  const activeOrganizationId = organizationWorkspace.activeWorkspace.organizationId || null
   const activeOrganizationSkillsMatched = organizationSkills.organizationId === activeOrganizationId
   const organizationSkillsError =
     activeOrganizationId && activeOrganizationSkillsMatched && !organizationSkills.loading
@@ -359,10 +356,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     organizationSkills,
     route,
   })
-  const sharedConnectorCount =
-    organizationWorkspace.activeWorkspace.type === "organization" && connectionSummaryMatchesWorkspace
-      ? connections.summary?.connectedProviderCount
-      : undefined
+  const sharedConnectorCount = connectionSummaryMatchesWorkspace
+    ? connections.summary?.connectedProviderCount
+    : undefined
   const emptyStateConnectionSummary = connectionSummaryMatchesWorkspace
     ? connections.summary
       ? summarizeEmptyStateConnections(connections.summary.providers, connections.summary.connectedProviderCount)
@@ -370,8 +366,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     : activeProvidersLoading
       ? undefined
       : null
-  const canManageWorkspaceConnections =
-    organizationWorkspace.activeWorkspace.type === "personal" || organizationWorkspace.activeWorkspace.canManage
+  const canManageWorkspaceConnections = organizationWorkspace.activeWorkspace.canManage
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   const [connectionCatalogFilter, setConnectionCatalogFilter] = React.useState<ConnectionCatalogFilter>({ kind: "all" })
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
@@ -1194,10 +1189,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
-  const billingWorkspaceCacheScope =
-    organizationWorkspace.activeWorkspace.type === "organization"
-      ? `organization:${organizationWorkspace.activeWorkspace.organizationId}`
-      : "personal"
+  const billingWorkspaceCacheScope = organizationWorkspace.activeWorkspace.organizationId
+    ? `organization:${organizationWorkspace.activeWorkspace.organizationId}`
+    : "workspace-loading"
   const billingCacheScope = `${auth.state?.account?.id ?? "authenticated"}:${billingWorkspaceCacheScope}`
   const billingRequestScope = React.useMemo(
     () => billingRequestScopeForWorkspace(organizationWorkspace.activeWorkspace),
@@ -1436,7 +1430,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       composerFocusRequest={composerFocusRequest}
                       canManageWorkspaceConnections={canManageWorkspaceConnections}
                       emptyStateConnectionSummary={emptyStateConnectionSummary}
-                      workspaceType={organizationWorkspace.activeWorkspace.type}
                       organizationSkillEntryVisible={organizationSkillEntryVisible}
                       organizationSkillShowcaseItems={organizationSkillShowcaseItems}
                       organizationSkillPendingInstallCount={recommendedSkillPendingInstallCount}
@@ -1460,7 +1453,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       onPermissionModeChange={handlePermissionModeChange}
                       onRejectQuestion={handleRejectQuestion}
                       questionDrafts={questionDrafts}
-                      onSetDefaultConnection={connections.setDefaultAccount}
                       onStop={handleChatStop}
                       onQueuedMessageMove={handleQueuedMessageMove}
                       onQueuedMessageRemove={handleQueuedMessageRemove}

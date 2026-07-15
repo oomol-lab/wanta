@@ -6,7 +6,7 @@ import type {
 import type { DisconnectTarget } from "./connection-route-model.ts"
 import type { UseConnections } from "@/hooks/useConnections"
 
-import { Edit, KeyRound, Save, Star, Unplug, X } from "lucide-react"
+import { Edit, KeyRound, Save, Unplug, X } from "lucide-react"
 import * as React from "react"
 import {
   accountActionButtonClassName,
@@ -26,7 +26,6 @@ import { cn } from "@/lib/utils"
 
 export function ConnectionAccountsList({
   busy,
-  canSetDefault,
   connections,
   onConnect,
   onDisconnect,
@@ -35,7 +34,6 @@ export function ConnectionAccountsList({
   reconnectBlocked,
 }: {
   busy: UseConnections["busy"]
-  canSetDefault: boolean
   connections: UseConnections
   onConnect: (
     provider: ConnectionProviderSummary,
@@ -61,9 +59,7 @@ export function ConnectionAccountsList({
         <ConnectionAccountItem
           key={app.id}
           app={app}
-          appCount={provider.apps.length}
           busy={busy}
-          canSetDefault={canSetDefault}
           connections={connections}
           index={index}
           onConnect={onConnect}
@@ -80,9 +76,7 @@ export function ConnectionAccountsList({
 
 function ConnectionAccountItem({
   app,
-  appCount,
   busy,
-  canSetDefault,
   connections,
   index,
   onConnect,
@@ -93,9 +87,7 @@ function ConnectionAccountItem({
   servicePolling,
 }: {
   app: ConnectionAppSummary
-  appCount: number
   busy: UseConnections["busy"]
-  canSetDefault: boolean
   connections: UseConnections
   index: number
   onConnect: (
@@ -113,7 +105,6 @@ function ConnectionAccountItem({
   const [aliasDraft, setAliasDraft] = React.useState(app.alias ?? "")
   const [aliasEditing, setAliasEditing] = React.useState(false)
   const [aliasBusy, setAliasBusy] = React.useState(false)
-  const [defaultBusy, setDefaultBusy] = React.useState(false)
   const reconnectAuthType =
     app.authType && app.authType !== "no_auth" && isConnectionAuthType(app.authType, provider.authTypes)
       ? app.authType
@@ -125,9 +116,7 @@ function ConnectionAccountItem({
   const aliasDirty = aliasValue !== (app.alias?.trim() ?? "")
   const aliasDisabled = servicePolling || aliasBusy
   const accountPolling = isConnectionPollingTarget(polling, provider.service, app.id)
-  const defaultDisabled = servicePolling || defaultBusy || busy === "set_default"
-  const reconnectDisabled =
-    accountPolling || servicePolling || reconnectBlocked || busy === "connect" || busy === "set_default"
+  const reconnectDisabled = accountPolling || servicePolling || reconnectBlocked || busy === "connect"
   const secondaryItems = [
     connectedAccount && connectedAccount !== accountLabel ? connectedAccount : null,
     authLabel,
@@ -137,7 +126,6 @@ function ConnectionAccountItem({
     setAliasDraft(app.alias ?? "")
     setAliasEditing(false)
     setAliasBusy(false)
-    setDefaultBusy(false)
   }, [app.id, app.alias, app.isDefault])
 
   async function saveAlias() {
@@ -156,16 +144,6 @@ function ConnectionAccountItem({
   function cancelAliasEditing() {
     setAliasDraft(app.alias ?? "")
     setAliasEditing(false)
-  }
-
-  async function setDefaultAccount() {
-    if (defaultDisabled) return
-    setDefaultBusy(true)
-    try {
-      await connections.setDefaultAccount(provider.service, app.id)
-    } finally {
-      setDefaultBusy(false)
-    }
   }
 
   return (
@@ -252,19 +230,6 @@ function ConnectionAccountItem({
         </div>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-2">
-        {canSetDefault && !app.isDefault && appCount > 1 ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={accountActionButtonClassName}
-            disabled={defaultDisabled}
-            onClick={() => void setDefaultAccount()}
-          >
-            {defaultBusy ? <Loader size={14} /> : <Star className="size-3.5" />}
-            {t("connections.setDefaultConnection")}
-          </Button>
-        ) : null}
         {reconnectAuthType ? (
           <Button
             type="button"
@@ -287,7 +252,7 @@ function ConnectionAccountItem({
             type="button"
             variant="outline"
             size="sm"
-            disabled={servicePolling || busy === "disconnect" || busy === "set_default"}
+            disabled={servicePolling || busy === "disconnect"}
             className={cn(
               accountActionButtonClassName,
               "border-[var(--oo-danger-border)] text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive",

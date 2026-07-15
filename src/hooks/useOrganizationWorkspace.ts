@@ -17,16 +17,13 @@ import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 export { organizationAvatarStyle, organizationInitials, organizationAvatarPalette } from "../lib/organization-avatar.ts"
 
-export type WorkspaceSelection =
-  | { type: "personal" }
-  | {
-      canManage: boolean
-      organization: Organization | null
-      avatarPreviewUrl?: string
-      organizationId: string
-      role: OrganizationRole | null
-      type: "organization"
-    }
+export interface WorkspaceSelection {
+  canManage: boolean
+  organization: Organization | null
+  avatarPreviewUrl?: string
+  organizationId: string
+  role: OrganizationRole | null
+}
 
 export interface UseOrganizationWorkspace {
   activeWorkspace: WorkspaceSelection
@@ -41,7 +38,6 @@ export interface UseOrganizationWorkspace {
   clearOrganizationAvatarPreview: (organizationId: string) => void
   refresh: (options?: OrganizationWorkspaceRefreshOptions) => Promise<void>
   selectOrganization: (organizationId: string) => void
-  selectPersonal: () => void
   syncOverview: (overview: OrganizationOverview) => void
   upsertOrganization: (organization: Organization, options?: OrganizationWorkspaceUpsertOptions) => void
 }
@@ -104,14 +100,14 @@ function readStoredOrganizationId(accountId: string | undefined): string | null 
       return null
     }
     const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== "object" || !("type" in parsed)) {
+    if (!parsed || typeof parsed !== "object") {
       return null
     }
-    if (legacyRaw !== null && (parsed.type === "organization" || parsed.type === "personal")) {
+    if (legacyRaw !== null && "organizationId" in parsed) {
       window.localStorage.setItem(key, raw)
       window.localStorage.removeItem(legacyKey)
     }
-    if (parsed.type !== "organization" || !("organizationId" in parsed)) {
+    if (!("organizationId" in parsed)) {
       return null
     }
     return typeof parsed.organizationId === "string" && parsed.organizationId.trim() ? parsed.organizationId : null
@@ -127,9 +123,9 @@ function writeStoredWorkspace(accountId: string | undefined, organizationId: str
   try {
     const key = selectedWorkspaceStorageKey(accountId)
     if (organizationId) {
-      window.localStorage.setItem(key, JSON.stringify({ type: "organization", organizationId }))
+      window.localStorage.setItem(key, JSON.stringify({ organizationId }))
     } else {
-      window.localStorage.setItem(key, JSON.stringify({ type: "personal" }))
+      window.localStorage.removeItem(key)
     }
   } catch {
     // 本地记忆只是体验优化，失败不影响本次切换。
@@ -388,11 +384,15 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     ? (organizations.find((organization) => organization.id === selectedOrganizationId) ?? null)
     : null
   const activeWorkspace = React.useMemo<WorkspaceSelection>(() => {
-    if (!selectedOrganizationId) {
-      return { type: "personal" }
+    if (!selectedOrganizationId || !selectedOrganization) {
+      return {
+        canManage: false,
+        organization: null,
+        organizationId: "",
+        role: null,
+      }
     }
     return {
-      type: "organization",
       avatarPreviewUrl: organizationAvatarPreviewUrls[selectedOrganizationId],
       organizationId: selectedOrganizationId,
       organization: selectedOrganization,
@@ -401,15 +401,8 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     }
   }, [organizationAvatarPreviewUrls, overview, selectedOrganization, selectedOrganizationId])
   const connectionWorkspace = React.useMemo<ConnectionWorkspace | null>(() => {
-    if (!selectedOrganizationId) {
-      return { type: "personal" }
-    }
-    return selectedOrganization?.name ? { type: "organization", organizationName: selectedOrganization.name } : null
+    return selectedOrganization?.name ? { organizationName: selectedOrganization.name } : null
   }, [selectedOrganization?.name, selectedOrganizationId])
-
-  const selectPersonal = React.useCallback(() => {
-    setSelectedOrganizationId(null)
-  }, [])
 
   const selectOrganization = React.useCallback((organizationId: string) => {
     setSelectedOrganizationId(organizationId)
@@ -437,7 +430,6 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     clearOrganizationAvatarPreview,
     refresh,
     selectOrganization,
-    selectPersonal,
     syncOverview,
     upsertOrganization,
   }

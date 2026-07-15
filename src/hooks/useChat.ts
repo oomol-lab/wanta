@@ -771,6 +771,9 @@ export function useChat(activeSessionId: string | null): UseChat {
         sessionScope?: SessionScope
       } = {},
     ) => {
+      if (!options.sessionScope) {
+        throw new Error("Organization scope is required")
+      }
       setGlobalError(null)
       clearSessionError(sessionId)
       userStoppedSessions.current.delete(sessionId)

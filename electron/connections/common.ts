@@ -2,7 +2,9 @@ export type ConnectionBackendStatus = "ready" | "signed-out" | "unavailable"
 export type ConnectionAuthType = "oauth2" | "api_key" | "custom_credential" | "federated" | "no_auth" | null
 export type ConnectionAppStatus = "active" | "reauth_required" | "error" | "disconnected"
 export type ConnectionProviderStatus = "available" | "connected" | "needs_attention"
-export type ConnectionWorkspace = { type: "personal" } | { organizationName: string; type: "organization" }
+export interface ConnectionWorkspace {
+  organizationName: string
+}
 export type ConnectionProviderActionKind =
   | "oauth2"
   | "api_key"

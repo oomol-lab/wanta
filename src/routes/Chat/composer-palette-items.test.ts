@@ -53,7 +53,6 @@ const translations: Record<string, string> = {
   "chat.connectionAccountCount": "{count} accounts",
   "chat.connectionConnectDescription": "Connect it to use this connector",
   "chat.connectionDefaultAccountDescription": "Default · {account}",
-  "chat.connectionSetDefault": "Set default · Press right arrow",
   "chat.connectionUnsupportedDescription": "Connection setup is not supported in Wanta yet",
 }
 
@@ -67,7 +66,6 @@ const connectionPaletteCopy = {
   defaultAccountDescription: (account: string) => t("chat.connectionDefaultAccountDescription", { account }),
   defaultLabel: "Default",
   needsAttention: "Needs attention",
-  setDefault: t("chat.connectionSetDefault"),
   unsupportedProvider: t("chat.connectionUnsupportedDescription"),
 }
 const knowledgePaletteCopy = {
@@ -486,11 +484,11 @@ describe("composer palette items", () => {
       appStatus: "active",
       apps: [
         {
-          accountLabel: "personal@example.com",
-          alias: "personal",
+          accountLabel: "team@example.com",
+          alias: "team",
           authType: "oauth2",
           createdAt: 1,
-          id: "app-personal",
+          id: "app-team",
           isDefault: false,
           service: "gmail",
           status: "active",
@@ -534,7 +532,7 @@ describe("composer palette items", () => {
     const accountItems = buildConnectionAccountPaletteItems(provider, connectionPaletteCopy)
     expect(accountItems.map((item) => item.id)).toEqual([
       "connection-account:gmail:app-work",
-      "connection-account:gmail:app-personal",
+      "connection-account:gmail:app-team",
     ])
     expect(accountItems[0]).toMatchObject({
       appId: "app-work",
@@ -542,64 +540,16 @@ describe("composer palette items", () => {
       description: "OAuth",
       isDefault: true,
       meta: "Default",
-      secondaryActionLabel: undefined,
       title: "work@example.com",
     })
     expect(accountItems[1]).toMatchObject({
-      appId: "app-personal",
+      appId: "app-team",
       description: "OAuth",
       isDefault: false,
-      secondaryActionIconVisibility: "active",
-      secondaryActionLabel: "Set default · Press right arrow",
-      secondaryActionTitle: "Set default · Press right arrow",
-      title: "personal",
+      title: "team",
     })
-    expect(accountItems[1]).not.toHaveProperty("secondaryActionActiveLabel")
-  })
-
-  it("hides account default actions when the set default copy is empty", () => {
-    const provider: ConnectionProvider = {
-      actionKind: "oauth2",
-      appCount: 2,
-      appId: "app-work",
-      appStatus: "active",
-      apps: [
-        {
-          accountLabel: "personal@example.com",
-          authType: "oauth2",
-          createdAt: 1,
-          id: "app-personal",
-          isDefault: false,
-          service: "gmail",
-          status: "active",
-          updatedAt: 1,
-        },
-        {
-          accountLabel: "work@example.com",
-          authType: "oauth2",
-          createdAt: 2,
-          id: "app-work",
-          isDefault: true,
-          service: "gmail",
-          status: "active",
-          updatedAt: 2,
-        },
-      ],
-      authTypes: ["oauth2"],
-      canDisconnect: true,
-      categoryLabels: [],
-      displayName: "Gmail",
-      service: "gmail",
-      status: "connected",
-    }
-
-    const accountItems = buildConnectionAccountPaletteItems(provider, { ...connectionPaletteCopy, setDefault: "" })
-
-    expect(accountItems[1]).toMatchObject({
-      appId: "app-personal",
-      secondaryActionLabel: undefined,
-      secondaryActionTitle: undefined,
-    })
+    expect(accountItems[0]).not.toHaveProperty("secondaryActionLabel")
+    expect(accountItems[1]).not.toHaveProperty("secondaryActionLabel")
   })
 
   it("includes available and attention providers in connection search", () => {

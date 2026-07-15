@@ -17,7 +17,6 @@ import {
   OrganizationManagementSkeleton,
   OrganizationSkillGuidePanel,
   OrganizationSwitcherPanel,
-  PersonalWorkspaceState,
 } from "./OrganizationManagementPanels.tsx"
 import {
   AddMemberDialog,
@@ -84,8 +83,7 @@ export function OrganizationManagementRoute({
   const upsertWorkspaceOrganization = workspace.upsertOrganization
   const getWorkspaceOrganizationCanManage = workspace.getOrganizationCanManage
   const getWorkspaceOrganizationRole = workspace.getOrganizationRole
-  const activeWorkspaceOrganizationId = activeWorkspace?.type === "organization" ? activeWorkspace.organizationId : null
-  const activeWorkspaceIsPersonal = activeWorkspace?.type === "personal"
+  const activeWorkspaceOrganizationId = activeWorkspace.organizationId || null
   const [busyAction, setBusyAction] = React.useState<BusyAction | null>(null)
   const [addMemberOpen, setAddMemberOpen] = React.useState(false)
   const [addMemberError, setAddMemberError] = React.useState<string | null>(null)
@@ -102,9 +100,6 @@ export function OrganizationManagementRoute({
   const organizations = workspace.organizations
   const selectedOrganizationId = activeWorkspaceOrganizationId
   const selectedOrganization = React.useMemo(() => {
-    if (activeWorkspace.type !== "organization") {
-      return null
-    }
     return (
       activeWorkspace.organization ?? organizations.find((item) => item.id === activeWorkspace.organizationId) ?? null
     )
@@ -199,7 +194,7 @@ export function OrganizationManagementRoute({
       }),
     [connectedProviders, providerSkillPackageLookup.packagesByService, skillGroupById],
   )
-  const canManage = activeWorkspace.type === "organization" ? activeWorkspace.canManage : false
+  const canManage = activeWorkspace.canManage
   const { appAccessState, membersState, providerOptionsState, reload, setAppAccessState, summariesState } =
     useOrganizationDetails({
       activeAccountId,
@@ -222,7 +217,7 @@ export function OrganizationManagementRoute({
     () =>
       buildOrganizationMemberViews({
         account: activeAccount,
-        accountRole: activeWorkspace.type === "organization" ? activeWorkspace.role : null,
+        accountRole: activeWorkspace.role,
         members: membersState.data,
         organization: selectedOrganization,
         summaries: summariesState.data,
@@ -309,13 +304,10 @@ export function OrganizationManagementRoute({
         ) : (
           <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
             {showOverviewLoading ? (
-              <OrganizationManagementSkeleton mode={activeWorkspaceIsPersonal ? "personal" : "organization"} />
+              <OrganizationManagementSkeleton />
             ) : (
               <>
                 <OrganizationSwitcherPanel
-                  activeWorkspace={activeWorkspace}
-                  accountAvatarUrl={activeAccount?.avatarUrl}
-                  accountName={activeAccount?.name}
                   canManage={canManage}
                   getOrganizationRole={getWorkspaceOrganizationRole}
                   members={memberViews}
@@ -363,16 +355,7 @@ export function OrganizationManagementRoute({
                       </Panel>
                     )}
                   </div>
-                ) : (
-                  <PersonalWorkspaceState
-                    organizations={organizations}
-                    avatarPreviewUrls={avatarPreviewUrls}
-                    getOrganizationRole={getWorkspaceOrganizationRole}
-                    onCreate={organizationForms.create.openDialog}
-                    onRemoteAvatarLoad={clearOrganizationAvatarPreview}
-                    onSelectOrganization={handleSelectOrganizationWorkspace}
-                  />
-                )}
+                ) : null}
                 {selectedOrganization ? (
                   <OrganizationMembersSheet open={membersPanelOpen} onClose={() => setMembersPanelOpen(false)}>
                     <OrganizationDetailPanel

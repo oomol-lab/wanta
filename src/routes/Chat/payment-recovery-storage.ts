@@ -10,15 +10,10 @@ export interface PaymentRecoveryStorage {
 }
 
 export function paymentRecoveryPendingStorageKey(cacheScope: string, requestScope: BillingRequestScope): string {
-  const requestScopeKey =
-    requestScope.type === "organization"
-      ? {
-          canManageBilling: requestScope.canManageBilling,
-          organizationId: requestScope.organizationId,
-          organizationName: requestScope.organizationName,
-          type: requestScope.type,
-        }
-      : { type: requestScope.type }
+  const requestScopeKey = {
+    organizationId: requestScope.organizationId,
+    organizationName: requestScope.organizationName,
+  }
   return `${paymentRecoveryPendingKeyPrefix}:${encodeURIComponent(JSON.stringify({ cacheScope, requestScopeKey }))}`
 }
 

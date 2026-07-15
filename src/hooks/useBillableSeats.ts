@@ -13,7 +13,7 @@ export interface UseBillableSeats {
 export function useBillableSeats(workspace: WorkspaceSelection, enabled = true): UseBillableSeats {
   const { state: authState } = useAuth()
   const accountId = authState?.status === "authenticated" ? (authState.account?.id ?? null) : null
-  const organizationId = workspace.type === "organization" ? workspace.organizationId : null
+  const organizationId = workspace.organizationId || null
   const cachedMembers = accountId && organizationId ? getCachedOrganizationMembers(accountId, organizationId) : null
   const [count, setCount] = React.useState<number | null>(() =>
     cachedMembers ? Math.max(1, cachedMembers.length) : null,

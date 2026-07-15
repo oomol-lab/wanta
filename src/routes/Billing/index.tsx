@@ -85,7 +85,6 @@ export function BillingRoute({
         workspace,
         seatState.count,
         sharedConnectorCount,
-        t("billing.personalWorkspace"),
         t("billing.organizationWorkspace"),
       ),
     [seatState.count, sharedConnectorCount, t, workspace],
@@ -298,23 +297,15 @@ function buildBillingWorkspaceContext(
   workspace: WorkspaceSelection,
   memberCount: number | null,
   connectedProviderCount?: number,
-  personalWorkspaceLabel = "Personal workspace",
   organizationWorkspaceLabel = "Organization",
 ): BillingWorkspaceContext {
-  if (workspace.type === "organization") {
-    const organizationName = workspace.organization?.name ?? ""
-    return {
-      canManage: workspace.canManage,
-      connectedProviderCount,
-      memberCount: Math.max(1, memberCount ?? 1),
-      organizationId: workspace.organizationId,
-      organizationName,
-      workspaceLabel: organizationName || organizationWorkspaceLabel,
-    }
-  }
+  const organizationName = workspace.organization?.name ?? ""
   return {
-    canManage: true,
-    memberCount: 1,
-    workspaceLabel: personalWorkspaceLabel,
+    canManage: workspace.canManage,
+    connectedProviderCount,
+    memberCount: Math.max(1, memberCount ?? 1),
+    organizationId: workspace.organizationId,
+    organizationName,
+    workspaceLabel: organizationName || organizationWorkspaceLabel,
   }
 }

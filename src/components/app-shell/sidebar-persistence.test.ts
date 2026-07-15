@@ -48,14 +48,21 @@ describe("sidebar persistence", () => {
   })
 
   test("scopes collapsed project groups by account and workspace", () => {
-    expect(projectSidebarCollapsedStorageKey(undefined, { type: "personal" })).toBeNull()
+    expect(
+      projectSidebarCollapsedStorageKey(undefined, {
+        organizationId: "org-id",
+        organizationName: "org-name",
+      }),
+    ).toBeNull()
     expect(projectSidebarCollapsedStorageKey("account-a", null)).toBeNull()
-    expect(projectSidebarCollapsedStorageKey("account-a", { type: "personal" })).toBe(
-      "wanta.projectSidebarCollapsed:account-a:personal",
-    )
     expect(
       projectSidebarCollapsedStorageKey("account-a", {
-        type: "organization",
+        organizationId: "org-id",
+        organizationName: "org-name",
+      }),
+    ).toBe("wanta.projectSidebarCollapsed:account-a:organization:org-id")
+    expect(
+      projectSidebarCollapsedStorageKey("account-a", {
         organizationId: "org-a",
         organizationName: "Org A",
       }),
@@ -64,7 +71,7 @@ describe("sidebar persistence", () => {
 
   test("reads, writes, removes, and prunes collapsed project ids", () => {
     const storage = new MemoryStorage()
-    const key = "wanta.projectSidebarCollapsed:account-a:personal"
+    const key = "wanta.projectSidebarCollapsed:account-a:organization:org-id"
 
     expect(readStoredCollapsedProjectIds(storage, key)).toEqual(new Set())
     writeStoredCollapsedProjectIds(storage, key, new Set(["project-b", "project-a"]))
@@ -80,7 +87,7 @@ describe("sidebar persistence", () => {
 
   test("ignores invalid collapsed project records", () => {
     const storage = new MemoryStorage()
-    const key = "wanta.projectSidebarCollapsed:account-a:personal"
+    const key = "wanta.projectSidebarCollapsed:account-a:organization:org-id"
 
     storage.setItem(key, '{"project-a":true}')
     expect(readStoredCollapsedProjectIds(storage, key)).toEqual(new Set())

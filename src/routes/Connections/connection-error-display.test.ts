@@ -34,7 +34,7 @@ describe("connection error display", () => {
     const detailError = error({ titleKey: "error.connections.permissionDetail.title" })
 
     expect(getConnectionDetailErrorNotice({ actionError: null, detailError })?.error).toMatchObject({
-      descriptionKey: "error.connections.permissionConfigure.personal.description",
+      descriptionKey: "error.connections.permissionConfigure.organization.description",
       titleKey: "error.connections.permissionConfigure.title",
     })
   })
@@ -49,7 +49,6 @@ describe("connection error display", () => {
       getConnectionDetailErrorNotice({
         actionError: null,
         detailError,
-        workspace: { organizationName: "acme", type: "organization" },
       })?.error,
     ).toMatchObject({
       descriptionKey: "error.connections.permissionConfigure.organization.description",

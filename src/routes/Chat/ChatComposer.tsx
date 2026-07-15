@@ -7,9 +7,7 @@ import type {
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
-import type { ConnectionAccountPaletteItem } from "./composer-palette-items.ts"
 import type { ComposerState } from "./composer-state.ts"
-import type { PendingDefaultConnection } from "./DefaultConnectionConfirmDialog.tsx"
 import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app-shell-model"
@@ -33,7 +31,6 @@ import { ComposerPalette } from "./ComposerPalette.tsx"
 import { ComposerTrailingControls } from "./ComposerTrailingControls.tsx"
 import { buildContextUsageInfo } from "./context-usage.ts"
 import { ContextMentionChips } from "./ContextMentionChips.tsx"
-import { DefaultConnectionConfirmDialog } from "./DefaultConnectionConfirmDialog.tsx"
 import { AddCustomModelDialog } from "./ModelControls.tsx"
 import { answerSingleTextQuestion, isSingleTextQuestion } from "./question-answer.ts"
 import { QueuedMessagePanel } from "./QueuedMessagePanel.tsx"
@@ -90,7 +87,6 @@ interface ChatComposerProps {
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
   onPermissionModeDefault: () => void
   onPermissionModeFullAccess: () => void
-  onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onOpenKnowledgeLibrary?: () => void
   onSelectKnowledgeBase: (id: string) => void
@@ -178,7 +174,6 @@ export function ChatComposer({
   onAnswerQuestion,
   onPermissionModeDefault,
   onPermissionModeFullAccess,
-  onSetDefaultConnection,
   onOpenConnectionProvider,
   onOpenKnowledgeLibrary,
   onSelectKnowledgeBase,
@@ -188,7 +183,6 @@ export function ChatComposer({
   const t = useT()
   const skillInventory = useSkillInventoryResource()
   const modelCatalogState = useModelCatalog()
-  const defaultConnectionConfirmButtonRef = React.useRef<HTMLButtonElement | null>(null)
   const [composer, dispatchComposer] = React.useReducer(
     composerReducer,
     initialComposerStateProp ?? initialComposerState(),
@@ -259,10 +253,9 @@ export function ChatComposer({
         defaultAccountDescription: (account) => t("chat.connectionDefaultAccountDescription", { account }),
         defaultLabel: t("connections.defaultConnection"),
         needsAttention: t("connections.needsAttention"),
-        setDefault: onSetDefaultConnection ? t("chat.connectionSetDefault") : "",
         unsupportedProvider: t("chat.connectionUnsupportedDescription"),
       }),
-    [onSetDefaultConnection, providers, t],
+    [providers, t],
   )
   const artifactItems = React.useMemo(() => buildArtifactPaletteItems(generatedArtifacts, t), [generatedArtifacts, t])
   const knowledgePaletteItems = React.useMemo(
@@ -347,57 +340,6 @@ export function ChatComposer({
   const removeContextMention = React.useCallback((mention: ChatContextMention) => {
     dispatchComposer({ type: "remove-context-mention", mention })
   }, [])
-  const [pendingDefaultConnection, setPendingDefaultConnection] = React.useState<PendingDefaultConnection | null>(null)
-  const [defaultConnectionPending, setDefaultConnectionPending] = React.useState(false)
-  const setDefaultConnection = React.useCallback(
-    async (service: string, appId: string): Promise<boolean> => {
-      if (!onSetDefaultConnection) {
-        setInputError(t("chat.connectionSetDefaultFailed"))
-        return false
-      }
-      try {
-        const accepted = await onSetDefaultConnection(service, appId)
-        if (!accepted) {
-          setInputError(t("chat.connectionSetDefaultFailed"))
-        } else {
-          setInputError(null)
-        }
-        return accepted
-      } catch {
-        setInputError(t("chat.connectionSetDefaultFailed"))
-        return false
-      }
-    },
-    [onSetDefaultConnection, t],
-  )
-  const requestSetDefaultConnection = React.useCallback(
-    (item: ConnectionAccountPaletteItem, selectConnection: () => void) => {
-      setInputError(null)
-      setPendingDefaultConnection({ item, selectConnection })
-    },
-    [],
-  )
-  const closeDefaultConnectionDialog = React.useCallback(() => {
-    if (defaultConnectionPending) {
-      return
-    }
-    setPendingDefaultConnection(null)
-  }, [defaultConnectionPending])
-  const setPendingDefaultAndUse = React.useCallback(async () => {
-    const pending = pendingDefaultConnection
-    if (!pending || defaultConnectionPending) {
-      return
-    }
-    setDefaultConnectionPending(true)
-    const accepted = await setDefaultConnection(pending.item.service, pending.item.appId)
-    setDefaultConnectionPending(false)
-    if (!accepted) {
-      return
-    }
-    setPendingDefaultConnection(null)
-    pending.selectConnection()
-  }, [defaultConnectionPending, pendingDefaultConnection, setDefaultConnection])
-
   const composerPalette = useComposerPalette({
     connectionItems,
     contextItems,
@@ -421,7 +363,6 @@ export function ChatComposer({
     onAddContextMention: addContextMention,
     onOpenConnectionProvider,
     onOpenKnowledgeLibrary,
-    onRequestSetDefaultConnection: onSetDefaultConnection ? requestSetDefaultConnection : undefined,
     onSelectAttachments: (kind) => {
       if (composerDisabled || composerAttachmentsDisabled) {
         return
@@ -666,15 +607,6 @@ export function ChatComposer({
       onResume={onQueuedMessageResume}
     />
   )
-  const defaultConnectionDialog = (
-    <DefaultConnectionConfirmDialog
-      pending={pendingDefaultConnection}
-      submitting={defaultConnectionPending}
-      confirmButtonRef={defaultConnectionConfirmButtonRef}
-      onClose={closeDefaultConnectionDialog}
-      onConfirm={() => void setPendingDefaultAndUse()}
-    />
-  )
   const accountHeaderLabel =
     composerPalette.mode === "connection-accounts" &&
     (composerPalette.activeItem?.kind === "connection-account" ||
@@ -717,7 +649,6 @@ export function ChatComposer({
         </div>
       </div>
       {modelDialog}
-      {defaultConnectionDialog}
     </>
   )
 }

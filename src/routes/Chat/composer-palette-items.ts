@@ -331,7 +331,6 @@ export interface ConnectionPaletteCopy {
   defaultAccountDescription: (account: string) => string
   defaultLabel: string
   needsAttention: string
-  setDefault: string
   unsupportedProvider: string
 }
 
@@ -459,7 +458,6 @@ export function buildConnectionAccountPaletteItems(
       const accountLabel = connectionAppUiDisplayLabel(app)
       const title = accountLabel ?? connectionAppDisplayLabel(app, index, copy)
       const description = app.status === "active" ? copy.authLabel(app.authType) : copy.needsAttention
-      const canSetDefault = Boolean(copy.setDefault) && !app.isDefault && app.status === "active"
       return {
         accountLabel: title,
         appId: app.id,
@@ -477,10 +475,6 @@ export function buildConnectionAccountPaletteItems(
         keywords: [provider.service, provider.displayName, ...connectionAppSearchText(app)],
         kind: "connection-account",
         meta: app.isDefault ? copy.defaultLabel : undefined,
-        secondaryActionDisabled: app.status !== "active",
-        secondaryActionIconVisibility: canSetDefault ? "active" : undefined,
-        secondaryActionLabel: canSetDefault ? copy.setDefault : undefined,
-        secondaryActionTitle: canSetDefault ? copy.setDefault : undefined,
         service: provider.service,
         status: app.status,
         title,

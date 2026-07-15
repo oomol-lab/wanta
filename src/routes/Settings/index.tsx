@@ -77,7 +77,7 @@ export function SettingsRoute({ onBack }: { onBack: () => void }) {
       <h1 className="oo-text-page-title">{t("settings.title")}</h1>
 
       <div className="grid gap-5">
-        <SettingsSection title={t("settings.groupPersonal")}>
+        <SettingsSection title={t("settings.groupAccount")}>
           <AccountSettings
             account={auth.state?.account}
             error={auth.error}

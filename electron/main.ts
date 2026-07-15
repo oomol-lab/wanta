@@ -6,7 +6,7 @@ import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, session, shell } from "electron"
 import path from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { AgentRefreshScheduler } from "./agent-refresh-scheduler.ts"
 import {
   ooBinaryName,
@@ -44,6 +44,7 @@ import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./d
 import { GitServiceImpl } from "./git/node.ts"
 import { KnowledgeServiceImpl } from "./knowledge/node.ts"
 import { KnowledgeStore } from "./knowledge/store.ts"
+import { isAudioOnlyMediaRequest, isTrustedRendererUrl } from "./media-permission-policy.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
 import { installOomolCorsShim } from "./net/oomol-cors.ts"
@@ -76,9 +77,14 @@ process.env.APP_ROOT = appRoot
 configureDiagnosticsLog(path.join(app.getPath("userData"), "logs", "diagnostics.jsonl"))
 installMainProcessErrorHandlers()
 registerArtifactResourceScheme()
+if (process.platform === "win32") {
+  // Windows Toast 以 AppUserModelID 识别发送者；与安装包 appId 保持单一来源。
+  app.setAppUserModelId(branding.appId)
+}
 
 const viteDevServerUrl = process.env["VITE_DEV_SERVER_URL"]
 const rendererDist = path.join(appRoot, "dist")
+const rendererBaseUrl = pathToFileURL(`${rendererDist}${path.sep}`).href
 const preloadPath = path.join(dirname, "preload.js")
 const macTrafficLightPosition = { x: 15, y: 17 }
 const shutdownCleanupTimeoutMs = 5_000
@@ -862,8 +868,24 @@ function createMainWindow(): void {
 }
 
 function installPermissionRequestHandler(): void {
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === "media")
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => {
+    return (
+      permission === "media" &&
+      webContents === mainWindow?.webContents &&
+      details.isMainFrame &&
+      details.mediaType === "audio" &&
+      isTrustedRendererUrl(details.requestingUrl, viteDevServerUrl, rendererBaseUrl)
+    )
+  })
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    callback(
+      permission === "media" &&
+        webContents === mainWindow?.webContents &&
+        details.isMainFrame &&
+        "mediaTypes" in details &&
+        isAudioOnlyMediaRequest(details.mediaTypes) &&
+        isTrustedRendererUrl(details.requestingUrl, viteDevServerUrl, rendererBaseUrl),
+    )
   })
 }
 

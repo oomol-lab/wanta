@@ -1,13 +1,26 @@
 import type { AppLocale } from "../app-locale.ts"
 import type { AppSettings } from "../settings/common.ts"
-import type { AttentionService, AttentionState, VisibleSessionRequest } from "./common.ts"
+import type {
+  AttentionService,
+  AttentionState,
+  NotificationCapability,
+  NotificationTestResult,
+  VisibleSessionRequest,
+} from "./common.ts"
 import type { AttentionStore, UnreadAttentionEntry } from "./store.ts"
 import type { IConnectionService } from "@oomol/connection"
-import type { BrowserWindow as ElectronBrowserWindow, NativeImage } from "electron"
+import type { BrowserWindow as ElectronBrowserWindow, Event as ElectronEvent, NativeImage } from "electron"
 
 import { ConnectionService } from "@oomol/connection"
-import { app, nativeImage, Notification } from "electron"
+import { app, nativeImage, Notification, shell } from "electron"
+import { branding } from "../branding.ts"
 import { AttentionService as AttentionServiceName } from "./common.ts"
+import {
+  notificationCapability,
+  openFirstAvailableSystemSettingsUrl,
+  systemNotificationSettingsUrls,
+} from "./notification-capability.ts"
+import { deliverNotification } from "./notification-delivery.ts"
 import { isSessionActivelyViewed, shouldShowCompletionNotification } from "./policy.ts"
 
 interface AttentionServiceDeps {
@@ -41,6 +54,8 @@ const messages = {
 } as const
 
 let windowsUnreadOverlay: NativeImage | null = null
+const notificationDeliveryTimeoutMs = 5_000
+const notificationTestDeliveryTimeoutMs = 60_000
 
 /** 统一管理未读任务、应用图标红标和原生完成通知。 */
 export class AttentionServiceImpl
@@ -68,6 +83,16 @@ export class AttentionServiceImpl
   public async getAttentionState(): Promise<AttentionState> {
     await this.ensureLoaded()
     return this.currentState()
+  }
+
+  public getNotificationCapability(): Promise<NotificationCapability> {
+    return Promise.resolve(
+      notificationCapability({
+        isPackaged: app.isPackaged,
+        platform: process.platform,
+        supported: Notification.isSupported(),
+      }),
+    )
   }
 
   public setVisibleSession(req: VisibleSessionRequest): Promise<void> {
@@ -112,7 +137,11 @@ export class AttentionServiceImpl
 
       const settings = this.deps.getSettings()
       if (shouldShowCompletionNotification(settings.completionNotificationCondition, windowFocused)) {
-        this.showNotification(req.sessionId, false)
+        void this.showNotification(req.sessionId, false).then((result) => {
+          if (result.outcome === "failed" || result.outcome === "timed-out") {
+            console.warn("[wanta] task completion notification was not delivered:", result)
+          }
+        })
       }
     })
   }
@@ -133,9 +162,14 @@ export class AttentionServiceImpl
     })
   }
 
-  public testCompletionNotification(): Promise<void> {
-    this.showNotification(null, true)
-    return Promise.resolve()
+  public testCompletionNotification(): Promise<NotificationTestResult> {
+    return this.showNotification(null, true)
+  }
+
+  public async openSystemNotificationSettings(): Promise<void> {
+    const appBundleId = app.isPackaged ? branding.appId : branding.devBundleId
+    const urls = systemNotificationSettingsUrls(process.platform, appBundleId)
+    await openFirstAvailableSystemSettingsUrl(urls, (url) => shell.openExternal(url))
   }
 
   public settingsChanged(settings: AppSettings): void {
@@ -195,8 +229,8 @@ export class AttentionServiceImpl
     this.notifications.get(`completion-${sessionId}`)?.close()
   }
 
-  private showNotification(sessionId: string | null, test: boolean): void {
-    if (!Notification.isSupported()) return
+  private showNotification(sessionId: string | null, test: boolean): Promise<NotificationTestResult> {
+    if (!Notification.isSupported()) return Promise.resolve({ outcome: "unsupported" })
     const locale = this.deps.getLocale()
     const copy = messages[locale]
     const id = test ? `test-${Date.now()}` : `completion-${sessionId}`
@@ -215,10 +249,6 @@ export class AttentionServiceImpl
       }
     }
     notification.once("close", forget)
-    notification.once("failed", (_event, error) => {
-      forget()
-      console.warn("[wanta] task completion notification failed:", error)
-    })
     if (sessionId) {
       notification.once("click", () => {
         this.deps.revealWindow()
@@ -230,7 +260,31 @@ export class AttentionServiceImpl
         })
       })
     }
-    notification.show()
+    let showListener: (() => void) | null = null
+    let failedEventListener: ((event: ElectronEvent, error: string) => void) | null = null
+    return deliverNotification(
+      {
+        onFailed: (listener) => {
+          failedEventListener = (_event, error) => listener(error)
+          notification.once("failed", failedEventListener)
+        },
+        onShow: (listener) => {
+          showListener = listener
+          notification.once("show", listener)
+        },
+        removeFailedListener: () => {
+          if (failedEventListener) notification.removeListener("failed", failedEventListener)
+        },
+        removeShowListener: () => {
+          if (showListener) notification.removeListener("show", showListener)
+        },
+        show: () => notification.show(),
+      },
+      test ? notificationTestDeliveryTimeoutMs : notificationDeliveryTimeoutMs,
+    ).then((result) => {
+      if (result.outcome === "failed") forget()
+      return result
+    })
   }
 }
 

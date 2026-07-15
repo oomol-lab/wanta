@@ -15,6 +15,23 @@ export interface OpenAttentionSessionEvent {
   sessionId: string
 }
 
+export type NotificationCapabilityPlatform = "darwin" | "other" | "win32"
+
+export type NotificationCapabilityStatus = "development-unavailable" | "testable" | "unsupported"
+
+export interface NotificationCapability {
+  canOpenSystemSettings: boolean
+  platform: NotificationCapabilityPlatform
+  status: NotificationCapabilityStatus
+}
+
+export type NotificationTestOutcome = "failed" | "shown" | "timed-out" | "unsupported"
+
+export interface NotificationTestResult {
+  error?: string
+  outcome: NotificationTestOutcome
+}
+
 export type AttentionService = typeof AttentionService
 export const AttentionService = serviceName("attention-service") as ServiceName<{
   ServerEvents: {
@@ -23,8 +40,10 @@ export const AttentionService = serviceName("attention-service") as ServiceName<
   }
   ClientInvokes: {
     getAttentionState(): Promise<AttentionState>
+    getNotificationCapability(): Promise<NotificationCapability>
     markSessionViewed(sessionId: string): Promise<void>
+    openSystemNotificationSettings(): Promise<void>
     setVisibleSession(req: VisibleSessionRequest): Promise<void>
-    testCompletionNotification(): Promise<void>
+    testCompletionNotification(): Promise<NotificationTestResult>
   }
 }>

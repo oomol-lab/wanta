@@ -1,0 +1,50 @@
+import type { NotificationCapability } from "../../../electron/attention/common.ts"
+
+import { describe, expect, it } from "vitest"
+import { notificationPresentation } from "./notification-presentation.ts"
+
+function capability(
+  platform: NotificationCapability["platform"],
+  status: NotificationCapability["status"] = "testable",
+): NotificationCapability {
+  return {
+    canOpenSystemSettings: platform === "darwin" || platform === "win32",
+    platform,
+    status,
+  }
+}
+
+describe("notificationPresentation", () => {
+  it("uses an explicit contextual enable action for an unverified macOS installation", () => {
+    expect(notificationPresentation(capability("darwin"), null)).toEqual({
+      descriptionKey: "settings.notificationMacInitialDescription",
+      recovery: false,
+      settingsLabelKey: "settings.notificationOpenMacSettings",
+      testLabelKey: "settings.notificationEnableAndTest",
+    })
+  })
+
+  it("describes Windows as a delivery check instead of a permission request", () => {
+    expect(notificationPresentation(capability("win32"), null)).toEqual({
+      descriptionKey: "settings.notificationWindowsInitialDescription",
+      recovery: false,
+      settingsLabelKey: "settings.notificationOpenWindowsSettings",
+      testLabelKey: "settings.notificationTest",
+    })
+  })
+
+  it("promotes system settings only after a failed or unconfirmed test", () => {
+    expect(notificationPresentation(capability("darwin"), { outcome: "failed" }).recovery).toBe(true)
+    expect(notificationPresentation(capability("win32"), { outcome: "timed-out" }).recovery).toBe(true)
+    expect(notificationPresentation(capability("darwin"), { outcome: "shown" }).recovery).toBe(false)
+  })
+
+  it("does not offer an authorization-like action in unsupported or unsigned development environments", () => {
+    expect(notificationPresentation(capability("darwin", "development-unavailable"), null).descriptionKey).toBe(
+      "settings.notificationDevelopmentUnavailable",
+    )
+    expect(notificationPresentation(capability("other", "unsupported"), null).descriptionKey).toBe(
+      "settings.notificationUnsupported",
+    )
+  })
+})

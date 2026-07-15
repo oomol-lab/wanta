@@ -1,9 +1,10 @@
+import type { NotificationCapability, NotificationTestResult } from "../../../electron/attention/common.ts"
 import type { AuthAccountSummary } from "../../../electron/auth/common.ts"
 import type { CompletionNotificationCondition } from "../../../electron/settings/common.ts"
 import type { UpdateChannel } from "../../../electron/update/common.ts"
 import type { ThemePreference } from "@/components/theme-context"
 import type { UseAppUpdate } from "@/hooks/useAppUpdate"
-import type { Locale } from "@/i18n/i18n"
+import type { Locale, MessageKey } from "@/i18n/i18n"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
 import {
@@ -21,6 +22,7 @@ import {
 import * as React from "react"
 import { toast } from "sonner"
 import { branding } from "../../../electron/branding.ts"
+import { notificationPresentation } from "./notification-presentation.ts"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { PageRouteShell } from "@/components/PageRouteShell"
@@ -92,10 +94,12 @@ export function SettingsRoute({ onBack }: { onBack: () => void }) {
 
         <SettingsSection title={t("settings.groupApplication")}>
           <NotificationSettings
+            capability={attention.notificationCapability}
             loading={appSettings.loading}
             settings={appSettings.settings}
             onConditionChange={appSettings.setCompletionNotificationCondition}
             onSoundChange={appSettings.setNotificationSoundEnabled}
+            onOpenSystemSettings={attention.openSystemNotificationSettings}
             onBadgeChange={appSettings.setUnreadBadgeEnabled}
             onTest={attention.testCompletionNotification}
           />
@@ -120,23 +124,32 @@ export function SettingsRoute({ onBack }: { onBack: () => void }) {
 }
 
 function NotificationSettings({
+  capability,
   loading,
   onBadgeChange,
   onConditionChange,
+  onOpenSystemSettings,
   onSoundChange,
   onTest,
   settings,
 }: {
+  capability: NotificationCapability | null
   loading: boolean
   onBadgeChange: (enabled: boolean) => Promise<void>
   onConditionChange: (condition: CompletionNotificationCondition) => Promise<void>
+  onOpenSystemSettings: () => Promise<void>
   onSoundChange: (enabled: boolean) => Promise<void>
-  onTest: () => Promise<void>
+  onTest: () => Promise<NotificationTestResult>
   settings: ReturnType<typeof useAppSettings>["settings"]
 }) {
   const { t } = useI18n()
   const [saving, setSaving] = React.useState(false)
-  const disabled = loading || saving
+  const [testing, setTesting] = React.useState(false)
+  const [lastTestResult, setLastTestResult] = React.useState<NotificationTestResult | null>(null)
+  const disabled = loading || saving || testing
+  const testDisabled =
+    disabled || !capability || capability.status === "unsupported" || capability.status === "development-unavailable"
+  const presentation = notificationPresentation(capability, lastTestResult)
 
   const save = React.useCallback(
     (task: Promise<void>) => {
@@ -153,6 +166,55 @@ function NotificationSettings({
 
   return (
     <>
+      <SettingsItem title={t("settings.notificationSystemStatus")} description={t(presentation.descriptionKey)}>
+        <div className="flex flex-wrap justify-end gap-2 max-[760px]:justify-start">
+          {presentation.recovery && capability?.canOpenSystemSettings ? (
+            <SystemNotificationSettingsButton
+              disabled={disabled}
+              labelKey={presentation.settingsLabelKey}
+              onOpen={onOpenSystemSettings}
+            />
+          ) : null}
+          <Button
+            type="button"
+            variant={presentation.recovery ? "outline" : "default"}
+            size="sm"
+            disabled={testDisabled}
+            onClick={() => {
+              setTesting(true)
+              void onTest()
+                .then((result) => {
+                  setLastTestResult(result)
+                  if (result.outcome === "shown") {
+                    toast.success(t("settings.notificationTestSent"))
+                    return
+                  }
+                  toast.error(t(notificationTestFailureKey(result)))
+                  console.error("[wanta] test notification was not delivered", result)
+                })
+                .catch((error: unknown) => {
+                  setLastTestResult({
+                    error: error instanceof Error ? error.message : String(error),
+                    outcome: "failed",
+                  })
+                  toast.error(t("settings.notificationTestFailed"))
+                  console.error("[wanta] test notification failed", error)
+                })
+                .finally(() => setTesting(false))
+            }}
+          >
+            <BellRingIcon className="size-4" />
+            {t(presentation.testLabelKey)}
+          </Button>
+          {!presentation.recovery && capability?.canOpenSystemSettings ? (
+            <SystemNotificationSettingsButton
+              disabled={disabled}
+              labelKey={presentation.settingsLabelKey}
+              onOpen={onOpenSystemSettings}
+            />
+          ) : null}
+        </div>
+      </SettingsItem>
       <SettingsItem title={t("settings.notifications")} description={t("settings.notificationsDescription")}>
         <ToggleGroup
           type="single"
@@ -188,25 +250,49 @@ function NotificationSettings({
           onCheckedChange={(enabled) => save(onBadgeChange(enabled))}
         />
       </SettingsItem>
-      <SettingsItem title={t("settings.notificationTestTitle")} description={t("settings.notificationTestDescription")}>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={disabled}
-          onClick={() => {
-            void onTest().catch((error: unknown) => {
-              toast.error(t("settings.notificationTestFailed"))
-              console.error("[wanta] test notification failed", error)
-            })
-          }}
-        >
-          <BellRingIcon className="size-4" />
-          {t("settings.notificationTest")}
-        </Button>
-      </SettingsItem>
     </>
   )
+}
+
+function SystemNotificationSettingsButton({
+  disabled,
+  labelKey,
+  onOpen,
+}: {
+  disabled: boolean
+  labelKey: MessageKey
+  onOpen: () => Promise<void>
+}) {
+  const { t } = useI18n()
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      disabled={disabled}
+      onClick={() => {
+        void onOpen().catch((error: unknown) => {
+          toast.error(t("settings.notificationSettingsOpenFailed"))
+          console.error("[wanta] open system notification settings failed", error)
+        })
+      }}
+    >
+      {t(labelKey)}
+    </Button>
+  )
+}
+
+function notificationTestFailureKey(
+  result: NotificationTestResult,
+): "settings.notificationTestFailed" | "settings.notificationTestTimedOut" | "settings.notificationUnsupported" {
+  switch (result.outcome) {
+    case "timed-out":
+      return "settings.notificationTestTimedOut"
+    case "unsupported":
+      return "settings.notificationUnsupported"
+    default:
+      return "settings.notificationTestFailed"
+  }
 }
 
 function KnowledgeBetaToggle({

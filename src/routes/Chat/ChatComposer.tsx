@@ -6,6 +6,7 @@ import type {
   ChatQuestionRequest,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { ConnectionAccountPaletteItem } from "./composer-palette-items.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { PendingDefaultConnection } from "./DefaultConnectionConfirmDialog.tsx"
@@ -22,6 +23,7 @@ import {
   buildArtifactPaletteItems,
   buildConnectionPaletteItems,
   buildContextPaletteItems,
+  buildKnowledgePaletteItems,
   buildSkillPaletteItems,
   slashCommandItems,
 } from "./composer-palette-items.ts"
@@ -64,6 +66,11 @@ interface ChatComposerProps {
   initialComposerState?: ComposerState
   initialSendPending: boolean
   messages: ChatMessage[]
+  knowledgeBaseIds: string[]
+  knowledgeEnabled: boolean
+  knowledgeError: string | null
+  knowledgeItems: KnowledgeBaseSummary[]
+  knowledgeLoading: boolean
   permissionMode: AgentPermissionMode
   pendingQuestions: ChatQuestionRequest[]
   placeholder: string
@@ -85,6 +92,8 @@ interface ChatComposerProps {
   onPermissionModeFullAccess: () => void
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onOpenConnectionProvider?: (service: string, displayName: string) => void
+  onOpenKnowledgeLibrary?: () => void
+  onSelectKnowledgeBase: (id: string) => void
   onStop: () => Promise<void> | void
   onViewBilling?: () => void
 }
@@ -145,6 +154,11 @@ export function ChatComposer({
   initialComposerState: initialComposerStateProp,
   initialSendPending,
   messages,
+  knowledgeBaseIds,
+  knowledgeEnabled,
+  knowledgeError,
+  knowledgeItems,
+  knowledgeLoading,
   permissionMode,
   pendingQuestions = [],
   placeholder,
@@ -166,6 +180,8 @@ export function ChatComposer({
   onPermissionModeFullAccess,
   onSetDefaultConnection,
   onOpenConnectionProvider,
+  onOpenKnowledgeLibrary,
+  onSelectKnowledgeBase,
   onStop,
   onViewBilling,
 }: ChatComposerProps) {
@@ -249,9 +265,30 @@ export function ChatComposer({
     [onSetDefaultConnection, providers, t],
   )
   const artifactItems = React.useMemo(() => buildArtifactPaletteItems(generatedArtifacts, t), [generatedArtifacts, t])
+  const knowledgePaletteItems = React.useMemo(
+    () =>
+      knowledgeEnabled
+        ? buildKnowledgePaletteItems(
+            knowledgeItems,
+            knowledgeBaseIds,
+            {
+              emptyDescription: t("chat.knowledgePaletteEmptyDescription"),
+              emptyTitle: t("chat.knowledgePaletteEmptyTitle"),
+              failedDescription: t("chat.knowledgePaletteFailedDescription"),
+              failedTitle: t("chat.knowledgePaletteFailedTitle"),
+              loadingDescription: t("chat.knowledgePaletteLoadingDescription"),
+              loadingTitle: t("chat.knowledgePaletteLoadingTitle"),
+              selected: t("chat.knowledgePaletteSelected"),
+            },
+            { error: Boolean(knowledgeError), loading: knowledgeLoading },
+          )
+        : [],
+    [knowledgeBaseIds, knowledgeEnabled, knowledgeError, knowledgeItems, knowledgeLoading, t],
+  )
   const contextItems = React.useMemo(
-    () => buildContextPaletteItems({ artifactItems, connectionItems, platform, t }),
-    [artifactItems, connectionItems, platform, t],
+    () =>
+      buildContextPaletteItems({ artifactItems, connectionItems, knowledgeItems: knowledgePaletteItems, platform, t }),
+    [artifactItems, connectionItems, knowledgePaletteItems, platform, t],
   )
   const providerByService = React.useMemo(
     () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
@@ -383,6 +420,7 @@ export function ChatComposer({
     },
     onAddContextMention: addContextMention,
     onOpenConnectionProvider,
+    onOpenKnowledgeLibrary,
     onRequestSetDefaultConnection: onSetDefaultConnection ? requestSetDefaultConnection : undefined,
     onSelectAttachments: (kind) => {
       if (composerDisabled || composerAttachmentsDisabled) {
@@ -390,6 +428,7 @@ export function ChatComposer({
       }
       void composerAttachments.selectAttachments(kind)
     },
+    onSelectKnowledgeBase,
     onViewBilling,
     skillItems,
     slashItems,

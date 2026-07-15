@@ -9,6 +9,7 @@ import type {
   ChatQuestionRequest,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { ConnectionCatalogFilter } from "../Connections/connection-route-model.ts"
 import type { ChatTurnRetrySource } from "./chat-turns.ts"
 import type { ComposerState } from "./composer-state.ts"
@@ -43,6 +44,11 @@ interface ChatAreaProps {
   composerDraftKey: string
   composerFocusRequest: number
   messages: ChatMessage[]
+  knowledgeBaseIds: string[]
+  knowledgeEnabled: boolean
+  knowledgeError: string | null
+  knowledgeItems: KnowledgeBaseSummary[]
+  knowledgeLoading: boolean
   permissionMode: AgentPermissionMode
   pendingPermissions: ChatPermissionRequest[]
   pendingQuestions: ChatQuestionRequest[]
@@ -90,8 +96,10 @@ interface ChatAreaProps {
   onTurnOutputAvailable: (selection: TurnOutputSelection) => void
   onOpenConnections?: (filter?: ConnectionCatalogFilter) => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
+  onOpenKnowledgeLibrary?: () => void
   onOpenOrganizations?: () => void
   onViewBilling?: () => void
+  onSelectKnowledgeBase: (id: string) => void
 }
 
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
@@ -237,6 +245,11 @@ export const ChatArea = React.memo(function ChatArea({
   composerDraftKey,
   composerFocusRequest,
   messages,
+  knowledgeBaseIds,
+  knowledgeEnabled,
+  knowledgeError,
+  knowledgeItems,
+  knowledgeLoading,
   permissionMode,
   pendingPermissions,
   pendingQuestions,
@@ -284,8 +297,10 @@ export const ChatArea = React.memo(function ChatArea({
   onTurnOutputAvailable,
   onOpenConnections,
   onOpenConnectionProvider,
+  onOpenKnowledgeLibrary,
   onOpenOrganizations,
   onViewBilling,
+  onSelectKnowledgeBase,
 }: ChatAreaProps) {
   const t = useT()
   const [fullAccessDialogOpen, setFullAccessDialogOpen] = React.useState(false)
@@ -322,6 +337,11 @@ export const ChatArea = React.memo(function ChatArea({
       initialComposerState={initialComposerState}
       initialSendPending={initialSendPending}
       messages={messages}
+      knowledgeBaseIds={knowledgeBaseIds}
+      knowledgeEnabled={knowledgeEnabled}
+      knowledgeError={knowledgeError}
+      knowledgeItems={knowledgeItems}
+      knowledgeLoading={knowledgeLoading}
       permissionMode={permissionMode}
       pendingQuestions={pendingQuestions}
       placeholder={placeholder}
@@ -343,6 +363,8 @@ export const ChatArea = React.memo(function ChatArea({
       onPermissionModeFullAccess={requestFullAccess}
       onSetDefaultConnection={onSetDefaultConnection}
       onOpenConnectionProvider={onOpenConnectionProvider}
+      onOpenKnowledgeLibrary={onOpenKnowledgeLibrary}
+      onSelectKnowledgeBase={onSelectKnowledgeBase}
       onStop={onStop}
       onViewBilling={onViewBilling}
     />

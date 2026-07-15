@@ -16,6 +16,7 @@ describe("billingRequestScopeForWorkspace", () => {
       role: "creator" as const,
     }
     expect(billingRequestScopeForWorkspace(workspace)).toEqual({
+      canManageBilling: true,
       organizationId: "team-1",
       organizationName: "acme",
     })

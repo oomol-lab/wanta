@@ -1,34 +1,52 @@
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 
-import { ArrowRightIcon, GaugeIcon, LogInIcon, RefreshCwIcon, WalletCardsIcon, XIcon } from "lucide-react"
+import {
+  ArrowRightIcon,
+  GaugeIcon,
+  LogInIcon,
+  RefreshCwIcon,
+  ShieldCheckIcon,
+  WalletCardsIcon,
+  XIcon,
+} from "lucide-react"
 import * as React from "react"
 import { ErrorNotice } from "@/components/ErrorNotice"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/hooks/useAuth"
+import { useBillableSeats } from "@/hooks/useBillableSeats"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
-import { billingRequestScopeForWorkspace } from "@/lib/billing-scope"
+import { billingRequestScopeForWorkspace, canManageWantaBilling } from "@/lib/billing-scope"
 import { cn } from "@/lib/utils"
 import { buildCategorySummaries, formatCredit, getSummary, statsTotalCredit, toNumber } from "@/routes/Billing/usage.ts"
+import { buildWantaSubscriptionOverview } from "@/routes/Billing/wanta-subscription-model.ts"
 
 const usagePeriodDays = 30
 const cacheFreshMs = 60_000
-export type BillingDetailsTarget = "credits"
+export type BillingDetailsTarget = "credits" | "plans"
 
 interface BillingUsagePopoverProps {
   cacheScope: string
+  sharedConnectorCount?: number
   workspace: WorkspaceSelection
   onViewDetails: (target?: BillingDetailsTarget) => void
 }
 
-export function BillingUsagePopover({ cacheScope, workspace, onViewDetails }: BillingUsagePopoverProps) {
+export function BillingUsagePopover({
+  cacheScope,
+  sharedConnectorCount,
+  workspace,
+  onViewDetails,
+}: BillingUsagePopoverProps) {
   const t = useT()
   const { login } = useAuth()
   const rootRef = React.useRef<HTMLDivElement | null>(null)
   const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   const [open, setOpen] = React.useState(false)
+  const seatState = useBillableSeats(workspace, open)
   const billingRequestScope = React.useMemo(() => billingRequestScopeForWorkspace(workspace), [workspace])
   const { data, error, loading, refresh } = useBillingOverview(usagePeriodDays, {
     cacheScope,
@@ -67,6 +85,31 @@ export function BillingUsagePopover({ cacheScope, workspace, onViewDetails }: Bi
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const modelSpend = getSummary(summaries, "model").credit
   const connectorSpend = getSummary(summaries, "link").credit
+  const showWantaPlanSection = canManageWantaBilling(workspace)
+  const billableSeats = Math.max(1, seatState.count ?? 1)
+  const wantaOverview = React.useMemo(
+    () =>
+      buildWantaSubscriptionOverview({
+        canManage: workspace.canManage,
+        memberCount: billableSeats,
+        pendingPayment: data?.wantaPendingPayment ?? null,
+        sharedConnectorCount,
+        subscription: data?.subscription ?? null,
+      }),
+    [billableSeats, data?.subscription, data?.wantaPendingPayment, sharedConnectorCount, workspace],
+  )
+  const showPlanPrompt = Boolean(
+    showWantaPlanSection && data && !error && wantaOverview.recommendedAction === "choose_plan",
+  )
+  const showPendingPaymentPrompt = Boolean(
+    showWantaPlanSection && data && !error && wantaOverview.recommendedAction === "continue_payment",
+  )
+  const showUpgradePrompt = Boolean(
+    showWantaPlanSection && data && !error && wantaOverview.recommendedAction === "upgrade_plan",
+  )
+  const showSeatPrompt = Boolean(
+    showWantaPlanSection && data && !error && wantaOverview.recommendedAction === "add_seats",
+  )
   const availableShare =
     originalCredit > 0
       ? Math.max(0, Math.min(100, (currentCredit / originalCredit) * 100))
@@ -164,6 +207,67 @@ export function BillingUsagePopover({ cacheScope, workspace, onViewDetails }: Bi
               <BillingUsageSkeleton />
             ) : (
               <>
+                {showWantaPlanSection ? (
+                  <section className="rounded-lg border border-border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="oo-text-label flex items-center gap-2 text-foreground">
+                          <ShieldCheckIcon className="size-4 text-muted-foreground" />
+                          <span>
+                            {wantaOverview.currentPlan
+                              ? wantaPlanLabel(wantaOverview.currentPlan, t)
+                              : t("billing.wantaNoPlan")}
+                          </span>
+                        </div>
+                        <div className="oo-text-caption-compact mt-1 text-muted-foreground">
+                          {seatState.loading
+                            ? t("billing.popover.planSeatsLoading")
+                            : wantaOverview.seatCapacity === null
+                              ? t("billing.popover.planMembers", { count: wantaOverview.usedSeats })
+                              : t("billing.popover.planSeats", {
+                                  count: wantaOverview.usedSeats,
+                                  limit: wantaOverview.seatCapacity,
+                                })}
+                          {sharedConnectorCount === undefined
+                            ? ""
+                            : ` · ${t("billing.popover.sharedLinks", { count: sharedConnectorCount })}`}
+                        </div>
+                      </div>
+                      <PlanStatusBadge
+                        clickable={wantaOverview.currentPlan === null}
+                        label={
+                          wantaOverview.hasPendingPayment
+                            ? t("billing.wantaPaymentPending")
+                            : showSeatPrompt
+                              ? t("billing.popover.seatLimitHint")
+                              : showUpgradePrompt
+                                ? t("billing.popover.upgradeHint")
+                                : wantaOverview.currentPlan === null
+                                  ? t("billing.popover.planInactive")
+                                  : t("billing.popover.planActive")
+                        }
+                        variant={
+                          wantaOverview.hasPendingPayment || showUpgradePrompt || showPlanPrompt || showSeatPrompt
+                            ? "default"
+                            : "outline"
+                        }
+                        onClick={() => openDetails("plans")}
+                      />
+                    </div>
+                    <p className="oo-text-caption mt-3 text-muted-foreground">
+                      {wantaOverview.hasPendingPayment
+                        ? t("billing.popover.pendingPaymentRecommendation")
+                        : showSeatPrompt
+                          ? t("billing.popover.seatRecommendation")
+                          : wantaOverview.currentPlan === null
+                            ? t("billing.popover.noPlanRecommendation")
+                            : showUpgradePrompt
+                              ? t("billing.popover.proRecommendation")
+                              : t("billing.popover.planDescription")}
+                    </p>
+                  </section>
+                ) : null}
+
                 <section className="grid gap-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -198,10 +302,28 @@ export function BillingUsagePopover({ cacheScope, workspace, onViewDetails }: Bi
               type="button"
               className="w-full min-w-0"
               onClick={() => {
-                openDetails(hasNoCredits ? "credits" : undefined)
+                openDetails(
+                  showPlanPrompt || showPendingPaymentPrompt || showSeatPrompt || showUpgradePrompt
+                    ? "plans"
+                    : hasNoCredits
+                      ? "credits"
+                      : undefined,
+                )
               }}
             >
-              {t(hasNoCredits ? "billing.purchaseCredits" : "billing.popover.viewDetails")}
+              {t(
+                showPlanPrompt
+                  ? "billing.planComparison.choosePlan"
+                  : showPendingPaymentPrompt
+                    ? "billing.wantaContinuePayment"
+                    : showSeatPrompt
+                      ? "billing.popover.manageSeats"
+                      : showUpgradePrompt
+                        ? "billing.proRecommendation.cta"
+                        : hasNoCredits
+                          ? "billing.purchaseCredits"
+                          : "billing.popover.viewDetails",
+              )}
               <ArrowRightIcon className="size-4" />
             </Button>
           </div>
@@ -209,6 +331,41 @@ export function BillingUsagePopover({ cacheScope, workspace, onViewDetails }: Bi
       ) : null}
     </div>
   )
+}
+
+function PlanStatusBadge({
+  clickable,
+  label,
+  variant,
+  onClick,
+}: {
+  clickable: boolean
+  label: string
+  variant: React.ComponentProps<typeof Badge>["variant"]
+  onClick: () => void
+}) {
+  if (!clickable) {
+    return <Badge variant={variant}>{label}</Badge>
+  }
+  return (
+    <Badge asChild variant={variant}>
+      <button
+        type="button"
+        title={label}
+        className="cursor-pointer focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:outline-none"
+        onClick={(event) => {
+          event.stopPropagation()
+          onClick()
+        }}
+      >
+        {label}
+      </button>
+    </Badge>
+  )
+}
+
+function wantaPlanLabel(plan: "wanta_plus" | "wanta_pro", t: ReturnType<typeof useT>): string {
+  return plan === "wanta_pro" ? t("billing.wantaProPlanTitle") : t("billing.wantaPlusPlanTitle")
 }
 
 function BillingUsageSkeleton() {

@@ -6,6 +6,12 @@ import type {
   CreditItem,
   CreditUsages,
   RechargePrice,
+  SubscriptionStatus,
+  WantaSubscriptionChangePayload,
+  WantaSubscriptionPreviewResult,
+  WantaSubscriptionUpdateResult,
+  WantaPendingPaymentResult,
+  WantaSubscriptionPlan,
 } from "../../electron/chat/common.ts"
 
 import { consoleBaseUrl, consoleServerBaseUrl, insightBaseUrl } from "@/lib/domain"
@@ -20,9 +26,12 @@ import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 const billingPath = "/billing"
 const dayMs = 24 * 60 * 60 * 1000
 const billingRequestTimeoutMs = 12_000
+const billingOptionalRequestSoftTimeoutMs = 3_000
 const billingCreditUsagesMaxPages = 100
+export const wantaSubscriptionPlans: readonly WantaSubscriptionPlan[] = ["wanta_plus", "wanta_pro"]
 
 export interface BillingRequestScope {
+  canManageBilling: boolean
   organizationId: string
   organizationName: string
 }
@@ -122,6 +131,167 @@ function readCreditUsages(payload: unknown): CreditUsages {
   }
 }
 
+function readWantaPendingPayment(payload: unknown): WantaPendingPaymentResult | null {
+  const source = unwrapConsoleData<unknown>(payload)
+  if (!source || typeof source !== "object") {
+    return null
+  }
+  const record = source as Record<string, unknown>
+  return {
+    subscriptionID: readStringField(record, ["subscriptionID", "subscriptionId", "subscription_id"]),
+    status: readStringField(record, ["status"]),
+    plan: isWantaSubscriptionPlan(record["plan"]) ? record["plan"] : null,
+    additionalSeats: readIntegerField(record, ["additionalSeats", "additional_seats"]),
+    currentPeriodEnd: readOptionalTimestampField(record, ["currentPeriodEnd", "current_period_end"]),
+    latestInvoiceID: readStringField(record, ["latestInvoiceID", "latestInvoiceId", "latest_invoice_id"]),
+    paymentRequired: readBooleanField(record, ["paymentRequired", "payment_required"]),
+    paymentURL: readStringField(record, ["paymentURL", "paymentUrl", "payment_url"]),
+    invoiceStatus: readStringField(record, ["invoiceStatus", "invoice_status"]),
+    amountRemaining: readOptionalNumberField(record, ["amountRemaining", "amount_remaining"]),
+    currency: readStringField(record, ["currency"]),
+    pendingUpdate: readBooleanField(record, ["pendingUpdate", "pending_update"]),
+    pendingUpdateExpiresAt: readOptionalTimestampField(record, ["pendingUpdateExpiresAt", "pending_update_expires_at"]),
+  }
+}
+
+function readWantaSubscriptionUpdate(payload: unknown): WantaSubscriptionUpdateResult {
+  const source = unwrapConsoleData<unknown>(payload)
+  if (!source || typeof source !== "object") {
+    throw new Error("Wanta subscription response is invalid.")
+  }
+  const record = source as Record<string, unknown>
+  return {
+    subscriptionID: readStringField(record, ["subscriptionID", "subscriptionId", "subscription_id"]) ?? "",
+    status: readStringField(record, ["status"]) ?? "",
+    plan: readPlanField(record, ["plan"]),
+    additionalSeats: readIntegerField(record, ["additionalSeats", "additional_seats"]),
+    targetPlan: readPlanField(record, ["targetPlan", "target_plan"]),
+    targetAdditionalSeats: readIntegerField(record, ["targetAdditionalSeats", "target_additional_seats"]),
+    currentPeriodEnd: readTimestampField(record, ["currentPeriodEnd", "current_period_end"]) ?? 0,
+    latestInvoiceID: readStringField(record, ["latestInvoiceID", "latestInvoiceId", "latest_invoice_id"]),
+    paymentRequired: readBooleanField(record, ["paymentRequired", "payment_required"]),
+    paymentURL: readStringField(record, ["paymentURL", "paymentUrl", "payment_url"]),
+    invoiceStatus: readStringField(record, ["invoiceStatus", "invoice_status"]),
+    amountRemaining: readOptionalNumberField(record, ["amountRemaining", "amount_remaining"]),
+    currency: readStringField(record, ["currency"]),
+    pendingUpdate: readBooleanField(record, ["pendingUpdate", "pending_update"]),
+    pendingUpdateExpiresAt: readOptionalTimestampField(record, ["pendingUpdateExpiresAt", "pending_update_expires_at"]),
+    scheduledUpdate: readBooleanField(record, ["scheduledUpdate", "scheduled_update"]),
+    scheduledEffectiveAt: readOptionalTimestampField(record, ["scheduledEffectiveAt", "scheduled_effective_at"]),
+  }
+}
+
+function readWantaSubscriptionPreview(payload: unknown): WantaSubscriptionPreviewResult {
+  const source = unwrapConsoleData<unknown>(payload)
+  if (!source || typeof source !== "object") {
+    throw new Error("Wanta subscription preview response is invalid.")
+  }
+  const record = source as Record<string, unknown>
+  return {
+    amountDue: readOptionalNumberField(record, ["amountDue", "amount_due"]) ?? 0,
+    changeTiming:
+      record["changeTiming"] === "next_cycle" || record["change_timing"] === "next_cycle" ? "next_cycle" : "immediate",
+    currency: readStringField(record, ["currency"]),
+    mode: record["mode"] === "update" ? "update" : "create",
+    targetAdditionalSeats: readIntegerField(record, ["targetAdditionalSeats", "target_additional_seats"]),
+    targetPlan: readPlanField(record, ["targetPlan", "target_plan"]),
+    total: readOptionalNumberField(record, ["total"]) ?? 0,
+  }
+}
+
+function readPlanField(record: Record<string, unknown>, keys: string[]): WantaSubscriptionPlan | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (isWantaSubscriptionPlan(value)) {
+      return value
+    }
+  }
+  return null
+}
+
+function isWantaSubscriptionPlan(value: unknown): value is WantaSubscriptionPlan {
+  return typeof value === "string" && wantaSubscriptionPlans.includes(value as WantaSubscriptionPlan)
+}
+
+function readStringField(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "string" && value.trim()) {
+      return value
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value)
+    }
+  }
+  return null
+}
+
+function readTimestampField(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return value > 0 && value < 10_000_000_000 ? value * 1000 : value
+    }
+    if (typeof value !== "string" || !value.trim()) {
+      continue
+    }
+    const numeric = Number(value)
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric < 10_000_000_000 ? numeric * 1000 : numeric
+    }
+    const parsed = Date.parse(value)
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+  return null
+}
+
+function readOptionalTimestampField(record: Record<string, unknown>, keys: string[]): number | null {
+  return readTimestampField(record, keys)
+}
+
+function readIntegerField(record: Record<string, unknown>, keys: string[]): number {
+  for (const key of keys) {
+    const value = record[key]
+    const amount = typeof value === "number" || typeof value === "string" ? Number(value) : Number.NaN
+    if (Number.isFinite(amount)) {
+      return Math.max(0, Math.floor(amount))
+    }
+  }
+  return 0
+}
+
+function readOptionalNumberField(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key]
+    const amount = typeof value === "number" || typeof value === "string" ? Number(value) : Number.NaN
+    if (Number.isFinite(amount)) {
+      return amount
+    }
+  }
+  return null
+}
+
+function readBooleanField(record: Record<string, unknown>, keys: string[]): boolean {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "boolean") {
+      return value
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase()
+      if (normalized === "true") {
+        return true
+      }
+      if (normalized === "false") {
+        return false
+      }
+    }
+  }
+  return false
+}
+
 export function ensureHttpUrl(rawUrl: string): string {
   const url = new URL(rawUrl)
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -170,6 +340,45 @@ function logSettledFailure(label: string, result: PromiseSettledResult<unknown>)
     console.warn("[wanta] billing overview request failed", { label, error: errorMessage(result.reason) })
     reportRendererHandledError("billingClient.request", `Billing overview request failed: ${label}`, result.reason)
   }
+}
+
+function preventEarlyUnhandledRejection(promise: Promise<unknown>): void {
+  void promise.catch(() => {
+    // 调用方稍后会通过 allSettled/settleWithSoftTimeout 统一记录和降级。
+  })
+}
+
+function settleWithSoftTimeout<T>(
+  label: string,
+  promise: Promise<T>,
+  timeoutMs = billingOptionalRequestSoftTimeoutMs,
+): Promise<PromiseSettledResult<T>> {
+  return new Promise((resolve) => {
+    let completed = false
+    const timer = setTimeout(() => {
+      if (!completed) {
+        completed = true
+        resolve({ status: "rejected", reason: new Error(`${label} request timed out.`) })
+      }
+    }, timeoutMs)
+
+    void promise.then(
+      (value) => {
+        if (!completed) {
+          completed = true
+          clearTimeout(timer)
+          resolve({ status: "fulfilled", value })
+        }
+      },
+      (reason: unknown) => {
+        if (!completed) {
+          completed = true
+          clearTimeout(timer)
+          resolve({ status: "rejected", reason })
+        }
+      },
+    )
+  })
 }
 
 function billingScopeHeaders(scope?: BillingRequestScope): HeadersInit | undefined {
@@ -240,6 +449,25 @@ async function getCreditMeteringStats(days: number, scope: BillingRequestScope):
   return unwrapApiData<BillingSpendStats>(await fetchAuthenticatedJson(url, scope))
 }
 
+async function getSubscriptionStatus(scope: BillingRequestScope): Promise<SubscriptionStatus | null> {
+  if (!scope.canManageBilling) {
+    return null
+  }
+  const url = new URL(`/api/org/${encodeURIComponent(scope.organizationId)}/subscriptions`, consoleServerBaseUrl)
+  return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url))
+}
+
+async function getWantaPendingPayment(scope: BillingRequestScope): Promise<WantaPendingPaymentResult | null> {
+  if (!scope.canManageBilling) {
+    return null
+  }
+  const url = new URL(
+    `/api/org/${encodeURIComponent(scope.organizationId)}/subscriptions/wanta/pending_payment`,
+    consoleServerBaseUrl,
+  )
+  return readWantaPendingPayment(await fetchAuthenticatedJson(url))
+}
+
 export async function getBillingSummary(days: number, scope: BillingRequestScope): Promise<BillingSummaryResult> {
   return getBillingOverview(days, scope)
 }
@@ -248,10 +476,22 @@ export async function getBillingOverview(days: number, scope: BillingRequestScop
   const balancePromise = getAllCreditUsages(scope)
   const spendPromise = getCreditSpendStats(days, scope)
   const meteringPromise = getCreditMeteringStats(days, scope)
+  const subscriptionPromise = getSubscriptionStatus(scope)
+  const wantaPendingPaymentPromise = getWantaPendingPayment(scope)
+
+  preventEarlyUnhandledRejection(subscriptionPromise)
+  preventEarlyUnhandledRejection(wantaPendingPaymentPromise)
+
   const [balance, spend, metering] = await Promise.allSettled([balancePromise, spendPromise, meteringPromise])
+  const [subscription, wantaPendingPayment] = await Promise.all([
+    settleWithSoftTimeout("subscription", subscriptionPromise),
+    settleWithSoftTimeout("wanta pending payment", wantaPendingPaymentPromise),
+  ])
   logSettledFailure("balance", balance)
   logSettledFailure("spend", spend)
   logSettledFailure("metering", metering)
+  logSettledFailure("subscription", subscription)
+  logSettledFailure("wanta pending payment", wantaPendingPayment)
   if (balance.status === "rejected" && isBillingAuthRequiredReason(balance.reason)) {
     throw balance.reason
   }
@@ -263,7 +503,42 @@ export async function getBillingOverview(days: number, scope: BillingRequestScop
     balance: balance.status === "fulfilled" ? filterGeneralCreditUsages(balance.value) : null,
     spend: spend.status === "fulfilled" ? spend.value : null,
     metering: metering.status === "fulfilled" ? metering.value : null,
+    subscription: subscription.status === "fulfilled" ? subscription.value : null,
+    wantaPendingPayment: wantaPendingPayment.status === "fulfilled" ? wantaPendingPayment.value : null,
   }
+}
+
+export async function updateWantaSubscription(
+  organizationId: string,
+  payload: WantaSubscriptionChangePayload,
+): Promise<WantaSubscriptionUpdateResult> {
+  const url = new URL(`/api/org/${encodeURIComponent(organizationId)}/subscriptions/wanta`, consoleServerBaseUrl)
+  return readWantaSubscriptionUpdate(
+    await oomolFetchJson<unknown>(url, {
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      timeoutMs: billingRequestTimeoutMs,
+    }),
+  )
+}
+
+export async function previewWantaSubscription(
+  organizationId: string,
+  payload: WantaSubscriptionChangePayload,
+): Promise<WantaSubscriptionPreviewResult> {
+  const url = new URL(
+    `/api/org/${encodeURIComponent(organizationId)}/subscriptions/wanta/preview`,
+    consoleServerBaseUrl,
+  )
+  return readWantaSubscriptionPreview(
+    await oomolFetchJson<unknown>(url, {
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      timeoutMs: billingRequestTimeoutMs,
+    }),
+  )
 }
 
 /** 结账（充值）URL：向 console-server 解析 Stripe 链接。解析后由调用方经 openExternalUrl IPC 交系统浏览器打开。 */

@@ -4,14 +4,11 @@ import {
   getBillingOverview,
   getBillingSummary,
   getCreditBalance,
+  previewWantaSubscription,
   topUpCheckoutUrl,
+  updateWantaSubscription,
 } from "./billing-client.ts"
 import { OomolHttpError } from "./oomol-http.ts"
-
-const billingScope = {
-  organizationId: "team-1",
-  organizationName: "acme",
-}
 
 afterEach(() => {
   vi.useRealTimers()
@@ -29,6 +26,22 @@ async function rejection(run: () => Promise<unknown>): Promise<Error> {
 
 function urlOf(input: string | URL | Request): URL {
   return new URL(typeof input === "string" || input instanceof URL ? input.toString() : input.url)
+}
+
+const organizationScope = {
+  canManageBilling: true,
+  organizationId: "team-1",
+  organizationName: "acme",
+} as const
+
+function stubWantaSubscriptionFetch(data: Record<string, unknown>): { requestBody: () => string } {
+  let body = ""
+  vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    expect(urlOf(input).pathname).toBe("/api/org/team-1/subscriptions/wanta")
+    body = String(init?.body ?? "")
+    return Response.json({ data, success: true })
+  })
+  return { requestBody: () => body }
 }
 
 describe("billing-client", () => {
@@ -51,24 +64,10 @@ describe("billing-client", () => {
     let status = 401
     vi.stubGlobal("fetch", async () => new Response("nope", { status }))
 
-    expect(
-      (
-        await rejection(() =>
-          getCreditBalance({
-            organizationId: "org-id",
-            organizationName: "org-name",
-          }),
-        )
-      ).message,
-    ).toBe(billingAuthRequiredMessage)
+    expect((await rejection(() => getCreditBalance(organizationScope))).message).toBe(billingAuthRequiredMessage)
 
     status = 403
-    const error = await rejection(() =>
-      getCreditBalance({
-        organizationId: "org-id",
-        organizationName: "org-name",
-      }),
-    )
+    const error = await rejection(() => getCreditBalance(organizationScope))
     expect(error.message).not.toBe(billingAuthRequiredMessage)
     expect(error).toBeInstanceOf(OomolHttpError)
     expect((error as OomolHttpError).status).toBe(403)
@@ -83,10 +82,10 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    expect((await rejection(() => getBillingSummary(30, billingScope))).message).toBe(billingAuthRequiredMessage)
+    expect((await rejection(() => getBillingSummary(30, organizationScope))).message).toBe(billingAuthRequiredMessage)
   })
 
-  it("scopes organization billing reads", async () => {
+  it("scopes organization billing reads and includes pending Wanta payment", async () => {
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = urlOf(input)
       if (url.hostname === "insight.oomol.com") {
@@ -104,17 +103,72 @@ describe("billing-client", () => {
       if (url.pathname === "/v1/stats/billing" || url.pathname === "/v1/stats/metering") {
         return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
       }
+      if (url.pathname === "/api/org/team-1/subscriptions") {
+        return Response.json({
+          data: {
+            features: [],
+            plan: "wanta_plus",
+            plans: [],
+            platforms: {},
+            wanta: { additionalSeats: 0, cached: false, updatedAt: null },
+          },
+          success: true,
+        })
+      }
+      if (url.pathname === "/api/org/team-1/subscriptions/wanta/pending_payment") {
+        return Response.json({
+          data: {
+            additionalSeats: 2,
+            amountRemaining: 1200,
+            currency: "usd",
+            currentPeriodEnd: null,
+            invoiceStatus: "open",
+            latestInvoiceID: "in-1",
+            paymentRequired: true,
+            paymentURL: "https://console.example.com/wanta-pay",
+            pendingUpdate: true,
+            pendingUpdateExpiresAt: null,
+            plan: "wanta_plus",
+            status: "past_due",
+            subscriptionID: "sub-1",
+          },
+          success: true,
+        })
+      }
       throw new Error(`Unexpected billing test URL: ${url.pathname}`)
     })
 
     const summary = await getBillingSummary(30, {
+      canManageBilling: true,
       organizationId: "team-1",
       organizationName: "acme",
     })
 
-    expect(summary.balance?.total.currentCredit).toBe("9")
-    expect(summary.spend?.total.totalCredit).toBe("0")
-    expect(summary.metering?.total.eventCount).toBe(0)
+    expect(summary.wantaPendingPayment?.paymentURL).toBe("https://console.example.com/wanta-pay")
+    expect(summary.wantaPendingPayment?.additionalSeats).toBe(2)
+    expect(summary.subscription?.plan).toBe("wanta_plus")
+  })
+
+  it("does not request organization subscriptions for members without billing permission", async () => {
+    const paths: string[] = []
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = urlOf(input)
+      paths.push(url.pathname)
+      if (url.pathname === "/v1/balance/available") {
+        return Response.json({ data: { items: [], total: { currentCredit: "0", originalCredit: "0" } } })
+      }
+      return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
+    })
+
+    const summary = await getBillingSummary(30, {
+      canManageBilling: false,
+      organizationId: "team-1",
+      organizationName: "acme",
+    })
+
+    expect(paths.some((path) => path.startsWith("/api/org/"))).toBe(false)
+    expect(summary.subscription).toBeNull()
+    expect(summary.wantaPendingPayment).toBeNull()
   })
 
   it("resolves the console top-up checkout URL", async () => {
@@ -142,11 +196,81 @@ describe("billing-client", () => {
     })
 
     const result = await getCreditBalance({
+      canManageBilling: true,
       organizationId: "team-1",
       organizationName: "acme",
     })
 
     expect(result).toEqual({ balance: "$7.5", hasCredits: true })
+  })
+
+  it("posts complete Wanta plan changes", async () => {
+    const request = stubWantaSubscriptionFetch({
+      additionalSeats: 0,
+      currentPeriodEnd: 0,
+      paymentURL: "https://console.example.com/wanta-checkout",
+      plan: "wanta_plus",
+      status: "active",
+      subscriptionID: "sub-1",
+      targetAdditionalSeats: 0,
+      targetPlan: "wanta_plus",
+    })
+
+    const result = await updateWantaSubscription("team-1", { additional_seats: 0, plan: "wanta_plus" })
+
+    expect(JSON.parse(request.requestBody())).toEqual({ additional_seats: 0, plan: "wanta_plus" })
+    expect(result.paymentURL).toBe("https://console.example.com/wanta-checkout")
+  })
+
+  it("requests a Wanta plan preview before submission", async () => {
+    let body = ""
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      expect(urlOf(input).pathname).toBe("/api/org/team%2Fa%20b/subscriptions/wanta/preview")
+      body = String(init?.body ?? "")
+      return Response.json({
+        data: {
+          amountDue: 3200,
+          changeTiming: "immediate",
+          currency: "usd",
+          mode: "create",
+          targetAdditionalSeats: 0,
+          targetPlan: "wanta_plus",
+          total: 3200,
+        },
+        success: true,
+      })
+    })
+
+    const preview = await previewWantaSubscription("team/a b", { additional_seats: 0, plan: "wanta_plus" })
+
+    expect(JSON.parse(body)).toEqual({ additional_seats: 0, plan: "wanta_plus" })
+    expect(preview).toEqual({
+      amountDue: 3200,
+      changeTiming: "immediate",
+      currency: "usd",
+      mode: "create",
+      targetAdditionalSeats: 0,
+      targetPlan: "wanta_plus",
+      total: 3200,
+    })
+  })
+
+  it("posts Wanta seat changes without plan fields", async () => {
+    const request = stubWantaSubscriptionFetch({
+      additionalSeats: 1,
+      currentPeriodEnd: 0,
+      paymentURL: "https://console.example.com/wanta-seat-checkout",
+      plan: null,
+      status: "active",
+      subscriptionID: "sub-1",
+      targetAdditionalSeats: 1,
+      targetPlan: null,
+    })
+
+    const result = await updateWantaSubscription("team-1", { additional_seats: 1 })
+
+    expect(JSON.parse(request.requestBody())).toEqual({ additional_seats: 1 })
+    expect(result.paymentURL).toBe("https://console.example.com/wanta-seat-checkout")
   })
 
   it("caps credit usage pagination at 100 pages", async () => {
@@ -167,7 +291,7 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    await getBillingSummary(30, billingScope)
+    await getBillingSummary(30, organizationScope)
 
     expect(balanceRequests).toHaveLength(100)
     expect(balanceRequests[0]).toBe("first")
@@ -192,7 +316,7 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    const summary = await getBillingSummary(30, billingScope)
+    const summary = await getBillingSummary(30, organizationScope)
 
     expect(summary.balance?.items.length).toBe(2)
     expect(balanceRequests).toEqual(["first", "repeat-token"])
@@ -220,7 +344,7 @@ describe("billing-client", () => {
       return new Promise<Response>(() => undefined)
     })
 
-    const overviewPromise = getBillingOverview(30, billingScope)
+    const overviewPromise = getBillingOverview(30, organizationScope)
 
     await vi.advanceTimersByTimeAsync(3_000)
     const overview = await overviewPromise
@@ -228,5 +352,6 @@ describe("billing-client", () => {
     expect(overview.balance?.total.currentCredit).toBe("8")
     expect(overview.spend?.total.totalCredit).toBe("2")
     expect(overview.metering?.total.eventCount).toBe(4)
+    expect(overview.subscription).toBeNull()
   })
 })

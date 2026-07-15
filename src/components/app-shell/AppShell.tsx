@@ -356,6 +356,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     organizationSkills,
     route,
   })
+  const sharedConnectorCount = connectionSummaryMatchesWorkspace
+    ? connections.summary?.connectedProviderCount
+    : undefined
   const emptyStateConnectionSummary = connectionSummaryMatchesWorkspace
     ? connections.summary
       ? summarizeEmptyStateConnections(connections.summary.providers, connections.summary.connectedProviderCount)
@@ -1248,6 +1251,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         <BillingRoute
           cacheScope={billingCacheScope}
           initialTarget={billingInitialTarget}
+          sharedConnectorCount={sharedConnectorCount}
           workspace={organizationWorkspace.activeWorkspace}
           onBack={() => setRoute("chat")}
         />
@@ -1353,6 +1357,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             artifactsToggleLabel={artifactsToggleLabel}
             billingCacheScope={billingCacheScope}
             isSidebarRestoring={isSidebarRestoring}
+            sharedConnectorCount={sharedConnectorCount}
             showArtifactsToggle={showArtifactsToggle}
             sidebarCollapsed={sidebarCollapsed}
             titlebarEditable={titlebarEditable}

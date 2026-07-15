@@ -13,6 +13,8 @@ function emptyBillingOverview(): BillingOverviewResult {
     balance: null,
     metering: null,
     spend: null,
+    subscription: null,
+    wantaPendingPayment: null,
   }
 }
 

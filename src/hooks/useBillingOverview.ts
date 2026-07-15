@@ -46,10 +46,13 @@ export function useBillingOverview(
 ): UseBillingOverview {
   // 顶部浮层、购买弹窗和账单详情页展示的是同一个账单实体，只是读取字段不同。缓存边界
   // 必须按账号/工作区（由调用方的 cacheScope 提供）划分，不能再按页面展示形态拆成两份。
+  const requestCanManageBilling = requestScope?.canManageBilling ?? false
   const requestOrganizationId = requestScope?.organizationId ?? ""
   const requestOrganizationName = requestScope?.organizationName ?? ""
   const requestScopeReady = requestScope !== null
-  const requestScopeKey = requestScope ? `organization:${requestOrganizationId}:${requestOrganizationName}` : "blocked"
+  const requestScopeKey = requestScope
+    ? `organization:${requestOrganizationId}:${requestOrganizationName}:${requestCanManageBilling}`
+    : "blocked"
   const cacheScopeKey = `${cacheScope}\u0000${requestScopeKey}`
   const [data, setData] = React.useState<BillingOverviewResult | null>(() => cachedData(cacheScopeKey, days))
   const [loading, setLoading] = React.useState(false)
@@ -90,6 +93,7 @@ export function useBillingOverview(
 
       // 手动刷新也复用已在途请求，避免浮层、详情页或重试按钮同时触发时又发起一套账单聚合请求。
       const scope: BillingRequestScope = {
+        canManageBilling: requestCanManageBilling,
         organizationId: requestOrganizationId,
         organizationName: requestOrganizationName,
       }
@@ -121,7 +125,15 @@ export function useBillingOverview(
         }
       }
     },
-    [cacheScopeKey, days, requestOrganizationId, requestOrganizationName, requestScopeReady, staleMs],
+    [
+      cacheScopeKey,
+      days,
+      requestCanManageBilling,
+      requestOrganizationId,
+      requestOrganizationName,
+      requestScopeReady,
+      staleMs,
+    ],
   )
 
   React.useEffect(() => {

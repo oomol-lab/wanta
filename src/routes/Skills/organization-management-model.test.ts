@@ -27,8 +27,10 @@ import {
 test("organizationNameValidation accepts the product naming rules", () => {
   assert.equal(organizationNameValidation(""), "empty")
   assert.equal(organizationNameValidation("bad name"), "invalid")
+  assert.equal(organizationNameValidation("team’s"), "invalid")
   assert.equal(organizationNameValidation("a".repeat(maxOrganizationNameLength + 1)), "too-long")
   assert.equal(organizationNameValidation("team.alpha-1"), "valid")
+  assert.equal(organizationNameValidation("alwaysmavs'team"), "valid")
 })
 
 test("allOrganizations de-duplicates created and joined organizations", () => {

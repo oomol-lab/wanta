@@ -52,3 +52,13 @@ export function applyOrganizationPatchesToOverview(
     overview,
   )
 }
+
+export function resolveOrganizationSelection(
+  selectedOrganizationId: string | null,
+  organizations: readonly Organization[],
+): string | null {
+  if (selectedOrganizationId && organizations.some((organization) => organization.id === selectedOrganizationId)) {
+    return selectedOrganizationId
+  }
+  return organizations[0]?.id ?? null
+}

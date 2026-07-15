@@ -5,7 +5,11 @@ import type { UserFacingError } from "../lib/user-facing-error.ts"
 import * as React from "react"
 import { branding } from "../../electron/branding.ts"
 import { dropCachedAvatarImage } from "../lib/avatar-image-cache.ts"
-import { applyOrganizationPatchesToOverview, upsertOverviewOrganization } from "../lib/organization-overview.ts"
+import {
+  applyOrganizationPatchesToOverview,
+  resolveOrganizationSelection,
+  upsertOverviewOrganization,
+} from "../lib/organization-overview.ts"
 import { organizationCanManage, organizationRole } from "../lib/organization-permissions.ts"
 import { getOrganizationOverview } from "../lib/organizations-client.ts"
 import { reportRendererHandledError } from "../lib/renderer-diagnostics.ts"
@@ -274,11 +278,12 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
         setError(null)
         const organizations = uniqueOrganizations(next)
         setSelectedOrganizationId((current) => {
-          if (!current || organizations.some((organization) => organization.id === current)) {
+          const resolved = resolveOrganizationSelection(current, organizations)
+          if (resolved === current) {
             return current
           }
-          writeStoredWorkspace(accountId, null)
-          return null
+          writeStoredWorkspace(accountId, resolved)
+          return resolved
         })
       } catch (err) {
         if (requestIdRef.current === requestId) {
@@ -310,11 +315,12 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
       setLoading(false)
       const organizations = uniqueOrganizations(next)
       setSelectedOrganizationId((current) => {
-        if (!current || organizations.some((organization) => organization.id === current)) {
+        const resolved = resolveOrganizationSelection(current, organizations)
+        if (resolved === current) {
           return current
         }
-        writeStoredWorkspace(accountId, null)
-        return null
+        writeStoredWorkspace(accountId, resolved)
+        return resolved
       })
     },
     [accountId],

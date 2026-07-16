@@ -671,6 +671,7 @@ export interface SetAgentOrganizationRequest {
 
 export type RechargePrice = "5_USD" | "20_USD" | "100_USD"
 export type BillingPeriodDays = 7 | 30 | 90
+export type SubscriptionPlanTag = "ai_pro" | "ai_max"
 export type WantaSubscriptionPlan = "wanta_plus" | "wanta_pro"
 
 export interface CreditBalanceResult {
@@ -787,6 +788,7 @@ export interface BillingOverviewResult {
   balance: CreditUsages | null
   spend: BillingSpendStats | null
   metering: BillingSpendStats | null
+  usageSubscription: SubscriptionStatus | null
   subscription: SubscriptionStatus | null
   wantaPendingPayment: WantaPendingPaymentResult | null
 }

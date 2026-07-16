@@ -5,6 +5,8 @@ import {
   getBillingSummary,
   getCreditBalance,
   previewWantaSubscription,
+  subscriptionCheckoutUrl,
+  subscriptionPortalUrl,
   topUpCheckoutUrl,
   updateWantaSubscription,
 } from "./billing-client.ts"
@@ -118,6 +120,18 @@ describe("billing-client", () => {
           success: true,
         })
       }
+      if (url.pathname === "/api/user/subscriptions") {
+        expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
+        return Response.json({
+          data: {
+            features: [],
+            plan: "ai_pro",
+            plans: ["ai_pro"],
+            platforms: { stripe: ["ai_pro"] },
+          },
+          success: true,
+        })
+      }
       if (url.pathname === "/api/org/team-1/subscriptions/wanta/pending_payment") {
         return Response.json({
           data: {
@@ -151,6 +165,7 @@ describe("billing-client", () => {
     expect(summary.wantaPendingPayment?.paymentURL).toBe("https://console.example.com/wanta-pay")
     expect(summary.wantaPendingPayment?.additionalSeats).toBe(2)
     expect(summary.subscription?.plan).toBe("wanta_plus")
+    expect(summary.usageSubscription?.plan).toBe("ai_pro")
   })
 
   it("does not request organization subscriptions for members without billing permission", async () => {
@@ -173,7 +188,9 @@ describe("billing-client", () => {
 
     expect(paths.some((path) => path.startsWith("/api/org/"))).toBe(false)
     expect(paths).not.toContain("/v1/balance/available")
+    expect(paths).not.toContain("/api/user/subscriptions")
     expect(summary.balance).toBeNull()
+    expect(summary.usageSubscription).toBeNull()
     expect(summary.subscription).toBeNull()
     expect(summary.wantaPendingPayment).toBeNull()
   })
@@ -207,6 +224,27 @@ describe("billing-client", () => {
     })
 
     expect(await topUpCheckoutUrl("20_USD")).toBe("https://console.example.com/checkout")
+  })
+
+  it("builds the personal usage subscription checkout URL", () => {
+    const url = new URL(subscriptionCheckoutUrl("ai_pro", "user-1"))
+
+    expect(url.pathname).toBe("/api/user/subscriptions/page")
+    expect(url.searchParams.get("payment_type")).toBe("subscription")
+    expect(url.searchParams.get("plan")).toBe("ai_pro")
+    expect(url.searchParams.get("user_id")).toBe("user-1")
+    expect(url.searchParams.get("client_platform")).toBe("chat-web")
+  })
+
+  it("resolves the personal usage subscription portal URL", async () => {
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = urlOf(input)
+      expect(url.pathname).toBe("/api/stripe/portal")
+      expect(url.searchParams.get("product")).toBe("ai")
+      return Response.json({ data: "https://billing.stripe.com/session", success: true })
+    })
+
+    expect(await subscriptionPortalUrl()).toBe("https://billing.stripe.com/session")
   })
 
   it("reads wrapped balance payloads for payment-required recovery", async () => {

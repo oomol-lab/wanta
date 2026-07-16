@@ -1,7 +1,7 @@
 import type { SubscriptionStatus } from "../../../electron/chat/common.ts"
 
 import { describe, expect, it } from "vitest"
-import { getCurrentWantaPlan } from "./plans.ts"
+import { getCurrentUsageSubscription, getCurrentWantaPlan } from "./plans.ts"
 
 function subscription(overrides: Partial<SubscriptionStatus>): SubscriptionStatus {
   return {
@@ -31,5 +31,25 @@ describe("getCurrentWantaPlan", () => {
     })
 
     expect(getCurrentWantaPlan(status)).toBe("wanta_pro")
+  })
+})
+
+describe("getCurrentUsageSubscription", () => {
+  it("reads the current personal usage plan", () => {
+    expect(getCurrentUsageSubscription(subscription({ plan: "ai_pro" }))).toBe("ai_pro")
+  })
+
+  it("supports platform marker responses", () => {
+    expect(
+      getCurrentUsageSubscription(
+        subscription({
+          platforms: { stripe: ["ai_max"] },
+        }),
+      ),
+    ).toBe("ai_max")
+  })
+
+  it("ignores Team subscription markers", () => {
+    expect(getCurrentUsageSubscription(subscription({ plan: "wanta_plus" }))).toBeNull()
   })
 })

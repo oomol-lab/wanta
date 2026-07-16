@@ -8,10 +8,12 @@ import {
   BillingManagePermissionNotice,
   PlanComparison,
   PlanSeatOverviewPanel,
+  UsageSubscriptionPanel,
   WantaSubscriptionPreviewDialog,
 } from "./BillingSubscriptionPanels.tsx"
 import { BalanceOverview, UsageDetailsDisclosure } from "./BillingUsagePanels.tsx"
 import { CreditPurchaseModal } from "./CreditPurchaseModal.tsx"
+import { getCurrentUsageSubscription } from "./plans.ts"
 import {
   buildCategorySummaries,
   buildDailySpendBuckets,
@@ -51,7 +53,7 @@ export function BillingRoute({
   workspace,
 }: BillingRouteProps) {
   const t = useT()
-  const { login } = useAuth()
+  const { login, state: authState } = useAuth()
   const chatService = useChatService()
   const [period, setPeriod] = React.useState<BillingPeriodDays>(30)
   const [purchaseOpen, setPurchaseOpen] = React.useState(false)
@@ -117,6 +119,10 @@ export function BillingRoute({
     [data?.wantaPendingPayment, wantaOverview.additionalSeats, wantaOverview.currentPlan],
   )
   const pendingWantaPaymentUrl = pendingWantaPaymentTargets.paymentUrl
+  const currentUsageSubscription = React.useMemo(
+    () => getCurrentUsageSubscription(data?.usageSubscription ?? null),
+    [data?.usageSubscription],
+  )
   const wantaOrganizationId = canManageWantaBilling(workspace) ? workspace.organizationId : null
   const showWantaPlans = wantaOrganizationId !== null
   const averageDailySpend = period > 0 ? totalSpend / period : 0
@@ -239,6 +245,15 @@ export function BillingRoute({
               pendingPaymentPlan={pendingWantaPaymentTargets.plan}
               onChoosePlan={wantaCheckout.choosePlan}
             />
+
+            {canManageFunding ? (
+              <UsageSubscriptionPanel
+                currentPlan={currentUsageSubscription}
+                disabled={isSessionExpired}
+                openExternalCheckout={openExternalCheckout}
+                userId={authState?.account?.id}
+              />
+            ) : null}
 
             <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)]">
               <AdditionalSeatsPanel

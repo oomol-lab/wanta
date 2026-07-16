@@ -28,6 +28,21 @@ describe("normalizeChatError", () => {
   })
 
   it.each([
+    "DataInspectionFailed: upstream rejected the prompt",
+    "Input data may contain inappropriate content. (request id: request-1)",
+    "data_inspection_failed: upstream rejected the prompt",
+    '{"status":400,"code":"data_inspection_failed","message":"blocked"}',
+  ])("classifies content safety inspection failures", (message) => {
+    const error = normalizeChatError(message)
+
+    expect(error).toMatchObject({
+      kind: "content_filtered",
+      retryable: false,
+    })
+    expect(error.diagnostics).toBe(message)
+  })
+
+  it.each([
     [429, "rate_limited", true],
     [401, "auth_required", false],
     [403, "permission_denied", false],

@@ -5,11 +5,5 @@ export function SkillErrorNotice({ className, error }: { className?: string; err
   if (!error) {
     return null
   }
-  return (
-    <ErrorNotice
-      error={resolveUserFacingError(error, { area: "skills", preserveMessage: true })}
-      compact
-      className={className}
-    />
-  )
+  return <ErrorNotice error={resolveUserFacingError(error, { area: "skills" })} compact className={className} />
 }

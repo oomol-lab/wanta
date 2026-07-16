@@ -4,6 +4,7 @@ import type {
   AuthorizationInfo,
   ChatPermissionReply,
 } from "../../../electron/chat/common.ts"
+import type { ChatErrorKind } from "../../../electron/chat/error.ts"
 import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
@@ -23,8 +24,10 @@ import { PanelRightClose, PanelRightOpen } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
+import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
 import {
   activeProjectIdForComposer,
+  buildSessionTitleInput,
   chatSendAccepted,
   connectionWorkspaceSwitchKey,
   EMPTY_CONNECTION_PROVIDERS,
@@ -1105,6 +1108,100 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       sessionScope,
     ],
   )
+  const handleRetryFresh = React.useCallback(
+    async (source: ChatTurnRetrySource): Promise<void> => {
+      if (!activeChatSessionId || !sessionScope) {
+        throw new Error("A current task and workspace are required for a clean-context retry")
+      }
+      const retryKey = chatTurnInputKey(source)
+      const storedOptions = turnRetryOptionsBySession.current.get(activeChatSessionId)?.get(retryKey)
+      const retryScope = storedOptions?.sessionScope ?? sessionScope
+      const projectContext = storedOptions?.projectContext ?? activeProjectContext
+      const model = storedOptions?.model ?? lastModelBySession.current.get(activeChatSessionId)
+      const reasoningLevel =
+        storedOptions?.reasoningLevel ?? lastReasoningLevelBySession.current.get(activeChatSessionId)
+      const mode = storedOptions?.mode ?? lastModeBySession.current.get(activeChatSessionId)
+      const permissionMode =
+        storedOptions?.permissionMode ??
+        lastPermissionModeBySession.current.get(activeChatSessionId) ??
+        displayedPermissionMode
+      const contextMentions =
+        storedOptions?.contextMentions ?? lastContextMentionsBySession.current.get(activeChatSessionId) ?? []
+      const retryOrganizationSkills = storedOptions?.organizationSkills ?? organizationSkills.chatContextSkills
+      const titleInput = { ...buildSessionTitleInput([], source.text, source.attachments), model }
+      const fallbackTitle = buildFallbackSessionTitle(titleInput)
+      const session = await create(fallbackTitle, projectContext?.id ?? activeProject?.id)
+
+      titleGeneration.rememberAutoFallbackTitle(session.id, fallbackTitle)
+      persistPermissionMode(session.id, permissionMode)
+      persistKnowledgeBaseIds(session.id, activeKnowledgeBaseIds)
+      setSelectedSessionId(session.id)
+      setIsDraftSession(false)
+      setPendingChatTransition(null)
+      setSidebarSegment(session.projectId ? "projects" : "tasks")
+      setRoute("chat")
+      await send(session.id, source.text, source.attachments, {
+        contextMentions,
+        mode,
+        model,
+        organizationSkills: retryOrganizationSkills,
+        permissionMode,
+        projectContext,
+        reasoningLevel,
+        sessionScope: retryScope,
+      })
+    },
+    [
+      activeChatSessionId,
+      activeKnowledgeBaseIds,
+      activeProject?.id,
+      activeProjectContext,
+      create,
+      displayedPermissionMode,
+      organizationSkills.chatContextSkills,
+      persistKnowledgeBaseIds,
+      persistPermissionMode,
+      send,
+      sessionScope,
+      titleGeneration,
+    ],
+  )
+  const handleChatErrorRecovery = React.useCallback(
+    async (kind: ChatErrorKind, source: ChatTurnRetrySource): Promise<void> => {
+      if (kind === "auth_required" || kind === "permission_denied") {
+        await auth.login()
+        return
+      }
+      if (!activeChatSessionId || !sessionScope) {
+        throw new Error("A current task and workspace are required to retry")
+      }
+      const retryKey = chatTurnInputKey(source)
+      const storedOptions = turnRetryOptionsBySession.current.get(activeChatSessionId)?.get(retryKey)
+      await send(activeChatSessionId, source.text, source.attachments, {
+        contextMentions:
+          storedOptions?.contextMentions ?? lastContextMentionsBySession.current.get(activeChatSessionId) ?? [],
+        mode: storedOptions?.mode ?? lastModeBySession.current.get(activeChatSessionId),
+        model: storedOptions?.model ?? lastModelBySession.current.get(activeChatSessionId),
+        organizationSkills: storedOptions?.organizationSkills ?? organizationSkills.chatContextSkills,
+        permissionMode:
+          storedOptions?.permissionMode ??
+          lastPermissionModeBySession.current.get(activeChatSessionId) ??
+          displayedPermissionMode,
+        projectContext: storedOptions?.projectContext ?? activeProjectContext,
+        reasoningLevel: storedOptions?.reasoningLevel ?? lastReasoningLevelBySession.current.get(activeChatSessionId),
+        sessionScope: storedOptions?.sessionScope ?? sessionScope,
+      })
+    },
+    [
+      activeChatSessionId,
+      activeProjectContext,
+      auth,
+      displayedPermissionMode,
+      organizationSkills.chatContextSkills,
+      send,
+      sessionScope,
+    ],
+  )
   const handleOpenSearch = React.useCallback((): void => setSearchOpen(true), [])
   const handleChatStop = React.useCallback(async (): Promise<void> => {
     if (activeChatSessionId) {
@@ -1414,7 +1511,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       messages={bridgeInitialSendPending ? [] : messages}
                       knowledgeBaseIds={activeKnowledgeBaseIds}
                       knowledgeEnabled={knowledgeBaseBetaEnabled}
-                      knowledgeError={knowledgeLibrary.error}
+                      knowledgeError={
+                        knowledgeLibrary.error ? userFacingErrorDescription(knowledgeLibrary.error, t) : null
+                      }
                       knowledgeItems={knowledgeLibrary.items}
                       knowledgeLoading={knowledgeLibrary.loading}
                       permissionMode={displayedPermissionMode}
@@ -1465,6 +1564,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       onQueuedMessageRemove={handleQueuedMessageRemove}
                       onQueuedMessageResume={handleQueuedMessageResume}
                       onAuthorize={handleAuthorize}
+                      onRecover={handleChatErrorRecovery}
+                      onRetryFresh={handleRetryFresh}
                       onArtifactsOpen={handleArtifactsOpen}
                       onArtifactsAvailable={handleArtifactsAvailable}
                       onTurnOutputOpen={handleTurnOutputOpen}

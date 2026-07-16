@@ -8,6 +8,7 @@ import type {
   ChatPermissionRequest,
   ChatQuestionRequest,
 } from "../../../electron/chat/common.ts"
+import type { ChatErrorKind } from "../../../electron/chat/error.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { ConnectionCatalogFilter } from "../Connections/connection-route-model.ts"
@@ -88,6 +89,8 @@ interface ChatAreaProps {
   onQueuedMessageRemove: (id: string) => void
   onQueuedMessageResume: () => void
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
+  onRecover: (kind: ChatErrorKind, source: ChatTurnRetrySource) => Promise<void>
+  onRetryFresh: (source: ChatTurnRetrySource) => Promise<void>
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
@@ -285,6 +288,8 @@ export const ChatArea = React.memo(function ChatArea({
   onQueuedMessageRemove,
   onQueuedMessageResume,
   onAuthorize,
+  onRecover,
+  onRetryFresh,
   onArtifactsOpen,
   onArtifactsAvailable,
   onTurnOutputOpen,
@@ -416,6 +421,8 @@ export const ChatArea = React.memo(function ChatArea({
       isGenerating={isGenerating}
       providers={providers}
       onAuthorize={onAuthorize}
+      onRecover={onRecover}
+      onRetryFresh={onRetryFresh}
       onArtifactsOpen={onArtifactsOpen}
       onArtifactsAvailable={onArtifactsAvailable}
       onTurnOutputOpen={onTurnOutputOpen}

@@ -28,6 +28,7 @@ import {
   OrganizationSkillPackageListSkeleton,
   OrganizationSkillRecommendationRow,
 } from "./OrganizationSkillManageRows.tsx"
+import { skillErrorMessage } from "./skill-errors.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { SearchField } from "@/components/SearchField"
 import { Button } from "@/components/ui/button"
@@ -337,7 +338,7 @@ export function OrganizationSkillManageDialog({
       await organizationSkills.updateSkill(skill.id, input)
       toast.success(input.enabled ? t("skills.organizationSkillEnabled") : t("skills.organizationSkillDisabled"))
     } catch (error) {
-      toast.error(errorMessage(error))
+      toast.error(skillErrorMessage(error, t))
     } finally {
       setBusyConfigId(null)
     }
@@ -354,7 +355,7 @@ export function OrganizationSkillManageDialog({
       toast.success(t("skills.organizationSkillRemoved"))
       setOrganizationRemoveTarget(null)
     } catch (error) {
-      toast.error(errorMessage(error))
+      toast.error(skillErrorMessage(error, t))
     } finally {
       setBusyConfigId(null)
     }

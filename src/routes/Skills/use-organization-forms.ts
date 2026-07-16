@@ -3,8 +3,8 @@ import type { BusyAction } from "./organization-management-model.ts"
 
 import * as React from "react"
 import { toast } from "sonner"
+import { organizationErrorMessage } from "./organization-errors.ts"
 import {
-  errorMessage,
   isConflictError,
   maxOrganizationNameLength,
   organizationNameValidation,
@@ -105,7 +105,7 @@ export function useOrganizationForms({
           setCreateDuplicated(true)
           toast.error(t("organizations.organizationNameDuplicated"))
         } else {
-          toast.error(errorMessage(error))
+          toast.error(organizationErrorMessage(error, t))
         }
       } finally {
         setBusyAction(null)
@@ -152,7 +152,7 @@ export function useOrganizationForms({
         .catch((error) => {
           if (editAvatarUploadVersion.current !== version) return
           setEditAvatarFile(null)
-          toast.error(errorMessage(error))
+          toast.error(organizationErrorMessage(error, t))
         })
         .finally(() => {
           if (editAvatarUploadVersion.current === version) {
@@ -160,7 +160,7 @@ export function useOrganizationForms({
           }
         })
     },
-    [canManageOrganization, editingOrganization, setBusyAction],
+    [canManageOrganization, editingOrganization, setBusyAction, t],
   )
 
   const submitEdit = React.useCallback(
@@ -202,7 +202,7 @@ export function useOrganizationForms({
           setEditDuplicated(true)
           toast.error(t("organizations.organizationNameDuplicated"))
         } else {
-          toast.error(errorMessage(error))
+          toast.error(organizationErrorMessage(error, t))
         }
       } finally {
         setBusyAction(null)

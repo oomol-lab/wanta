@@ -26,9 +26,11 @@ export interface ComposerAttachmentInput {
 
 interface UseComposerAttachmentsOptions {
   attachments: DraftAttachment[]
+  clearInputError: () => void
   disabled: boolean
   dispatch: React.Dispatch<ComposerAction>
-  setInputError: (error: string | null) => void
+  showTrustedInputError: (message: string) => void
+  showUnexpectedInputError: (cause: unknown) => void
 }
 
 export interface UseComposerAttachments {
@@ -126,9 +128,11 @@ function toDraftAttachment(item: ComposerAttachmentInput): DraftAttachment {
 
 export function useComposerAttachments({
   attachments,
+  clearInputError,
   disabled,
   dispatch,
-  setInputError,
+  showTrustedInputError,
+  showUnexpectedInputError,
 }: UseComposerAttachmentsOptions): UseComposerAttachments {
   const t = useT()
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
@@ -168,7 +172,7 @@ export function useComposerAttachments({
 
   const addFiles = React.useCallback(
     async (files: FileList | File[]) => {
-      setInputError(null)
+      clearInputError()
       const next: ComposerAttachmentInput[] = []
       for (const file of Array.from(files)) {
         const selectedPathForFile = globalThis.wanta?.selectedAttachmentPathForFile
@@ -193,7 +197,7 @@ export function useComposerAttachments({
         }
         if (!selected) {
           if (!saver) {
-            setInputError(t("chat.attachmentPathUnavailable"))
+            showTrustedInputError(t("chat.attachmentPathUnavailable"))
             continue
           }
           try {
@@ -213,7 +217,7 @@ export function useComposerAttachments({
               file,
             })
           } catch {
-            setInputError(t("chat.attachmentSaveFailed"))
+            showTrustedInputError(t("chat.attachmentSaveFailed"))
           }
           continue
         }
@@ -236,28 +240,28 @@ export function useComposerAttachments({
       }
       addAttachments(next)
     },
-    [addAttachments, setInputError, t],
+    [addAttachments, clearInputError, showTrustedInputError, t],
   )
 
   const selectAttachments = React.useCallback(
     async (kind: AttachmentPickerKind) => {
-      setInputError(null)
+      clearInputError()
       const picker = globalThis.wanta?.selectAttachmentPaths
       if (!picker) {
         if (kind === "file") {
           fileInputRef.current?.click()
         } else {
-          setInputError(t("chat.attachmentFolderPickerUnavailable"))
+          showTrustedInputError(t("chat.attachmentFolderPickerUnavailable"))
         }
         return
       }
       try {
         addAttachments(await picker(kind))
       } catch (error) {
-        setInputError(error instanceof Error ? error.message : String(error))
+        showUnexpectedInputError(error)
       }
     },
-    [addAttachments, setInputError, t],
+    [addAttachments, clearInputError, showTrustedInputError, showUnexpectedInputError, t],
   )
 
   const removeAttachment = React.useCallback(

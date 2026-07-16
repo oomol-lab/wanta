@@ -6,6 +6,7 @@ import { normalizeChatError } from "../../../electron/chat/error.ts"
 export type { ChatErrorKind } from "../../../electron/chat/error.ts"
 
 export type ChatErrorSeverity = "warning" | "destructive" | "info"
+export type ChatErrorRecoveryKind = "current_task" | "fresh_task" | "reauthenticate" | "billing"
 
 export interface ChatErrorViewModel {
   kind: ChatErrorKind
@@ -22,6 +23,24 @@ export interface ChatErrorViewModel {
 export interface ResolveChatErrorOptions {
   errorKind?: ChatErrorKind
   errorCode?: string
+}
+
+export function chatErrorRecoveryKind(kind: ChatErrorKind): ChatErrorRecoveryKind | null {
+  switch (kind) {
+    case "payment_required":
+      return "billing"
+    case "content_filtered":
+      return "fresh_task"
+    case "auth_required":
+    case "permission_denied":
+      return "reauthenticate"
+    case "timeout":
+    case "connection_interrupted":
+    case "rate_limited":
+    case "provider_unavailable":
+    case "unknown":
+      return "current_task"
+  }
 }
 
 function classification(rawMessage: string, options: ResolveChatErrorOptions = {}): ChatErrorClassification {
@@ -44,6 +63,17 @@ export function resolveChatError(rawMessage: string, options: ResolveChatErrorOp
         descriptionKey: "chatError.paymentRequired.description",
         primaryActionKey: "chatError.paymentRequired.primaryAction",
         secondaryActionKey: "chatError.paymentRequired.secondaryAction",
+        retryable: false,
+        diagnostics: normalized.diagnostics,
+      }
+    case "content_filtered":
+      return {
+        kind: normalized.kind,
+        severity: "warning",
+        titleKey: "chatError.contentFiltered.title",
+        descriptionKey: "chatError.contentFiltered.description",
+        primaryActionKey: "chatError.contentFiltered.primaryAction",
+        secondaryActionKey: "chatError.common.copyDiagnostics",
         retryable: false,
         diagnostics: normalized.diagnostics,
       }

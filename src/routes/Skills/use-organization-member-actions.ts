@@ -9,6 +9,7 @@ import type {
 
 import * as React from "react"
 import { toast } from "sonner"
+import { organizationErrorMessage } from "./organization-errors.ts"
 import { errorMessage, initialProviderAccessForm, readyState, uniqueStrings } from "./organization-management-model.ts"
 import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./organization-provider-access.ts"
 import { useAppI18n } from "@/i18n"
@@ -96,7 +97,7 @@ export function useOrganizationMemberActions({
             ? t("organizations.addMemberLimitExceeded")
             : message.toLowerCase().includes("user does not exist")
               ? t("organizations.addMemberUserNotFound")
-              : message,
+              : organizationErrorMessage(error, t),
         )
       } finally {
         setBusyAction(null)
@@ -129,7 +130,7 @@ export function useOrganizationMemberActions({
         toast.success(t("organizations.removeMemberSuccess"))
         await reloadDetails()
       } catch (error) {
-        toast.error(errorMessage(error))
+        toast.error(organizationErrorMessage(error, t))
       } finally {
         setBusyAction(null)
       }
@@ -151,7 +152,7 @@ export function useOrganizationMemberActions({
         toast.success(disabled ? t("organizations.disableMembersSuccess") : t("organizations.enableMembersSuccess"))
         await reloadDetails()
       } catch (error) {
-        toast.error(errorMessage(error))
+        toast.error(organizationErrorMessage(error, t))
       } finally {
         setBusyAction(null)
       }
@@ -225,7 +226,7 @@ export function useOrganizationMemberActions({
         setProviderAccessForm(initialProviderAccessForm)
         toast.success(t("organizations.providerAccessSaveSuccess"))
       } catch (error) {
-        toast.error(errorMessage(error))
+        toast.error(organizationErrorMessage(error, t))
       } finally {
         setBusyAction(null)
       }
@@ -258,7 +259,7 @@ export function useOrganizationMemberActions({
         setAppAccessState(readyState(updated))
         toast.success(t("organizations.providerAccessRevokeSuccess"))
       } catch (error) {
-        toast.error(errorMessage(error))
+        toast.error(organizationErrorMessage(error, t))
       } finally {
         setBusyAction(null)
       }

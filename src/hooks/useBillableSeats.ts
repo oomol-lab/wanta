@@ -1,12 +1,15 @@
 import type { WorkspaceSelection } from "./useOrganizationWorkspace.ts"
+import type { UserFacingError } from "@/lib/user-facing-error"
 
 import * as React from "react"
 import { useAuth } from "@/hooks/useAuth"
 import { getCachedOrganizationMembers, getOrganizationMembersResource } from "@/lib/organization-details-resource"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
+import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 export interface UseBillableSeats {
   count: number | null
-  error: string | null
+  error: UserFacingError | null
   loading: boolean
 }
 
@@ -19,7 +22,7 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
     cachedMembers ? Math.max(1, cachedMembers.length) : null,
   )
   const [loading, setLoading] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<UserFacingError | null>(null)
 
   React.useEffect(() => {
     if (!enabled || !accountId || !organizationId) {
@@ -48,8 +51,9 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
+          reportRendererHandledError("billing.seats", "billable seat count load failed", cause)
           setCount(null)
-          setError(cause instanceof Error ? cause.message : String(cause))
+          setError(resolveUserFacingError(cause, { area: "billing" }))
         }
       })
       .finally(() => {

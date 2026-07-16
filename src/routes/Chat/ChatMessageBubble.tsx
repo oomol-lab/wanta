@@ -1,4 +1,5 @@
 import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common.ts"
+import type { ChatErrorKind } from "../../../electron/chat/error.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 
@@ -33,6 +34,8 @@ export function MessageBubble({
   assistantActionsText,
   providerByService,
   onAuthorize,
+  onRecover,
+  onRetryFresh,
   suggestedAuthorization,
   liveTools = false,
 }: {
@@ -43,6 +46,8 @@ export function MessageBubble({
   assistantActionsText: string | null
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
+  onRecover?: (kind: ChatErrorKind) => Promise<void> | void
+  onRetryFresh?: () => Promise<void> | void
   suggestedAuthorization?: AuthorizationInfo
   liveTools?: boolean
 }) {
@@ -132,6 +137,8 @@ export function MessageBubble({
             providerByService={providerByService}
             liveTools={liveTools}
             onAuthorize={onAuthorize}
+            onRecover={onRecover}
+            onRetryFresh={onRetryFresh}
             onViewBilling={onViewBilling}
           />
         ))}
@@ -159,6 +166,8 @@ export function AssistantTimelineMessage({
   activeAssistantMessageId,
   providerByService,
   onAuthorize,
+  onRecover,
+  onRetryFresh,
   suggestedAuthorization,
   onViewBilling,
 }: {
@@ -170,6 +179,8 @@ export function AssistantTimelineMessage({
   activeAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
+  onRecover?: (kind: ChatErrorKind) => Promise<void> | void
+  onRetryFresh?: () => Promise<void> | void
   suggestedAuthorization?: AuthorizationInfo
   onViewBilling?: () => void
 }) {
@@ -192,6 +203,8 @@ export function AssistantTimelineMessage({
             providerByService={providerByService}
             liveTools={message.id === activeAssistantMessageId}
             onAuthorize={onAuthorize}
+            onRecover={onRecover}
+            onRetryFresh={onRetryFresh}
             onViewBilling={onViewBilling}
           />
         ))}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { resolveChatError } from "./chat-error.ts"
+import { chatErrorRecoveryKind, resolveChatError } from "./chat-error.ts"
 
 describe("resolveChatError", () => {
   it("maps OOMOL insufficient credit errors to payment_required", () => {
@@ -20,5 +20,37 @@ describe("resolveChatError", () => {
     expect(resolveChatError("CHAT_COMPLETION_TIMEOUT: Request timeout: chat.completion").kind).toBe("timeout")
     expect(resolveChatError("WebSocket connection failed").kind).toBe("connection_interrupted")
     expect(resolveChatError("Permission denied").kind).toBe("permission_denied")
+  })
+
+  it("explains content inspection failures without exposing the provider text as the user-facing message", () => {
+    const error = resolveChatError(
+      "Input data may contain inappropriate content. (request id: 2026071610124879712460311981024)",
+    )
+
+    expect(error).toMatchObject({
+      kind: "content_filtered",
+      severity: "warning",
+      titleKey: "chatError.contentFiltered.title",
+      descriptionKey: "chatError.contentFiltered.description",
+      primaryActionKey: "chatError.contentFiltered.primaryAction",
+      retryable: false,
+    })
+    expect(error.diagnostics).toContain("2026071610124879712460311981024")
+  })
+
+  it("assigns every chat error to an explicit recovery path", () => {
+    expect(chatErrorRecoveryKind("payment_required")).toBe("billing")
+    expect(chatErrorRecoveryKind("content_filtered")).toBe("fresh_task")
+    expect(chatErrorRecoveryKind("auth_required")).toBe("reauthenticate")
+    expect(chatErrorRecoveryKind("permission_denied")).toBe("reauthenticate")
+    for (const kind of [
+      "timeout",
+      "connection_interrupted",
+      "rate_limited",
+      "provider_unavailable",
+      "unknown",
+    ] as const) {
+      expect(chatErrorRecoveryKind(kind)).toBe("current_task")
+    }
   })
 })

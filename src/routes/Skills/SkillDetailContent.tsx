@@ -549,10 +549,7 @@ function SkillPeek({
               <SkeletonText className="w-3/4" />
             </div>
           ) : skillDocumentError ? (
-            <ErrorNotice
-              error={resolveUserFacingError(skillDocumentError, { area: "skills", preserveMessage: true })}
-              compact
-            />
+            <ErrorNotice error={resolveUserFacingError(skillDocumentError, { area: "skills" })} compact />
           ) : skillDocument ? (
             <div className="max-h-96 min-h-32 overflow-auto rounded-md border bg-background p-3">
               {skillDocumentViewMode === "preview" ? (

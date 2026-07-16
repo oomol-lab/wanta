@@ -7,6 +7,7 @@ import type {
   ChatMessage,
   TurnOutputRecord,
 } from "../../../electron/chat/common.ts"
+import type { ChatErrorKind } from "../../../electron/chat/error.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ResolvedArtifactGroup } from "./artifact-resolution.ts"
 import type { ChatTurn, ChatTurnRetrySource } from "./chat-turns.ts"
@@ -103,6 +104,8 @@ interface ChatTurnViewProps {
   smoothAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
+  onRecover: (kind: ChatErrorKind, source: ChatTurnRetrySource) => Promise<void>
+  onRetryFresh: (source: ChatTurnRetrySource) => Promise<void>
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
@@ -121,6 +124,8 @@ function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewP
     previous.smoothAssistantMessageId === next.smoothAssistantMessageId &&
     previous.providerByService === next.providerByService &&
     previous.onAuthorize === next.onAuthorize &&
+    previous.onRecover === next.onRecover &&
+    previous.onRetryFresh === next.onRetryFresh &&
     previous.onArtifactsAvailable === next.onArtifactsAvailable &&
     previous.onArtifactsOpen === next.onArtifactsOpen &&
     previous.onTurnOutputOpen === next.onTurnOutputOpen &&
@@ -139,6 +144,8 @@ const ChatTurnView = React.memo(function ChatTurnView({
   smoothAssistantMessageId,
   providerByService,
   onAuthorize,
+  onRecover,
+  onRetryFresh,
   onArtifactsAvailable,
   onArtifactsOpen,
   onTurnOutputOpen,
@@ -191,6 +198,14 @@ const ChatTurnView = React.memo(function ChatTurnView({
     },
     [onAuthorize, retrySource],
   )
+  const handleRetryFresh = React.useCallback(
+    () => (retrySource ? onRetryFresh(retrySource) : Promise.resolve()),
+    [onRetryFresh, retrySource],
+  )
+  const handleRecover = React.useCallback(
+    (kind: ChatErrorKind) => (retrySource ? onRecover(kind, retrySource) : Promise.resolve()),
+    [onRecover, retrySource],
+  )
 
   return (
     <React.Fragment>
@@ -203,6 +218,8 @@ const ChatTurnView = React.memo(function ChatTurnView({
           assistantActionsText={null}
           providerByService={providerByService}
           onAuthorize={handleAuthorize}
+          onRecover={retrySource ? handleRecover : undefined}
+          onRetryFresh={retrySource ? handleRetryFresh : undefined}
         />
       ) : null}
       {showTurnProcess ? (
@@ -216,6 +233,8 @@ const ChatTurnView = React.memo(function ChatTurnView({
                 billingCacheScope={billingCacheScope}
                 providerByService={providerByService}
                 onAuthorize={handleAuthorize}
+                onRecover={retrySource ? handleRecover : undefined}
+                onRetryFresh={retrySource ? handleRetryFresh : undefined}
                 onViewBilling={onViewBilling}
               />
               {!processLive
@@ -250,6 +269,8 @@ const ChatTurnView = React.memo(function ChatTurnView({
               activeAssistantMessageId={activeAssistantMessageId}
               providerByService={providerByService}
               onAuthorize={handleAuthorize}
+              onRecover={retrySource ? handleRecover : undefined}
+              onRetryFresh={retrySource ? handleRetryFresh : undefined}
               suggestedAuthorization={responseSuggestedAuthorization}
               onViewBilling={onViewBilling}
             />
@@ -269,6 +290,8 @@ const ChatTurnView = React.memo(function ChatTurnView({
               providerByService={providerByService}
               liveTools={message.id === activeAssistantMessageId}
               onAuthorize={handleAuthorize}
+              onRecover={retrySource ? handleRecover : undefined}
+              onRetryFresh={retrySource ? handleRetryFresh : undefined}
               suggestedAuthorization={message.id === lastAssistant?.id ? process.suggestedAuthorization : undefined}
             />
           ))}
@@ -305,6 +328,8 @@ interface ChatTimelineProps {
   isGenerating: boolean
   providers: ConnectionProvider[]
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
+  onRecover: (kind: ChatErrorKind, source: ChatTurnRetrySource) => Promise<void>
+  onRetryFresh: (source: ChatTurnRetrySource) => Promise<void>
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
@@ -327,6 +352,8 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   isGenerating,
   providers,
   onAuthorize,
+  onRecover,
+  onRetryFresh,
   onArtifactsOpen,
   onArtifactsAvailable,
   onTurnOutputOpen,
@@ -483,6 +510,8 @@ export const ChatTimeline = React.memo(function ChatTimeline({
                 smoothAssistantMessageId={turnSmoothAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={onAuthorize}
+                onRecover={onRecover}
+                onRetryFresh={onRetryFresh}
                 onArtifactsOpen={onArtifactsOpen}
                 onArtifactsAvailable={publishArtifactAvailability ? onArtifactsAvailable : noopArtifactsAvailable}
                 onTurnOutputOpen={onTurnOutputOpen}

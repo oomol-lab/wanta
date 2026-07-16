@@ -210,14 +210,14 @@ export function OrganizationDetailPanel({
         }
       >
         <>
-          {showProviderAccess && providerAccessError && !membersError ? (
-            <ProviderAccessWarning error={providerAccessError} />
-          ) : null}
+          {showProviderAccess && providerAccessError && !membersError ? <ProviderAccessWarning /> : null}
           {membersLoading ? (
             <MemberRowsSkeleton canManage={canManage && showProviderAccess} />
           ) : membersError ? (
             <EmptyBlock>
-              {membersError.includes("HTTP 403") ? t("organizations.membersForbidden") : membersError}
+              {membersError.includes("HTTP 403")
+                ? t("organizations.membersForbidden")
+                : t("organizations.membersLoadFailedDescription")}
             </EmptyBlock>
           ) : members.length === 0 ? (
             <EmptyBlock>{t("organizations.emptyMembersDescription")}</EmptyBlock>
@@ -245,14 +245,12 @@ export function OrganizationDetailPanel({
   )
 }
 
-function ProviderAccessWarning({ error }: { error: string }) {
+function ProviderAccessWarning() {
   const { t } = useAppI18n()
   return (
     <div className="mx-3 mt-3 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
       <div className="oo-text-label text-foreground">{t("organizations.providerAccessLoadFailed")}</div>
-      <div className="oo-text-caption mt-0.5 break-words" title={error}>
-        {t("organizations.providerAccessLoadFailedDescription")}
-      </div>
+      <div className="oo-text-caption mt-0.5 break-words">{t("organizations.providerAccessLoadFailedDescription")}</div>
     </div>
   )
 }

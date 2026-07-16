@@ -100,6 +100,17 @@ interface VisibleComposerError {
   onDismiss?: () => void
 }
 
+function trustedComposerInputError(message: string): UserFacingError {
+  return {
+    area: "chat",
+    kind: "validation_error",
+    severity: "warning",
+    titleKey: "error.validation.title",
+    descriptionKey: "error.validation.description",
+    descriptionText: message,
+  }
+}
+
 function paletteLabels({
   accountHeaderLabel,
   isSkillInventoryLoading,
@@ -187,7 +198,16 @@ export function ChatComposer({
     composerReducer,
     initialComposerStateProp ?? initialComposerState(),
   )
-  const [inputError, setInputError] = React.useState<string | null>(null)
+  const [inputError, setInputError] = React.useState<UserFacingError | null>(null)
+  const clearInputError = React.useCallback(() => setInputError(null), [])
+  const showTrustedInputError = React.useCallback(
+    (message: string) => setInputError(trustedComposerInputError(message)),
+    [],
+  )
+  const showUnexpectedInputError = React.useCallback(
+    (cause: unknown) => setInputError(resolveUserFacingError(cause, { area: "chat" })),
+    [],
+  )
   const [answeringQuestion, setAnsweringQuestion] = React.useState(false)
   const { agentMode, reasoningLevel, setAgentMode, setReasoningLevel } = useComposerPreferences()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -212,9 +232,11 @@ export function ChatComposer({
   const modelError = modelCatalogState.selectionError ?? modelCatalogState.catalogError
   const composerAttachments = useComposerAttachments({
     attachments,
+    clearInputError,
     disabled: composerDisabled || composerAttachmentsDisabled,
     dispatch: dispatchComposer,
-    setInputError,
+    showTrustedInputError,
+    showUnexpectedInputError,
   })
   React.useEffect(() => {
     setAnsweringQuestion(false)
@@ -387,7 +409,7 @@ export function ChatComposer({
         return
       }
       if (attachments.length > 0) {
-        setInputError(t("chat.questionAttachmentUnsupported"))
+        showTrustedInputError(t("chat.questionAttachmentUnsupported"))
         return
       }
       if (text.trim().length === 0) {
@@ -398,10 +420,10 @@ export function ChatComposer({
         await onAnswerQuestion(activePendingQuestion.id, answerSingleTextQuestion(activePendingQuestion, text))
         composerAttachments.revokeCurrentPreviews()
         dispatchComposer({ type: "reset-after-submit" })
-        setInputError(null)
+        clearInputError()
       } catch (err) {
         setAnsweringQuestion(false)
-        setInputError(err instanceof Error ? err.message : String(err))
+        showUnexpectedInputError(err)
       }
       return
     }
@@ -416,7 +438,7 @@ export function ChatComposer({
       clearedAfterSubmit = true
       composerAttachments.revokeCurrentPreviews()
       dispatchComposer({ type: "reset-after-submit" })
-      setInputError(null)
+      clearInputError()
     }
     let result: ChatSendResult
     try {
@@ -431,15 +453,15 @@ export function ChatComposer({
         text,
       })
     } catch (err) {
-      setInputError(err instanceof Error ? err.message : String(err))
+      showUnexpectedInputError(err)
       return
     }
     if (result.status === "failed") {
-      setInputError(result.error instanceof Error ? result.error.message : String(result.error))
+      showUnexpectedInputError(result.error)
       return
     }
     if (result.status !== "accepted") {
-      setInputError(t("chat.sendNotAccepted"))
+      showTrustedInputError(t("chat.sendNotAccepted"))
       return
     }
     clearAfterOptimisticSubmit()
@@ -451,7 +473,7 @@ export function ChatComposer({
     }
     if (inputError) {
       return {
-        error: resolveUserFacingError(inputError, { area: "chat", preserveMessage: true }),
+        error: inputError,
         showDiagnosticsCopy: false,
       }
     }

@@ -1,5 +1,6 @@
 import type { GitBranchInfo, GitRepositoryState } from "../../../electron/git/common.ts"
 import type { SessionProject } from "../../../electron/session/common.ts"
+import type { TranslateFn } from "@/i18n/i18n"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
 import { Check, Folder, FolderPlus, GitBranch, LoaderCircle, Plus, Search, X } from "lucide-react"
@@ -9,7 +10,26 @@ import { toast } from "sonner"
 import { projectGitView } from "./project-git-view.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { useT } from "@/i18n/i18n"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { cn } from "@/lib/utils"
+
+function gitFailureMessage(state: GitRepositoryState | null, fallback: string, t: TranslateFn): string {
+  if (state?.message?.toLowerCase().includes("already exists")) {
+    return t("git.branchAlreadyExists")
+  }
+  switch (state?.error) {
+    case "git_unavailable":
+      return t("git.unavailable")
+    case "not_repository":
+      return t("git.notRepository")
+    case "path_unavailable":
+      return t("git.pathUnavailable")
+    case "timeout":
+      return t("git.timeout")
+    default:
+      return fallback
+  }
+}
 
 interface ProjectContextBarProps {
   activeProject?: SessionProject
@@ -242,14 +262,15 @@ export function ProjectContextBar({
     try {
       const next = await onCheckoutBranch(branch.name)
       if (!next?.available) {
-        toast.error(next?.message || t("git.checkoutFailed"))
+        reportRendererHandledError("git", "branch checkout returned unavailable", next?.message ?? next?.error)
+        toast.error(gitFailureMessage(next, t("git.checkoutFailed"), t))
         return
       }
       toast.success(t("git.checkoutSucceeded", { branch: branch.name }))
       closeMenus()
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause)
-      toast.error(message || t("git.checkoutFailed"))
+      reportRendererHandledError("git", "branch checkout failed", cause)
+      toast.error(t("git.checkoutFailed"))
     } finally {
       setBusyBranch(null)
     }
@@ -267,14 +288,15 @@ export function ProjectContextBar({
     try {
       const next = await onCreateAndCheckoutBranch(branchName)
       if (!next?.available) {
-        toast.error(next?.message || t("git.createCheckoutFailed"))
+        reportRendererHandledError("git", "branch creation returned unavailable", next?.message ?? next?.error)
+        toast.error(gitFailureMessage(next, t("git.createCheckoutFailed"), t))
         return
       }
       toast.success(t("git.createCheckoutSucceeded", { branch: branchName }))
       closeMenus()
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause)
-      toast.error(message || t("git.createCheckoutFailed"))
+      reportRendererHandledError("git", "branch creation failed", cause)
+      toast.error(t("git.createCheckoutFailed"))
     } finally {
       setBusyBranch(null)
     }

@@ -6,11 +6,8 @@ import type { RuntimeSkillRemoveTarget } from "@/routes/Skills/skill-route-model
 
 import * as React from "react"
 import { toast } from "sonner"
-import {
-  errorMessage,
-  planProviderSkillRecommendationBulkLinks,
-  runtimeSkillRemoveBusyKey,
-} from "./organization-management-model.ts"
+import { planProviderSkillRecommendationBulkLinks, runtimeSkillRemoveBusyKey } from "./organization-management-model.ts"
+import { skillErrorMessage } from "./skill-errors.ts"
 import { useSkillService } from "@/components/AppContext"
 import {
   useHomeSummaryResource,
@@ -87,7 +84,7 @@ export function useOrganizationSkillActions({
         homeSummaryResource.invalidate()
         toast.success(t("skills.registryInstallDone", { name: skill.skillName }))
       } catch (error) {
-        toast.error(t("skills.registryInstallFailed", { error: errorMessage(error) }))
+        toast.error(t("skills.registryInstallFailed", { error: skillErrorMessage(error, t) }))
       } finally {
         endAction()
       }
@@ -112,7 +109,7 @@ export function useOrganizationSkillActions({
       setRuntimeSkillRemoveTarget(null)
       toast.success(t("organizations.skillManageRemoveRuntimeSuccess", { name: target.displayName }))
     } catch (error) {
-      toast.error(t("organizations.skillManageRemoveRuntimeFailed", { error: errorMessage(error) }))
+      toast.error(t("organizations.skillManageRemoveRuntimeFailed", { error: skillErrorMessage(error, t) }))
     } finally {
       endAction()
     }
@@ -160,7 +157,7 @@ export function useOrganizationSkillActions({
           toast.error(
             t("organizations.skillManageInstallMissingFailed", {
               count: failedCount,
-              error: errorMessage(firstError),
+              error: skillErrorMessage(firstError, t),
             }),
           )
         }
@@ -216,7 +213,7 @@ export function useOrganizationSkillActions({
         )
         toast.success(t("organizations.skillManageAddSuccess"))
       } catch (error) {
-        toast.error(errorMessage(error))
+        toast.error(skillErrorMessage(error, t))
       } finally {
         endAction()
       }
@@ -243,7 +240,7 @@ export function useOrganizationSkillActions({
         await linkOrganizationSkill(input, options)
         toast.success(t("organizations.skillManageAddSuccess"))
       } catch (error) {
-        toast.error(errorMessage(error))
+        toast.error(skillErrorMessage(error, t))
       } finally {
         endAction()
       }
@@ -293,7 +290,7 @@ export function useOrganizationSkillActions({
           toast.error(
             t("organizations.skillManageBulkAddFailed", {
               count: failedCount,
-              error: errorMessage(firstError),
+              error: skillErrorMessage(firstError, t),
             }),
           )
         }

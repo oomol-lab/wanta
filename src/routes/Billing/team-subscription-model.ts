@@ -17,7 +17,7 @@ export type TeamSubscriptionAction =
 
 export interface TeamSubscriptionOverviewInput {
   canManage: boolean
-  memberCount: number
+  memberCount: number | null
   pendingPayment: TeamPendingPaymentResult | null
   sharedConnectorCount?: number
   subscription: SubscriptionStatus | null
@@ -30,14 +30,14 @@ export interface TeamSubscriptionOverview {
   canManage: boolean
   currentPlan: TeamSubscriptionPlan | null
   hasPendingPayment: boolean
-  overCapacity: boolean
+  overCapacity: boolean | null
   pendingPaymentUrl: string
-  recommendedAction: TeamSubscriptionAction
+  recommendedAction: TeamSubscriptionAction | null
   remainingSeats: number | null
   seatCapacity: number | null
   sharedConnectorCount?: number
-  shouldRecommendPro: boolean
-  usedSeats: number
+  shouldRecommendPro: boolean | null
+  usedSeats: number | null
 }
 
 export interface TeamPendingPaymentTargetsInput {
@@ -68,18 +68,22 @@ export function buildTeamSubscriptionOverview({
   const currentPlan = getCurrentTeamPlan(subscription)
   const planCapacity = currentPlan ? teamPlanCapacity(currentPlan) : null
   const additionalSeats = Math.max(0, Math.floor(subscription?.team?.additionalSeats ?? 0))
-  const usedSeats = Math.max(1, Math.floor(memberCount))
+  const usedSeats = memberCount === null ? null : Math.max(1, Math.floor(memberCount))
   const seatCapacity = planCapacity
     ? planCapacity.members + additionalSeats
     : additionalSeats > 0
       ? additionalSeats
       : null
-  const remainingSeats = seatCapacity === null ? null : Math.max(0, seatCapacity - usedSeats)
-  const overCapacity = seatCapacity !== null && usedSeats > seatCapacity
+  const remainingSeats = seatCapacity === null || usedSeats === null ? null : Math.max(0, seatCapacity - usedSeats)
+  const overCapacity = usedSeats === null ? null : seatCapacity !== null && usedSeats > seatCapacity
   const pendingPaymentUrl = pendingPayment?.paymentURL?.trim() ?? ""
   const hasPendingPayment = Boolean(pendingPaymentUrl)
   const shouldRecommendPro =
-    currentPlan === "team_plus" && seatCapacity !== null && (overCapacity || usedSeats >= Math.ceil(seatCapacity * 0.7))
+    usedSeats === null
+      ? null
+      : currentPlan === "team_plus" &&
+        seatCapacity !== null &&
+        (overCapacity || usedSeats >= Math.ceil(seatCapacity * 0.7))
 
   return {
     accountsPerApp: planCapacity?.accountsPerApp ?? defaultAccountsPerApp,
@@ -90,13 +94,16 @@ export function buildTeamSubscriptionOverview({
     hasPendingPayment,
     overCapacity,
     pendingPaymentUrl,
-    recommendedAction: recommendTeamAction({
-      canManage,
-      currentPlan,
-      hasPendingPayment,
-      overCapacity,
-      shouldRecommendPro,
-    }),
+    recommendedAction:
+      usedSeats === null
+        ? null
+        : recommendTeamAction({
+            canManage,
+            currentPlan,
+            hasPendingPayment,
+            overCapacity: overCapacity === true,
+            shouldRecommendPro: shouldRecommendPro === true,
+          }),
     remainingSeats,
     seatCapacity,
     sharedConnectorCount,

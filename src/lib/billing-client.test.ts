@@ -4,11 +4,11 @@ import {
   getBillingOverview,
   getBillingSummary,
   getCreditBalance,
-  previewWantaSubscription,
+  previewTeamSubscription,
   subscriptionCheckoutUrl,
   subscriptionPortalUrl,
   topUpCheckoutUrl,
-  updateWantaSubscription,
+  updateTeamSubscription,
 } from "./billing-client.ts"
 import { OomolHttpError } from "./oomol-http.ts"
 
@@ -33,14 +33,14 @@ function urlOf(input: string | URL | Request): URL {
 const organizationScope = {
   canManageBilling: true,
   canManageFunding: true,
-  organizationId: "team-1",
+  teamId: "team-1",
   organizationName: "acme",
 } as const
 
-function stubWantaSubscriptionFetch(data: Record<string, unknown>): { requestBody: () => string } {
+function stubTeamSubscriptionFetch(data: Record<string, unknown>): { requestBody: () => string } {
   let body = ""
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-    expect(urlOf(input).pathname).toBe("/api/org/team-1/subscriptions/wanta")
+    expect(urlOf(input).pathname).toBe("/api/team/team-1/subscriptions/team")
     body = String(init?.body ?? "")
     return Response.json({ data, success: true })
   })
@@ -88,7 +88,7 @@ describe("billing-client", () => {
     expect((await rejection(() => getBillingSummary(30, organizationScope))).message).toBe(billingAuthRequiredMessage)
   })
 
-  it("scopes organization billing reads and includes pending Wanta payment", async () => {
+  it("scopes organization billing reads and includes pending Team payment", async () => {
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = urlOf(input)
       if (url.pathname === "/v1/balance/available") {
@@ -112,10 +112,10 @@ describe("billing-client", () => {
         return Response.json({
           data: {
             features: [],
-            plan: "wanta_plus",
+            plan: "team_plus",
             plans: [],
             platforms: {},
-            wanta: { additionalSeats: 0, cached: false, updatedAt: null },
+            team: { additionalSeats: 0, cached: false, updatedAt: null },
           },
           success: true,
         })
@@ -132,7 +132,7 @@ describe("billing-client", () => {
           success: true,
         })
       }
-      if (url.pathname === "/api/org/team-1/subscriptions/wanta/pending_payment") {
+      if (url.pathname === "/api/team/team-1/subscriptions/team/pending_payment") {
         return Response.json({
           data: {
             additionalSeats: 2,
@@ -142,10 +142,10 @@ describe("billing-client", () => {
             invoiceStatus: "open",
             latestInvoiceID: "in-1",
             paymentRequired: true,
-            paymentURL: "https://console.example.com/wanta-pay",
+            paymentURL: "https://console.example.com/team-pay",
             pendingUpdate: true,
             pendingUpdateExpiresAt: null,
-            plan: "wanta_plus",
+            plan: "team_plus",
             status: "past_due",
             subscriptionID: "sub-1",
           },
@@ -158,13 +158,13 @@ describe("billing-client", () => {
     const summary = await getBillingSummary(30, {
       canManageBilling: true,
       canManageFunding: true,
-      organizationId: "team-1",
+      teamId: "team-1",
       organizationName: "acme",
     })
 
-    expect(summary.wantaPendingPayment?.paymentURL).toBe("https://console.example.com/wanta-pay")
-    expect(summary.wantaPendingPayment?.additionalSeats).toBe(2)
-    expect(summary.subscription?.plan).toBe("wanta_plus")
+    expect(summary.teamPendingPayment?.paymentURL).toBe("https://console.example.com/team-pay")
+    expect(summary.teamPendingPayment?.additionalSeats).toBe(2)
+    expect(summary.subscription?.plan).toBe("team_plus")
     expect(summary.usageSubscription?.plan).toBe("ai_pro")
     expect(summary.usageSubscriptionAvailable).toBe(true)
   })
@@ -183,7 +183,7 @@ describe("billing-client", () => {
     const summary = await getBillingSummary(30, {
       canManageBilling: false,
       canManageFunding: false,
-      organizationId: "team-1",
+      teamId: "team-1",
       organizationName: "acme",
     })
 
@@ -194,7 +194,7 @@ describe("billing-client", () => {
     expect(summary.usageSubscription).toBeNull()
     expect(summary.usageSubscriptionAvailable).toBe(true)
     expect(summary.subscription).toBeNull()
-    expect(summary.wantaPendingPayment).toBeNull()
+    expect(summary.teamPendingPayment).toBeNull()
   })
 
   it("surfaces member session expiry from organization usage without reading a personal balance", async () => {
@@ -209,7 +209,7 @@ describe("billing-client", () => {
       getBillingSummary(30, {
         canManageBilling: false,
         canManageFunding: false,
-        organizationId: "team-1",
+        teamId: "team-1",
         organizationName: "acme",
       }),
     )
@@ -266,7 +266,7 @@ describe("billing-client", () => {
     const result = await getCreditBalance({
       canManageBilling: true,
       canManageFunding: true,
-      organizationId: "team-1",
+      teamId: "team-1",
       organizationName: "acme",
     })
 
@@ -281,7 +281,7 @@ describe("billing-client", () => {
       getCreditBalance({
         canManageBilling: false,
         canManageFunding: false,
-        organizationId: "team-1",
+        teamId: "team-1",
         organizationName: "acme",
       }),
     )
@@ -290,28 +290,28 @@ describe("billing-client", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it("posts complete Wanta plan changes", async () => {
-    const request = stubWantaSubscriptionFetch({
+  it("posts complete Team plan changes", async () => {
+    const request = stubTeamSubscriptionFetch({
       additionalSeats: 0,
       currentPeriodEnd: 0,
-      paymentURL: "https://console.example.com/wanta-checkout",
-      plan: "wanta_plus",
+      paymentURL: "https://console.example.com/team-checkout",
+      plan: "team_plus",
       status: "active",
       subscriptionID: "sub-1",
       targetAdditionalSeats: 0,
-      targetPlan: "wanta_plus",
+      targetPlan: "team_plus",
     })
 
-    const result = await updateWantaSubscription("team-1", { additional_seats: 0, plan: "wanta_plus" })
+    const result = await updateTeamSubscription("team-1", { additional_seats: 0, plan: "team_plus" })
 
-    expect(JSON.parse(request.requestBody())).toEqual({ additional_seats: 0, plan: "wanta_plus" })
-    expect(result.paymentURL).toBe("https://console.example.com/wanta-checkout")
+    expect(JSON.parse(request.requestBody())).toEqual({ additional_seats: 0, plan: "team_plus" })
+    expect(result.paymentURL).toBe("https://console.example.com/team-checkout")
   })
 
-  it("requests a Wanta plan preview before submission", async () => {
+  it("requests a Team plan preview before submission", async () => {
     let body = ""
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-      expect(urlOf(input).pathname).toBe("/api/org/team%2Fa%20b/subscriptions/wanta/preview")
+      expect(urlOf(input).pathname).toBe("/api/team/team%2Fa%20b/subscriptions/team/preview")
       body = String(init?.body ?? "")
       return Response.json({
         data: {
@@ -320,32 +320,32 @@ describe("billing-client", () => {
           currency: "usd",
           mode: "create",
           targetAdditionalSeats: 0,
-          targetPlan: "wanta_plus",
+          targetPlan: "team_plus",
           total: 3200,
         },
         success: true,
       })
     })
 
-    const preview = await previewWantaSubscription("team/a b", { additional_seats: 0, plan: "wanta_plus" })
+    const preview = await previewTeamSubscription("team/a b", { additional_seats: 0, plan: "team_plus" })
 
-    expect(JSON.parse(body)).toEqual({ additional_seats: 0, plan: "wanta_plus" })
+    expect(JSON.parse(body)).toEqual({ additional_seats: 0, plan: "team_plus" })
     expect(preview).toEqual({
       amountDue: 3200,
       changeTiming: "immediate",
       currency: "usd",
       mode: "create",
       targetAdditionalSeats: 0,
-      targetPlan: "wanta_plus",
+      targetPlan: "team_plus",
       total: 3200,
     })
   })
 
-  it("posts Wanta seat changes without plan fields", async () => {
-    const request = stubWantaSubscriptionFetch({
+  it("posts Team seat changes without plan fields", async () => {
+    const request = stubTeamSubscriptionFetch({
       additionalSeats: 1,
       currentPeriodEnd: 0,
-      paymentURL: "https://console.example.com/wanta-seat-checkout",
+      paymentURL: "https://console.example.com/team-seat-checkout",
       plan: null,
       status: "active",
       subscriptionID: "sub-1",
@@ -353,10 +353,10 @@ describe("billing-client", () => {
       targetPlan: null,
     })
 
-    const result = await updateWantaSubscription("team-1", { additional_seats: 1 })
+    const result = await updateTeamSubscription("team-1", { additional_seats: 1 })
 
     expect(JSON.parse(request.requestBody())).toEqual({ additional_seats: 1 })
-    expect(result.paymentURL).toBe("https://console.example.com/wanta-seat-checkout")
+    expect(result.paymentURL).toBe("https://console.example.com/team-seat-checkout")
   })
 
   it("caps credit usage pagination at 100 pages", async () => {

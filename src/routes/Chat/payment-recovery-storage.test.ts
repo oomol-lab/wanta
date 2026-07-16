@@ -22,7 +22,7 @@ function organizationScope(overrides: Partial<BillingRequestScope> = {}): Billin
   return {
     canManageBilling: true,
     canManageFunding: true,
-    organizationId: "team-1",
+    teamId: "team-1",
     organizationName: "acme",
     ...overrides,
   }
@@ -38,7 +38,7 @@ describe("payment recovery storage", () => {
       paymentRecoveryPendingStorageKey(
         "user-1:organization:team-1",
         organizationScope({
-          organizationId: "team-2",
+          teamId: "team-2",
         }),
       ),
     )
@@ -63,7 +63,7 @@ describe("payment recovery storage", () => {
   it("keeps markers isolated between billing scopes", () => {
     const storage = createStorage()
     const teamA = organizationScope()
-    const teamB = organizationScope({ organizationId: "team-2", organizationName: "beta" })
+    const teamB = organizationScope({ teamId: "team-2", organizationName: "beta" })
 
     markPaymentRecoveryPending("user-1:organization:team-1", teamA, storage, 1_000)
 
@@ -79,7 +79,7 @@ describe("payment recovery storage", () => {
     const secondaryScope = {
       canManageBilling: true,
       canManageFunding: true,
-      organizationId: "org-id",
+      teamId: "org-id",
       organizationName: "org-name",
     } as const
 

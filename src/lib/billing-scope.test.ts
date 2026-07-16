@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { billingRequestScopeForWorkspace } from "./billing-scope.ts"
 
 describe("billingRequestScopeForWorkspace", () => {
-  it("carries both organization identifiers", () => {
+  it("maps the workspace organization to the billing team", () => {
     const workspace = {
       canManage: true,
       organization: {
@@ -18,7 +18,7 @@ describe("billingRequestScopeForWorkspace", () => {
     expect(billingRequestScopeForWorkspace(workspace)).toEqual({
       canManageBilling: true,
       canManageFunding: true,
-      organizationId: "team-1",
+      teamId: "team-1",
       organizationName: "acme",
     })
   })

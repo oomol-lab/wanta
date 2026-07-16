@@ -48,11 +48,11 @@ export function useBillingOverview(
   // 作用域不同；缓存边界仍须包含账号和工作区，避免付款权限或组织统计跨边界复用。
   const requestCanManageBilling = requestScope?.canManageBilling ?? false
   const requestCanManageFunding = requestScope?.canManageFunding ?? false
-  const requestOrganizationId = requestScope?.organizationId ?? ""
+  const requestTeamId = requestScope?.teamId ?? ""
   const requestOrganizationName = requestScope?.organizationName ?? ""
   const requestScopeReady = requestScope !== null
   const requestScopeKey = requestScope
-    ? `organization:${requestOrganizationId}:${requestOrganizationName}:${requestCanManageBilling}:${requestCanManageFunding}`
+    ? `organization:${requestTeamId}:${requestOrganizationName}:${requestCanManageBilling}:${requestCanManageFunding}`
     : "blocked"
   const cacheScopeKey = `${cacheScope}\u0000${requestScopeKey}`
   const [data, setData] = React.useState<BillingOverviewResult | null>(() => cachedData(cacheScopeKey, days))
@@ -96,7 +96,7 @@ export function useBillingOverview(
       const scope: BillingRequestScope = {
         canManageBilling: requestCanManageBilling,
         canManageFunding: requestCanManageFunding,
-        organizationId: requestOrganizationId,
+        teamId: requestTeamId,
         organizationName: requestOrganizationName,
       }
       const promise = entry.promise ?? startBillingOverviewRequest(entry, () => getBillingOverview(days, scope))
@@ -132,7 +132,7 @@ export function useBillingOverview(
       days,
       requestCanManageBilling,
       requestCanManageFunding,
-      requestOrganizationId,
+      requestTeamId,
       requestOrganizationName,
       requestScopeReady,
       staleMs,

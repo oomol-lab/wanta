@@ -1,7 +1,7 @@
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { BillingRequestScope } from "@/lib/billing-client"
 
-export function canManageWantaBilling(workspace: WorkspaceSelection): boolean {
+export function canManageTeamBilling(workspace: WorkspaceSelection): boolean {
   return workspace.canManage && Boolean(workspace.organization?.name.trim())
 }
 
@@ -13,7 +13,7 @@ export function billingRequestScopeForWorkspace(workspace: WorkspaceSelection): 
   return {
     canManageBilling: workspace.canManage,
     canManageFunding: workspace.role === "creator",
-    organizationId: workspace.organizationId,
+    teamId: workspace.organizationId,
     organizationName: workspace.organization.name,
   }
 }

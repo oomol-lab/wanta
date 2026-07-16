@@ -19,10 +19,10 @@ import { useAuth } from "@/hooks/useAuth"
 import { useBillableSeats } from "@/hooks/useBillableSeats"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
-import { billingRequestScopeForWorkspace, canManageWantaBilling } from "@/lib/billing-scope"
+import { billingRequestScopeForWorkspace, canManageTeamBilling } from "@/lib/billing-scope"
 import { cn } from "@/lib/utils"
+import { buildTeamSubscriptionOverview } from "@/routes/Billing/team-subscription-model.ts"
 import { buildCategorySummaries, formatCredit, getSummary, statsTotalCredit, toNumber } from "@/routes/Billing/usage.ts"
-import { buildWantaSubscriptionOverview } from "@/routes/Billing/wanta-subscription-model.ts"
 
 const usagePeriodDays = 30
 const cacheFreshMs = 60_000
@@ -86,30 +86,30 @@ export function BillingUsagePopover({
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const modelSpend = getSummary(summaries, "model").credit
   const connectorSpend = getSummary(summaries, "link").credit
-  const showWantaPlanSection = canManageWantaBilling(workspace)
+  const showTeamPlanSection = canManageTeamBilling(workspace)
   const billableSeats = Math.max(1, seatState.count ?? 1)
-  const wantaOverview = React.useMemo(
+  const teamOverview = React.useMemo(
     () =>
-      buildWantaSubscriptionOverview({
+      buildTeamSubscriptionOverview({
         canManage: workspace.canManage,
         memberCount: billableSeats,
-        pendingPayment: data?.wantaPendingPayment ?? null,
+        pendingPayment: data?.teamPendingPayment ?? null,
         sharedConnectorCount,
         subscription: data?.subscription ?? null,
       }),
-    [billableSeats, data?.subscription, data?.wantaPendingPayment, sharedConnectorCount, workspace],
+    [billableSeats, data?.subscription, data?.teamPendingPayment, sharedConnectorCount, workspace],
   )
   const showPlanPrompt = Boolean(
-    showWantaPlanSection && data && !error && wantaOverview.recommendedAction === "choose_plan",
+    showTeamPlanSection && data && !error && teamOverview.recommendedAction === "choose_plan",
   )
   const showPendingPaymentPrompt = Boolean(
-    showWantaPlanSection && data && !error && wantaOverview.recommendedAction === "continue_payment",
+    showTeamPlanSection && data && !error && teamOverview.recommendedAction === "continue_payment",
   )
   const showUpgradePrompt = Boolean(
-    showWantaPlanSection && data && !error && wantaOverview.recommendedAction === "upgrade_plan",
+    showTeamPlanSection && data && !error && teamOverview.recommendedAction === "upgrade_plan",
   )
   const showSeatPrompt = Boolean(
-    showWantaPlanSection && data && !error && wantaOverview.recommendedAction === "add_seats",
+    showTeamPlanSection && data && !error && teamOverview.recommendedAction === "add_seats",
   )
   const availableShare =
     originalCredit > 0
@@ -208,26 +208,26 @@ export function BillingUsagePopover({
               <BillingUsageSkeleton />
             ) : (
               <>
-                {showWantaPlanSection ? (
+                {showTeamPlanSection ? (
                   <section className="rounded-lg border border-border p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="oo-text-label flex items-center gap-2 text-foreground">
                           <ShieldCheckIcon className="size-4 text-muted-foreground" />
                           <span>
-                            {wantaOverview.currentPlan
-                              ? wantaPlanLabel(wantaOverview.currentPlan, t)
-                              : t("billing.wantaNoPlan")}
+                            {teamOverview.currentPlan
+                              ? teamPlanLabel(teamOverview.currentPlan, t)
+                              : t("billing.teamNoPlan")}
                           </span>
                         </div>
                         <div className="oo-text-caption-compact mt-1 text-muted-foreground">
                           {seatState.loading
                             ? t("billing.popover.planSeatsLoading")
-                            : wantaOverview.seatCapacity === null
-                              ? t("billing.popover.planMembers", { count: wantaOverview.usedSeats })
+                            : teamOverview.seatCapacity === null
+                              ? t("billing.popover.planMembers", { count: teamOverview.usedSeats })
                               : t("billing.popover.planSeats", {
-                                  count: wantaOverview.usedSeats,
-                                  limit: wantaOverview.seatCapacity,
+                                  count: teamOverview.usedSeats,
+                                  limit: teamOverview.seatCapacity,
                                 })}
                           {sharedConnectorCount === undefined
                             ? ""
@@ -235,20 +235,20 @@ export function BillingUsagePopover({
                         </div>
                       </div>
                       <PlanStatusBadge
-                        clickable={wantaOverview.currentPlan === null}
+                        clickable={teamOverview.currentPlan === null}
                         label={
-                          wantaOverview.hasPendingPayment
-                            ? t("billing.wantaPaymentPending")
+                          teamOverview.hasPendingPayment
+                            ? t("billing.teamPaymentPending")
                             : showSeatPrompt
                               ? t("billing.popover.seatLimitHint")
                               : showUpgradePrompt
                                 ? t("billing.popover.upgradeHint")
-                                : wantaOverview.currentPlan === null
+                                : teamOverview.currentPlan === null
                                   ? t("billing.popover.planInactive")
                                   : t("billing.popover.planActive")
                         }
                         variant={
-                          wantaOverview.hasPendingPayment || showUpgradePrompt || showPlanPrompt || showSeatPrompt
+                          teamOverview.hasPendingPayment || showUpgradePrompt || showPlanPrompt || showSeatPrompt
                             ? "default"
                             : "outline"
                         }
@@ -256,11 +256,11 @@ export function BillingUsagePopover({
                       />
                     </div>
                     <p className="oo-text-caption mt-3 text-muted-foreground">
-                      {wantaOverview.hasPendingPayment
+                      {teamOverview.hasPendingPayment
                         ? t("billing.popover.pendingPaymentRecommendation")
                         : showSeatPrompt
                           ? t("billing.popover.seatRecommendation")
-                          : wantaOverview.currentPlan === null
+                          : teamOverview.currentPlan === null
                             ? t("billing.popover.noPlanRecommendation")
                             : showUpgradePrompt
                               ? t("billing.popover.proRecommendation")
@@ -326,7 +326,7 @@ export function BillingUsagePopover({
                 showPlanPrompt
                   ? "billing.planComparison.choosePlan"
                   : showPendingPaymentPrompt
-                    ? "billing.wantaContinuePayment"
+                    ? "billing.teamContinuePayment"
                     : showSeatPrompt
                       ? "billing.popover.manageSeats"
                       : showUpgradePrompt
@@ -375,8 +375,8 @@ function PlanStatusBadge({
   )
 }
 
-function wantaPlanLabel(plan: "wanta_plus" | "wanta_pro", t: ReturnType<typeof useT>): string {
-  return plan === "wanta_pro" ? t("billing.wantaProPlanTitle") : t("billing.wantaPlusPlanTitle")
+function teamPlanLabel(plan: "team_plus" | "team_pro", t: ReturnType<typeof useT>): string {
+  return plan === "team_pro" ? t("billing.teamProPlanTitle") : t("billing.teamPlusPlanTitle")
 }
 
 function BillingUsageSkeleton() {

@@ -9,11 +9,16 @@ import {
   PlanComparison,
   PlanSeatOverviewPanel,
   UsageSubscriptionPanel,
-  WantaSubscriptionPreviewDialog,
+  TeamSubscriptionPreviewDialog,
 } from "./BillingSubscriptionPanels.tsx"
 import { BalanceOverview, UsageDetailsDisclosure } from "./BillingUsagePanels.tsx"
 import { CreditPurchaseModal } from "./CreditPurchaseModal.tsx"
 import { getCurrentUsageSubscription } from "./plans.ts"
+import {
+  buildTeamSubscriptionOverview,
+  isTeamSubscriptionActionDisabled,
+  resolveTeamPendingPaymentTargets,
+} from "./team-subscription-model.ts"
 import {
   buildCategorySummaries,
   buildDailySpendBuckets,
@@ -22,12 +27,7 @@ import {
   statsTotalEvents,
   toNumber,
 } from "./usage.ts"
-import { useWantaCheckout } from "./use-wanta-checkout.ts"
-import {
-  buildWantaSubscriptionOverview,
-  isWantaSubscriptionActionDisabled,
-  resolveWantaPendingPaymentTargets,
-} from "./wanta-subscription-model.ts"
+import { useTeamCheckout } from "./use-team-checkout.ts"
 import { useChatService } from "@/components/AppContext"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { PageRouteShell } from "@/components/PageRouteShell"
@@ -35,7 +35,7 @@ import { useAuth } from "@/hooks/useAuth"
 import { useBillableSeats } from "@/hooks/useBillableSeats"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
-import { billingRequestScopeForWorkspace, canManageWantaBilling } from "@/lib/billing-scope"
+import { billingRequestScopeForWorkspace, canManageTeamBilling } from "@/lib/billing-scope"
 
 interface BillingRouteProps {
   cacheScope: string
@@ -92,12 +92,12 @@ export function BillingRoute({
       ),
     [seatState.count, sharedConnectorCount, t, workspace],
   )
-  const wantaOverview = React.useMemo(
+  const teamOverview = React.useMemo(
     () =>
-      buildWantaSubscriptionOverview({
+      buildTeamSubscriptionOverview({
         canManage: billingContext.canManage,
         memberCount: billingContext.memberCount,
-        pendingPayment: data?.wantaPendingPayment ?? null,
+        pendingPayment: data?.teamPendingPayment ?? null,
         sharedConnectorCount,
         subscription: data?.subscription ?? null,
       }),
@@ -105,26 +105,26 @@ export function BillingRoute({
       billingContext.canManage,
       billingContext.memberCount,
       data?.subscription,
-      data?.wantaPendingPayment,
+      data?.teamPendingPayment,
       sharedConnectorCount,
     ],
   )
-  const pendingWantaPaymentTargets = React.useMemo(
+  const pendingTeamPaymentTargets = React.useMemo(
     () =>
-      resolveWantaPendingPaymentTargets({
-        currentAdditionalSeats: wantaOverview.additionalSeats,
-        currentPlan: wantaOverview.currentPlan,
-        pendingPayment: data?.wantaPendingPayment ?? null,
+      resolveTeamPendingPaymentTargets({
+        currentAdditionalSeats: teamOverview.additionalSeats,
+        currentPlan: teamOverview.currentPlan,
+        pendingPayment: data?.teamPendingPayment ?? null,
       }),
-    [data?.wantaPendingPayment, wantaOverview.additionalSeats, wantaOverview.currentPlan],
+    [data?.teamPendingPayment, teamOverview.additionalSeats, teamOverview.currentPlan],
   )
-  const pendingWantaPaymentUrl = pendingWantaPaymentTargets.paymentUrl
+  const pendingTeamPaymentUrl = pendingTeamPaymentTargets.paymentUrl
   const currentUsageSubscription = React.useMemo(
     () => getCurrentUsageSubscription(data?.usageSubscription ?? null),
     [data?.usageSubscription],
   )
-  const wantaOrganizationId = canManageWantaBilling(workspace) ? workspace.organizationId : null
-  const showWantaPlans = wantaOrganizationId !== null
+  const teamId = canManageTeamBilling(workspace) ? workspace.organizationId : null
+  const showTeamPlans = teamId !== null
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const availableShare =
@@ -153,31 +153,31 @@ export function BillingRoute({
     },
     [chatService],
   )
-  const wantaCheckout = useWantaCheckout({
-    currentAdditionalSeats: wantaOverview.additionalSeats,
+  const teamCheckout = useTeamCheckout({
+    currentAdditionalSeats: teamOverview.additionalSeats,
     openExternalCheckout,
-    organizationId: wantaOrganizationId,
-    pendingAdditionalSeats: pendingWantaPaymentTargets.additionalSeats,
-    pendingPaymentUrl: pendingWantaPaymentUrl || null,
-    pendingPlan: pendingWantaPaymentTargets.plan,
+    teamId,
+    pendingAdditionalSeats: pendingTeamPaymentTargets.additionalSeats,
+    pendingPaymentUrl: pendingTeamPaymentUrl || null,
+    pendingPlan: pendingTeamPaymentTargets.plan,
     refresh: () => void refresh({ force: true }),
   })
-  const wantaLoading = wantaCheckout.loading
-  const wantaCheckoutPreview = wantaCheckout.preview
-  const wantaActionDisabled = isWantaSubscriptionActionDisabled({
+  const teamLoading = teamCheckout.loading
+  const teamCheckoutPreview = teamCheckout.preview
+  const teamActionDisabled = isTeamSubscriptionActionDisabled({
     canManage: billingContext.canManage,
     isSessionExpired,
-    isSubmitting: wantaLoading !== null,
+    isSubmitting: teamLoading !== null,
   })
   React.useEffect(() => {
-    if (initialTarget !== "plans" || !showWantaPlans) {
+    if (initialTarget !== "plans" || !showTeamPlans) {
       return
     }
     const frame = window.requestAnimationFrame(() => {
       planComparisonRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [initialTarget, showWantaPlans])
+  }, [initialTarget, showTeamPlans])
 
   React.useEffect(() => {
     if (initialTarget === "credits" && canManageFunding) {
@@ -228,32 +228,32 @@ export function BillingRoute({
 
         {!billingContext.canManage ? <BillingManagePermissionNotice /> : null}
 
-        {showWantaPlans ? (
+        {showTeamPlans ? (
           <>
             <PlanSeatOverviewPanel
               loading={(loading && !data) || isSessionExpired}
-              overview={wantaOverview}
+              overview={teamOverview}
               seatLoading={seatState.loading}
               workspaceLabel={billingContext.workspaceLabel}
             />
 
             <PlanComparison
               ref={planComparisonRef}
-              currentPlan={wantaOverview.currentPlan}
-              disabled={wantaActionDisabled}
-              loadingPlan={wantaLoading}
-              pendingPaymentPlan={pendingWantaPaymentTargets.plan}
-              onChoosePlan={wantaCheckout.choosePlan}
+              currentPlan={teamOverview.currentPlan}
+              disabled={teamActionDisabled}
+              loadingPlan={teamLoading}
+              pendingPaymentPlan={pendingTeamPaymentTargets.plan}
+              onChoosePlan={teamCheckout.choosePlan}
             />
 
             <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)]">
               <AdditionalSeatsPanel
-                currentAdditionalSeats={wantaOverview.additionalSeats}
-                disabled={wantaActionDisabled}
-                loading={wantaLoading !== null}
-                pendingAdditionalSeats={pendingWantaPaymentTargets.additionalSeats}
+                currentAdditionalSeats={teamOverview.additionalSeats}
+                disabled={teamActionDisabled}
+                loading={teamLoading !== null}
+                pendingAdditionalSeats={pendingTeamPaymentTargets.additionalSeats}
                 workspaceLabel={billingContext.workspaceLabel}
-                onUpdateSeats={wantaCheckout.updateSeats}
+                onUpdateSeats={teamCheckout.updateSeats}
               />
 
               {balanceOverview}
@@ -284,11 +284,11 @@ export function BillingRoute({
           totalSpend={totalSpend}
         />
       </PageRouteShell>
-      <WantaSubscriptionPreviewDialog
-        loading={wantaLoading === "checkout"}
-        preview={wantaCheckoutPreview}
-        onClose={wantaCheckout.closePreview}
-        onConfirm={() => void wantaCheckout.confirm()}
+      <TeamSubscriptionPreviewDialog
+        loading={teamLoading === "checkout"}
+        preview={teamCheckoutPreview}
+        onClose={teamCheckout.closePreview}
+        onConfirm={() => void teamCheckout.confirm()}
       />
       <CreditPurchaseModal
         cacheScope={cacheScope}

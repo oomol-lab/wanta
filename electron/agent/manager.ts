@@ -65,6 +65,12 @@ function normalizeOrganizationName(organizationName: string | undefined): string
   return normalized ? normalized : undefined
 }
 
+export function buildManagedSkillRuntimeEnv(nodeBin: string = process.execPath): Record<string, string> {
+  return {
+    WANTA_NODE_BIN: nodeBin,
+  }
+}
+
 export interface OrganizationScopePersistenceOptions {
   currentName: string | undefined
   nextName: string | undefined
@@ -295,6 +301,9 @@ export class AgentManager {
     const commandPath = await resolveUserCommandPath({ preferredDirectories: [ooDir] })
     const env: Record<string, string> = {
       ...ooEnv,
+      // 托管 Skill 可复用 Wanta 自身的 Node runtime；生产的 process.execPath 是 Electron，调用方同时设置
+      // ELECTRON_RUN_AS_NODE=1，避免依赖用户机器另装 Node。
+      ...buildManagedSkillRuntimeEnv(),
       // WANTA 自带 oo/rg 目录保持最高优先级；其后合并用户登录 shell PATH，
       // 让 Finder/Dock 启动的 GUI 也能发现用户在终端中安装的 CLI。
       PATH: commandPath,

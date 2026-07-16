@@ -13,6 +13,8 @@ export type ReasoningLevel = WantaReasoningLevel
 export type AgentMode = WantaAgentMode
 export type AgentPermissionMode = "default" | "full_access"
 
+export const BUG_REPORT_COMMAND = "/bug-report"
+
 export interface AuthorizationInfo {
   service: string
   displayName: string

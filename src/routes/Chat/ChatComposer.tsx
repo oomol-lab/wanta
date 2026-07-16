@@ -15,6 +15,7 @@ import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ChatStatus } from "ai"
 
+import { Bug, X } from "lucide-react"
 import * as React from "react"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import {
@@ -25,7 +26,7 @@ import {
   buildSkillPaletteItems,
   slashCommandItems,
 } from "./composer-palette-items.ts"
-import { composerReducer, initialComposerState } from "./composer-state.ts"
+import { composerReducer, composerSubmissionText, initialComposerState } from "./composer-state.ts"
 import { ComposerAttachmentMenu } from "./ComposerAttachmentMenu.tsx"
 import { ComposerPalette } from "./ComposerPalette.tsx"
 import { ComposerTrailingControls } from "./ComposerTrailingControls.tsx"
@@ -216,7 +217,7 @@ export function ChatComposer({
     window.requestAnimationFrame(() => textareaRef.current?.focus())
   }, [])
   const voiceInput = useVoiceComposerInput(appendVoiceTranscription)
-  const { attachments, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
+  const { attachments, command, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
   const isGenerating = status === "submitted" || status === "streaming"
   const activePendingQuestion = pendingQuestions[0]
   const activePendingQuestionId = activePendingQuestion?.id
@@ -427,7 +428,11 @@ export function ChatComposer({
       }
       return
     }
-    if ((text.trim().length === 0 && attachments.length === 0) || submitBlocked || composerDisabled) {
+    if (
+      (text.trim().length === 0 && attachments.length === 0 && command === null) ||
+      submitBlocked ||
+      composerDisabled
+    ) {
       return
     }
     let clearedAfterSubmit = false
@@ -450,7 +455,7 @@ export function ChatComposer({
         model: modelCatalog?.selected,
         permissionMode,
         reasoningLevel,
-        text,
+        text: composerSubmissionText({ command, draft: text }),
       })
     } catch (err) {
       showUnexpectedInputError(err)
@@ -509,13 +514,15 @@ export function ChatComposer({
   const submitText = draft
   const canSubmit = activePendingQuestion
     ? !submitBlocked && !composerDisabled && attachments.length === 0 && submitText.trim().length > 0
-    : !submitBlocked && !composerDisabled && (submitText.trim().length > 0 || attachments.length > 0)
+    : !submitBlocked &&
+      !composerDisabled &&
+      (command !== null || submitText.trim().length > 0 || attachments.length > 0)
   const composerPlaceholder = activePendingQuestion
     ? composerQuestionBlocked
       ? t("chat.questionComposerBlockedPlaceholder")
       : t("chat.questionComposerPlaceholder")
     : placeholder
-  const hasInputAddons = attachments.length > 0 || contextMentions.length > 0
+  const hasInputAddons = command !== null || attachments.length > 0 || contextMentions.length > 0
   const contextUsage = React.useMemo(() => buildContextUsageInfo(messages, modelCatalog), [messages, modelCatalog])
 
   const promptInput = (
@@ -528,6 +535,29 @@ export function ChatComposer({
       {hasInputAddons ? (
         <PromptInputAttachments>
           <div className="flex max-h-[min(42vh,20rem)] w-full flex-col gap-2 overflow-y-auto pr-1">
+            {command === "bug-report" ? (
+              <div className="flex w-full flex-wrap gap-2">
+                <span
+                  className="oo-border-divider oo-text-body flex h-8 max-w-full min-w-0 items-center gap-2 rounded-lg border bg-background/70 px-2 shadow-xs"
+                  title={t("chat.commandBugReportDescription")}
+                >
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                    <Bug className="size-3.5" />
+                  </span>
+                  <span className="min-w-0 truncate font-medium text-foreground">{t("chat.commandBugReport")}</span>
+                  {!composerDisabled ? (
+                    <button
+                      type="button"
+                      aria-label={t("chat.contextRemove", { name: t("chat.commandBugReport") })}
+                      className="-mr-1 flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                      onClick={() => dispatchComposer({ type: "remove-command" })}
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  ) : null}
+                </span>
+              </div>
+            ) : null}
             <ContextMentionChips
               mentions={contextMentions}
               providerByService={providerByService}

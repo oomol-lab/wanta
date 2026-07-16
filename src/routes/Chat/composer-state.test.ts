@@ -3,6 +3,7 @@ import type { ChatContextMention } from "../../../electron/chat/common.ts"
 import { describe, expect, it } from "vitest"
 import {
   composerReducer,
+  composerSubmissionText,
   contextMentionKey,
   hasComposerDraftContent,
   initialComposerState,
@@ -74,6 +75,30 @@ describe("composer state", () => {
     })
   })
 
+  it("selects the bug report as a composer chip and builds the submitted command", () => {
+    const selected = composerReducer(
+      composerReducer(initialComposerState(), {
+        draft: "/bug Add authorization evidence",
+        selection: { end: 4, start: 4 },
+        type: "set-draft",
+      }),
+      {
+        trigger: { end: 4, kind: "slash", query: "bug", start: 0 },
+        type: "select-bug-report",
+      },
+    )
+
+    expect(selected).toMatchObject({ command: "bug-report", draft: " Add authorization evidence" })
+    expect(composerSubmissionText(selected)).toBe("/bug-report Add authorization evidence")
+    expect(hasComposerDraftContent(selected)).toBe(true)
+    expect(composerReducer(selected, { type: "remove-command" }).command).toBeNull()
+  })
+
+  it("submits a selected bug report without an optional note", () => {
+    expect(composerSubmissionText({ command: "bug-report", draft: "" })).toBe("/bug-report")
+    expect(composerSubmissionText({ command: null, draft: "ordinary message" })).toBe("ordinary message")
+  })
+
   it("inserts voice transcription into the draft at the current cursor", () => {
     const state = composerReducer(
       composerReducer(initialComposerState(), {
@@ -122,6 +147,7 @@ describe("composer state", () => {
     }
 
     expect(composerReducer(state, { type: "reset-after-submit" })).toMatchObject({
+      command: null,
       dismissedTriggerKey: null,
       draft: "",
     })

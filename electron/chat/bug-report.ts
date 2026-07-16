@@ -1,7 +1,7 @@
 import type { ModelChoice } from "../models/common.ts"
 import type { AgentMode, AgentPermissionMode } from "./common.ts"
 
-export const BUG_REPORT_COMMAND = "/bug-report"
+export { BUG_REPORT_COMMAND } from "./common.ts"
 export const BUG_REPORT_FILE_NAME = "wanta-bug-report.md"
 
 export interface ParsedBugReportCommand {

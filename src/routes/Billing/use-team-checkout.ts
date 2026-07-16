@@ -1,28 +1,28 @@
 import type {
-  WantaSubscriptionChangePayload,
-  WantaSubscriptionPlan,
-  WantaSubscriptionPreviewResult,
+  TeamSubscriptionChangePayload,
+  TeamSubscriptionPlan,
+  TeamSubscriptionPreviewResult,
 } from "../../../electron/chat/common.ts"
 
 import * as React from "react"
 import { toast } from "sonner"
-import { buildWantaPlanChange } from "./wanta-subscription-model.ts"
+import { buildTeamPlanChange } from "./team-subscription-model.ts"
 import { useT } from "@/i18n/i18n"
-import { previewWantaSubscription, updateWantaSubscription } from "@/lib/billing-client"
+import { previewTeamSubscription, updateTeamSubscription } from "@/lib/billing-client"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
-export type WantaLoadingTarget = WantaSubscriptionPlan | "checkout" | "seats"
+export type TeamLoadingTarget = TeamSubscriptionPlan | "checkout" | "seats"
 
-export interface WantaCheckoutPreview {
-  organizationId: string
-  payload: WantaSubscriptionChangePayload
-  preview: WantaSubscriptionPreviewResult
+export interface TeamCheckoutPreview {
+  teamId: string
+  payload: TeamSubscriptionChangePayload
+  preview: TeamSubscriptionPreviewResult
 }
 
-export function useWantaCheckout({
+export function useTeamCheckout({
   currentAdditionalSeats,
   openExternalCheckout,
-  organizationId,
+  teamId,
   pendingAdditionalSeats,
   pendingPaymentUrl,
   pendingPlan,
@@ -30,34 +30,34 @@ export function useWantaCheckout({
 }: {
   currentAdditionalSeats: number
   openExternalCheckout: (url: string) => Promise<void>
-  organizationId: string | null
+  teamId: string | null
   pendingAdditionalSeats: number | null
   pendingPaymentUrl: string | null
-  pendingPlan: WantaSubscriptionPlan | null
+  pendingPlan: TeamSubscriptionPlan | null
   refresh: () => void
 }) {
   const t = useT()
-  const [loading, setLoading] = React.useState<WantaLoadingTarget | null>(null)
-  const [preview, setPreview] = React.useState<WantaCheckoutPreview | null>(null)
+  const [loading, setLoading] = React.useState<TeamLoadingTarget | null>(null)
+  const [preview, setPreview] = React.useState<TeamCheckoutPreview | null>(null)
   const requestIdRef = React.useRef(0)
 
   React.useEffect(() => {
     requestIdRef.current += 1
     setLoading(null)
     setPreview(null)
-  }, [organizationId])
+  }, [teamId])
 
   const reportFailure = React.useCallback(
     (operation: string, cause: unknown) => {
-      reportRendererHandledError("billing.wanta", operation, cause)
+      reportRendererHandledError("billing.team", operation, cause)
       const error = cause instanceof Error && cause.message.trim() ? cause.message : "Unknown error"
-      toast.error(t("billing.wantaCheckoutFailed", { error }))
+      toast.error(t("billing.teamCheckoutFailed", { error }))
     },
     [t],
   )
 
   const openPendingPayment = React.useCallback(
-    async (target: WantaLoadingTarget) => {
+    async (target: TeamLoadingTarget) => {
       if (!pendingPaymentUrl) return false
       const requestId = requestIdRef.current + 1
       requestIdRef.current = requestId
@@ -66,7 +66,7 @@ export function useWantaCheckout({
         await openExternalCheckout(pendingPaymentUrl)
       } catch (cause) {
         if (requestIdRef.current === requestId) {
-          reportFailure("Opening pending Wanta payment failed", cause)
+          reportFailure("Opening pending Team payment failed", cause)
         }
       } finally {
         if (requestIdRef.current === requestId) {
@@ -79,19 +79,19 @@ export function useWantaCheckout({
   )
 
   const loadPreview = React.useCallback(
-    async (payload: WantaSubscriptionChangePayload, target: WantaLoadingTarget) => {
-      if (!organizationId) return
+    async (payload: TeamSubscriptionChangePayload, target: TeamLoadingTarget) => {
+      if (!teamId) return
       const requestId = requestIdRef.current + 1
       requestIdRef.current = requestId
       setLoading(target)
       try {
-        const nextPreview = await previewWantaSubscription(organizationId, payload)
+        const nextPreview = await previewTeamSubscription(teamId, payload)
         if (requestIdRef.current === requestId) {
-          setPreview({ organizationId, payload, preview: nextPreview })
+          setPreview({ teamId, payload, preview: nextPreview })
         }
       } catch (cause) {
         if (requestIdRef.current === requestId) {
-          reportFailure("Wanta subscription preview failed", cause)
+          reportFailure("Team subscription preview failed", cause)
         }
       } finally {
         if (requestIdRef.current === requestId) {
@@ -99,13 +99,13 @@ export function useWantaCheckout({
         }
       }
     },
-    [organizationId, reportFailure],
+    [teamId, reportFailure],
   )
 
   const choosePlan = React.useCallback(
-    async (plan: WantaSubscriptionPlan) => {
+    async (plan: TeamSubscriptionPlan) => {
       if (pendingPlan === plan && (await openPendingPayment(plan))) return
-      await loadPreview(buildWantaPlanChange(plan, currentAdditionalSeats), plan)
+      await loadPreview(buildTeamPlanChange(plan, currentAdditionalSeats), plan)
     },
     [currentAdditionalSeats, loadPreview, openPendingPayment, pendingPlan],
   )
@@ -122,14 +122,14 @@ export function useWantaCheckout({
     if (!preview) return
     setLoading("checkout")
     try {
-      const result = await updateWantaSubscription(preview.organizationId, preview.payload)
+      const result = await updateTeamSubscription(preview.teamId, preview.payload)
       const paymentUrl = result.paymentURL?.trim()
       setPreview(null)
       refresh()
       if (paymentUrl) await openExternalCheckout(paymentUrl)
-      else toast.success(t("billing.wantaSubscriptionUpdated"))
+      else toast.success(t("billing.teamSubscriptionUpdated"))
     } catch (cause) {
-      reportFailure("Wanta subscription update failed", cause)
+      reportFailure("Team subscription update failed", cause)
     } finally {
       setLoading(null)
     }

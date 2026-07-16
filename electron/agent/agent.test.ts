@@ -8,7 +8,7 @@ import { llmBaseUrl, ooEndpoint } from "../domain.ts"
 import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
 import { DEFAULT_MAX_OUTPUT_TOKENS } from "../models/limits.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
-import { AgentManager, persistOrganizationScopeUpdate } from "./manager.ts"
+import { AgentManager, buildManagedSkillRuntimeEnv, persistOrganizationScopeUpdate } from "./manager.ts"
 import { WANTA_BUILD_AGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
 import { OO_CLI_BASH_PERMISSION } from "./oo-command-permission.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
@@ -342,6 +342,13 @@ test("buildOoEnv injects the required OO_* control vars (R3)", () => {
   assert.equal(env.WANTA_OO_BIN, "/usr/bin/oo")
   assert.equal(env.WANTA_ORGANIZATION_NAME, "acme-corp")
   assert.equal(env.WANTA_ORGANIZATION_SCOPE_PATH, "/tmp/scope.json")
+})
+
+test("managed Skill runtime exposes Wanta's bundled Node executable", () => {
+  const env = buildManagedSkillRuntimeEnv("/Applications/Wanta.app/Contents/MacOS/Wanta")
+
+  assert.equal(env.ELECTRON_RUN_AS_NODE, "1")
+  assert.equal(env.WANTA_NODE_BIN, "/Applications/Wanta.app/Contents/MacOS/Wanta")
 })
 
 test("persistOrganizationScopeUpdate restores the previous scope after write failure", async () => {

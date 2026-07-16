@@ -1,6 +1,6 @@
-import type { SubscriptionPlanTag, WantaSubscriptionPlan } from "../../../electron/chat/common.ts"
-import type { WantaCheckoutPreview, WantaLoadingTarget } from "./use-wanta-checkout.ts"
-import type { WantaSubscriptionOverview } from "./wanta-subscription-model.ts"
+import type { SubscriptionPlanTag, TeamSubscriptionPlan } from "../../../electron/chat/common.ts"
+import type { TeamSubscriptionOverview } from "./team-subscription-model.ts"
+import type { TeamCheckoutPreview, TeamLoadingTarget } from "./use-team-checkout.ts"
 
 import {
   CreditCardIcon,
@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { teamPlanLabel } from "./team-plan-label.ts"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
@@ -64,7 +65,7 @@ export function PlanSeatOverviewPanel({
   workspaceLabel,
 }: {
   loading: boolean
-  overview: WantaSubscriptionOverview
+  overview: TeamSubscriptionOverview
   seatLoading: boolean
   workspaceLabel: string
 }) {
@@ -94,13 +95,13 @@ export function PlanSeatOverviewPanel({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="oo-text-title text-foreground">
-                {overview.currentPlan ? wantaPlanLabel(overview.currentPlan, t) : t("billing.wantaNoPlan")}
+                {overview.currentPlan ? teamPlanLabel(overview.currentPlan, t) : t("billing.teamNoPlan")}
               </h3>
               <Badge variant={statusVariant}>
                 {overview.hasPendingPayment
-                  ? t("billing.wantaPaymentPending")
+                  ? t("billing.teamPaymentPending")
                   : overview.currentPlan
-                    ? t("billing.wantaActive")
+                    ? t("billing.teamActive")
                     : t("billing.popover.planInactive")}
               </Badge>
             </div>
@@ -122,7 +123,7 @@ export function PlanSeatOverviewPanel({
           />
           <MiniStat
             icon={<ListIcon className="size-4" />}
-            label={t("billing.wantaSharedLinks")}
+            label={t("billing.teamSharedLinks")}
             value={overview.sharedConnectorCount === undefined ? "--" : String(overview.sharedConnectorCount)}
           />
         </div>
@@ -134,11 +135,11 @@ export function PlanSeatOverviewPanel({
 export const PlanComparison = React.forwardRef<
   HTMLElement,
   {
-    currentPlan: WantaSubscriptionPlan | null
+    currentPlan: TeamSubscriptionPlan | null
     disabled: boolean
-    loadingPlan: WantaLoadingTarget | null
-    pendingPaymentPlan: WantaSubscriptionPlan | null
-    onChoosePlan: (plan: WantaSubscriptionPlan) => void
+    loadingPlan: TeamLoadingTarget | null
+    pendingPaymentPlan: TeamSubscriptionPlan | null
+    onChoosePlan: (plan: TeamSubscriptionPlan) => void
   }
 >(function PlanComparison({ currentPlan, disabled, loadingPlan, pendingPaymentPlan, onChoosePlan }, ref) {
   const t = useT()
@@ -150,10 +151,10 @@ export const PlanComparison = React.forwardRef<
       meta={t("billing.planComparison.meta")}
     >
       <div className="grid gap-3">
-        <WantaPromotionNotice />
+        <TeamPromotionNotice />
         <div className="grid gap-3 md:grid-cols-2">
           <PlanComparisonCard
-            current={currentPlan === "wanta_plus"}
+            current={currentPlan === "team_plus"}
             description={t("billing.planComparison.plusDescription")}
             features={[
               t("billing.planComparison.planning"),
@@ -162,17 +163,17 @@ export const PlanComparison = React.forwardRef<
               t("billing.planComparison.plusMembers"),
               t("billing.planComparison.plusAccounts"),
             ]}
-            discountPrice={t("billing.wantaPlusPlanDiscountPrice")}
+            discountPrice={t("billing.teamPlusPlanDiscountPrice")}
             disabled={disabled}
-            loading={loadingPlan === "wanta_plus"}
-            originalPrice={t("billing.wantaPlusPlanOriginalPrice")}
-            pendingPayment={pendingPaymentPlan === "wanta_plus"}
-            plan="wanta_plus"
-            title={t("billing.wantaPlusPlanTitle")}
+            loading={loadingPlan === "team_plus"}
+            originalPrice={t("billing.teamPlusPlanOriginalPrice")}
+            pendingPayment={pendingPaymentPlan === "team_plus"}
+            plan="team_plus"
+            title={t("billing.teamPlusPlanTitle")}
             onChoose={onChoosePlan}
           />
           <PlanComparisonCard
-            current={currentPlan === "wanta_pro"}
+            current={currentPlan === "team_pro"}
             description={t("billing.planComparison.proDescription")}
             features={[
               t("billing.planComparison.planning"),
@@ -181,13 +182,13 @@ export const PlanComparison = React.forwardRef<
               t("billing.planComparison.proMembers"),
               t("billing.planComparison.proAccounts"),
             ]}
-            discountPrice={t("billing.wantaProPlanDiscountPrice")}
+            discountPrice={t("billing.teamProPlanDiscountPrice")}
             disabled={disabled}
-            loading={loadingPlan === "wanta_pro"}
-            originalPrice={t("billing.wantaProPlanOriginalPrice")}
-            pendingPayment={pendingPaymentPlan === "wanta_pro"}
-            plan="wanta_pro"
-            title={t("billing.wantaProPlanTitle")}
+            loading={loadingPlan === "team_pro"}
+            originalPrice={t("billing.teamProPlanOriginalPrice")}
+            pendingPayment={pendingPaymentPlan === "team_pro"}
+            plan="team_pro"
+            title={t("billing.teamProPlanTitle")}
             onChoose={onChoosePlan}
           />
         </div>
@@ -305,26 +306,26 @@ export function UsageSubscriptionPanel({
   )
 }
 
-export function WantaSubscriptionPreviewDialog({
+export function TeamSubscriptionPreviewDialog({
   loading,
   preview,
   onClose,
   onConfirm,
 }: {
   loading: boolean
-  preview: WantaCheckoutPreview | null
+  preview: TeamCheckoutPreview | null
   onClose: () => void
   onConfirm: () => void
 }) {
   const t = useT()
   const details = preview?.preview
-  const targetPlan = details?.targetPlan ? wantaPlanLabel(details.targetPlan, t) : t("billing.wantaNoPlan")
+  const targetPlan = details?.targetPlan ? teamPlanLabel(details.targetPlan, t) : t("billing.teamNoPlan")
 
   return (
     <Dialog
       open={Boolean(preview)}
-      title={t("billing.wantaPreview.title")}
-      description={t("billing.wantaPreview.description")}
+      title={t("billing.teamPreview.title")}
+      description={t("billing.teamPreview.description")}
       closeLabel={t("common.cancel")}
       onClose={onClose}
       footer={
@@ -334,29 +335,27 @@ export function WantaSubscriptionPreviewDialog({
           </Button>
           <Button type="button" disabled={!details || loading} onClick={onConfirm}>
             {loading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
-            {t("billing.wantaPreview.confirm")}
+            {t("billing.teamPreview.confirm")}
           </Button>
         </>
       }
     >
       {details ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          <WantaPreviewMetric label={t("billing.wantaPreview.plan")} value={targetPlan} />
-          <WantaPreviewMetric label={t("billing.wantaPreview.seats")} value={String(details.targetAdditionalSeats)} />
-          <WantaPreviewMetric
-            label={t("billing.wantaPreview.dueNow")}
-            value={formatWantaPreviewMoney(details.amountDue, details.currency)}
+          <TeamPreviewMetric label={t("billing.teamPreview.plan")} value={targetPlan} />
+          <TeamPreviewMetric label={t("billing.teamPreview.seats")} value={String(details.targetAdditionalSeats)} />
+          <TeamPreviewMetric
+            label={t("billing.teamPreview.dueNow")}
+            value={formatTeamPreviewMoney(details.amountDue, details.currency)}
           />
-          <WantaPreviewMetric
-            label={t("billing.wantaPreview.total")}
-            value={formatWantaPreviewMoney(details.total, details.currency)}
+          <TeamPreviewMetric
+            label={t("billing.teamPreview.total")}
+            value={formatTeamPreviewMoney(details.total, details.currency)}
           />
-          <WantaPreviewMetric
-            label={t("billing.wantaPreview.timing")}
+          <TeamPreviewMetric
+            label={t("billing.teamPreview.timing")}
             value={t(
-              details.changeTiming === "next_cycle"
-                ? "billing.wantaPreview.nextCycle"
-                : "billing.wantaPreview.immediate",
+              details.changeTiming === "next_cycle" ? "billing.teamPreview.nextCycle" : "billing.teamPreview.immediate",
             )}
           />
         </div>
@@ -365,7 +364,7 @@ export function WantaSubscriptionPreviewDialog({
   )
 }
 
-function WantaPreviewMetric({ label, value }: { label: string; value: string }) {
+function TeamPreviewMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
       <div className="oo-text-caption text-muted-foreground">{label}</div>
@@ -374,14 +373,14 @@ function WantaPreviewMetric({ label, value }: { label: string; value: string }) 
   )
 }
 
-function WantaPromotionNotice() {
+function TeamPromotionNotice() {
   const t = useT()
   return (
     <div className="flex items-start gap-3 rounded-md border border-[var(--oo-success-border)] bg-[var(--oo-success-surface)] px-4 py-3 text-foreground">
       <GiftIcon className="mt-0.5 size-4 shrink-0 text-[var(--oo-success-foreground)]" />
       <div className="min-w-0">
-        <div className="oo-text-title">{t("billing.wantaPromotionTitle")}</div>
-        <p className="oo-text-body mt-1 text-muted-foreground">{t("billing.wantaPromotionDescription")}</p>
+        <div className="oo-text-title">{t("billing.teamPromotionTitle")}</div>
+        <p className="oo-text-body mt-1 text-muted-foreground">{t("billing.teamPromotionDescription")}</p>
       </div>
     </div>
   )
@@ -421,9 +420,9 @@ function PlanComparisonCard({
   loading: boolean
   originalPrice: string
   pendingPayment: boolean
-  plan: WantaSubscriptionPlan
+  plan: TeamSubscriptionPlan
   title: string
-  onChoose: (plan: WantaSubscriptionPlan) => void
+  onChoose: (plan: TeamSubscriptionPlan) => void
 }) {
   const t = useT()
   return (
@@ -441,7 +440,7 @@ function PlanComparisonCard({
           <span className="oo-text-body ml-1 text-muted-foreground">{t("billing.subscriptions.priceUnit")}</span>
         </span>
         <span className="oo-text-body text-muted-foreground tabular-nums line-through">{originalPrice}</span>
-        <Badge variant="success">{t("billing.wantaPromotionBadge")}</Badge>
+        <Badge variant="success">{t("billing.teamPromotionBadge")}</Badge>
       </div>
       <div className="grid gap-2">
         {features.map((feature) => (
@@ -459,7 +458,7 @@ function PlanComparisonCard({
       >
         {loading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
         {pendingPayment
-          ? t("billing.wantaContinuePayment")
+          ? t("billing.teamContinuePayment")
           : current
             ? t("billing.subscriptions.currentSubscriptionButton")
             : t("billing.planComparison.choosePlan")}
@@ -565,7 +564,7 @@ export function AdditionalSeatsPanel({
             onClick={() => onUpdateSeats(additionalSeats)}
           >
             {loading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
-            {pendingTargetSelected ? t("billing.wantaContinuePayment") : t("billing.wantaManageSeats")}
+            {pendingTargetSelected ? t("billing.teamContinuePayment") : t("billing.teamManageSeats")}
           </Button>
         </div>
       </div>
@@ -573,11 +572,7 @@ export function AdditionalSeatsPanel({
   )
 }
 
-function wantaPlanLabel(plan: WantaSubscriptionPlan, t: ReturnType<typeof useT>): string {
-  return plan === "wanta_pro" ? t("billing.wantaProPlanTitle") : t("billing.wantaPlusPlanTitle")
-}
-
-function formatWantaPreviewMoney(value: number, currency: string | null): string {
+function formatTeamPreviewMoney(value: number, currency: string | null): string {
   try {
     return new Intl.NumberFormat(undefined, {
       currency: currency?.toUpperCase() || "USD",

@@ -1,7 +1,7 @@
 import type { SubscriptionStatus } from "../../../electron/chat/common.ts"
 
 import { describe, expect, it } from "vitest"
-import { getCurrentUsageSubscription, getCurrentWantaPlan } from "./plans.ts"
+import { getCurrentUsageSubscription, getCurrentTeamPlan } from "./plans.ts"
 
 function subscription(overrides: Partial<SubscriptionStatus>): SubscriptionStatus {
   return {
@@ -13,24 +13,24 @@ function subscription(overrides: Partial<SubscriptionStatus>): SubscriptionStatu
   }
 }
 
-describe("getCurrentWantaPlan", () => {
+describe("getCurrentTeamPlan", () => {
   it("prefers the primary plan over legacy marker lists", () => {
     const status = subscription({
-      plan: "wanta_pro",
-      plans: ["wanta_plus"],
+      plan: "team_pro",
+      plans: ["team_plus"],
     })
 
-    expect(getCurrentWantaPlan(status)).toBe("wanta_pro")
+    expect(getCurrentTeamPlan(status)).toBe("team_pro")
   })
 
   it("falls back to legacy markers when the primary plan is absent", () => {
     const status = subscription({
-      features: ["wanta_pro"],
+      features: ["team_pro"],
       plan: null,
       plans: ["legacy"],
     })
 
-    expect(getCurrentWantaPlan(status)).toBe("wanta_pro")
+    expect(getCurrentTeamPlan(status)).toBe("team_pro")
   })
 })
 
@@ -50,6 +50,6 @@ describe("getCurrentUsageSubscription", () => {
   })
 
   it("ignores Team subscription markers", () => {
-    expect(getCurrentUsageSubscription(subscription({ plan: "wanta_plus" }))).toBeNull()
+    expect(getCurrentUsageSubscription(subscription({ plan: "team_plus" }))).toBeNull()
   })
 })

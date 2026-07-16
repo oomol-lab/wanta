@@ -1,18 +1,18 @@
-import type { SubscriptionPlanTag, SubscriptionStatus, WantaSubscriptionPlan } from "../../../electron/chat/common.ts"
+import type { SubscriptionPlanTag, SubscriptionStatus, TeamSubscriptionPlan } from "../../../electron/chat/common.ts"
 
-export interface WantaPlanLimits {
+export interface TeamPlanLimits {
   accountsPerApp: number
   members: number
 }
 
 export const defaultAccountsPerApp = 1
 
-export const wantaPlanLimits: Record<WantaSubscriptionPlan, WantaPlanLimits> = {
-  wanta_plus: {
+export const teamPlanLimits: Record<TeamSubscriptionPlan, TeamPlanLimits> = {
+  team_plus: {
     accountsPerApp: 3,
     members: 10,
   },
-  wanta_pro: {
+  team_pro: {
     accountsPerApp: 10,
     members: 30,
   },
@@ -33,15 +33,15 @@ export function getSubscriptionMarkers(status: SubscriptionStatus | null): strin
   )
 }
 
-export function isWantaSubscriptionPlan(plan: string): plan is WantaSubscriptionPlan {
-  return plan === "wanta_plus" || plan === "wanta_pro"
+export function isTeamSubscriptionPlan(plan: string): plan is TeamSubscriptionPlan {
+  return plan === "team_plus" || plan === "team_pro"
 }
 
-export function getCurrentWantaPlan(status: SubscriptionStatus | null): WantaSubscriptionPlan | null {
-  if (status?.plan && isWantaSubscriptionPlan(status.plan)) {
+export function getCurrentTeamPlan(status: SubscriptionStatus | null): TeamSubscriptionPlan | null {
+  if (status?.plan && isTeamSubscriptionPlan(status.plan)) {
     return status.plan
   }
-  return getSubscriptionMarkers(status).find(isWantaSubscriptionPlan) ?? null
+  return getSubscriptionMarkers(status).find(isTeamSubscriptionPlan) ?? null
 }
 
 export function isUsageSubscriptionPlan(plan: string): plan is SubscriptionPlanTag {
@@ -55,6 +55,6 @@ export function getCurrentUsageSubscription(status: SubscriptionStatus | null): 
   return getSubscriptionMarkers(status).find(isUsageSubscriptionPlan) ?? null
 }
 
-export function wantaPlanCapacity(plan: WantaSubscriptionPlan): WantaPlanLimits {
-  return wantaPlanLimits[plan]
+export function teamPlanCapacity(plan: TeamSubscriptionPlan): TeamPlanLimits {
+  return teamPlanLimits[plan]
 }

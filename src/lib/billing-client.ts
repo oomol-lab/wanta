@@ -8,11 +8,11 @@ import type {
   RechargePrice,
   SubscriptionPlanTag,
   SubscriptionStatus,
-  WantaSubscriptionChangePayload,
-  WantaSubscriptionPreviewResult,
-  WantaSubscriptionUpdateResult,
-  WantaPendingPaymentResult,
-  WantaSubscriptionPlan,
+  TeamSubscriptionChangePayload,
+  TeamSubscriptionPreviewResult,
+  TeamSubscriptionUpdateResult,
+  TeamPendingPaymentResult,
+  TeamSubscriptionPlan,
 } from "../../electron/chat/common.ts"
 
 import { consoleBaseUrl, consoleServerBaseUrl, insightBaseUrl } from "@/lib/domain"
@@ -29,12 +29,12 @@ const dayMs = 24 * 60 * 60 * 1000
 const billingRequestTimeoutMs = 12_000
 const billingOptionalRequestSoftTimeoutMs = 3_000
 const billingCreditUsagesMaxPages = 100
-export const wantaSubscriptionPlans: readonly WantaSubscriptionPlan[] = ["wanta_plus", "wanta_pro"]
+export const teamSubscriptionPlans: readonly TeamSubscriptionPlan[] = ["team_plus", "team_pro"]
 
 export interface BillingRequestScope {
   canManageBilling: boolean
   canManageFunding: boolean
-  organizationId: string
+  teamId: string
   organizationName: string
 }
 
@@ -133,7 +133,7 @@ function readCreditUsages(payload: unknown): CreditUsages {
   }
 }
 
-function readWantaPendingPayment(payload: unknown): WantaPendingPaymentResult | null {
+function readTeamPendingPayment(payload: unknown): TeamPendingPaymentResult | null {
   const source = unwrapConsoleData<unknown>(payload)
   if (!source || typeof source !== "object") {
     return null
@@ -142,7 +142,7 @@ function readWantaPendingPayment(payload: unknown): WantaPendingPaymentResult | 
   return {
     subscriptionID: readStringField(record, ["subscriptionID", "subscriptionId", "subscription_id"]),
     status: readStringField(record, ["status"]),
-    plan: isWantaSubscriptionPlan(record["plan"]) ? record["plan"] : null,
+    plan: isTeamSubscriptionPlan(record["plan"]) ? record["plan"] : null,
     additionalSeats: readIntegerField(record, ["additionalSeats", "additional_seats"]),
     currentPeriodEnd: readOptionalTimestampField(record, ["currentPeriodEnd", "current_period_end"]),
     latestInvoiceID: readStringField(record, ["latestInvoiceID", "latestInvoiceId", "latest_invoice_id"]),
@@ -156,10 +156,10 @@ function readWantaPendingPayment(payload: unknown): WantaPendingPaymentResult | 
   }
 }
 
-function readWantaSubscriptionUpdate(payload: unknown): WantaSubscriptionUpdateResult {
+function readTeamSubscriptionUpdate(payload: unknown): TeamSubscriptionUpdateResult {
   const source = unwrapConsoleData<unknown>(payload)
   if (!source || typeof source !== "object") {
-    throw new Error("Wanta subscription response is invalid.")
+    throw new Error("Team subscription response is invalid.")
   }
   const record = source as Record<string, unknown>
   return {
@@ -183,10 +183,10 @@ function readWantaSubscriptionUpdate(payload: unknown): WantaSubscriptionUpdateR
   }
 }
 
-function readWantaSubscriptionPreview(payload: unknown): WantaSubscriptionPreviewResult {
+function readTeamSubscriptionPreview(payload: unknown): TeamSubscriptionPreviewResult {
   const source = unwrapConsoleData<unknown>(payload)
   if (!source || typeof source !== "object") {
-    throw new Error("Wanta subscription preview response is invalid.")
+    throw new Error("Team subscription preview response is invalid.")
   }
   const record = source as Record<string, unknown>
   return {
@@ -201,18 +201,18 @@ function readWantaSubscriptionPreview(payload: unknown): WantaSubscriptionPrevie
   }
 }
 
-function readPlanField(record: Record<string, unknown>, keys: string[]): WantaSubscriptionPlan | null {
+function readPlanField(record: Record<string, unknown>, keys: string[]): TeamSubscriptionPlan | null {
   for (const key of keys) {
     const value = record[key]
-    if (isWantaSubscriptionPlan(value)) {
+    if (isTeamSubscriptionPlan(value)) {
       return value
     }
   }
   return null
 }
 
-function isWantaSubscriptionPlan(value: unknown): value is WantaSubscriptionPlan {
-  return typeof value === "string" && wantaSubscriptionPlans.includes(value as WantaSubscriptionPlan)
+function isTeamSubscriptionPlan(value: unknown): value is TeamSubscriptionPlan {
+  return typeof value === "string" && teamSubscriptionPlans.includes(value as TeamSubscriptionPlan)
 }
 
 function readStringField(record: Record<string, unknown>, keys: string[]): string | null {
@@ -458,7 +458,7 @@ async function getSubscriptionStatus(scope: BillingRequestScope): Promise<Subscr
   if (!scope.canManageBilling) {
     return null
   }
-  const url = new URL(`/api/org/${encodeURIComponent(scope.organizationId)}/subscriptions`, consoleServerBaseUrl)
+  const url = new URL(`/api/org/${encodeURIComponent(scope.teamId)}/subscriptions`, consoleServerBaseUrl)
   return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url))
 }
 
@@ -470,15 +470,15 @@ async function getUsageSubscriptionStatus(scope: BillingRequestScope): Promise<S
   return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url))
 }
 
-async function getWantaPendingPayment(scope: BillingRequestScope): Promise<WantaPendingPaymentResult | null> {
+async function getTeamPendingPayment(scope: BillingRequestScope): Promise<TeamPendingPaymentResult | null> {
   if (!scope.canManageBilling) {
     return null
   }
   const url = new URL(
-    `/api/org/${encodeURIComponent(scope.organizationId)}/subscriptions/wanta/pending_payment`,
+    `/api/team/${encodeURIComponent(scope.teamId)}/subscriptions/team/pending_payment`,
     consoleServerBaseUrl,
   )
-  return readWantaPendingPayment(await fetchAuthenticatedJson(url))
+  return readTeamPendingPayment(await fetchAuthenticatedJson(url))
 }
 
 export async function getBillingSummary(days: number, scope: BillingRequestScope): Promise<BillingSummaryResult> {
@@ -486,31 +486,31 @@ export async function getBillingSummary(days: number, scope: BillingRequestScope
 }
 
 export async function getBillingOverview(days: number, scope: BillingRequestScope): Promise<BillingOverviewResult> {
-  // Wanta 计划和统计按组织读取；现有用量钱包属于组织创建者个人，不能带组织 header 查询不存在的组织余额。
+  // Team 计划和统计按组织读取；现有用量钱包属于组织创建者个人，不能带组织 header 查询不存在的组织余额。
   // 普通成员也不能退化为查询自己的个人余额，否则会把错误的付款账户展示成组织可用额度。
   const balancePromise = scope.canManageFunding ? getAllCreditUsages() : Promise.resolve(null)
   const spendPromise = getCreditSpendStats(days, scope)
   const meteringPromise = getCreditMeteringStats(days, scope)
   const subscriptionPromise = getSubscriptionStatus(scope)
   const usageSubscriptionPromise = getUsageSubscriptionStatus(scope)
-  const wantaPendingPaymentPromise = getWantaPendingPayment(scope)
+  const teamPendingPaymentPromise = getTeamPendingPayment(scope)
 
   preventEarlyUnhandledRejection(subscriptionPromise)
   preventEarlyUnhandledRejection(usageSubscriptionPromise)
-  preventEarlyUnhandledRejection(wantaPendingPaymentPromise)
+  preventEarlyUnhandledRejection(teamPendingPaymentPromise)
 
   const [balance, spend, metering] = await Promise.allSettled([balancePromise, spendPromise, meteringPromise])
-  const [subscription, usageSubscription, wantaPendingPayment] = await Promise.all([
+  const [subscription, usageSubscription, teamPendingPayment] = await Promise.all([
     settleWithSoftTimeout("subscription", subscriptionPromise),
     settleWithSoftTimeout("usage subscription", usageSubscriptionPromise),
-    settleWithSoftTimeout("wanta pending payment", wantaPendingPaymentPromise),
+    settleWithSoftTimeout("team pending payment", teamPendingPaymentPromise),
   ])
   logSettledFailure("balance", balance)
   logSettledFailure("spend", spend)
   logSettledFailure("metering", metering)
   logSettledFailure("subscription", subscription)
   logSettledFailure("usage subscription", usageSubscription)
-  logSettledFailure("wanta pending payment", wantaPendingPayment)
+  logSettledFailure("team pending payment", teamPendingPayment)
   const criticalResults: PromiseSettledResult<unknown>[] = scope.canManageFunding
     ? [balance, spend, metering]
     : [spend, metering]
@@ -531,7 +531,7 @@ export async function getBillingOverview(days: number, scope: BillingRequestScop
     usageSubscription: usageSubscription.status === "fulfilled" ? usageSubscription.value : null,
     usageSubscriptionAvailable: usageSubscription.status === "fulfilled",
     subscription: subscription.status === "fulfilled" ? subscription.value : null,
-    wantaPendingPayment: wantaPendingPayment.status === "fulfilled" ? wantaPendingPayment.value : null,
+    teamPendingPayment: teamPendingPayment.status === "fulfilled" ? teamPendingPayment.value : null,
   }
 }
 
@@ -560,12 +560,12 @@ export async function subscriptionPortalUrl(): Promise<string> {
   return ensureHttpUrl(portalUrl)
 }
 
-export async function updateWantaSubscription(
-  organizationId: string,
-  payload: WantaSubscriptionChangePayload,
-): Promise<WantaSubscriptionUpdateResult> {
-  const url = new URL(`/api/org/${encodeURIComponent(organizationId)}/subscriptions/wanta`, consoleServerBaseUrl)
-  return readWantaSubscriptionUpdate(
+export async function updateTeamSubscription(
+  teamId: string,
+  payload: TeamSubscriptionChangePayload,
+): Promise<TeamSubscriptionUpdateResult> {
+  const url = new URL(`/api/team/${encodeURIComponent(teamId)}/subscriptions/team`, consoleServerBaseUrl)
+  return readTeamSubscriptionUpdate(
     await oomolFetchJson<unknown>(url, {
       body: JSON.stringify(payload),
       headers: { "Content-Type": "application/json" },
@@ -575,15 +575,12 @@ export async function updateWantaSubscription(
   )
 }
 
-export async function previewWantaSubscription(
-  organizationId: string,
-  payload: WantaSubscriptionChangePayload,
-): Promise<WantaSubscriptionPreviewResult> {
-  const url = new URL(
-    `/api/org/${encodeURIComponent(organizationId)}/subscriptions/wanta/preview`,
-    consoleServerBaseUrl,
-  )
-  return readWantaSubscriptionPreview(
+export async function previewTeamSubscription(
+  teamId: string,
+  payload: TeamSubscriptionChangePayload,
+): Promise<TeamSubscriptionPreviewResult> {
+  const url = new URL(`/api/team/${encodeURIComponent(teamId)}/subscriptions/team/preview`, consoleServerBaseUrl)
+  return readTeamSubscriptionPreview(
     await oomolFetchJson<unknown>(url, {
       body: JSON.stringify(payload),
       headers: { "Content-Type": "application/json" },

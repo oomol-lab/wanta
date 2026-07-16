@@ -1,27 +1,27 @@
 import { describe, expect, it } from "vitest"
 import {
-  buildWantaPlanChange,
-  buildWantaSubscriptionOverview,
-  isWantaSubscriptionActionDisabled,
-  resolveWantaPendingPaymentTargets,
-} from "./wanta-subscription-model.ts"
+  buildTeamPlanChange,
+  buildTeamSubscriptionOverview,
+  isTeamSubscriptionActionDisabled,
+  resolveTeamPendingPaymentTargets,
+} from "./team-subscription-model.ts"
 
-describe("buildWantaSubscriptionOverview", () => {
-  it("uses Wanta plan capacity plus additional seats", () => {
-    const overview = buildWantaSubscriptionOverview({
+describe("buildTeamSubscriptionOverview", () => {
+  it("uses Team plan capacity plus additional seats", () => {
+    const overview = buildTeamSubscriptionOverview({
       canManage: true,
       memberCount: 12,
       pendingPayment: null,
       subscription: {
         features: [],
-        plan: "wanta_plus",
+        plan: "team_plus",
         plans: [],
         platforms: {},
-        wanta: { additionalSeats: 4, cached: false, updatedAt: null },
+        team: { additionalSeats: 4, cached: false, updatedAt: null },
       },
     })
 
-    expect(overview.currentPlan).toBe("wanta_plus")
+    expect(overview.currentPlan).toBe("team_plus")
     expect(overview.baseSeats).toBe(10)
     expect(overview.additionalSeats).toBe(4)
     expect(overview.seatCapacity).toBe(14)
@@ -30,16 +30,16 @@ describe("buildWantaSubscriptionOverview", () => {
   })
 
   it("uses extra seats before recommending Pro on Plus", () => {
-    const overview = buildWantaSubscriptionOverview({
+    const overview = buildTeamSubscriptionOverview({
       canManage: true,
       memberCount: 8,
       pendingPayment: null,
       subscription: {
         features: [],
-        plan: "wanta_plus",
+        plan: "team_plus",
         plans: [],
         platforms: {},
-        wanta: { additionalSeats: 10, cached: false, updatedAt: null },
+        team: { additionalSeats: 10, cached: false, updatedAt: null },
       },
     })
 
@@ -49,7 +49,7 @@ describe("buildWantaSubscriptionOverview", () => {
   })
 
   it("prioritizes pending payment before other management actions", () => {
-    const overview = buildWantaSubscriptionOverview({
+    const overview = buildTeamSubscriptionOverview({
       canManage: true,
       memberCount: 2,
       pendingPayment: {
@@ -63,7 +63,7 @@ describe("buildWantaSubscriptionOverview", () => {
         paymentURL: "https://console.example.com/pay",
         pendingUpdate: true,
         pendingUpdateExpiresAt: null,
-        plan: "wanta_plus",
+        plan: "team_plus",
         status: "past_due",
         subscriptionID: "sub-1",
       },
@@ -80,7 +80,7 @@ describe("buildWantaSubscriptionOverview", () => {
   })
 
   it("recommends choosing a plan before seat management on free workspaces", () => {
-    const overview = buildWantaSubscriptionOverview({
+    const overview = buildTeamSubscriptionOverview({
       canManage: true,
       memberCount: 2,
       pendingPayment: null,
@@ -99,8 +99,8 @@ describe("buildWantaSubscriptionOverview", () => {
     expect(overview.recommendedAction).toBe("choose_plan")
   })
 
-  it("keeps purchased seats available without a Wanta plan", () => {
-    const overview = buildWantaSubscriptionOverview({
+  it("keeps purchased seats available without a Team plan", () => {
+    const overview = buildTeamSubscriptionOverview({
       canManage: true,
       memberCount: 2,
       pendingPayment: null,
@@ -109,7 +109,7 @@ describe("buildWantaSubscriptionOverview", () => {
         plan: null,
         plans: [],
         platforms: {},
-        wanta: { additionalSeats: 3, cached: false, updatedAt: null },
+        team: { additionalSeats: 3, cached: false, updatedAt: null },
       },
     })
 
@@ -121,7 +121,7 @@ describe("buildWantaSubscriptionOverview", () => {
   })
 
   it("recommends extra seats when a no-plan workspace exceeds purchased seats", () => {
-    const overview = buildWantaSubscriptionOverview({
+    const overview = buildTeamSubscriptionOverview({
       canManage: true,
       memberCount: 4,
       pendingPayment: null,
@@ -130,7 +130,7 @@ describe("buildWantaSubscriptionOverview", () => {
         plan: null,
         plans: [],
         platforms: {},
-        wanta: { additionalSeats: 3, cached: false, updatedAt: null },
+        team: { additionalSeats: 3, cached: false, updatedAt: null },
       },
     })
 
@@ -139,13 +139,13 @@ describe("buildWantaSubscriptionOverview", () => {
   })
 
   it("recommends extra seats before Pro when the workspace exceeds capacity", () => {
-    const overview = buildWantaSubscriptionOverview({
+    const overview = buildTeamSubscriptionOverview({
       canManage: true,
       memberCount: 15,
       pendingPayment: null,
       subscription: {
         features: [],
-        plan: "wanta_plus",
+        plan: "team_plus",
         plans: [],
         platforms: {},
       },
@@ -156,9 +156,9 @@ describe("buildWantaSubscriptionOverview", () => {
   })
 })
 
-describe("resolveWantaPendingPaymentTargets", () => {
+describe("resolveTeamPendingPaymentTargets", () => {
   it("maps pending plan checkout to the matching plan card", () => {
-    const targets = resolveWantaPendingPaymentTargets({
+    const targets = resolveTeamPendingPaymentTargets({
       currentAdditionalSeats: 0,
       currentPlan: null,
       pendingPayment: {
@@ -172,7 +172,7 @@ describe("resolveWantaPendingPaymentTargets", () => {
         paymentURL: " https://console.example.com/plus ",
         pendingUpdate: true,
         pendingUpdateExpiresAt: null,
-        plan: "wanta_plus",
+        plan: "team_plus",
         status: "past_due",
         subscriptionID: "sub-1",
       },
@@ -181,14 +181,14 @@ describe("resolveWantaPendingPaymentTargets", () => {
     expect(targets).toEqual({
       additionalSeats: null,
       paymentUrl: "https://console.example.com/plus",
-      plan: "wanta_plus",
+      plan: "team_plus",
     })
   })
 
   it("maps same-plan pending seat checkout to the seats control", () => {
-    const targets = resolveWantaPendingPaymentTargets({
+    const targets = resolveTeamPendingPaymentTargets({
       currentAdditionalSeats: 0,
-      currentPlan: "wanta_plus",
+      currentPlan: "team_plus",
       pendingPayment: {
         additionalSeats: 3,
         amountRemaining: null,
@@ -200,7 +200,7 @@ describe("resolveWantaPendingPaymentTargets", () => {
         paymentURL: "https://console.example.com/seats",
         pendingUpdate: true,
         pendingUpdateExpiresAt: null,
-        plan: "wanta_plus",
+        plan: "team_plus",
         status: "past_due",
         subscriptionID: "sub-1",
       },
@@ -214,7 +214,7 @@ describe("resolveWantaPendingPaymentTargets", () => {
   })
 
   it("maps no-plan pending seat checkout to the seats control", () => {
-    const targets = resolveWantaPendingPaymentTargets({
+    const targets = resolveTeamPendingPaymentTargets({
       currentAdditionalSeats: 0,
       currentPlan: null,
       pendingPayment: {
@@ -242,9 +242,9 @@ describe("resolveWantaPendingPaymentTargets", () => {
   })
 
   it("keeps plan-upgrade checkouts on the plan card even when seats also change", () => {
-    const targets = resolveWantaPendingPaymentTargets({
+    const targets = resolveTeamPendingPaymentTargets({
       currentAdditionalSeats: 0,
-      currentPlan: "wanta_plus",
+      currentPlan: "team_plus",
       pendingPayment: {
         additionalSeats: 3,
         amountRemaining: null,
@@ -256,7 +256,7 @@ describe("resolveWantaPendingPaymentTargets", () => {
         paymentURL: "https://console.example.com/pro",
         pendingUpdate: true,
         pendingUpdateExpiresAt: null,
-        plan: "wanta_pro",
+        plan: "team_pro",
         status: "past_due",
         subscriptionID: "sub-1",
       },
@@ -265,14 +265,14 @@ describe("resolveWantaPendingPaymentTargets", () => {
     expect(targets).toEqual({
       additionalSeats: null,
       paymentUrl: "https://console.example.com/pro",
-      plan: "wanta_pro",
+      plan: "team_pro",
     })
   })
 
   it("falls back to the current plan for renewal payment checkouts", () => {
-    const targets = resolveWantaPendingPaymentTargets({
+    const targets = resolveTeamPendingPaymentTargets({
       currentAdditionalSeats: 0,
-      currentPlan: "wanta_plus",
+      currentPlan: "team_plus",
       pendingPayment: {
         additionalSeats: 0,
         amountRemaining: null,
@@ -293,16 +293,16 @@ describe("resolveWantaPendingPaymentTargets", () => {
     expect(targets).toEqual({
       additionalSeats: null,
       paymentUrl: "https://console.example.com/renew",
-      plan: "wanta_plus",
+      plan: "team_plus",
     })
   })
 })
 
-describe("isWantaSubscriptionActionDisabled", () => {
+describe("isTeamSubscriptionActionDisabled", () => {
   it("keeps checkout available while the billing overview is unavailable", () => {
     // 概览数据不是结账接口的输入；网络慢或概览降级时也必须能选择计划并创建支付链接。
     expect(
-      isWantaSubscriptionActionDisabled({
+      isTeamSubscriptionActionDisabled({
         canManage: true,
         isSessionExpired: false,
         isSubmitting: false,
@@ -312,21 +312,21 @@ describe("isWantaSubscriptionActionDisabled", () => {
 
   it("disables checkout for permission, authentication, and active submission states", () => {
     expect(
-      isWantaSubscriptionActionDisabled({
+      isTeamSubscriptionActionDisabled({
         canManage: false,
         isSessionExpired: false,
         isSubmitting: false,
       }),
     ).toBe(true)
     expect(
-      isWantaSubscriptionActionDisabled({
+      isTeamSubscriptionActionDisabled({
         canManage: true,
         isSessionExpired: true,
         isSubmitting: false,
       }),
     ).toBe(true)
     expect(
-      isWantaSubscriptionActionDisabled({
+      isTeamSubscriptionActionDisabled({
         canManage: true,
         isSessionExpired: false,
         isSubmitting: true,
@@ -335,11 +335,11 @@ describe("isWantaSubscriptionActionDisabled", () => {
   })
 })
 
-describe("buildWantaPlanChange", () => {
+describe("buildTeamPlanChange", () => {
   it("keeps the current seat target when changing plans", () => {
-    expect(buildWantaPlanChange("wanta_pro", 3.8)).toEqual({
+    expect(buildTeamPlanChange("team_pro", 3.8)).toEqual({
       additional_seats: 3,
-      plan: "wanta_pro",
+      plan: "team_pro",
     })
   })
 })

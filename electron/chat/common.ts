@@ -672,7 +672,7 @@ export interface SetAgentOrganizationRequest {
 export type RechargePrice = "5_USD" | "20_USD" | "100_USD"
 export type BillingPeriodDays = 7 | 30 | 90
 export type SubscriptionPlanTag = "ai_pro" | "ai_max"
-export type WantaSubscriptionPlan = "wanta_plus" | "wanta_pro"
+export type TeamSubscriptionPlan = "team_plus" | "team_pro"
 
 export interface CreditBalanceResult {
   balance: string | null
@@ -724,36 +724,36 @@ export interface SubscriptionStatus {
   plan: string | null
   features: string[]
   platforms: Record<string, string[]>
-  wanta?: WantaAdditionalSeatsData
+  team?: TeamAdditionalSeatsData
 }
 
-export interface WantaAdditionalSeatsData {
+export interface TeamAdditionalSeatsData {
   additionalSeats: number
   updatedAt: number | null
   cached: boolean
 }
 
-export interface WantaSubscriptionChangePayload {
+export interface TeamSubscriptionChangePayload {
   additional_seats?: number
-  plan?: WantaSubscriptionPlan | null
+  plan?: TeamSubscriptionPlan | null
 }
 
-export interface WantaSubscriptionPreviewResult {
+export interface TeamSubscriptionPreviewResult {
   amountDue: number
   changeTiming: "immediate" | "next_cycle"
   currency: string | null
   mode: "create" | "update"
   targetAdditionalSeats: number
-  targetPlan: WantaSubscriptionPlan | null
+  targetPlan: TeamSubscriptionPlan | null
   total: number
 }
 
-export interface WantaSubscriptionUpdateResult {
+export interface TeamSubscriptionUpdateResult {
   subscriptionID: string
   status: string
-  plan: WantaSubscriptionPlan | null
+  plan: TeamSubscriptionPlan | null
   additionalSeats: number
-  targetPlan: WantaSubscriptionPlan | null
+  targetPlan: TeamSubscriptionPlan | null
   targetAdditionalSeats: number
   currentPeriodEnd: number
   latestInvoiceID: string | null
@@ -768,10 +768,10 @@ export interface WantaSubscriptionUpdateResult {
   scheduledEffectiveAt: number | null
 }
 
-export interface WantaPendingPaymentResult {
+export interface TeamPendingPaymentResult {
   subscriptionID: string | null
   status: string | null
-  plan: WantaSubscriptionPlan | null
+  plan: TeamSubscriptionPlan | null
   additionalSeats: number
   currentPeriodEnd: number | null
   latestInvoiceID: string | null
@@ -791,7 +791,7 @@ export interface BillingOverviewResult {
   usageSubscription: SubscriptionStatus | null
   usageSubscriptionAvailable: boolean
   subscription: SubscriptionStatus | null
-  wantaPendingPayment: WantaPendingPaymentResult | null
+  teamPendingPayment: TeamPendingPaymentResult | null
 }
 
 export type BillingSummaryResult = BillingOverviewResult

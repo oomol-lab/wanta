@@ -1,5 +1,6 @@
 export type ChatErrorKind =
   | "payment_required"
+  | "content_filtered"
   | "timeout"
   | "connection_interrupted"
   | "rate_limited"
@@ -28,6 +29,8 @@ const paymentRequiredCodes = new Set([
   "insufficient_credits",
   "payment_required",
 ])
+
+const contentFilteredCodes = new Set(["DataInspectionFailed", "data_inspection_failed", "inappropriate_content"])
 
 function includesAny(message: string, patterns: string[]): boolean {
   const normalized = message.toLowerCase()
@@ -91,6 +94,23 @@ function resolvedCode(primaryCode: string | undefined, message: string): string 
   return primaryCode ?? parsed?.code
 }
 
+function resolveContentFiltered(message: string, code?: string): boolean {
+  const parsed = readJsonMessage(message)
+  if (code && contentFilteredCodes.has(code)) {
+    return true
+  }
+  if (parsed?.code && contentFilteredCodes.has(parsed.code)) {
+    return true
+  }
+  return includesAny([message, parsed?.message ?? ""].join("\n"), [
+    "data_inspection_failed",
+    "data inspection failed",
+    "input data may contain inappropriate content",
+    "input or output data may contain inappropriate content",
+    "output data may contain inappropriate content",
+  ])
+}
+
 export function normalizeChatError(rawMessage: string): ChatErrorClassification {
   const diagnostics = rawMessage.trim()
   const { code, message } = stripKnownCodePrefix(diagnostics)
@@ -101,6 +121,15 @@ export function normalizeChatError(rawMessage: string): ChatErrorClassification 
   if (resolvePaymentRequired(effectiveMessage, effectiveCode)) {
     return {
       kind: "payment_required",
+      code: effectiveCode,
+      retryable: false,
+      diagnostics,
+    }
+  }
+
+  if (resolveContentFiltered(effectiveMessage, effectiveCode)) {
+    return {
+      kind: "content_filtered",
       code: effectiveCode,
       retryable: false,
       diagnostics,

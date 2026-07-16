@@ -24,6 +24,7 @@ interface ChatErrorNoticeProps {
   errorCode?: string
   errorKind?: ChatErrorKind
   message: string
+  onRetryFresh?: () => Promise<void> | void
   onViewBilling?: () => void
 }
 
@@ -88,6 +89,7 @@ export function ChatErrorNotice({
   errorCode,
   errorKind,
   message,
+  onRetryFresh,
   onViewBilling,
 }: ChatErrorNoticeProps) {
   const t = useT()
@@ -102,10 +104,12 @@ export function ChatErrorNotice({
   const [recovered, setRecovered] = React.useState(false)
   const [refreshFailed, setRefreshFailed] = React.useState(false)
   const [diagnosticsCopied, setDiagnosticsCopied] = React.useState(false)
+  const [freshRetrying, setFreshRetrying] = React.useState(false)
   const confirmAutoPromptedRef = React.useRef(false)
   const copyFeedbackTimerRef = React.useRef<number | undefined>(undefined)
   const balanceRequestIdRef = React.useRef(0)
   const isPaymentRequired = error.kind === "payment_required"
+  const isContentFiltered = error.kind === "content_filtered"
   const canManageFunding = billingRequestScope?.canManageFunding === true
 
   const refreshBalance = React.useCallback(async (): Promise<boolean | null> => {
@@ -289,6 +293,19 @@ export function ChatErrorNotice({
     })
   }, [error.diagnostics, t])
 
+  const handleRetryFresh = React.useCallback(async () => {
+    if (!onRetryFresh || freshRetrying) {
+      return
+    }
+    setFreshRetrying(true)
+    try {
+      await onRetryFresh()
+    } catch {
+      toast.error(t("chatError.contentFiltered.retryFailed"))
+      setFreshRetrying(false)
+    }
+  }, [freshRetrying, onRetryFresh, t])
+
   const handleCheckoutOpened = React.useCallback(() => {
     markPaymentRecoveryPending(billingCacheScope, billingRequestScope)
     confirmAutoPromptedRef.current = true
@@ -371,18 +388,34 @@ export function ChatErrorNotice({
                       </Button>
                     ) : null}
                   </>
-                ) : error.diagnostics ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className={cn(diagnosticsCopied && "bg-background text-foreground")}
-                    onClick={handleCopyDiagnostics}
-                  >
-                    {diagnosticsCopied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-                    {diagnosticsCopied ? t("chat.copiedMessage") : t(diagnosticsActionKey)}
-                  </Button>
-                ) : null}
+                ) : (
+                  <>
+                    {isContentFiltered && onRetryFresh ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={freshRetrying}
+                        onClick={() => void handleRetryFresh()}
+                      >
+                        {freshRetrying ? <RefreshCw className="size-3.5 animate-spin" /> : null}
+                        {t(error.primaryActionKey ?? "chatError.contentFiltered.primaryAction")}
+                      </Button>
+                    ) : null}
+                    {error.diagnostics ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className={cn(diagnosticsCopied && "bg-background text-foreground")}
+                        onClick={handleCopyDiagnostics}
+                      >
+                        {diagnosticsCopied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+                        {diagnosticsCopied ? t("chat.copiedMessage") : t(diagnosticsActionKey)}
+                      </Button>
+                    ) : null}
+                  </>
+                )}
               </div>
             ) : null}
           </div>

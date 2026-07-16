@@ -88,6 +88,7 @@ interface ChatAreaProps {
   onQueuedMessageRemove: (id: string) => void
   onQueuedMessageResume: () => void
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
+  onRetryFresh: (source: ChatTurnRetrySource) => Promise<void>
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
@@ -285,6 +286,7 @@ export const ChatArea = React.memo(function ChatArea({
   onQueuedMessageRemove,
   onQueuedMessageResume,
   onAuthorize,
+  onRetryFresh,
   onArtifactsOpen,
   onArtifactsAvailable,
   onTurnOutputOpen,
@@ -416,6 +418,7 @@ export const ChatArea = React.memo(function ChatArea({
       isGenerating={isGenerating}
       providers={providers}
       onAuthorize={onAuthorize}
+      onRetryFresh={onRetryFresh}
       onArtifactsOpen={onArtifactsOpen}
       onArtifactsAvailable={onArtifactsAvailable}
       onTurnOutputOpen={onTurnOutputOpen}

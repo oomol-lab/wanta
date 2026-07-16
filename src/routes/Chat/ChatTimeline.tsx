@@ -103,6 +103,7 @@ interface ChatTurnViewProps {
   smoothAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
+  onRetryFresh: (source: ChatTurnRetrySource) => Promise<void>
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
@@ -121,6 +122,7 @@ function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewP
     previous.smoothAssistantMessageId === next.smoothAssistantMessageId &&
     previous.providerByService === next.providerByService &&
     previous.onAuthorize === next.onAuthorize &&
+    previous.onRetryFresh === next.onRetryFresh &&
     previous.onArtifactsAvailable === next.onArtifactsAvailable &&
     previous.onArtifactsOpen === next.onArtifactsOpen &&
     previous.onTurnOutputOpen === next.onTurnOutputOpen &&
@@ -139,6 +141,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
   smoothAssistantMessageId,
   providerByService,
   onAuthorize,
+  onRetryFresh,
   onArtifactsAvailable,
   onArtifactsOpen,
   onTurnOutputOpen,
@@ -191,6 +194,10 @@ const ChatTurnView = React.memo(function ChatTurnView({
     },
     [onAuthorize, retrySource],
   )
+  const handleRetryFresh = React.useCallback(
+    () => (retrySource ? onRetryFresh(retrySource) : Promise.resolve()),
+    [onRetryFresh, retrySource],
+  )
 
   return (
     <React.Fragment>
@@ -203,6 +210,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
           assistantActionsText={null}
           providerByService={providerByService}
           onAuthorize={handleAuthorize}
+          onRetryFresh={retrySource ? handleRetryFresh : undefined}
         />
       ) : null}
       {showTurnProcess ? (
@@ -216,6 +224,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
                 billingCacheScope={billingCacheScope}
                 providerByService={providerByService}
                 onAuthorize={handleAuthorize}
+                onRetryFresh={retrySource ? handleRetryFresh : undefined}
                 onViewBilling={onViewBilling}
               />
               {!processLive
@@ -250,6 +259,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
               activeAssistantMessageId={activeAssistantMessageId}
               providerByService={providerByService}
               onAuthorize={handleAuthorize}
+              onRetryFresh={retrySource ? handleRetryFresh : undefined}
               suggestedAuthorization={responseSuggestedAuthorization}
               onViewBilling={onViewBilling}
             />
@@ -269,6 +279,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
               providerByService={providerByService}
               liveTools={message.id === activeAssistantMessageId}
               onAuthorize={handleAuthorize}
+              onRetryFresh={retrySource ? handleRetryFresh : undefined}
               suggestedAuthorization={message.id === lastAssistant?.id ? process.suggestedAuthorization : undefined}
             />
           ))}
@@ -305,6 +316,7 @@ interface ChatTimelineProps {
   isGenerating: boolean
   providers: ConnectionProvider[]
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
+  onRetryFresh: (source: ChatTurnRetrySource) => Promise<void>
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
@@ -327,6 +339,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   isGenerating,
   providers,
   onAuthorize,
+  onRetryFresh,
   onArtifactsOpen,
   onArtifactsAvailable,
   onTurnOutputOpen,
@@ -483,6 +496,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
                 smoothAssistantMessageId={turnSmoothAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={onAuthorize}
+                onRetryFresh={onRetryFresh}
                 onArtifactsOpen={onArtifactsOpen}
                 onArtifactsAvailable={publishArtifactAvailability ? onArtifactsAvailable : noopArtifactsAvailable}
                 onTurnOutputOpen={onTurnOutputOpen}

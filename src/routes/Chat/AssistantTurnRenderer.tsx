@@ -91,6 +91,7 @@ export function TurnProcessActivity({
   billingCacheScope,
   providerByService,
   onAuthorize,
+  onRetryFresh,
   onViewBilling,
 }: {
   blocks: AssistantTimelineBlock[]
@@ -99,6 +100,7 @@ export function TurnProcessActivity({
   billingCacheScope: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
+  onRetryFresh?: () => Promise<void> | void
   onViewBilling?: () => void
 }) {
   const t = useT()
@@ -179,6 +181,7 @@ export function TurnProcessActivity({
               liveTools={live}
               showAuthorizationPrompt={false}
               onAuthorize={onAuthorize}
+              onRetryFresh={onRetryFresh}
               onViewBilling={onViewBilling}
             />
           ))}
@@ -303,6 +306,7 @@ export function AssistantBlock({
   liveTools = true,
   showAuthorizationPrompt = true,
   onAuthorize,
+  onRetryFresh,
   onViewBilling,
 }: {
   block: AssistantBlockType
@@ -314,6 +318,7 @@ export function AssistantBlock({
   liveTools?: boolean
   showAuthorizationPrompt?: boolean
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
+  onRetryFresh?: () => Promise<void> | void
   onViewBilling?: () => void
 }) {
   const t = useT()
@@ -330,6 +335,7 @@ export function AssistantBlock({
           errorCode={block.part.errorCode}
           errorKind={block.part.errorKind}
           message={block.part.errorText ?? block.part.error ?? t("chatError.failed.description")}
+          onRetryFresh={onRetryFresh}
           onViewBilling={onViewBilling}
         />
       ) : block.kind === "status" ? (

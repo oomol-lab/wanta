@@ -477,6 +477,11 @@ export const enMessages = {
     "We do not see available credits yet. If you just paid, wait a few seconds and try again.",
   "chatError.paymentReturn.updatedTitle": "Credits updated",
   "chatError.paymentReturn.updatedDescription": "You can send the previous message again.",
+  "chatError.contentFiltered.title": "Content safety check blocked this response",
+  "chatError.contentFiltered.description":
+    "The model service flagged the current conversation context. The flagged content may come from tool results and does not necessarily come from your message. Retry in a new task with a clean context.",
+  "chatError.contentFiltered.primaryAction": "Retry in new task",
+  "chatError.contentFiltered.retryFailed": "A new task could not be created. Try again later.",
   "chatError.timeout.title": "Response timed out",
   "chatError.timeout.description": "The model took too long to respond, so this response was not completed.",
   "chatError.timeout.primaryAction": "Retry",

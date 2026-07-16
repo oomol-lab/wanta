@@ -47,6 +47,17 @@ export function resolveChatError(rawMessage: string, options: ResolveChatErrorOp
         retryable: false,
         diagnostics: normalized.diagnostics,
       }
+    case "content_filtered":
+      return {
+        kind: normalized.kind,
+        severity: "warning",
+        titleKey: "chatError.contentFiltered.title",
+        descriptionKey: "chatError.contentFiltered.description",
+        primaryActionKey: "chatError.contentFiltered.primaryAction",
+        secondaryActionKey: "chatError.common.copyDiagnostics",
+        retryable: false,
+        diagnostics: normalized.diagnostics,
+      }
     case "timeout":
       return {
         kind: normalized.kind,

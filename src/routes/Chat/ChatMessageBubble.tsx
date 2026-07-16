@@ -33,6 +33,7 @@ export function MessageBubble({
   assistantActionsText,
   providerByService,
   onAuthorize,
+  onRetryFresh,
   suggestedAuthorization,
   liveTools = false,
 }: {
@@ -43,6 +44,7 @@ export function MessageBubble({
   assistantActionsText: string | null
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
+  onRetryFresh?: () => Promise<void> | void
   suggestedAuthorization?: AuthorizationInfo
   liveTools?: boolean
 }) {
@@ -132,6 +134,7 @@ export function MessageBubble({
             providerByService={providerByService}
             liveTools={liveTools}
             onAuthorize={onAuthorize}
+            onRetryFresh={onRetryFresh}
             onViewBilling={onViewBilling}
           />
         ))}
@@ -159,6 +162,7 @@ export function AssistantTimelineMessage({
   activeAssistantMessageId,
   providerByService,
   onAuthorize,
+  onRetryFresh,
   suggestedAuthorization,
   onViewBilling,
 }: {
@@ -170,6 +174,7 @@ export function AssistantTimelineMessage({
   activeAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
+  onRetryFresh?: () => Promise<void> | void
   suggestedAuthorization?: AuthorizationInfo
   onViewBilling?: () => void
 }) {
@@ -192,6 +197,7 @@ export function AssistantTimelineMessage({
             providerByService={providerByService}
             liveTools={message.id === activeAssistantMessageId}
             onAuthorize={onAuthorize}
+            onRetryFresh={onRetryFresh}
             onViewBilling={onViewBilling}
           />
         ))}

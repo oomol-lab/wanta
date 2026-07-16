@@ -456,6 +456,11 @@ export const zhCNMessages = {
   "chatError.paymentReturn.refreshFailed": "还没有检测到可用额度。如果你刚完成支付，请稍等几秒后再试。",
   "chatError.paymentReturn.updatedTitle": "点数已更新",
   "chatError.paymentReturn.updatedDescription": "可以重新发送刚才的问题。",
+  "chatError.contentFiltered.title": "内容安全检查拦截了本次回复",
+  "chatError.contentFiltered.description":
+    "模型服务认为当前对话上下文可能包含敏感内容。内容可能来自工具结果，不一定是你的输入；可在新任务中使用精简上下文重试。",
+  "chatError.contentFiltered.primaryAction": "在新任务中重试",
+  "chatError.contentFiltered.retryFailed": "无法创建新任务，请稍后重试。",
   "chatError.timeout.title": "回复超时",
   "chatError.timeout.description": "模型响应时间过长，本次回复未完成。",
   "chatError.timeout.primaryAction": "重试",

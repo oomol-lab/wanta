@@ -5,13 +5,14 @@ export function canManageWantaBilling(workspace: WorkspaceSelection): boolean {
   return workspace.canManage && Boolean(workspace.organization?.name.trim())
 }
 
-/** 账单读取同时按组织 ID（缓存边界）与组织名（Insight header）绑定当前工作区。 */
+/** 组织计划/用量跟随工作区；个人余额仅由组织创建者读取和充值。 */
 export function billingRequestScopeForWorkspace(workspace: WorkspaceSelection): BillingRequestScope | null {
   if (!workspace.organization?.name.trim()) {
     return null
   }
   return {
     canManageBilling: workspace.canManage,
+    canManageFunding: workspace.role === "creator",
     organizationId: workspace.organizationId,
     organizationName: workspace.organization.name,
   }

@@ -32,6 +32,7 @@ export const wantaSubscriptionPlans: readonly WantaSubscriptionPlan[] = ["wanta_
 
 export interface BillingRequestScope {
   canManageBilling: boolean
+  canManageFunding: boolean
   organizationId: string
   organizationName: string
 }
@@ -396,20 +397,23 @@ function fetchAuthenticatedJson(url: URL, scope?: BillingRequestScope): Promise<
 }
 
 export async function getCreditBalance(scope: BillingRequestScope): Promise<CreditBalanceResult> {
+  if (!scope.canManageFunding) {
+    throw new Error("The organization funding account is managed by its creator.")
+  }
   const url = new URL("/v1/balance/available", insightBaseUrl)
-  return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url, scope)))
+  return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url)))
 }
 
-async function getCreditUsages(scope: BillingRequestScope, nextToken?: string): Promise<CreditUsages> {
+async function getCreditUsages(nextToken?: string): Promise<CreditUsages> {
   const url = new URL("/v1/balance/available", insightBaseUrl)
   if (nextToken) {
     url.searchParams.set("nextToken", nextToken)
   }
-  return readCreditUsages(unwrapApiData<unknown>(await fetchAuthenticatedJson(url, scope)))
+  return readCreditUsages(unwrapApiData<unknown>(await fetchAuthenticatedJson(url)))
 }
 
-async function getAllCreditUsages(scope: BillingRequestScope): Promise<CreditUsages> {
-  const firstPage = await getCreditUsages(scope)
+async function getAllCreditUsages(): Promise<CreditUsages> {
+  const firstPage = await getCreditUsages()
   const items = [...firstPage.items]
   let nextToken = firstPage.nextToken
   let pageCount = 1
@@ -420,7 +424,7 @@ async function getAllCreditUsages(scope: BillingRequestScope): Promise<CreditUsa
       break
     }
     seenTokens.add(nextToken)
-    const nextPage = await getCreditUsages(scope, nextToken)
+    const nextPage = await getCreditUsages(nextToken)
     if (nextPage.items.length === 0) {
       break
     }
@@ -473,7 +477,9 @@ export async function getBillingSummary(days: number, scope: BillingRequestScope
 }
 
 export async function getBillingOverview(days: number, scope: BillingRequestScope): Promise<BillingOverviewResult> {
-  const balancePromise = getAllCreditUsages(scope)
+  // Wanta 计划和统计按组织读取；现有用量钱包属于组织创建者个人，不能带组织 header 查询不存在的组织余额。
+  // 普通成员也不能退化为查询自己的个人余额，否则会把错误的付款账户展示成组织可用额度。
+  const balancePromise = scope.canManageFunding ? getAllCreditUsages() : Promise.resolve(null)
   const spendPromise = getCreditSpendStats(days, scope)
   const meteringPromise = getCreditMeteringStats(days, scope)
   const subscriptionPromise = getSubscriptionStatus(scope)
@@ -492,15 +498,21 @@ export async function getBillingOverview(days: number, scope: BillingRequestScop
   logSettledFailure("metering", metering)
   logSettledFailure("subscription", subscription)
   logSettledFailure("wanta pending payment", wantaPendingPayment)
-  if (balance.status === "rejected" && isBillingAuthRequiredReason(balance.reason)) {
-    throw balance.reason
+  const criticalResults: PromiseSettledResult<unknown>[] = scope.canManageFunding
+    ? [balance, spend, metering]
+    : [spend, metering]
+  const authFailure = criticalResults.find(
+    (result) => result.status === "rejected" && isBillingAuthRequiredReason(result.reason),
+  )
+  if (authFailure?.status === "rejected") {
+    throw authFailure.reason
   }
-  const criticalResults = [balance, spend, metering]
-  if (criticalResults.every((result) => result.status === "rejected") && balance.status === "rejected") {
-    throw balance.reason
+  const firstFailure = criticalResults.find((result) => result.status === "rejected")
+  if (criticalResults.every((result) => result.status === "rejected") && firstFailure?.status === "rejected") {
+    throw firstFailure.reason
   }
   return {
-    balance: balance.status === "fulfilled" ? filterGeneralCreditUsages(balance.value) : null,
+    balance: balance.status === "fulfilled" && balance.value ? filterGeneralCreditUsages(balance.value) : null,
     spend: spend.status === "fulfilled" ? spend.value : null,
     metering: metering.status === "fulfilled" ? metering.value : null,
     subscription: subscription.status === "fulfilled" ? subscription.value : null,

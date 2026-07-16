@@ -17,8 +17,29 @@ describe("billingRequestScopeForWorkspace", () => {
     }
     expect(billingRequestScopeForWorkspace(workspace)).toEqual({
       canManageBilling: true,
+      canManageFunding: true,
       organizationId: "team-1",
       organizationName: "acme",
+    })
+  })
+
+  it("keeps writable members away from the creator's personal funding account", () => {
+    const workspace = {
+      canManage: true,
+      organization: {
+        avatar: "",
+        creator_user_id: "user-1",
+        id: "team-1",
+        name: "acme",
+        role: "member" as const,
+      },
+      organizationId: "team-1",
+      role: "member" as const,
+    }
+
+    expect(billingRequestScopeForWorkspace(workspace)).toMatchObject({
+      canManageBilling: true,
+      canManageFunding: false,
     })
   })
 

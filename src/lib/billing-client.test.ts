@@ -30,6 +30,7 @@ function urlOf(input: string | URL | Request): URL {
 
 const organizationScope = {
   canManageBilling: true,
+  canManageFunding: true,
   organizationId: "team-1",
   organizationName: "acme",
 } as const
@@ -88,7 +89,9 @@ describe("billing-client", () => {
   it("scopes organization billing reads and includes pending Wanta payment", async () => {
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = urlOf(input)
-      if (url.hostname === "insight.oomol.com") {
+      if (url.pathname === "/v1/balance/available") {
+        expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
+      } else if (url.hostname === "insight.oomol.com") {
         expect(new Headers(init?.headers).get("x-oo-organization-name")).toBe("acme")
       }
       if (url.pathname === "/v1/balance/available") {
@@ -140,6 +143,7 @@ describe("billing-client", () => {
 
     const summary = await getBillingSummary(30, {
       canManageBilling: true,
+      canManageFunding: true,
       organizationId: "team-1",
       organizationName: "acme",
     })
@@ -162,13 +166,37 @@ describe("billing-client", () => {
 
     const summary = await getBillingSummary(30, {
       canManageBilling: false,
+      canManageFunding: false,
       organizationId: "team-1",
       organizationName: "acme",
     })
 
     expect(paths.some((path) => path.startsWith("/api/org/"))).toBe(false)
+    expect(paths).not.toContain("/v1/balance/available")
+    expect(summary.balance).toBeNull()
     expect(summary.subscription).toBeNull()
     expect(summary.wantaPendingPayment).toBeNull()
+  })
+
+  it("surfaces member session expiry from organization usage without reading a personal balance", async () => {
+    const paths: string[] = []
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = urlOf(input)
+      paths.push(url.pathname)
+      return new Response("unauthorized", { status: 401 })
+    })
+
+    const error = await rejection(() =>
+      getBillingSummary(30, {
+        canManageBilling: false,
+        canManageFunding: false,
+        organizationId: "team-1",
+        organizationName: "acme",
+      }),
+    )
+
+    expect(error.message).toBe(billingAuthRequiredMessage)
+    expect(paths).not.toContain("/v1/balance/available")
   })
 
   it("resolves the console top-up checkout URL", async () => {
@@ -183,7 +211,7 @@ describe("billing-client", () => {
 
   it("reads wrapped balance payloads for payment-required recovery", async () => {
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
-      expect(new Headers(init?.headers).get("x-oo-organization-name")).toBe("acme")
+      expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
       return Response.json({
         data: {
           items: [
@@ -197,11 +225,29 @@ describe("billing-client", () => {
 
     const result = await getCreditBalance({
       canManageBilling: true,
+      canManageFunding: true,
       organizationId: "team-1",
       organizationName: "acme",
     })
 
     expect(result).toEqual({ balance: "$7.5", hasCredits: true })
+  })
+
+  it("does not expose the signed-in member's personal balance as organization funding", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const error = await rejection(() =>
+      getCreditBalance({
+        canManageBilling: false,
+        canManageFunding: false,
+        organizationId: "team-1",
+        organizationName: "acme",
+      }),
+    )
+
+    expect(error.message).toContain("managed by its creator")
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("posts complete Wanta plan changes", async () => {

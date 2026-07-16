@@ -21,6 +21,7 @@ function createStorage(): PaymentRecoveryStorage {
 function organizationScope(overrides: Partial<BillingRequestScope> = {}): BillingRequestScope {
   return {
     canManageBilling: true,
+    canManageFunding: true,
     organizationId: "team-1",
     organizationName: "acme",
     ...overrides,
@@ -49,6 +50,14 @@ describe("payment recovery storage", () => {
         }),
       ),
     )
+    expect(key).not.toBe(
+      paymentRecoveryPendingStorageKey(
+        "user-1:organization:team-1",
+        organizationScope({
+          canManageFunding: false,
+        }),
+      ),
+    )
   })
 
   it("keeps markers isolated between billing scopes", () => {
@@ -69,6 +78,7 @@ describe("payment recovery storage", () => {
     const scope = organizationScope()
     const secondaryScope = {
       canManageBilling: true,
+      canManageFunding: true,
       organizationId: "org-id",
       organizationName: "org-name",
     } as const

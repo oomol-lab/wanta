@@ -43,6 +43,7 @@ export function UsageDetailsDisclosure({
   maxDailySpend,
   period,
   summaries,
+  showBalanceLots,
   totalSpend,
 }: {
   balanceLots: CreditItem[]
@@ -52,6 +53,7 @@ export function UsageDetailsDisclosure({
   maxDailySpend: number
   period: BillingPeriodDays
   summaries: CategorySummary[]
+  showBalanceLots: boolean
   totalSpend: number
 }) {
   const t = useT()
@@ -78,17 +80,19 @@ export function UsageDetailsDisclosure({
                 <TrendChart buckets={dailyBuckets} maxDailySpend={maxDailySpend} />
               )}
             </BillingPanel>
-            <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]">
+            <section className={cn("grid gap-4", showBalanceLots && "xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]")}>
               <BillingPanel title={t("billing.categoryTitle")} meta={t("billing.categoryMeta")} bodyClassName="p-0">
                 {loading ? <LoadingRows count={3} /> : <CategorySpendList summaries={summaries} total={totalSpend} />}
               </BillingPanel>
-              <BillingPanel
-                title={t("billing.balanceLotsTitle")}
-                meta={t("billing.balanceLotsMeta")}
-                bodyClassName="p-0"
-              >
-                {loading ? <LoadingRows count={3} /> : <BalanceLots lots={balanceLots} />}
-              </BillingPanel>
+              {showBalanceLots ? (
+                <BillingPanel
+                  title={t("billing.balanceLotsTitle")}
+                  meta={t("billing.balanceLotsMeta")}
+                  bodyClassName="p-0"
+                >
+                  {loading ? <LoadingRows count={3} /> : <BalanceLots lots={balanceLots} />}
+                </BillingPanel>
+              ) : null}
             </section>
           </div>
         </CollapsibleContent>
@@ -135,6 +139,7 @@ export function BalanceOverview({
   modelSpend,
   coverageDays,
   currentCredit,
+  canManageFunding,
   loading,
   period,
   topUpDisabled,
@@ -149,6 +154,7 @@ export function BalanceOverview({
   modelSpend: number
   coverageDays: number
   currentCredit: number
+  canManageFunding: boolean
   loading: boolean
   period: BillingPeriodDays
   topUpDisabled: boolean
@@ -162,7 +168,9 @@ export function BalanceOverview({
   return (
     <section className="h-full overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
       <div className="flex min-h-10 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
-        <h2 className="oo-text-title truncate text-foreground">{t("billing.availableCredits")}</h2>
+        <h2 className="oo-text-title truncate text-foreground">
+          {t(canManageFunding ? "billing.availableCredits" : "billing.fundingAccount")}
+        </h2>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <PeriodToggle period={period} onChange={onPeriodChange} />
           <Button type="button" variant="outline" size="sm" disabled={loading} onClick={onRefresh}>
@@ -176,24 +184,35 @@ export function BalanceOverview({
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0">
               <PiggyBankIcon className="oo-icon-muted size-4 shrink-0" />
-              <div className="oo-text-metric-large mt-2 text-foreground">
-                {loading ? "..." : formatCredit(currentCredit)}
-              </div>
+              {canManageFunding ? (
+                <div className="oo-text-metric-large mt-2 text-foreground">
+                  {loading ? "..." : formatCredit(currentCredit)}
+                </div>
+              ) : (
+                <div className="mt-2 grid gap-1">
+                  <div className="oo-text-title text-foreground">{t("billing.fundingManagedByCreator")}</div>
+                  <p className="oo-text-caption text-muted-foreground">{t("billing.fundingMemberDescription")}</p>
+                </div>
+              )}
             </div>
-            <Button type="button" variant="outline" size="sm" disabled={topUpDisabled} onClick={onTopUp}>
-              {t("billing.topUpBalance")}
-            </Button>
+            {canManageFunding ? (
+              <Button type="button" variant="outline" size="sm" disabled={topUpDisabled} onClick={onTopUp}>
+                {t("billing.topUpBalance")}
+              </Button>
+            ) : null}
           </div>
 
-          <div className="grid gap-2">
-            <Progress value={availableShare} className="h-1.5 bg-muted" />
-            <div className="oo-text-caption flex flex-wrap items-center justify-between gap-2">
-              <span>
-                {totalSpend > 0 ? t("billing.coverage", { days: coverageDays }) : t("billing.coverageStable")}
-              </span>
-              <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
+          {canManageFunding ? (
+            <div className="grid gap-2">
+              <Progress value={availableShare} className="h-1.5 bg-muted" />
+              <div className="oo-text-caption flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  {totalSpend > 0 ? t("billing.coverage", { days: coverageDays }) : t("billing.coverageStable")}
+                </span>
+                <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
 
         <div className="grid min-w-0 grid-cols-3 gap-2 max-[760px]:grid-cols-1">

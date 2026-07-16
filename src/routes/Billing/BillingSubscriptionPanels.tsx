@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { teamPlanLabel } from "./team-plan-label.ts"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
@@ -569,10 +570,6 @@ export function AdditionalSeatsPanel({
       </div>
     </BillingPanel>
   )
-}
-
-function teamPlanLabel(plan: TeamSubscriptionPlan, t: ReturnType<typeof useT>): string {
-  return plan === "team_pro" ? t("billing.teamProPlanTitle") : t("billing.teamPlusPlanTitle")
 }
 
 function formatTeamPreviewMoney(value: number, currency: string | null): string {

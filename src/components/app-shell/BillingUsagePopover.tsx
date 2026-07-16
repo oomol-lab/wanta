@@ -21,7 +21,8 @@ import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
 import { billingRequestScopeForWorkspace, canManageTeamBilling } from "@/lib/billing-scope"
 import { cn } from "@/lib/utils"
-import { buildTeamSubscriptionOverview } from "@/routes/Billing/team-subscription-model.ts"
+import { teamPlanLabel } from "@/routes/Billing/team-plan-label"
+import { buildTeamSubscriptionOverview } from "@/routes/Billing/team-subscription-model"
 import { buildCategorySummaries, formatCredit, getSummary, statsTotalCredit, toNumber } from "@/routes/Billing/usage.ts"
 
 const usagePeriodDays = 30
@@ -373,10 +374,6 @@ function PlanStatusBadge({
       </button>
     </Badge>
   )
-}
-
-function teamPlanLabel(plan: "team_plus" | "team_pro", t: ReturnType<typeof useT>): string {
-  return plan === "team_pro" ? t("billing.teamProPlanTitle") : t("billing.teamPlusPlanTitle")
 }
 
 function BillingUsageSkeleton() {

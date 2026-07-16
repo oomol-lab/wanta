@@ -347,6 +347,7 @@ test("buildOoEnv injects the required OO_* control vars (R3)", () => {
 test("managed Skill runtime exposes Wanta's bundled Node executable", () => {
   const env = buildManagedSkillRuntimeEnv("/Applications/Wanta.app/Contents/MacOS/Wanta")
 
+  assert.equal(env.ELECTRON_RUN_AS_NODE, "1")
   assert.equal(env.WANTA_NODE_BIN, "/Applications/Wanta.app/Contents/MacOS/Wanta")
 })
 

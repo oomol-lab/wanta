@@ -67,6 +67,7 @@ function normalizeOrganizationName(organizationName: string | undefined): string
 
 export function buildManagedSkillRuntimeEnv(nodeBin: string = process.execPath): Record<string, string> {
   return {
+    ELECTRON_RUN_AS_NODE: "1",
     WANTA_NODE_BIN: nodeBin,
   }
 }

@@ -1,18 +1,29 @@
 import type { AttachmentPickerKind } from "./attachment-picker.ts"
+import type { CreateSpreadsheetPreview } from "./chat/spreadsheet-agent-input.ts"
 
 import { app, BrowserWindow, dialog, ipcMain } from "electron"
 import { stat } from "node:fs/promises"
 import path from "node:path"
 import { isAttachmentPickerKind } from "./attachment-picker.ts"
-import { mimeFromPath } from "./chat/artifacts.ts"
+import { mimeFromFile } from "./chat/artifacts.ts"
 import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
+import { createSpreadsheetAgentInput } from "./chat/spreadsheet-agent-input.ts"
 
 interface SelectedAttachmentPath {
+  agentMime?: string
+  agentName?: string
+  agentPath?: string
+  agentSize?: number
   kind: "file" | "directory"
   mime: string
   name: string
   path: string
   size: number
+}
+
+interface AttachmentDialogHandlerOptions {
+  createSpreadsheetPreview?: CreateSpreadsheetPreview
+  userDataDir?: string
 }
 
 interface SaveClipboardAttachmentRequest {
@@ -21,9 +32,21 @@ interface SaveClipboardAttachmentRequest {
   name?: string
 }
 
-export function registerAttachmentDialogHandlers(trustedPaths: Set<string>): void {
+export function registerAttachmentDialogHandlers(
+  trustedPaths: Set<string>,
+  options: AttachmentDialogHandlerOptions = {},
+): void {
+  const userDataDir = options.userDataDir ?? app.getPath("userData")
   const remember = (filePath: string): void => {
     if (filePath.trim()) trustedPaths.add(filePath)
+  }
+
+  const prepare = async (item: SelectedAttachmentPath | null): Promise<SelectedAttachmentPath | null> => {
+    if (!item || item.kind !== "file" || !options.createSpreadsheetPreview) return item
+    const agentInput = await createSpreadsheetAgentInput(userDataDir, item, options.createSpreadsheetPreview)
+    if (!agentInput) return item
+    remember(agentInput.agentPath)
+    return { ...item, ...agentInput }
   }
 
   ipcMain.handle("wanta:select-attachment-paths", async (event, kind: unknown): Promise<SelectedAttachmentPath[]> => {
@@ -34,9 +57,11 @@ export function registerAttachmentDialogHandlers(trustedPaths: Set<string>): voi
       ? await dialog.showOpenDialog(parent, { properties })
       : await dialog.showOpenDialog({ properties })
     if (result.canceled) return []
-    const items = (await Promise.all(result.filePaths.map(selectedAttachmentPath))).filter(
-      (item): item is SelectedAttachmentPath => Boolean(item),
-    )
+    const items: SelectedAttachmentPath[] = []
+    for (const filePath of result.filePaths) {
+      const item = await prepare(await selectedAttachmentPath(filePath))
+      if (item) items.push(item)
+    }
     for (const item of items) remember(item.path)
     return items
   })
@@ -44,15 +69,15 @@ export function registerAttachmentDialogHandlers(trustedPaths: Set<string>): voi
   ipcMain.handle(
     "wanta:save-clipboard-attachment",
     async (_event, req: SaveClipboardAttachmentRequest): Promise<SelectedAttachmentPath> => {
-      const attachment = await saveClipboardAttachment(app.getPath("userData"), req)
+      const attachment = await saveClipboardAttachment(userDataDir, req)
       remember(attachment.path)
-      return { ...attachment, kind: "file" }
+      return (await prepare({ ...attachment, kind: "file" })) ?? { ...attachment, kind: "file" }
     },
   )
 
   ipcMain.handle("wanta:selected-attachment-path-for-file", async (_event, filePath: unknown) => {
     if (typeof filePath !== "string" || !filePath.trim()) return null
-    const item = await selectedAttachmentPath(filePath)
+    const item = await prepare(await selectedAttachmentPath(filePath))
     if (item) remember(item.path)
     return item
   })
@@ -98,7 +123,7 @@ async function selectedAttachmentPath(filePath: string): Promise<SelectedAttachm
     const kind = info.isDirectory() ? "directory" : "file"
     return {
       name: path.basename(filePath.replace(/[\\/]+$/, "")) || filePath,
-      mime: kind === "directory" ? "inode/directory" : mimeFromPath(filePath),
+      mime: kind === "directory" ? "inode/directory" : await mimeFromFile(filePath, info.size),
       size: kind === "file" ? info.size : 0,
       path: filePath,
       kind,

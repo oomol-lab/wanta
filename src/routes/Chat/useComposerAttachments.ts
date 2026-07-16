@@ -227,6 +227,14 @@ export function useComposerAttachments({
           size: selected.size,
           path: selected.path,
           kind: selected.kind,
+          ...(selected.agentPath
+            ? {
+                agentMime: selected.agentMime,
+                agentName: selected.agentName,
+                agentPath: selected.agentPath,
+                agentSize: selected.agentSize,
+              }
+            : {}),
           ...(optimized
             ? {
                 agentMime: optimized.mime,

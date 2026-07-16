@@ -341,6 +341,95 @@ describe("AgentManager", () => {
     expect(calls[2]?.[0]).not.toHaveProperty("variant")
   })
 
+  it("does not send an unconverted XLSX binary to the model provider", async () => {
+    const promptAsync = vi.fn(async () => ({ data: true }))
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { session: { promptAsync } } }
+    manager.buildAuthorizedSystem = async () => undefined
+
+    await manager.promptStreaming("session-1", "整理表格", {
+      attachments: [
+        {
+          id: "xlsx-1",
+          mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          name: "库存表.xlsx",
+          path: "/Users/example/库存表.xlsx",
+          size: 1024,
+        },
+      ],
+      organizationName: "acme",
+    })
+
+    const calls = promptAsync.mock.calls as unknown as Array<
+      [{ parts: Array<{ mime?: string; text?: string; type: string }> }]
+    >
+    const call = calls[0]?.[0]
+    expect(call).toBeDefined()
+    if (!call) throw new Error("Expected promptAsync to be called")
+    expect(call.parts).not.toContainEqual(
+      expect.objectContaining({
+        mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type: "file",
+      }),
+    )
+    expect(call.parts[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("not safe to pass through"),
+    })
+  })
+
+  it("normalizes structured text and applies the selected model's image capability", async () => {
+    const promptAsync = vi.fn(async () => ({ data: true }))
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { session: { promptAsync } } }
+    manager.buildAuthorizedSystem = async () => undefined
+    const json = {
+      id: "json-1",
+      mime: "application/json",
+      name: "data.json",
+      path: "/tmp/data.json",
+      size: 100,
+    }
+    const image = {
+      id: "image-1",
+      mime: "image/png",
+      name: "photo.png",
+      path: "/tmp/photo.png",
+      size: 100,
+    }
+
+    await manager.promptStreaming("session-1", "analyze", {
+      attachments: [json, image],
+      model: { kind: "builtin", id: "deepseek-v4-flash" },
+      organizationName: "acme",
+    })
+    await manager.promptStreaming("session-1", "analyze", {
+      attachments: [image],
+      model: { kind: "builtin", id: "oopilot" },
+      organizationName: "acme",
+    })
+
+    const calls = promptAsync.mock.calls as unknown as Array<
+      [{ parts: Array<{ mime?: string; text?: string; type: string }> }]
+    >
+    expect(calls[0]?.[0].parts[0]).toMatchObject({ mime: "text/plain", type: "file" })
+    expect(calls[0]?.[0].parts[1]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("does not support image input"),
+    })
+    expect(calls[1]?.[0].parts[0]).toMatchObject({ mime: "image/png", type: "file" })
+  })
+
   it("restarts the OpenCode event stream after an unexpected disconnect", async () => {
     vi.useFakeTimers()
     const subscribe = vi

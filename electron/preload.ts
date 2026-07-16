@@ -14,6 +14,10 @@ declare const __APP_COMMIT__: string | undefined
 declare const __APP_VERSION__: string | undefined
 
 export interface SelectedAttachmentPath {
+  agentMime?: string
+  agentName?: string
+  agentPath?: string
+  agentSize?: number
   name: string
   mime: string
   size: number

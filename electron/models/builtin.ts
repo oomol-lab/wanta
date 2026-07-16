@@ -20,6 +20,7 @@ export interface BuiltinModelRuntime {
 
 export interface BuiltinModelCapabilities {
   supportsImages: boolean
+  supportsPdf: boolean
   toolCall: boolean
   reasoningVariants?: readonly WantaReasoningVariant[]
 }
@@ -83,6 +84,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
     capabilities: {
       reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
       supportsImages: true,
+      supportsPdf: false,
       toolCall: true,
     },
     contextWindow: autoContextWindow,
@@ -99,6 +101,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
     capabilities: {
       reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
       supportsImages: true,
+      supportsPdf: true,
       toolCall: true,
     },
     contextWindow: gpt55ContextWindow,
@@ -116,6 +119,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
     capabilities: {
       reasoningVariants: deepSeekV4ReasoningVariants,
       supportsImages: false,
+      supportsPdf: false,
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
@@ -132,6 +136,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
     capabilities: {
       reasoningVariants: deepSeekV4ReasoningVariants,
       supportsImages: false,
+      supportsPdf: false,
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
@@ -148,6 +153,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
     capabilities: {
       reasoningVariants: qwen37ReasoningVariants,
       supportsImages: true,
+      supportsPdf: false,
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
@@ -164,6 +170,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
     capabilities: {
       reasoningVariants: qwen37ReasoningVariants,
       supportsImages: true,
+      supportsPdf: false,
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,

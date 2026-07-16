@@ -261,7 +261,9 @@ server.registerService(updateService)
 server.registerService(gitService)
 server.registerService(knowledgeService)
 settingsService.applyStartupTheme()
-registerAttachmentDialogHandlers(trustedAttachmentPaths)
+registerAttachmentDialogHandlers(trustedAttachmentPaths, {
+  createSpreadsheetPreview: (filePath, mime, size) => spreadsheetPreviewWorker.preview(filePath, mime, size),
+})
 registerAppLocaleHandler()
 registerRendererErrorHandler()
 

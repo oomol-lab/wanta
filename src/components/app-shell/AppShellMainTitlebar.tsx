@@ -6,8 +6,9 @@ import type { LucideIcon } from "lucide-react"
 
 import * as React from "react"
 import { EditableTitlebarTitle } from "./AppShellDialogs.tsx"
-import { AppUpdateTitlebarEntry, SidebarTitlebarActions } from "./AppShellSidebar.tsx"
+import { SidebarTitlebarActions } from "./AppShellSidebar.tsx"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
+import { AppUpdateTitlebarEntry } from "@/components/AppUpdateTitlebarEntry"
 import { cn } from "@/lib/utils"
 
 export function AppShellMainTitlebar({

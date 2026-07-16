@@ -33,7 +33,6 @@ import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppSettings } from "@/hooks/useAppSettings"
-import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAttention } from "@/hooks/useAttention"
 import { useAuth } from "@/hooks/useAuth"
 import { useI18n } from "@/i18n/i18n"
@@ -64,16 +63,28 @@ const completionNotificationOptions = [
 
 const copyFeedbackMs = 3000
 
-export function SettingsRoute({ onBack }: { onBack: () => void }) {
+export function SettingsRoute({
+  onBack,
+  titlebarActions,
+  update,
+}: {
+  onBack: () => void
+  titlebarActions: React.ReactNode
+  update: UseAppUpdate
+}) {
   const { preference, setPreference } = useTheme()
   const { locale, setLocale, t } = useI18n()
   const auth = useAuth()
-  const update = useAppUpdate()
   const appSettings = useAppSettings()
   const attention = useAttention()
 
   return (
-    <PageRouteShell backLabel={t("settings.backToApp")} contentClassName="max-w-[60rem] gap-6" onBack={onBack}>
+    <PageRouteShell
+      backLabel={t("settings.backToApp")}
+      contentClassName="max-w-[60rem] gap-6"
+      onBack={onBack}
+      titlebarActions={titlebarActions}
+    >
       <h1 className="oo-text-page-title">{t("settings.title")}</h1>
 
       <div className="grid gap-5">

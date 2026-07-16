@@ -65,6 +65,7 @@ import { useWorkspaceActivation } from "./use-workspace-activation.ts"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useAttentionService, useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
+import { AppUpdateTitlebarEntry } from "@/components/AppUpdateTitlebarEntry"
 import { useAppSettings } from "@/hooks/useAppSettings"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAttention } from "@/hooks/useAttention"
@@ -1240,7 +1241,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   if (route === "settings") {
     return (
       <React.Suspense fallback={<RouteLoadingFallback />}>
-        <SettingsRoute onBack={() => setRoute("chat")} />
+        <SettingsRoute
+          update={appUpdate}
+          titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
+          onBack={() => setRoute("chat")}
+        />
       </React.Suspense>
     )
   }
@@ -1252,6 +1257,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           cacheScope={billingCacheScope}
           initialTarget={billingInitialTarget}
           sharedConnectorCount={sharedConnectorCount}
+          titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
           workspace={organizationWorkspace.activeWorkspace}
           onBack={() => setRoute("chat")}
         />
@@ -1275,6 +1281,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           refreshSessions={refreshSessions}
           removeSession={removeSession}
           ready={ready}
+          titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
           unarchiveSession={unarchive}
         />
       </React.Suspense>

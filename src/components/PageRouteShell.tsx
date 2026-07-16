@@ -7,12 +7,13 @@ export function PageRouteShell({
   children,
   contentClassName,
   onBack,
-}: {
+  titlebarActions,
+}: React.PropsWithChildren<{
   backLabel: string
-  children: React.ReactNode
   contentClassName?: string
   onBack: () => void
-}) {
+  titlebarActions?: React.ReactNode
+}>) {
   return (
     <div className="grid h-full min-h-0 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)] bg-background text-foreground">
       <header className="oo-titlebar oo-page-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center border-b [-webkit-app-region:drag]">
@@ -24,6 +25,9 @@ export function PageRouteShell({
           <ArrowLeftIcon className="size-4" />
           <span>{backLabel}</span>
         </button>
+        {titlebarActions ? (
+          <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">{titlebarActions}</div>
+        ) : null}
       </header>
 
       <main className="min-h-0 overflow-y-auto">

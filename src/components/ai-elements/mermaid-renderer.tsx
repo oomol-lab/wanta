@@ -45,6 +45,21 @@ interface MermaidRendererProviderProps extends MermaidRendererContextValue {
   children: ReactNode
 }
 
+interface MermaidRenderResult {
+  code: string
+  svg: string
+}
+
+interface MermaidRenderFailure {
+  code: string
+  error: string
+}
+
+export type MermaidPresentationState =
+  | { kind: "loading" }
+  | { kind: "error"; error: string }
+  | { kind: "diagram"; svg: string }
+
 type DiagramViewerGestureState =
   | {
       kind: "pan"
@@ -94,6 +109,43 @@ async function copyText(value: string): Promise<boolean> {
   }
 }
 
+export async function renderMermaidSource({
+  code,
+  config,
+  id,
+  isIncomplete,
+  plugin,
+}: {
+  code: string
+  config: MermaidConfig
+  id: string
+  isIncomplete: boolean
+  plugin: DiagramPlugin
+}): Promise<string | null> {
+  if (isIncomplete) {
+    return null
+  }
+  return (await plugin.getMermaid(config).render(id, code)).svg
+}
+
+export function resolveMermaidPresentation(
+  code: string,
+  isIncomplete: boolean,
+  result: MermaidRenderResult | null,
+  failure: MermaidRenderFailure | null,
+): MermaidPresentationState {
+  if (isIncomplete) {
+    return { kind: "loading" }
+  }
+  if (failure?.code === code) {
+    return { kind: "error", error: failure.error }
+  }
+  if (result?.code === code) {
+    return { kind: "diagram", svg: result.svg }
+  }
+  return { kind: "loading" }
+}
+
 function pointDistance(first: DiagramViewerPoint, second: DiagramViewerPoint): number {
   return Math.hypot(second.x - first.x, second.y - first.y)
 }
@@ -105,39 +157,51 @@ function pointMidpoint(first: DiagramViewerPoint, second: DiagramViewerPoint): D
   }
 }
 
-export function MermaidRenderer({ code }: CustomRendererProps) {
+export function MermaidRenderer({ code, isIncomplete }: CustomRendererProps) {
   const t = useT()
   const renderId = useId().replace(/[^a-zA-Z0-9_-]/g, "")
   const { config, controls, errorComponent, plugin } = useMermaidRendererContext()
-  const [svg, setSvg] = useState("")
-  const [error, setError] = useState("")
+  const [result, setResult] = useState<MermaidRenderResult | null>(null)
+  const [failure, setFailure] = useState<MermaidRenderFailure | null>(null)
   const [retry, setRetry] = useState(0)
   const [copied, setCopied] = useState(false)
   const [viewerOpen, setViewerOpen] = useState(false)
   const fullscreenButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
+    if (isIncomplete) {
+      return
+    }
     let cancelled = false
     mermaidRenderSequence += 1
-    setError("")
-    void plugin
-      .getMermaid(config)
-      .render(`wanta-mermaid-${renderId}-${retry}-${mermaidRenderSequence}`, code)
-      .then((result) => {
+    setFailure(null)
+    void renderMermaidSource({
+      code,
+      config,
+      id: `wanta-mermaid-${renderId}-${retry}-${mermaidRenderSequence}`,
+      isIncomplete,
+      plugin,
+    })
+      .then((svg) => {
         if (!cancelled) {
-          setSvg(result.svg)
+          if (svg !== null) {
+            setResult({ code, svg })
+          }
         }
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setSvg("")
-          setError(cause instanceof Error ? cause.message : "Failed to render Mermaid chart")
+          setResult(null)
+          setFailure({
+            code,
+            error: cause instanceof Error ? cause.message : "Failed to render Mermaid chart",
+          })
         }
       })
     return () => {
       cancelled = true
     }
-  }, [code, config, plugin, renderId, retry])
+  }, [code, config, isIncomplete, plugin, renderId, retry])
 
   const handleCopy = async (): Promise<void> => {
     if (!(await copyText(code))) {
@@ -152,13 +216,22 @@ export function MermaidRenderer({ code }: CustomRendererProps) {
     window.requestAnimationFrame(() => fullscreenButtonRef.current?.focus())
   }
 
-  if (error) {
-    return createElement(errorComponent, { chart: code, error, retry: () => setRetry((value) => value + 1) })
+  const presentation = resolveMermaidPresentation(code, isIncomplete, result, failure)
+
+  if (presentation.kind === "error") {
+    return createElement(errorComponent, {
+      chart: code,
+      error: presentation.error,
+      retry: () => {
+        setFailure(null)
+        setRetry((value) => value + 1)
+      },
+    })
   }
 
-  if (!svg) {
+  if (presentation.kind === "loading") {
     return (
-      <div className="oo-mermaid-loading" aria-live="polite">
+      <div className="oo-mermaid-loading" data-mermaid-state={isIncomplete ? "incomplete" : "rendering"}>
         {t("chat.diagramLoading")}
       </div>
     )
@@ -197,11 +270,22 @@ export function MermaidRenderer({ code }: CustomRendererProps) {
         <div
           className="oo-mermaid-inline-diagram"
           aria-label={t("chat.diagramTitle")}
-          dangerouslySetInnerHTML={{ __html: svg }}
+          dangerouslySetInnerHTML={{ __html: presentation.svg }}
           role="img"
         />
       </div>
-      {viewerOpen ? createPortal(<MermaidViewer code={code} onClose={closeViewer} svg={svg} />, document.body) : null}
+      {viewerOpen
+        ? createPortal(<MermaidViewer code={code} onClose={closeViewer} svg={presentation.svg} />, document.body)
+        : null}
+    </div>
+  )
+}
+
+export function MermaidPendingRenderer(_props: CustomRendererProps) {
+  const t = useT()
+  return (
+    <div className="oo-mermaid-loading" data-mermaid-state="incomplete">
+      {t("chat.diagramLoading")}
     </div>
   )
 }

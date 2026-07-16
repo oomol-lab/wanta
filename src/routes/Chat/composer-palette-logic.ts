@@ -31,10 +31,6 @@ export function shouldOpenRootPaletteItem(
   return triggerKind === "slash" && paletteMode === "root" && (action === "skills" || action === "connections")
 }
 
-export function slashCommandDraftReplacement(action: RootPaletteAction): string | undefined {
-  return action === "bug-report" ? "/bug-report " : undefined
-}
-
 export function resolveComposerPaletteKeyAction({
   activeIndex,
   activeRootAction,

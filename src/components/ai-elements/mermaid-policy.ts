@@ -4,6 +4,14 @@ const mermaidClickPattern = /^\s*click\s+/imu
 const mermaidPresentationDirectivePattern = /^\s*(?:classDef|linkStyle|style)\b.*(?:\r?\n|$)/gimu
 const mermaidFencePattern =
   /(^|\n)([ \t]{0,3})(`{3,}|~{3,})([ \t]*mermaid(?:[ \t]+[^\r\n]*)?)(\r?\n)([\s\S]*?)(\r?\n)([ \t]*\3[ \t]*)(?=\n|$)/gi
+const fencedBlockOpeningPattern = /^([ \t]{0,3})(`{3,}|~{3,})([^\r\n]*)$/u
+const fencedBlockClosingPattern = /^[ \t]{0,3}(`+|~+)[ \t]*$/u
+export const incompleteMermaidLanguage = "wanta-mermaid-pending"
+
+interface IncompleteMermaidFence {
+  languageStart: number
+  source: string
+}
 
 function typographicQuotes(value: string): string {
   let opening = true
@@ -60,6 +68,68 @@ export function normalizeMermaidMarkdown(markdown: string): string {
     ) =>
       `${prefix}${indent}${fence}${info}${openingLineBreak}${normalizeMermaidSource(source)}${closingLineBreak}${closingFence}`,
   )
+}
+
+function findIncompleteMermaidFence(markdown: string): IncompleteMermaidFence | null {
+  let activeFence: {
+    character: string
+    languageStart: number | null
+    length: number
+    mermaid: boolean
+  } | null = null
+  let sourceLines: string[] = []
+  let offset = 0
+
+  for (const fragment of markdown.match(/[^\r\n]*(?:\r\n|\n|$)/gu) ?? []) {
+    if (fragment.length === 0) {
+      continue
+    }
+    const line = fragment.replace(/\r?\n$/u, "")
+    if (activeFence) {
+      const closing = line.match(fencedBlockClosingPattern)
+      if (closing && closing[1][0] === activeFence.character && closing[1].length >= activeFence.length) {
+        activeFence = null
+        sourceLines = []
+      } else if (activeFence.mermaid) {
+        sourceLines.push(line)
+      }
+      offset += fragment.length
+      continue
+    }
+
+    const opening = line.match(fencedBlockOpeningPattern)
+    if (!opening) {
+      offset += fragment.length
+      continue
+    }
+    const language = opening[3].match(/^([ \t]*)(mermaid)(?=[ \t]|$)/iu)
+    activeFence = {
+      character: opening[2][0],
+      languageStart: language ? offset + opening[1].length + opening[2].length + language[1].length : null,
+      length: opening[2].length,
+      mermaid: Boolean(language),
+    }
+    offset += fragment.length
+  }
+
+  return activeFence?.mermaid && activeFence.languageStart !== null
+    ? { languageStart: activeFence.languageStart, source: sourceLines.join("\n") }
+    : null
+}
+
+/** 返回仍未闭合的末尾 Mermaid fence 源码；普通 fence 和已经闭合的 Mermaid 返回 null。 */
+export function incompleteMermaidSource(markdown: string): string | null {
+  return findIncompleteMermaidFence(markdown)?.source ?? null
+}
+
+/** 未闭合图表先交给轻量占位渲染器，避免 Streamdown 自动补 fence 后提前调用 Mermaid。 */
+export function deferIncompleteMermaidMarkdown(markdown: string): string {
+  const incomplete = findIncompleteMermaidFence(markdown)
+  if (!incomplete) {
+    return markdown
+  }
+  const languageEnd = incomplete.languageStart + "mermaid".length
+  return `${markdown.slice(0, incomplete.languageStart)}${incompleteMermaidLanguage}${markdown.slice(languageEnd)}`
 }
 
 export function mermaidParseErrorLine(error: string): number | null {

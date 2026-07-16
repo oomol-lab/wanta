@@ -23,7 +23,7 @@ import {
   creatorSkillId,
   filterComposerPaletteItems,
 } from "./composer-palette-items.ts"
-import { resolveComposerPaletteKeyAction, slashCommandDraftReplacement } from "./composer-palette-logic.ts"
+import { resolveComposerPaletteKeyAction } from "./composer-palette-logic.ts"
 import {
   initialComposerPaletteNavigation,
   resolveComposerPaletteNavigation,
@@ -230,12 +230,8 @@ export function useComposerPalette({
         return
       }
       if (item.action === "bug-report") {
-        const replacement = slashCommandDraftReplacement(item.action)
-        if (!replacement) {
-          return
-        }
-        dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement })
-        focusDraftAt(currentTrigger.start + replacement.length)
+        dispatch({ type: "select-bug-report", trigger: currentTrigger })
+        focusDraftAt(currentTrigger.start)
         return
       }
       if (item.action === "attach-file" || item.action === "attach-folder" || item.action === "attach-file-or-folder") {

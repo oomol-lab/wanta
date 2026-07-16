@@ -1,5 +1,10 @@
+import { open } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+
+const mimeSniffMaxBytes = 8 * 1024
+
+export type ReadMimeSample = (filePath: string, maxBytes: number) => Promise<Buffer>
 
 export function imageMimeFromPath(filePath: string): string | null {
   const extension = filePath.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase()
@@ -33,6 +38,8 @@ export function mimeFromPath(filePath: string): string {
   switch (extension) {
     case "csv":
       return "text/csv"
+    case "tsv":
+      return "text/tab-separated-values"
     case "htm":
     case "html":
       return "text/html"
@@ -76,14 +83,35 @@ export function mimeFromPath(filePath: string): string {
       return "text/plain"
     case "json":
       return "application/json"
+    case "jsonl":
+      return "application/x-ndjson"
     case "md":
       return "text/markdown"
+    case "xml":
+      return "application/xml"
+    case "yaml":
+    case "yml":
+      return "application/yaml"
+    case "toml":
+      return "application/toml"
+    case "cfg":
+    case "conf":
+    case "env":
+    case "ini":
+    case "log":
+    case "properties":
+    case "sql":
+      return "text/plain"
     case "pdf":
       return "application/pdf"
     case "doc":
       return "application/msword"
     case "docx":
       return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    case "ppt":
+      return "application/vnd.ms-powerpoint"
+    case "pptx":
+      return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     case "rtf":
       return "application/rtf"
     case "aac":
@@ -124,6 +152,46 @@ export function mimeFromPath(filePath: string): string {
     default:
       return "application/octet-stream"
   }
+}
+
+export function isLikelyUtf8Text(bytes: Buffer): boolean {
+  if (bytes.length === 0) return true
+  if (bytes.includes(0)) return false
+  let text: string
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+  } catch {
+    return false
+  }
+  let controls = 0
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0
+    if (code < 32 && code !== 9 && code !== 10 && code !== 13) controls += 1
+  }
+  return controls <= Math.max(1, Math.floor(text.length * 0.01))
+}
+
+async function readMimeSample(filePath: string, maxBytes: number): Promise<Buffer> {
+  const file = await open(filePath, "r")
+  try {
+    const bytes = Buffer.alloc(maxBytes)
+    const { bytesRead } = await file.read(bytes, 0, maxBytes, 0)
+    return bytes.subarray(0, bytesRead)
+  } finally {
+    await file.close()
+  }
+}
+
+export async function mimeFromFile(
+  filePath: string,
+  size?: number,
+  readSample: ReadMimeSample = readMimeSample,
+): Promise<string> {
+  const mapped = mimeFromPath(filePath)
+  if (mapped !== "application/octet-stream") return mapped
+  const sampleSize = Math.min(mimeSniffMaxBytes, Math.max(0, size ?? mimeSniffMaxBytes))
+  const bytes = await readSample(filePath, sampleSize)
+  return isLikelyUtf8Text(bytes) ? "text/plain" : mapped
 }
 
 function stripCandidate(value: string): string {

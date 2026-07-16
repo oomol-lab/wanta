@@ -24,6 +24,7 @@ import { resolveUserCommandPath } from "../command-path.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
+import { planAttachmentInputs } from "./attachment-input.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
@@ -705,12 +706,13 @@ export class AgentManager {
         return
       }
       const variant = this.resolveReasoningVariant(options.model, options.reasoningLevel)
+      const attachmentCapabilities = this.resolveAttachmentCapabilities(options.model)
       const body: NonNullable<SessionPromptAsyncData["body"]> = {
         agent: normalizeWantaAgentMode(options.mode),
         model: this.resolveModel(options.model),
         ...(tail ? { system: tail } : {}),
         ...(variant ? { variant } : {}),
-        parts: buildPromptParts(text, options.attachments),
+        parts: await buildPromptParts(text, options.attachments, attachmentCapabilities),
       }
       const result = await this.client.session.promptAsync(
         { sessionID: sessionId, ...body },
@@ -941,6 +943,16 @@ export class AgentManager {
     const model = resolveBuiltinModel(modelID)
     return model.capabilities.reasoningVariants?.includes(variant) ? variant : undefined
   }
+
+  private resolveAttachmentCapabilities(choice: ModelChoice | undefined): { images: boolean; pdf: boolean } {
+    if (choice?.kind === "custom") {
+      const model = this.options.customModels?.find((item) => item.id === choice.id)
+      return { images: model?.supportsImages === true, pdf: false }
+    }
+    const modelID = choice && isBuiltinModelId(choice.id) ? choice.id : DEFAULT_BUILTIN_MODEL_ID
+    const capabilities = resolveBuiltinModel(modelID).capabilities
+    return { images: capabilities.supportsImages, pdf: capabilities.supportsPdf }
+  }
 }
 
 export function buildWorkspaceIdentitySystem(organizationName?: string): string {
@@ -951,24 +963,29 @@ export function buildWorkspaceIdentitySystem(organizationName?: string): string 
   return `Current-turn Link workspace: organization ${JSON.stringify(normalizedOrganizationName)}; raw oo selector: --organization ${JSON.stringify(normalizedOrganizationName)}.`
 }
 
-function buildPromptParts(
+async function buildPromptParts(
   text: string,
   attachments: ChatAttachment[] | undefined,
-): Array<TextPartInput | FilePartInput> {
+  capabilities: { images: boolean; pdf: boolean },
+): Promise<Array<TextPartInput | FilePartInput>> {
   const parts: Array<TextPartInput | FilePartInput> = []
-  for (const attachment of attachments ?? []) {
-    const inputPath = attachment.agentPath ?? attachment.path
-    const inputName = attachment.agentName ?? attachment.name
-    const inputMime = attachment.agentMime ?? attachment.mime
+  for (const input of await planAttachmentInputs(attachments, capabilities)) {
+    if (input.kind === "text") {
+      parts.push({
+        type: "text",
+        text: input.text,
+      })
+      continue
+    }
     parts.push({
       type: "file",
-      mime: inputMime || "application/octet-stream",
-      filename: inputName,
-      url: pathToFileUrl(inputPath),
+      mime: input.mime,
+      filename: input.name,
+      url: pathToFileUrl(input.path),
       source: {
         type: "file",
-        path: inputPath,
-        text: { value: inputName, start: 0, end: inputName.length },
+        path: input.path,
+        text: { value: input.name, start: 0, end: input.name.length },
       },
     })
   }

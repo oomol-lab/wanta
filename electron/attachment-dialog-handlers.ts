@@ -1,30 +1,51 @@
-import type { AttachmentPickerKind } from "./attachment-picker.ts"
+import type { AttachmentPickerKind, SaveClipboardAttachmentInput, SelectedAttachmentPath } from "./attachment-picker.ts"
+import type { CreateSpreadsheetPreview } from "./chat/spreadsheet-agent-input.ts"
 
 import { app, BrowserWindow, dialog, ipcMain } from "electron"
 import { stat } from "node:fs/promises"
 import path from "node:path"
 import { isAttachmentPickerKind } from "./attachment-picker.ts"
-import { mimeFromPath } from "./chat/artifacts.ts"
+import { mimeFromFile } from "./chat/artifacts.ts"
 import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
+import { createSpreadsheetAgentInput } from "./chat/spreadsheet-agent-input.ts"
 
-interface SelectedAttachmentPath {
-  kind: "file" | "directory"
-  mime: string
-  name: string
-  path: string
-  size: number
+interface AttachmentDialogHandlerOptions {
+  createSpreadsheetPreview?: CreateSpreadsheetPreview
+  userDataDir?: string
 }
 
-interface SaveClipboardAttachmentRequest {
-  bytes: ArrayBuffer
-  mime?: string
-  name?: string
+export async function prepareSelectedAttachment(
+  userDataDir: string,
+  item: SelectedAttachmentPath | null,
+  createSpreadsheetPreview: CreateSpreadsheetPreview | undefined,
+  remember: (filePath: string) => void,
+  reportFailure: (error: unknown) => void,
+): Promise<SelectedAttachmentPath | null> {
+  if (!item || item.kind !== "file" || !createSpreadsheetPreview) return item
+  try {
+    const agentInput = await createSpreadsheetAgentInput(userDataDir, item, createSpreadsheetPreview)
+    if (!agentInput) return item
+    remember(agentInput.agentPath)
+    return { ...item, ...agentInput }
+  } catch (error) {
+    reportFailure(error)
+    return item
+  }
 }
 
-export function registerAttachmentDialogHandlers(trustedPaths: Set<string>): void {
+export function registerAttachmentDialogHandlers(
+  trustedPaths: Set<string>,
+  options: AttachmentDialogHandlerOptions = {},
+): void {
+  const userDataDir = options.userDataDir ?? app.getPath("userData")
   const remember = (filePath: string): void => {
     if (filePath.trim()) trustedPaths.add(filePath)
   }
+
+  const prepare = (item: SelectedAttachmentPath | null): Promise<SelectedAttachmentPath | null> =>
+    prepareSelectedAttachment(userDataDir, item, options.createSpreadsheetPreview, remember, (error) => {
+      console.warn("[wanta] failed to prepare spreadsheet attachment:", error)
+    })
 
   ipcMain.handle("wanta:select-attachment-paths", async (event, kind: unknown): Promise<SelectedAttachmentPath[]> => {
     assertAttachmentPickerKind(kind)
@@ -34,25 +55,27 @@ export function registerAttachmentDialogHandlers(trustedPaths: Set<string>): voi
       ? await dialog.showOpenDialog(parent, { properties })
       : await dialog.showOpenDialog({ properties })
     if (result.canceled) return []
-    const items = (await Promise.all(result.filePaths.map(selectedAttachmentPath))).filter(
-      (item): item is SelectedAttachmentPath => Boolean(item),
-    )
+    const items: SelectedAttachmentPath[] = []
+    for (const filePath of result.filePaths) {
+      const item = await prepare(await selectedAttachmentPath(filePath))
+      if (item) items.push(item)
+    }
     for (const item of items) remember(item.path)
     return items
   })
 
   ipcMain.handle(
     "wanta:save-clipboard-attachment",
-    async (_event, req: SaveClipboardAttachmentRequest): Promise<SelectedAttachmentPath> => {
-      const attachment = await saveClipboardAttachment(app.getPath("userData"), req)
+    async (_event, req: SaveClipboardAttachmentInput): Promise<SelectedAttachmentPath> => {
+      const attachment = await saveClipboardAttachment(userDataDir, req)
       remember(attachment.path)
-      return { ...attachment, kind: "file" }
+      return (await prepare({ ...attachment, kind: "file" })) ?? { ...attachment, kind: "file" }
     },
   )
 
   ipcMain.handle("wanta:selected-attachment-path-for-file", async (_event, filePath: unknown) => {
     if (typeof filePath !== "string" || !filePath.trim()) return null
-    const item = await selectedAttachmentPath(filePath)
+    const item = await prepare(await selectedAttachmentPath(filePath))
     if (item) remember(item.path)
     return item
   })
@@ -98,7 +121,7 @@ async function selectedAttachmentPath(filePath: string): Promise<SelectedAttachm
     const kind = info.isDirectory() ? "directory" : "file"
     return {
       name: path.basename(filePath.replace(/[\\/]+$/, "")) || filePath,
-      mime: kind === "directory" ? "inode/directory" : mimeFromPath(filePath),
+      mime: kind === "directory" ? "inode/directory" : await mimeFromFile(filePath, info.size),
       size: kind === "file" ? info.size : 0,
       path: filePath,
       kind,

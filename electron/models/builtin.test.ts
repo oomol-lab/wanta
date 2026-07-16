@@ -25,6 +25,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
     builtinModelSummaries().map((model) => ({
       id: model.id,
       supportsImages: model.supportsImages,
+      supportsPdf: resolveBuiltinModel(model.id).capabilities.supportsPdf,
       toolCall: model.toolCall,
       runtimeKind: model.runtimeKind,
       contextWindow: model.contextWindow,
@@ -35,6 +36,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
       {
         id: "oopilot",
         supportsImages: true,
+        supportsPdf: false,
         toolCall: true,
         runtimeKind: "openai-compatible",
         contextWindow: 200_000,
@@ -44,6 +46,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
       {
         id: "gpt-5.5",
         supportsImages: true,
+        supportsPdf: true,
         toolCall: true,
         runtimeKind: "openai-responses",
         contextWindow: 400_000,
@@ -53,6 +56,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
       {
         id: "deepseek-v4-flash",
         supportsImages: false,
+        supportsPdf: false,
         toolCall: true,
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
@@ -62,6 +66,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
       {
         id: "deepseek-v4-pro",
         supportsImages: false,
+        supportsPdf: false,
         toolCall: true,
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
@@ -71,6 +76,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
       {
         id: "qwen3.7-plus",
         supportsImages: true,
+        supportsPdf: false,
         toolCall: true,
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
@@ -80,6 +86,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
       {
         id: "qwen3.7-max",
         supportsImages: true,
+        supportsPdf: false,
         toolCall: true,
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,

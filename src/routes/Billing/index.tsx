@@ -42,6 +42,7 @@ interface BillingRouteProps {
   initialTarget?: "credits" | "plans" | null
   onBack: () => void
   sharedConnectorCount?: number
+  titlebarActions: React.ReactNode
   workspace: WorkspaceSelection
 }
 
@@ -50,6 +51,7 @@ export function BillingRoute({
   initialTarget,
   onBack,
   sharedConnectorCount,
+  titlebarActions,
   workspace,
 }: BillingRouteProps) {
   const t = useT()
@@ -206,7 +208,12 @@ export function BillingRoute({
 
   return (
     <>
-      <PageRouteShell backLabel={t("billing.backToChat")} contentClassName="max-w-[84rem] gap-5" onBack={onBack}>
+      <PageRouteShell
+        backLabel={t("billing.backToChat")}
+        contentClassName="max-w-[84rem] gap-5"
+        onBack={onBack}
+        titlebarActions={titlebarActions}
+      >
         <h1 className="oo-text-page-title">{t("billing.title")}</h1>
 
         <section className="border-b border-[var(--oo-divider)] pb-5">

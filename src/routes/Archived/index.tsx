@@ -51,6 +51,7 @@ interface ArchivedRouteProps {
   refreshSessions: () => Promise<void>
   removeSession: (id: string) => Promise<void>
   ready: boolean
+  titlebarActions: React.ReactNode
   unarchiveSession: (id: string) => Promise<SessionInfo | null>
 }
 
@@ -71,6 +72,7 @@ export function ArchivedRoute({
   refreshSessions,
   removeSession,
   ready,
+  titlebarActions,
   unarchiveSession,
 }: ArchivedRouteProps) {
   const { locale, t } = useI18n()
@@ -196,7 +198,12 @@ export function ArchivedRoute({
   }
 
   return (
-    <PageRouteShell backLabel={t("archived.backToChat")} contentClassName="max-w-[82rem] gap-5" onBack={onBack}>
+    <PageRouteShell
+      backLabel={t("archived.backToChat")}
+      contentClassName="max-w-[82rem] gap-5"
+      onBack={onBack}
+      titlebarActions={titlebarActions}
+    >
       <div className="flex min-w-0 items-center justify-between gap-4">
         <h1 className="oo-text-page-title min-w-0 truncate">{t("archived.title")}</h1>
         <ConfirmDialog>

@@ -64,7 +64,7 @@ jobs:
           fetch-tags: true
       - uses: actions/setup-node@v5
         with:
-          node-version: "lts/*"
+          node-version: "22"
       - name: Compute version
         id: version
         # 用户输入经 env 传递（不直接插值进脚本体，防 shell 注入/引号破碎）。
@@ -126,7 +126,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v5
         with:
-          node-version: "lts/*"
+          node-version: "22"
           registry-url: "https://npm.pkg.github.com"
           scope: "@oomol"
       - name: Set env + version
@@ -325,7 +325,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v5
         with:
-          node-version: "lts/*"
+          node-version: "22"
           registry-url: "https://npm.pkg.github.com"
           scope: "@oomol"
       - name: Set env + version
@@ -511,7 +511,7 @@ jobs:
           fetch-tags: true
       - uses: actions/setup-node@v5
         with:
-          node-version: "lts/*"
+          node-version: "22"
 
       # 拉取各平台 build job 上传的全部 release-size-* 元数据（都是小 JSON，绝不在此
       # 重新下载大安装包）。render 在缺任一必需平台元数据时快速失败。

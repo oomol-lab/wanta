@@ -712,7 +712,7 @@ export class AgentManager {
         model: this.resolveModel(options.model),
         ...(tail ? { system: tail } : {}),
         ...(variant ? { variant } : {}),
-        parts: buildPromptParts(text, options.attachments, attachmentCapabilities),
+        parts: await buildPromptParts(text, options.attachments, attachmentCapabilities),
       }
       const result = await this.client.session.promptAsync(
         { sessionID: sessionId, ...body },
@@ -963,13 +963,13 @@ export function buildWorkspaceIdentitySystem(organizationName?: string): string 
   return `Current-turn Link workspace: organization ${JSON.stringify(normalizedOrganizationName)}; raw oo selector: --organization ${JSON.stringify(normalizedOrganizationName)}.`
 }
 
-function buildPromptParts(
+async function buildPromptParts(
   text: string,
   attachments: ChatAttachment[] | undefined,
   capabilities: { images: boolean; pdf: boolean },
-): Array<TextPartInput | FilePartInput> {
+): Promise<Array<TextPartInput | FilePartInput>> {
   const parts: Array<TextPartInput | FilePartInput> = []
-  for (const input of planAttachmentInputs(attachments, capabilities)) {
+  for (const input of await planAttachmentInputs(attachments, capabilities)) {
     if (input.kind === "text") {
       parts.push({
         type: "text",

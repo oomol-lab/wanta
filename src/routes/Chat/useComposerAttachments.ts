@@ -105,14 +105,7 @@ async function optimizeImageFileForAgent(
 
 function toDraftAttachment(item: ComposerAttachmentInput): DraftAttachment {
   const attachment: DraftAttachment = {
-    ...(item.agentPath
-      ? {
-          agentMime: item.agentMime,
-          agentName: item.agentName,
-          agentPath: item.agentPath,
-          agentSize: item.agentSize,
-        }
-      : {}),
+    ...agentAttachmentMetadata(item),
     id: `${Date.now()}-${item.kind ?? "file"}-${item.name}-${item.size}-${Math.random().toString(36).slice(2)}`,
     name: item.name || item.path.split(/[\\/]/).pop() || "attachment",
     mime: item.mime || (item.kind === "directory" ? "inode/directory" : "application/octet-stream"),
@@ -124,6 +117,19 @@ function toDraftAttachment(item: ComposerAttachmentInput): DraftAttachment {
     attachment.previewUrl = URL.createObjectURL(item.file)
   }
   return attachment
+}
+
+export function agentAttachmentMetadata(
+  item: ComposerAttachmentInput,
+): Pick<ComposerAttachmentInput, "agentMime" | "agentName" | "agentPath" | "agentSize"> {
+  return item.agentPath
+    ? {
+        agentMime: item.agentMime,
+        agentName: item.agentName,
+        agentPath: item.agentPath,
+        agentSize: item.agentSize,
+      }
+    : {}
 }
 
 export function useComposerAttachments({
@@ -209,6 +215,7 @@ export function useComposerAttachments({
                 bytes: await file.arrayBuffer(),
               }))
             next.push({
+              ...agentAttachmentMetadata(saved),
               name: saved.name,
               mime: saved.mime,
               size: saved.size,
@@ -227,14 +234,7 @@ export function useComposerAttachments({
           size: selected.size,
           path: selected.path,
           kind: selected.kind,
-          ...(selected.agentPath
-            ? {
-                agentMime: selected.agentMime,
-                agentName: selected.agentName,
-                agentPath: selected.agentPath,
-                agentSize: selected.agentSize,
-              }
-            : {}),
+          ...agentAttachmentMetadata(selected),
           ...(optimized
             ? {
                 agentMime: optimized.mime,

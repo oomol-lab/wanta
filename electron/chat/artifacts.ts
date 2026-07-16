@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url"
 
 const mimeSniffMaxBytes = 8 * 1024
 
+export type ReadMimeSample = (filePath: string, maxBytes: number) => Promise<Buffer>
+
 export function imageMimeFromPath(filePath: string): string | null {
   const extension = filePath.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase()
   switch (extension) {
@@ -152,7 +154,7 @@ export function mimeFromPath(filePath: string): string {
   }
 }
 
-function isLikelyUtf8Text(bytes: Buffer): boolean {
+export function isLikelyUtf8Text(bytes: Buffer): boolean {
   if (bytes.length === 0) return true
   if (bytes.includes(0)) return false
   let text: string
@@ -169,18 +171,27 @@ function isLikelyUtf8Text(bytes: Buffer): boolean {
   return controls <= Math.max(1, Math.floor(text.length * 0.01))
 }
 
-export async function mimeFromFile(filePath: string, size?: number): Promise<string> {
-  const mapped = mimeFromPath(filePath)
-  if (mapped !== "application/octet-stream") return mapped
+async function readMimeSample(filePath: string, maxBytes: number): Promise<Buffer> {
   const file = await open(filePath, "r")
   try {
-    const sampleSize = Math.min(mimeSniffMaxBytes, Math.max(0, size ?? mimeSniffMaxBytes))
-    const bytes = Buffer.alloc(sampleSize)
-    const { bytesRead } = await file.read(bytes, 0, sampleSize, 0)
-    return isLikelyUtf8Text(bytes.subarray(0, bytesRead)) ? "text/plain" : mapped
+    const bytes = Buffer.alloc(maxBytes)
+    const { bytesRead } = await file.read(bytes, 0, maxBytes, 0)
+    return bytes.subarray(0, bytesRead)
   } finally {
     await file.close()
   }
+}
+
+export async function mimeFromFile(
+  filePath: string,
+  size?: number,
+  readSample: ReadMimeSample = readMimeSample,
+): Promise<string> {
+  const mapped = mimeFromPath(filePath)
+  if (mapped !== "application/octet-stream") return mapped
+  const sampleSize = Math.min(mimeSniffMaxBytes, Math.max(0, size ?? mimeSniffMaxBytes))
+  const bytes = await readSample(filePath, sampleSize)
+  return isLikelyUtf8Text(bytes) ? "text/plain" : mapped
 }
 
 function stripCandidate(value: string): string {

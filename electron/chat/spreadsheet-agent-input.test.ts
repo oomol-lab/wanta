@@ -1,7 +1,5 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
-import os from "node:os"
 import path from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { createSpreadsheetAgentInput, spreadsheetAgentText } from "./spreadsheet-agent-input.ts"
 
 const source = {
@@ -53,27 +51,36 @@ describe("spreadsheetAgentText", () => {
 
 describe("createSpreadsheetAgentInput", () => {
   it("writes a private text attachment for an XLSX workbook", async () => {
-    const userDataDir = await mkdtemp(path.join(os.tmpdir(), "wanta-spreadsheet-agent-"))
-    try {
-      const result = await createSpreadsheetAgentInput(userDataDir, source, async () => ({
+    const ensureDirectory = vi.fn(async () => undefined)
+    const written: Array<{ bytes: Buffer; filePath: string }> = []
+    const writePrivateFile = vi.fn(async (filePath: string, bytes: Buffer) => {
+      written.push({ bytes, filePath })
+    })
+    const result = await createSpreadsheetAgentInput(
+      "/tmp/wanta-user-data",
+      source,
+      async () => ({
         kind: "spreadsheet",
         mime: source.mime,
         size: source.size,
         spreadsheet,
         truncated: false,
-      }))
+      }),
+      {
+        createId: () => "attachment-id",
+        ensureDirectory,
+        writePrivateFile,
+      },
+    )
 
-      expect(result).toMatchObject({
-        agentMime: "text/plain",
-        agentName: "库存表-extracted.txt",
-      })
-      expect(result).not.toBeNull()
-      if (!result) throw new Error("Expected an agent input")
-      expect(result.agentPath).toContain(path.join("attachments", "agent"))
-      expect(await readFile(result.agentPath, "utf8")).toContain("=== Sheet: SKU ===")
-    } finally {
-      await rm(userDataDir, { recursive: true, force: true })
-    }
+    expect(result).toMatchObject({
+      agentMime: "text/plain",
+      agentName: "库存表-extracted.txt",
+      agentPath: path.join("/tmp/wanta-user-data", "attachments", "agent", "attachment-id-库存表-extracted.txt"),
+    })
+    expect(ensureDirectory).toHaveBeenCalledWith(path.join("/tmp/wanta-user-data", "attachments", "agent"))
+    expect(writePrivateFile).toHaveBeenCalledWith(result?.agentPath, expect.any(Buffer))
+    expect(written[0]?.bytes.toString("utf8")).toContain("=== Sheet: SKU ===")
   })
 
   it("ignores non-XLSX attachments", async () => {

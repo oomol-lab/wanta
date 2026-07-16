@@ -1,8 +1,8 @@
 import type { AppCommand } from "./app-command.ts"
 import type { AppLocale } from "./app-locale.ts"
-import type { AttachmentPickerKind } from "./attachment-picker.ts"
+import type { AttachmentPickerKind, SaveClipboardAttachmentInput, SelectedAttachmentPath } from "./attachment-picker.ts"
 
-export type { AttachmentPickerKind } from "./attachment-picker.ts"
+export type { AttachmentPickerKind, SaveClipboardAttachmentInput, SelectedAttachmentPath } from "./attachment-picker.ts"
 
 import { setupConnectionPreload } from "@oomol/connection-electron-adapter/preload"
 import { contextBridge, ipcRenderer, webUtils } from "electron"
@@ -12,24 +12,6 @@ import { branding } from "./branding.ts"
 
 declare const __APP_COMMIT__: string | undefined
 declare const __APP_VERSION__: string | undefined
-
-export interface SelectedAttachmentPath {
-  agentMime?: string
-  agentName?: string
-  agentPath?: string
-  agentSize?: number
-  name: string
-  mime: string
-  size: number
-  path: string
-  kind: "file" | "directory"
-}
-
-export interface SaveClipboardAttachmentInput {
-  name?: string
-  mime?: string
-  bytes: ArrayBuffer
-}
 
 export interface RendererErrorReport {
   message: string

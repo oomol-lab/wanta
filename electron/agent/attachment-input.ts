@@ -1,5 +1,7 @@
 import type { ChatAttachment } from "../chat/common.ts"
 
+import { stat } from "node:fs/promises"
+
 export interface AttachmentModelCapabilities {
   images: boolean
   pdf: boolean
@@ -8,6 +10,10 @@ export interface AttachmentModelCapabilities {
 export type PlannedAttachmentInput =
   | { kind: "file"; mime: string; name: string; path: string }
   | { kind: "text"; text: string }
+
+export interface AttachmentInputDependencies {
+  fileSize: (path: string) => Promise<number | null>
+}
 
 export const maxAttachmentsPerTurn = 20
 export const maxDirectAttachmentBytes = 20 * 1024 * 1024
@@ -117,6 +123,17 @@ function attachmentSource(attachment: ChatAttachment): { mime: string; name: str
     : { mime: attachment.mime, name: attachment.name, path: attachment.path, size: attachment.size }
 }
 
+async function actualFileSize(filePath: string): Promise<number | null> {
+  try {
+    const info = await stat(filePath)
+    return info.isFile() ? info.size : null
+  } catch {
+    return null
+  }
+}
+
+const defaultDependencies: AttachmentInputDependencies = { fileSize: actualFileSize }
+
 function sizeLabel(size: number): string {
   if (!Number.isFinite(size) || size <= 0) return "unknown size"
   if (size < 1024) return `${size} B`
@@ -143,21 +160,40 @@ function pathReference(
   }
 }
 
-export function planAttachmentInputs(
+export async function planAttachmentInputs(
   attachments: readonly ChatAttachment[] | undefined,
   capabilities: AttachmentModelCapabilities,
-): PlannedAttachmentInput[] {
+  dependencies: AttachmentInputDependencies = defaultDependencies,
+): Promise<PlannedAttachmentInput[]> {
   const inputs: PlannedAttachmentInput[] = []
   let directBytes = 0
   const accepted = (attachments ?? []).slice(0, maxAttachmentsPerTurn)
 
   for (const attachment of accepted) {
-    const source = attachmentSource(attachment)
-    const mime = source.mime.toLowerCase() || "application/octet-stream"
+    const snapshotSource = attachmentSource(attachment)
+    const mime = snapshotSource.mime.toLowerCase() || "application/octet-stream"
     if (isDirectory(attachment)) {
-      inputs.push({ kind: "file", mime: "application/x-directory", name: source.name, path: source.path })
+      inputs.push({
+        kind: "file",
+        mime: "application/x-directory",
+        name: snapshotSource.name,
+        path: snapshotSource.path,
+      })
       continue
     }
+
+    const size = await dependencies.fileSize(snapshotSource.path).catch(() => null)
+    if (size === null) {
+      inputs.push(
+        pathReference(
+          attachment,
+          snapshotSource,
+          "its current size could not be verified immediately before the model request",
+        ),
+      )
+      continue
+    }
+    const source = { ...snapshotSource, size }
 
     const sizeIsSafe =
       source.size <= maxDirectAttachmentBytes && directBytes + source.size <= maxDirectAttachmentsTotalBytes

@@ -1,8 +1,5 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import os from "node:os"
-import path from "node:path"
-import { describe, expect, it } from "vitest"
-import { mimeFromFile, mimeFromPath, normalizeLocalPathCandidate } from "./artifacts.ts"
+import { describe, expect, it, vi } from "vitest"
+import { isLikelyUtf8Text, mimeFromFile, mimeFromPath, normalizeLocalPathCandidate } from "./artifacts.ts"
 
 describe("normalizeLocalPathCandidate", () => {
   it("normalizes file URLs and home-relative paths", () => {
@@ -62,18 +59,15 @@ describe("mimeFromPath", () => {
 })
 
 describe("mimeFromFile", () => {
-  it("recognizes extensionless UTF-8 text without treating binary data as text", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-mime-sniff-"))
-    try {
-      const textPath = path.join(directory, "LICENSE")
-      const binaryPath = path.join(directory, "unknown")
-      await writeFile(textPath, "plain UTF-8 text\n第二行\n")
-      await writeFile(binaryPath, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff]))
+  it("recognizes UTF-8 text without treating binary data as text", () => {
+    expect(isLikelyUtf8Text(Buffer.from("plain UTF-8 text\n第二行\n"))).toBe(true)
+    expect(isLikelyUtf8Text(Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff]))).toBe(false)
+  })
 
-      expect(await mimeFromFile(textPath)).toBe("text/plain")
-      expect(await mimeFromFile(binaryPath)).toBe("application/octet-stream")
-    } finally {
-      await rm(directory, { recursive: true, force: true })
-    }
+  it("reads only the bounded sample for an extensionless file", async () => {
+    const readSample = vi.fn(async () => Buffer.from("plain text"))
+
+    expect(await mimeFromFile("/tmp/LICENSE", 20_000, readSample)).toBe("text/plain")
+    expect(readSample).toHaveBeenCalledWith("/tmp/LICENSE", 8 * 1024)
   })
 })

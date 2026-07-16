@@ -342,6 +342,9 @@ describe("AgentManager", () => {
   })
 
   it("does not send an unconverted XLSX binary to the model provider", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-attachment-manager-"))
+    const workbookPath = path.join(directory, "库存表.xlsx")
+    await writeFile(workbookPath, "test workbook")
     const promptAsync = vi.fn(async () => ({ data: true }))
     const manager = new AgentManager({
       authToken: "test",
@@ -352,38 +355,46 @@ describe("AgentManager", () => {
     ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { session: { promptAsync } } }
     manager.buildAuthorizedSystem = async () => undefined
 
-    await manager.promptStreaming("session-1", "整理表格", {
-      attachments: [
-        {
-          id: "xlsx-1",
-          mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          name: "库存表.xlsx",
-          path: "/Users/example/库存表.xlsx",
-          size: 1024,
-        },
-      ],
-      organizationName: "acme",
-    })
+    try {
+      await manager.promptStreaming("session-1", "整理表格", {
+        attachments: [
+          {
+            id: "xlsx-1",
+            mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            name: "库存表.xlsx",
+            path: workbookPath,
+            size: 1024,
+          },
+        ],
+        organizationName: "acme",
+      })
 
-    const calls = promptAsync.mock.calls as unknown as Array<
-      [{ parts: Array<{ mime?: string; text?: string; type: string }> }]
-    >
-    const call = calls[0]?.[0]
-    expect(call).toBeDefined()
-    if (!call) throw new Error("Expected promptAsync to be called")
-    expect(call.parts).not.toContainEqual(
-      expect.objectContaining({
-        mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type: "file",
-      }),
-    )
-    expect(call.parts[0]).toMatchObject({
-      type: "text",
-      text: expect.stringContaining("not safe to pass through"),
-    })
+      const calls = promptAsync.mock.calls as unknown as Array<
+        [{ parts: Array<{ mime?: string; text?: string; type: string }> }]
+      >
+      const call = calls[0]?.[0]
+      expect(call).toBeDefined()
+      if (!call) throw new Error("Expected promptAsync to be called")
+      expect(call.parts).not.toContainEqual(
+        expect.objectContaining({
+          mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          type: "file",
+        }),
+      )
+      expect(call.parts[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("not safe to pass through"),
+      })
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
   })
 
   it("normalizes structured text and applies the selected model's image capability", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-attachment-manager-"))
+    const jsonPath = path.join(directory, "data.json")
+    const imagePath = path.join(directory, "photo.png")
+    await Promise.all([writeFile(jsonPath, "{}"), writeFile(imagePath, "test image")])
     const promptAsync = vi.fn(async () => ({ data: true }))
     const manager = new AgentManager({
       authToken: "test",
@@ -397,37 +408,41 @@ describe("AgentManager", () => {
       id: "json-1",
       mime: "application/json",
       name: "data.json",
-      path: "/tmp/data.json",
+      path: jsonPath,
       size: 100,
     }
     const image = {
       id: "image-1",
       mime: "image/png",
       name: "photo.png",
-      path: "/tmp/photo.png",
+      path: imagePath,
       size: 100,
     }
 
-    await manager.promptStreaming("session-1", "analyze", {
-      attachments: [json, image],
-      model: { kind: "builtin", id: "deepseek-v4-flash" },
-      organizationName: "acme",
-    })
-    await manager.promptStreaming("session-1", "analyze", {
-      attachments: [image],
-      model: { kind: "builtin", id: "oopilot" },
-      organizationName: "acme",
-    })
+    try {
+      await manager.promptStreaming("session-1", "analyze", {
+        attachments: [json, image],
+        model: { kind: "builtin", id: "deepseek-v4-flash" },
+        organizationName: "acme",
+      })
+      await manager.promptStreaming("session-1", "analyze", {
+        attachments: [image],
+        model: { kind: "builtin", id: "oopilot" },
+        organizationName: "acme",
+      })
 
-    const calls = promptAsync.mock.calls as unknown as Array<
-      [{ parts: Array<{ mime?: string; text?: string; type: string }> }]
-    >
-    expect(calls[0]?.[0].parts[0]).toMatchObject({ mime: "text/plain", type: "file" })
-    expect(calls[0]?.[0].parts[1]).toMatchObject({
-      type: "text",
-      text: expect.stringContaining("does not support image input"),
-    })
-    expect(calls[1]?.[0].parts[0]).toMatchObject({ mime: "image/png", type: "file" })
+      const calls = promptAsync.mock.calls as unknown as Array<
+        [{ parts: Array<{ mime?: string; text?: string; type: string }> }]
+      >
+      expect(calls[0]?.[0].parts[0]).toMatchObject({ mime: "text/plain", type: "file" })
+      expect(calls[0]?.[0].parts[1]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("does not support image input"),
+      })
+      expect(calls[1]?.[0].parts[0]).toMatchObject({ mime: "image/png", type: "file" })
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
   })
 
   it("restarts the OpenCode event stream after an unexpected disconnect", async () => {

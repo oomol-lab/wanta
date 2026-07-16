@@ -19,7 +19,23 @@ export interface SpreadsheetAgentInput {
   agentSize: number
 }
 
+export interface SpreadsheetAgentInputDependencies {
+  createId: () => string
+  ensureDirectory: (directory: string) => Promise<void>
+  writePrivateFile: (filePath: string, bytes: Buffer) => Promise<void>
+}
+
 export type CreateSpreadsheetPreview = (path: string, mime: string, size: number) => Promise<LocalArtifactPreviewResult>
+
+const defaultDependencies: SpreadsheetAgentInputDependencies = {
+  createId: () => crypto.randomUUID(),
+  ensureDirectory: async (directory) => {
+    await mkdir(directory, { recursive: true })
+  },
+  writePrivateFile: async (filePath, bytes) => {
+    await writeFile(filePath, bytes, { mode: 0o600 })
+  },
+}
 
 function csvCell(value: string): string {
   return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
@@ -68,6 +84,7 @@ export async function createSpreadsheetAgentInput(
   userDataDir: string,
   source: SpreadsheetAttachmentSource,
   createPreview: CreateSpreadsheetPreview,
+  dependencies: SpreadsheetAgentInputDependencies = defaultDependencies,
 ): Promise<SpreadsheetAgentInput | null> {
   if (!isXlsxArtifact(source.path, source.mime)) {
     return null
@@ -81,9 +98,9 @@ export async function createSpreadsheetAgentInput(
   const bytes = Buffer.from(text, "utf8")
   const directory = path.join(userDataDir, "attachments", "agent")
   const name = spreadsheetAgentName(source.name)
-  const filePath = path.join(directory, `${crypto.randomUUID()}-${name}`)
-  await mkdir(directory, { recursive: true })
-  await writeFile(filePath, bytes, { mode: 0o600 })
+  const filePath = path.join(directory, `${dependencies.createId()}-${name}`)
+  await dependencies.ensureDirectory(directory)
+  await dependencies.writePrivateFile(filePath, bytes)
   return {
     agentMime: "text/plain",
     agentName: name,

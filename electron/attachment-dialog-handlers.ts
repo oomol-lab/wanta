@@ -1,4 +1,4 @@
-import type { AttachmentPickerKind } from "./attachment-picker.ts"
+import type { AttachmentPickerKind, SaveClipboardAttachmentInput, SelectedAttachmentPath } from "./attachment-picker.ts"
 import type { CreateSpreadsheetPreview } from "./chat/spreadsheet-agent-input.ts"
 
 import { app, BrowserWindow, dialog, ipcMain } from "electron"
@@ -9,27 +9,28 @@ import { mimeFromFile } from "./chat/artifacts.ts"
 import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
 import { createSpreadsheetAgentInput } from "./chat/spreadsheet-agent-input.ts"
 
-interface SelectedAttachmentPath {
-  agentMime?: string
-  agentName?: string
-  agentPath?: string
-  agentSize?: number
-  kind: "file" | "directory"
-  mime: string
-  name: string
-  path: string
-  size: number
-}
-
 interface AttachmentDialogHandlerOptions {
   createSpreadsheetPreview?: CreateSpreadsheetPreview
   userDataDir?: string
 }
 
-interface SaveClipboardAttachmentRequest {
-  bytes: ArrayBuffer
-  mime?: string
-  name?: string
+export async function prepareSelectedAttachment(
+  userDataDir: string,
+  item: SelectedAttachmentPath | null,
+  createSpreadsheetPreview: CreateSpreadsheetPreview | undefined,
+  remember: (filePath: string) => void,
+  reportFailure: (error: unknown) => void,
+): Promise<SelectedAttachmentPath | null> {
+  if (!item || item.kind !== "file" || !createSpreadsheetPreview) return item
+  try {
+    const agentInput = await createSpreadsheetAgentInput(userDataDir, item, createSpreadsheetPreview)
+    if (!agentInput) return item
+    remember(agentInput.agentPath)
+    return { ...item, ...agentInput }
+  } catch (error) {
+    reportFailure(error)
+    return item
+  }
 }
 
 export function registerAttachmentDialogHandlers(
@@ -41,13 +42,10 @@ export function registerAttachmentDialogHandlers(
     if (filePath.trim()) trustedPaths.add(filePath)
   }
 
-  const prepare = async (item: SelectedAttachmentPath | null): Promise<SelectedAttachmentPath | null> => {
-    if (!item || item.kind !== "file" || !options.createSpreadsheetPreview) return item
-    const agentInput = await createSpreadsheetAgentInput(userDataDir, item, options.createSpreadsheetPreview)
-    if (!agentInput) return item
-    remember(agentInput.agentPath)
-    return { ...item, ...agentInput }
-  }
+  const prepare = (item: SelectedAttachmentPath | null): Promise<SelectedAttachmentPath | null> =>
+    prepareSelectedAttachment(userDataDir, item, options.createSpreadsheetPreview, remember, (error) => {
+      console.warn("[wanta] failed to prepare spreadsheet attachment:", error)
+    })
 
   ipcMain.handle("wanta:select-attachment-paths", async (event, kind: unknown): Promise<SelectedAttachmentPath[]> => {
     assertAttachmentPickerKind(kind)
@@ -68,7 +66,7 @@ export function registerAttachmentDialogHandlers(
 
   ipcMain.handle(
     "wanta:save-clipboard-attachment",
-    async (_event, req: SaveClipboardAttachmentRequest): Promise<SelectedAttachmentPath> => {
+    async (_event, req: SaveClipboardAttachmentInput): Promise<SelectedAttachmentPath> => {
       const attachment = await saveClipboardAttachment(userDataDir, req)
       remember(attachment.path)
       return (await prepare({ ...attachment, kind: "file" })) ?? { ...attachment, kind: "file" }

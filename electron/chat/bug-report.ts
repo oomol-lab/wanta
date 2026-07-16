@@ -1,7 +1,8 @@
 import type { ModelChoice } from "../models/common.ts"
 import type { AgentMode, AgentPermissionMode } from "./common.ts"
 
-export { BUG_REPORT_COMMAND } from "./common.ts"
+import { BUG_REPORT_COMMAND } from "./common.ts"
+export { BUG_REPORT_COMMAND }
 export const BUG_REPORT_FILE_NAME = "wanta-bug-report.md"
 
 export interface ParsedBugReportCommand {
@@ -18,8 +19,13 @@ export interface BugReportRuntimeContext {
   platform: NodeJS.Platform
 }
 
+function escapeRegularExpression(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
 export function parseBugReportCommand(text: string): ParsedBugReportCommand | null {
-  const match = text.trimStart().match(/^\/bug-report(?:\s+([\s\S]*))?$/u)
+  const pattern = new RegExp(`^${escapeRegularExpression(BUG_REPORT_COMMAND)}(?:\\s+([\\s\\S]*))?$`, "u")
+  const match = text.trimStart().match(pattern)
   if (!match) {
     return null
   }

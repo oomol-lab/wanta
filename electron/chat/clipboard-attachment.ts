@@ -1,3 +1,4 @@
+import type { SaveClipboardAttachmentInput } from "../attachment-picker.ts"
 import type { ChatAttachment } from "./common.ts"
 
 import { randomUUID } from "node:crypto"
@@ -6,12 +7,6 @@ import path from "node:path"
 import { mimeFromPath } from "./artifacts.ts"
 
 export const clipboardAttachmentMaxBytes = 64 * 1024 * 1024
-
-export interface SaveClipboardAttachmentInput {
-  name?: string
-  mime?: string
-  bytes: ArrayBuffer
-}
 
 function extensionFromMime(mime: string): string {
   switch (mime.toLowerCase()) {

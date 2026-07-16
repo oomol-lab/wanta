@@ -29,6 +29,26 @@ describe("buildTeamSubscriptionOverview", () => {
     expect(overview.overCapacity).toBe(false)
   })
 
+  it("preserves unknown member counts without deriving capacity recommendations", () => {
+    const overview = buildTeamSubscriptionOverview({
+      canManage: true,
+      memberCount: null,
+      pendingPayment: null,
+      subscription: {
+        features: [],
+        plan: "team_plus",
+        plans: [],
+        platforms: {},
+      },
+    })
+
+    expect(overview.usedSeats).toBeNull()
+    expect(overview.remainingSeats).toBeNull()
+    expect(overview.overCapacity).toBeNull()
+    expect(overview.shouldRecommendPro).toBeNull()
+    expect(overview.recommendedAction).toBeNull()
+  })
+
   it("uses extra seats before recommending Pro on Plus", () => {
     const overview = buildTeamSubscriptionOverview({
       canManage: true,

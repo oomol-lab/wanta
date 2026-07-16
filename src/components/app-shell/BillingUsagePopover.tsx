@@ -88,18 +88,17 @@ export function BillingUsagePopover({
   const modelSpend = getSummary(summaries, "model").credit
   const connectorSpend = getSummary(summaries, "link").credit
   const showTeamPlanSection = canManageTeamBilling(workspace)
-  const billableSeats = Math.max(1, seatState.count ?? 1)
   const seatCountAvailable = seatState.count !== null && !seatState.error
   const teamOverview = React.useMemo(
     () =>
       buildTeamSubscriptionOverview({
         canManage: workspace.canManage,
-        memberCount: billableSeats,
+        memberCount: seatState.count,
         pendingPayment: data?.teamPendingPayment ?? null,
         sharedConnectorCount,
         subscription: data?.subscription ?? null,
       }),
-    [billableSeats, data?.subscription, data?.teamPendingPayment, sharedConnectorCount, workspace],
+    [data?.subscription, data?.teamPendingPayment, seatState.count, sharedConnectorCount, workspace],
   )
   const showPlanPrompt = Boolean(
     showTeamPlanSection && data && !error && seatCountAvailable && teamOverview.recommendedAction === "choose_plan",
@@ -229,7 +228,7 @@ export function BillingUsagePopover({
                         <div className="oo-text-caption-compact mt-1 text-muted-foreground">
                           {seatState.loading
                             ? t("billing.popover.planSeatsLoading")
-                            : seatState.error
+                            : !seatCountAvailable || teamOverview.usedSeats === null
                               ? t("billing.popover.planSeatsUnavailable")
                               : teamOverview.seatCapacity === null
                                 ? t("billing.popover.planMembers", { count: teamOverview.usedSeats })

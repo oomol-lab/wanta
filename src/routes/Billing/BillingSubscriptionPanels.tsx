@@ -83,7 +83,7 @@ export function PlanSeatOverviewPanel({
   const seatValue =
     loading || seatLoading
       ? "..."
-      : seatUnavailable
+      : seatUnavailable || overview.usedSeats === null
         ? t("billing.planStatus.membersUnavailable")
         : overview.seatCapacity === null
           ? t("billing.planStatus.members", { count: overview.usedSeats })

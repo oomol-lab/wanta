@@ -160,7 +160,7 @@ export function useOrganizationForms({
           }
         })
     },
-    [canManageOrganization, editingOrganization, setBusyAction],
+    [canManageOrganization, editingOrganization, setBusyAction, t],
   )
 
   const submitEdit = React.useCallback(

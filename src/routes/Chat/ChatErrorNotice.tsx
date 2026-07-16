@@ -305,6 +305,7 @@ export function ChatErrorNotice({
       await onRetryFresh()
     } catch {
       toast.error(t("chatError.contentFiltered.retryFailed"))
+    } finally {
       setFreshRetrying(false)
     }
   }, [freshRetrying, onRetryFresh, t])
@@ -318,6 +319,7 @@ export function ChatErrorNotice({
       await onRecover(error.kind)
     } catch {
       toast.error(t("chatError.failed.retryFailed"))
+    } finally {
       setFreshRetrying(false)
     }
   }, [error.kind, freshRetrying, onRecover, t])

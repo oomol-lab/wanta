@@ -98,7 +98,7 @@ export function BillingRoute({
     () =>
       buildTeamSubscriptionOverview({
         canManage: billingContext.canManage,
-        memberCount: billingContext.memberCount ?? 1,
+        memberCount: billingContext.memberCount,
         pendingPayment: data?.teamPendingPayment ?? null,
         sharedConnectorCount,
         subscription: data?.subscription ?? null,
@@ -244,7 +244,7 @@ export function BillingRoute({
               loading={(loading && !data) || isSessionExpired}
               overview={teamOverview}
               seatLoading={seatState.loading}
-              seatUnavailable={Boolean(seatState.error)}
+              seatUnavailable={seatState.count === null || Boolean(seatState.error)}
               workspaceLabel={billingContext.workspaceLabel}
             />
 

@@ -6,11 +6,7 @@ import type { RuntimeSkillRemoveTarget } from "@/routes/Skills/skill-route-model
 
 import * as React from "react"
 import { toast } from "sonner"
-import {
-  errorMessage,
-  planProviderSkillRecommendationBulkLinks,
-  runtimeSkillRemoveBusyKey,
-} from "./organization-management-model.ts"
+import { planProviderSkillRecommendationBulkLinks, runtimeSkillRemoveBusyKey } from "./organization-management-model.ts"
 import { skillErrorMessage } from "./skill-errors.ts"
 import { useSkillService } from "@/components/AppContext"
 import {
@@ -161,7 +157,7 @@ export function useOrganizationSkillActions({
           toast.error(
             t("organizations.skillManageInstallMissingFailed", {
               count: failedCount,
-              error: errorMessage(firstError),
+              error: skillErrorMessage(firstError, t),
             }),
           )
         }
@@ -294,7 +290,7 @@ export function useOrganizationSkillActions({
           toast.error(
             t("organizations.skillManageBulkAddFailed", {
               count: failedCount,
-              error: errorMessage(firstError),
+              error: skillErrorMessage(firstError, t),
             }),
           )
         }

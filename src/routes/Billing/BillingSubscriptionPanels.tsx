@@ -62,11 +62,13 @@ export function PlanSeatOverviewPanel({
   loading,
   overview,
   seatLoading,
+  seatUnavailable,
   workspaceLabel,
 }: {
   loading: boolean
   overview: TeamSubscriptionOverview
   seatLoading: boolean
+  seatUnavailable: boolean
   workspaceLabel: string
 }) {
   const t = useT()
@@ -81,9 +83,11 @@ export function PlanSeatOverviewPanel({
   const seatValue =
     loading || seatLoading
       ? "..."
-      : overview.seatCapacity === null
-        ? t("billing.planStatus.members", { count: overview.usedSeats })
-        : `${overview.usedSeats}/${overview.seatCapacity}`
+      : seatUnavailable
+        ? t("billing.planStatus.membersUnavailable")
+        : overview.seatCapacity === null
+          ? t("billing.planStatus.members", { count: overview.usedSeats })
+          : `${overview.usedSeats}/${overview.seatCapacity}`
 
   return (
     <BillingPanel title={t("billing.planStatus.title")} meta={workspaceLabel}>

@@ -19,6 +19,7 @@ import { ContextMenu as ContextMenuPrimitive } from "radix-ui"
 import * as React from "react"
 import { toast } from "sonner"
 import { isWikiGraphFileName, wikiGraphDropCandidates } from "./knowledge-route-model.ts"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { SearchField } from "@/components/SearchField"
 import { Button } from "@/components/ui/button"
 import {
@@ -437,7 +438,7 @@ function KnowledgeLibraryContent({
   onStartChat,
 }: {
   busy: UseKnowledgeBases["busy"]
-  error: string | null
+  error: UseKnowledgeBases["error"]
   items: KnowledgeBaseSummary[]
   loading: boolean
   query: string
@@ -466,7 +467,7 @@ function KnowledgeLibraryContent({
             <Plus />
             {t("knowledge.import")}
           </Button>
-          {error ? <p className="oo-text-caption mt-3 text-destructive">{error}</p> : null}
+          {error ? <ErrorNotice error={error} compact className="mt-3 text-left" /> : null}
         </div>
       </div>
     )
@@ -513,7 +514,7 @@ function KnowledgeLibraryContent({
           )
         })}
       </div>
-      {error ? <p className="oo-text-caption mt-4 text-destructive">{error}</p> : null}
+      {error ? <ErrorNotice error={error} compact className="mt-4" /> : null}
     </div>
   )
 }

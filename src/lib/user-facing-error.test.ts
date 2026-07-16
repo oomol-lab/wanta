@@ -54,6 +54,25 @@ describe("resolveUserFacingError", () => {
     })
   })
 
+  it("keeps objective service and network failures ahead of area fallbacks", () => {
+    expect(resolveUserFacingError("HTTP 503 upstream unavailable", { area: "artifact" })).toMatchObject({
+      kind: "server_unavailable",
+      titleKey: "error.serverUnavailable.title",
+    })
+    expect(resolveUserFacingError("fetch failed: ECONNREFUSED", { area: "artifact" })).toMatchObject({
+      kind: "network_unavailable",
+      titleKey: "error.networkUnavailable.title",
+    })
+    expect(resolveUserFacingError("HTTP 401 unauthorized", { area: "agent" })).toMatchObject({
+      kind: "auth_required",
+      titleKey: "error.authRequired.title",
+    })
+    expect(resolveUserFacingError("request cancelled", { area: "agent" })).toMatchObject({
+      kind: "cancelled",
+      titleKey: "error.cancelled.title",
+    })
+  })
+
   it("preserves a short message while keeping extended diagnostics copyable", () => {
     const error = Object.assign(new Error("Package version already exists."), {
       diagnostics: "command: oo skills publish /tmp/demo\nstderr: Package version already exists.",

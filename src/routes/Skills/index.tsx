@@ -445,7 +445,7 @@ export function SkillsRoute({
         homeSummaryResource.invalidate()
       } catch (cause) {
         setPlanError({
-          cause: resolveUserFacingError(cause, { area: "skills", preserveMessage: true }),
+          cause: resolveUserFacingError(cause, { area: "skills" }),
           operation: "update",
           skillId: skill.id,
         })
@@ -521,7 +521,7 @@ export function SkillsRoute({
         return result
       } catch (cause) {
         setPlanError({
-          cause: resolveUserFacingError(cause, { area: "skills", preserveMessage: true }),
+          cause: resolveUserFacingError(cause, { area: "skills" }),
           operation: "publish",
           skillId: skill.id,
         })

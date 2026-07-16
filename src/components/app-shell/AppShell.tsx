@@ -4,6 +4,7 @@ import type {
   AuthorizationInfo,
   ChatPermissionReply,
 } from "../../../electron/chat/common.ts"
+import type { ChatErrorKind } from "../../../electron/chat/error.ts"
 import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
@@ -1165,6 +1166,42 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       titleGeneration,
     ],
   )
+  const handleChatErrorRecovery = React.useCallback(
+    async (kind: ChatErrorKind, source: ChatTurnRetrySource): Promise<void> => {
+      if (kind === "auth_required" || kind === "permission_denied") {
+        await auth.login()
+        return
+      }
+      if (!activeChatSessionId || !sessionScope) {
+        throw new Error("A current task and workspace are required to retry")
+      }
+      const retryKey = chatTurnInputKey(source)
+      const storedOptions = turnRetryOptionsBySession.current.get(activeChatSessionId)?.get(retryKey)
+      await send(activeChatSessionId, source.text, source.attachments, {
+        contextMentions:
+          storedOptions?.contextMentions ?? lastContextMentionsBySession.current.get(activeChatSessionId) ?? [],
+        mode: storedOptions?.mode ?? lastModeBySession.current.get(activeChatSessionId),
+        model: storedOptions?.model ?? lastModelBySession.current.get(activeChatSessionId),
+        organizationSkills: storedOptions?.organizationSkills ?? organizationSkills.chatContextSkills,
+        permissionMode:
+          storedOptions?.permissionMode ??
+          lastPermissionModeBySession.current.get(activeChatSessionId) ??
+          displayedPermissionMode,
+        projectContext: storedOptions?.projectContext ?? activeProjectContext,
+        reasoningLevel: storedOptions?.reasoningLevel ?? lastReasoningLevelBySession.current.get(activeChatSessionId),
+        sessionScope: storedOptions?.sessionScope ?? sessionScope,
+      })
+    },
+    [
+      activeChatSessionId,
+      activeProjectContext,
+      auth,
+      displayedPermissionMode,
+      organizationSkills.chatContextSkills,
+      send,
+      sessionScope,
+    ],
+  )
   const handleOpenSearch = React.useCallback((): void => setSearchOpen(true), [])
   const handleChatStop = React.useCallback(async (): Promise<void> => {
     if (activeChatSessionId) {
@@ -1474,7 +1511,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       messages={bridgeInitialSendPending ? [] : messages}
                       knowledgeBaseIds={activeKnowledgeBaseIds}
                       knowledgeEnabled={knowledgeBaseBetaEnabled}
-                      knowledgeError={knowledgeLibrary.error}
+                      knowledgeError={
+                        knowledgeLibrary.error ? userFacingErrorDescription(knowledgeLibrary.error, t) : null
+                      }
                       knowledgeItems={knowledgeLibrary.items}
                       knowledgeLoading={knowledgeLibrary.loading}
                       permissionMode={displayedPermissionMode}
@@ -1525,6 +1564,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       onQueuedMessageRemove={handleQueuedMessageRemove}
                       onQueuedMessageResume={handleQueuedMessageResume}
                       onAuthorize={handleAuthorize}
+                      onRecover={handleChatErrorRecovery}
                       onRetryFresh={handleRetryFresh}
                       onArtifactsOpen={handleArtifactsOpen}
                       onArtifactsAvailable={handleArtifactsAvailable}

@@ -451,7 +451,7 @@ export function ChatComposer({
     }
     if (inputError) {
       return {
-        error: resolveUserFacingError(inputError, { area: "chat", preserveMessage: true }),
+        error: resolveUserFacingError(inputError, { area: "chat" }),
         showDiagnosticsCopy: false,
       }
     }

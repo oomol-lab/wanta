@@ -1,22 +1,29 @@
 import type { KnowledgeBaseSummary } from "../../electron/knowledge/common.ts"
+import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
 import { useKnowledgeService } from "../components/AppContext.ts"
 import { reportRendererHandledError } from "../lib/renderer-diagnostics.ts"
+import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 export interface UseKnowledgeBases {
   items: KnowledgeBaseSummary[]
   loading: boolean
   busy: "import" | "remove" | "refresh" | null
-  error: string | null
+  error: UserFacingError | null
   importKnowledgeBase: (sourcePath?: string) => Promise<KnowledgeBaseSummary | null>
   refresh: (id: string) => Promise<void>
   remove: (id: string) => Promise<boolean>
   reveal: (id: string) => Promise<void>
 }
 
-function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause)
+function knowledgeError(cause: unknown, operation: "list" | "action"): UserFacingError {
+  return resolveUserFacingError(cause, {
+    area: "generic",
+    fallbackDescriptionKey:
+      operation === "list" ? "error.knowledgeList.description" : "error.knowledgeAction.description",
+    fallbackTitleKey: operation === "list" ? "error.knowledgeList.title" : "error.knowledgeAction.title",
+  })
 }
 
 export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
@@ -24,7 +31,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
   const [items, setItems] = React.useState<KnowledgeBaseSummary[]>([])
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState<UseKnowledgeBases["busy"]>(null)
-  const [error, setError] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<UserFacingError | null>(null)
 
   const load = React.useCallback(async () => {
     try {
@@ -33,7 +40,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
     } catch (cause) {
       console.error("[wanta] list knowledge bases failed", cause)
       reportRendererHandledError("knowledge", "list knowledge bases failed", cause)
-      setError(errorMessage(cause))
+      setError(knowledgeError(cause, "list"))
     } finally {
       setLoading(false)
     }
@@ -59,7 +66,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
       } catch (cause) {
         console.error("[wanta] import knowledge base failed", cause)
         reportRendererHandledError("knowledge", "import knowledge base failed", cause)
-        setError(errorMessage(cause))
+        setError(knowledgeError(cause, "action"))
         return null
       } finally {
         setBusy(null)
@@ -76,7 +83,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
       } catch (cause) {
         console.error("[wanta] refresh knowledge base failed", cause)
         reportRendererHandledError("knowledge", "refresh knowledge base failed", cause)
-        setError(errorMessage(cause))
+        setError(knowledgeError(cause, "action"))
       } finally {
         setBusy(null)
       }
@@ -93,7 +100,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
       } catch (cause) {
         console.error("[wanta] remove knowledge base failed", cause)
         reportRendererHandledError("knowledge", "remove knowledge base failed", cause)
-        setError(errorMessage(cause))
+        setError(knowledgeError(cause, "action"))
         return false
       } finally {
         setBusy(null)
@@ -109,7 +116,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
       } catch (cause) {
         console.error("[wanta] reveal knowledge base failed", cause)
         reportRendererHandledError("knowledge", "reveal knowledge base failed", cause)
-        setError(errorMessage(cause))
+        setError(knowledgeError(cause, "action"))
       }
     },
     [service],

@@ -26,6 +26,9 @@ export const skillsMessages = {
     "organizations.emptyOrganizationsDescription": "需要和团队共享组织 Skill、连接器和成员配置时，可以创建组织。",
     "organizations.loadFailed": "组织加载失败",
     "organizations.loadFailedDescription": "暂时无法读取工作区信息。请检查网络后重试。",
+    "organizations.actionFailedTitle": "组织操作未完成",
+    "organizations.actionFailedDescription": "本次修改没有生效。请稍后重试。",
+    "organizations.membersLoadFailedDescription": "暂时无法读取成员列表，已有组织设置不会受影响。",
     "organizations.refreshFailedTitle": "工作区暂时无法刷新",
     "organizations.refreshFailedDescription": "正在显示已加载的工作区信息。请稍后重试。",
     "organizations.selectedOrganization": "当前组织",
@@ -475,6 +478,10 @@ export const skillsMessages = {
     "organizations.loadFailed": "Failed to load organizations",
     "organizations.loadFailedDescription":
       "Workspace information is unavailable right now. Check the network and retry.",
+    "organizations.actionFailedTitle": "Organization action not completed",
+    "organizations.actionFailedDescription": "The change was not applied. Try again later.",
+    "organizations.membersLoadFailedDescription":
+      "The member list is temporarily unavailable. Existing organization settings are unaffected.",
     "organizations.refreshFailedTitle": "Workspace could not refresh",
     "organizations.refreshFailedDescription": "Showing the workspace information already loaded. Try again later.",
     "organizations.selectedOrganization": "Selected organization",

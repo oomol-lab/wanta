@@ -4,6 +4,7 @@ import type {
   ChatAttachment,
   ChatMessagePart,
 } from "../../../electron/chat/common.ts"
+import type { ChatErrorKind } from "../../../electron/chat/error.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { AssistantBlockType } from "./assistant-turn-renderer-model.ts"
@@ -91,6 +92,7 @@ export function TurnProcessActivity({
   billingCacheScope,
   providerByService,
   onAuthorize,
+  onRecover,
   onRetryFresh,
   onViewBilling,
 }: {
@@ -100,6 +102,7 @@ export function TurnProcessActivity({
   billingCacheScope: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
+  onRecover?: (kind: ChatErrorKind) => Promise<void> | void
   onRetryFresh?: () => Promise<void> | void
   onViewBilling?: () => void
 }) {
@@ -181,6 +184,7 @@ export function TurnProcessActivity({
               liveTools={live}
               showAuthorizationPrompt={false}
               onAuthorize={onAuthorize}
+              onRecover={onRecover}
               onRetryFresh={onRetryFresh}
               onViewBilling={onViewBilling}
             />
@@ -306,6 +310,7 @@ export function AssistantBlock({
   liveTools = true,
   showAuthorizationPrompt = true,
   onAuthorize,
+  onRecover,
   onRetryFresh,
   onViewBilling,
 }: {
@@ -318,6 +323,7 @@ export function AssistantBlock({
   liveTools?: boolean
   showAuthorizationPrompt?: boolean
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
+  onRecover?: (kind: ChatErrorKind) => Promise<void> | void
   onRetryFresh?: () => Promise<void> | void
   onViewBilling?: () => void
 }) {
@@ -335,6 +341,7 @@ export function AssistantBlock({
           errorCode={block.part.errorCode}
           errorKind={block.part.errorKind}
           message={block.part.errorText ?? block.part.error ?? t("chatError.failed.description")}
+          onRecover={onRecover}
           onRetryFresh={onRetryFresh}
           onViewBilling={onViewBilling}
         />

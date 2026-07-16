@@ -10,6 +10,7 @@ import { buildTeamPlanChange } from "./team-subscription-model.ts"
 import { useT } from "@/i18n/i18n"
 import { previewTeamSubscription, updateTeamSubscription } from "@/lib/billing-client"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
+import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 
 export type TeamLoadingTarget = TeamSubscriptionPlan | "checkout" | "seats"
 
@@ -50,8 +51,12 @@ export function useTeamCheckout({
   const reportFailure = React.useCallback(
     (operation: string, cause: unknown) => {
       reportRendererHandledError("billing.team", operation, cause)
-      const error = cause instanceof Error && cause.message.trim() ? cause.message : "Unknown error"
-      toast.error(t("billing.teamCheckoutFailed", { error }))
+      const error = resolveUserFacingError(cause, {
+        area: "billing",
+        fallbackDescriptionKey: "billing.teamCheckoutFailedDescription",
+        fallbackTitleKey: "billing.teamCheckoutFailedTitle",
+      })
+      toast.error(userFacingErrorDescription(error, t))
     },
     [t],
   )

@@ -133,19 +133,6 @@ export function resolveUserFacingError(
     )
   }
 
-  if (area === "agent" || includesAny(normalized, ["agent not configured", "sidecar failed", "opencode"])) {
-    return buildError(
-      area,
-      "agent_unavailable",
-      "destructive",
-      "error.agent.title",
-      "error.agent.description",
-      diagnostics,
-      preserveMessage,
-      message,
-    )
-  }
-
   if (isCancelled(normalized)) {
     return buildError(
       area,
@@ -213,7 +200,7 @@ export function resolveUserFacingError(
     )
   }
 
-  if (area === "artifact" || includesAny(normalized, ["enoent", "no such file", "file unavailable"])) {
+  if (includesAny(normalized, ["enoent", "no such file", "file unavailable"])) {
     return buildError(
       area,
       "local_file_unavailable",
@@ -272,6 +259,19 @@ export function resolveUserFacingError(
       "warning",
       "error.networkUnavailable.title",
       "error.networkUnavailable.description",
+      diagnostics,
+      preserveMessage,
+      message,
+    )
+  }
+
+  if (area === "agent" || includesAny(normalized, ["agent not configured", "sidecar failed", "opencode"])) {
+    return buildError(
+      area,
+      "agent_unavailable",
+      "destructive",
+      "error.agent.title",
+      "error.agent.description",
       diagnostics,
       preserveMessage,
       message,

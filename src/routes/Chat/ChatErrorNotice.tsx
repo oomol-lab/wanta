@@ -4,7 +4,7 @@ import { AlertTriangle, CheckIcon, CopyIcon, ExternalLink, RefreshCw } from "luc
 import * as React from "react"
 import { toast } from "sonner"
 import { BillingRequestScopeContext } from "./billing-request-scope-context.ts"
-import { resolveChatError } from "./chat-error.ts"
+import { chatErrorRecoveryKind, resolveChatError } from "./chat-error.ts"
 import { canAutoPromptPayment } from "./payment-auto-prompt.ts"
 import {
   clearPaymentRecoveryPending,
@@ -24,6 +24,7 @@ interface ChatErrorNoticeProps {
   errorCode?: string
   errorKind?: ChatErrorKind
   message: string
+  onRecover?: (kind: ChatErrorKind) => Promise<void> | void
   onRetryFresh?: () => Promise<void> | void
   onViewBilling?: () => void
 }
@@ -89,6 +90,7 @@ export function ChatErrorNotice({
   errorCode,
   errorKind,
   message,
+  onRecover,
   onRetryFresh,
   onViewBilling,
 }: ChatErrorNoticeProps) {
@@ -110,6 +112,7 @@ export function ChatErrorNotice({
   const balanceRequestIdRef = React.useRef(0)
   const isPaymentRequired = error.kind === "payment_required"
   const isContentFiltered = error.kind === "content_filtered"
+  const recoveryKind = chatErrorRecoveryKind(error.kind)
   const canManageFunding = billingRequestScope?.canManageFunding === true
 
   const refreshBalance = React.useCallback(async (): Promise<boolean | null> => {
@@ -306,6 +309,19 @@ export function ChatErrorNotice({
     }
   }, [freshRetrying, onRetryFresh, t])
 
+  const handleRecover = React.useCallback(async () => {
+    if (!onRecover || freshRetrying) {
+      return
+    }
+    setFreshRetrying(true)
+    try {
+      await onRecover(error.kind)
+    } catch {
+      toast.error(t("chatError.failed.retryFailed"))
+      setFreshRetrying(false)
+    }
+  }, [error.kind, freshRetrying, onRecover, t])
+
   const handleCheckoutOpened = React.useCallback(() => {
     markPaymentRecoveryPending(billingCacheScope, billingRequestScope)
     confirmAutoPromptedRef.current = true
@@ -400,6 +416,21 @@ export function ChatErrorNotice({
                       >
                         {freshRetrying ? <RefreshCw className="size-3.5 animate-spin" /> : null}
                         {t(error.primaryActionKey ?? "chatError.contentFiltered.primaryAction")}
+                      </Button>
+                    ) : null}
+                    {recoveryKind !== "fresh_task" &&
+                    recoveryKind !== "billing" &&
+                    error.primaryActionKey &&
+                    onRecover ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={freshRetrying}
+                        onClick={() => void handleRecover()}
+                      >
+                        {freshRetrying ? <RefreshCw className="size-3.5 animate-spin" /> : null}
+                        {t(error.primaryActionKey)}
                       </Button>
                     ) : null}
                     {error.diagnostics ? (

@@ -98,7 +98,7 @@ export function BillingRoute({
     () =>
       buildTeamSubscriptionOverview({
         canManage: billingContext.canManage,
-        memberCount: billingContext.memberCount,
+        memberCount: billingContext.memberCount ?? 1,
         pendingPayment: data?.teamPendingPayment ?? null,
         sharedConnectorCount,
         subscription: data?.subscription ?? null,
@@ -166,11 +166,14 @@ export function BillingRoute({
   })
   const teamLoading = teamCheckout.loading
   const teamCheckoutPreview = teamCheckout.preview
-  const teamActionDisabled = isTeamSubscriptionActionDisabled({
-    canManage: billingContext.canManage,
-    isSessionExpired,
-    isSubmitting: teamLoading !== null,
-  })
+  const teamActionDisabled =
+    isTeamSubscriptionActionDisabled({
+      canManage: billingContext.canManage,
+      isSessionExpired,
+      isSubmitting: teamLoading !== null,
+    }) ||
+    seatState.count === null ||
+    Boolean(seatState.error)
   React.useEffect(() => {
     if (initialTarget !== "plans" || !showTeamPlans) {
       return
@@ -241,6 +244,7 @@ export function BillingRoute({
               loading={(loading && !data) || isSessionExpired}
               overview={teamOverview}
               seatLoading={seatState.loading}
+              seatUnavailable={Boolean(seatState.error)}
               workspaceLabel={billingContext.workspaceLabel}
             />
 
@@ -314,7 +318,7 @@ export function BillingRoute({
 interface BillingWorkspaceContext {
   canManage: boolean
   connectedProviderCount?: number
-  memberCount: number
+  memberCount: number | null
   organizationId?: string
   organizationName?: string
   workspaceLabel: string
@@ -330,7 +334,7 @@ function buildBillingWorkspaceContext(
   return {
     canManage: workspace.canManage,
     connectedProviderCount,
-    memberCount: Math.max(1, memberCount ?? 1),
+    memberCount: memberCount === null ? null : Math.max(1, memberCount),
     organizationId: workspace.organizationId,
     organizationName,
     workspaceLabel: organizationName || organizationWorkspaceLabel,

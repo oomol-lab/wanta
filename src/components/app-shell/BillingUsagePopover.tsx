@@ -89,6 +89,7 @@ export function BillingUsagePopover({
   const connectorSpend = getSummary(summaries, "link").credit
   const showTeamPlanSection = canManageTeamBilling(workspace)
   const billableSeats = Math.max(1, seatState.count ?? 1)
+  const seatCountAvailable = seatState.count !== null && !seatState.error
   const teamOverview = React.useMemo(
     () =>
       buildTeamSubscriptionOverview({
@@ -101,16 +102,20 @@ export function BillingUsagePopover({
     [billableSeats, data?.subscription, data?.teamPendingPayment, sharedConnectorCount, workspace],
   )
   const showPlanPrompt = Boolean(
-    showTeamPlanSection && data && !error && teamOverview.recommendedAction === "choose_plan",
+    showTeamPlanSection && data && !error && seatCountAvailable && teamOverview.recommendedAction === "choose_plan",
   )
   const showPendingPaymentPrompt = Boolean(
-    showTeamPlanSection && data && !error && teamOverview.recommendedAction === "continue_payment",
+    showTeamPlanSection &&
+    data &&
+    !error &&
+    seatCountAvailable &&
+    teamOverview.recommendedAction === "continue_payment",
   )
   const showUpgradePrompt = Boolean(
-    showTeamPlanSection && data && !error && teamOverview.recommendedAction === "upgrade_plan",
+    showTeamPlanSection && data && !error && seatCountAvailable && teamOverview.recommendedAction === "upgrade_plan",
   )
   const showSeatPrompt = Boolean(
-    showTeamPlanSection && data && !error && teamOverview.recommendedAction === "add_seats",
+    showTeamPlanSection && data && !error && seatCountAvailable && teamOverview.recommendedAction === "add_seats",
   )
   const availableShare =
     originalCredit > 0
@@ -224,12 +229,14 @@ export function BillingUsagePopover({
                         <div className="oo-text-caption-compact mt-1 text-muted-foreground">
                           {seatState.loading
                             ? t("billing.popover.planSeatsLoading")
-                            : teamOverview.seatCapacity === null
-                              ? t("billing.popover.planMembers", { count: teamOverview.usedSeats })
-                              : t("billing.popover.planSeats", {
-                                  count: teamOverview.usedSeats,
-                                  limit: teamOverview.seatCapacity,
-                                })}
+                            : seatState.error
+                              ? t("billing.popover.planSeatsUnavailable")
+                              : teamOverview.seatCapacity === null
+                                ? t("billing.popover.planMembers", { count: teamOverview.usedSeats })
+                                : t("billing.popover.planSeats", {
+                                    count: teamOverview.usedSeats,
+                                    limit: teamOverview.seatCapacity,
+                                  })}
                           {sharedConnectorCount === undefined
                             ? ""
                             : ` · ${t("billing.popover.sharedLinks", { count: sharedConnectorCount })}`}

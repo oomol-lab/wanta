@@ -10,8 +10,14 @@ import type {
 import { createMermaidPlugin } from "@streamdown/mermaid"
 import { useEffect, useMemo, useState } from "react"
 import { Streamdown } from "streamdown"
-import { isRetryableMermaidError, mermaidParseErrorLine, validateMermaidSource } from "./mermaid-policy.ts"
-import { MermaidRenderer, MermaidRendererProvider } from "./mermaid-renderer.tsx"
+import {
+  deferIncompleteMermaidMarkdown,
+  incompleteMermaidLanguage,
+  isRetryableMermaidError,
+  mermaidParseErrorLine,
+  validateMermaidSource,
+} from "./mermaid-policy.ts"
+import { MermaidPendingRenderer, MermaidRenderer, MermaidRendererProvider } from "./mermaid-renderer.tsx"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 
@@ -186,6 +192,7 @@ export type MessageStreamdownProps = StreamdownProps & {
 }
 
 export function MessageStreamdown({
+  children,
   controls,
   defaultRenderers,
   mermaid,
@@ -209,15 +216,29 @@ export function MessageStreamdown({
     [defaultMermaidOptions, mermaid],
   )
   const normalizedControls = messageStreamdownControls(controls)
+  const streamdownChildren = typeof children === "string" ? deferIncompleteMermaidMarkdown(children) : children
   const diagramPlugin = useMemo(
     () => (plugins?.mermaid ? wrapMermaidPluginWithValidation(plugins.mermaid) : safeMermaidPlugin),
     [plugins?.mermaid],
   )
-  const renderers = [
-    ...(plugins?.renderers ?? []),
-    { language: "mermaid", component: MermaidRenderer },
-    ...defaultRenderers,
-  ]
+  const pluginRenderers = plugins?.renderers
+  const renderers = useMemo(
+    () => [
+      ...(pluginRenderers ?? []),
+      { language: incompleteMermaidLanguage, component: MermaidPendingRenderer },
+      { language: "mermaid", component: MermaidRenderer },
+      ...defaultRenderers,
+    ],
+    [defaultRenderers, pluginRenderers],
+  )
+  const streamdownPlugins = useMemo(
+    () => ({
+      ...plugins,
+      mermaid: diagramPlugin,
+      renderers,
+    }),
+    [diagramPlugin, plugins, renderers],
+  )
 
   return (
     <MermaidRendererProvider
@@ -230,13 +251,11 @@ export function MessageStreamdown({
         {...props}
         controls={nativeMessageStreamdownControls(normalizedControls)}
         mermaid={mermaidOptions}
-        plugins={{
-          ...plugins,
-          mermaid: diagramPlugin,
-          renderers,
-        }}
+        plugins={streamdownPlugins}
         translations={{ ...localizedTranslations, ...translations }}
-      />
+      >
+        {streamdownChildren}
+      </Streamdown>
     </MermaidRendererProvider>
   )
 }

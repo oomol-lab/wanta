@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
+  deferIncompleteMermaidMarkdown,
+  incompleteMermaidSource,
+  incompleteMermaidLanguage,
   isRetryableMermaidError,
   mermaidParseErrorLine,
   normalizeMermaidMarkdown,
@@ -71,6 +74,53 @@ ${fireMountainDiagram}
     expect(normalized).toContain("称“嫂嫂”→仇敌")
     expect(normalized).toContain('```text\n称"嫂嫂"\n```')
     expect(normalizeMermaidMarkdown('```mermaid\nA -->|称"嫂嫂"| B')).toBe('```mermaid\nA -->|称"嫂嫂"| B')
+  })
+})
+
+describe("incompleteMermaidSource", () => {
+  it("returns the source of an unfinished Mermaid fence", () => {
+    expect(incompleteMermaidSource("before\n```mermaid\nflowchart TD\nA[Incomplete")).toBe("flowchart TD\nA[Incomplete")
+  })
+
+  it("ignores completed Mermaid and unfinished non-Mermaid fences", () => {
+    expect(incompleteMermaidSource("```mermaid\nflowchart TD\nA[Done]\n```")).toBeNull()
+    expect(incompleteMermaidSource("```ts\nconst value = 1")).toBeNull()
+  })
+
+  it("keeps earlier completed diagrams independent from the unfinished tail", () => {
+    expect(
+      incompleteMermaidSource("```mermaid\nflowchart TD\nA[Done]\n```\n\n```mermaid\nflowchart TD\nB[Incomplete"),
+    ).toBe("flowchart TD\nB[Incomplete")
+  })
+})
+
+describe("deferIncompleteMermaidMarkdown", () => {
+  it("routes only an unfinished Mermaid fence to the pending renderer", () => {
+    expect(deferIncompleteMermaidMarkdown("before\n```mermaid\nflowchart TD\nA[Incomplete")).toBe(
+      `before\n\`\`\`${incompleteMermaidLanguage}\nflowchart TD\nA[Incomplete`,
+    )
+  })
+
+  it("preserves completed Mermaid source byte for byte", () => {
+    const markdown = "```mermaid\r\nflowchart TD\r\nA[Done]\r\n```"
+    expect(deferIncompleteMermaidMarkdown(markdown)).toBe(markdown)
+  })
+
+  it("preserves indentation, fence style, metadata, and line endings", () => {
+    expect(deferIncompleteMermaidMarkdown("  ~~~~ MERMAID title=map\r\nflowchart TD\r\nA[Incomplete")).toBe(
+      `  ~~~~ ${incompleteMermaidLanguage} title=map\r\nflowchart TD\r\nA[Incomplete`,
+    )
+  })
+
+  it("defers every streamed prefix until the closing fence is complete", () => {
+    const markdown = "```mermaid\nflowchart TD\nA[Start] --> B[Done]\n```\nFinished"
+    const openingComplete = markdown.indexOf("\n") + 1
+    const closingComplete = markdown.lastIndexOf("```") + 3
+
+    for (let length = openingComplete; length < closingComplete; length += 1) {
+      expect(deferIncompleteMermaidMarkdown(markdown.slice(0, length))).toContain(incompleteMermaidLanguage)
+    }
+    expect(deferIncompleteMermaidMarkdown(markdown.slice(0, closingComplete))).not.toContain(incompleteMermaidLanguage)
   })
 })
 

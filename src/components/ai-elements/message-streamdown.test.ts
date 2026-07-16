@@ -90,4 +90,27 @@ describe("messageStreamdownControls", () => {
     expect(html).toContain("oo-mermaid-loading")
     expect(html).not.toContain('data-streamdown="code-block"')
   })
+
+  it("keeps an unfinished Mermaid fence in the incomplete loading state", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(
+        I18nContext.Provider,
+        {
+          value: {
+            locale: "zh-CN",
+            setLocale: () => undefined,
+            t: (key, vars) => translate("zh-CN", key, vars),
+          },
+        },
+        React.createElement(
+          MessageStreamdown,
+          { defaultRenderers: [] },
+          ["```mermaid", "flowchart LR", "A[Start] --> B[Unfinished"].join("\n"),
+        ),
+      ),
+    )
+
+    expect(html).toContain('data-mermaid-state="incomplete"')
+    expect(html).not.toContain("oo-mermaid-error")
+  })
 })

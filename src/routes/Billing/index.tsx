@@ -246,15 +246,6 @@ export function BillingRoute({
               onChoosePlan={wantaCheckout.choosePlan}
             />
 
-            {canManageFunding ? (
-              <UsageSubscriptionPanel
-                currentPlan={currentUsageSubscription}
-                disabled={isSessionExpired}
-                openExternalCheckout={openExternalCheckout}
-                userId={authState?.account?.id}
-              />
-            ) : null}
-
             <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)]">
               <AdditionalSeatsPanel
                 currentAdditionalSeats={wantaOverview.additionalSeats}
@@ -267,6 +258,15 @@ export function BillingRoute({
 
               {balanceOverview}
             </section>
+
+            {canManageFunding ? (
+              <UsageSubscriptionPanel
+                currentPlan={currentUsageSubscription}
+                disabled={isSessionExpired}
+                openExternalCheckout={openExternalCheckout}
+                userId={authState?.account?.id}
+              />
+            ) : null}
           </>
         ) : (
           balanceOverview

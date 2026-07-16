@@ -8,10 +8,12 @@ import {
   BillingManagePermissionNotice,
   PlanComparison,
   PlanSeatOverviewPanel,
+  UsageSubscriptionPanel,
   WantaSubscriptionPreviewDialog,
 } from "./BillingSubscriptionPanels.tsx"
 import { BalanceOverview, UsageDetailsDisclosure } from "./BillingUsagePanels.tsx"
 import { CreditPurchaseModal } from "./CreditPurchaseModal.tsx"
+import { getCurrentUsageSubscription } from "./plans.ts"
 import {
   buildCategorySummaries,
   buildDailySpendBuckets,
@@ -51,11 +53,12 @@ export function BillingRoute({
   workspace,
 }: BillingRouteProps) {
   const t = useT()
-  const { login } = useAuth()
+  const { login, state: authState } = useAuth()
   const chatService = useChatService()
   const [period, setPeriod] = React.useState<BillingPeriodDays>(30)
   const [purchaseOpen, setPurchaseOpen] = React.useState(false)
   const billingRequestScope = React.useMemo(() => billingRequestScopeForWorkspace(workspace), [workspace])
+  const canManageFunding = billingRequestScope?.canManageFunding === true
   const { data, error, loading, refresh } = useBillingOverview(period, {
     cacheScope,
     requestScope: billingRequestScope,
@@ -116,6 +119,10 @@ export function BillingRoute({
     [data?.wantaPendingPayment, wantaOverview.additionalSeats, wantaOverview.currentPlan],
   )
   const pendingWantaPaymentUrl = pendingWantaPaymentTargets.paymentUrl
+  const currentUsageSubscription = React.useMemo(
+    () => getCurrentUsageSubscription(data?.usageSubscription ?? null),
+    [data?.usageSubscription],
+  )
   const wantaOrganizationId = canManageWantaBilling(workspace) ? workspace.organizationId : null
   const showWantaPlans = wantaOrganizationId !== null
   const averageDailySpend = period > 0 ? totalSpend / period : 0
@@ -136,8 +143,10 @@ export function BillingRoute({
     hasEstimatedTrend ? averageDailySpend * 2 : 0,
   )
   const openUsagePurchase = React.useCallback(() => {
-    setPurchaseOpen(true)
-  }, [])
+    if (canManageFunding) {
+      setPurchaseOpen(true)
+    }
+  }, [canManageFunding])
   const openExternalCheckout = React.useCallback(
     async (url: string) => {
       await chatService.invoke("openExternalUrl", { url })
@@ -171,10 +180,10 @@ export function BillingRoute({
   }, [initialTarget, showWantaPlans])
 
   React.useEffect(() => {
-    if (initialTarget === "credits") {
+    if (initialTarget === "credits" && canManageFunding) {
       setPurchaseOpen(true)
     }
-  }, [initialTarget])
+  }, [canManageFunding, initialTarget])
 
   const balanceOverview = (
     <BalanceOverview
@@ -182,6 +191,7 @@ export function BillingRoute({
       modelSpend={modelSpend}
       coverageDays={coverageDays}
       currentCredit={currentCredit}
+      canManageFunding={canManageFunding}
       loading={(loading && !data) || isSessionExpired}
       totalEvents={totalEvents}
       totalSpend={totalSpend}
@@ -248,6 +258,15 @@ export function BillingRoute({
 
               {balanceOverview}
             </section>
+
+            {canManageFunding ? (
+              <UsageSubscriptionPanel
+                currentPlan={currentUsageSubscription}
+                disabled={isSessionExpired || loading || data?.usageSubscriptionAvailable !== true}
+                openExternalCheckout={openExternalCheckout}
+                userId={authState?.account?.id}
+              />
+            ) : null}
           </>
         ) : (
           balanceOverview
@@ -261,6 +280,7 @@ export function BillingRoute({
           maxDailySpend={maxDailySpend}
           period={period}
           summaries={summaries}
+          showBalanceLots={canManageFunding}
           totalSpend={totalSpend}
         />
       </PageRouteShell>

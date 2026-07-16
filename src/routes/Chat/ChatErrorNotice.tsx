@@ -106,12 +106,13 @@ export function ChatErrorNotice({
   const copyFeedbackTimerRef = React.useRef<number | undefined>(undefined)
   const balanceRequestIdRef = React.useRef(0)
   const isPaymentRequired = error.kind === "payment_required"
+  const canManageFunding = billingRequestScope?.canManageFunding === true
 
   const refreshBalance = React.useCallback(async (): Promise<boolean | null> => {
     const requestId = ++balanceRequestIdRef.current
-    if (!billingRequestScope) {
+    if (!billingRequestScope || !canManageFunding) {
       setBalance(null)
-      setBalanceChecked(false)
+      setBalanceChecked(Boolean(billingRequestScope))
       setBalanceLoading(false)
       setHasCredits(null)
       setRefreshFailed(false)
@@ -141,7 +142,7 @@ export function ChatErrorNotice({
         setBalanceLoading(false)
       }
     }
-  }, [billingRequestScope])
+  }, [billingRequestScope, canManageFunding])
 
   React.useEffect(() => {
     balanceRequestIdRef.current += 1
@@ -167,7 +168,7 @@ export function ChatErrorNotice({
   }, [autoOpenKey])
 
   React.useEffect(() => {
-    if (!isPaymentRequired) {
+    if (!isPaymentRequired || !canManageFunding) {
       return
     }
     let cancelled = false
@@ -185,13 +186,20 @@ export function ChatErrorNotice({
     return () => {
       cancelled = true
     }
-  }, [billingCacheScope, billingRequestScope, isPaymentRequired, refreshBalance])
+  }, [billingCacheScope, billingRequestScope, canManageFunding, isPaymentRequired, refreshBalance])
 
   React.useEffect(() => {
     const promptKey = autoOpenKey
     if (
       !promptKey ||
-      !canAutoPromptPayment({ autoOpenKey: promptKey, balanceChecked, hasCredits, isPaymentRequired, recovered })
+      !canAutoPromptPayment({
+        autoOpenKey: promptKey,
+        balanceChecked,
+        canManageFunding,
+        hasCredits,
+        isPaymentRequired,
+        recovered,
+      })
     ) {
       return
     }
@@ -202,7 +210,16 @@ export function ChatErrorNotice({
       return
     }
     setPurchaseDialogOpen(true)
-  }, [autoOpenKey, balanceChecked, billingCacheScope, billingRequestScope, hasCredits, isPaymentRequired, recovered])
+  }, [
+    autoOpenKey,
+    balanceChecked,
+    billingCacheScope,
+    billingRequestScope,
+    canManageFunding,
+    hasCredits,
+    isPaymentRequired,
+    recovered,
+  ])
 
   React.useEffect(() => {
     confirmAutoPromptedRef.current = false
@@ -226,7 +243,14 @@ export function ChatErrorNotice({
 
   React.useEffect(() => {
     if (
-      !canAutoPromptPayment({ autoOpenKey, balanceChecked, hasCredits, isPaymentRequired, recovered }) ||
+      !canAutoPromptPayment({
+        autoOpenKey,
+        balanceChecked,
+        canManageFunding,
+        hasCredits,
+        isPaymentRequired,
+        recovered,
+      }) ||
       confirmDialogOpen ||
       confirmAutoPromptedRef.current
     ) {
@@ -240,6 +264,7 @@ export function ChatErrorNotice({
     balanceChecked,
     billingCacheScope,
     billingRequestScope,
+    canManageFunding,
     confirmDialogOpen,
     hasCredits,
     isPaymentRequired,
@@ -289,7 +314,9 @@ export function ChatErrorNotice({
   const title = recovered ? t("chatError.paymentReturn.updatedTitle") : t(error.titleKey)
   const description = recovered
     ? t("chatError.paymentReturn.updatedDescription")
-    : (error.descriptionText ?? t(error.descriptionKey))
+    : isPaymentRequired && !canManageFunding
+      ? t("chatError.paymentRequired.creatorDescription")
+      : (error.descriptionText ?? t(error.descriptionKey))
   const effectiveSeverity: ChatErrorSeverity = recovered ? "info" : error.severity
   const diagnosticsActionKey = error.secondaryActionKey ?? "chatError.common.copyDiagnostics"
 
@@ -328,10 +355,16 @@ export function ChatErrorNotice({
               <div className="flex flex-wrap items-center gap-2">
                 {isPaymentRequired ? (
                   <>
-                    <Button type="button" variant="outline" size="sm" onClick={() => setPurchaseDialogOpen(true)}>
-                      {t(error.primaryActionKey ?? "chatError.paymentRequired.primaryAction")}
-                    </Button>
-                    {onViewBilling ? (
+                    {canManageFunding ? (
+                      <Button type="button" variant="outline" size="sm" onClick={() => setPurchaseDialogOpen(true)}>
+                        {t(error.primaryActionKey ?? "chatError.paymentRequired.primaryAction")}
+                      </Button>
+                    ) : onViewBilling ? (
+                      <Button type="button" variant="outline" size="sm" onClick={onViewBilling}>
+                        {t("chatError.paymentRequired.creatorAction")}
+                      </Button>
+                    ) : null}
+                    {canManageFunding && onViewBilling ? (
                       <Button type="button" variant="outline" size="sm" onClick={onViewBilling}>
                         <ExternalLink className="size-3.5" />
                         {t(error.secondaryActionKey ?? "chatError.paymentRequired.secondaryAction")}
@@ -358,7 +391,7 @@ export function ChatErrorNotice({
 
       {isPaymentRequired ? (
         <>
-          {purchaseDialogOpen ? (
+          {purchaseDialogOpen && canManageFunding ? (
             <React.Suspense fallback={null}>
               <CreditPurchaseModal
                 cacheScope={billingCacheScope}

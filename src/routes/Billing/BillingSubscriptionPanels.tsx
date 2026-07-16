@@ -1,9 +1,10 @@
-import type { WantaSubscriptionPlan } from "../../../electron/chat/common.ts"
+import type { SubscriptionPlanTag, WantaSubscriptionPlan } from "../../../electron/chat/common.ts"
 import type { WantaCheckoutPreview, WantaLoadingTarget } from "./use-wanta-checkout.ts"
 import type { WantaSubscriptionOverview } from "./wanta-subscription-model.ts"
 
 import {
   CreditCardIcon,
+  CheckIcon,
   GiftIcon,
   ListIcon,
   MinusIcon,
@@ -13,11 +14,13 @@ import {
   UsersIcon,
 } from "lucide-react"
 import * as React from "react"
+import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useT } from "@/i18n/i18n"
+import { subscriptionCheckoutUrl, subscriptionPortalUrl } from "@/lib/billing-client"
 import { cn } from "@/lib/utils"
 
 function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
@@ -192,6 +195,115 @@ export const PlanComparison = React.forwardRef<
     </BillingPanel>
   )
 })
+
+const usageSubscriptionPlans: Array<{
+  descriptionKey: "billing.usageSubscription.proDescription" | "billing.usageSubscription.maxDescription"
+  featureKeys: Array<
+    | "billing.usageSubscription.proFeatureDiscount"
+    | "billing.usageSubscription.proFeatureAllowance"
+    | "billing.usageSubscription.maxFeatureDiscount"
+    | "billing.usageSubscription.maxFeatureAllowance"
+  >
+  plan: SubscriptionPlanTag
+  priceKey: "billing.usageSubscription.proPrice" | "billing.usageSubscription.maxPrice"
+  titleKey: "billing.usageSubscription.proTitle" | "billing.usageSubscription.maxTitle"
+}> = [
+  {
+    descriptionKey: "billing.usageSubscription.proDescription",
+    featureKeys: ["billing.usageSubscription.proFeatureDiscount", "billing.usageSubscription.proFeatureAllowance"],
+    plan: "ai_pro",
+    priceKey: "billing.usageSubscription.proPrice",
+    titleKey: "billing.usageSubscription.proTitle",
+  },
+  {
+    descriptionKey: "billing.usageSubscription.maxDescription",
+    featureKeys: ["billing.usageSubscription.maxFeatureDiscount", "billing.usageSubscription.maxFeatureAllowance"],
+    plan: "ai_max",
+    priceKey: "billing.usageSubscription.maxPrice",
+    titleKey: "billing.usageSubscription.maxTitle",
+  },
+]
+
+export function UsageSubscriptionPanel({
+  currentPlan,
+  disabled,
+  openExternalCheckout,
+  userId,
+}: {
+  currentPlan: SubscriptionPlanTag | null
+  disabled: boolean
+  openExternalCheckout: (url: string) => Promise<void>
+  userId?: string
+}) {
+  const t = useT()
+  const [loadingPlan, setLoadingPlan] = React.useState<SubscriptionPlanTag | null>(null)
+
+  const handleSubscription = React.useCallback(
+    async (plan: SubscriptionPlanTag) => {
+      setLoadingPlan(plan)
+      try {
+        const url = currentPlan ? await subscriptionPortalUrl() : subscriptionCheckoutUrl(plan, userId)
+        await openExternalCheckout(url)
+      } catch {
+        toast.error(t("billing.purchaseDialog.checkoutFailed"))
+      } finally {
+        setLoadingPlan(null)
+      }
+    },
+    [currentPlan, openExternalCheckout, t, userId],
+  )
+
+  return (
+    <BillingPanel title={t("billing.usageSubscription.title")} meta={t("billing.usageSubscription.meta")}>
+      <div className="grid gap-3 md:grid-cols-2">
+        {usageSubscriptionPlans.map((plan) => {
+          const current = currentPlan === plan.plan
+          const loading = loadingPlan === plan.plan
+          return (
+            <article key={plan.plan} className="grid gap-4 rounded-md border border-border p-4">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="oo-text-title text-foreground">{t(plan.titleKey)}</div>
+                  <p className="oo-text-body mt-1 text-muted-foreground">{t(plan.descriptionKey)}</p>
+                </div>
+                {current ? (
+                  <Badge variant="secondary">{t("billing.subscriptions.currentSubscriptionButton")}</Badge>
+                ) : null}
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-3xl leading-none font-semibold text-foreground tabular-nums">
+                  {t(plan.priceKey)}
+                </span>
+                <span className="oo-text-body text-muted-foreground">{t("billing.subscriptions.priceUnit")}</span>
+              </div>
+              <div className="grid gap-2">
+                {plan.featureKeys.map((featureKey) => (
+                  <div key={featureKey} className="oo-text-body flex items-start gap-2 text-foreground">
+                    <CheckIcon className="mt-0.5 size-4 shrink-0 text-[var(--oo-success-foreground)]" />
+                    <span>{t(featureKey)}</span>
+                  </div>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant={current ? "outline" : "default"}
+                disabled={disabled || loadingPlan !== null}
+                onClick={() => void handleSubscription(plan.plan)}
+              >
+                {loading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+                {current
+                  ? t("billing.usageSubscription.manage")
+                  : currentPlan
+                    ? t("billing.usageSubscription.change")
+                    : t("billing.usageSubscription.subscribe", { plan: t(plan.titleKey) })}
+              </Button>
+            </article>
+          )
+        })}
+      </div>
+    </BillingPanel>
+  )
+}
 
 export function WantaSubscriptionPreviewDialog({
   loading,

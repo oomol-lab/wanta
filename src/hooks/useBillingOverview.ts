@@ -44,14 +44,15 @@ export function useBillingOverview(
     staleMs = defaultStaleMs,
   }: UseBillingOverviewOptions = {},
 ): UseBillingOverview {
-  // 顶部浮层、购买弹窗和账单详情页展示的是同一个账单实体，只是读取字段不同。缓存边界
-  // 必须按账号/工作区（由调用方的 cacheScope 提供）划分，不能再按页面展示形态拆成两份。
+  // 顶部浮层、购买弹窗和账单详情页复用同一份聚合资源。资源内部的组织计划/用量与创建者个人余额
+  // 作用域不同；缓存边界仍须包含账号和工作区，避免付款权限或组织统计跨边界复用。
   const requestCanManageBilling = requestScope?.canManageBilling ?? false
+  const requestCanManageFunding = requestScope?.canManageFunding ?? false
   const requestOrganizationId = requestScope?.organizationId ?? ""
   const requestOrganizationName = requestScope?.organizationName ?? ""
   const requestScopeReady = requestScope !== null
   const requestScopeKey = requestScope
-    ? `organization:${requestOrganizationId}:${requestOrganizationName}:${requestCanManageBilling}`
+    ? `organization:${requestOrganizationId}:${requestOrganizationName}:${requestCanManageBilling}:${requestCanManageFunding}`
     : "blocked"
   const cacheScopeKey = `${cacheScope}\u0000${requestScopeKey}`
   const [data, setData] = React.useState<BillingOverviewResult | null>(() => cachedData(cacheScopeKey, days))
@@ -94,6 +95,7 @@ export function useBillingOverview(
       // 手动刷新也复用已在途请求，避免浮层、详情页或重试按钮同时触发时又发起一套账单聚合请求。
       const scope: BillingRequestScope = {
         canManageBilling: requestCanManageBilling,
+        canManageFunding: requestCanManageFunding,
         organizationId: requestOrganizationId,
         organizationName: requestOrganizationName,
       }
@@ -129,6 +131,7 @@ export function useBillingOverview(
       cacheScopeKey,
       days,
       requestCanManageBilling,
+      requestCanManageFunding,
       requestOrganizationId,
       requestOrganizationName,
       requestScopeReady,

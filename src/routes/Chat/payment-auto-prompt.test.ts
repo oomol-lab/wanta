@@ -6,6 +6,7 @@ import { canAutoPromptPayment } from "./payment-auto-prompt.ts"
 const baseState: PaymentAutoPromptState = {
   autoOpenKey: "message-error-APIError",
   balanceChecked: true,
+  canManageFunding: true,
   hasCredits: false,
   isPaymentRequired: true,
   recovered: false,
@@ -26,5 +27,9 @@ describe("canAutoPromptPayment", () => {
     expect(canAutoPromptPayment({ ...baseState, hasCredits: null })).toBe(false)
     expect(canAutoPromptPayment({ ...baseState, isPaymentRequired: false })).toBe(false)
     expect(canAutoPromptPayment({ ...baseState, autoOpenKey: undefined })).toBe(false)
+  })
+
+  it("never prompts organization members to top up their personal account", () => {
+    expect(canAutoPromptPayment({ ...baseState, canManageFunding: false })).toBe(false)
   })
 })

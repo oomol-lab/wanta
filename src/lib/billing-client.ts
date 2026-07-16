@@ -6,6 +6,7 @@ import type {
   CreditItem,
   CreditUsages,
   RechargePrice,
+  SubscriptionPlanTag,
   SubscriptionStatus,
   WantaSubscriptionChangePayload,
   WantaSubscriptionPreviewResult,
@@ -32,6 +33,7 @@ export const wantaSubscriptionPlans: readonly WantaSubscriptionPlan[] = ["wanta_
 
 export interface BillingRequestScope {
   canManageBilling: boolean
+  canManageFunding: boolean
   organizationId: string
   organizationName: string
 }
@@ -396,20 +398,23 @@ function fetchAuthenticatedJson(url: URL, scope?: BillingRequestScope): Promise<
 }
 
 export async function getCreditBalance(scope: BillingRequestScope): Promise<CreditBalanceResult> {
+  if (!scope.canManageFunding) {
+    throw new Error("The organization funding account is managed by its creator.")
+  }
   const url = new URL("/v1/balance/available", insightBaseUrl)
-  return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url, scope)))
+  return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url)))
 }
 
-async function getCreditUsages(scope: BillingRequestScope, nextToken?: string): Promise<CreditUsages> {
+async function getCreditUsages(nextToken?: string): Promise<CreditUsages> {
   const url = new URL("/v1/balance/available", insightBaseUrl)
   if (nextToken) {
     url.searchParams.set("nextToken", nextToken)
   }
-  return readCreditUsages(unwrapApiData<unknown>(await fetchAuthenticatedJson(url, scope)))
+  return readCreditUsages(unwrapApiData<unknown>(await fetchAuthenticatedJson(url)))
 }
 
-async function getAllCreditUsages(scope: BillingRequestScope): Promise<CreditUsages> {
-  const firstPage = await getCreditUsages(scope)
+async function getAllCreditUsages(): Promise<CreditUsages> {
+  const firstPage = await getCreditUsages()
   const items = [...firstPage.items]
   let nextToken = firstPage.nextToken
   let pageCount = 1
@@ -420,7 +425,7 @@ async function getAllCreditUsages(scope: BillingRequestScope): Promise<CreditUsa
       break
     }
     seenTokens.add(nextToken)
-    const nextPage = await getCreditUsages(scope, nextToken)
+    const nextPage = await getCreditUsages(nextToken)
     if (nextPage.items.length === 0) {
       break
     }
@@ -457,6 +462,14 @@ async function getSubscriptionStatus(scope: BillingRequestScope): Promise<Subscr
   return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url))
 }
 
+async function getUsageSubscriptionStatus(scope: BillingRequestScope): Promise<SubscriptionStatus | null> {
+  if (!scope.canManageFunding) {
+    return null
+  }
+  const url = new URL("/api/user/subscriptions", consoleServerBaseUrl)
+  return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url))
+}
+
 async function getWantaPendingPayment(scope: BillingRequestScope): Promise<WantaPendingPaymentResult | null> {
   if (!scope.canManageBilling) {
     return null
@@ -473,39 +486,78 @@ export async function getBillingSummary(days: number, scope: BillingRequestScope
 }
 
 export async function getBillingOverview(days: number, scope: BillingRequestScope): Promise<BillingOverviewResult> {
-  const balancePromise = getAllCreditUsages(scope)
+  // Wanta 计划和统计按组织读取；现有用量钱包属于组织创建者个人，不能带组织 header 查询不存在的组织余额。
+  // 普通成员也不能退化为查询自己的个人余额，否则会把错误的付款账户展示成组织可用额度。
+  const balancePromise = scope.canManageFunding ? getAllCreditUsages() : Promise.resolve(null)
   const spendPromise = getCreditSpendStats(days, scope)
   const meteringPromise = getCreditMeteringStats(days, scope)
   const subscriptionPromise = getSubscriptionStatus(scope)
+  const usageSubscriptionPromise = getUsageSubscriptionStatus(scope)
   const wantaPendingPaymentPromise = getWantaPendingPayment(scope)
 
   preventEarlyUnhandledRejection(subscriptionPromise)
+  preventEarlyUnhandledRejection(usageSubscriptionPromise)
   preventEarlyUnhandledRejection(wantaPendingPaymentPromise)
 
   const [balance, spend, metering] = await Promise.allSettled([balancePromise, spendPromise, meteringPromise])
-  const [subscription, wantaPendingPayment] = await Promise.all([
+  const [subscription, usageSubscription, wantaPendingPayment] = await Promise.all([
     settleWithSoftTimeout("subscription", subscriptionPromise),
+    settleWithSoftTimeout("usage subscription", usageSubscriptionPromise),
     settleWithSoftTimeout("wanta pending payment", wantaPendingPaymentPromise),
   ])
   logSettledFailure("balance", balance)
   logSettledFailure("spend", spend)
   logSettledFailure("metering", metering)
   logSettledFailure("subscription", subscription)
+  logSettledFailure("usage subscription", usageSubscription)
   logSettledFailure("wanta pending payment", wantaPendingPayment)
-  if (balance.status === "rejected" && isBillingAuthRequiredReason(balance.reason)) {
-    throw balance.reason
+  const criticalResults: PromiseSettledResult<unknown>[] = scope.canManageFunding
+    ? [balance, spend, metering]
+    : [spend, metering]
+  const authFailure = criticalResults.find(
+    (result) => result.status === "rejected" && isBillingAuthRequiredReason(result.reason),
+  )
+  if (authFailure?.status === "rejected") {
+    throw authFailure.reason
   }
-  const criticalResults = [balance, spend, metering]
-  if (criticalResults.every((result) => result.status === "rejected") && balance.status === "rejected") {
-    throw balance.reason
+  const firstFailure = criticalResults.find((result) => result.status === "rejected")
+  if (criticalResults.every((result) => result.status === "rejected") && firstFailure?.status === "rejected") {
+    throw firstFailure.reason
   }
   return {
-    balance: balance.status === "fulfilled" ? filterGeneralCreditUsages(balance.value) : null,
+    balance: balance.status === "fulfilled" && balance.value ? filterGeneralCreditUsages(balance.value) : null,
     spend: spend.status === "fulfilled" ? spend.value : null,
     metering: metering.status === "fulfilled" ? metering.value : null,
+    usageSubscription: usageSubscription.status === "fulfilled" ? usageSubscription.value : null,
+    usageSubscriptionAvailable: usageSubscription.status === "fulfilled",
     subscription: subscription.status === "fulfilled" ? subscription.value : null,
     wantaPendingPayment: wantaPendingPayment.status === "fulfilled" ? wantaPendingPayment.value : null,
   }
+}
+
+/** 个人用量折扣订阅结账页；与组织 Team 计划的订阅接口相互独立。 */
+export function subscriptionCheckoutUrl(plan: SubscriptionPlanTag, userId?: string): string {
+  const url = new URL("/api/user/subscriptions/page", consoleServerBaseUrl)
+  url.searchParams.set("payment_type", "subscription")
+  url.searchParams.set("redirect", checkoutReturnUrl())
+  url.searchParams.set("source_page", checkoutReturnUrl())
+  url.searchParams.set("client_platform", "chat-web")
+  url.searchParams.set("plan", plan)
+  if (userId) {
+    url.searchParams.set("user_id", userId)
+  }
+  return ensureHttpUrl(url.toString())
+}
+
+/** 已有个人用量订阅时，通过 Stripe portal 管理升级、降级或取消。 */
+export async function subscriptionPortalUrl(): Promise<string> {
+  const url = new URL("/api/stripe/portal", consoleServerBaseUrl)
+  url.searchParams.set("product", "ai")
+  const portalUrl = unwrapConsoleData<string>(await fetchAuthenticatedJson(url))
+  if (!portalUrl) {
+    throw new Error("Subscription portal URL response is invalid.")
+  }
+  return ensureHttpUrl(portalUrl)
 }
 
 export async function updateWantaSubscription(

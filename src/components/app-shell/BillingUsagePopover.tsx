@@ -48,6 +48,7 @@ export function BillingUsagePopover({
   const [open, setOpen] = React.useState(false)
   const seatState = useBillableSeats(workspace, open)
   const billingRequestScope = React.useMemo(() => billingRequestScopeForWorkspace(workspace), [workspace])
+  const canManageFunding = billingRequestScope?.canManageFunding === true
   const { data, error, loading, refresh } = useBillingOverview(usagePeriodDays, {
     cacheScope,
     enabled: open,
@@ -117,7 +118,7 @@ export function BillingUsagePopover({
         ? 100
         : 0
   // 仅在真正拿到余额（无错误）且为 0 时才提示耗尽；会话过期/读取失败一律不显示破坏性"余额耗尽"。
-  const hasNoCredits = Boolean(data && currentCredit <= 0 && !error)
+  const hasNoCredits = Boolean(canManageFunding && data?.balance && currentCredit <= 0 && !error)
 
   React.useEffect(() => {
     if (!open) {
@@ -270,18 +271,28 @@ export function BillingUsagePopover({
 
                 <section className="grid gap-3">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="oo-text-label text-muted-foreground">{t("billing.availableCredits")}</div>
-                      <div className="oo-text-metric-large mt-1 text-foreground">{formatCredit(currentCredit)}</div>
-                    </div>
-                    <div className="oo-text-body pt-5 text-right text-muted-foreground">
-                      {averageDailySpend > 0
-                        ? t("billing.popover.coverageDays", { days: coverageDays })
-                        : t("billing.coverageStable")}
-                    </div>
+                    {canManageFunding ? (
+                      <>
+                        <div>
+                          <div className="oo-text-label text-muted-foreground">{t("billing.availableCredits")}</div>
+                          <div className="oo-text-metric-large mt-1 text-foreground">{formatCredit(currentCredit)}</div>
+                        </div>
+                        <div className="oo-text-body pt-5 text-right text-muted-foreground">
+                          {averageDailySpend > 0
+                            ? t("billing.popover.coverageDays", { days: coverageDays })
+                            : t("billing.coverageStable")}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="grid gap-1">
+                        <div className="oo-text-label text-muted-foreground">{t("billing.fundingAccount")}</div>
+                        <div className="oo-text-title text-foreground">{t("billing.fundingManagedByCreator")}</div>
+                        <p className="oo-text-caption text-muted-foreground">{t("billing.fundingMemberDescription")}</p>
+                      </div>
+                    )}
                   </div>
                   <div className="grid gap-2">
-                    <Progress value={availableShare} className="h-1.5 bg-muted" />
+                    {canManageFunding ? <Progress value={availableShare} className="h-1.5 bg-muted" /> : null}
                     <div className="oo-text-caption-compact flex items-center justify-between gap-3 text-muted-foreground">
                       <span>{t("billing.popover.periodSpend", { amount: formatCredit(totalSpend) })}</span>
                       <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>

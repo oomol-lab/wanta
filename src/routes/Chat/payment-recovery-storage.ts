@@ -11,6 +11,7 @@ export interface PaymentRecoveryStorage {
 
 export function paymentRecoveryPendingStorageKey(cacheScope: string, requestScope: BillingRequestScope): string {
   const requestScopeKey = {
+    canManageFunding: requestScope.canManageFunding,
     organizationId: requestScope.organizationId,
     organizationName: requestScope.organizationName,
   }

@@ -73,6 +73,7 @@ export function CreditPurchaseModal({
   const chatService = useChatService()
   const overview = useBillingOverview(30, { cacheScope, enabled: open, requestScope })
   const isSessionExpired = overview.error?.kind === "auth_required"
+  const canManageFunding = requestScope?.canManageFunding === true
   const handleSignIn = React.useCallback(() => {
     void login().then(() => overview.refresh({ force: true }))
   }, [login, overview])
@@ -82,6 +83,9 @@ export function CreditPurchaseModal({
 
   const handleTopUp = React.useCallback(
     async (price: RechargePrice) => {
+      if (!canManageFunding) {
+        return
+      }
       setTopUpLoading(price)
       try {
         const url = await topUpCheckoutUrl(price)
@@ -93,7 +97,7 @@ export function CreditPurchaseModal({
         setTopUpLoading(null)
       }
     },
-    [chatService, onCheckoutOpened, t],
+    [canManageFunding, chatService, onCheckoutOpened, t],
   )
 
   const titleKey = "billing.purchaseDialog.title"
@@ -141,44 +145,53 @@ export function CreditPurchaseModal({
         </div>
         {overview.error ? <ErrorNotice error={overview.error} compact showDiagnosticsCopy={false} /> : null}
 
-        <div className="grid gap-3">
-          <SummaryCell
-            label={t("billing.purchaseDialog.currentCredits")}
-            value={overview.loading && !overview.data ? "..." : currentCredits}
-          />
-        </div>
+        {canManageFunding ? (
+          <>
+            <div className="grid gap-3">
+              <SummaryCell
+                label={t("billing.purchaseDialog.currentCredits")}
+                value={overview.loading && !overview.data ? "..." : currentCredits}
+              />
+            </div>
 
-        <section className="grid gap-3">
-          <SectionHeader
-            title={t("billing.purchaseDialog.topupTitle")}
-            description={t("billing.purchaseDialog.topupDescription")}
-          />
-          <div className="grid gap-3 md:grid-cols-3">
-            {topUpOptions.map((option) => {
-              const actionLoading = topUpLoading === option.price
-              return (
-                <article key={option.price} className="grid gap-3 rounded-lg border border-border p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="oo-text-title text-foreground">{t(option.titleKey)}</div>
-                    <div className="text-2xl font-semibold text-foreground">${option.amount}</div>
-                  </div>
-                  <p className="oo-text-body min-h-10 text-muted-foreground">{t(option.descriptionKey)}</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={isSessionExpired || topUpLoading !== null}
-                    onClick={() => void handleTopUp(option.price)}
-                  >
-                    {actionLoading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
-                    {actionLoading
-                      ? t("billing.purchaseOptions.topupLoadingButton")
-                      : t("billing.purchaseOptions.topupButton")}
-                  </Button>
-                </article>
-              )
-            })}
+            <section className="grid gap-3">
+              <SectionHeader
+                title={t("billing.purchaseDialog.topupTitle")}
+                description={t("billing.purchaseDialog.topupDescription")}
+              />
+              <div className="grid gap-3 md:grid-cols-3">
+                {topUpOptions.map((option) => {
+                  const actionLoading = topUpLoading === option.price
+                  return (
+                    <article key={option.price} className="grid gap-3 rounded-lg border border-border p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="oo-text-title text-foreground">{t(option.titleKey)}</div>
+                        <div className="text-2xl font-semibold text-foreground">${option.amount}</div>
+                      </div>
+                      <p className="oo-text-body min-h-10 text-muted-foreground">{t(option.descriptionKey)}</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={isSessionExpired || topUpLoading !== null}
+                        onClick={() => void handleTopUp(option.price)}
+                      >
+                        {actionLoading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+                        {actionLoading
+                          ? t("billing.purchaseOptions.topupLoadingButton")
+                          : t("billing.purchaseOptions.topupButton")}
+                      </Button>
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
+          </>
+        ) : (
+          <div className="rounded-lg border border-border bg-muted/30 p-4">
+            <div className="oo-text-title text-foreground">{t("billing.fundingManagedByCreator")}</div>
+            <p className="oo-text-body mt-1 text-muted-foreground">{t("billing.fundingMemberDescription")}</p>
           </div>
-        </section>
+        )}
       </div>
     </Dialog>
   )

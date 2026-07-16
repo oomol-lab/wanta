@@ -166,6 +166,7 @@ describe("billing-client", () => {
     expect(summary.wantaPendingPayment?.additionalSeats).toBe(2)
     expect(summary.subscription?.plan).toBe("wanta_plus")
     expect(summary.usageSubscription?.plan).toBe("ai_pro")
+    expect(summary.usageSubscriptionAvailable).toBe(true)
   })
 
   it("does not request organization subscriptions for members without billing permission", async () => {
@@ -191,6 +192,7 @@ describe("billing-client", () => {
     expect(paths).not.toContain("/api/user/subscriptions")
     expect(summary.balance).toBeNull()
     expect(summary.usageSubscription).toBeNull()
+    expect(summary.usageSubscriptionAvailable).toBe(true)
     expect(summary.subscription).toBeNull()
     expect(summary.wantaPendingPayment).toBeNull()
   })
@@ -437,5 +439,7 @@ describe("billing-client", () => {
     expect(overview.spend?.total.totalCredit).toBe("2")
     expect(overview.metering?.total.eventCount).toBe(4)
     expect(overview.subscription).toBeNull()
+    expect(overview.usageSubscription).toBeNull()
+    expect(overview.usageSubscriptionAvailable).toBe(false)
   })
 })

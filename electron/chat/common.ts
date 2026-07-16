@@ -789,6 +789,7 @@ export interface BillingOverviewResult {
   spend: BillingSpendStats | null
   metering: BillingSpendStats | null
   usageSubscription: SubscriptionStatus | null
+  usageSubscriptionAvailable: boolean
   subscription: SubscriptionStatus | null
   wantaPendingPayment: WantaPendingPaymentResult | null
 }

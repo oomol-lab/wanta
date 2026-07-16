@@ -15,6 +15,7 @@ function emptyBillingOverview(): BillingOverviewResult {
     spend: null,
     subscription: null,
     usageSubscription: null,
+    usageSubscriptionAvailable: true,
     wantaPendingPayment: null,
   }
 }

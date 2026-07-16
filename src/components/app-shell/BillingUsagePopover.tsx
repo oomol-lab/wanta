@@ -291,15 +291,13 @@ export function BillingUsagePopover({
                       </div>
                     )}
                   </div>
-                  {canManageFunding ? (
-                    <div className="grid gap-2">
-                      <Progress value={availableShare} className="h-1.5 bg-muted" />
-                      <div className="oo-text-caption-compact flex items-center justify-between gap-3 text-muted-foreground">
-                        <span>{t("billing.popover.periodSpend", { amount: formatCredit(totalSpend) })}</span>
-                        <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
-                      </div>
+                  <div className="grid gap-2">
+                    {canManageFunding ? <Progress value={availableShare} className="h-1.5 bg-muted" /> : null}
+                    <div className="oo-text-caption-compact flex items-center justify-between gap-3 text-muted-foreground">
+                      <span>{t("billing.popover.periodSpend", { amount: formatCredit(totalSpend) })}</span>
+                      <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
                     </div>
-                  ) : null}
+                  </div>
                 </section>
 
                 <section className="grid grid-cols-2 gap-3">

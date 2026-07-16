@@ -529,6 +529,7 @@ export async function getBillingOverview(days: number, scope: BillingRequestScop
     spend: spend.status === "fulfilled" ? spend.value : null,
     metering: metering.status === "fulfilled" ? metering.value : null,
     usageSubscription: usageSubscription.status === "fulfilled" ? usageSubscription.value : null,
+    usageSubscriptionAvailable: usageSubscription.status === "fulfilled",
     subscription: subscription.status === "fulfilled" ? subscription.value : null,
     wantaPendingPayment: wantaPendingPayment.status === "fulfilled" ? wantaPendingPayment.value : null,
   }

@@ -447,7 +447,7 @@ export const enMessages = {
   "chatError.paymentRequired.primaryAction": "Add credits",
   "chatError.paymentRequired.secondaryAction": "View usage",
   "chatError.paymentRequired.creatorDescription":
-    "This response could not be completed because the organization creator's usage account is out of credits. Ask the organization creator to add credits, then try again.",
+    "This response could not be completed because the organization creator's usage balance is insufficient. Ask the organization creator to top up the balance, then try again.",
   "chatError.paymentRequired.creatorAction": "View usage account",
   "chatError.paymentDialog.title": "Not enough credits",
   "chatError.paymentDialog.description":
@@ -581,7 +581,7 @@ export const enMessages = {
   "billing.wantaPaymentPending": "Payment pending",
   "billing.wantaContinuePayment": "Continue payment",
   "billing.wantaManageSeats": "Update seats",
-  "billing.wantaSubscriptionUpdated": "Wanta subscription updated.",
+  "billing.wantaSubscriptionUpdated": "Team plan updated.",
   "billing.wantaCheckoutFailed": "Unable to create checkout: {error}",
   "billing.wantaPreview.title": "Confirm Team plan",
   "billing.wantaPreview.description": "Confirmation creates the checkout page and opens it in your system browser.",

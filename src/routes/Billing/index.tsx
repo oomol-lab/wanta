@@ -262,7 +262,7 @@ export function BillingRoute({
             {canManageFunding ? (
               <UsageSubscriptionPanel
                 currentPlan={currentUsageSubscription}
-                disabled={isSessionExpired}
+                disabled={isSessionExpired || loading || data?.usageSubscriptionAvailable !== true}
                 openExternalCheckout={openExternalCheckout}
                 userId={authState?.account?.id}
               />

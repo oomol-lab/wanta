@@ -107,8 +107,6 @@ export function ConnectionsPanel({
   const [confirmDisconnect, setConfirmDisconnect] = React.useState<DisconnectTarget | null>(null)
   const detailCloseTimerRef = React.useRef<number | null>(null)
   const connectRequestIdRef = React.useRef(0)
-  const canManageConnectionsRef = React.useRef(canManageConnections)
-  canManageConnectionsRef.current = canManageConnections
   const detailWorkspaceKeyRef = React.useRef<string | null>(summaryWorkspaceKey)
   const listPaneRef = React.useRef<HTMLDivElement | null>(null)
 
@@ -351,7 +349,7 @@ export function ConnectionsPanel({
 
   const confirmDisconnectTarget = React.useCallback(
     async (target: DisconnectTarget): Promise<void> => {
-      if (!canManageConnectionsRef.current) {
+      if (!canManageConnections) {
         setConfirmDisconnect(null)
         return
       }
@@ -361,7 +359,7 @@ export function ConnectionsPanel({
         setConfirmDisconnect(null)
       }
     },
-    [deleteCachedDetailForService, disconnect, disconnectAccount],
+    [canManageConnections, deleteCachedDetailForService, disconnect, disconnectAccount],
   )
 
   if (presentation === "drawer") {

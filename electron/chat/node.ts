@@ -53,6 +53,7 @@ import type {
 import type { SessionGeneration } from "./generation-registry.ts"
 import type { StoppedGenerationStore } from "./stopped-generations.ts"
 import type { StoredTurnOutputRecord, TurnOutputRecords, TurnOutputStore } from "./turn-outputs.ts"
+import type { UserAttachmentStore } from "./user-attachments.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
@@ -62,6 +63,7 @@ import os from "node:os"
 import path from "node:path"
 import { ActivityMetrics } from "../activity-metrics.ts"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
+import { createOpencodeMessageId } from "../agent/opencode-id.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
 import { ServiceEvent } from "../service-events.ts"
@@ -104,6 +106,7 @@ import { isPathInside, normalizeProjectPath } from "./turn-output-files.ts"
 import { finalizeTurnOutput as finalizeTurnOutputArtifacts } from "./turn-output-finalizer.ts"
 import { TurnOutputRegistry } from "./turn-output-registry.ts"
 import { publicTurnOutputRecord } from "./turn-outputs.ts"
+import { applyUserAttachmentRecords } from "./user-attachments.ts"
 import { UserStopTracker } from "./user-stop-tracker.ts"
 
 export { buildContextMentionsSystem } from "./context-system.ts"
@@ -213,6 +216,7 @@ interface ChatServiceDeps {
   stoppedGenerationStore?: StoppedGenerationStore
   trustedAttachmentPaths?: ReadonlySet<string>
   turnOutputStore?: TurnOutputStore
+  userAttachmentStore?: UserAttachmentStore
   bugReportRuntime?: {
     appCommit: string
     appVersion: string
@@ -259,6 +263,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private desiredWorkspaceOrganizationName: string | undefined
   private streamEventBuffer: ChatStreamEventBuffer | null = null
   private startedMessages = new Set<string>()
+  private readonly managedUserMessageIds = new Set<string>()
+  private readonly internalAttachmentPathsByMessage = new Map<string, Set<string>>()
   private readonly eventMetrics = new ActivityMetrics((snapshot) => {
     logDiagnostic("performance", "chat event activity", { ...snapshot }, "trace")
   })
@@ -314,6 +320,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.outputPersistence.reset()
     this.desiredWorkspaceOrganizationName = undefined
     this.startedMessages.clear()
+    this.managedUserMessageIds.clear()
+    this.internalAttachmentPathsByMessage.clear()
     this.scopeMutationQueue = Promise.resolve()
   }
 
@@ -386,6 +394,19 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           continue
         }
         if (this.userStops.shouldSuppressEvent(translated)) {
+          continue
+        }
+        if (
+          translated.event === "messageDelta" &&
+          translated.data.synthetic === true &&
+          this.managedUserMessageIds.has(translated.data.messageId)
+        ) {
+          continue
+        }
+        if (
+          translated.event === "messageAttachment" &&
+          this.internalAttachmentPathsByMessage.get(translated.data.messageId)?.has(translated.data.attachment.path)
+        ) {
           continue
         }
         const activitySessionId = generationSessionId ?? sourceSessionId
@@ -1103,6 +1124,19 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       req.permissionModeVersion,
     )
     this.rememberTrustedAttachments(req.sessionId, req.attachments)
+    const userMessageId = createOpencodeMessageId()
+    if (req.attachments?.length) {
+      await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments)
+      this.managedUserMessageIds.add(userMessageId)
+      this.internalAttachmentPathsByMessage.set(
+        userMessageId,
+        new Set(
+          req.attachments
+            .map((attachment) => attachment.agentPath?.trim())
+            .filter((value): value is string => Boolean(value)),
+        ),
+      )
+    }
     const organizationName = organizationNameFromRequest(req)
     const bugReport = parseBugReportCommand(req.text)
     let generation: SessionGeneration | undefined
@@ -1187,6 +1221,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           artifactDir,
           processDir,
           mode: execution.mode,
+          messageId: userMessageId,
           model: req.model,
           organizationName,
           reasoningLevel: req.reasoningLevel,
@@ -1549,12 +1584,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return []
     }
     const messages = await this.agent.getMessages(sessionId)
-    const [authorizationOverlays, stoppedGenerations] = await Promise.all([
+    const [authorizationOverlays, stoppedGenerations, userAttachmentRecords] = await Promise.all([
       this.outputPersistence.overlaysFor(sessionId),
       this.outputPersistence.stoppedFor(sessionId),
+      this.deps.userAttachmentStore?.read(),
     ])
     const displayedMessages = applyStoppedGenerations(
-      applyAuthorizationOverlays(messages, authorizationOverlays),
+      applyAuthorizationOverlays(
+        applyUserAttachmentRecords(messages, userAttachmentRecords?.get(sessionId)),
+        authorizationOverlays,
+      ),
       stoppedGenerations,
     )
     this.rememberTrustedMessageAttachments(sessionId, displayedMessages)

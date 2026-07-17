@@ -74,6 +74,7 @@
 - 同一批次的 `call_action` 由工具层做 canary、同目标限流与短期授权熔断；连接阻断后的排队调用返回 `status: "skipped"`，不得继续访问 connector 或生成第二个授权提示。聊天 UI 的连接操作按本轮 workspace/service/target/error 聚合，工具明细保留但每个同源问题只提供一个用户操作。
 - 新增需要 endpoint 的代码：从 `domain.ts` import 派生常量；不要新增 `__OO_ENDPOINT__` 引用点（define 覆盖范围需与 vite/vitest 配置同步；当前三处 define：renderer/main/preload）。
 - **制成品只认系统登记的真实文件**：生产者写入每轮托管输出目录；已登记项目的 Build 任务写入 `<project>/.wanta/artifacts/<session>/<turn>/`，无项目或 Plan 模式写入 `userData/agent/artifacts/<session>/<turn>/`，过程文件始终留在私有 process 目录。项目内托管路径的既存目录段禁止是符号链接。主进程建立并持久化 `ArtifactBundle`，渲染层只消费结构化 bundle。禁止解析 assistant 自由文本、复制内容或任意路径来推断制成品；禁止依赖模型生成的 manifest 决定文件是否存在、类型或数量。第三方 Skill 不受 Wanta 控制，可能把 session、resume、checkpoint 等运行状态 sidecar 与最终成果写入同一目录；主进程可用保守、可测试的文件名与结构化内容组合规则将证据充分的运行状态排除在 `ArtifactBundle` 外，但不得删除或移动原文件、不得只按扩展名过滤、不得隐藏唯一输出，明确的 assistant attachment/preview 优先保留，无法可靠判断时也必须保留。图片正文预览与制成品持久化必须解耦且最终图片两者都要产出：主进程可从明确的 assistant 图片附件或 Markdown 图片节点物化本地/data/公开 HTTPS 图片，但不能从普通文案猜路径；远程物化必须限制协议、内网地址、重定向、MIME、大小和超时。未持久化时必须产生明确失败状态，不能通过隐藏预览来规避失败。每轮开始记录本轮实际存储位置下当前会话旧制成品目录的文件基线；若旧脚本误写旧目录，结束时只恢复基线后新增/变化的普通文件到当前轮，禁止改写旧 bundle、跨会话扫描、跟随符号链接，基线不完整时禁止恢复。
+- **用户附件与模型表示分离**：普通文件选中后先复制为 Wanta 私有 0400 只读快照，预览、解析和 agent 工具只读快照，禁止修改用户源路径或附件快照；用户要求修改时先复制进本轮 artifact 目录，以副本作为新输出。公开消息附件由 `UserAttachmentStore` 按 user message ID 持久化，是聊天历史的事实来源；XLSX 文本、图片优化副本、OCR 等 `agentPath` 只能作为内部 representation，不得替换附件卡片、进入复制正文或在历史恢复时冒充用户原件。OpenCode 的 synthetic 文件展开必须按结构化标记过滤，禁止靠 Read 文案或自由文本猜测。目录附件是本地引用，不适用递归快照。
 
 ## 8. 渲染层 / UI
 

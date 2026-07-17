@@ -283,6 +283,7 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /Authorized providers.*are context only/s)
   assert.match(WANTA_SYSTEM_PROMPT, /concrete URL.*local web tools/s)
   assert.match(WANTA_SYSTEM_PROMPT, /Locate and read the relevant context before editing/)
+  assert.match(WANTA_SYSTEM_PROMPT, /attached to user messages as immutable input snapshots/)
   assert.match(WANTA_SYSTEM_PROMPT, /Use focused validation when feasible/)
   assert.match(WANTA_SYSTEM_PROMPT, /update its final state before writing the final response/)
   assert.match(WANTA_SYSTEM_PROMPT, /Do not put the complete user-facing deliverable in a progress update/)

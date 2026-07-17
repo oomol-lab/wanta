@@ -2,7 +2,8 @@ import type { AttachmentPickerKind, SaveClipboardAttachmentInput, SelectedAttach
 import type { CreateSpreadsheetPreview } from "./chat/spreadsheet-agent-input.ts"
 
 import { app, BrowserWindow, dialog, ipcMain } from "electron"
-import { stat } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { chmod, copyFile, mkdir, rename, rm, stat } from "node:fs/promises"
 import path from "node:path"
 import { isAttachmentPickerKind } from "./attachment-picker.ts"
 import { mimeFromFile } from "./chat/artifacts.ts"
@@ -14,6 +15,53 @@ interface AttachmentDialogHandlerOptions {
   userDataDir?: string
 }
 
+function managedAttachmentName(name: string): string {
+  return (
+    path
+      .basename(name)
+      .replace(/[<>:"/\\|?*]/g, "_")
+      .replaceAll(/./g, (character) => (character.charCodeAt(0) < 32 ? "_" : character))
+      .trim()
+      .slice(0, 160) || "attachment"
+  )
+}
+
+/** 文件附件先冻结到 Wanta 私有目录；后续预览、提取和 agent 工具均不得读写用户源文件。 */
+export async function snapshotSelectedAttachment(
+  userDataDir: string,
+  item: SelectedAttachmentPath,
+): Promise<SelectedAttachmentPath> {
+  if (item.kind !== "file") return item
+  const snapshotDirectory = path.join(userDataDir, "attachments", "originals", randomUUID())
+  const finalPath = path.join(snapshotDirectory, managedAttachmentName(item.name))
+  const temporaryPath = `${finalPath}.tmp-${process.pid}-${randomUUID()}`
+  try {
+    const sourceBefore = await stat(item.path)
+    if (!sourceBefore.isFile() || sourceBefore.size !== item.size) {
+      throw new Error("Attachment changed before Wanta could create its immutable snapshot.")
+    }
+    await mkdir(snapshotDirectory, { recursive: true })
+    await copyFile(item.path, temporaryPath)
+    await chmod(temporaryPath, 0o600)
+    const [copied, sourceAfter] = await Promise.all([stat(temporaryPath), stat(item.path)])
+    if (
+      !copied.isFile() ||
+      copied.size !== item.size ||
+      sourceAfter.size !== sourceBefore.size ||
+      sourceAfter.mtimeMs !== sourceBefore.mtimeMs
+    ) {
+      throw new Error("Attachment changed while Wanta was creating its immutable snapshot.")
+    }
+    await rename(temporaryPath, finalPath)
+    await chmod(finalPath, 0o400)
+    await chmod(snapshotDirectory, 0o500)
+    return { ...item, path: finalPath }
+  } catch (error) {
+    await rm(snapshotDirectory, { force: true, recursive: true })
+    throw error
+  }
+}
+
 export async function prepareSelectedAttachment(
   userDataDir: string,
   item: SelectedAttachmentPath | null,
@@ -21,15 +69,23 @@ export async function prepareSelectedAttachment(
   remember: (filePath: string) => void,
   reportFailure: (error: unknown) => void,
 ): Promise<SelectedAttachmentPath | null> {
-  if (!item || item.kind !== "file" || !createSpreadsheetPreview) return item
+  if (!item || item.kind !== "file") return item
+  let snapshot: SelectedAttachmentPath
   try {
-    const agentInput = await createSpreadsheetAgentInput(userDataDir, item, createSpreadsheetPreview)
-    if (!agentInput) return item
-    remember(agentInput.agentPath)
-    return { ...item, ...agentInput }
+    snapshot = await snapshotSelectedAttachment(userDataDir, item)
   } catch (error) {
     reportFailure(error)
-    return item
+    throw error
+  }
+  if (!createSpreadsheetPreview) return snapshot
+  try {
+    const agentInput = await createSpreadsheetAgentInput(userDataDir, snapshot, createSpreadsheetPreview)
+    if (!agentInput) return snapshot
+    remember(agentInput.agentPath)
+    return { ...snapshot, ...agentInput }
+  } catch (error) {
+    reportFailure(error)
+    return snapshot
   }
 }
 

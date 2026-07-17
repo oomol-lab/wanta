@@ -117,6 +117,7 @@ export interface PromptStreamingOptions {
   reasoningLevel?: ReasoningLevel
   artifactDir?: string
   processDir?: string
+  messageId?: string
   signal?: AbortSignal
 }
 
@@ -709,6 +710,7 @@ export class AgentManager {
       const attachmentCapabilities = this.resolveAttachmentCapabilities(options.model)
       const body: NonNullable<SessionPromptAsyncData["body"]> = {
         agent: normalizeWantaAgentMode(options.mode),
+        ...(options.messageId ? { messageID: options.messageId } : {}),
         model: this.resolveModel(options.model),
         ...(tail ? { system: tail } : {}),
         ...(variant ? { variant } : {}),

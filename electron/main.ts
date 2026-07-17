@@ -39,6 +39,7 @@ import { ChatServiceImpl } from "./chat/node.ts"
 import { SpreadsheetPreviewWorkerClient } from "./chat/spreadsheet-preview-worker-client.ts"
 import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
 import { TurnOutputStore } from "./chat/turn-outputs.ts"
+import { UserAttachmentStore } from "./chat/user-attachments.ts"
 import { parseConnectionOAuthCallback } from "./connections/domain.ts"
 import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./diagnostics-log.ts"
 import { GitServiceImpl } from "./git/node.ts"
@@ -141,6 +142,7 @@ const artifactBundleStore = new ArtifactBundleStore(app.getPath("userData"))
 const authorizationOverlayStore = new AuthorizationOverlayStore(app.getPath("userData"))
 const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
 const turnOutputStore = new TurnOutputStore(app.getPath("userData"), artifactBundleStore)
+const userAttachmentStore = new UserAttachmentStore(app.getPath("userData"))
 const trustedAttachmentPaths = new Set<string>()
 const artifactResourceLeaseStore = new ArtifactResourceLeaseStore()
 const spreadsheetPreviewWorker = new SpreadsheetPreviewWorkerClient()
@@ -167,6 +169,7 @@ const chatService = new ChatServiceImpl(null, {
   stoppedGenerationStore,
   trustedAttachmentPaths,
   turnOutputStore,
+  userAttachmentStore,
   onSetAgentOrganization: handleAgentOrganizationChanged,
   onSessionCompleted: (input) => attentionService.completeSession(input),
 })
@@ -179,6 +182,7 @@ const sessionService = new SessionServiceImpl(null, {
       artifactBundleStore.removeSession(sessionId),
       attentionService.removeSession(sessionId),
       turnOutputStore.removeSession(sessionId),
+      userAttachmentStore.removeSession(sessionId),
     ]).catch((error: unknown) => {
       console.warn("[wanta] failed to clean removed session outputs", error)
     })

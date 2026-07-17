@@ -73,6 +73,14 @@ src/routes/Chat (PromptInput)
 
 ServerEvents（`electron/chat/common.ts`）：`messageStarted` / `messageDelta`（**累计全文非增量**，渲染层按 `partId` 替换）/ `toolCallStarted` / `toolCallResult` / `authorizationRequired` / `messageCompleted` / `agentError`。`ChatServiceImpl` 在主进程对同一 session/message/part 的 text/reasoning 事件做有界合并，控制事件到达时立即 flush；重复 `message.updated` 不再重复广播 `messageStarted`。`useChat.ts`：按 sessionId→messages map、`upsertPart` 按 partId 原地更新（稳定 React key，不重挂载无闪烁）、发送时插入乐观 user 气泡 `local-user-*`（真实 user 消息到达时清除）、`messageCompleted` 后 reload 全量校正。事件桥由 `ChatServiceImpl.startEventBridge()` 在 agent 装配后启动。
 
+普通文件附件在选择时先冻结到 `userData/attachments/originals/<attachment-id>/` 的 0400 只读私有快照，后续预览、解析和
+本地工具只使用快照，不修改或继续依赖用户源文件。模型兼容表示（当前包括 XLSX 提取文本和优化图片）与公开附件身份
+严格分离：发送前由 `UserAttachmentStore` 按 OpenCode user message ID 原子持久化原始附件清单到
+`userData/user-attachments.json`，`agentPath` 只作为内部输入。OpenCode 展开的 synthetic Read 文本和内部文件 part 不广播
+给渲染层；历史加载也以 Wanta 附件清单覆盖 OpenCode 的模型表示，因此发送中、刷新和重启后始终展示用户选择的文件名、
+MIME 和快照路径。若用户要求修改附件，agent 必须先复制到本轮 artifact 目录并把副本作为新输出；目录附件仍是显式
+本地引用，不做递归快照。
+
 渲染用 vendored ai-elements（`src/components/ai-elements/`）：Conversation/Message/PromptInput/Task 等；Markdown 走 streamdown（MessageResponse 内置）；工具 part 映射为聊天内的 `Task` 折叠摘要。
 
 制成品不从回复文案或复制内容中猜测。每轮 Build 都有主进程分配的托管输出目录：请求携带的项目上下文仍在

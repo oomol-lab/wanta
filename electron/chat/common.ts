@@ -45,6 +45,8 @@ export interface MessageDeltaEvent {
   text: string
   /** OpenCode 流式增量；某些 provider 在最终事件前不会持续更新 text。 */
   delta?: string
+  /** OpenCode 为文件读取等内部展开生成的上下文；不得当作用户输入展示。 */
+  synthetic?: boolean
 }
 export interface MessageReasoningDeltaEvent {
   sessionId: string

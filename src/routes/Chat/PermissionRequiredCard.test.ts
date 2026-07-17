@@ -16,9 +16,9 @@ function renderPermissionCard(request: ChatPermissionRequest): string {
       { value: { locale: "zh-CN", setLocale: () => undefined, t } },
       React.createElement(PermissionRequiredCard, {
         request,
-        onAllowForSession: () => undefined,
-        onAllowOnce: () => undefined,
-        onReject: () => undefined,
+        onAllowForSession: () => Promise.resolve(),
+        onAllowOnce: () => Promise.resolve(),
+        onReject: () => Promise.resolve(),
       }),
     ),
   )

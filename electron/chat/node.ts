@@ -225,7 +225,7 @@ interface ChatServiceDeps {
   /** 渲染层切换组织 workspace 时，同步 agent 的组织作用域（main 持有 agent 与 activeAgentOrganizationName）。 */
   onSetAgentOrganization?: (organizationName: string | undefined) => Promise<void> | void
   /** 正常完成且产物已收尾后通知主进程 attention 域；停止和错误路径不触发。 */
-  onSessionCompleted?: (input: { runId: string; sessionId: string }) => Promise<void> | void
+  onSessionCompleted?: (input: { organizationId: string; runId: string; sessionId: string }) => Promise<void> | void
 }
 
 interface StopSessionGenerationOptions {
@@ -265,6 +265,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private startedMessages = new Set<string>()
   private readonly managedUserMessageIds = new Set<string>()
   private readonly internalAttachmentPathsByMessage = new Map<string, Set<string>>()
+  private readonly managedUserMessageIdsBySession = new Map<string, Set<string>>()
   private readonly eventMetrics = new ActivityMetrics((snapshot) => {
     logDiagnostic("performance", "chat event activity", { ...snapshot }, "trace")
   })
@@ -322,6 +323,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.startedMessages.clear()
     this.managedUserMessageIds.clear()
     this.internalAttachmentPathsByMessage.clear()
+    this.managedUserMessageIdsBySession.clear()
     this.scopeMutationQueue = Promise.resolve()
   }
 
@@ -335,6 +337,26 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public hasActiveGeneration(): boolean {
     return this.activeAssistantMessages.size > 0 || this.turnOutputs.size > 0 || this.generations.size > 0
+  }
+
+  /** 会话永久删除后同步释放仅存在于 ChatService 生命周期内的权限、路径和消息索引。 */
+  public forgetSession(sessionId: string): void {
+    this.turnOutputs.delete(sessionId)
+    this.turnOutputs.clearPending(sessionId)
+    this.clearSessionGeneration(sessionId)
+    this.activeAssistantMessages.delete(sessionId)
+    this.activeToolParts.delete(sessionId)
+    this.connectionFailedSessions.delete(sessionId)
+    this.userStops.delete(sessionId)
+    this.emittedMessageErrors.delete(sessionId)
+    this.permissions.deleteSession(sessionId)
+    this.trustedAccess.deleteSession(sessionId)
+    const messageIds = this.managedUserMessageIdsBySession.get(sessionId)
+    for (const messageId of messageIds ?? []) {
+      this.managedUserMessageIds.delete(messageId)
+      this.internalAttachmentPathsByMessage.delete(messageId)
+    }
+    this.managedUserMessageIdsBySession.delete(sessionId)
   }
 
   /** agent 就绪后调用：订阅 OpenCode SSE，转译为 ServerEvents 广播给渲染层。 */
@@ -503,7 +525,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         if (translated.event === "messageCompleted") {
           const sessionId = translated.data.sessionId
           const messageId = this.activeAssistantMessages.get(sessionId)
-          const completedRunId = this.activeRuns.get(sessionId)?.runId
+          const completedRun = this.activeRuns.get(sessionId)
           this.generations.clearInactivityWatchdog(sessionId)
           void this.finalizeTurnOutput(sessionId, messageId)
             .catch((error: unknown) => {
@@ -516,12 +538,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               this.activeRuns.delete(sessionId)
               this.emitSessionActivity(sessionId)
               this.sendBestEffort(emit, translated.event, translated.data, { sessionId })
-              if (completedRunId) {
-                void Promise.resolve(this.deps.onSessionCompleted?.({ runId: completedRunId, sessionId })).catch(
-                  (error: unknown) => {
-                    console.warn("[wanta] failed to record completed task attention:", error)
-                  },
-                )
+              if (completedRun) {
+                void Promise.resolve(
+                  this.deps.onSessionCompleted?.({
+                    organizationId: completedRun.workspace.organizationId,
+                    runId: completedRun.runId,
+                    sessionId,
+                  }),
+                ).catch((error: unknown) => {
+                  console.warn("[wanta] failed to record completed task attention:", error)
+                })
               }
             })
           continue
@@ -1128,6 +1154,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (req.attachments?.length) {
       await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments)
       this.managedUserMessageIds.add(userMessageId)
+      const sessionMessageIds = this.managedUserMessageIdsBySession.get(req.sessionId) ?? new Set<string>()
+      sessionMessageIds.add(userMessageId)
+      this.managedUserMessageIdsBySession.set(req.sessionId, sessionMessageIds)
       this.internalAttachmentPathsByMessage.set(
         userMessageId,
         new Set(

@@ -14,7 +14,6 @@ export interface ComposerNavigationController {
   handleNewSession: () => void
   handleNewTaskSession: () => void
   handleOpenProjectDraft: (project: SessionProject) => void
-  handleReturnToConnections: () => void
   handleSelectComposerProject: (projectId: string | undefined) => Promise<void>
   handleSelectComposerProjectFolder: () => Promise<void>
   handleSelectProjectFolder: () => Promise<void>
@@ -191,10 +190,6 @@ export function useComposerNavigation({
     setSearchOpen(false)
     setComposerFocusRequest((request) => request + 1)
   }, [setComposerFocusRequest, setRoute, setSearchOpen])
-  const handleReturnToConnections = React.useCallback((): void => {
-    setSearchOpen(false)
-    setRoute("connections")
-  }, [setRoute, setSearchOpen])
   const handleSelectComposerProjectFolder = React.useCallback(
     (): Promise<void> => handleSelectProjectDirectory("composer"),
     [handleSelectProjectDirectory],
@@ -208,7 +203,6 @@ export function useComposerNavigation({
     handleNewSession,
     handleNewTaskSession,
     handleOpenProjectDraft,
-    handleReturnToConnections,
     handleSelectComposerProject,
     handleSelectComposerProjectFolder,
     handleSelectProjectFolder,

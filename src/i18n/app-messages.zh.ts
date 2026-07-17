@@ -848,6 +848,7 @@ export const zhCNMessages = {
   "chat.permissionRequiredAllowPathSession": "本会话内允许此文件夹",
   "chat.permissionRequiredAllowEditSession": "本会话内允许此路径",
   "chat.permissionRequiredReject": "取消此步骤",
+  "chat.permissionSubmitFailed": "权限响应发送失败，请重试。",
   "artifacts.title": "成果",
   "artifacts.open": "打开",
   "artifacts.openFolder": "打开文件夹",

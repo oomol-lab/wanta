@@ -178,6 +178,7 @@ const sessionService = new SessionServiceImpl(null, {
   metadataStore: sessionMetadataStore,
   onSessionArchived: (sessionId) => attentionService.removeSession(sessionId),
   onSessionRemoved: async (sessionId) => {
+    chatService.forgetSession(sessionId)
     await Promise.all([
       artifactBundleStore.removeSession(sessionId),
       attentionService.removeSession(sessionId),

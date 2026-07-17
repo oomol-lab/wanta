@@ -7,10 +7,14 @@ describe("attention state normalization", () => {
       unreadSessions: {
         empty: { createdAt: 2, runId: "" },
         invalid: { createdAt: 0, runId: "run-2" },
-        valid: { createdAt: 1, runId: "run-1" },
+        legacy: { createdAt: 1, runId: "run-1" },
+        valid: { createdAt: 2, organizationId: " org-1 ", runId: "run-2" },
       },
       version: 1,
     })
-    expect([...entries]).toEqual([["valid", { createdAt: 1, runId: "run-1" }]])
+    expect([...entries]).toEqual([
+      ["legacy", { createdAt: 1, runId: "run-1" }],
+      ["valid", { createdAt: 2, organizationId: "org-1", runId: "run-2" }],
+    ])
   })
 })

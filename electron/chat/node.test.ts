@@ -2498,6 +2498,30 @@ test("stale permission mode updates do not override newer modes", async () => {
   assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
 })
 
+test("forgetSession clears session-scoped permission state", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access", version: 2 })
+  service.forgetSession("session-1")
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ["npm install"],
+      metadata: { command: "npm install" },
+    },
+  })
+
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+
+  assert.equal(bridge.answerPermission.mock.calls.length, 0)
+})
+
 test("unchanged permission mode updates do not emit session activity", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)

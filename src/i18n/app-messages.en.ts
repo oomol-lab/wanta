@@ -884,6 +884,7 @@ export const enMessages = {
   "chat.permissionRequiredAllowPathSession": "Allow this folder in this chat",
   "chat.permissionRequiredAllowEditSession": "Allow this path in this chat",
   "chat.permissionRequiredReject": "Cancel this step",
+  "chat.permissionSubmitFailed": "Couldn't send the permission response. Try again.",
   "artifacts.title": "Artifacts",
   "artifacts.open": "Open",
   "artifacts.openFolder": "Open folder",

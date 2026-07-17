@@ -2,6 +2,8 @@ import type { ChatPermissionRequest } from "../../../electron/chat/common.ts"
 import type { PermissionRequestKind } from "./permission-request.ts"
 
 import { FolderLock, ShieldAlert, Terminal, X } from "lucide-react"
+import * as React from "react"
+import { toast } from "sonner"
 import {
   isHighRiskPermissionRequest,
   isLikelyProjectDependencyInstallRequest,
@@ -14,13 +16,14 @@ import {
 } from "./permission-request.ts"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 interface PermissionRequiredCardProps {
   busy?: boolean
   request: ChatPermissionRequest
-  onAllowOnce: (requestId: string) => void
-  onAllowForSession: (requestId: string) => void
-  onReject: (requestId: string) => void
+  onAllowOnce: (requestId: string) => Promise<void>
+  onAllowForSession: (requestId: string) => Promise<void>
+  onReject: (requestId: string) => Promise<void>
 }
 
 export function PermissionRequiredCard({
@@ -31,6 +34,8 @@ export function PermissionRequiredCard({
   onReject,
 }: PermissionRequiredCardProps) {
   const t = useT()
+  const [submitting, setSubmitting] = React.useState(false)
+  const disabled = busy || submitting
   const kind = permissionRequestKind(request)
   const highRisk = isHighRiskPermissionRequest(request)
   const resource = kind === "command" ? permissionCommand(request) : permissionPrimaryResource(request)
@@ -108,6 +113,31 @@ export function PermissionRequiredCard({
               title: t("chat.permissionHighRiskTitle"),
             }
           : copyByKind[kind]
+  React.useEffect(() => {
+    setSubmitting(false)
+  }, [request.id])
+  const handleReply = React.useCallback(
+    async (reply: "once" | "always" | "reject"): Promise<void> => {
+      if (disabled) {
+        return
+      }
+      setSubmitting(true)
+      try {
+        if (reply === "once") {
+          await onAllowOnce(request.id)
+        } else if (reply === "always") {
+          await onAllowForSession(request.id)
+        } else {
+          await onReject(request.id)
+        }
+      } catch (error) {
+        setSubmitting(false)
+        reportRendererHandledError("chat", "permission reply failed", error)
+        toast.error(t("chat.permissionSubmitFailed"))
+      }
+    },
+    [disabled, onAllowForSession, onAllowOnce, onReject, request.id, t],
+  )
   return (
     <section className="rounded-lg border border-border bg-background p-3 shadow-sm">
       <div className="flex items-start gap-3">
@@ -122,30 +152,30 @@ export function PermissionRequiredCard({
           <div className="flex flex-wrap gap-2">
             {taskScopedDependencyInstall ? (
               <>
-                <Button size="sm" onClick={() => onAllowForSession(request.id)} disabled={busy}>
+                <Button size="sm" onClick={() => void handleReply("always")} disabled={disabled}>
                   <Terminal className="size-4" />
                   {copy.allowForSessionLabel}
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => onAllowOnce(request.id)} disabled={busy}>
+                <Button size="sm" variant="outline" onClick={() => void handleReply("once")} disabled={disabled}>
                   <ShieldAlert className="size-4" />
                   {t("chat.permissionRequiredAllowOnce")}
                 </Button>
               </>
             ) : (
               <>
-                <Button size="sm" onClick={() => onAllowOnce(request.id)} disabled={busy}>
+                <Button size="sm" onClick={() => void handleReply("once")} disabled={disabled}>
                   <ShieldAlert className="size-4" />
                   {t("chat.permissionRequiredAllowOnce")}
                 </Button>
                 {canAllowForSession ? (
-                  <Button size="sm" variant="outline" onClick={() => onAllowForSession(request.id)} disabled={busy}>
+                  <Button size="sm" variant="outline" onClick={() => void handleReply("always")} disabled={disabled}>
                     <Icon className="size-4" />
                     {copy.allowForSessionLabel}
                   </Button>
                 ) : null}
               </>
             )}
-            <Button size="sm" variant="outline" onClick={() => onReject(request.id)} disabled={busy}>
+            <Button size="sm" variant="outline" onClick={() => void handleReply("reject")} disabled={disabled}>
               <X className="size-4" />
               {t("chat.permissionRequiredReject")}
             </Button>

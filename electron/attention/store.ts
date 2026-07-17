@@ -5,6 +5,7 @@ import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface UnreadAttentionEntry {
   createdAt: number
+  organizationId?: string
   runId: string
 }
 
@@ -25,13 +26,22 @@ function validEntry(value: unknown): value is UnreadAttentionEntry {
   )
 }
 
+function normalizedEntry(value: UnreadAttentionEntry): UnreadAttentionEntry {
+  const organizationId = value.organizationId?.trim()
+  return {
+    createdAt: value.createdAt,
+    ...(organizationId ? { organizationId } : {}),
+    runId: value.runId,
+  }
+}
+
 export function normalizeAttentionState(value: unknown): Map<string, UnreadAttentionEntry> {
   const source = value && typeof value === "object" ? (value as PersistedAttentionState).unreadSessions : undefined
   const entries = new Map<string, UnreadAttentionEntry>()
   if (!source || typeof source !== "object") return entries
   for (const [sessionId, entry] of Object.entries(source)) {
     if (sessionId && validEntry(entry)) {
-      entries.set(sessionId, entry)
+      entries.set(sessionId, normalizedEntry(entry))
     }
   }
   return entries

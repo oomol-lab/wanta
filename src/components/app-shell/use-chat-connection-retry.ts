@@ -49,7 +49,6 @@ type SetChatConnectionDrawers = React.Dispatch<React.SetStateAction<Record<strin
 interface ChatConnectionRetryWatch {
   drawerKey: string
   service: string
-  sessionId: string
   startedAt: number
 }
 
@@ -91,31 +90,38 @@ export function useChatConnectionRetry({
   setSelectedSessionId,
 }: UseChatConnectionRetryOptions) {
   const { isProviderActive, refresh, summary } = connections
-  const pendingRetry = React.useRef<PendingChatConnectionRetry | null>(null)
-  const [retryWatch, setRetryWatch] = React.useState<ChatConnectionRetryWatch | null>(null)
+  const pendingRetries = React.useRef(new Map<string, PendingChatConnectionRetry>())
+  const [retryWatches, setRetryWatches] = React.useState<Record<string, ChatConnectionRetryWatch>>({})
 
   const cancelRetryForDrawer = React.useCallback((drawerKey: string): void => {
-    if (pendingRetry.current?.drawerKey === drawerKey) {
-      pendingRetry.current = null
-    }
-    setRetryWatch((current) => (current?.drawerKey === drawerKey ? null : current))
+    pendingRetries.current.delete(drawerKey)
+    setRetryWatches((current) => {
+      if (!Object.hasOwn(current, drawerKey)) {
+        return current
+      }
+      const next = { ...current }
+      delete next[drawerKey]
+      return next
+    })
   }, [])
 
   const clearRetries = React.useCallback((): void => {
-    pendingRetry.current = null
-    setRetryWatch(null)
+    pendingRetries.current.clear()
+    setRetryWatches({})
   }, [])
 
   const prepareRetry = React.useCallback(
     (input: ChatConnectionRetryInput): void => {
       const startedAt = Date.now()
-      pendingRetry.current = { ...input, startedAt }
-      setRetryWatch({
-        drawerKey: input.drawerKey,
-        service: input.service,
-        sessionId: input.sessionId,
-        startedAt,
-      })
+      pendingRetries.current.set(input.drawerKey, { ...input, startedAt })
+      setRetryWatches((current) => ({
+        ...current,
+        [input.drawerKey]: {
+          drawerKey: input.drawerKey,
+          service: input.service,
+          startedAt,
+        },
+      }))
       void refresh({ forceRefresh: true }, { silent: true })
     },
     [refresh],
@@ -123,41 +129,56 @@ export function useChatConnectionRetry({
 
   // 聊天触发的授权闭环：等待 provider 连上后刷新连接摘要，再回到原 session 重试。
   React.useEffect(() => {
-    if (!retryWatch) {
+    const watches = Object.values(retryWatches)
+    if (watches.length === 0) {
       return
     }
 
     let cancelled = false
     let timeoutId: number | undefined
-    const handleTimeout = (): void => {
-      if (
-        pendingRetry.current?.sessionId === retryWatch.sessionId &&
-        pendingRetry.current.service === retryWatch.service
-      ) {
-        pendingRetry.current = null
+    const expireRetries = (drawerKeys: string[]): void => {
+      if (drawerKeys.length === 0) {
+        return
+      }
+      const expired = new Set(drawerKeys)
+      for (const drawerKey of expired) {
+        pendingRetries.current.delete(drawerKey)
       }
       setChatConnectionDrawers((current) => {
-        if (!Object.hasOwn(current, retryWatch.drawerKey)) {
+        if (![...expired].some((drawerKey) => Object.hasOwn(current, drawerKey))) {
           return current
         }
         const next = { ...current }
-        delete next[retryWatch.drawerKey]
+        for (const drawerKey of expired) {
+          delete next[drawerKey]
+        }
         return next
       })
-      setRetryWatch(null)
+      setRetryWatches((current) => {
+        const next = { ...current }
+        for (const drawerKey of expired) {
+          delete next[drawerKey]
+        }
+        return next
+      })
     }
     const refreshUntilConnected = async (): Promise<void> => {
       if (cancelled) {
         return
       }
-      if (Date.now() - retryWatch.startedAt >= AUTH_RETRY_POLL_TIMEOUT_MS) {
-        handleTimeout()
+      const now = Date.now()
+      const expiredKeys = watches
+        .filter((watch) => now - watch.startedAt >= AUTH_RETRY_POLL_TIMEOUT_MS)
+        .map((watch) => watch.drawerKey)
+      expireRetries(expiredKeys)
+      const activeWatches = watches.filter((watch) => !expiredKeys.includes(watch.drawerKey))
+      if (activeWatches.length === 0) {
         return
       }
 
       try {
-        const connected = await isProviderActive(retryWatch.service)
-        if (!cancelled && connected) {
+        const connected = await Promise.all(activeWatches.map((watch) => isProviderActive(watch.service)))
+        if (!cancelled && connected.some(Boolean)) {
           await refresh({ forceRefresh: true }, { silent: true })
         }
       } catch (error) {
@@ -180,22 +201,26 @@ export function useChatConnectionRetry({
         window.clearTimeout(timeoutId)
       }
     }
-  }, [isProviderActive, refresh, retryWatch, setChatConnectionDrawers])
+  }, [isProviderActive, refresh, retryWatches, setChatConnectionDrawers])
 
   React.useEffect(() => {
-    const pending = pendingRetry.current
+    const pending = [...pendingRetries.current.values()]
+      .filter((candidate) => sessionScopeKey(sessionScope) === sessionScopeKey(candidate.sessionScope))
+      .filter((candidate) => summary?.providers.some((provider) => providerIsRetryReady(provider, candidate.service)))
+      .sort((left, right) => left.startedAt - right.startedAt)[0]
     if (!pending) {
       return
     }
-    if (sessionScopeKey(sessionScope) !== sessionScopeKey(pending.sessionScope)) {
-      return
-    }
-    if (!summary?.providers.some((provider) => providerIsRetryReady(provider, pending.service))) {
-      return
-    }
 
-    pendingRetry.current = null
-    setRetryWatch(null)
+    pendingRetries.current.delete(pending.drawerKey)
+    setRetryWatches((current) => {
+      if (!Object.hasOwn(current, pending.drawerKey)) {
+        return current
+      }
+      const next = { ...current }
+      delete next[pending.drawerKey]
+      return next
+    })
     setChatConnectionDrawers((current) => {
       if (!Object.hasOwn(current, pending.drawerKey)) {
         return current
@@ -241,6 +266,7 @@ export function useChatConnectionRetry({
   }, [
     isSessionRunning,
     queueSessionMessage,
+    retryWatches,
     send,
     sessionScope,
     setChatConnectionDrawers,

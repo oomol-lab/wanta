@@ -228,6 +228,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   )
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [selectedSessionId, setSelectedSessionId] = React.useState<string | null>(null)
+  const [pendingAttentionSession, setPendingAttentionSession] = React.useState<{
+    organizationId?: string
+    refreshAttempted: boolean
+    sessionId: string
+  } | null>(null)
+  const pendingAttentionRefreshesRef = React.useRef(new Set<string>())
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [draftPermissionMode, setDraftPermissionMode] = React.useState<AgentPermissionMode>("default")
   const [draftKnowledgeBaseIds, setDraftKnowledgeBaseIds] = React.useState<string[]>([])
@@ -304,7 +310,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     rejectQuestion,
     questionDrafts,
     resetSessionCache: resetChatSessionCache,
-  } = useChat(activeChatSessionId)
+  } = useChat(activeChatSessionId, activeWorkspaceKey)
   const hasUnreadSession = attention.hasUnreadSession
 
   React.useEffect(() => {
@@ -332,18 +338,72 @@ export function AppShell({ auth }: { auth: UseAuth }) {
 
   React.useEffect(
     () =>
-      attentionService.serverEvents.on("openSessionRequested", ({ sessionId }) => {
-        const session = visibleSessions.find((candidate) => candidate.id === sessionId)
-        if (session) {
-          setSidebarSegment(session.projectId ? "projects" : "tasks")
-        }
-        setSelectedSessionId(sessionId)
-        setIsDraftSession(false)
-        setPendingChatTransition(null)
+      attentionService.serverEvents.on("openSessionRequested", ({ organizationId, sessionId }) => {
+        setPendingAttentionSession({
+          refreshAttempted: false,
+          sessionId,
+          ...(organizationId ? { organizationId } : {}),
+        })
         setRoute("chat")
+        if (organizationId && organizationId !== activeOrganizationId) {
+          handleWorkspaceSwitchStart(`organization:${organizationId}`)
+          organizationWorkspace.selectOrganization(organizationId)
+        }
       }),
-    [attentionService, visibleSessions],
+    [activeOrganizationId, attentionService, handleWorkspaceSwitchStart, organizationWorkspace.selectOrganization],
   )
+
+  React.useEffect(() => {
+    if (
+      !pendingAttentionSession ||
+      (pendingAttentionSession.organizationId && pendingAttentionSession.organizationId !== activeOrganizationId) ||
+      !sessionsSettledForCurrentScope
+    ) {
+      return
+    }
+    const session = visibleSessions.find((candidate) => candidate.id === pendingAttentionSession.sessionId)
+    if (!session) {
+      if (!pendingAttentionSession.refreshAttempted) {
+        if (pendingAttentionRefreshesRef.current.has(pendingAttentionSession.sessionId)) {
+          return
+        }
+        pendingAttentionRefreshesRef.current.add(pendingAttentionSession.sessionId)
+        void refreshSessions()
+          .catch((error: unknown) => {
+            reportRendererHandledError("attention", "refresh notification session failed", error)
+          })
+          .finally(() => {
+            pendingAttentionRefreshesRef.current.delete(pendingAttentionSession.sessionId)
+            setPendingAttentionSession((current) =>
+              current?.sessionId === pendingAttentionSession.sessionId
+                ? { ...current, refreshAttempted: true }
+                : current,
+            )
+          })
+        return
+      }
+      setPendingAttentionSession(null)
+      void attentionService.invoke("markSessionViewed", pendingAttentionSession.sessionId).catch((error: unknown) => {
+        reportRendererHandledError("attention", "clear unavailable notification session failed", error)
+      })
+      return
+    }
+    setSidebarSegment(session.projectId ? "projects" : "tasks")
+    setSelectedSessionId(session.id)
+    setIsDraftSession(false)
+    setPendingChatTransition(null)
+    setPendingAttentionSession(null)
+    void attentionService.invoke("markSessionViewed", session.id).catch((error: unknown) => {
+      reportRendererHandledError("attention", "mark routed notification session viewed failed", error)
+    })
+  }, [
+    activeOrganizationId,
+    attentionService,
+    pendingAttentionSession,
+    refreshSessions,
+    sessionsSettledForCurrentScope,
+    visibleSessions,
+  ])
   const connectionSummaryMatchesWorkspace =
     Boolean(currentConnectionWorkspaceKey) && connections.summaryWorkspaceKey === currentConnectionWorkspaceKey
   const activeProvidersLoading =
@@ -862,6 +922,14 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     sendQueuedMessage: sendNow,
     status,
   })
+  const previousQueuedSessionIdRef = React.useRef(activeChatSessionId)
+  React.useEffect(() => {
+    const previousSessionId = previousQueuedSessionIdRef.current
+    if (previousSessionId && previousSessionId !== activeChatSessionId) {
+      holdQueuedSessionIfQueued(previousSessionId)
+    }
+    previousQueuedSessionIdRef.current = activeChatSessionId
+  }, [activeChatSessionId, holdQueuedSessionIfQueued])
 
   const { cancelRetryForDrawer, clearRetries, prepareRetry } = useChatConnectionRetry({
     connections,

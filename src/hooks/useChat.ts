@@ -94,7 +94,7 @@ export interface UseChat {
   setPermissionMode: (sessionId: string, mode: AgentPermissionMode) => number
 }
 
-export function useChat(activeSessionId: string | null): UseChat {
+export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: string): UseChat {
   const chatService = useChatService()
   const {
     activities,
@@ -209,9 +209,6 @@ export function useChat(activeSessionId: string | null): UseChat {
       activeRunMutationVersions.current.delete(sessionId)
       messagesMutationVersions.current.delete(sessionId)
       answeredQuestionIds.current.delete(sessionId)
-      const nextPermissionModeVersions = { ...permissionModeVersionsRef.current }
-      delete nextPermissionModeVersions[sessionId]
-      permissionModeVersionsRef.current = nextPermissionModeVersions
       for (const key of questionDraftSnapshots.current.keys()) {
         if (key.startsWith(`${sessionId}\0`)) questionDraftSnapshots.current.delete(key)
       }
@@ -238,7 +235,6 @@ export function useChat(activeSessionId: string | null): UseChat {
     pendingPermissionsMutationVersions.current.clear()
     activeRunMutationVersions.current.clear()
     messagesMutationVersions.current.clear()
-    permissionModeVersionsRef.current = {}
     questionDraftSnapshots.current.clear()
     answeredQuestionIds.current.clear()
     recentSessionIds.current = []
@@ -795,7 +791,7 @@ export function useChat(activeSessionId: string | null): UseChat {
     return () => {
       cancelled = true
     }
-  }, [applyActiveRun, chatService])
+  }, [activeRunsRefreshKey, applyActiveRun, chatService])
 
   React.useEffect(() => {
     if (activeSessionId) {

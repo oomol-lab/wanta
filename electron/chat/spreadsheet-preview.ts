@@ -6,6 +6,7 @@ import type {
 
 import { readFile } from "node:fs/promises"
 import readXlsxFile from "read-excel-file/universal"
+import { isEmptyInlineStringParseFailure, normalizeExcelCraftWorkbook } from "./spreadsheet-excel-craft-compat.ts"
 import { zipArchiveStats } from "./zip-central-directory.ts"
 
 export const spreadsheetPreviewMaxBytes = 8 * 1024 * 1024
@@ -34,6 +35,23 @@ function cellLabel(value: unknown): string {
 interface ParsedSpreadsheetSheet {
   data: unknown[][]
   sheet: string
+}
+
+async function parseSpreadsheet(bytes: Buffer): Promise<ParsedSpreadsheetSheet[]> {
+  try {
+    return await readXlsxFile(bufferArrayBuffer(bytes), { trim: false })
+  } catch (error) {
+    if (!isEmptyInlineStringParseFailure(error)) {
+      throw error
+    }
+    // Excel Craft 使用的 Openpyxl 会把带样式的空 inlineStr 单元格解释为空值。
+    // 仅在上游解析器命中同一兼容性缺口时规范化工作表 XML，保留正常文件的快速路径。
+    const normalized = await normalizeExcelCraftWorkbook(bytes)
+    if (!normalized) {
+      throw error
+    }
+    return readXlsxFile(bufferArrayBuffer(normalized), { trim: false })
+  }
 }
 
 function spreadsheetSheetPreview(sheet: ParsedSpreadsheetSheet): LocalArtifactSpreadsheetSheetPreview {
@@ -100,7 +118,7 @@ export async function spreadsheetPreview(
   ) {
     return { kind: "unsupported", mime, size, reason: "too_large" }
   }
-  const parsedSheets = await readXlsxFile(bufferArrayBuffer(bytes), { trim: false })
+  const parsedSheets = await parseSpreadsheet(bytes)
   const { preview, truncated } = spreadsheetWorkbookPreview(parsedSheets)
   return { kind: "spreadsheet", mime, size, spreadsheet: preview, truncated }
 }

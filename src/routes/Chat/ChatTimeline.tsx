@@ -20,7 +20,12 @@ import type { StickToBottomContext } from "use-stick-to-bottom"
 import * as React from "react"
 import { useArtifactBundles } from "./artifact-bundle-records.ts"
 import { shouldRenderGeneratedArtifactsShelf } from "./artifact-shelf-visibility.ts"
-import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
+import {
+  assistantMessagesFromTimelineBlocks,
+  segmentAssistantTimeline,
+  textFromTimelineBlocks,
+  timelineHasVisibleOutcome,
+} from "./assistant-timeline.ts"
 import { shouldRenderConnectionSuggestion } from "./assistant-turn-renderer-model.ts"
 import { TurnProcessActivity } from "./AssistantTurnRenderer.tsx"
 import {
@@ -151,8 +156,19 @@ const ChatTurnView = React.memo(function ChatTurnView({
   onTurnOutputOpen,
   onViewBilling,
 }: ChatTurnViewProps) {
-  const process = summarizeTurnProcess(turn, activity, activeAssistantMessageId)
-  const { processBlocks, responseBlocks } = splitAssistantTimelineBlocks(turn.assistants)
+  const timelineSegments = segmentAssistantTimeline(turn.assistants)
+  const responseBlocks = timelineSegments
+    .filter((segment) => segment.kind === "response")
+    .flatMap((segment) => segment.blocks)
+  const hasRenderableArtifacts = shouldRenderGeneratedArtifactsShelf(artifactGroups)
+  const hasRenderableTurnOutputs = Boolean(
+    activeSessionId &&
+    turnOutputRecord &&
+    turnOutputRecord.files.some((file) => file.role === "process" || file.role === "project_change"),
+  )
+  const hasVisibleOutcome =
+    timelineHasVisibleOutcome(timelineSegments) || hasRenderableArtifacts || hasRenderableTurnOutputs
+  const process = summarizeTurnProcess(turn, activity, activeAssistantMessageId, { hasVisibleOutcome })
   const shouldShowProcess = shouldShowTurnProcess(process)
   const shouldShowPlainActivity = shouldShowPlainTurnActivity(process)
   const turnIsActive = Boolean(activeAssistantMessageId)
@@ -163,9 +179,14 @@ const ChatTurnView = React.memo(function ChatTurnView({
     processSeenRef.current = false
   }
   const showTurnProcess = shouldShowProcess || (turnIsActive && processSeenRef.current)
-  const processRenderBlocks = showTurnProcess && processBlocks.length === 0 ? responseBlocks : processBlocks
-  const responseRenderBlocks = showTurnProcess && processBlocks.length === 0 ? [] : responseBlocks
-  const processLive = showTurnProcess && turnIsActive
+  const hasProcessSegment = timelineSegments.some((segment) => segment.kind === "process")
+  const renderSegments =
+    showTurnProcess && !hasProcessSegment && timelineSegments.length === 0
+      ? [{ kind: "process" as const, key: `${turn.id}:process`, blocks: [] }]
+      : timelineSegments
+  const lastProcessSegmentIndex = renderSegments.findLastIndex((segment) => segment.kind === "process")
+  const lastResponseSegmentIndex = renderSegments.findLastIndex((segment) => segment.kind === "response")
+  const lastSegmentIndex = renderSegments.length - 1
   const lastAssistant = turn.assistants.at(-1)
   const assistantActionTextByMessageId = React.useMemo(
     () => assistantResponseActionTextByMessageId(turn.assistants, activeAssistantMessageId),
@@ -174,23 +195,13 @@ const ChatTurnView = React.memo(function ChatTurnView({
   const assistantActionsText = lastAssistant ? assistantActionTextByMessageId.get(lastAssistant.id) : null
   const assistantCancelled = turn.assistants.some((message) => hasStoppedTool(message.parts))
   const responseActionsText =
-    lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseRenderBlocks) || null
-  const processActionsText = responseRenderBlocks.length > 0 ? null : assistantActionsText
-  const hasRenderableArtifacts = shouldRenderGeneratedArtifactsShelf(artifactGroups)
-  const hasRenderableTurnOutputs = Boolean(
-    activeSessionId &&
-    turnOutputRecord &&
-    turnOutputRecord.files.some((file) => file.role === "process" || file.role === "project_change"),
-  )
+    lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseBlocks) || null
+  const processActionsText = responseActionsText ?? assistantActionsText
   const showSuggestedAuthorization = shouldShowSuggestedAuthorization(process, turnIsActive)
   const suggestedAuthorization = shouldRenderConnectionSuggestion(
     showSuggestedAuthorization ? process.suggestedAuthorization : undefined,
     providerByService,
   )
-  const responseSuggestedAuthorization =
-    suggestedAuthorization && responseRenderBlocks.length > 0 ? suggestedAuthorization : undefined
-  const processSuggestedAuthorization =
-    suggestedAuthorization && responseRenderBlocks.length === 0 ? suggestedAuthorization : undefined
   const retrySource = React.useMemo(() => retrySourceFromTurn(turn), [turn])
   const handleAuthorize = React.useCallback(
     (auth: AuthorizationInfo) => {
@@ -224,56 +235,84 @@ const ChatTurnView = React.memo(function ChatTurnView({
       ) : null}
       {showTurnProcess ? (
         <>
-          <Message from="assistant">
-            <MessageContent className="w-full">
-              <TurnProcessActivity
-                blocks={processRenderBlocks}
-                process={process}
-                live={processLive}
-                billingCacheScope={billingCacheScope}
-                providerByService={providerByService}
-                onAuthorize={handleAuthorize}
-                onRecover={retrySource ? handleRecover : undefined}
-                onRetryFresh={retrySource ? handleRetryFresh : undefined}
-                onViewBilling={onViewBilling}
-              />
-              {!processLive
-                ? process.authorizationIssues.map((issue) => (
-                    <ConnectionAuthorizationIssueAction
-                      key={issue.key}
-                      issue={issue}
-                      provider={providerByService.get(issue.service)}
-                      onAuthorize={handleAuthorize}
-                    />
-                  ))
-                : null}
-              {processSuggestedAuthorization ? (
-                <ConnectionSuggestionAction
-                  authorization={processSuggestedAuthorization}
-                  provider={providerByService.get(normalizeServiceSlug(processSuggestedAuthorization.service))}
+          {renderSegments.map((segment, segmentIndex) => {
+            if (segment.kind === "response") {
+              const ownsTurnActions = segmentIndex === lastResponseSegmentIndex && segmentIndex === lastSegmentIndex
+              return (
+                <AssistantTimelineMessage
+                  key={segment.key}
+                  blocks={segment.blocks}
+                  billingCacheScope={billingCacheScope}
+                  smoothAssistantMessageId={smoothAssistantMessageId}
+                  assistantActionsText={ownsTurnActions ? responseActionsText : null}
+                  assistantCancelled={ownsTurnActions && assistantCancelled}
+                  activeAssistantMessageId={activeAssistantMessageId}
+                  providerByService={providerByService}
                   onAuthorize={handleAuthorize}
+                  onRecover={retrySource ? handleRecover : undefined}
+                  onRetryFresh={retrySource ? handleRetryFresh : undefined}
+                  onViewBilling={onViewBilling}
                 />
-              ) : null}
-            </MessageContent>
-            {processActionsText || (assistantCancelled && responseRenderBlocks.length === 0) ? (
-              <AssistantMessageActions text={processActionsText ?? ""} cancelled={assistantCancelled} />
-            ) : null}
-          </Message>
-          {responseRenderBlocks.length > 0 ? (
-            <AssistantTimelineMessage
-              blocks={responseRenderBlocks}
-              billingCacheScope={billingCacheScope}
-              smoothAssistantMessageId={smoothAssistantMessageId}
-              assistantActionsText={responseActionsText}
-              assistantCancelled={assistantCancelled}
-              activeAssistantMessageId={activeAssistantMessageId}
-              providerByService={providerByService}
-              onAuthorize={handleAuthorize}
-              onRecover={retrySource ? handleRecover : undefined}
-              onRetryFresh={retrySource ? handleRetryFresh : undefined}
-              suggestedAuthorization={responseSuggestedAuthorization}
-              onViewBilling={onViewBilling}
-            />
+              )
+            }
+
+            const isLastProcess = segmentIndex === lastProcessSegmentIndex
+            const segmentTurn = {
+              ...turn,
+              assistants: assistantMessagesFromTimelineBlocks(segment.blocks),
+            }
+            const segmentProcess =
+              segment.blocks.length === 0
+                ? process
+                : summarizeTurnProcess(
+                    segmentTurn,
+                    isLastProcess ? activity : null,
+                    isLastProcess ? activeAssistantMessageId : undefined,
+                    { hasVisibleOutcome },
+                  )
+            const ownsTurnActions = isLastProcess && segmentIndex === lastSegmentIndex
+            const processLive = ownsTurnActions && turnIsActive
+            return (
+              <Message key={segment.key} from="assistant">
+                <MessageContent className="w-full">
+                  <TurnProcessActivity
+                    blocks={segment.blocks}
+                    process={segmentProcess}
+                    live={processLive}
+                    billingCacheScope={billingCacheScope}
+                    providerByService={providerByService}
+                    onAuthorize={handleAuthorize}
+                    onRecover={retrySource ? handleRecover : undefined}
+                    onRetryFresh={retrySource ? handleRetryFresh : undefined}
+                    onViewBilling={onViewBilling}
+                  />
+                </MessageContent>
+                {ownsTurnActions && (processActionsText || assistantCancelled) ? (
+                  <AssistantMessageActions text={processActionsText ?? ""} cancelled={assistantCancelled} />
+                ) : null}
+              </Message>
+            )
+          })}
+          {!turnIsActive && (process.authorizationIssues.length > 0 || suggestedAuthorization) ? (
+            <Message from="assistant">
+              <MessageContent className="w-full">
+                {process.authorizationIssues.map((issue) => (
+                  <ConnectionAuthorizationIssueAction
+                    key={issue.key}
+                    issue={issue}
+                    provider={providerByService.get(issue.service)}
+                    onAuthorize={handleAuthorize}
+                  />
+                ))}
+                {suggestedAuthorization ? (
+                  <ConnectionSuggestionAction
+                    authorization={suggestedAuthorization}
+                    provider={providerByService.get(normalizeServiceSlug(suggestedAuthorization.service))}
+                    onAuthorize={handleAuthorize}
+                  />
+                ) : null}
+              </MessageContent>
+            </Message>
           ) : null}
         </>
       ) : (

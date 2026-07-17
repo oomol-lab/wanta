@@ -35,7 +35,8 @@ export interface ConnectorAuthorizationIssue {
 export interface ChatTurnProcess {
   tools: ChatMessagePart[]
   errors: ChatMessagePart[]
-  hasFinalAnswer: boolean
+  /** 用户在折叠区外已经能看到答复、成果或结构化回执。 */
+  hasVisibleOutcome: boolean
   hasActiveTool: boolean
   hasToolError: boolean
   hasBlockingError: boolean
@@ -339,10 +340,12 @@ export function summarizeTurnProcess(
   turn: ChatTurn,
   activity: AssistantActivityEvent | null,
   activeAssistantMessageId?: string,
+  options?: { hasVisibleOutcome?: boolean },
 ): ChatTurnProcess {
   const tools = turn.assistants.flatMap((message) => message.parts.filter((part) => part.kind === "tool"))
   const errors = turn.assistants.flatMap(assistantErrorParts)
-  const hasFinalAnswer = turn.assistants.some((message) => assistantTextParts(message).length > 0)
+  const hasVisibleOutcome =
+    options?.hasVisibleOutcome ?? turn.assistants.some((message) => assistantTextParts(message).length > 0)
   const activeTurnActivity =
     activity &&
     (!activity.messageId && !activeAssistantMessageId
@@ -357,6 +360,9 @@ export function summarizeTurnProcess(
     .map((timing) => timing.start)
     .filter((value): value is number => typeof value === "number")
   const timingEnds = timings.map((timing) => timing.end).filter((value): value is number => typeof value === "number")
+  const messageCompletionTimes = turn.assistants
+    .map((message) => message.completedAt)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
   const messageTimes = [turn.user?.createdAt, ...turn.assistants.map((message) => message.createdAt)].filter(
     (value): value is number => typeof value === "number" && Number.isFinite(value),
   )
@@ -366,7 +372,12 @@ export function summarizeTurnProcess(
       : messageTimes.length > 0
         ? Math.min(...messageTimes)
         : undefined
-  const endedAt = timingEnds.length > 0 ? Math.max(...timingEnds) : undefined
+  const endedAt =
+    messageCompletionTimes.length > 0
+      ? Math.max(...messageCompletionTimes)
+      : timingEnds.length > 0
+        ? Math.max(...timingEnds)
+        : undefined
 
   const hasToolError = hasBlockingToolError(tools)
   const authorizationIssues = connectorAuthorizationIssues(tools)
@@ -377,10 +388,10 @@ export function summarizeTurnProcess(
   return {
     tools,
     errors,
-    hasFinalAnswer,
+    hasVisibleOutcome,
     hasActiveTool: tools.some(isActiveToolPart),
     hasToolError,
-    hasBlockingError: errors.length > 0 || (hasToolError && !hasFinalAnswer),
+    hasBlockingError: errors.length > 0 || (hasToolError && !hasVisibleOutcome),
     hasStoppedTool: hasStoppedTool(tools),
     hasAuthorization,
     hasSuccessfulConnectorCall,
@@ -407,13 +418,13 @@ export function shouldShowTurnProcess(process: Pick<ChatTurnProcess, "activity" 
 }
 
 export function shouldShowPlainTurnActivity(
-  process: Pick<ChatTurnProcess, "activity" | "errors" | "hasFinalAnswer" | "tools">,
+  process: Pick<ChatTurnProcess, "activity" | "errors" | "hasVisibleOutcome" | "tools">,
 ): boolean {
   return Boolean(
     process.activity &&
     process.activity.phase !== "retrying" &&
     process.tools.length === 0 &&
     process.errors.length === 0 &&
-    !process.hasFinalAnswer,
+    !process.hasVisibleOutcome,
   )
 }

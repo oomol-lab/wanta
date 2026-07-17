@@ -10,7 +10,7 @@ describe("process activity open state", () => {
     expect(processShouldOpenAutomatically("running", false)).toBe(true)
     expect(
       processOpenAfterStatusChange({
-        hasFinalAnswer: true,
+        hasVisibleOutcome: true,
         preference: "auto",
         status: "completed",
       }),
@@ -20,7 +20,7 @@ describe("process activity open state", () => {
   it("keeps a completed process open after the user explicitly opened it", () => {
     expect(
       processOpenAfterStatusChange({
-        hasFinalAnswer: true,
+        hasVisibleOutcome: true,
         preference: "user_open",
         status: "completed",
       }),
@@ -30,7 +30,7 @@ describe("process activity open state", () => {
   it("keeps an active process closed after the user explicitly closed it", () => {
     expect(
       processOpenAfterStatusChange({
-        hasFinalAnswer: false,
+        hasVisibleOutcome: false,
         preference: "user_closed",
         status: "running",
       }),
@@ -38,24 +38,25 @@ describe("process activity open state", () => {
   })
 
   it("opens states that require attention even after a manual collapse", () => {
-    expect(processRequiresAttention("needsAction", true)).toBe(true)
-    expect(processRequiresAttention("error", false)).toBe(true)
+    expect(processRequiresAttention("needsAction")).toBe(true)
+    expect(processRequiresAttention("error")).toBe(true)
     expect(
       processOpenAfterStatusChange({
-        hasFinalAnswer: true,
+        hasVisibleOutcome: true,
         preference: "user_closed",
         status: "needsAction",
       }),
     ).toBe(true)
   })
 
-  it("keeps terminal turns without a final answer visible", () => {
+  it("keeps terminal turns without a visible outcome open", () => {
     expect(processShouldOpenAutomatically("completed", false)).toBe(true)
+    expect(processShouldOpenAutomatically("completedWithIssues", false)).toBe(true)
     expect(processShouldOpenAutomatically("stopped", false)).toBe(true)
   })
 
-  it("collapses errors with a final answer when the user has not overridden the state", () => {
-    expect(processRequiresAttention("error", true)).toBe(false)
-    expect(processShouldOpenAutomatically("error", true)).toBe(false)
+  it("collapses completed work with non-blocking issues when a visible outcome exists", () => {
+    expect(processRequiresAttention("completedWithIssues")).toBe(false)
+    expect(processShouldOpenAutomatically("completedWithIssues", true)).toBe(false)
   })
 })

@@ -36,6 +36,9 @@ export interface MessageStartedEvent {
   sessionId: string
   messageId: string
   role: ChatRole
+  /** OpenCode assistant message 的终止原因；流式更新和历史加载共用。 */
+  finishReason?: string
+  completedAt?: number
 }
 export interface MessageDeltaEvent {
   sessionId: string
@@ -76,6 +79,8 @@ export interface AssistantActivityEvent {
   sessionId: string
   messageId?: string
   phase: AssistantActivityPhase
+  /** step-finish.reason；用于在 message.updated 到达前保留本步语义。 */
+  finishReason?: string
   message?: string
   attempt?: number
   nextRetryAt?: number
@@ -322,6 +327,9 @@ export interface ChatMessage {
   role: ChatRole
   parts: ChatMessagePart[]
   createdAt: number
+  /** OpenCode assistant message 的 finish 字段。 */
+  finishReason?: string
+  completedAt?: number
   tokenUsage?: ChatTokenUsage
 }
 

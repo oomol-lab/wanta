@@ -13,6 +13,7 @@ import type {
   MessageErrorEvent,
   MessagePartRemovedEvent,
   MessageReasoningDeltaEvent,
+  MessageStartedEvent,
 } from "../../electron/chat/common.ts"
 
 export type TextDeltaKind = "reasoning" | "text"
@@ -116,6 +117,8 @@ function sameMessageValue(left: ChatMessage, right: ChatMessage): boolean {
     left.clientId === right.clientId &&
     left.role === right.role &&
     left.createdAt === right.createdAt &&
+    left.completedAt === right.completedAt &&
+    left.finishReason === right.finishReason &&
     left.parts === right.parts &&
     jsonLikeEqual(left.contextMentions, right.contextMentions) &&
     jsonLikeEqual(left.tokenUsage, right.tokenUsage)
@@ -171,6 +174,31 @@ export function ensureMessage(msgs: ChatMessage[], id: string, role: ChatRole): 
   // 没有可复用的本地气泡时，清掉残留乐观占位。
   const base = role === "user" ? msgs.filter((m) => !m.id.startsWith("local-user-")) : msgs
   return [...base, { id, clientId: serverClientId(id), role, parts: [], createdAt: Date.now() }]
+}
+
+export function setMessageInfo(msgs: ChatMessage[], event: MessageStartedEvent): ChatMessage[] {
+  const ensured = ensureMessage(msgs, event.messageId, event.role)
+  return ensured.map((message) => {
+    if (message.id !== event.messageId) {
+      return message
+    }
+    const finishReason = event.finishReason ?? message.finishReason
+    const completedAt = event.completedAt ?? message.completedAt
+    if (finishReason === message.finishReason && completedAt === message.completedAt) {
+      return message
+    }
+    return {
+      ...message,
+      ...(finishReason ? { finishReason } : {}),
+      ...(completedAt === undefined ? {} : { completedAt }),
+    }
+  })
+}
+
+export function setMessageFinishReason(msgs: ChatMessage[], messageId: string, finishReason: string): ChatMessage[] {
+  return msgs.map((message) =>
+    message.id === messageId && message.finishReason !== finishReason ? { ...message, finishReason } : message,
+  )
 }
 
 export function setPart(msgs: ChatMessage[], messageId: string, part: ChatMessagePart): ChatMessage[] {

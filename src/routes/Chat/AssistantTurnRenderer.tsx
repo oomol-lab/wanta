@@ -108,7 +108,7 @@ export function TurnProcessActivity({
 }) {
   const t = useT()
   const status = chatTurnProcessStatus(process, live)
-  const shouldOpen = processShouldOpenAutomatically(status, process.hasFinalAnswer)
+  const shouldOpen = processShouldOpenAutomatically(status, process.hasVisibleOutcome)
   const statusKey = [
     status,
     live ? "live" : "",
@@ -133,12 +133,12 @@ export function TurnProcessActivity({
   React.useEffect(() => {
     setOpen(
       processOpenAfterStatusChange({
-        hasFinalAnswer: process.hasFinalAnswer,
+        hasVisibleOutcome: process.hasVisibleOutcome,
         preference: openPreferenceRef.current,
         status,
       }),
     )
-  }, [process.hasFinalAnswer, status, statusKey])
+  }, [process.hasVisibleOutcome, status, statusKey])
 
   React.useEffect(() => {
     if (status !== "running" && status !== "retrying") {

@@ -142,7 +142,7 @@ describe("assistantMessageIdsKey", () => {
 })
 
 describe("summarizeTurnProcess", () => {
-  it("collects tools and final answer state for a whole turn", () => {
+  it("collects tools and visible outcome state for a whole turn", () => {
     const turn = groupChatTurns([
       message("u1", "user", [text("u1-text", "report")]),
       message("a1", "assistant", [tool("tool-1", { timing: { start: 1000, end: 1800 } })]),
@@ -154,7 +154,7 @@ describe("summarizeTurnProcess", () => {
     const process = summarizeTurnProcess(turn!, { sessionId: "s1", messageId: "a2", phase: "thinking" }, "a2")
 
     expect(process.tools.map((part) => part.partId)).toEqual(["tool-1", "tool-2"])
-    expect(process.hasFinalAnswer).toBe(true)
+    expect(process.hasVisibleOutcome).toBe(true)
     expect(process.hasActiveTool).toBe(true)
     expect(process.activity?.phase).toBe("thinking")
     expect(process.startedAt).toBe(1000)
@@ -292,7 +292,7 @@ describe("summarizeTurnProcess", () => {
     const process = summarizeTurnProcess(turn!, null, "a2")
 
     expect(process.hasActiveTool).toBe(false)
-    expect(process.hasFinalAnswer).toBe(true)
+    expect(process.hasVisibleOutcome).toBe(true)
     expect(isLiveTurnProcess(process, true)).toBe(true)
     expect(chatTurnProcessStatus(process, true)).toBe("running")
     expect(chatTurnProcessStatus(process, false)).toBe("completed")
@@ -476,7 +476,7 @@ describe("summarizeTurnProcess", () => {
     const process = summarizeTurnProcess(turn!, { sessionId: "s1", phase: "thinking" })
 
     expect(process.activity?.phase).toBe("thinking")
-    expect(process.hasFinalAnswer).toBe(false)
+    expect(process.hasVisibleOutcome).toBe(false)
   })
 
   it("shows search-based authorization suggestions only after the turn is no longer active", () => {
@@ -534,7 +534,7 @@ describe("summarizeTurnProcess", () => {
     expect(process.hasBlockingError).toBe(false)
   })
 
-  it("treats tool errors followed by a final answer as non-blocking", () => {
+  it("treats tool errors followed by a visible outcome as non-blocking", () => {
     const turn = groupChatTurns([
       message("u1", "user", [text("u1-text", "find images")]),
       message("a1", "assistant", [
@@ -547,11 +547,11 @@ describe("summarizeTurnProcess", () => {
     const process = summarizeTurnProcess(turn!, null)
 
     expect(process.hasToolError).toBe(true)
-    expect(process.hasFinalAnswer).toBe(true)
+    expect(process.hasVisibleOutcome).toBe(true)
     expect(process.hasBlockingError).toBe(false)
   })
 
-  it("keeps tool errors blocking when no final answer exists", () => {
+  it("keeps tool errors blocking when no visible outcome exists", () => {
     const turn = groupChatTurns([
       message("u1", "user", [text("u1-text", "find images")]),
       message("a1", "assistant", [
@@ -563,7 +563,23 @@ describe("summarizeTurnProcess", () => {
     const process = summarizeTurnProcess(turn!, null)
 
     expect(process.hasToolError).toBe(true)
-    expect(process.hasFinalAnswer).toBe(false)
+    expect(process.hasVisibleOutcome).toBe(false)
+    expect(process.hasBlockingError).toBe(true)
+  })
+
+  it("does not let folded progress text downgrade a blocking tool error", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "find images")]),
+      message("a1", "assistant", [
+        text("progress", "I will try the image search now."),
+        tool("tool-1", { status: "error", error: "Image search unavailable" }),
+      ]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, null, undefined, { hasVisibleOutcome: false })
+
+    expect(process.hasVisibleOutcome).toBe(false)
     expect(process.hasBlockingError).toBe(true)
   })
 

@@ -19,6 +19,8 @@ import {
   mergeFetchedMessages,
   setConnectionStatusPart,
   setErrorPart,
+  setMessageFinishReason,
+  setMessageInfo,
   visibleChatError,
 } from "./chat-message-state.ts"
 
@@ -38,6 +40,35 @@ const skillMention: ChatContextMention = {
 }
 
 describe("chat message identity reconciliation", () => {
+  it("records finish metadata without losing streamed message state", () => {
+    const current: ChatMessage[] = [
+      {
+        id: "real-assistant-1",
+        clientId: "client-assistant-1",
+        role: "assistant",
+        parts: [{ kind: "text", partId: "text-1", text: "Working" }],
+        createdAt: 1,
+      },
+    ]
+
+    const fromMessage = setMessageInfo(current, {
+      sessionId: "session-1",
+      messageId: "real-assistant-1",
+      role: "assistant",
+      finishReason: "stop",
+      completedAt: 2,
+    })
+    const fromStep = setMessageFinishReason(fromMessage, "real-assistant-1", "tool-calls")
+
+    expect(fromStep[0]).toMatchObject({
+      id: "real-assistant-1",
+      clientId: "client-assistant-1",
+      finishReason: "tool-calls",
+      completedAt: 2,
+      parts: [{ kind: "text", partId: "text-1", text: "Working" }],
+    })
+  })
+
   it("keeps the user bubble client identity when the real user message arrives", () => {
     const optimistic = appendOptimisticConversationTurn([], "Convert this PDF", [pdfAttachment])
     const localUser = optimistic[0]

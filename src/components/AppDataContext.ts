@@ -6,7 +6,6 @@ import { ResourceStore } from "@/lib/resource-store"
 
 export interface AppDataResources {
   authState: ResourceStore<AuthState>
-  homeSummary: ResourceStore<null>
   skillInventory: ResourceStore<SkillInventory>
   skillVersions: ResourceStore<SkillVersionReport>
 }

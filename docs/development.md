@@ -4,7 +4,7 @@
 
 ## 1. 环境准备
 
-- **Node >= 22**（package.json engines；PR CI 钉 Node 24，release CI 用 `lts/*`——当前解析为 24）。npm + package-lock.json。
+- **Node >= 22.22.2**（与钉死的 OpenCode 依赖链最低版本一致；PR CI 钉 Node 24，release CI 用 `lts/*`——当前解析为 24）。npm + package-lock.json。
 - **私有包鉴权**：`@oomol/connection*` 来自 GitHub Packages（`.npmrc`：`@oomol:registry=https://npm.pkg.github.com`），本地需要带 `read:packages` 的 PAT（一般配在全局 `~/.npmrc`），否则 `npm install` 401。注意两种失败的严重性不同：私有包 401 发生在依赖解析阶段、**致命**；下面两个 postinstall 下载脚本才是 best-effort（仅 warn）——PAT 缺失时哪怕只看到一堆 warn 也不能继续，`@oomol/connection` 没装上 dev 起不来。
 - `npm install` 的 postinstall 串联两个 best-effort 脚本（失败仅 warn 不阻断）：
   - `scripts/download-electron.ts` → 下载 dev 专用 Electron 副本到 `.electron-dist/` 并改写 macOS Info.plist 为 `com.oomol.wanta-local` / `wanta-local` scheme（dev deep-link 用）。`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 跳过。

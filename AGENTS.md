@@ -90,6 +90,11 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
 10. 注释中文；代码标识符/日志/系统提示英文；所有 Git 操作中的人类可读文本必须英文
     （commit message、branch name、PR title/description/comment、tag/release note 等）；
     主进程业务日志统一 `[wanta]` 前缀（既存例外见 [docs/conventions.md](docs/conventions.md) §4）。
+11. **Univer 表格预览是明确业务需求，禁止删除、降级或替换。**
+    `ArtifactUniverSpreadsheetPreview.tsx`、`artifact-univer-snapshot.ts` 及
+    `@univerjs/core` / `@univerjs/preset-sheets-core` / `rxjs` 是有意保留的产品能力；
+    不得以只读、bundle size、原生 table 可替代等理由移除。任何替换或删除必须先取得产品方明确同意；
+    性能优化必须保留 Univer 的完整工作簿渲染和交互。
 
 完整编码约定（文件命名、纯函数拆分、内嵌工具源码限制、vendored UI 规则等）见
 [docs/conventions.md](docs/conventions.md)。

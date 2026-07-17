@@ -1,5 +1,7 @@
 # 组织级 Skill 配置方案
 
+> 状态：已实施。本文保留为设计与演进记录；当前运行时边界和模块地图以 [architecture.md](architecture.md) 及源码为准。
+>
 > 相关：[project-overview.md](project-overview.md)（产品定位）· [architecture.md](architecture.md)（进程与 Agent）· [conventions.md](conventions.md)（约定）
 
 ## 1. 背景与目标

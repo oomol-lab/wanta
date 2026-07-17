@@ -4,7 +4,6 @@ import type { UseAppUpdate } from "@/hooks/useAppUpdate"
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { LucideIcon } from "lucide-react"
 
-import * as React from "react"
 import { EditableTitlebarTitle } from "./AppShellDialogs.tsx"
 import { SidebarTitlebarActions } from "./AppShellSidebar.tsx"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"

@@ -2,7 +2,6 @@ import type { ManagedSkillGroup, SkillVersionReport } from "../../../electron/sk
 import type { SkillVersionCheckByKey } from "./skill-route-model.ts"
 import type { ObjectStatusTone } from "@/components/ObjectRow"
 
-import * as React from "react"
 import {
   getGroupRowPackageLine,
   getGroupStatus,

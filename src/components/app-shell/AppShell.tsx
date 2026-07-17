@@ -15,6 +15,7 @@ import type { SidebarSegment } from "./sidebar-persistence.ts"
 import type { ChatConnectionDrawerState } from "./use-chat-connection-retry.ts"
 import type { BillingDetailsTarget } from "@/components/app-shell/BillingUsagePopover"
 import type { UseAuth } from "@/hooks/useAuth"
+import type { KnowledgeBaseIdsUpdate } from "@/hooks/useSessions"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ConnectionCatalogFilter } from "@/routes/Connections/connection-route-model.ts"
@@ -291,6 +292,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     activity,
     messagesLoaded,
     error,
+    forgetSession: forgetChatSession,
     getSessionStatus,
     getSessionRunStartedAt,
     permissionMode,
@@ -301,6 +303,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     answerQuestion,
     rejectQuestion,
     questionDrafts,
+    resetSessionCache: resetChatSessionCache,
   } = useChat(activeChatSessionId)
   const hasUnreadSession = attention.hasUnreadSession
 
@@ -484,8 +487,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [persistPermissionMode, setChatPermissionMode],
   )
   const persistKnowledgeBaseIds = React.useCallback(
-    (sessionId: string, ids: string[]): void => {
-      void setSessionKnowledgeBases(sessionId, ids).catch((cause: unknown) => {
+    (sessionId: string, update: KnowledgeBaseIdsUpdate): void => {
+      void setSessionKnowledgeBases(sessionId, update).catch((cause: unknown) => {
         console.error("[wanta] persist session knowledge bases failed", cause)
         reportRendererHandledError("appShell.knowledgeBases", "Failed to persist session knowledge bases", cause)
         toast.error(userFacingErrorDescription(resolveUserFacingError(cause, { area: "session" }), t))
@@ -780,6 +783,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   }, [handleNewSession])
   const handleSessionArchived = React.useCallback(
     (session: SessionInfo): void => {
+      forgetChatSession(session.id)
       clearComposerDraft(existingSessionComposerDraftKey(sessionRecordScopeKey(session.scope), session.id))
       if (activeChatSessionId !== session.id) {
         return
@@ -789,7 +793,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       setPendingChatTransition(null)
       setRoute("chat")
     },
-    [activeChatSessionId, clearComposerDraft, selectableSidebarSessions],
+    [activeChatSessionId, clearComposerDraft, forgetChatSession, selectableSidebarSessions],
   )
   const sessionActions = useSessionActions({
     archive,
@@ -812,6 +816,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       reasoningLevelBySession: lastReasoningLevelBySession,
       retryOptionsBySession: turnRetryOptionsBySession,
     },
+    resetMemory: resetComposerSubmissionMemory,
     sendNow,
   } = useComposerSubmission({
     activeChatSessionId,
@@ -934,6 +939,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       holdQueuedSessionIfQueued(previousSessionId)
     }
     previousActiveChatSessionIdRef.current = null
+    resetChatSessionCache()
+    resetComposerSubmissionMemory()
+    composerDraftsByKey.current.clear()
     clearRetries()
     setChatConnectionDrawers({})
     setSelectedService(null)
@@ -953,6 +961,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     handleArtifactsReset,
     holdQueuedSessionIfQueued,
     projectActions.resetDialogs,
+    resetChatSessionCache,
+    resetComposerSubmissionMemory,
     sessionActions.resetDialogs,
   ])
 
@@ -1253,22 +1263,20 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   )
   const handleToggleKnowledgeBaseReference = React.useCallback(
     (id: string): void => {
-      const nextIds = activeKnowledgeBaseIds.includes(id)
-        ? activeKnowledgeBaseIds.filter((item) => item !== id)
-        : [...activeKnowledgeBaseIds, id]
-      if (activeChatSessionId) persistKnowledgeBaseIds(activeChatSessionId, nextIds)
-      else setDraftKnowledgeBaseIds(nextIds)
+      const toggle = (current: string[]): string[] =>
+        current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+      if (activeChatSessionId) persistKnowledgeBaseIds(activeChatSessionId, toggle)
+      else setDraftKnowledgeBaseIds(toggle)
     },
-    [activeChatSessionId, activeKnowledgeBaseIds, persistKnowledgeBaseIds],
+    [activeChatSessionId, persistKnowledgeBaseIds],
   )
   const handleAddKnowledgeBaseReference = React.useCallback(
     (id: string): void => {
-      if (activeKnowledgeBaseIds.includes(id)) return
-      const nextIds = [...activeKnowledgeBaseIds, id]
-      if (activeChatSessionId) persistKnowledgeBaseIds(activeChatSessionId, nextIds)
-      else setDraftKnowledgeBaseIds(nextIds)
+      const add = (current: string[]): string[] => (current.includes(id) ? current : [...current, id])
+      if (activeChatSessionId) persistKnowledgeBaseIds(activeChatSessionId, add)
+      else setDraftKnowledgeBaseIds(add)
     },
-    [activeChatSessionId, activeKnowledgeBaseIds, persistKnowledgeBaseIds],
+    [activeChatSessionId, persistKnowledgeBaseIds],
   )
   const pinnedKnowledgeContextBar = React.useMemo(
     () =>

@@ -49,7 +49,6 @@ import { useOrganizationSkillActions } from "./use-organization-skill-actions.ts
 import { useSkillService } from "@/components/AppContext"
 import {
   useAuthStateResource,
-  useHomeSummaryResource,
   useSkillInventoryResource,
   useSkillVersionReportResource,
 } from "@/components/AppDataHooks"
@@ -104,7 +103,6 @@ export function SkillsRoute({
   const authResource = useAuthStateResource()
   const inventoryResource = useSkillInventoryResource()
   const versionResource = useSkillVersionReportResource()
-  const homeSummaryResource = useHomeSummaryResource()
   const inventory = inventoryResource.data
   const installedSkillGroupById = React.useMemo<ManagedSkillGroupById>(() => {
     return new Map((inventory?.groups ?? []).map((group) => [group.id, group]))
@@ -162,7 +160,6 @@ export function SkillsRoute({
     useSkillObjectActions({
       onDeleted: () => {
         setSelectedSkillId(null)
-        homeSummaryResource.invalidate()
       },
     })
 
@@ -372,7 +369,6 @@ export function SkillsRoute({
           skillId: targetSkillName,
         })
         inventoryResource.setData(nextInventory)
-        homeSummaryResource.invalidate()
         versionResource.invalidate()
         toast.success(t("skills.registryInstallDone", { name: targetSkillName }))
       } catch (cause) {
@@ -382,7 +378,7 @@ export function SkillsRoute({
         setInstallingRegistryResultId(null)
       }
     },
-    [homeSummaryResource, inventoryResource, skillService, t, versionResource],
+    [inventoryResource, skillService, t, versionResource],
   )
 
   const {
@@ -442,7 +438,6 @@ export function SkillsRoute({
         })
         inventoryResource.setData(nextInventory)
         await versionResource.refresh({ forceRefresh: true, silent: true })
-        homeSummaryResource.invalidate()
       } catch (cause) {
         setPlanError({
           cause: resolveUserFacingError(cause, { area: "skills" }),
@@ -454,7 +449,7 @@ export function SkillsRoute({
         setUpdatingRegistrySkillId(null)
       }
     },
-    [homeSummaryResource, inventoryResource, skillService, versionResource],
+    [inventoryResource, skillService, versionResource],
   )
 
   const linkPublishedSkillToOrganization = React.useCallback(
@@ -508,7 +503,6 @@ export function SkillsRoute({
           .catch((error: unknown) =>
             reportRendererHandledError("skills", "silent skill version refresh failed after publish", error),
           )
-        homeSummaryResource.invalidate()
         toast.success(t("skills.publishDone", { name: skill.name }))
         void loadMyPublishedSkillPackages({ forceRefresh: true }).catch((error: unknown) => {
           reportRendererHandledError("skills", "published skill package refresh failed after publish", error)
@@ -533,7 +527,6 @@ export function SkillsRoute({
     },
     [
       authResource.data,
-      homeSummaryResource,
       inventoryResource,
       loadMyPublishedSkillPackages,
       loadPublicSkillPackages,
@@ -557,14 +550,13 @@ export function SkillsRoute({
       const report = await skillService.invoke("executeCliUpdate")
       versionResource.setData(report)
       await inventoryResource.refresh({ forceRefresh: true, silent: true })
-      homeSummaryResource.invalidate()
     } catch (cause) {
       setCliUpdateError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       cliUpdateInFlightRef.current = false
       setIsExecutingCliUpdate(false)
     }
-  }, [homeSummaryResource, inventoryResource, skillService, versionResource])
+  }, [inventoryResource, skillService, versionResource])
 
   const isPublicPackageLoadingMore = activePackageCatalog.status === "loading-more"
   const isPublicPackageReplacing =

@@ -43,7 +43,7 @@ import { SkillDetailContent } from "./SkillDetailContent.tsx"
 import { SkillManagementSheet } from "./SkillUiParts.tsx"
 import { useSkillService } from "@/components/AppContext"
 import { useAuthStateResource, useSkillInventoryResource } from "@/components/AppDataHooks"
-import { useHomeSummaryResource, useSkillVersionReportResource } from "@/components/AppDataHooks"
+import { useSkillVersionReportResource } from "@/components/AppDataHooks"
 import { DeleteSkillConfirmDialog } from "@/components/DeleteSkillConfirmDialog"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -73,7 +73,6 @@ export function OrganizationManagementRoute({
   const authResource = useAuthStateResource()
   const skillInventory = useSkillInventoryResource()
   const skillVersions = useSkillVersionReportResource()
-  const homeSummary = useHomeSummaryResource()
   const skillService = useSkillService()
   const activeAccount = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
   const activeAccountId = activeAccount?.id
@@ -164,7 +163,6 @@ export function OrganizationManagementRoute({
         const nextInventory = await skillService.invoke("updateRegistrySkill", { packageName, skillId: skill.id })
         skillInventory.setData(nextInventory)
         await skillVersions.refresh({ forceRefresh: true, silent: true })
-        homeSummary.invalidate()
       } catch (cause) {
         setManagedSkillError({ cause, skillId: skill.id })
       } finally {
@@ -172,7 +170,7 @@ export function OrganizationManagementRoute({
         setUpdatingRegistrySkillId(null)
       }
     },
-    [homeSummary, skillInventory, skillService, skillVersions],
+    [skillInventory, skillService, skillVersions],
   )
   const openManagedSkill = React.useCallback((skillId: string) => {
     setSelectedPackage(null)

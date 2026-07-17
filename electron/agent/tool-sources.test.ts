@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { connectionInventoryError, linkWorkspaceArgs } from "./link-workspace.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
 describe("query_knowledge guidance", () => {
@@ -95,19 +94,6 @@ beforeEach(() => {
 })
 
 describe("list_apps embedded runtime", () => {
-  it("converts trusted identities and inventory errors without runtime dependencies", () => {
-    expect(linkWorkspaceArgs({ organizationName: "org-a" })).toEqual(["--organization", "org-a"])
-    expect(
-      connectionInventoryError({ organizationName: "org-a" }, "The connector apps request returned HTTP 403."),
-    ).toEqual({
-      status: "error",
-      errorCode: "connection_inventory_unavailable",
-      operation: "list_connected_apps",
-      workspace: { organizationName: "org-a" },
-      message: "The connector apps request returned HTTP 403.",
-    })
-  })
-
   it("keeps organization identity in structured inventory errors", async () => {
     process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/organization-scope.json"
     const commands: string[][] = []

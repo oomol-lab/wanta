@@ -9,11 +9,7 @@ import { toast } from "sonner"
 import { planProviderSkillRecommendationBulkLinks, runtimeSkillRemoveBusyKey } from "./organization-management-model.ts"
 import { skillErrorMessage } from "./skill-errors.ts"
 import { useSkillService } from "@/components/AppContext"
-import {
-  useHomeSummaryResource,
-  useSkillInventoryResource,
-  useSkillVersionReportResource,
-} from "@/components/AppDataHooks"
+import { useSkillInventoryResource, useSkillVersionReportResource } from "@/components/AppDataHooks"
 import { useAppI18n } from "@/i18n"
 import { getPublicPackagePrimarySkill } from "@/routes/Skills/skill-route-model"
 
@@ -44,7 +40,6 @@ export function useOrganizationSkillActions({
   const skillService = useSkillService()
   const skillInventory = useSkillInventoryResource()
   const skillVersionReport = useSkillVersionReportResource()
-  const homeSummaryResource = useHomeSummaryResource()
   const [runtimeSkillRemoveTarget, setRuntimeSkillRemoveTarget] = React.useState<RuntimeSkillRemoveTarget | null>(null)
   const busyActionRef = React.useRef<BusyAction | null>(busyAction)
 
@@ -81,7 +76,6 @@ export function useOrganizationSkillActions({
         })
         skillInventory.setData(nextInventory)
         skillVersionReport.invalidate()
-        homeSummaryResource.invalidate()
         toast.success(t("skills.registryInstallDone", { name: skill.skillName }))
       } catch (error) {
         toast.error(t("skills.registryInstallFailed", { error: skillErrorMessage(error, t) }))
@@ -89,7 +83,7 @@ export function useOrganizationSkillActions({
         endAction()
       }
     },
-    [beginAction, endAction, homeSummaryResource, skillInventory, skillService, skillVersionReport, t],
+    [beginAction, endAction, skillInventory, skillService, skillVersionReport, t],
   )
 
   const removeRuntimeSkill = React.useCallback(async () => {
@@ -105,7 +99,6 @@ export function useOrganizationSkillActions({
       })
       skillInventory.setData(nextInventory)
       skillVersionReport.invalidate()
-      homeSummaryResource.invalidate()
       setRuntimeSkillRemoveTarget(null)
       toast.success(t("organizations.skillManageRemoveRuntimeSuccess", { name: target.displayName }))
     } catch (error) {
@@ -113,16 +106,7 @@ export function useOrganizationSkillActions({
     } finally {
       endAction()
     }
-  }, [
-    beginAction,
-    endAction,
-    homeSummaryResource,
-    runtimeSkillRemoveTarget,
-    skillInventory,
-    skillService,
-    skillVersionReport,
-    t,
-  ])
+  }, [beginAction, endAction, runtimeSkillRemoveTarget, skillInventory, skillService, skillVersionReport, t])
 
   const installRuntimeSkills = React.useCallback(
     async (skills: readonly { packageName: string; skillName: string }[]) => {
@@ -148,7 +132,6 @@ export function useOrganizationSkillActions({
             firstError ??= error
           }
         }
-        homeSummaryResource.invalidate()
         if (installedCount > 0) {
           skillVersionReport.invalidate()
           toast.success(t("organizations.skillManageInstallMissingSuccess", { count: installedCount }))
@@ -165,7 +148,7 @@ export function useOrganizationSkillActions({
         endAction()
       }
     },
-    [beginAction, endAction, homeSummaryResource, skillInventory, skillService, skillVersionReport, t],
+    [beginAction, endAction, skillInventory, skillService, skillVersionReport, t],
   )
 
   const linkOrganizationSkill = React.useCallback(
@@ -187,10 +170,9 @@ export function useOrganizationSkillActions({
         })
         skillInventory.setData(nextInventory)
         skillVersionReport.invalidate()
-        homeSummaryResource.invalidate()
       }
     },
-    [homeSummaryResource, organizationSkills, skillInventory, skillService, skillVersionReport],
+    [organizationSkills, skillInventory, skillService, skillVersionReport],
   )
 
   const addOrganizationSkillFromRecommendation = React.useCallback(

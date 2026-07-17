@@ -52,9 +52,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         staleTimeMs: 10_000,
         load: () => authService.invoke("getAuthState"),
       }),
-      homeSummary: createResource<null>({
-        load: async () => null,
-      }),
       skillInventory: createResource<SkillInventory>({
         isEqualData: isRefreshDataEqual,
         // 主进程 watcher 会在技能变化时主动失效；较长 TTL 仅兜底发现启动时尚不存在的技能目录。

@@ -125,7 +125,7 @@ const bundledSkillsDir = app.isPackaged
   ? resolveBundledSkillsDir(process.resourcesPath)
   : resolveDevBundledSkillsDir(appRoot)
 
-// Agent 内核：凭证来自浏览器登录（userData/auth.json，账号默认 api-key 等价旧 OO_API_KEY env）。
+// Agent 内核：凭证来自 Electron 会话中的短期 token；userData/auth.json 仅保存账号 profile。
 // 未登录时 agent=null，服务仍注册但 isReady()=false，渲染层显示登录页；
 // 登录 / 登出时经 applyAuthAccount 动态装配。
 let agent: AgentManager | null = null
@@ -823,9 +823,8 @@ function createMainWindow(): void {
     return { action: "deny" }
   })
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    // 应用自身的页面（dev server / file://）放行，其余一律拦截并外开。
-    const isAppUrl = viteDevServerUrl ? url.startsWith(viteDevServerUrl) : url.startsWith("file:")
-    if (!isAppUrl) {
+    // 只放行 dev server 同源页面或打包后的 renderer 目录，避免任意本地页面继承 preload 权限。
+    if (!isTrustedRendererUrl(url, viteDevServerUrl, rendererBaseUrl)) {
       event.preventDefault()
       openExternalUrl(url)
     }

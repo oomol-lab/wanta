@@ -32,10 +32,6 @@ export function useAuthStateResource(): ResourceView<AuthState> {
   return useResource(useAppDataResources().authState)
 }
 
-export function useHomeSummaryResource(): ResourceView<null> {
-  return useResource(useAppDataResources().homeSummary, { autoLoad: false })
-}
-
 export function useSkillInventoryResource(): ResourceView<SkillInventory> {
   return useResource(useAppDataResources().skillInventory)
 }

@@ -35,7 +35,6 @@
   },
   "devDependencies": {
     "@electron-internal/extract-zip": "1.0.2",
-    "@electron-toolkit/preload": "3.0.2",
     "@electron/get": "5.0.0",
     "@iconify-icons/simple-icons": "1.2.74",
     "@iconify-icons/tabler": "1.2.95",
@@ -86,6 +85,6 @@
     "vitest": "4.1.8"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.22.2"
   }
 }

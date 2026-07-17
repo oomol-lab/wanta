@@ -34,6 +34,8 @@ export interface ChatEventBuffer {
   flushTextDeltas: () => void
   flushToolParts: () => void
   forgetToolPart: (sessionId: string, messageId: string, partId: string) => void
+  forgetSession: (sessionId: string) => void
+  reset: () => void
 }
 
 export function useChatEventBuffer(
@@ -191,6 +193,25 @@ export function useChatEventBuffer(
     pendingToolParts.current.delete(`${sessionId}\0${messageId}\0${partId}`)
   }, [])
 
+  const forgetSession = React.useCallback((sessionId: string): void => {
+    for (const [key, pending] of pendingTextDeltas.current) {
+      if (pending.event.sessionId === sessionId) pendingTextDeltas.current.delete(key)
+    }
+    for (const [key, pending] of pendingToolParts.current) {
+      if (pending.sessionId === sessionId) pendingToolParts.current.delete(key)
+    }
+  }, [])
+
+  const reset = React.useCallback((): void => {
+    if (pendingTextFrame.current !== null) window.cancelAnimationFrame(pendingTextFrame.current)
+    if (pendingToolTimer.current !== null) window.clearTimeout(pendingToolTimer.current)
+    pendingTextFrame.current = null
+    pendingToolTimer.current = null
+    pendingToolDelayStartedAt.current = null
+    pendingTextDeltas.current.clear()
+    pendingToolParts.current.clear()
+  }, [])
+
   React.useEffect(() => {
     return () => {
       if (pendingTextFrame.current !== null) {
@@ -211,6 +232,8 @@ export function useChatEventBuffer(
     enqueueToolCallStarted,
     flushTextDeltas,
     flushToolParts,
+    forgetSession,
     forgetToolPart,
+    reset,
   }
 }

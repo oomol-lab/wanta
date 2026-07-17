@@ -44,6 +44,28 @@ export const initialConnectionsState: ConnectionsState = {
   summaryWorkspaceKey: null,
 }
 
+export function preserveConnectionSummaryOnPartialRefresh(
+  current: ConnectionSummary | null,
+  next: ConnectionSummary,
+): ConnectionSummary {
+  if (
+    !current ||
+    !next.appsStatus ||
+    next.appsStatus === "ready" ||
+    connectionSummaryWorkspaceKey(current) !== connectionSummaryWorkspaceKey(next)
+  ) {
+    return next
+  }
+
+  // Apps 读取失败不能把上一次确认可用的账号伪装成“全部未连接”；保留旧摘要并暴露本次降级状态。
+  return {
+    ...current,
+    appsStatus: next.appsStatus,
+    updatedAt: next.updatedAt,
+    usageLoading: next.usageLoading,
+  }
+}
+
 export function connectionsStateReducer(state: ConnectionsState, action: ConnectionsStateAction): ConnectionsState {
   switch (action.type) {
     case "actionErrorSet":

@@ -40,7 +40,11 @@ import {
   readOAuthPendingOperationsForWorkspace,
   rememberOAuthPendingOperation,
 } from "./connection-oauth-pending.ts"
-import { connectionsStateReducer, initialConnectionsState } from "./connections-state.ts"
+import {
+  connectionsStateReducer,
+  initialConnectionsState,
+  preserveConnectionSummaryOnPartialRefresh,
+} from "./connections-state.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 const POLL_INTERVAL_MS = 2000
@@ -219,7 +223,8 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           (usage) => ({ ok: true as const, usage }),
           (error: unknown) => ({ error, ok: false as const }),
         )
-        const next = await getConnectionCatalogSummary(currentWorkspace, connectorReadOptions)
+        const fetched = await getConnectionCatalogSummary(currentWorkspace, connectorReadOptions)
+        const next = preserveConnectionSummaryOnPartialRefresh(summaryRef.current, fetched)
         if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
           dispatch({ type: "refreshSucceeded", summary: next })
           void usageRequest.then((result) => {

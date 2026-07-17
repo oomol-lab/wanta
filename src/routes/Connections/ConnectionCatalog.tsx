@@ -8,9 +8,8 @@ import {
   categoryFilterPrefix,
   getFilterValue,
   getFittingCategoryFilterCount,
-  getProviderActionLabel,
+  getProviderCatalogLabel,
   getProviderMeta,
-  getProviderStatusDisplayLabel,
   getProviderStatusTone,
   parseFilterValue,
   selectVisibleCategoryFilters,
@@ -334,11 +333,13 @@ export function ProviderListSkeleton() {
 }
 
 export function ProviderCatalog({
+  canManageConnections,
   providers,
   scrollParentRef,
   selectedService,
   onSelect,
 }: {
+  canManageConnections: boolean
   onSelect: (provider: ConnectionProviderSummary) => void
   providers: ConnectionProviderSummary[]
   scrollParentRef: React.RefObject<HTMLDivElement | null>
@@ -346,6 +347,7 @@ export function ProviderCatalog({
 }) {
   return (
     <ProviderGrid
+      canManageConnections={canManageConnections}
       providers={providers}
       scrollParentRef={scrollParentRef}
       selectedService={selectedService}
@@ -355,11 +357,13 @@ export function ProviderCatalog({
 }
 
 function ProviderGrid({
+  canManageConnections,
   providers,
   scrollParentRef,
   selectedService,
   onSelect,
 }: {
+  canManageConnections: boolean
   onSelect: (provider: ConnectionProviderSummary) => void
   providers: ConnectionProviderSummary[]
   scrollParentRef: React.RefObject<HTMLDivElement | null>
@@ -548,13 +552,18 @@ function ProviderGrid({
         items.push({
           key: provider.service,
           node: (
-            <ProviderCard provider={provider} selected={provider.service === selectedService} onSelect={onSelect} />
+            <ProviderCard
+              canManageConnections={canManageConnections}
+              provider={provider}
+              selected={provider.service === selectedService}
+              onSelect={onSelect}
+            />
           ),
         })
       }
     }
     return items
-  }, [onSelect, providers, selectedService, visibleRange.endIndex, visibleRange.startIndex])
+  }, [canManageConnections, onSelect, providers, selectedService, visibleRange.endIndex, visibleRange.startIndex])
 
   return (
     <div ref={gridRef} className="relative" style={{ height: visibleRange.totalHeight }}>
@@ -575,17 +584,19 @@ function ProviderGrid({
 }
 
 const ProviderCard = React.memo(function ProviderCard({
+  canManageConnections,
   provider,
   selected,
   onSelect,
 }: {
+  canManageConnections: boolean
   provider: ConnectionProviderSummary
   selected: boolean
   onSelect: (provider: ConnectionProviderSummary) => void
 }) {
   const t = useT()
   const tone = getProviderStatusTone(provider)
-  const statusLabel = getProviderStatusDisplayLabel(provider, t)
+  const statusLabel = getProviderCatalogLabel(provider, canManageConnections, t)
   return (
     <button
       type="button"
@@ -623,9 +634,7 @@ const ProviderCard = React.memo(function ProviderCard({
                 )}
               />
             ) : null}
-            <span className="oo-text-micro max-w-16 truncate font-medium text-muted-foreground">
-              {getProviderActionLabel(provider, t)}
-            </span>
+            <span className="oo-text-micro max-w-16 truncate font-medium text-muted-foreground">{statusLabel}</span>
           </span>
         )}
       </span>

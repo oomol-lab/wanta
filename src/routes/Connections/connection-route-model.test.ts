@@ -10,6 +10,7 @@ import {
   getFittingCategoryFilterCount,
   getProviderAccountValue,
   getProviderActionLabel,
+  getProviderCatalogLabel,
   getProviderMeta,
   getProviderStatusDisplayLabel,
   getProviderStatusTone,
@@ -96,6 +97,15 @@ test("mixed direct and API key providers are directly available before configura
   assert.equal(matchesProviderFilter(ready, { kind: "directly-available" }), true)
   assert.equal(getProviderStatusTone(ready), "directly-available")
   assert.equal(getProviderActionLabel(ready, t), "No setup")
+})
+
+test("read-only provider labels describe state instead of offering management actions", () => {
+  const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
+
+  assert.equal(getProviderCatalogLabel(provider({ status: "available" }), false, t), "Not connected")
+  assert.equal(getProviderCatalogLabel(provider({ appCount: 1, status: "connected" }), false, t), "Connected")
+  assert.equal(getProviderCatalogLabel(provider({ status: "needs_attention" }), false, t), "Needs attention")
+  assert.equal(getProviderCatalogLabel(provider({ status: "available" }), true, t), "Connect")
 })
 
 test("availability catalog filters round trip", () => {

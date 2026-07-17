@@ -32,10 +32,16 @@
 
 ## 4. 连接器首屏与 OAuth
 
-连接器目录将 `/v1/apps` 与 `/v1/providers` 视为首屏关键数据；它们返回后即渲染可搜索、可筛选的
-Provider 网格。`/v1/usage/daily` 与 `/v1/usage/services` 在后台补齐，不得阻塞目录骨架屏结束。
+连接器目录把不带组织头的全局 `/v1/providers` 作为首屏关键数据；组织作用域 `/v1/apps` 与目录并发读取，
+但权限拒绝或临时失败不得清空公共 Provider 网格。此时 UI 保留可搜索、可筛选的只读目录，并把组织连接
+状态标记为 `forbidden` / `unavailable`，不能用空数组冒充“确认未连接”。`/v1/usage/daily` 与
+`/v1/usage/services` 在后台补齐，不得阻塞目录骨架屏结束。
 
-连接器 GET 保留 30 秒缓存、ETag / Last-Modified 条件请求和在途合并。认证状态变更时必须调用
+同一 workspace 已有成功摘要时，Apps 的部分刷新失败必须保留上一次确认的连接账号和 Provider 状态，
+仅更新降级标记；不得让短时错误把已有连接从 UI 中抹掉。切换 workspace 时禁止复用这份旧摘要。
+
+连接器 GET 保留 30 秒缓存、ETag / Last-Modified 条件请求和在途合并；Provider 公共目录使用全局缓存键，
+Apps 等组织资源继续按 workspace 隔离。认证状态变更时必须调用
 `clearConnectorCache()`，避免组织工作区的内存结果跨账号复用。OAuth Client Config 为账号级短时资源，
 保存配置后立即失效；OAuth 授权开始前只读取当前服务的 active App 基线，不重拉完整目录和用量。
 

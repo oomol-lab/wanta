@@ -1479,6 +1479,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
               {route === "connections" ? (
                 <div className="h-full min-h-0 p-0">
                   <ConnectionsPanel
+                    canManageConnections={canManageWorkspaceConnections}
                     connections={connections}
                     requestedFilter={connectionCatalogFilter}
                     selectedService={selectedService}
@@ -1580,6 +1581,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                   </div>
                   <AppShellConnectionDrawer
                     authIntent={chatConnectionAuthIntent}
+                    canManageConnections={canManageWorkspaceConnections}
                     connections={connections}
                     selectedService={chatConnectionSelectedService}
                     visible={chatConnectionDrawerVisible}

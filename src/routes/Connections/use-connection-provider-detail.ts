@@ -6,10 +6,12 @@ import { connectionDetailCacheKey, shouldLoadProviderDetail } from "./connection
 import { resolveConnectionError } from "@/lib/connections-error"
 
 export function useConnectionProviderDetail({
+  enabled = true,
   getProviderDetail,
   provider,
   workspaceKey,
 }: {
+  enabled?: boolean
   getProviderDetail: (service: string) => Promise<ConnectionProviderDetail>
   provider: ConnectionProviderSummary | null
   workspaceKey: string | null
@@ -22,7 +24,7 @@ export function useConnectionProviderDetail({
   const requestIdRef = React.useRef(0)
   const previousWorkspaceKeyRef = React.useRef(workspaceKey)
   const service = provider?.service ?? null
-  const needsDetail = provider ? shouldLoadProviderDetail(provider) : false
+  const needsDetail = enabled && provider ? shouldLoadProviderDetail(provider) : false
   const cacheKey = workspaceKey && service ? connectionDetailCacheKey(workspaceKey, service) : null
 
   const clearState = React.useCallback(() => {

@@ -107,11 +107,87 @@ describe("connections-client", () => {
       expect.arrayContaining([expect.stringContaining("/v1/apps"), expect.stringContaining("/v1/providers")]),
     )
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/v1/usage/"))).toBe(false)
+    const providerRequest = fetchMock.mock.calls.find(([url]) => String(url).includes("/v1/providers"))
+    const providerHeaders = new Headers(providerRequest?.[1]?.headers)
+    expect(providerHeaders.has("x-oo-organization-name")).toBe(false)
 
     const usage = await getConnectionUsageSummary({ organizationName: "org-name" })
 
     expect(usage.calls).toBe(3)
     expect(usage.services).toMatchObject([{ calls: 3, service: "gmail" }])
+  })
+
+  it("keeps the provider catalog visible when organization apps are forbidden", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/v1/apps")) {
+        return Response.json(
+          { code: "organization_connection_read_forbidden", message: "Connection management is not allowed" },
+          { status: 403, statusText: "Forbidden" },
+        )
+      }
+      if (url.includes("/v1/providers")) {
+        return Response.json({ data: [{ authTypes: ["oauth2"], displayName: "Gmail", service: "gmail" }] })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getConnectionCatalogSummary({ organizationName: "read-only-org" })).resolves.toMatchObject({
+      apps: [],
+      appsStatus: "forbidden",
+      providerCount: 1,
+      providers: [{ displayName: "Gmail", service: "gmail", status: "available" }],
+      status: "ready",
+    })
+  })
+
+  it("keeps the provider catalog visible when organization apps are temporarily unavailable", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/v1/apps")) {
+        return Response.json(
+          { code: "organization_service_account_unavailable", message: "Service account unavailable" },
+          { status: 503, statusText: "Service Unavailable" },
+        )
+      }
+      if (url.includes("/v1/providers")) {
+        return Response.json({ data: [{ authTypes: ["oauth2"], displayName: "Slack", service: "slack" }] })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getConnectionCatalogSummary({ organizationName: "read-only-org" })).resolves.toMatchObject({
+      appsStatus: "unavailable",
+      providers: [{ displayName: "Slack", service: "slack" }],
+      status: "ready",
+    })
+  })
+
+  it("preserves provider response diagnostics when the public catalog fails", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/v1/apps")) {
+        return Response.json({ data: [] })
+      }
+      if (url.includes("/v1/providers")) {
+        return Response.json(
+          { code: "catalog_unavailable", message: "Provider index is rebuilding" },
+          { status: 503, statusText: "Service Unavailable" },
+        )
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getConnectionCatalogSummary({ organizationName: "org-name" })).rejects.toMatchObject({
+      apiMessage: "Provider index is rebuilding",
+      code: "catalog_unavailable",
+      message: expect.stringContaining("Provider index is rebuilding"),
+      path: "/v1/providers",
+      status: 503,
+    })
   })
 
   it("degrades a failed usage request to an empty summary without rejecting", async () => {

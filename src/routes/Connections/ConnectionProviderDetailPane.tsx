@@ -17,9 +17,9 @@ import {
   formatProviderCategoryLabels,
   getDefaultAuthType,
   getProviderAccountValue,
+  getProviderCatalogLabel,
   getEmptyState,
   getProviderDescription,
-  getProviderStatusDisplayLabel,
   getProviderStatusTone,
   isConnected,
   isDirectlyAvailableProvider,
@@ -46,7 +46,13 @@ export interface ConnectionAuthIntent {
   source: "chat"
 }
 
-function ProviderStatusBadge({ provider }: { provider: ConnectionProviderSummary }) {
+function ProviderStatusBadge({
+  canManageConnections,
+  provider,
+}: {
+  canManageConnections: boolean
+  provider: ConnectionProviderSummary
+}) {
   const t = useT()
   const tone = getProviderStatusTone(provider)
   return (
@@ -61,7 +67,7 @@ function ProviderStatusBadge({ provider }: { provider: ConnectionProviderSummary
               : "muted"
       }
     >
-      {getProviderStatusDisplayLabel(provider, t)}
+      {getProviderCatalogLabel(provider, canManageConnections, t)}
     </Badge>
   )
 }
@@ -96,6 +102,7 @@ export function ProviderDetail({
   actionsPending,
   authIntent,
   busy,
+  canManageConnections,
   detail,
   errorNotice,
   detailLoading,
@@ -113,6 +120,7 @@ export function ProviderDetail({
   actionsPending?: boolean
   authIntent?: ConnectionAuthIntent | null
   busy: UseConnections["busy"]
+  canManageConnections: boolean
   connections: UseConnections
   detail: ConnectionProviderDetail | null
   errorNotice: ConnectionErrorNotice | null
@@ -146,7 +154,7 @@ export function ProviderDetail({
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="oo-text-title truncate">{provider.displayName}</h2>
-              <ProviderStatusBadge provider={provider} />
+              <ProviderStatusBadge canManageConnections={canManageConnections} provider={provider} />
             </div>
             <p className="oo-text-caption oo-text-muted mt-1 break-words">{getProviderDescription(provider, t)}</p>
           </div>
@@ -178,6 +186,7 @@ export function ProviderDetail({
           <ErrorNotice error={errorNotice.error} compact showDiagnosticsCopy={errorNotice.showDiagnosticsCopy} />
         ) : null}
         {authIntent ? <ConnectionAuthIntentNotice authIntent={authIntent} provider={provider} /> : null}
+        {!canManageConnections ? <ReadOnlyConnectionNotice /> : null}
         {actionsBlocked ? null : (
           <ConnectionPanel
             authIntent={authIntent}
@@ -223,6 +232,33 @@ export function ProviderDetail({
         )}
       </section>
     </div>
+  )
+}
+
+export function ReadOnlyConnectionNotice() {
+  const t = useT()
+  return (
+    <section className="grid gap-1 rounded-lg border bg-muted/30 px-3 py-2.5">
+      <div className="oo-text-label">{t("connections.readOnlyTitle")}</div>
+      <div className="oo-text-caption oo-text-muted">{t("connections.readOnlyDescription")}</div>
+    </section>
+  )
+}
+
+export function ConnectionStateNotice({ status }: { status: "forbidden" | "unavailable" }) {
+  const t = useT()
+  return (
+    <section className="grid gap-1 rounded-lg border border-dashed px-3 py-2.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <AlertCircle className="oo-icon-muted size-4" />
+        <div className="oo-text-label truncate">{t("connections.stateUnavailableTitle")}</div>
+      </div>
+      <div className="oo-text-caption oo-text-muted">
+        {t(
+          status === "forbidden" ? "connections.stateForbiddenDescription" : "connections.stateUnavailableDescription",
+        )}
+      </div>
+    </section>
   )
 }
 

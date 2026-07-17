@@ -3,7 +3,11 @@ import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { connectionsStateReducer, initialConnectionsState } from "./connections-state.ts"
+import {
+  connectionsStateReducer,
+  initialConnectionsState,
+  preserveConnectionSummaryOnPartialRefresh,
+} from "./connections-state.ts"
 
 const error: UserFacingError = {
   area: "connections",
@@ -62,6 +66,45 @@ test("connectionsStateReducer clears old summary while workspace sync starts", (
   assert.equal(next.actionError, null)
   assert.equal(next.summaryError, null)
   assert.equal(next.scopeSyncError, null)
+})
+
+test("partial app refresh keeps confirmed connections for the same workspace", () => {
+  const current = {
+    ...summary({ organizationName: "acme" }),
+    activeConnections: 1,
+    apps: [
+      {
+        authType: "oauth2" as const,
+        createdAt: 0,
+        id: "app-1",
+        isDefault: true,
+        service: "gmail",
+        status: "active" as const,
+        updatedAt: 0,
+      },
+    ],
+    connectedProviderCount: 1,
+  }
+  const next = {
+    ...summary({ organizationName: "acme" }),
+    appsStatus: "unavailable" as const,
+    updatedAt: "2026-07-17T00:00:00.000Z",
+    usageLoading: true,
+  }
+
+  assert.deepEqual(preserveConnectionSummaryOnPartialRefresh(current, next), {
+    ...current,
+    appsStatus: "unavailable",
+    updatedAt: next.updatedAt,
+    usageLoading: true,
+  })
+})
+
+test("partial app refresh does not reuse data from another workspace", () => {
+  const current = summary({ organizationName: "old-org" })
+  const next = { ...summary({ organizationName: "new-org" }), appsStatus: "forbidden" as const }
+
+  assert.equal(preserveConnectionSummaryOnPartialRefresh(current, next), next)
 })
 
 test("connectionsStateReducer clears only refresh busy when refresh completes", () => {

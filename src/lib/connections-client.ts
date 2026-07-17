@@ -56,6 +56,34 @@ interface ConnectorEnvelope<T> {
   success?: boolean
 }
 
+export class ConnectorRequestError extends Error {
+  readonly apiMessage: string | undefined
+  readonly code: string | undefined
+  readonly path: string
+  readonly status: number
+
+  constructor({
+    apiMessage,
+    code,
+    path,
+    status,
+    statusText,
+  }: {
+    apiMessage?: string
+    code?: string
+    path: string
+    status: number
+    statusText: string
+  }) {
+    super(`Connector ${path} failed: HTTP ${status}: ${apiMessage ?? statusText}`)
+    this.name = "ConnectorRequestError"
+    this.apiMessage = apiMessage
+    this.code = code
+    this.path = path
+    this.status = status
+  }
+}
+
 interface ConnectorCacheEntry {
   data: unknown
   etag?: string
@@ -146,11 +174,33 @@ function unwrapConnectorEnvelope<T>(payload: unknown): { data: T; meta: unknown 
 }
 
 function extractEnvelopeMessage(payload: unknown): string | undefined {
+  if (typeof payload === "string") {
+    return payload || undefined
+  }
   if (payload && typeof payload === "object") {
     const envelope = payload as ConnectorEnvelope<unknown>
     return envelope.errorMessage || envelope.message
   }
   return undefined
+}
+
+function extractEnvelopeCode(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") {
+    return undefined
+  }
+  const envelope = payload as Record<string, unknown>
+  const code = envelope["code"] ?? envelope["errorCode"] ?? envelope["error_code"]
+  return typeof code === "string" && code.length > 0 ? code : undefined
+}
+
+function connectorResponseError(path: string, response: Response, payload: unknown): ConnectorRequestError {
+  return new ConnectorRequestError({
+    apiMessage: extractEnvelopeMessage(payload),
+    code: extractEnvelopeCode(payload),
+    path,
+    status: response.status,
+    statusText: response.statusText,
+  })
 }
 
 async function readConnectorPayload(response: Response): Promise<unknown> {
@@ -183,7 +233,7 @@ async function requestConnector<T>(
   })
   const payload = await readConnectorPayload(response)
   if (!response.ok) {
-    throw new Error(`Connector ${path} failed: ${extractEnvelopeMessage(payload) ?? `HTTP ${response.status}`}`)
+    throw connectorResponseError(path, response, payload)
   }
   return unwrapConnectorEnvelope<T>(payload)
 }
@@ -204,18 +254,18 @@ async function requestConnectorGlobal<T>(
   })
   const payload = await readConnectorPayload(response)
   if (!response.ok) {
-    throw new Error(`Connector ${path} failed: ${extractEnvelopeMessage(payload) ?? `HTTP ${response.status}`}`)
+    throw connectorResponseError(path, response, payload)
   }
   return unwrapConnectorEnvelope<T>(payload)
 }
 
-/** 读类 GET：带 etag/if-modified-since 条件请求 + 30s TTL，按 workspace+path 缓存（沿用主进程行为，省去每次轮询重拉目录）。 */
+/** 读类 GET：带条件请求 + 30s TTL；组织资源按 workspace 隔离，公共目录使用 global 键。 */
 async function getConnector<T>(
   path: string,
-  workspace: ConnectionWorkspace,
+  workspace: ConnectionWorkspace | null,
   options: ConnectorReadOptions = {},
 ): Promise<{ data: T; meta: unknown }> {
-  const cacheKey = `${connectionWorkspaceKey(workspace)}:${path}`
+  const cacheKey = `${workspace ? connectionWorkspaceKey(workspace) : "global"}:${path}`
   const cached = connectorGetCache.get(cacheKey)
   const now = Date.now()
   if (!options.forceRefresh && cached && now - cached.fetchedAt < connectorGetCacheMs) {
@@ -251,7 +301,7 @@ async function getConnector<T>(
 
 async function fetchConnectorGet<T>(
   path: string,
-  workspace: ConnectionWorkspace,
+  workspace: ConnectionWorkspace | null,
   cacheKey: string,
   cached: ConnectorCacheEntry | undefined,
   generation: number,
@@ -259,7 +309,7 @@ async function fetchConnectorGet<T>(
 ): Promise<{ data: T; meta: unknown }> {
   const response = await oomolFetch(`${connectorBaseUrl}${path}`, {
     headers: {
-      ...workspaceHeaders(workspace),
+      ...(workspace ? workspaceHeaders(workspace) : {}),
       ...(cached?.etag ? { "if-none-match": cached.etag } : {}),
       ...(cached?.lastModified ? { "if-modified-since": cached.lastModified } : {}),
     },
@@ -275,7 +325,7 @@ async function fetchConnectorGet<T>(
 
   const payload = await readConnectorPayload(response)
   if (!response.ok) {
-    throw new Error(`Connector request failed with status ${response.status}`)
+    throw connectorResponseError(path, response, payload)
   }
 
   const result = unwrapConnectorEnvelope<T>(payload)
@@ -322,18 +372,40 @@ export async function getConnectionCatalogSummary(
   workspace: ConnectionWorkspace,
   options: ConnectorReadOptions = {},
 ): Promise<ConnectionSummary> {
-  const [appsResult, providersResult] = await Promise.all([
+  const [appsResult, providersResult] = await Promise.allSettled([
     getConnector<RawApp[]>("/v1/apps", workspace, options),
-    getConnector<RawProvider[]>("/v1/providers", workspace, options),
+    // Provider 是公共发现目录，不应因当前组织的连接管理权限而不可见。
+    getConnector<RawProvider[]>("/v1/providers", null, options),
   ])
+  if (providersResult.status === "rejected") {
+    throw providersResult.reason
+  }
+  if (appsResult.status === "rejected" && appsResult.reason instanceof ConnectorRequestError) {
+    if (appsResult.reason.status === 401) {
+      throw appsResult.reason
+    }
+  }
+  const appsStatus =
+    appsResult.status === "fulfilled"
+      ? "ready"
+      : appsResult.reason instanceof ConnectorRequestError && appsResult.reason.status === 403
+        ? "forbidden"
+        : "unavailable"
+  if (
+    appsResult.status === "rejected" &&
+    !(appsResult.reason instanceof ConnectorRequestError && appsResult.reason.status === 403)
+  ) {
+    reportRendererHandledError("connections", "organization connection state request failed", appsResult.reason)
+  }
   return {
     ...mergeConnectionSummary({
-      apps: appsResult.data,
-      meta: appsResult.meta as RawAppListMeta | null,
-      providers: providersResult.data,
+      apps: appsResult.status === "fulfilled" ? appsResult.value.data : [],
+      meta: appsResult.status === "fulfilled" ? (appsResult.value.meta as RawAppListMeta | null) : null,
+      providers: providersResult.value.data,
       usage: createEmptyConnectionUsageSummary(),
       workspace,
     }),
+    appsStatus,
     usageLoading: true,
   }
 }

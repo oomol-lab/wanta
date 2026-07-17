@@ -29,7 +29,13 @@ import {
   ProviderCatalog,
   ProviderListSkeleton,
 } from "./ConnectionCatalog.tsx"
-import { EmptyList, ProviderDetail, StatusNotice } from "./ConnectionProviderDetailPane.tsx"
+import {
+  ConnectionStateNotice,
+  EmptyList,
+  ProviderDetail,
+  ReadOnlyConnectionNotice,
+  StatusNotice,
+} from "./ConnectionProviderDetailPane.tsx"
 import { DisconnectDialog } from "./DisconnectDialog.tsx"
 import { shouldOpenOAuthClientDialog } from "./oauth-client-config.ts"
 import { useConnectionProviderDetail } from "./use-connection-provider-detail.ts"
@@ -53,6 +59,7 @@ export type { ConnectionAuthIntent } from "./ConnectionProviderDetailPane.tsx"
 
 interface ConnectionsPanelProps {
   authIntent?: ConnectionAuthIntent | null
+  canManageConnections: boolean
   connections: UseConnections
   onClose?: () => void
   presentation?: "drawer" | "page"
@@ -62,6 +69,7 @@ interface ConnectionsPanelProps {
 
 export function ConnectionsPanel({
   authIntent,
+  canManageConnections,
   connections,
   onClose,
   presentation = "page",
@@ -125,6 +133,7 @@ export function ConnectionsPanel({
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
   const providerDetail = useConnectionProviderDetail({
+    enabled: canManageConnections,
     getProviderDetail,
     provider: selectedProvider,
     workspaceKey: summaryWorkspaceKey,
@@ -133,7 +142,7 @@ export function ConnectionsPanel({
   const selectedProviderDetailLoading = providerDetail.loading
   const selectedProviderDetailError = providerDetail.error
   const selectedProviderActionsBlocked = Boolean(
-    providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError,
+    !canManageConnections || (providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError),
   )
   const selectedProviderActionsPending = Boolean(
     providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailLoading,
@@ -246,6 +255,9 @@ export function ConnectionsPanel({
       authType: Exclude<ConnectionAuthType, null>,
       appId?: string,
     ): Promise<void> => {
+      if (!canManageConnections) {
+        return
+      }
       if (polling && !isConnectionServicePollingTarget(polling, provider.service)) {
         return
       }
@@ -305,11 +317,14 @@ export function ConnectionsPanel({
         }
       }
     },
-    [connect, deleteCachedDetailForService, getAppDetail, polling, providerDetail],
+    [canManageConnections, connect, deleteCachedDetailForService, getAppDetail, polling, providerDetail],
   )
 
   const submitConnectDialog = React.useCallback(
     (input: ConnectionConnectInput): void => {
+      if (!canManageConnections) {
+        return
+      }
       void (async () => {
         const ok = await connect(input)
         if (ok) {
@@ -321,7 +336,7 @@ export function ConnectionsPanel({
         setDialog(null)
       }
     },
-    [connect, deleteCachedDetailForService],
+    [canManageConnections, connect, deleteCachedDetailForService],
   )
 
   if (presentation === "drawer") {
@@ -333,6 +348,7 @@ export function ConnectionsPanel({
             busy={busy}
             detail={selectedProviderDetail}
             actionsBlocked={selectedProviderActionsBlocked}
+            canManageConnections={canManageConnections}
             actionsPending={selectedProviderActionsPending}
             errorNotice={detailErrorNotice}
             detailLoading={selectedProviderDetailLoading}
@@ -427,6 +443,10 @@ export function ConnectionsPanel({
       >
         <SplitViewListPane ref={listPaneRef} narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
+            {!canManageConnections ? <ReadOnlyConnectionNotice /> : null}
+            {summary?.appsStatus && summary.appsStatus !== "ready" && canManageConnections ? (
+              <ConnectionStateNotice status={summary.appsStatus} />
+            ) : null}
             {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
             {listErrorNotice ? (
               <ErrorNotice
@@ -441,6 +461,7 @@ export function ConnectionsPanel({
               <EmptyList summary={summary} hasQuery={Boolean(normalizedQuery)} />
             ) : (
               <ProviderCatalog
+                canManageConnections={canManageConnections}
                 providers={filteredProviders}
                 scrollParentRef={listPaneRef}
                 selectedService={selectedProvider?.service ?? null}
@@ -463,6 +484,7 @@ export function ConnectionsPanel({
               busy={busy}
               detail={selectedProviderDetail}
               actionsBlocked={selectedProviderActionsBlocked}
+              canManageConnections={canManageConnections}
               actionsPending={selectedProviderActionsPending}
               errorNotice={detailErrorNotice}
               detailLoading={selectedProviderDetailLoading}
@@ -492,6 +514,7 @@ export function ConnectionsPanel({
               busy={busy}
               detail={selectedProviderDetail}
               actionsBlocked={selectedProviderActionsBlocked}
+              canManageConnections={canManageConnections}
               actionsPending={selectedProviderActionsPending}
               errorNotice={detailErrorNotice}
               detailLoading={selectedProviderDetailLoading}

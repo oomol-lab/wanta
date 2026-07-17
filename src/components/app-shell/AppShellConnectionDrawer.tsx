@@ -22,12 +22,14 @@ function ConnectionDrawerLoadingFallback() {
 
 export function AppShellConnectionDrawer({
   authIntent,
+  canManageConnections,
   connections,
   onClose,
   selectedService,
   visible,
 }: {
   authIntent: ConnectionAuthIntent | null
+  canManageConnections: boolean
   connections: UseConnections
   onClose: () => void
   selectedService: string | null
@@ -46,6 +48,7 @@ export function AppShellConnectionDrawer({
         <React.Suspense fallback={<ConnectionDrawerLoadingFallback />}>
           <ConnectionsPanel
             authIntent={authIntent}
+            canManageConnections={canManageConnections}
             connections={connections}
             onClose={onClose}
             presentation="drawer"

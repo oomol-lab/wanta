@@ -28,7 +28,7 @@ async function xlsxFixture(): Promise<Buffer> {
   )
   zip.file(
     "xl/worksheets/sheet1.xml",
-    '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:B1"/><sheetData><row r="1"><c r="A1"><v>42</v></c><c r="B1"><v>7</v></c></row></sheetData></worksheet>',
+    '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:C1"/><sheetData><row r="1"><c r="A1"><v>42</v></c><c r="B1" s="3" t="inlineStr" /><c r="C1" t="inlineStr"><is><t>kept</t></is></c></row></sheetData></worksheet>',
   )
   return zip.generateAsync({ type: "nodebuffer" })
 }
@@ -55,7 +55,7 @@ test("spreadsheet preview worker parses an XLSX end to end", async () => {
     assert.ok("result" in response)
     assert.equal(response.result.kind, "spreadsheet")
     assert.equal(response.result.spreadsheet?.activeSheet, "Summary")
-    assert.deepEqual(response.result.spreadsheet?.rows, [["42", "7"]])
+    assert.deepEqual(response.result.spreadsheet?.rows, [["42", "", "kept"]])
   } finally {
     await worker.terminate()
     await rm(directory, { force: true, recursive: true })

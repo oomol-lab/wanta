@@ -311,12 +311,32 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
       return normalizePermissionResolved(props)
     }
     case "message.updated": {
-      const info = props.info as { id?: string; sessionID?: string; role?: ChatRole; error?: unknown } | undefined
+      const info = props.info as
+        | {
+            id?: string
+            sessionID?: string
+            role?: ChatRole
+            error?: unknown
+            finish?: unknown
+            time?: { completed?: unknown }
+          }
+        | undefined
       if (!info?.id || !info.sessionID || !info.role) {
         return []
       }
+      const finishReason = typeof info.finish === "string" ? info.finish : undefined
+      const completedAt = typeof info.time?.completed === "number" ? info.time.completed : undefined
       const emits: ChatEmit[] = [
-        { event: "messageStarted", data: { sessionId: info.sessionID, messageId: info.id, role: info.role } },
+        {
+          event: "messageStarted",
+          data: {
+            sessionId: info.sessionID,
+            messageId: info.id,
+            role: info.role,
+            ...(finishReason ? { finishReason } : {}),
+            ...(completedAt === undefined ? {} : { completedAt }),
+          },
+        },
       ]
       if (info.role === "assistant" && isOpencodeError(info.error) && !isMessageAbortedError(info.error)) {
         emits.push({ event: "agentError", data: { sessionId: info.sessionID, message: errorMessage(info.error) } })
@@ -414,6 +434,7 @@ interface OpencodePart {
     attachments?: unknown[]
   }
   attempt?: number
+  reason?: string
   error?: unknown
   time?: {
     created?: number
@@ -445,7 +466,12 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
     return [
       {
         event: "assistantActivity",
-        data: { sessionId: part.sessionID, messageId: part.messageID, phase: "finalizing" },
+        data: {
+          sessionId: part.sessionID,
+          messageId: part.messageID,
+          phase: "finalizing",
+          ...(part.reason ? { finishReason: part.reason } : {}),
+        },
       },
     ]
   }
@@ -615,7 +641,13 @@ function messageTokenUsage(info: unknown): ChatTokenUsage | undefined {
 /** 把 OpenCode 的 message {info, parts} 规范化为 ChatMessage（切换会话加载历史用）。 */
 export function normalizeMessage(message: { info?: unknown; parts?: unknown }): ChatMessage | null {
   const info = message.info as
-    | { id?: string; role?: ChatRole; time?: { created?: number }; error?: unknown }
+    | {
+        id?: string
+        role?: ChatRole
+        time?: { created?: number; completed?: number }
+        error?: unknown
+        finish?: unknown
+      }
     | undefined
   if (!info?.id || !info.role) {
     return null
@@ -678,6 +710,8 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
     role: info.role,
     parts,
     createdAt: info.time?.created ?? 0,
+    ...(typeof info.finish === "string" ? { finishReason: info.finish } : {}),
+    ...(typeof info.time?.completed === "number" ? { completedAt: info.time.completed } : {}),
     ...(tokenUsage ? { tokenUsage } : {}),
   }
 }

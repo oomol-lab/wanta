@@ -15,6 +15,34 @@ test("message.updated → messageStarted with role", () => {
   assert.deepEqual(out, [{ event: "messageStarted", data: { sessionId: "s1", messageId: "m1", role: "assistant" } }])
 })
 
+test("message.updated forwards assistant finish metadata", () => {
+  const out = translateOpencodeEvent({
+    type: "message.updated",
+    properties: {
+      info: {
+        id: "m1",
+        sessionID: "s1",
+        role: "assistant",
+        finish: "tool-calls",
+        time: { completed: 456 },
+      },
+    },
+  })
+
+  assert.deepEqual(out, [
+    {
+      event: "messageStarted",
+      data: {
+        sessionId: "s1",
+        messageId: "m1",
+        role: "assistant",
+        finishReason: "tool-calls",
+        completedAt: 456,
+      },
+    },
+  ])
+})
+
 test("message.updated with assistant error emits agentError after messageStarted", () => {
   const out = translateOpencodeEvent({
     type: "message.updated",
@@ -118,7 +146,17 @@ test("step parts update assistant activity without creating visible message part
         part: { id: "step-2", sessionID: "s1", messageID: "m1", type: "step-finish", reason: "tool-calls" },
       },
     }),
-    [{ event: "assistantActivity", data: { sessionId: "s1", messageId: "m1", phase: "finalizing" } }],
+    [
+      {
+        event: "assistantActivity",
+        data: {
+          sessionId: "s1",
+          messageId: "m1",
+          phase: "finalizing",
+          finishReason: "tool-calls",
+        },
+      },
+    ],
   )
 })
 
@@ -659,6 +697,21 @@ test("normalizeMessage preserves assistant token usage", () => {
     reasoning: 40,
     cache: { read: 800, write: 50 },
   })
+})
+
+test("normalizeMessage preserves assistant finish metadata", () => {
+  const msg = normalizeMessage({
+    info: {
+      id: "m1",
+      role: "assistant",
+      finish: "stop",
+      time: { created: 123, completed: 456 },
+    },
+    parts: [{ id: "p1", type: "text", text: "Done" }],
+  })
+
+  assert.equal(msg?.finishReason, "stop")
+  assert.equal(msg?.completedAt, 456)
 })
 
 test("normalizeMessage appends assistant message-level errors", () => {

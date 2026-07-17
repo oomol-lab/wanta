@@ -7,6 +7,7 @@ describe("isToolCancellationMessage", () => {
     expect(isToolCancellationMessage("Task canceled.")).toBe(true)
     expect(isToolCancellationMessage("Aborted")).toBe(true)
     expect(isToolCancellationMessage("AbortError: The operation was aborted.")).toBe(true)
+    expect(isToolCancellationMessage("The user dismissed this question")).toBe(true)
   })
 
   it("does not treat ordinary tool failures as user cancellation", () => {

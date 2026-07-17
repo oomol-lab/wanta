@@ -25,7 +25,6 @@ import {
   agentAttachments,
   appendOptimisticConversationTurn,
   applyCancelledToolParts,
-  ensureMessage,
   hasVisibleMessageDelta,
   markAssistantMessageToolsInterrupted,
   markAssistantMessageToolsCancelled,
@@ -38,6 +37,8 @@ import {
   setGenerationNoticePart,
   setAttachmentPart,
   setErrorPart,
+  setMessageFinishReason,
+  setMessageInfo,
   visibleChatError,
 } from "./chat-message-state.ts"
 import { useChatEventBuffer } from "./use-chat-event-buffer.ts"
@@ -490,7 +491,7 @@ export function useChat(activeSessionId: string | null): UseChat {
       }),
       chatService.serverEvents.on("messageStarted", (e) => {
         removeAnsweredPendingQuestions(e.sessionId)
-        patch(e.sessionId, (msgs) => ensureMessage(msgs, e.messageId, e.role))
+        patch(e.sessionId, (msgs) => setMessageInfo(msgs, e))
         if (e.role === "assistant") {
           setStatus(e.sessionId, "streaming")
           setActivity(e.sessionId, { sessionId: e.sessionId, messageId: e.messageId, phase: "thinking" })
@@ -584,6 +585,10 @@ export function useChat(activeSessionId: string | null): UseChat {
       chatService.serverEvents.on("assistantActivity", (e) => {
         setStatus(e.sessionId, "streaming")
         setActivity(e.sessionId, e)
+        const { finishReason, messageId } = e
+        if (messageId && finishReason) {
+          patch(e.sessionId, (msgs) => setMessageFinishReason(msgs, messageId, finishReason))
+        }
       }),
       chatService.serverEvents.on("agentConnectionChanged", (e) => {
         if (e.status === "reconnecting" || e.status === "runtime_restarting" || e.status === "reconnected") {

@@ -15,6 +15,7 @@ export function isToolCancellationMessage(message: string | undefined): boolean 
   return (
     normalized === "task cancelled" ||
     normalized === "task canceled" ||
+    normalized === "the user dismissed this question" ||
     normalized === "aborted" ||
     normalized === "aborterror" ||
     normalized.startsWith("aborterror:") ||

@@ -1105,6 +1105,14 @@ export const enMessages = {
   "connections.unavailableTitle": "Unable to read connections",
   "connections.unavailableDescription":
     "The connection service is temporarily unavailable. The app will retry on refresh.",
+  "connections.readOnlyTitle": "Connections are read-only in this workspace",
+  "connections.readOnlyDescription":
+    "You can browse the connector catalog. Adding, editing, reconnecting, or disconnecting requires organization administrator access.",
+  "connections.stateUnavailableTitle": "Organization connection status unavailable",
+  "connections.stateForbiddenDescription":
+    "You cannot read this organization's connection status, but you can still browse the connector catalog.",
+  "connections.stateUnavailableDescription":
+    "This organization's connection status could not be refreshed, but you can still browse the connector catalog.",
   "connections.emptyTitle": "No provider connected yet",
   "connections.readyEmptyDescription": "The connection service is available, but no provider is connected yet.",
   "connections.oauthWaiting": "Waiting for authorization",

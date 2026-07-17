@@ -17,6 +17,7 @@ import { AuthorizationOverlayStore } from "./authorization.ts"
 import { buildContextMentionsSystem, ChatServiceImpl, isAbortErrorMessage } from "./node.ts"
 import { resolveChatTurnExecution } from "./turn-execution.ts"
 import { TurnOutputStore } from "./turn-outputs.ts"
+import { UserAttachmentStore } from "./user-attachments.ts"
 
 const testOrganizationScope = {
   organizationId: "org-id",
@@ -217,6 +218,116 @@ test("sendMessage waits for the request organization scope before prompting", as
 
   assert.equal(bridge.createArtifactDir.mock.calls.length, 1)
   assert.equal(bridge.promptStreaming.mock.calls.length, 1)
+})
+
+test("sendMessage persists original attachments and hides internal spreadsheet parts", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-user-attachment-flow-"))
+  const bridge = createBridgeAgent()
+  const store = new UserAttachmentStore(directory)
+  const service = new ChatServiceImpl(bridge.agent, { userAttachmentStore: store })
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  const attachment = {
+    agentMime: "text/plain",
+    agentName: "inventory-extracted.txt",
+    agentPath: "/managed/internal/inventory-extracted.txt",
+    agentSize: 50,
+    id: "attachment-1",
+    kind: "file" as const,
+    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    name: "inventory.xlsx",
+    path: "/managed/original/inventory.xlsx",
+    size: 100,
+  }
+
+  await service.sendMessage({
+    attachments: [attachment],
+    scope: testOrganizationScope,
+    sessionId: "session-1",
+    text: "Analyze this workbook",
+  })
+  const messageId = (bridge.promptStreaming.mock.calls[0]?.[2] as { messageId?: string } | undefined)?.messageId
+  assert.match(messageId ?? "", /^msg_[a-f0-9]{12}[0-9A-Za-z]{14}$/)
+  assert.deepEqual((await store.read()).get("session-1")?.get(messageId ?? "")?.attachments[0], {
+    id: "attachment-1",
+    kind: "file",
+    mime: attachment.mime,
+    name: "inventory.xlsx",
+    path: "/managed/original/inventory.xlsx",
+    size: 100,
+  })
+
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: messageId, role: "user", sessionID: "session-1" } },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "synthetic-read",
+        messageID: messageId,
+        sessionID: "session-1",
+        synthetic: true,
+        text: "<content>internal spreadsheet extraction</content>",
+        type: "text",
+      },
+    },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        filename: "inventory-extracted.txt",
+        id: "internal-file",
+        messageID: messageId,
+        mime: "text/plain",
+        sessionID: "session-1",
+        source: { path: attachment.agentPath },
+        type: "file",
+      },
+    },
+  })
+  await waitForCondition(() => events.some((event) => event.event === "messageStarted"))
+  assert.equal(
+    events.some((event) => event.event === "messageDelta"),
+    false,
+  )
+  assert.equal(
+    events.some((event) => event.event === "messageAttachment"),
+    false,
+  )
+
+  bridge.getMessages.mockResolvedValueOnce([
+    {
+      createdAt: 1,
+      id: messageId,
+      parts: [
+        {
+          attachment: {
+            id: "internal-file",
+            kind: "file",
+            mime: "text/plain",
+            name: "inventory-extracted.txt",
+            path: attachment.agentPath,
+            size: 0,
+          },
+          kind: "attachment",
+          partId: "internal-file",
+        },
+        { kind: "text", partId: "user-text", text: "Analyze this workbook" },
+      ],
+      role: "user",
+    },
+  ])
+  const messages = await service.getMessages("session-1")
+  assert.equal(messages[0]?.parts[0]?.attachment?.name, "inventory.xlsx")
+  assert.equal(
+    messages[0]?.parts.some((part) => part.attachment?.name === "inventory-extracted.txt"),
+    false,
+  )
+
+  await rm(directory, { force: true, recursive: true })
 })
 
 test("sendMessage exposes active run snapshots with the request workspace", async () => {

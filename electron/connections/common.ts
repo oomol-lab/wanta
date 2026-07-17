@@ -1,4 +1,5 @@
 export type ConnectionBackendStatus = "ready" | "signed-out" | "unavailable"
+export type ConnectionAppsStatus = "ready" | "forbidden" | "unavailable"
 export type ConnectionAuthType = "oauth2" | "api_key" | "custom_credential" | "federated" | "no_auth" | null
 export type ConnectionAppStatus = "active" | "reauth_required" | "error" | "disconnected"
 export type ConnectionProviderStatus = "available" | "connected" | "needs_attention"
@@ -221,6 +222,8 @@ export interface ConnectionSummary {
   status: ConnectionBackendStatus
   activeConnections: number
   apps: ConnectionAppSummary[]
+  /** 组织连接状态与 Provider 公共目录分开读取；失败时目录仍可只读浏览。 */
+  appsStatus?: ConnectionAppsStatus
   /** 用户实际配置或授权过的 Provider 种类数，不包含无需账号即可使用的免配置 Provider。 */
   connectedProviderCount: number
   connectableProviderCount: number

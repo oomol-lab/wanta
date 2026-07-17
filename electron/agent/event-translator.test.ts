@@ -73,6 +73,21 @@ test("text part.updated forwards streaming delta when cumulative text is unavail
   ])
 })
 
+test("text part.updated preserves the synthetic marker for visibility filtering", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: {
+      part: { id: "p1", sessionID: "s1", messageID: "m1", type: "text", text: "internal", synthetic: true },
+    },
+  })
+  assert.deepEqual(out, [
+    {
+      event: "messageDelta",
+      data: { sessionId: "s1", messageId: "m1", partId: "p1", synthetic: true, text: "internal" },
+    },
+  ])
+})
+
 test("reasoning part.updated → messageReasoningDelta", () => {
   const out = translateOpencodeEvent({
     type: "message.part.updated",
@@ -316,6 +331,25 @@ test("file part.updated → messageAttachment", () => {
       },
     },
   ])
+})
+
+test("normalizeMessage hides synthetic OpenCode file expansion from user text", () => {
+  assert.deepEqual(
+    normalizeMessage({
+      info: { id: "m1", role: "user", time: { created: 1 } },
+      parts: [
+        { id: "synthetic-1", type: "text", text: "Called the Read tool", synthetic: true },
+        { id: "synthetic-2", type: "text", text: "<content>internal</content>", synthetic: true },
+        { id: "user-1", type: "text", text: "Analyze this workbook" },
+      ],
+    }),
+    {
+      createdAt: 1,
+      id: "m1",
+      parts: [{ kind: "text", partId: "user-1", text: "Analyze this workbook" }],
+      role: "user",
+    },
+  )
 })
 
 test("tool part pending → toolCallStarted", () => {

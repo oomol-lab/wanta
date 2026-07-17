@@ -234,6 +234,20 @@ export function getProviderActionLabel(provider: ConnectionProviderSummary, t: T
   }
 }
 
+export function getProviderCatalogLabel(
+  provider: ConnectionProviderSummary,
+  canManageConnections: boolean,
+  t: TranslateFn,
+): string {
+  if (canManageConnections) {
+    return getProviderActionLabel(provider, t)
+  }
+  if (provider.actionKind === "unavailable") {
+    return t("connections.unsupported")
+  }
+  return provider.status === "available" ? t("connections.notConnected") : getProviderStatusDisplayLabel(provider, t)
+}
+
 export function getCategoryDisplayLabel(label: string, t: TranslateFn): string {
   if (label === uncategorizedCategoryValue) {
     return t("connections.categoryUnknown")

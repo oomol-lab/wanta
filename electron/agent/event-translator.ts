@@ -388,6 +388,7 @@ interface OpencodePart {
   messageID: string
   type: string
   text?: string
+  synthetic?: boolean
   mime?: string
   filename?: string
   url?: string
@@ -469,6 +470,7 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
       partId: part.id,
       text: part.text ?? "",
       ...(delta === undefined ? {} : { delta }),
+      ...(part.synthetic ? { synthetic: true } : {}),
     }
     return [
       {
@@ -622,6 +624,9 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
   const parts: ChatMessagePart[] = []
   for (const part of rawParts) {
     if (part.type === "text") {
+      if (info.role === "user" && part.synthetic === true) {
+        continue
+      }
       const text = part.text ?? ""
       if (text.length > 0) {
         parts.push({ kind: "text", partId: part.id, text })

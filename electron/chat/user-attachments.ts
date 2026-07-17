@@ -19,6 +19,10 @@ interface PersistedUserAttachmentRecords {
 
 export type UserAttachmentRecords = Map<string, Map<string, StoredUserAttachmentRecord>>
 
+interface UserAttachmentStoreOptions {
+  removeManagedPath?: (target: string, options: { force: boolean; recursive?: boolean }) => Promise<void>
+}
+
 function validText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0
 }
@@ -133,13 +137,15 @@ export class UserAttachmentStore {
   private readonly file: string
   private readonly managedAgentRoot: string
   private readonly managedOriginalRoot: string
+  private readonly removeManagedPath: NonNullable<UserAttachmentStoreOptions["removeManagedPath"]>
   private records: UserAttachmentRecords | undefined
   private mutationQueue: Promise<void> = Promise.resolve()
 
-  public constructor(dir: string) {
+  public constructor(dir: string, options: UserAttachmentStoreOptions = {}) {
     this.file = path.join(dir, "user-attachments.json")
     this.managedAgentRoot = path.resolve(dir, "attachments", "agent")
     this.managedOriginalRoot = path.resolve(dir, "attachments", "originals")
+    this.removeManagedPath = options.removeManagedPath ?? rm
   }
 
   public async read(): Promise<UserAttachmentRecords> {
@@ -167,13 +173,11 @@ export class UserAttachmentStore {
   }
 
   public async removeSession(sessionId: string): Promise<void> {
-    let removed: StoredUserAttachmentRecord[] = []
-    let retainedPaths = new Set<string>()
     await this.enqueueMutation(async () => {
       const records = cloneRecords(await this.loadRecords())
-      removed = [...(records.get(sessionId)?.values() ?? [])]
+      const removed = [...(records.get(sessionId)?.values() ?? [])]
       if (!records.delete(sessionId)) return
-      retainedPaths = new Set(
+      const retainedPaths = new Set(
         [...records.values()]
           .flatMap((messages) => [...messages.values()])
           .flatMap((record) => [
@@ -181,10 +185,10 @@ export class UserAttachmentStore {
             ...record.internalPaths.map((internalPath) => path.resolve(internalPath)),
           ]),
       )
+      await this.removeUnreferencedManagedFiles(removed, retainedPaths)
       await this.persist(records)
       this.records = records
     })
-    await this.removeUnreferencedManagedFiles(removed, retainedPaths)
   }
 
   private async removeUnreferencedManagedFiles(
@@ -205,12 +209,12 @@ export class UserAttachmentStore {
       if (path.dirname(directory) === this.managedOriginalRoot) {
         directories.add(directory)
       } else if (directory === this.managedAgentRoot) {
-        await rm(resolved, { force: true })
+        await this.removeManagedPath(resolved, { force: true })
       }
     }
     for (const directory of directories) {
       await chmod(directory, 0o700).catch(() => undefined)
-      await rm(directory, { force: true, recursive: true })
+      await this.removeManagedPath(directory, { force: true, recursive: true })
     }
   }
 

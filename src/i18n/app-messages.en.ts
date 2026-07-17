@@ -1107,7 +1107,7 @@ export const enMessages = {
     "The connection service is temporarily unavailable. The app will retry on refresh.",
   "connections.readOnlyTitle": "Connections are read-only in this workspace",
   "connections.readOnlyDescription":
-    "You can browse and use existing connections. Adding, editing, reconnecting, or disconnecting requires organization administrator access.",
+    "You can browse the connector catalog. Adding, editing, reconnecting, or disconnecting requires organization administrator access.",
   "connections.stateUnavailableTitle": "Organization connection status unavailable",
   "connections.stateForbiddenDescription":
     "You cannot read this organization's connection status, but you can still browse the connector catalog.",

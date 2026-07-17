@@ -16,14 +16,13 @@ interface AttachmentDialogHandlerOptions {
 }
 
 function managedAttachmentName(name: string): string {
-  return (
-    path
-      .basename(name)
-      .replace(/[<>:"/\\|?*]/g, "_")
-      .replaceAll(/./g, (character) => (character.charCodeAt(0) < 32 ? "_" : character))
-      .trim()
-      .slice(0, 160) || "attachment"
-  )
+  const normalized = path
+    .basename(name)
+    .replace(/[<>:"/\\|?*]/g, "_")
+    .replaceAll(/./g, (character) => (character.charCodeAt(0) < 32 ? "_" : character))
+    .trim()
+    .slice(0, 160)
+  return normalized && normalized !== "." && normalized !== ".." ? normalized : "attachment"
 }
 
 /** 文件附件先冻结到 Wanta 私有目录；后续预览、提取和 agent 工具均不得读写用户源文件。 */

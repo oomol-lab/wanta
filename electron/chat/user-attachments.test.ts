@@ -3,7 +3,7 @@ import type { ChatAttachment, ChatMessage } from "./common.ts"
 import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { applyUserAttachmentRecords, UserAttachmentStore } from "./user-attachments.ts"
 
 const temporaryDirectories: string[] = []
@@ -65,6 +65,54 @@ describe("UserAttachmentStore", () => {
 
     await store.removeSession("session-1")
 
+    await expect(access(snapshotDirectory)).rejects.toThrow()
+    expect((await store.read()).has("session-1")).toBe(false)
+  })
+
+  it("keeps a managed snapshot referenced by a concurrent queued record", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-user-attachment-rereference-"))
+    temporaryDirectories.push(directory)
+    const snapshotDirectory = path.join(directory, "attachments", "originals", "attachment-1")
+    const snapshotPath = path.join(snapshotDirectory, "inventory.xlsx")
+    await mkdir(snapshotDirectory, { recursive: true })
+    await writeFile(snapshotPath, "workbook", { mode: 0o400 })
+    await chmod(snapshotDirectory, 0o500)
+    const store = new UserAttachmentStore(directory)
+    await store.record("session-1", "message-1", [{ ...workbook(), path: snapshotPath }])
+
+    const rereference = store.record("session-2", "message-2", [{ ...workbook(), path: snapshotPath }])
+    const removal = store.removeSession("session-1")
+    await Promise.all([rereference, removal])
+
+    expect(await readFile(snapshotPath, "utf8")).toBe("workbook")
+    const records = await store.read()
+    expect(records.has("session-1")).toBe(false)
+    expect(records.get("session-2")?.get("message-2")?.attachments[0]?.path).toBe(snapshotPath)
+    await chmod(snapshotDirectory, 0o700)
+  })
+
+  it("retains the session record when cleanup fails and retries safely", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-user-attachment-retry-"))
+    temporaryDirectories.push(directory)
+    const snapshotDirectory = path.join(directory, "attachments", "originals", "attachment-1")
+    const snapshotPath = path.join(snapshotDirectory, "inventory.xlsx")
+    await mkdir(snapshotDirectory, { recursive: true })
+    await writeFile(snapshotPath, "workbook", { mode: 0o400 })
+    await chmod(snapshotDirectory, 0o500)
+    const removeManagedPath = vi
+      .fn<(target: string, options: { force: boolean; recursive?: boolean }) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("cleanup failed"))
+      .mockImplementation((target, options) => rm(target, options))
+    const store = new UserAttachmentStore(directory, { removeManagedPath })
+    await store.record("session-1", "message-1", [{ ...workbook(), path: snapshotPath }])
+
+    await expect(store.removeSession("session-1")).rejects.toThrow("cleanup failed")
+    expect((await store.read()).has("session-1")).toBe(true)
+    expect(await readFile(snapshotPath, "utf8")).toBe("workbook")
+
+    await store.removeSession("session-1")
+
+    expect(removeManagedPath).toHaveBeenCalledTimes(2)
     await expect(access(snapshotDirectory)).rejects.toThrow()
     expect((await store.read()).has("session-1")).toBe(false)
   })

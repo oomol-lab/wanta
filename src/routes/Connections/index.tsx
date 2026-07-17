@@ -84,6 +84,7 @@ export function ConnectionsPanel({
     clearActionError,
     connect,
     disconnect,
+    disconnectAccount,
     getAppDetail,
     getProviderDetail,
     polling,
@@ -106,6 +107,8 @@ export function ConnectionsPanel({
   const [confirmDisconnect, setConfirmDisconnect] = React.useState<DisconnectTarget | null>(null)
   const detailCloseTimerRef = React.useRef<number | null>(null)
   const connectRequestIdRef = React.useRef(0)
+  const canManageConnectionsRef = React.useRef(canManageConnections)
+  canManageConnectionsRef.current = canManageConnections
   const detailWorkspaceKeyRef = React.useRef<string | null>(summaryWorkspaceKey)
   const listPaneRef = React.useRef<HTMLDivElement | null>(null)
 
@@ -165,6 +168,13 @@ export function ConnectionsPanel({
     setDialog(null)
     setConfirmDisconnect(null)
   }, [summaryWorkspaceKey])
+
+  React.useEffect(() => {
+    if (canManageConnections) return
+    connectRequestIdRef.current += 1
+    setDialog(null)
+    setConfirmDisconnect(null)
+  }, [canManageConnections])
 
   const clearDetailCloseTimer = React.useCallback(() => {
     if (detailCloseTimerRef.current === null) {
@@ -339,6 +349,21 @@ export function ConnectionsPanel({
     [canManageConnections, connect, deleteCachedDetailForService],
   )
 
+  const confirmDisconnectTarget = React.useCallback(
+    async (target: DisconnectTarget): Promise<void> => {
+      if (!canManageConnectionsRef.current) {
+        setConfirmDisconnect(null)
+        return
+      }
+      const ok = target.app ? await disconnectAccount(target.app.id) : await disconnect(target.provider.service)
+      if (ok) {
+        deleteCachedDetailForService(target.provider.service)
+        setConfirmDisconnect(null)
+      }
+    },
+    [deleteCachedDetailForService, disconnect, disconnectAccount],
+  )
+
   if (presentation === "drawer") {
     return (
       <div className="h-full min-h-0 overflow-y-auto px-3 py-3">
@@ -405,15 +430,7 @@ export function ConnectionsPanel({
           target={confirmDisconnect}
           busy={busy === "disconnect"}
           onClose={() => setConfirmDisconnect(null)}
-          onConfirm={async (target) => {
-            const ok = target.app
-              ? await connections.disconnectAccount(target.app.id)
-              : await disconnect(target.provider.service)
-            if (ok) {
-              deleteCachedDetailForService(target.provider.service)
-              setConfirmDisconnect(null)
-            }
-          }}
+          onConfirm={confirmDisconnectTarget}
         />
       </div>
     )
@@ -444,7 +461,7 @@ export function ConnectionsPanel({
         <SplitViewListPane ref={listPaneRef} narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
             {!canManageConnections ? <ReadOnlyConnectionNotice /> : null}
-            {summary?.appsStatus && summary.appsStatus !== "ready" && canManageConnections ? (
+            {summary?.appsStatus && summary.appsStatus !== "ready" ? (
               <ConnectionStateNotice status={summary.appsStatus} />
             ) : null}
             {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
@@ -548,15 +565,7 @@ export function ConnectionsPanel({
         target={confirmDisconnect}
         busy={busy === "disconnect"}
         onClose={() => setConfirmDisconnect(null)}
-        onConfirm={async (target) => {
-          const ok = target.app
-            ? await connections.disconnectAccount(target.app.id)
-            : await disconnect(target.provider.service)
-          if (ok) {
-            deleteCachedDetailForService(target.provider.service)
-            setConfirmDisconnect(null)
-          }
-        }}
+        onConfirm={confirmDisconnectTarget}
       />
     </SplitViewRoot>
   )

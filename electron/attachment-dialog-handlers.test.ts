@@ -110,4 +110,21 @@ describe("snapshotSelectedAttachment", () => {
       }),
     ).rejects.toThrow("changed before")
   })
+
+  it.each([".", ".."])("normalizes the reserved snapshot name %s", async (name) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-attachment-reserved-name-"))
+    temporaryDirectories.push(directory)
+    const sourcePath = path.join(directory, "source")
+    await writeFile(sourcePath, "attachment")
+
+    const snapshot = await snapshotSelectedAttachment(path.join(directory, "user-data"), {
+      ...workbook,
+      name,
+      path: sourcePath,
+      size: 10,
+    })
+
+    expect(path.basename(snapshot.path)).toBe("attachment")
+    expect(await readFile(snapshot.path, "utf8")).toBe("attachment")
+  })
 })

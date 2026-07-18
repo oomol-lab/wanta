@@ -29,6 +29,7 @@ type OptionalTokenLimitField = "contextWindow" | "inputTokenLimit" | "maxOutputT
 
 export class ModelsServiceImpl extends ConnectionService<ModelsService> implements IConnectionService<ModelsService> {
   private readonly deps: ModelsServiceDeps
+  private mutationQueue: Promise<void> = Promise.resolve()
 
   public constructor(deps: ModelsServiceDeps) {
     super(ModelsServiceName)
@@ -39,91 +40,93 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
     return this.deps.store.catalog()
   }
 
-  public async setSelectedModel(choice: ModelChoice): Promise<ModelCatalog> {
-    const models = await this.deps.store.read()
-    const selected = isKnownModelChoice(models, choice) ? choice : defaultModelChoice()
-    await this.deps.store.write({ ...models, selected })
-    return this.emitCatalog()
-  }
-
-  public async saveCustomModel(req: SaveCustomModelRequest): Promise<ModelCatalog> {
-    const models = await this.deps.store.read()
-    const current = models.customModels ?? []
-    const existing = req.id ? current.find((model) => model.id === req.id) : undefined
-    const provider = CUSTOM_MODEL_PROVIDERS.find((item) => item.id === req.providerId)
-    const providerName = (req.providerName ?? provider?.displayName ?? req.providerId).trim()
-    const baseUrl = sanitizeBaseUrl(req.baseUrl ?? provider?.baseUrl ?? existing?.baseUrl ?? "")
-    const modelName = req.modelName.trim()
-    if (!modelName) {
-      throw new Error("Model name is required.")
-    }
-    const apiKey = req.apiKey?.trim() || existing?.apiKey || ""
-    if (!apiKey) {
-      throw new Error("API Key is required.")
-    }
-    const contextWindow = resolveOptionalTokenLimit(
-      req,
-      "contextWindow",
-      existing,
-      customProviderModelContextWindow(provider, modelName),
-      "Context window",
-    )
-    const maxOutputTokens = resolveOptionalTokenLimit(
-      req,
-      "maxOutputTokens",
-      existing,
-      customProviderModelMaxOutputTokens(provider, modelName),
-      "Max output tokens",
-    )
-    const inputTokenLimit = resolveOptionalTokenLimit(
-      req,
-      "inputTokenLimit",
-      existing,
-      customProviderModelInputTokenLimit(provider, modelName),
-      "Input token limit",
-    )
-    const next: PersistedCustomModel = {
-      id: existing?.id ?? randomUUID(),
-      providerId: req.providerId,
-      providerName,
-      baseUrl,
-      apiKey,
-      modelName,
-      displayName: req.displayName?.trim() || undefined,
-      supportsImages:
-        req.supportsImages ?? existing?.supportsImages ?? customProviderModelSupportsImages(provider, modelName),
-      supportsToolCalls:
-        req.supportsToolCalls ??
-        existing?.supportsToolCalls ??
-        customProviderModelSupportsToolCalls(provider, modelName),
-      ...(contextWindow ? { contextWindow } : {}),
-      ...(inputTokenLimit ? { inputTokenLimit } : {}),
-      ...(maxOutputTokens ? { maxOutputTokens } : {}),
-      reasoningVariants:
-        req.reasoningVariants !== undefined
-          ? [...req.reasoningVariants]
-          : (existing?.reasoningVariants ?? customProviderModelReasoningVariants(provider, modelName)),
-    }
-    const customModels = existing
-      ? current.map((model) => (model.id === existing.id ? next : model))
-      : [...current, next]
-    await this.deps.store.write({
-      ...models,
-      customModels,
-      selected: { kind: "custom", id: next.id },
+  public setSelectedModel(choice: ModelChoice): Promise<ModelCatalog> {
+    return this.enqueueMutation(async () => {
+      const models = await this.deps.store.read()
+      const selected = isKnownModelChoice(models, choice) ? choice : defaultModelChoice()
+      await this.deps.store.write({ ...models, selected })
+      return this.emitCatalog()
     })
-    this.deps.onCustomModelsChanged?.()
-    return this.emitCatalog()
   }
 
-  public async deleteCustomModel(id: string): Promise<ModelCatalog> {
-    const models = await this.deps.store.read()
-    const customModels = (models.customModels ?? []).filter((model) => model.id !== id)
-    const selected =
-      models.selected?.kind === "custom" && models.selected.id === id ? defaultModelChoice() : models.selected
-    await this.deps.store.write({ ...models, customModels, selected })
-    this.deps.onCustomModelsChanged?.()
-    return this.emitCatalog()
+  public saveCustomModel(req: SaveCustomModelRequest): Promise<ModelCatalog> {
+    return this.enqueueMutation(async () => {
+      const models = await this.deps.store.read()
+      const current = models.customModels ?? []
+      const existing = req.id ? current.find((model) => model.id === req.id) : undefined
+      const provider = CUSTOM_MODEL_PROVIDERS.find((item) => item.id === req.providerId)
+      const providerName = (req.providerName ?? provider?.displayName ?? req.providerId).trim()
+      const baseUrl = sanitizeBaseUrl(req.baseUrl ?? provider?.baseUrl ?? existing?.baseUrl ?? "")
+      const modelName = req.modelName.trim()
+      if (!modelName) throw new Error("Model name is required.")
+      const apiKey = req.apiKey?.trim() || existing?.apiKey || ""
+      if (!apiKey) throw new Error("API Key is required.")
+      const contextWindow = resolveOptionalTokenLimit(
+        req,
+        "contextWindow",
+        existing,
+        customProviderModelContextWindow(provider, modelName),
+        "Context window",
+      )
+      const maxOutputTokens = resolveOptionalTokenLimit(
+        req,
+        "maxOutputTokens",
+        existing,
+        customProviderModelMaxOutputTokens(provider, modelName),
+        "Max output tokens",
+      )
+      const inputTokenLimit = resolveOptionalTokenLimit(
+        req,
+        "inputTokenLimit",
+        existing,
+        customProviderModelInputTokenLimit(provider, modelName),
+        "Input token limit",
+      )
+      const next: PersistedCustomModel = {
+        id: existing?.id ?? randomUUID(),
+        providerId: req.providerId,
+        providerName,
+        baseUrl,
+        apiKey,
+        modelName,
+        displayName: req.displayName?.trim() || undefined,
+        supportsImages:
+          req.supportsImages ?? existing?.supportsImages ?? customProviderModelSupportsImages(provider, modelName),
+        supportsToolCalls:
+          req.supportsToolCalls ??
+          existing?.supportsToolCalls ??
+          customProviderModelSupportsToolCalls(provider, modelName),
+        ...(contextWindow ? { contextWindow } : {}),
+        ...(inputTokenLimit ? { inputTokenLimit } : {}),
+        ...(maxOutputTokens ? { maxOutputTokens } : {}),
+        reasoningVariants:
+          req.reasoningVariants !== undefined
+            ? [...req.reasoningVariants]
+            : (existing?.reasoningVariants ?? customProviderModelReasoningVariants(provider, modelName)),
+      }
+      const customModels = existing
+        ? current.map((model) => (model.id === existing.id ? next : model))
+        : [...current, next]
+      await this.deps.store.write({
+        ...models,
+        customModels,
+        selected: { kind: "custom", id: next.id },
+      })
+      this.deps.onCustomModelsChanged?.()
+      return this.emitCatalog()
+    })
+  }
+
+  public deleteCustomModel(id: string): Promise<ModelCatalog> {
+    return this.enqueueMutation(async () => {
+      const models = await this.deps.store.read()
+      const customModels = (models.customModels ?? []).filter((model) => model.id !== id)
+      const selected =
+        models.selected?.kind === "custom" && models.selected.id === id ? defaultModelChoice() : models.selected
+      await this.deps.store.write({ ...models, customModels, selected })
+      this.deps.onCustomModelsChanged?.()
+      return this.emitCatalog()
+    })
   }
 
   private async emitCatalog(): Promise<ModelCatalog> {
@@ -133,6 +136,20 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
       logDiagnostic("models-service", "failed to emit models catalog", { error }, "warn")
     })
     return catalog
+  }
+
+  private async enqueueMutation<T>(mutation: () => Promise<T>): Promise<T> {
+    const previous = this.mutationQueue
+    let release!: () => void
+    this.mutationQueue = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await previous.catch(() => undefined)
+    try {
+      return await mutation()
+    } finally {
+      release()
+    }
   }
 }
 

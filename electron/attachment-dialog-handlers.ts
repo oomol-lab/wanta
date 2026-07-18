@@ -15,6 +15,10 @@ interface AttachmentDialogHandlerOptions {
   userDataDir?: string
 }
 
+interface TrustedPathSink {
+  add(filePath: string): unknown
+}
+
 function managedAttachmentName(name: string): string {
   const normalized = path
     .basename(name)
@@ -89,7 +93,7 @@ export async function prepareSelectedAttachment(
 }
 
 export function registerAttachmentDialogHandlers(
-  trustedPaths: Set<string>,
+  trustedPaths: TrustedPathSink,
   options: AttachmentDialogHandlerOptions = {},
 ): void {
   const userDataDir = options.userDataDir ?? app.getPath("userData")

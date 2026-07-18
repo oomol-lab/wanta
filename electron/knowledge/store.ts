@@ -2,8 +2,9 @@ import type { KnowledgeBaseSummary } from "./common.ts"
 
 import { createHash, randomUUID } from "node:crypto"
 import { createReadStream } from "node:fs"
-import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises"
 import path from "node:path"
+import { atomicWriteText } from "../atomic-file.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface KnowledgeBaseRecord extends KnowledgeBaseSummary {
@@ -111,14 +112,45 @@ export class KnowledgeStore {
     })
   }
 
+  /** 导入提交时再次按 fingerprint 去重，封住“复制与耗时 inspect 之间”的并发窗口。 */
+  public async commitImport(record: KnowledgeBaseRecord): Promise<KnowledgeBaseRecord | null> {
+    let duplicate: KnowledgeBaseRecord | null = null
+    await this.enqueueMutation(async () => {
+      const records = await this.listRecords()
+      duplicate = records.find((item) => item.fingerprint === record.fingerprint) ?? null
+      if (duplicate) return
+      await this.write([...records, record])
+    })
+    return duplicate
+  }
+
   public async remove(id: string): Promise<void> {
     await this.enqueueMutation(async () => {
       const records = await this.listRecords()
       const record = records.find((item) => item.id === id)
       if (!record) return
       if (path.dirname(record.filePath) !== this.filesDir) throw new Error("Invalid managed knowledge base path")
-      await rm(record.filePath, { force: true })
-      await this.write(records.filter((item) => item.id !== id))
+      const stagedPath = `${record.filePath}.deleting-${randomUUID()}`
+      let staged = false
+      try {
+        await rename(record.filePath, stagedPath)
+        staged = true
+      } catch (error) {
+        if (!isMissingFileError(error)) throw error
+      }
+      try {
+        await this.write(records.filter((item) => item.id !== id))
+      } catch (error) {
+        if (staged) {
+          try {
+            await rename(stagedPath, record.filePath)
+          } catch (rollbackError) {
+            throw new AggregateError([error, rollbackError], "Failed to remove and restore knowledge base record")
+          }
+        }
+        throw error
+      }
+      if (staged) await rm(stagedPath, { force: true })
     })
   }
 
@@ -134,18 +166,14 @@ export class KnowledgeStore {
   }
 
   private async write(records: KnowledgeBaseRecord[]): Promise<void> {
-    await mkdir(this.rootDir, { recursive: true })
-    const temporaryPath = `${this.libraryFile}.tmp-${process.pid}-${randomUUID()}`
-    try {
-      await writeFile(
-        temporaryPath,
-        JSON.stringify({ version: 1, records } satisfies PersistedKnowledgeLibrary, null, 2),
-        { encoding: "utf-8", mode: 0o600 },
-      )
-      await rename(temporaryPath, this.libraryFile)
-    } catch (error) {
-      await rm(temporaryPath, { force: true })
-      throw error
-    }
+    await atomicWriteText(
+      this.libraryFile,
+      JSON.stringify({ version: 1, records } satisfies PersistedKnowledgeLibrary, null, 2),
+      { mode: 0o600 },
+    )
   }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT")
 }

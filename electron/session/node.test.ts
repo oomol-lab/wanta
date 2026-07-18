@@ -115,6 +115,21 @@ test("generateTitle preserves whether the title came from the model", async () =
   assert.deepEqual(result, { generated: true, title: "Gmail 三日报告" })
 })
 
+test("local session metadata remains writable while the agent is temporarily unavailable", async () => {
+  const persistedMetadata = metadataStore()
+  const service = new SessionServiceImpl(null, { metadataStore: persistedMetadata })
+
+  await Promise.all([
+    service.pin({ id: "session", pinned: true }),
+    service.setKnowledgeBases({ id: "session", knowledgeBaseIds: ["knowledge"] }),
+  ])
+
+  assert.equal(typeof (await persistedMetadata.read()).get("session")?.pinnedAt, "number")
+  assert.deepEqual((await persistedMetadata.read()).get("session")?.knowledgeBaseIds, ["knowledge"])
+  await assert.rejects(service.rename({ id: "session", title: "Title" }), /Agent not configured/)
+  await assert.rejects(service.remove("session"), /Agent not configured/)
+})
+
 test("list hides archived sessions and keeps pinned sessions active", async () => {
   const service = new SessionServiceImpl(
     agentWithSessions([

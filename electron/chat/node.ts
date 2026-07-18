@@ -214,7 +214,7 @@ interface ChatServiceDeps {
   authorizationOverlayStore?: AuthorizationOverlayStore
   projectStore?: Pick<SessionProjectStore, "read">
   stoppedGenerationStore?: StoppedGenerationStore
-  trustedAttachmentPaths?: ReadonlySet<string>
+  trustedAttachmentPaths?: Iterable<string> & Pick<Set<string>, "clear" | "delete"> & { readonly revision?: number }
   turnOutputStore?: TurnOutputStore
   userAttachmentStore?: UserAttachmentStore
   bugReportRuntime?: {
@@ -324,6 +324,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.managedUserMessageIds.clear()
     this.internalAttachmentPathsByMessage.clear()
     this.managedUserMessageIdsBySession.clear()
+    this.deps.trustedAttachmentPaths?.clear()
     this.scopeMutationQueue = Promise.resolve()
   }
 
@@ -1150,6 +1151,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       req.permissionModeVersion,
     )
     this.rememberTrustedAttachments(req.sessionId, req.attachments)
+    for (const attachment of req.attachments ?? []) {
+      this.deps.trustedAttachmentPaths?.delete(attachment.path)
+      if (attachment.agentPath) this.deps.trustedAttachmentPaths?.delete(attachment.agentPath)
+    }
     const userMessageId = createOpencodeMessageId()
     if (req.attachments?.length) {
       await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments)
@@ -1635,12 +1640,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     const sessionIds = [sessionId, ...this.subagentSessions.childSessionIds(sessionId)]
     const questions: ChatQuestionRequest[] = []
-    for (const currentSessionId of sessionIds) {
-      const sessionQuestions = await this.agent.getPendingQuestions(currentSessionId)
-      for (const request of sessionQuestions) {
-        const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
-        questions.push(displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId })
-      }
+    const sessionQuestions = await this.agent.getPendingQuestionsForSessions(sessionIds)
+    for (const request of sessionQuestions) {
+      const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
+      questions.push(displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId })
     }
     return questions
   }
@@ -1676,17 +1679,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const sessionIds = [sessionId, ...this.subagentSessions.childSessionIds(sessionId)]
     const pendingPermissions: ChatPermissionRequest[] = []
     const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
-    for (const currentSessionId of sessionIds) {
-      const permissions = await this.agent.getPendingPermissions(currentSessionId)
-      for (const request of permissions) {
-        if (!this.answerLocalAccessPermission(emit, request)) {
-          const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
-          const displayRequest =
-            displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId }
-          this.rememberPendingPermissionRequest(displayRequest)
-          this.activeRuns.addBlockingRequest(displaySessionId, displayRequest.id, "awaiting_permission")
-          pendingPermissions.push(displayRequest)
-        }
+    const permissions = await this.agent.getPendingPermissionsForSessions(sessionIds)
+    for (const request of permissions) {
+      if (!this.answerLocalAccessPermission(emit, request)) {
+        const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
+        const displayRequest =
+          displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId }
+        this.rememberPendingPermissionRequest(displayRequest)
+        this.activeRuns.addBlockingRequest(displaySessionId, displayRequest.id, "awaiting_permission")
+        pendingPermissions.push(displayRequest)
       }
     }
     return pendingPermissions

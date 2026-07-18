@@ -59,6 +59,7 @@ import { SessionProjectStore } from "./session/project-store.ts"
 import { SettingsServiceImpl } from "./settings/node.ts"
 import { SettingsStore } from "./settings/store.ts"
 import { SkillServiceImpl } from "./skills/node.ts"
+import { ExpiringTrustedPathRegistry } from "./trusted-path-registry.ts"
 import { UpdateServiceImpl } from "./update/node.ts"
 import { buildApplicationMenuTemplate } from "./window/application-menu.ts"
 import {
@@ -143,7 +144,7 @@ const authorizationOverlayStore = new AuthorizationOverlayStore(app.getPath("use
 const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
 const turnOutputStore = new TurnOutputStore(app.getPath("userData"), artifactBundleStore)
 const userAttachmentStore = new UserAttachmentStore(app.getPath("userData"))
-const trustedAttachmentPaths = new Set<string>()
+const trustedAttachmentPaths = new ExpiringTrustedPathRegistry()
 const artifactResourceLeaseStore = new ArtifactResourceLeaseStore()
 const spreadsheetPreviewWorker = new SpreadsheetPreviewWorkerClient()
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 组织作用域同步，
@@ -280,8 +281,8 @@ if (isLocked) {
   listenProtocolUrls(protocolScheme, { handleUrl: handleDeepLink }, showMainWindow)
 
   if (initialUrl) {
-    // 冷启动经协议 URL 拉起（win/linux argv）：先完成登录回调，窗口创建在 whenReady。
-    void authManager.completeBrowserLoginCallback(initialUrl).catch((error: unknown) => {
+    // 冷启动经协议 URL 拉起（win/linux argv）：统一分发登录与连接器回调，窗口创建在 whenReady。
+    void handleDeepLink(initialUrl).catch((error: unknown) => {
       console.error("[wanta] failed to handle startup deep link:", error)
     })
   }

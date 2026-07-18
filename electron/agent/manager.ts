@@ -108,6 +108,28 @@ export interface SendMessageResult {
   messages: unknown
 }
 
+interface OpencodeResult<T = unknown> {
+  data?: T
+  error?: unknown
+}
+
+function opencodeErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === "string") return error
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+/** OpenCode SDK 默认不 throw，而是返回 `{ error }`；所有调用统一在边界转成异常。 */
+function assertOpencodeSuccess<T>(result: OpencodeResult<T>, operation: string): asserts result is { data?: T } {
+  if (result.error !== undefined) {
+    throw new Error(`${operation} failed: ${opencodeErrorMessage(result.error)}`)
+  }
+}
+
 export interface PromptStreamingOptions {
   system?: string
   attachments?: ChatAttachment[]
@@ -576,6 +598,7 @@ export class AgentManager {
       return []
     }
     const result = await this.client.session.list()
+    assertOpencodeSuccess(result, "session.list")
     const sessions = (result.data ?? []) as RawSession[]
     return sessions
       .filter(isUserVisibleSession)
@@ -585,18 +608,19 @@ export class AgentManager {
 
   public async createSession(title?: string): Promise<SessionInfo> {
     const result = await this.client.session.create(title ? { title } : {})
-    if (result.error || !result.data) {
-      throw new Error(`session.create failed: ${JSON.stringify(result.error ?? "no data")}`)
-    }
+    assertOpencodeSuccess(result, "session.create")
+    if (!result.data) throw new Error("session.create failed: no data")
     return toSessionInfo(result.data as RawSession)
   }
 
   public async renameSession(id: string, title: string): Promise<void> {
-    await this.client.session.update({ sessionID: id, title })
+    const result = await this.client.session.update({ sessionID: id, title })
+    assertOpencodeSuccess(result, "session.update")
   }
 
   public async deleteSession(id: string): Promise<void> {
-    await this.client.session.delete({ sessionID: id })
+    const result = await this.client.session.delete({ sessionID: id })
+    assertOpencodeSuccess(result, "session.delete")
   }
 
   public generateSessionTitle(input: GenerateSessionTitleRequest): Promise<GeneratedSessionTitle> {
@@ -623,6 +647,7 @@ export class AgentManager {
       return []
     }
     const result = await this.client.session.messages({ sessionID: sessionId })
+    assertOpencodeSuccess(result, "session.messages")
     const raw = (result.data ?? []) as Array<{ info?: unknown; parts?: unknown }>
     const messages: ChatMessage[] = []
     for (const item of raw) {
@@ -638,42 +663,59 @@ export class AgentManager {
   }
 
   public async getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]> {
+    return this.getPendingQuestionsForSessions([sessionId])
+  }
+
+  public async getPendingQuestionsForSessions(sessionIds: readonly string[]): Promise<ChatQuestionRequest[]> {
     if (!this.started) {
       return []
     }
+    const requestedSessionIds = new Set(sessionIds)
+    if (requestedSessionIds.size === 0) return []
     const result = await this.client.question.list()
+    assertOpencodeSuccess(result, "question.list")
     const raw = Array.isArray(result.data) ? result.data : []
     return raw
       .map(normalizeQuestionRequest)
       .filter((request): request is ChatQuestionRequest => Boolean(request))
-      .filter((request) => request.sessionId === sessionId)
+      .filter((request) => requestedSessionIds.has(request.sessionId))
   }
 
   public async answerQuestion(_sessionId: string, requestId: string, answers: string[][]): Promise<void> {
-    await this.client.question.reply({
+    const result = await this.client.question.reply({
       requestID: requestId,
       answers,
     })
+    assertOpencodeSuccess(result, "question.reply")
   }
 
   public async rejectQuestion(_sessionId: string, requestId: string): Promise<void> {
-    await this.client.question.reject({ requestID: requestId })
+    const result = await this.client.question.reject({ requestID: requestId })
+    assertOpencodeSuccess(result, "question.reject")
   }
 
   public async getPendingPermissions(sessionId: string): Promise<ChatPermissionRequest[]> {
+    return this.getPendingPermissionsForSessions([sessionId])
+  }
+
+  public async getPendingPermissionsForSessions(sessionIds: readonly string[]): Promise<ChatPermissionRequest[]> {
     if (!this.started) {
       return []
     }
+    const requestedSessionIds = new Set(sessionIds)
+    if (requestedSessionIds.size === 0) return []
     const result = await this.client.permission.list()
+    assertOpencodeSuccess(result, "permission.list")
     const raw = Array.isArray(result.data) ? result.data : []
     return raw
       .map(normalizePermissionRequest)
       .filter((request): request is ChatPermissionRequest => Boolean(request))
-      .filter((request) => request.sessionId === sessionId)
+      .filter((request) => requestedSessionIds.has(request.sessionId))
   }
 
   public async answerPermission(_sessionId: string, requestId: string, reply: ChatPermissionReply): Promise<void> {
-    await this.client.permission.reply({ requestID: requestId, reply })
+    const result = await this.client.permission.reply({ requestID: requestId, reply })
+    assertOpencodeSuccess(result, "permission.reply")
   }
 
   /**
@@ -723,9 +765,7 @@ export class AgentManager {
       if (options.signal?.aborted) {
         return
       }
-      if (result.error) {
-        throw new Error(`session.promptAsync failed: ${JSON.stringify(result.error)}`)
-      }
+      assertOpencodeSuccess(result, "session.promptAsync")
     } finally {
       options.signal?.removeEventListener("abort", abortPrompt)
     }
@@ -788,7 +828,8 @@ export class AgentManager {
   }
 
   public async abort(sessionId: string): Promise<void> {
-    await this.client.session.abort({ sessionID: sessionId })
+    const result = await this.client.session.abort({ sessionID: sessionId })
+    assertOpencodeSuccess(result, "session.abort")
   }
 
   public async createArtifactDir(sessionId: string, projectRoot?: string): Promise<string> {
@@ -852,10 +893,10 @@ export class AgentManager {
       ...(system ? { system } : {}),
       parts: [{ type: "text", text }],
     })
-    if (prompted.error) {
-      throw new Error(`session.prompt failed: ${JSON.stringify(prompted.error)}`)
-    }
-    const messages = (await this.client.session.messages({ sessionID: id })).data
+    assertOpencodeSuccess(prompted, "session.prompt")
+    const messageResult = await this.client.session.messages({ sessionID: id })
+    assertOpencodeSuccess(messageResult, "session.messages")
+    const messages = messageResult.data
     return { sessionId: id, messages }
   }
 

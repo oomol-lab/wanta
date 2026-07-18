@@ -1,9 +1,9 @@
 import type { WantaReasoningVariant } from "../agent/reasoning.ts"
 import type { CustomModelProvider, CustomModelSummary, ModelCatalog, ModelChoice } from "./common.ts"
 
-import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
+import { atomicWriteText } from "../atomic-file.ts"
 import { externalModelProviderBaseUrls } from "../domain.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, builtinModelSummaries, isBuiltinModelId } from "./builtin.ts"
@@ -447,15 +447,7 @@ export class ModelsStore {
   }
 
   public async write(models: PersistedModels): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp-${process.pid}-${randomUUID()}`
-    try {
-      await writeFile(tmp, JSON.stringify(models, null, 2), { encoding: "utf-8", mode: 0o600 })
-      await rename(tmp, this.file)
-    } catch (error) {
-      await rm(tmp, { force: true })
-      throw error
-    }
+    await atomicWriteText(this.file, JSON.stringify(models, null, 2), { mode: 0o600 })
   }
 
   public async catalog(): Promise<ModelCatalog> {

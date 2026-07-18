@@ -111,7 +111,11 @@ export class KnowledgeServiceImpl
         inspect,
         cover,
       )
-      await this.deps.store.save(record)
+      const duplicate = await this.deps.store.commitImport(record)
+      if (duplicate) {
+        await this.deps.store.discardManagedFile(imported.managedPath)
+        return publicSummary(duplicate)
+      }
       this.broadcastChanged("import knowledge base")
       return publicSummary(record)
     } catch (error) {

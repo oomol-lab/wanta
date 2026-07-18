@@ -7,6 +7,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, test, vi } from "vitest"
+import { ExpiringTrustedPathRegistry } from "../trusted-path-registry.ts"
 import {
   ArtifactBundleStore,
   buildArtifactBundle,
@@ -40,7 +41,9 @@ function createBridgeAgent(): {
   emit: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void
   getMessages: ReturnType<typeof vi.fn>
   getPendingPermissions: ReturnType<typeof vi.fn>
+  getPendingPermissionsForSessions: ReturnType<typeof vi.fn>
   getPendingQuestions: ReturnType<typeof vi.fn>
+  getPendingQuestionsForSessions: ReturnType<typeof vi.fn>
   promptStreaming: ReturnType<typeof vi.fn>
   rejectQuestion: ReturnType<typeof vi.fn>
   setSessionOrganizationName: ReturnType<typeof vi.fn>
@@ -55,8 +58,16 @@ function createBridgeAgent(): {
   const createArtifactDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-artifacts"))
   const createProcessDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-process"))
   const getMessages = vi.fn(async () => [])
-  const getPendingPermissions = vi.fn(async () => [])
-  const getPendingQuestions = vi.fn(async () => [])
+  const getPendingPermissions = vi.fn(async (_sessionId: string) => [])
+  const getPendingQuestions = vi.fn(async (_sessionId: string) => [])
+  const getPendingPermissionsForSessions = vi.fn(async (sessionIds: string[]) => {
+    const results = await Promise.all(sessionIds.map((sessionId) => getPendingPermissions(sessionId)))
+    return results.flat()
+  })
+  const getPendingQuestionsForSessions = vi.fn(async (sessionIds: string[]) => {
+    const results = await Promise.all(sessionIds.map((sessionId) => getPendingQuestions(sessionId)))
+    return results.flat()
+  })
   const promptStreaming = vi.fn(async () => undefined)
   const rejectQuestion = vi.fn(async () => undefined)
   const clearSessionOrganizationName = vi.fn(async () => undefined)
@@ -83,7 +94,9 @@ function createBridgeAgent(): {
     promptStreaming,
     getMessages,
     getPendingPermissions,
+    getPendingPermissionsForSessions,
     getPendingQuestions,
+    getPendingQuestionsForSessions,
   } as unknown as AgentManager
   return {
     agent,
@@ -95,7 +108,9 @@ function createBridgeAgent(): {
     createProcessDir,
     emit: (event) => listener?.(event),
     getPendingPermissions,
+    getPendingPermissionsForSessions,
     getPendingQuestions,
+    getPendingQuestionsForSessions,
     getMessages,
     promptStreaming,
     rejectQuestion,
@@ -2963,11 +2978,45 @@ test("getAttachmentPreview allows user-selected attachment paths", async () => {
   try {
     const filePath = path.join(root, "image.png")
     await writeFile(filePath, Buffer.from([1, 2, 3]))
-    const service = new ChatServiceImpl(null, { trustedAttachmentPaths: new Set([filePath]) })
+    const trustedAttachmentPaths = new ExpiringTrustedPathRegistry()
+    const service = new ChatServiceImpl(null, { trustedAttachmentPaths })
+
+    await assert.rejects(() => service.getAttachmentPreview({ path: filePath, mime: "image/png" }))
+    trustedAttachmentPaths.add(filePath)
 
     const result = await service.getAttachmentPreview({ path: filePath, mime: "image/png" })
 
     assert.equal(result.dataUrl, "data:image/png;base64,AQID")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("sendMessage converts picker trust into session-scoped attachment trust", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-attachment-session-trust-"))
+  try {
+    const filePath = path.join(root, "image.png")
+    await writeFile(filePath, Buffer.from([1, 2, 3]))
+    const pickerTrust = new Set([filePath])
+    const bridge = createBridgeAgent()
+    const service = new ChatServiceImpl(bridge.agent, { trustedAttachmentPaths: pickerTrust })
+
+    await service.sendMessage({
+      attachments: [
+        { id: "attachment-1", kind: "file", mime: "image/png", name: "image.png", path: filePath, size: 3 },
+      ],
+      scope: testOrganizationScope,
+      sessionId: "session-1",
+      text: "inspect",
+    })
+
+    assert.equal(pickerTrust.has(filePath), false)
+    assert.equal(
+      (await service.getAttachmentPreview({ path: filePath, mime: "image/png" })).dataUrl,
+      "data:image/png;base64,AQID",
+    )
+    service.forgetSession("session-1")
+    await assert.rejects(() => service.getAttachmentPreview({ path: filePath, mime: "image/png" }))
   } finally {
     await rm(root, { force: true, recursive: true })
   }

@@ -1,8 +1,8 @@
 import type { SessionProject, SessionScope } from "./common.ts"
 
-import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
+import { atomicWriteText } from "../atomic-file.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface PersistedSessionProjects {
@@ -98,14 +98,6 @@ export class SessionProjectStore {
   }
 
   public async write(projects: Map<string, SessionProject>): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp-${process.pid}-${randomUUID()}`
-    try {
-      await writeFile(tmp, JSON.stringify(serializeProjects(projects), null, 2), "utf-8")
-      await rename(tmp, this.file)
-    } catch (error) {
-      await rm(tmp, { force: true })
-      throw error
-    }
+    await atomicWriteText(this.file, JSON.stringify(serializeProjects(projects), null, 2))
   }
 }

@@ -103,6 +103,7 @@ export class SessionServiceImpl
   private projectsLoaded = false
   private projectsLoadPromise: Promise<void> | null = null
   private projects = new Map<string, SessionProject>()
+  private mutationQueue: Promise<void> = Promise.resolve()
 
   public constructor(agent: AgentManager | null = null, deps: SessionServiceDeps = {}) {
     super(SessionServiceName)
@@ -171,7 +172,11 @@ export class SessionServiceImpl
       })
   }
 
-  public async create(req: CreateSessionRequest): Promise<SessionInfo> {
+  public create(req: CreateSessionRequest): Promise<SessionInfo> {
+    return this.enqueueMutation(() => this.createMutation(req))
+  }
+
+  private async createMutation(req: CreateSessionRequest): Promise<SessionInfo> {
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
@@ -192,10 +197,11 @@ export class SessionServiceImpl
     return { ...info, scope, ...(scopedProjectId ? { projectId: scopedProjectId } : {}) }
   }
 
-  public async createProject(req: CreateProjectRequest): Promise<SessionProject> {
-    if (!this.agent) {
-      throw new Error("Agent not configured (sign in first)")
-    }
+  public createProject(req: CreateProjectRequest): Promise<SessionProject> {
+    return this.enqueueMutation(() => this.createProjectMutation(req))
+  }
+
+  private async createProjectMutation(req: CreateProjectRequest): Promise<SessionProject> {
     const projectPath = normalizeProjectPath(req.path)
     if (!projectPath) {
       throw new Error("Project path is required")
@@ -232,10 +238,11 @@ export class SessionServiceImpl
     return project
   }
 
-  public async assignSessionProject(req: AssignSessionProjectRequest): Promise<void> {
-    if (!this.agent) {
-      return
-    }
+  public assignSessionProject(req: AssignSessionProjectRequest): Promise<void> {
+    return this.enqueueMutation(() => this.assignSessionProjectMutation(req))
+  }
+
+  private async assignSessionProjectMutation(req: AssignSessionProjectRequest): Promise<void> {
     await this.ensureMetadataLoaded()
     await this.ensureProjectsLoaded()
     const current = this.sessionMetadata.get(req.sessionId) ?? {}
@@ -253,10 +260,11 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("assign session project")
   }
 
-  public async setPermissionMode(req: SetSessionPermissionModeRequest): Promise<void> {
-    if (!this.agent) {
-      return
-    }
+  public setPermissionMode(req: SetSessionPermissionModeRequest): Promise<void> {
+    return this.enqueueMutation(() => this.setPermissionModeMutation(req))
+  }
+
+  private async setPermissionModeMutation(req: SetSessionPermissionModeRequest): Promise<void> {
     await this.ensureMetadataLoaded()
     const current = this.sessionMetadata.get(req.id) ?? {}
     const next = { ...current }
@@ -274,8 +282,11 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("set session permission mode")
   }
 
-  public async setKnowledgeBases(req: SetSessionKnowledgeBasesRequest): Promise<void> {
-    if (!this.agent) return
+  public setKnowledgeBases(req: SetSessionKnowledgeBasesRequest): Promise<void> {
+    return this.enqueueMutation(() => this.setKnowledgeBasesMutation(req))
+  }
+
+  private async setKnowledgeBasesMutation(req: SetSessionKnowledgeBasesRequest): Promise<void> {
     await this.ensureMetadataLoaded()
     const current = this.sessionMetadata.get(req.id) ?? {}
     const knowledgeBaseIds = normalizeKnowledgeBaseIds(req.knowledgeBaseIds) ?? []
@@ -290,10 +301,11 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("set session knowledge bases")
   }
 
-  public async renameProject(req: { id: string; name: string }): Promise<void> {
-    if (!this.agent) {
-      return
-    }
+  public renameProject(req: { id: string; name: string }): Promise<void> {
+    return this.enqueueMutation(() => this.renameProjectMutation(req))
+  }
+
+  private async renameProjectMutation(req: { id: string; name: string }): Promise<void> {
     const name = req.name.trim()
     if (!name) {
       throw new Error("Project name is required")
@@ -308,10 +320,11 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("rename project")
   }
 
-  public async pinProject(req: { id: string; pinned: boolean }): Promise<void> {
-    if (!this.agent) {
-      return
-    }
+  public pinProject(req: { id: string; pinned: boolean }): Promise<void> {
+    return this.enqueueMutation(() => this.pinProjectMutation(req))
+  }
+
+  private async pinProjectMutation(req: { id: string; pinned: boolean }): Promise<void> {
     await this.ensureProjectsLoaded()
     const current = this.projects.get(req.id)
     if (!current || current.archivedAt) {
@@ -328,10 +341,11 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("pin project")
   }
 
-  public async archiveProject(id: string): Promise<void> {
-    if (!this.agent) {
-      return
-    }
+  public archiveProject(id: string): Promise<void> {
+    return this.enqueueMutation(() => this.archiveProjectMutation(id))
+  }
+
+  private async archiveProjectMutation(id: string): Promise<void> {
     await this.ensureMetadataLoaded()
     await this.ensureProjectsLoaded()
     const current = this.projects.get(id)
@@ -382,10 +396,11 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("archive project")
   }
 
-  public async removeProject(id: string): Promise<void> {
-    if (!this.agent) {
-      return
-    }
+  public removeProject(id: string): Promise<void> {
+    return this.enqueueMutation(() => this.removeProjectMutation(id))
+  }
+
+  private async removeProjectMutation(id: string): Promise<void> {
     await this.ensureMetadataLoaded()
     await this.ensureProjectsLoaded()
     if (!this.projects.delete(id)) {
@@ -412,17 +427,15 @@ export class SessionServiceImpl
   }
 
   public async rename(req: { id: string; title: string }): Promise<void> {
-    if (!this.agent) {
-      return
-    }
-    await this.agent.renameSession(req.id, req.title)
+    await this.requireAgent().renameSession(req.id, req.title)
     this.broadcastChangedBestEffort("rename session")
   }
 
-  public async pin(req: { id: string; pinned: boolean }): Promise<void> {
-    if (!this.agent) {
-      return
-    }
+  public pin(req: { id: string; pinned: boolean }): Promise<void> {
+    return this.enqueueMutation(() => this.pinMutation(req))
+  }
+
+  private async pinMutation(req: { id: string; pinned: boolean }): Promise<void> {
     await this.ensureMetadataLoaded()
     const current = this.sessionMetadata.get(req.id) ?? {}
     if (current.archivedAt) {
@@ -439,10 +452,11 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("pin session")
   }
 
-  public async archive(id: string): Promise<void> {
-    if (!this.agent) {
-      return
-    }
+  public archive(id: string): Promise<void> {
+    return this.enqueueMutation(() => this.archiveMutation(id))
+  }
+
+  private async archiveMutation(id: string): Promise<void> {
     await this.ensureMetadataLoaded()
     const current = this.sessionMetadata.get(id) ?? {}
     const next = { ...current, archivedAt: Date.now() }
@@ -457,10 +471,12 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("archive session")
   }
 
-  public async unarchive(id: string): Promise<SessionInfo | null> {
-    if (!this.agent) {
-      return null
-    }
+  public unarchive(id: string): Promise<SessionInfo | null> {
+    return this.enqueueMutation(() => this.unarchiveMutation(id))
+  }
+
+  private async unarchiveMutation(id: string): Promise<SessionInfo | null> {
+    this.requireAgent()
     await this.ensureMetadataLoaded()
     await this.ensureProjectsLoaded()
     const current = this.sessionMetadata.get(id)
@@ -508,13 +524,15 @@ export class SessionServiceImpl
     return restored
   }
 
-  public async remove(id: string): Promise<void> {
-    if (!this.agent) {
-      return
-    }
+  public remove(id: string): Promise<void> {
+    return this.enqueueMutation(() => this.removeMutation(id))
+  }
+
+  private async removeMutation(id: string): Promise<void> {
+    const agent = this.requireAgent()
     await this.ensureActivityLoaded()
     await this.ensureMetadataLoaded()
-    await this.agent.deleteSession(id)
+    await agent.deleteSession(id)
     this.sessionActivityAt.delete(id)
     this.sessionMetadata.delete(id)
     await this.deps.onSessionRemoved?.(id)
@@ -539,7 +557,11 @@ export class SessionServiceImpl
     await this.broadcastChanged("refresh")
   }
 
-  public async recordUseAndEmit(id: string, usedAt = Date.now()): Promise<void> {
+  public recordUseAndEmit(id: string, usedAt = Date.now()): Promise<void> {
+    return this.enqueueMutation(() => this.recordUseAndEmitMutation(id, usedAt))
+  }
+
+  private async recordUseAndEmitMutation(id: string, usedAt: number): Promise<void> {
     await this.ensureActivityLoaded()
     if (!this.markUsed(id, usedAt)) {
       return
@@ -671,6 +693,25 @@ export class SessionServiceImpl
       return next
     }
     return resolved
+  }
+
+  private requireAgent(): AgentManager {
+    if (!this.agent) throw new Error("Agent not configured (sign in first)")
+    return this.agent
+  }
+
+  private async enqueueMutation<T>(mutation: () => Promise<T>): Promise<T> {
+    const previous = this.mutationQueue
+    let release!: () => void
+    this.mutationQueue = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await previous.catch(() => undefined)
+    try {
+      return await mutation()
+    } finally {
+      release()
+    }
   }
 
   private mergeLocalState(

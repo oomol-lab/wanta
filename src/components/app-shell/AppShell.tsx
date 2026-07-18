@@ -1015,17 +1015,31 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     previousQueuedSessionIdRef.current = activeChatSessionId
   }, [activeChatSessionId, holdQueuedSessionIfQueued])
 
-  const { cancelRetryForDrawer, clearRetries, completeRetryForDrawer, prepareRetry } = useChatConnectionRetry({
-    isSessionRunning,
-    queueSessionMessage,
-    send,
-    sessionScope,
-    setChatConnectionDrawers,
-    setIsDraftSession,
-    setPendingChatTransition,
-    setRoute,
-    setSelectedSessionId,
-  })
+  const { cancelRetryForDrawer, clearRetries, completeMatchingRetries, completeRetryForDrawer, prepareRetry } =
+    useChatConnectionRetry({
+      isSessionRunning,
+      queueSessionMessage,
+      send,
+      sessionScope,
+      setChatConnectionDrawers,
+      setIsDraftSession,
+      setPendingChatTransition,
+      setRoute,
+      setSelectedSessionId,
+    })
+  const handledConnectionReadyEventIdRef = React.useRef<number | null>(null)
+
+  React.useEffect(() => {
+    const event = connections.connectionReadyEvent
+    if (!event || handledConnectionReadyEventIdRef.current === event.id) {
+      return
+    }
+    handledConnectionReadyEventIdRef.current = event.id
+    if (event.workspaceKey !== connections.summaryWorkspaceKey) {
+      return
+    }
+    completeMatchingRetries(event)
+  }, [completeMatchingRetries, connections.connectionReadyEvent, connections.summaryWorkspaceKey])
 
   const handleOpenConnections = React.useCallback(
     (filter: ConnectionCatalogFilter = { kind: "all" }): void => {

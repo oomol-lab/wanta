@@ -152,5 +152,14 @@ export function useChatConnectionRetry({
     ],
   )
 
-  return { cancelRetryForDrawer, clearRetries, completeRetryForDrawer, prepareRetry }
+  const completeMatchingRetries = React.useCallback(
+    (target: { service: string; connectionName?: string }): void => {
+      for (const drawerKey of pendingRetries.current.keys()) {
+        completeRetryForDrawer(drawerKey, target)
+      }
+    },
+    [completeRetryForDrawer],
+  )
+
+  return { cancelRetryForDrawer, clearRetries, completeMatchingRetries, completeRetryForDrawer, prepareRetry }
 }

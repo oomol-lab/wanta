@@ -10,7 +10,7 @@ import type {
 } from "../../electron/connections/common.ts"
 import type { ConnectionErrorOperation } from "../lib/connections-error.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
-import type { OAuthPendingOperation } from "./connection-oauth-pending.ts"
+import type { OAuthConnectionReadyTarget, OAuthPendingOperation } from "./connection-oauth-pending.ts"
 import type { ConnectionBusy } from "./connections-state.ts"
 
 import * as React from "react"
@@ -38,6 +38,7 @@ import {
   readOAuthPendingOperation,
   readOAuthPendingOperationsForWorkspace,
   rememberOAuthPendingOperation,
+  resolveOAuthConnectionReadyTarget,
 } from "./connection-oauth-pending.ts"
 import {
   connectionsStateReducer,
@@ -115,6 +116,7 @@ export interface UseConnections {
   actionError: UserFacingError | null
   summaryError: UserFacingError | null
   scopeSyncError: UserFacingError | null
+  connectionReadyEvent: (OAuthConnectionReadyTarget & { id: number }) | null
   clearActionError: () => void
   refresh: (request?: ConnectionSummaryRequest, options?: ConnectionRefreshOptions) => Promise<ConnectionSummary | null>
   retryScopeSync: () => void
@@ -134,6 +136,9 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const chatService = useChatService()
   const [state, dispatch] = React.useReducer(connectionsStateReducer, initialConnectionsState)
   const [scopeSyncAttempt, setScopeSyncAttempt] = React.useState(0)
+  const [connectionReadyEvent, setConnectionReadyEvent] = React.useState<
+    (OAuthConnectionReadyTarget & { id: number }) | null
+  >(null)
   const {
     actionError,
     agentScopeWorkspaceKey,
@@ -148,6 +153,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const oauthPending = React.useRef<OAuthPendingOperation | null>(null)
   const pollSequence = React.useRef(0)
   const oauthSequence = React.useRef(0)
+  const connectionReadySequence = React.useRef(0)
   const actionSequence = React.useRef(0)
   const effectiveWorkspace = React.useRef<ConnectionWorkspace | null>(workspace)
   const workspaceGeneration = React.useRef(0)
@@ -181,6 +187,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     pollAbort.current?.controller.abort()
     oauthPending.current = null
     pollAbort.current = null
+    setConnectionReadyEvent(null)
   }, [])
 
   const beginAction = React.useCallback((): ConnectionActionContext | null => {
@@ -324,6 +331,11 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
               return false
             }
             setCurrentSummary(next)
+            connectionReadySequence.current += 1
+            setConnectionReadyEvent({
+              id: connectionReadySequence.current,
+              ...resolveOAuthConnectionReadyTarget(next.apps, operation),
+            })
             dispatch({ type: "actionErrorSet", error: null })
             clearActiveOAuthPending(operation)
             dispatch({ type: "pollingSet", polling: null })
@@ -666,6 +678,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     agentScopeWorkspaceKey,
     summaryError,
     scopeSyncError,
+    connectionReadyEvent,
     clearActionError,
     refresh,
     retryScopeSync,

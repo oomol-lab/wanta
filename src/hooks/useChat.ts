@@ -1075,7 +1075,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
   const activity = activeSessionId ? (activities[activeSessionId] ?? null) : null
   const messagesLoaded = activeSessionId ? Object.hasOwn(messagesMap, activeSessionId) : true
   const sessionSnapshotError =
-    !messagesLoaded && sessionSnapshotErrorState?.sessionId === activeSessionId ? sessionSnapshotErrorState.error : null
+    sessionSnapshotErrorState?.sessionId === activeSessionId ? sessionSnapshotErrorState.error : null
   const questionDrafts = React.useMemo<QuestionDraftStore>(
     () => ({
       read: (sessionId, request, expectedDraftCount) => {

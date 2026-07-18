@@ -110,6 +110,12 @@ export interface UseSessions {
 
 export type KnowledgeBaseIdsUpdate = string[] | ((current: string[]) => string[])
 
+interface SessionRefreshFlight {
+  activation: number
+  promise: Promise<void>
+  trailing: boolean
+}
+
 export function resolveKnowledgeBaseIdsUpdate(current: string[], update: KnowledgeBaseIdsUpdate): string[] {
   const next = typeof update === "function" ? update(current) : update
   return [...new Set(next.map((item) => item.trim()).filter(Boolean))]
@@ -149,8 +155,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const enabledRef = React.useRef(enabled)
   const requestSequenceRef = React.useRef(0)
-  const refreshFlightsRef = React.useRef(new Map<string, Promise<void>>())
-  const trailingRefreshScopeKeysRef = React.useRef(new Set<string>())
+  const refreshActivationRef = React.useRef(0)
+  const refreshFlightsRef = React.useRef(new Map<string, SessionRefreshFlight>())
   const localCreatedSessionsRef = React.useRef(new Map<string, SessionInfo>())
   const knowledgeBasesWriteQueuesRef = React.useRef(new Map<string, Promise<void>>())
   const knowledgeBasesWriteVersionsRef = React.useRef(new Map<string, number>())
@@ -172,6 +178,10 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     (expectedScopeKey: string): boolean => enabledRef.current && currentScopeKeyRef.current === expectedScopeKey,
     [],
   )
+
+  React.useEffect(() => {
+    refreshActivationRef.current += 1
+  }, [enabled, scopeKey])
 
   React.useEffect(() => {
     enabledRef.current = enabled
@@ -248,30 +258,37 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
 
   const runRefresh = React.useCallback(
     (trailingIfRunning: boolean): Promise<void> => {
+      const activation = refreshActivationRef.current
       const activeFlight = refreshFlightsRef.current.get(scopeKey)
-      if (activeFlight) {
+      if (activeFlight?.activation === activation) {
         if (trailingIfRunning) {
-          trailingRefreshScopeKeysRef.current.add(scopeKey)
+          activeFlight.trailing = true
         }
-        return activeFlight
+        return activeFlight.promise
       }
 
-      const flight = (async () => {
+      const entry: SessionRefreshFlight = {
+        activation,
+        promise: Promise.resolve(),
+        trailing: false,
+      }
+      entry.promise = (async () => {
         do {
-          trailingRefreshScopeKeysRef.current.delete(scopeKey)
+          entry.trailing = false
           await refreshOnce()
         } while (
-          trailingRefreshScopeKeysRef.current.delete(scopeKey) &&
+          entry.trailing &&
           enabledRef.current &&
+          refreshActivationRef.current === activation &&
           currentScopeKeyRef.current === scopeKey
         )
       })().finally(() => {
-        if (refreshFlightsRef.current.get(scopeKey) === flight) {
+        if (refreshFlightsRef.current.get(scopeKey) === entry) {
           refreshFlightsRef.current.delete(scopeKey)
         }
       })
-      refreshFlightsRef.current.set(scopeKey, flight)
-      return flight
+      refreshFlightsRef.current.set(scopeKey, entry)
+      return entry.promise
     },
     [refreshOnce, scopeKey],
   )

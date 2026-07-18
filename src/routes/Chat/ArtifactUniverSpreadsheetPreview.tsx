@@ -69,7 +69,6 @@ function disposeUniverAfterReactCommit(univer: Univer): void {
 }
 
 type PreviewUniverRuntime = {
-  configKey: string
   currentWorkbookId: string | null
   univer: Univer
   univerAPI: FUniver
@@ -111,6 +110,70 @@ function replaceWorkbook(runtime: PreviewUniverRuntime, snapshot: Parameters<FUn
   runtime.currentWorkbookId = workbook.getId()
 }
 
+function ArtifactUniverRuntimeHost({
+  darkMode,
+  locale,
+  localeMessages,
+  snapshot,
+}: {
+  darkMode: boolean
+  locale: LocaleType
+  localeMessages: NonNullable<IUniverConfig["locales"]>[LocaleType]
+  snapshot: Parameters<FUniver["createWorkbook"]>[0]
+}) {
+  const containerRef = React.useRef<HTMLDivElement | null>(null)
+  const runtimeRef = React.useRef<PreviewUniverRuntime | null>(null)
+
+  React.useEffect(() => {
+    return () => {
+      const runtime = runtimeRef.current
+      runtimeRef.current = null
+      if (runtime) {
+        disposeUniverAfterReactCommit(runtime.univer)
+      }
+    }
+  }, [])
+
+  React.useLayoutEffect(() => {
+    const container = containerRef.current
+    if (!container) {
+      return
+    }
+
+    let runtime = runtimeRef.current
+    if (!runtime) {
+      const created = createPreviewUniver(
+        {
+          darkMode,
+          locale,
+          locales: {
+            [locale]: localeMessages,
+          },
+          logLevel: LogLevel.SILENT,
+        },
+        [spreadsheetCorePreset(container)],
+      )
+      runtime = {
+        currentWorkbookId: null,
+        ...created,
+      }
+      runtimeRef.current = runtime
+    }
+
+    replaceWorkbook(runtime, snapshot)
+
+    return () => {
+      if (runtimeRef.current !== runtime || !runtime.currentWorkbookId) {
+        return
+      }
+      runtime.univerAPI.disposeUnit(runtime.currentWorkbookId)
+      runtime.currentWorkbookId = null
+    }
+  }, [darkMode, locale, localeMessages, snapshot])
+
+  return <div ref={containerRef} className="absolute inset-0 size-full" aria-readonly="true" />
+}
+
 export function ArtifactUniverSpreadsheetPreview({
   className,
   preview,
@@ -120,8 +183,6 @@ export function ArtifactUniverSpreadsheetPreview({
 }) {
   const { locale, t } = useI18n()
   const { effectiveTheme } = useTheme()
-  const containerRef = React.useRef<HTMLDivElement | null>(null)
-  const runtimeRef = React.useRef<PreviewUniverRuntime | null>(null)
   const univerLocale = locale === "en" ? LocaleType.EN_US : LocaleType.ZH_CN
   const [enUSMessages, setEnUSMessages] = React.useState<
     (typeof import("@univerjs/preset-sheets-core/locales/en-US"))["default"] | null
@@ -143,60 +204,6 @@ export function ArtifactUniverSpreadsheetPreview({
     }
   }, [enUSMessages, univerLocale])
 
-  React.useEffect(() => {
-    return () => {
-      const runtime = runtimeRef.current
-      runtimeRef.current = null
-      if (runtime) {
-        disposeUniverAfterReactCommit(runtime.univer)
-      }
-    }
-  }, [])
-
-  React.useLayoutEffect(() => {
-    const container = containerRef.current
-    if (!container || !snapshot || !localeMessages) {
-      return
-    }
-
-    let runtime = runtimeRef.current
-    if (runtime && runtime.configKey !== runtimeConfigKey) {
-      runtime.univer.dispose()
-      container.replaceChildren()
-      runtimeRef.current = null
-      runtime = null
-    }
-    if (!runtime) {
-      const created = createPreviewUniver(
-        {
-          darkMode: effectiveTheme === "dark",
-          locale: univerLocale,
-          locales: {
-            [univerLocale]: localeMessages,
-          },
-          logLevel: LogLevel.SILENT,
-        },
-        [spreadsheetCorePreset(container)],
-      )
-      runtime = {
-        configKey: runtimeConfigKey,
-        currentWorkbookId: null,
-        ...created,
-      }
-      runtimeRef.current = runtime
-    }
-
-    replaceWorkbook(runtime, snapshot)
-
-    return () => {
-      if (runtimeRef.current !== runtime || !runtime.currentWorkbookId) {
-        return
-      }
-      runtime.univerAPI.disposeUnit(runtime.currentWorkbookId)
-      runtime.currentWorkbookId = null
-    }
-  }, [effectiveTheme, localeMessages, runtimeConfigKey, snapshot, univerLocale])
-
   if (!snapshot) {
     return null
   }
@@ -204,7 +211,15 @@ export function ArtifactUniverSpreadsheetPreview({
   return (
     <div className={cn("flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)] p-3", className)}>
       <div className="oo-univer-spreadsheet-preview oo-border-divider relative min-h-[420px] flex-1 overflow-hidden rounded-md border bg-background">
-        <div ref={containerRef} className="absolute inset-0 size-full" aria-readonly="true" />
+        {localeMessages ? (
+          <ArtifactUniverRuntimeHost
+            key={runtimeConfigKey}
+            darkMode={effectiveTheme === "dark"}
+            locale={univerLocale}
+            localeMessages={localeMessages}
+            snapshot={snapshot}
+          />
+        ) : null}
         {!localeMessages ? (
           <div className="oo-text-body absolute inset-0 flex items-center justify-center text-muted-foreground">
             {t("artifacts.previewLoading")}

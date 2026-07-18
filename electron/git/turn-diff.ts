@@ -266,7 +266,6 @@ export async function captureGitTurnBaseline(repositoryRoot: string): Promise<Gi
     const snapshotBytes = snapshot.content ? Buffer.byteLength(snapshot.content, "utf8") : 0
     if (totalBytes + snapshotBytes > maxSnapshotTotalBytes) {
       truncated = true
-      snapshots[relativePath] = { exists: snapshot.exists, size: snapshot.size, tooLarge: true }
       return
     }
     totalBytes += snapshotBytes

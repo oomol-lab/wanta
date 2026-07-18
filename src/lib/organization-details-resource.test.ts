@@ -4,6 +4,7 @@ import {
   getCachedOrganizationMembers,
   getOrganizationMembersResource,
   invalidateOrganizationDetailsResource,
+  subscribeOrganizationMembersResource,
 } from "./organization-details-resource.ts"
 
 describe("organization-details-resource", () => {
@@ -45,6 +46,16 @@ describe("organization-details-resource", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(refreshed).toEqual([{ role: "member", user_id: "user-3" }])
     expect(getCachedOrganizationMembers("account-2", "org-1")).toEqual([{ role: "member", user_id: "user-2" }])
+  })
+
+  it("notifies mounted member consumers when the resource is invalidated", async () => {
+    const listener = vi.fn()
+    const unsubscribe = subscribeOrganizationMembersResource("account-1", "org-1", listener)
+
+    invalidateOrganizationDetailsResource("account-1", "org-1")
+
+    expect(listener).toHaveBeenCalledOnce()
+    unsubscribe()
   })
 
   it("lets a forced refresh supersede an older in-flight read", async () => {

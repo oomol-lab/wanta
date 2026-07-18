@@ -167,6 +167,8 @@ const eventStreamRestartMaxDelayMs = 5_000
 const runtimeRestartMaxAttempts = 5
 const runtimeRestartInitialDelayMs = 1_000
 const runtimeRestartMaxDelayMs = 10_000
+const authorizedServicesCacheTtlMs = 30_000
+const authorizedServicesPromptBudgetMs = 750
 
 interface AgentEventSubscriber {
   onEvent: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void
@@ -204,6 +206,8 @@ export class AgentManager {
   private organizationScopePath: string | undefined
   private organizationUpdateChain: Promise<void> = Promise.resolve()
   private sessionOrganizationNames = new Map<string, string>()
+  private authorizedServicesCache = new Map<string, { loadedAt: number; services: string[] }>()
+  private authorizedServicesLoads = new Map<string, Promise<string[]>>()
   private readonly eventMetrics = new ActivityMetrics((snapshot) => {
     logDiagnostic("performance", "opencode event activity", { ...snapshot }, "trace")
   })
@@ -774,7 +778,7 @@ export class AgentManager {
 
   /** R4：构建注入系统提示末尾的已授权 Link 可用性提示（无已授权则 undefined）。 */
   public async buildAuthorizedSystem(organizationName?: string, signal?: AbortSignal): Promise<string | undefined> {
-    const services = await this.listAuthorizedServices(organizationName, signal)
+    const services = await this.authorizedServicesForPrompt(organizationName, signal)
     if (services.length === 0) {
       return undefined
     }
@@ -784,6 +788,33 @@ export class AgentManager {
       `For questions about which providers are connected, use list_apps. When, and only when, the user's request needs private/account-specific SaaS data or actions, use Link tools to discover the appropriate action; search results include whether a provider is authenticated. ` +
       `Ignore this note for direct answers, local files, commands, concrete URLs, webpage fetching, and general web browsing.`
     )
+  }
+
+  /** 提示词关键路径只等待很短预算；过期值可立即复用，刷新在后台完成。 */
+  private async authorizedServicesForPrompt(organizationName?: string, signal?: AbortSignal): Promise<string[]> {
+    const cacheKey = normalizeOrganizationName(organizationName) ?? ""
+    const cached = this.authorizedServicesCache.get(cacheKey)
+    if (cached && Date.now() - cached.loadedAt < authorizedServicesCacheTtlMs) {
+      return cached.services
+    }
+    let load = this.authorizedServicesLoads.get(cacheKey)
+    if (!load) {
+      load = this.listAuthorizedServices(organizationName, signal).then((services) => {
+        this.authorizedServicesCache.set(cacheKey, { loadedAt: Date.now(), services })
+        return services
+      })
+      this.authorizedServicesLoads.set(cacheKey, load)
+      const finishLoad = () => {
+        if (this.authorizedServicesLoads.get(cacheKey) === load) {
+          this.authorizedServicesLoads.delete(cacheKey)
+        }
+      }
+      void load.then(finishLoad, finishLoad)
+    }
+    if (cached) {
+      return cached.services
+    }
+    return settleWithinPromptBudget(load, authorizedServicesPromptBudgetMs)
   }
 
   /** 直查 connector /v1/apps，返回已授权（active）service 名清单（R4 动态系统提示用）。 */
@@ -944,6 +975,8 @@ export class AgentManager {
     this.eventSubscriber = null
     this.started = false
     this.eventMetrics.dispose()
+    this.authorizedServicesCache.clear()
+    this.authorizedServicesLoads.clear()
     // 同时回收"启动中"的实例：退出/重启可能正卡在 startSidecar 的 await 上，此时 this.sidecar 仍为
     // null，但 startingSidecar 已 spawn opencode，必须一并连根回收，否则它会成为漏网孤儿。
     const sidecar = this.sidecar ?? this.startingSidecar
@@ -1051,6 +1084,35 @@ function signalWithTimeout(
       signal?.removeEventListener("abort", abort)
     },
   }
+}
+
+function settleWithinPromptBudget(request: Promise<string[]>, timeoutMs: number): Promise<string[]> {
+  return new Promise((resolve) => {
+    let completed = false
+    const timer = setTimeout(() => {
+      if (!completed) {
+        completed = true
+        resolve([])
+      }
+    }, timeoutMs)
+    timer.unref?.()
+    void request.then(
+      (services) => {
+        if (!completed) {
+          completed = true
+          clearTimeout(timer)
+          resolve(services)
+        }
+      },
+      () => {
+        if (!completed) {
+          completed = true
+          clearTimeout(timer)
+          resolve([])
+        }
+      },
+    )
+  })
 }
 
 function sleep(ms: number): Promise<void> {

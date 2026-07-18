@@ -100,6 +100,18 @@ test("markAvatarImageDirectFallback temporarily skips the authenticated blob fet
   expect(shouldLoadAvatarImageDirectly(avatarUrl, 60_100)).toBe(false)
 })
 
+test("avatar transient failure caches stay bounded", () => {
+  for (let index = 0; index < 257; index += 1) {
+    markAvatarImageFailed(`https://example.com/avatar-${index}.png`, 100)
+    markAvatarImageDirectFallback(`https://example.com/direct-${index}.png`, 100)
+  }
+
+  expect(shouldSkipAvatarImageLoad("https://example.com/avatar-0.png", 101)).toBe(false)
+  expect(shouldSkipAvatarImageLoad("https://example.com/avatar-256.png", 101)).toBe(true)
+  expect(shouldLoadAvatarImageDirectly("https://example.com/direct-0.png", 101)).toBe(false)
+  expect(shouldLoadAvatarImageDirectly("https://example.com/direct-256.png", 101)).toBe(true)
+})
+
 test("dropCachedAvatarImage revokes and removes the cached object URL", async () => {
   const avatarUrl = new URL("/avatar.png", apiBaseUrl).toString()
   const revoked: string[] = []

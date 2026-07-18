@@ -16,6 +16,7 @@ const organizationDetailsStaleMs = 60_000
 
 interface ResourceEntry<T> {
   data: T | null
+  listeners: Set<() => void>
   loadedAt: number
   promise: Promise<T> | null
 }
@@ -35,7 +36,7 @@ function entryFor<T>(key: string): ResourceEntry<T> {
   if (existing) {
     return existing
   }
-  const entry: ResourceEntry<T> = { data: null, loadedAt: 0, promise: null }
+  const entry: ResourceEntry<T> = { data: null, listeners: new Set(), loadedAt: 0, promise: null }
   resourceCache.set(key, entry as ResourceEntry<unknown>)
   return entry
 }
@@ -62,6 +63,7 @@ function loadResource<T>(key: string, request: () => Promise<T>, forceRefresh = 
         entry.data = data
         entry.loadedAt = Date.now()
         entry.promise = null
+        notifyResourceEntry(entry)
       }
     },
     () => {
@@ -79,6 +81,18 @@ export interface OrganizationDetailsResourceOptions {
 
 export function getCachedOrganizationMembers(accountId: string, organizationId: string): OrganizationMember[] | null {
   return readCached(resourceKey(accountId, organizationId, "members"))
+}
+
+export function subscribeOrganizationMembersResource(
+  accountId: string,
+  organizationId: string,
+  listener: () => void,
+): () => void {
+  const entry = entryFor<OrganizationMember[]>(resourceKey(accountId, organizationId, "members"))
+  entry.listeners.add(listener)
+  return () => {
+    entry.listeners.delete(listener)
+  }
 }
 
 export function getCachedOrganizationProviderOptions(
@@ -163,11 +177,29 @@ export function invalidateOrganizationDetailsResource(accountId: string | undefi
   const prefix = `${accountId}\u0000${organizationId}\u0000`
   for (const key of resourceCache.keys()) {
     if (key.startsWith(prefix)) {
-      resourceCache.delete(key)
+      const entry = resourceCache.get(key)
+      if (entry) {
+        entry.data = null
+        entry.loadedAt = 0
+        entry.promise = null
+        notifyResourceEntry(entry)
+      }
     }
   }
 }
 
 export function clearOrganizationDetailsResources(): void {
+  for (const entry of resourceCache.values()) {
+    entry.data = null
+    entry.loadedAt = 0
+    entry.promise = null
+    notifyResourceEntry(entry)
+  }
   resourceCache.clear()
+}
+
+function notifyResourceEntry(entry: ResourceEntry<unknown>): void {
+  for (const listener of entry.listeners) {
+    listener()
+  }
 }

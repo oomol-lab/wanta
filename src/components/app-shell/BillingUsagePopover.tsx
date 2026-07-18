@@ -89,6 +89,7 @@ export function BillingUsagePopover({
   const connectorSpend = getSummary(summaries, "link").credit
   const showTeamPlanSection = canManageTeamBilling(workspace)
   const seatCountAvailable = seatState.count !== null && !seatState.error
+  const teamDetailsAvailable = data?.subscriptionAvailable === true && data.teamPendingPaymentAvailable === true
   const teamOverview = React.useMemo(
     () =>
       buildTeamSubscriptionOverview({
@@ -101,20 +102,36 @@ export function BillingUsagePopover({
     [data?.subscription, data?.teamPendingPayment, seatState.count, sharedConnectorCount, workspace],
   )
   const showPlanPrompt = Boolean(
-    showTeamPlanSection && data && !error && seatCountAvailable && teamOverview.recommendedAction === "choose_plan",
+    showTeamPlanSection &&
+    teamDetailsAvailable &&
+    data &&
+    !error &&
+    seatCountAvailable &&
+    teamOverview.recommendedAction === "choose_plan",
   )
   const showPendingPaymentPrompt = Boolean(
     showTeamPlanSection &&
+    teamDetailsAvailable &&
     data &&
     !error &&
     seatCountAvailable &&
     teamOverview.recommendedAction === "continue_payment",
   )
   const showUpgradePrompt = Boolean(
-    showTeamPlanSection && data && !error && seatCountAvailable && teamOverview.recommendedAction === "upgrade_plan",
+    showTeamPlanSection &&
+    teamDetailsAvailable &&
+    data &&
+    !error &&
+    seatCountAvailable &&
+    teamOverview.recommendedAction === "upgrade_plan",
   )
   const showSeatPrompt = Boolean(
-    showTeamPlanSection && data && !error && seatCountAvailable && teamOverview.recommendedAction === "add_seats",
+    showTeamPlanSection &&
+    teamDetailsAvailable &&
+    data &&
+    !error &&
+    seatCountAvailable &&
+    teamOverview.recommendedAction === "add_seats",
   )
   const availableShare =
     originalCredit > 0
@@ -213,7 +230,7 @@ export function BillingUsagePopover({
               <BillingUsageSkeleton />
             ) : (
               <>
-                {showTeamPlanSection ? (
+                {showTeamPlanSection && teamDetailsAvailable ? (
                   <section className="rounded-lg border border-border p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">

@@ -1,10 +1,7 @@
 import type { PublicSkillPackage } from "../../../electron/skills/common.ts"
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
-import {
-  clearProviderSkillPackageLookupCacheForTest,
-  readProviderSkillPackage,
-} from "./provider-skill-package-lookup.ts"
+import { clearProviderSkillPackageCache, readProviderSkillPackage } from "./provider-skill-package-lookup.ts"
 import { readPublicSkillPackageByName, searchPublicSkillPackages } from "@/lib/skills-catalog-client"
 
 vi.mock("@/lib/skills-catalog-client", () => ({
@@ -25,13 +22,13 @@ const posthogPackage: PublicSkillPackage = {
 
 describe("provider Skill package lookup", () => {
   beforeEach(() => {
-    clearProviderSkillPackageLookupCacheForTest()
+    clearProviderSkillPackageCache()
     vi.mocked(readPublicSkillPackageByName).mockReset()
     vi.mocked(searchPublicSkillPackages).mockReset()
   })
 
   afterEach(() => {
-    clearProviderSkillPackageLookupCacheForTest()
+    clearProviderSkillPackageCache()
   })
 
   test("shares in-flight package requests for the same provider", async () => {

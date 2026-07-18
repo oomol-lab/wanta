@@ -3,7 +3,11 @@ import type { UserFacingError } from "@/lib/user-facing-error"
 
 import * as React from "react"
 import { useAuth } from "@/hooks/useAuth"
-import { getCachedOrganizationMembers, getOrganizationMembersResource } from "@/lib/organization-details-resource"
+import {
+  getCachedOrganizationMembers,
+  getOrganizationMembersResource,
+  subscribeOrganizationMembersResource,
+} from "@/lib/organization-details-resource"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 
@@ -23,6 +27,16 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
   )
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
+  const [resourceVersion, setResourceVersion] = React.useState(0)
+
+  React.useEffect(() => {
+    if (!accountId || !organizationId) {
+      return
+    }
+    return subscribeOrganizationMembersResource(accountId, organizationId, () => {
+      setResourceVersion((version) => version + 1)
+    })
+  }, [accountId, organizationId])
 
   React.useEffect(() => {
     if (!enabled || !accountId || !organizationId) {
@@ -65,7 +79,7 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
     return () => {
       cancelled = true
     }
-  }, [accountId, enabled, organizationId])
+  }, [accountId, enabled, organizationId, resourceVersion])
 
   return { count, error, loading }
 }

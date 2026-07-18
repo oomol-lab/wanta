@@ -8,6 +8,7 @@ import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/pro
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { gunzipSync, inflateRawSync } from "node:zlib"
+import { fetchWithRetry } from "./network-download.ts"
 import { extractFileFromTar } from "./oo-cli.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -97,7 +98,7 @@ function releaseAssetUrl(assetName: string): string {
 }
 
 async function fetchBytes(url: string): Promise<Buffer> {
-  const response = await fetch(url)
+  const response = await fetchWithRetry(url)
   if (!response.ok) {
     throw new Error(`download ripgrep failed: HTTP ${response.status} ${url}`)
   }

@@ -46,17 +46,18 @@ IPC 只承载"必须在主进程做"的事（agent 内核、deep-link 鉴权、f
 - 域名从 `electron/domain.ts` 派生（经 `src/lib/domain.ts` 再导出）。`__OO_ENDPOINT__` 是 vite **顶层 `define`** 注入的构建期常量，作用于渲染 bundle，故渲染层 import `electron/domain.ts` 能拿到与主进程同一套 `*.<endpoint>` base URL，**不硬编码域名**（守 R2）。
 - 跨站 CORS 由主进程 `electron/net/oomol-cors.ts` 的 `installOomolCorsShim`（`main.ts` whenReady 调用）解决：渲染文档 origin 是 dev `http://localhost:5273` / 生产 `file://`，对 `*.<endpoint>` 是跨站，服务端从不为这些 origin 下发 CORS 头、且带凭证时 `ACAO` 不能用 `*`。shim 用 `webRequest.onBeforeSendHeaders` 捕获请求 `Origin`、`onHeadersReceived` 回显之 + `Allow-Credentials:true`，并答复预检 `OPTIONS`（改 200 + Methods/Headers/Max-Age）；作用域严格限 `https://*.${ooEndpoint}/*`（域名由 `ooEndpoint` 派生，守 R2）。纯头部改写、无 token 逻辑、无同步 fs（守 R1）。纯函数核心 `applyOomolCors` 带单测。**生产 `file://`（Origin `null`）实测可行**：CDP 在打包渲染进程实发，匿名（search）与认证（connector，cookie 自动附带）请求均 200。
 
-**已搬到渲染层的域**（各有 `src/lib/*-client.ts`，无状态函数集，缓存交给各自的 hook）：
+**已搬到渲染层的域**（各有 `src/lib/*-client.ts`；billing 的聚合缓存由 hook 管理，connections / skills
+在 client 内维护按请求键缓存，organizations 的组合资源由 `organization-details-resource.ts` 管理）：
 
 | 域            | 渲染层落点                                                                                                                                                                                                                                                                 | 主进程残留                                                                                                      |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | billing       | `billing-client.ts`（组织 Team 订阅/席位、组织用量、创建者个人余额与个人用量优惠订阅的 insight/console-server 请求 + 结账 URL 解析）；组织用量带 workspace header，创建者余额/用量订阅不带组织 header，成员不得退化查询或订阅自己的个人账户；主进程 `chat/billing.ts` 已删 | open\* 改 `chatService.openExternalUrl` IPC（仅 `shell.openExternal` 校验外开）                                 |
 | voice ASR     | `routes/Chat/voice-asr.ts`（音频本就在渲染层录制，免去 base64 穿 IPC）                                                                                                                                                                                                     | 无                                                                                                              |
-| organizations | `organizations-client.ts` + `organization-change-bus.ts`（渲染层事件总线替代旧 RPC `organizationChanged` 广播）；**整个 IPC service 已删**                                                                                                                                 | 无                                                                                                              |
-| skills 浏览   | `skills-catalog-client.ts`（registry/search 浏览 GET + 并发 10 详情扇出）                                                                                                                                                                                                  | install/update 仍是 oo CLI spawn + 写盘 + 刷新 agent（本就不是 fetch）                                          |
+| organizations | `organizations-client.ts` + `organization-details-resource.ts`（成员、授权、provider options 的短时共享资源）；**整个 IPC service 已删**                                                                                                                                   | 无                                                                                                              |
+| skills 浏览   | `skills-catalog-client.ts`（registry/search 浏览 GET；搜索结果直接使用 search 响应，避免逐包详情扇出；“我发布的”仍并发补全详情）                                                                                                                                           | install/update 仍是 oo CLI spawn + 写盘 + 刷新 agent（本就不是 fetch）                                          |
 | connections   | `connections-client.ts`（连接器全量 HTTP + etag/30s GET 缓存 + summary merge）；`useConnections(workspace)` 持 summary 状态与 oauth 轮询；**整个 IPC service 已删**                                                                                                        | oauth 开浏览器走 `chatService.openExternalUrl`；workspace→agent 组织作用域走 `chatService.setAgentOrganization` |
 
-**仍留主进程的请求（正确，非渲染业务）**：`auth/node.ts` 的 deep-link 取 token（`POST /v1/auth/auth_id` + `GET /v1/users/profile`，cookie 必须在主进程设，见 §6）；`agent/manager.ts` 的 `listAuthorizedServices`（`GET /v1/apps`，构建 system-prompt 尾的已授权提示）与标题生成 `chat/completions`——都是 agent 内核内部、sidecar 驱动，不是渲染业务。
+**仍留主进程的请求（正确，非渲染业务）**：`auth/node.ts` 的 deep-link 取 token（`POST /v1/auth/auth_id` + `GET /v1/users/profile`，cookie 必须在主进程设，见 §6）；`agent/manager.ts` 的 `listAuthorizedServices`（`GET /v1/apps`，短 TTL 缓存且提示词关键路径只等待有限预算）与标题生成 `chat/completions`——都是 agent 内核内部、sidecar 驱动，不是渲染业务。
 
 ## 5. 聊天流式数据流
 
@@ -176,8 +177,8 @@ electron/
 src/
   main.tsx App.tsx            入口 / AuthGate
   lib/     oomol-http domain  渲染层直连请求底座（见 §4）：oomolFetch（credentials:include）/ domain 再导出
-           billing-client connections-client organizations-client skills-catalog-client   各域无状态请求客户端（+ billing-client.test）
-           organization-change-bus                                进程内组织变更总线（替代旧 RPC 广播）
+           billing-client connections-client organizations-client skills-catalog-client   各域请求客户端（connections / skills 自带按键缓存）
+           organization-details-resource                          组织成员/授权/provider options 共享资源与定向失效
   components/app-shell/       AppShell 三栏 + 内部 Route state（"chat"|"settings"）
   components/ai-elements/     vendored 裁剪版（conversation loader message message-image prompt-input shimmer task）
   components/ui/              shadcn 基件（button badge input textarea dialog collapsible input-group split-view）

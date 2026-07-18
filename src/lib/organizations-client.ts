@@ -13,7 +13,8 @@ import type {
   UploadOrganizationAvatarResponse,
 } from "../../electron/organizations/common.ts"
 
-import { apiBaseUrl, connectorBaseUrl, orgControlBaseUrl } from "@/lib/domain"
+import { getConnectionApps, getConnectionProviders } from "@/lib/connections-client"
+import { apiBaseUrl, orgControlBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
 
 // 组织面板/管理 UI 的全部网络读写在渲染层直接发起：原先这些是渲染业务驱动、却由主进程
@@ -26,14 +27,6 @@ interface OrganizationsEnvelope {
 
 interface OrganizationMembersEnvelope {
   members?: unknown
-}
-
-interface ConnectorEnvelope<T> {
-  data?: T
-  errorMessage?: string
-  message?: string
-  meta?: unknown
-  success?: boolean
 }
 
 interface RawConnectorApp {
@@ -49,6 +42,7 @@ interface RawConnectorProvider {
 interface RequestOptions extends RequestInit {
   headers?: Record<string, string>
   noResult?: boolean
+  onResponse?: (response: Response) => void
 }
 
 const organizationRequestTimeoutMs = 20_000
@@ -213,20 +207,6 @@ function normalizeUserSearchResults(value: unknown): OrganizationUserSearchResul
   return value.map(normalizeUserSearchResult).filter((item): item is OrganizationUserSearchResult => Boolean(item))
 }
 
-function normalizeConnectorEnvelope<T>(payload: unknown): T {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return payload as T
-  }
-  const envelope = payload as ConnectorEnvelope<T>
-  if (envelope.success === false) {
-    throw new Error(envelope.errorMessage || envelope.message || "Connector request failed")
-  }
-  if ("data" in envelope) {
-    return envelope.data as T
-  }
-  return payload as T
-}
-
 function normalizeProviderOptions(
   apps: RawConnectorApp[],
   providers: RawConnectorProvider[],
@@ -321,7 +301,7 @@ export function isOrganizationMemberLimitError(error: unknown): boolean {
 }
 
 async function requestJson(baseUrl: string, path: string, options: RequestOptions = {}): Promise<unknown> {
-  const { headers: optionHeaders, noResult, ...init } = options
+  const { headers: optionHeaders, noResult, onResponse, ...init } = options
   const headers: Record<string, string> = {
     Accept: "application/json, text/plain, */*",
     ...optionHeaders,
@@ -334,6 +314,7 @@ async function requestJson(baseUrl: string, path: string, options: RequestOption
     headers,
     timeoutMs: organizationRequestTimeoutMs,
   })
+  onResponse?.(response)
   const payload = await readPayload(response)
   if (!response.ok) {
     throw new OrganizationRequestError({
@@ -355,10 +336,6 @@ function requestApiJson(path: string, options: RequestOptions = {}): Promise<unk
 
 function requestOrgControlJson(path: string, options: RequestOptions = {}): Promise<unknown> {
   return requestJson(orgControlBaseUrl, path, options)
-}
-
-async function requestConnectorJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  return normalizeConnectorEnvelope<T>(await requestJson(connectorBaseUrl, path, options))
 }
 
 export async function listCreatedOrganizations(): Promise<Organization[]> {
@@ -534,19 +511,38 @@ export function disableOrganizationMembers(req: UpdateOrganizationMembersStatusR
 }
 
 export async function getOrganizationAppAccess(orgId: string): Promise<OrganizationAppAccess> {
+  return (await getOrganizationAppAccessSnapshot(orgId)).access
+}
+
+export interface OrganizationAppAccessSnapshot {
+  access: OrganizationAppAccess
+  etag?: string
+}
+
+export async function getOrganizationAppAccessSnapshot(orgId: string): Promise<OrganizationAppAccessSnapshot> {
   const id = requireIdentifier(orgId, "Organization id")
-  return normalizeAppAccess(await requestOrgControlJson(`/v1/organizations/${encodePath(id)}/app-access`))
+  let etag: string | undefined
+  const access = normalizeAppAccess(
+    await requestOrgControlJson(`/v1/organizations/${encodePath(id)}/app-access`, {
+      onResponse: (response) => {
+        etag = response.headers.get("etag") ?? undefined
+      },
+    }),
+  )
+  return { access, ...(etag ? { etag } : {}) }
 }
 
 export async function updateOrganizationAppAccess(
   orgId: string,
   access: OrganizationAppAccess,
+  options: { etag?: string } = {},
 ): Promise<OrganizationAppAccess> {
   const id = requireIdentifier(orgId, "Organization id")
   const updated = normalizeAppAccess(
     await requestOrgControlJson(`/v1/organizations/${encodePath(id)}/app-access`, {
       method: "PUT",
       body: JSON.stringify(access),
+      ...(options.etag ? { headers: { "if-match": options.etag } } : {}),
     }),
   )
   return updated
@@ -558,8 +554,11 @@ export async function listOrganizationProviderOptions(organizationName: string):
     return []
   }
   const [apps, providers] = await Promise.all([
-    requestConnectorJson<RawConnectorApp[]>("/v1/apps", { headers: { "x-oo-organization-name": normalized } }),
-    requestConnectorJson<RawConnectorProvider[]>("/v1/providers"),
+    getConnectionApps({ organizationName: normalized }),
+    getConnectionProviders(),
   ])
-  return normalizeProviderOptions(Array.isArray(apps) ? apps : [], Array.isArray(providers) ? providers : [])
+  return normalizeProviderOptions(
+    Array.isArray(apps.data) ? apps.data : [],
+    Array.isArray(providers.data) ? providers.data : [],
+  )
 }

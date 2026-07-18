@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   billingAuthRequiredMessage,
   getBillingOverview,
-  getBillingSummary,
   getCreditBalance,
   previewTeamSubscription,
   subscriptionCheckoutUrl,
@@ -85,7 +84,7 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    expect((await rejection(() => getBillingSummary(30, organizationScope))).message).toBe(billingAuthRequiredMessage)
+    expect((await rejection(() => getBillingOverview(30, organizationScope))).message).toBe(billingAuthRequiredMessage)
   })
 
   it("scopes organization billing reads and includes pending Team payment", async () => {
@@ -155,7 +154,7 @@ describe("billing-client", () => {
       throw new Error(`Unexpected billing test URL: ${url.pathname}`)
     })
 
-    const summary = await getBillingSummary(30, {
+    const summary = await getBillingOverview(30, {
       canManageBilling: true,
       canManageFunding: true,
       teamId: "team-1",
@@ -165,6 +164,7 @@ describe("billing-client", () => {
     expect(summary.teamPendingPayment?.paymentURL).toBe("https://console.example.com/team-pay")
     expect(summary.teamPendingPayment?.additionalSeats).toBe(2)
     expect(summary.subscription?.plan).toBe("team_plus")
+    expect(summary.subscriptionAvailable).toBe(true)
     expect(summary.usageSubscription?.plan).toBe("ai_pro")
     expect(summary.usageSubscriptionAvailable).toBe(true)
   })
@@ -180,7 +180,7 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    const summary = await getBillingSummary(30, {
+    const summary = await getBillingOverview(30, {
       canManageBilling: false,
       canManageFunding: false,
       teamId: "team-1",
@@ -195,6 +195,8 @@ describe("billing-client", () => {
     expect(summary.usageSubscriptionAvailable).toBe(true)
     expect(summary.subscription).toBeNull()
     expect(summary.teamPendingPayment).toBeNull()
+    expect(summary.subscriptionAvailable).toBe(true)
+    expect(summary.teamPendingPaymentAvailable).toBe(true)
   })
 
   it("surfaces member session expiry from organization usage without reading a personal balance", async () => {
@@ -206,7 +208,7 @@ describe("billing-client", () => {
     })
 
     const error = await rejection(() =>
-      getBillingSummary(30, {
+      getBillingOverview(30, {
         canManageBilling: false,
         canManageFunding: false,
         teamId: "team-1",
@@ -377,7 +379,7 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    await getBillingSummary(30, organizationScope)
+    await getBillingOverview(30, organizationScope)
 
     expect(balanceRequests).toHaveLength(100)
     expect(balanceRequests[0]).toBe("first")
@@ -402,7 +404,7 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    const summary = await getBillingSummary(30, organizationScope)
+    const summary = await getBillingOverview(30, organizationScope)
 
     expect(summary.balance?.items.length).toBe(2)
     expect(balanceRequests).toEqual(["first", "repeat-token"])
@@ -439,7 +441,9 @@ describe("billing-client", () => {
     expect(overview.spend?.total.totalCredit).toBe("2")
     expect(overview.metering?.total.eventCount).toBe(4)
     expect(overview.subscription).toBeNull()
+    expect(overview.subscriptionAvailable).toBe(false)
     expect(overview.usageSubscription).toBeNull()
     expect(overview.usageSubscriptionAvailable).toBe(false)
+    expect(overview.teamPendingPaymentAvailable).toBe(false)
   })
 })

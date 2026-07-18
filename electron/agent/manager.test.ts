@@ -51,6 +51,22 @@ describe("AgentManager", () => {
     }
   })
 
+  it("reuses authorized provider awareness within the prompt cache window", async () => {
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    const lookup = vi.fn(async () => ["gmail"])
+    manager.listAuthorizedServices = lookup
+
+    await manager.buildAuthorizedSystem("acme")
+    await manager.buildAuthorizedSystem("acme")
+
+    expect(lookup).toHaveBeenCalledOnce()
+  })
+
   it("keeps artifact directories inside the artifacts root", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {

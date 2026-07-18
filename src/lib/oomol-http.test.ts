@@ -32,6 +32,20 @@ describe("oomolFetch", () => {
     )
   })
 
+  it("combines caller cancellation with the request deadline", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response("{}"))
+    vi.stubGlobal("fetch", fetchMock)
+    const controller = new AbortController()
+
+    await oomolFetch("/v1/demo", { signal: controller.signal, timeoutMs: 30_000 })
+    controller.abort()
+
+    const requestSignal = fetchMock.mock.calls[0]?.[1]?.signal
+    expect(requestSignal).toBeInstanceOf(AbortSignal)
+    expect(requestSignal).not.toBe(controller.signal)
+    expect(requestSignal?.aborted).toBe(true)
+  })
+
   it("notifies the renderer auth gate when a direct OOMOL request returns 401", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response("unauthorized", { status: 401 }))
     const dispatchEvent = vi.fn()

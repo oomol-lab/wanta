@@ -13,6 +13,8 @@ interface BillingOverviewCacheEntry {
   data: BillingOverviewResult | null
   loadedAt: number
   promise: Promise<BillingOverviewResult> | null
+  controller?: AbortController | null
+  listeners?: Set<() => void>
 }
 
 export interface UseBillingOverviewOptions {
@@ -75,6 +77,15 @@ export function useBillingOverview(
     setLoading(false)
   }, [cacheScopeKey, days])
 
+  React.useEffect(() => {
+    const entry = getBillingOverviewCacheEntry(cacheScopeKey, days)
+    const listener = () => setData(entry.data)
+    entry.listeners?.add(listener)
+    return () => {
+      entry.listeners?.delete(listener)
+    }
+  }, [cacheScopeKey, days])
+
   const refresh = React.useCallback(
     async ({ force = false }: RefreshBillingOverviewOptions = {}): Promise<BillingOverviewResult | null> => {
       if (!requestScopeReady) {
@@ -99,7 +110,7 @@ export function useBillingOverview(
         teamId: requestTeamId,
         organizationName: requestOrganizationName,
       }
-      const promise = loadBillingOverviewEntry(entry, () => getBillingOverview(days, scope), { force })
+      const promise = loadBillingOverviewEntry(entry, (signal) => getBillingOverview(days, scope, signal), { force })
 
       try {
         const nextData = await promise
@@ -117,6 +128,7 @@ export function useBillingOverview(
           if (resolved.kind === "auth_required") {
             entry.data = null
             entry.loadedAt = 0
+            notifyBillingOverviewEntry(entry)
             setData(null)
           }
         }
@@ -156,13 +168,23 @@ export function getBillingOverviewCacheEntry(cacheScope: string, days: BillingPe
   }
   let entry = scopedCache.get(days)
   if (!entry) {
-    entry = { data: null, loadedAt: 0, promise: null }
+    entry = { controller: null, data: null, listeners: new Set(), loadedAt: 0, promise: null }
     scopedCache.set(days, entry)
   }
   return entry
 }
 
 export function clearBillingOverviewCache(): void {
+  for (const scopedCache of overviewCache.values()) {
+    for (const entry of scopedCache.values()) {
+      entry.controller?.abort(new Error("Billing overview cache was cleared."))
+      entry.controller = null
+      entry.data = null
+      entry.loadedAt = 0
+      entry.promise = null
+      notifyBillingOverviewEntry(entry)
+    }
+  }
   overviewCache.clear()
 }
 
@@ -182,21 +204,27 @@ function isFresh(
 
 export function startBillingOverviewRequest(
   entry: BillingOverviewCacheEntry,
-  request: () => Promise<BillingOverviewResult>,
+  request: (signal: AbortSignal) => Promise<BillingOverviewResult>,
   timeoutMs = billingOverviewRequestTimeoutMs,
 ): Promise<BillingOverviewResult> {
-  const promise = withBillingOverviewTimeout(request(), timeoutMs)
+  entry.controller?.abort(new Error("Billing overview request was superseded."))
+  const controller = new AbortController()
+  const promise = withBillingOverviewTimeout(request, controller, timeoutMs)
+  entry.controller = controller
   entry.promise = promise
   void promise.then(
     (nextData) => {
       if (entry.promise === promise) {
         entry.data = nextData
         entry.loadedAt = Date.now()
+        entry.controller = null
         entry.promise = null
+        notifyBillingOverviewEntry(entry)
       }
     },
     () => {
       if (entry.promise === promise) {
+        entry.controller = null
         entry.promise = null
       }
     },
@@ -206,7 +234,7 @@ export function startBillingOverviewRequest(
 
 export function loadBillingOverviewEntry(
   entry: BillingOverviewCacheEntry,
-  request: () => Promise<BillingOverviewResult>,
+  request: (signal: AbortSignal) => Promise<BillingOverviewResult>,
   options: { force?: boolean; timeoutMs?: number } = {},
 ): Promise<BillingOverviewResult> {
   if (!options.force && entry.promise) {
@@ -216,14 +244,30 @@ export function loadBillingOverviewEntry(
 }
 
 function withBillingOverviewTimeout(
-  request: Promise<BillingOverviewResult>,
+  request: (signal: AbortSignal) => Promise<BillingOverviewResult>,
+  controller: AbortController,
   timeoutMs: number,
 ): Promise<BillingOverviewResult> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error("Billing overview request timed out."))
+      controller.abort(new Error("Billing overview request timed out."))
     }, timeoutMs)
-
-    void request.then(resolve, reject).finally(() => clearTimeout(timer))
+    const handleAbort = () => {
+      clearTimeout(timer)
+      reject(controller.signal.reason)
+    }
+    controller.signal.addEventListener("abort", handleAbort, { once: true })
+    void request(controller.signal)
+      .then(resolve, reject)
+      .finally(() => {
+        clearTimeout(timer)
+        controller.signal.removeEventListener("abort", handleAbort)
+      })
   })
+}
+
+function notifyBillingOverviewEntry(entry: BillingOverviewCacheEntry): void {
+  for (const listener of entry.listeners ?? []) {
+    listener()
+  }
 }

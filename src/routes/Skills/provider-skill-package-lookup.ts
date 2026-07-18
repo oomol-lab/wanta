@@ -91,6 +91,7 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
 
   React.useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
 
     if (candidates.length === 0) {
       setPackagesByService(new Map())
@@ -99,6 +100,7 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
       setError(null)
       return () => {
         cancelled = true
+        controller.abort()
       }
     }
 
@@ -121,6 +123,7 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
     if (pendingCandidates.length === 0) {
       return () => {
         cancelled = true
+        controller.abort()
       }
     }
 
@@ -129,7 +132,7 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
 
       await mapProviderSkillCandidatesWithConcurrency(pendingCandidates, async (candidate) => {
         try {
-          const pkg = await readProviderSkillPackage(candidate)
+          const pkg = await readProviderSkillPackage(candidate, controller.signal)
           if (!cancelled) {
             setPackagesByService((current) => {
               const next = new Map(current)
@@ -138,6 +141,9 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
             })
           }
         } catch (cause) {
+          if (controller.signal.aborted) {
+            return
+          }
           console.warn("[wanta] failed to read provider Skill recommendation:", cause)
           reportRendererHandledError(
             "providerSkillPackageLookup.readPackage",
@@ -172,6 +178,7 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
 
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [candidates, requestKey])
 
@@ -189,23 +196,26 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
   }
 }
 
-export function clearProviderSkillPackageLookupCacheForTest(): void {
+export function clearProviderSkillPackageCache(): void {
   providerSkillPackageCache.clear()
   providerSkillPackagePendingRequests.clear()
 }
 
-export async function readProviderSkillPackage(candidate: ProviderSkillCandidate): Promise<PublicSkillPackage | null> {
+export async function readProviderSkillPackage(
+  candidate: ProviderSkillCandidate,
+  signal?: AbortSignal,
+): Promise<PublicSkillPackage | null> {
   const cacheKey = providerSkillPackageCacheKey(candidate)
   const cached = providerSkillPackageCache.get(cacheKey)
   if (cached && Date.now() < cached.expiresAt) {
     return cached.package
   }
-  const pending = providerSkillPackagePendingRequests.get(cacheKey)
+  const pending = signal ? undefined : providerSkillPackagePendingRequests.get(cacheKey)
   if (pending) {
     return pending
   }
 
-  const request = searchProviderSkillPackage(candidate)
+  const request = searchProviderSkillPackage(candidate, signal)
     .then((pkg) => {
       providerSkillPackageCache.set(cacheKey, {
         expiresAt: Date.now() + (pkg ? providerSkillPackageCacheMs : missingProviderSkillPackageCacheMs),
@@ -214,19 +224,24 @@ export async function readProviderSkillPackage(candidate: ProviderSkillCandidate
       return pkg
     })
     .finally(() => {
-      if (providerSkillPackagePendingRequests.get(cacheKey) === request) {
+      if (!signal && providerSkillPackagePendingRequests.get(cacheKey) === request) {
         providerSkillPackagePendingRequests.delete(cacheKey)
       }
     })
-  providerSkillPackagePendingRequests.set(cacheKey, request)
+  if (!signal) {
+    providerSkillPackagePendingRequests.set(cacheKey, request)
+  }
   return request
 }
 
-async function searchProviderSkillPackage(candidate: ProviderSkillCandidate): Promise<PublicSkillPackage | null> {
+async function searchProviderSkillPackage(
+  candidate: ProviderSkillCandidate,
+  signal?: AbortSignal,
+): Promise<PublicSkillPackage | null> {
   const conventionalPackageName = getConventionalProviderSkillPackageName(candidate)
   if (conventionalPackageName) {
     try {
-      const conventionalPackage = await readPublicSkillPackageByName(conventionalPackageName)
+      const conventionalPackage = await readPublicSkillPackageByName(conventionalPackageName, signal)
       if (conventionalPackage && scoreProviderSkillPackage(candidate, conventionalPackage) > 0) {
         return conventionalPackage
       }
@@ -243,7 +258,7 @@ async function searchProviderSkillPackage(candidate: ProviderSkillCandidate): Pr
   const seen = new Set<string>()
 
   for (const query of getProviderSkillSearchQueries(candidate)) {
-    const catalog = await searchPublicSkillPackages({ query, size: 12 })
+    const catalog = await searchPublicSkillPackages({ query, signal, size: 12 })
     for (const pkg of catalog.items) {
       const key = pkg.name.trim().toLowerCase()
       if (!key || seen.has(key)) {

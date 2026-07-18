@@ -278,6 +278,35 @@ describe("connections-client", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1/connect/api-key")
   })
 
+  it("keeps the global provider catalog cached after a workspace connection mutation", async () => {
+    let appReads = 0
+    let providerReads = 0
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith("/v1/apps") && (!init?.method || init.method === "GET")) {
+        appReads += 1
+        return Response.json({ data: [] })
+      }
+      if (url.endsWith("/v1/providers")) {
+        providerReads += 1
+        return Response.json({ data: [{ authTypes: ["no_auth"], service: "demo" }] })
+      }
+      if (url.includes("/v1/apps/demo/connect/no-auth")) {
+        return Response.json({ data: {} })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const workspace = { organizationName: "org-name" }
+
+    await getConnectionCatalogSummary(workspace)
+    await connectProvider({ authType: "no_auth", service: "demo" }, workspace)
+    await getConnectionCatalogSummary(workspace)
+
+    expect(appReads).toBe(2)
+    expect(providerReads).toBe(1)
+  })
+
   it("deduplicates identical concurrent OAuth start requests", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({ data: { authorizationUrl: "https://accounts.example.com/oauth" } }),

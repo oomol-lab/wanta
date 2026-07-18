@@ -1,7 +1,6 @@
 import type {
   BillingOverviewResult,
   BillingSpendStats,
-  BillingSummaryResult,
   CreditBalanceResult,
   CreditItem,
   CreditUsages,
@@ -344,45 +343,6 @@ function logSettledFailure(label: string, result: PromiseSettledResult<unknown>)
   }
 }
 
-function preventEarlyUnhandledRejection(promise: Promise<unknown>): void {
-  void promise.catch(() => {
-    // 调用方稍后会通过 allSettled/settleWithSoftTimeout 统一记录和降级。
-  })
-}
-
-function settleWithSoftTimeout<T>(
-  label: string,
-  promise: Promise<T>,
-  timeoutMs = billingOptionalRequestSoftTimeoutMs,
-): Promise<PromiseSettledResult<T>> {
-  return new Promise((resolve) => {
-    let completed = false
-    const timer = setTimeout(() => {
-      if (!completed) {
-        completed = true
-        resolve({ status: "rejected", reason: new Error(`${label} request timed out.`) })
-      }
-    }, timeoutMs)
-
-    void promise.then(
-      (value) => {
-        if (!completed) {
-          completed = true
-          clearTimeout(timer)
-          resolve({ status: "fulfilled", value })
-        }
-      },
-      (reason: unknown) => {
-        if (!completed) {
-          completed = true
-          clearTimeout(timer)
-          resolve({ status: "rejected", reason })
-        }
-      },
-    )
-  })
-}
-
 function billingScopeHeaders(scope?: BillingRequestScope): HeadersInit | undefined {
   if (!scope?.organizationName.trim()) {
     return undefined
@@ -390,31 +350,32 @@ function billingScopeHeaders(scope?: BillingRequestScope): HeadersInit | undefin
   return { "x-oo-organization-name": scope.organizationName }
 }
 
-function fetchAuthenticatedJson(url: URL, scope?: BillingRequestScope): Promise<unknown> {
+function fetchAuthenticatedJson(url: URL, scope?: BillingRequestScope, signal?: AbortSignal): Promise<unknown> {
   return oomolFetchJson<unknown>(url, {
     headers: billingScopeHeaders(scope),
+    signal,
     timeoutMs: billingRequestTimeoutMs,
   })
 }
 
-export async function getCreditBalance(scope: BillingRequestScope): Promise<CreditBalanceResult> {
+export async function getCreditBalance(scope: BillingRequestScope, signal?: AbortSignal): Promise<CreditBalanceResult> {
   if (!scope.canManageFunding) {
     throw new Error("The organization funding account is managed by its creator.")
   }
   const url = new URL("/v1/balance/available", insightBaseUrl)
-  return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url)))
+  return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url, undefined, signal)))
 }
 
-async function getCreditUsages(nextToken?: string): Promise<CreditUsages> {
+async function getCreditUsages(nextToken?: string, signal?: AbortSignal): Promise<CreditUsages> {
   const url = new URL("/v1/balance/available", insightBaseUrl)
   if (nextToken) {
     url.searchParams.set("nextToken", nextToken)
   }
-  return readCreditUsages(unwrapApiData<unknown>(await fetchAuthenticatedJson(url)))
+  return readCreditUsages(unwrapApiData<unknown>(await fetchAuthenticatedJson(url, undefined, signal)))
 }
 
-async function getAllCreditUsages(): Promise<CreditUsages> {
-  const firstPage = await getCreditUsages()
+async function getAllCreditUsages(signal?: AbortSignal): Promise<CreditUsages> {
+  const firstPage = await getCreditUsages(undefined, signal)
   const items = [...firstPage.items]
   let nextToken = firstPage.nextToken
   let pageCount = 1
@@ -425,7 +386,7 @@ async function getAllCreditUsages(): Promise<CreditUsages> {
       break
     }
     seenTokens.add(nextToken)
-    const nextPage = await getCreditUsages(nextToken)
+    const nextPage = await getCreditUsages(nextToken, signal)
     if (nextPage.items.length === 0) {
       break
     }
@@ -436,41 +397,58 @@ async function getAllCreditUsages(): Promise<CreditUsages> {
   return { ...firstPage, items, nextToken: undefined }
 }
 
-async function getCreditSpendStats(days: number, scope: BillingRequestScope): Promise<BillingSpendStats> {
+async function getCreditSpendStats(
+  days: number,
+  scope: BillingRequestScope,
+  signal?: AbortSignal,
+): Promise<BillingSpendStats> {
   const { endTime, startTime } = statsRange(days)
   const url = new URL("/v1/stats/billing", insightBaseUrl)
   url.searchParams.set("granularity", "daily")
   url.searchParams.set("startTime", String(startTime))
   url.searchParams.set("endTime", String(endTime))
-  return unwrapApiData<BillingSpendStats>(await fetchAuthenticatedJson(url, scope))
+  return unwrapApiData<BillingSpendStats>(await fetchAuthenticatedJson(url, scope, signal))
 }
 
-async function getCreditMeteringStats(days: number, scope: BillingRequestScope): Promise<BillingSpendStats> {
+async function getCreditMeteringStats(
+  days: number,
+  scope: BillingRequestScope,
+  signal?: AbortSignal,
+): Promise<BillingSpendStats> {
   const { endTime, startTime } = statsRange(days)
   const url = new URL("/v1/stats/metering", insightBaseUrl)
   url.searchParams.set("granularity", "daily")
   url.searchParams.set("startTime", String(startTime))
   url.searchParams.set("endTime", String(endTime))
-  return unwrapApiData<BillingSpendStats>(await fetchAuthenticatedJson(url, scope))
+  return unwrapApiData<BillingSpendStats>(await fetchAuthenticatedJson(url, scope, signal))
 }
 
-async function getSubscriptionStatus(scope: BillingRequestScope): Promise<SubscriptionStatus | null> {
+async function getSubscriptionStatus(
+  scope: BillingRequestScope,
+  signal?: AbortSignal,
+): Promise<SubscriptionStatus | null> {
   if (!scope.canManageBilling) {
     return null
   }
   const url = new URL(`/api/org/${encodeURIComponent(scope.teamId)}/subscriptions`, consoleServerBaseUrl)
-  return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url))
+  return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url, undefined, signal))
 }
 
-async function getUsageSubscriptionStatus(scope: BillingRequestScope): Promise<SubscriptionStatus | null> {
+async function getUsageSubscriptionStatus(
+  scope: BillingRequestScope,
+  signal?: AbortSignal,
+): Promise<SubscriptionStatus | null> {
   if (!scope.canManageFunding) {
     return null
   }
   const url = new URL("/api/user/subscriptions", consoleServerBaseUrl)
-  return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url))
+  return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url, undefined, signal))
 }
 
-async function getTeamPendingPayment(scope: BillingRequestScope): Promise<TeamPendingPaymentResult | null> {
+async function getTeamPendingPayment(
+  scope: BillingRequestScope,
+  signal?: AbortSignal,
+): Promise<TeamPendingPaymentResult | null> {
   if (!scope.canManageBilling) {
     return null
   }
@@ -478,33 +456,71 @@ async function getTeamPendingPayment(scope: BillingRequestScope): Promise<TeamPe
     `/api/team/${encodeURIComponent(scope.teamId)}/subscriptions/team/pending_payment`,
     consoleServerBaseUrl,
   )
-  return readTeamPendingPayment(await fetchAuthenticatedJson(url))
+  return readTeamPendingPayment(await fetchAuthenticatedJson(url, undefined, signal))
 }
 
-export async function getBillingSummary(days: number, scope: BillingRequestScope): Promise<BillingSummaryResult> {
-  return getBillingOverview(days, scope)
+function optionalBillingSignal(signal?: AbortSignal): { cleanup: () => void; signal: AbortSignal } {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => {
+    controller.abort(new Error("Optional billing request timed out."))
+  }, billingOptionalRequestSoftTimeoutMs)
+  const abort = () => controller.abort(signal?.reason)
+  if (signal?.aborted) {
+    abort()
+  } else {
+    signal?.addEventListener("abort", abort, { once: true })
+  }
+  return {
+    cleanup: () => {
+      clearTimeout(timeout)
+      signal?.removeEventListener("abort", abort)
+    },
+    signal: controller.signal,
+  }
 }
 
-export async function getBillingOverview(days: number, scope: BillingRequestScope): Promise<BillingOverviewResult> {
+function settleOnAbort<T>(request: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason)
+      return
+    }
+    const abort = () => reject(signal.reason)
+    signal.addEventListener("abort", abort, { once: true })
+    void request.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", abort)
+    })
+  })
+}
+
+export async function getBillingOverview(
+  days: number,
+  scope: BillingRequestScope,
+  signal?: AbortSignal,
+): Promise<BillingOverviewResult> {
   // Team 计划和统计按组织读取；现有用量钱包属于组织创建者个人，不能带组织 header 查询不存在的组织余额。
   // 普通成员也不能退化为查询自己的个人余额，否则会把错误的付款账户展示成组织可用额度。
-  const balancePromise = scope.canManageFunding ? getAllCreditUsages() : Promise.resolve(null)
-  const spendPromise = getCreditSpendStats(days, scope)
-  const meteringPromise = getCreditMeteringStats(days, scope)
-  const subscriptionPromise = getSubscriptionStatus(scope)
-  const usageSubscriptionPromise = getUsageSubscriptionStatus(scope)
-  const teamPendingPaymentPromise = getTeamPendingPayment(scope)
-
-  preventEarlyUnhandledRejection(subscriptionPromise)
-  preventEarlyUnhandledRejection(usageSubscriptionPromise)
-  preventEarlyUnhandledRejection(teamPendingPaymentPromise)
+  const balancePromise = scope.canManageFunding ? getAllCreditUsages(signal) : Promise.resolve(null)
+  const spendPromise = getCreditSpendStats(days, scope, signal)
+  const meteringPromise = getCreditMeteringStats(days, scope, signal)
+  const detailsRequest = optionalBillingSignal(signal)
+  const subscriptionPromise = settleOnAbort(getSubscriptionStatus(scope, detailsRequest.signal), detailsRequest.signal)
+  const usageSubscriptionPromise = settleOnAbort(
+    getUsageSubscriptionStatus(scope, detailsRequest.signal),
+    detailsRequest.signal,
+  )
+  const teamPendingPaymentPromise = settleOnAbort(
+    getTeamPendingPayment(scope, detailsRequest.signal),
+    detailsRequest.signal,
+  )
 
   const [balance, spend, metering] = await Promise.allSettled([balancePromise, spendPromise, meteringPromise])
-  const [subscription, usageSubscription, teamPendingPayment] = await Promise.all([
-    settleWithSoftTimeout("subscription", subscriptionPromise),
-    settleWithSoftTimeout("usage subscription", usageSubscriptionPromise),
-    settleWithSoftTimeout("team pending payment", teamPendingPaymentPromise),
+  const [subscription, usageSubscription, teamPendingPayment] = await Promise.allSettled([
+    subscriptionPromise,
+    usageSubscriptionPromise,
+    teamPendingPaymentPromise,
   ])
+  detailsRequest.cleanup()
   logSettledFailure("balance", balance)
   logSettledFailure("spend", spend)
   logSettledFailure("metering", metering)
@@ -531,7 +547,9 @@ export async function getBillingOverview(days: number, scope: BillingRequestScop
     usageSubscription: usageSubscription.status === "fulfilled" ? usageSubscription.value : null,
     usageSubscriptionAvailable: usageSubscription.status === "fulfilled",
     subscription: subscription.status === "fulfilled" ? subscription.value : null,
+    subscriptionAvailable: subscription.status === "fulfilled",
     teamPendingPayment: teamPendingPayment.status === "fulfilled" ? teamPendingPayment.value : null,
+    teamPendingPaymentAvailable: teamPendingPayment.status === "fulfilled",
   }
 }
 

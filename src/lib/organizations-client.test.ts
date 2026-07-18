@@ -1,23 +1,47 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { clearConnectorCache } from "./connections-client.ts"
 import {
   addOrganizationMember,
   createOrganization,
   disableOrganizationMembers,
   enableOrganizationMembers,
   getOrganizationAppAccess,
+  getOrganizationAppAccessSnapshot,
   isOrganizationMemberLimitError,
   listCreatedOrganizations,
   listOrganizationMembers,
+  listOrganizationProviderOptions,
   listUserSummaries,
   OrganizationRequestError,
   searchUsers,
+  updateOrganizationAppAccess,
   updateOrganization,
   uploadOrganizationAvatar,
 } from "./organizations-client.ts"
 
 describe("organizations-client", () => {
   afterEach(() => {
+    clearConnectorCache()
     vi.unstubAllGlobals()
+  })
+
+  it("reuses connector apps and provider reads for organization options", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/v1/apps")) {
+        return Response.json({ data: [{ service: "gmail", status: "active" }] })
+      }
+      if (url.endsWith("/v1/providers")) {
+        return Response.json({ data: [{ displayName: "Gmail", service: "gmail" }] })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await listOrganizationProviderOptions("acme")
+    await listOrganizationProviderOptions("acme")
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it("creates organizations through the console API org endpoint", async () => {
@@ -141,6 +165,22 @@ describe("organizations-client", () => {
     await expect(getOrganizationAppAccess("org-1")).rejects.toThrow("Organization app access response is invalid")
   })
 
+  it("uses app-access ETags to reject stale read-modify-write updates when supported", async () => {
+    const access = { users: { "user-1": { providers: ["gmail"] } } }
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(access, { headers: { etag: '"revision-1"' } }))
+      .mockResolvedValueOnce(Response.json(access))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const snapshot = await getOrganizationAppAccessSnapshot("org-1")
+    await updateOrganizationAppAccess("org-1", snapshot.access, { etag: snapshot.etag })
+
+    const updateHeaders = new Headers(fetchMock.mock.calls[1]?.[1]?.headers)
+    expect(snapshot.etag).toBe('"revision-1"')
+    expect(updateHeaders.get("if-match")).toBe('"revision-1"')
+  })
+
   it("loads large user summary sets in bounded URL batches", async () => {
     const fetchMock = vi.fn<typeof fetch>(async (input) => {
       const ids = new URL(String(input)).searchParams.getAll("user_ids")
@@ -160,7 +200,7 @@ describe("organizations-client", () => {
     expect(summaries[ids.at(-1)!]?.username).toBe(ids.at(-1))
   })
 
-  it("forwards the member-search abort signal to the request", async () => {
+  it("combines member-search cancellation with the request deadline", async () => {
     const controller = new AbortController()
     const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ users: [] }))
     vi.stubGlobal("fetch", fetchMock)
@@ -168,7 +208,9 @@ describe("organizations-client", () => {
     await searchUsers("alice", { signal: controller.signal })
 
     const [, init] = fetchMock.mock.calls[0] ?? []
-    expect(init?.signal).toBe(controller.signal)
+    expect(init?.signal).not.toBe(controller.signal)
+    controller.abort()
+    expect(init?.signal?.aborted).toBe(true)
   })
 
   it("updates organization member status in batches", async () => {

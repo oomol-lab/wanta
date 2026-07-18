@@ -154,7 +154,9 @@ export function SkillsRoute({
   const requestedVersionCheckRef = React.useRef(false)
   const publicPackageRequestIdRef = React.useRef(0)
   const myPublishedPackageRequestIdRef = React.useRef(0)
+  const myPublishedPackageControllerRef = React.useRef<AbortController | null>(null)
   const publicPackageSearchRequestIdRef = React.useRef(0)
+  const publicPackageSearchControllerRef = React.useRef<AbortController | null>(null)
   const { copySkillPath, isRemovingSkill, openSkillFolder, removeSkill, removeTarget, setRemoveTarget } =
     useSkillObjectActions({
       onDeleted: () => {
@@ -294,6 +296,9 @@ export function SkillsRoute({
       if (!account) {
         return
       }
+      myPublishedPackageControllerRef.current?.abort()
+      const controller = new AbortController()
+      myPublishedPackageControllerRef.current = controller
       const next = options.next?.trim() || undefined
       const append = Boolean(next && !options.forceRefresh)
       const requestId = myPublishedPackageRequestIdRef.current + 1
@@ -305,14 +310,22 @@ export function SkillsRoute({
           account: { avatarUrl: account.avatarUrl, id: account.id, name: account.name },
           forceRefresh: options.forceRefresh,
           next,
+          signal: controller.signal,
         })
         dispatchMyPublishedPackageCatalog({ append, catalog, requestId, type: "load-success" })
       } catch (cause) {
+        if (controller.signal.aborted) {
+          return
+        }
         dispatchMyPublishedPackageCatalog({
           error: cause instanceof Error ? cause.message : String(cause),
           requestId,
           type: "load-error",
         })
+      } finally {
+        if (myPublishedPackageControllerRef.current === controller) {
+          myPublishedPackageControllerRef.current = null
+        }
       }
     },
     [authResource.data],
@@ -320,6 +333,9 @@ export function SkillsRoute({
 
   const loadPublicSkillSearch = React.useCallback(
     async (query: string, options: { forceRefresh?: boolean; next?: string | null; replace?: boolean } = {}) => {
+      publicPackageSearchControllerRef.current?.abort()
+      const controller = new AbortController()
+      publicPackageSearchControllerRef.current = controller
       const next = options.next?.trim() || undefined
       const append = Boolean(next && !options.forceRefresh && !options.replace)
       const requestId = publicPackageSearchRequestIdRef.current + 1
@@ -332,15 +348,35 @@ export function SkillsRoute({
       })
 
       try {
-        const catalog = await searchPublicSkillPackages({ forceRefresh: options.forceRefresh, next, query })
+        const catalog = await searchPublicSkillPackages({
+          forceRefresh: options.forceRefresh,
+          next,
+          query,
+          signal: controller.signal,
+        })
         dispatchPublicPackageSearchCatalog({ append, catalog, requestId, type: "load-success" })
       } catch (cause) {
+        if (controller.signal.aborted) {
+          return
+        }
         dispatchPublicPackageSearchCatalog({
           error: cause instanceof Error ? cause.message : String(cause),
           requestId,
           type: "load-error",
         })
+      } finally {
+        if (publicPackageSearchControllerRef.current === controller) {
+          publicPackageSearchControllerRef.current = null
+        }
       }
+    },
+    [],
+  )
+
+  React.useEffect(
+    () => () => {
+      publicPackageSearchControllerRef.current?.abort()
+      myPublishedPackageControllerRef.current?.abort()
     },
     [],
   )

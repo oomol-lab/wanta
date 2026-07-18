@@ -17,7 +17,7 @@ import {
   addOrganizationMember,
   disableOrganizationMembers,
   enableOrganizationMembers,
-  getOrganizationAppAccess,
+  getOrganizationAppAccessSnapshot,
   isOrganizationMemberLimitError,
   removeOrganizationMember,
   updateOrganizationAppAccess,
@@ -265,7 +265,8 @@ export function useOrganizationMemberActions({
 
       const operation = beginOperation("saveProviderAccess")
       try {
-        const parsed = parseProviderGrants(await getOrganizationAppAccess(selectedOrganization.id))
+        const snapshot = await getOrganizationAppAccessSnapshot(selectedOrganization.id)
+        const parsed = parseProviderGrants(snapshot.access)
         if (!parsed.ok) {
           if (operationIsCurrent(operation)) toast.error(t("organizations.providerAccessLoadFailed"))
           return
@@ -282,6 +283,7 @@ export function useOrganizationMemberActions({
         const updated = await updateOrganizationAppAccess(
           selectedOrganization.id,
           setProviderGrant(parsed.access, userId, providers, allProviders),
+          { etag: snapshot.etag },
         )
         invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
         if (!operationIsCurrent(operation)) return
@@ -314,7 +316,8 @@ export function useOrganizationMemberActions({
       if (!selectedOrganization || !canManage || providerAccessError) return
       const operation = beginOperation(`revokeProviderAccess:${grant.userId}`)
       try {
-        const parsed = parseProviderGrants(await getOrganizationAppAccess(selectedOrganization.id))
+        const snapshot = await getOrganizationAppAccessSnapshot(selectedOrganization.id)
+        const parsed = parseProviderGrants(snapshot.access)
         if (!parsed.ok) {
           if (operationIsCurrent(operation)) toast.error(t("organizations.providerAccessLoadFailed"))
           return
@@ -322,6 +325,7 @@ export function useOrganizationMemberActions({
         const updated = await updateOrganizationAppAccess(
           selectedOrganization.id,
           removeProviderGrant(parsed.access, grant.userId),
+          { etag: snapshot.etag },
         )
         invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
         if (!operationIsCurrent(operation)) return

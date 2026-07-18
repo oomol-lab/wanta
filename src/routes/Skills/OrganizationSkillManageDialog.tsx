@@ -123,6 +123,7 @@ export function OrganizationSkillManageDialog({
   const [marketExactPackage, setMarketExactPackage] = React.useState<PublicSkillPackage | null>(null)
   const [marketExactLoading, setMarketExactLoading] = React.useState(false)
   const marketRequestIdRef = React.useRef(0)
+  const marketRequestControllerRef = React.useRef<AbortController | null>(null)
   const marketExactRequestIdRef = React.useRef(0)
   const marketLoadedQueryRef = React.useRef<string | null>(null)
   const marketAutoLoadRequestedRef = React.useRef(false)
@@ -198,6 +199,9 @@ export function OrganizationSkillManageDialog({
 
   const loadMarketPackages = React.useCallback(
     async (options: { clearItems?: boolean; forceRefresh?: boolean; next?: string | null; query?: string } = {}) => {
+      marketRequestControllerRef.current?.abort()
+      const controller = new AbortController()
+      marketRequestControllerRef.current = controller
       const query = options.query?.trim() ?? ""
       const next = options.next?.trim() || undefined
       const append = Boolean(next && !options.forceRefresh)
@@ -207,12 +211,35 @@ export function OrganizationSkillManageDialog({
 
       try {
         const catalog = query
-          ? await searchPublicSkillPackages({ forceRefresh: options.forceRefresh, next, query })
-          : await listPublicSkillPackages({ forceRefresh: options.forceRefresh, next })
+          ? await searchPublicSkillPackages({
+              forceRefresh: options.forceRefresh,
+              next,
+              query,
+              signal: controller.signal,
+            })
+          : await listPublicSkillPackages({
+              forceRefresh: options.forceRefresh,
+              next,
+              signal: controller.signal,
+            })
         dispatchMarketCatalog({ append, catalog, requestId, type: "load-success" })
       } catch (error) {
+        if (controller.signal.aborted) {
+          return
+        }
         dispatchMarketCatalog({ error: errorMessage(error), requestId, type: "load-error" })
+      } finally {
+        if (marketRequestControllerRef.current === controller) {
+          marketRequestControllerRef.current = null
+        }
       }
+    },
+    [],
+  )
+
+  React.useEffect(
+    () => () => {
+      marketRequestControllerRef.current?.abort()
     },
     [],
   )

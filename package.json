@@ -13,7 +13,7 @@
     "dev": "vite",
     "dev:no-electron": "vite --mode no-electron",
     "build": "npm run build:app",
-    "ts-check": "tsgo -p tsconfig.json",
+    "ts-check": "tsgo -p tsconfig.json --incremental false",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
     "format": "oxfmt --check .",

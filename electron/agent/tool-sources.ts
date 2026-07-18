@@ -634,6 +634,7 @@ const execFileAsync = promisify(execFile)
 const EXECUTABLE = process.env.WANTA_WIKIGRAPH_EXECUTABLE || ""
 const CLI = process.env.WANTA_WIKIGRAPH_CLI || ""
 const REGISTRY = process.env.WANTA_KNOWLEDGE_REGISTRY || ""
+const SCOPE = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
 const OPTIONS = {
   encoding: "utf8",
   env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NO_COLOR: "1" },
@@ -662,8 +663,18 @@ function relativeObject(value) {
   return normalized
 }
 
-async function recordFor(id) {
+async function allowedKnowledgeBaseIds(sessionID) {
+  if (!SCOPE || !sessionID) throw new Error("knowledge access scope is unavailable")
+  const parsed = JSON.parse(await readFile(SCOPE, "utf8"))
+  const sessions = parsed && parsed.sessionKnowledgeBaseIds
+  const ids = sessions && typeof sessions === "object" ? sessions[sessionID] : undefined
+  return Array.isArray(ids) ? ids.filter((id) => typeof id === "string") : []
+}
+
+async function recordFor(id, sessionID) {
   if (!REGISTRY) throw new Error("knowledge registry is unavailable")
+  const allowedIds = await allowedKnowledgeBaseIds(sessionID)
+  if (!allowedIds.includes(id)) throw new Error("knowledge base is not pinned to the current conversation")
   const parsed = JSON.parse(await readFile(REGISTRY, "utf8"))
   const records = Array.isArray(parsed && parsed.records) ? parsed.records : []
   const record = records.find((item) => item && item.id === id)
@@ -690,10 +701,10 @@ export default tool({
     evidenceLimit: tool.schema.number().optional().describe("Evidence snippets per entity/triple from 0 to 5."),
     budget: tool.schema.number().optional().describe("Pack context budget from 500 to 12000."),
   },
-  async execute(args) {
+  async execute(args, context) {
     let archivePath = ""
     try {
-      const record = await recordFor(String(args.knowledgeBaseId || "").trim())
+      const record = await recordFor(String(args.knowledgeBaseId || "").trim(), context.sessionID)
       archivePath = record.filePath
       const root = archiveUri(record.filePath)
       const operation = String(args.operation || "")

@@ -67,6 +67,15 @@ function normalizeOrganizationName(organizationName: string | undefined): string
   return normalized ? normalized : undefined
 }
 
+function normalizeKnowledgeBaseIds(ids: readonly string[]): string[] {
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))]
+}
+
+function sameStringArray(left: readonly string[] | undefined, right: readonly string[]): boolean {
+  if (!left) return right.length === 0
+  return left.length === right.length && left.every((item, index) => item === right[index])
+}
+
 export function buildManagedSkillRuntimeEnv(nodeBin: string = process.execPath): Record<string, string> {
   return {
     ELECTRON_RUN_AS_NODE: "1",
@@ -206,6 +215,7 @@ export class AgentManager {
   private organizationScopePath: string | undefined
   private organizationUpdateChain: Promise<void> = Promise.resolve()
   private sessionOrganizationNames = new Map<string, string>()
+  private sessionKnowledgeBaseIds = new Map<string, string[]>()
   private authorizedServicesCache = new Map<string, { loadedAt: number; services: string[] }>()
   private authorizedServicesLoadControllers = new Map<string, AbortController>()
   private authorizedServicesLoads = new Map<string, Promise<string[]>>()
@@ -276,6 +286,44 @@ export class AgentManager {
         return
       }
       await this.writeOrganizationScope(this.organizationName)
+    })
+  }
+
+  /** 记录本轮允许 query_knowledge 访问的知识库；工具按 OpenCode sessionID 强制校验。 */
+  public async setSessionKnowledgeBaseIds(sessionId: string, knowledgeBaseIds: readonly string[]): Promise<void> {
+    const normalizedSessionId = sessionId.trim()
+    if (!normalizedSessionId) throw new Error("Session id is required")
+    const normalizedIds = normalizeKnowledgeBaseIds(knowledgeBaseIds)
+    await this.queueOrganizationUpdate(async () => {
+      if (sameStringArray(this.sessionKnowledgeBaseIds.get(normalizedSessionId), normalizedIds)) return
+      if (normalizedIds.length > 0) this.sessionKnowledgeBaseIds.set(normalizedSessionId, normalizedIds)
+      else this.sessionKnowledgeBaseIds.delete(normalizedSessionId)
+      await this.writeOrganizationScope(this.organizationName)
+    })
+  }
+
+  public async clearSessionKnowledgeBaseIds(sessionId: string): Promise<void> {
+    const normalizedSessionId = sessionId.trim()
+    if (!normalizedSessionId) return
+    await this.queueOrganizationUpdate(async () => {
+      if (!this.sessionKnowledgeBaseIds.delete(normalizedSessionId)) return
+      await this.writeOrganizationScope(this.organizationName)
+    })
+  }
+
+  public async removeKnowledgeBaseAccess(knowledgeBaseId: string): Promise<void> {
+    const normalizedId = knowledgeBaseId.trim()
+    if (!normalizedId) return
+    await this.queueOrganizationUpdate(async () => {
+      let changed = false
+      for (const [sessionId, ids] of this.sessionKnowledgeBaseIds) {
+        const next = ids.filter((id) => id !== normalizedId)
+        if (next.length === ids.length) continue
+        changed = true
+        if (next.length > 0) this.sessionKnowledgeBaseIds.set(sessionId, next)
+        else this.sessionKnowledgeBaseIds.delete(sessionId)
+      }
+      if (changed) await this.writeOrganizationScope(this.organizationName)
     })
   }
 
@@ -944,6 +992,7 @@ export class AgentManager {
     }
     const content = JSON.stringify({
       organizationName: organizationName ?? "",
+      sessionKnowledgeBaseIds: Object.fromEntries(this.sessionKnowledgeBaseIds),
       sessionOrganizations: Object.fromEntries(this.sessionOrganizationNames),
     })
     await atomicWriteText(this.organizationScopePath, content)

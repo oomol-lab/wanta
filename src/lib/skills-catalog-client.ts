@@ -3,11 +3,13 @@ import type {
   PublicSkillPackageCatalog,
   PublicSkillPackageMaintainer,
 } from "../../electron/skills/common.ts"
+import type { SharedRequest } from "@/lib/shared-request"
 
 import { normalizePublicSkillPackageCatalog, normalizeRegistrySkillPackageInfo } from "../../electron/skills/actions.ts"
 import { registryBaseUrl, searchBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
+import { createSharedRequest, waitForSharedRequest } from "@/lib/shared-request"
 import { resolvePackageAssetIconSource } from "@/lib/skill-icon-assets.ts"
 
 // 技能 Discover 标签的注册表浏览/搜索请求在渲染层直接发起：原先这些是渲染业务驱动、却由主进程
@@ -31,10 +33,9 @@ interface SkillCatalogCacheEntry {
   value: unknown
 }
 
-interface SkillCatalogPendingRequest {
+interface SkillCatalogPendingRequest extends SharedRequest<unknown> {
   epoch: number
   generation: number
-  promise: Promise<unknown>
 }
 
 const skillCatalogCache = new Map<string, SkillCatalogCacheEntry>()
@@ -125,9 +126,10 @@ function readCachedSkillCatalog<T>(
   key: string,
   cacheMs: number,
   forceRefresh: boolean | undefined,
-  load: () => Promise<T>,
-  sharePending = true,
+  load: (signal: AbortSignal) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
+  signal?.throwIfAborted()
   if (forceRefresh) {
     invalidateSkillCatalogKey(key)
   }
@@ -141,14 +143,18 @@ function readCachedSkillCatalog<T>(
 
   const epoch = skillCatalogEpoch
   const generation = skillCatalogKeyGenerations.get(key) ?? 0
-  const pending = sharePending ? skillCatalogPendingRequests.get(key) : undefined
+  const pending = skillCatalogPendingRequests.get(key)
   if (pending?.epoch === epoch && pending.generation === generation) {
-    return pending.promise as Promise<T>
+    return waitForSharedRequest(pending as SkillCatalogPendingRequest & SharedRequest<T>, signal)
   }
 
-  const request = load()
-    .then((value) => {
-      if (skillCatalogEpoch === epoch && (skillCatalogKeyGenerations.get(key) ?? 0) === generation) {
+  const shared = createSharedRequest((requestSignal) =>
+    load(requestSignal).then((value) => {
+      if (
+        !requestSignal.aborted &&
+        skillCatalogEpoch === epoch &&
+        (skillCatalogKeyGenerations.get(key) ?? 0) === generation
+      ) {
         skillCatalogCache.set(key, { expiresAt: Date.now() + cacheMs, value })
         while (skillCatalogCache.size > skillCatalogCacheMaxEntries) {
           const oldestKey = skillCatalogCache.keys().next().value as string | undefined
@@ -162,16 +168,19 @@ function readCachedSkillCatalog<T>(
         }
       }
       return value
-    })
-    .finally(() => {
-      if (sharePending && skillCatalogPendingRequests.get(key)?.promise === request) {
-        skillCatalogPendingRequests.delete(key)
-      }
-    })
-  if (sharePending) {
-    skillCatalogPendingRequests.set(key, { epoch, generation, promise: request })
-  }
-  return request
+    }),
+  )
+  const request: SkillCatalogPendingRequest = Object.assign(shared, { epoch, generation })
+  skillCatalogPendingRequests.set(key, request)
+  void request.promise.then(
+    () => {
+      if (skillCatalogPendingRequests.get(key) === request) skillCatalogPendingRequests.delete(key)
+    },
+    () => {
+      if (skillCatalogPendingRequests.get(key) === request) skillCatalogPendingRequests.delete(key)
+    },
+  )
+  return waitForSharedRequest(request as SkillCatalogPendingRequest & SharedRequest<T>, signal)
 }
 
 function invalidateSkillCatalogKey(key: string): void {
@@ -196,6 +205,9 @@ function invalidateSkillCatalogKeys(predicate: (key: string) => boolean): void {
 export function clearSkillCatalogCache(): void {
   skillCatalogEpoch += 1
   skillCatalogCache.clear()
+  for (const request of skillCatalogPendingRequests.values()) {
+    request.controller.abort(new DOMException("Skill catalog cache was cleared.", "AbortError"))
+  }
   skillCatalogPendingRequests.clear()
   skillCatalogKeyGenerations.clear()
 }
@@ -223,7 +235,7 @@ export async function listPublicSkillPackages(
     cacheKey,
     publicSkillPackageListCacheMs,
     input.forceRefresh,
-    async () => {
+    async (signal) => {
       const url = new URL("/v1/packages/-/skills-list", searchBaseUrl)
       if (next) {
         url.searchParams.set("next", next)
@@ -231,13 +243,13 @@ export async function listPublicSkillPackages(
       if (size) {
         url.searchParams.set("size", String(size))
       }
-      const response = await oomolFetch(url, { signal: input.signal, timeoutMs: skillCatalogRequestTimeoutMs })
+      const response = await oomolFetch(url, { signal, timeoutMs: skillCatalogRequestTimeoutMs })
       if (!response.ok) {
         throw new Error(`Public Skill list request failed with status ${response.status}.`)
       }
       return resolvePublicSkillPackageCatalog(normalizePublicSkillPackageCatalog(await response.text()))
     },
-    !input.signal,
+    input.signal,
   )
 }
 
@@ -261,7 +273,7 @@ export async function searchPublicSkillPackages(
     cacheKey,
     publicSkillSearchCacheMs,
     input.forceRefresh,
-    async () => {
+    async (signal) => {
       const url = new URL("/v1/packages/-/skills-search", searchBaseUrl)
       url.searchParams.set("keywords", query)
       if (next) {
@@ -269,7 +281,7 @@ export async function searchPublicSkillPackages(
       }
       url.searchParams.set("size", String(size))
 
-      const response = await oomolFetch(url, { signal: input.signal, timeoutMs: skillCatalogRequestTimeoutMs })
+      const response = await oomolFetch(url, { signal, timeoutMs: skillCatalogRequestTimeoutMs })
       if (!response.ok) {
         throw new Error(`Public Skill search request failed with status ${response.status}.`)
       }
@@ -281,7 +293,7 @@ export async function searchPublicSkillPackages(
         updatedAt: searchCatalog.updatedAt,
       }
     },
-    !input.signal,
+    input.signal,
   )
 }
 
@@ -321,12 +333,12 @@ async function fetchRegistrySkillPackageInfo(
     cacheKey,
     publicSkillPackageInfoCacheMs,
     options.forceRefresh,
-    async () => {
+    async (signal) => {
       const url = new URL(
         `/-/oomol/package-info/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`,
         registryBaseUrl,
       )
-      const response = await oomolFetch(url, { signal: options.signal, timeoutMs: skillCatalogRequestTimeoutMs })
+      const response = await oomolFetch(url, { signal, timeoutMs: skillCatalogRequestTimeoutMs })
       if (response.status === 404 && options.returnNullOnNotFound) {
         return null
       }
@@ -336,7 +348,7 @@ async function fetchRegistrySkillPackageInfo(
       const packageInfo = normalizeRegistrySkillPackageInfo(await response.text(), maintainer)
       return packageInfo ? resolvePublicSkillPackageIcon(packageInfo) : packageInfo
     },
-    !options.signal,
+    options.signal,
   )
 }
 
@@ -424,8 +436,8 @@ export async function listMyPublishedSkillPackages(
     cacheKey,
     myPublishedSkillPackageCacheMs,
     input.forceRefresh,
-    async () => {
-      const publishedPackages = await readMyPublishedSkillPackageList(input.next, input.signal)
+    async (signal) => {
+      const publishedPackages = await readMyPublishedSkillPackageList(input.next, signal)
       const maintainer: PublicSkillPackageMaintainer = {
         id: input.account.id,
         name: input.account.name,
@@ -436,15 +448,15 @@ export async function listMyPublishedSkillPackages(
           publishedPackages.items.slice(0, myPublishedSkillPackagePageSize),
           myPublishedSkillPackageInfoConcurrency,
           async (publishedPackage) => {
-            input.signal?.throwIfAborted()
+            signal.throwIfAborted()
             let packageInfo: PublicSkillPackage | undefined
             try {
               packageInfo = await readRegistrySkillPackageInfo(publishedPackage.name, maintainer, {
                 cacheScope: `account:${input.account.id}`,
-                signal: input.signal,
+                signal,
               })
             } catch (error) {
-              if (input.signal?.aborted) {
+              if (signal.aborted) {
                 throw error
               }
               console.warn("[wanta] failed to read my published skill package info:", error)
@@ -466,7 +478,7 @@ export async function listMyPublishedSkillPackages(
         updatedAt: new Date().toISOString(),
       }
     },
-    !input.signal,
+    input.signal,
   )
 }
 

@@ -5,7 +5,7 @@ import { createReadStream } from "node:fs"
 import { copyFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises"
 import path from "node:path"
 import { atomicWriteText } from "../atomic-file.ts"
-import { logStoreReadFailure } from "../store-diagnostics.ts"
+import { isMissingFileError, logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface KnowledgeBaseRecord extends KnowledgeBaseSummary {
   filePath: string
@@ -15,6 +15,17 @@ export interface KnowledgeBaseRecord extends KnowledgeBaseSummary {
 interface PersistedKnowledgeLibrary {
   version: 1
   records: KnowledgeBaseRecord[]
+}
+
+function parseKnowledgeLibrary(value: unknown): KnowledgeBaseRecord[] {
+  if (!value || typeof value !== "object") {
+    throw new Error("Knowledge library must be an object")
+  }
+  const library = value as Partial<PersistedKnowledgeLibrary>
+  if (library.version !== 1 || !Array.isArray(library.records) || !library.records.every(isRecord)) {
+    throw new Error("Knowledge library has an unsupported or corrupt schema")
+  }
+  return library.records
 }
 
 function isRecord(value: unknown): value is KnowledgeBaseRecord {
@@ -63,11 +74,11 @@ export class KnowledgeStore {
 
   public async listRecords(): Promise<KnowledgeBaseRecord[]> {
     try {
-      const parsed = JSON.parse(await readFile(this.libraryFile, "utf-8")) as Partial<PersistedKnowledgeLibrary>
-      return Array.isArray(parsed.records) ? parsed.records.filter(isRecord) : []
+      return parseKnowledgeLibrary(JSON.parse(await readFile(this.libraryFile, "utf-8")))
     } catch (error) {
+      if (isMissingFileError(error)) return []
       logStoreReadFailure("knowledge library", this.libraryFile, error)
-      return []
+      throw new Error("Knowledge library could not be read safely", { cause: error })
     }
   }
 
@@ -110,6 +121,21 @@ export class KnowledgeStore {
       records.push(record)
       await this.write(records)
     })
+  }
+
+  /** refresh 只能更新仍存在的记录，避免与 remove 并发时复活已经删除的知识库。 */
+  public async update(record: KnowledgeBaseRecord): Promise<boolean> {
+    let updated = false
+    await this.enqueueMutation(async () => {
+      const records = await this.listRecords()
+      const index = records.findIndex((item) => item.id === record.id)
+      if (index < 0) return
+      const next = [...records]
+      next[index] = record
+      await this.write(next)
+      updated = true
+    })
+    return updated
   }
 
   /** 导入提交时再次按 fingerprint 去重，封住“复制与耗时 inspect 之间”的并发窗口。 */
@@ -172,8 +198,4 @@ export class KnowledgeStore {
       { mode: 0o600 },
     )
   }
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT")
 }

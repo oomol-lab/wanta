@@ -50,6 +50,31 @@ describe("provider Skill package lookup", () => {
     await expect(second).resolves.toBe(posthogPackage)
   })
 
+  test("shares requests across cancellable consumers without cancelling remaining callers", async () => {
+    let resolvePackage: (pkg: PublicSkillPackage) => void = () => undefined
+    let sharedSignal: AbortSignal | undefined
+    vi.mocked(readPublicSkillPackageByName).mockImplementationOnce(
+      (_packageName, signal) =>
+        new Promise<PublicSkillPackage>((resolve) => {
+          sharedSignal = signal
+          resolvePackage = resolve
+        }),
+    )
+    const firstController = new AbortController()
+    const secondController = new AbortController()
+    const candidate = { providerDisplayName: "PostHog", service: "posthog" }
+    const first = readProviderSkillPackage(candidate, firstController.signal)
+    const second = readProviderSkillPackage(candidate, secondController.signal)
+
+    firstController.abort(new Error("first cancelled"))
+
+    await expect(first).rejects.toThrow("first cancelled")
+    expect(sharedSignal?.aborted).toBe(false)
+    expect(readPublicSkillPackageByName).toHaveBeenCalledTimes(1)
+    resolvePackage(posthogPackage)
+    await expect(second).resolves.toBe(posthogPackage)
+  })
+
   test("retries after a failed in-flight package request", async () => {
     vi.mocked(readPublicSkillPackageByName).mockResolvedValue(null)
     vi.mocked(searchPublicSkillPackages)
@@ -76,22 +101,30 @@ describe("provider Skill package lookup", () => {
     )
 
     expect(searchPublicSkillPackages).toHaveBeenCalledTimes(1)
-    expect(searchPublicSkillPackages).toHaveBeenCalledWith({ query: "PostHog", size: 12 })
+    expect(searchPublicSkillPackages).toHaveBeenCalledWith(
+      expect.objectContaining({ query: "PostHog", signal: expect.any(AbortSignal), size: 12 }),
+    )
   })
 
   test("propagates cancellation without starting fallback searches", async () => {
     const controller = new AbortController()
     const cancellation = new Error("Provider Skill lookup was cancelled.")
-    vi.mocked(readPublicSkillPackageByName).mockImplementationOnce(async (_packageName, signal) => {
-      expect(signal).toBe(controller.signal)
-      controller.abort(cancellation)
-      throw cancellation
-    })
+    let sharedSignal: AbortSignal | undefined
+    vi.mocked(readPublicSkillPackageByName).mockImplementationOnce(
+      async (_packageName, signal) =>
+        new Promise<PublicSkillPackage | null>((_resolve, reject) => {
+          sharedSignal = signal
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true })
+        }),
+    )
 
-    await expect(
-      readProviderSkillPackage({ providerDisplayName: "PostHog", service: "posthog" }, controller.signal),
-    ).rejects.toBe(cancellation)
+    const request = readProviderSkillPackage({ providerDisplayName: "PostHog", service: "posthog" }, controller.signal)
+    await vi.waitFor(() => expect(sharedSignal).toBeDefined())
+    controller.abort(cancellation)
 
+    await expect(request).rejects.toBe(cancellation)
+
+    expect(sharedSignal?.aborted).toBe(true)
     expect(searchPublicSkillPackages).not.toHaveBeenCalled()
   })
 })

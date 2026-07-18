@@ -35,6 +35,34 @@ describe("fetchWithRetry", () => {
     expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
+  it("retries after an individual request timeout", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(
+        async (_input, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal
+            if (signal?.aborted) reject(signal.reason)
+            else signal?.addEventListener("abort", () => reject(signal.reason), { once: true })
+          }),
+      )
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }))
+
+    const response = await fetchWithRetry(
+      "https://example.com/file",
+      {},
+      {
+        attempts: 2,
+        backoffMs: 0,
+        fetcher,
+        timeoutMs: 5,
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
   it("preserves a Request input signal and cancels retry backoff", async () => {
     const controller = new AbortController()
     const request = new Request("https://example.com/file", { signal: controller.signal })

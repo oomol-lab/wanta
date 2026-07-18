@@ -227,6 +227,27 @@ test("setKnowledgeBases normalizes, persists, and clears session references", as
   assert.deepEqual(await persistedMetadata.read(), new Map())
 })
 
+test("removeKnowledgeBaseReferences cleans active and archived session metadata", async () => {
+  const persistedMetadata = metadataStore(
+    new Map([
+      ["active", { knowledgeBaseIds: ["keep", "remove"] }],
+      ["archived", { archivedAt: 1, knowledgeBaseIds: ["remove"] }],
+      ["unrelated", { knowledgeBaseIds: ["keep"] }],
+    ]),
+  )
+  const service = new SessionServiceImpl(agentWithSessions([]), { metadataStore: persistedMetadata })
+
+  assert.equal(await service.removeKnowledgeBaseReferences(" remove "), 2)
+  assert.deepEqual(
+    await persistedMetadata.read(),
+    new Map([
+      ["active", { knowledgeBaseIds: ["keep"] }],
+      ["archived", { archivedAt: 1 }],
+      ["unrelated", { knowledgeBaseIds: ["keep"] }],
+    ]),
+  )
+})
+
 test("list filters sessions by requested scope", async () => {
   const service = new SessionServiceImpl(
     agentWithSessions([

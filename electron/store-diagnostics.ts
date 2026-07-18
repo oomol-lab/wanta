@@ -8,7 +8,7 @@ export function logStoreReadFailure(scope: string, filePath: string, error: unkn
   if (isMissingFileError(error)) {
     return
   }
-  console.warn(`[wanta] failed to read ${scope}; using default state:`, error)
+  console.warn(`[wanta] failed to read ${scope}:`, error)
   logDiagnostic(
     "store",
     "failed to read persisted store",

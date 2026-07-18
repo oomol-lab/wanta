@@ -29,6 +29,32 @@ test("public Skill lists share cached and in-flight requests", async () => {
   assert.equal(fetchMock.mock.calls.length, 1)
 })
 
+test("cancellable public Skill consumers still share one underlying request", async () => {
+  let resolveResponse: (response: Response) => void = () => undefined
+  let networkSignal: AbortSignal | null | undefined
+  const fetchMock = vi.fn<typeof fetch>(
+    async (_input, init) =>
+      new Promise<Response>((resolve) => {
+        networkSignal = init?.signal
+        resolveResponse = resolve
+      }),
+  )
+  vi.stubGlobal("fetch", fetchMock)
+  const firstController = new AbortController()
+  const secondController = new AbortController()
+  const first = listPublicSkillPackages({ signal: firstController.signal })
+  const second = listPublicSkillPackages({ signal: secondController.signal })
+
+  await vi.waitFor(() => assert.equal(fetchMock.mock.calls.length, 1))
+  firstController.abort(new Error("first caller cancelled"))
+
+  await assert.rejects(first, /first caller cancelled/)
+  assert.equal(networkSignal?.aborted, false)
+  resolveResponse(Response.json({ data: [] }))
+  await second
+  assert.equal(fetchMock.mock.calls.length, 1)
+})
+
 test("my published Skill pages cap registry detail fanout at 20 packages", async () => {
   const packages = Array.from({ length: 25 }, (_, index) => ({
     name: `@acme/package-${index}`,

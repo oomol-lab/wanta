@@ -364,6 +364,32 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("set session knowledge bases")
   }
 
+  /** 知识库删除后的跨会话清理；不是 RPC 面，只由主进程知识库服务调用。 */
+  public removeKnowledgeBaseReferences(knowledgeBaseId: string): Promise<number> {
+    return this.enqueueMutation((revision) => this.removeKnowledgeBaseReferencesMutation(knowledgeBaseId, revision))
+  }
+
+  private async removeKnowledgeBaseReferencesMutation(knowledgeBaseId: string, revision: number): Promise<number> {
+    const normalizedId = knowledgeBaseId.trim()
+    if (!normalizedId) return 0
+    await this.ensureMetadataLoaded(revision)
+    let changed = 0
+    for (const [sessionId, metadata] of this.sessionMetadata) {
+      const current = metadata.knowledgeBaseIds
+      if (!current?.includes(normalizedId)) continue
+      const next = { ...metadata }
+      const ids = current.filter((id) => id !== normalizedId)
+      if (ids.length > 0) next.knowledgeBaseIds = ids
+      else delete next.knowledgeBaseIds
+      this.setMetadataEntry(sessionId, next)
+      changed += 1
+    }
+    if (changed === 0) return 0
+    await this.persistMetadata()
+    this.broadcastChangedBestEffort("remove knowledge base references")
+    return changed
+  }
+
   public renameProject(req: { id: string; name: string }): Promise<void> {
     return this.enqueueMutation((revision) => this.renameProjectMutation(req, revision))
   }

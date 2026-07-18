@@ -251,6 +251,9 @@ const gitService = new GitServiceImpl({
   projectStore: sessionProjectStore,
 })
 const knowledgeService = new KnowledgeServiceImpl({
+  onRemoved: async (id) => {
+    await Promise.all([sessionService.removeKnowledgeBaseReferences(id), agent?.removeKnowledgeBaseAccess(id)])
+  },
   runtime: { executablePath: process.execPath, cliPath: wikiGraphCliPath },
   store: knowledgeStore,
   trustedImportPaths: trustedAttachmentPaths,

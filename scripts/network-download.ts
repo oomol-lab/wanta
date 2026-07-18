@@ -65,7 +65,9 @@ export async function fetchWithRetry(
       }
       lastError = error
     }
-    await retryDelay(backoffMs, attempt, signal)
+    // 单次请求的 timeout 只约束本次 fetch；一旦超时，该 signal 已经 aborted，不能再拿它
+    // 控制下一次尝试前的退避，否则 retryDelay 会立即拒绝，让“最多 3 次”退化成只请求 1 次。
+    await retryDelay(backoffMs, attempt, callerSignal)
   }
 
   throw lastError instanceof Error ? lastError : new Error("Download request failed.")

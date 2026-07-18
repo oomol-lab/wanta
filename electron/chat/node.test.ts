@@ -46,6 +46,7 @@ function createBridgeAgent(): {
   getPendingQuestionsForSessions: ReturnType<typeof vi.fn>
   promptStreaming: ReturnType<typeof vi.fn>
   rejectQuestion: ReturnType<typeof vi.fn>
+  setSessionKnowledgeBaseIds: ReturnType<typeof vi.fn>
   setSessionOrganizationName: ReturnType<typeof vi.fn>
 } {
   let listener:
@@ -93,6 +94,8 @@ function createBridgeAgent(): {
   })
   const rejectQuestion = vi.fn(async () => undefined)
   const clearSessionOrganizationName = vi.fn(async () => undefined)
+  const clearSessionKnowledgeBaseIds = vi.fn(async () => undefined)
+  const setSessionKnowledgeBaseIds = vi.fn(async () => undefined)
   const setSessionOrganizationName = vi.fn(async () => undefined)
   const agent = {
     isReady: () => true,
@@ -111,8 +114,10 @@ function createBridgeAgent(): {
     createArtifactDir,
     createProcessDir,
     clearSessionOrganizationName,
+    clearSessionKnowledgeBaseIds,
     rejectQuestion,
     setSessionOrganizationName,
+    setSessionKnowledgeBaseIds,
     promptStreaming,
     getMessages,
     getPendingPermissions,
@@ -144,6 +149,7 @@ function createBridgeAgent(): {
     getMessages,
     promptStreaming,
     rejectQuestion,
+    setSessionKnowledgeBaseIds,
     setSessionOrganizationName,
   }
 }
@@ -1891,6 +1897,7 @@ test("sendMessage passes selected context, organization skills, and project as p
         kind: "connection",
         service: "gmail",
       },
+      { id: "knowledge-1", kind: "knowledge", name: "Product handbook" },
     ],
     organizationSkills: [
       {
@@ -1928,6 +1935,7 @@ test("sendMessage passes selected context, organization skills, and project as p
   assert.match(options?.system ?? "", /User-selected context for this turn/)
   assert.match(options?.system ?? "", /ecommerce-image-studio/)
   assert.match(options?.system ?? "", /gmail/)
+  assert.match(options?.system ?? "", /Product handbook/)
   assert.doesNotMatch(options?.system ?? "", /account: "work"/)
   assert.match(options?.system ?? "", /consider the selected connection first/)
   assert.match(options?.system ?? "", /Do not use it for unrelated local files/)
@@ -1935,6 +1943,7 @@ test("sendMessage passes selected context, organization skills, and project as p
   assert.match(options?.system ?? "", /\/Users\/example\/code\/wanta/)
   assert.match(options?.system ?? "", /use this project directory as an absolute path/)
   assert.match(options?.system ?? "", /Do not mention the full project directory/)
+  assert.deepEqual(bridge.setSessionKnowledgeBaseIds.mock.calls, [["session-1", ["knowledge-1"]]])
   assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", undefined]])
 })
 

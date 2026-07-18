@@ -46,6 +46,7 @@ import { SkillPageHeader } from "./SkillPageHeader.tsx"
 import { OrganizationLinkDialog, PublishSkillDialog } from "./SkillPublishDialogs.tsx"
 import { SkillManagementSheet } from "./SkillUiParts.tsx"
 import { useOrganizationSkillActions } from "./use-organization-skill-actions.ts"
+import { useRegistrySkillUpdate } from "./use-registry-skill-update.ts"
 import { useSkillService } from "@/components/AppContext"
 import {
   useAuthStateResource,
@@ -147,7 +148,6 @@ export function SkillsRoute({
   const [publishingSkillId, setPublishingSkillId] = React.useState<string | null>(null)
   const [publishDialogSkill, setPublishDialogSkill] = React.useState<ManagedSkillGroup | null>(null)
   const [organizationLinkTarget, setOrganizationLinkTarget] = React.useState<SkillOrganizationLinkTarget | null>(null)
-  const [updatingRegistrySkillId, setUpdatingRegistrySkillId] = React.useState<string | null>(null)
   const [organizationSkillBusyAction, setOrganizationSkillBusyAction] = React.useState<BusyAction | null>(null)
   const [isExecutingCliUpdate, setIsExecutingCliUpdate] = React.useState(false)
   const skillMutationInFlightRef = React.useRef(false)
@@ -161,6 +161,26 @@ export function SkillsRoute({
         setSelectedSkillId(null)
       },
     })
+  const handleRegistrySkillUpdateBusy = React.useCallback(() => {
+    toast.info(t("skills.operationInProgress"))
+  }, [t])
+  const handleRegistrySkillUpdateError = React.useCallback((cause: unknown, skillId: string) => {
+    setPlanError({
+      cause: resolveUserFacingError(cause, { area: "skills" }),
+      operation: "update",
+      skillId,
+    })
+  }, [])
+  const clearRegistrySkillUpdateError = React.useCallback(() => setPlanError(null), [])
+  const { updateRegistrySkill, updatingRegistrySkillId } = useRegistrySkillUpdate({
+    inventoryResource,
+    mutationInFlightRef: skillMutationInFlightRef,
+    onBusy: handleRegistrySkillUpdateBusy,
+    onError: handleRegistrySkillUpdateError,
+    onStart: clearRegistrySkillUpdateError,
+    skillService,
+    versionResource,
+  })
 
   const searchedGroups = React.useMemo(() => {
     const groups = inventory?.groups ?? []
@@ -498,47 +518,6 @@ export function SkillsRoute({
     organizationSkills.organizationId,
     organizationSkills.skills,
   ])
-
-  const updateRegistrySkill = React.useCallback(
-    async (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => {
-      if (skillMutationInFlightRef.current) {
-        toast.info(t("skills.operationInProgress"))
-        return
-      }
-
-      const packageName = skill.packageName?.trim()
-      if (!packageName) {
-        return
-      }
-
-      skillMutationInFlightRef.current = true
-      setUpdatingRegistrySkillId(skill.id)
-      setPlanError(null)
-
-      try {
-        if (skill.kind !== "registry") {
-          return
-        }
-
-        const nextInventory = await skillService.invoke("updateRegistrySkill", {
-          packageName,
-          skillId: skill.id,
-        })
-        inventoryResource.setData(nextInventory)
-        await versionResource.refresh({ forceRefresh: true, silent: true })
-      } catch (cause) {
-        setPlanError({
-          cause: resolveUserFacingError(cause, { area: "skills" }),
-          operation: "update",
-          skillId: skill.id,
-        })
-      } finally {
-        skillMutationInFlightRef.current = false
-        setUpdatingRegistrySkillId(null)
-      }
-    },
-    [inventoryResource, skillService, versionResource],
-  )
 
   const linkPublishedSkillToOrganization = React.useCallback(
     async (target: SkillOrganizationLinkTarget, organizationId: string): Promise<void> => {

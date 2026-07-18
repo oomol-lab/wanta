@@ -86,6 +86,35 @@ export function shouldShowRecommendedSkillEntry({
   return Boolean(organizationId && (organizationSkillCount > 0 || providerRecommendationCount > 0))
 }
 
+export type NotificationOrganizationResolution = "ready" | "refresh" | "select" | "unavailable" | "wait"
+
+export function resolveNotificationOrganization({
+  activeOrganizationId,
+  hasLoaded,
+  loading,
+  organizationIds,
+  refreshAttempted,
+  targetOrganizationId,
+}: {
+  activeOrganizationId: string | null
+  hasLoaded: boolean
+  loading: boolean
+  organizationIds: readonly string[]
+  refreshAttempted: boolean
+  targetOrganizationId: string
+}): NotificationOrganizationResolution {
+  if (targetOrganizationId === activeOrganizationId) {
+    return "ready"
+  }
+  if (organizationIds.includes(targetOrganizationId)) {
+    return "select"
+  }
+  if (loading || !hasLoaded) {
+    return "wait"
+  }
+  return refreshAttempted ? "unavailable" : "refresh"
+}
+
 export interface TurnRetryOptions {
   contextMentions?: ChatContextMention[]
   organizationSkills?: ChatOrganizationSkillContext[]

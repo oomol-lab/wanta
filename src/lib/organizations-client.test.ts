@@ -4,7 +4,9 @@ import {
   createOrganization,
   disableOrganizationMembers,
   enableOrganizationMembers,
+  getOrganizationAppAccess,
   isOrganizationMemberLimitError,
+  listCreatedOrganizations,
   listOrganizationMembers,
   listUserSummaries,
   OrganizationRequestError,
@@ -117,6 +119,26 @@ describe("organizations-client", () => {
       { disable: true, role: "member", user_id: "member-1" },
       { role: "member", user_id: "member-2" },
     ])
+  })
+
+  it("rejects malformed organization and member collection responses instead of treating them as empty", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ organizations: null }))
+      .mockResolvedValueOnce(Response.json({ members: [{ role: "member" }] }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(listCreatedOrganizations()).rejects.toThrow("Created organizations response is invalid")
+    await expect(listOrganizationMembers("org-1")).rejects.toThrow(
+      "Organization members response contains an invalid member",
+    )
+  })
+
+  it("rejects malformed app-access responses instead of converting them to writable empty access", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json(null))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getOrganizationAppAccess("org-1")).rejects.toThrow("Organization app access response is invalid")
   })
 
   it("loads large user summary sets in bounded URL batches", async () => {

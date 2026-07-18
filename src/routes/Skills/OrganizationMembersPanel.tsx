@@ -155,9 +155,9 @@ export function OrganizationDetailPanel({
   onEditProviderAccess: (grant: ProviderGrantView) => void
   onEnableMembers: (userIds: string[]) => void
   onGrantProviderAccess: (userId: string) => void
-  onRemoveMember: (member: OrganizationMember) => void
+  onRemoveMember: (member: OrganizationMember) => Promise<void>
   onRetryMembers: () => void
-  onRevokeProviderAccess: (grant: ProviderGrantView) => void
+  onRevokeProviderAccess: (grant: ProviderGrantView) => Promise<void>
   organization: Organization | null
   providerAccessError: string | null
 }) {

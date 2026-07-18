@@ -117,6 +117,7 @@ export const enMessages = {
   "nav.restartToUpdate": "Restart to update",
   "nav.updateUpToDate": "Wanta is up to date (v{version})",
   "sidebar.newSession": "New chat",
+  "sidebar.notificationOrganizationUnavailable": "The organization for this task is no longer available",
   "sidebar.segmentTasks": "Tasks",
   "sidebar.segmentProjects": "Projects",
   "sidebar.pinned": "Pinned",

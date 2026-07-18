@@ -105,6 +105,7 @@ export const zhCNMessages = {
   "nav.restartToUpdate": "重启更新",
   "nav.updateUpToDate": "Wanta 已是最新版本（v{version}）",
   "sidebar.newSession": "新对话",
+  "sidebar.notificationOrganizationUnavailable": "该任务所属组织已不可访问",
   "sidebar.segmentTasks": "任务",
   "sidebar.segmentProjects": "项目",
   "sidebar.pinned": "置顶",

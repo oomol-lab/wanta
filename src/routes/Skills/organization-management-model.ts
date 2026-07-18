@@ -2,7 +2,6 @@ import type {
   Organization,
   OrganizationAppAccess,
   OrganizationMember,
-  OrganizationOverview,
   OrganizationProviderOption,
   OrganizationUserSearchResult,
   OrganizationUserSummary,
@@ -131,17 +130,6 @@ export function isConflictError(error: unknown): boolean {
   return errorMessage(error).includes("HTTP 409")
 }
 
-export function uniqueOrganizations(organizations: Organization[]): Organization[] {
-  const seen = new Set<string>()
-  return organizations.filter((organization) => {
-    if (seen.has(organization.id)) {
-      return false
-    }
-    seen.add(organization.id)
-    return true
-  })
-}
-
 export function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values))
 }
@@ -189,31 +177,6 @@ export function runtimeSkillRemoveBusyKey(target: RuntimeSkillRemoveTarget): Bus
   return `removeSkill:${target.packageName ?? ""}:${target.skillName}`
 }
 
-export function planOrganizationSkillBulkLinks<T extends OrganizationSkillPackageItem>(
-  items: readonly T[],
-  linkedSkills: readonly OrganizationSkillPackageItem[],
-): OrganizationSkillBulkPlan<T> {
-  const linkedPackageKeys = createOrganizationSkillPackageSet(linkedSkills)
-  const seenPackageKeys = new Set<string>()
-  const linkable: T[] = []
-  const linked: T[] = []
-
-  for (const item of items) {
-    const packageKey = organizationSkillPackageKey(item.packageName)
-    if (!packageKey || seenPackageKeys.has(packageKey)) {
-      continue
-    }
-    seenPackageKeys.add(packageKey)
-    if (linkedPackageKeys.has(packageKey)) {
-      linked.push(item)
-    } else {
-      linkable.push(item)
-    }
-  }
-
-  return { linkable, linked }
-}
-
 export function planProviderSkillRecommendationBulkLinks<T extends { packageName: string; skillId: string }>(
   items: readonly T[],
   linkedSkills: readonly OrganizationSkillPackageItem[],
@@ -258,10 +221,6 @@ export function organizationNameValidation(name: string): "empty" | "invalid" | 
     return "invalid"
   }
   return "valid"
-}
-
-export function allOrganizations(overview: OrganizationOverview | null): Organization[] {
-  return overview ? uniqueOrganizations([...overview.created, ...overview.joined]) : []
 }
 
 export function buildMemberViews(

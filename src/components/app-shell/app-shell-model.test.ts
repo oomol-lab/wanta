@@ -8,6 +8,7 @@ import {
   newSessionComposerDraftKey,
   newSessionComposerDraftKeyForScopeKey,
   resolveNewSessionTarget,
+  resolveNotificationOrganization,
   resolveWorkspaceActivationState,
   sessionRecordScopeKey,
   sessionTitleGenerationKey,
@@ -17,6 +18,31 @@ import {
   workspaceActivationHasFailed,
   workspaceActivationIsPending,
 } from "./app-shell-model.ts"
+
+describe("notification organization resolution", () => {
+  const input = {
+    activeOrganizationId: "org-current",
+    hasLoaded: true,
+    loading: false,
+    organizationIds: ["org-current", "org-target"],
+    refreshAttempted: false,
+    targetOrganizationId: "org-target",
+  }
+
+  test("selects a known notification organization", () => {
+    expect(resolveNotificationOrganization(input)).toBe("select")
+  })
+
+  test("refreshes once before rejecting an unknown notification organization", () => {
+    const unknown = { ...input, organizationIds: [] }
+    expect(resolveNotificationOrganization(unknown)).toBe("refresh")
+    expect(resolveNotificationOrganization({ ...unknown, refreshAttempted: true })).toBe("unavailable")
+  })
+
+  test("waits while the organization list is unresolved", () => {
+    expect(resolveNotificationOrganization({ ...input, hasLoaded: false, organizationIds: [] })).toBe("wait")
+  })
+})
 
 const readyInput = {
   agentScopeSyncError: null,

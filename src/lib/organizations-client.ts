@@ -132,11 +132,15 @@ function normalizeOrganization(value: unknown): Organization | undefined {
   }
 }
 
-function normalizeOrganizationList(value: unknown): Organization[] {
+function normalizeOrganizationList(value: unknown, label: string): Organization[] {
   if (!Array.isArray(value)) {
-    return []
+    throw new Error(`${label} response is invalid.`)
   }
-  return value.map(normalizeOrganization).filter((item): item is Organization => Boolean(item))
+  const organizations = value.map(normalizeOrganization)
+  if (organizations.some((organization) => !organization)) {
+    throw new Error(`${label} response contains an invalid organization.`)
+  }
+  return organizations as Organization[]
 }
 
 function normalizeOrganizationMember(value: unknown): OrganizationMember | undefined {
@@ -157,9 +161,13 @@ function normalizeOrganizationMember(value: unknown): OrganizationMember | undef
 
 function normalizeOrganizationMembers(value: unknown): OrganizationMember[] {
   if (!Array.isArray(value)) {
-    return []
+    throw new Error("Organization members response is invalid.")
   }
-  return value.map(normalizeOrganizationMember).filter((item): item is OrganizationMember => Boolean(item))
+  const members = value.map(normalizeOrganizationMember)
+  if (members.some((member) => !member)) {
+    throw new Error("Organization members response contains an invalid member.")
+  }
+  return members as OrganizationMember[]
 }
 
 function normalizeUserSummaryMap(value: unknown): Record<string, OrganizationUserSummary> {
@@ -244,7 +252,10 @@ function normalizeProviderOptions(
 }
 
 function normalizeAppAccess(value: unknown): OrganizationAppAccess {
-  return isPlainObject(value) ? (value as OrganizationAppAccess) : {}
+  if (!isPlainObject(value) || Object.values(value).some((services) => !isPlainObject(services))) {
+    throw new Error("Organization app access response is invalid.")
+  }
+  return value as OrganizationAppAccess
 }
 
 function isFormDataBody(body: unknown): body is FormData {
@@ -352,12 +363,12 @@ async function requestConnectorJson<T>(path: string, options: RequestOptions = {
 
 export async function listCreatedOrganizations(): Promise<Organization[]> {
   const result = (await requestOrgControlJson("/v1/organizations")) as OrganizationsEnvelope
-  return normalizeOrganizationList(result.organizations)
+  return normalizeOrganizationList(result.organizations, "Created organizations")
 }
 
 export async function listMyOrganizations(): Promise<Organization[]> {
   const result = (await requestOrgControlJson("/v1/me/organizations")) as OrganizationsEnvelope
-  return normalizeOrganizationList(result.organizations)
+  return normalizeOrganizationList(result.organizations, "Joined organizations")
 }
 
 export async function getOrganizationOverview(accountId: string): Promise<OrganizationOverview> {

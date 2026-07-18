@@ -46,4 +46,35 @@ describe("organization-details-resource", () => {
     expect(refreshed).toEqual([{ role: "member", user_id: "user-3" }])
     expect(getCachedOrganizationMembers("account-2", "org-1")).toEqual([{ role: "member", user_id: "user-2" }])
   })
+
+  it("lets a forced refresh supersede an older in-flight read", async () => {
+    let resolveFirst: ((response: Response) => void) | undefined
+    let resolveSecond: ((response: Response) => void) | undefined
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFirst = resolve
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveSecond = resolve
+          }),
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const first = getOrganizationMembersResource("account-1", "org-1")
+    const refreshed = getOrganizationMembersResource("account-1", "org-1", { forceRefresh: true })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    resolveSecond?.(Response.json({ members: [{ role: "member", user_id: "new-user" }] }))
+    await expect(refreshed).resolves.toEqual([{ role: "member", user_id: "new-user" }])
+    resolveFirst?.(Response.json({ members: [{ role: "member", user_id: "old-user" }] }))
+    await expect(first).resolves.toEqual([{ role: "member", user_id: "old-user" }])
+
+    expect(getCachedOrganizationMembers("account-1", "org-1")).toEqual([{ role: "member", user_id: "new-user" }])
+  })
 })

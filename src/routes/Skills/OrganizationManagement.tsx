@@ -1,4 +1,5 @@
-import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/skills/common.ts"
+import type { OrganizationProviderOption } from "../../../electron/organizations/common.ts"
+import type { PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { BusyAction, ProviderAccessForm } from "./organization-management-model.ts"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
@@ -55,15 +56,18 @@ import { useOrganizationForms } from "@/routes/Skills/use-organization-forms"
 import { useOrganizationMemberActions } from "@/routes/Skills/use-organization-member-actions"
 import { useOrganizationMemberSearch } from "@/routes/Skills/use-organization-member-search"
 import { useOrganizationSkillActions } from "@/routes/Skills/use-organization-skill-actions"
+import { useRegistrySkillUpdate } from "@/routes/Skills/use-registry-skill-update"
 
 export function OrganizationManagementRoute({
   connectedProvidersLoading = false,
   organizationSkills,
+  providerOptions,
   providerSkillRecommendationsState,
   workspace,
 }: {
   connectedProvidersLoading?: boolean
   organizationSkills?: UseOrganizationSkills
+  providerOptions: OrganizationProviderOption[] | null
   providerSkillRecommendationsState: ProviderSkillRecommendationsState
   workspace: UseOrganizationWorkspace
 }) {
@@ -87,9 +91,7 @@ export function OrganizationManagementRoute({
   const [membersPanelOpen, setMembersPanelOpen] = React.useState(false)
   const [managedSkillId, setManagedSkillId] = React.useState<string | null>(null)
   const [selectedPackage, setSelectedPackage] = React.useState<PublicSkillPackage | null>(null)
-  const [updatingRegistrySkillId, setUpdatingRegistrySkillId] = React.useState<string | null>(null)
   const [managedSkillError, setManagedSkillError] = React.useState<{ cause: unknown; skillId: string } | null>(null)
-  const updateRegistryInFlightRef = React.useRef(false)
   const [providerAccessForm, setProviderAccessForm] = React.useState<ProviderAccessForm>(initialProviderAccessForm)
   const avatarPreviewUrls = workspace.organizationAvatarPreviewUrls
   const clearOrganizationAvatarPreview = workspace.clearOrganizationAvatarPreview
@@ -147,29 +149,17 @@ export function OrganizationManagementRoute({
   const managedSkillVersionCheck = getSkillVersionCheck(skillVersionCheckByKey, managedSkill)
   const { copySkillPath, isRemovingSkill, openSkillFolder, removeSkill, removeTarget, setRemoveTarget } =
     useSkillObjectActions({ onDeleted: () => setManagedSkillId(null) })
-
-  const updateRegistrySkill = React.useCallback(
-    async (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => {
-      const packageName = skill.packageName?.trim()
-      if (updateRegistryInFlightRef.current || skill.kind !== "registry" || !packageName) {
-        return
-      }
-      updateRegistryInFlightRef.current = true
-      setUpdatingRegistrySkillId(skill.id)
-      setManagedSkillError(null)
-      try {
-        const nextInventory = await skillService.invoke("updateRegistrySkill", { packageName, skillId: skill.id })
-        skillInventory.setData(nextInventory)
-        await skillVersions.refresh({ forceRefresh: true, silent: true })
-      } catch (cause) {
-        setManagedSkillError({ cause, skillId: skill.id })
-      } finally {
-        updateRegistryInFlightRef.current = false
-        setUpdatingRegistrySkillId(null)
-      }
-    },
-    [skillInventory, skillService, skillVersions],
-  )
+  const handleRegistrySkillUpdateError = React.useCallback((cause: unknown, skillId: string) => {
+    setManagedSkillError({ cause, skillId })
+  }, [])
+  const clearRegistrySkillUpdateError = React.useCallback(() => setManagedSkillError(null), [])
+  const { updateRegistrySkill, updatingRegistrySkillId } = useRegistrySkillUpdate({
+    inventoryResource: skillInventory,
+    onError: handleRegistrySkillUpdateError,
+    onStart: clearRegistrySkillUpdateError,
+    skillService,
+    versionResource: skillVersions,
+  })
   const openManagedSkill = React.useCallback((skillId: string) => {
     setSelectedPackage(null)
     setManagedSkillError(null)
@@ -188,11 +178,12 @@ export function OrganizationManagementRoute({
     providerOptionsState,
     refresh: refreshDetails,
     reload,
-    setAppAccessState,
+    setAppAccessForOrganization,
     summariesState,
   } = useOrganizationDetails({
     activeAccountId,
     canManage,
+    providerOptions,
     selectedOrganization,
   })
   const {
@@ -234,11 +225,15 @@ export function OrganizationManagementRoute({
   const showOrganizationEmptyState = !showOverviewLoading && !showOverviewError && organizations.length === 0
 
   React.useEffect(() => {
+    resetMemberSearch()
+    setAddMemberOpen(false)
+    setAddMemberError(null)
     setMembersPanelOpen(false)
     setManagedSkillId(null)
     setManagedSkillError(null)
+    setProviderAccessForm(initialProviderAccessForm)
     setSelectedPackage(null)
-  }, [selectedOrganization?.id])
+  }, [resetMemberSearch, selectedOrganization?.id])
 
   React.useEffect(() => {
     const handleWindowFocus = () => {
@@ -268,7 +263,6 @@ export function OrganizationManagementRoute({
 
   const memberActions = useOrganizationMemberActions({
     activeAccountId,
-    activeSearchUserId,
     busyAction,
     canManage,
     memberInput,
@@ -281,7 +275,7 @@ export function OrganizationManagementRoute({
     selectedSearchUserId,
     setAddMemberError,
     setAddMemberOpen,
-    setAppAccessState,
+    setAppAccessForOrganization,
     setBusyAction,
     setProviderAccessForm,
   })

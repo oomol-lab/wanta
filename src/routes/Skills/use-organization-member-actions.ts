@@ -1,7 +1,6 @@
 import type { Organization, OrganizationAppAccess, OrganizationMember } from "../../../electron/organizations/common.ts"
 import type {
   BusyAction,
-  LoadState,
   MemberSearchState,
   ProviderAccessForm,
   ProviderGrantView,
@@ -10,7 +9,7 @@ import type {
 import * as React from "react"
 import { toast } from "sonner"
 import { organizationErrorMessage } from "./organization-errors.ts"
-import { errorMessage, initialProviderAccessForm, readyState, uniqueStrings } from "./organization-management-model.ts"
+import { errorMessage, initialProviderAccessForm, uniqueStrings } from "./organization-management-model.ts"
 import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./organization-provider-access.ts"
 import { useAppI18n } from "@/i18n"
 import { invalidateOrganizationDetailsResource } from "@/lib/organization-details-resource"
@@ -26,7 +25,6 @@ import {
 
 interface OrganizationMemberActionsOptions {
   activeAccountId: string | undefined
-  activeSearchUserId: string | null
   busyAction: BusyAction | null
   canManage: boolean
   memberInput: string
@@ -39,14 +37,17 @@ interface OrganizationMemberActionsOptions {
   selectedSearchUserId: string | null
   setAddMemberError: React.Dispatch<React.SetStateAction<string | null>>
   setAddMemberOpen: React.Dispatch<React.SetStateAction<boolean>>
-  setAppAccessState: React.Dispatch<React.SetStateAction<LoadState<OrganizationAppAccess | null>>>
+  setAppAccessForOrganization: (
+    accountId: string | undefined,
+    organizationId: string,
+    access: OrganizationAppAccess,
+  ) => void
   setBusyAction: React.Dispatch<React.SetStateAction<BusyAction | null>>
   setProviderAccessForm: React.Dispatch<React.SetStateAction<ProviderAccessForm>>
 }
 
 export function useOrganizationMemberActions({
   activeAccountId,
-  activeSearchUserId,
   busyAction,
   canManage,
   memberInput,
@@ -59,7 +60,7 @@ export function useOrganizationMemberActions({
   selectedSearchUserId,
   setAddMemberError,
   setAddMemberOpen,
-  setAppAccessState,
+  setAppAccessForOrganization,
   setBusyAction,
   setProviderAccessForm,
 }: OrganizationMemberActionsOptions) {
@@ -70,7 +71,7 @@ export function useOrganizationMemberActions({
       event.preventDefault()
       if (!selectedOrganization || !canManage) return
 
-      const currentSearchUserId = selectedSearchUserId ?? activeSearchUserId
+      const currentSearchUserId = selectedSearchUserId
       if (memberSearch.items.length > 0 && !currentSearchUserId) {
         setAddMemberError(t("organizations.addMemberSelectRequired"))
         return
@@ -105,7 +106,6 @@ export function useOrganizationMemberActions({
     },
     [
       activeAccountId,
-      activeSearchUserId,
       canManage,
       memberInput,
       memberSearch.items.length,
@@ -222,7 +222,7 @@ export function useOrganizationMemberActions({
           setProviderGrant(parsed.access, userId, providers, allProviders),
         )
         invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
-        setAppAccessState(readyState(updated))
+        setAppAccessForOrganization(activeAccountId, selectedOrganization.id, updated)
         setProviderAccessForm(initialProviderAccessForm)
         toast.success(t("organizations.providerAccessSaveSuccess"))
       } catch (error) {
@@ -237,7 +237,7 @@ export function useOrganizationMemberActions({
       providerAccessError,
       providerAccessForm,
       selectedOrganization,
-      setAppAccessState,
+      setAppAccessForOrganization,
       setBusyAction,
       setProviderAccessForm,
       t,
@@ -256,7 +256,7 @@ export function useOrganizationMemberActions({
           removeProviderGrant(parsed.access, grant.userId),
         )
         invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
-        setAppAccessState(readyState(updated))
+        setAppAccessForOrganization(activeAccountId, selectedOrganization.id, updated)
         toast.success(t("organizations.providerAccessRevokeSuccess"))
       } catch (error) {
         toast.error(organizationErrorMessage(error, t))
@@ -264,7 +264,15 @@ export function useOrganizationMemberActions({
         setBusyAction(null)
       }
     },
-    [activeAccountId, canManage, providerAccessError, selectedOrganization, setAppAccessState, setBusyAction, t],
+    [
+      activeAccountId,
+      canManage,
+      providerAccessError,
+      selectedOrganization,
+      setAppAccessForOrganization,
+      setBusyAction,
+      t,
+    ],
   )
 
   return {

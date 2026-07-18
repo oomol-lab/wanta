@@ -37,6 +37,7 @@ import {
   newSessionComposerDraftKeyForScopeKey,
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
+  resolveNotificationOrganization,
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
@@ -225,8 +226,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [selectedSessionId, setSelectedSessionId] = React.useState<string | null>(null)
   const [pendingAttentionSession, setPendingAttentionSession] = React.useState<{
+    organizationRefreshAttempted: boolean
     organizationId?: string
-    refreshAttempted: boolean
+    sessionRefreshAttempted: boolean
     sessionId: string
   } | null>(null)
   const pendingAttentionRefreshesRef = React.useRef(new Set<string>())
@@ -338,18 +340,68 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     () =>
       attentionService.serverEvents.on("openSessionRequested", ({ organizationId, sessionId }) => {
         setPendingAttentionSession({
-          refreshAttempted: false,
+          organizationRefreshAttempted: false,
+          sessionRefreshAttempted: false,
           sessionId,
           ...(organizationId ? { organizationId } : {}),
         })
         setRoute("chat")
-        if (organizationId && organizationId !== activeOrganizationId) {
-          handleWorkspaceSwitchStart(`organization:${organizationId}`)
-          organizationWorkspace.selectOrganization(organizationId)
-        }
       }),
-    [activeOrganizationId, attentionService, handleWorkspaceSwitchStart, organizationWorkspace.selectOrganization],
+    [attentionService],
   )
+
+  React.useEffect(() => {
+    const organizationId = pendingAttentionSession?.organizationId
+    if (!pendingAttentionSession || !organizationId || organizationId === activeOrganizationId) {
+      return
+    }
+
+    const resolution = resolveNotificationOrganization({
+      activeOrganizationId,
+      hasLoaded: organizationWorkspace.hasLoaded,
+      loading: organizationWorkspace.loading,
+      organizationIds: organizationWorkspace.organizations.map((organization) => organization.id),
+      refreshAttempted: pendingAttentionSession.organizationRefreshAttempted,
+      targetOrganizationId: organizationId,
+    })
+
+    if (resolution === "select") {
+      handleWorkspaceSwitchStart(`organization:${organizationId}`)
+      organizationWorkspace.selectOrganization(organizationId)
+      return
+    }
+    if (resolution === "wait" || resolution === "ready") {
+      return
+    }
+    if (resolution === "refresh") {
+      setPendingAttentionSession((current) =>
+        current?.sessionId === pendingAttentionSession.sessionId
+          ? { ...current, organizationRefreshAttempted: true }
+          : current,
+      )
+      void organizationWorkspace.refresh({ forceRefresh: true }).catch((error: unknown) => {
+        reportRendererHandledError("attention", "refresh notification organization failed", error)
+      })
+      return
+    }
+
+    setPendingAttentionSession(null)
+    toast.error(t("sidebar.notificationOrganizationUnavailable"))
+    void attentionService.invoke("markSessionViewed", pendingAttentionSession.sessionId).catch((error: unknown) => {
+      reportRendererHandledError("attention", "clear inaccessible notification session failed", error)
+    })
+  }, [
+    activeOrganizationId,
+    attentionService,
+    handleWorkspaceSwitchStart,
+    organizationWorkspace.hasLoaded,
+    organizationWorkspace.loading,
+    organizationWorkspace.organizations,
+    organizationWorkspace.refresh,
+    organizationWorkspace.selectOrganization,
+    pendingAttentionSession,
+    t,
+  ])
 
   React.useEffect(() => {
     if (
@@ -361,7 +413,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     }
     const session = visibleSessions.find((candidate) => candidate.id === pendingAttentionSession.sessionId)
     if (!session) {
-      if (!pendingAttentionSession.refreshAttempted) {
+      if (!pendingAttentionSession.sessionRefreshAttempted) {
         if (pendingAttentionRefreshesRef.current.has(pendingAttentionSession.sessionId)) {
           return
         }
@@ -374,7 +426,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             pendingAttentionRefreshesRef.current.delete(pendingAttentionSession.sessionId)
             setPendingAttentionSession((current) =>
               current?.sessionId === pendingAttentionSession.sessionId
-                ? { ...current, refreshAttempted: true }
+                ? { ...current, sessionRefreshAttempted: true }
                 : current,
             )
           })
@@ -411,6 +463,16 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeProviders = connectionSummaryMatchesWorkspace
     ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
     : EMPTY_CONNECTION_PROVIDERS
+  const activeOrganizationProviderOptions = React.useMemo(
+    () =>
+      connectionSummaryMatchesWorkspace && connections.summary?.appsStatus === "ready"
+        ? activeProviders
+            .filter((provider) => provider.apps.some((app) => app.status !== "disconnected"))
+            .map((provider) => ({ label: provider.displayName, service: provider.service }))
+            .sort((left, right) => left.label.localeCompare(right.label))
+        : null,
+    [activeProviders, connectionSummaryMatchesWorkspace, connections.summary?.appsStatus],
+  )
   const {
     entryVisible: organizationSkillEntryVisible,
     pendingInstallCount: recommendedSkillPendingInstallCount,
@@ -1596,6 +1658,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                 <OrganizationManagementRoute
                   connectedProvidersLoading={activeProvidersLoading}
                   organizationSkills={organizationSkills}
+                  providerOptions={activeOrganizationProviderOptions}
                   providerSkillRecommendationsState={providerSkillRecommendations}
                   workspace={organizationWorkspace}
                 />

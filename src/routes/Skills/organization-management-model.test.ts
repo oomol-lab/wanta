@@ -8,7 +8,6 @@ import type {
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
-  allOrganizations,
   buildGrantViews,
   buildMemberViews,
   buildOrganizationMemberViews,
@@ -22,7 +21,6 @@ import {
   organizationRole,
   organizationSkillPackageLinked,
   planProviderSkillRecommendationBulkLinks,
-  planOrganizationSkillBulkLinks,
   providerOptionsWithSelected,
 } from "./organization-management-model.ts"
 
@@ -44,18 +42,6 @@ test("errorState preserves a structured HTTP status for permission-aware UI", ()
     errorStatus: 403,
     status: "error",
   })
-})
-
-test("allOrganizations de-duplicates created and joined organizations", () => {
-  const overview = organizationOverview({
-    created: [organization("a"), organization("b")],
-    joined: [organization("b"), organization("c")],
-  })
-
-  assert.deepEqual(
-    allOrganizations(overview).map((organization) => organization.id),
-    ["a", "b", "c"],
-  )
 })
 
 test("organizationRole prefers creator ownership from account and created list", () => {
@@ -221,27 +207,6 @@ test("organization skill package set normalizes package names", () => {
   assert.equal(organizationSkillPackageLinked(packageKeys, "oo-gmail"), true)
   assert.equal(organizationSkillPackageLinked(packageKeys, "oo-slack"), true)
   assert.equal(organizationSkillPackageLinked(packageKeys, "oo-notion"), false)
-})
-
-test("planOrganizationSkillBulkLinks deduplicates by package and skips linked packages", () => {
-  const plan = planOrganizationSkillBulkLinks(
-    [
-      { packageName: "oo-gmail", skillName: "gmail" },
-      { packageName: "OO-GMAIL", skillName: "gmail-alt" },
-      { packageName: "oo-slack", skillName: "slack" },
-      { packageName: "oo-notion", skillName: "notion" },
-    ],
-    [{ packageName: " oo-slack " }],
-  )
-
-  assert.deepEqual(
-    plan.linkable.map((item) => item.skillName),
-    ["gmail", "notion"],
-  )
-  assert.deepEqual(
-    plan.linked.map((item) => item.skillName),
-    ["slack"],
-  )
 })
 
 test("planProviderSkillRecommendationBulkLinks deduplicates by package and skips linked packages", () => {

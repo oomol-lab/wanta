@@ -3,8 +3,8 @@ import type { BusyAction, MemberView, ProviderGrantView } from "./organization-m
 
 import { MoreHorizontalIcon, PencilIcon, ShieldCheckIcon, Trash2Icon, UserCheckIcon, UserXIcon } from "lucide-react"
 import * as React from "react"
+import { OrganizationUserAvatar } from "./OrganizationUserAvatar.tsx"
 import { hasMemberStatus, isBulkEditableMember, useMemberStatusSelection } from "./use-member-status-selection.ts"
-import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { CopyIconButton } from "@/components/CopyIconButton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -55,8 +55,8 @@ export function MembersTable({
   onEditProviderAccess: (grant: ProviderGrantView) => void
   onEnableMembers: (userIds: string[]) => void
   onGrantProviderAccess: (userId: string) => void
-  onRemoveMember: (member: OrganizationMember) => void
-  onRevokeProviderAccess: (grant: ProviderGrantView) => void
+  onRemoveMember: (member: OrganizationMember) => Promise<void>
+  onRevokeProviderAccess: (grant: ProviderGrantView) => Promise<void>
   providerAccessError: string | null
   showProviderAccess: boolean
 }) {
@@ -104,10 +104,10 @@ export function MembersTable({
           <ConfirmDialogCancel disabled={removeTargetBusy}>{t("common.cancel")}</ConfirmDialogCancel>
           <ConfirmDialogAction
             disabled={removeTargetBusy || !removeTarget}
-            onClick={() => {
+            onClick={(event) => {
               if (removeTarget) {
-                onRemoveMember(removeTarget)
-                setRemoveTarget(null)
+                event.preventDefault()
+                void onRemoveMember(removeTarget).finally(() => setRemoveTarget(null))
               }
             }}
           >
@@ -138,10 +138,10 @@ export function MembersTable({
           <ConfirmDialogCancel disabled={revokeTargetBusy}>{t("common.cancel")}</ConfirmDialogCancel>
           <ConfirmDialogAction
             disabled={revokeTargetBusy || !revokeTarget}
-            onClick={() => {
+            onClick={(event) => {
               if (revokeTarget) {
-                onRevokeProviderAccess(revokeTarget)
-                setRevokeTarget(null)
+                event.preventDefault()
+                void onRevokeProviderAccess(revokeTarget).finally(() => setRevokeTarget(null))
               }
             }}
           >
@@ -195,7 +195,7 @@ export function MembersTable({
                   onCheckedChange={(checked) => toggleMember(member.user_id, checked)}
                 />
               ) : null}
-              <UserAvatar avatar={member.avatar} fallback={member.fallback} />
+              <OrganizationUserAvatar avatar={member.avatar} fallback={member.fallback} />
               <div className="min-w-0 self-center">
                 <CompactMemberIdentity member={member}>
                   {member.role === "creator" && showProviderAccess ? (
@@ -544,14 +544,5 @@ function ProviderAccessSummary({
       ))}
       {hiddenProviderCount > 0 ? <Badge variant="secondary">+{hiddenProviderCount}</Badge> : null}
     </div>
-  )
-}
-
-function UserAvatar({ avatar, fallback }: { avatar: string; fallback: string }) {
-  return (
-    <span className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-foreground">
-      <span aria-hidden="true">{fallback}</span>
-      <CachedAvatarImage src={avatar} alt="" className="absolute inset-0 size-full object-cover" />
-    </span>
   )
 }

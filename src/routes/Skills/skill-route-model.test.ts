@@ -6,6 +6,7 @@ import {
   getInstallableOrganizationSkills,
   getGroupStatus,
   getOrganizationSkillRuntimeStatus,
+  getPublicPackageInstallSkills,
   getPublicSkillInstallState,
   getPublicPackageInstallState,
   getRuntimeHosts,
@@ -139,6 +140,28 @@ test("mixed installed and external public skills remain installable into Wanta",
   assert.equal(getPublicSkillInstallState(groupById, pkg, "runtime"), "installed")
   assert.equal(getPublicSkillInstallState(groupById, pkg, "external"), "external-installed")
   assert.equal(getPublicPackageInstallState(groupById, pkg), "external-installed")
+  assert.deepEqual(
+    getPublicPackageInstallSkills(groupById, pkg).map((skill) => skill.name),
+    ["external"],
+  )
+})
+
+test("package install plan includes every missing Skill", () => {
+  const pkg = {
+    ...publicPackage("demo"),
+    name: "@alice/demo",
+    skills: [
+      { name: "installed", title: "Installed" },
+      { name: "missing-a", title: "Missing A" },
+      { name: "missing-b", title: "Missing B" },
+    ],
+  }
+  const groupById = new Map([["installed", managedSkillGroup("installed", "@alice/demo")]])
+
+  assert.deepEqual(
+    getPublicPackageInstallSkills(groupById, pkg).map((skill) => skill.name),
+    ["missing-a", "missing-b"],
+  )
 })
 
 test("matchesInstalledSkillFilter can filter by Wanta, Codex, and Claude Code hosts", () => {

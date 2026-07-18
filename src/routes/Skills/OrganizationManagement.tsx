@@ -1,8 +1,8 @@
-import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { BusyAction, ProviderAccessForm } from "./organization-management-model.ts"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
+import type { ProviderSkillRecommendationsState } from "@/hooks/useProviderSkillRecommendations"
 
 import { RefreshCwIcon } from "lucide-react"
 import * as React from "react"
@@ -50,8 +50,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
 import { useAppI18n } from "@/i18n"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
-import { useProviderSkillPackageLookup } from "@/routes/Skills/provider-skill-package-lookup"
-import { buildProviderSkillRecommendations } from "@/routes/Skills/provider-skill-recommendations"
 import { useOrganizationDetails } from "@/routes/Skills/use-organization-details"
 import { useOrganizationForms } from "@/routes/Skills/use-organization-forms"
 import { useOrganizationMemberActions } from "@/routes/Skills/use-organization-member-actions"
@@ -59,14 +57,14 @@ import { useOrganizationMemberSearch } from "@/routes/Skills/use-organization-me
 import { useOrganizationSkillActions } from "@/routes/Skills/use-organization-skill-actions"
 
 export function OrganizationManagementRoute({
-  connectedProviders = [],
   connectedProvidersLoading = false,
   organizationSkills,
+  providerSkillRecommendationsState,
   workspace,
 }: {
-  connectedProviders?: ConnectionProvider[]
   connectedProvidersLoading?: boolean
   organizationSkills?: UseOrganizationSkills
+  providerSkillRecommendationsState: ProviderSkillRecommendationsState
   workspace: UseOrganizationWorkspace
 }) {
   const { locale, t } = useAppI18n()
@@ -182,16 +180,7 @@ export function OrganizationManagementRoute({
     setManagedSkillError(null)
     setSelectedPackage(pkg)
   }, [])
-  const providerSkillPackageLookup = useProviderSkillPackageLookup(connectedProviders)
-  const providerSkillRecommendations = React.useMemo(
-    () =>
-      buildProviderSkillRecommendations({
-        groupById: skillGroupById,
-        packagesByService: providerSkillPackageLookup.packagesByService,
-        providers: connectedProviders,
-      }),
-    [connectedProviders, providerSkillPackageLookup.packagesByService, skillGroupById],
-  )
+  const providerSkillRecommendations = providerSkillRecommendationsState.recommendations
   const canManage = activeWorkspace.canManage
   const {
     appAccessState,
@@ -339,10 +328,10 @@ export function OrganizationManagementRoute({
                         groupById={skillGroupById}
                         organizationSkills={selectedOrganizationSkills}
                         providerRecommendationsLoading={
-                          connectedProvidersLoading || providerSkillPackageLookup.isLoading
+                          connectedProvidersLoading || providerSkillRecommendationsState.isLoading
                         }
-                        providerRecommendationsResolvedCount={providerSkillPackageLookup.resolvedCount}
-                        providerRecommendationsTotalCount={providerSkillPackageLookup.totalCount}
+                        providerRecommendationsResolvedCount={providerSkillRecommendationsState.resolvedCount}
+                        providerRecommendationsTotalCount={providerSkillRecommendationsState.totalCount}
                         providerRecommendations={providerSkillRecommendations}
                         onAddRecommendation={addOrganizationSkillFromRecommendation}
                         onAddRecommendationBatch={addOrganizationSkillBatch}

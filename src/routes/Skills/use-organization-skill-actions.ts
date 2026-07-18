@@ -115,32 +115,21 @@ export function useOrganizationSkillActions({
         return
       }
 
-      let installedCount = 0
-      let failedCount = 0
-      let firstError: unknown
       try {
-        for (const skill of targets) {
-          try {
-            const nextInventory = await skillService.invoke("installRegistrySkill", {
-              packageName: skill.packageName,
-              skillId: skill.skillName,
-            })
-            skillInventory.setData(nextInventory)
-            installedCount += 1
-          } catch (error) {
-            failedCount += 1
-            firstError ??= error
-          }
-        }
-        if (installedCount > 0) {
+        const result = await skillService.invoke(
+          "installRegistrySkills",
+          targets.map((skill) => ({ packageName: skill.packageName, skillId: skill.skillName })),
+        )
+        skillInventory.setData(result.inventory)
+        if (result.installed.length > 0) {
           skillVersionReport.invalidate()
-          toast.success(t("organizations.skillManageInstallMissingSuccess", { count: installedCount }))
+          toast.success(t("organizations.skillManageInstallMissingSuccess", { count: result.installed.length }))
         }
-        if (failedCount > 0) {
+        if (result.failures.length > 0) {
           toast.error(
             t("organizations.skillManageInstallMissingFailed", {
-              count: failedCount,
-              error: skillErrorMessage(firstError, t),
+              count: result.failures.length,
+              error: skillErrorMessage(result.failures[0]?.error, t),
             }),
           )
         }
@@ -152,17 +141,20 @@ export function useOrganizationSkillActions({
   )
 
   const linkOrganizationSkill = React.useCallback(
-    async (input: OrganizationSkillLinkInput, options: { installRuntime: boolean }) => {
+    async (input: OrganizationSkillLinkInput, options: { installRuntime: boolean; refreshOrganization?: boolean }) => {
       if (!organizationSkills?.canManage) {
         return
       }
 
-      await organizationSkills.addSkill({
-        packageName: input.packageName,
-        skillName: input.skillName,
-        version: input.version,
-        versionPolicy: "pinned",
-      })
+      await organizationSkills.addSkill(
+        {
+          packageName: input.packageName,
+          skillName: input.skillName,
+          version: input.version,
+          versionPolicy: "pinned",
+        },
+        { refresh: options.refreshOrganization },
+      )
       if (options.installRuntime) {
         const nextInventory = await skillService.invoke("installRegistrySkill", {
           packageName: input.packageName,
@@ -244,6 +236,7 @@ export function useOrganizationSkillActions({
       let linkedCount = 0
       let failedCount = 0
       let firstError: unknown
+      const runtimeTargets: Array<{ packageName: string; skillId: string }> = []
       try {
         for (const recommendation of plan.linkable) {
           try {
@@ -253,18 +246,43 @@ export function useOrganizationSkillActions({
                 skillName: recommendation.skillId,
                 version: recommendation.package.version,
               },
-              options,
+              { installRuntime: false, refreshOrganization: false },
             )
             linkedCount += 1
+            runtimeTargets.push({ packageName: recommendation.packageName, skillId: recommendation.skillId })
           } catch (error) {
             failedCount += 1
             firstError ??= error
           }
         }
         if (linkedCount > 0) {
+          await organizationSkills.refresh({ forceRefresh: true })
+        }
+        let installedCount = 0
+        if (options.installRuntime && runtimeTargets.length > 0) {
+          try {
+            const result = await skillService.invoke("installRegistrySkills", runtimeTargets)
+            skillInventory.setData(result.inventory)
+            installedCount = result.installed.length
+            if (installedCount > 0) {
+              skillVersionReport.invalidate()
+            }
+            if (result.failures.length > 0) {
+              toast.error(
+                t("organizations.skillManageInstallMissingFailed", {
+                  count: result.failures.length,
+                  error: skillErrorMessage(result.failures[0]?.error, t),
+                }),
+              )
+            }
+          } catch (error) {
+            toast.error(skillErrorMessage(error, t))
+          }
+        }
+        if (linkedCount > 0) {
           toast.success(
-            options.installRuntime
-              ? t("organizations.skillManageBulkAddInstallSuccess", { count: linkedCount })
+            options.installRuntime && installedCount > 0
+              ? t("organizations.skillManageBulkAddInstallSuccess", { count: installedCount })
               : t("organizations.skillManageBulkAddSuccess", { count: linkedCount }),
           )
         }
@@ -280,7 +298,16 @@ export function useOrganizationSkillActions({
         endAction()
       }
     },
-    [beginAction, endAction, linkOrganizationSkill, organizationSkills, t],
+    [
+      beginAction,
+      endAction,
+      linkOrganizationSkill,
+      organizationSkills,
+      skillInventory,
+      skillService,
+      skillVersionReport,
+      t,
+    ],
   )
 
   return {

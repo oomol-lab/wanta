@@ -413,6 +413,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const {
     entryVisible: organizationSkillEntryVisible,
     pendingInstallCount: recommendedSkillPendingInstallCount,
+    providerRecommendations: providerSkillRecommendations,
     showcaseItems: organizationSkillShowcaseItems,
   } = useAppShellSkillRecommendations({
     activeProviders,
@@ -1572,18 +1573,18 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                 </div>
               ) : route === "skills" ? (
                 <SkillsRoute
-                  connectedProviders={activeProviders}
                   connectedProvidersLoading={activeProvidersLoading}
                   organizationSkills={organizationSkills}
+                  providerSkillRecommendationsState={providerSkillRecommendations}
                   workspace={organizationWorkspace}
                 />
               ) : route === "knowledge" && knowledgeBaseBetaEnabled ? (
                 <KnowledgeRoute knowledge={knowledgeLibrary} onStartChat={handleStartKnowledgeChat} />
               ) : route === "organizations" ? (
                 <OrganizationManagementRoute
-                  connectedProviders={activeProviders}
                   connectedProvidersLoading={activeProvidersLoading}
                   organizationSkills={organizationSkills}
+                  providerSkillRecommendationsState={providerSkillRecommendations}
                   workspace={organizationWorkspace}
                 />
               ) : (

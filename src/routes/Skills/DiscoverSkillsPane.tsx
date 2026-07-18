@@ -289,13 +289,7 @@ function PublicSkillPackageRow({
             {t("skills.installedManage")}
           </Button>
         ) : canInstallPublicSkill(state) ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={isInstalling}
-            onClick={() => onInstall(primaryInstallSkill?.name)}
-          >
+          <Button type="button" variant="outline" size="sm" disabled={isInstalling} onClick={() => onInstall()}>
             {isInstalling ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.installPackage />}
             {isInstalling ? t("skills.registryInstalling") : getPublicSkillInstallActionLabel(state, t)}
           </Button>

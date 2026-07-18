@@ -54,11 +54,9 @@ export async function scanInstalledSkills(agents?: readonly SupportedAgent[]): P
   logDiagnosticOnChange("skill-scan:installed:start", "skill-scan", "starting installed skill scan", {
     agentIds: targetAgents.map((agent) => agent.id),
   })
-  const perAgentSkills = await Promise.all(
-    targetAgents.map((agent) => {
-      return scanInstalledSkillRoot({ agent, skillRoot: resolveAgentSkillRoot(agent) })
-    }),
-  )
+  const perAgentSkills = await mapWithConcurrency(targetAgents, 4, (agent) => {
+    return scanInstalledSkillRoot({ agent, skillRoot: resolveAgentSkillRoot(agent) })
+  })
 
   const installedSkills = perAgentSkills.flat()
   logDiagnosticOnChange("skill-scan:installed:completed", "skill-scan", "completed installed skill scan", {
@@ -84,87 +82,85 @@ async function scanInstalledSkillRoot(target: SkillRootScanTarget): Promise<Inst
   let candidateCount = 0
   let hiddenCount = 0
   let installedCount = 0
-  const skills = await Promise.all(
-    entries.map(async (entry): Promise<InstalledSkill | undefined> => {
-      if (shouldSkipSkillRootEntry(entry) || (!entry.isDirectory() && !entry.isSymbolicLink())) {
-        return undefined
+  const skills = await mapWithConcurrency(entries, 8, async (entry): Promise<InstalledSkill | undefined> => {
+    if (shouldSkipSkillRootEntry(entry) || (!entry.isDirectory() && !entry.isSymbolicLink())) {
+      return undefined
+    }
+
+    candidateCount += 1
+    const skillPath = path.join(skillRoot, entry.name)
+    const metadataPath = path.join(skillPath, metadataFileName)
+
+    try {
+      const metadataContent = await readInstalledMetadataContent(metadataPath)
+      const frontmatterMetadata = await readSkillFrontmatterMetadata(skillPath, entry.name)
+
+      if (!metadataContent && !frontmatterMetadata.validSkillFile) {
+        throw new Error(`${metadataFileName} missing and SKILL.md unavailable`)
       }
 
-      candidateCount += 1
-      const skillPath = path.join(skillRoot, entry.name)
-      const metadataPath = path.join(skillPath, metadataFileName)
-
-      try {
-        const metadataContent = await readInstalledMetadataContent(metadataPath)
-        const frontmatterMetadata = await readSkillFrontmatterMetadata(skillPath, entry.name)
-
-        if (!metadataContent && !frontmatterMetadata.validSkillFile) {
-          throw new Error(`${metadataFileName} missing and SKILL.md unavailable`)
-        }
-
-        const normalizedMetadata = metadataContent
-          ? normalizeMetadata(metadataContent)
-          : ({
-              kind: "local",
-            } satisfies ManagedSkillMetadata)
-        const metadata = {
-          ...normalizedMetadata,
-          description: frontmatterMetadata.description ?? normalizedMetadata.description,
-          icon: normalizedMetadata.icon ?? frontmatterMetadata.icon,
-          packageName: normalizedMetadata.packageName ?? frontmatterMetadata.packageName,
-          version: normalizedMetadata.version ?? frontmatterMetadata.version,
-        }
-        const sourcePath = target.resolveSourcePath
-          ? await target.resolveSourcePath({
+      const normalizedMetadata = metadataContent
+        ? normalizeMetadata(metadataContent)
+        : ({
+            kind: "local",
+          } satisfies ManagedSkillMetadata)
+      const metadata = {
+        ...normalizedMetadata,
+        description: frontmatterMetadata.description ?? normalizedMetadata.description,
+        icon: normalizedMetadata.icon ?? frontmatterMetadata.icon,
+        packageName: normalizedMetadata.packageName ?? frontmatterMetadata.packageName,
+        version: normalizedMetadata.version ?? frontmatterMetadata.version,
+      }
+      const sourcePath = target.resolveSourcePath
+        ? await target.resolveSourcePath({
+            metadata,
+            name: entry.name,
+            path: skillPath,
+          })
+        : canonicalSourceRoot
+          ? path.join(canonicalSourceRoot, entry.name)
+          : resolveCanonicalSourcePath({
+              agent,
               metadata,
               name: entry.name,
               path: skillPath,
             })
-          : canonicalSourceRoot
-            ? path.join(canonicalSourceRoot, entry.name)
-            : resolveCanonicalSourcePath({
-                agent,
-                metadata,
-                name: entry.name,
-                path: skillPath,
-              })
-        const [hash, sourceHash] =
-          path.resolve(sourcePath) === path.resolve(skillPath)
-            ? await hashTextFiles(skillPath).then((skillHash) => [skillHash, skillHash] as const)
-            : await Promise.all([hashTextFiles(skillPath), hashTextFiles(sourcePath)])
+      const [hash, sourceHash] =
+        path.resolve(sourcePath) === path.resolve(skillPath)
+          ? await hashTextFiles(skillPath).then((skillHash) => [skillHash, skillHash] as const)
+          : await Promise.all([hashTextFiles(skillPath), hashTextFiles(sourcePath)])
 
-        return {
-          agent,
-          hash: hash ?? "",
-          metadata,
-          name: entry.name,
-          path: skillPath,
-          sourceHash,
-          sourcePath,
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        const isMissingSkillDefinition = message.includes(`${metadataFileName} missing and SKILL.md unavailable`)
-        hiddenCount += 1
-        logDiagnosticOnChange(
-          `skill-scan:installed-candidate:${skillPath}`,
-          "skill-scan",
-          "installed skill candidate hidden",
-          {
-            agentId: agent.id,
-            error: message,
-            skillName: entry.name,
-            skillPath,
-          },
-          isMissingSkillDefinition ? "trace" : "warn",
-          isMissingSkillDefinition
-            ? { agentId: agent.id, skillDefinitionMissing: true, skillName: entry.name, skillPath }
-            : { agentId: agent.id, error: message, skillName: entry.name, skillPath },
-        )
-        return undefined
+      return {
+        agent,
+        hash: hash ?? "",
+        metadata,
+        name: entry.name,
+        path: skillPath,
+        sourceHash,
+        sourcePath,
       }
-    }),
-  )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const isMissingSkillDefinition = message.includes(`${metadataFileName} missing and SKILL.md unavailable`)
+      hiddenCount += 1
+      logDiagnosticOnChange(
+        `skill-scan:installed-candidate:${skillPath}`,
+        "skill-scan",
+        "installed skill candidate hidden",
+        {
+          agentId: agent.id,
+          error: message,
+          skillName: entry.name,
+          skillPath,
+        },
+        isMissingSkillDefinition ? "trace" : "warn",
+        isMissingSkillDefinition
+          ? { agentId: agent.id, skillDefinitionMissing: true, skillName: entry.name, skillPath }
+          : { agentId: agent.id, error: message, skillName: entry.name, skillPath },
+      )
+      return undefined
+    }
+  })
 
   const installedSkills = skills.filter((skill): skill is InstalledSkill => Boolean(skill))
   installedCount = installedSkills.length
@@ -177,6 +173,26 @@ async function scanInstalledSkillRoot(target: SkillRootScanTarget): Promise<Inst
     skillRoot,
   })
   return installedSkills
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = Array.from<R>({ length: items.length })
+  let nextIndex = 0
+  const workerCount = Math.min(Math.max(1, concurrency), items.length)
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex
+        nextIndex += 1
+        results[index] = await mapper(items[index] as T)
+      }
+    }),
+  )
+  return results
 }
 
 async function resolveWantaSkillSourcePath(

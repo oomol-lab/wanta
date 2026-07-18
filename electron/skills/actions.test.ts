@@ -8,15 +8,12 @@ import {
   createFailedRegistrySkillVersionCheck,
   createInstallRegistrySkillArgs,
   createPublishSkillArgs,
-  createRegistrySkillVersionCheck,
   createRegistrySkillCheckUpdateArgs,
   createRegistrySkillVersionCheckFromUpdateResult,
   createSkillPublishErrorMessage,
   normalizePublicSkillPackageCatalog,
   normalizeRegistrySkillPackageInfo,
-  createSkillSearchArgs,
   normalizeRegistrySkillCheckUpdateResults,
-  normalizeSkillSearchResults,
   normalizeCliCheckUpdateResult,
   createUpdateRegistrySkillArgs,
   readSkillPublishRequiredScope,
@@ -27,10 +24,6 @@ test("createCliUpdateArgs keeps oo self-update commands", () => {
   assert.deepEqual(createCliUpdateArgs(), ["update"])
 })
 
-test("createSkillSearchArgs uses oo-cli json output", () => {
-  assert.deepEqual(createSkillSearchArgs(" image "), ["skills", "search", "image", "--json"])
-})
-
 test("createRegistrySkillCheckUpdateArgs checks registry skills as json", () => {
   assert.deepEqual(createRegistrySkillCheckUpdateArgs(), ["skills", "check-update", "--json"])
   assert.deepEqual(createRegistrySkillCheckUpdateArgs([" @alice/demo "]), [
@@ -39,36 +32,6 @@ test("createRegistrySkillCheckUpdateArgs checks registry skills as json", () => 
     "@alice/demo",
     "--json",
   ])
-})
-
-test("normalizeSkillSearchResults keeps structured registry skills", () => {
-  assert.deepEqual(
-    normalizeSkillSearchResults(
-      JSON.stringify([
-        {
-          description: "Generate images",
-          name: "gpt-image-2",
-          packageName: "@alwaysmavs/gpt-image-2",
-          packageVersion: "1.2.3",
-          skillDisplayName: "GPT Image",
-        },
-        {
-          name: "",
-          packageName: "@invalid/package",
-        },
-      ]),
-    ),
-    [
-      {
-        description: "Generate images",
-        displayName: "GPT Image",
-        id: "@alwaysmavs/gpt-image-2:gpt-image-2",
-        packageName: "@alwaysmavs/gpt-image-2",
-        skillId: "gpt-image-2",
-        version: "1.2.3",
-      },
-    ],
-  )
 })
 
 test("normalizePublicSkillPackageCatalog keeps public package metadata", () => {
@@ -394,40 +357,6 @@ test("createSkillPublishErrorMessage extracts json failure messages", () => {
       stdout: JSON.stringify({ errors: [{ message: "Missing SKILL.md." }] }),
     }),
     "Missing SKILL.md.",
-  )
-})
-
-test("createRegistrySkillVersionCheck detects exact package update", () => {
-  assert.deepEqual(
-    createRegistrySkillVersionCheck(
-      {
-        id: "demo",
-        kind: "registry",
-        name: "demo",
-        packageName: "@alice/demo",
-        version: "1.0.0",
-      },
-      [
-        {
-          displayName: "Demo",
-          id: "@alice/demo:demo",
-          packageName: "@alice/demo",
-          skillId: "demo",
-          version: "1.1.0",
-        },
-      ],
-    ),
-    {
-      command: ["skills", "search", "@alice/demo", "--json"],
-      currentVersion: "1.0.0",
-      id: "demo",
-      kind: "registry",
-      latestVersion: "1.1.0",
-      name: "demo",
-      packageName: "@alice/demo",
-      skillId: "demo",
-      status: "update-available",
-    },
   )
 })
 

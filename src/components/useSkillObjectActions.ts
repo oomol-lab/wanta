@@ -80,11 +80,16 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
       inventoryResource.setData(nextInventory)
       versionResource.invalidate()
       await refreshSkillResources()
-      if (!nextInventory.groups.some((group) => group.id === target.skill.id)) {
+      const stillInstalled = nextInventory.groups.some((group) => group.id === target.skill.id)
+      if (!stillInstalled) {
         onDeleted?.(nextInventory)
       }
       setRemoveTarget(null)
-      toast.success(t("skills.removeDone", { name: target.skill.name }))
+      if (stillInstalled) {
+        toast.warning(t("skills.removePartial", { name: target.skill.name }))
+      } else {
+        toast.success(t("skills.removeDone", { name: target.skill.name }))
+      }
     } catch (cause) {
       reportRendererHandledError("skills", "remove skill failed", cause)
       toast.error(t("skills.removeFailed", { error: skillActionErrorMessage(cause, t) }))

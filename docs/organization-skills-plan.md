@@ -1,6 +1,6 @@
 # 组织级 Skill 配置方案
 
-> 状态：已实施。本文保留为设计与演进记录；当前运行时边界和模块地图以 [architecture.md](architecture.md) 及源码为准。
+> 状态：部分实施。当前线上 Registry 只支持“组织关联整个 package”：读取使用组织 `package-infos`，添加和删除使用 package ↔ organization 关联接口。下文第 4 节的 per-Skill `org-control` 模型仍是后续演进方案，当前客户端不得调用其中的 PATCH、单 Skill DELETE 或排序接口，也不提供无法持久化的单 Skill启停 UI。当前运行时边界和模块地图以 [architecture.md](architecture.md) 及源码为准。
 >
 > 相关：[project-overview.md](project-overview.md)（产品定位）· [architecture.md](architecture.md)（进程与 Agent）· [conventions.md](conventions.md)（约定）
 

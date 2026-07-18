@@ -1,10 +1,5 @@
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
-import type {
-  AddOrganizationSkillInput,
-  OrganizationSkillConfigItem,
-  ReorderOrganizationSkillInput,
-  UpdateOrganizationSkillInput,
-} from "@/lib/organization-skills-client"
+import type { AddOrganizationSkillInput, OrganizationSkillConfigItem } from "@/lib/organization-skills-client"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
 import * as React from "react"
@@ -15,8 +10,6 @@ import {
   organizationSkillMentionId,
   organizationSkillsApiEnabled,
   removeOrganizationSkill,
-  reorderOrganizationSkills,
-  updateOrganizationSkill,
 } from "@/lib/organization-skills-client"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
@@ -32,7 +25,7 @@ export interface OrganizationSkillChatContext {
 }
 
 export interface UseOrganizationSkills {
-  addSkill(input: AddOrganizationSkillInput): Promise<void>
+  addSkill(input: AddOrganizationSkillInput, options?: { refresh?: boolean }): Promise<void>
   apiEnabled: boolean
   canManage: boolean
   chatContextSkills: OrganizationSkillChatContext[]
@@ -42,10 +35,8 @@ export interface UseOrganizationSkills {
   organizationId: string | null
   organizationName: string | null
   refresh(options?: { forceRefresh?: boolean }): Promise<void>
-  removeSkill(configId: string): Promise<void>
-  reorder(items: ReorderOrganizationSkillInput[]): Promise<void>
+  removePackage(packageName: string): Promise<void>
   skills: OrganizationSkillConfigItem[]
-  updateSkill(configId: string, input: UpdateOrganizationSkillInput): Promise<void>
 }
 
 interface OrganizationSkillCacheEntry {
@@ -57,7 +48,7 @@ interface OrganizationSkillCacheEntry {
 
 const organizationSkillCacheMs = 30_000
 const organizationSkillPersistentCacheMaxAgeMs = 24 * 60 * 60 * 1000
-const organizationSkillPersistentCacheStorageKey = "wanta.organization-skill-cache.v1"
+const organizationSkillPersistentCacheStorageKey = "wanta.organization-skill-cache.v2"
 const organizationSkillCache = new Map<string, OrganizationSkillCacheEntry>()
 let organizationSkillPersistentCacheRead = false
 
@@ -272,7 +263,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
   )
 
   const addSkill = React.useCallback(
-    async (input: AddOrganizationSkillInput): Promise<void> => {
+    async (input: AddOrganizationSkillInput, options: { refresh?: boolean } = {}): Promise<void> => {
       if (!organizationId) {
         throw new Error("Organization is required.")
       }
@@ -282,50 +273,17 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
       const targetOrganizationId = organizationId
       const targetCacheKey = cacheKey
       await addOrganizationSkill(targetOrganizationId, input)
-      await reloadAfterMutation(targetOrganizationId, targetCacheKey)
-    },
-    [cacheKey, organizationId, reloadAfterMutation, remoteApiEnabled],
-  )
-
-  const updateSkill = React.useCallback(
-    async (configId: string, input: UpdateOrganizationSkillInput): Promise<void> => {
-      if (!organizationId) {
-        throw new Error("Organization is required.")
-      }
-      if (!remoteApiEnabled) {
-        throw new Error("Organization Skill API is not enabled.")
-      }
-      const targetOrganizationId = organizationId
-      const targetCacheKey = cacheKey
-      await updateOrganizationSkill(targetOrganizationId, configId, input)
-      await reloadAfterMutation(targetOrganizationId, targetCacheKey)
-    },
-    [cacheKey, organizationId, reloadAfterMutation, remoteApiEnabled],
-  )
-
-  const removeSkill = React.useCallback(
-    async (configId: string): Promise<void> => {
-      if (!organizationId) {
-        throw new Error("Organization is required.")
-      }
-      if (!remoteApiEnabled) {
-        throw new Error("Organization Skill API is not enabled.")
-      }
-      const targetOrganizationId = organizationId
-      const targetCacheKey = cacheKey
-      const targetSkill = skills.find((skill) => skill.id === configId)
-      if (!targetSkill?.packageName) {
+      if (options.refresh === false) {
+        deleteOrganizationSkillCacheEntry(targetCacheKey)
+      } else {
         await reloadAfterMutation(targetOrganizationId, targetCacheKey)
-        return
       }
-      await removeOrganizationSkill(targetOrganizationId, targetSkill.packageName)
-      await reloadAfterMutation(targetOrganizationId, targetCacheKey)
     },
-    [cacheKey, organizationId, reloadAfterMutation, remoteApiEnabled, skills],
+    [cacheKey, organizationId, reloadAfterMutation, remoteApiEnabled],
   )
 
-  const reorder = React.useCallback(
-    async (items: ReorderOrganizationSkillInput[]): Promise<void> => {
+  const removePackage = React.useCallback(
+    async (packageName: string): Promise<void> => {
       if (!organizationId) {
         throw new Error("Organization is required.")
       }
@@ -333,38 +291,11 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
         throw new Error("Organization Skill API is not enabled.")
       }
       const targetOrganizationId = organizationId
-      const requestId = requestIdRef.current + 1
-      requestIdRef.current = requestId
-      try {
-        const config = await reorderOrganizationSkills(targetOrganizationId, items)
-        if (
-          requestIdRef.current !== requestId ||
-          latestOrganizationIdRef.current !== targetOrganizationId ||
-          latestCacheKeyRef.current !== cacheKey
-        ) {
-          return
-        }
-        setOrganizationSkillCacheEntry({
-          cacheKey,
-          fetchedAt: Date.now(),
-          organizationId: targetOrganizationId,
-          skills: config.skills,
-        })
-        setSkills(config.skills)
-        setSkillsOrganizationId(targetOrganizationId)
-        setError(null)
-        setHasLoaded(true)
-      } finally {
-        if (
-          requestIdRef.current === requestId &&
-          latestOrganizationIdRef.current === targetOrganizationId &&
-          latestCacheKeyRef.current === cacheKey
-        ) {
-          setLoading(false)
-        }
-      }
+      const targetCacheKey = cacheKey
+      await removeOrganizationSkill(targetOrganizationId, packageName)
+      await reloadAfterMutation(targetOrganizationId, targetCacheKey)
     },
-    [cacheKey, organizationId, remoteApiEnabled],
+    [cacheKey, organizationId, reloadAfterMutation, remoteApiEnabled],
   )
 
   const cached = organizationId ? getOrganizationSkillCacheEntry(cacheKey, organizationId) : undefined
@@ -374,10 +305,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
   const currentHasLoaded = skillsBelongToCurrentOrganization ? hasLoaded : Boolean(cached)
   const currentLoading =
     loading || Boolean(organizationId && remoteApiEnabled && !skillsBelongToCurrentOrganization && !cached)
-  const chatContextSkills = React.useMemo(
-    () => currentSkills.filter((skill) => skill.enabled).map(toChatContextSkill),
-    [currentSkills],
-  )
+  const chatContextSkills = React.useMemo(() => currentSkills.map(toChatContextSkill), [currentSkills])
 
   return {
     addSkill,
@@ -390,9 +318,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
     organizationId,
     organizationName,
     refresh,
-    removeSkill,
-    reorder,
+    removePackage,
     skills: currentSkills,
-    updateSkill,
   }
 }

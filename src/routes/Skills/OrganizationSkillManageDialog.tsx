@@ -20,7 +20,7 @@ import {
 } from "./organization-skill-manage-helpers.ts"
 import {
   OrganizationInstallMissingButton,
-  OrganizationRecommendationRemoveConfirmDialog,
+  OrganizationPackageRemoveConfirmDialog,
   OrganizationSkillDialogEmpty,
   OrganizationSkillManageLoadingSkeleton,
   OrganizationSkillManageRow,
@@ -326,24 +326,6 @@ export function OrganizationSkillManageDialog({
     }
   }, [marketCatalog.status, marketPackages.length, requestNextMarketPage])
 
-  const updateOrganizationSkill = async (
-    skill: UseOrganizationSkills["skills"][number],
-    input: { enabled: boolean },
-  ): Promise<void> => {
-    if (!organizationSkills.canManage || busyConfigId) {
-      return
-    }
-    setBusyConfigId(skill.id)
-    try {
-      await organizationSkills.updateSkill(skill.id, input)
-      toast.success(input.enabled ? t("skills.organizationSkillEnabled") : t("skills.organizationSkillDisabled"))
-    } catch (error) {
-      toast.error(skillErrorMessage(error, t))
-    } finally {
-      setBusyConfigId(null)
-    }
-  }
-
   const removeOrganizationSkill = async (): Promise<void> => {
     const skill = organizationRemoveTarget
     if (!skill || !organizationSkills.canManage || busyConfigId) {
@@ -351,8 +333,8 @@ export function OrganizationSkillManageDialog({
     }
     setBusyConfigId(skill.id)
     try {
-      await organizationSkills.removeSkill(skill.id)
-      toast.success(t("skills.organizationSkillRemoved"))
+      await organizationSkills.removePackage(skill.packageName)
+      toast.success(t("organizations.skillManagePackageRemoved", { name: skill.packageName }))
       setOrganizationRemoveTarget(null)
     } catch (error) {
       toast.error(skillErrorMessage(error, t))
@@ -602,7 +584,6 @@ export function OrganizationSkillManageDialog({
                       }
                       onOpenManagedSkill={() => onOpenManagedSkill(item.skill.skillName)}
                       onRemove={() => setOrganizationRemoveTarget(item.skill)}
-                      onToggleEnabled={() => void updateOrganizationSkill(item.skill, { enabled: !item.skill.enabled })}
                     />
                   ) : (
                     <OrganizationSkillRecommendationRow
@@ -700,8 +681,14 @@ export function OrganizationSkillManageDialog({
   )
 
   const removeRecommendationDialog = (
-    <OrganizationRecommendationRemoveConfirmDialog
+    <OrganizationPackageRemoveConfirmDialog
       busy={organizationRemoveTarget ? busyConfigId === organizationRemoveTarget.id : false}
+      packageSkillCount={
+        organizationRemoveTarget
+          ? organizationSkills.skills.filter((skill) => skill.packageName === organizationRemoveTarget.packageName)
+              .length
+          : 0
+      }
       target={organizationRemoveTarget}
       onClose={() => {
         if (!busyConfigId) {

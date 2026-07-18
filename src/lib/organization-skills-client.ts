@@ -1,4 +1,4 @@
-import { orgControlBaseUrl, registryBaseUrl } from "@/lib/domain"
+import { registryBaseUrl } from "@/lib/domain"
 import { oomolFetchJson } from "@/lib/oomol-http"
 import { resolvePackageAssetIconSource } from "@/lib/skill-icon-assets.ts"
 
@@ -35,18 +35,6 @@ export interface AddOrganizationSkillInput {
   versionPolicy?: OrganizationSkillVersionPolicy
 }
 
-export interface UpdateOrganizationSkillInput {
-  enabled?: boolean
-  order?: number
-  version?: string
-  versionPolicy?: OrganizationSkillVersionPolicy
-}
-
-export interface ReorderOrganizationSkillInput {
-  id: string
-  order: number
-}
-
 interface OrganizationSkillPackageRawItem {
   description?: unknown
   displayName?: unknown
@@ -81,23 +69,11 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
 
-function asBoolean(value: unknown, fallback = false): boolean {
-  return typeof value === "boolean" ? value : fallback
-}
-
-function asNumber(value: unknown, fallback = 0): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback
-}
-
 function asPlainObject(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined
   }
   return value as Record<string, unknown>
-}
-
-function encodePath(value: string): string {
-  return encodeURIComponent(value.trim())
 }
 
 function encodePackagePath(packageName: string): string {
@@ -108,61 +84,8 @@ function encodePackagePath(packageName: string): string {
     .join("/")
 }
 
-function normalizeVersionPolicy(value: unknown): OrganizationSkillVersionPolicy {
-  return value === "latest" ? "latest" : "pinned"
-}
-
 function normalizeVisibility(value: unknown): OrganizationSkillVisibility {
   return value === "private" || value === "public" ? value : "unknown"
-}
-
-export function normalizeOrganizationSkillConfigItem(value: unknown): OrganizationSkillConfigItem | undefined {
-  const item = asPlainObject(value)
-  if (!item) {
-    return undefined
-  }
-
-  const packageName = asString(item["packageName"] ?? item["package_name"])
-  const skillName = asString(item["skillName"] ?? item["skill_name"] ?? item["name"])
-  if (!packageName || !skillName) {
-    return undefined
-  }
-
-  const version = asString(item["version"]) ?? "latest"
-  return {
-    ...(asString(item["createdAt"] ?? item["created_at"])
-      ? { createdAt: asString(item["createdAt"] ?? item["created_at"]) }
-      : {}),
-    ...(asString(item["createdBy"] ?? item["created_by"])
-      ? { createdBy: asString(item["createdBy"] ?? item["created_by"]) }
-      : {}),
-    ...(asString(item["description"]) ? { description: asString(item["description"]) } : {}),
-    displayName: asString(item["displayName"] ?? item["display_name"] ?? item["title"]) ?? skillName,
-    enabled: asBoolean(item["enabled"], true),
-    ...(asString(item["icon"]) ? { icon: asString(item["icon"]) } : {}),
-    id: asString(item["id"]) ?? `${packageName}:${skillName}`,
-    order: asNumber(item["order"], 0),
-    packageName,
-    skillName,
-    ...(asString(item["updatedAt"] ?? item["updated_at"])
-      ? { updatedAt: asString(item["updatedAt"] ?? item["updated_at"]) }
-      : {}),
-    version,
-    versionPolicy: normalizeVersionPolicy(item["versionPolicy"] ?? item["version_policy"]),
-    visibility: normalizeVisibility(item["visibility"]),
-  }
-}
-
-export function normalizeOrganizationSkillConfig(value: unknown): OrganizationSkillConfig {
-  const payload = asPlainObject(value)
-  const rawSkills = Array.isArray(payload?.["skills"]) ? payload["skills"] : []
-  return {
-    skills: rawSkills
-      .map(normalizeOrganizationSkillConfigItem)
-      .filter((item): item is OrganizationSkillConfigItem => Boolean(item))
-      .sort(compareOrganizationSkills),
-    updatedAt: asString(payload?.["updatedAt"] ?? payload?.["updated_at"]) ?? new Date().toISOString(),
-  }
 }
 
 function compareOrganizationSkills(left: OrganizationSkillConfigItem, right: OrganizationSkillConfigItem): number {
@@ -297,46 +220,9 @@ export async function addOrganizationSkill(
   return createOrganizationSkillItemFromInput(input)
 }
 
-export async function updateOrganizationSkill(
-  orgId: string,
-  configId: string,
-  input: UpdateOrganizationSkillInput,
-): Promise<OrganizationSkillConfigItem> {
-  const response = await oomolFetchJson<unknown>(
-    new URL(`/v1/organizations/${encodePath(orgId)}/skills/${encodePath(configId)}`, orgControlBaseUrl),
-    {
-      body: JSON.stringify(input),
-      headers: { "content-type": "application/json" },
-      method: "PATCH",
-      timeoutMs: organizationSkillRequestTimeoutMs,
-    },
-  )
-  const normalized = normalizeOrganizationSkillConfigItem(response)
-  if (!normalized) {
-    throw new Error("Organization Skill response is invalid.")
-  }
-  return normalized
-}
-
 export async function removeOrganizationSkill(orgId: string, packageName: string): Promise<void> {
   await oomolFetchJson<void>(organizationSkillPackageUrl(packageName, orgId), {
     method: "DELETE",
     timeoutMs: organizationSkillRequestTimeoutMs,
   })
-}
-
-export async function reorderOrganizationSkills(
-  orgId: string,
-  items: ReorderOrganizationSkillInput[],
-): Promise<OrganizationSkillConfig> {
-  const response = await oomolFetchJson<unknown>(
-    new URL(`/v1/organizations/${encodePath(orgId)}/skills/order`, orgControlBaseUrl),
-    {
-      body: JSON.stringify({ items }),
-      headers: { "content-type": "application/json" },
-      method: "PUT",
-      timeoutMs: organizationSkillRequestTimeoutMs,
-    },
-  )
-  return normalizeOrganizationSkillConfig(response)
 }

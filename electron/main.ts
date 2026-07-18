@@ -58,7 +58,7 @@ import { SessionServiceImpl } from "./session/node.ts"
 import { SessionProjectStore } from "./session/project-store.ts"
 import { SettingsServiceImpl } from "./settings/node.ts"
 import { SettingsStore } from "./settings/store.ts"
-import { SkillServiceImpl } from "./skills/node.ts"
+import { ensureDefaultRegistrySkillsInstalled, SkillServiceImpl } from "./skills/node.ts"
 import { ExpiringTrustedPathRegistry } from "./trusted-path-registry.ts"
 import { UpdateServiceImpl } from "./update/node.ts"
 import { buildApplicationMenuTemplate } from "./window/application-menu.ts"
@@ -593,7 +593,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   chatService.startEventBridge()
   chatService.setAgentStatus({ status: "ready" })
   console.log("[wanta] agent sidecar ready at", nextAgent.url)
-  void skillService.ensureDefaultRegistrySkillsInstalled().catch((error: unknown) => {
+  void skillService[ensureDefaultRegistrySkillsInstalled]().catch((error: unknown) => {
     console.warn("[wanta] default registry skill installation failed:", error)
   })
 }

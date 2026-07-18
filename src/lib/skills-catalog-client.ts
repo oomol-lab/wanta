@@ -30,8 +30,16 @@ interface SkillCatalogCacheEntry {
   value: unknown
 }
 
+interface SkillCatalogPendingRequest {
+  epoch: number
+  generation: number
+  promise: Promise<unknown>
+}
+
 const skillCatalogCache = new Map<string, SkillCatalogCacheEntry>()
-const skillCatalogPendingRequests = new Map<string, Promise<unknown>>()
+const skillCatalogPendingRequests = new Map<string, SkillCatalogPendingRequest>()
+const skillCatalogKeyGenerations = new Map<string, number>()
+let skillCatalogEpoch = 0
 
 export interface MyPublishedSkillAccount {
   id: string
@@ -108,6 +116,10 @@ function readCachedSkillCatalog<T>(
   forceRefresh: boolean | undefined,
   load: () => Promise<T>,
 ): Promise<T> {
+  if (forceRefresh) {
+    invalidateSkillCatalogKey(key)
+  }
+
   if (!forceRefresh) {
     const cached = readCachedSkillCatalogValue<T>(key)
     if (cached !== undefined) {
@@ -115,28 +127,53 @@ function readCachedSkillCatalog<T>(
     }
   }
 
-  const pending = skillCatalogPendingRequests.get(key) as Promise<T> | undefined
-  if (pending) {
-    return pending
+  const epoch = skillCatalogEpoch
+  const generation = skillCatalogKeyGenerations.get(key) ?? 0
+  const pending = skillCatalogPendingRequests.get(key)
+  if (pending && pending.epoch === epoch && pending.generation === generation) {
+    return pending.promise as Promise<T>
   }
 
   const request = load()
     .then((value) => {
-      skillCatalogCache.set(key, { expiresAt: Date.now() + cacheMs, value })
+      if (skillCatalogEpoch === epoch && (skillCatalogKeyGenerations.get(key) ?? 0) === generation) {
+        skillCatalogCache.set(key, { expiresAt: Date.now() + cacheMs, value })
+      }
       return value
     })
     .finally(() => {
-      if (skillCatalogPendingRequests.get(key) === request) {
+      if (skillCatalogPendingRequests.get(key)?.promise === request) {
         skillCatalogPendingRequests.delete(key)
       }
     })
-  skillCatalogPendingRequests.set(key, request)
+  skillCatalogPendingRequests.set(key, { epoch, generation, promise: request })
   return request
 }
 
+function invalidateSkillCatalogKey(key: string): void {
+  skillCatalogCache.delete(key)
+  skillCatalogPendingRequests.delete(key)
+  skillCatalogKeyGenerations.set(key, (skillCatalogKeyGenerations.get(key) ?? 0) + 1)
+}
+
+function invalidateSkillCatalogKeys(predicate: (key: string) => boolean): void {
+  const keys = new Set([
+    ...skillCatalogCache.keys(),
+    ...skillCatalogPendingRequests.keys(),
+    ...skillCatalogKeyGenerations.keys(),
+  ])
+  for (const key of keys) {
+    if (predicate(key)) {
+      invalidateSkillCatalogKey(key)
+    }
+  }
+}
+
 export function clearSkillCatalogCache(): void {
+  skillCatalogEpoch += 1
   skillCatalogCache.clear()
   skillCatalogPendingRequests.clear()
+  skillCatalogKeyGenerations.clear()
 }
 
 export function clearSkillCatalogCacheForTest(): void {
@@ -144,21 +181,13 @@ export function clearSkillCatalogCacheForTest(): void {
 }
 
 export function invalidatePublicSkillCatalog(): void {
-  for (const key of skillCatalogCache.keys()) {
-    if (key.startsWith("public:") || key.startsWith("search:")) {
-      skillCatalogCache.delete(key)
-    }
-  }
+  invalidateSkillCatalogKeys((key) => key.startsWith("public:") || key.startsWith("search:"))
 }
 
 export function invalidateMyPublishedSkillCatalog(accountId: string): void {
   const keyPrefix = `my:${accountId}:`
   const packagePrefix = `account:${accountId}:package:`
-  for (const key of skillCatalogCache.keys()) {
-    if (key.startsWith(keyPrefix) || key.startsWith(packagePrefix)) {
-      skillCatalogCache.delete(key)
-    }
-  }
+  invalidateSkillCatalogKeys((key) => key.startsWith(keyPrefix) || key.startsWith(packagePrefix))
 }
 
 export async function listPublicSkillPackages(

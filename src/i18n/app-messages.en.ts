@@ -968,6 +968,7 @@ export const enMessages = {
   "turnOutputs.changes": "Changes",
   "turnOutputs.processFiles": "Process files",
   "turnOutputs.changesSummary": "{count} changed file(s)",
+  "turnOutputs.changesIncomplete": "The project change list is incomplete because the scan reached a safety limit.",
   "turnOutputs.editedSummary": "Edited {count} file(s)",
   "turnOutputs.processSummary": "{count} process file(s)",
   "turnOutputs.viewChanges": "View all changes ({count})",

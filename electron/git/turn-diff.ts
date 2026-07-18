@@ -30,6 +30,7 @@ export interface TextSnapshot {
 }
 
 export interface GitTurnBaseline {
+  initialDirtyPaths: string[]
   repositoryRoot: string
   snapshots: Record<string, TextSnapshot>
   truncated?: boolean
@@ -40,6 +41,11 @@ export interface GitTurnFileDiff {
   diff: TurnFileDiffResult
   path: string
   size?: number
+}
+
+export interface GitTurnDiffCollection {
+  files: GitTurnFileDiff[]
+  truncated: boolean
 }
 
 async function runGit(
@@ -266,23 +272,37 @@ export async function captureGitTurnBaseline(repositoryRoot: string): Promise<Gi
     totalBytes += snapshotBytes
     snapshots[relativePath] = snapshot
   })
-  return { repositoryRoot: root, snapshots, ...(truncated ? { truncated: true } : {}) }
+  return { initialDirtyPaths: dirtyPaths, repositoryRoot: root, snapshots, ...(truncated ? { truncated: true } : {}) }
 }
 
 export async function collectGitTurnDiffs(
   baseline: GitTurnBaseline,
   mimeFromPath: (filePath: string) => string,
-): Promise<GitTurnFileDiff[]> {
+): Promise<GitTurnDiffCollection> {
   const endDirtyPaths = await listDirtyPaths(baseline.repositoryRoot)
-  const candidates = unique([...Object.keys(baseline.snapshots), ...endDirtyPaths]).slice(0, maxSnapshotFiles)
+  const allCandidates = unique([...Object.keys(baseline.snapshots), ...endDirtyPaths])
+  const candidates = allCandidates.slice(0, maxSnapshotFiles)
+  const initialDirtyPaths = new Set(baseline.initialDirtyPaths)
   const deadline = Date.now() + snapshotDeadlineMs
   let totalBytes = 0
+  let truncated = Boolean(baseline.truncated) || allCandidates.length > candidates.length
   const candidatesDiffs = await mapConcurrent(candidates, snapshotConcurrency, async (relativePath) => {
-    if (Date.now() >= deadline || totalBytes >= maxSnapshotTotalBytes) return null
-    const before = baseline.snapshots[relativePath] ?? (await readHeadSnapshot(baseline.repositoryRoot, relativePath))
+    if (Date.now() >= deadline || totalBytes >= maxSnapshotTotalBytes) {
+      truncated = true
+      return null
+    }
+    const baselineSnapshot = baseline.snapshots[relativePath]
+    if (!baselineSnapshot && initialDirtyPaths.has(relativePath)) {
+      truncated = true
+      return null
+    }
+    const before = baselineSnapshot ?? (await readHeadSnapshot(baseline.repositoryRoot, relativePath))
     const after = await readWorkingSnapshot(baseline.repositoryRoot, relativePath)
     totalBytes += Buffer.byteLength(before.content ?? "", "utf8") + Buffer.byteLength(after.content ?? "", "utf8")
-    if (totalBytes > maxSnapshotTotalBytes) return null
+    if (totalBytes > maxSnapshotTotalBytes) {
+      truncated = true
+      return null
+    }
     if (snapshotEqual(before, after)) {
       return null
     }
@@ -301,5 +321,5 @@ export async function collectGitTurnDiffs(
       ...((after.size ?? before.size) ? { size: after.size ?? before.size } : {}),
     } satisfies GitTurnFileDiff
   })
-  return candidatesDiffs.filter((diff): diff is GitTurnFileDiff => Boolean(diff))
+  return { files: candidatesDiffs.filter((diff): diff is GitTurnFileDiff => Boolean(diff)), truncated }
 }

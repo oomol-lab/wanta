@@ -101,6 +101,7 @@ function normalizeRecord(value: unknown): StoredTurnOutputRecord | null {
     createdAt: validNumber(source.createdAt) ? source.createdAt : Date.now(),
     ...(validNumber(source.completedAt) ? { completedAt: source.completedAt } : {}),
     files: files as StoredTurnOutputFile[],
+    ...(source.projectChangesTruncated ? { projectChangesTruncated: true } : {}),
     summary: normalizeSummary(source.summary),
   }
 }

@@ -928,6 +928,7 @@ export const zhCNMessages = {
   "turnOutputs.changes": "变更",
   "turnOutputs.processFiles": "过程文件",
   "turnOutputs.changesSummary": "{count} 个文件变更",
+  "turnOutputs.changesIncomplete": "项目变更扫描达到安全限制，当前列表可能不完整。",
   "turnOutputs.editedSummary": "已编辑 {count} 个文件",
   "turnOutputs.processSummary": "{count} 个过程文件",
   "turnOutputs.viewChanges": "查看所有变更（{count}）",

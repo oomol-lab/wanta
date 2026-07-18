@@ -117,6 +117,9 @@ const generationStartAckTimeoutMs = 45_000
 const generationInactivityTimeoutMs = 2 * 60_000
 const generationActiveToolInactivityTimeoutMs = 10 * 60_000
 const questionRejectTimeoutMs = 5_000
+const completionRetryInitialDelayMs = 50
+const completionRetryMaxDelayMs = 2_000
+const completionRetryMaxAttempts = 20
 const defaultMaxDirectoryItems = 80
 const startedMessageLimit = 5_000
 
@@ -279,6 +282,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private streamEventBuffer: ChatStreamEventBuffer | null = null
   private startedMessages = new Set<string>()
   private readonly completionChecks = new Set<string>()
+  private readonly completionRetryAttempts = new Map<string, number>()
+  private readonly completionRetryTimers = new Map<string, NodeJS.Timeout>()
   private readonly managedUserMessageIds = new Set<string>()
   private readonly internalAttachmentPathsByMessage = new Map<string, Set<string>>()
   private readonly managedUserMessageIdsBySession = new Map<string, Set<string>>()
@@ -313,6 +318,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   public override dispose(): void {
     this.streamEventBuffer?.clear()
     this.streamEventBuffer = null
+    this.clearAllCompletionRetries()
     this.eventMetrics.dispose()
     super.dispose()
   }
@@ -338,6 +344,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.desiredWorkspaceOrganizationName = undefined
     this.startedMessages.clear()
     this.completionChecks.clear()
+    this.clearAllCompletionRetries()
     this.managedUserMessageIds.clear()
     this.internalAttachmentPathsByMessage.clear()
     this.managedUserMessageIdsBySession.clear()
@@ -908,10 +915,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   ): Promise<void> {
     const completionKey = `${sessionId}\0${generation.id}`
     if (this.completionChecks.has(completionKey)) return
+    this.clearCompletionRetry(completionKey, false)
     this.completionChecks.add(completionKey)
     try {
-      if (!(await this.currentTurnIsComplete(sessionId, generation))) return
+      if (!(await this.currentTurnIsComplete(sessionId, generation))) {
+        this.scheduleCompletionRetry(emit, sessionId, generation)
+        return
+      }
       if (!this.isCurrentGeneration(sessionId, generation.id)) return
+      this.clearCompletionRetry(completionKey)
       const messageId = this.activeAssistantMessages.get(sessionId)
       const completedRun = this.activeRuns.get(sessionId)
       this.generations.clearInactivityWatchdog(sessionId)
@@ -943,29 +955,68 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   private async currentTurnIsComplete(sessionId: string, generation: SessionGeneration): Promise<boolean> {
     if (!this.agent) return false
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const messages = await withTimeout(this.agent.getMessages(sessionId), 1_000, "idle history verification").catch(
-        () => [],
+    const messages = await withTimeout(this.agent.getMessages(sessionId), 1_000, "idle history verification").catch(
+      () => null,
+    )
+    if (!messages || messages.length === 0) return false
+    const userIndex = messages.findIndex(
+      (message) => message.id === generation.userMessageId && message.role === "user",
+    )
+    const assistantId = this.activeAssistantMessages.get(sessionId)
+    const activeAssistant = assistantId
+      ? messages.find((message) => message.id === assistantId && message.role === "assistant")
+      : undefined
+    const assistant =
+      activeAssistant ??
+      (userIndex >= 0 ? messages.slice(userIndex + 1).find((message) => message.role === "assistant") : undefined)
+    return Boolean(assistant?.finishReason || assistant?.completedAt !== undefined)
+  }
+
+  private scheduleCompletionRetry(
+    emit: (event: string, data: unknown) => Promise<void>,
+    sessionId: string,
+    generation: SessionGeneration,
+  ): void {
+    if (!this.isCurrentGeneration(sessionId, generation.id)) return
+    const completionKey = `${sessionId}\0${generation.id}`
+    if (this.completionRetryTimers.has(completionKey)) return
+    const attempt = this.completionRetryAttempts.get(completionKey) ?? 0
+    if (attempt >= completionRetryMaxAttempts) {
+      this.clearCompletionRetry(completionKey)
+      void this.interruptSessionGeneration(
+        emit,
+        sessionId,
+        "runtime_error",
+        "Unable to verify that the completed response was saved. Please retry the request.",
+        { abortAgent: false },
       )
-      // 测试替身和旧 OpenCode 可能暂时不给历史；此时保持旧的 idle 兼容行为。
-      if (messages.length === 0) return true
-      const userIndex = messages.findIndex(
-        (message) => message.id === generation.userMessageId && message.role === "user",
-      )
-      const assistantId = this.activeAssistantMessages.get(sessionId)
-      const activeAssistant = assistantId
-        ? messages.find((message) => message.id === assistantId && message.role === "assistant")
-        : undefined
-      // 旧 OpenCode 历史可能不回传自定义 user message id；能命中本轮 active assistant 时兼容 idle 终态。
-      if (userIndex < 0 && activeAssistant) return true
-      if (userIndex >= 0) {
-        const assistant =
-          activeAssistant ?? messages.slice(userIndex + 1).find((message) => message.role === "assistant")
-        if (assistant?.finishReason || assistant?.completedAt !== undefined) return true
-      }
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 50))
+      return
     }
-    return false
+    const delay = Math.min(completionRetryInitialDelayMs * 2 ** Math.min(attempt, 6), completionRetryMaxDelayMs)
+    this.completionRetryAttempts.set(completionKey, attempt + 1)
+    const timer = setTimeout(() => {
+      this.completionRetryTimers.delete(completionKey)
+      if (this.isCurrentGeneration(sessionId, generation.id)) {
+        void this.completeSessionGeneration(emit, sessionId, generation)
+      } else {
+        this.completionRetryAttempts.delete(completionKey)
+      }
+    }, delay)
+    timer.unref()
+    this.completionRetryTimers.set(completionKey, timer)
+  }
+
+  private clearCompletionRetry(completionKey: string, clearAttempts = true): void {
+    const timer = this.completionRetryTimers.get(completionKey)
+    if (timer) clearTimeout(timer)
+    this.completionRetryTimers.delete(completionKey)
+    if (clearAttempts) this.completionRetryAttempts.delete(completionKey)
+  }
+
+  private clearAllCompletionRetries(): void {
+    for (const timer of this.completionRetryTimers.values()) clearTimeout(timer)
+    this.completionRetryTimers.clear()
+    this.completionRetryAttempts.clear()
   }
 
   private isCurrentGeneration(sessionId: string, generationId: string): boolean {
@@ -977,6 +1028,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (generationId && generation?.id !== generationId) {
       return
     }
+    if (generation) this.clearCompletionRetry(`${sessionId}\0${generation.id}`)
     this.generations.clear(sessionId, generationId)
     this.subagentSessions.forgetAll(sessionId)
     this.forgetSessionPendingPermissionRequests(sessionId)
@@ -1277,12 +1329,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
       })
       const artifactProjectRoot = execution.artifactProjectRoot
-      ;[artifactDir, processDir] = await Promise.all([
+      const [artifactDirectoryResult, processDirectoryResult] = await Promise.allSettled([
         this.agent.createArtifactDir(req.sessionId, artifactProjectRoot),
         this.agent.createProcessDir(req.sessionId),
       ])
+      if (artifactDirectoryResult.status === "fulfilled") artifactDir = artifactDirectoryResult.value
+      if (processDirectoryResult.status === "fulfilled") processDir = processDirectoryResult.value
+      const directoryErrors = [artifactDirectoryResult, processDirectoryResult]
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => result.reason)
+      if (directoryErrors.length === 1) throw directoryErrors[0]
+      if (directoryErrors.length > 1) throw new AggregateError(directoryErrors, "Failed to create turn directories")
+      if (!artifactDir || !processDir) throw new Error("Turn directory creation returned an empty path")
       if (!this.isCurrentGeneration(req.sessionId, activeGeneration.id) || activeGeneration.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
+        await removeUnsubmittedTurnDirectories(artifactDir, processDir)
         return
       }
       this.trustedAccess.setProjectRoot(req.sessionId, trustedProjectRoot)

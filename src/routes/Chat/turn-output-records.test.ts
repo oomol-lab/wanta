@@ -64,5 +64,6 @@ describe("turn output record grouping", () => {
   it("prefers project changes as the initial panel role", () => {
     expect(turnOutputInitialRole(record("a1", 1, 3))).toBe("project_change")
     expect(turnOutputInitialRole(record("a2", 0, 3))).toBe("process")
+    expect(turnOutputInitialRole({ ...record("a3", 0, 0), projectChangesTruncated: true })).toBe("project_change")
   })
 })

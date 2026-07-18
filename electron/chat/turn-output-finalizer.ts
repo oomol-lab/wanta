@@ -58,7 +58,7 @@ export async function finalizeTurnOutput(options: {
 
     const completedAt = Date.now()
     const intermediateArtifactFiles = await intermediateArtifactProcessFiles(active.artifactRoot, active.requestText)
-    const [artifactBundle, processFiles, projectFiles] = await Promise.all([
+    const [artifactBundle, processFiles, projectOutput] = await Promise.all([
       buildArtifactBundle({
         artifactRoot: active.artifactRoot,
         completedAt,
@@ -74,8 +74,8 @@ export async function finalizeTurnOutput(options: {
     ])
     if (artifactBundle) await options.publishArtifactBundle(artifactBundle)
 
-    const files = boundTurnOutputPatchPayloads([...processFiles, ...intermediateArtifactFiles, ...projectFiles])
-    if (files.length === 0) return
+    const files = boundTurnOutputPatchPayloads([...processFiles, ...intermediateArtifactFiles, ...projectOutput.files])
+    if (files.length === 0 && !projectOutput.truncated) return
     await options.publishTurnOutput({
       sessionId,
       messageId,
@@ -84,6 +84,7 @@ export async function finalizeTurnOutput(options: {
       createdAt: active.createdAt,
       completedAt,
       files,
+      ...(projectOutput.truncated ? { projectChangesTruncated: true } : {}),
       summary: summarizeTurnFiles(files),
     })
   } finally {

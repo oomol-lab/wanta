@@ -6,7 +6,7 @@ import type { SessionMetadataStore } from "./metadata-store.ts"
 import type { SessionProjectStore } from "./project-store.ts"
 
 import assert from "node:assert/strict"
-import { test } from "vitest"
+import { test, vi } from "vitest"
 import { SessionServiceImpl } from "./node.ts"
 
 const testOrganizationScope = {
@@ -1181,6 +1181,38 @@ test("runtime reset rejects a queued mutation instead of running it on the repla
   await assert.rejects(queuedCreate, /Agent runtime changed/)
   assert.equal(oldCreateCount, 0)
   assert.equal(newCreateCount, 0)
+})
+
+test("runtime reset rejects a mutation waiting for a stale project store load", async () => {
+  const firstRead = deferred<Map<string, SessionProject>>()
+  let readCount = 0
+  let writeCount = 0
+  const persistedProjects = {
+    read: async () => {
+      readCount += 1
+      if (readCount === 1) {
+        return firstRead.promise
+      }
+      return new Map<string, SessionProject>()
+    },
+    write: async () => {
+      writeCount += 1
+    },
+  } as unknown as SessionProjectStore
+  const service = new SessionServiceImpl(agentWithSessions([]), { projectStore: persistedProjects })
+
+  const pendingCreate = service.createProject({ path: "/old-account/project", scope: testOrganizationScope })
+  await vi.waitFor(() => {
+    assert.equal(readCount, 1)
+  })
+  service.setAgent(null)
+  service.setAgent(agentWithSessions([]))
+  firstRead.resolve(new Map())
+
+  await assert.rejects(pendingCreate, /Agent runtime changed/)
+  assert.equal(writeCount, 0)
+  assert.deepEqual(await service.listProjects({ scope: testOrganizationScope }), [])
+  assert.equal(readCount, 2)
 })
 
 test("runtime reset rolls back a remotely created session before local persistence", async () => {

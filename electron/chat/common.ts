@@ -621,6 +621,7 @@ export interface TurnOutputRecord {
   createdAt: number
   completedAt?: number
   files: TurnOutputFile[]
+  projectChangesTruncated?: boolean
   summary: TurnOutputSummary
 }
 

@@ -46,21 +46,30 @@ export function getProviderGridKeyboardTargetIndex({
   const lastIndex = providerCount - 1
   const safeIndex = Math.min(Math.max(0, currentIndex), lastIndex)
   const columns = Math.max(1, columnCount)
+  const column = safeIndex % columns
   const target =
     key === "ArrowLeft"
-      ? safeIndex - 1
+      ? column > 0
+        ? safeIndex - 1
+        : safeIndex
       : key === "ArrowRight"
-        ? safeIndex + 1
+        ? column < columns - 1 && safeIndex < lastIndex
+          ? safeIndex + 1
+          : safeIndex
         : key === "ArrowUp"
-          ? safeIndex - columns
+          ? safeIndex >= columns
+            ? safeIndex - columns
+            : safeIndex
           : key === "ArrowDown"
-            ? safeIndex + columns
+            ? safeIndex + columns <= lastIndex
+              ? safeIndex + columns
+              : safeIndex
             : key === "Home"
               ? 0
               : key === "End"
                 ? lastIndex
                 : null
-  return target === null ? null : Math.min(Math.max(0, target), lastIndex)
+  return target
 }
 
 export function getProviderGridColumnCount(

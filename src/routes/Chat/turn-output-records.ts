@@ -5,7 +5,10 @@ import * as React from "react"
 import { useChatService } from "@/components/AppContext"
 
 function visibleTurnOutputRecords(records: TurnOutputRecord[]): TurnOutputRecord[] {
-  return records.filter((record) => record.summary.changedFileCount > 0 || record.summary.processFileCount > 0)
+  return records.filter(
+    (record) =>
+      record.summary.changedFileCount > 0 || record.summary.processFileCount > 0 || record.projectChangesTruncated,
+  )
 }
 
 export function turnOutputRecordSortValue(record: TurnOutputRecord): number {
@@ -13,7 +16,7 @@ export function turnOutputRecordSortValue(record: TurnOutputRecord): number {
 }
 
 export function turnOutputInitialRole(record: TurnOutputRecord): TurnOutputFileRole {
-  return record.summary.changedFileCount > 0 ? "project_change" : "process"
+  return record.summary.changedFileCount > 0 || record.projectChangesTruncated ? "project_change" : "process"
 }
 
 export function turnOutputRecordsByMessageId(records: TurnOutputRecord[]): Map<string, TurnOutputRecord> {

@@ -261,28 +261,31 @@ export async function intermediateArtifactProcessFiles(
 export async function projectOutputFiles(
   baseline: GitTurnBaseline | undefined,
   projectRoot: string | undefined,
-): Promise<StoredTurnOutputFile[]> {
+): Promise<{ files: StoredTurnOutputFile[]; truncated: boolean }> {
   if (!baseline || !projectRoot) {
-    return []
+    return { files: [], truncated: false }
   }
-  const diffs = await collectGitTurnDiffs(baseline, mimeFromPath).catch((error: unknown) => {
+  const result = await collectGitTurnDiffs(baseline, mimeFromPath).catch((error: unknown) => {
     console.warn("[wanta] failed to collect project diff", error)
-    return []
+    return { files: [], truncated: true }
   })
-  return diffs.map((item): StoredTurnOutputFile => {
-    const absolutePath = path.join(projectRoot, item.path)
-    return {
-      path: absolutePath,
-      name: turnOutputFileName(item.path),
-      role: "project_change",
-      changeKind: item.changeKind,
-      mime: item.diff.mime,
-      additions: item.diff.additions,
-      deletions: item.diff.deletions,
-      ...(item.diff.kind === "binary" ? { binary: true } : {}),
-      ...(item.size !== undefined ? { size: item.size } : {}),
-      ...(item.diff.truncated ? { truncated: true } : {}),
-      diff: { ...item.diff, path: absolutePath },
-    }
-  })
+  return {
+    files: result.files.map((item): StoredTurnOutputFile => {
+      const absolutePath = path.join(projectRoot, item.path)
+      return {
+        path: absolutePath,
+        name: turnOutputFileName(item.path),
+        role: "project_change",
+        changeKind: item.changeKind,
+        mime: item.diff.mime,
+        additions: item.diff.additions,
+        deletions: item.diff.deletions,
+        ...(item.diff.kind === "binary" ? { binary: true } : {}),
+        ...(item.size !== undefined ? { size: item.size } : {}),
+        ...(item.diff.truncated ? { truncated: true } : {}),
+        diff: { ...item.diff, path: absolutePath },
+      }
+    }),
+    truncated: result.truncated,
+  }
 }

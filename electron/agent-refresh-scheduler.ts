@@ -30,7 +30,11 @@ export class AgentRefreshScheduler {
   }
 
   private refresh(reason: string): void {
-    if (this.options.isQuitting() || !this.options.canRefresh()) return
+    if (this.options.isQuitting()) return
+    if (!this.options.canRefresh()) {
+      this.schedule(reason, 2_000)
+      return
+    }
     if (this.options.isBusy()) {
       this.schedule(reason, 2_000)
       return

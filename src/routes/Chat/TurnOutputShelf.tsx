@@ -106,7 +106,7 @@ export function TurnOutputShelf({
   const [expanded, setExpanded] = React.useState(false)
   const projectChangeFiles = React.useMemo(() => changeFiles(record), [record])
   const intermediateFiles = React.useMemo(() => processFiles(record), [record])
-  const hasProjectChanges = projectChangeFiles.length > 0
+  const hasProjectChanges = projectChangeFiles.length > 0 || Boolean(record.projectChangesTruncated)
   const hasProcessFiles = intermediateFiles.length > 0
   const visibleFiles = expanded ? projectChangeFiles : projectChangeFiles.slice(0, previewFileLimit)
   const hiddenCount = projectChangeFiles.length - visibleFiles.length
@@ -160,6 +160,11 @@ export function TurnOutputShelf({
       </button>
 
       <div className="grid gap-1 px-3 py-2">
+        {record.projectChangesTruncated ? (
+          <div className="oo-text-caption rounded-md bg-muted/60 px-2 py-1.5 text-muted-foreground">
+            {t("turnOutputs.changesIncomplete")}
+          </div>
+        ) : null}
         {visibleFiles.map((file) => (
           <TurnOutputFilePreviewRow
             key={file.path}

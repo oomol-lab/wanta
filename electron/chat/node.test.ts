@@ -57,7 +57,7 @@ function createBridgeAgent(): {
   const artifactSessionDir = vi.fn(() => path.join(os.tmpdir(), "wanta-test-artifacts"))
   const createArtifactDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-artifacts"))
   const createProcessDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-process"))
-  const getMessages = vi.fn(async () => [])
+  const activeAssistantIds = new Map<string, string>()
   const getPendingPermissions = vi.fn(async (_sessionId: string) => [])
   const getPendingQuestions = vi.fn(async (_sessionId: string) => [])
   const getPendingPermissionsForSessions = vi.fn(async (sessionIds: string[]) => {
@@ -68,7 +68,29 @@ function createBridgeAgent(): {
     const results = await Promise.all(sessionIds.map((sessionId) => getPendingQuestions(sessionId)))
     return results.flat()
   })
-  const promptStreaming = vi.fn(async () => undefined)
+  const promptStreaming = vi.fn(
+    async (_sessionId: string, _text: string, _options: { messageId?: string }) => undefined,
+  )
+  const getMessages = vi.fn(async (sessionId: string) => {
+    const promptCall = [...promptStreaming.mock.calls].reverse().find((call) => call[0] === sessionId)
+    const userMessageId = promptCall?.[2]?.messageId
+    const assistantMessageId = activeAssistantIds.get(sessionId)
+    return [
+      ...(userMessageId ? [{ id: userMessageId, role: "user" as const, createdAt: 1, parts: [] }] : []),
+      ...(assistantMessageId
+        ? [
+            {
+              id: assistantMessageId,
+              role: "assistant" as const,
+              createdAt: 2,
+              completedAt: 3,
+              finishReason: "stop",
+              parts: [],
+            },
+          ]
+        : []),
+    ]
+  })
   const rejectQuestion = vi.fn(async () => undefined)
   const clearSessionOrganizationName = vi.fn(async () => undefined)
   const setSessionOrganizationName = vi.fn(async () => undefined)
@@ -106,7 +128,15 @@ function createBridgeAgent(): {
     artifactSessionDir,
     createArtifactDir,
     createProcessDir,
-    emit: (event) => listener?.(event),
+    emit: (event) => {
+      if (event.type === "message.updated") {
+        const info = event.properties?.info as { id?: unknown; role?: unknown; sessionID?: unknown } | undefined
+        if (info?.role === "assistant" && typeof info.id === "string" && typeof info.sessionID === "string") {
+          activeAssistantIds.set(info.sessionID, info.id)
+        }
+      }
+      listener?.(event)
+    },
     getPendingPermissions,
     getPendingPermissionsForSessions,
     getPendingQuestions,
@@ -440,8 +470,12 @@ test("active run snapshots track permission waits and completion", async () => {
   assert.equal((await service.getActiveRun("session-1"))?.phase, "awaiting_permission")
   assert.deepEqual((await service.getActiveRun("session-1"))?.blockingRequestIds, ["permission-1"])
 
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
   bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
-  await waitForInactiveGeneration(service)
+  await waitForCondition(() => !service.hasActiveGeneration())
 
   assert.equal(await service.getActiveRun("session-1"), null)
   assert.ok(
@@ -732,11 +766,58 @@ test("a late idle from a stopped generation does not complete the retried genera
     { id: userMessageId, role: "user", createdAt: 1, parts: [] },
     { id: "assistant-2", role: "assistant", createdAt: 2, completedAt: 3, finishReason: "stop", parts: [] },
   ])
-  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
-  await waitForInactiveGeneration(service)
+  await waitForCondition(() => !service.hasActiveGeneration())
 
   assert.equal(service.hasActiveGeneration(), false)
   assert.equal(events.filter((event) => event.event === "messageCompleted").length, 1)
+})
+
+test("an indeterminate idle check does not complete the active generation", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  bridge.getMessages.mockRejectedValueOnce(new Error("history unavailable")).mockResolvedValue([])
+
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await new Promise((resolve) => setTimeout(resolve, 400))
+
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(events.filter((event) => event.event === "messageCompleted").length, 0)
+  service.dispose()
+})
+
+test("an idle generation fails recoverably when completion cannot be verified before the retry deadline", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  bridge.getMessages.mockResolvedValue([])
+
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await Promise.resolve()
+  for (let attempt = 0; attempt < 40 && service.hasActiveGeneration(); attempt += 1) {
+    await vi.advanceTimersByTimeAsync(2_100)
+    await Promise.resolve()
+  }
+  await Promise.resolve()
+
+  assert.equal(service.hasActiveGeneration(), false)
+  assert.equal(events.filter((event) => event.event === "messageCompleted").length, 0)
+  assert.equal(events.filter((event) => event.event === "messageError").length, 1)
 })
 
 test("sendMessage rejects a second active generation for the same session", async () => {
@@ -1038,6 +1119,8 @@ test("message completion exposes a failed artifact bundle when an image preview 
         id: "assistant-1",
         role: "assistant",
         createdAt: 1,
+        completedAt: 2,
+        finishReason: "stop",
         parts: [
           {
             kind: "text",
@@ -1084,6 +1167,8 @@ test("message completion materializes a data image preview into a ready artifact
         id: "assistant-1",
         role: "assistant",
         createdAt: 1,
+        completedAt: 2,
+        finishReason: "stop",
         parts: [
           {
             kind: "text",
@@ -1134,6 +1219,8 @@ test("message completion materializes assistant file attachments into managed ar
         id: "assistant-1",
         role: "assistant",
         createdAt: 1,
+        completedAt: 2,
+        finishReason: "stop",
         parts: [
           {
             kind: "attachment",
@@ -1359,33 +1446,71 @@ test("authorization overlays survive service restart", async () => {
 })
 
 test("stopGeneration cancels a submitted turn before prompt streaming starts", async () => {
-  const bridge = createBridgeAgent()
-  let resolveArtifactDir: ((value: string) => void) | undefined
-  bridge.createArtifactDir.mockImplementationOnce(
-    () =>
-      new Promise<string>((resolve) => {
-        resolveArtifactDir = resolve
-      }),
-  )
-  const service = new ChatServiceImpl(bridge.agent)
-  const events = captureServiceEvents(service)
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-cancelled-directories-"))
+  try {
+    const artifactDir = path.join(root, "artifacts")
+    const processDir = path.join(root, "process")
+    const bridge = createBridgeAgent()
+    let releaseDirectories: (() => void) | undefined
+    const directoriesReady = new Promise<void>((resolve) => {
+      releaseDirectories = resolve
+    })
+    bridge.createArtifactDir.mockImplementationOnce(async () => {
+      await directoriesReady
+      await mkdir(artifactDir)
+      return artifactDir
+    })
+    bridge.createProcessDir.mockImplementationOnce(async () => {
+      await directoriesReady
+      await mkdir(processDir)
+      return processDir
+    })
+    const service = new ChatServiceImpl(bridge.agent)
+    const events = captureServiceEvents(service)
 
-  const sendPromise = service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
-  await vi.waitFor(() => {
-    assert.equal(bridge.createArtifactDir.mock.calls.length, 1)
-  })
-  assert.equal(service.hasActiveGeneration(), true)
+    const sendPromise = service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" })
+    await vi.waitFor(() => {
+      assert.equal(bridge.createArtifactDir.mock.calls.length, 1)
+    })
+    assert.equal(service.hasActiveGeneration(), true)
 
-  await service.stopGeneration("session-1")
-  assert.equal(bridge.abort.mock.calls.length, 1)
-  assert.equal(events.at(-1)?.event, "generationStopped")
-  assert.equal(service.hasActiveGeneration(), false)
+    await service.stopGeneration("session-1")
+    assert.equal(bridge.abort.mock.calls.length, 1)
+    assert.equal(events.at(-1)?.event, "generationStopped")
+    assert.equal(service.hasActiveGeneration(), false)
 
-  resolveArtifactDir?.(path.join(os.tmpdir(), "wanta-test-artifacts"))
-  await sendPromise
-  await Promise.resolve()
+    releaseDirectories?.()
+    await sendPromise
 
-  assert.equal(bridge.promptStreaming.mock.calls.length, 0)
+    assert.equal(bridge.promptStreaming.mock.calls.length, 0)
+    await assert.rejects(readFile(artifactDir), { code: "ENOENT" })
+    await assert.rejects(readFile(processDir), { code: "ENOENT" })
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("sendMessage cleans a turn directory when its sibling directory creation fails", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-partial-directories-"))
+  try {
+    const artifactDir = path.join(root, "artifacts")
+    const bridge = createBridgeAgent()
+    bridge.createArtifactDir.mockImplementationOnce(async () => {
+      await mkdir(artifactDir)
+      return artifactDir
+    })
+    bridge.createProcessDir.mockRejectedValueOnce(new Error("process directory failed"))
+    const service = new ChatServiceImpl(bridge.agent)
+
+    await assert.rejects(
+      service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" }),
+      /process directory failed/,
+    )
+    await assert.rejects(readFile(artifactDir), { code: "ENOENT" })
+    assert.equal(service.hasActiveGeneration(), false)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
 })
 
 test("sendMessage does not start the OpenCode submit watchdog before prompt streaming starts", async () => {
@@ -2913,6 +3038,10 @@ test("project dependency task approval avoids repeated prompts during the active
   ])
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 1)
 
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
   bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
   await waitForInactiveGeneration(service)
   await service.sendMessage({

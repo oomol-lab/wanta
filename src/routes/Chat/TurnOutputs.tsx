@@ -146,7 +146,13 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
   const [viewType, setViewType] = React.useState<ViewType>("split")
   const processFiles = React.useMemo(() => (selection ? roleFiles(selection.record, "process") : []), [selection])
   const changeFiles = React.useMemo(() => (selection ? roleFiles(selection.record, "project_change") : []), [selection])
-  const requestedRole = availableTurnOutputRole(initialRole, processFiles.length, changeFiles.length)
+  const projectChangesTruncated = Boolean(selection?.record.projectChangesTruncated)
+  const requestedRole = availableTurnOutputRole(
+    initialRole,
+    processFiles.length,
+    changeFiles.length,
+    projectChangesTruncated,
+  )
   const roleSelectionKey = `${selection?.record.messageId ?? "none"}\0${selection?.selectedPath ?? ""}\0${requestedRole}`
   const [roleSelection, setRoleSelection] = React.useState<{ key: string; role: TurnOutputFileRole }>(() => ({
     key: roleSelectionKey,
@@ -154,7 +160,7 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
   }))
   const activeRole =
     roleSelection.key === roleSelectionKey
-      ? availableTurnOutputRole(roleSelection.role, processFiles.length, changeFiles.length)
+      ? availableTurnOutputRole(roleSelection.role, processFiles.length, changeFiles.length, projectChangesTruncated)
       : requestedRole
   const activeFiles = activeRole === "project_change" ? changeFiles : processFiles
   const activeViewType: ViewType = activeRole === "process" ? "unified" : viewType
@@ -162,7 +168,7 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
     turnOutputInitialCollapsedPaths(activeRole, activeFiles, selection?.selectedPath),
   )
   const fileSectionRefs = React.useRef(new Map<string, HTMLElement>())
-  const hasRoleSwitch = changeFiles.length > 0 && processFiles.length > 0
+  const hasRoleSwitch = (changeFiles.length > 0 || projectChangesTruncated) && processFiles.length > 0
   const { openPath, showInFolder } = useTurnFileActions()
   const allExpanded = activeFiles.length > 0 && activeFiles.every((file) => !collapsedPaths.has(file.path))
   const activeAdditions = activeFiles.reduce((sum, file) => sum + file.additions, 0)
@@ -316,6 +322,11 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
           {activeRole === "process" && processFiles.length > 0 ? (
             <div className="oo-text-caption border-b bg-muted/45 px-4 py-1.5 text-muted-foreground">
               {t("turnOutputs.processCaution")}
+            </div>
+          ) : null}
+          {activeRole === "project_change" && projectChangesTruncated ? (
+            <div className="oo-text-caption border-b bg-muted/45 px-4 py-1.5 text-muted-foreground">
+              {t("turnOutputs.changesIncomplete")}
             </div>
           ) : null}
           {activeFiles.length > 0 ? (

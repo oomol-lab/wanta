@@ -14,4 +14,9 @@ describe("availableTurnOutputRole", () => {
   it("falls back to project changes when there are no process files", () => {
     expect(availableTurnOutputRole("process", 0, 3)).toBe("project_change")
   })
+
+  it("keeps the project review available for an incomplete change scan", () => {
+    expect(availableTurnOutputRole("project_change", 0, 0, true)).toBe("project_change")
+    expect(availableTurnOutputRole("process", 0, 0, true)).toBe("project_change")
+  })
 })

@@ -17,6 +17,7 @@ test("TurnOutputStore round trips records and strips diffs from public records",
       createdAt: 1,
       completedAt: 2,
       processRoot: "/tmp/process",
+      projectChangesTruncated: true,
       files: [
         {
           path: "/tmp/process/create.js",
@@ -44,6 +45,8 @@ test("TurnOutputStore round trips records and strips diffs from public records",
     const record = restored.get("session-1")?.get("message-1")
 
     assert.equal(record?.files[0]?.diff.patch, "+console.log(1)")
+    assert.equal(record?.projectChangesTruncated, true)
+    assert.equal(publicTurnOutputRecord(record as NonNullable<typeof record>).projectChangesTruncated, true)
     assert.deepEqual(publicTurnOutputRecord(record as NonNullable<typeof record>).files[0], {
       path: "/tmp/process/create.js",
       name: "create.js",

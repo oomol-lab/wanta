@@ -196,12 +196,11 @@ export class SessionServiceImpl
   }
 
   public create(req: CreateSessionRequest): Promise<SessionInfo> {
-    return this.enqueueMutation(() => this.createMutation(req))
+    return this.enqueueMutation((revision) => this.createMutation(req, revision))
   }
 
-  private async createMutation(req: CreateSessionRequest): Promise<SessionInfo> {
+  private async createMutation(req: CreateSessionRequest, revision: number): Promise<SessionInfo> {
     const agent = this.agent
-    const revision = this.runtimeRevision
     if (!agent) {
       throw new Error("Agent not configured (sign in first)")
     }
@@ -218,8 +217,8 @@ export class SessionServiceImpl
       }
       throw this.runtimeChangedError()
     }
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
+    await this.ensureMetadataLoaded(revision)
+    await this.ensureProjectsLoaded(revision)
     if (!this.runtimeMatches(agent, revision)) {
       try {
         await agent.deleteSession(info.id)
@@ -255,10 +254,10 @@ export class SessionServiceImpl
   }
 
   public createProject(req: CreateProjectRequest): Promise<SessionProject> {
-    return this.enqueueMutation(() => this.createProjectMutation(req))
+    return this.enqueueMutation((revision) => this.createProjectMutation(req, revision))
   }
 
-  private async createProjectMutation(req: CreateProjectRequest): Promise<SessionProject> {
+  private async createProjectMutation(req: CreateProjectRequest, revision: number): Promise<SessionProject> {
     const projectPath = normalizeProjectPath(req.path)
     if (!projectPath) {
       throw new Error("Project path is required")
@@ -270,7 +269,7 @@ export class SessionServiceImpl
       if (!trustedPath) throw new Error("Project path was not selected with the native directory picker")
       this.deps.trustedProjectPaths.delete(trustedPath)
     }
-    await this.ensureProjectsLoaded()
+    await this.ensureProjectsLoaded(revision)
     const scope = normalizeRequestedSessionScope(req.scope)
     const existing = [...this.projects.values()].find(
       (project) => project.path === projectPath && sessionScopeMatches(project.scope, scope),
@@ -303,12 +302,12 @@ export class SessionServiceImpl
   }
 
   public assignSessionProject(req: AssignSessionProjectRequest): Promise<void> {
-    return this.enqueueMutation(() => this.assignSessionProjectMutation(req))
+    return this.enqueueMutation((revision) => this.assignSessionProjectMutation(req, revision))
   }
 
-  private async assignSessionProjectMutation(req: AssignSessionProjectRequest): Promise<void> {
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
+  private async assignSessionProjectMutation(req: AssignSessionProjectRequest, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
+    await this.ensureProjectsLoaded(revision)
     const current = this.sessionMetadata.get(req.sessionId) ?? {}
     const projectId = req.projectId?.trim()
     const next = { ...current }
@@ -325,11 +324,11 @@ export class SessionServiceImpl
   }
 
   public setPermissionMode(req: SetSessionPermissionModeRequest): Promise<void> {
-    return this.enqueueMutation(() => this.setPermissionModeMutation(req))
+    return this.enqueueMutation((revision) => this.setPermissionModeMutation(req, revision))
   }
 
-  private async setPermissionModeMutation(req: SetSessionPermissionModeRequest): Promise<void> {
-    await this.ensureMetadataLoaded()
+  private async setPermissionModeMutation(req: SetSessionPermissionModeRequest, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
     const current = this.sessionMetadata.get(req.id) ?? {}
     const next = { ...current }
     const permissionMode = normalizeSessionPermissionMode(req.permissionMode)
@@ -347,11 +346,11 @@ export class SessionServiceImpl
   }
 
   public setKnowledgeBases(req: SetSessionKnowledgeBasesRequest): Promise<void> {
-    return this.enqueueMutation(() => this.setKnowledgeBasesMutation(req))
+    return this.enqueueMutation((revision) => this.setKnowledgeBasesMutation(req, revision))
   }
 
-  private async setKnowledgeBasesMutation(req: SetSessionKnowledgeBasesRequest): Promise<void> {
-    await this.ensureMetadataLoaded()
+  private async setKnowledgeBasesMutation(req: SetSessionKnowledgeBasesRequest, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
     const current = this.sessionMetadata.get(req.id) ?? {}
     const knowledgeBaseIds = normalizeKnowledgeBaseIds(req.knowledgeBaseIds) ?? []
     const currentIds = current.knowledgeBaseIds ?? []
@@ -366,15 +365,15 @@ export class SessionServiceImpl
   }
 
   public renameProject(req: { id: string; name: string }): Promise<void> {
-    return this.enqueueMutation(() => this.renameProjectMutation(req))
+    return this.enqueueMutation((revision) => this.renameProjectMutation(req, revision))
   }
 
-  private async renameProjectMutation(req: { id: string; name: string }): Promise<void> {
+  private async renameProjectMutation(req: { id: string; name: string }, revision: number): Promise<void> {
     const name = req.name.trim()
     if (!name) {
       throw new Error("Project name is required")
     }
-    await this.ensureProjectsLoaded()
+    await this.ensureProjectsLoaded(revision)
     const current = this.projects.get(req.id)
     if (!current || current.archivedAt) {
       return
@@ -385,11 +384,11 @@ export class SessionServiceImpl
   }
 
   public pinProject(req: { id: string; pinned: boolean }): Promise<void> {
-    return this.enqueueMutation(() => this.pinProjectMutation(req))
+    return this.enqueueMutation((revision) => this.pinProjectMutation(req, revision))
   }
 
-  private async pinProjectMutation(req: { id: string; pinned: boolean }): Promise<void> {
-    await this.ensureProjectsLoaded()
+  private async pinProjectMutation(req: { id: string; pinned: boolean }, revision: number): Promise<void> {
+    await this.ensureProjectsLoaded(revision)
     const current = this.projects.get(req.id)
     if (!current || current.archivedAt) {
       return
@@ -406,12 +405,12 @@ export class SessionServiceImpl
   }
 
   public archiveProject(id: string): Promise<void> {
-    return this.enqueueMutation(() => this.archiveProjectMutation(id))
+    return this.enqueueMutation((revision) => this.archiveProjectMutation(id, revision))
   }
 
-  private async archiveProjectMutation(id: string): Promise<void> {
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
+  private async archiveProjectMutation(id: string, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
+    await this.ensureProjectsLoaded(revision)
     const current = this.projects.get(id)
     if (!current || current.archivedAt) {
       return
@@ -461,12 +460,12 @@ export class SessionServiceImpl
   }
 
   public removeProject(id: string): Promise<void> {
-    return this.enqueueMutation(() => this.removeProjectMutation(id))
+    return this.enqueueMutation((revision) => this.removeProjectMutation(id, revision))
   }
 
-  private async removeProjectMutation(id: string): Promise<void> {
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
+  private async removeProjectMutation(id: string, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
+    await this.ensureProjectsLoaded(revision)
     if (!this.projects.delete(id)) {
       return
     }
@@ -503,11 +502,11 @@ export class SessionServiceImpl
   }
 
   public pin(req: { id: string; pinned: boolean }): Promise<void> {
-    return this.enqueueMutation(() => this.pinMutation(req))
+    return this.enqueueMutation((revision) => this.pinMutation(req, revision))
   }
 
-  private async pinMutation(req: { id: string; pinned: boolean }): Promise<void> {
-    await this.ensureMetadataLoaded()
+  private async pinMutation(req: { id: string; pinned: boolean }, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
     const current = this.sessionMetadata.get(req.id) ?? {}
     if (current.archivedAt) {
       return
@@ -524,11 +523,11 @@ export class SessionServiceImpl
   }
 
   public archive(id: string): Promise<void> {
-    return this.enqueueMutation(() => this.archiveMutation(id))
+    return this.enqueueMutation((revision) => this.archiveMutation(id, revision))
   }
 
-  private async archiveMutation(id: string): Promise<void> {
-    await this.ensureMetadataLoaded()
+  private async archiveMutation(id: string, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
     const current = this.sessionMetadata.get(id) ?? {}
     const next = { ...current, archivedAt: Date.now() }
     delete next.pinnedAt
@@ -543,14 +542,13 @@ export class SessionServiceImpl
   }
 
   public unarchive(id: string): Promise<SessionInfo | null> {
-    return this.enqueueMutation(() => this.unarchiveMutation(id))
+    return this.enqueueMutation((revision) => this.unarchiveMutation(id, revision))
   }
 
-  private async unarchiveMutation(id: string): Promise<SessionInfo | null> {
+  private async unarchiveMutation(id: string, revision: number): Promise<SessionInfo | null> {
     const agent = this.requireAgent()
-    const revision = this.runtimeRevision
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
+    await this.ensureMetadataLoaded(revision)
+    await this.ensureProjectsLoaded(revision)
     this.assertRuntimeMatches(agent, revision)
     const current = this.sessionMetadata.get(id)
     if (!current) {
@@ -598,14 +596,13 @@ export class SessionServiceImpl
   }
 
   public remove(id: string): Promise<void> {
-    return this.enqueueMutation(() => this.removeMutation(id))
+    return this.enqueueMutation((revision) => this.removeMutation(id, revision))
   }
 
-  private async removeMutation(id: string): Promise<void> {
+  private async removeMutation(id: string, revision: number): Promise<void> {
     const agent = this.requireAgent()
-    const revision = this.runtimeRevision
-    await this.ensureActivityLoaded()
-    await this.ensureMetadataLoaded()
+    await this.ensureActivityLoaded(revision)
+    await this.ensureMetadataLoaded(revision)
     this.assertRuntimeMatches(agent, revision)
     await agent.deleteSession(id)
     this.assertRuntimeMatches(agent, revision)
@@ -634,11 +631,11 @@ export class SessionServiceImpl
   }
 
   public recordUseAndEmit(id: string, usedAt = Date.now()): Promise<void> {
-    return this.enqueueMutation(() => this.recordUseAndEmitMutation(id, usedAt))
+    return this.enqueueMutation((revision) => this.recordUseAndEmitMutation(id, usedAt, revision))
   }
 
-  private async recordUseAndEmitMutation(id: string, usedAt: number): Promise<void> {
-    await this.ensureActivityLoaded()
+  private async recordUseAndEmitMutation(id: string, usedAt: number, revision: number): Promise<void> {
+    await this.ensureActivityLoaded(revision)
     if (!this.markUsed(id, usedAt)) {
       return
     }
@@ -653,7 +650,7 @@ export class SessionServiceImpl
     }
   }
 
-  private async ensureActivityLoaded(): Promise<void> {
+  private async ensureActivityLoaded(expectedRevision?: number): Promise<void> {
     while (!this.activityLoaded) {
       if (!this.activityLoadPromise) {
         const revision = this.runtimeRevision
@@ -675,11 +672,16 @@ export class SessionServiceImpl
       const loadPromise = this.activityLoadPromise
       try {
         await loadPromise
+        if (expectedRevision !== undefined) this.assertRevisionMatches(expectedRevision)
       } finally {
         if (this.activityLoadPromise === loadPromise) {
           this.activityLoadPromise = null
         }
       }
+    }
+    if (expectedRevision !== undefined) {
+      await Promise.resolve()
+      this.assertRevisionMatches(expectedRevision)
     }
   }
 
@@ -687,7 +689,7 @@ export class SessionServiceImpl
     await this.deps.activityStore?.write(this.sessionActivityAt)
   }
 
-  private async ensureMetadataLoaded(): Promise<void> {
+  private async ensureMetadataLoaded(expectedRevision?: number): Promise<void> {
     while (!this.metadataLoaded) {
       if (!this.metadataLoadPromise) {
         const revision = this.runtimeRevision
@@ -706,11 +708,16 @@ export class SessionServiceImpl
       const loadPromise = this.metadataLoadPromise
       try {
         await loadPromise
+        if (expectedRevision !== undefined) this.assertRevisionMatches(expectedRevision)
       } finally {
         if (this.metadataLoadPromise === loadPromise) {
           this.metadataLoadPromise = null
         }
       }
+    }
+    if (expectedRevision !== undefined) {
+      await Promise.resolve()
+      this.assertRevisionMatches(expectedRevision)
     }
   }
 
@@ -718,7 +725,7 @@ export class SessionServiceImpl
     await this.deps.metadataStore?.write(this.sessionMetadata)
   }
 
-  private async ensureProjectsLoaded(): Promise<void> {
+  private async ensureProjectsLoaded(expectedRevision?: number): Promise<void> {
     while (!this.projectsLoaded) {
       if (!this.projectsLoadPromise) {
         const revision = this.runtimeRevision
@@ -737,11 +744,16 @@ export class SessionServiceImpl
       const loadPromise = this.projectsLoadPromise
       try {
         await loadPromise
+        if (expectedRevision !== undefined) this.assertRevisionMatches(expectedRevision)
       } finally {
         if (this.projectsLoadPromise === loadPromise) {
           this.projectsLoadPromise = null
         }
       }
+    }
+    if (expectedRevision !== undefined) {
+      await Promise.resolve()
+      this.assertRevisionMatches(expectedRevision)
     }
   }
 
@@ -816,11 +828,17 @@ export class SessionServiceImpl
     }
   }
 
+  private assertRevisionMatches(revision: number): void {
+    if (this.runtimeRevision !== revision) {
+      throw this.runtimeChangedError()
+    }
+  }
+
   private runtimeChangedError(): Error {
     return new Error("Agent runtime changed while the session operation was pending")
   }
 
-  private async enqueueMutation<T>(mutation: () => Promise<T>): Promise<T> {
+  private async enqueueMutation<T>(mutation: (revision: number) => Promise<T>): Promise<T> {
     const revision = this.runtimeRevision
     const previous = this.mutationQueue
     let release!: () => void
@@ -829,10 +847,8 @@ export class SessionServiceImpl
     })
     await previous.catch(() => undefined)
     try {
-      if (revision !== this.runtimeRevision) {
-        throw this.runtimeChangedError()
-      }
-      return await mutation()
+      this.assertRevisionMatches(revision)
+      return await mutation(revision)
     } finally {
       release()
     }

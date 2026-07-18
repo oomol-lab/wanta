@@ -133,6 +133,13 @@ export function useOrganizationSkillActions({
             }),
           )
         }
+      } catch (error) {
+        toast.error(
+          t("organizations.skillManageInstallMissingFailed", {
+            count: targets.length,
+            error: skillErrorMessage(error, t),
+          }),
+        )
       } finally {
         endAction()
       }

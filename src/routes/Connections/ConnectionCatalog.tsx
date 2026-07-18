@@ -17,6 +17,7 @@ import {
 import {
   getProviderGridCenteredScrollTop,
   getProviderGridColumnCount,
+  getProviderGridKeyboardTargetIndex,
   getProviderGridVisibleRange,
   providerGridCardHeightPx,
   providerGridGapPx,
@@ -372,6 +373,7 @@ function ProviderGrid({
   const itemCount = providers.length
   const gridRef = React.useRef<HTMLDivElement | null>(null)
   const updateFrameRef = React.useRef<number | null>(null)
+  const focusFrameRef = React.useRef<number | null>(null)
   const selectionCenterTimerRef = React.useRef<number | null>(null)
   const pendingSelectionRef = React.useRef<string | null>(null)
   const [viewport, setViewport] = React.useState({
@@ -379,6 +381,10 @@ function ProviderGrid({
     scrollTop: 0,
     viewportHeight: 0,
     width: 0,
+  })
+  const [focusedIndex, setFocusedIndex] = React.useState(() => {
+    const selectedIndex = providers.findIndex((provider) => provider.service === selectedService)
+    return Math.max(0, selectedIndex)
   })
 
   const updateViewport = React.useCallback(() => {
@@ -543,6 +549,49 @@ function ProviderGrid({
       }),
     [columnCount, itemCount, viewport.catalogTop, viewport.scrollTop, viewport.viewportHeight],
   )
+  const focusProviderIndex = React.useCallback(
+    (targetIndex: number): void => {
+      const grid = gridRef.current
+      const scrollParent = scrollParentRef.current
+      if (!grid || !scrollParent) return
+      setFocusedIndex(targetIndex)
+      const nextScrollTop = getProviderGridCenteredScrollTop({
+        catalogTop: viewport.catalogTop,
+        columnCount,
+        itemIndex: targetIndex,
+        scrollHeight: scrollParent.scrollHeight,
+        viewportHeight: scrollParent.clientHeight,
+      })
+      scrollParent.scrollTo({ top: nextScrollTop })
+      scheduleViewportUpdate()
+      if (focusFrameRef.current !== null) window.cancelAnimationFrame(focusFrameRef.current)
+      focusFrameRef.current = window.requestAnimationFrame(() => {
+        scheduleViewportUpdate()
+        focusFrameRef.current = window.requestAnimationFrame(() => {
+          focusFrameRef.current = null
+          gridRef.current
+            ?.querySelector<HTMLButtonElement>(`[data-provider-index="${targetIndex}"]`)
+            ?.focus({ preventScroll: true })
+        })
+      })
+    },
+    [columnCount, scheduleViewportUpdate, scrollParentRef, viewport.catalogTop],
+  )
+
+  React.useEffect(() => {
+    if (itemCount === 0) return
+    if (focusedIndex >= visibleRange.startIndex && focusedIndex < visibleRange.endIndex) return
+    if (gridRef.current?.contains(document.activeElement)) return
+    setFocusedIndex(Math.min(visibleRange.startIndex, itemCount - 1))
+  }, [focusedIndex, itemCount, visibleRange.endIndex, visibleRange.startIndex])
+
+  React.useEffect(
+    () => () => {
+      if (focusFrameRef.current !== null) window.cancelAnimationFrame(focusFrameRef.current)
+    },
+    [],
+  )
+
   const visibleItems = React.useMemo<Array<{ key: string; node: React.ReactNode }>>(() => {
     const items: Array<{ key: string; node: React.ReactNode }> = []
     for (let offset = 0; offset < visibleRange.endIndex - visibleRange.startIndex; offset += 1) {
@@ -555,7 +604,22 @@ function ProviderGrid({
             <ProviderCard
               canManageConnections={canManageConnections}
               provider={provider}
+              index={index}
               selected={provider.service === selectedService}
+              tabIndex={index === focusedIndex ? 0 : -1}
+              onFocus={() => setFocusedIndex(index)}
+              onKeyDown={(event) => {
+                const targetIndex = getProviderGridKeyboardTargetIndex({
+                  columnCount,
+                  currentIndex: index,
+                  key: event.key,
+                  providerCount: itemCount,
+                })
+                if (targetIndex === null) return
+                event.preventDefault()
+                if (targetIndex === index) return
+                focusProviderIndex(targetIndex)
+              }}
               onSelect={onSelect}
             />
           ),
@@ -563,7 +627,18 @@ function ProviderGrid({
       }
     }
     return items
-  }, [canManageConnections, onSelect, providers, selectedService, visibleRange.endIndex, visibleRange.startIndex])
+  }, [
+    canManageConnections,
+    columnCount,
+    focusProviderIndex,
+    focusedIndex,
+    itemCount,
+    onSelect,
+    providers,
+    selectedService,
+    visibleRange.endIndex,
+    visibleRange.startIndex,
+  ])
 
   return (
     <div ref={gridRef} className="relative" style={{ height: visibleRange.totalHeight }}>
@@ -586,12 +661,20 @@ function ProviderGrid({
 const ProviderCard = React.memo(function ProviderCard({
   canManageConnections,
   provider,
+  index,
   selected,
+  tabIndex,
+  onFocus,
+  onKeyDown,
   onSelect,
 }: {
   canManageConnections: boolean
+  index: number
+  onFocus: () => void
+  onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
   provider: ConnectionProviderSummary
   selected: boolean
+  tabIndex: number
   onSelect: (provider: ConnectionProviderSummary) => void
 }) {
   const t = useT()
@@ -600,7 +683,11 @@ const ProviderCard = React.memo(function ProviderCard({
   return (
     <button
       type="button"
+      data-provider-index={index}
+      tabIndex={tabIndex}
       onClick={() => onSelect(provider)}
+      onFocus={onFocus}
+      onKeyDown={onKeyDown}
       className={cn(
         "group/card relative grid min-w-0 cursor-pointer overflow-hidden rounded-md border bg-card px-2.5 py-1.5 text-left text-card-foreground transition-[background-color,border-color,box-shadow,transform] outline-none hover:border-[var(--selection-ring)] hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px",
         selected &&

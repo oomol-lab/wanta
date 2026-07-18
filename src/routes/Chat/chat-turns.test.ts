@@ -276,6 +276,7 @@ describe("summarizeTurnProcess", () => {
     const process = summarizeTurnProcess(turn!, null)
 
     expect(process.authorizationIssues).toHaveLength(2)
+    expect(process.authorizationIssues.map((issue) => issue.connectionName)).toEqual(["work", "primary"])
   })
 
   it("keeps completed tool history running while the turn is still active", () => {

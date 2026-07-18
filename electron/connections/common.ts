@@ -1,4 +1,3 @@
-export type ConnectionBackendStatus = "ready" | "signed-out" | "unavailable"
 export type ConnectionAppsStatus = "ready" | "forbidden" | "unavailable"
 export type ConnectionAuthType = "oauth2" | "api_key" | "custom_credential" | "federated" | "no_auth" | null
 export type ConnectionAppStatus = "active" | "reauth_required" | "error" | "disconnected"
@@ -18,6 +17,7 @@ export interface ConnectionAppSummary {
   accountLabel?: string
   alias?: string
   authType: ConnectionAuthType
+  connectionName?: string
   createdAt: number
   displayName?: string
   id: string
@@ -134,8 +134,6 @@ export interface ConnectionCredentialField {
   valueType?: "number" | "string"
 }
 
-export type ConnectionField = ConnectionCredentialField
-
 export type ConnectionOAuthClientConfigPolicy = "default_only" | "user_required"
 export type ConnectionOAuthClientConfigNextConnectSource = "custom" | "default" | "unconfigured"
 export type ConnectionOAuthTokenEndpointAuthMethod = "client_secret_basic" | "client_secret_post" | "none"
@@ -208,8 +206,6 @@ export interface ConnectionFederatedConfig {
   roleSessionName?: string
 }
 
-export type ConnectionCredentialConfig = ConnectionCustomCredentialConfig
-
 export interface ConnectionProviderDetail extends ConnectionProviderSummary {
   apiKeyConfig: ConnectionApiKeyConfig | null
   customCredentialConfig: ConnectionCustomCredentialConfig | null
@@ -219,21 +215,16 @@ export interface ConnectionProviderDetail extends ConnectionProviderSummary {
 }
 
 export interface ConnectionSummary {
-  status: ConnectionBackendStatus
-  activeConnections: number
   apps: ConnectionAppSummary[]
   /** 组织连接状态与 Provider 公共目录分开读取；失败时目录仍可只读浏览。 */
   appsStatus?: ConnectionAppsStatus
   /** 用户实际配置或授权过的 Provider 种类数，不包含无需账号即可使用的免配置 Provider。 */
   connectedProviderCount: number
-  connectableProviderCount: number
-  needsAttention: number
   providerCount: number
   providers: ConnectionProviderSummary[]
   usage: ConnectionUsageSummary
-  /** 目录已可用但后台用量聚合仍在读取时为 true，避免详情面板把空聚合误展示为“暂无调用”。 */
-  usageLoading?: boolean
-  message?: string
+  /** 区分真实的零调用、后台加载中和统计服务不可用。 */
+  usageStatus: "loading" | "ready" | "unavailable"
   updatedAt: string
   workspace: ConnectionWorkspace
 }
@@ -273,32 +264,3 @@ export type ConnectionConnectInput =
       service: string
     }
   | { authType: "no_auth"; service: string }
-
-export interface ConnectionActionResult {
-  status: "opened" | "connected" | "disconnected"
-  summary: ConnectionSummary
-}
-
-export interface ConnectionAction {
-  id: string
-  service: string
-  name: string
-  description?: string
-  requiredScopes: string[]
-}
-
-export interface ConnectionAccount {
-  id: string
-  service: string
-  accountLabel: string
-  alias?: string
-  status: string
-  isDefault: boolean
-  authType?: ConnectionAuthType
-  scopes: string[]
-  providerAccountId: string
-  createdAt?: number
-  updatedAt?: number
-}
-
-export type ConnectionExecution = ConnectionExecutionLogItem

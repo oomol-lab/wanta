@@ -59,12 +59,20 @@ export interface DisconnectTarget {
   provider: ConnectionProviderSummary
 }
 
-export function connectionDetailCacheKey(workspaceKey: string, service: string): string {
-  return `${workspaceKey}\u0000${service}`
+export interface ConnectionAuthIntent {
+  action?: string
+  connectionName?: string
+  createdAt: number
+  displayName?: string
+  errorCode?: string
+  id: string
+  message?: string
+  service: string
+  source: "chat"
 }
 
-export function isConnectionDetailCacheKeyForService(cacheKey: string, service: string): boolean {
-  return cacheKey.endsWith(`\u0000${service}`)
+export function connectionDetailCacheKey(workspaceKey: string, service: string): string {
+  return `${workspaceKey}\u0000${service}`
 }
 
 export function isConnected(provider: ConnectionProviderSummary): boolean {
@@ -202,14 +210,7 @@ export function getEmptyState(
     return { title: t("connections.unavailableTitle"), description: t("connections.unavailableDescription") }
   }
 
-  switch (summary.status) {
-    case "signed-out":
-      return { title: t("connections.signedOutTitle"), description: t("connections.signedOutDescription") }
-    case "unavailable":
-      return { title: t("connections.unavailableTitle"), description: t("connections.unavailableDescription") }
-    case "ready":
-      return { title: t("connections.emptyTitle"), description: t("connections.readyEmptyDescription") }
-  }
+  return { title: t("connections.emptyTitle"), description: t("connections.readyEmptyDescription") }
 }
 
 export function authTypeNeedsDialog(authType: Exclude<ConnectionAuthType, null>): boolean {

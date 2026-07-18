@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   getProviderGridCenteredScrollTop,
   getProviderGridColumnCount,
+  getProviderGridKeyboardTargetIndex,
   getProviderGridRowCount,
   getProviderGridTotalHeight,
   getProviderGridVisibleRange,
@@ -71,6 +72,21 @@ it("centers based on the supplied item index", () => {
 })
 
 describe("provider grid virtualization", () => {
+  it("supports roving keyboard focus across virtualized rows", () => {
+    expect(
+      getProviderGridKeyboardTargetIndex({ columnCount: 3, currentIndex: 4, key: "ArrowDown", providerCount: 10 }),
+    ).toBe(7)
+    expect(
+      getProviderGridKeyboardTargetIndex({ columnCount: 3, currentIndex: 1, key: "ArrowUp", providerCount: 10 }),
+    ).toBe(0)
+    expect(getProviderGridKeyboardTargetIndex({ columnCount: 3, currentIndex: 4, key: "End", providerCount: 10 })).toBe(
+      9,
+    )
+    expect(
+      getProviderGridKeyboardTargetIndex({ columnCount: 3, currentIndex: 4, key: "Tab", providerCount: 10 }),
+    ).toBeNull()
+  })
+
   it("matches the responsive grid column formula", () => {
     expect(getProviderGridColumnCount(0)).toBe(1)
     expect(getProviderGridColumnCount(216)).toBe(1)

@@ -1015,6 +1015,7 @@ export const enMessages = {
   "connections.backToProviders": "Back to providers",
   "connections.closeProviderDetails": "Close details",
   "connections.chatAuthRequestTitle": "Chat needs {name} connected",
+  "connections.chatAuthRequestAccount": "Target account: {name}",
   "connections.chatAuthRequestDescription":
     "After the connection is ready, Wanta will return to chat and continue the task.",
   "connections.chatAuthRequestActionDescription": "After the connection is ready, Wanta will continue {action}.",
@@ -1101,8 +1102,6 @@ export const enMessages = {
   "connections.providerConnectedDescription": "{name} is connected and available to authorized AI flows.",
   "connections.providerConnectedAccountDescription": "{name} ({account})",
   "connections.providerAvailableDescription": "{name} is not connected yet.",
-  "connections.signedOutTitle": "Sign in to manage Connections",
-  "connections.signedOutDescription": "Complete sign-in before adding, reauthorizing, or disconnecting providers.",
   "connections.unavailableTitle": "Unable to read connections",
   "connections.unavailableDescription":
     "The connection service is temporarily unavailable. The app will retry on refresh.",
@@ -1133,6 +1132,7 @@ export const enMessages = {
   "connections.savedCredentialValue": "A saved secret value is already configured.",
   "connections.unsupportedConnectionDescription": "This provider needs a dedicated setup form in a later pass.",
   "connections.usageTitle": "Usage",
+  "connections.usageUnavailable": "Usage data is temporarily unavailable. Your connections are unaffected.",
   "connections.usageCompactCalls": "{count} calls",
   "connections.usageNoCalls": "No calls",
   "connections.usageCompactEmpty": "No calls in the last {days} days.",

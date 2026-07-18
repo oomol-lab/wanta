@@ -7,7 +7,6 @@ import type {
 import type { ChatErrorKind } from "../../../electron/chat/error.ts"
 import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
-import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
 import type { ChatSendRequest, ChatSendResult } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
@@ -18,6 +17,7 @@ import type { UseAuth } from "@/hooks/useAuth"
 import type { KnowledgeBaseIdsUpdate } from "@/hooks/useSessions"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
+import type { ConnectionAuthIntent } from "@/routes/Connections/connection-route-model.ts"
 import type { ConnectionCatalogFilter } from "@/routes/Connections/connection-route-model.ts"
 import type { ChatStatus } from "ai"
 
@@ -941,8 +941,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     previousQueuedSessionIdRef.current = activeChatSessionId
   }, [activeChatSessionId, holdQueuedSessionIfQueued])
 
-  const { cancelRetryForDrawer, clearRetries, prepareRetry } = useChatConnectionRetry({
-    connections,
+  const { cancelRetryForDrawer, clearRetries, completeRetryForDrawer, prepareRetry } = useChatConnectionRetry({
     isSessionRunning,
     queueSessionMessage,
     send,
@@ -968,8 +967,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       setSelectedService(null)
       setConnectionCatalogFilter(filter)
       setRoute("connections")
+      void connections.refresh({}, { silent: true })
     },
-    [activeComposerDraftKey, cancelRetryForDrawer],
+    [activeComposerDraftKey, cancelRetryForDrawer, connections.refresh],
   )
 
   const handleOpenChatConnectionProvider = React.useCallback(
@@ -1146,6 +1146,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       const createdAt = Date.now()
       const authIntent: ConnectionAuthIntent = {
         action: auth.action,
+        connectionName: auth.connectionName,
         createdAt,
         displayName: auth.displayName,
         errorCode: auth.errorCode,
@@ -1169,6 +1170,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           drawerKey: activeComposerDraftKey,
           sessionId: activeChatSessionId,
           service: auth.service,
+          connectionName: auth.connectionName,
           text: source.text,
           attachments: source.attachments,
           contextMentions:
@@ -1195,6 +1197,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       prepareRetry,
       sessionScope,
     ],
+  )
+  const handleChatConnectionReady = React.useCallback(
+    (target: { service: string; connectionName?: string }): void => {
+      completeRetryForDrawer(activeComposerDraftKey, target)
+    },
+    [activeComposerDraftKey, completeRetryForDrawer],
   )
   const handleRetryFresh = React.useCallback(
     async (source: ChatTurnRetrySource): Promise<void> => {
@@ -1298,8 +1306,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   }, [activeChatSessionId, stop])
   const handleOpenConnectionsCommand = React.useCallback((): void => {
     handleOpenConnections()
-    void connections.refresh({ forceRefresh: true })
-  }, [connections.refresh, handleOpenConnections])
+  }, [handleOpenConnections])
   const handleOpenSettingsCommand = React.useCallback((): void => {
     setSearchOpen(false)
     setRoute("settings")
@@ -1670,6 +1677,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                     authIntent={chatConnectionAuthIntent}
                     canManageConnections={canManageWorkspaceConnections}
                     connections={connections}
+                    onConnectionReady={handleChatConnectionReady}
                     selectedService={chatConnectionSelectedService}
                     visible={chatConnectionDrawerVisible}
                     onClose={handleCloseChatConnectionDrawer}

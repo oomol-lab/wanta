@@ -201,7 +201,7 @@ export function ConnectionAuthorizationIssueAction({
         size="sm"
         variant="outline"
         className="mt-2 h-8 gap-1.5 px-2.5"
-        onClick={() => onAuthorize(issue.authorization)}
+        onClick={() => onAuthorize({ ...issue.authorization, connectionName: issue.connectionName })}
       >
         <PlugZap className="size-3.5" />
         {t(decision.actionKey)}

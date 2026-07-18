@@ -5,9 +5,9 @@ import {
   getActiveConnectionAppIdsForService,
   getConnectionAppDetail,
   getConnectionCatalogSummary,
+  getConnectionProviderDetail,
   getConnectionSummary,
   getConnectionUsageSummary,
-  isProviderConnectionActive,
   listOAuthClientConfigs,
   startOAuthConnect,
   upsertOAuthClientConfig,
@@ -33,14 +33,12 @@ describe("connections-client", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(isProviderConnectionActive("gmail", { organizationName: "org-name" })).resolves.toBe(true)
-    await expect(isProviderConnectionActive("slack", { organizationName: "org-name" })).resolves.toBe(false)
     await expect(getActiveConnectionAppIdsForService("gmail", { organizationName: "org-name" })).resolves.toEqual([
       "app-1",
       "app-2",
     ])
 
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps")
   })
 
@@ -48,7 +46,7 @@ describe("connections-client", () => {
     const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ data: [] }))
     vi.stubGlobal("fetch", fetchMock)
 
-    await isProviderConnectionActive("gmail", { organizationName: "acme-corp" })
+    await getActiveConnectionAppIdsForService("gmail", { organizationName: "acme-corp" })
 
     const [, init] = fetchMock.mock.calls[0] ?? []
     const headers = new Headers(init?.headers)
@@ -102,7 +100,7 @@ describe("connections-client", () => {
     const summary = await getConnectionCatalogSummary({ organizationName: "org-name" })
 
     expect(summary.providers.map((provider) => provider.service)).toEqual(["gmail"])
-    expect(summary.usageLoading).toBe(true)
+    expect(summary.usageStatus).toBe("loading")
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(
       expect.arrayContaining([expect.stringContaining("/v1/apps"), expect.stringContaining("/v1/providers")]),
     )
@@ -115,6 +113,25 @@ describe("connections-client", () => {
 
     expect(usage.calls).toBe(3)
     expect(usage.services).toMatchObject([{ calls: 3, service: "gmail" }])
+  })
+
+  it("loads provider detail without rereading apps or usage", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/v1/providers/github")) {
+        return Response.json({ data: { authTypes: ["oauth2"], displayName: "GitHub", service: "github" } })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getConnectionProviderDetail("github")).resolves.toMatchObject({
+      displayName: "GitHub",
+      service: "github",
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
+    expect(headers.has("x-oo-organization-name")).toBe(false)
   })
 
   it("keeps the provider catalog visible when organization apps are forbidden", async () => {
@@ -138,7 +155,6 @@ describe("connections-client", () => {
       appsStatus: "forbidden",
       providerCount: 1,
       providers: [{ displayName: "Gmail", service: "gmail", status: "available" }],
-      status: "ready",
     })
   })
 
@@ -161,7 +177,6 @@ describe("connections-client", () => {
     await expect(getConnectionCatalogSummary({ organizationName: "read-only-org" })).resolves.toMatchObject({
       appsStatus: "unavailable",
       providers: [{ displayName: "Slack", service: "slack" }],
-      status: "ready",
     })
   })
 
@@ -190,7 +205,7 @@ describe("connections-client", () => {
     })
   })
 
-  it("degrades a failed usage request to an empty summary without rejecting", async () => {
+  it("reports a failed usage request instead of presenting it as zero usage", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const fetchMock = vi.fn<typeof fetch>(async (input) => {
       const url = String(input)
@@ -204,15 +219,7 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getConnectionUsageSummary({ organizationName: "org-name" })).resolves.toEqual({
-      calls: 0,
-      days: 7,
-      errors: 0,
-      points: [],
-      recent: null,
-      services: [],
-      success: 0,
-    })
+    await expect(getConnectionUsageSummary({ organizationName: "org-name" })).rejects.toMatchObject({ status: 503 })
     expect(warning).toHaveBeenCalledOnce()
   })
 

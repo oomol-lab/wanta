@@ -48,22 +48,13 @@ export function preserveConnectionSummaryOnPartialRefresh(
   current: ConnectionSummary | null,
   next: ConnectionSummary,
 ): ConnectionSummary {
-  if (
-    !current ||
-    !next.appsStatus ||
-    next.appsStatus === "ready" ||
-    connectionSummaryWorkspaceKey(current) !== connectionSummaryWorkspaceKey(next)
-  ) {
+  if (!current || connectionSummaryWorkspaceKey(current) !== connectionSummaryWorkspaceKey(next)) {
     return next
   }
 
-  // Apps 读取失败不能把上一次确认可用的账号伪装成“全部未连接”；保留旧摘要并暴露本次降级状态。
-  return {
-    ...current,
-    appsStatus: next.appsStatus,
-    updatedAt: next.updatedAt,
-    usageLoading: next.usageLoading,
-  }
+  // 刷新期间保留上一次用量；Apps 读取失败时也不能把已确认账号伪装成“全部未连接”。
+  const refreshed = !next.appsStatus || next.appsStatus === "ready" ? next : { ...current, appsStatus: next.appsStatus }
+  return { ...refreshed, updatedAt: next.updatedAt, usage: current.usage, usageStatus: "loading" }
 }
 
 export function connectionsStateReducer(state: ConnectionsState, action: ConnectionsStateAction): ConnectionsState {
@@ -101,7 +92,7 @@ export function connectionsStateReducer(state: ConnectionsState, action: Connect
       }
       return {
         ...state,
-        summary: { ...state.summary, usage: action.usage, usageLoading: false },
+        summary: { ...state.summary, usage: action.usage, usageStatus: "ready" },
       }
     case "usageHydrationFailed":
       if (!state.summary || state.summaryWorkspaceKey !== action.workspaceKey) {
@@ -109,7 +100,7 @@ export function connectionsStateReducer(state: ConnectionsState, action: Connect
       }
       return {
         ...state,
-        summary: { ...state.summary, usageLoading: false },
+        summary: { ...state.summary, usageStatus: "unavailable" },
       }
     case "workspacePending":
       return initialConnectionsState

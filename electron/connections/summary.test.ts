@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { createEmptyConnectionSummary } from "./summary-model.ts"
 import { mergeConnectionSummary, normalizeConnectionAppDetail, normalizeFederatedCredentialConfig } from "./summary.ts"
 
 const providers = [
@@ -26,9 +25,7 @@ test("merge marks connected providers and computes counts", () => {
     usage: emptyUsage,
   })
 
-  assert.equal(summary.status, "ready")
   assert.equal(summary.providerCount, 3)
-  assert.equal(summary.activeConnections, 1)
   const gmail = summary.providers.find((provider) => provider.service === "gmail")
   assert.equal(gmail?.status, "connected")
   assert.equal(gmail?.appStatus, "active")
@@ -177,7 +174,6 @@ test("merge preserves multiple apps for one provider", () => {
 
   const gmail = summary.providers.find((provider) => provider.service === "gmail")
 
-  assert.equal(summary.activeConnections, 2)
   assert.equal(summary.connectedProviderCount, 1)
   assert.equal(gmail?.status, "connected")
   assert.equal(gmail?.appCount, 2)
@@ -355,12 +351,4 @@ test("normalizes federated credential field definitions", () => {
       valueType: "number",
     },
   ])
-})
-
-test("createEmptyConnectionSummary exposes a signed-out state", () => {
-  const summary = createEmptyConnectionSummary("signed-out", "no key")
-
-  assert.equal(summary.status, "signed-out")
-  assert.equal(summary.message, "no key")
-  assert.equal(summary.providers.length, 0)
 })

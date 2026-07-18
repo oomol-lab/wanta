@@ -6,8 +6,7 @@ import type {
   ConnectionProviderSummary,
   ConnectionUserOAuthClientConfigSummary,
 } from "../../../electron/connections/common.ts"
-import type { ConnectionCatalogFilter, DisconnectTarget } from "./connection-route-model.ts"
-import type { ConnectionAuthIntent } from "./ConnectionProviderDetailPane.tsx"
+import type { ConnectionAuthIntent, ConnectionCatalogFilter, DisconnectTarget } from "./connection-route-model.ts"
 import type { UseConnections } from "@/hooks/useConnections"
 
 import { ArrowLeft, X } from "lucide-react"
@@ -34,7 +33,6 @@ import {
   EmptyList,
   ProviderDetail,
   ReadOnlyConnectionNotice,
-  StatusNotice,
 } from "./ConnectionProviderDetailPane.tsx"
 import { DisconnectDialog } from "./DisconnectDialog.tsx"
 import { shouldOpenOAuthClientDialog } from "./oauth-client-config.ts"
@@ -55,13 +53,14 @@ import { getOAuthClientConfig } from "@/lib/connections-client"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
-export type { ConnectionAuthIntent } from "./ConnectionProviderDetailPane.tsx"
+export type { ConnectionAuthIntent } from "./connection-route-model.ts"
 
 interface ConnectionsPanelProps {
   authIntent?: ConnectionAuthIntent | null
   canManageConnections: boolean
   connections: UseConnections
   onClose?: () => void
+  onConnectionReady?: (target: { service: string; connectionName?: string }) => void
   presentation?: "drawer" | "page"
   requestedFilter?: ConnectionCatalogFilter
   selectedService?: string | null
@@ -72,6 +71,7 @@ export function ConnectionsPanel({
   canManageConnections,
   connections,
   onClose,
+  onConnectionReady,
   presentation = "page",
   requestedFilter,
   selectedService,
@@ -100,6 +100,7 @@ export function ConnectionsPanel({
   const [dialog, setDialog] = React.useState<{
     appDetail?: ConnectionAppDetail | null
     appId?: string
+    connectionName?: string
     authType: "api_key" | "custom_credential" | "federated" | "oauth2"
     detail: ConnectionProviderDetail
     oauthClientConfig?: ConnectionUserOAuthClientConfigSummary | null
@@ -286,7 +287,13 @@ export function ConnectionsPanel({
               userOAuthClientConfig: oauthClientConfig,
             })
           ) {
-            setDialog({ detail: loaded, authType, appId, oauthClientConfig })
+            setDialog({
+              detail: loaded,
+              authType,
+              appId,
+              connectionName: provider.apps.find((app) => app.id === appId)?.connectionName,
+              oauthClientConfig,
+            })
             return
           }
 
@@ -296,6 +303,10 @@ export function ConnectionsPanel({
           }
           if (ok) {
             deleteCachedDetailForService(provider.service)
+            onConnectionReady?.({
+              service: provider.service,
+              connectionName: provider.apps.find((app) => app.id === appId)?.connectionName,
+            })
           }
           return
         }
@@ -307,6 +318,7 @@ export function ConnectionsPanel({
           }
           if (ok) {
             deleteCachedDetailForService(provider.service)
+            onConnectionReady?.({ service: provider.service })
           }
           return
         }
@@ -318,14 +330,28 @@ export function ConnectionsPanel({
         if (!requestIsCurrent()) {
           return
         }
-        setDialog({ detail: loaded, authType, appId, appDetail })
+        setDialog({
+          detail: loaded,
+          authType,
+          appId,
+          appDetail,
+          connectionName: provider.apps.find((app) => app.id === appId)?.connectionName,
+        })
       } catch (err) {
         if (requestIsCurrent()) {
           providerDetail.reportError(err)
         }
       }
     },
-    [canManageConnections, connect, deleteCachedDetailForService, getAppDetail, polling, providerDetail],
+    [
+      canManageConnections,
+      connect,
+      deleteCachedDetailForService,
+      getAppDetail,
+      onConnectionReady,
+      polling,
+      providerDetail,
+    ],
   )
 
   const submitConnectDialog = React.useCallback(
@@ -337,6 +363,10 @@ export function ConnectionsPanel({
         const ok = await connect(input)
         if (ok) {
           deleteCachedDetailForService(input.service)
+          onConnectionReady?.({
+            service: input.service,
+            connectionName: dialog?.connectionName,
+          })
           setDialog(null)
         }
       })()
@@ -344,7 +374,7 @@ export function ConnectionsPanel({
         setDialog(null)
       }
     },
-    [canManageConnections, connect, deleteCachedDetailForService],
+    [canManageConnections, connect, deleteCachedDetailForService, dialog, onConnectionReady],
   )
 
   const confirmDisconnectTarget = React.useCallback(
@@ -462,7 +492,6 @@ export function ConnectionsPanel({
             {summary?.appsStatus && summary.appsStatus !== "ready" ? (
               <ConnectionStateNotice status={summary.appsStatus} />
             ) : null}
-            {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
             {listErrorNotice ? (
               <ErrorNotice
                 error={listErrorNotice.error}

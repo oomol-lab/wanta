@@ -27,7 +27,6 @@ import {
   getConnectionProviderDetail,
   getConnectionSummary,
   getConnectionUsageSummary,
-  isProviderConnectionActive,
   startOAuthConnect,
   updateAlias as updateAliasRequest,
 } from "../lib/connections-client.ts"
@@ -126,9 +125,7 @@ export interface UseConnections {
   getProviderDetail: (service: string) => Promise<ConnectionProviderDetail>
   getAppDetail: (appId: string) => Promise<ConnectionAppDetail>
   getExecutionLogs: (request: ConnectionExecutionLogRequest) => Promise<ConnectionExecutionLogSummary>
-  isProviderActive: (service: string) => Promise<boolean>
   openExternal: (url: string) => Promise<void>
-  setSummary: (summary: ConnectionSummary) => void
   updateAlias: (appId: string, alias: string) => Promise<boolean>
 }
 
@@ -161,7 +158,14 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   summaryRef.current = summary
 
   const setCurrentSummary = React.useCallback((next: ConnectionSummary): void => {
-    dispatch({ type: "summarySet", summary: next })
+    const current = summaryRef.current
+    const stable =
+      current &&
+      next.usageStatus === "unavailable" &&
+      connectionWorkspaceKey(current.workspace) === connectionWorkspaceKey(next.workspace)
+        ? { ...next, usage: current.usage }
+        : next
+    dispatch({ type: "summarySet", summary: stable })
   }, [])
 
   const isCurrentWorkspace = React.useCallback((generation: number, key: string): boolean => {
@@ -635,7 +639,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     if (!currentWorkspace) {
       return Promise.reject(new Error("Workspace is still loading."))
     }
-    return getConnectionProviderDetail(svc, currentWorkspace)
+    return getConnectionProviderDetail(svc)
   }, [])
   const getAppDetail = React.useCallback((appId: string) => {
     const currentWorkspace = effectiveWorkspace.current
@@ -650,13 +654,6 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       return Promise.reject(new Error("Workspace is still loading."))
     }
     return getConnectionExecutionLogs(request, currentWorkspace)
-  }, [])
-  const isProviderActive = React.useCallback((service: string) => {
-    const currentWorkspace = effectiveWorkspace.current
-    if (!currentWorkspace) {
-      return Promise.resolve(false)
-    }
-    return isProviderConnectionActive(service, currentWorkspace)
   }, [])
   const openExternal = React.useCallback((url: string) => chatService.invoke("openExternalUrl", { url }), [chatService])
 
@@ -679,9 +676,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     getProviderDetail,
     getAppDetail,
     getExecutionLogs,
-    isProviderActive,
     openExternal,
-    setSummary: setCurrentSummary,
     updateAlias,
   }
 }

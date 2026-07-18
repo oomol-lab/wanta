@@ -17,6 +17,7 @@ export const BUG_REPORT_COMMAND = "/bug-report"
 
 export interface AuthorizationInfo {
   service: string
+  connectionName?: string
   displayName: string
   action?: string
   /** 仅作为旧版/调试兜底；Wanta 授权统一走应用内 Connections 面板。 */

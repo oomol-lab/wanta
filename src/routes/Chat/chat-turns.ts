@@ -25,6 +25,7 @@ export interface ChatTurnRetrySource {
 
 export interface ConnectorAuthorizationIssue {
   authorization: AuthorizationInfo
+  connectionName?: string
   count: number
   /** 同一连接目标在本轮先成功、后返回授权阻断，不能直接断言用户未连接。 */
   inconsistent: boolean
@@ -254,6 +255,8 @@ function connectorAuthorizationIssues(tools: ChatMessagePart[]): ConnectorAuthor
     }
     issues.set(key, {
       authorization,
+      connectionName:
+        typeof part.input?.connectionName === "string" ? part.input.connectionName.trim() || undefined : undefined,
       count: 1,
       inconsistent: successfulTargets.has(targetKey),
       key,

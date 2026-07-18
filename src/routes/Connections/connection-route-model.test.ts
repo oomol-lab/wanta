@@ -14,7 +14,6 @@ import {
   getProviderMeta,
   getProviderStatusDisplayLabel,
   getProviderStatusTone,
-  isConnectionDetailCacheKeyForService,
   isConnected,
   isDirectlyAvailableProvider,
   matchesProviderFilter,
@@ -185,9 +184,6 @@ test("connection detail cache keys separate workspaces for the same provider", (
   const organizationKey = connectionDetailCacheKey("organization:Design", "canva")
 
   assert.notEqual(workspaceKey, organizationKey)
-  assert.equal(isConnectionDetailCacheKeyForService(workspaceKey, "canva"), true)
-  assert.equal(isConnectionDetailCacheKeyForService(organizationKey, "canva"), true)
-  assert.equal(isConnectionDetailCacheKeyForService(organizationKey, "gmail"), false)
 })
 
 test("selectVisibleCategoryFilters keeps an active overflow category visible", () => {

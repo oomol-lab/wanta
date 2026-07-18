@@ -60,3 +60,10 @@
 - 五次显式重置缓存的 discovery + scan 为 1141–1249ms，五次缓存内 scan 为 50–77ms；剩余冷启动时间主要来自用户 login shell PATH 解析；
 - 真实 `npm run dev` 首次 inventory scan 从前三次的 2097–2154ms 降至 610ms，随后两次为 68ms 和 65ms；同时正确发现旧探测超时漏掉的 Hermes，最终 installed skill 数从 101 变为 125；
 - `ts-check`、`lint`、`format`、234 个测试文件、1568 个测试和 production build 通过；开发版 Vite 在 198ms ready，Agent sidecar 正常 ready，观察期没有 warn/error diagnostics。
+
+## 第四轮缓存生命周期修复后的结果
+
+- 账单缓存现在随认证 identity 变化清空，不再在登出或换号后永久保留历史账号、组织和权限组合的数据；
+- 清理采用 Map detach，清理前的在途请求即使随后成功，也只能写回已脱离的旧 entry，不能污染同 key 的新账号缓存；
+- 新增 1 个回归测试，测试总数从 1568 增至 1569；`ts-check`、`lint`、`format`、234 个测试文件和 production build 通过；
+- `npm run dev` 在 200ms ready，main/preload 和 Agent sidecar 正常启动，观察期没有新增 warn/error diagnostics；当前账号环境无法执行真实换号交互。

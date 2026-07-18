@@ -82,7 +82,7 @@ export function useBillingOverview(
       }
       const currentRequest = requestId.current + 1
       requestId.current = currentRequest
-      const entry = cacheEntry(cacheScopeKey, days)
+      const entry = getBillingOverviewCacheEntry(cacheScopeKey, days)
       if (!force && isFresh(entry, staleMs)) {
         setData(entry.data)
         setError(null)
@@ -148,7 +148,7 @@ export function useBillingOverview(
   return { data, loading, error, refresh }
 }
 
-function cacheEntry(cacheScope: string, days: BillingPeriodDays): BillingOverviewCacheEntry {
+export function getBillingOverviewCacheEntry(cacheScope: string, days: BillingPeriodDays): BillingOverviewCacheEntry {
   let scopedCache = overviewCache.get(cacheScope)
   if (!scopedCache) {
     scopedCache = new Map()
@@ -160,6 +160,10 @@ function cacheEntry(cacheScope: string, days: BillingPeriodDays): BillingOvervie
     scopedCache.set(days, entry)
   }
   return entry
+}
+
+export function clearBillingOverviewCache(): void {
+  overviewCache.clear()
 }
 
 function cachedData(cacheScope: string, days: BillingPeriodDays): BillingOverviewResult | null {

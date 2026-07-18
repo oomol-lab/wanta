@@ -91,19 +91,19 @@
 ## Q-2026-006：账单缓存缺少认证切换清理
 
 - Category: performance | maintainability
-- Status: hypothesis
+- Status: verified
 - Area: billing | auth
 - User impact: 账单数据按账号和 workspace 正确隔离，但退出和换号后旧余额仍保留在 renderer 模块内存，长生命周期多账号使用会持续增长。
-- Evidence: `overviewCache` 是无界模块级 Map；认证变化会清理 connector、skill、avatar 和 organization cache，没有账单清理入口。
-- Root cause: 尚未确认是否达到可观察内存规模。
-- Scope: `src/hooks/useBillingOverview.ts` 与认证缓存清理边界。
+- Evidence: `overviewCache` 是无界模块级 Map，key 同时包含账号、workspace、组织名和权限；认证变化会清理 connector、skill、avatar 和 organization cache，但旧账号的账单 entry 与 data 没有任何淘汰路径。
+- Root cause: 账单缓存正确实现了读取隔离，却没有接入全局认证 identity 的生命周期；TTL 只决定是否复用数据，不会删除 Map entry。
+- Scope: `src/hooks/useBillingOverview.ts`、`src/components/AppDataProvider.tsx` 及单元测试。
 - Guardrails: 不得因清理触发重复支付或把个人余额解释为组织余额。
-- Before metric: 待采集账号/组织切换后的 cache entry 数和 heap snapshot。
+- Before metric: 每个历史账号/组织/权限组合至少永久保留一个 scope Map，退出后仍可由原 key 读取旧 data。
 - Target: 登出或账号变化后不保留旧账号账单数据。
-- Verification: 纯缓存测试和换号实机验证。
+- Verification: 认证 identity 变化时统一清空账单缓存；回归测试证明清理后同 key 返回全新空 entry，且清理前在途请求结算不能回填新缓存。完整质量门、production build 和开发版启动通过；受限于当前账号环境，换号交互仍未实机执行。
 - Risk and rollback: 低。
 - Priority: P2
-- Decision: defer
+- Decision: fix
 
 ## Q-2026-007：长会话流式更新的 renderer 成本未量化
 

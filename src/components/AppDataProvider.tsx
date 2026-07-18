@@ -5,6 +5,7 @@ import type { AppDataResources } from "@/components/AppDataContext"
 import * as React from "react"
 import { useAppContext } from "@/components/AppContext"
 import { AppDataContext } from "@/components/AppDataContext"
+import { clearBillingOverviewCache } from "@/hooks/useBillingOverview"
 import { clearAvatarImageCache } from "@/lib/avatar-image-cache"
 import { clearConnectorCache } from "@/lib/connections-client"
 import { clearOrganizationDetailsResources } from "@/lib/organization-details-resource"
@@ -72,6 +73,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const currentAuthState = resources.authState.getSnapshot().data
       if (authCacheScope(currentAuthState) !== authCacheScope(nextAuthState)) {
         clearAvatarImageCache()
+        clearBillingOverviewCache()
         clearOrganizationDetailsResources()
       }
       resources.authState.setData(nextAuthState)

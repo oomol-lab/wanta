@@ -9,10 +9,11 @@ import type {
 } from "./common.ts"
 import type { MaterializeAssistantArtifactsOptions } from "./safe-image-source.ts"
 
-import { createHash, randomUUID } from "node:crypto"
-import { copyFile, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { copyFile, lstat, mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { atomicWriteText } from "../atomic-file.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 import { isOperationalStateArtifact } from "./artifact-file-classification.ts"
 import { mimeFromPath, normalizeLocalPathCandidate } from "./artifacts.ts"
@@ -816,15 +817,7 @@ export class ArtifactBundleStore {
   }
 
   private async persist(records: ArtifactBundles): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp-${process.pid}-${randomUUID()}`
-    try {
-      await writeFile(tmp, JSON.stringify(serializeArtifactBundles(records), null, 2), "utf-8")
-      await rename(tmp, this.file)
-    } catch (error) {
-      await rm(tmp, { force: true })
-      throw error
-    }
+    await atomicWriteText(this.file, JSON.stringify(serializeArtifactBundles(records), null, 2))
   }
 
   private async enqueueMutation(mutation: () => Promise<void>): Promise<void> {

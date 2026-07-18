@@ -121,7 +121,7 @@ export function normalizeProjectPath(projectPath: string): string {
 
 export function isPathInside(root: string, target: string): boolean {
   const relative = path.relative(path.resolve(root), path.resolve(target))
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
 }
 
 export function summarizeTurnFiles(files: StoredTurnOutputFile[]): StoredTurnOutputRecord["summary"] {

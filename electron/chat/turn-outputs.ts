@@ -1,9 +1,9 @@
 import type { ArtifactBundleStore } from "./artifact-bundles.ts"
 import type { TurnFileDiffResult, TurnOutputFile, TurnOutputRecord, TurnOutputSummary } from "./common.ts"
 
-import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
+import { atomicWriteText } from "../atomic-file.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 import { buildArtifactBundle } from "./artifact-bundles.ts"
 
@@ -284,15 +284,7 @@ export class TurnOutputStore {
   }
 
   private async persist(records: TurnOutputRecords): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp-${process.pid}-${randomUUID()}`
-    try {
-      await writeFile(tmp, JSON.stringify(serializeRecords(records), null, 2), "utf-8")
-      await rename(tmp, this.file)
-    } catch (error) {
-      await rm(tmp, { force: true })
-      throw error
-    }
+    await atomicWriteText(this.file, JSON.stringify(serializeRecords(records), null, 2))
   }
 
   private async enqueueMutation(mutation: () => Promise<void>): Promise<void> {

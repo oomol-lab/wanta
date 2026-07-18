@@ -274,7 +274,13 @@ export function KnowledgeRoute({
         toast.error(t("knowledge.dropUnavailable", { name: file.name }))
         continue
       }
-      lastImported = await handleImport(selectedPath.path)
+      try {
+        lastImported = await handleImport(selectedPath.path)
+      } finally {
+        await window.wanta
+          .releaseAttachmentPaths([selectedPath.path, selectedPath.agentPath ?? ""])
+          .catch(() => undefined)
+      }
     }
     if (lastImported) setSelectedId(lastImported.id)
   }

@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
+import { atomicWriteText } from "../atomic-file.ts"
 import { defaultRegistrySkillSetVersion } from "./default-registry-skills.ts"
 
 export const defaultSkillInstallSchemaVersion = 1
@@ -64,15 +64,7 @@ export async function readDefaultSkillInstallStore(file: string): Promise<Defaul
 }
 
 export async function writeDefaultSkillInstallStore(file: string, store: DefaultSkillInstallStoreData): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true })
-  const tmp = `${file}.tmp-${process.pid}-${randomUUID()}`
-  try {
-    await writeFile(tmp, `${JSON.stringify(normalizeDefaultSkillInstallStore(store), null, 2)}\n`, "utf8")
-    await rename(tmp, file)
-  } catch (error) {
-    await rm(tmp, { force: true })
-    throw error
-  }
+  await atomicWriteText(file, `${JSON.stringify(normalizeDefaultSkillInstallStore(store), null, 2)}\n`)
 }
 
 export function emptyDefaultSkillInstallStore(): DefaultSkillInstallStoreData {

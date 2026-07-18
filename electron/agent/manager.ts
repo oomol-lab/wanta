@@ -15,10 +15,11 @@ import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@open
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 
 import { randomBytes, randomUUID } from "node:crypto"
-import { lstat, mkdir, realpath, rename, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdir, realpath } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { ActivityMetrics } from "../activity-metrics.ts"
+import { atomicWriteText } from "../atomic-file.ts"
 import { branding } from "../branding.ts"
 import { resolveUserCommandPath } from "../command-path.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
@@ -904,18 +905,11 @@ export class AgentManager {
     if (!this.organizationScopePath) {
       return
     }
-    await mkdir(path.dirname(this.organizationScopePath), { recursive: true })
-    const temporaryPath = `${this.organizationScopePath}.${process.pid}.${randomUUID()}.tmp`
     const content = JSON.stringify({
       organizationName: organizationName ?? "",
       sessionOrganizations: Object.fromEntries(this.sessionOrganizationNames),
     })
-    try {
-      await writeFile(temporaryPath, content, "utf8")
-      await rename(temporaryPath, this.organizationScopePath)
-    } finally {
-      await rm(temporaryPath, { force: true })
-    }
+    await atomicWriteText(this.organizationScopePath, content)
   }
 
   private async writeOrganizationState(organizationName: string | undefined): Promise<void> {

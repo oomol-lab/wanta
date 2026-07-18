@@ -2,7 +2,7 @@ import type { TurnFileDiffResult, TurnOutputChangeKind } from "../chat/common.ts
 
 import { createTwoFilesPatch, diffLines, FILE_HEADERS_ONLY } from "diff"
 import { execFile } from "node:child_process"
-import { readFile, stat } from "node:fs/promises"
+import { lstat, readFile, realpath } from "node:fs/promises"
 import path from "node:path"
 import { promisify } from "node:util"
 
@@ -12,6 +12,9 @@ const maxSnapshotBytes = 1024 * 1024
 const maxPatchChars = 220_000
 const maxDiffEditLength = 50_000
 const snapshotConcurrency = 8
+const maxSnapshotFiles = 1_000
+const maxSnapshotTotalBytes = 16 * 1024 * 1024
+const snapshotDeadlineMs = 5_000
 
 interface GitCommandOutput {
   stdout: string
@@ -29,6 +32,7 @@ export interface TextSnapshot {
 export interface GitTurnBaseline {
   repositoryRoot: string
   snapshots: Record<string, TextSnapshot>
+  truncated?: boolean
 }
 
 export interface GitTurnFileDiff {
@@ -106,7 +110,7 @@ function isProbablyBinary(bytes: Buffer): boolean {
 
 function isInside(root: string, target: string): boolean {
   const relative = path.relative(root, target)
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
 }
 
 async function readWorkingSnapshot(repositoryRoot: string, relativePath: string): Promise<TextSnapshot> {
@@ -119,14 +123,16 @@ async function readWorkingSnapshot(repositoryRoot: string, relativePath: string)
     return { exists: false }
   }
   try {
-    const info = await stat(filePath)
-    if (!info.isFile()) {
+    const info = await lstat(filePath)
+    if (!info.isFile() || info.isSymbolicLink()) {
       return { exists: false }
     }
+    const resolvedPath = await realpath(filePath)
+    if (!isInside(repositoryRoot, resolvedPath)) return { exists: false }
     if (info.size > maxSnapshotBytes) {
       return { exists: true, size: info.size, tooLarge: true }
     }
-    const bytes = await readFile(filePath)
+    const bytes = await readFile(resolvedPath)
     if (isProbablyBinary(bytes)) {
       return { binary: true, exists: true, size: info.size }
     }
@@ -142,7 +148,7 @@ async function readHeadSnapshot(repositoryRoot: string, relativePath: string): P
     return { exists: false }
   }
   try {
-    const result = await execFileAsync("git", ["-C", repositoryRoot, "show", `HEAD:${safePath}`], {
+    const result = await execFileAsync("git", ["-C", repositoryRoot, "show", `HEAD:./${safePath}`], {
       encoding: "buffer",
       maxBuffer: maxSnapshotBytes + 1,
       timeout: gitCommandTimeoutMs,
@@ -239,13 +245,28 @@ function binaryDiff(relativePath: string, mime: string, before: TextSnapshot, af
 }
 
 export async function captureGitTurnBaseline(repositoryRoot: string): Promise<GitTurnBaseline> {
-  const root = path.resolve(repositoryRoot)
+  const root = await realpath(path.resolve(repositoryRoot))
   const dirtyPaths = await listDirtyPaths(root)
   const snapshots: Record<string, TextSnapshot> = {}
-  await mapConcurrent(dirtyPaths, snapshotConcurrency, async (relativePath) => {
-    snapshots[relativePath] = await readWorkingSnapshot(root, relativePath)
+  const deadline = Date.now() + snapshotDeadlineMs
+  let totalBytes = 0
+  let truncated = dirtyPaths.length > maxSnapshotFiles
+  await mapConcurrent(dirtyPaths.slice(0, maxSnapshotFiles), snapshotConcurrency, async (relativePath) => {
+    if (Date.now() >= deadline || totalBytes >= maxSnapshotTotalBytes) {
+      truncated = true
+      return
+    }
+    const snapshot = await readWorkingSnapshot(root, relativePath)
+    const snapshotBytes = snapshot.content ? Buffer.byteLength(snapshot.content, "utf8") : 0
+    if (totalBytes + snapshotBytes > maxSnapshotTotalBytes) {
+      truncated = true
+      snapshots[relativePath] = { exists: snapshot.exists, size: snapshot.size, tooLarge: true }
+      return
+    }
+    totalBytes += snapshotBytes
+    snapshots[relativePath] = snapshot
   })
-  return { repositoryRoot: root, snapshots }
+  return { repositoryRoot: root, snapshots, ...(truncated ? { truncated: true } : {}) }
 }
 
 export async function collectGitTurnDiffs(
@@ -253,10 +274,15 @@ export async function collectGitTurnDiffs(
   mimeFromPath: (filePath: string) => string,
 ): Promise<GitTurnFileDiff[]> {
   const endDirtyPaths = await listDirtyPaths(baseline.repositoryRoot)
-  const candidates = unique([...Object.keys(baseline.snapshots), ...endDirtyPaths])
+  const candidates = unique([...Object.keys(baseline.snapshots), ...endDirtyPaths]).slice(0, maxSnapshotFiles)
+  const deadline = Date.now() + snapshotDeadlineMs
+  let totalBytes = 0
   const candidatesDiffs = await mapConcurrent(candidates, snapshotConcurrency, async (relativePath) => {
+    if (Date.now() >= deadline || totalBytes >= maxSnapshotTotalBytes) return null
     const before = baseline.snapshots[relativePath] ?? (await readHeadSnapshot(baseline.repositoryRoot, relativePath))
     const after = await readWorkingSnapshot(baseline.repositoryRoot, relativePath)
+    totalBytes += Buffer.byteLength(before.content ?? "", "utf8") + Buffer.byteLength(after.content ?? "", "utf8")
+    if (totalBytes > maxSnapshotTotalBytes) return null
     if (snapshotEqual(before, after)) {
       return null
     }

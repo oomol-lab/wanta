@@ -284,7 +284,11 @@ export function useComposerAttachments({
 
   const removeAttachment = React.useCallback(
     (id: string) => {
-      revokeAttachmentPreviewUrls(attachmentsRef.current.filter((attachment) => attachment.id === id))
+      const removed = attachmentsRef.current.filter((attachment) => attachment.id === id)
+      revokeAttachmentPreviewUrls(removed)
+      void globalThis.wanta
+        ?.releaseAttachmentPaths(removed.flatMap((attachment) => [attachment.path, attachment.agentPath ?? ""]))
+        .catch(() => undefined)
       attachmentsRef.current = attachmentsRef.current.filter((attachment) => attachment.id !== id)
       dispatch({ type: "remove-attachment", id })
     },

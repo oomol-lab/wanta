@@ -12,11 +12,13 @@ import { createSpreadsheetAgentInput } from "./chat/spreadsheet-agent-input.ts"
 
 interface AttachmentDialogHandlerOptions {
   createSpreadsheetPreview?: CreateSpreadsheetPreview
+  rememberProjectPath?: (directoryPath: string) => void
   userDataDir?: string
 }
 
 interface TrustedPathSink {
   add(filePath: string): unknown
+  delete(filePath: string): boolean
 }
 
 function managedAttachmentName(name: string): string {
@@ -27,6 +29,27 @@ function managedAttachmentName(name: string): string {
     .trim()
     .slice(0, 160)
   return normalized && normalized !== "." && normalized !== ".." ? normalized : "attachment"
+}
+
+export async function releaseManagedAttachmentPaths(
+  userDataDir: string,
+  trustedPaths: Pick<TrustedPathSink, "delete">,
+  filePaths: readonly string[],
+): Promise<void> {
+  const attachmentRoot = path.resolve(userDataDir, "attachments")
+  const originalRoot = path.join(attachmentRoot, "originals")
+  const removableFileRoots = new Set([path.join(attachmentRoot, "agent"), path.join(attachmentRoot, "clipboard")])
+  for (const candidate of new Set(filePaths.map((item) => item.trim()).filter(Boolean))) {
+    if (!trustedPaths.delete(candidate)) continue
+    const resolved = path.resolve(candidate)
+    const directory = path.dirname(resolved)
+    if (path.dirname(directory) === originalRoot) {
+      await chmod(directory, 0o700).catch(() => undefined)
+      await rm(directory, { force: true, recursive: true })
+    } else if (removableFileRoots.has(directory)) {
+      await rm(resolved, { force: true })
+    }
+  }
 }
 
 /** 文件附件先冻结到 Wanta 私有目录；后续预览、提取和 agent 工具均不得读写用户源文件。 */
@@ -127,10 +150,22 @@ export function registerAttachmentDialogHandlers(
     "wanta:save-clipboard-attachment",
     async (_event, req: SaveClipboardAttachmentInput): Promise<SelectedAttachmentPath> => {
       const attachment = await saveClipboardAttachment(userDataDir, req)
-      remember(attachment.path)
-      return (await prepare({ ...attachment, kind: "file" })) ?? { ...attachment, kind: "file" }
+      try {
+        const prepared = (await prepare({ ...attachment, kind: "file" })) ?? { ...attachment, kind: "file" }
+        remember(prepared.path)
+        return prepared
+      } finally {
+        await rm(attachment.path, { force: true })
+      }
     },
   )
+
+  ipcMain.handle("wanta:release-attachment-paths", async (_event, filePaths: unknown): Promise<void> => {
+    if (!Array.isArray(filePaths) || !filePaths.every((item) => typeof item === "string")) {
+      throw new Error("Invalid attachment paths.")
+    }
+    await releaseManagedAttachmentPaths(userDataDir, trustedPaths, filePaths)
+  })
 
   ipcMain.handle("wanta:selected-attachment-path-for-file", async (_event, filePath: unknown) => {
     if (typeof filePath !== "string" || !filePath.trim()) return null
@@ -141,10 +176,13 @@ export function registerAttachmentDialogHandlers(
 
   ipcMain.handle("wanta:select-project-directory", async (event): Promise<SelectedAttachmentPath | null> => {
     const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
-    const options: Electron.OpenDialogOptions = { properties: ["openDirectory", "createDirectory"] }
-    const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+    const dialogOptions: Electron.OpenDialogOptions = { properties: ["openDirectory", "createDirectory"] }
+    const result = parent
+      ? await dialog.showOpenDialog(parent, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions)
     if (result.canceled || !result.filePaths[0]) return null
     const directoryPath = result.filePaths[0]
+    options.rememberProjectPath?.(directoryPath)
     return {
       name: path.basename(directoryPath.replace(/[\\/]+$/, "")) || directoryPath,
       mime: "inode/directory",

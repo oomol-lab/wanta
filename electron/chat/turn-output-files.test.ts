@@ -2,7 +2,7 @@ import type { StoredTurnOutputFile } from "./turn-outputs.ts"
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { boundTurnOutputPatchPayloads } from "./turn-output-files.ts"
+import { boundTurnOutputPatchPayloads, isPathInside } from "./turn-output-files.ts"
 
 function file(path: string, patch: string): StoredTurnOutputFile {
   return {
@@ -24,4 +24,9 @@ test("boundTurnOutputPatchPayloads enforces a per-turn persisted patch budget", 
   assert.equal(bounded[1]?.diff.patch, undefined)
   assert.equal(bounded[1]?.diff.kind, "too_large")
   assert.equal(bounded[1]?.diff.truncated, true)
+})
+
+test("isPathInside accepts a child whose name starts with two dots", () => {
+  assert.equal(isPathInside("/repo", "/repo/..config/file.txt"), true)
+  assert.equal(isPathInside("/repo", "/outside/file.txt"), false)
 })

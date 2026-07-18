@@ -14,6 +14,7 @@ import { knowledgeArchiveUri } from "./uri.ts"
 export interface KnowledgeServiceDeps {
   runtime: WikiGraphRuntime
   store: KnowledgeStore
+  trustedImportPaths?: Iterable<string>
 }
 
 function coverDataUrl(cover: Buffer | null): string | undefined {
@@ -86,6 +87,12 @@ export class KnowledgeServiceImpl
   public async importKnowledgeBase(sourcePath?: string): Promise<KnowledgeBaseSummary | null> {
     const selectedPath = sourcePath?.trim() || (await this.selectKnowledgeBasePath())
     if (!selectedPath) return null
+    if (sourcePath && this.deps.trustedImportPaths) {
+      const normalized = path.resolve(selectedPath)
+      if (![...this.deps.trustedImportPaths].some((candidate) => path.resolve(candidate) === normalized)) {
+        throw new Error("Knowledge base path was not selected with a trusted file picker")
+      }
+    }
     if (path.extname(selectedPath).toLowerCase() !== ".wikg") {
       throw new Error("Only .wikg knowledge bases are supported")
     }

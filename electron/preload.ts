@@ -26,6 +26,7 @@ export interface WantaBridge {
   onAppCommand(callback: (command: AppCommand) => void): () => void
   platform: NodeJS.Platform
   reportRendererError(input: RendererErrorReport): void
+  releaseAttachmentPaths(filePaths: string[]): Promise<void>
   saveClipboardAttachment(input: SaveClipboardAttachmentInput): Promise<SelectedAttachmentPath>
   selectedAttachmentPathForFile(file: File): Promise<SelectedAttachmentPath | null>
   selectAttachmentPaths(kind: AttachmentPickerKind): Promise<SelectedAttachmentPath[]>
@@ -55,6 +56,8 @@ const wanta: WantaBridge = {
   },
   platform: process.platform,
   reportRendererError: (input: RendererErrorReport) => ipcRenderer.send("wanta:renderer-error", input),
+  releaseAttachmentPaths: (filePaths: string[]) =>
+    ipcRenderer.invoke("wanta:release-attachment-paths", filePaths) as Promise<void>,
   saveClipboardAttachment: (input: SaveClipboardAttachmentInput) =>
     ipcRenderer.invoke("wanta:save-clipboard-attachment", input) as Promise<SelectedAttachmentPath>,
   selectedAttachmentPathForFile: (file: File) => {

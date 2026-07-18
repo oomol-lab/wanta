@@ -239,19 +239,25 @@ test("sendMessage persists original attachments and hides internal spreadsheet p
   const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-user-attachment-flow-"))
   const bridge = createBridgeAgent()
   const store = new UserAttachmentStore(directory)
-  const service = new ChatServiceImpl(bridge.agent, { userAttachmentStore: store })
+  const originalPath = path.join(directory, "inventory.xlsx")
+  const agentPath = path.join(directory, "inventory-extracted.txt")
+  await Promise.all([writeFile(originalPath, "workbook"), writeFile(agentPath, "extracted")])
+  const service = new ChatServiceImpl(bridge.agent, {
+    trustedAttachmentPaths: new Set([originalPath, agentPath]),
+    userAttachmentStore: store,
+  })
   const events = captureServiceEvents(service)
   service.startEventBridge()
   const attachment = {
     agentMime: "text/plain",
     agentName: "inventory-extracted.txt",
-    agentPath: "/managed/internal/inventory-extracted.txt",
+    agentPath,
     agentSize: 50,
     id: "attachment-1",
     kind: "file" as const,
     mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     name: "inventory.xlsx",
-    path: "/managed/original/inventory.xlsx",
+    path: originalPath,
     size: 100,
   }
 
@@ -268,7 +274,7 @@ test("sendMessage persists original attachments and hides internal spreadsheet p
     kind: "file",
     mime: attachment.mime,
     name: "inventory.xlsx",
-    path: "/managed/original/inventory.xlsx",
+    path: originalPath,
     size: 100,
   })
 
@@ -691,6 +697,59 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
     properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant" } },
   })
   assert.equal(events.at(-1)?.event, "messageStarted")
+})
+
+test("a late idle from a stopped generation does not complete the retried generation", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "first" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  await service.stopGeneration("session-1")
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "second" })
+  const userMessageId = bridge.promptStreaming.mock.calls[1]?.[2]?.messageId as string
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant" } },
+  })
+  bridge.getMessages.mockResolvedValue([
+    { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+    { id: "assistant-2", role: "assistant", createdAt: 2, parts: [] },
+  ])
+
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await new Promise((resolve) => setTimeout(resolve, 175))
+
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(events.filter((event) => event.event === "messageCompleted").length, 0)
+
+  bridge.getMessages.mockResolvedValue([
+    { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+    { id: "assistant-2", role: "assistant", createdAt: 2, completedAt: 3, finishReason: "stop", parts: [] },
+  ])
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await waitForInactiveGeneration(service)
+
+  assert.equal(service.hasActiveGeneration(), false)
+  assert.equal(events.filter((event) => event.event === "messageCompleted").length, 1)
+})
+
+test("sendMessage rejects a second active generation for the same session", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+
+  await service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "first" })
+
+  await assert.rejects(
+    service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "duplicate" }),
+    { message: "A generation is already active for this session." },
+  )
+  assert.equal(bridge.promptStreaming.mock.calls.length, 1)
 })
 
 test("event bridge deduplicates message starts and coalesces text updates", async () => {
@@ -2854,6 +2913,8 @@ test("project dependency task approval avoids repeated prompts during the active
   ])
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 1)
 
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await waitForInactiveGeneration(service)
   await service.sendMessage({
     scope: testOrganizationScope,
     projectContext: { id: "project-1", name: "wanta", path: projectPath },
@@ -3051,6 +3112,70 @@ test("sendMessage converts picker trust into session-scoped attachment trust", a
     )
     service.forgetSession("session-1")
     await assert.rejects(() => service.getAttachmentPreview({ path: filePath, mime: "image/png" }))
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("sendMessage rejects attachment paths that bypassed the native picker", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-attachment-send-untrusted-"))
+  try {
+    const filePath = path.join(root, "private.txt")
+    await writeFile(filePath, "private")
+    const bridge = createBridgeAgent()
+    const service = new ChatServiceImpl(bridge.agent)
+
+    await assert.rejects(
+      service.sendMessage({
+        attachments: [
+          { id: "attachment-1", kind: "file", mime: "text/plain", name: "private.txt", path: filePath, size: 7 },
+        ],
+        scope: testOrganizationScope,
+        sessionId: "session-1",
+        text: "inspect",
+      }),
+      /not selected or previously authorized/,
+    )
+    assert.equal(bridge.setSessionOrganizationName.mock.calls.length, 0)
+    assert.equal(bridge.promptStreaming.mock.calls.length, 0)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("sendMessage accepts a historical attachment when retrying in a new session", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-attachment-send-history-"))
+  try {
+    const filePath = path.join(root, "report.txt")
+    await writeFile(filePath, "report")
+    const attachment = {
+      id: "attachment-1",
+      kind: "file" as const,
+      mime: "text/plain",
+      name: "report.txt",
+      path: filePath,
+      size: 6,
+    }
+    const bridge = createBridgeAgent()
+    bridge.getMessages.mockResolvedValue([
+      {
+        createdAt: 1,
+        id: "user-1",
+        parts: [{ attachment, kind: "attachment", partId: "attachment-1" }],
+        role: "user",
+      },
+    ])
+    const service = new ChatServiceImpl(bridge.agent)
+
+    await service.getMessages("source-session")
+    await service.sendMessage({
+      attachments: [attachment],
+      scope: testOrganizationScope,
+      sessionId: "retry-session",
+      text: "retry",
+    })
+
+    assert.equal(bridge.promptStreaming.mock.calls.length, 1)
   } finally {
     await rm(root, { force: true, recursive: true })
   }

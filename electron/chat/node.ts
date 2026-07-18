@@ -278,6 +278,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private desiredWorkspaceOrganizationName: string | undefined
   private streamEventBuffer: ChatStreamEventBuffer | null = null
   private startedMessages = new Set<string>()
+  private readonly completionChecks = new Set<string>()
   private readonly managedUserMessageIds = new Set<string>()
   private readonly internalAttachmentPathsByMessage = new Map<string, Set<string>>()
   private readonly managedUserMessageIdsBySession = new Map<string, Set<string>>()
@@ -336,6 +337,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.outputPersistence.reset()
     this.desiredWorkspaceOrganizationName = undefined
     this.startedMessages.clear()
+    this.completionChecks.clear()
     this.managedUserMessageIds.clear()
     this.internalAttachmentPathsByMessage.clear()
     this.managedUserMessageIdsBySession.clear()
@@ -355,8 +357,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return this.activeAssistantMessages.size > 0 || this.turnOutputs.size > 0 || this.generations.size > 0
   }
 
-  /** 会话永久删除后同步释放仅存在于 ChatService 生命周期内的权限、路径和消息索引。 */
-  public forgetSession(sessionId: string): void {
+  /** 会话永久删除后释放运行态索引，并删除授权/停止 overlay。 */
+  public async forgetSession(sessionId: string): Promise<void> {
     this.turnOutputs.delete(sessionId)
     this.turnOutputs.clearPending(sessionId)
     this.clearSessionGeneration(sessionId)
@@ -373,6 +375,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.internalAttachmentPathsByMessage.delete(messageId)
     }
     this.managedUserMessageIdsBySession.delete(sessionId)
+    await this.outputPersistence.removeSession(sessionId)
   }
 
   /** agent 就绪后调用：订阅 OpenCode SSE，转译为 ServerEvents 广播给渲染层。 */
@@ -539,32 +542,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
         if (translated.event === "messageCompleted") {
           const sessionId = translated.data.sessionId
-          const messageId = this.activeAssistantMessages.get(sessionId)
-          const completedRun = this.activeRuns.get(sessionId)
-          this.generations.clearInactivityWatchdog(sessionId)
-          void this.finalizeTurnOutput(sessionId, messageId)
-            .catch((error: unknown) => {
-              console.warn("[wanta] failed to finalize turn output", error)
-            })
-            .finally(() => {
-              this.clearSessionGeneration(sessionId)
-              this.activeAssistantMessages.delete(sessionId)
-              this.activeToolParts.delete(sessionId)
-              this.activeRuns.delete(sessionId)
-              this.emitSessionActivity(sessionId)
-              this.sendBestEffort(emit, translated.event, translated.data, { sessionId })
-              if (completedRun) {
-                void Promise.resolve(
-                  this.deps.onSessionCompleted?.({
-                    organizationId: completedRun.workspace.organizationId,
-                    runId: completedRun.runId,
-                    sessionId,
-                  }),
-                ).catch((error: unknown) => {
-                  console.warn("[wanta] failed to record completed task attention:", error)
-                })
-              }
-            })
+          const generation = this.generations.get(sessionId)
+          if (generation) void this.completeSessionGeneration(emit, sessionId, generation)
           continue
         }
         if (sourceSessionId) {
@@ -900,10 +879,93 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     await this.trustedAccess.assertPath(filePath)
   }
 
-  private beginSessionGeneration(sessionId: string): SessionGeneration {
-    const { generation, previous } = this.generations.begin(sessionId)
+  private async assertTrustedAttachments(attachments: readonly ChatAttachment[] | undefined): Promise<void> {
+    if (!attachments?.length) return
+    const roots = await this.trustedLocalPathRoots()
+    for (const attachment of attachments) {
+      const filePaths = [attachment.path, attachment.agentPath].filter((filePath): filePath is string =>
+        Boolean(filePath?.trim()),
+      )
+      for (const filePath of filePaths) {
+        if (!(await this.isPathInTrustedRoots(filePath, roots))) {
+          throw new Error("Attachment path was not selected or previously authorized by the user.")
+        }
+      }
+    }
+  }
+
+  private beginSessionGeneration(sessionId: string, userMessageId: string): SessionGeneration {
+    const { generation, previous } = this.generations.begin(sessionId, userMessageId)
     this.removeGenerationPermissionGrants(sessionId, previous?.id)
     return generation
+  }
+
+  /** session.idle 不带 message/generation id；用本轮用户消息核对历史，避免旧 idle 结束刚重试的新轮次。 */
+  private async completeSessionGeneration(
+    emit: (event: string, data: unknown) => Promise<void>,
+    sessionId: string,
+    generation: SessionGeneration,
+  ): Promise<void> {
+    const completionKey = `${sessionId}\0${generation.id}`
+    if (this.completionChecks.has(completionKey)) return
+    this.completionChecks.add(completionKey)
+    try {
+      if (!(await this.currentTurnIsComplete(sessionId, generation))) return
+      if (!this.isCurrentGeneration(sessionId, generation.id)) return
+      const messageId = this.activeAssistantMessages.get(sessionId)
+      const completedRun = this.activeRuns.get(sessionId)
+      this.generations.clearInactivityWatchdog(sessionId)
+      await this.finalizeTurnOutput(sessionId, messageId).catch((error: unknown) => {
+        console.warn("[wanta] failed to finalize turn output", error)
+      })
+      if (!this.isCurrentGeneration(sessionId, generation.id)) return
+      this.clearSessionGeneration(sessionId, generation.id)
+      this.activeAssistantMessages.delete(sessionId)
+      this.activeToolParts.delete(sessionId)
+      this.activeRuns.delete(sessionId, generation.id)
+      this.emitSessionActivity(sessionId)
+      this.sendBestEffort(emit, "messageCompleted", { sessionId }, { sessionId })
+      if (completedRun) {
+        void Promise.resolve(
+          this.deps.onSessionCompleted?.({
+            organizationId: completedRun.workspace.organizationId,
+            runId: completedRun.runId,
+            sessionId,
+          }),
+        ).catch((error: unknown) => {
+          console.warn("[wanta] failed to record completed task attention:", error)
+        })
+      }
+    } finally {
+      this.completionChecks.delete(completionKey)
+    }
+  }
+
+  private async currentTurnIsComplete(sessionId: string, generation: SessionGeneration): Promise<boolean> {
+    if (!this.agent) return false
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const messages = await withTimeout(this.agent.getMessages(sessionId), 1_000, "idle history verification").catch(
+        () => [],
+      )
+      // 测试替身和旧 OpenCode 可能暂时不给历史；此时保持旧的 idle 兼容行为。
+      if (messages.length === 0) return true
+      const userIndex = messages.findIndex(
+        (message) => message.id === generation.userMessageId && message.role === "user",
+      )
+      const assistantId = this.activeAssistantMessages.get(sessionId)
+      const activeAssistant = assistantId
+        ? messages.find((message) => message.id === assistantId && message.role === "assistant")
+        : undefined
+      // 旧 OpenCode 历史可能不回传自定义 user message id；能命中本轮 active assistant 时兼容 idle 终态。
+      if (userIndex < 0 && activeAssistant) return true
+      if (userIndex >= 0) {
+        const assistant =
+          activeAssistant ?? messages.slice(userIndex + 1).find((message) => message.role === "assistant")
+        if (assistant?.finishReason || assistant?.completedAt !== undefined) return true
+      }
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    return false
   }
 
   private isCurrentGeneration(sessionId: string, generationId: string): boolean {
@@ -1141,8 +1203,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getSessionSnapshot(sessionId: string): Promise<ChatSessionSnapshot> {
-    const messages = await this.getMessages(sessionId)
-    const [pendingQuestions, pendingPermissions] = await Promise.all([
+    const [messages, pendingQuestions, pendingPermissions] = await Promise.all([
+      this.getMessages(sessionId),
       this.getPendingQuestions(sessionId),
       this.getPendingPermissions(sessionId),
     ])
@@ -1159,6 +1221,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
+    if (this.generations.has(req.sessionId)) {
+      throw new Error("A generation is already active for this session.")
+    }
+    await this.assertTrustedAttachments(req.attachments)
     this.setSessionPermissionModeValue(
       req.sessionId,
       req.permissionMode ?? this.sessionPermissionMode(req.sessionId),
@@ -1191,7 +1257,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     let artifactDir: string | undefined
     let processDir: string | undefined
     try {
-      generation = this.beginSessionGeneration(req.sessionId)
+      generation = this.beginSessionGeneration(req.sessionId, userMessageId)
       this.createActiveRun(req, generation)
       const activeGeneration = generation
       this.userStops.delete(req.sessionId)
@@ -1377,8 +1443,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     baseline?: GitTurnBaseline
     projectRoot?: string
   }> {
-    const repositoryRoot = project?.git?.repositoryRoot?.trim()
-    if (!project || !repositoryRoot || !this.deps.projectStore) {
+    if (!project?.git || !this.deps.projectStore) {
       return {}
     }
     const registered = (await this.deps.projectStore.read()).get(project.id)
@@ -1391,8 +1456,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     try {
       return {
-        baseline: await captureGitTurnBaseline(repositoryRoot),
-        projectRoot: repositoryRoot,
+        // Git 输出和 turn output 都严格限制在用户注册的项目目录；仓库根由 renderer 提供，仅用于展示，
+        // 不能作为主进程的本地读取授权边界。git -C 子目录会把 ls-files 输出限制并相对到该目录。
+        baseline: await captureGitTurnBaseline(registered.path),
+        projectRoot: normalizeProjectPath(registered.path),
       }
     } catch (error) {
       console.warn("[wanta] failed to capture project baseline", error)

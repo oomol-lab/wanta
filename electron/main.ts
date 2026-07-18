@@ -146,6 +146,7 @@ const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"
 const turnOutputStore = new TurnOutputStore(app.getPath("userData"), artifactBundleStore)
 const userAttachmentStore = new UserAttachmentStore(app.getPath("userData"))
 const trustedAttachmentPaths = new ExpiringTrustedPathRegistry()
+const trustedProjectPaths = new ExpiringTrustedPathRegistry()
 const artifactResourceLeaseStore = new ArtifactResourceLeaseStore()
 const spreadsheetPreviewWorker = new SpreadsheetPreviewWorkerClient()
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 组织作用域同步，
@@ -182,7 +183,7 @@ const sessionService = new SessionServiceImpl(null, {
   metadataStore: sessionMetadataStore,
   onSessionArchived: (sessionId) => attentionService.removeSession(sessionId),
   onSessionRemoved: async (sessionId) => {
-    chatService.forgetSession(sessionId)
+    await chatService.forgetSession(sessionId)
     const [artifactBundles, turnOutputs] = await Promise.all([artifactBundleStore.read(), turnOutputStore.read()])
     await removeSessionOutputDirectories({
       agentRoot: path.join(app.getPath("userData"), "agent"),
@@ -202,6 +203,7 @@ const sessionService = new SessionServiceImpl(null, {
     })
   },
   projectStore: sessionProjectStore,
+  trustedProjectPaths,
 })
 const modelsService = new ModelsServiceImpl({
   store: modelsStore,
@@ -213,15 +215,15 @@ const authManager = new AuthManager({
   protocolScheme,
   applyAccount: applyAuthAccount,
 })
-const skillAgentRefresh = new AgentRefreshScheduler({
+const agentRefreshScheduler = new AgentRefreshScheduler({
   canRefresh: () => Boolean(authManager.activeAccount() && agent?.isReady()),
   isBusy: () => chatService.hasActiveGeneration(),
   isQuitting: () => isQuitting,
-  refresh: refreshAgentAfterSkillChange,
+  refresh: refreshAgentRuntime,
 })
 const authService = new AuthServiceImpl(authManager)
 const skillService = new SkillServiceImpl(authManager, {
-  onRuntimeSkillsChanged: (reason) => skillAgentRefresh.schedule(reason),
+  onRuntimeSkillsChanged: (reason) => agentRefreshScheduler.schedule(reason),
 })
 const settingsService = new SettingsServiceImpl({
   onSettingsChanged: (settings) => attentionService.settingsChanged(settings),
@@ -251,6 +253,7 @@ const gitService = new GitServiceImpl({
 const knowledgeService = new KnowledgeServiceImpl({
   runtime: { executablePath: process.execPath, cliPath: wikiGraphCliPath },
   store: knowledgeStore,
+  trustedImportPaths: trustedAttachmentPaths,
 })
 
 chatService.sessionActivity.on(({ sessionId, usedAt }) => {
@@ -281,6 +284,7 @@ server.registerService(knowledgeService)
 settingsService.applyStartupTheme()
 registerAttachmentDialogHandlers(trustedAttachmentPaths, {
   createSpreadsheetPreview: (filePath, mime, size) => spreadsheetPreviewWorker.preview(filePath, mime, size),
+  rememberProjectPath: (directoryPath) => trustedProjectPaths.add(directoryPath),
 })
 registerAppLocaleHandler()
 registerRendererErrorHandler()
@@ -309,6 +313,9 @@ if (isLocked) {
       createMainWindow()
       void attentionService.initialize().catch((error: unknown) => {
         console.warn("[wanta] failed to initialize task attention state:", error)
+      })
+      void userAttachmentStore.pruneExpiredUnreferenced().catch((error: unknown) => {
+        console.warn("[wanta] failed to prune expired attachment snapshots:", error)
       })
       // 打包态启动跨平台后台更新：延迟首查、周期检查、系统唤醒后补查；发现后后台下载，
       // 安装仍由用户点击重启或正常退出触发，避免打断 Agent 任务。
@@ -391,7 +398,7 @@ if (isLocked) {
  */
 function reapAgentForShutdown(): Promise<void> {
   shutdownReap ??= (async () => {
-    skillAgentRefresh.dispose()
+    agentRefreshScheduler.dispose()
     // 退出观感：先藏窗口，回收（含最长宽限期）在后台进行，不让用户盯着卡住的窗口。
     mainWindow?.hide()
     windowsTrayLifecycle?.dispose()
@@ -511,6 +518,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   if (isQuitting) {
     return
   }
+  const runtimeVersionAtStart = agentRuntimeVersion
   // account 恒带会话 token（来自 activeRuntimeAccount / adoptAccount）；token 缺失即为 null = 登出态。
   // 幂等短路：冷启动 deep-link 与 whenReady 双路径会用同一账号 apply 两次。
   if (
@@ -601,10 +609,13 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     return
   }
   appliedAccount = account
-  appliedAgentRuntimeVersion = agentRuntimeVersion
+  appliedAgentRuntimeVersion = runtimeVersionAtStart
   chatService.startEventBridge()
   chatService.setAgentStatus({ status: "ready" })
   console.log("[wanta] agent sidecar ready at", nextAgent.url)
+  if (agentRuntimeVersion !== runtimeVersionAtStart) {
+    agentRefreshScheduler.schedule("runtime configuration changed during agent startup", 0)
+  }
   void skillService[ensureDefaultRegistrySkillsInstalled]().catch((error: unknown) => {
     console.warn("[wanta] default registry skill installation failed:", error)
   })
@@ -627,22 +638,11 @@ function restartAgentForModelConfig(): void {
   if (isQuitting) {
     return
   }
-  agentRuntimeVersion += 1
-  void authManager
-    .activeRuntimeAccount()
-    .then(async (account) => {
-      await applyAuthAccount(account)
-      // 会话中途过期：装配登出态后主动广播"未登录"，渲染层据此落回登录页（一致生命周期）。
-      if (!account) {
-        await authManager.broadcastAuthState()
-      }
-    })
-    .catch((error: unknown) => {
-      console.error("[wanta] failed to restart agent after model config change:", error)
-    })
+  if (agent?.isReady()) agentRefreshScheduler.schedule("model configuration changed", 0)
+  else agentRuntimeVersion += 1
 }
 
-async function refreshAgentAfterSkillChange(_reason: string): Promise<void> {
+async function refreshAgentRuntime(_reason: string): Promise<void> {
   agentRuntimeVersion += 1
   const account = await authManager.activeRuntimeAccount()
   await applyAuthAccount(account)

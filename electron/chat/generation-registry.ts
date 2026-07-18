@@ -1,6 +1,7 @@
 export interface SessionGeneration {
   controller: AbortController
   id: string
+  userMessageId: string
 }
 
 /** 集中持有聊天 generation 与 watchdog，避免 service 同时维护多组互相依赖的 timer map。 */
@@ -25,10 +26,13 @@ export class GenerationRegistry {
     return this.generations.has(sessionId)
   }
 
-  public begin(sessionId: string): { generation: SessionGeneration; previous?: SessionGeneration } {
+  public begin(
+    sessionId: string,
+    userMessageId: string,
+  ): { generation: SessionGeneration; previous?: SessionGeneration } {
     const previous = this.generations.get(sessionId)
     previous?.controller.abort()
-    const generation = { controller: new AbortController(), id: crypto.randomUUID() }
+    const generation = { controller: new AbortController(), id: crypto.randomUUID(), userMessageId }
     this.generations.set(sessionId, generation)
     return { generation, ...(previous ? { previous } : {}) }
   }

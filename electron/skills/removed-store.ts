@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
+import { atomicWriteText } from "../atomic-file.ts"
 
 export const removedSkillStoreSchemaVersion = 1
 
@@ -66,15 +66,7 @@ export async function readRemovedSkillStore(file: string): Promise<RemovedSkillS
 }
 
 export async function writeRemovedSkillStore(file: string, store: RemovedSkillStoreData): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true })
-  const tmp = `${file}.tmp-${process.pid}-${randomUUID()}`
-  try {
-    await writeFile(tmp, `${JSON.stringify(normalizeRemovedSkillStore(store), null, 2)}\n`, "utf8")
-    await rename(tmp, file)
-  } catch (error) {
-    await rm(tmp, { force: true })
-    throw error
-  }
+  await atomicWriteText(file, `${JSON.stringify(normalizeRemovedSkillStore(store), null, 2)}\n`)
 }
 
 export function emptyRemovedSkillStore(): RemovedSkillStoreData {

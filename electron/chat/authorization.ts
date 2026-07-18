@@ -1,8 +1,8 @@
 import type { AuthorizationInfo, ChatMessage } from "./common.ts"
 
-import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
+import { atomicWriteText } from "../atomic-file.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export type AuthorizationOverlays = Map<string, Map<string, Map<string, AuthorizationInfo>>>
@@ -187,14 +187,6 @@ export class AuthorizationOverlayStore {
   }
 
   public async write(records: AuthorizationOverlays): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp-${process.pid}-${randomUUID()}`
-    try {
-      await writeFile(tmp, JSON.stringify(serializeAuthorizationOverlays(records), null, 2), "utf-8")
-      await rename(tmp, this.file)
-    } catch (error) {
-      await rm(tmp, { force: true })
-      throw error
-    }
+    await atomicWriteText(this.file, JSON.stringify(serializeAuthorizationOverlays(records), null, 2), { mode: 0o600 })
   }
 }

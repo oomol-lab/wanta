@@ -6,6 +6,7 @@ type DiagnosticFields = Record<string, unknown>
 
 const maxLogBytes = 2 * 1024 * 1024
 const maxDiagnosticStateEntries = 500
+const maxDiagnosticValueDepth = 8
 const pinoLevels: Record<DiagnosticLevel, number> = {
   trace: 10,
   info: 30,
@@ -155,45 +156,90 @@ function writeDiagnostic(
 
 function normalizeFields(fields: DiagnosticFields): DiagnosticFields {
   const normalized: DiagnosticFields = {}
+  const seen = new WeakSet<object>([fields])
+  let keys: string[]
 
-  for (const [key, value] of Object.entries(fields).sort(([left], [right]) => left.localeCompare(right))) {
-    normalized[key] = normalizeValue(value)
+  try {
+    keys = Object.keys(fields).sort((left, right) => left.localeCompare(right))
+  } catch (error) {
+    return { serializationError: describeNormalizationFailure(error) }
+  }
+
+  for (const key of keys) {
+    try {
+      normalized[key] = normalizeValue(fields[key], seen, 0)
+    } catch (error) {
+      normalized[key] = `[Unreadable: ${describeNormalizationFailure(error)}]`
+    }
   }
 
   return normalized
 }
 
-function normalizeValue(value: unknown): unknown {
+function normalizeValue(value: unknown, seen: WeakSet<object>, depth: number): unknown {
   if (value === undefined || value === null || typeof value === "boolean" || typeof value === "number") {
     return value
-  }
-
-  if (value instanceof Error) {
-    return {
-      name: value.name,
-      message: value.message,
-      stack: value.stack,
-      cause: value.cause ? normalizeValue(value.cause) : undefined,
-    }
   }
 
   if (typeof value === "string") {
     return value.length > 500 ? `${value.slice(0, 500)}...` : value
   }
 
-  if (Array.isArray(value)) {
-    return value.map(normalizeValue)
+  if (typeof value !== "object") {
+    return String(value)
   }
 
-  if (typeof value === "object") {
+  if (depth >= maxDiagnosticValueDepth) {
+    return "[Max depth]"
+  }
+
+  if (seen.has(value)) {
+    return "[Circular]"
+  }
+
+  seen.add(value)
+  try {
+    if (value instanceof Error) {
+      return {
+        name: value.name,
+        message: value.message,
+        stack: value.stack,
+        cause: value.cause === undefined ? undefined : normalizeValue(value.cause, seen, depth + 1),
+      }
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => normalizeValue(item, seen, depth + 1))
+    }
+
     const normalized: DiagnosticFields = {}
-    for (const [key, item] of Object.entries(value).sort(([left], [right]) => left.localeCompare(right))) {
-      normalized[key] = normalizeValue(item)
+    let keys: string[]
+    try {
+      keys = Object.keys(value).sort((left, right) => left.localeCompare(right))
+    } catch (error) {
+      return `[Unserializable: ${describeNormalizationFailure(error)}]`
+    }
+    for (const key of keys) {
+      try {
+        normalized[key] = normalizeValue((value as DiagnosticFields)[key], seen, depth + 1)
+      } catch (error) {
+        normalized[key] = `[Unreadable: ${describeNormalizationFailure(error)}]`
+      }
     }
     return normalized
+  } catch (error) {
+    return `[Unserializable: ${describeNormalizationFailure(error)}]`
+  } finally {
+    seen.delete(value)
   }
+}
 
-  return String(value)
+function describeNormalizationFailure(error: unknown): string {
+  try {
+    return error instanceof Error ? error.message : String(error)
+  } catch {
+    return "unknown error"
+  }
 }
 
 async function rotateDiagnosticsLogIfNeeded(logPath: string): Promise<void> {

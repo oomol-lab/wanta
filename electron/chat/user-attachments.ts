@@ -1,8 +1,8 @@
 import type { ChatAttachment, ChatMessage, ChatMessagePart } from "./common.ts"
 
-import { randomUUID } from "node:crypto"
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { chmod, lstat, readFile, readdir, rm } from "node:fs/promises"
 import path from "node:path"
+import { atomicWriteText } from "../atomic-file.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface StoredUserAttachmentRecord {
@@ -191,6 +191,41 @@ export class UserAttachmentStore {
     })
   }
 
+  /** 清理已过保留期且不被任何已发送消息引用的草稿/中间附件。 */
+  public async pruneExpiredUnreferenced(maxAgeMs = 7 * 24 * 60 * 60_000, now = Date.now()): Promise<void> {
+    await this.enqueueMutation(async () => {
+      const records = await this.loadRecords()
+      const referenced = new Set(
+        [...records.values()]
+          .flatMap((messages) => [...messages.values()])
+          .flatMap((record) => [
+            ...record.attachments.map((attachment) => path.resolve(attachment.path)),
+            ...record.internalPaths.map((internalPath) => path.resolve(internalPath)),
+          ]),
+      )
+      const referencedDirectories = new Set([...referenced].map((filePath) => path.dirname(filePath)))
+      const cutoff = now - maxAgeMs
+      const originalEntries = await readdir(this.managedOriginalRoot, { withFileTypes: true }).catch(() => [])
+      for (const entry of originalEntries) {
+        const directory = path.join(this.managedOriginalRoot, entry.name)
+        if (!entry.isDirectory() || referencedDirectories.has(directory)) continue
+        const info = await lstat(directory).catch(() => null)
+        if (!info || info.mtimeMs > cutoff) continue
+        await chmod(directory, 0o700).catch(() => undefined)
+        await this.removeManagedPath(directory, { force: true, recursive: true })
+      }
+      for (const root of [this.managedAgentRoot, path.resolve(path.dirname(this.managedOriginalRoot), "clipboard")]) {
+        const entries = await readdir(root, { withFileTypes: true }).catch(() => [])
+        for (const entry of entries) {
+          const filePath = path.join(root, entry.name)
+          if (!entry.isFile() || referenced.has(filePath)) continue
+          const info = await lstat(filePath).catch(() => null)
+          if (info && info.mtimeMs <= cutoff) await this.removeManagedPath(filePath, { force: true })
+        }
+      }
+    })
+  }
+
   private async removeUnreferencedManagedFiles(
     records: StoredUserAttachmentRecord[],
     retainedPaths: ReadonlySet<string>,
@@ -230,18 +265,7 @@ export class UserAttachmentStore {
   }
 
   private async persist(records: UserAttachmentRecords): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true })
-    const temporaryPath = `${this.file}.tmp-${process.pid}-${randomUUID()}`
-    try {
-      await writeFile(temporaryPath, JSON.stringify(serializeRecords(records), null, 2), {
-        encoding: "utf8",
-        mode: 0o600,
-      })
-      await rename(temporaryPath, this.file)
-    } catch (error) {
-      await rm(temporaryPath, { force: true })
-      throw error
-    }
+    await atomicWriteText(this.file, JSON.stringify(serializeRecords(records), null, 2), { mode: 0o600 })
   }
 
   private async enqueueMutation(mutation: () => Promise<void>): Promise<void> {

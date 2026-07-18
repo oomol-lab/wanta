@@ -51,6 +51,90 @@ describe("AgentManager", () => {
     }
   })
 
+  it("reuses authorized provider awareness within the prompt cache window", async () => {
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    const lookup = vi.fn(async () => ["gmail"])
+    manager.listAuthorizedServices = lookup
+
+    await manager.buildAuthorizedSystem("acme")
+    await manager.buildAuthorizedSystem("acme")
+
+    expect(lookup).toHaveBeenCalledOnce()
+  })
+
+  it("keeps a shared authorized provider lookup alive when its first caller is cancelled", async () => {
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    let resolveLookup: (services: string[]) => void = () => undefined
+    let sharedSignal: AbortSignal | undefined
+    const lookup = vi.fn((_organizationName?: string, signal?: AbortSignal) => {
+      sharedSignal = signal
+      return new Promise<string[]>((resolve) => {
+        resolveLookup = resolve
+      })
+    })
+    manager.listAuthorizedServices = lookup
+    const firstCaller = new AbortController()
+
+    const first = manager.buildAuthorizedSystem("acme", firstCaller.signal)
+    await vi.waitFor(() => expect(lookup).toHaveBeenCalledOnce())
+    firstCaller.abort(new Error("Prompt was cancelled."))
+
+    await expect(first).resolves.toBeUndefined()
+    expect(sharedSignal?.aborted).toBe(false)
+
+    const second = manager.buildAuthorizedSystem("acme")
+    resolveLookup(["gmail"])
+    await expect(second).resolves.toContain("Some Link providers are already authorized")
+    await manager.buildAuthorizedSystem("acme")
+    expect(lookup).toHaveBeenCalledOnce()
+  })
+
+  it("aborts authorized provider lookups and prevents cache refill after dispose", async () => {
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    let resolveLookup: (services: string[]) => void = () => undefined
+    let sharedSignal: AbortSignal | undefined
+    const lookup = vi
+      .fn((_organizationName?: string, signal?: AbortSignal) => {
+        sharedSignal = signal
+        return new Promise<string[]>((resolve) => {
+          resolveLookup = resolve
+        })
+      })
+      .mockImplementationOnce((_organizationName?: string, signal?: AbortSignal) => {
+        sharedSignal = signal
+        return new Promise<string[]>((resolve) => {
+          resolveLookup = resolve
+        })
+      })
+      .mockResolvedValueOnce(["slack"])
+    manager.listAuthorizedServices = lookup
+
+    const pending = manager.buildAuthorizedSystem("acme")
+    await vi.waitFor(() => expect(lookup).toHaveBeenCalledOnce())
+    await manager.dispose()
+    expect(sharedSignal?.aborted).toBe(true)
+
+    resolveLookup(["gmail"])
+    await pending
+    await expect(manager.buildAuthorizedSystem("acme")).resolves.toContain("Some Link providers are already authorized")
+    expect(lookup).toHaveBeenCalledTimes(2)
+  })
+
   it("keeps artifact directories inside the artifacts root", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {

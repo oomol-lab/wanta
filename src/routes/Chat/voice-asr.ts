@@ -66,7 +66,7 @@ export function describeVoiceAsrFetchFailure(error: unknown): string {
 }
 
 /** 直接向 ASR 网关 POST 录音并返回转写文本。会话 cookie 自动鉴权，超时 60s。 */
-export async function transcribeVoice(audioBase64: string): Promise<string> {
+export async function transcribeVoice(audioBase64: string, signal?: AbortSignal): Promise<string> {
   const requestId = createVoiceAsrRequestId()
   let response: Response
   try {
@@ -77,6 +77,7 @@ export async function transcribeVoice(audioBase64: string): Promise<string> {
         "X-Api-Request-Id": requestId,
       },
       body: buildVoiceAsrBody(audioBase64, requestId),
+      signal,
       timeoutMs: voiceAsrTimeoutMs,
     })
   } catch (error) {

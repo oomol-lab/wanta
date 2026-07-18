@@ -5,6 +5,7 @@ import type { AppDataResources } from "@/components/AppDataContext"
 import * as React from "react"
 import { useAppContext } from "@/components/AppContext"
 import { AppDataContext } from "@/components/AppDataContext"
+import { useAuth } from "@/hooks/useAuth"
 import { clearBillingOverviewCache } from "@/hooks/useBillingOverview"
 import { clearAvatarImageCache } from "@/lib/avatar-image-cache"
 import { clearConnectorCache } from "@/lib/connections-client"
@@ -45,13 +46,22 @@ function authCacheScope(state: AuthState | null): string | null {
 }
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
-  const { authService, skillService } = useAppContext()
+  const { skillService } = useAppContext()
+  const auth = useAuth()
+  const authStateRef = React.useRef(auth.state)
+  authStateRef.current = auth.state
   const resources = React.useMemo<AppDataResources>(() => {
-    return {
+    const created: AppDataResources = {
       authState: createResource<AuthState>({
         isEqualData: isRefreshDataEqual,
         staleTimeMs: 10_000,
-        load: () => authService.invoke("getAuthState"),
+        load: async () => {
+          const state = authStateRef.current
+          if (!state) {
+            throw new Error("Auth state is unavailable.")
+          }
+          return state
+        },
       }),
       skillInventory: createResource<SkillInventory>({
         isEqualData: isRefreshDataEqual,
@@ -64,38 +74,38 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         load: (options) => skillService.invoke("checkSkillVersions", { forceRefresh: options.forceRefresh }),
       }),
     }
-  }, [authService, skillService])
+    if (authStateRef.current) {
+      created.authState.setData(authStateRef.current)
+    }
+    return created
+  }, [skillService])
 
   React.useEffect(() => {
-    return authService.serverEvents.on("authStateChanged", (nextAuthState) => {
-      clearConnectorCache()
-      clearSkillCatalogCache()
-      const currentAuthState = resources.authState.getSnapshot().data
-      if (authCacheScope(currentAuthState) !== authCacheScope(nextAuthState)) {
+    const previousAuthState = resources.authState.getSnapshot().data
+    if (auth.state) {
+      if (previousAuthState && previousAuthState.updatedAt !== auth.state.updatedAt) {
+        clearConnectorCache()
+        clearSkillCatalogCache()
+      }
+      if (authCacheScope(previousAuthState) !== authCacheScope(auth.state)) {
         clearAvatarImageCache()
         clearBillingOverviewCache()
         clearOrganizationDetailsResources()
       }
-      resources.authState.setData(nextAuthState)
-      resources.skillInventory.invalidate()
-      resources.skillVersions.invalidate()
-      if (nextAuthState.status === "authenticated") {
-        void resources.skillInventory
-          .refresh({ forceRefresh: true, silent: true })
-          .catch((error: unknown) =>
-            reportRendererHandledError("app-data", "silent skill inventory refresh failed after auth change", error),
-          )
-        void resources.skillVersions
-          .refresh({ silent: true })
-          .catch((error: unknown) =>
-            reportRendererHandledError("app-data", "silent skill version refresh failed after auth change", error),
-          )
-      } else {
-        resources.skillInventory.reset()
-        resources.skillVersions.reset()
-      }
-    })
-  }, [authService.serverEvents, resources])
+      resources.authState.setData(auth.state)
+    }
+  }, [auth.state, resources])
+
+  React.useEffect(
+    () => () => {
+      clearAvatarImageCache()
+      clearBillingOverviewCache()
+      clearConnectorCache()
+      clearOrganizationDetailsResources()
+      clearSkillCatalogCache()
+    },
+    [],
+  )
 
   React.useEffect(() => {
     return skillService.serverEvents.on("skillInventoryChanged", () => {
@@ -115,9 +125,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (document.visibilityState !== "visible") {
         return
       }
-      void resources.authState
-        .refresh({ silent: true })
-        .catch((error: unknown) => reportRendererHandledError("app-data", "silent auth state refresh failed", error))
       void resources.skillInventory
         .refresh({ silent: true })
         .catch((error: unknown) =>

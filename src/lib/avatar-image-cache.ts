@@ -4,6 +4,7 @@ const avatarCacheMaxEntries = 128
 const avatarFailureTtlMs = 60_000
 const avatarFetchTimeoutMs = 8_000
 const avatarDirectFallbackTtlMs = 60_000
+const avatarTransientStateMaxEntries = 256
 
 interface AvatarCacheEntry {
   lastUsedAt: number
@@ -84,7 +85,9 @@ export function markAvatarImageFailed(src: string | undefined, now = Date.now())
   if (!key) {
     return
   }
+  pruneAvatarTransientState(avatarFailures, now)
   avatarFailures.set(key, { expiresAt: now + avatarFailureTtlMs })
+  trimAvatarTransientState(avatarFailures)
 }
 
 export function clearAvatarImageFailure(src: string | undefined): void {
@@ -113,7 +116,9 @@ export function shouldLoadAvatarImageDirectly(src: string | undefined, now = Dat
 export function markAvatarImageDirectFallback(src: string | undefined, now = Date.now()): void {
   const key = normalizeAvatarCacheKey(src)
   if (key) {
+    pruneAvatarTransientState(avatarDirectFallbacks, now)
     avatarDirectFallbacks.set(key, { expiresAt: now + avatarDirectFallbackTtlMs })
+    trimAvatarTransientState(avatarDirectFallbacks)
   }
 }
 
@@ -288,4 +293,22 @@ export function clearAvatarImageCache(options: Pick<AvatarImageCacheFetchOptions
   avatarInFlight.clear()
   avatarKeyGenerations.clear()
   avatarRefreshInFlight.clear()
+}
+
+function pruneAvatarTransientState(cache: Map<string, AvatarFailureEntry>, now: number): void {
+  for (const [key, entry] of cache) {
+    if (entry.expiresAt <= now) {
+      cache.delete(key)
+    }
+  }
+}
+
+function trimAvatarTransientState(cache: Map<string, AvatarFailureEntry>): void {
+  while (cache.size > avatarTransientStateMaxEntries) {
+    const oldestKey = cache.keys().next().value as string | undefined
+    if (!oldestKey) {
+      return
+    }
+    cache.delete(oldestKey)
+  }
 }

@@ -805,10 +805,10 @@ export interface BillingOverviewResult {
   usageSubscription: SubscriptionStatus | null
   usageSubscriptionAvailable: boolean
   subscription: SubscriptionStatus | null
+  subscriptionAvailable: boolean
   teamPendingPayment: TeamPendingPaymentResult | null
+  teamPendingPaymentAvailable: boolean
 }
-
-export type BillingSummaryResult = BillingOverviewResult
 
 export type ChatService = typeof ChatService
 export const ChatService = serviceName("chat-service") as ServiceName<{

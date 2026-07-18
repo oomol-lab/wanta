@@ -3,6 +3,7 @@ import type { BillingOverviewResult } from "../../electron/chat/common.ts"
 import assert from "node:assert/strict"
 import { afterEach, test, vi } from "vitest"
 import {
+  BillingOverviewRequestSupersededError,
   clearBillingOverviewCache,
   getBillingOverviewCacheEntry,
   loadBillingOverviewEntry,
@@ -20,9 +21,11 @@ function emptyBillingOverview(): BillingOverviewResult {
     metering: null,
     spend: null,
     subscription: null,
+    subscriptionAvailable: true,
     usageSubscription: null,
     usageSubscriptionAvailable: true,
     teamPendingPayment: null,
+    teamPendingPaymentAvailable: true,
   }
 }
 
@@ -75,6 +78,7 @@ test("forced billing refresh supersedes an older in-flight snapshot", async () =
   const entry = { data: null, loadedAt: 0, promise: null }
 
   const staleRequest = loadBillingOverviewEntry(entry, () => stale)
+  const staleResult = staleRequest.catch((error: unknown) => error)
   const freshRequest = loadBillingOverviewEntry(entry, () => fresh, { force: true })
 
   assert.notEqual(freshRequest, staleRequest)
@@ -83,7 +87,7 @@ test("forced billing refresh supersedes an older in-flight snapshot", async () =
   assert.equal(entry.data, freshData)
 
   resolveStale(staleData)
-  await staleRequest
+  assert.ok((await staleResult) instanceof BillingOverviewRequestSupersededError)
   assert.equal(entry.data, freshData)
 })
 
@@ -101,6 +105,7 @@ test("clearing billing cache detaches old account data and in-flight writes", as
       }),
     { force: true },
   )
+  const staleResult = staleRequest.catch((error: unknown) => error)
 
   clearBillingOverviewCache()
   const nextEntry = getBillingOverviewCacheEntry("account-old", 30)
@@ -108,6 +113,6 @@ test("clearing billing cache detaches old account data and in-flight writes", as
   assert.notEqual(nextEntry, oldEntry)
   assert.equal(nextEntry.data, null)
   resolveStale(staleData)
-  await staleRequest
+  assert.match(String(await staleResult), /cache was cleared/)
   assert.equal(nextEntry.data, null)
 })

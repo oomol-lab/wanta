@@ -13,6 +13,7 @@ import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/pro
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
+import { fetchWithRetry } from "./network-download.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
@@ -155,7 +156,7 @@ interface TarballMeta {
 
 /** 查 registry packument，取指定版本的 tarball URL 与 integrity（SRI），用于下载与完整性校验。 */
 async function resolveTarballMeta(packageName: string): Promise<TarballMeta> {
-  const response = await fetch(`https://registry.npmjs.org/${packageName}`)
+  const response = await fetchWithRetry(`https://registry.npmjs.org/${packageName}`)
   if (!response.ok) {
     throw new Error(`fetch packument failed: HTTP ${response.status} ${packageName}`)
   }
@@ -202,7 +203,7 @@ export async function downloadOoBinary(): Promise<string> {
   }
 
   const meta = await resolveTarballMeta(target.packageName)
-  const response = await fetch(meta.tarball)
+  const response = await fetchWithRetry(meta.tarball)
   if (!response.ok) {
     throw new Error(`download oo failed: HTTP ${response.status} ${meta.tarball}`)
   }

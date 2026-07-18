@@ -127,6 +127,7 @@ export function BillingRoute({
   )
   const teamId = canManageTeamBilling(workspace) ? workspace.organizationId : null
   const showTeamPlans = teamId !== null
+  const teamDetailsAvailable = data?.subscriptionAvailable === true && data.teamPendingPaymentAvailable === true
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const availableShare =
@@ -172,6 +173,7 @@ export function BillingRoute({
       isSessionExpired,
       isSubmitting: teamLoading !== null,
     }) ||
+    !teamDetailsAvailable ||
     seatState.count === null ||
     Boolean(seatState.error)
   React.useEffect(() => {
@@ -238,7 +240,7 @@ export function BillingRoute({
 
         {!billingContext.canManage ? <BillingManagePermissionNotice /> : null}
 
-        {showTeamPlans ? (
+        {showTeamPlans && (!data || teamDetailsAvailable) ? (
           <>
             <PlanSeatOverviewPanel
               loading={(loading && !data) || isSessionExpired}
@@ -269,19 +271,19 @@ export function BillingRoute({
 
               {balanceOverview}
             </section>
-
-            {canManageFunding ? (
-              <UsageSubscriptionPanel
-                currentPlan={currentUsageSubscription}
-                disabled={isSessionExpired || loading || data?.usageSubscriptionAvailable !== true}
-                openExternalCheckout={openExternalCheckout}
-                userId={authState?.account?.id}
-              />
-            ) : null}
           </>
         ) : (
           balanceOverview
         )}
+
+        {canManageFunding ? (
+          <UsageSubscriptionPanel
+            currentPlan={currentUsageSubscription}
+            disabled={isSessionExpired || loading || data?.usageSubscriptionAvailable !== true}
+            openExternalCheckout={openExternalCheckout}
+            userId={authState?.account?.id}
+          />
+        ) : null}
 
         <UsageDetailsDisclosure
           balanceLots={data?.balance?.items ?? []}

@@ -24,6 +24,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 export function useVoiceComposerInput(onTranscription: (text: string) => void) {
   const recorder = useVoiceRecorder()
   const transcriptionRef = React.useRef(0)
+  const transcriptionControllerRef = React.useRef<AbortController | null>(null)
   const [transcribing, setTranscribing] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [errorKind, setErrorKind] = React.useState<VoiceInputErrorKind | null>(null)
@@ -31,6 +32,9 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
 
   const transcribeBlob = React.useCallback(
     async (blob: Blob) => {
+      transcriptionControllerRef.current?.abort()
+      const controller = new AbortController()
+      transcriptionControllerRef.current = controller
       const transcriptionToken = startVoiceTranscription(transcriptionRef)
       setTranscribing(true)
       setError(null)
@@ -38,7 +42,10 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
       setRetryBlob(blob)
       try {
         const audioBase64 = arrayBufferToBase64(await blob.arrayBuffer())
-        const text = await transcribeVoice(audioBase64)
+        if (!isCurrentVoiceTranscription(transcriptionRef, transcriptionToken)) {
+          return
+        }
+        const text = await transcribeVoice(audioBase64, controller.signal)
         if (!isCurrentVoiceTranscription(transcriptionRef, transcriptionToken)) {
           return
         }
@@ -52,6 +59,9 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
         setErrorKind(isVoiceNoSpeechError(cause) ? "no_speech" : "transcription_failed")
         setError(cause instanceof Error ? cause.message : String(cause))
       } finally {
+        if (transcriptionControllerRef.current === controller) {
+          transcriptionControllerRef.current = null
+        }
         if (isCurrentVoiceTranscription(transcriptionRef, transcriptionToken)) {
           setTranscribing(false)
         }
@@ -75,6 +85,8 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
   }, [recorder, transcribeBlob])
 
   const cancel = React.useCallback(() => {
+    transcriptionControllerRef.current?.abort()
+    transcriptionControllerRef.current = null
     invalidateVoiceTranscription(transcriptionRef)
     setTranscribing(false)
     setError(null)
@@ -82,6 +94,14 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
     setRetryBlob(null)
     recorder.cancel()
   }, [recorder])
+
+  React.useEffect(
+    () => () => {
+      transcriptionControllerRef.current?.abort()
+      invalidateVoiceTranscription(transcriptionRef)
+    },
+    [],
+  )
 
   const start = React.useCallback(() => {
     setError(null)

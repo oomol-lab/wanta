@@ -11,6 +11,7 @@ interface UseOrganizationMemberSearchOptions {
 }
 
 const memberSearchCacheMs = 60_000
+const memberSearchCacheMaxEntries = 50
 
 export function preferredSearchUserId(
   items: MemberSearchState["items"],
@@ -95,6 +96,9 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
       })
       return
     }
+    if (cached) {
+      searchCache.current.delete(normalizedQuery)
+    }
 
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
@@ -103,7 +107,15 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
           if (memberSearchRequestId.current !== requestId) {
             return
           }
+          searchCache.current.delete(normalizedQuery)
           searchCache.current.set(normalizedQuery, { loadedAt: Date.now(), users })
+          while (searchCache.current.size > memberSearchCacheMaxEntries) {
+            const oldestKey = searchCache.current.keys().next().value as string | undefined
+            if (!oldestKey) {
+              break
+            }
+            searchCache.current.delete(oldestKey)
+          }
           const existingMemberIds = new Set(members.map((member) => member.user_id))
           setMemberSearch({
             error: null,
@@ -135,6 +147,7 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
 
   React.useEffect(() => {
     if (!addMemberOpen) {
+      searchCache.current.clear()
       setActiveSearchUserId(null)
       setSelectedSearchUserId(null)
       return

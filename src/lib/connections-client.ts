@@ -123,6 +123,36 @@ function clearConnectorReadCache(): void {
   connectorGetRequestVersions.clear()
 }
 
+function invalidateConnectorReadCache(predicate: (cacheKey: string) => boolean): void {
+  const keys = new Set([
+    ...connectorGetCache.keys(),
+    ...connectorGetInFlight.keys(),
+    ...connectorGetRequestVersions.keys(),
+  ])
+  for (const key of keys) {
+    if (!predicate(key)) {
+      continue
+    }
+    connectorGetCache.delete(key)
+    connectorGetInFlight.delete(key)
+    connectorGetRequestVersions.set(key, (connectorGetRequestVersions.get(key) ?? 0) + 1)
+  }
+}
+
+function invalidateWorkspaceApps(workspace: ConnectionWorkspace, appId?: string): void {
+  const prefix = `${connectionWorkspaceKey(workspace)}:`
+  invalidateConnectorReadCache((key) => {
+    if (!key.startsWith(prefix)) {
+      return false
+    }
+    const path = key.slice(prefix.length)
+    return (
+      path === "/v1/apps" ||
+      (appId ? path === `/v1/apps/by-id/${encodeURIComponent(appId)}` : path.startsWith("/v1/apps/by-id/"))
+    )
+  })
+}
+
 function clearOAuthClientConfigsCache(): void {
   oauthClientConfigsCache.data = null
   oauthClientConfigsCache.fetchedAt = 0
@@ -351,9 +381,9 @@ export async function getConnectionCatalogSummary(
   options: ConnectorReadOptions = {},
 ): Promise<ConnectionSummary> {
   const [appsResult, providersResult] = await Promise.allSettled([
-    getConnector<RawApp[]>("/v1/apps", workspace, options),
+    getConnectionApps(workspace, options),
     // Provider 是公共发现目录，不应因当前组织的连接管理权限而不可见。
-    getConnector<RawProvider[]>("/v1/providers", null, options),
+    getConnectionProviders(options),
   ])
   if (providersResult.status === "rejected") {
     throw providersResult.reason
@@ -386,6 +416,21 @@ export async function getConnectionCatalogSummary(
     appsStatus,
     usageStatus: "loading",
   }
+}
+
+/** 供组织详情与连接器目录复用同一份 workspace apps 条件请求缓存。 */
+export function getConnectionApps(
+  workspace: ConnectionWorkspace,
+  options: ConnectorReadOptions = {},
+): Promise<{ data: RawApp[]; meta: unknown }> {
+  return getConnector<RawApp[]>("/v1/apps", workspace, options)
+}
+
+/** Provider 是全局公共目录，跨 workspace 复用条件请求缓存。 */
+export function getConnectionProviders(
+  options: ConnectorReadOptions = {},
+): Promise<{ data: RawProvider[]; meta: unknown }> {
+  return getConnector<RawProvider[]>("/v1/providers", null, options)
 }
 
 /**
@@ -540,7 +585,7 @@ async function requestOAuthConnect(
   if (!authorizationUrl) {
     throw new Error("Connector connect request did not return an authorization URL")
   }
-  clearConnectorReadCache()
+  invalidateWorkspaceApps(workspace, "appId" in input ? input.appId : undefined)
   return { authorizationUrl: parseConnectorAuthorizationUrl(authorizationUrl).toString() }
 }
 
@@ -594,7 +639,10 @@ export async function upsertOAuthClientConfig(
     },
   )
   clearOAuthClientConfigsCache()
-  clearConnectorReadCache()
+  const encodedService = encodeURIComponent(service)
+  invalidateConnectorReadCache(
+    (key) => key === "global:/v1/providers" || key === `global:/v1/providers/${encodedService}`,
+  )
   return result.data
 }
 
@@ -640,17 +688,17 @@ export async function connectProvider(input: ConnectionConnectInput, workspace: 
       throw new Error("Use startOAuthConnect for oauth2 providers.")
     }
   }
-  clearConnectorReadCache()
+  invalidateWorkspaceApps(workspace, "appId" in input ? input.appId : undefined)
 }
 
 export async function disconnectProvider(service: string, workspace: ConnectionWorkspace): Promise<void> {
   await requestConnector(`/v1/apps/${encodeURIComponent(service)}`, workspace, { method: "DELETE" })
-  clearConnectorReadCache()
+  invalidateWorkspaceApps(workspace)
 }
 
 export async function disconnectAccount(appId: string, workspace: ConnectionWorkspace): Promise<void> {
   await requestConnector(`/v1/apps/by-id/${encodeURIComponent(appId)}`, workspace, { method: "DELETE" })
-  clearConnectorReadCache()
+  invalidateWorkspaceApps(workspace, appId)
 }
 
 export async function updateAlias(appId: string, alias: string, workspace: ConnectionWorkspace): Promise<void> {
@@ -658,5 +706,5 @@ export async function updateAlias(appId: string, alias: string, workspace: Conne
     method: "PATCH",
     body: JSON.stringify({ alias: alias.trim() === "" ? null : alias.trim() }),
   })
-  clearConnectorReadCache()
+  invalidateWorkspaceApps(workspace, appId)
 }

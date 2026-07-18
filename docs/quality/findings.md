@@ -156,22 +156,22 @@
 - Priority: P3
 - Decision: reject
 
-## Q-2026-010：大型懒加载 chunk 的真实首开成本未知
+## Q-2026-010：大型懒加载 chunk 可能造成明显首开延迟
 
 - Category: performance
-- Status: hypothesis
+- Status: rejected
 - Area: build | chat
-- User impact: 首次打开 PDF、表格或部分语言资源时可能有解析和内存峰值。
-- Evidence: production build 对 PDF、语言资源和 Univer chunk 给出大于 500 kB 的警告；这些资源已经按功能懒加载。
-- Root cause: chunk 大不等于用户可感知问题，尚未测量加载和解析时机。
-- Scope: Vite chunk 图与 artifact preview 动态 import。
+- User impact: 首次打开表格时，大型 Univer chunk 可能造成用户可感知的等待或 renderer 内存峰值。
+- Evidence: 在 production renderer、禁用 Chromium cache、相同已登录 workspace 和固定 13.2 kB XLSX（3 sheets、16 个 SKU、13 列）下，逐次整页冷重载后首次打开 Univer 预览 5 次；以点击制成品到首个预览 canvas 出现作为可交互代理，耗时分别为 641.5、570.6、687.3、691.7、583.4ms，中位数 641.5ms、最差 691.7ms。对应 JS chunk 每次 decoded 4,967,993 bytes、encoded 1,368,949 bytes、transfer 1,369,249 bytes，resource duration 为 117.8–139.1ms。
+- Root cause: 假设未成立；production build 的 chunk size 警告没有在当前真实工作簿场景中形成超过 1 秒的首开等待，且 chunk resource duration 只占端到端时间的一部分，不能据此把剩余耗时归因于下载或拆包策略。
+- Scope: Vite chunk 图与 Univer artifact preview 动态 import；本次没有改运行时代码。
 - Guardrails: Univer 完整工作簿渲染和交互不可删除、降级或替换。
-- Before metric: 待采集首次打开各预览的网络、parse/evaluate 和可交互时间。
-- Target: 只有真实首开超预算时调整加载边界。
-- Verification: production build trace，而不是仅比较 chunk 文件大小。
-- Risk and rollback: 高，未测量前不实施。
+- Before metric: 固定样本 production 冷开中位数 641.5ms、最差 691.7ms；JS resource duration 最差 139.1ms。
+- Target: 当前场景不实施优化；只有固定大工作簿或 PDF 样本稳定超过 1 秒，或 trace 指向明确的 parse/evaluate、worker、RPC 或渲染瓶颈时才重新打开。
+- Verification: 已用 Chrome DevTools Protocol 对 production bundle 连续采集 5 个冷样本；禁用 cache、每次整页重载并等待 Univer canvas。`performance.memory` 的单次差值受 GC 影响明显（约 0.09–31.04 MiB），不能作为稳定结论；后续大文件调查仍按 runbook 采集完整 trace 和关闭后 heap。
+- Risk and rollback: 本轮只更新证据和决策，无代码回滚风险；样本规模不能代表超大工作簿或 PDF，因此这些场景出现实际反馈时仍需单独测量。
 - Priority: P3
-- Decision: defer
+- Decision: reject
 
 ## Q-2026-011：冷启动技能清单扫描耗时超过两秒
 

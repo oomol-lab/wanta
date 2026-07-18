@@ -75,3 +75,12 @@
 - 当前真实技能清单为 42 groups、143367 bytes JSON；与 renderer 相同的 normalize + stringify 双边比较执行 1000 次，中位数 1.809ms、p95 2.277ms、最大 2.731ms；
 - 10 倍合成清单为 420 groups、1204830 bytes，200 次比较中位数 16.482ms、p95 17.041ms、最大 20.085ms；两种规模均未达到 50ms long-task 阈值，因此 Q-2026-009 标记为 rejected；
 - 两项均只更新证据和决策，没有为了理论数字改动运行时代码。
+
+## 第六轮 production 制成品首开复核
+
+- 使用 production renderer、真实已登录 workspace 和固定 13.2 kB XLSX（3 sheets、16 个 SKU、13 列），禁用 Chromium cache，并在每次采样前整页冷重载；
+- 从点击制成品到 Univer 预览首个 canvas 出现的 5 次耗时为 641.5、570.6、687.3、691.7、583.4ms，中位数 641.5ms、最差 691.7ms；
+- Univer 相关 JS chunk 每次 decoded 4,967,993 bytes、encoded 1,368,949 bytes、transfer 1,369,249 bytes，resource duration 为 117.8–139.1ms；CSS 为 decoded 83,587 bytes、encoded 12,866 bytes，resource duration 为 9–28ms；
+- renderer heap 单次差值约为 0.09–31.04 MiB，受 GC 影响过大，不能从本次短测得出稳定内存结论；
+- 当前真实样本的 production 冷开均低于 700ms，构建警告本身没有证明可感知性能问题，因此 Q-2026-010 标记为 rejected；超大工作簿和 PDF 仍按 runbook 在出现真实慢场景时单独测量，不据此删除、降级或替换 Univer；
+- 结论写入后，`ts-check`、`lint`、`format`、234 个测试文件、1569 个测试和 production build 全部通过。

@@ -19,15 +19,10 @@ const error: UserFacingError = {
 
 function summary(workspace: ConnectionWorkspace): ConnectionSummary {
   return {
-    activeConnections: 0,
     apps: [],
-    connectableProviderCount: 0,
     connectedProviderCount: 0,
-    needsAttention: 0,
-    message: undefined,
     providerCount: 0,
     providers: [],
-    status: "ready",
     updatedAt: "2026-01-01T00:00:00.000Z",
     usage: {
       calls: 0,
@@ -38,6 +33,7 @@ function summary(workspace: ConnectionWorkspace): ConnectionSummary {
       services: [],
       success: 0,
     },
+    usageStatus: "ready",
     workspace,
   }
 }
@@ -71,7 +67,6 @@ test("connectionsStateReducer clears old summary while workspace sync starts", (
 test("partial app refresh keeps confirmed connections for the same workspace", () => {
   const current = {
     ...summary({ organizationName: "acme" }),
-    activeConnections: 1,
     apps: [
       {
         authType: "oauth2" as const,
@@ -89,14 +84,14 @@ test("partial app refresh keeps confirmed connections for the same workspace", (
     ...summary({ organizationName: "acme" }),
     appsStatus: "unavailable" as const,
     updatedAt: "2026-07-17T00:00:00.000Z",
-    usageLoading: true,
+    usageStatus: "loading" as const,
   }
 
   assert.deepEqual(preserveConnectionSummaryOnPartialRefresh(current, next), {
     ...current,
     appsStatus: "unavailable",
     updatedAt: next.updatedAt,
-    usageLoading: true,
+    usageStatus: "loading",
   })
 })
 
@@ -274,12 +269,12 @@ test("connectionsStateReducer hydrates usage only for the active workspace", () 
 
   assert.equal(ignored, loaded)
   assert.equal(hydrated.summary?.usage.calls, 3)
-  assert.equal(hydrated.summary?.usageLoading, false)
+  assert.equal(hydrated.summary?.usageStatus, "ready")
 })
 
 test("connectionsStateReducer clears usage loading when background hydration fails", () => {
   const loaded = connectionsStateReducer(initialConnectionsState, {
-    summary: { ...summary({ organizationName: "org-name" }), usageLoading: true },
+    summary: { ...summary({ organizationName: "org-name" }), usageStatus: "loading" },
     type: "summarySet",
   })
 
@@ -288,5 +283,5 @@ test("connectionsStateReducer clears usage loading when background hydration fai
     workspaceKey: "organization:org-name",
   })
 
-  assert.equal(failed.summary?.usageLoading, false)
+  assert.equal(failed.summary?.usageStatus, "unavailable")
 })

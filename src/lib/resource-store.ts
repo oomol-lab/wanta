@@ -77,6 +77,7 @@ export class ResourceStore<T> {
   }
 
   public setData(data: T): void {
+    this.supersedeInFlightRequest()
     this.snapshot = {
       data,
       error: null,
@@ -87,7 +88,16 @@ export class ResourceStore<T> {
   }
 
   public invalidate(): void {
+    const previous = this.snapshot
+    const hadInFlightRequest = this.inFlight !== null
+    this.supersedeInFlightRequest()
+
     if (this.snapshot.data === null) {
+      if (!hadInFlightRequest && previous.status === "idle" && previous.error === null && previous.updatedAt === null) {
+        return
+      }
+      this.snapshot = createInitialSnapshot<T>()
+      this.emit()
       return
     }
 
@@ -202,6 +212,12 @@ export class ResourceStore<T> {
     for (const listener of this.listeners) {
       listener()
     }
+  }
+
+  private supersedeInFlightRequest(): void {
+    this.requestId += 1
+    this.inFlight = null
+    this.inFlightVisible = false
   }
 }
 

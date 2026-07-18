@@ -5,7 +5,7 @@ export interface AgentRefreshSchedulerOptions {
   refresh: (reason: string) => Promise<void>
 }
 
-/** Skill 变更后延迟重启 Agent；优先避开正在运行的 generation，但不会无限等待。 */
+/** 运行时配置变更后延迟重启 Agent；正在运行 generation 时保持 pending，绝不静默打断任务。 */
 export class AgentRefreshScheduler {
   private pending: NodeJS.Timeout | undefined
   private readonly options: AgentRefreshSchedulerOptions
@@ -14,12 +14,12 @@ export class AgentRefreshScheduler {
     this.options = options
   }
 
-  public schedule(reason: string, delayMs = 1_500, busyRetryCount = 0): void {
+  public schedule(reason: string, delayMs = 1_500): void {
     if (this.options.isQuitting()) return
     if (this.pending) clearTimeout(this.pending)
     this.pending = setTimeout(() => {
       this.pending = undefined
-      this.refresh(reason, busyRetryCount)
+      this.refresh(reason)
     }, delayMs)
     this.pending.unref()
   }
@@ -29,20 +29,18 @@ export class AgentRefreshScheduler {
     this.pending = undefined
   }
 
-  private refresh(reason: string, busyRetryCount: number): void {
-    if (this.options.isQuitting() || !this.options.canRefresh()) return
+  private refresh(reason: string): void {
+    if (this.options.isQuitting()) return
+    if (!this.options.canRefresh()) {
+      this.schedule(reason, 2_000)
+      return
+    }
     if (this.options.isBusy()) {
-      if (busyRetryCount < 10) {
-        this.schedule(reason, 2_000, busyRetryCount + 1)
-        return
-      }
-      console.warn("[wanta] refreshing agent after skill change while generation is still active:", {
-        busyRetryCount,
-        reason,
-      })
+      this.schedule(reason, 2_000)
+      return
     }
     void this.options.refresh(reason).catch((error: unknown) => {
-      console.error("[wanta] failed to restart agent after skill change:", { error, reason })
+      console.error("[wanta] failed to restart agent after runtime configuration change:", { error, reason })
     })
   }
 }

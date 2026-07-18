@@ -117,4 +117,27 @@ describe("TurnOutputShelf", () => {
     expect(html).toContain("1 个过程文件 · 不属于最终制成品")
     expect(html).not.toContain("审核")
   })
+
+  it("surfaces an incomplete project change scan even when no file diff was captured", () => {
+    const record: TurnOutputRecord = {
+      sessionId: "session-1",
+      messageId: "assistant-1",
+      projectRoot,
+      projectChangesTruncated: true,
+      createdAt: 1,
+      completedAt: 2,
+      files: [],
+      summary: {
+        additions: 0,
+        changedFileCount: 0,
+        deletions: 0,
+        processFileCount: 0,
+      },
+    }
+
+    const html = renderTurnOutputShelf(record)
+
+    expect(html).toContain("项目变更扫描达到安全限制，当前列表可能不完整。")
+    expect(html).toContain("审核")
+  })
 })

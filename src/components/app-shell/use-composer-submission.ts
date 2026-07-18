@@ -33,6 +33,7 @@ export interface ComposerSubmissionController {
   isDraftSendInFlight: (draftKey: string) => boolean
   isSendInFlight: () => boolean
   memory: ComposerSubmissionMemory
+  resetMemory: () => void
   sendNow: (request: ChatSendRequest) => Promise<ChatSendResult>
 }
 
@@ -72,7 +73,7 @@ export function useComposerSubmission({
   messagesLoaded: boolean
   organizationSkills: ChatOrganizationSkillContext[]
   knowledgeBaseIds: string[]
-  persistPermissionMode: (sessionId: string, mode: AgentPermissionMode) => void
+  persistPermissionMode: (sessionId: string, mode: AgentPermissionMode) => Promise<void>
   persistKnowledgeBaseIds: (sessionId: string, ids: string[]) => void
   send: UseChat["send"]
   sessionScope: SessionScope | null
@@ -180,7 +181,14 @@ export function useComposerSubmission({
             )
           }
         }
-        persistPermissionMode(sessionId, selectedPermissionMode)
+        try {
+          await persistPermissionMode(sessionId, selectedPermissionMode)
+        } catch (error) {
+          if (bridgeEmptySend && isCurrentSendTarget()) {
+            setPendingChatTransition(null)
+          }
+          return { error, status: "failed" }
+        }
         persistKnowledgeBaseIds(sessionId, knowledgeBaseIds)
         if (shouldRefreshTitle) {
           void titleGeneration.refreshGeneratedTitle(
@@ -263,6 +271,14 @@ export function useComposerSubmission({
     (): boolean => sendInFlightKeys.current.has(activeComposerDraftKey),
     [activeComposerDraftKey],
   )
+  const resetMemory = React.useCallback((): void => {
+    modelBySession.current.clear()
+    reasoningLevelBySession.current.clear()
+    modeBySession.current.clear()
+    permissionModeBySession.current.clear()
+    contextMentionsBySession.current.clear()
+    retryOptionsBySession.current.clear()
+  }, [])
 
   return {
     isDraftSendInFlight,
@@ -275,6 +291,7 @@ export function useComposerSubmission({
       reasoningLevelBySession,
       retryOptionsBySession,
     },
+    resetMemory,
     sendNow,
   }
 }

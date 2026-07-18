@@ -54,4 +54,57 @@ describe("ResourceStore", () => {
     await freshRequest
     expect(resource.getSnapshot().data).toBe("fresh")
   })
+
+  it("does not let an older refresh overwrite authoritative pushed data", async () => {
+    const pending = deferred<string>()
+    const resource = createResource<string>({ load: () => pending.promise })
+
+    const staleRequest = resource.refresh()
+    resource.setData("pushed")
+
+    pending.resolve("stale")
+    await staleRequest
+
+    expect(resource.getSnapshot()).toMatchObject({ data: "pushed", status: "ready" })
+  })
+
+  it("invalidates an in-flight request and allows a fresh request to start", async () => {
+    const stale = deferred<string>()
+    const fresh = deferred<string>()
+    let calls = 0
+    const resource = createResource<string>({
+      load: () => {
+        calls += 1
+        return calls === 1 ? stale.promise : fresh.promise
+      },
+    })
+
+    resource.setData("current")
+    const staleRequest = resource.refresh({ forceRefresh: true })
+    resource.invalidate()
+    const freshRequest = resource.refresh()
+
+    expect(calls).toBe(2)
+    stale.resolve("stale")
+    await staleRequest
+    expect(resource.getSnapshot().data).toBe("current")
+
+    fresh.resolve("fresh")
+    await freshRequest
+    expect(resource.getSnapshot().data).toBe("fresh")
+  })
+
+  it("returns an empty resource to idle when its initial request is invalidated", async () => {
+    const pending = deferred<string>()
+    const resource = createResource<string>({ load: () => pending.promise })
+
+    const staleRequest = resource.refresh()
+    resource.invalidate()
+
+    expect(resource.getSnapshot()).toEqual({ data: null, error: null, status: "idle", updatedAt: null })
+
+    pending.resolve("stale")
+    await staleRequest
+    expect(resource.getSnapshot()).toEqual({ data: null, error: null, status: "idle", updatedAt: null })
+  })
 })

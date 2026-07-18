@@ -8,6 +8,8 @@ import {
   newSessionComposerDraftKey,
   newSessionComposerDraftKeyForScopeKey,
   resolveNewSessionTarget,
+  resolveNotificationOrganization,
+  resolveOrganizationProviderOptionsAvailability,
   resolveWorkspaceActivationState,
   sessionRecordScopeKey,
   sessionTitleGenerationKey,
@@ -18,6 +20,63 @@ import {
   workspaceActivationIsPending,
 } from "./app-shell-model.ts"
 
+describe("notification organization resolution", () => {
+  const input = {
+    activeOrganizationId: "org-current",
+    hasLoaded: true,
+    loading: false,
+    organizationIds: ["org-current", "org-target"],
+    refreshAttempted: false,
+    targetOrganizationId: "org-target",
+  }
+
+  test("selects a known notification organization", () => {
+    expect(resolveNotificationOrganization(input)).toBe("select")
+  })
+
+  test("refreshes once before rejecting an unknown notification organization", () => {
+    const unknown = { ...input, organizationIds: [] }
+    expect(resolveNotificationOrganization(unknown)).toBe("refresh")
+    expect(resolveNotificationOrganization({ ...unknown, refreshAttempted: true })).toBe("unavailable")
+  })
+
+  test("waits while the organization list is unresolved", () => {
+    expect(resolveNotificationOrganization({ ...input, hasLoaded: false, organizationIds: [] })).toBe("wait")
+  })
+})
+
+describe("organization provider option availability", () => {
+  test("waits for the shared connection summary instead of starting a duplicate request", () => {
+    expect(
+      resolveOrganizationProviderOptionsAvailability({
+        appsStatus: undefined,
+        summaryMatchesWorkspace: false,
+        workspaceActivationFailed: false,
+      }),
+    ).toBe("pending")
+  })
+
+  test("uses shared provider options after the workspace summary is ready", () => {
+    expect(
+      resolveOrganizationProviderOptionsAvailability({
+        appsStatus: "ready",
+        summaryMatchesWorkspace: true,
+        workspaceActivationFailed: false,
+      }),
+    ).toBe("ready")
+  })
+
+  test("allows the details request fallback after shared loading fails", () => {
+    expect(
+      resolveOrganizationProviderOptionsAvailability({
+        appsStatus: undefined,
+        summaryMatchesWorkspace: false,
+        workspaceActivationFailed: true,
+      }),
+    ).toBe("fallback")
+  })
+})
+
 const readyInput = {
   agentScopeSyncError: null,
   agentScopeWorkspaceKey: "organization:acme",
@@ -26,7 +85,6 @@ const readyInput = {
   connectionsRefreshing: false,
   currentScopeKey: "organization:acme",
   loadedSessionScopeKey: "organization:acme",
-  organizationSkillsError: null,
   organizationSkillsSettled: true,
   targetScopeKey: "organization:acme",
   workspaceMetadataError: null,
@@ -176,22 +234,16 @@ describe("workspace activation state", () => {
     expect(workspaceActivationBlocksInput(state)).toBe(true)
   })
 
-  test("fails when organization skills cannot load for the active workspace", () => {
+  test("treats organization skill loading failures as a soft dependency", () => {
     const state = resolveWorkspaceActivationState({
       ...readyInput,
-      organizationSkillsError: activationError,
-      organizationSkillsSettled: false,
+      organizationSkillsSettled: true,
     })
 
-    expect(state).toEqual({
-      error: activationError,
-      reason: "organization_skills",
-      status: "failed",
-      targetScopeKey: "organization:acme",
-    })
+    expect(state).toEqual({ status: "idle", targetScopeKey: "organization:acme" })
     expect(workspaceActivationIsPending(state)).toBe(false)
-    expect(workspaceActivationBlocksInput(state)).toBe(true)
-    expect(workspaceActivationHasFailed(state)).toBe(true)
+    expect(workspaceActivationBlocksInput(state)).toBe(false)
+    expect(workspaceActivationHasFailed(state)).toBe(false)
   })
 
   test("is idle once every target-scoped dependency settles", () => {

@@ -10,7 +10,7 @@ import type {
 } from "../../electron/connections/common.ts"
 import type { ConnectionErrorOperation } from "../lib/connections-error.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
-import type { OAuthPendingOperation } from "./connection-oauth-pending.ts"
+import type { OAuthConnectionReadyTarget, OAuthPendingOperation } from "./connection-oauth-pending.ts"
 import type { ConnectionBusy } from "./connections-state.ts"
 
 import * as React from "react"
@@ -27,7 +27,6 @@ import {
   getConnectionProviderDetail,
   getConnectionSummary,
   getConnectionUsageSummary,
-  isProviderConnectionActive,
   startOAuthConnect,
   updateAlias as updateAliasRequest,
 } from "../lib/connections-client.ts"
@@ -39,6 +38,7 @@ import {
   readOAuthPendingOperation,
   readOAuthPendingOperationsForWorkspace,
   rememberOAuthPendingOperation,
+  resolveOAuthConnectionReadyTarget,
 } from "./connection-oauth-pending.ts"
 import {
   connectionsStateReducer,
@@ -116,8 +116,10 @@ export interface UseConnections {
   actionError: UserFacingError | null
   summaryError: UserFacingError | null
   scopeSyncError: UserFacingError | null
+  connectionReadyEvent: (OAuthConnectionReadyTarget & { id: number }) | null
   clearActionError: () => void
   refresh: (request?: ConnectionSummaryRequest, options?: ConnectionRefreshOptions) => Promise<ConnectionSummary | null>
+  retryScopeSync: () => void
   connect: (input: ConnectionConnectInput) => Promise<boolean>
   disconnect: (service: string) => Promise<boolean>
   disconnectAccount: (appId: string) => Promise<boolean>
@@ -125,9 +127,7 @@ export interface UseConnections {
   getProviderDetail: (service: string) => Promise<ConnectionProviderDetail>
   getAppDetail: (appId: string) => Promise<ConnectionAppDetail>
   getExecutionLogs: (request: ConnectionExecutionLogRequest) => Promise<ConnectionExecutionLogSummary>
-  isProviderActive: (service: string) => Promise<boolean>
   openExternal: (url: string) => Promise<void>
-  setSummary: (summary: ConnectionSummary) => void
   updateAlias: (appId: string, alias: string) => Promise<boolean>
 }
 
@@ -135,6 +135,10 @@ export interface UseConnections {
 export function useConnections(workspace: ConnectionWorkspace | null): UseConnections {
   const chatService = useChatService()
   const [state, dispatch] = React.useReducer(connectionsStateReducer, initialConnectionsState)
+  const [scopeSyncAttempt, setScopeSyncAttempt] = React.useState(0)
+  const [connectionReadyEvent, setConnectionReadyEvent] = React.useState<
+    (OAuthConnectionReadyTarget & { id: number }) | null
+  >(null)
   const {
     actionError,
     agentScopeWorkspaceKey,
@@ -149,6 +153,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const oauthPending = React.useRef<OAuthPendingOperation | null>(null)
   const pollSequence = React.useRef(0)
   const oauthSequence = React.useRef(0)
+  const connectionReadySequence = React.useRef(0)
   const actionSequence = React.useRef(0)
   const effectiveWorkspace = React.useRef<ConnectionWorkspace | null>(workspace)
   const workspaceGeneration = React.useRef(0)
@@ -159,7 +164,14 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   summaryRef.current = summary
 
   const setCurrentSummary = React.useCallback((next: ConnectionSummary): void => {
-    dispatch({ type: "summarySet", summary: next })
+    const current = summaryRef.current
+    const stable =
+      current &&
+      next.usageStatus === "unavailable" &&
+      connectionWorkspaceKey(current.workspace) === connectionWorkspaceKey(next.workspace)
+        ? { ...next, usage: current.usage }
+        : next
+    dispatch({ type: "summarySet", summary: stable })
   }, [])
 
   const isCurrentWorkspace = React.useCallback((generation: number, key: string): boolean => {
@@ -175,6 +187,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     pollAbort.current?.controller.abort()
     oauthPending.current = null
     pollAbort.current = null
+    setConnectionReadyEvent(null)
   }, [])
 
   const beginAction = React.useCallback((): ConnectionActionContext | null => {
@@ -318,6 +331,11 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
               return false
             }
             setCurrentSummary(next)
+            connectionReadySequence.current += 1
+            setConnectionReadyEvent({
+              id: connectionReadySequence.current,
+              ...resolveOAuthConnectionReadyTarget(next.apps, operation),
+            })
             dispatch({ type: "actionErrorSet", error: null })
             clearActiveOAuthPending(operation)
             dispatch({ type: "pollingSet", polling: null })
@@ -390,10 +408,16 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
         const resolved = resolveConnectionError(error, "summary")
         reportRendererHandledError("connections", "agent organization scope sync failed", error)
+        appliedWorkspaceKey.current = null
         dispatch({ type: "workspaceScopeSyncFailed", error: resolved })
       }
     })()
-  }, [chatService, invalidateWorkspaceWork, isCurrentWorkspace, refresh, workspace])
+  }, [chatService, invalidateWorkspaceWork, isCurrentWorkspace, refresh, scopeSyncAttempt, workspace])
+
+  const retryScopeSync = React.useCallback((): void => {
+    appliedWorkspaceKey.current = null
+    setScopeSyncAttempt((attempt) => attempt + 1)
+  }, [])
 
   React.useEffect(
     () => () => {
@@ -627,7 +651,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     if (!currentWorkspace) {
       return Promise.reject(new Error("Workspace is still loading."))
     }
-    return getConnectionProviderDetail(svc, currentWorkspace)
+    return getConnectionProviderDetail(svc)
   }, [])
   const getAppDetail = React.useCallback((appId: string) => {
     const currentWorkspace = effectiveWorkspace.current
@@ -643,13 +667,6 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     }
     return getConnectionExecutionLogs(request, currentWorkspace)
   }, [])
-  const isProviderActive = React.useCallback((service: string) => {
-    const currentWorkspace = effectiveWorkspace.current
-    if (!currentWorkspace) {
-      return Promise.resolve(false)
-    }
-    return isProviderConnectionActive(service, currentWorkspace)
-  }, [])
   const openExternal = React.useCallback((url: string) => chatService.invoke("openExternalUrl", { url }), [chatService])
 
   return {
@@ -661,8 +678,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     agentScopeWorkspaceKey,
     summaryError,
     scopeSyncError,
+    connectionReadyEvent,
     clearActionError,
     refresh,
+    retryScopeSync,
     connect,
     disconnect,
     disconnectAccount,
@@ -670,9 +689,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     getProviderDetail,
     getAppDetail,
     getExecutionLogs,
-    isProviderActive,
     openExternal,
-    setSummary: setCurrentSummary,
     updateAlias,
   }
 }

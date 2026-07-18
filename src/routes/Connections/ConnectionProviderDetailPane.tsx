@@ -5,7 +5,7 @@ import type {
   ConnectionSummary,
 } from "../../../electron/connections/common.ts"
 import type { ConnectionErrorNotice } from "./connection-error-display.ts"
-import type { DisconnectTarget } from "./connection-route-model.ts"
+import type { ConnectionAuthIntent, DisconnectTarget } from "./connection-route-model.ts"
 import type { UseConnections } from "@/hooks/useConnections"
 
 import { AlertCircle, ExternalLink, KeyRound, Plug, X } from "lucide-react"
@@ -35,17 +35,6 @@ import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pendi
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
-export interface ConnectionAuthIntent {
-  action?: string
-  createdAt: number
-  displayName?: string
-  errorCode?: string
-  id: string
-  message?: string
-  service: string
-  source: "chat"
-}
-
 function ProviderStatusBadge({
   canManageConnections,
   provider,
@@ -69,20 +58,6 @@ function ProviderStatusBadge({
     >
       {getProviderCatalogLabel(provider, canManageConnections, t)}
     </Badge>
-  )
-}
-
-export function StatusNotice({ summary }: { summary: ConnectionSummary }) {
-  const t = useT()
-  const state = getEmptyState(summary, t)
-  return (
-    <section className="grid gap-1 rounded-lg border border-dashed px-3 py-2.5">
-      <div className="flex min-w-0 items-center gap-2">
-        <AlertCircle className="oo-icon-muted size-4" />
-        <div className="oo-text-label truncate">{state.title}</div>
-      </div>
-      <div className="oo-text-caption oo-text-muted">{summary.message || state.description}</div>
-    </section>
   )
 }
 
@@ -146,8 +121,6 @@ export function ProviderDetail({
 
   return (
     <div className="grid min-w-0 gap-3">
-      {summary && summary.status !== "ready" ? <StatusNotice summary={summary} /> : null}
-
       <section className="grid gap-3 border-b pb-3">
         <div className="flex min-w-0 items-start gap-3">
           <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="lg" />
@@ -211,7 +184,7 @@ export function ProviderDetail({
           provider={provider}
           usage={usage}
           usageDays={summary?.usage.days ?? 7}
-          usageLoading={Boolean(summary?.usageLoading)}
+          usageStatus={summary?.usageStatus ?? "loading"}
         />
       ) : null}
 
@@ -283,6 +256,11 @@ function ConnectionAuthIntentNotice({
           ? t("connections.chatAuthRequestActionDescription", { action: authIntent.action })
           : t("connections.chatAuthRequestDescription")}
       </div>
+      {authIntent.connectionName ? (
+        <div className="oo-text-caption text-muted-foreground">
+          {t("connections.chatAuthRequestAccount", { name: authIntent.connectionName })}
+        </div>
+      ) : null}
       {authIntent.errorCode ? <div className="oo-text-micro text-muted-foreground">{authIntent.errorCode}</div> : null}
     </div>
   )

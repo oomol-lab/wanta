@@ -23,13 +23,13 @@ export function ProviderUsagePanel({
   provider,
   usage,
   usageDays,
-  usageLoading = false,
+  usageStatus = "ready",
 }: {
   connections: UseConnections
   provider: ConnectionProviderSummary
   usage?: ConnectionUsageServiceItem
   usageDays: number
-  usageLoading?: boolean
+  usageStatus?: "loading" | "ready" | "unavailable"
 }) {
   const t = useT()
   const [isUsageDialogOpen, setIsUsageDialogOpen] = React.useState(false)
@@ -84,8 +84,19 @@ export function ProviderUsagePanel({
     }
   }, [error, isUsageDialogOpen, loadLogs, loading, logs, providerUsage.calls])
 
-  if (usageLoading) {
+  if (usageStatus === "loading") {
     return <ProviderUsageSkeleton />
+  }
+
+  if (usageStatus === "unavailable") {
+    return (
+      <section className="grid gap-1.5">
+        <h3 className="oo-text-title px-0.5">{t("connections.usageTitle")}</h3>
+        <div className="oo-text-caption oo-text-muted rounded-md bg-[var(--oo-inspector-surface)] px-2.5 py-2">
+          {t("connections.usageUnavailable")}
+        </div>
+      </section>
+    )
   }
 
   const usageTitle =

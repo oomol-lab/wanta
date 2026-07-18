@@ -13,6 +13,8 @@ export interface DialogProps {
   ariaLabel?: string
   closeLabel?: string
   className?: string
+  contentClassName?: string
+  headerHidden?: boolean
   initialFocus?: () => HTMLElement | null
   titleId?: string
 }
@@ -58,6 +60,8 @@ export function Dialog({
   ariaLabel,
   closeLabel,
   className,
+  contentClassName,
+  headerHidden = false,
   initialFocus,
   titleId: titleIdProp,
 }: DialogProps) {
@@ -170,28 +174,35 @@ export function Dialog({
           className,
         )}
       >
-        <div className="oo-border-divider flex items-start justify-between gap-3 border-b px-4 py-3">
-          <div className="min-w-0">
-            {typeof title === "string" ? (
-              <h2 id={titleId} className="oo-text-dialog-title truncate">
-                {title}
-              </h2>
-            ) : (
-              <div id={titleId}>{title}</div>
-            )}
-            {description && <p className="oo-text-caption mt-0.5">{description}</p>}
+        {headerHidden ? (
+          <div className="sr-only">
+            {typeof title === "string" ? <h2 id={titleId}>{title}</h2> : <div id={titleId}>{title}</div>}
+            {description ? <p>{description}</p> : null}
           </div>
-          <button
-            type="button"
-            aria-label={closeLabel ?? "Close"}
-            onClick={onClose}
-            className="oo-icon-muted -mr-1 flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
+        ) : (
+          <div className="oo-border-divider flex items-start justify-between gap-3 border-b px-4 py-3">
+            <div className="min-w-0">
+              {typeof title === "string" ? (
+                <h2 id={titleId} className="oo-text-dialog-title truncate">
+                  {title}
+                </h2>
+              ) : (
+                <div id={titleId}>{title}</div>
+              )}
+              {description && <p className="oo-text-caption mt-0.5">{description}</p>}
+            </div>
+            <button
+              type="button"
+              aria-label={closeLabel ?? "Close"}
+              onClick={onClose}
+              className="oo-icon-muted -mr-1 flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
+        <div className={cn("min-h-0 flex-1 overflow-y-auto px-4 py-4", contentClassName)}>{children}</div>
 
         {footer && <div className="oo-border-divider flex justify-end gap-2 border-t px-4 py-3">{footer}</div>}
       </div>

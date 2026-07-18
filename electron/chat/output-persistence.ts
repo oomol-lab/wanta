@@ -16,7 +16,8 @@ export class OutputPersistence {
   private authorizationOverlays: AuthorizationOverlays = new Map()
   private authorizationLoaded = false
   private authorizationLoad: Promise<void> | null = null
-  private authorizationWrite: Promise<void> = Promise.resolve()
+  private mutationQueue: Promise<void> = Promise.resolve()
+  private revision = 0
   private stoppedGenerations: StoppedGenerations = new Map()
   private stoppedLoaded = false
   private stoppedLoad: Promise<void> | null = null
@@ -42,6 +43,7 @@ export class OutputPersistence {
   }
 
   public reset(): void {
+    this.revision += 1
     this.transientArtifactBundles.clear()
     this.transientTurnOutputs.clear()
     this.authorizationOverlays.clear()
@@ -73,33 +75,48 @@ export class OutputPersistence {
   }
 
   public async recordAuthorization(sessionId: string, messageId: string, partId: string, value: AuthorizationInfo) {
-    await this.ensureAuthorizationLoaded()
-    if (!recordAuthorizationOverlay(this.authorizationOverlays, sessionId, messageId, partId, value)) return
-    const write = this.authorizationWrite
-      .catch((error: unknown) => {
-        console.warn("[wanta] previous authorization overlay write failed:", error)
-        logDiagnostic("chat-service", "previous queued write failed", { error, scope: "authorization overlay" }, "warn")
-      })
-      .then(() => this.stores.authorization?.write(this.authorizationOverlays))
-    this.authorizationWrite = write.then(
-      () => undefined,
-      () => undefined,
-    )
-    await write
+    await this.enqueueMutation(async (revision) => {
+      await this.ensureAuthorizationLoaded()
+      if (revision !== this.revision) return
+      if (!recordAuthorizationOverlay(this.authorizationOverlays, sessionId, messageId, partId, value)) return
+      await this.stores.authorization?.write(cloneAuthorizationOverlays(this.authorizationOverlays))
+    })
   }
 
   public async recordStopped(sessionId: string, messageId: string, partIds: string[], stoppedAt = Date.now()) {
-    await this.ensureStoppedLoaded()
-    if (!recordStoppedGeneration(this.stoppedGenerations, sessionId, messageId, partIds, stoppedAt)) return
-    await this.stores.stoppedGeneration?.write(this.stoppedGenerations)
+    await this.enqueueMutation(async (revision) => {
+      await this.ensureStoppedLoaded()
+      if (revision !== this.revision) return
+      if (!recordStoppedGeneration(this.stoppedGenerations, sessionId, messageId, partIds, stoppedAt)) return
+      await this.stores.stoppedGeneration?.write(cloneStoppedGenerations(this.stoppedGenerations))
+    })
+  }
+
+  public async removeSession(sessionId: string): Promise<void> {
+    await this.enqueueMutation(async (revision) => {
+      await Promise.all([this.ensureAuthorizationLoaded(), this.ensureStoppedLoaded()])
+      if (revision !== this.revision) return
+      const authorizationChanged = this.authorizationOverlays.delete(sessionId)
+      const stoppedChanged = this.stoppedGenerations.delete(sessionId)
+      await Promise.all([
+        authorizationChanged
+          ? this.stores.authorization?.write(cloneAuthorizationOverlays(this.authorizationOverlays))
+          : undefined,
+        stoppedChanged
+          ? this.stores.stoppedGeneration?.write(cloneStoppedGenerations(this.stoppedGenerations))
+          : undefined,
+      ])
+    })
   }
 
   public async overlaysFor(sessionId: string) {
+    await this.mutationQueue
     await this.ensureAuthorizationLoaded()
     return this.authorizationOverlays.get(sessionId)
   }
 
   public async stoppedFor(sessionId: string) {
+    await this.mutationQueue
     await this.ensureStoppedLoaded()
     return this.stoppedGenerations.get(sessionId)
   }
@@ -107,8 +124,11 @@ export class OutputPersistence {
   private async ensureAuthorizationLoaded(): Promise<void> {
     if (this.authorizationLoaded) return
     if (this.authorizationLoad) return this.authorizationLoad
+    const revision = this.revision
     const load = (async () => {
-      this.authorizationOverlays = (await this.stores.authorization?.read()) ?? new Map()
+      const overlays = (await this.stores.authorization?.read()) ?? new Map()
+      if (revision !== this.revision) return
+      this.authorizationOverlays = overlays
       this.authorizationLoaded = true
     })()
     this.authorizationLoad = load
@@ -122,8 +142,11 @@ export class OutputPersistence {
   private async ensureStoppedLoaded(): Promise<void> {
     if (this.stoppedLoaded) return
     if (this.stoppedLoad) return this.stoppedLoad
+    const revision = this.revision
     const load = (async () => {
-      this.stoppedGenerations = (await this.stores.stoppedGeneration?.read()) ?? new Map()
+      const stopped = (await this.stores.stoppedGeneration?.read()) ?? new Map()
+      if (revision !== this.revision) return
+      this.stoppedGenerations = stopped
       this.stoppedLoaded = true
     })()
     this.stoppedLoad = load
@@ -133,4 +156,49 @@ export class OutputPersistence {
       if (this.stoppedLoad === load) this.stoppedLoad = null
     }
   }
+
+  private async enqueueMutation(mutation: (revision: number) => Promise<void>): Promise<void> {
+    const revision = this.revision
+    const queued = this.mutationQueue
+      .catch((error: unknown) => {
+        console.warn("[wanta] previous output persistence mutation failed:", error)
+        logDiagnostic("chat-service", "previous queued write failed", { error, scope: "output persistence" }, "warn")
+      })
+      .then(async () => {
+        if (revision === this.revision) await mutation(revision)
+      })
+    this.mutationQueue = queued.then(
+      () => undefined,
+      () => undefined,
+    )
+    await queued
+  }
+}
+
+function cloneAuthorizationOverlays(records: AuthorizationOverlays): AuthorizationOverlays {
+  return new Map(
+    [...records].map(([sessionId, messages]) => [
+      sessionId,
+      new Map(
+        [...messages].map(([messageId, parts]) => [
+          messageId,
+          new Map([...parts].map(([partId, value]) => [partId, { ...value }])),
+        ]),
+      ),
+    ]),
+  )
+}
+
+function cloneStoppedGenerations(records: StoppedGenerations): StoppedGenerations {
+  return new Map(
+    [...records].map(([sessionId, messages]) => [
+      sessionId,
+      new Map(
+        [...messages].map(([messageId, record]) => [
+          messageId,
+          { partIds: new Set(record.partIds), stoppedAt: record.stoppedAt },
+        ]),
+      ),
+    ]),
+  )
 }

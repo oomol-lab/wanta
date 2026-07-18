@@ -21,6 +21,20 @@ export interface PendingChatTransition {
   createdAt: number
 }
 
+export function pendingChatTransitionForActiveSession(
+  pending: PendingChatTransition | null,
+  scopeKey: string,
+  activeSessionId: string | null,
+): PendingChatTransition | null {
+  if (!pending || pending.scopeKey !== scopeKey) {
+    return null
+  }
+  if (pending.sessionId === null) {
+    return activeSessionId === null ? pending : null
+  }
+  return pending.sessionId === activeSessionId ? pending : null
+}
+
 const pendingServerMatchSkewMs = 30_000
 
 function hasUserVisibleContent(message: ChatMessage): boolean {

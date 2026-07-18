@@ -1,10 +1,7 @@
 import { lazy, Suspense } from "react"
-import { AppDataProvider } from "@/components/AppDataProvider"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { ThemeProvider } from "@/components/ThemeProvider"
 import { Button } from "@/components/ui/button"
-import { Toaster } from "@/components/ui/sonner"
-import { TooltipProvider } from "@/components/ui/tooltip"
 import { AuthProvider, useAuth } from "@/hooks/useAuth"
 import { useGlobalScrollbars } from "@/hooks/useGlobalScrollbars"
 import { useT } from "@/i18n"
@@ -12,9 +9,11 @@ import { detectInitialLocale, translate } from "@/i18n/i18n"
 import { I18nProvider } from "@/i18n/I18nProvider"
 import { LoginRoute } from "@/routes/Login"
 
-// 已登录才需要的主界面：懒加载，把聊天渲染的重型依赖（streamdown / motion）
-// 移出首帧关键路径。登录页 / 未知态可立即绘制，窗口 ready-to-show 不再被整棵依赖树拖住。
-const AppShell = lazy(() => import("@/components/app-shell/AppShell").then((m) => ({ default: m.AppShell })))
+// 已登录才需要的主界面与数据 Provider：整体懒加载，把聊天渲染的重型依赖（streamdown / motion）
+// 及其数据层移出首帧关键路径。登录页 / 未知态可立即绘制，窗口 ready-to-show 不再被整棵依赖树拖住。
+const AuthenticatedAppShell = lazy(() =>
+  import("@/components/AuthenticatedAppShell").then((module) => ({ default: module.AuthenticatedAppShell })),
+)
 
 function AuthGate() {
   const auth = useAuth()
@@ -35,12 +34,7 @@ function AuthGate() {
   return (
     <ErrorBoundary fallback={<AppShellFallback />}>
       <Suspense fallback={<div className="h-full bg-background" />}>
-        <AppDataProvider>
-          <TooltipProvider>
-            <AppShell key={account?.id} auth={auth} />
-            <Toaster />
-          </TooltipProvider>
-        </AppDataProvider>
+        <AuthenticatedAppShell key={account?.id} auth={auth} />
       </Suspense>
     </ErrorBoundary>
   )

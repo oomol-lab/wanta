@@ -1,4 +1,8 @@
-import type { ConnectionConnectInput, ConnectionWorkspace } from "../../electron/connections/common.ts"
+import type {
+  ConnectionAppSummary,
+  ConnectionConnectInput,
+  ConnectionWorkspace,
+} from "../../electron/connections/common.ts"
 
 import { storageKey } from "../../electron/branding.ts"
 import { connectionWorkspaceKey } from "@/lib/connection-workspace"
@@ -17,6 +21,29 @@ export interface OAuthPendingOperation {
   pollingKey: string
   service: string
   workspaceKey: string
+}
+
+export interface OAuthConnectionReadyTarget {
+  connectionName?: string
+  service: string
+  workspaceKey: string
+}
+
+export function resolveOAuthConnectionReadyTarget(
+  apps: readonly ConnectionAppSummary[],
+  operation: OAuthPendingOperation,
+): OAuthConnectionReadyTarget {
+  const existingActiveAppIds = new Set(operation.existingActiveAppIds ?? [])
+  const connectedApp = operation.appId
+    ? apps.find((app) => app.id === operation.appId && app.service === operation.service && app.status === "active")
+    : apps.find(
+        (app) => app.service === operation.service && app.status === "active" && !existingActiveAppIds.has(app.id),
+      )
+  return {
+    ...(connectedApp?.connectionName ? { connectionName: connectedApp.connectionName } : {}),
+    service: operation.service,
+    workspaceKey: operation.workspaceKey,
+  }
 }
 
 const oauthPendingStorageKey = storageKey("connection-oauth-pending")

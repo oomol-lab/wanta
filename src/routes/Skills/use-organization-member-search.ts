@@ -12,7 +12,7 @@ interface UseOrganizationMemberSearchOptions {
 
 const memberSearchCacheMs = 60_000
 
-function preferredSearchUserId(
+export function preferredSearchUserId(
   items: MemberSearchState["items"],
   query: string,
   currentUserId: string | null,
@@ -36,6 +36,13 @@ function preferredSearchUserId(
     : undefined
 
   return exactMatch?.userId ?? items[0]?.userId ?? null
+}
+
+export function retainedSelectedSearchUserId(
+  items: MemberSearchState["items"],
+  selectedUserId: string | null,
+): string | null {
+  return selectedUserId && items.some((user) => user.userId === selectedUserId) ? selectedUserId : null
 }
 
 export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrganizationMemberSearchOptions) {
@@ -139,21 +146,19 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
       return
     }
 
-    const currentUserId = selectedSearchUserId ?? activeSearchUserId
-    const nextUserId = preferredSearchUserId(memberSearch.items, memberInput, currentUserId)
+    const nextUserId = preferredSearchUserId(memberSearch.items, memberInput, activeSearchUserId)
     setActiveSearchUserId(nextUserId)
-    setSelectedSearchUserId(nextUserId)
-  }, [activeSearchUserId, addMemberOpen, memberInput, memberSearch.items, selectedSearchUserId])
+    setSelectedSearchUserId((current) => retainedSelectedSearchUserId(memberSearch.items, current))
+  }, [activeSearchUserId, addMemberOpen, memberInput, memberSearch.items])
 
   const moveActiveSearchUser = React.useCallback(
     (step: -1 | 1 | "first" | "last"): void => {
       if (memberSearch.items.length === 0) {
         setActiveSearchUserId(null)
-        setSelectedSearchUserId(null)
         return
       }
 
-      const currentUserId = selectedSearchUserId ?? activeSearchUserId
+      const currentUserId = activeSearchUserId
       let nextUserId: string | null
 
       if (step === "first") {
@@ -169,9 +174,8 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
       }
 
       setActiveSearchUserId(nextUserId)
-      setSelectedSearchUserId(nextUserId)
     },
-    [activeSearchUserId, memberSearch.items, selectedSearchUserId],
+    [activeSearchUserId, memberSearch.items],
   )
 
   return {
@@ -183,7 +187,6 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
     selectedSearchUserId,
     setActiveSearchUserId,
     setMemberInput,
-    setMemberSearch,
     setSelectedSearchUserId,
   }
 }

@@ -6,7 +6,7 @@ import type { SessionMetadataStore } from "./metadata-store.ts"
 import type { SessionProjectStore } from "./project-store.ts"
 
 import assert from "node:assert/strict"
-import { test } from "vitest"
+import { test, vi } from "vitest"
 import { SessionServiceImpl } from "./node.ts"
 
 const testOrganizationScope = {
@@ -48,6 +48,14 @@ function projectStore(initial = new Map<string, SessionProject>()): SessionProje
       projects = new Map(next)
     },
   } as SessionProjectStore
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve
+  })
+  return { promise, resolve }
 }
 
 test("list merges local activity times and sorts by most recent use", async () => {
@@ -113,6 +121,21 @@ test("generateTitle preserves whether the title came from the model", async () =
   const result = await service.generateTitle({ text: "分析最近三天 Gmail 信息" })
 
   assert.deepEqual(result, { generated: true, title: "Gmail 三日报告" })
+})
+
+test("local session metadata remains writable while the agent is temporarily unavailable", async () => {
+  const persistedMetadata = metadataStore()
+  const service = new SessionServiceImpl(null, { metadataStore: persistedMetadata })
+
+  await Promise.all([
+    service.pin({ id: "session", pinned: true }),
+    service.setKnowledgeBases({ id: "session", knowledgeBaseIds: ["knowledge"] }),
+  ])
+
+  assert.equal(typeof (await persistedMetadata.read()).get("session")?.pinnedAt, "number")
+  assert.deepEqual((await persistedMetadata.read()).get("session")?.knowledgeBaseIds, ["knowledge"])
+  await assert.rejects(service.rename({ id: "session", title: "Title" }), /Agent not configured/)
+  await assert.rejects(service.remove("session"), /Agent not configured/)
 })
 
 test("list hides archived sessions and keeps pinned sessions active", async () => {
@@ -498,6 +521,30 @@ test("create persists the requested session scope", async () => {
   assert.deepEqual(await persistedMetadata.read(), new Map([["created", { scope }]]))
 })
 
+test("create removes the OpenCode session when local metadata persistence fails", async () => {
+  const deleted: string[] = []
+  const service = new SessionServiceImpl(
+    {
+      createSession: async () => ({ id: "created", title: "Created", createdAt: 1_000, updatedAt: 1_000 }),
+      deleteSession: async (id: string) => {
+        deleted.push(id)
+      },
+    } as unknown as AgentManager,
+    {
+      metadataStore: {
+        read: async () => new Map(),
+        write: async () => {
+          throw new Error("metadata write failed")
+        },
+      } as unknown as SessionMetadataStore,
+    },
+  )
+
+  await assert.rejects(service.create({ scope: testOrganizationScope }), /metadata write failed/)
+
+  assert.deepEqual(deleted, ["created"])
+})
+
 test("createProject reuses an existing project in the same scope", async () => {
   const persistedProjects = projectStore()
   const service = new SessionServiceImpl(agentWithSessions([]), {
@@ -522,6 +569,26 @@ test("createProject reuses an existing project in the same scope", async () => {
     })),
     [{ id: first.id, name: "wanta", path: "/Users/example/code/wanta" }],
   )
+})
+
+test("createProject consumes a one-time native picker trust entry", async () => {
+  const trustedProjectPaths = new Set(["/Users/example/code/trusted"])
+  const service = new SessionServiceImpl(agentWithSessions([]), {
+    projectStore: projectStore(),
+    trustedProjectPaths,
+  })
+
+  await assert.rejects(
+    service.createProject({ path: "/Users/example/code/untrusted", scope: testOrganizationScope }),
+    /native directory picker/,
+  )
+  const created = await service.createProject({
+    path: "/Users/example/code/trusted",
+    scope: testOrganizationScope,
+  })
+
+  assert.equal(created.path, "/Users/example/code/trusted")
+  assert.equal(trustedProjectPaths.size, 0)
 })
 
 test("createProject restores an archived project with the same path", async () => {
@@ -1030,4 +1097,145 @@ test("remove invokes local cleanup after remote delete succeeds", async () => {
   await service.remove("session")
 
   assert.deepEqual(removed, ["session"])
+})
+
+test("runtime reset discards stale store loads before listing the replacement agent", async () => {
+  const firstRead = deferred<Map<string, SessionMetadata>>()
+  let metadataReadCount = 0
+  let oldAgentListCount = 0
+  let newAgentListCount = 0
+  const persistedMetadata = {
+    read: async () => {
+      metadataReadCount += 1
+      if (metadataReadCount === 1) {
+        return firstRead.promise
+      }
+      return new Map([["new-session", { scope: testOrganizationScope }]])
+    },
+    write: async () => undefined,
+  } as unknown as SessionMetadataStore
+  const oldAgent = {
+    listSessions: async () => {
+      oldAgentListCount += 1
+      return []
+    },
+  } as unknown as AgentManager
+  const newAgent = {
+    listSessions: async () => {
+      newAgentListCount += 1
+      return [{ id: "new-session", title: "New", createdAt: 1_000, updatedAt: 1_000 }]
+    },
+  } as unknown as AgentManager
+  const service = new SessionServiceImpl(oldAgent, { metadataStore: persistedMetadata })
+
+  const staleList = service.list({ scope: testOrganizationScope })
+  assert.equal(metadataReadCount, 1)
+  service.setAgent(null)
+  service.setAgent(newAgent)
+  firstRead.resolve(new Map([["old-session", { scope: testOrganizationScope }]]))
+
+  assert.deepEqual(await staleList, [])
+  assert.equal(oldAgentListCount, 0)
+  assert.deepEqual(
+    (await service.list({ scope: testOrganizationScope })).map((session) => session.id),
+    ["new-session"],
+  )
+  assert.equal(metadataReadCount, 2)
+  assert.equal(newAgentListCount, 1)
+})
+
+test("runtime reset rejects a queued mutation instead of running it on the replacement agent", async () => {
+  const writeStarted = deferred<void>()
+  const releaseWrite = deferred<void>()
+  let oldCreateCount = 0
+  let newCreateCount = 0
+  const persistedMetadata = {
+    read: async () => new Map<string, SessionMetadata>(),
+    write: async () => {
+      writeStarted.resolve(undefined)
+      await releaseWrite.promise
+    },
+  } as unknown as SessionMetadataStore
+  const oldAgent = {
+    createSession: async () => {
+      oldCreateCount += 1
+      throw new Error("unexpected old agent create")
+    },
+  } as unknown as AgentManager
+  const newAgent = {
+    createSession: async () => {
+      newCreateCount += 1
+      throw new Error("unexpected new agent create")
+    },
+  } as unknown as AgentManager
+  const service = new SessionServiceImpl(oldAgent, { metadataStore: persistedMetadata })
+
+  const activeMutation = service.pin({ id: "session", pinned: true })
+  await writeStarted.promise
+  const queuedCreate = service.create({ scope: testOrganizationScope })
+  service.setAgent(null)
+  service.setAgent(newAgent)
+  releaseWrite.resolve(undefined)
+
+  await activeMutation
+  await assert.rejects(queuedCreate, /Agent runtime changed/)
+  assert.equal(oldCreateCount, 0)
+  assert.equal(newCreateCount, 0)
+})
+
+test("runtime reset rejects a mutation waiting for a stale project store load", async () => {
+  const firstRead = deferred<Map<string, SessionProject>>()
+  let readCount = 0
+  let writeCount = 0
+  const persistedProjects = {
+    read: async () => {
+      readCount += 1
+      if (readCount === 1) {
+        return firstRead.promise
+      }
+      return new Map<string, SessionProject>()
+    },
+    write: async () => {
+      writeCount += 1
+    },
+  } as unknown as SessionProjectStore
+  const service = new SessionServiceImpl(agentWithSessions([]), { projectStore: persistedProjects })
+
+  const pendingCreate = service.createProject({ path: "/old-account/project", scope: testOrganizationScope })
+  await vi.waitFor(() => {
+    assert.equal(readCount, 1)
+  })
+  service.setAgent(null)
+  service.setAgent(agentWithSessions([]))
+  firstRead.resolve(new Map())
+
+  await assert.rejects(pendingCreate, /Agent runtime changed/)
+  assert.equal(writeCount, 0)
+  assert.deepEqual(await service.listProjects({ scope: testOrganizationScope }), [])
+  assert.equal(readCount, 2)
+})
+
+test("runtime reset rolls back a remotely created session before local persistence", async () => {
+  const createStarted = deferred<void>()
+  const createResult = deferred<SessionInfo>()
+  const deletedSessionIds: string[] = []
+  const oldAgent = {
+    createSession: async () => {
+      createStarted.resolve(undefined)
+      return createResult.promise
+    },
+    deleteSession: async (sessionId: string) => {
+      deletedSessionIds.push(sessionId)
+    },
+  } as unknown as AgentManager
+  const service = new SessionServiceImpl(oldAgent, { metadataStore: metadataStore() })
+
+  const pendingCreate = service.create({ scope: testOrganizationScope })
+  await createStarted.promise
+  service.setAgent(null)
+  service.setAgent(agentWithSessions([]))
+  createResult.resolve({ id: "created", title: "Created", createdAt: 1_000, updatedAt: 1_000 })
+
+  await assert.rejects(pendingCreate, /Agent runtime changed/)
+  assert.deepEqual(deletedSessionIds, ["created"])
 })

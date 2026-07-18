@@ -5,6 +5,7 @@ import * as React from "react"
 import { useKnowledgeService } from "../components/AppContext.ts"
 import { reportRendererHandledError } from "../lib/renderer-diagnostics.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
+import { observeKnowledgeBaseList } from "./knowledge-base-list-observer.ts"
 
 export interface UseKnowledgeBases {
   items: KnowledgeBaseSummary[]
@@ -33,19 +34,6 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
   const [busy, setBusy] = React.useState<UseKnowledgeBases["busy"]>(null)
   const [error, setError] = React.useState<UserFacingError | null>(null)
 
-  const load = React.useCallback(async () => {
-    try {
-      setItems(await service.invoke("list"))
-      setError(null)
-    } catch (cause) {
-      console.error("[wanta] list knowledge bases failed", cause)
-      reportRendererHandledError("knowledge", "list knowledge bases failed", cause)
-      setError(knowledgeError(cause, "list"))
-    } finally {
-      setLoading(false)
-    }
-  }, [service])
-
   React.useEffect(() => {
     if (!enabled) {
       setItems([])
@@ -54,9 +42,21 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
       return
     }
     setLoading(true)
-    void load()
-    return service.serverEvents.on("knowledgeBasesChanged", () => void load())
-  }, [enabled, load, service])
+    return observeKnowledgeBaseList({
+      load: () => service.invoke("list"),
+      onError: (cause) => {
+        console.error("[wanta] list knowledge bases failed", cause)
+        reportRendererHandledError("knowledge", "list knowledge bases failed", cause)
+        setError(knowledgeError(cause, "list"))
+      },
+      onItems: (nextItems) => {
+        setItems(nextItems)
+        setError(null)
+      },
+      onSettled: () => setLoading(false),
+      subscribe: (listener) => service.serverEvents.on("knowledgeBasesChanged", listener),
+    })
+  }, [enabled, service])
 
   const importKnowledgeBase = React.useCallback(
     async (sourcePath?: string) => {

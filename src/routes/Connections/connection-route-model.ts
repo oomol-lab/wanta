@@ -1,4 +1,5 @@
 import type {
+  ConnectionAppsStatus,
   ConnectionAppDetail,
   ConnectionAuthType,
   ConnectionAppSummary,
@@ -59,12 +60,28 @@ export interface DisconnectTarget {
   provider: ConnectionProviderSummary
 }
 
-export function connectionDetailCacheKey(workspaceKey: string, service: string): string {
-  return `${workspaceKey}\u0000${service}`
+export interface ConnectionAuthIntent {
+  action?: string
+  connectionName?: string
+  createdAt: number
+  displayName?: string
+  errorCode?: string
+  id: string
+  message?: string
+  service: string
+  source: "chat"
 }
 
-export function isConnectionDetailCacheKeyForService(cacheKey: string, service: string): boolean {
-  return cacheKey.endsWith(`\u0000${service}`)
+/** 组织连接状态只向可管理当前工作区、且服务端已确认读取成功的用户展示。 */
+export function shouldShowConnectionState(
+  canManageConnections: boolean,
+  appsStatus: ConnectionAppsStatus | undefined,
+): boolean {
+  return canManageConnections && appsStatus === "ready"
+}
+
+export function connectionDetailCacheKey(workspaceKey: string, service: string): string {
+  return `${workspaceKey}\u0000${service}`
 }
 
 export function isConnected(provider: ConnectionProviderSummary): boolean {
@@ -202,14 +219,7 @@ export function getEmptyState(
     return { title: t("connections.unavailableTitle"), description: t("connections.unavailableDescription") }
   }
 
-  switch (summary.status) {
-    case "signed-out":
-      return { title: t("connections.signedOutTitle"), description: t("connections.signedOutDescription") }
-    case "unavailable":
-      return { title: t("connections.unavailableTitle"), description: t("connections.unavailableDescription") }
-    case "ready":
-      return { title: t("connections.emptyTitle"), description: t("connections.readyEmptyDescription") }
-  }
+  return { title: t("connections.emptyTitle"), description: t("connections.readyEmptyDescription") }
 }
 
 export function authTypeNeedsDialog(authType: Exclude<ConnectionAuthType, null>): boolean {
@@ -364,6 +374,23 @@ export function matchesProviderQuery(
 
 export function getFilterValue(filter: ConnectionCatalogFilter): string {
   return filter.kind === "category" ? `${categoryFilterPrefix}${filter.category}` : filter.kind
+}
+
+/**
+ * React 点击处理器会把 MouseEvent 作为首参传入；跨组件复用带可选筛选参数的回调时，
+ * 运行时必须把这类非筛选值收敛到全部目录，避免事件对象让所有 Provider 都被过滤。
+ */
+export function normalizeConnectionCatalogFilter(value: unknown): ConnectionCatalogFilter {
+  if (!value || typeof value !== "object") {
+    return { kind: "all" }
+  }
+  const candidate = value as { category?: unknown; kind?: unknown }
+  if (candidate.kind === "category") {
+    return typeof candidate.category === "string" && candidate.category.length > 0
+      ? { kind: "category", category: candidate.category }
+      : { kind: "all" }
+  }
+  return typeof candidate.kind === "string" ? (parseFilterValue(candidate.kind) ?? { kind: "all" }) : { kind: "all" }
 }
 
 export function parseFilterValue(value: string): ConnectionCatalogFilter | null {

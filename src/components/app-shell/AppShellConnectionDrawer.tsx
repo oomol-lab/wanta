@@ -1,5 +1,5 @@
-import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
 import type { UseConnections } from "@/hooks/useConnections"
+import type { ConnectionAuthIntent } from "@/routes/Connections/connection-route-model.ts"
 
 import * as React from "react"
 import { CHAT_CONNECTION_DRAWER_WIDTH } from "./app-shell-model.ts"
@@ -25,6 +25,7 @@ export function AppShellConnectionDrawer({
   canManageConnections,
   connections,
   onClose,
+  onConnectionReady,
   selectedService,
   visible,
 }: {
@@ -32,6 +33,7 @@ export function AppShellConnectionDrawer({
   canManageConnections: boolean
   connections: UseConnections
   onClose: () => void
+  onConnectionReady: (target: { service: string; connectionName?: string }) => void
   selectedService: string | null
   visible: boolean
 }) {
@@ -51,6 +53,7 @@ export function AppShellConnectionDrawer({
             canManageConnections={canManageConnections}
             connections={connections}
             onClose={onClose}
+            onConnectionReady={onConnectionReady}
             presentation="drawer"
             selectedService={selectedService}
           />

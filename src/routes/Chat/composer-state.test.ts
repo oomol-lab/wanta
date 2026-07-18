@@ -153,7 +153,7 @@ describe("composer state", () => {
     })
   })
 
-  it("detects cacheable draft content without preserving attachment previews", () => {
+  it("preserves attachment draft metadata without preserving renderer preview URLs", () => {
     const empty = initialComposerState()
     const withAttachment = {
       ...empty,
@@ -177,6 +177,16 @@ describe("composer state", () => {
 
     expect(hasComposerDraftContent(empty)).toBe(false)
     expect(hasComposerDraftContent(withDraft)).toBe(true)
-    expect(toCachedComposerState(withAttachment).attachments).toEqual([])
+    expect(hasComposerDraftContent(withAttachment)).toBe(true)
+    expect(toCachedComposerState(withAttachment).attachments).toEqual([
+      {
+        id: "file-1",
+        kind: "file",
+        mime: "text/plain",
+        name: "note.txt",
+        path: "/tmp/note.txt",
+        size: 10,
+      },
+    ])
   })
 })

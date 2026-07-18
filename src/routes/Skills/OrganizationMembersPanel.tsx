@@ -1,9 +1,8 @@
 import type { Organization, OrganizationMember } from "../../../electron/organizations/common.ts"
 import type { BusyAction, MemberView, ProviderGrantView } from "./organization-management-model.ts"
 
-import { CrownIcon, PlusIcon, RefreshCwIcon, ShieldCheckIcon, UsersIcon } from "lucide-react"
+import { CrownIcon, PlusIcon, RefreshCwIcon, UsersIcon } from "lucide-react"
 import * as React from "react"
-import { userFallback } from "./organization-management-model.ts"
 import { MembersTable } from "./OrganizationMembersTable.tsx"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { Button } from "@/components/ui/button"
@@ -22,12 +21,14 @@ export {
 export function OrganizationMemberAccessButton({
   canManage,
   members,
+  membersComplete,
   membersLoading,
   onAddMember,
   onOpen,
 }: {
   canManage: boolean
   members: MemberView[]
+  membersComplete: boolean
   membersLoading: boolean
   onAddMember?: () => void
   onOpen: () => void
@@ -36,9 +37,15 @@ export function OrganizationMemberAccessButton({
   const label = canManage ? t("organizations.manageMembers") : t("organizations.viewMembers")
   const countLabel = membersLoading
     ? t("organizations.memberCountLoading")
-    : t("organizations.memberCountCompact", { count: members.length })
+    : membersComplete
+      ? t("organizations.memberCountCompact", { count: members.length })
+      : t("organizations.memberVisibleCountCompact", { count: members.length })
   const onlyCreatorVisible =
-    canManage && !membersLoading && members.length <= 1 && members.every((member) => member.role === "creator")
+    canManage &&
+    membersComplete &&
+    !membersLoading &&
+    members.length <= 1 &&
+    members.every((member) => member.role === "creator")
   const summaryLabel = onlyCreatorVisible ? t("organizations.noOtherMembers") : label
 
   return (
@@ -117,10 +124,11 @@ export function OrganizationDetailPanel({
   appAccessLoading,
   busyAction,
   canManage,
-  compact = false,
   grantsByUserId,
   members,
+  membersComplete,
   membersError,
+  membersForbidden,
   membersLoading,
   onAddMember,
   onDisableMembers,
@@ -128,6 +136,7 @@ export function OrganizationDetailPanel({
   onEnableMembers,
   onGrantProviderAccess,
   onRemoveMember,
+  onRetryMembers,
   onRevokeProviderAccess,
   organization,
   providerAccessError,
@@ -135,18 +144,20 @@ export function OrganizationDetailPanel({
   appAccessLoading: boolean
   busyAction: BusyAction | null
   canManage: boolean
-  compact?: boolean
   grantsByUserId: Map<string, ProviderGrantView>
   members: MemberView[]
+  membersComplete: boolean
   membersError: string | null
+  membersForbidden: boolean
   membersLoading: boolean
   onAddMember: () => void
   onDisableMembers: (userIds: string[]) => void
   onEditProviderAccess: (grant: ProviderGrantView) => void
   onEnableMembers: (userIds: string[]) => void
   onGrantProviderAccess: (userId: string) => void
-  onRemoveMember: (member: OrganizationMember) => void
-  onRevokeProviderAccess: (grant: ProviderGrantView) => void
+  onRemoveMember: (member: OrganizationMember) => Promise<void>
+  onRetryMembers: () => void
+  onRevokeProviderAccess: (grant: ProviderGrantView) => Promise<void>
   organization: Organization | null
   providerAccessError: string | null
 }) {
@@ -161,10 +172,11 @@ export function OrganizationDetailPanel({
     )
   }
 
-  const memberCountLabel = membersLoading ? "..." : String(members.length)
   const compactMemberCountLabel = membersLoading
     ? t("organizations.memberCountLoading")
-    : t("organizations.memberCountCompact", { count: members.length })
+    : membersComplete
+      ? t("organizations.memberCountCompact", { count: members.length })
+      : t("organizations.memberVisibleCountCompact", { count: members.length })
   const permissionModeLabel = canManage ? t("organizations.canManage") : t("organizations.readOnly")
 
   return (
@@ -172,33 +184,9 @@ export function OrganizationDetailPanel({
       <Panel
         title={showProviderAccess ? t("organizations.membersAndPermissions") : t("organizations.memberManagement")}
         description={
-          compact ? (
-            <span className="oo-text-caption-compact truncate text-muted-foreground">
-              {compactMemberCountLabel} · {permissionModeLabel}
-            </span>
-          ) : (
-            <div className="grid min-w-0 gap-1">
-              <span className="min-w-0 truncate">
-                {showProviderAccess
-                  ? t("organizations.membersAndPermissionsDescription")
-                  : t("organizations.memberManagementDescription")}
-              </span>
-              <span className="oo-text-caption-compact flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <UsersIcon className="size-3.5 shrink-0" />
-                  <span className="truncate">
-                    {t("organizations.memberCount")}: {memberCountLabel}
-                  </span>
-                </span>
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <ShieldCheckIcon className="size-3.5 shrink-0" />
-                  <span className="truncate">
-                    {t("organizations.permissionMode")}: {permissionModeLabel}
-                  </span>
-                </span>
-              </span>
-            </div>
-          )
+          <span className="oo-text-caption-compact truncate text-muted-foreground">
+            {compactMemberCountLabel} · {permissionModeLabel}
+          </span>
         }
         action={
           canManage ? (
@@ -213,34 +201,58 @@ export function OrganizationDetailPanel({
           {showProviderAccess && providerAccessError && !membersError ? <ProviderAccessWarning /> : null}
           {membersLoading ? (
             <MemberRowsSkeleton canManage={canManage && showProviderAccess} />
-          ) : membersError ? (
-            <EmptyBlock>
-              {membersError.includes("HTTP 403")
-                ? t("organizations.membersForbidden")
-                : t("organizations.membersLoadFailedDescription")}
-            </EmptyBlock>
+          ) : membersError && !membersForbidden ? (
+            <MemberLoadError onRetry={onRetryMembers} />
           ) : members.length === 0 ? (
             <EmptyBlock>{t("organizations.emptyMembersDescription")}</EmptyBlock>
           ) : (
-            <MembersTable
-              appAccessLoading={appAccessLoading}
-              busyAction={busyAction}
-              canManage={canManage}
-              compact={compact}
-              grantsByUserId={grantsByUserId}
-              members={members}
-              showProviderAccess={showProviderAccess}
-              providerAccessError={providerAccessError}
-              onDisableMembers={onDisableMembers}
-              onEditProviderAccess={onEditProviderAccess}
-              onEnableMembers={onEnableMembers}
-              onGrantProviderAccess={onGrantProviderAccess}
-              onRemoveMember={onRemoveMember}
-              onRevokeProviderAccess={onRevokeProviderAccess}
-            />
+            <>
+              {membersForbidden ? <MemberAccessWarning onRetry={onRetryMembers} /> : null}
+              <MembersTable
+                appAccessLoading={appAccessLoading}
+                busyAction={busyAction}
+                canManage={canManage}
+                grantsByUserId={grantsByUserId}
+                members={members}
+                showProviderAccess={showProviderAccess}
+                providerAccessError={providerAccessError}
+                onDisableMembers={onDisableMembers}
+                onEditProviderAccess={onEditProviderAccess}
+                onEnableMembers={onEnableMembers}
+                onGrantProviderAccess={onGrantProviderAccess}
+                onRemoveMember={onRemoveMember}
+                onRevokeProviderAccess={onRevokeProviderAccess}
+              />
+            </>
           )}
         </>
       </Panel>
+    </div>
+  )
+}
+
+function MemberAccessWarning({ onRetry }: { onRetry: () => void }) {
+  const { t } = useAppI18n()
+  return (
+    <div className="mx-3 mt-3 flex items-start justify-between gap-3 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
+      <div className="oo-text-caption min-w-0">{t("organizations.membersForbiddenPartial")}</div>
+      <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={onRetry}>
+        <RefreshCwIcon className="size-3.5" />
+        {t("organizations.retry")}
+      </Button>
+    </div>
+  )
+}
+
+function MemberLoadError({ onRetry }: { onRetry: () => void }) {
+  const { t } = useAppI18n()
+  return (
+    <div className="flex min-h-32 flex-col items-center justify-center gap-3 px-4 py-8 text-center">
+      <div className="oo-text-body text-muted-foreground">{t("organizations.membersLoadFailedDescription")}</div>
+      <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+        <RefreshCwIcon className="size-3.5" />
+        {t("organizations.retry")}
+      </Button>
     </div>
   )
 }
@@ -320,30 +332,6 @@ export function OrganizationAvatar({
           onError={() => setLoadedAvatar((current) => (current === avatar ? null : current))}
         />
       ) : null}
-    </span>
-  )
-}
-
-export function AccountWorkspaceAvatar({
-  avatarUrl,
-  className,
-  name,
-}: {
-  avatarUrl?: string
-  className?: string
-  name?: string
-}) {
-  const label = name?.trim() || "User"
-
-  return (
-    <span
-      className={cn(
-        "relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--oo-frame-border)] bg-background text-xs font-medium text-foreground",
-        className,
-      )}
-    >
-      <span aria-hidden="true">{userFallback(label)}</span>
-      <CachedAvatarImage src={avatarUrl} alt="" className="absolute inset-0 size-full object-cover" />
     </span>
   )
 }

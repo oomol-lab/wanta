@@ -15,18 +15,20 @@ import {
   ProjectSidebarGroupItem,
   SessionItem,
   SidebarEmptyState,
-  SidebarFooterControls,
   SidebarSegmentControl,
   SidebarTitlebarActions,
 } from "./AppShellSidebar.tsx"
-import { projectHasRunningSession } from "./sidebar-sessions.ts"
+import { limitSidebarSessionGroups, runningProjectIds } from "./sidebar-sessions.ts"
+import { SidebarFooterControls } from "./SidebarAccountControls.tsx"
 import { BrandIcon } from "@/components/BrandIcon"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { useT } from "@/i18n/i18n"
 import { appCommandAriaShortcut } from "@/lib/app-shortcuts"
 import { cn } from "@/lib/utils"
 
-export function AppShellNavigationSidebar({
+const taskSessionPageSize = 50
+
+export const AppShellNavigationSidebar = React.memo(function AppShellNavigationSidebar({
   accountName,
   activeRoute,
   avatarUrl,
@@ -63,6 +65,7 @@ export function AppShellNavigationSidebar({
   projectRegularGroups,
   projectSessions,
   projectSidebarGroups,
+  restoring,
   selectedSessionId,
   sessionsError,
   showKnowledge,
@@ -109,6 +112,7 @@ export function AppShellNavigationSidebar({
   projectRegularGroups: ProjectSidebarGroup[]
   projectSessions: SessionInfo[]
   projectSidebarGroups: ProjectSidebarGroup[]
+  restoring: boolean
   selectedSessionId: string | null
   sessionsError: UserFacingError | null
   showKnowledge: boolean
@@ -120,11 +124,24 @@ export function AppShellNavigationSidebar({
   workspaceSwitching: boolean
 }) {
   const t = useT()
+  const sidebarHidden = collapsed || restoring
   const [now, setNow] = React.useState(() => Date.now())
+  const [taskSessionLimit, setTaskSessionLimit] = React.useState(taskSessionPageSize)
+  React.useEffect(() => {
+    setTaskSessionLimit(taskSessionPageSize)
+  }, [workspace.activeWorkspace.organizationId])
   React.useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 60_000)
     return () => window.clearInterval(id)
   }, [])
+  const projectsWithRunningSessions = React.useMemo(
+    () => runningProjectIds(projectSessions, isSessionRunning),
+    [isSessionRunning, projectSessions],
+  )
+  const visibleTaskSessionGroups = React.useMemo(
+    () => limitSidebarSessionGroups(sidebarSessionGroups, taskSessionLimit, selectedSessionId),
+    [selectedSessionId, sidebarSessionGroups, taskSessionLimit],
+  )
   const renderProjectGroup = (group: ProjectSidebarGroup) => (
     <ProjectSidebarGroupItem
       key={group.project.id}
@@ -134,7 +151,7 @@ export function AppShellNavigationSidebar({
       hasUnreadSession={hasUnreadSession}
       isSessionRunning={isSessionRunning}
       now={now}
-      running={projectHasRunningSession(group.project.id, projectSessions, isSessionRunning)}
+      running={projectsWithRunningSessions.has(group.project.id)}
       onExpandedChange={(expanded) => onProjectExpandedChange(group.project.id, expanded)}
       onNewSession={onSelectProjectDraft}
       onPinProject={onPinProject}
@@ -164,7 +181,11 @@ export function AppShellNavigationSidebar({
   )
 
   return (
-    <aside className="oo-sidebar oo-border-divider relative z-[80] flex min-h-0 flex-col overflow-visible border-r">
+    <aside
+      aria-hidden={sidebarHidden}
+      inert={sidebarHidden}
+      className="oo-sidebar oo-border-divider relative z-[80] flex min-h-0 flex-col overflow-visible border-r"
+    >
       <header
         data-slot="sidebar-chrome-header"
         className="oo-sidebar-chrome-header relative flex h-[var(--app-titlebar-height)] items-center justify-between gap-3 [-webkit-app-region:drag]"
@@ -283,21 +304,32 @@ export function AppShellNavigationSidebar({
               )
             ) : taskSessions.length > 0 ? (
               <div className="grid gap-3">
-                {sidebarSessionGroups.pinned.length > 0 ? (
+                {visibleTaskSessionGroups.pinned.length > 0 ? (
                   <div className="grid gap-0.5">
                     <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-2">
                       {t("sidebar.pinned")}
                     </div>
-                    {sidebarSessionGroups.pinned.map(renderSession)}
+                    {visibleTaskSessionGroups.pinned.map(renderSession)}
                   </div>
                 ) : null}
-                {sidebarSessionGroups.regular.length > 0 ? (
+                {visibleTaskSessionGroups.regular.length > 0 ? (
                   <div className="grid gap-0.5">
                     <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-2">
                       {t("sidebar.tasks")}
                     </div>
-                    {sidebarSessionGroups.regular.map(renderSession)}
+                    {visibleTaskSessionGroups.regular.map(renderSession)}
                   </div>
+                ) : null}
+                {visibleTaskSessionGroups.hiddenCount > 0 ? (
+                  <button
+                    type="button"
+                    className="oo-text-control mx-3 h-8 rounded-md px-3 text-left text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    onClick={() => setTaskSessionLimit((current) => current + taskSessionPageSize)}
+                  >
+                    {t("sidebar.showMoreTasks", {
+                      count: Math.min(taskSessionPageSize, visibleTaskSessionGroups.hiddenCount),
+                    })}
+                  </button>
                 ) : null}
               </div>
             ) : (
@@ -333,4 +365,4 @@ export function AppShellNavigationSidebar({
       />
     </aside>
   )
-}
+})

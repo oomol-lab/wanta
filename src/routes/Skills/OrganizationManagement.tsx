@@ -1,8 +1,9 @@
-import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/skills/common.ts"
+import type { OrganizationProviderOption } from "../../../electron/organizations/common.ts"
+import type { PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { BusyAction, ProviderAccessForm } from "./organization-management-model.ts"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
+import type { ProviderSkillRecommendationsState } from "@/hooks/useProviderSkillRecommendations"
 
 import { RefreshCwIcon } from "lucide-react"
 import * as React from "react"
@@ -43,37 +44,37 @@ import { SkillDetailContent } from "./SkillDetailContent.tsx"
 import { SkillManagementSheet } from "./SkillUiParts.tsx"
 import { useSkillService } from "@/components/AppContext"
 import { useAuthStateResource, useSkillInventoryResource } from "@/components/AppDataHooks"
-import { useHomeSummaryResource, useSkillVersionReportResource } from "@/components/AppDataHooks"
+import { useSkillVersionReportResource } from "@/components/AppDataHooks"
 import { DeleteSkillConfirmDialog } from "@/components/DeleteSkillConfirmDialog"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
 import { useAppI18n } from "@/i18n"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
-import { useProviderSkillPackageLookup } from "@/routes/Skills/provider-skill-package-lookup"
-import { buildProviderSkillRecommendations } from "@/routes/Skills/provider-skill-recommendations"
 import { useOrganizationDetails } from "@/routes/Skills/use-organization-details"
 import { useOrganizationForms } from "@/routes/Skills/use-organization-forms"
 import { useOrganizationMemberActions } from "@/routes/Skills/use-organization-member-actions"
 import { useOrganizationMemberSearch } from "@/routes/Skills/use-organization-member-search"
 import { useOrganizationSkillActions } from "@/routes/Skills/use-organization-skill-actions"
+import { useRegistrySkillUpdate } from "@/routes/Skills/use-registry-skill-update"
 
 export function OrganizationManagementRoute({
-  connectedProviders = [],
   connectedProvidersLoading = false,
   organizationSkills,
+  providerOptions,
+  providerSkillRecommendationsState,
   workspace,
 }: {
-  connectedProviders?: ConnectionProvider[]
   connectedProvidersLoading?: boolean
   organizationSkills?: UseOrganizationSkills
+  providerOptions?: OrganizationProviderOption[] | null
+  providerSkillRecommendationsState: ProviderSkillRecommendationsState
   workspace: UseOrganizationWorkspace
 }) {
   const { locale, t } = useAppI18n()
   const authResource = useAuthStateResource()
   const skillInventory = useSkillInventoryResource()
   const skillVersions = useSkillVersionReportResource()
-  const homeSummary = useHomeSummaryResource()
   const skillService = useSkillService()
   const activeAccount = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
   const activeAccountId = activeAccount?.id
@@ -90,9 +91,7 @@ export function OrganizationManagementRoute({
   const [membersPanelOpen, setMembersPanelOpen] = React.useState(false)
   const [managedSkillId, setManagedSkillId] = React.useState<string | null>(null)
   const [selectedPackage, setSelectedPackage] = React.useState<PublicSkillPackage | null>(null)
-  const [updatingRegistrySkillId, setUpdatingRegistrySkillId] = React.useState<string | null>(null)
   const [managedSkillError, setManagedSkillError] = React.useState<{ cause: unknown; skillId: string } | null>(null)
-  const updateRegistryInFlightRef = React.useRef(false)
   const [providerAccessForm, setProviderAccessForm] = React.useState<ProviderAccessForm>(initialProviderAccessForm)
   const avatarPreviewUrls = workspace.organizationAvatarPreviewUrls
   const clearOrganizationAvatarPreview = workspace.clearOrganizationAvatarPreview
@@ -150,30 +149,17 @@ export function OrganizationManagementRoute({
   const managedSkillVersionCheck = getSkillVersionCheck(skillVersionCheckByKey, managedSkill)
   const { copySkillPath, isRemovingSkill, openSkillFolder, removeSkill, removeTarget, setRemoveTarget } =
     useSkillObjectActions({ onDeleted: () => setManagedSkillId(null) })
-
-  const updateRegistrySkill = React.useCallback(
-    async (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => {
-      const packageName = skill.packageName?.trim()
-      if (updateRegistryInFlightRef.current || skill.kind !== "registry" || !packageName) {
-        return
-      }
-      updateRegistryInFlightRef.current = true
-      setUpdatingRegistrySkillId(skill.id)
-      setManagedSkillError(null)
-      try {
-        const nextInventory = await skillService.invoke("updateRegistrySkill", { packageName, skillId: skill.id })
-        skillInventory.setData(nextInventory)
-        await skillVersions.refresh({ forceRefresh: true, silent: true })
-        homeSummary.invalidate()
-      } catch (cause) {
-        setManagedSkillError({ cause, skillId: skill.id })
-      } finally {
-        updateRegistryInFlightRef.current = false
-        setUpdatingRegistrySkillId(null)
-      }
-    },
-    [homeSummary, skillInventory, skillService, skillVersions],
-  )
+  const handleRegistrySkillUpdateError = React.useCallback((cause: unknown, skillId: string) => {
+    setManagedSkillError({ cause, skillId })
+  }, [])
+  const clearRegistrySkillUpdateError = React.useCallback(() => setManagedSkillError(null), [])
+  const { updateRegistrySkill, updatingRegistrySkillId } = useRegistrySkillUpdate({
+    inventoryResource: skillInventory,
+    onError: handleRegistrySkillUpdateError,
+    onStart: clearRegistrySkillUpdateError,
+    skillService,
+    versionResource: skillVersions,
+  })
   const openManagedSkill = React.useCallback((skillId: string) => {
     setSelectedPackage(null)
     setManagedSkillError(null)
@@ -184,24 +170,22 @@ export function OrganizationManagementRoute({
     setManagedSkillError(null)
     setSelectedPackage(pkg)
   }, [])
-  const providerSkillPackageLookup = useProviderSkillPackageLookup(connectedProviders)
-  const providerSkillRecommendations = React.useMemo(
-    () =>
-      buildProviderSkillRecommendations({
-        groupById: skillGroupById,
-        packagesByService: providerSkillPackageLookup.packagesByService,
-        providers: connectedProviders,
-      }),
-    [connectedProviders, providerSkillPackageLookup.packagesByService, skillGroupById],
-  )
+  const providerSkillRecommendations = providerSkillRecommendationsState.recommendations
   const canManage = activeWorkspace.canManage
-  const { appAccessState, membersState, providerOptionsState, reload, setAppAccessState, summariesState } =
-    useOrganizationDetails({
-      activeAccountId,
-      activeOrganizationId: activeWorkspaceOrganizationId,
-      canManage,
-      selectedOrganization,
-    })
+  const {
+    appAccessState,
+    membersState,
+    providerOptionsState,
+    refresh: refreshDetails,
+    reload,
+    setAppAccessForOrganization,
+    summariesState,
+  } = useOrganizationDetails({
+    activeAccountId,
+    canManage,
+    providerOptions,
+    selectedOrganization,
+  })
   const {
     activeSearchUserId,
     memberInput,
@@ -224,7 +208,9 @@ export function OrganizationManagementRoute({
       }),
     [activeAccount, activeWorkspace, membersState.data, selectedOrganization, summariesState.data],
   )
-  const membersError = memberViews.length > 0 && membersState.error?.includes("HTTP 403") ? null : membersState.error
+  const membersError = membersState.error
+  const membersForbidden = membersState.errorStatus === 403
+  const membersComplete = membersState.status === "ready"
   const grantState = React.useMemo(
     () => buildGrantViews(appAccessState.data, memberViews, providerOptionsState.data),
     [appAccessState.data, memberViews, providerOptionsState.data],
@@ -239,19 +225,25 @@ export function OrganizationManagementRoute({
   const showOrganizationEmptyState = !showOverviewLoading && !showOverviewError && organizations.length === 0
 
   React.useEffect(() => {
+    resetMemberSearch()
+    setBusyAction(null)
+    setAddMemberOpen(false)
+    setAddMemberError(null)
     setMembersPanelOpen(false)
     setManagedSkillId(null)
     setManagedSkillError(null)
+    setProviderAccessForm(initialProviderAccessForm)
     setSelectedPackage(null)
-  }, [selectedOrganization?.id])
+  }, [resetMemberSearch, selectedOrganization?.id])
 
   React.useEffect(() => {
     const handleWindowFocus = () => {
       void refreshWorkspace()
+      void refreshDetails()
     }
     window.addEventListener("focus", handleWindowFocus)
     return () => window.removeEventListener("focus", handleWindowFocus)
-  }, [refreshWorkspace])
+  }, [refreshDetails, refreshWorkspace])
 
   const organizationForms = useOrganizationForms({
     busyAction,
@@ -272,7 +264,6 @@ export function OrganizationManagementRoute({
 
   const memberActions = useOrganizationMemberActions({
     activeAccountId,
-    activeSearchUserId,
     busyAction,
     canManage,
     memberInput,
@@ -285,7 +276,7 @@ export function OrganizationManagementRoute({
     selectedSearchUserId,
     setAddMemberError,
     setAddMemberOpen,
-    setAppAccessState,
+    setAppAccessForOrganization,
     setBusyAction,
     setProviderAccessForm,
   })
@@ -311,6 +302,7 @@ export function OrganizationManagementRoute({
                   canManage={canManage}
                   getOrganizationRole={getWorkspaceOrganizationRole}
                   members={memberViews}
+                  membersComplete={membersComplete}
                   membersLoading={membersState.status === "loading"}
                   organizations={organizations}
                   avatarPreviewUrls={avatarPreviewUrls}
@@ -331,10 +323,10 @@ export function OrganizationManagementRoute({
                         groupById={skillGroupById}
                         organizationSkills={selectedOrganizationSkills}
                         providerRecommendationsLoading={
-                          connectedProvidersLoading || providerSkillPackageLookup.isLoading
+                          connectedProvidersLoading || providerSkillRecommendationsState.isLoading
                         }
-                        providerRecommendationsResolvedCount={providerSkillPackageLookup.resolvedCount}
-                        providerRecommendationsTotalCount={providerSkillPackageLookup.totalCount}
+                        providerRecommendationsResolvedCount={providerSkillRecommendationsState.resolvedCount}
+                        providerRecommendationsTotalCount={providerSkillRecommendationsState.totalCount}
                         providerRecommendations={providerSkillRecommendations}
                         onAddRecommendation={addOrganizationSkillFromRecommendation}
                         onAddRecommendationBatch={addOrganizationSkillBatch}
@@ -359,7 +351,6 @@ export function OrganizationManagementRoute({
                 {selectedOrganization ? (
                   <OrganizationMembersSheet open={membersPanelOpen} onClose={() => setMembersPanelOpen(false)}>
                     <OrganizationDetailPanel
-                      compact
                       appAccessLoading={
                         appAccessState.status === "loading" || providerOptionsState.status === "loading"
                       }
@@ -367,7 +358,9 @@ export function OrganizationManagementRoute({
                       canManage={canManage}
                       grantsByUserId={grantsByUserId}
                       members={memberViews}
+                      membersComplete={membersComplete}
                       membersError={membersError}
+                      membersForbidden={membersForbidden}
                       membersLoading={membersState.status === "loading"}
                       organization={selectedOrganization}
                       providerAccessError={providerAccessError}
@@ -377,6 +370,7 @@ export function OrganizationManagementRoute({
                       onEnableMembers={memberActions.enableMembers}
                       onGrantProviderAccess={memberActions.openGrantProviderAccess}
                       onRemoveMember={memberActions.removeMember}
+                      onRetryMembers={() => void reload()}
                       onRevokeProviderAccess={memberActions.revokeProviderAccess}
                     />
                   </OrganizationMembersSheet>
@@ -486,7 +480,6 @@ export function OrganizationManagementRoute({
         nameError={organizationForms.edit.nameError}
         open={organizationForms.edit.open}
         organization={organizationForms.edit.organization}
-        avatarUploading={busyAction === "uploadOrganizationAvatar"}
         onAvatarChange={organizationForms.edit.setAvatar}
         onAvatarFileChange={organizationForms.edit.changeAvatarFile}
         onClose={organizationForms.edit.close}

@@ -5,6 +5,7 @@ import type { AppDataResources } from "@/components/AppDataContext"
 import * as React from "react"
 import { useAppContext } from "@/components/AppContext"
 import { AppDataContext } from "@/components/AppDataContext"
+import { clearBillingOverviewCache } from "@/hooks/useBillingOverview"
 import { clearAvatarImageCache } from "@/lib/avatar-image-cache"
 import { clearConnectorCache } from "@/lib/connections-client"
 import { clearOrganizationDetailsResources } from "@/lib/organization-details-resource"
@@ -52,9 +53,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         staleTimeMs: 10_000,
         load: () => authService.invoke("getAuthState"),
       }),
-      homeSummary: createResource<null>({
-        load: async () => null,
-      }),
       skillInventory: createResource<SkillInventory>({
         isEqualData: isRefreshDataEqual,
         // 主进程 watcher 会在技能变化时主动失效；较长 TTL 仅兜底发现启动时尚不存在的技能目录。
@@ -75,6 +73,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const currentAuthState = resources.authState.getSnapshot().data
       if (authCacheScope(currentAuthState) !== authCacheScope(nextAuthState)) {
         clearAvatarImageCache()
+        clearBillingOverviewCache()
         clearOrganizationDetailsResources()
       }
       resources.authState.setData(nextAuthState)

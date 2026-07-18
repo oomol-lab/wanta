@@ -20,7 +20,7 @@ export function useConnectionProviderDetail({
   const [loadedCacheKey, setLoadedCacheKey] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
-  const cacheRef = React.useRef(new Map<string, ConnectionProviderDetail>())
+  const [generation, setGeneration] = React.useState(0)
   const requestIdRef = React.useRef(0)
   const previousWorkspaceKeyRef = React.useRef(workspaceKey)
   const service = provider?.service ?? null
@@ -38,21 +38,14 @@ export function useConnectionProviderDetail({
   React.useEffect(() => {
     if (previousWorkspaceKeyRef.current === workspaceKey) return
     previousWorkspaceKeyRef.current = workspaceKey
-    cacheRef.current.clear()
     clearState()
   }, [clearState, workspaceKey])
 
   const loadCached = React.useCallback(
     async (targetService: string): Promise<ConnectionProviderDetail> => {
       const targetKey = workspaceKey ? connectionDetailCacheKey(workspaceKey, targetService) : null
-      if (targetKey) {
-        if (loadedCacheKey === targetKey && detail) return detail
-        const cached = cacheRef.current.get(targetKey)
-        if (cached) return cached
-      }
-      const loaded = await getProviderDetail(targetService)
-      if (targetKey) cacheRef.current.set(targetKey, loaded)
-      return loaded
+      if (targetKey && loadedCacheKey === targetKey && detail) return detail
+      return getProviderDetail(targetService)
     },
     [detail, getProviderDetail, loadedCacheKey, workspaceKey],
   )
@@ -61,8 +54,10 @@ export function useConnectionProviderDetail({
     (targetService: string) => {
       if (!workspaceKey) return
       const targetKey = connectionDetailCacheKey(workspaceKey, targetService)
-      cacheRef.current.delete(targetKey)
-      if (cacheKey === targetKey) clearState()
+      if (cacheKey === targetKey) {
+        clearState()
+        setGeneration((current) => current + 1)
+      }
     },
     [cacheKey, clearState, workspaceKey],
   )
@@ -70,14 +65,6 @@ export function useConnectionProviderDetail({
   React.useEffect(() => {
     if (!service || !cacheKey || !needsDetail) {
       clearState()
-      return
-    }
-    const cached = cacheRef.current.get(cacheKey)
-    if (cached) {
-      setDetail(cached)
-      setLoadedCacheKey(cacheKey)
-      setError(null)
-      setLoading(false)
       return
     }
     let cancelled = false
@@ -89,7 +76,6 @@ export function useConnectionProviderDetail({
     void getProviderDetail(service)
       .then((loaded) => {
         if (cancelled || requestIdRef.current !== requestId) return
-        cacheRef.current.set(cacheKey, loaded)
         setDetail(loaded)
         setLoadedCacheKey(cacheKey)
       })
@@ -102,7 +88,7 @@ export function useConnectionProviderDetail({
     return () => {
       cancelled = true
     }
-  }, [cacheKey, clearState, getProviderDetail, needsDetail, service])
+  }, [cacheKey, clearState, generation, getProviderDetail, needsDetail, service])
 
   return {
     cacheKey,

@@ -9,7 +9,7 @@ export function ProviderIcon({
   displayName: string
   size?: "compact" | "default" | "lg" | "showcase"
 }) {
-  const [failed, setFailed] = React.useState(false)
+  const [failedIconUrl, setFailedIconUrl] = React.useState<string | null>(null)
   const dim =
     size === "lg"
       ? { width: "2.25rem", height: "2.25rem" }
@@ -25,7 +25,7 @@ export function ProviderIcon({
         ? { width: "0.75rem", height: "0.75rem" }
         : undefined
   const className = size === "compact" ? "oo-entity-icon oo-entity-icon-compact" : "oo-entity-icon"
-  if (iconUrl && !failed) {
+  if (iconUrl && iconUrl !== failedIconUrl) {
     return (
       <span className={`${className} oo-entity-icon-brand`} style={dim}>
         <img
@@ -36,7 +36,7 @@ export function ProviderIcon({
           loading="eager"
           decoding="async"
           draggable={false}
-          onError={() => setFailed(true)}
+          onError={() => setFailedIconUrl(iconUrl)}
         />
       </span>
     )

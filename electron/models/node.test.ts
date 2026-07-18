@@ -107,3 +107,29 @@ test("ModelsServiceImpl can clear token limits on update", async () => {
   assert.equal(updated.customModels[0]?.inputTokenLimit, undefined)
   assert.equal(updated.customModels[0]?.maxOutputTokens, undefined)
 })
+
+test("ModelsServiceImpl serializes concurrent model mutations", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
+  const store = new ModelsStore(dir)
+  const service = new ModelsServiceImpl({ store })
+
+  await Promise.all([
+    service.saveCustomModel({
+      providerId: "openrouter",
+      baseUrl: providerBaseUrls.openrouter,
+      apiKey: "first-key",
+      modelName: "first-model",
+    }),
+    service.saveCustomModel({
+      providerId: "openrouter",
+      baseUrl: providerBaseUrls.openrouter,
+      apiKey: "second-key",
+      modelName: "second-model",
+    }),
+  ])
+
+  assert.deepEqual((await store.catalog()).customModels.map((model) => model.modelName).sort(), [
+    "first-model",
+    "second-model",
+  ])
+})

@@ -33,6 +33,7 @@ interface SessionServiceDeps {
   onSessionArchived?: (sessionId: string) => Promise<void> | void
   onSessionRemoved?: (sessionId: string) => Promise<void> | void
   projectStore?: SessionProjectStore
+  trustedProjectPaths?: Iterable<string> & Pick<Set<string>, "delete">
 }
 
 const invalidSessionScope: SessionScope = {
@@ -103,6 +104,8 @@ export class SessionServiceImpl
   private projectsLoaded = false
   private projectsLoadPromise: Promise<void> | null = null
   private projects = new Map<string, SessionProject>()
+  private mutationQueue: Promise<void> = Promise.resolve()
+  private runtimeRevision = 0
 
   public constructor(agent: AgentManager | null = null, deps: SessionServiceDeps = {}) {
     super(SessionServiceName)
@@ -112,29 +115,38 @@ export class SessionServiceImpl
 
   /** 登录 / 登出时由 main 重新装配 agent。 */
   public setAgent(agent: AgentManager | null): void {
+    this.runtimeRevision += 1
     this.agent = agent
     if (!agent) {
-      this.sessionActivityAt.clear()
+      // 替换容器而不是原地 clear，避免旧 runtime 的在途持久化拿到新账号的容器引用。
+      this.sessionActivityAt = new Map()
       this.activityLoaded = false
       this.activityLoadPromise = null
-      this.sessionMetadata.clear()
+      this.sessionMetadata = new Map()
       this.metadataLoaded = false
       this.metadataLoadPromise = null
-      this.projects.clear()
+      this.projects = new Map()
       this.projectsLoaded = false
       this.projectsLoadPromise = null
     }
   }
 
   public async list(req: SessionScopeRequest): Promise<SessionInfo[]> {
-    if (!this.agent) {
+    const agent = this.agent
+    const revision = this.runtimeRevision
+    if (!agent) {
       return []
     }
-    await this.ensureActivityLoaded()
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
+    await Promise.all([this.ensureActivityLoaded(), this.ensureMetadataLoaded(), this.ensureProjectsLoaded()])
+    if (!this.runtimeMatches(agent, revision)) {
+      return []
+    }
+    const sessions = await agent.listSessions()
+    if (!this.runtimeMatches(agent, revision)) {
+      return []
+    }
     return this.mergeLocalState(
-      await this.agent.listSessions(),
+      sessions,
       "active",
       normalizeRequestedSessionScope(req.scope),
       normalizeSessionPlacement(req.placement),
@@ -142,14 +154,21 @@ export class SessionServiceImpl
   }
 
   public async listArchived(req: SessionScopeRequest): Promise<SessionInfo[]> {
-    if (!this.agent) {
+    const agent = this.agent
+    const revision = this.runtimeRevision
+    if (!agent) {
       return []
     }
-    await this.ensureActivityLoaded()
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
+    await Promise.all([this.ensureActivityLoaded(), this.ensureMetadataLoaded(), this.ensureProjectsLoaded()])
+    if (!this.runtimeMatches(agent, revision)) {
+      return []
+    }
+    const sessions = await agent.listSessions()
+    if (!this.runtimeMatches(agent, revision)) {
+      return []
+    }
     return this.mergeLocalState(
-      await this.agent.listSessions(),
+      sessions,
       "archived",
       normalizeRequestedSessionScope(req.scope),
       normalizeSessionPlacement(req.placement),
@@ -157,10 +176,15 @@ export class SessionServiceImpl
   }
 
   public async listProjects(req: SessionScopeRequest): Promise<SessionProject[]> {
-    if (!this.agent) {
+    const agent = this.agent
+    const revision = this.runtimeRevision
+    if (!agent) {
       return []
     }
     await this.ensureProjectsLoaded()
+    if (!this.runtimeMatches(agent, revision)) {
+      return []
+    }
     const requestedScope = normalizeRequestedSessionScope(req.scope)
     return [...this.projects.values()]
       .filter((project) => !project.archivedAt)
@@ -171,36 +195,81 @@ export class SessionServiceImpl
       })
   }
 
-  public async create(req: CreateSessionRequest): Promise<SessionInfo> {
-    if (!this.agent) {
+  public create(req: CreateSessionRequest): Promise<SessionInfo> {
+    return this.enqueueMutation((revision) => this.createMutation(req, revision))
+  }
+
+  private async createMutation(req: CreateSessionRequest, revision: number): Promise<SessionInfo> {
+    const agent = this.agent
+    if (!agent) {
       throw new Error("Agent not configured (sign in first)")
     }
     const scope = normalizeRequestedSessionScope(req.scope)
     const projectId = req.projectId?.trim() || undefined
-    const info = await this.agent.createSession(req.title)
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
+    const info = await agent.createSession(req.title)
+    if (!this.runtimeMatches(agent, revision)) {
+      try {
+        await agent.deleteSession(info.id)
+      } catch (rollbackError) {
+        this.logFailure("failed to roll back session after agent runtime changed", rollbackError, {
+          sessionId: info.id,
+        })
+      }
+      throw this.runtimeChangedError()
+    }
+    await this.ensureMetadataLoaded(revision)
+    await this.ensureProjectsLoaded(revision)
+    if (!this.runtimeMatches(agent, revision)) {
+      try {
+        await agent.deleteSession(info.id)
+      } catch (rollbackError) {
+        this.logFailure("failed to roll back session after agent runtime changed", rollbackError, {
+          sessionId: info.id,
+        })
+      }
+      throw this.runtimeChangedError()
+    }
     const project = projectId ? this.projects.get(projectId) : undefined
     const scopedProjectId = project && sessionScopeMatches(project.scope, scope) ? project.id : undefined
+    const previousMetadata = this.sessionMetadata.get(info.id)
     this.setMetadataEntry(info.id, {
       ...this.sessionMetadata.get(info.id),
       scope,
       ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
     })
-    await this.persistMetadata()
+    try {
+      await this.persistMetadata()
+    } catch (error) {
+      if (previousMetadata) this.sessionMetadata.set(info.id, previousMetadata)
+      else this.sessionMetadata.delete(info.id)
+      try {
+        await agent.deleteSession(info.id)
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], "Failed to persist and roll back the created session")
+      }
+      throw error
+    }
     this.broadcastChangedBestEffort("create session")
     return { ...info, scope, ...(scopedProjectId ? { projectId: scopedProjectId } : {}) }
   }
 
-  public async createProject(req: CreateProjectRequest): Promise<SessionProject> {
-    if (!this.agent) {
-      throw new Error("Agent not configured (sign in first)")
-    }
+  public createProject(req: CreateProjectRequest): Promise<SessionProject> {
+    return this.enqueueMutation((revision) => this.createProjectMutation(req, revision))
+  }
+
+  private async createProjectMutation(req: CreateProjectRequest, revision: number): Promise<SessionProject> {
     const projectPath = normalizeProjectPath(req.path)
     if (!projectPath) {
       throw new Error("Project path is required")
     }
-    await this.ensureProjectsLoaded()
+    if (this.deps.trustedProjectPaths) {
+      const trustedPath = [...this.deps.trustedProjectPaths].find(
+        (candidate) => normalizeProjectPath(candidate) === projectPath,
+      )
+      if (!trustedPath) throw new Error("Project path was not selected with the native directory picker")
+      this.deps.trustedProjectPaths.delete(trustedPath)
+    }
+    await this.ensureProjectsLoaded(revision)
     const scope = normalizeRequestedSessionScope(req.scope)
     const existing = [...this.projects.values()].find(
       (project) => project.path === projectPath && sessionScopeMatches(project.scope, scope),
@@ -232,12 +301,13 @@ export class SessionServiceImpl
     return project
   }
 
-  public async assignSessionProject(req: AssignSessionProjectRequest): Promise<void> {
-    if (!this.agent) {
-      return
-    }
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
+  public assignSessionProject(req: AssignSessionProjectRequest): Promise<void> {
+    return this.enqueueMutation((revision) => this.assignSessionProjectMutation(req, revision))
+  }
+
+  private async assignSessionProjectMutation(req: AssignSessionProjectRequest, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
+    await this.ensureProjectsLoaded(revision)
     const current = this.sessionMetadata.get(req.sessionId) ?? {}
     const projectId = req.projectId?.trim()
     const next = { ...current }
@@ -253,11 +323,12 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("assign session project")
   }
 
-  public async setPermissionMode(req: SetSessionPermissionModeRequest): Promise<void> {
-    if (!this.agent) {
-      return
-    }
-    await this.ensureMetadataLoaded()
+  public setPermissionMode(req: SetSessionPermissionModeRequest): Promise<void> {
+    return this.enqueueMutation((revision) => this.setPermissionModeMutation(req, revision))
+  }
+
+  private async setPermissionModeMutation(req: SetSessionPermissionModeRequest, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
     const current = this.sessionMetadata.get(req.id) ?? {}
     const next = { ...current }
     const permissionMode = normalizeSessionPermissionMode(req.permissionMode)
@@ -274,9 +345,12 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("set session permission mode")
   }
 
-  public async setKnowledgeBases(req: SetSessionKnowledgeBasesRequest): Promise<void> {
-    if (!this.agent) return
-    await this.ensureMetadataLoaded()
+  public setKnowledgeBases(req: SetSessionKnowledgeBasesRequest): Promise<void> {
+    return this.enqueueMutation((revision) => this.setKnowledgeBasesMutation(req, revision))
+  }
+
+  private async setKnowledgeBasesMutation(req: SetSessionKnowledgeBasesRequest, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
     const current = this.sessionMetadata.get(req.id) ?? {}
     const knowledgeBaseIds = normalizeKnowledgeBaseIds(req.knowledgeBaseIds) ?? []
     const currentIds = current.knowledgeBaseIds ?? []
@@ -290,15 +364,16 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("set session knowledge bases")
   }
 
-  public async renameProject(req: { id: string; name: string }): Promise<void> {
-    if (!this.agent) {
-      return
-    }
+  public renameProject(req: { id: string; name: string }): Promise<void> {
+    return this.enqueueMutation((revision) => this.renameProjectMutation(req, revision))
+  }
+
+  private async renameProjectMutation(req: { id: string; name: string }, revision: number): Promise<void> {
     const name = req.name.trim()
     if (!name) {
       throw new Error("Project name is required")
     }
-    await this.ensureProjectsLoaded()
+    await this.ensureProjectsLoaded(revision)
     const current = this.projects.get(req.id)
     if (!current || current.archivedAt) {
       return
@@ -308,11 +383,12 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("rename project")
   }
 
-  public async pinProject(req: { id: string; pinned: boolean }): Promise<void> {
-    if (!this.agent) {
-      return
-    }
-    await this.ensureProjectsLoaded()
+  public pinProject(req: { id: string; pinned: boolean }): Promise<void> {
+    return this.enqueueMutation((revision) => this.pinProjectMutation(req, revision))
+  }
+
+  private async pinProjectMutation(req: { id: string; pinned: boolean }, revision: number): Promise<void> {
+    await this.ensureProjectsLoaded(revision)
     const current = this.projects.get(req.id)
     if (!current || current.archivedAt) {
       return
@@ -328,12 +404,13 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("pin project")
   }
 
-  public async archiveProject(id: string): Promise<void> {
-    if (!this.agent) {
-      return
-    }
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
+  public archiveProject(id: string): Promise<void> {
+    return this.enqueueMutation((revision) => this.archiveProjectMutation(id, revision))
+  }
+
+  private async archiveProjectMutation(id: string, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
+    await this.ensureProjectsLoaded(revision)
     const current = this.projects.get(id)
     if (!current || current.archivedAt) {
       return
@@ -382,12 +459,13 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("archive project")
   }
 
-  public async removeProject(id: string): Promise<void> {
-    if (!this.agent) {
-      return
-    }
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
+  public removeProject(id: string): Promise<void> {
+    return this.enqueueMutation((revision) => this.removeProjectMutation(id, revision))
+  }
+
+  private async removeProjectMutation(id: string, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
+    await this.ensureProjectsLoaded(revision)
     if (!this.projects.delete(id)) {
       return
     }
@@ -405,25 +483,30 @@ export class SessionServiceImpl
   }
 
   public async generateTitle(req: GenerateSessionTitleRequest): Promise<GenerateSessionTitleResult> {
-    if (!this.agent) {
+    const agent = this.agent
+    const revision = this.runtimeRevision
+    if (!agent) {
       throw new Error("Agent not configured (sign in first)")
     }
-    return this.agent.generateSessionTitle(req)
+    const result = await agent.generateSessionTitle(req)
+    this.assertRuntimeMatches(agent, revision)
+    return result
   }
 
   public async rename(req: { id: string; title: string }): Promise<void> {
-    if (!this.agent) {
-      return
-    }
-    await this.agent.renameSession(req.id, req.title)
+    const agent = this.requireAgent()
+    const revision = this.runtimeRevision
+    await agent.renameSession(req.id, req.title)
+    this.assertRuntimeMatches(agent, revision)
     this.broadcastChangedBestEffort("rename session")
   }
 
-  public async pin(req: { id: string; pinned: boolean }): Promise<void> {
-    if (!this.agent) {
-      return
-    }
-    await this.ensureMetadataLoaded()
+  public pin(req: { id: string; pinned: boolean }): Promise<void> {
+    return this.enqueueMutation((revision) => this.pinMutation(req, revision))
+  }
+
+  private async pinMutation(req: { id: string; pinned: boolean }, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
     const current = this.sessionMetadata.get(req.id) ?? {}
     if (current.archivedAt) {
       return
@@ -439,11 +522,12 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("pin session")
   }
 
-  public async archive(id: string): Promise<void> {
-    if (!this.agent) {
-      return
-    }
-    await this.ensureMetadataLoaded()
+  public archive(id: string): Promise<void> {
+    return this.enqueueMutation((revision) => this.archiveMutation(id, revision))
+  }
+
+  private async archiveMutation(id: string, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
     const current = this.sessionMetadata.get(id) ?? {}
     const next = { ...current, archivedAt: Date.now() }
     delete next.pinnedAt
@@ -457,12 +541,15 @@ export class SessionServiceImpl
     this.broadcastChangedBestEffort("archive session")
   }
 
-  public async unarchive(id: string): Promise<SessionInfo | null> {
-    if (!this.agent) {
-      return null
-    }
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
+  public unarchive(id: string): Promise<SessionInfo | null> {
+    return this.enqueueMutation((revision) => this.unarchiveMutation(id, revision))
+  }
+
+  private async unarchiveMutation(id: string, revision: number): Promise<SessionInfo | null> {
+    const agent = this.requireAgent()
+    await this.ensureMetadataLoaded(revision)
+    await this.ensureProjectsLoaded(revision)
+    this.assertRuntimeMatches(agent, revision)
     const current = this.sessionMetadata.get(id)
     if (!current) {
       return null
@@ -508,13 +595,17 @@ export class SessionServiceImpl
     return restored
   }
 
-  public async remove(id: string): Promise<void> {
-    if (!this.agent) {
-      return
-    }
-    await this.ensureActivityLoaded()
-    await this.ensureMetadataLoaded()
-    await this.agent.deleteSession(id)
+  public remove(id: string): Promise<void> {
+    return this.enqueueMutation((revision) => this.removeMutation(id, revision))
+  }
+
+  private async removeMutation(id: string, revision: number): Promise<void> {
+    const agent = this.requireAgent()
+    await this.ensureActivityLoaded(revision)
+    await this.ensureMetadataLoaded(revision)
+    this.assertRuntimeMatches(agent, revision)
+    await agent.deleteSession(id)
+    this.assertRuntimeMatches(agent, revision)
     this.sessionActivityAt.delete(id)
     this.sessionMetadata.delete(id)
     await this.deps.onSessionRemoved?.(id)
@@ -539,82 +630,131 @@ export class SessionServiceImpl
     await this.broadcastChanged("refresh")
   }
 
-  public async recordUseAndEmit(id: string, usedAt = Date.now()): Promise<void> {
-    await this.ensureActivityLoaded()
+  public recordUseAndEmit(id: string, usedAt = Date.now()): Promise<void> {
+    return this.enqueueMutation((revision) => this.recordUseAndEmitMutation(id, usedAt, revision))
+  }
+
+  private async recordUseAndEmitMutation(id: string, usedAt: number, revision: number): Promise<void> {
+    await this.ensureActivityLoaded(revision)
     if (!this.markUsed(id, usedAt)) {
       return
     }
     await this.persistActivity()
     try {
-      await this.refreshAndEmit()
+      await this.send("sessionsChanged", {
+        activity: { sessionId: id, usedAt },
+        reason: "record session use",
+      })
     } catch (error) {
       this.logFailure("failed to broadcast sessions changed", error, { action: "record session use", sessionId: id })
     }
   }
 
-  private async ensureActivityLoaded(): Promise<void> {
-    if (this.activityLoaded) {
-      return
-    }
-    if (this.activityLoadPromise) {
-      return this.activityLoadPromise
-    }
-    this.activityLoadPromise = (async () => {
-      const persisted = await this.deps.activityStore?.read()
-      for (const [id, usedAt] of persisted ?? []) {
-        const current = this.sessionActivityAt.get(id) ?? 0
-        if (usedAt > current) {
-          this.sessionActivityAt.set(id, usedAt)
+  private async ensureActivityLoaded(expectedRevision?: number): Promise<void> {
+    while (!this.activityLoaded) {
+      if (!this.activityLoadPromise) {
+        const revision = this.runtimeRevision
+        const loadPromise = (async () => {
+          const persisted = await this.deps.activityStore?.read()
+          if (revision !== this.runtimeRevision) {
+            return
+          }
+          for (const [id, usedAt] of persisted ?? []) {
+            const current = this.sessionActivityAt.get(id) ?? 0
+            if (usedAt > current) {
+              this.sessionActivityAt.set(id, usedAt)
+            }
+          }
+          this.activityLoaded = true
+        })()
+        this.activityLoadPromise = loadPromise
+      }
+      const loadPromise = this.activityLoadPromise
+      try {
+        await loadPromise
+        if (expectedRevision !== undefined) this.assertRevisionMatches(expectedRevision)
+      } finally {
+        if (this.activityLoadPromise === loadPromise) {
+          this.activityLoadPromise = null
         }
       }
-      this.activityLoaded = true
-      this.activityLoadPromise = null
-    })()
-    return this.activityLoadPromise
+    }
+    if (expectedRevision !== undefined) {
+      await Promise.resolve()
+      this.assertRevisionMatches(expectedRevision)
+    }
   }
 
   private async persistActivity(): Promise<void> {
     await this.deps.activityStore?.write(this.sessionActivityAt)
   }
 
-  private async ensureMetadataLoaded(): Promise<void> {
-    if (this.metadataLoaded) {
-      return
-    }
-    if (this.metadataLoadPromise) {
-      return this.metadataLoadPromise
-    }
-    this.metadataLoadPromise = (async () => {
-      const persisted = await this.deps.metadataStore?.read()
-      for (const [id, metadata] of persisted ?? []) {
-        this.setMetadataEntry(id, metadata)
+  private async ensureMetadataLoaded(expectedRevision?: number): Promise<void> {
+    while (!this.metadataLoaded) {
+      if (!this.metadataLoadPromise) {
+        const revision = this.runtimeRevision
+        const loadPromise = (async () => {
+          const persisted = await this.deps.metadataStore?.read()
+          if (revision !== this.runtimeRevision) {
+            return
+          }
+          for (const [id, metadata] of persisted ?? []) {
+            this.setMetadataEntry(id, metadata)
+          }
+          this.metadataLoaded = true
+        })()
+        this.metadataLoadPromise = loadPromise
       }
-      this.metadataLoaded = true
-      this.metadataLoadPromise = null
-    })()
-    return this.metadataLoadPromise
+      const loadPromise = this.metadataLoadPromise
+      try {
+        await loadPromise
+        if (expectedRevision !== undefined) this.assertRevisionMatches(expectedRevision)
+      } finally {
+        if (this.metadataLoadPromise === loadPromise) {
+          this.metadataLoadPromise = null
+        }
+      }
+    }
+    if (expectedRevision !== undefined) {
+      await Promise.resolve()
+      this.assertRevisionMatches(expectedRevision)
+    }
   }
 
   private async persistMetadata(): Promise<void> {
     await this.deps.metadataStore?.write(this.sessionMetadata)
   }
 
-  private async ensureProjectsLoaded(): Promise<void> {
-    if (this.projectsLoaded) {
-      return
-    }
-    if (this.projectsLoadPromise) {
-      return this.projectsLoadPromise
-    }
-    this.projectsLoadPromise = (async () => {
-      const persisted = await this.deps.projectStore?.read()
-      for (const [id, project] of persisted ?? []) {
-        this.projects.set(id, project)
+  private async ensureProjectsLoaded(expectedRevision?: number): Promise<void> {
+    while (!this.projectsLoaded) {
+      if (!this.projectsLoadPromise) {
+        const revision = this.runtimeRevision
+        const loadPromise = (async () => {
+          const persisted = await this.deps.projectStore?.read()
+          if (revision !== this.runtimeRevision) {
+            return
+          }
+          for (const [id, project] of persisted ?? []) {
+            this.projects.set(id, project)
+          }
+          this.projectsLoaded = true
+        })()
+        this.projectsLoadPromise = loadPromise
       }
-      this.projectsLoaded = true
-      this.projectsLoadPromise = null
-    })()
-    return this.projectsLoadPromise
+      const loadPromise = this.projectsLoadPromise
+      try {
+        await loadPromise
+        if (expectedRevision !== undefined) this.assertRevisionMatches(expectedRevision)
+      } finally {
+        if (this.projectsLoadPromise === loadPromise) {
+          this.projectsLoadPromise = null
+        }
+      }
+    }
+    if (expectedRevision !== undefined) {
+      await Promise.resolve()
+      this.assertRevisionMatches(expectedRevision)
+    }
   }
 
   private async persistProjects(): Promise<void> {
@@ -671,6 +811,47 @@ export class SessionServiceImpl
       return next
     }
     return resolved
+  }
+
+  private requireAgent(): AgentManager {
+    if (!this.agent) throw new Error("Agent not configured (sign in first)")
+    return this.agent
+  }
+
+  private runtimeMatches(agent: AgentManager, revision: number): boolean {
+    return this.agent === agent && this.runtimeRevision === revision
+  }
+
+  private assertRuntimeMatches(agent: AgentManager, revision: number): void {
+    if (!this.runtimeMatches(agent, revision)) {
+      throw this.runtimeChangedError()
+    }
+  }
+
+  private assertRevisionMatches(revision: number): void {
+    if (this.runtimeRevision !== revision) {
+      throw this.runtimeChangedError()
+    }
+  }
+
+  private runtimeChangedError(): Error {
+    return new Error("Agent runtime changed while the session operation was pending")
+  }
+
+  private async enqueueMutation<T>(mutation: (revision: number) => Promise<T>): Promise<T> {
+    const revision = this.runtimeRevision
+    const previous = this.mutationQueue
+    let release!: () => void
+    this.mutationQueue = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await previous.catch(() => undefined)
+    try {
+      this.assertRevisionMatches(revision)
+      return await mutation(revision)
+    } finally {
+      release()
+    }
   }
 
   private mergeLocalState(

@@ -17,6 +17,7 @@ export const BUG_REPORT_COMMAND = "/bug-report"
 
 export interface AuthorizationInfo {
   service: string
+  connectionName?: string
   displayName: string
   action?: string
   /** 仅作为旧版/调试兜底；Wanta 授权统一走应用内 Connections 面板。 */
@@ -537,7 +538,7 @@ export type ArtifactBundleKind = LocalArtifactPackKind
 export type ArtifactBundleDisplay = LocalArtifactDisplayMode
 export type ArtifactBundleStatus = "ready" | "partial" | "failed"
 export type ArtifactBundleFailure = "generated_preview_not_persisted"
-export type ArtifactItemStatus = "ready" | "missing"
+export type ArtifactItemStatus = "ready"
 export type ArtifactItemOrigin = "managed_output" | "assistant_attachment" | "assistant_preview" | "recovered_output"
 
 export type LocalArtifactEntryRole = "primary" | "supporting" | "summary" | "metadata"
@@ -620,6 +621,7 @@ export interface TurnOutputRecord {
   createdAt: number
   completedAt?: number
   files: TurnOutputFile[]
+  projectChangesTruncated?: boolean
   summary: TurnOutputSummary
 }
 

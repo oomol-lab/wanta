@@ -8,8 +8,15 @@ import { UniverSheetsCorePreset } from "@univerjs/preset-sheets-core"
 import zhCN from "@univerjs/preset-sheets-core/locales/zh-CN"
 import * as React from "react"
 import { workbookSnapshotFromPreview } from "./artifact-univer-snapshot.ts"
-import { useT } from "@/i18n/i18n"
+import { useTheme } from "@/components/theme-context"
+import { useI18n } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
+
+import "@univerjs/preset-sheets-core/lib/index.css"
+
+// 产品铁律：Univer 表格预览是明确的业务需求，用于保持完整工作簿交互与一致渲染。
+// 禁止以“只读”“包体积”或“原生 table 可替代”为由删除、降级或替换；任何调整必须先获得产品方明确同意。
+// 性能优化必须保留本组件、快照转换层、Univer 依赖以及现有工作簿渲染能力。
 
 type UniverPresetPluginEntry = PluginCtor<Plugin> | [PluginCtor<Plugin>, ConstructorParameters<PluginCtor<Plugin>>[0]]
 type UniverPreset = {
@@ -43,16 +50,6 @@ function createPreviewUniver(
     univer,
     univerAPI: UniverFacade.newAPI(univer),
   }
-}
-
-function prefersDarkMode(): boolean {
-  if (document.documentElement.classList.contains("dark")) {
-    return true
-  }
-  if (document.documentElement.classList.contains("light")) {
-    return false
-  }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
 }
 
 function disposeUniverAfterReactCommit(univer: Univer): void {
@@ -113,17 +110,19 @@ function replaceWorkbook(runtime: PreviewUniverRuntime, snapshot: Parameters<FUn
   runtime.currentWorkbookId = workbook.getId()
 }
 
-export function ArtifactUniverSpreadsheetPreview({
-  className,
-  preview,
+function ArtifactUniverRuntimeHost({
+  darkMode,
+  locale,
+  localeMessages,
+  snapshot,
 }: {
-  className?: string
-  preview: LocalArtifactPreviewResult
+  darkMode: boolean
+  locale: LocaleType
+  localeMessages: NonNullable<IUniverConfig["locales"]>[LocaleType]
+  snapshot: Parameters<FUniver["createWorkbook"]>[0]
 }) {
-  const t = useT()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const runtimeRef = React.useRef<PreviewUniverRuntime | null>(null)
-  const snapshot = React.useMemo(() => workbookSnapshotFromPreview(preview), [preview])
 
   React.useEffect(() => {
     return () => {
@@ -137,7 +136,7 @@ export function ArtifactUniverSpreadsheetPreview({
 
   React.useLayoutEffect(() => {
     const container = containerRef.current
-    if (!container || !snapshot) {
+    if (!container) {
       return
     }
 
@@ -145,10 +144,10 @@ export function ArtifactUniverSpreadsheetPreview({
     if (!runtime) {
       const created = createPreviewUniver(
         {
-          darkMode: prefersDarkMode(),
-          locale: LocaleType.ZH_CN,
+          darkMode,
+          locale,
           locales: {
-            [LocaleType.ZH_CN]: zhCN,
+            [locale]: localeMessages,
           },
           logLevel: LogLevel.SILENT,
         },
@@ -170,7 +169,40 @@ export function ArtifactUniverSpreadsheetPreview({
       runtime.univerAPI.disposeUnit(runtime.currentWorkbookId)
       runtime.currentWorkbookId = null
     }
-  }, [snapshot])
+  }, [darkMode, locale, localeMessages, snapshot])
+
+  return <div ref={containerRef} className="absolute inset-0 size-full" aria-readonly="true" />
+}
+
+export function ArtifactUniverSpreadsheetPreview({
+  className,
+  preview,
+}: {
+  className?: string
+  preview: LocalArtifactPreviewResult
+}) {
+  const { locale, t } = useI18n()
+  const { effectiveTheme } = useTheme()
+  const univerLocale = locale === "en" ? LocaleType.EN_US : LocaleType.ZH_CN
+  const [enUSMessages, setEnUSMessages] = React.useState<
+    (typeof import("@univerjs/preset-sheets-core/locales/en-US"))["default"] | null
+  >(null)
+  const localeMessages = univerLocale === LocaleType.EN_US ? enUSMessages : zhCN
+  const runtimeConfigKey = `${univerLocale}:${effectiveTheme}`
+  const snapshot = React.useMemo(() => workbookSnapshotFromPreview(preview, univerLocale), [preview, univerLocale])
+
+  React.useEffect(() => {
+    if (univerLocale !== LocaleType.EN_US || enUSMessages) {
+      return
+    }
+    let cancelled = false
+    void import("@univerjs/preset-sheets-core/locales/en-US").then((module) => {
+      if (!cancelled) setEnUSMessages(module.default)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [enUSMessages, univerLocale])
 
   if (!snapshot) {
     return null
@@ -179,7 +211,20 @@ export function ArtifactUniverSpreadsheetPreview({
   return (
     <div className={cn("flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)] p-3", className)}>
       <div className="oo-univer-spreadsheet-preview oo-border-divider relative min-h-[420px] flex-1 overflow-hidden rounded-md border bg-background">
-        <div ref={containerRef} className="absolute inset-0 size-full" aria-readonly="true" />
+        {localeMessages ? (
+          <ArtifactUniverRuntimeHost
+            key={runtimeConfigKey}
+            darkMode={effectiveTheme === "dark"}
+            locale={univerLocale}
+            localeMessages={localeMessages}
+            snapshot={snapshot}
+          />
+        ) : null}
+        {!localeMessages ? (
+          <div className="oo-text-body absolute inset-0 flex items-center justify-center text-muted-foreground">
+            {t("artifacts.previewLoading")}
+          </div>
+        ) : null}
       </div>
       {preview.truncated ? (
         <p className="oo-text-caption mt-2 shrink-0 text-muted-foreground">{t("artifacts.sheetTruncated")}</p>

@@ -2,7 +2,6 @@ import type {
   Organization,
   OrganizationAppAccess,
   OrganizationMember,
-  OrganizationOverview,
   OrganizationProviderOption,
   OrganizationUserSearchResult,
   OrganizationUserSummary,
@@ -21,7 +20,6 @@ export type BusyAction =
   | "enableMembers"
   | "installSkillBatch"
   | "saveProviderAccess"
-  | "uploadOrganizationAvatar"
   | "updateOrganization"
   | `addSkill:${string}`
   | `installSkill:${string}`
@@ -34,6 +32,7 @@ export type ProviderAccessMode = "create" | "edit"
 export interface LoadState<T> {
   data: T
   error: string | null
+  errorStatus: number | null
   status: LoadStatus
 }
 
@@ -72,15 +71,6 @@ export interface AccountSummaryLike {
   name: string
 }
 
-export interface OrganizationManagementSnapshot {
-  appAccessState: LoadState<OrganizationAppAccess | null>
-  detailsOrganizationId: string | null
-  membersState: LoadState<OrganizationMember[]>
-  providerOptionsState: LoadState<OrganizationProviderOption[]>
-  savedAt: number
-  summariesState: LoadState<Record<string, OrganizationUserSummary>>
-}
-
 export interface OrganizationSkillPackageItem {
   packageName: string
 }
@@ -97,11 +87,9 @@ export interface OrganizationSkillBulkPlan<T extends OrganizationSkillPackageIte
 }
 
 export const maxOrganizationNameLength = 100
-export const maxOrganizationAvatarLength = 4095
 export const minimumMemberSearchLength = 2
 
 const organizationNamePattern = /^[A-Za-z0-9._'-]+$/
-const organizationPageSnapshotTtlMs = 30_000
 
 export const initialProviderAccessForm: ProviderAccessForm = {
   allProviders: false,
@@ -111,42 +99,27 @@ export const initialProviderAccessForm: ProviderAccessForm = {
   userId: "",
 }
 
-export const organizationManagementSnapshotsByAccountId = new Map<string, OrganizationManagementSnapshot>()
-
 export function loadState<T>(data: T): LoadState<T> {
-  return { data, error: null, status: "idle" }
+  return { data, error: null, errorStatus: null, status: "idle" }
 }
 
 export function loadingState<T>(current: LoadState<T>): LoadState<T> {
-  return { ...current, error: null, status: "loading" }
+  return { ...current, error: null, errorStatus: null, status: "loading" }
 }
 
 export function errorState<T>(current: LoadState<T>, error: unknown): LoadState<T> {
-  return { ...current, error: errorMessage(error), status: "error" }
+  return { ...current, error: errorMessage(error), errorStatus: httpErrorStatus(error), status: "error" }
 }
 
 export function readyState<T>(data: T): LoadState<T> {
-  return { data, error: null, status: "ready" }
+  return { data, error: null, errorStatus: null, status: "ready" }
 }
 
-export function readOrganizationManagementSnapshot(
-  accountId: string | undefined,
-): OrganizationManagementSnapshot | undefined {
-  if (!accountId) {
-    return undefined
+function httpErrorStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object" || !("status" in error)) {
+    return null
   }
-
-  const snapshot = organizationManagementSnapshotsByAccountId.get(accountId)
-  if (!snapshot) {
-    return undefined
-  }
-
-  if (Date.now() - snapshot.savedAt > organizationPageSnapshotTtlMs) {
-    organizationManagementSnapshotsByAccountId.delete(accountId)
-    return undefined
-  }
-
-  return snapshot
+  return typeof error.status === "number" && Number.isFinite(error.status) ? error.status : null
 }
 
 export function errorMessage(error: unknown): string {
@@ -155,17 +128,6 @@ export function errorMessage(error: unknown): string {
 
 export function isConflictError(error: unknown): boolean {
   return errorMessage(error).includes("HTTP 409")
-}
-
-export function uniqueOrganizations(organizations: Organization[]): Organization[] {
-  const seen = new Set<string>()
-  return organizations.filter((organization) => {
-    if (seen.has(organization.id)) {
-      return false
-    }
-    seen.add(organization.id)
-    return true
-  })
 }
 
 export function uniqueStrings(values: string[]): string[] {
@@ -215,31 +177,6 @@ export function runtimeSkillRemoveBusyKey(target: RuntimeSkillRemoveTarget): Bus
   return `removeSkill:${target.packageName ?? ""}:${target.skillName}`
 }
 
-export function planOrganizationSkillBulkLinks<T extends OrganizationSkillPackageItem>(
-  items: readonly T[],
-  linkedSkills: readonly OrganizationSkillPackageItem[],
-): OrganizationSkillBulkPlan<T> {
-  const linkedPackageKeys = createOrganizationSkillPackageSet(linkedSkills)
-  const seenPackageKeys = new Set<string>()
-  const linkable: T[] = []
-  const linked: T[] = []
-
-  for (const item of items) {
-    const packageKey = organizationSkillPackageKey(item.packageName)
-    if (!packageKey || seenPackageKeys.has(packageKey)) {
-      continue
-    }
-    seenPackageKeys.add(packageKey)
-    if (linkedPackageKeys.has(packageKey)) {
-      linked.push(item)
-    } else {
-      linkable.push(item)
-    }
-  }
-
-  return { linkable, linked }
-}
-
 export function planProviderSkillRecommendationBulkLinks<T extends { packageName: string; skillId: string }>(
   items: readonly T[],
   linkedSkills: readonly OrganizationSkillPackageItem[],
@@ -284,10 +221,6 @@ export function organizationNameValidation(name: string): "empty" | "invalid" | 
     return "invalid"
   }
   return "valid"
-}
-
-export function allOrganizations(overview: OrganizationOverview | null): Organization[] {
-  return overview ? uniqueOrganizations([...overview.created, ...overview.joined]) : []
 }
 
 export function buildMemberViews(

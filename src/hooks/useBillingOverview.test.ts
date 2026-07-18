@@ -2,9 +2,15 @@ import type { BillingOverviewResult } from "../../electron/chat/common.ts"
 
 import assert from "node:assert/strict"
 import { afterEach, test, vi } from "vitest"
-import { startBillingOverviewRequest } from "./useBillingOverview.ts"
+import {
+  clearBillingOverviewCache,
+  getBillingOverviewCacheEntry,
+  loadBillingOverviewEntry,
+  startBillingOverviewRequest,
+} from "./useBillingOverview.ts"
 
 afterEach(() => {
+  clearBillingOverviewCache()
   vi.useRealTimers()
 })
 
@@ -36,4 +42,72 @@ test("billing overview in-flight cache is released after a renderer-side timeout
   assert.equal(next, nextData)
   assert.equal(entry.data, nextData)
   assert.equal(entry.promise, null)
+})
+
+test("normal billing refreshes share the current in-flight request", async () => {
+  const pending = Promise.resolve(emptyBillingOverview())
+  const entry = { data: null, loadedAt: 0, promise: null }
+  let calls = 0
+  const request = () => {
+    calls += 1
+    return pending
+  }
+
+  const first = loadBillingOverviewEntry(entry, request)
+  const second = loadBillingOverviewEntry(entry, request)
+
+  assert.equal(second, first)
+  assert.equal(calls, 1)
+  await first
+})
+
+test("forced billing refresh supersedes an older in-flight snapshot", async () => {
+  let resolveStale!: (value: BillingOverviewResult) => void
+  let resolveFresh!: (value: BillingOverviewResult) => void
+  const staleData = emptyBillingOverview()
+  const freshData = { ...emptyBillingOverview(), usageSubscriptionAvailable: false }
+  const stale = new Promise<BillingOverviewResult>((resolve) => {
+    resolveStale = resolve
+  })
+  const fresh = new Promise<BillingOverviewResult>((resolve) => {
+    resolveFresh = resolve
+  })
+  const entry = { data: null, loadedAt: 0, promise: null }
+
+  const staleRequest = loadBillingOverviewEntry(entry, () => stale)
+  const freshRequest = loadBillingOverviewEntry(entry, () => fresh, { force: true })
+
+  assert.notEqual(freshRequest, staleRequest)
+  resolveFresh(freshData)
+  await freshRequest
+  assert.equal(entry.data, freshData)
+
+  resolveStale(staleData)
+  await staleRequest
+  assert.equal(entry.data, freshData)
+})
+
+test("clearing billing cache detaches old account data and in-flight writes", async () => {
+  let resolveStale!: (value: BillingOverviewResult) => void
+  const staleData = emptyBillingOverview()
+  const oldEntry = getBillingOverviewCacheEntry("account-old", 30)
+  oldEntry.data = staleData
+  oldEntry.loadedAt = Date.now()
+  const staleRequest = loadBillingOverviewEntry(
+    oldEntry,
+    () =>
+      new Promise<BillingOverviewResult>((resolve) => {
+        resolveStale = resolve
+      }),
+    { force: true },
+  )
+
+  clearBillingOverviewCache()
+  const nextEntry = getBillingOverviewCacheEntry("account-old", 30)
+
+  assert.notEqual(nextEntry, oldEntry)
+  assert.equal(nextEntry.data, null)
+  resolveStale(staleData)
+  await staleRequest
+  assert.equal(nextEntry.data, null)
 })

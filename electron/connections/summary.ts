@@ -26,6 +26,7 @@ export interface RawApp {
   alias?: unknown
   authType?: unknown
   comment?: unknown
+  connectionName?: unknown
   createdAt?: unknown
   credentialFields?: unknown
   credentialSummary?: unknown
@@ -53,8 +54,6 @@ export interface RawProvider {
 }
 
 export interface RawAppListSummary {
-  activeConnectedProviderCount?: unknown
-  connectableProviderCount?: unknown
   connectedProviderCount?: unknown
   providerCount?: unknown
 }
@@ -530,6 +529,7 @@ export function normalizeApp(item: RawApp): ConnectionAppSummary | undefined {
     alias: asString(item.alias),
     accountLabel: asString(item.accountLabel),
     authType: normalizeAuthType(item.authType),
+    connectionName: asString(item.connectionName),
     createdAt: asNumber(item.createdAt) ?? 0,
     displayName: asString(item.displayName),
     isDefault: item.isDefault === true,
@@ -602,25 +602,6 @@ export function normalizeProvider(
   }
 }
 
-export function sortConnectionProviders(left: ConnectionProviderSummary, right: ConnectionProviderSummary): number {
-  function getWeight(provider: ConnectionProviderSummary): number {
-    const isNoAuthProvider =
-      provider.appAuthType === "no_auth" || provider.authTypes.every((authType) => authType === "no_auth")
-
-    if (provider.status === "needs_attention") {
-      return 0
-    }
-
-    if (provider.status === "connected") {
-      return isNoAuthProvider ? 2 : 1
-    }
-
-    return isNoAuthProvider ? 4 : 3
-  }
-
-  return getWeight(left) - getWeight(right) || left.displayName.localeCompare(right.displayName)
-}
-
 export function mergeConnectionSummary({
   apps: rawApps,
   meta,
@@ -645,7 +626,6 @@ export function mergeConnectionSummary({
   const providers = rawProviders
     .map((provider) => normalizeProvider(provider, appsByService))
     .filter((provider): provider is ConnectionProviderSummary => Boolean(provider))
-    .sort(sortConnectionProviders)
   const appListSummary = meta?.summary
   const providerCount = asNumber(appListSummary?.providerCount) ?? rawProviders.length
 
@@ -668,12 +648,9 @@ export function mergeConnectionSummary({
   )
 
   return {
-    ...createEmptyConnectionSummary("ready", undefined, workspace),
-    activeConnections: visibleApps.filter((app) => app.status === "active").length,
+    ...createEmptyConnectionSummary(workspace),
     apps: visibleApps,
     connectedProviderCount: Math.max(backendConnectedProviderCount, computedConnectedProviderCount),
-    connectableProviderCount: asNumber(appListSummary?.connectableProviderCount) ?? 0,
-    needsAttention: visibleApps.filter((app) => app.status === "reauth_required" || app.status === "error").length,
     providerCount,
     providers,
     usage,

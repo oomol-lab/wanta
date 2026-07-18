@@ -12,6 +12,7 @@ import {
   recoverMisplacedTurnArtifacts,
 } from "./artifact-bundles.ts"
 import {
+  boundTurnOutputPatchPayloads,
   intermediateArtifactProcessFiles,
   processOutputFiles,
   projectOutputFiles,
@@ -56,24 +57,25 @@ export async function finalizeTurnOutput(options: {
     for (const [relativePath, origin] of recoveredOrigins) materializedOrigins.set(relativePath, origin)
 
     const completedAt = Date.now()
-    const [artifactBundle, processFiles, intermediateArtifactFiles, projectFiles] = await Promise.all([
+    const intermediateArtifactFiles = await intermediateArtifactProcessFiles(active.artifactRoot, active.requestText)
+    const [artifactBundle, processFiles, projectOutput] = await Promise.all([
       buildArtifactBundle({
         artifactRoot: active.artifactRoot,
         completedAt,
         createdAt: active.createdAt,
+        excludedPaths: new Set(intermediateArtifactFiles.map((file) => file.path)),
         generatedPreviewCount: generatedImagePreviewCount(messages, messageId),
         materializedOrigins,
         messageId,
         sessionId,
       }),
       processOutputFiles(active.processRoot),
-      intermediateArtifactProcessFiles(active.artifactRoot, active.requestText),
       projectOutputFiles(active.projectBaseline, active.projectRoot),
     ])
     if (artifactBundle) await options.publishArtifactBundle(artifactBundle)
 
-    const files = [...processFiles, ...intermediateArtifactFiles, ...projectFiles]
-    if (files.length === 0) return
+    const files = boundTurnOutputPatchPayloads([...processFiles, ...intermediateArtifactFiles, ...projectOutput.files])
+    if (files.length === 0 && !projectOutput.truncated) return
     await options.publishTurnOutput({
       sessionId,
       messageId,
@@ -82,6 +84,7 @@ export async function finalizeTurnOutput(options: {
       createdAt: active.createdAt,
       completedAt,
       files,
+      ...(projectOutput.truncated ? { projectChangesTruncated: true } : {}),
       summary: summarizeTurnFiles(files),
     })
   } finally {

@@ -1,6 +1,29 @@
 import * as React from "react"
 import { useT } from "@/i18n/i18n"
 
+function docxBlobUrls(...roots: HTMLElement[]): Set<string> {
+  const urls = new Set<string>()
+  for (const root of roots) {
+    for (const element of [root, ...root.querySelectorAll("*")]) {
+      for (const attribute of element.getAttributeNames()) {
+        const value = element.getAttribute(attribute) ?? ""
+        for (const match of value.matchAll(/blob:[^\s"')]+/gu)) {
+          if (match[0]) urls.add(match[0])
+        }
+      }
+    }
+    for (const match of (root.textContent ?? "").matchAll(/blob:[^\s"')]+/gu)) {
+      if (match[0]) urls.add(match[0])
+    }
+  }
+  return urls
+}
+
+function revokeBlobUrls(urls: Set<string>): void {
+  for (const url of urls) URL.revokeObjectURL(url)
+  urls.clear()
+}
+
 export default function ArtifactDocxPreview({
   source,
   name,
@@ -14,6 +37,7 @@ export default function ArtifactDocxPreview({
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const styleContainerRef = React.useRef<HTMLDivElement | null>(null)
   const renderGenerationRef = React.useRef(0)
+  const blobUrlsRef = React.useRef(new Set<string>())
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -25,6 +49,7 @@ export default function ArtifactDocxPreview({
     const generation = ++renderGenerationRef.current
     const controller = new AbortController()
     let cancelled = false
+    revokeBlobUrls(blobUrlsRef.current)
     container.replaceChildren()
     styleContainer.replaceChildren()
     setError(null)
@@ -33,6 +58,9 @@ export default function ArtifactDocxPreview({
         import("docx-preview"),
         fetch(source, { signal: controller.signal }),
       ])
+      if (!response.ok) {
+        throw new Error(`DOCX resource request failed with status ${response.status}`)
+      }
       const buffer = await response.arrayBuffer()
       if (cancelled) {
         return
@@ -49,11 +77,14 @@ export default function ArtifactDocxPreview({
         renderFooters: true,
         renderFootnotes: true,
         renderHeaders: true,
-        useBase64URL: true,
+        useBase64URL: false,
       })
+      const nextBlobUrls = docxBlobUrls(nextContainer, nextStyleContainer)
       if (cancelled || renderGenerationRef.current !== generation) {
+        revokeBlobUrls(nextBlobUrls)
         return
       }
+      blobUrlsRef.current = nextBlobUrls
       container.replaceChildren(...Array.from(nextContainer.childNodes))
       styleContainer.replaceChildren(...Array.from(nextStyleContainer.childNodes))
     })().catch((cause: unknown) => {
@@ -69,6 +100,7 @@ export default function ArtifactDocxPreview({
     return () => {
       cancelled = true
       controller.abort()
+      revokeBlobUrls(blobUrlsRef.current)
       container.replaceChildren()
       styleContainer.replaceChildren()
     }

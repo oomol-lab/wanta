@@ -1,6 +1,6 @@
 import type { SelectedAttachmentPath } from "./attachment-picker.ts"
 
-import { chmod, lstat, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -12,7 +12,11 @@ vi.mock("electron", () => ({
   ipcMain: { handle: vi.fn() },
 }))
 
-import { prepareSelectedAttachment, snapshotSelectedAttachment } from "./attachment-dialog-handlers.ts"
+import {
+  prepareSelectedAttachment,
+  releaseManagedAttachmentPaths,
+  snapshotSelectedAttachment,
+} from "./attachment-dialog-handlers.ts"
 
 const temporaryDirectories: string[] = []
 
@@ -126,5 +130,24 @@ describe("snapshotSelectedAttachment", () => {
 
     expect(path.basename(snapshot.path)).toBe("attachment")
     expect(await readFile(snapshot.path, "utf8")).toBe("attachment")
+  })
+})
+
+describe("releaseManagedAttachmentPaths", () => {
+  it("deletes only a picker-trusted managed snapshot", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-attachment-release-"))
+    temporaryDirectories.push(directory)
+    const userDataDir = path.join(directory, "user-data")
+    const snapshotDirectory = path.join(userDataDir, "attachments", "originals", "snapshot")
+    const snapshotPath = path.join(snapshotDirectory, "report.pdf")
+    await mkdir(snapshotDirectory, { recursive: true })
+    await writeFile(path.join(directory, "outside.pdf"), "outside")
+    await writeFile(snapshotPath, "snapshot")
+    const trusted = new Set([snapshotPath])
+
+    await releaseManagedAttachmentPaths(userDataDir, trusted, [snapshotPath, path.join(directory, "outside.pdf")])
+
+    expect(await stat(snapshotPath).catch(() => null)).toBeNull()
+    expect(await readFile(path.join(directory, "outside.pdf"), "utf8")).toBe("outside")
   })
 })

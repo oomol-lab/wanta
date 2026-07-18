@@ -7,7 +7,6 @@ import type {
 import type { ChatErrorKind } from "../../../electron/chat/error.ts"
 import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
-import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
 import type { ChatSendRequest, ChatSendResult } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
@@ -15,8 +14,10 @@ import type { SidebarSegment } from "./sidebar-persistence.ts"
 import type { ChatConnectionDrawerState } from "./use-chat-connection-retry.ts"
 import type { BillingDetailsTarget } from "@/components/app-shell/BillingUsagePopover"
 import type { UseAuth } from "@/hooks/useAuth"
+import type { KnowledgeBaseIdsUpdate } from "@/hooks/useSessions"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
+import type { ConnectionAuthIntent } from "@/routes/Connections/connection-route-model.ts"
 import type { ConnectionCatalogFilter } from "@/routes/Connections/connection-route-model.ts"
 import type { ChatStatus } from "ai"
 
@@ -36,6 +37,8 @@ import {
   newSessionComposerDraftKeyForScopeKey,
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
+  resolveNotificationOrganization,
+  resolveOrganizationProviderOptionsAvailability,
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
@@ -48,7 +51,7 @@ import { AppShellMainTitlebar } from "./AppShellMainTitlebar.tsx"
 import { AppShellNavigationSidebar } from "./AppShellNavigationSidebar.tsx"
 import { AppShellSessionProjectDialogs } from "./AppShellSessionProjectDialogs.tsx"
 import { KnowledgeContextBar } from "./KnowledgeContextBar.tsx"
-import { isPendingChatCaughtUp } from "./pending-chat.ts"
+import { isPendingChatCaughtUp, pendingChatTransitionForActiveSession } from "./pending-chat.ts"
 import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
 import { nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
 import { useAppShellCommands } from "./use-app-shell-commands.ts"
@@ -89,6 +92,7 @@ import { chatTurnAllowsDirectSend, chatTurnQueuesNewMessage, resolveChatTurnStat
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 import { summarizeEmptyStateConnections } from "@/routes/Chat/empty-state-connections"
+import { normalizeConnectionCatalogFilter } from "@/routes/Connections/connection-route-model.ts"
 
 const ArchivedRoute = React.lazy(() =>
   import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
@@ -156,7 +160,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     create,
     createProject,
     assignSessionProject,
-    setSessionPermissionMode,
     setSessionKnowledgeBases,
     renameProject: renameProjectAction,
     pinProject: pinProjectAction,
@@ -178,13 +181,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeWorkspaceKey = workspaceSelectionSwitchKey(organizationWorkspace.activeWorkspace)
   const activeOrganizationId = organizationWorkspace.activeWorkspace.organizationId || null
   const activeOrganizationSkillsMatched = organizationSkills.organizationId === activeOrganizationId
-  const organizationSkillsError =
-    activeOrganizationId && activeOrganizationSkillsMatched && !organizationSkills.loading
-      ? organizationSkills.error
-      : null
   const organizationSkillsSettled =
     !activeOrganizationId ||
-    (activeOrganizationSkillsMatched && !organizationSkills.loading && organizationSkills.hasLoaded)
+    (activeOrganizationSkillsMatched &&
+      !organizationSkills.loading &&
+      (organizationSkills.hasLoaded || Boolean(organizationSkills.error)))
   const {
     activationBlocked: workspaceActivationBlocked,
     activationState: workspaceActivationState,
@@ -199,7 +200,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       connectionsRefreshing: connections.busy === "refresh",
       currentScopeKey,
       loadedSessionScopeKey: sessionsLoadedScopeKey,
-      organizationSkillsError,
       organizationSkillsSettled,
       workspaceMetadataError: organizationWorkspace.error,
     },
@@ -227,6 +227,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   )
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [selectedSessionId, setSelectedSessionId] = React.useState<string | null>(null)
+  const [pendingAttentionSession, setPendingAttentionSession] = React.useState<{
+    organizationRefreshAttempted: boolean
+    organizationId?: string
+    sessionRefreshAttempted: boolean
+    sessionId: string
+  } | null>(null)
+  const pendingAttentionRefreshesRef = React.useRef(new Set<string>())
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [draftPermissionMode, setDraftPermissionMode] = React.useState<AgentPermissionMode>("default")
   const [draftKnowledgeBaseIds, setDraftKnowledgeBaseIds] = React.useState<string[]>([])
@@ -290,7 +297,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     status,
     activity,
     messagesLoaded,
+    sessionSnapshotError,
     error,
+    forgetSession: forgetChatSession,
     getSessionStatus,
     getSessionRunStartedAt,
     permissionMode,
@@ -301,7 +310,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     answerQuestion,
     rejectQuestion,
     questionDrafts,
-  } = useChat(activeChatSessionId)
+    resetSessionCache: resetChatSessionCache,
+    retrySessionSnapshot,
+  } = useChat(activeChatSessionId, activeWorkspaceKey)
   const hasUnreadSession = attention.hasUnreadSession
 
   React.useEffect(() => {
@@ -329,18 +340,122 @@ export function AppShell({ auth }: { auth: UseAuth }) {
 
   React.useEffect(
     () =>
-      attentionService.serverEvents.on("openSessionRequested", ({ sessionId }) => {
-        const session = visibleSessions.find((candidate) => candidate.id === sessionId)
-        if (session) {
-          setSidebarSegment(session.projectId ? "projects" : "tasks")
-        }
-        setSelectedSessionId(sessionId)
-        setIsDraftSession(false)
-        setPendingChatTransition(null)
+      attentionService.serverEvents.on("openSessionRequested", ({ organizationId, sessionId }) => {
+        setPendingAttentionSession({
+          organizationRefreshAttempted: false,
+          sessionRefreshAttempted: false,
+          sessionId,
+          ...(organizationId ? { organizationId } : {}),
+        })
         setRoute("chat")
       }),
-    [attentionService, visibleSessions],
+    [attentionService],
   )
+
+  React.useEffect(() => {
+    const organizationId = pendingAttentionSession?.organizationId
+    if (!pendingAttentionSession || !organizationId || organizationId === activeOrganizationId) {
+      return
+    }
+
+    const resolution = resolveNotificationOrganization({
+      activeOrganizationId,
+      hasLoaded: organizationWorkspace.hasLoaded,
+      loading: organizationWorkspace.loading,
+      organizationIds: organizationWorkspace.organizations.map((organization) => organization.id),
+      refreshAttempted: pendingAttentionSession.organizationRefreshAttempted,
+      targetOrganizationId: organizationId,
+    })
+
+    if (resolution === "select") {
+      handleWorkspaceSwitchStart(`organization:${organizationId}`)
+      organizationWorkspace.selectOrganization(organizationId)
+      return
+    }
+    if (resolution === "wait" || resolution === "ready") {
+      return
+    }
+    if (resolution === "refresh") {
+      setPendingAttentionSession((current) =>
+        current?.sessionId === pendingAttentionSession.sessionId
+          ? { ...current, organizationRefreshAttempted: true }
+          : current,
+      )
+      void organizationWorkspace.refresh({ forceRefresh: true }).catch((error: unknown) => {
+        reportRendererHandledError("attention", "refresh notification organization failed", error)
+      })
+      return
+    }
+
+    setPendingAttentionSession(null)
+    toast.error(t("sidebar.notificationOrganizationUnavailable"))
+    void attentionService.invoke("markSessionViewed", pendingAttentionSession.sessionId).catch((error: unknown) => {
+      reportRendererHandledError("attention", "clear inaccessible notification session failed", error)
+    })
+  }, [
+    activeOrganizationId,
+    attentionService,
+    handleWorkspaceSwitchStart,
+    organizationWorkspace.hasLoaded,
+    organizationWorkspace.loading,
+    organizationWorkspace.organizations,
+    organizationWorkspace.refresh,
+    organizationWorkspace.selectOrganization,
+    pendingAttentionSession,
+    t,
+  ])
+
+  React.useEffect(() => {
+    if (
+      !pendingAttentionSession ||
+      (pendingAttentionSession.organizationId && pendingAttentionSession.organizationId !== activeOrganizationId) ||
+      !sessionsSettledForCurrentScope
+    ) {
+      return
+    }
+    const session = visibleSessions.find((candidate) => candidate.id === pendingAttentionSession.sessionId)
+    if (!session) {
+      if (!pendingAttentionSession.sessionRefreshAttempted) {
+        if (pendingAttentionRefreshesRef.current.has(pendingAttentionSession.sessionId)) {
+          return
+        }
+        pendingAttentionRefreshesRef.current.add(pendingAttentionSession.sessionId)
+        void refreshSessions()
+          .catch((error: unknown) => {
+            reportRendererHandledError("attention", "refresh notification session failed", error)
+          })
+          .finally(() => {
+            pendingAttentionRefreshesRef.current.delete(pendingAttentionSession.sessionId)
+            setPendingAttentionSession((current) =>
+              current?.sessionId === pendingAttentionSession.sessionId
+                ? { ...current, sessionRefreshAttempted: true }
+                : current,
+            )
+          })
+        return
+      }
+      setPendingAttentionSession(null)
+      void attentionService.invoke("markSessionViewed", pendingAttentionSession.sessionId).catch((error: unknown) => {
+        reportRendererHandledError("attention", "clear unavailable notification session failed", error)
+      })
+      return
+    }
+    setSidebarSegment(session.projectId ? "projects" : "tasks")
+    setSelectedSessionId(session.id)
+    setIsDraftSession(false)
+    setPendingChatTransition(null)
+    setPendingAttentionSession(null)
+    void attentionService.invoke("markSessionViewed", session.id).catch((error: unknown) => {
+      reportRendererHandledError("attention", "mark routed notification session viewed failed", error)
+    })
+  }, [
+    activeOrganizationId,
+    attentionService,
+    pendingAttentionSession,
+    refreshSessions,
+    sessionsSettledForCurrentScope,
+    visibleSessions,
+  ])
   const connectionSummaryMatchesWorkspace =
     Boolean(currentConnectionWorkspaceKey) && connections.summaryWorkspaceKey === currentConnectionWorkspaceKey
   const activeProvidersLoading =
@@ -350,9 +465,27 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeProviders = connectionSummaryMatchesWorkspace
     ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
     : EMPTY_CONNECTION_PROVIDERS
+  const organizationProviderOptionsAvailability = resolveOrganizationProviderOptionsAvailability({
+    appsStatus: connections.summary?.appsStatus,
+    summaryMatchesWorkspace: connectionSummaryMatchesWorkspace,
+    workspaceActivationFailed: workspaceActivationHasFailed(workspaceActivationState),
+  })
+  const activeOrganizationProviderOptions = React.useMemo(
+    () =>
+      organizationProviderOptionsAvailability === "ready"
+        ? activeProviders
+            .filter((provider) => provider.apps.some((app) => app.status !== "disconnected"))
+            .map((provider) => ({ label: provider.displayName, service: provider.service }))
+            .sort((left, right) => left.label.localeCompare(right.label))
+        : organizationProviderOptionsAvailability === "pending"
+          ? undefined
+          : null,
+    [activeProviders, organizationProviderOptionsAvailability],
+  )
   const {
     entryVisible: organizationSkillEntryVisible,
     pendingInstallCount: recommendedSkillPendingInstallCount,
+    providerRecommendations: providerSkillRecommendations,
     showcaseItems: organizationSkillShowcaseItems,
   } = useAppShellSkillRecommendations({
     activeProviders,
@@ -360,10 +493,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     organizationSkills,
     route,
   })
-  const sharedConnectorCount = connectionSummaryMatchesWorkspace
-    ? connections.summary?.connectedProviderCount
-    : undefined
-  const emptyStateConnectionSummary = connectionSummaryMatchesWorkspace
+  const connectionAppsReady = connectionSummaryMatchesWorkspace && connections.summary?.appsStatus === "ready"
+  const sharedConnectorCount = connectionAppsReady ? connections.summary?.connectedProviderCount : undefined
+  const emptyStateConnectionSummary = connectionAppsReady
     ? connections.summary
       ? summarizeEmptyStateConnections(connections.summary.providers, connections.summary.connectedProviderCount)
       : null
@@ -462,30 +594,28 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     if (!activeChatSessionId || !activeSession) {
       return
     }
-    setChatPermissionMode(activeChatSessionId, activeSession.permissionMode ?? "default")
+    void setChatPermissionMode(activeChatSessionId, activeSession.permissionMode ?? "default").catch(
+      (cause: unknown) => {
+        console.error("[wanta] sync chat permission mode failed", cause)
+        reportRendererHandledError("appShell.permissionMode", "Failed to sync session permission mode", cause)
+      },
+    )
   }, [activeChatSessionId, activeSession?.permissionMode, setChatPermissionMode])
 
   const persistPermissionMode = React.useCallback(
-    (sessionId: string, mode: AgentPermissionMode): void => {
-      void setSessionPermissionMode(sessionId, mode).catch((cause: unknown) => {
-        console.error("[wanta] persist session permission mode failed", cause)
-        reportRendererHandledError("appShell.permissionMode", "Failed to persist session permission mode", cause)
+    async (sessionId: string, mode: AgentPermissionMode): Promise<void> => {
+      try {
+        await setChatPermissionMode(sessionId, mode)
+      } catch (cause) {
         toast.error(userFacingErrorDescription(resolveUserFacingError(cause, { area: "session" }), t))
-      })
+        throw cause
+      }
     },
-    [setSessionPermissionMode, t],
-  )
-
-  const setAndPersistPermissionMode = React.useCallback(
-    (sessionId: string, mode: AgentPermissionMode): void => {
-      setChatPermissionMode(sessionId, mode)
-      persistPermissionMode(sessionId, mode)
-    },
-    [persistPermissionMode, setChatPermissionMode],
+    [setChatPermissionMode, t],
   )
   const persistKnowledgeBaseIds = React.useCallback(
-    (sessionId: string, ids: string[]): void => {
-      void setSessionKnowledgeBases(sessionId, ids).catch((cause: unknown) => {
+    (sessionId: string, update: KnowledgeBaseIdsUpdate): void => {
+      void setSessionKnowledgeBases(sessionId, update).catch((cause: unknown) => {
         console.error("[wanta] persist session knowledge bases failed", cause)
         reportRendererHandledError("appShell.knowledgeBases", "Failed to persist session knowledge bases", cause)
         toast.error(userFacingErrorDescription(resolveUserFacingError(cause, { area: "session" }), t))
@@ -572,7 +702,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     route === "chat" &&
     activeChatConnectionDrawer?.open === true &&
     Boolean(chatConnectionAuthIntent || chatConnectionSelectedService)
-  const activePendingChatTransition = pendingChatTransition?.scopeKey === currentScopeKey ? pendingChatTransition : null
+  const activePendingChatTransition = pendingChatTransitionForActiveSession(
+    pendingChatTransition,
+    currentScopeKey,
+    activeChatSessionId,
+  )
   const pendingCaughtUp = isPendingChatCaughtUp(activePendingChatTransition, activeChatSessionId, messages)
   const initialSendPending = Boolean(activePendingChatTransition && !pendingCaughtUp)
   const bridgeInitialSendPending = initialSendPending && messages.length === 0
@@ -617,8 +751,20 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
   const needsDefaultSessionSelection =
     sessionsSettledForCurrentScope && !isDraftSession && !selectedSessionId && selectableSidebarSessions.length > 0
-  const startupError =
+  const agentStartupError =
     agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
+  const workspaceStartupError = workspaceActivationState.status === "failed" ? workspaceActivationState.error : null
+  const startupError = agentStartupError ?? workspaceStartupError ?? sessionSnapshotError
+  const retryWorkspaceActivation = React.useCallback(() => {
+    if (workspaceActivationState.status !== "failed") {
+      return
+    }
+    if (workspaceActivationState.reason === "agent_scope") {
+      connections.retryScopeSync()
+      return
+    }
+    void organizationWorkspace.refresh({ forceRefresh: true })
+  }, [connections.retryScopeSync, organizationWorkspace.refresh, workspaceActivationState])
   const hasVisibleLoadedSession = Boolean(activeChatSessionId && messagesLoaded)
   const chatBootstrapping =
     !startupError &&
@@ -761,6 +907,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     draftProjectId,
     isDraftSession,
     lastProjectId: readLastProjectId,
+    releaseTransientFocus,
     route,
     sessionScope,
     setComposerFocusRequest,
@@ -780,6 +927,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   }, [handleNewSession])
   const handleSessionArchived = React.useCallback(
     (session: SessionInfo): void => {
+      forgetChatSession(session.id)
       clearComposerDraft(existingSessionComposerDraftKey(sessionRecordScopeKey(session.scope), session.id))
       if (activeChatSessionId !== session.id) {
         return
@@ -789,7 +937,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       setPendingChatTransition(null)
       setRoute("chat")
     },
-    [activeChatSessionId, clearComposerDraft, selectableSidebarSessions],
+    [activeChatSessionId, clearComposerDraft, forgetChatSession, selectableSidebarSessions],
   )
   const sessionActions = useSessionActions({
     archive,
@@ -812,6 +960,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       reasoningLevelBySession: lastReasoningLevelBySession,
       retryOptionsBySession: turnRetryOptionsBySession,
     },
+    resetMemory: resetComposerSubmissionMemory,
     sendNow,
   } = useComposerSubmission({
     activeChatSessionId,
@@ -857,22 +1006,43 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     sendQueuedMessage: sendNow,
     status,
   })
+  const previousQueuedSessionIdRef = React.useRef(activeChatSessionId)
+  React.useEffect(() => {
+    const previousSessionId = previousQueuedSessionIdRef.current
+    if (previousSessionId && previousSessionId !== activeChatSessionId) {
+      holdQueuedSessionIfQueued(previousSessionId)
+    }
+    previousQueuedSessionIdRef.current = activeChatSessionId
+  }, [activeChatSessionId, holdQueuedSessionIfQueued])
 
-  const { cancelRetryForDrawer, clearRetries, prepareRetry } = useChatConnectionRetry({
-    connections,
-    isSessionRunning,
-    queueSessionMessage,
-    send,
-    sessionScope,
-    setChatConnectionDrawers,
-    setIsDraftSession,
-    setPendingChatTransition,
-    setRoute,
-    setSelectedSessionId,
-  })
+  const { cancelRetryForDrawer, clearRetries, completeMatchingRetries, completeRetryForDrawer, prepareRetry } =
+    useChatConnectionRetry({
+      isSessionRunning,
+      queueSessionMessage,
+      send,
+      sessionScope,
+      setChatConnectionDrawers,
+      setIsDraftSession,
+      setPendingChatTransition,
+      setRoute,
+      setSelectedSessionId,
+    })
+  const handledConnectionReadyEventIdRef = React.useRef<number | null>(null)
+
+  React.useEffect(() => {
+    const event = connections.connectionReadyEvent
+    if (!event || handledConnectionReadyEventIdRef.current === event.id) {
+      return
+    }
+    handledConnectionReadyEventIdRef.current = event.id
+    if (event.workspaceKey !== connections.summaryWorkspaceKey) {
+      return
+    }
+    completeMatchingRetries(event)
+  }, [completeMatchingRetries, connections.connectionReadyEvent, connections.summaryWorkspaceKey])
 
   const handleOpenConnections = React.useCallback(
-    (filter: ConnectionCatalogFilter = { kind: "all" }): void => {
+    (filter?: ConnectionCatalogFilter): void => {
       cancelRetryForDrawer(activeComposerDraftKey)
       setChatConnectionDrawers((current) => {
         if (!Object.hasOwn(current, activeComposerDraftKey)) {
@@ -883,10 +1053,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         return next
       })
       setSelectedService(null)
-      setConnectionCatalogFilter(filter)
+      setConnectionCatalogFilter(normalizeConnectionCatalogFilter(filter))
       setRoute("connections")
+      void connections.refresh({}, { silent: true })
     },
-    [activeComposerDraftKey, cancelRetryForDrawer],
+    [activeComposerDraftKey, cancelRetryForDrawer, connections.refresh],
   )
 
   const handleOpenChatConnectionProvider = React.useCallback(
@@ -934,9 +1105,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       holdQueuedSessionIfQueued(previousSessionId)
     }
     previousActiveChatSessionIdRef.current = null
+    resetChatSessionCache()
+    resetComposerSubmissionMemory()
+    composerDraftsByKey.current.clear()
     clearRetries()
     setChatConnectionDrawers({})
     setSelectedService(null)
+    setConnectionCatalogFilter({ kind: "all" })
     setSelectedSessionId(null)
     setIsDraftSession(false)
     setDraftPermissionMode("default")
@@ -953,6 +1128,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     handleArtifactsReset,
     holdQueuedSessionIfQueued,
     projectActions.resetDialogs,
+    resetChatSessionCache,
+    resetComposerSubmissionMemory,
     sessionActions.resetDialogs,
   ])
 
@@ -1058,6 +1235,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       const createdAt = Date.now()
       const authIntent: ConnectionAuthIntent = {
         action: auth.action,
+        connectionName: auth.connectionName,
         createdAt,
         displayName: auth.displayName,
         errorCode: auth.errorCode,
@@ -1081,6 +1259,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           drawerKey: activeComposerDraftKey,
           sessionId: activeChatSessionId,
           service: auth.service,
+          connectionName: auth.connectionName,
           text: source.text,
           attachments: source.attachments,
           contextMentions:
@@ -1108,6 +1287,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       sessionScope,
     ],
   )
+  const handleChatConnectionReady = React.useCallback(
+    (target: { service: string; connectionName?: string }): void => {
+      completeRetryForDrawer(activeComposerDraftKey, target)
+    },
+    [activeComposerDraftKey, completeRetryForDrawer],
+  )
   const handleRetryFresh = React.useCallback(
     async (source: ChatTurnRetrySource): Promise<void> => {
       if (!activeChatSessionId || !sessionScope) {
@@ -1133,7 +1318,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       const session = await create(fallbackTitle, projectContext?.id ?? activeProject?.id)
 
       titleGeneration.rememberAutoFallbackTitle(session.id, fallbackTitle)
-      persistPermissionMode(session.id, permissionMode)
+      await persistPermissionMode(session.id, permissionMode)
       persistKnowledgeBaseIds(session.id, activeKnowledgeBaseIds)
       setSelectedSessionId(session.id)
       setIsDraftSession(false)
@@ -1210,8 +1395,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   }, [activeChatSessionId, stop])
   const handleOpenConnectionsCommand = React.useCallback((): void => {
     handleOpenConnections()
-    void connections.refresh({ forceRefresh: true })
-  }, [connections.refresh, handleOpenConnections])
+  }, [handleOpenConnections])
   const handleOpenSettingsCommand = React.useCallback((): void => {
     setSearchOpen(false)
     setRoute("settings")
@@ -1232,12 +1416,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const handlePermissionModeChange = React.useCallback(
     (mode: AgentPermissionMode): void => {
       if (activeChatSessionId) {
-        setAndPersistPermissionMode(activeChatSessionId, mode)
+        void persistPermissionMode(activeChatSessionId, mode).catch(() => undefined)
         return
       }
       setDraftPermissionMode(mode)
     },
-    [activeChatSessionId, setAndPersistPermissionMode],
+    [activeChatSessionId, persistPermissionMode],
   )
 
   const handleViewBilling = React.useCallback((target?: BillingDetailsTarget) => {
@@ -1253,22 +1437,20 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   )
   const handleToggleKnowledgeBaseReference = React.useCallback(
     (id: string): void => {
-      const nextIds = activeKnowledgeBaseIds.includes(id)
-        ? activeKnowledgeBaseIds.filter((item) => item !== id)
-        : [...activeKnowledgeBaseIds, id]
-      if (activeChatSessionId) persistKnowledgeBaseIds(activeChatSessionId, nextIds)
-      else setDraftKnowledgeBaseIds(nextIds)
+      const toggle = (current: string[]): string[] =>
+        current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+      if (activeChatSessionId) persistKnowledgeBaseIds(activeChatSessionId, toggle)
+      else setDraftKnowledgeBaseIds(toggle)
     },
-    [activeChatSessionId, activeKnowledgeBaseIds, persistKnowledgeBaseIds],
+    [activeChatSessionId, persistKnowledgeBaseIds],
   )
   const handleAddKnowledgeBaseReference = React.useCallback(
     (id: string): void => {
-      if (activeKnowledgeBaseIds.includes(id)) return
-      const nextIds = [...activeKnowledgeBaseIds, id]
-      if (activeChatSessionId) persistKnowledgeBaseIds(activeChatSessionId, nextIds)
-      else setDraftKnowledgeBaseIds(nextIds)
+      const add = (current: string[]): string[] => (current.includes(id) ? current : [...current, id])
+      if (activeChatSessionId) persistKnowledgeBaseIds(activeChatSessionId, add)
+      else setDraftKnowledgeBaseIds(add)
     },
-    [activeChatSessionId, activeKnowledgeBaseIds, persistKnowledgeBaseIds],
+    [activeChatSessionId, persistKnowledgeBaseIds],
   )
   const pinnedKnowledgeContextBar = React.useMemo(
     () =>
@@ -1413,6 +1595,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         projectRegularGroups={projectRegularGroups}
         projectSessions={visibleProjectSessions}
         projectSidebarGroups={projectSidebarGroups}
+        restoring={isSidebarRestoring}
         sessionsError={sessionsError}
         showKnowledge={knowledgeBaseBetaEnabled}
         sidebarSegment={sidebarSegment}
@@ -1423,20 +1606,20 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         workspaceSwitching={workspaceNavigationSwitching}
         onArchiveProjectRequest={projectActions.requestArchive}
         onArchiveSessionRequest={sessionActions.requestArchive}
-        onLogout={() => void auth.logout()}
+        onLogout={auth.logout}
         onNavigate={setRoute}
         onNewSession={handleNewSessionWithKnowledgeReset}
         onOpenConnections={() => handleOpenConnections()}
         onOpenSearch={handleOpenSearch}
-        onPinProject={(project) => void projectActions.handlePin(project)}
-        onPinSession={(session) => void sessionActions.handlePin(session)}
+        onPinProject={projectActions.handlePin}
+        onPinSession={sessionActions.handlePin}
         onProjectExpandedChange={handleProjectSidebarExpandedChange}
         onRemoveProjectRequest={projectActions.requestRemove}
         onRenameProjectRequest={projectActions.requestRename}
         onWorkspaceSwitchStart={handleWorkspaceSwitchStart}
         onRenameSessionRequest={sessionActions.requestRename}
         onSelectProjectDraft={handleOpenProjectDraft}
-        onSelectProjectFolder={() => void handleSelectProjectFolder()}
+        onSelectProjectFolder={handleSelectProjectFolder}
         onSelectSession={handleSelectSession}
         onSetSidebarSegment={setSidebarSegment}
         onShowProjectInFolder={projectActions.handleShowInFolder}
@@ -1487,18 +1670,19 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                 </div>
               ) : route === "skills" ? (
                 <SkillsRoute
-                  connectedProviders={activeProviders}
                   connectedProvidersLoading={activeProvidersLoading}
                   organizationSkills={organizationSkills}
+                  providerSkillRecommendationsState={providerSkillRecommendations}
                   workspace={organizationWorkspace}
                 />
               ) : route === "knowledge" && knowledgeBaseBetaEnabled ? (
                 <KnowledgeRoute knowledge={knowledgeLibrary} onStartChat={handleStartKnowledgeChat} />
               ) : route === "organizations" ? (
                 <OrganizationManagementRoute
-                  connectedProviders={activeProviders}
                   connectedProvidersLoading={activeProvidersLoading}
                   organizationSkills={organizationSkills}
+                  providerOptions={activeOrganizationProviderOptions}
+                  providerSkillRecommendationsState={providerSkillRecommendations}
                   workspace={organizationWorkspace}
                 />
               ) : (
@@ -1525,6 +1709,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       showEmptyState={showChatEmptyState}
                       bootstrapping={chatBootstrapping}
                       startupError={startupError}
+                      onStartupRetry={
+                        workspaceStartupError
+                          ? retryWorkspaceActivation
+                          : sessionSnapshotError
+                            ? retrySessionSnapshot
+                            : undefined
+                      }
                       error={error}
                       emptyTitle={chatEmptyTitle}
                       generatedArtifacts={latestArtifactSelection}
@@ -1583,6 +1774,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                     authIntent={chatConnectionAuthIntent}
                     canManageConnections={canManageWorkspaceConnections}
                     connections={connections}
+                    onConnectionReady={handleChatConnectionReady}
                     selectedService={chatConnectionSelectedService}
                     visible={chatConnectionDrawerVisible}
                     onClose={handleCloseChatConnectionDrawer}

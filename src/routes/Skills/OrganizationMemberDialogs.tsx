@@ -10,6 +10,7 @@ import {
   organizationNameValidation,
   userFallback,
 } from "./organization-management-model.ts"
+import { OrganizationUserAvatar } from "./OrganizationUserAvatar.tsx"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
@@ -99,7 +100,6 @@ export function CreateOrganizationDialog({
 export function EditOrganizationDialog({
   avatar,
   avatarFile,
-  avatarUploading,
   busy,
   name,
   nameError,
@@ -113,7 +113,6 @@ export function EditOrganizationDialog({
 }: {
   avatar: string
   avatarFile: File | null
-  avatarUploading: boolean
   busy: boolean
   name: string
   nameError: string | null
@@ -126,7 +125,7 @@ export function EditOrganizationDialog({
   organization: Organization | null
 }) {
   const { t } = useAppI18n()
-  const disabled = organizationNameValidation(name.trim()) !== "valid" || Boolean(nameError) || busy || avatarUploading
+  const disabled = organizationNameValidation(name.trim()) !== "valid" || Boolean(nameError) || busy
   const avatarPreviewUrl = useObjectUrl(avatarFile)
 
   return (
@@ -155,7 +154,7 @@ export function EditOrganizationDialog({
           previewUrl={avatarPreviewUrl}
           seed={organization?.id || organization?.name || name}
           title={t("organizations.organizationAvatar")}
-          uploading={avatarUploading}
+          uploading={busy}
           onAvatarClear={() => {
             onAvatarChange("")
             onAvatarFileChange(null)
@@ -344,8 +343,8 @@ export function AddMemberDialog({
 }) {
   const { t } = useAppI18n()
   const hasSearchResults = search.items.length > 0
-  const currentUserId = selectedUserId ?? activeUserId
-  const canSubmit = input.trim().length > 0 && !busy && !search.loading && (!hasSearchResults || Boolean(currentUserId))
+  const canSubmit =
+    input.trim().length > 0 && !busy && !search.loading && (!hasSearchResults || Boolean(selectedUserId))
 
   const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
     switch (event.key) {
@@ -365,6 +364,14 @@ export function AddMemberDialog({
         event.preventDefault()
         onClose()
         return
+      case "Enter": {
+        const activeUser = search.items.find((user) => user.userId === activeUserId)
+        if (activeUser && selectedUserId !== activeUser.userId) {
+          event.preventDefault()
+          onSearchSelect(activeUser)
+        }
+        return
+      }
     }
   }
 
@@ -404,7 +411,7 @@ export function AddMemberDialog({
               data-form-type="other"
               data-lpignore="true"
               disabled={busy}
-              aria-activedescendant={currentUserId ? `organization-member-option-${currentUserId}` : undefined}
+              aria-activedescendant={activeUserId ? `organization-member-option-${activeUserId}` : undefined}
               aria-controls="organization-member-search-results"
               aria-expanded={hasSearchResults}
               aria-autocomplete="list"
@@ -462,7 +469,8 @@ function MemberSearchResults({
       {search.items.length > 0 ? (
         <div className="max-h-64 overflow-y-auto p-1">
           {search.items.map((user) => {
-            const current = user.userId === (selectedUserId ?? activeUserId)
+            const active = user.userId === activeUserId
+            const selected = user.userId === selectedUserId
             return (
               <button
                 tabIndex={-1}
@@ -478,27 +486,27 @@ function MemberSearchResults({
                 key={user.userId}
                 className={cn(
                   "relative flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent/70 hover:text-accent-foreground",
-                  current && "bg-accent text-accent-foreground",
+                  active && "bg-accent text-accent-foreground",
                 )}
                 disabled={busy}
-                aria-selected={current}
+                aria-selected={selected}
                 role="option"
                 onClick={() => onSelect(user)}
               >
-                {current ? <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" /> : null}
-                <UserAvatar avatar={user.avatar} fallback={user.fallback} />
+                {active ? <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" /> : null}
+                <OrganizationUserAvatar avatar={user.avatar} fallback={user.fallback} />
                 <span className="min-w-0 flex-1">
                   <span className="oo-text-label block truncate">{user.displayName}</span>
                   <span
                     className={cn(
                       "oo-text-caption-compact block truncate font-mono",
-                      current ? "text-accent-foreground/80" : "text-muted-foreground",
+                      active ? "text-accent-foreground/80" : "text-muted-foreground",
                     )}
                   >
                     {user.username}
                   </span>
                 </span>
-                {current ? <CheckIcon className="size-4 shrink-0" /> : null}
+                {selected ? <CheckIcon className="size-4 shrink-0" /> : null}
               </button>
             )
           })}
@@ -722,22 +730,13 @@ function ProviderSelect({
   )
 }
 
-function UserAvatar({ avatar, fallback }: { avatar: string; fallback: string }) {
-  return (
-    <span className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-foreground">
-      <span aria-hidden="true">{fallback}</span>
-      <CachedAvatarImage src={avatar} alt="" className="absolute inset-0 size-full object-cover" />
-    </span>
-  )
-}
-
 function MemberDisplay({ members, userId }: { members: MemberView[]; userId: string }) {
   const member = members.find((item) => item.user_id === userId)
   const label = member?.displayName ?? userId
   const secondary = member?.secondaryLabel ?? userId
   return (
     <div className="flex min-h-9 min-w-0 items-center gap-3 rounded-md border bg-muted/40 px-3 py-2">
-      <UserAvatar avatar={member?.avatar ?? ""} fallback={member?.fallback ?? userFallback(label)} />
+      <OrganizationUserAvatar avatar={member?.avatar ?? ""} fallback={member?.fallback ?? userFallback(label)} />
       <span className="min-w-0">
         <span className="oo-text-label block truncate">{label}</span>
         <span className="oo-text-caption-compact block truncate font-mono text-muted-foreground">{secondary}</span>

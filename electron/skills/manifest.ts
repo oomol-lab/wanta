@@ -1,9 +1,8 @@
 import type { SkillControlState } from "./common.ts"
 import type { InstalledSkill, SkillManifestRecord, SkillManifestStore } from "./types.ts"
 
-import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
-import path from "node:path"
+import { readFile } from "node:fs/promises"
+import { atomicWriteText } from "../atomic-file.ts"
 import { manifestSchemaVersion } from "./constants.ts"
 
 export async function readManifestStore(manifestPath: string): Promise<SkillManifestStore> {
@@ -44,15 +43,7 @@ export async function readManifestStore(manifestPath: string): Promise<SkillMani
 }
 
 export async function writeManifestStore(manifestPath: string, store: SkillManifestStore): Promise<void> {
-  await mkdir(path.dirname(manifestPath), { recursive: true })
-  const tmp = `${manifestPath}.tmp-${process.pid}-${randomUUID()}`
-  try {
-    await writeFile(tmp, `${JSON.stringify(store, null, 2)}\n`, "utf8")
-    await rename(tmp, manifestPath)
-  } catch (error) {
-    await rm(tmp, { force: true })
-    throw error
-  }
+  await atomicWriteText(manifestPath, `${JSON.stringify(store, null, 2)}\n`)
 }
 
 export function areManifestStoresEqual(left: SkillManifestStore, right: SkillManifestStore): boolean {

@@ -86,7 +86,12 @@ export function insertVoiceTranscriptionIntoDraft(
 }
 
 export function hasComposerDraftContent(state: ComposerState): boolean {
-  return state.command !== null || state.draft.trim().length > 0 || state.contextMentions.length > 0
+  return (
+    state.command !== null ||
+    state.draft.trim().length > 0 ||
+    state.contextMentions.length > 0 ||
+    state.attachments.length > 0
+  )
 }
 
 export function composerSubmissionText(state: Pick<ComposerState, "command" | "draft">): string {
@@ -100,7 +105,8 @@ export function composerSubmissionText(state: Pick<ComposerState, "command" | "d
 export function toCachedComposerState(state: ComposerState): ComposerState {
   return {
     ...state,
-    attachments: [],
+    // blob URL 只属于当前 renderer 生命周期；文件快照元数据可以安全跨页面恢复。
+    attachments: state.attachments.map(({ previewUrl: _previewUrl, ...attachment }) => attachment),
     dismissedTriggerKey: null,
   }
 }

@@ -9,10 +9,11 @@ import type {
 } from "./common.ts"
 import type { MaterializeAssistantArtifactsOptions } from "./safe-image-source.ts"
 
-import { createHash, randomUUID } from "node:crypto"
-import { copyFile, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { copyFile, lstat, mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { atomicWriteText } from "../atomic-file.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 import { isOperationalStateArtifact } from "./artifact-file-classification.ts"
 import { mimeFromPath, normalizeLocalPathCandidate } from "./artifacts.ts"
@@ -25,8 +26,38 @@ export { readResponseBodyWithinLimit } from "./safe-image-source.ts"
 export type ArtifactBundles = Map<string, Map<string, ArtifactBundle>>
 
 const maxArtifactBaselineFiles = 10_000
+const maxArtifactBaselineEntries = 25_000
+const maxArtifactBaselineDepth = 32
+const artifactBaselineScanBudgetMs = 2_000
+const maxManagedArtifactEntries = 5_000
+const maxManagedArtifactDepth = 24
+const managedArtifactScanBudgetMs = 1_500
 const maxAssistantArtifactSources = 32
 const maxConcurrentArtifactMaterializations = 4
+const artifactBundleKinds = new Set<ArtifactBundleKind>([
+  "image_set",
+  "document",
+  "spreadsheet",
+  "presentation",
+  "web_page",
+  "code_project",
+  "archive",
+  "mixed",
+])
+const artifactBundleDisplays = new Set<ArtifactBundleDisplay>([
+  "gallery",
+  "document",
+  "table",
+  "project",
+  "file_list",
+  "single",
+])
+const artifactItemOrigins = new Set<ArtifactItemOrigin>([
+  "managed_output",
+  "assistant_attachment",
+  "assistant_preview",
+  "recovered_output",
+])
 
 interface PersistedArtifactBundles {
   version?: number
@@ -65,7 +96,29 @@ function validBundle(value: unknown): value is ArtifactBundle {
     validText(bundle.rootPath) &&
     (bundle.status === "ready" || bundle.status === "partial" || bundle.status === "failed") &&
     typeof bundle.createdAt === "number" &&
-    Array.isArray(bundle.items)
+    Number.isFinite(bundle.createdAt) &&
+    (bundle.completedAt === undefined ||
+      (typeof bundle.completedAt === "number" && Number.isFinite(bundle.completedAt))) &&
+    Boolean(bundle.kind && artifactBundleKinds.has(bundle.kind)) &&
+    Boolean(bundle.display && artifactBundleDisplays.has(bundle.display)) &&
+    Number.isInteger(bundle.totalItems) &&
+    (bundle.totalItems ?? -1) >= 0 &&
+    typeof bundle.truncated === "boolean" &&
+    (bundle.failure === undefined || bundle.failure === "generated_preview_not_persisted") &&
+    Array.isArray(bundle.items) &&
+    bundle.items.every(
+      (item) =>
+        Boolean(item) &&
+        validText(item.id) &&
+        validText(item.path) &&
+        validText(item.name) &&
+        item.kind === "file" &&
+        validText(item.mime) &&
+        item.status === "ready" &&
+        artifactItemOrigins.has(item.origin) &&
+        (item.size === undefined || (typeof item.size === "number" && Number.isFinite(item.size) && item.size >= 0)) &&
+        (item.modifiedAt === undefined || (typeof item.modifiedAt === "number" && Number.isFinite(item.modifiedAt))),
+    )
   )
 }
 
@@ -120,6 +173,7 @@ async function managedArtifactGroup(
   rootPath: string,
   materializedOrigins: ReadonlyMap<string, ArtifactItemOrigin>,
   maxItems = 200,
+  excludedPaths: ReadonlySet<string> = new Set(),
 ): Promise<LocalArtifactGroup | null> {
   const root = await localArtifactItem(rootPath)
   if (!root || root.kind !== "directory") {
@@ -128,6 +182,9 @@ async function managedArtifactGroup(
   const files: NonNullable<LocalArtifactGroup["items"]> = []
   const deferredOperationalStateFiles: string[] = []
   let totalItems = 0
+  let visitedEntries = 0
+  let scanIncomplete = false
+  const deadline = Date.now() + managedArtifactScanBudgetMs
   const appendVisibleFile = async (absolutePath: string): Promise<void> => {
     totalItems += 1
     if (files.length >= maxItems) {
@@ -138,7 +195,16 @@ async function managedArtifactGroup(
       files.push(item)
     }
   }
-  const visit = async (directory: string): Promise<void> => {
+  const visit = async (directory: string, depth: number): Promise<void> => {
+    if (
+      scanIncomplete ||
+      depth > maxManagedArtifactDepth ||
+      visitedEntries >= maxManagedArtifactEntries ||
+      Date.now() >= deadline
+    ) {
+      scanIncomplete = true
+      return
+    }
     let entries
     try {
       entries = await readdir(directory, { withFileTypes: true })
@@ -148,15 +214,23 @@ async function managedArtifactGroup(
     for (const entry of entries.sort((left, right) =>
       left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" }),
     )) {
+      visitedEntries += 1
+      if (visitedEntries > maxManagedArtifactEntries || Date.now() >= deadline) {
+        scanIncomplete = true
+        break
+      }
       if (entry.name.startsWith(".") || entry.isSymbolicLink()) {
         continue
       }
       const absolutePath = path.join(directory, entry.name)
       if (entry.isDirectory()) {
-        await visit(absolutePath)
+        await visit(absolutePath, depth + 1)
         continue
       }
       if (!entry.isFile()) {
+        continue
+      }
+      if (excludedPaths.has(absolutePath)) {
         continue
       }
       const relativePath = path.relative(rootPath, absolutePath)
@@ -167,14 +241,19 @@ async function managedArtifactGroup(
       }
     }
   }
-  await visit(rootPath)
+  await visit(rootPath, 0)
   // 唯一输出永不因启发式判断而消失；只有同时存在明确成果时才收起运行状态 sidecar。
   if (totalItems === 0) {
     for (const filePath of deferredOperationalStateFiles) {
       await appendVisibleFile(filePath)
     }
   }
-  return { root, items: files, totalItems, truncated: totalItems > files.length }
+  return {
+    root,
+    items: files,
+    totalItems: scanIncomplete ? Math.max(totalItems, files.length + 1) : totalItems,
+    truncated: scanIncomplete || totalItems > files.length,
+  }
 }
 
 function inferredKind(group: LocalArtifactGroup): ArtifactBundleKind {
@@ -345,8 +424,14 @@ async function artifactSessionFiles(
 ): Promise<{ complete: boolean; files: Map<string, ArtifactFileFingerprint> }> {
   const files = new Map<string, ArtifactFileFingerprint>()
   let complete = true
-  const visit = async (directory: string): Promise<void> => {
+  let visitedEntries = 0
+  const deadline = Date.now() + artifactBaselineScanBudgetMs
+  const visit = async (directory: string, depth: number): Promise<void> => {
     if (!complete) {
+      return
+    }
+    if (depth > maxArtifactBaselineDepth || visitedEntries >= maxArtifactBaselineEntries || Date.now() >= deadline) {
+      complete = false
       return
     }
     let entries
@@ -357,6 +442,11 @@ async function artifactSessionFiles(
       return
     }
     for (const entry of entries) {
+      visitedEntries += 1
+      if (visitedEntries > maxArtifactBaselineEntries || Date.now() >= deadline) {
+        complete = false
+        return
+      }
       if (entry.name.startsWith(".") || entry.isSymbolicLink()) {
         continue
       }
@@ -365,7 +455,7 @@ async function artifactSessionFiles(
         continue
       }
       if (entry.isDirectory()) {
-        await visit(absolutePath)
+        await visit(absolutePath, depth + 1)
         continue
       }
       if (!entry.isFile()) {
@@ -385,7 +475,7 @@ async function artifactSessionFiles(
       })
     }
   }
-  await visit(sessionRoot)
+  await visit(sessionRoot, 0)
   return { complete, files }
 }
 
@@ -483,19 +573,27 @@ export async function materializeAssistantArtifacts(
     return new Map()
   }
   const materializedOrigins = new Map<string, ArtifactItemOrigin>()
-  const seen = new Set<string>()
+  const sourceIndexes = new Map<string, number>()
   const artifacts: AssistantArtifactSource[] = []
   for (const artifact of assistantArtifactSources(messages, messageId)) {
-    if (artifacts.length >= maxAssistantArtifactSources) {
-      break
-    }
     const candidate = artifact.source.trim()
     const source = normalizeLocalPathCandidate(candidate, os.homedir())
     const sourceKey = source ?? candidate
-    if (!candidate || seen.has(sourceKey)) {
+    if (!candidate) {
       continue
     }
-    seen.add(sourceKey)
+    const existingIndex = sourceIndexes.get(sourceKey)
+    if (existingIndex !== undefined) {
+      const existing = artifacts[existingIndex]
+      const artifactIsImage = artifact.origin === "assistant_preview" || artifact.mime?.startsWith("image/")
+      const existingIsImage = existing?.origin === "assistant_preview" || existing?.mime?.startsWith("image/")
+      if (artifactIsImage && !existingIsImage) artifacts[existingIndex] = artifact
+      continue
+    }
+    if (artifacts.length >= maxAssistantArtifactSources) {
+      continue
+    }
+    sourceIndexes.set(sourceKey, artifacts.length)
     artifacts.push(artifact)
   }
   const reservedTargets = new Set<string>()
@@ -520,6 +618,7 @@ export async function materializeAssistantArtifacts(
             continue
           }
           if (realSource === root || realSource.startsWith(`${root}${path.sep}`)) {
+            materializedOrigins.set(path.relative(root, realSource), artifact.origin)
             continue
           }
           const mime = artifact.mime ?? mimeFromPath(realSource)
@@ -570,12 +669,13 @@ export async function buildArtifactBundle(input: {
   completedAt: number
   createdAt: number
   generatedPreviewCount: number
+  excludedPaths?: ReadonlySet<string>
   messageId: string
   sessionId: string
   materializedOrigins?: ReadonlyMap<string, ArtifactItemOrigin>
 }): Promise<ArtifactBundle | null> {
-  const { artifactRoot, materializedOrigins = new Map<string, ArtifactItemOrigin>() } = input
-  const group = await managedArtifactGroup(artifactRoot, materializedOrigins)
+  const { artifactRoot, excludedPaths, materializedOrigins = new Map<string, ArtifactItemOrigin>() } = input
+  const group = await managedArtifactGroup(artifactRoot, materializedOrigins, 200, excludedPaths)
   if (!group) {
     return null
   }
@@ -623,7 +723,10 @@ export function buildArtifactBundleFromGroup(input: {
   }
   const kind = inferredKind(group)
   const display = inferredDisplay(kind, group.items.length)
-  const persistedImageCount = group.items.filter((item) => item.mime.startsWith("image/")).length
+  // 只计算能追溯到本轮 assistant source 的图片；目录中无关的旧图片不能掩盖物化失败。
+  const persistedImageCount = group.items.filter(
+    (item) => item.mime.startsWith("image/") && materializedOrigins.has(path.relative(artifactRoot, item.path)),
+  ).length
   const isPartial = generatedPreviewCount > persistedImageCount
   const items: ArtifactItem[] = group.items.map((item) => ({
     ...item,
@@ -714,15 +817,7 @@ export class ArtifactBundleStore {
   }
 
   private async persist(records: ArtifactBundles): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp-${process.pid}-${randomUUID()}`
-    try {
-      await writeFile(tmp, JSON.stringify(serializeArtifactBundles(records), null, 2), "utf-8")
-      await rename(tmp, this.file)
-    } catch (error) {
-      await rm(tmp, { force: true })
-      throw error
-    }
+    await atomicWriteText(this.file, JSON.stringify(serializeArtifactBundles(records), null, 2))
   }
 
   private async enqueueMutation(mutation: () => Promise<void>): Promise<void> {

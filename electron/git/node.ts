@@ -17,6 +17,7 @@ import { classifyGitError, normalizeCheckoutBranchName, readGitRepositoryState }
 
 const execFileAsync = promisify(execFile)
 const gitCommandTimeoutMs = 5_000
+const gitMutationTimeoutMs = 60_000
 
 interface GitServiceDeps {
   projectStore?: Pick<SessionProjectStore, "read">
@@ -129,7 +130,7 @@ export class GitServiceImpl extends ConnectionService<GitService> implements ICo
       return unavailableProjectState(req, "Project is not registered.")
     }
     try {
-      await runGit(["-C", checked.path, "checkout", branch], { timeoutMs: gitCommandTimeoutMs })
+      await runGit(["-C", checked.path, "checkout", branch], { timeoutMs: gitMutationTimeoutMs })
     } catch (cause) {
       return stateAfterCheckoutFailure({ ...req, path: checked.path }, cause as GitCommandError)
     }
@@ -146,7 +147,7 @@ export class GitServiceImpl extends ConnectionService<GitService> implements ICo
       return unavailableProjectState(req, "Project is not registered.")
     }
     try {
-      await runGit(["-C", checked.path, "checkout", "-b", branch], { timeoutMs: gitCommandTimeoutMs })
+      await runGit(["-C", checked.path, "checkout", "-b", branch], { timeoutMs: gitMutationTimeoutMs })
     } catch (cause) {
       return stateAfterCheckoutFailure({ ...req, path: checked.path }, cause as GitCommandError)
     }

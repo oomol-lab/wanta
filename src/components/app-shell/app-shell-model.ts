@@ -33,8 +33,6 @@ export const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
 export const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "wanta.artifactsPanelWidth"
 export const TURN_RETRY_OPTIONS_LIMIT = 48
 export const SESSION_TITLE_RETRY_DELAY_MS = 20_000
-export const AUTH_RETRY_POLL_INTERVAL_MS = 2_000
-export const AUTH_RETRY_POLL_TIMEOUT_MS = 5 * 60_000
 export const WORKSPACE_SWITCH_TIMEOUT_MS = 20_000
 export const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
 export const NEW_SESSION_COMPOSER_DRAFT_KEY = "__new_session__"
@@ -86,6 +84,52 @@ export function shouldShowRecommendedSkillEntry({
   providerRecommendationCount: number
 }): boolean {
   return Boolean(organizationId && (organizationSkillCount > 0 || providerRecommendationCount > 0))
+}
+
+export type NotificationOrganizationResolution = "ready" | "refresh" | "select" | "unavailable" | "wait"
+
+export type OrganizationProviderOptionsAvailability = "fallback" | "pending" | "ready"
+
+export function resolveOrganizationProviderOptionsAvailability({
+  appsStatus,
+  summaryMatchesWorkspace,
+  workspaceActivationFailed,
+}: {
+  appsStatus: "forbidden" | "ready" | "unavailable" | undefined
+  summaryMatchesWorkspace: boolean
+  workspaceActivationFailed: boolean
+}): OrganizationProviderOptionsAvailability {
+  if (!summaryMatchesWorkspace) {
+    return workspaceActivationFailed ? "fallback" : "pending"
+  }
+  return appsStatus === "ready" ? "ready" : "fallback"
+}
+
+export function resolveNotificationOrganization({
+  activeOrganizationId,
+  hasLoaded,
+  loading,
+  organizationIds,
+  refreshAttempted,
+  targetOrganizationId,
+}: {
+  activeOrganizationId: string | null
+  hasLoaded: boolean
+  loading: boolean
+  organizationIds: readonly string[]
+  refreshAttempted: boolean
+  targetOrganizationId: string
+}): NotificationOrganizationResolution {
+  if (targetOrganizationId === activeOrganizationId) {
+    return "ready"
+  }
+  if (organizationIds.includes(targetOrganizationId)) {
+    return "select"
+  }
+  if (loading || !hasLoaded) {
+    return "wait"
+  }
+  return refreshAttempted ? "unavailable" : "refresh"
 }
 
 export interface TurnRetryOptions {
@@ -319,7 +363,6 @@ export interface WorkspaceActivationInput {
   connectionsRefreshing: boolean
   currentScopeKey: string
   loadedSessionScopeKey: string | null
-  organizationSkillsError: UserFacingError | null
   organizationSkillsSettled: boolean
   targetScopeKey: string | null
   workspaceMetadataError: UserFacingError | null
@@ -335,7 +378,7 @@ export type WorkspaceActivationPhase =
   | "connections"
   | "organization_skills"
 
-export type WorkspaceActivationFailureReason = "agent_scope" | "organization_skills" | "workspace_metadata"
+export type WorkspaceActivationFailureReason = "agent_scope" | "workspace_metadata"
 
 export type WorkspaceActivationState =
   | { status: "idle"; targetScopeKey: string | null }
@@ -360,14 +403,6 @@ export function resolveWorkspaceActivationState(input: WorkspaceActivationInput)
     return {
       error: input.agentScopeSyncError,
       reason: "agent_scope",
-      status: "failed",
-      targetScopeKey: input.targetScopeKey,
-    }
-  }
-  if (input.organizationSkillsError) {
-    return {
-      error: input.organizationSkillsError,
-      reason: "organization_skills",
       status: "failed",
       targetScopeKey: input.targetScopeKey,
     }

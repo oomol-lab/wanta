@@ -4,14 +4,7 @@ import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations"
 import type { RuntimeSkillRemoveTarget } from "@/routes/Skills/skill-route-model"
 
-import {
-  Link2OffIcon,
-  MoreHorizontalIcon,
-  PackageIcon,
-  PauseCircleIcon,
-  PlayCircleIcon,
-  RefreshCwIcon,
-} from "lucide-react"
+import { Link2OffIcon, MoreHorizontalIcon, PackageIcon, RefreshCwIcon } from "lucide-react"
 import {
   canInstallProviderRecommendationRuntime,
   canOpenManagedProviderRecommendation,
@@ -35,14 +28,7 @@ import {
   ConfirmDialogHeader,
   ConfirmDialogTitle,
 } from "@/components/ui/confirm-dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
@@ -58,9 +44,6 @@ import {
   isImageIcon,
   shouldOpenPublicSkillManagement,
 } from "@/routes/Skills/skill-route-model"
-
-const skillManageMenuLabelClassName = "oo-text-caption-compact px-2 py-1 text-muted-foreground"
-const skillManageMenuIconClassName = "text-muted-foreground"
 
 export function OrganizationInstallMissingButton({
   busy,
@@ -312,15 +295,11 @@ export function OrganizationSkillMarketRow({
 function OrganizationConfiguredSkillActionsMenu({
   busy,
   canManage,
-  enabled,
   onRemove,
-  onToggleEnabled,
 }: {
   busy: boolean
   canManage: boolean
-  enabled: boolean
   onRemove: () => void
-  onToggleEnabled: () => void
 }) {
   const { t } = useAppI18n()
   if (!canManage) {
@@ -342,23 +321,9 @@ function OrganizationConfiguredSkillActionsMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className={skillManageMenuLabelClassName}>
-          {t("organizations.skillManageOrganizationSection")}
-        </DropdownMenuLabel>
-        <DropdownMenuItem onSelect={onToggleEnabled}>
-          {enabled ? (
-            <PauseCircleIcon className={skillManageMenuIconClassName} />
-          ) : (
-            <PlayCircleIcon className={skillManageMenuIconClassName} />
-          )}
-          {enabled
-            ? t("organizations.skillManagePauseRecommendation")
-            : t("organizations.skillManageResumeRecommendation")}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onSelect={onRemove}>
           <Link2OffIcon className="size-4" />
-          {t("organizations.skillManageUnrecommend")}
+          {t("organizations.skillManageRemovePackage")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -416,15 +381,17 @@ export function RuntimeSkillRemoveConfirmDialog({
   )
 }
 
-export function OrganizationRecommendationRemoveConfirmDialog({
+export function OrganizationPackageRemoveConfirmDialog({
   busy,
   onClose,
   onConfirm,
+  packageSkillCount,
   target,
 }: {
   busy: boolean
   onClose: () => void
   onConfirm: () => void
+  packageSkillCount: number
   target: UseOrganizationSkills["skills"][number] | null
 }) {
   const { t } = useAppI18n()
@@ -442,11 +409,11 @@ export function OrganizationRecommendationRemoveConfirmDialog({
         <ConfirmDialogHeader>
           <ConfirmDialogTitle>
             {target
-              ? t("organizations.skillManageUnrecommendConfirmTitle", { name: target.displayName })
-              : t("organizations.skillManageUnrecommend")}
+              ? t("organizations.skillManageRemovePackageConfirmTitle", { name: target.packageName })
+              : t("organizations.skillManageRemovePackage")}
           </ConfirmDialogTitle>
           <ConfirmDialogDescription>
-            {t("organizations.skillManageUnrecommendConfirmDescription")}
+            {t("organizations.skillManageRemovePackageConfirmDescription", { count: packageSkillCount })}
           </ConfirmDialogDescription>
         </ConfirmDialogHeader>
         <ConfirmDialogFooter>
@@ -459,7 +426,7 @@ export function OrganizationRecommendationRemoveConfirmDialog({
             }}
           >
             {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
-            {t("organizations.skillManageUnrecommend")}
+            {t("organizations.skillManageRemovePackage")}
           </ConfirmDialogAction>
         </ConfirmDialogFooter>
       </ConfirmDialogContent>
@@ -476,7 +443,6 @@ export function OrganizationSkillManageRow({
   onInstallRuntime,
   onOpenManagedSkill,
   onRemove,
-  onToggleEnabled,
   skill,
 }: {
   busy: boolean
@@ -487,7 +453,6 @@ export function OrganizationSkillManageRow({
   onInstallRuntime: () => void
   onOpenManagedSkill: () => void
   onRemove: () => void
-  onToggleEnabled: () => void
   skill: UseOrganizationSkills["skills"][number]
 }) {
   const { t } = useAppI18n()
@@ -507,9 +472,6 @@ export function OrganizationSkillManageRow({
         <>
           <Badge variant="secondary" className="shrink-0">
             {t("organizations.skillManageConfigured")}
-          </Badge>
-          <Badge variant={skill.enabled ? "secondary" : "outline"} className="shrink-0">
-            {skill.enabled ? t("skills.organizationEnabled") : t("skills.organizationDisabled")}
           </Badge>
           <Badge className={cn("shrink-0", getSkillRowStatusBadgeClassName(runtimeTone))} variant="outline">
             {organizationRuntimeStatusLabel(runtimeStatus.state, t)}
@@ -534,13 +496,7 @@ export function OrganizationSkillManageRow({
               {t("skills.installedManage")}
             </Button>
           ) : null}
-          <OrganizationConfiguredSkillActionsMenu
-            busy={menuBusy}
-            canManage={canManage}
-            enabled={skill.enabled}
-            onRemove={onRemove}
-            onToggleEnabled={onToggleEnabled}
-          />
+          <OrganizationConfiguredSkillActionsMenu busy={menuBusy} canManage={canManage} onRemove={onRemove} />
         </>
       }
       onSelect={opensManagement ? onOpenManagedSkill : undefined}

@@ -64,6 +64,7 @@ src/lib/skills-catalog-client.ts
 - 组织配置增删改：失效当前组织配置缓存；不失效公共 market 数据。
 - 连接器集合变化：Provider 推荐层按候选 provider key 重新计算；公共 package detail 继续复用。
 - 用户显式刷新：调用方传 `forceRefresh`，客户端重新请求该 key。
+- 强制刷新和定向失效会递增对应 key 的 generation；失效前启动的请求可以返回给原调用方，但不能再写入共享缓存。`forceRefresh` 不复用旧 generation 的 in-flight promise。
 
 ## 非目标
 

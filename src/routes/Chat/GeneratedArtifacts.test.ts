@@ -6,7 +6,6 @@ import type { TranslateFn } from "@/i18n/i18n"
 import * as React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { parseCsvPreview } from "./artifact-csv-preview.ts"
 import { htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 import { artifactGroupDisplayItem, artifactKindLabel } from "./artifact-metadata.ts"
 import { buildArtifactPaletteItems } from "./composer-palette-items.ts"
@@ -72,30 +71,6 @@ describe("htmlPreviewSrcDoc", () => {
 
     expect(result).toContain('<head><meta http-equiv="Content-Security-Policy"')
     expect(result).toContain("<title>x</title>")
-  })
-})
-
-describe("parseCsvPreview", () => {
-  it("parses quoted commas, escaped quotes, and CRLF rows", () => {
-    expect(parseCsvPreview('name,note\r\n"Wanta, app","said ""hi"""\r\nplain,value').rows).toEqual([
-      ["name", "note"],
-      ["Wanta, app", 'said "hi"'],
-      ["plain", "value"],
-    ])
-  })
-
-  it("caps rows and columns while reporting truncation", () => {
-    expect(parseCsvPreview("a,b,c\n1,2,3\n4,5,6", { maxRows: 2, maxColumns: 2 })).toEqual({
-      rows: [
-        ["a", "b"],
-        ["1", "2"],
-      ],
-      truncated: true,
-    })
-  })
-
-  it("does not add an empty row for a trailing newline", () => {
-    expect(parseCsvPreview("a,b\n", { maxRows: 10, maxColumns: 10 }).rows).toEqual([["a", "b"]])
   })
 })
 

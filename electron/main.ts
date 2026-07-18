@@ -36,6 +36,7 @@ import { branding } from "./branding.ts"
 import { ArtifactBundleStore } from "./chat/artifact-bundles.ts"
 import { AuthorizationOverlayStore } from "./chat/authorization.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
+import { removeSessionOutputDirectories } from "./chat/output-directory-cleanup.ts"
 import { SpreadsheetPreviewWorkerClient } from "./chat/spreadsheet-preview-worker-client.ts"
 import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
 import { TurnOutputStore } from "./chat/turn-outputs.ts"
@@ -58,7 +59,8 @@ import { SessionServiceImpl } from "./session/node.ts"
 import { SessionProjectStore } from "./session/project-store.ts"
 import { SettingsServiceImpl } from "./settings/node.ts"
 import { SettingsStore } from "./settings/store.ts"
-import { SkillServiceImpl } from "./skills/node.ts"
+import { ensureDefaultRegistrySkillsInstalled, SkillServiceImpl } from "./skills/node.ts"
+import { ExpiringTrustedPathRegistry } from "./trusted-path-registry.ts"
 import { UpdateServiceImpl } from "./update/node.ts"
 import { buildApplicationMenuTemplate } from "./window/application-menu.ts"
 import {
@@ -125,7 +127,7 @@ const bundledSkillsDir = app.isPackaged
   ? resolveBundledSkillsDir(process.resourcesPath)
   : resolveDevBundledSkillsDir(appRoot)
 
-// Agent 内核：凭证来自浏览器登录（userData/auth.json，账号默认 api-key 等价旧 OO_API_KEY env）。
+// Agent 内核：凭证来自 Electron 会话中的短期 token；userData/auth.json 仅保存账号 profile。
 // 未登录时 agent=null，服务仍注册但 isReady()=false，渲染层显示登录页；
 // 登录 / 登出时经 applyAuthAccount 动态装配。
 let agent: AgentManager | null = null
@@ -143,7 +145,8 @@ const authorizationOverlayStore = new AuthorizationOverlayStore(app.getPath("use
 const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
 const turnOutputStore = new TurnOutputStore(app.getPath("userData"), artifactBundleStore)
 const userAttachmentStore = new UserAttachmentStore(app.getPath("userData"))
-const trustedAttachmentPaths = new Set<string>()
+const trustedAttachmentPaths = new ExpiringTrustedPathRegistry()
+const trustedProjectPaths = new ExpiringTrustedPathRegistry()
 const artifactResourceLeaseStore = new ArtifactResourceLeaseStore()
 const spreadsheetPreviewWorker = new SpreadsheetPreviewWorkerClient()
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 组织作用域同步，
@@ -170,6 +173,8 @@ const chatService = new ChatServiceImpl(null, {
   trustedAttachmentPaths,
   turnOutputStore,
   userAttachmentStore,
+  onPermissionModeChanged: (sessionId, permissionMode) =>
+    sessionService.setPermissionMode({ id: sessionId, permissionMode }),
   onSetAgentOrganization: handleAgentOrganizationChanged,
   onSessionCompleted: (input) => attentionService.completeSession(input),
 })
@@ -178,6 +183,16 @@ const sessionService = new SessionServiceImpl(null, {
   metadataStore: sessionMetadataStore,
   onSessionArchived: (sessionId) => attentionService.removeSession(sessionId),
   onSessionRemoved: async (sessionId) => {
+    await chatService.forgetSession(sessionId)
+    const [artifactBundles, turnOutputs] = await Promise.all([artifactBundleStore.read(), turnOutputStore.read()])
+    await removeSessionOutputDirectories({
+      agentRoot: path.join(app.getPath("userData"), "agent"),
+      artifactBundles: artifactBundles.get(sessionId)?.values(),
+      sessionId,
+      turnOutputs: turnOutputs.get(sessionId)?.values(),
+    }).catch((error: unknown) => {
+      console.warn("[wanta] failed to clean removed session directories", error)
+    })
     await Promise.all([
       artifactBundleStore.removeSession(sessionId),
       attentionService.removeSession(sessionId),
@@ -188,6 +203,7 @@ const sessionService = new SessionServiceImpl(null, {
     })
   },
   projectStore: sessionProjectStore,
+  trustedProjectPaths,
 })
 const modelsService = new ModelsServiceImpl({
   store: modelsStore,
@@ -199,15 +215,15 @@ const authManager = new AuthManager({
   protocolScheme,
   applyAccount: applyAuthAccount,
 })
-const skillAgentRefresh = new AgentRefreshScheduler({
+const agentRefreshScheduler = new AgentRefreshScheduler({
   canRefresh: () => Boolean(authManager.activeAccount() && agent?.isReady()),
   isBusy: () => chatService.hasActiveGeneration(),
   isQuitting: () => isQuitting,
-  refresh: refreshAgentAfterSkillChange,
+  refresh: refreshAgentRuntime,
 })
 const authService = new AuthServiceImpl(authManager)
 const skillService = new SkillServiceImpl(authManager, {
-  onRuntimeSkillsChanged: (reason) => skillAgentRefresh.schedule(reason),
+  onRuntimeSkillsChanged: (reason) => agentRefreshScheduler.schedule(reason),
 })
 const settingsService = new SettingsServiceImpl({
   onSettingsChanged: (settings) => attentionService.settingsChanged(settings),
@@ -237,6 +253,7 @@ const gitService = new GitServiceImpl({
 const knowledgeService = new KnowledgeServiceImpl({
   runtime: { executablePath: process.execPath, cliPath: wikiGraphCliPath },
   store: knowledgeStore,
+  trustedImportPaths: trustedAttachmentPaths,
 })
 
 chatService.sessionActivity.on(({ sessionId, usedAt }) => {
@@ -267,6 +284,7 @@ server.registerService(knowledgeService)
 settingsService.applyStartupTheme()
 registerAttachmentDialogHandlers(trustedAttachmentPaths, {
   createSpreadsheetPreview: (filePath, mime, size) => spreadsheetPreviewWorker.preview(filePath, mime, size),
+  rememberProjectPath: (directoryPath) => trustedProjectPaths.add(directoryPath),
 })
 registerAppLocaleHandler()
 registerRendererErrorHandler()
@@ -279,8 +297,8 @@ if (isLocked) {
   listenProtocolUrls(protocolScheme, { handleUrl: handleDeepLink }, showMainWindow)
 
   if (initialUrl) {
-    // 冷启动经协议 URL 拉起（win/linux argv）：先完成登录回调，窗口创建在 whenReady。
-    void authManager.completeBrowserLoginCallback(initialUrl).catch((error: unknown) => {
+    // 冷启动经协议 URL 拉起（win/linux argv）：统一分发登录与连接器回调，窗口创建在 whenReady。
+    void handleDeepLink(initialUrl).catch((error: unknown) => {
       console.error("[wanta] failed to handle startup deep link:", error)
     })
   }
@@ -295,6 +313,9 @@ if (isLocked) {
       createMainWindow()
       void attentionService.initialize().catch((error: unknown) => {
         console.warn("[wanta] failed to initialize task attention state:", error)
+      })
+      void userAttachmentStore.pruneExpiredUnreferenced().catch((error: unknown) => {
+        console.warn("[wanta] failed to prune expired attachment snapshots:", error)
       })
       // 打包态启动跨平台后台更新：延迟首查、周期检查、系统唤醒后补查；发现后后台下载，
       // 安装仍由用户点击重启或正常退出触发，避免打断 Agent 任务。
@@ -377,7 +398,7 @@ if (isLocked) {
  */
 function reapAgentForShutdown(): Promise<void> {
   shutdownReap ??= (async () => {
-    skillAgentRefresh.dispose()
+    agentRefreshScheduler.dispose()
     // 退出观感：先藏窗口，回收（含最长宽限期）在后台进行，不让用户盯着卡住的窗口。
     mainWindow?.hide()
     windowsTrayLifecycle?.dispose()
@@ -497,6 +518,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   if (isQuitting) {
     return
   }
+  const runtimeVersionAtStart = agentRuntimeVersion
   // account 恒带会话 token（来自 activeRuntimeAccount / adoptAccount）；token 缺失即为 null = 登出态。
   // 幂等短路：冷启动 deep-link 与 whenReady 双路径会用同一账号 apply 两次。
   if (
@@ -587,11 +609,14 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     return
   }
   appliedAccount = account
-  appliedAgentRuntimeVersion = agentRuntimeVersion
+  appliedAgentRuntimeVersion = runtimeVersionAtStart
   chatService.startEventBridge()
   chatService.setAgentStatus({ status: "ready" })
   console.log("[wanta] agent sidecar ready at", nextAgent.url)
-  void skillService.ensureDefaultRegistrySkillsInstalled().catch((error: unknown) => {
+  if (agentRuntimeVersion !== runtimeVersionAtStart) {
+    agentRefreshScheduler.schedule("runtime configuration changed during agent startup", 0)
+  }
+  void skillService[ensureDefaultRegistrySkillsInstalled]().catch((error: unknown) => {
     console.warn("[wanta] default registry skill installation failed:", error)
   })
 }
@@ -613,22 +638,11 @@ function restartAgentForModelConfig(): void {
   if (isQuitting) {
     return
   }
-  agentRuntimeVersion += 1
-  void authManager
-    .activeRuntimeAccount()
-    .then(async (account) => {
-      await applyAuthAccount(account)
-      // 会话中途过期：装配登出态后主动广播"未登录"，渲染层据此落回登录页（一致生命周期）。
-      if (!account) {
-        await authManager.broadcastAuthState()
-      }
-    })
-    .catch((error: unknown) => {
-      console.error("[wanta] failed to restart agent after model config change:", error)
-    })
+  if (agent?.isReady()) agentRefreshScheduler.schedule("model configuration changed", 0)
+  else agentRuntimeVersion += 1
 }
 
-async function refreshAgentAfterSkillChange(_reason: string): Promise<void> {
+async function refreshAgentRuntime(_reason: string): Promise<void> {
   agentRuntimeVersion += 1
   const account = await authManager.activeRuntimeAccount()
   await applyAuthAccount(account)
@@ -823,9 +837,8 @@ function createMainWindow(): void {
     return { action: "deny" }
   })
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    // 应用自身的页面（dev server / file://）放行，其余一律拦截并外开。
-    const isAppUrl = viteDevServerUrl ? url.startsWith(viteDevServerUrl) : url.startsWith("file:")
-    if (!isAppUrl) {
+    // 只放行 dev server 同源页面或打包后的 renderer 目录，避免任意本地页面继承 preload 权限。
+    if (!isTrustedRendererUrl(url, viteDevServerUrl, rendererBaseUrl)) {
       event.preventDefault()
       openExternalUrl(url)
     }

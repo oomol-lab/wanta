@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { useAppI18n } from "../i18n/index.ts"
 import { resolveUserFacingError, userFacingErrorDescription } from "../lib/user-facing-error.ts"
 import { useSkillService } from "./AppContext.ts"
-import { useHomeSummaryResource, useSkillInventoryResource, useSkillVersionReportResource } from "./AppDataHooks.ts"
+import { useSkillInventoryResource, useSkillVersionReportResource } from "./AppDataHooks.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 interface UseSkillObjectActionsOptions {
@@ -25,7 +25,6 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
   const { onDeleted } = options
   const { t } = useAppI18n()
   const skillService = useSkillService()
-  const homeSummaryResource = useHomeSummaryResource()
   const inventoryResource = useSkillInventoryResource()
   const versionResource = useSkillVersionReportResource()
   const [removeTarget, setRemoveTarget] = React.useState<SkillRemoveTarget | null>(null)
@@ -80,13 +79,17 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
       })
       inventoryResource.setData(nextInventory)
       versionResource.invalidate()
-      homeSummaryResource.invalidate()
       await refreshSkillResources()
-      if (!nextInventory.groups.some((group) => group.id === target.skill.id)) {
+      const stillInstalled = nextInventory.groups.some((group) => group.id === target.skill.id)
+      if (!stillInstalled) {
         onDeleted?.(nextInventory)
       }
       setRemoveTarget(null)
-      toast.success(t("skills.removeDone", { name: target.skill.name }))
+      if (stillInstalled) {
+        toast.warning(t("skills.removePartial", { name: target.skill.name }))
+      } else {
+        toast.success(t("skills.removeDone", { name: target.skill.name }))
+      }
     } catch (cause) {
       reportRendererHandledError("skills", "remove skill failed", cause)
       toast.error(t("skills.removeFailed", { error: skillActionErrorMessage(cause, t) }))
@@ -94,16 +97,7 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
       isRemovingSkillRef.current = false
       setIsRemovingSkill(false)
     }
-  }, [
-    homeSummaryResource,
-    inventoryResource,
-    onDeleted,
-    refreshSkillResources,
-    removeTarget,
-    skillService,
-    t,
-    versionResource,
-  ])
+  }, [inventoryResource, onDeleted, refreshSkillResources, removeTarget, skillService, t, versionResource])
 
   return {
     copySkillPath,

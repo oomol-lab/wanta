@@ -50,7 +50,7 @@ function loadResource<T>(key: string, request: () => Promise<T>, forceRefresh = 
   if (!forceRefresh && isFresh(entry)) {
     return Promise.resolve(entry.data)
   }
-  if (entry.promise) {
+  if (!forceRefresh && entry.promise) {
     return entry.promise
   }
 

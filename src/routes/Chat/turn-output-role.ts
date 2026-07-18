@@ -5,12 +5,13 @@ export function availableTurnOutputRole(
   preferred: TurnOutputFileRole,
   processFileCount: number,
   projectChangeFileCount: number,
+  projectChangesTruncated = false,
 ): TurnOutputFileRole {
   if (preferred === "process" && processFileCount > 0) {
     return "process"
   }
-  if (preferred === "project_change" && projectChangeFileCount > 0) {
+  if (preferred === "project_change" && (projectChangeFileCount > 0 || projectChangesTruncated)) {
     return "project_change"
   }
-  return projectChangeFileCount > 0 ? "project_change" : "process"
+  return projectChangeFileCount > 0 || projectChangesTruncated ? "project_change" : "process"
 }

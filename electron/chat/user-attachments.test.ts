@@ -116,6 +116,26 @@ describe("UserAttachmentStore", () => {
     await expect(access(snapshotDirectory)).rejects.toThrow()
     expect((await store.read()).has("session-1")).toBe(false)
   })
+
+  it("prunes old unreferenced drafts while retaining sent attachment snapshots", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-user-attachment-prune-"))
+    temporaryDirectories.push(directory)
+    const retainedDirectory = path.join(directory, "attachments", "originals", "retained")
+    const orphanDirectory = path.join(directory, "attachments", "originals", "orphan")
+    const retainedPath = path.join(retainedDirectory, "retained.pdf")
+    const orphanPath = path.join(orphanDirectory, "orphan.pdf")
+    await Promise.all([mkdir(retainedDirectory, { recursive: true }), mkdir(orphanDirectory, { recursive: true })])
+    await Promise.all([writeFile(retainedPath, "retained"), writeFile(orphanPath, "orphan")])
+    const store = new UserAttachmentStore(directory)
+    await store.record("session-1", "message-1", [
+      { id: "retained", kind: "file", mime: "application/pdf", name: "retained.pdf", path: retainedPath, size: 8 },
+    ])
+
+    await store.pruneExpiredUnreferenced(1, Date.now() + 10_000)
+
+    expect(await readFile(retainedPath, "utf8")).toBe("retained")
+    await expect(access(orphanPath)).rejects.toThrow()
+  })
 })
 
 describe("applyUserAttachmentRecords", () => {

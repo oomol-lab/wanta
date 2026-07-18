@@ -7,19 +7,17 @@ import type {
   ChatProjectContext,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
-import type { ConnectionProviderSummary } from "../../../electron/connections/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionScope } from "../../../electron/session/common.ts"
-import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { QueueSessionMessage } from "./use-chat-queue-state.ts"
 import type { UseChat } from "@/hooks/useChat"
-import type { UseConnections } from "@/hooks/useConnections"
+import type { ConnectionAuthIntent } from "@/routes/Connections/connection-route-model.ts"
 
 import * as React from "react"
-import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
-import { AUTH_RETRY_POLL_INTERVAL_MS, AUTH_RETRY_POLL_TIMEOUT_MS, sessionScopeKey } from "./app-shell-model.ts"
+import { sessionScopeKey } from "./app-shell-model.ts"
+import { connectionRetryTargetMatches } from "./connection-retry-model.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 export interface ChatConnectionDrawerState {
@@ -30,6 +28,7 @@ export interface ChatConnectionDrawerState {
 
 export interface ChatConnectionRetryInput {
   attachments: ChatAttachment[]
+  connectionName?: string
   contextMentions?: ChatContextMention[]
   drawerKey: string
   mode?: AgentMode
@@ -46,19 +45,9 @@ export interface ChatConnectionRetryInput {
 
 type SetChatConnectionDrawers = React.Dispatch<React.SetStateAction<Record<string, ChatConnectionDrawerState>>>
 
-interface ChatConnectionRetryWatch {
-  drawerKey: string
-  service: string
-  sessionId: string
-  startedAt: number
-}
-
-interface PendingChatConnectionRetry extends ChatConnectionRetryInput {
-  startedAt: number
-}
+type PendingChatConnectionRetry = ChatConnectionRetryInput
 
 interface UseChatConnectionRetryOptions {
-  connections: Pick<UseConnections, "isProviderActive" | "refresh" | "summary">
   isSessionRunning: (sessionId: string) => boolean
   queueSessionMessage: QueueSessionMessage
   send: UseChat["send"]
@@ -70,16 +59,7 @@ interface UseChatConnectionRetryOptions {
   setSelectedSessionId: React.Dispatch<React.SetStateAction<string | null>>
 }
 
-function providerIsRetryReady(provider: ConnectionProviderSummary, service: string): boolean {
-  return (
-    provider.service === service &&
-    provider.status === "connected" &&
-    (provider.appStatus === "active" || isConnectionlessNoAuthProvider(provider))
-  )
-}
-
 export function useChatConnectionRetry({
-  connections,
   isSessionRunning,
   queueSessionMessage,
   send,
@@ -90,166 +70,96 @@ export function useChatConnectionRetry({
   setRoute,
   setSelectedSessionId,
 }: UseChatConnectionRetryOptions) {
-  const { isProviderActive, refresh, summary } = connections
-  const pendingRetry = React.useRef<PendingChatConnectionRetry | null>(null)
-  const [retryWatch, setRetryWatch] = React.useState<ChatConnectionRetryWatch | null>(null)
+  const pendingRetries = React.useRef(new Map<string, PendingChatConnectionRetry>())
 
   const cancelRetryForDrawer = React.useCallback((drawerKey: string): void => {
-    if (pendingRetry.current?.drawerKey === drawerKey) {
-      pendingRetry.current = null
-    }
-    setRetryWatch((current) => (current?.drawerKey === drawerKey ? null : current))
+    pendingRetries.current.delete(drawerKey)
   }, [])
 
   const clearRetries = React.useCallback((): void => {
-    pendingRetry.current = null
-    setRetryWatch(null)
+    pendingRetries.current.clear()
   }, [])
 
-  const prepareRetry = React.useCallback(
-    (input: ChatConnectionRetryInput): void => {
-      const startedAt = Date.now()
-      pendingRetry.current = { ...input, startedAt }
-      setRetryWatch({
-        drawerKey: input.drawerKey,
-        service: input.service,
-        sessionId: input.sessionId,
-        startedAt,
-      })
-      void refresh({ forceRefresh: true }, { silent: true })
-    },
-    [refresh],
-  )
+  const prepareRetry = React.useCallback((input: ChatConnectionRetryInput): void => {
+    pendingRetries.current.set(input.drawerKey, input)
+  }, [])
 
-  // 聊天触发的授权闭环：等待 provider 连上后刷新连接摘要，再回到原 session 重试。
-  React.useEffect(() => {
-    if (!retryWatch) {
-      return
-    }
-
-    let cancelled = false
-    let timeoutId: number | undefined
-    const handleTimeout = (): void => {
-      if (
-        pendingRetry.current?.sessionId === retryWatch.sessionId &&
-        pendingRetry.current.service === retryWatch.service
-      ) {
-        pendingRetry.current = null
+  // 只有连接动作确实成功后才重试，避免已有的同 provider 账号让授权抽屉刚打开就误触发。
+  const completeRetryForDrawer = React.useCallback(
+    (drawerKey: string, target: { service: string; connectionName?: string }): void => {
+      const pending = pendingRetries.current.get(drawerKey)
+      if (!pending || !connectionRetryTargetMatches(pending, target)) {
+        return
       }
+      if (sessionScopeKey(sessionScope) !== sessionScopeKey(pending.sessionScope)) {
+        return
+      }
+
+      pendingRetries.current.delete(drawerKey)
       setChatConnectionDrawers((current) => {
-        if (!Object.hasOwn(current, retryWatch.drawerKey)) {
+        if (!Object.hasOwn(current, drawerKey)) {
           return current
         }
         const next = { ...current }
-        delete next[retryWatch.drawerKey]
+        delete next[drawerKey]
         return next
       })
-      setRetryWatch(null)
-    }
-    const refreshUntilConnected = async (): Promise<void> => {
-      if (cancelled) {
+      setRoute("chat")
+      setSelectedSessionId(pending.sessionId)
+      setIsDraftSession(false)
+      setPendingChatTransition(null)
+
+      if (isSessionRunning(pending.sessionId)) {
+        queueSessionMessage(
+          pending.sessionId,
+          pending.text,
+          pending.attachments,
+          pending.contextMentions ?? [],
+          pending.model,
+          pending.reasoningLevel,
+          pending.mode,
+          pending.permissionMode,
+          pending.organizationSkills ?? [],
+          pending.projectContext,
+          pending.sessionScope,
+        )
         return
       }
-      if (Date.now() - retryWatch.startedAt >= AUTH_RETRY_POLL_TIMEOUT_MS) {
-        handleTimeout()
-        return
+
+      void send(pending.sessionId, pending.text, pending.attachments, {
+        contextMentions: pending.contextMentions ?? [],
+        organizationSkills: pending.organizationSkills ?? [],
+        projectContext: pending.projectContext,
+        model: pending.model,
+        reasoningLevel: pending.reasoningLevel,
+        sessionScope: pending.sessionScope,
+        mode: pending.mode,
+        permissionMode: pending.permissionMode,
+      }).catch((error: unknown) => {
+        reportRendererHandledError("connections.authRetry", "Failed to retry authorized chat turn", error)
+      })
+    },
+    [
+      isSessionRunning,
+      queueSessionMessage,
+      send,
+      sessionScope,
+      setChatConnectionDrawers,
+      setIsDraftSession,
+      setPendingChatTransition,
+      setRoute,
+      setSelectedSessionId,
+    ],
+  )
+
+  const completeMatchingRetries = React.useCallback(
+    (target: { service: string; connectionName?: string }): void => {
+      for (const drawerKey of pendingRetries.current.keys()) {
+        completeRetryForDrawer(drawerKey, target)
       }
+    },
+    [completeRetryForDrawer],
+  )
 
-      try {
-        const connected = await isProviderActive(retryWatch.service)
-        if (!cancelled && connected) {
-          await refresh({ forceRefresh: true }, { silent: true })
-        }
-      } catch (error) {
-        if (!cancelled) {
-          reportRendererHandledError("connections.authRetry", "Failed to check provider connection state", error)
-        }
-      } finally {
-        if (!cancelled) {
-          timeoutId = window.setTimeout(() => {
-            void refreshUntilConnected()
-          }, AUTH_RETRY_POLL_INTERVAL_MS)
-        }
-      }
-    }
-
-    void refreshUntilConnected()
-    return () => {
-      cancelled = true
-      if (timeoutId !== undefined) {
-        window.clearTimeout(timeoutId)
-      }
-    }
-  }, [isProviderActive, refresh, retryWatch, setChatConnectionDrawers])
-
-  React.useEffect(() => {
-    const pending = pendingRetry.current
-    if (!pending) {
-      return
-    }
-    if (sessionScopeKey(sessionScope) !== sessionScopeKey(pending.sessionScope)) {
-      return
-    }
-    if (!summary?.providers.some((provider) => providerIsRetryReady(provider, pending.service))) {
-      return
-    }
-
-    pendingRetry.current = null
-    setRetryWatch(null)
-    setChatConnectionDrawers((current) => {
-      if (!Object.hasOwn(current, pending.drawerKey)) {
-        return current
-      }
-      const next = { ...current }
-      delete next[pending.drawerKey]
-      return next
-    })
-    setRoute("chat")
-    setSelectedSessionId(pending.sessionId)
-    setIsDraftSession(false)
-    setPendingChatTransition(null)
-
-    if (isSessionRunning(pending.sessionId)) {
-      queueSessionMessage(
-        pending.sessionId,
-        pending.text,
-        pending.attachments,
-        pending.contextMentions ?? [],
-        pending.model,
-        pending.reasoningLevel,
-        pending.mode,
-        pending.permissionMode,
-        pending.organizationSkills ?? [],
-        pending.projectContext,
-        pending.sessionScope,
-      )
-      return
-    }
-
-    void send(pending.sessionId, pending.text, pending.attachments, {
-      contextMentions: pending.contextMentions ?? [],
-      organizationSkills: pending.organizationSkills ?? [],
-      projectContext: pending.projectContext,
-      model: pending.model,
-      reasoningLevel: pending.reasoningLevel,
-      sessionScope: pending.sessionScope,
-      mode: pending.mode,
-      permissionMode: pending.permissionMode,
-    }).catch((error: unknown) => {
-      reportRendererHandledError("connections.authRetry", "Failed to retry authorized chat turn", error)
-    })
-  }, [
-    isSessionRunning,
-    queueSessionMessage,
-    send,
-    sessionScope,
-    setChatConnectionDrawers,
-    setIsDraftSession,
-    setPendingChatTransition,
-    setRoute,
-    setSelectedSessionId,
-    summary,
-  ])
-
-  return { cancelRetryForDrawer, clearRetries, prepareRetry }
+  return { cancelRetryForDrawer, clearRetries, completeMatchingRetries, completeRetryForDrawer, prepareRetry }
 }

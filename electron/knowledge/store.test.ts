@@ -50,4 +50,30 @@ describe("KnowledgeStore", () => {
 
     expect((await store.listRecords()).map((item) => item.id).sort()).toEqual(["first", "second"])
   })
+
+  it("deduplicates concurrent imports again when they commit", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-knowledge-"))
+    const source = path.join(dir, "shared.wikg")
+    await writeFile(source, "same archive")
+    const store = new KnowledgeStore(path.join(dir, "user-data"))
+    const [first, second] = await Promise.all([store.copyForImport(source), store.copyForImport(source)])
+    const record = (item: typeof first) => ({
+      id: item.id,
+      filePath: item.managedPath,
+      fingerprint: item.fingerprint,
+      importedAt: 1,
+      size: item.size,
+      sourceFileName: "shared.wikg",
+      title: "Shared",
+      authors: [],
+      capabilities: { fullTextSearch: true, knowledgeGraph: false, readingGraph: false, summary: false },
+      statistics: {},
+    })
+
+    const committed = await Promise.all([store.commitImport(record(first)), store.commitImport(record(second))])
+
+    expect(committed.filter((item) => item === null)).toHaveLength(1)
+    expect(committed.filter((item) => item !== null)).toHaveLength(1)
+    expect(await store.listRecords()).toHaveLength(1)
+  })
 })

@@ -134,13 +134,19 @@ export function useProjectActions({
     setArchiveProjectId(null)
     setRemoveProjectId(null)
   }, [])
+  const closeArchive = React.useCallback((): void => setArchiveProjectId(null), [])
+  const closeRemove = React.useCallback((): void => setRemoveProjectId(null), [])
+  const closeRename = React.useCallback((): void => setRenameProjectId(null), [])
+  const requestArchive = React.useCallback((project: SessionProject): void => setArchiveProjectId(project.id), [])
+  const requestRemove = React.useCallback((project: SessionProject): void => setRemoveProjectId(project.id), [])
+  const requestRename = React.useCallback((project: SessionProject): void => setRenameProjectId(project.id), [])
 
   return {
     archiveConfirming,
     archiveTarget,
-    closeArchive: () => setArchiveProjectId(null),
-    closeRemove: () => setRemoveProjectId(null),
-    closeRename: () => setRenameProjectId(null),
+    closeArchive,
+    closeRemove,
+    closeRename,
     handleArchive,
     handlePin,
     handleRemove,
@@ -149,9 +155,9 @@ export function useProjectActions({
     removeConfirming,
     removeTarget,
     renameTarget,
-    requestArchive: (project) => setArchiveProjectId(project.id),
-    requestRemove: (project) => setRemoveProjectId(project.id),
-    requestRename: (project) => setRenameProjectId(project.id),
+    requestArchive,
+    requestRemove,
+    requestRename,
     resetDialogs,
   }
 }

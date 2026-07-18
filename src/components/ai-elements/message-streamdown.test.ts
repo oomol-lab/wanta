@@ -10,7 +10,28 @@ import {
   nativeMessageStreamdownControls,
   wrapMermaidPluginWithValidation,
 } from "./message-streamdown.tsx"
+import { ThemeContext } from "@/components/theme-context"
 import { I18nContext, translate } from "@/i18n/i18n"
+
+function renderMessageStreamdown(markdown: string): string {
+  return renderToStaticMarkup(
+    React.createElement(
+      ThemeContext.Provider,
+      { value: { effectiveTheme: "light", preference: "light", setPreference: () => undefined } },
+      React.createElement(
+        I18nContext.Provider,
+        {
+          value: {
+            locale: "zh-CN",
+            setLocale: () => undefined,
+            t: (key, vars) => translate("zh-CN", key, vars),
+          },
+        },
+        React.createElement(MessageStreamdown, { defaultRenderers: [] }, markdown),
+      ),
+    ),
+  )
+}
 
 describe("messageStreamdownControls", () => {
   it("adds compact product-owned Mermaid controls without changing existing code controls", () => {
@@ -69,46 +90,14 @@ describe("messageStreamdownControls", () => {
   })
 
   it("keeps Mermaid fences on the dedicated Wanta renderer", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(
-        I18nContext.Provider,
-        {
-          value: {
-            locale: "zh-CN",
-            setLocale: () => undefined,
-            t: (key, vars) => translate("zh-CN", key, vars),
-          },
-        },
-        React.createElement(
-          MessageStreamdown,
-          { defaultRenderers: [] },
-          ["```mermaid", "flowchart LR", "A[Start] --> B[Done]", "```"].join("\n"),
-        ),
-      ),
-    )
+    const html = renderMessageStreamdown(["```mermaid", "flowchart LR", "A[Start] --> B[Done]", "```"].join("\n"))
 
     expect(html).toContain("oo-mermaid-loading")
     expect(html).not.toContain('data-streamdown="code-block"')
   })
 
   it("keeps an unfinished Mermaid fence in the incomplete loading state", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(
-        I18nContext.Provider,
-        {
-          value: {
-            locale: "zh-CN",
-            setLocale: () => undefined,
-            t: (key, vars) => translate("zh-CN", key, vars),
-          },
-        },
-        React.createElement(
-          MessageStreamdown,
-          { defaultRenderers: [] },
-          ["```mermaid", "flowchart LR", "A[Start] --> B[Unfinished"].join("\n"),
-        ),
-      ),
-    )
+    const html = renderMessageStreamdown(["```mermaid", "flowchart LR", "A[Start] --> B[Unfinished"].join("\n"))
 
     expect(html).toContain('data-mermaid-state="incomplete"')
     expect(html).not.toContain("oo-mermaid-error")

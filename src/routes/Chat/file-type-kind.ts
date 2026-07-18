@@ -68,7 +68,7 @@ export function fileNameExtension(name: string): string {
   return index > -1 ? lastSegment.slice(index + 1).toLowerCase() : ""
 }
 
-export function fileVisualKind(source: FileVisualSource | undefined, pack?: LocalArtifactPack | null): FileVisualKind {
+export function fileVisualKind(source: FileVisualSource | undefined, _pack?: LocalArtifactPack | null): FileVisualKind {
   if (!source) {
     return "file"
   }
@@ -77,7 +77,7 @@ export function fileVisualKind(source: FileVisualSource | undefined, pack?: Loca
   if (source.kind === "directory" || mime === "inode/directory") {
     return "directory"
   }
-  if ((mime === "text/html" || mime === "application/xhtml+xml") && pack?.kind === "web_page") {
+  if (mime === "text/html" || mime === "application/xhtml+xml") {
     return "web_page"
   }
   if (mime === "application/pdf" || extension === "pdf") {

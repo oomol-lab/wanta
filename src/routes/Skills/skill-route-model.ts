@@ -620,6 +620,16 @@ export function getPublicPackagePrimaryInstallSkill(
   })
 }
 
+export function getPublicPackageInstallSkills(
+  groupById: ManagedSkillGroupById | undefined,
+  pkg: PublicSkillPackage,
+): PublicSkillPackage["skills"] {
+  return pkg.skills.filter((skill) => {
+    const state = getPublicSkillInstallState(groupById, pkg, skill.name)
+    return state === "installable" || state === "external-installed"
+  })
+}
+
 export function matchesPublicPackageQuery(pkg: PublicSkillPackage, normalizedQuery: string): boolean {
   if (!normalizedQuery) {
     return true

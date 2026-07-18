@@ -6,20 +6,11 @@ import type {
   PublicSkillPackageSkill,
   SkillCliVersionCheck,
   SkillPackageVersionCheck,
-  SkillSearchResult,
 } from "./common.ts"
 
 type SkillOperationCommand = "skills.install" | "skills.publish" | "skills.uninstall" | "skills.update"
 
 type SkillOperationStatus = "completed" | "failed" | "noop" | "partial-failure"
-
-interface RawSkillSearchResult {
-  description?: unknown
-  name?: unknown
-  packageName?: unknown
-  packageVersion?: unknown
-  skillDisplayName?: unknown
-}
 
 interface RawPublicSkillPackageListResponse {
   data?: unknown
@@ -135,16 +126,6 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
-export function createSkillSearchArgs(query: string): string[] {
-  const trimmedQuery = query.trim()
-
-  if (!trimmedQuery) {
-    throw new Error("Skill search query is empty.")
-  }
-
-  return ["skills", "search", trimmedQuery, "--json"]
-}
-
 export function createCliCheckUpdateArgs(): string[] {
   return ["check-update", "--json"]
 }
@@ -161,16 +142,6 @@ export function createRegistrySkillCheckUpdateArgs(packageNames: readonly string
 
   args.push("--json")
   return args
-}
-
-export function normalizeSkillSearchResults(stdout: string): SkillSearchResult[] {
-  const parsed = JSON.parse(stdout) as unknown
-
-  if (!Array.isArray(parsed)) {
-    throw new Error("Skill search returned an unsupported response.")
-  }
-
-  return parsed.map(normalizeSkillSearchResult).filter((result): result is SkillSearchResult => Boolean(result))
 }
 
 export function normalizePublicSkillPackageCatalog(
@@ -359,61 +330,6 @@ function readPackageVisibility(
   return "unknown"
 }
 
-export function createRegistrySkillVersionCheck(
-  skill: {
-    id: string
-    kind: ManagedSkillKind
-    name: string
-    packageName?: string
-    version?: string
-  },
-  results: readonly SkillSearchResult[],
-): SkillPackageVersionCheck {
-  const command = skill.packageName ? createSkillSearchArgs(skill.packageName) : undefined
-
-  if (skill.kind !== "registry" || !skill.packageName) {
-    return {
-      command,
-      currentVersion: skill.version,
-      id: skill.id,
-      kind: skill.kind,
-      name: skill.name,
-      packageName: skill.packageName,
-      skillId: skill.id,
-      status: "not-checkable",
-    }
-  }
-
-  const exactMatch = results.find((result) => result.packageName === skill.packageName && result.skillId === skill.id)
-  const latestVersion = exactMatch?.version
-
-  if (!latestVersion || !skill.version) {
-    return {
-      command,
-      currentVersion: skill.version,
-      id: skill.id,
-      kind: skill.kind,
-      latestVersion,
-      name: skill.name,
-      packageName: skill.packageName,
-      skillId: skill.id,
-      status: "unknown",
-    }
-  }
-
-  return {
-    command,
-    currentVersion: skill.version,
-    id: skill.id,
-    kind: skill.kind,
-    latestVersion,
-    name: skill.name,
-    packageName: skill.packageName,
-    skillId: skill.id,
-    status: latestVersion === skill.version ? "current" : "update-available",
-  }
-}
-
 export function normalizeRegistrySkillCheckUpdateResults(stdout: string): RawRegistrySkillCheckUpdateResult[] {
   const parsed = JSON.parse(stdout) as unknown
 
@@ -543,7 +459,6 @@ export function createFailedSkillVersionCheck(
   error: string,
 ): SkillPackageVersionCheck {
   return {
-    command: skill.packageName ? createSkillSearchArgs(skill.packageName) : undefined,
     currentVersion: skill.version,
     error,
     id: skill.id,
@@ -624,29 +539,6 @@ export function normalizeCliCheckUpdateResult(stdout: string, currentVersion?: s
   }
 
   throw new Error("CLI update check returned an unsupported status.")
-}
-
-function normalizeSkillSearchResult(value: unknown): SkillSearchResult | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined
-  }
-
-  const raw = value as RawSkillSearchResult
-  const skillId = asText(raw.name)
-  const packageName = asText(raw.packageName)
-
-  if (!skillId || !packageName) {
-    return undefined
-  }
-
-  return {
-    description: asText(raw.description),
-    displayName: asText(raw.skillDisplayName) ?? skillId,
-    id: `${packageName}:${skillId}`,
-    packageName,
-    skillId,
-    version: asText(raw.packageVersion),
-  }
 }
 
 export function createInstallRegistrySkillArgs(request: {

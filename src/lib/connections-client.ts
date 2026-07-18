@@ -341,28 +341,6 @@ async function fetchConnectorGet<T>(
   return result
 }
 
-function normalizeOptionalUsageSummary(
-  results: readonly PromiseSettledResult<{ data: unknown; meta: unknown }>[],
-): ConnectionSummary["usage"] {
-  const [dailyResult, servicesResult] = results
-  if (dailyResult?.status !== "fulfilled" || servicesResult?.status !== "fulfilled") {
-    const cause =
-      dailyResult?.status === "rejected"
-        ? dailyResult.reason
-        : servicesResult?.status === "rejected"
-          ? servicesResult.reason
-          : new Error("Connection usage response is incomplete.")
-    reportConnectionUsageFailure("Connection usage request failed", cause)
-    return createEmptyConnectionUsageSummary()
-  }
-  try {
-    return normalizeUsageSummary(dailyResult.value.data, servicesResult.value.data)
-  } catch (error) {
-    reportConnectionUsageFailure("Connection usage response normalization failed", error)
-    return createEmptyConnectionUsageSummary()
-  }
-}
-
 function reportConnectionUsageFailure(operation: string, cause: unknown): void {
   console.warn("[wanta] connection usage request failed", { error: cause, operation })
   reportRendererHandledError("connections", operation, cause)
@@ -406,22 +384,27 @@ export async function getConnectionCatalogSummary(
       workspace,
     }),
     appsStatus,
-    usageLoading: true,
+    usageStatus: "loading",
   }
 }
 
 /**
- * 目录可交互后再补齐用量。统计请求失败时降级为空统计，不能阻塞 apps/providers 首屏。
+ * 目录可交互后再补齐用量。统计失败向状态层抛出，不能伪装成真实的零调用。
  */
 export async function getConnectionUsageSummary(
   workspace: ConnectionWorkspace,
   options: ConnectorReadOptions = {},
 ): Promise<ConnectionUsageSummary> {
-  const usageResults = await Promise.allSettled([
-    getConnector<unknown>(`/v1/usage/daily?days=${connectionUsageSummaryDays}`, workspace, options),
-    getConnector<unknown>(`/v1/usage/services?days=${connectionUsageSummaryDays}`, workspace, options),
-  ])
-  return normalizeOptionalUsageSummary(usageResults)
+  try {
+    const [dailyResult, servicesResult] = await Promise.all([
+      getConnector<unknown>(`/v1/usage/daily?days=${connectionUsageSummaryDays}`, workspace, options),
+      getConnector<unknown>(`/v1/usage/services?days=${connectionUsageSummaryDays}`, workspace, options),
+    ])
+    return normalizeUsageSummary(dailyResult.data, servicesResult.data)
+  } catch (error) {
+    reportConnectionUsageFailure("Connection usage request failed", error)
+    throw error
+  }
 }
 
 /** 完整摘要保留给显式动作和详情读取；目录首屏使用 getConnectionCatalogSummary 后台补齐 usage。 */
@@ -429,11 +412,15 @@ export async function getConnectionSummary(
   workspace: ConnectionWorkspace,
   options: ConnectorReadOptions = {},
 ): Promise<ConnectionSummary> {
-  const [catalog, usage] = await Promise.all([
-    getConnectionCatalogSummary(workspace, options),
-    getConnectionUsageSummary(workspace, options),
-  ])
-  return { ...catalog, usage, usageLoading: false }
+  const usageRequest = getConnectionUsageSummary(workspace, options).then(
+    (usage) => ({ ok: true as const, usage }),
+    () => ({ ok: false as const }),
+  )
+  const catalog = await getConnectionCatalogSummary(workspace, options)
+  const usageResult = await usageRequest
+  return usageResult.ok
+    ? { ...catalog, usage: usageResult.usage, usageStatus: "ready" }
+    : { ...catalog, usageStatus: "unavailable" }
 }
 
 export async function getActiveConnectionAppIdsForService(
@@ -447,25 +434,10 @@ export async function getActiveConnectionAppIdsForService(
     .filter((appId): appId is string => Boolean(appId))
 }
 
-export async function isProviderConnectionActive(service: string, workspace: ConnectionWorkspace): Promise<boolean> {
-  return (await getActiveConnectionAppIdsForService(service, workspace)).length > 0
-}
-
-export async function getConnectionProviderDetail(
-  service: string,
-  workspace: ConnectionWorkspace,
-): Promise<ConnectionProviderDetail> {
-  const [summary, providerResult] = await Promise.all([
-    getConnectionSummary(workspace),
-    getConnector<RawProvider>(`/v1/providers/${encodeURIComponent(service)}`, workspace),
-  ])
-  const appsByService = new Map<string, ConnectionSummary["apps"]>()
-  for (const app of summary.apps) {
-    const current = appsByService.get(app.service) ?? []
-    current.push(app)
-    appsByService.set(app.service, current)
-  }
-  const provider = normalizeProvider(providerResult.data, appsByService)
+export async function getConnectionProviderDetail(service: string): Promise<ConnectionProviderDetail> {
+  // Provider 详情属于公共目录；账号状态已经由摘要提供，不再为打开详情重复读取整套摘要与 usage。
+  const providerResult = await getConnector<RawProvider>(`/v1/providers/${encodeURIComponent(service)}`, null)
+  const provider = normalizeProvider(providerResult.data, new Map())
   if (!provider) {
     throw new Error(`Provider ${service} is not available`)
   }

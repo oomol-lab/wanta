@@ -104,10 +104,6 @@ export interface SkillInventoryChangedEvent {
   updatedAt: string
 }
 
-export interface SkillCliChangedEvent {
-  updatedAt: string
-}
-
 export type SkillVersionStatus = "current" | "update-available" | "not-checkable" | "unknown" | "failed"
 export type SkillCliVersionStatus = "up-to-date" | "update-available" | "unsupported" | "unavailable" | "failed"
 
@@ -151,28 +147,20 @@ export interface CheckSkillVersionsRequest {
   forceRefresh?: boolean
 }
 
-export interface ExecuteSkillUpdateRequest {
-  packageName?: string
-  skillId?: string
-}
-
 export interface UpdateRegistrySkillRequest {
   packageName?: string
   skillId?: string
 }
 
-export interface SkillSearchResult {
-  description?: string
-  displayName: string
-  id: string
-  packageName: string
-  skillId: string
-  version?: string
-}
-
 export interface InstallRegistrySkillRequest {
   packageName: string
   skillId: string
+}
+
+export interface InstallRegistrySkillsResult {
+  failures: Array<InstallRegistrySkillRequest & { error: string }>
+  installed: InstallRegistrySkillRequest[]
+  inventory: SkillInventory
 }
 
 export interface OpenSkillPathRequest {
@@ -213,12 +201,11 @@ export const SkillService = serviceName("skill-service") as ServiceName<{
   }
   ClientInvokes: {
     getSkillInventory(): Promise<SkillInventory>
-    getSkillSummary(): Promise<SkillSummary>
     deleteSkill(request: DeleteSkillRequest): Promise<SkillInventory>
     installRegistrySkill(request: InstallRegistrySkillRequest): Promise<SkillInventory>
+    installRegistrySkills(requests: InstallRegistrySkillRequest[]): Promise<InstallRegistrySkillsResult>
     checkSkillVersions(request?: CheckSkillVersionsRequest): Promise<SkillVersionReport>
     executeCliUpdate(): Promise<SkillVersionReport>
-    executeRegistrySkillUpdate(request: ExecuteSkillUpdateRequest): Promise<SkillVersionReport>
     openSkillDocument(request: SkillDocumentRequest): Promise<void>
     openSkillFolder(request: OpenSkillPathRequest): Promise<void>
     publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult>

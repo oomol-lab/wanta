@@ -4,6 +4,7 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { app, dialog, shell } from "electron"
+import { randomUUID } from "node:crypto"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { apiBaseUrl } from "../domain.ts"
 import { ServiceEvent } from "../service-events.ts"
@@ -23,9 +24,20 @@ export interface AuthManagerDeps {
   protocolScheme: string
   /** 凭证变化（登录 / 登出）后由 main 重新装配 agent + connector。 */
   applyAccount: (account: AuthRuntimeAccount | null) => Promise<void>
+  runtime?: Partial<AuthManagerRuntime>
+}
+
+export interface AuthManagerRuntime {
+  clearCookies: () => Promise<void>
+  confirmLogin: (account: AuthRuntimeAccount) => Promise<boolean>
+  exchangeLogin: (authId: string) => Promise<AuthRuntimeAccount>
+  openExternal: (url: string) => Promise<void>
+  persistCookie: (token: string) => Promise<void>
+  readCookie: () => Promise<string | undefined>
 }
 
 interface PendingLogin {
+  id: string
   promise: Promise<AuthState>
   resolve: (state: AuthState) => void
   reject: (error: Error) => void
@@ -42,7 +54,10 @@ const loginTimeoutMs = 10 * 60_000
  */
 export class AuthManager {
   private readonly deps: AuthManagerDeps
+  private readonly runtime: AuthManagerRuntime
   private pending: PendingLogin | undefined
+  private callbackQueue: Promise<void> = Promise.resolve()
+  private authEpoch = 0
   private emitState: (state: AuthState) => Promise<void> = async () => {}
   private profileRefreshCompletedAccountId: string | undefined
   private profileRefreshInFlightAccountId: string | undefined
@@ -50,6 +65,15 @@ export class AuthManager {
 
   public constructor(deps: AuthManagerDeps) {
     this.deps = deps
+    this.runtime = {
+      clearCookies: clearOomolSessionCookies,
+      confirmLogin: confirmBrowserLogin,
+      exchangeLogin,
+      openExternal: (url) => shell.openExternal(url),
+      persistCookie: persistOomolSessionCookie,
+      readCookie: readOomolSessionCookie,
+      ...deps.runtime,
+    }
   }
 
   /** 由 AuthServiceImpl 在构造时绑定，把状态变化广播给渲染层。 */
@@ -64,7 +88,7 @@ export class AuthManager {
 
   /** 当前会话 token（全应用唯一凭证，来自 Electron 会话 cookie）；未登录或已过期/被驱逐时为 undefined。 */
   public currentSessionToken(): Promise<string | undefined> {
-    return readOomolSessionCookie()
+    return this.runtime.readCookie()
   }
 
   /**
@@ -76,7 +100,7 @@ export class AuthManager {
     if (!account) {
       return null
     }
-    const sessionToken = await readOomolSessionCookie()
+    const sessionToken = await this.runtime.readCookie()
     if (!sessionToken) {
       return null
     }
@@ -104,7 +128,9 @@ export class AuthManager {
 
   /** 会话 token 被服务端判定失效：清 cookie、停 agent、广播未登录；不删除本地 profile。 */
   public async expireSession(): Promise<AuthState> {
-    await clearOomolSessionCookies().catch((error: unknown) => {
+    this.authEpoch += 1
+    this.rejectPending(new Error("Sign-in was cancelled."))
+    await this.runtime.clearCookies().catch((error: unknown) => {
       console.warn("[wanta] failed to clear expired session cookies:", error)
       logDiagnostic("auth", "failed to clear expired session cookies", { error }, "warn")
     })
@@ -122,9 +148,10 @@ export class AuthManager {
     }
 
     const pending = this.createPending()
+    this.authEpoch += 1
     this.pending = pending
     try {
-      await shell.openExternal(browserLoginUrl(this.deps.protocolScheme))
+      await this.runtime.openExternal(browserLoginUrl(this.deps.protocolScheme))
     } catch (error) {
       this.rejectPending(error instanceof Error ? error : new Error(String(error)))
       throw error
@@ -133,12 +160,14 @@ export class AuthManager {
   }
 
   public async logout(): Promise<AuthState> {
+    this.authEpoch += 1
+    this.rejectPending(new Error("Sign-in was cancelled."))
     const account = this.activeAccount()
     if (account) {
       this.deps.store.write(removeAccount(this.deps.store.read(), account))
       await this.deps.applyAccount(null)
     }
-    await clearOomolSessionCookies().catch((error: unknown) => {
+    await this.runtime.clearCookies().catch((error: unknown) => {
       console.warn("[wanta] failed to clear session cookies:", error)
       logDiagnostic("auth", "failed to clear session cookies", { error }, "warn")
     })
@@ -155,30 +184,51 @@ export class AuthManager {
       return false
     }
 
-    const pendingAtStart = this.pending
+    const request = { authId, epoch: this.authEpoch, pendingId: this.pending?.id }
+    const operation = this.callbackQueue.catch(() => undefined).then(() => this.handleBrowserLoginCallback(request))
+    this.callbackQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    )
+    return operation
+  }
+
+  private async handleBrowserLoginCallback(request: {
+    authId: string
+    epoch: number
+    pendingId?: string
+  }): Promise<boolean> {
     try {
-      const account = await exchangeLogin(authId)
-      // 非本应用发起的回调（无 pending）：任何本地程序/网页都能构造 deep link 推送伪造 authID，
-      // 必须经用户确认才落盘，防止静默换号（login CSRF）。
-      if (!pendingAtStart && !(await confirmExternalLogin(account))) {
+      const account = await this.runtime.exchangeLogin(request.authId)
+      if (request.epoch !== this.authEpoch || (request.pendingId && this.pending?.id !== request.pendingId)) {
         return true
       }
+      // launcher 当前没有返回可校验的 state/nonce，因此即使存在 pending 也必须确认账号身份，
+      // 避免登录窗口内由另一个 deep link 静默换号。
+      if (!(await this.runtime.confirmLogin(account))) {
+        if (request.pendingId && this.pending?.id === request.pendingId) {
+          this.rejectPending(new Error("Sign-in was cancelled."), request.pendingId)
+        }
+        return true
+      }
+      if (request.epoch !== this.authEpoch || (request.pendingId && this.pending?.id !== request.pendingId)) return true
       const state = await this.adoptAccount(account)
-      if (this.pending === pendingAtStart) {
-        this.resolvePending(state)
+      if (request.pendingId && this.pending?.id === request.pendingId) {
+        this.resolvePending(state, request.pendingId)
       }
     } catch (error) {
       const wrapped = error instanceof Error ? error : new Error(String(error))
       console.error("[wanta] browser sign-in failed:", wrapped)
       logDiagnostic("auth", "browser sign-in failed", { error: wrapped }, "error")
-      if (this.pending === pendingAtStart) {
-        this.rejectPending(wrapped)
+      if (request.pendingId && this.pending?.id === request.pendingId) {
+        this.rejectPending(wrapped, request.pendingId)
       }
     }
     return true
   }
 
   public dispose(): void {
+    this.authEpoch += 1
     this.rejectPending(new Error("Sign-in was cancelled."))
   }
 
@@ -192,7 +242,7 @@ export class AuthManager {
     if (!account) {
       return { status: "unauthenticated", updatedAt }
     }
-    const sessionToken = await readOomolSessionCookie()
+    const sessionToken = await this.runtime.readCookie()
     if (!sessionToken) {
       return { status: "unauthenticated", updatedAt }
     }
@@ -205,8 +255,21 @@ export class AuthManager {
 
   /** 落盘 profile + 持久化会话 cookie + 广播 + 后台装配 agent（启动较慢，渲染层用既有 isReady 轮询显示"Agent 启动中"）。 */
   private async adoptAccount(account: AuthRuntimeAccount): Promise<AuthState> {
-    await persistOomolSessionCookie(account.sessionToken)
-    this.deps.store.write(upsertAccount(this.deps.store.read(), account))
+    const previousAuth = this.deps.store.read()
+    const previousToken = await this.runtime.readCookie()
+    this.deps.store.write(upsertAccount(previousAuth, account))
+    try {
+      await this.runtime.persistCookie(account.sessionToken)
+    } catch (error) {
+      try {
+        this.deps.store.write(previousAuth)
+        if (previousToken) await this.runtime.persistCookie(previousToken)
+        else await this.runtime.clearCookies()
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], "Failed to persist and roll back the signed-in account")
+      }
+      throw error
+    }
     const state = await this.currentState()
     this.stateChanged.emit(state)
     await this.emitState(state)
@@ -230,7 +293,7 @@ export class AuthManager {
     }
     this.profileRefreshInFlightAccountId = account.id
     try {
-      const sessionToken = await readOomolSessionCookie()
+      const sessionToken = await this.runtime.readCookie()
       if (!sessionToken) {
         return
       }
@@ -260,6 +323,7 @@ export class AuthManager {
   }
 
   private createPending(): PendingLogin {
+    const id = randomUUID()
     let resolve!: (state: AuthState) => void
     let reject!: (error: Error) => void
     const promise = new Promise<AuthState>((innerResolve, innerReject) => {
@@ -267,15 +331,15 @@ export class AuthManager {
       reject = innerReject
     })
     const timeout = setTimeout(() => {
-      this.rejectPending(new Error("Sign-in timed out."))
+      this.rejectPending(new Error("Sign-in timed out."), id)
     }, loginTimeoutMs)
     timeout.unref()
-    return { promise, resolve, reject, timeout }
+    return { id, promise, resolve, reject, timeout }
   }
 
-  private resolvePending(state: AuthState): void {
+  private resolvePending(state: AuthState, expectedId?: string): void {
     const pending = this.pending
-    if (!pending) {
+    if (!pending || (expectedId && pending.id !== expectedId)) {
       return
     }
     clearTimeout(pending.timeout)
@@ -283,9 +347,9 @@ export class AuthManager {
     pending.resolve(state)
   }
 
-  private rejectPending(error: Error): void {
+  private rejectPending(error: Error, expectedId?: string): void {
     const pending = this.pending
-    if (!pending) {
+    if (!pending || (expectedId && pending.id !== expectedId)) {
       return
     }
     clearTimeout(pending.timeout)
@@ -328,8 +392,8 @@ export class AuthServiceImpl extends ConnectionService<AuthService> implements I
   }
 }
 
-/** 非应用发起的登录回调须经用户确认（dialog 需 app ready；回调可能先于 ready 到达）。 */
-async function confirmExternalLogin(account: AuthRuntimeAccount): Promise<boolean> {
+/** launcher 尚无 state/nonce 回传，所有登录回调均须确认账号（dialog 需 app ready）。 */
+async function confirmBrowserLogin(account: AuthRuntimeAccount): Promise<boolean> {
   await app.whenReady()
   const { response } = await dialog.showMessageBox({
     type: "question",

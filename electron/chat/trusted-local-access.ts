@@ -10,7 +10,7 @@ const rootsCacheMs = 1_000
 
 export interface TrustedLocalAccessOptions {
   loadAdditionalRoots: () => Promise<Iterable<string>>
-  trustedAttachmentPaths?: ReadonlySet<string>
+  trustedAttachmentPaths?: Iterable<string> & { readonly revision?: number }
 }
 
 /** 汇总会话明确授权的本地路径，并统一处理 realpath、缓存失效与路径包含校验。 */
@@ -19,7 +19,7 @@ export class TrustedLocalAccess {
   private readonly attachmentPaths = new Map<string, Set<string>>()
   private readonly permissionPaths = new Map<string, Set<string>>()
   private readonly options: TrustedLocalAccessOptions
-  private cache: { expiresAt: number; roots: string[] } | undefined
+  private cache: { expiresAt: number; roots: string[]; trustedAttachmentPathsRevision?: number } | undefined
   private generation = 0
 
   public constructor(options: TrustedLocalAccessOptions) {
@@ -126,7 +126,12 @@ export class TrustedLocalAccess {
 
   public async roots(): Promise<string[]> {
     const cached = this.cache
-    if (cached && cached.expiresAt > Date.now()) {
+    const trustedAttachmentPathsRevision = this.options.trustedAttachmentPaths?.revision
+    if (
+      cached &&
+      cached.expiresAt > Date.now() &&
+      cached.trustedAttachmentPathsRevision === trustedAttachmentPathsRevision
+    ) {
       return cached.roots
     }
     const generation = this.generation
@@ -161,7 +166,7 @@ export class TrustedLocalAccess {
     if (this.generation !== generation) {
       return this.roots()
     }
-    this.cache = { expiresAt: Date.now() + rootsCacheMs, roots: normalizedRoots }
+    this.cache = { expiresAt: Date.now() + rootsCacheMs, roots: normalizedRoots, trustedAttachmentPathsRevision }
     return normalizedRoots
   }
 

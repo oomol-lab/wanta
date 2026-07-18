@@ -538,6 +538,11 @@ describe("AgentManager", () => {
           sessionID: "session-1",
           questions: [{ header: "Answer", question: "Pick one", options: [{ label: "A" }] }],
         },
+        {
+          id: "q2",
+          sessionID: "session-2",
+          questions: [{ header: "Answer", question: "Pick two", options: [{ label: "B" }] }],
+        },
       ],
     }))
     const reply = vi.fn(async () => ({ data: true }))
@@ -562,13 +567,53 @@ describe("AgentManager", () => {
     ])
     await manager.answerQuestion("session-1", "q1", [["A"]])
     await manager.rejectQuestion("session-1", "q1")
+    await expect(manager.getPendingQuestionsForSessions(["session-1", "session-2"])).resolves.toHaveLength(2)
 
-    expect(list).toHaveBeenCalledWith()
+    expect(list).toHaveBeenCalledTimes(2)
     expect(reply).toHaveBeenCalledWith({
       requestID: "q1",
       answers: [["A"]],
     })
     expect(reject).toHaveBeenCalledWith({ requestID: "q1" })
+  })
+
+  it("turns OpenCode SDK error results into rejected operations", async () => {
+    const failure = async () => ({ error: { message: "runtime unavailable" } })
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown; started: boolean }).sidecar = {
+      client: {
+        permission: { list: failure, reply: failure },
+        question: { list: failure, reject: failure, reply: failure },
+        session: {
+          abort: failure,
+          delete: failure,
+          list: failure,
+          messages: failure,
+          update: failure,
+        },
+      },
+    }
+    ;(manager as unknown as { started: boolean }).started = true
+
+    await expect(manager.listSessions()).rejects.toThrow("session.list failed")
+    await expect(manager.getMessages("session-1")).rejects.toThrow("session.messages failed")
+    await expect(manager.renameSession("session-1", "Title")).rejects.toThrow("session.update failed")
+    await expect(manager.deleteSession("session-1")).rejects.toThrow("session.delete failed")
+    await expect(manager.abort("session-1")).rejects.toThrow("session.abort failed")
+    await expect(manager.getPendingQuestions("session-1")).rejects.toThrow("question.list failed")
+    await expect(manager.answerQuestion("session-1", "question-1", [["answer"]])).rejects.toThrow(
+      "question.reply failed",
+    )
+    await expect(manager.rejectQuestion("session-1", "question-1")).rejects.toThrow("question.reject failed")
+    await expect(manager.getPendingPermissions("session-1")).rejects.toThrow("permission.list failed")
+    await expect(manager.answerPermission("session-1", "permission-1", "once")).rejects.toThrow(
+      "permission.reply failed",
+    )
   })
 
   it("uses the selected builtin model to generate a session title", async () => {

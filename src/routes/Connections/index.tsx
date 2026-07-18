@@ -6,8 +6,7 @@ import type {
   ConnectionProviderSummary,
   ConnectionUserOAuthClientConfigSummary,
 } from "../../../electron/connections/common.ts"
-import type { ConnectionCatalogFilter, DisconnectTarget } from "./connection-route-model.ts"
-import type { ConnectionAuthIntent } from "./ConnectionProviderDetailPane.tsx"
+import type { ConnectionAuthIntent, ConnectionCatalogFilter, DisconnectTarget } from "./connection-route-model.ts"
 import type { UseConnections } from "@/hooks/useConnections"
 
 import { ArrowLeft, X } from "lucide-react"
@@ -22,6 +21,7 @@ import {
   isDirectlyAvailableProvider,
   matchesProviderFilter,
   matchesProviderQuery,
+  shouldShowConnectionState,
 } from "./connection-route-model.ts"
 import {
   ConnectionDrawerSkeleton,
@@ -29,13 +29,7 @@ import {
   ProviderCatalog,
   ProviderListSkeleton,
 } from "./ConnectionCatalog.tsx"
-import {
-  ConnectionStateNotice,
-  EmptyList,
-  ProviderDetail,
-  ReadOnlyConnectionNotice,
-  StatusNotice,
-} from "./ConnectionProviderDetailPane.tsx"
+import { ConnectionStateNotice, EmptyList, ProviderDetail } from "./ConnectionProviderDetailPane.tsx"
 import { DisconnectDialog } from "./DisconnectDialog.tsx"
 import { shouldOpenOAuthClientDialog } from "./oauth-client-config.ts"
 import { useConnectionProviderDetail } from "./use-connection-provider-detail.ts"
@@ -55,13 +49,14 @@ import { getOAuthClientConfig } from "@/lib/connections-client"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
-export type { ConnectionAuthIntent } from "./ConnectionProviderDetailPane.tsx"
+export type { ConnectionAuthIntent } from "./connection-route-model.ts"
 
 interface ConnectionsPanelProps {
   authIntent?: ConnectionAuthIntent | null
   canManageConnections: boolean
   connections: UseConnections
   onClose?: () => void
+  onConnectionReady?: (target: { service: string; connectionName?: string }) => void
   presentation?: "drawer" | "page"
   requestedFilter?: ConnectionCatalogFilter
   selectedService?: string | null
@@ -72,6 +67,7 @@ export function ConnectionsPanel({
   canManageConnections,
   connections,
   onClose,
+  onConnectionReady,
   presentation = "page",
   requestedFilter,
   selectedService,
@@ -100,6 +96,7 @@ export function ConnectionsPanel({
   const [dialog, setDialog] = React.useState<{
     appDetail?: ConnectionAppDetail | null
     appId?: string
+    connectionName?: string
     authType: "api_key" | "custom_credential" | "federated" | "oauth2"
     detail: ConnectionProviderDetail
     oauthClientConfig?: ConnectionUserOAuthClientConfigSummary | null
@@ -121,6 +118,7 @@ export function ConnectionsPanel({
   )
   const directlyAvailableCount = React.useMemo(() => providers.filter(isDirectlyAvailableProvider).length, [providers])
   const availableToolsCount = connectedCount + directlyAvailableCount
+  const showConnectionState = shouldShowConnectionState(canManageConnections, summary?.appsStatus)
   const catalogProviders = React.useMemo(
     () => providers.filter((provider) => matchesProviderFilter(provider, activeFilter)),
     [activeFilter, providers],
@@ -143,7 +141,7 @@ export function ConnectionsPanel({
   const selectedProviderDetailLoading = providerDetail.loading
   const selectedProviderDetailError = providerDetail.error
   const selectedProviderActionsBlocked = Boolean(
-    !canManageConnections || (providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError),
+    !showConnectionState || (providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError),
   )
   const selectedProviderActionsPending = Boolean(
     providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailLoading,
@@ -243,6 +241,19 @@ export function ConnectionsPanel({
   }, [activeFilter, categoryFilters])
 
   React.useEffect(() => {
+    if (showConnectionState) {
+      return
+    }
+    if (
+      activeFilter.kind === "available-tools" ||
+      activeFilter.kind === "connected" ||
+      activeFilter.kind === "attention"
+    ) {
+      setActiveFilter({ kind: "all" })
+    }
+  }, [activeFilter.kind, showConnectionState])
+
+  React.useEffect(() => {
     if (!selectedProviderService || !summary) {
       return
     }
@@ -286,7 +297,13 @@ export function ConnectionsPanel({
               userOAuthClientConfig: oauthClientConfig,
             })
           ) {
-            setDialog({ detail: loaded, authType, appId, oauthClientConfig })
+            setDialog({
+              detail: loaded,
+              authType,
+              appId,
+              connectionName: provider.apps.find((app) => app.id === appId)?.connectionName,
+              oauthClientConfig,
+            })
             return
           }
 
@@ -296,6 +313,10 @@ export function ConnectionsPanel({
           }
           if (ok) {
             deleteCachedDetailForService(provider.service)
+            onConnectionReady?.({
+              service: provider.service,
+              connectionName: provider.apps.find((app) => app.id === appId)?.connectionName,
+            })
           }
           return
         }
@@ -307,6 +328,7 @@ export function ConnectionsPanel({
           }
           if (ok) {
             deleteCachedDetailForService(provider.service)
+            onConnectionReady?.({ service: provider.service })
           }
           return
         }
@@ -318,14 +340,28 @@ export function ConnectionsPanel({
         if (!requestIsCurrent()) {
           return
         }
-        setDialog({ detail: loaded, authType, appId, appDetail })
+        setDialog({
+          detail: loaded,
+          authType,
+          appId,
+          appDetail,
+          connectionName: provider.apps.find((app) => app.id === appId)?.connectionName,
+        })
       } catch (err) {
         if (requestIsCurrent()) {
           providerDetail.reportError(err)
         }
       }
     },
-    [canManageConnections, connect, deleteCachedDetailForService, getAppDetail, polling, providerDetail],
+    [
+      canManageConnections,
+      connect,
+      deleteCachedDetailForService,
+      getAppDetail,
+      onConnectionReady,
+      polling,
+      providerDetail,
+    ],
   )
 
   const submitConnectDialog = React.useCallback(
@@ -337,6 +373,10 @@ export function ConnectionsPanel({
         const ok = await connect(input)
         if (ok) {
           deleteCachedDetailForService(input.service)
+          onConnectionReady?.({
+            service: input.service,
+            connectionName: dialog?.connectionName,
+          })
           setDialog(null)
         }
       })()
@@ -344,7 +384,7 @@ export function ConnectionsPanel({
         setDialog(null)
       }
     },
-    [canManageConnections, connect, deleteCachedDetailForService],
+    [canManageConnections, connect, deleteCachedDetailForService, dialog, onConnectionReady],
   )
 
   const confirmDisconnectTarget = React.useCallback(
@@ -446,6 +486,7 @@ export function ConnectionsPanel({
           directlyAvailableCount={directlyAvailableCount}
           loading={summaryLoading}
           query={query}
+          showConnectionState={showConnectionState}
           totalCount={summary?.providerCount ?? providers.length}
           onFilterChange={setActiveFilter}
           onQueryChange={setQuery}
@@ -458,11 +499,9 @@ export function ConnectionsPanel({
       >
         <SplitViewListPane ref={listPaneRef} narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
-            {!canManageConnections ? <ReadOnlyConnectionNotice /> : null}
-            {summary?.appsStatus && summary.appsStatus !== "ready" ? (
+            {canManageConnections && summary?.appsStatus && summary.appsStatus !== "ready" ? (
               <ConnectionStateNotice status={summary.appsStatus} />
             ) : null}
-            {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
             {listErrorNotice ? (
               <ErrorNotice
                 error={listErrorNotice.error}
@@ -480,6 +519,7 @@ export function ConnectionsPanel({
                 providers={filteredProviders}
                 scrollParentRef={listPaneRef}
                 selectedService={selectedProvider?.service ?? null}
+                showConnectionState={showConnectionState}
                 onSelect={(provider) => selectProvider(provider.service)}
               />
             )}

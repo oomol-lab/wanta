@@ -5,6 +5,7 @@ import type {
   SessionInfo,
   SessionProject,
   SessionScope,
+  SessionsChangedEvent,
 } from "../../electron/session/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
@@ -28,6 +29,44 @@ export function mergeSessionsWithLocalCreated(
     merged.push(session)
   }
   return merged.sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+export function applySessionActivity(sessions: SessionInfo[], event: SessionsChangedEvent): SessionInfo[] {
+  const activity = event.activity
+  if (!activity) {
+    return sessions
+  }
+  const index = sessions.findIndex((session) => session.id === activity.sessionId)
+  if (index < 0 || sessions[index]!.updatedAt >= activity.usedAt) {
+    return sessions
+  }
+  const next = [...sessions]
+  next[index] = { ...next[index]!, updatedAt: activity.usedAt }
+  return next
+}
+
+export function applySessionTitle(sessions: SessionInfo[], id: string, title: string): SessionInfo[] {
+  return sessions.map((session) => (session.id === id ? { ...session, title } : session))
+}
+
+export function applySessionPinned(
+  sessions: SessionInfo[],
+  id: string,
+  pinned: boolean,
+  pinnedAt = Date.now(),
+): SessionInfo[] {
+  return sessions.map((session) => {
+    if (session.id !== id) {
+      return session
+    }
+    const next = { ...session }
+    if (pinned) {
+      next.pinnedAt = pinnedAt
+    } else {
+      delete next.pinnedAt
+    }
+    return next
+  })
 }
 
 function sortSessionProjects(projects: SessionProject[]): SessionProject[] {
@@ -55,8 +94,7 @@ export interface UseSessions {
   listArchived: () => Promise<SessionInfo[]>
   createProject: (req: Omit<CreateProjectRequest, "scope">) => Promise<SessionProject>
   assignSessionProject: (sessionId: string, projectId?: string) => Promise<void>
-  setSessionPermissionMode: (id: string, permissionMode: SessionInfo["permissionMode"]) => Promise<void>
-  setSessionKnowledgeBases: (id: string, knowledgeBaseIds: string[]) => Promise<void>
+  setSessionKnowledgeBases: (id: string, update: KnowledgeBaseIdsUpdate) => Promise<void>
   renameProject: (id: string, name: string) => Promise<void>
   pinProject: (id: string, pinned: boolean) => Promise<void>
   archiveProject: (id: string) => Promise<void>
@@ -70,6 +108,36 @@ export interface UseSessions {
   refresh: () => Promise<void>
 }
 
+export type KnowledgeBaseIdsUpdate = string[] | ((current: string[]) => string[])
+
+interface SessionRefreshFlight {
+  activation: number
+  promise: Promise<void>
+  trailing: boolean
+}
+
+export function resolveKnowledgeBaseIdsUpdate(current: string[], update: KnowledgeBaseIdsUpdate): string[] {
+  const next = typeof update === "function" ? update(current) : update
+  return [...new Set(next.map((item) => item.trim()).filter(Boolean))]
+}
+
+function applySessionKnowledgeBaseIds(session: SessionInfo, knowledgeBaseIds: string[]): SessionInfo {
+  const next = { ...session }
+  if (knowledgeBaseIds.length > 0) next.knowledgeBaseIds = knowledgeBaseIds
+  else delete next.knowledgeBaseIds
+  return next
+}
+
+function applyIntendedKnowledgeBaseIds(
+  sessions: SessionInfo[],
+  intendedBySession: ReadonlyMap<string, string[]>,
+): SessionInfo[] {
+  return sessions.map((session) => {
+    const intended = intendedBySession.get(session.id)
+    return intended ? applySessionKnowledgeBaseIds(session, intended) : session
+  })
+}
+
 export function useSessions({ enabled = true, scope }: { enabled?: boolean; scope: SessionScope | null }): UseSessions {
   const sessionService = useSessionService()
   const organizationId = scope?.organizationId ?? ""
@@ -79,17 +147,21 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     [organizationId, organizationName],
   )
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
+  const sessionsRef = React.useRef(sessions)
+  sessionsRef.current = sessions
   const [projects, setProjects] = React.useState<SessionProject[]>([])
   const [loaded, setLoaded] = React.useState(false)
   const [loadedScopeKey, setLoadedScopeKey] = React.useState<string | null>(null)
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const enabledRef = React.useRef(enabled)
   const requestSequenceRef = React.useRef(0)
+  const refreshActivationRef = React.useRef(0)
+  const refreshFlightsRef = React.useRef(new Map<string, SessionRefreshFlight>())
   const localCreatedSessionsRef = React.useRef(new Map<string, SessionInfo>())
-  const permissionModeWriteQueuesRef = React.useRef(new Map<string, Promise<void>>())
-  const permissionModeWriteVersionsRef = React.useRef(new Map<string, number>())
   const knowledgeBasesWriteQueuesRef = React.useRef(new Map<string, Promise<void>>())
   const knowledgeBasesWriteVersionsRef = React.useRef(new Map<string, number>())
+  const knowledgeBasesIntendedIdsRef = React.useRef(new Map<string, string[]>())
+  const knowledgeBasesPersistedIdsRef = React.useRef(new Map<string, string[]>())
   const scopeKey = sessionScopeKey(requestScope)
   const currentScopeKeyRef = React.useRef(scopeKey)
   currentScopeKeyRef.current = scopeKey
@@ -108,16 +180,24 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   )
 
   React.useEffect(() => {
+    refreshActivationRef.current += 1
+  }, [enabled, scopeKey])
+
+  React.useEffect(() => {
     enabledRef.current = enabled
     if (!enabled) {
       requestSequenceRef.current += 1
       localCreatedSessionsRef.current.clear()
+      knowledgeBasesIntendedIdsRef.current.clear()
+      knowledgeBasesPersistedIdsRef.current.clear()
     }
   }, [enabled])
 
   React.useEffect(() => {
     requestSequenceRef.current += 1
     localCreatedSessionsRef.current.clear()
+    knowledgeBasesIntendedIdsRef.current.clear()
+    knowledgeBasesPersistedIdsRef.current.clear()
     setSessions([])
     setProjects([])
     setLoaded(false)
@@ -125,7 +205,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     setError(null)
   }, [scopeKey])
 
-  const refresh = React.useCallback(async () => {
+  const refreshOnce = React.useCallback(async () => {
     const refreshScopeKey = scopeKey
     if (currentScopeKeyRef.current !== refreshScopeKey) {
       return
@@ -149,9 +229,17 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       }
       for (const session of nextSessions) {
         localCreatedSessionsRef.current.delete(session.id)
+        if (!knowledgeBasesWriteQueuesRef.current.has(session.id)) {
+          knowledgeBasesPersistedIdsRef.current.set(session.id, session.knowledgeBaseIds ?? [])
+        }
       }
       const localCreatedSessions = [...localCreatedSessionsRef.current.values()]
-      setSessions(mergeSessionsWithLocalCreated(nextSessions, localCreatedSessions))
+      setSessions(
+        applyIntendedKnowledgeBaseIds(
+          mergeSessionsWithLocalCreated(nextSessions, localCreatedSessions),
+          knowledgeBasesIntendedIdsRef.current,
+        ),
+      )
       setProjects(nextProjects)
       setError(null)
     } catch (error) {
@@ -168,6 +256,45 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     }
   }, [enabled, isCurrentScope, requestScope, scopeKey, sessionService])
 
+  const runRefresh = React.useCallback(
+    (trailingIfRunning: boolean): Promise<void> => {
+      const activation = refreshActivationRef.current
+      const activeFlight = refreshFlightsRef.current.get(scopeKey)
+      if (activeFlight?.activation === activation) {
+        if (trailingIfRunning) {
+          activeFlight.trailing = true
+        }
+        return activeFlight.promise
+      }
+
+      const entry: SessionRefreshFlight = {
+        activation,
+        promise: Promise.resolve(),
+        trailing: false,
+      }
+      entry.promise = (async () => {
+        do {
+          entry.trailing = false
+          await refreshOnce()
+        } while (
+          entry.trailing &&
+          enabledRef.current &&
+          refreshActivationRef.current === activation &&
+          currentScopeKeyRef.current === scopeKey
+        )
+      })().finally(() => {
+        if (refreshFlightsRef.current.get(scopeKey) === entry) {
+          refreshFlightsRef.current.delete(scopeKey)
+        }
+      })
+      refreshFlightsRef.current.set(scopeKey, entry)
+      return entry.promise
+    },
+    [refreshOnce, scopeKey],
+  )
+
+  const refresh = React.useCallback((): Promise<void> => runRefresh(false), [runRefresh])
+
   React.useEffect(() => {
     if (!enabled) {
       setSessions([])
@@ -178,13 +305,17 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       return
     }
     void refresh()
-    return sessionService.serverEvents.on("sessionsChanged", () => {
+    return sessionService.serverEvents.on("sessionsChanged", (event) => {
       if (!enabledRef.current) {
         return
       }
-      void refresh()
+      if (event.activity) {
+        setSessions((current) => applySessionActivity(current, event))
+        return
+      }
+      void runRefresh(true)
     })
-  }, [enabled, sessionService, refresh])
+  }, [enabled, sessionService, refresh, runRefresh])
 
   const create = React.useCallback(
     async (title?: string, projectId?: string) => {
@@ -241,55 +372,30 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     [isCurrentScope, scopeKey, sessionService],
   )
 
-  const setSessionPermissionMode = React.useCallback(
-    async (id: string, permissionMode: SessionInfo["permissionMode"]) => {
-      const mutationScopeKey = scopeKey
-      const normalizedPermissionMode = permissionMode ?? "default"
-      const version = (permissionModeWriteVersionsRef.current.get(id) ?? 0) + 1
-      permissionModeWriteVersionsRef.current.set(id, version)
-      const previousWrite = permissionModeWriteQueuesRef.current.get(id) ?? Promise.resolve()
-      const queuedWrite = previousWrite
-        .catch(() => undefined)
-        .then(() => sessionService.invoke("setPermissionMode", { id, permissionMode: normalizedPermissionMode }))
-      const trackedWrite = queuedWrite.catch(() => undefined).then(() => undefined)
-      permissionModeWriteQueuesRef.current.set(id, trackedWrite)
-      void trackedWrite.finally(() => {
-        if (permissionModeWriteQueuesRef.current.get(id) === trackedWrite) {
-          permissionModeWriteQueuesRef.current.delete(id)
-        }
-      })
-
-      await queuedWrite
-      if (permissionModeWriteVersionsRef.current.get(id) !== version || !isCurrentScope(mutationScopeKey)) {
-        return
-      }
-      const applyPermissionMode = (session: SessionInfo): SessionInfo =>
-        session.id === id
-          ? (() => {
-              const next = { ...session }
-              if (normalizedPermissionMode === "full_access") {
-                next.permissionMode = normalizedPermissionMode
-              } else {
-                delete next.permissionMode
-              }
-              return next
-            })()
-          : session
-      setSessions((current) => current.map(applyPermissionMode))
-    },
-    [isCurrentScope, scopeKey, sessionService],
-  )
-
   const setSessionKnowledgeBases = React.useCallback(
-    async (id: string, knowledgeBaseIds: string[]) => {
+    async (id: string, update: KnowledgeBaseIdsUpdate) => {
       const mutationScopeKey = scopeKey
-      const normalizedIds = [...new Set(knowledgeBaseIds.map((item) => item.trim()).filter(Boolean))]
+      const session = sessionsRef.current.find((item) => item.id === id)
+      const currentIds = knowledgeBasesIntendedIdsRef.current.get(id) ?? session?.knowledgeBaseIds ?? []
+      const normalizedIds = resolveKnowledgeBaseIdsUpdate(currentIds, update)
+      if (!knowledgeBasesPersistedIdsRef.current.has(id)) {
+        knowledgeBasesPersistedIdsRef.current.set(id, session?.knowledgeBaseIds ?? [])
+      }
+      knowledgeBasesIntendedIdsRef.current.set(id, normalizedIds)
+      setSessions((current) =>
+        current.map((item) => (item.id === id ? applySessionKnowledgeBaseIds(item, normalizedIds) : item)),
+      )
       const version = (knowledgeBasesWriteVersionsRef.current.get(id) ?? 0) + 1
       knowledgeBasesWriteVersionsRef.current.set(id, version)
       const previousWrite = knowledgeBasesWriteQueuesRef.current.get(id) ?? Promise.resolve()
       const queuedWrite = previousWrite
         .catch(() => undefined)
-        .then(() => sessionService.invoke("setKnowledgeBases", { id, knowledgeBaseIds: normalizedIds }))
+        .then(async () => {
+          await sessionService.invoke("setKnowledgeBases", { id, knowledgeBaseIds: normalizedIds })
+          if (isCurrentScope(mutationScopeKey)) {
+            knowledgeBasesPersistedIdsRef.current.set(id, normalizedIds)
+          }
+        })
       const trackedWrite = queuedWrite.catch(() => undefined).then(() => undefined)
       knowledgeBasesWriteQueuesRef.current.set(id, trackedWrite)
       void trackedWrite.finally(() => {
@@ -298,17 +404,20 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
         }
       })
 
-      await queuedWrite
+      try {
+        await queuedWrite
+      } catch (error) {
+        if (knowledgeBasesWriteVersionsRef.current.get(id) === version && isCurrentScope(mutationScopeKey)) {
+          knowledgeBasesIntendedIdsRef.current.delete(id)
+          const persistedIds = knowledgeBasesPersistedIdsRef.current.get(id) ?? []
+          setSessions((current) =>
+            current.map((item) => (item.id === id ? applySessionKnowledgeBaseIds(item, persistedIds) : item)),
+          )
+        }
+        throw error
+      }
       if (knowledgeBasesWriteVersionsRef.current.get(id) !== version || !isCurrentScope(mutationScopeKey)) return
-      setSessions((current) =>
-        current.map((session) => {
-          if (session.id !== id) return session
-          const next = { ...session }
-          if (normalizedIds.length > 0) next.knowledgeBaseIds = normalizedIds
-          else delete next.knowledgeBaseIds
-          return next
-        }),
-      )
+      knowledgeBasesIntendedIdsRef.current.delete(id)
     },
     [isCurrentScope, scopeKey, sessionService],
   )
@@ -398,16 +507,24 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
 
   const rename = React.useCallback(
     async (id: string, title: string) => {
+      const mutationScopeKey = scopeKey
       await sessionService.invoke("rename", { id, title })
+      if (isCurrentScope(mutationScopeKey)) {
+        setSessions((current) => applySessionTitle(current, id, title))
+      }
     },
-    [sessionService],
+    [isCurrentScope, scopeKey, sessionService],
   )
 
   const pin = React.useCallback(
     async (id: string, pinned: boolean) => {
+      const mutationScopeKey = scopeKey
       await sessionService.invoke("pin", { id, pinned })
+      if (isCurrentScope(mutationScopeKey)) {
+        setSessions((current) => applySessionPinned(current, id, pinned))
+      }
     },
-    [sessionService],
+    [isCurrentScope, scopeKey, sessionService],
   )
 
   const archive = React.useCallback(
@@ -455,7 +572,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     listArchived,
     createProject,
     assignSessionProject,
-    setSessionPermissionMode,
     setSessionKnowledgeBases,
     renameProject,
     pinProject,

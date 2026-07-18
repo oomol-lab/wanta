@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
+import { atomicWriteText } from "./atomic-file.ts"
 import { logDiagnostic } from "./diagnostics-log.ts"
 
 export type OperationHistoryStatus = "failed" | "succeeded"
@@ -118,10 +119,7 @@ async function readHistoryFile(filePath: string): Promise<OperationHistoryRecord
 }
 
 async function writeHistoryFile(targetPath: string, records: OperationHistoryRecord[]): Promise<void> {
-  await mkdir(path.dirname(targetPath), { recursive: true })
-  const temporaryPath = `${targetPath}.tmp`
-  await writeFile(temporaryPath, JSON.stringify(records, null, 2), "utf8")
-  await rename(temporaryPath, targetPath)
+  await atomicWriteText(targetPath, JSON.stringify(records, null, 2))
 }
 
 async function historyPath(): Promise<string> {

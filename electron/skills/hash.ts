@@ -5,11 +5,10 @@ import { open, readdir, readFile, stat } from "node:fs/promises"
 import path from "node:path"
 import { skippedDirectoryNames } from "./constants.ts"
 
-interface HashableFile {
-  content: Buffer
+interface HashCandidateFile {
+  path: string
   relativePath: string
   size: number
-  truncated: boolean
 }
 
 const maxHashableFileBytes = 512 * 1024
@@ -54,8 +53,8 @@ async function readFileSample(filePath: string, size: number): Promise<Buffer> {
   }
 }
 
-export async function readHashableFiles(rootPath: string): Promise<HashableFile[]> {
-  async function walk(directoryPath: string): Promise<HashableFile[]> {
+async function readHashCandidateFiles(rootPath: string): Promise<HashCandidateFile[]> {
+  async function walk(directoryPath: string): Promise<HashCandidateFile[]> {
     let entries: Dirent[]
 
     try {
@@ -64,7 +63,7 @@ export async function readHashableFiles(rootPath: string): Promise<HashableFile[
       return []
     }
 
-    const files: HashableFile[] = []
+    const files: HashCandidateFile[] = []
 
     for (const entry of entries) {
       if (entry.isSymbolicLink()) {
@@ -86,24 +85,17 @@ export async function readHashableFiles(rootPath: string): Promise<HashableFile[
 
       const filePath = path.join(directoryPath, entry.name)
       let fileSize: number
-      let content: Buffer
 
       try {
         fileSize = (await stat(filePath)).size
-        content = await readFileSample(filePath, fileSize)
       } catch {
         continue
       }
 
-      if (!isLikelyTextBuffer(content)) {
-        continue
-      }
-
       files.push({
-        content,
+        path: filePath,
         relativePath: path.relative(rootPath, filePath),
         size: fileSize,
-        truncated: fileSize > content.length,
       })
     }
 
@@ -114,24 +106,31 @@ export async function readHashableFiles(rootPath: string): Promise<HashableFile[
 }
 
 export async function hashTextFiles(rootPath: string): Promise<string | undefined> {
-  const files = await readHashableFiles(rootPath)
-
-  if (files.length === 0) {
-    return undefined
-  }
-
+  const files = await readHashCandidateFiles(rootPath)
   const hash = crypto.createHash("sha256")
+  let hashedFileCount = 0
 
   for (const file of files) {
+    let content: Buffer
+    try {
+      content = await readFileSample(file.path, file.size)
+    } catch {
+      continue
+    }
+    if (!isLikelyTextBuffer(content)) {
+      continue
+    }
+
     hash.update(file.relativePath)
     hash.update("\0")
     hash.update(String(file.size))
     hash.update("\0")
-    hash.update(file.truncated ? "truncated" : "full")
+    hash.update(file.size > content.length ? "truncated" : "full")
     hash.update("\0")
-    hash.update(file.content)
+    hash.update(content)
     hash.update("\0")
+    hashedFileCount += 1
   }
 
-  return hash.digest("hex")
+  return hashedFileCount > 0 ? hash.digest("hex") : undefined
 }

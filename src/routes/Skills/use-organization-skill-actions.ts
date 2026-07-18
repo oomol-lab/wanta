@@ -9,11 +9,7 @@ import { toast } from "sonner"
 import { planProviderSkillRecommendationBulkLinks, runtimeSkillRemoveBusyKey } from "./organization-management-model.ts"
 import { skillErrorMessage } from "./skill-errors.ts"
 import { useSkillService } from "@/components/AppContext"
-import {
-  useHomeSummaryResource,
-  useSkillInventoryResource,
-  useSkillVersionReportResource,
-} from "@/components/AppDataHooks"
+import { useSkillInventoryResource, useSkillVersionReportResource } from "@/components/AppDataHooks"
 import { useAppI18n } from "@/i18n"
 import { getPublicPackagePrimarySkill } from "@/routes/Skills/skill-route-model"
 
@@ -44,7 +40,6 @@ export function useOrganizationSkillActions({
   const skillService = useSkillService()
   const skillInventory = useSkillInventoryResource()
   const skillVersionReport = useSkillVersionReportResource()
-  const homeSummaryResource = useHomeSummaryResource()
   const [runtimeSkillRemoveTarget, setRuntimeSkillRemoveTarget] = React.useState<RuntimeSkillRemoveTarget | null>(null)
   const busyActionRef = React.useRef<BusyAction | null>(busyAction)
 
@@ -81,7 +76,6 @@ export function useOrganizationSkillActions({
         })
         skillInventory.setData(nextInventory)
         skillVersionReport.invalidate()
-        homeSummaryResource.invalidate()
         toast.success(t("skills.registryInstallDone", { name: skill.skillName }))
       } catch (error) {
         toast.error(t("skills.registryInstallFailed", { error: skillErrorMessage(error, t) }))
@@ -89,7 +83,7 @@ export function useOrganizationSkillActions({
         endAction()
       }
     },
-    [beginAction, endAction, homeSummaryResource, skillInventory, skillService, skillVersionReport, t],
+    [beginAction, endAction, skillInventory, skillService, skillVersionReport, t],
   )
 
   const removeRuntimeSkill = React.useCallback(async () => {
@@ -105,7 +99,6 @@ export function useOrganizationSkillActions({
       })
       skillInventory.setData(nextInventory)
       skillVersionReport.invalidate()
-      homeSummaryResource.invalidate()
       setRuntimeSkillRemoveTarget(null)
       toast.success(t("organizations.skillManageRemoveRuntimeSuccess", { name: target.displayName }))
     } catch (error) {
@@ -113,16 +106,7 @@ export function useOrganizationSkillActions({
     } finally {
       endAction()
     }
-  }, [
-    beginAction,
-    endAction,
-    homeSummaryResource,
-    runtimeSkillRemoveTarget,
-    skillInventory,
-    skillService,
-    skillVersionReport,
-    t,
-  ])
+  }, [beginAction, endAction, runtimeSkillRemoveTarget, skillInventory, skillService, skillVersionReport, t])
 
   const installRuntimeSkills = React.useCallback(
     async (skills: readonly { packageName: string; skillName: string }[]) => {
@@ -131,55 +115,53 @@ export function useOrganizationSkillActions({
         return
       }
 
-      let installedCount = 0
-      let failedCount = 0
-      let firstError: unknown
       try {
-        for (const skill of targets) {
-          try {
-            const nextInventory = await skillService.invoke("installRegistrySkill", {
-              packageName: skill.packageName,
-              skillId: skill.skillName,
-            })
-            skillInventory.setData(nextInventory)
-            installedCount += 1
-          } catch (error) {
-            failedCount += 1
-            firstError ??= error
-          }
-        }
-        homeSummaryResource.invalidate()
-        if (installedCount > 0) {
+        const result = await skillService.invoke(
+          "installRegistrySkills",
+          targets.map((skill) => ({ packageName: skill.packageName, skillId: skill.skillName })),
+        )
+        skillInventory.setData(result.inventory)
+        if (result.installed.length > 0) {
           skillVersionReport.invalidate()
-          toast.success(t("organizations.skillManageInstallMissingSuccess", { count: installedCount }))
+          toast.success(t("organizations.skillManageInstallMissingSuccess", { count: result.installed.length }))
         }
-        if (failedCount > 0) {
+        if (result.failures.length > 0) {
           toast.error(
             t("organizations.skillManageInstallMissingFailed", {
-              count: failedCount,
-              error: skillErrorMessage(firstError, t),
+              count: result.failures.length,
+              error: skillErrorMessage(result.failures[0]?.error, t),
             }),
           )
         }
+      } catch (error) {
+        toast.error(
+          t("organizations.skillManageInstallMissingFailed", {
+            count: targets.length,
+            error: skillErrorMessage(error, t),
+          }),
+        )
       } finally {
         endAction()
       }
     },
-    [beginAction, endAction, homeSummaryResource, skillInventory, skillService, skillVersionReport, t],
+    [beginAction, endAction, skillInventory, skillService, skillVersionReport, t],
   )
 
   const linkOrganizationSkill = React.useCallback(
-    async (input: OrganizationSkillLinkInput, options: { installRuntime: boolean }) => {
+    async (input: OrganizationSkillLinkInput, options: { installRuntime: boolean; refreshOrganization?: boolean }) => {
       if (!organizationSkills?.canManage) {
         return
       }
 
-      await organizationSkills.addSkill({
-        packageName: input.packageName,
-        skillName: input.skillName,
-        version: input.version,
-        versionPolicy: "pinned",
-      })
+      await organizationSkills.addSkill(
+        {
+          packageName: input.packageName,
+          skillName: input.skillName,
+          version: input.version,
+          versionPolicy: "pinned",
+        },
+        { refresh: options.refreshOrganization },
+      )
       if (options.installRuntime) {
         const nextInventory = await skillService.invoke("installRegistrySkill", {
           packageName: input.packageName,
@@ -187,10 +169,9 @@ export function useOrganizationSkillActions({
         })
         skillInventory.setData(nextInventory)
         skillVersionReport.invalidate()
-        homeSummaryResource.invalidate()
       }
     },
-    [homeSummaryResource, organizationSkills, skillInventory, skillService, skillVersionReport],
+    [organizationSkills, skillInventory, skillService, skillVersionReport],
   )
 
   const addOrganizationSkillFromRecommendation = React.useCallback(
@@ -262,6 +243,7 @@ export function useOrganizationSkillActions({
       let linkedCount = 0
       let failedCount = 0
       let firstError: unknown
+      const runtimeTargets: Array<{ packageName: string; skillId: string }> = []
       try {
         for (const recommendation of plan.linkable) {
           try {
@@ -271,18 +253,43 @@ export function useOrganizationSkillActions({
                 skillName: recommendation.skillId,
                 version: recommendation.package.version,
               },
-              options,
+              { installRuntime: false, refreshOrganization: false },
             )
             linkedCount += 1
+            runtimeTargets.push({ packageName: recommendation.packageName, skillId: recommendation.skillId })
           } catch (error) {
             failedCount += 1
             firstError ??= error
           }
         }
         if (linkedCount > 0) {
+          await organizationSkills.refresh({ forceRefresh: true })
+        }
+        let installedCount = 0
+        if (options.installRuntime && runtimeTargets.length > 0) {
+          try {
+            const result = await skillService.invoke("installRegistrySkills", runtimeTargets)
+            skillInventory.setData(result.inventory)
+            installedCount = result.installed.length
+            if (installedCount > 0) {
+              skillVersionReport.invalidate()
+            }
+            if (result.failures.length > 0) {
+              toast.error(
+                t("organizations.skillManageInstallMissingFailed", {
+                  count: result.failures.length,
+                  error: skillErrorMessage(result.failures[0]?.error, t),
+                }),
+              )
+            }
+          } catch (error) {
+            toast.error(skillErrorMessage(error, t))
+          }
+        }
+        if (linkedCount > 0) {
           toast.success(
-            options.installRuntime
-              ? t("organizations.skillManageBulkAddInstallSuccess", { count: linkedCount })
+            options.installRuntime && installedCount > 0
+              ? t("organizations.skillManageBulkAddInstallSuccess", { count: installedCount })
               : t("organizations.skillManageBulkAddSuccess", { count: linkedCount }),
           )
         }
@@ -298,7 +305,16 @@ export function useOrganizationSkillActions({
         endAction()
       }
     },
-    [beginAction, endAction, linkOrganizationSkill, organizationSkills, t],
+    [
+      beginAction,
+      endAction,
+      linkOrganizationSkill,
+      organizationSkills,
+      skillInventory,
+      skillService,
+      skillVersionReport,
+      t,
+    ],
   )
 
   return {

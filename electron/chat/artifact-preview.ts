@@ -3,12 +3,15 @@ import type { LocalArtifactArchiveEntry, LocalArtifactPreviewResult } from "./co
 import JSZip from "jszip"
 import { readFile } from "node:fs/promises"
 import { list as listTar } from "tar"
+import { spreadsheetPreviewFormat } from "./spreadsheet-preview.ts"
 export {
+  delimitedSpreadsheetPreview,
   spreadsheetPreview,
   spreadsheetPreviewMaxBytes,
   spreadsheetPreviewMaxColumns,
   spreadsheetPreviewMaxRows,
   spreadsheetPreviewMaxSheets,
+  spreadsheetPreviewFormat,
   spreadsheetWorkbookPreview,
 } from "./spreadsheet-preview.ts"
 
@@ -41,10 +44,11 @@ export function isDocxArtifact(filePath: string, mime: string): boolean {
 }
 
 export function isXlsxArtifact(filePath: string, mime: string): boolean {
-  return (
-    mime.toLowerCase() === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-    extensionFromPath(filePath) === ".xlsx"
-  )
+  return spreadsheetPreviewFormat(filePath, mime) === "xlsx"
+}
+
+export function isSpreadsheetPreviewArtifact(filePath: string, mime: string): boolean {
+  return spreadsheetPreviewFormat(filePath, mime) !== null
 }
 
 export function isRtfArtifact(filePath: string, mime: string): boolean {

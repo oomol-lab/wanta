@@ -82,7 +82,7 @@ export function useBillingOverview(
       }
       const currentRequest = requestId.current + 1
       requestId.current = currentRequest
-      const entry = cacheEntry(cacheScopeKey, days)
+      const entry = getBillingOverviewCacheEntry(cacheScopeKey, days)
       if (!force && isFresh(entry, staleMs)) {
         setData(entry.data)
         setError(null)
@@ -92,14 +92,14 @@ export function useBillingOverview(
       setLoading(true)
       setError(null)
 
-      // 手动刷新也复用已在途请求，避免浮层、详情页或重试按钮同时触发时又发起一套账单聚合请求。
+      // 普通刷新复用已在途请求；充值、订阅或登录后的强制刷新必须越过旧请求，避免旧快照回填。
       const scope: BillingRequestScope = {
         canManageBilling: requestCanManageBilling,
         canManageFunding: requestCanManageFunding,
         teamId: requestTeamId,
         organizationName: requestOrganizationName,
       }
-      const promise = entry.promise ?? startBillingOverviewRequest(entry, () => getBillingOverview(days, scope))
+      const promise = loadBillingOverviewEntry(entry, () => getBillingOverview(days, scope), { force })
 
       try {
         const nextData = await promise
@@ -148,7 +148,7 @@ export function useBillingOverview(
   return { data, loading, error, refresh }
 }
 
-function cacheEntry(cacheScope: string, days: BillingPeriodDays): BillingOverviewCacheEntry {
+export function getBillingOverviewCacheEntry(cacheScope: string, days: BillingPeriodDays): BillingOverviewCacheEntry {
   let scopedCache = overviewCache.get(cacheScope)
   if (!scopedCache) {
     scopedCache = new Map()
@@ -160,6 +160,10 @@ function cacheEntry(cacheScope: string, days: BillingPeriodDays): BillingOvervie
     scopedCache.set(days, entry)
   }
   return entry
+}
+
+export function clearBillingOverviewCache(): void {
+  overviewCache.clear()
 }
 
 function cachedData(cacheScope: string, days: BillingPeriodDays): BillingOverviewResult | null {
@@ -198,6 +202,17 @@ export function startBillingOverviewRequest(
     },
   )
   return promise
+}
+
+export function loadBillingOverviewEntry(
+  entry: BillingOverviewCacheEntry,
+  request: () => Promise<BillingOverviewResult>,
+  options: { force?: boolean; timeoutMs?: number } = {},
+): Promise<BillingOverviewResult> {
+  if (!options.force && entry.promise) {
+    return entry.promise
+  }
+  return startBillingOverviewRequest(entry, request, options.timeoutMs)
 }
 
 function withBillingOverviewTimeout(

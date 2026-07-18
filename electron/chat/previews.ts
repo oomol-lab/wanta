@@ -14,7 +14,7 @@ import {
   isDocxArtifact,
   isPdfArtifact,
   isRtfArtifact,
-  isXlsxArtifact,
+  isSpreadsheetPreviewArtifact,
   richPreviewMaxBytes,
   rtfToPlainText,
   spreadsheetPreview,
@@ -22,8 +22,24 @@ import {
 import { imageMimeFromPath } from "./artifacts.ts"
 import { localArtifactItem } from "./local-artifacts.ts"
 import { isTextArtifactMime, readTextPreview } from "./turn-output-files.ts"
+import { zipArchiveStats, zipArchiveWithinLimits } from "./zip-central-directory.ts"
 
 const attachmentPreviewMaxBytes = 16 * 1024 * 1024
+const docxArchiveLimits = {
+  maxCompressionRatio: 200,
+  maxEntries: 2_048,
+  maxEntryUncompressedSize: 32 * 1024 * 1024,
+  maxTotalUncompressedSize: 96 * 1024 * 1024,
+} as const
+
+async function safeDocxBytes(filePath: string): Promise<{ bytes: Buffer } | { reason: "read_failed" | "too_large" }> {
+  const bytes = await readFile(filePath)
+  const archive = zipArchiveStats(bytes)
+  if (!archive) {
+    return { reason: "read_failed" }
+  }
+  return zipArchiveWithinLimits(archive, docxArchiveLimits) ? { bytes } : { reason: "too_large" }
+}
 
 function resourceResult(
   grant: ArtifactResourceGrant,
@@ -151,7 +167,7 @@ export async function localArtifactPreview(
     }
   }
 
-  if (isXlsxArtifact(item.path, item.mime)) {
+  if (isSpreadsheetPreviewArtifact(item.path, item.mime)) {
     try {
       return await createSpreadsheetPreview(item.path, item.mime, size)
     } catch (error) {
@@ -188,7 +204,15 @@ export async function localArtifactPreview(
   }
 
   if (isBinaryDataPreviewArtifact(item.path, item.mime) && size <= richPreviewMaxBytes) {
+    let verifiedDocxBytes: Buffer | undefined
     if (isPdfArtifact(item.path, item.mime) || isDocxArtifact(item.path, item.mime)) {
+      if (isDocxArtifact(item.path, item.mime)) {
+        const validation = await safeDocxBytes(item.path).catch(() => ({ reason: "read_failed" as const }))
+        if (!("bytes" in validation)) {
+          return { kind: "unsupported", mime: item.mime, size, reason: validation.reason }
+        }
+        verifiedDocxBytes = validation.bytes
+      }
       const resource = requestResource()
       if (resource && isPdfArtifact(item.path, item.mime)) {
         return { kind: "pdf", mime: item.mime, size, ...resourceResult(resource) }
@@ -198,7 +222,8 @@ export async function localArtifactPreview(
       }
     }
     try {
-      const bytes = await readFile(item.path)
+      const bytes = isDocxArtifact(item.path, item.mime) ? verifiedDocxBytes : await readFile(item.path)
+      if (!bytes) return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
       const richPreview = binaryDataPreview(item.path, item.mime, size, bytes)
       if (richPreview) {
         return richPreview

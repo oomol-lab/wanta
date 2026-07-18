@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   getProviderGridCenteredScrollTop,
   getProviderGridColumnCount,
+  getProviderGridKeyboardTargetIndex,
   getProviderGridRowCount,
   getProviderGridTotalHeight,
   getProviderGridVisibleRange,
@@ -71,6 +72,36 @@ it("centers based on the supplied item index", () => {
 })
 
 describe("provider grid virtualization", () => {
+  it("supports roving keyboard focus across virtualized rows", () => {
+    expect(
+      getProviderGridKeyboardTargetIndex({ columnCount: 3, currentIndex: 4, key: "ArrowDown", providerCount: 10 }),
+    ).toBe(7)
+    expect(
+      getProviderGridKeyboardTargetIndex({ columnCount: 3, currentIndex: 1, key: "ArrowUp", providerCount: 10 }),
+    ).toBe(1)
+    expect(getProviderGridKeyboardTargetIndex({ columnCount: 3, currentIndex: 4, key: "End", providerCount: 10 })).toBe(
+      9,
+    )
+    expect(
+      getProviderGridKeyboardTargetIndex({ columnCount: 3, currentIndex: 4, key: "Tab", providerCount: 10 }),
+    ).toBeNull()
+  })
+
+  it("keeps arrow navigation inside visual grid boundaries", () => {
+    expect(
+      getProviderGridKeyboardTargetIndex({ columnCount: 3, currentIndex: 3, key: "ArrowLeft", providerCount: 10 }),
+    ).toBe(3)
+    expect(
+      getProviderGridKeyboardTargetIndex({ columnCount: 3, currentIndex: 2, key: "ArrowRight", providerCount: 10 }),
+    ).toBe(2)
+    expect(
+      getProviderGridKeyboardTargetIndex({ columnCount: 3, currentIndex: 8, key: "ArrowDown", providerCount: 10 }),
+    ).toBe(8)
+    expect(
+      getProviderGridKeyboardTargetIndex({ columnCount: 3, currentIndex: 6, key: "ArrowDown", providerCount: 10 }),
+    ).toBe(9)
+  })
+
   it("matches the responsive grid column formula", () => {
     expect(getProviderGridColumnCount(0)).toBe(1)
     expect(getProviderGridColumnCount(216)).toBe(1)

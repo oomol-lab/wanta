@@ -1,12 +1,11 @@
 import type { TurnOutputFile, TurnOutputFileRole } from "../../../electron/chat/common.ts"
 
-/** 过程文件默认只展开首项，避免临时脚本和日志同时撑满审查面板。 */
+/** 默认只展开用户点选项或首项，避免大量 diff 同时请求、解析和挂载。 */
 export function turnOutputInitialCollapsedPaths(
-  role: TurnOutputFileRole,
+  _role: TurnOutputFileRole,
   files: readonly Pick<TurnOutputFile, "path">[],
+  selectedPath?: string,
 ): Set<string> {
-  if (role !== "process") {
-    return new Set()
-  }
-  return new Set(files.slice(1).map((file) => file.path))
+  const expandedPath = files.some((file) => file.path === selectedPath) ? selectedPath : files[0]?.path
+  return new Set(files.filter((file) => file.path !== expandedPath).map((file) => file.path))
 }

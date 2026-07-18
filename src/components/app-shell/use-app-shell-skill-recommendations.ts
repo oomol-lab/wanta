@@ -80,6 +80,7 @@ export function useAppShellSkillRecommendations({
     pendingInstallCount: inventory
       ? installableOrganizationSkills.length + installableProviderRecommendations.length
       : undefined,
+    providerRecommendations,
     showcaseItems,
   }
 }

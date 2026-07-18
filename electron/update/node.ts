@@ -53,7 +53,8 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
   private checkGeneration = 0
   private configuredChannel: "latest" | "beta" | undefined
   private inFlightCheck: Promise<AppUpdateState> | undefined
-  private inFlightDownload: Promise<void> | undefined
+  private inFlightDownload: { generation: number; promise: Promise<void> } | undefined
+  private activeDownload: { generation: number; version: string } | undefined
   // 库级 checkForUpdates 的在途跟踪：electron-updater 自带去重会把新调用粘到旧请求上，
   // 渠道切换后必须确认上一轮已结清才能发起（见 runCheck）。
   private libraryCheck: Promise<unknown> | undefined
@@ -113,15 +114,21 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
   }
 
   public async downloadAppUpdate(): Promise<void> {
-    if (this.inFlightDownload) {
-      return this.inFlightDownload
+    const generation = this.checkGeneration
+    const current = this.inFlightDownload
+    if (current) {
+      if (current.generation === generation) return current.promise
+      await current.promise.catch(() => undefined)
+      if (generation !== this.checkGeneration) return
+      return this.downloadAppUpdate()
     }
-    const promise = this.runDownload()
-    this.inFlightDownload = promise
+    const promise = this.runDownload(generation)
+    const inFlight = { generation, promise }
+    this.inFlightDownload = inFlight
     try {
       await promise
     } finally {
-      if (this.inFlightDownload === promise) {
+      if (this.inFlightDownload === inFlight) {
         this.inFlightDownload = undefined
       }
     }
@@ -174,6 +181,7 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     // mac 一旦 downloaded 已被 Squirrel.Mac 暂存、无 API 撤销——重启仍会装上，属已知平台限制。
     this.cancellationToken?.cancel()
     this.cancellationToken = undefined
+    this.activeDownload = undefined
     if (this.autoUpdater) {
       this.autoUpdater.autoInstallOnAppQuit = false
     }
@@ -322,7 +330,7 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     }
   }
 
-  private async runDownload(): Promise<void> {
+  private async runDownload(generation: number): Promise<void> {
     if (!app.isPackaged) {
       return
     }
@@ -333,7 +341,7 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     const updater = this.getAutoUpdater()
     // 渠道切换守卫：pre-download 检查的网络往返窗口内若切了渠道，绝不能继续武装/下载
     // 旧渠道产物（此时 cancellationToken 尚未赋值，setUpdateChannel 的取消够不着）。
-    const generation = this.checkGeneration
+    if (generation !== this.checkGeneration) return
     this.patchStatus({ status: "downloading" })
 
     // electron-updater 要求 downloadUpdate 前有同一 updater 实例的有效 check 结果。
@@ -357,6 +365,8 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     }
 
     this.cancellationToken = result.cancellationToken
+    const activeDownload = { generation, version: result.updateInfo.version }
+    this.activeDownload = activeDownload
     // 下载开始才武装退出自动安装：开关精确对应"本会话当前渠道下载的产物"，
     // 渠道切换时可解除（见 setUpdateChannel）。
     updater.autoInstallOnAppQuit = true
@@ -364,10 +374,12 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
       await updater.downloadUpdate(result.cancellationToken)
       // 完成态由 update-downloaded 事件落到 downloaded。
     } catch (cause) {
+      if (this.activeDownload === activeDownload) this.activeDownload = undefined
       if (isCancellationError(cause)) {
         // 渠道切换取消：状态已被 setUpdateChannel 重置，不再覆盖。
         return
       }
+      if (generation !== this.checkGeneration) return
       this.handleDownloadFailure(cause)
       throw cause
     } finally {
@@ -453,24 +465,34 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
       updater.on(event, listener as never)
       this.boundListeners.push([event, listener as never])
     }
-    // 陈旧守卫：仅在本服务认为"正在下载"时接受下载事件——渠道切换把状态重置后，
-    // 越过取消竞速完成的旧渠道下载不得再污染新渠道状态。
+    // 陈旧守卫：下载代数和目标版本必须与当前任务一致——渠道切换把 activeDownload
+    // 清空后，越过取消竞速完成的旧渠道事件不得再污染新渠道状态。
     on("download-progress", ((progress: { percent: number }) => {
-      if (this.state.status.status === "downloading") {
+      if (this.activeDownload?.generation === this.checkGeneration && this.state.status.status === "downloading") {
         this.patchStatus({ status: "downloading", percent: progress.percent })
       }
     }) as never)
     on("update-downloaded", ((info: { version: string }) => {
-      if (this.state.status.status === "downloading") {
+      if (
+        this.activeDownload?.generation === this.checkGeneration &&
+        this.activeDownload.version === info.version &&
+        this.state.status.status === "downloading"
+      ) {
         this.resetMissingAssetRetryState()
         this.patchStatus({ status: "downloaded", version: info.version })
+        this.activeDownload = undefined
       }
     }) as never)
     on("error", ((error: Error) => {
       if (isCancellationError(error)) {
         return
       }
-      this.patchStatus({ status: "error", error: error.message })
+      if (this.activeDownload?.generation === this.checkGeneration || this.state.status.status === "downloaded") {
+        this.activeDownload = undefined
+        this.patchStatus({ status: "error", error: error.message })
+        return
+      }
+      logDiagnostic("update-service", "ignored stale updater error event", { error }, "warn")
     }) as never)
   }
 

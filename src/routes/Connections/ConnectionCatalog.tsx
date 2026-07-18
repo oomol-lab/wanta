@@ -17,6 +17,7 @@ import {
 import {
   getProviderGridCenteredScrollTop,
   getProviderGridColumnCount,
+  getProviderGridKeyboardTargetIndex,
   getProviderGridVisibleRange,
   providerGridCardHeightPx,
   providerGridGapPx,
@@ -57,6 +58,7 @@ export function ConnectionListToolbar({
   onFilterChange,
   onQueryChange,
   query,
+  showConnectionState,
   totalCount,
 }: {
   activeFilter: ConnectionCatalogFilter
@@ -69,6 +71,7 @@ export function ConnectionListToolbar({
   onFilterChange: (filter: ConnectionCatalogFilter) => void
   onQueryChange: (query: string) => void
   query: string
+  showConnectionState: boolean
   totalCount: number
 }) {
   const t = useT()
@@ -123,7 +126,11 @@ export function ConnectionListToolbar({
       )
       const nextCount = getFittingCategoryFilterCount({
         availableWidth,
-        baseFilterWidths: [allWidth, availableToolsWidth, connectedWidth, directlyAvailableWidth, attentionWidth],
+        baseFilterWidths: [
+          allWidth,
+          ...(showConnectionState ? [availableToolsWidth, connectedWidth, attentionWidth] : []),
+          directlyAvailableWidth,
+        ],
         categoryFilterWidths,
         filters: categoryFilters,
         gap,
@@ -150,6 +157,7 @@ export function ConnectionListToolbar({
     directlyAvailableCount,
     loading,
     selectedCategory,
+    showConnectionState,
     totalCount,
   ])
 
@@ -178,26 +186,32 @@ export function ConnectionListToolbar({
             }}
           >
             <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
-            <FilterToggleItem
-              count={loading ? null : availableToolsCount}
-              label={t("connections.filterAvailableTools")}
-              value="available-tools"
-            />
-            <FilterToggleItem
-              count={loading ? null : connectedCount}
-              label={t("connections.filterConnected")}
-              value="connected"
-            />
+            {showConnectionState ? (
+              <>
+                <FilterToggleItem
+                  count={loading ? null : availableToolsCount}
+                  label={t("connections.filterAvailableTools")}
+                  value="available-tools"
+                />
+                <FilterToggleItem
+                  count={loading ? null : connectedCount}
+                  label={t("connections.filterConnected")}
+                  value="connected"
+                />
+              </>
+            ) : null}
             <FilterToggleItem
               count={loading ? null : directlyAvailableCount}
               label={t("connections.filterDirectlyAvailable")}
               value="directly-available"
             />
-            <FilterToggleItem
-              count={loading ? null : attentionCount}
-              label={t("connections.needsAttention")}
-              value="attention"
-            />
+            {showConnectionState ? (
+              <FilterToggleItem
+                count={loading ? null : attentionCount}
+                label={t("connections.needsAttention")}
+                value="attention"
+              />
+            ) : null}
             {visibleCategoryFilters.map((filter) => (
               <FilterToggleItem
                 key={filter.label}
@@ -337,6 +351,7 @@ export function ProviderCatalog({
   providers,
   scrollParentRef,
   selectedService,
+  showConnectionState,
   onSelect,
 }: {
   canManageConnections: boolean
@@ -344,6 +359,7 @@ export function ProviderCatalog({
   providers: ConnectionProviderSummary[]
   scrollParentRef: React.RefObject<HTMLDivElement | null>
   selectedService: string | null
+  showConnectionState: boolean
 }) {
   return (
     <ProviderGrid
@@ -351,6 +367,7 @@ export function ProviderCatalog({
       providers={providers}
       scrollParentRef={scrollParentRef}
       selectedService={selectedService}
+      showConnectionState={showConnectionState}
       onSelect={onSelect}
     />
   )
@@ -361,6 +378,7 @@ function ProviderGrid({
   providers,
   scrollParentRef,
   selectedService,
+  showConnectionState,
   onSelect,
 }: {
   canManageConnections: boolean
@@ -368,10 +386,12 @@ function ProviderGrid({
   providers: ConnectionProviderSummary[]
   scrollParentRef: React.RefObject<HTMLDivElement | null>
   selectedService: string | null
+  showConnectionState: boolean
 }) {
   const itemCount = providers.length
   const gridRef = React.useRef<HTMLDivElement | null>(null)
   const updateFrameRef = React.useRef<number | null>(null)
+  const focusFrameRef = React.useRef<number | null>(null)
   const selectionCenterTimerRef = React.useRef<number | null>(null)
   const pendingSelectionRef = React.useRef<string | null>(null)
   const [viewport, setViewport] = React.useState({
@@ -379,6 +399,10 @@ function ProviderGrid({
     scrollTop: 0,
     viewportHeight: 0,
     width: 0,
+  })
+  const [focusedIndex, setFocusedIndex] = React.useState(() => {
+    const selectedIndex = providers.findIndex((provider) => provider.service === selectedService)
+    return Math.max(0, selectedIndex)
   })
 
   const updateViewport = React.useCallback(() => {
@@ -543,6 +567,49 @@ function ProviderGrid({
       }),
     [columnCount, itemCount, viewport.catalogTop, viewport.scrollTop, viewport.viewportHeight],
   )
+  const focusProviderIndex = React.useCallback(
+    (targetIndex: number): void => {
+      const grid = gridRef.current
+      const scrollParent = scrollParentRef.current
+      if (!grid || !scrollParent) return
+      setFocusedIndex(targetIndex)
+      const nextScrollTop = getProviderGridCenteredScrollTop({
+        catalogTop: viewport.catalogTop,
+        columnCount,
+        itemIndex: targetIndex,
+        scrollHeight: scrollParent.scrollHeight,
+        viewportHeight: scrollParent.clientHeight,
+      })
+      scrollParent.scrollTo({ top: nextScrollTop })
+      scheduleViewportUpdate()
+      if (focusFrameRef.current !== null) window.cancelAnimationFrame(focusFrameRef.current)
+      focusFrameRef.current = window.requestAnimationFrame(() => {
+        scheduleViewportUpdate()
+        focusFrameRef.current = window.requestAnimationFrame(() => {
+          focusFrameRef.current = null
+          gridRef.current
+            ?.querySelector<HTMLButtonElement>(`[data-provider-index="${targetIndex}"]`)
+            ?.focus({ preventScroll: true })
+        })
+      })
+    },
+    [columnCount, scheduleViewportUpdate, scrollParentRef, viewport.catalogTop],
+  )
+
+  React.useEffect(() => {
+    if (itemCount === 0) return
+    if (focusedIndex >= visibleRange.startIndex && focusedIndex < visibleRange.endIndex) return
+    if (gridRef.current?.contains(document.activeElement)) return
+    setFocusedIndex(Math.min(visibleRange.startIndex, itemCount - 1))
+  }, [focusedIndex, itemCount, visibleRange.endIndex, visibleRange.startIndex])
+
+  React.useEffect(
+    () => () => {
+      if (focusFrameRef.current !== null) window.cancelAnimationFrame(focusFrameRef.current)
+    },
+    [],
+  )
+
   const visibleItems = React.useMemo<Array<{ key: string; node: React.ReactNode }>>(() => {
     const items: Array<{ key: string; node: React.ReactNode }> = []
     for (let offset = 0; offset < visibleRange.endIndex - visibleRange.startIndex; offset += 1) {
@@ -555,7 +622,23 @@ function ProviderGrid({
             <ProviderCard
               canManageConnections={canManageConnections}
               provider={provider}
+              index={index}
               selected={provider.service === selectedService}
+              showConnectionState={showConnectionState}
+              tabIndex={index === focusedIndex ? 0 : -1}
+              onFocus={() => setFocusedIndex(index)}
+              onKeyDown={(event) => {
+                const targetIndex = getProviderGridKeyboardTargetIndex({
+                  columnCount,
+                  currentIndex: index,
+                  key: event.key,
+                  providerCount: itemCount,
+                })
+                if (targetIndex === null) return
+                event.preventDefault()
+                if (targetIndex === index) return
+                focusProviderIndex(targetIndex)
+              }}
               onSelect={onSelect}
             />
           ),
@@ -563,7 +646,19 @@ function ProviderGrid({
       }
     }
     return items
-  }, [canManageConnections, onSelect, providers, selectedService, visibleRange.endIndex, visibleRange.startIndex])
+  }, [
+    canManageConnections,
+    columnCount,
+    focusProviderIndex,
+    focusedIndex,
+    itemCount,
+    onSelect,
+    providers,
+    selectedService,
+    showConnectionState,
+    visibleRange.endIndex,
+    visibleRange.startIndex,
+  ])
 
   return (
     <div ref={gridRef} className="relative" style={{ height: visibleRange.totalHeight }}>
@@ -586,21 +681,38 @@ function ProviderGrid({
 const ProviderCard = React.memo(function ProviderCard({
   canManageConnections,
   provider,
+  index,
   selected,
+  showConnectionState,
+  tabIndex,
+  onFocus,
+  onKeyDown,
   onSelect,
 }: {
   canManageConnections: boolean
+  index: number
+  onFocus: () => void
+  onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
   provider: ConnectionProviderSummary
   selected: boolean
+  showConnectionState: boolean
+  tabIndex: number
   onSelect: (provider: ConnectionProviderSummary) => void
 }) {
   const t = useT()
   const tone = getProviderStatusTone(provider)
-  const statusLabel = getProviderCatalogLabel(provider, canManageConnections, t)
+  const statusLabel =
+    showConnectionState || tone === "directly-available"
+      ? getProviderCatalogLabel(provider, canManageConnections, t)
+      : null
   return (
     <button
       type="button"
+      data-provider-index={index}
+      tabIndex={tabIndex}
       onClick={() => onSelect(provider)}
+      onFocus={onFocus}
+      onKeyDown={onKeyDown}
       className={cn(
         "group/card relative grid min-w-0 cursor-pointer overflow-hidden rounded-md border bg-card px-2.5 py-1.5 text-left text-card-foreground transition-[background-color,border-color,box-shadow,transform] outline-none hover:border-[var(--selection-ring)] hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px",
         selected &&
@@ -614,7 +726,7 @@ const ProviderCard = React.memo(function ProviderCard({
           <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
           <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
         </span>
-        {tone === "directly-available" ? (
+        {statusLabel && tone === "directly-available" ? (
           <Badge
             variant="secondary"
             className="max-w-24 border border-[var(--accent-ring)] bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] text-[var(--accent-strong)]"
@@ -622,7 +734,7 @@ const ProviderCard = React.memo(function ProviderCard({
           >
             <span className="truncate">{statusLabel}</span>
           </Badge>
-        ) : (
+        ) : statusLabel ? (
           <span className="flex shrink-0 items-center gap-1.5" title={statusLabel}>
             {tone === "connected" || tone === "attention" ? (
               <span
@@ -636,7 +748,7 @@ const ProviderCard = React.memo(function ProviderCard({
             ) : null}
             <span className="oo-text-micro max-w-16 truncate font-medium text-muted-foreground">{statusLabel}</span>
           </span>
-        )}
+        ) : null}
       </span>
     </button>
   )

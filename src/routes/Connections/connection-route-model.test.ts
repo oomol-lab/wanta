@@ -14,13 +14,14 @@ import {
   getProviderMeta,
   getProviderStatusDisplayLabel,
   getProviderStatusTone,
-  isConnectionDetailCacheKeyForService,
   isConnected,
   isDirectlyAvailableProvider,
   matchesProviderFilter,
+  normalizeConnectionCatalogFilter,
   normalizeConnectionAliasInput,
   parseFilterValue,
   selectVisibleCategoryFilters,
+  shouldShowConnectionState,
   shouldLoadProviderDetail,
 } from "./connection-route-model.ts"
 import { translate } from "@/i18n/i18n"
@@ -113,6 +114,23 @@ test("availability catalog filters round trip", () => {
   assert.deepEqual(parseFilterValue("directly-available"), { kind: "directly-available" })
 })
 
+test("connection catalog filter rejects click events and malformed categories", () => {
+  assert.deepEqual(normalizeConnectionCatalogFilter({ type: "click" }), { kind: "all" })
+  assert.deepEqual(normalizeConnectionCatalogFilter({ kind: "category", category: "" }), { kind: "all" })
+  assert.deepEqual(normalizeConnectionCatalogFilter({ kind: "connected" }), { kind: "connected" })
+  assert.deepEqual(normalizeConnectionCatalogFilter({ kind: "category", category: "Productivity" }), {
+    kind: "category",
+    category: "Productivity",
+  })
+})
+
+test("organization connection state is private to managers with a confirmed response", () => {
+  assert.equal(shouldShowConnectionState(false, "ready"), false)
+  assert.equal(shouldShowConnectionState(true, "unavailable"), false)
+  assert.equal(shouldShowConnectionState(true, "forbidden"), false)
+  assert.equal(shouldShowConnectionState(true, "ready"), true)
+})
+
 test("available tools filter combines connected and directly available providers", () => {
   const connected = provider({ appCount: 1, status: "connected" })
   const directlyAvailable = provider({ actionKind: "no_auth", authTypes: ["no_auth"], status: "connected" })
@@ -185,9 +203,6 @@ test("connection detail cache keys separate workspaces for the same provider", (
   const organizationKey = connectionDetailCacheKey("organization:Design", "canva")
 
   assert.notEqual(workspaceKey, organizationKey)
-  assert.equal(isConnectionDetailCacheKeyForService(workspaceKey, "canva"), true)
-  assert.equal(isConnectionDetailCacheKeyForService(organizationKey, "canva"), true)
-  assert.equal(isConnectionDetailCacheKeyForService(organizationKey, "gmail"), false)
 })
 
 test("selectVisibleCategoryFilters keeps an active overflow category visible", () => {

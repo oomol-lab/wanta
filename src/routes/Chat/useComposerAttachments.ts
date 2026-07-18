@@ -143,12 +143,19 @@ export function useComposerAttachments({
   const t = useT()
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
   const attachmentsRef = React.useRef<DraftAttachment[]>([])
+  const mountedRef = React.useRef(true)
 
   React.useEffect(() => {
     attachmentsRef.current = attachments
   }, [attachments])
 
-  React.useEffect(() => () => revokeAttachmentPreviewUrls(attachmentsRef.current), [])
+  React.useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      revokeAttachmentPreviewUrls(attachmentsRef.current)
+    }
+  }, [])
 
   const addAttachments = React.useCallback(
     (items: ComposerAttachmentInput[]) => {
@@ -171,6 +178,7 @@ export function useComposerAttachments({
           setAttachmentPreviewUrl(attachment.path, attachment.previewUrl)
         }
       }
+      attachmentsRef.current = [...attachmentsRef.current, ...uniqueNext]
       dispatch({ type: "add-attachments", attachments: uniqueNext })
     },
     [dispatch],
@@ -246,7 +254,9 @@ export function useComposerAttachments({
           file,
         })
       }
-      addAttachments(next)
+      if (mountedRef.current) {
+        addAttachments(next)
+      }
     },
     [addAttachments, clearInputError, showTrustedInputError, t],
   )
@@ -274,7 +284,12 @@ export function useComposerAttachments({
 
   const removeAttachment = React.useCallback(
     (id: string) => {
-      revokeAttachmentPreviewUrls(attachmentsRef.current.filter((attachment) => attachment.id === id))
+      const removed = attachmentsRef.current.filter((attachment) => attachment.id === id)
+      revokeAttachmentPreviewUrls(removed)
+      void globalThis.wanta
+        ?.releaseAttachmentPaths(removed.flatMap((attachment) => [attachment.path, attachment.agentPath ?? ""]))
+        .catch(() => undefined)
+      attachmentsRef.current = attachmentsRef.current.filter((attachment) => attachment.id !== id)
       dispatch({ type: "remove-attachment", id })
     },
     [dispatch],
@@ -282,6 +297,7 @@ export function useComposerAttachments({
 
   const revokeCurrentPreviews = React.useCallback(() => {
     revokeAttachmentPreviewUrls(attachmentsRef.current)
+    attachmentsRef.current = []
   }, [])
 
   const handleDragOver = React.useCallback((event: React.DragEvent<HTMLFormElement>) => {

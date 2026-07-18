@@ -10,7 +10,13 @@ describe("turnOutputInitialCollapsedPaths", () => {
     expect(turnOutputInitialCollapsedPaths("process", files)).toEqual(new Set(["/tmp/second.ts"]))
   })
 
-  it("keeps project changes expanded by default", () => {
-    expect(turnOutputInitialCollapsedPaths("project_change", files)).toEqual(new Set())
+  it("keeps only the first project change expanded by default", () => {
+    expect(turnOutputInitialCollapsedPaths("project_change", files)).toEqual(new Set(["/tmp/second.ts"]))
+  })
+
+  it("expands a selected file instead of the first file", () => {
+    expect(turnOutputInitialCollapsedPaths("project_change", files, "/tmp/second.ts")).toEqual(
+      new Set(["/tmp/first.ts"]),
+    )
   })
 })

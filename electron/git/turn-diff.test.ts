@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
@@ -37,14 +37,103 @@ test("collectGitTurnDiffs compares against dirty turn baseline instead of HEAD",
     const baseline = await captureGitTurnBaseline(root)
     await writeFile(path.join(root, "report.txt"), "user edit\nagent edit\n", "utf8")
 
-    const diffs = await collectGitTurnDiffs(baseline, () => "text/plain")
+    const result = await collectGitTurnDiffs(baseline, () => "text/plain")
+    const diffs = result.files
 
+    assert.equal(result.truncated, false)
     assert.equal(diffs.length, 1)
     assert.equal(diffs[0]?.path, "report.txt")
     assert.equal(diffs[0]?.diff.additions, 1)
     assert.equal(diffs[0]?.diff.deletions, 0)
     assert.match(diffs[0]?.diff.patch ?? "", /\+agent edit/)
     assert.doesNotMatch(diffs[0]?.diff.patch ?? "", /-base/)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("collectGitTurnDiffs never follows an untracked symbolic link", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-turn-diff-symlink-"))
+  const outside = await mkdtemp(path.join(os.tmpdir(), "wanta-turn-diff-outside-"))
+  try {
+    await git(root, ["init"])
+    await git(root, ["config", "user.email", "test@example.com"])
+    await git(root, ["config", "user.name", "Test User"])
+    await writeFile(path.join(root, "tracked.txt"), "base\n", "utf8")
+    await git(root, ["add", "tracked.txt"])
+    await git(root, ["commit", "-m", "initial"])
+
+    const baseline = await captureGitTurnBaseline(root)
+    const secretPath = path.join(outside, "secret.txt")
+    await writeFile(secretPath, "must not be exposed\n", "utf8")
+    await symlink(secretPath, path.join(root, "leak.txt"))
+
+    const result = await collectGitTurnDiffs(baseline, () => "text/plain")
+    const diffs = result.files
+
+    assert.equal(result.truncated, false)
+    assert.equal(diffs.length, 0)
+    assert.equal(await readFile(secretPath, "utf8"), "must not be exposed\n")
+  } finally {
+    await Promise.all([rm(root, { force: true, recursive: true }), rm(outside, { force: true, recursive: true })])
+  }
+})
+
+test("captureGitTurnBaseline scopes a repository snapshot to the selected subdirectory", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-turn-diff-scope-"))
+  try {
+    await git(root, ["init"])
+    await git(root, ["config", "user.email", "test@example.com"])
+    await git(root, ["config", "user.name", "Test User"])
+    await Promise.all([mkdir(path.join(root, "selected")), mkdir(path.join(root, "outside"))])
+    await writeFile(path.join(root, "selected", "inside.txt"), "base\n", "utf8")
+    await writeFile(path.join(root, "outside", "outside.txt"), "base\n", "utf8")
+    await git(root, ["add", "."])
+    await git(root, ["commit", "-m", "initial"])
+
+    await writeFile(path.join(root, "selected", "inside.txt"), "before turn\n", "utf8")
+    await writeFile(path.join(root, "outside", "outside.txt"), "outside edit\n", "utf8")
+    const baseline = await captureGitTurnBaseline(path.join(root, "selected"))
+    await writeFile(path.join(root, "selected", "inside.txt"), "after turn\n", "utf8")
+    await writeFile(path.join(root, "outside", "outside.txt"), "outside edit again\n", "utf8")
+
+    const result = await collectGitTurnDiffs(baseline, () => "text/plain")
+    const diffs = result.files
+
+    assert.equal(result.truncated, false)
+    assert.deepEqual(
+      diffs.map((item) => item.path),
+      ["inside.txt"],
+    )
+    assert.match(diffs[0]?.diff.patch ?? "", /after turn/)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("collectGitTurnDiffs does not attribute an uncaptured initial edit to the agent", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-turn-diff-truncated-"))
+  try {
+    await git(root, ["init"])
+    await git(root, ["config", "user.email", "test@example.com"])
+    await git(root, ["config", "user.name", "Test User"])
+    await writeFile(path.join(root, "report.txt"), "base\n", "utf8")
+    await git(root, ["add", "report.txt"])
+    await git(root, ["commit", "-m", "initial"])
+    await writeFile(path.join(root, "report.txt"), "user edit\n", "utf8")
+
+    const result = await collectGitTurnDiffs(
+      {
+        initialDirtyPaths: ["report.txt"],
+        repositoryRoot: root,
+        snapshots: {},
+        truncated: true,
+      },
+      () => "text/plain",
+    )
+
+    assert.equal(result.truncated, true)
+    assert.deepEqual(result.files, [])
   } finally {
     await rm(root, { force: true, recursive: true })
   }

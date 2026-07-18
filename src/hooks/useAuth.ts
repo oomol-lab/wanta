@@ -5,6 +5,7 @@ import * as React from "react"
 import { useAuthService } from "../components/AppContext.ts"
 import { oomolAuthRequiredEventName } from "../lib/oomol-http.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
+import { observeAuthState } from "./auth-state-observer.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 export interface UseAuth {
@@ -34,25 +35,18 @@ function useAuthController(): UseAuth {
   }, [state])
 
   React.useEffect(() => {
-    let cancelled = false
-    void service.invoke("getAuthState").then(
-      (next) => {
-        if (!cancelled) {
-          setState(next)
-        }
+    return observeAuthState({
+      load: () => service.invoke("getAuthState"),
+      onError: (err) => {
+        reportRendererHandledError("auth", "initial auth state load failed", err)
+        setError(resolveUserFacingError(err, { area: "auth" }))
       },
-      (err) => {
-        if (!cancelled) {
-          reportRendererHandledError("auth", "initial auth state load failed", err)
-          setError(resolveUserFacingError(err, { area: "auth" }))
-        }
+      onState: (next) => {
+        setState(next)
+        setError(null)
       },
-    )
-    const off = service.serverEvents.on("authStateChanged", (next) => setState(next))
-    return () => {
-      cancelled = true
-      off()
-    }
+      subscribe: (listener) => service.serverEvents.on("authStateChanged", listener),
+    })
   }, [service])
 
   React.useEffect(() => {

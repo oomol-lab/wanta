@@ -1,12 +1,10 @@
-import { execFile } from "node:child_process"
+import { constants as fsConstants } from "node:fs"
 import { access } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { promisify } from "node:util"
 import { resetUserCommandPathCacheForTest, resolveUserCommandPath } from "../command-path.ts"
 import { logDiagnosticOnChange } from "../diagnostics-log.ts"
 
-const execFileAsync = promisify(execFile)
 const agentDiscoveryCacheMs = 5_000
 
 export interface AgentDiscoveryEntry {
@@ -161,33 +159,65 @@ export async function detectCliCommand(
   const pathEnv = options.pathEnv ?? (await resolveUserCommandPath({ env, homeDirectory: options.homeDirectory }))
 
   for (const command of commands) {
-    try {
-      await execFileAsync(command, ["--version"], {
-        env: {
-          ...env,
-          PATH: pathEnv,
-        },
-        timeout: 1500,
-      })
+    const executablePath = await resolveExecutablePath(command, pathEnv, env)
+    if (executablePath) {
       logDiagnosticOnChange(`agent-discovery:cli-command:${command}`, "agent-discovery", "cli command detected", {
         command,
         detected: true,
+        executablePath,
       })
       return command
-    } catch (error) {
-      logDiagnosticOnChange(
-        `agent-discovery:cli-command:${command}`,
-        "agent-discovery",
-        "cli command unavailable",
-        { command, detected: false, error: error instanceof Error ? error.message : String(error) },
-        "trace",
-        { command, detected: false },
-      )
-      // 继续尝试下一个命令。
+    }
+
+    logDiagnosticOnChange(
+      `agent-discovery:cli-command:${command}`,
+      "agent-discovery",
+      "cli command unavailable",
+      { command, detected: false },
+      "trace",
+    )
+    // 继续尝试下一个命令。
+  }
+
+  return undefined
+}
+
+async function resolveExecutablePath(
+  command: string,
+  pathEnv: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string | undefined> {
+  const platform = process.platform
+  const hasPathSeparator = command.includes("/") || command.includes("\\")
+  const hasExplicitPath = path.isAbsolute(command) || hasPathSeparator
+  const directories = hasExplicitPath ? [""] : pathEnv.split(path.delimiter).filter(Boolean)
+  const extensions = hasExplicitPath ? [""] : readExecutableExtensions(command, env, platform)
+
+  for (const directory of directories) {
+    for (const extension of extensions) {
+      const candidate = directory ? path.join(directory, `${command}${extension}`) : `${command}${extension}`
+      try {
+        await access(candidate, platform === "win32" ? fsConstants.F_OK : fsConstants.X_OK)
+        return candidate
+      } catch {
+        // 继续检查 PATH 中的下一个候选文件。
+      }
     }
   }
 
   return undefined
+}
+
+function readExecutableExtensions(command: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] {
+  if (platform !== "win32" || path.win32.extname(command)) {
+    return [""]
+  }
+
+  const pathExt = Object.entries(env).find(([key]) => key.toLowerCase() === "pathext")?.[1] ?? ".COM;.EXE;.BAT;.CMD"
+  return pathExt
+    .split(";")
+    .map((extension) => extension.trim())
+    .filter(Boolean)
 }
 
 function shouldUseDefaultDiscoveryCache(agents: readonly SupportedAgent[], options: AgentDiscoveryOptions): boolean {

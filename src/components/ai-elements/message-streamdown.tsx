@@ -8,7 +8,7 @@ import type {
 } from "streamdown"
 
 import { createMermaidPlugin } from "@streamdown/mermaid"
-import { useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
 import { Streamdown } from "streamdown"
 import {
   deferIncompleteMermaidMarkdown,
@@ -18,6 +18,7 @@ import {
   validateMermaidSource,
 } from "./mermaid-policy.ts"
 import { MermaidPendingRenderer, MermaidRenderer, MermaidRendererProvider } from "./mermaid-renderer.tsx"
+import { useTheme } from "@/components/theme-context"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 
@@ -85,19 +86,9 @@ function MermaidError({ chart, error, retry }: MermaidErrorComponentProps) {
   )
 }
 
-function currentMermaidTheme(): "dark" | "neutral" {
-  return typeof document !== "undefined" && document.documentElement.classList.contains("dark") ? "dark" : "neutral"
-}
-
 function useMermaidOptions(): NonNullable<StreamdownProps["mermaid"]> {
-  const [theme, setTheme] = useState<"dark" | "neutral">(currentMermaidTheme)
-
-  useEffect(() => {
-    const root = document.documentElement
-    const observer = new MutationObserver(() => setTheme(currentMermaidTheme()))
-    observer.observe(root, { attributeFilter: ["class"], attributes: true })
-    return () => observer.disconnect()
-  }, [])
+  const { effectiveTheme } = useTheme()
+  const theme = effectiveTheme === "dark" ? "dark" : "neutral"
 
   return useMemo(
     () => ({

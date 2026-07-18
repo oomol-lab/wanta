@@ -146,7 +146,13 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
   const [viewType, setViewType] = React.useState<ViewType>("split")
   const processFiles = React.useMemo(() => (selection ? roleFiles(selection.record, "process") : []), [selection])
   const changeFiles = React.useMemo(() => (selection ? roleFiles(selection.record, "project_change") : []), [selection])
-  const requestedRole = availableTurnOutputRole(initialRole, processFiles.length, changeFiles.length)
+  const projectChangesTruncated = Boolean(selection?.record.projectChangesTruncated)
+  const requestedRole = availableTurnOutputRole(
+    initialRole,
+    processFiles.length,
+    changeFiles.length,
+    projectChangesTruncated,
+  )
   const roleSelectionKey = `${selection?.record.messageId ?? "none"}\0${selection?.selectedPath ?? ""}\0${requestedRole}`
   const [roleSelection, setRoleSelection] = React.useState<{ key: string; role: TurnOutputFileRole }>(() => ({
     key: roleSelectionKey,
@@ -154,14 +160,15 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
   }))
   const activeRole =
     roleSelection.key === roleSelectionKey
-      ? availableTurnOutputRole(roleSelection.role, processFiles.length, changeFiles.length)
+      ? availableTurnOutputRole(roleSelection.role, processFiles.length, changeFiles.length, projectChangesTruncated)
       : requestedRole
   const activeFiles = activeRole === "project_change" ? changeFiles : processFiles
   const activeViewType: ViewType = activeRole === "process" ? "unified" : viewType
   const [collapsedPaths, setCollapsedPaths] = React.useState<Set<string>>(() =>
-    turnOutputInitialCollapsedPaths(activeRole, activeFiles),
+    turnOutputInitialCollapsedPaths(activeRole, activeFiles, selection?.selectedPath),
   )
-  const hasRoleSwitch = changeFiles.length > 0 && processFiles.length > 0
+  const fileSectionRefs = React.useRef(new Map<string, HTMLElement>())
+  const hasRoleSwitch = (changeFiles.length > 0 || projectChangesTruncated) && processFiles.length > 0
   const { openPath, showInFolder } = useTurnFileActions()
   const allExpanded = activeFiles.length > 0 && activeFiles.every((file) => !collapsedPaths.has(file.path))
   const activeAdditions = activeFiles.reduce((sum, file) => sum + file.additions, 0)
@@ -175,8 +182,19 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
   )
 
   React.useEffect(() => {
-    setCollapsedPaths(turnOutputInitialCollapsedPaths(activeRole, activeFiles))
-  }, [activeFiles, activeRole, selection?.record.messageId])
+    setCollapsedPaths(turnOutputInitialCollapsedPaths(activeRole, activeFiles, selection?.selectedPath))
+  }, [activeFiles, activeRole, selection?.record.messageId, selection?.selectedPath])
+
+  React.useEffect(() => {
+    const selectedPath = selection?.selectedPath
+    if (!selectedPath || !activeFiles.some((file) => file.path === selectedPath)) {
+      return
+    }
+    const frame = window.requestAnimationFrame(() => {
+      fileSectionRefs.current.get(selectedPath)?.scrollIntoView({ behavior: "smooth", block: "start" })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeFiles, activeRole, roleSelectionKey, selection?.selectedPath])
 
   const togglePath = React.useCallback((path: string) => {
     setCollapsedPaths((current) => {
@@ -306,6 +324,11 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
               {t("turnOutputs.processCaution")}
             </div>
           ) : null}
+          {activeRole === "project_change" && projectChangesTruncated ? (
+            <div className="oo-text-caption border-b bg-muted/45 px-4 py-1.5 text-muted-foreground">
+              {t("turnOutputs.changesIncomplete")}
+            </div>
+          ) : null}
           {activeFiles.length > 0 ? (
             <div className="oo-turn-diff-stream min-w-0">
               {activeFiles.map((file) => (
@@ -313,6 +336,11 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
                   key={file.path}
                   collapsed={collapsedPaths.has(file.path)}
                   file={file}
+                  selected={file.path === selection?.selectedPath}
+                  sectionRef={(element) => {
+                    if (element) fileSectionRefs.current.set(file.path, element)
+                    else fileSectionRefs.current.delete(file.path)
+                  }}
                   onToggle={() => togglePath(file.path)}
                   openPath={openPath}
                   selection={selection}
@@ -360,6 +388,8 @@ function TurnDiffFileSection({
   onToggle,
   openPath,
   selection,
+  selected,
+  sectionRef,
   showInFolder,
   viewType,
 }: {
@@ -368,6 +398,8 @@ function TurnDiffFileSection({
   onToggle: () => void
   openPath: (filePath: string | undefined) => void
   selection: TurnOutputSelection | null
+  selected: boolean
+  sectionRef: (element: HTMLElement | null) => void
   showInFolder: (filePath: string | undefined) => void
   viewType: ViewType
 }) {
@@ -378,7 +410,10 @@ function TurnDiffFileSection({
   const displayPath = reviewFileDisplayPath(file.path)
 
   return (
-    <section className="oo-turn-diff-file min-w-0 bg-background">
+    <section
+      ref={sectionRef}
+      className={cn("oo-turn-diff-file min-w-0 scroll-mt-24 bg-background", selected && "bg-accent/20")}
+    >
       <div className="oo-turn-diff-file-header sticky top-12 z-10 flex min-h-10 min-w-0 items-center justify-between gap-2 bg-background/95 px-4 backdrop-blur">
         <button
           type="button"
@@ -494,17 +529,24 @@ function CopyAllPatchesButton({
     }
     setCopying(true)
     try {
-      const diffs = await Promise.all(
-        files.map((file) =>
-          chatService.invoke("getTurnFileDiff", {
+      const diffs: Array<TurnFileDiffResult | undefined> = Array.from({ length: files.length })
+      let nextIndex = 0
+      const copyNext = async (): Promise<void> => {
+        while (nextIndex < files.length) {
+          const index = nextIndex
+          nextIndex += 1
+          const file = files[index]
+          if (!file) continue
+          diffs[index] = await chatService.invoke("getTurnFileDiff", {
             sessionId: selection.record.sessionId,
             messageId: selection.record.messageId,
             path: file.path,
-          }),
-        ),
-      )
+          })
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(4, files.length) }, () => copyNext()))
       const patch = diffs
-        .filter((diff): diff is TurnFileDiffResult & { patch: string } => diff.kind === "text" && Boolean(diff.patch))
+        .filter((diff): diff is TurnFileDiffResult & { patch: string } => diff?.kind === "text" && Boolean(diff.patch))
         .map((diff) => diff.patch)
         .join("\n")
       if (!patch || !(await writeClipboardText(patch))) {

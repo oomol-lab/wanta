@@ -71,7 +71,10 @@ function cellDataFromRows(rows: string[][]): NonNullable<IWorksheetData["cellDat
   return data
 }
 
-export function workbookSnapshotFromPreview(preview: LocalArtifactPreviewResult): IWorkbookData | null {
+export function workbookSnapshotFromPreview(
+  preview: LocalArtifactPreviewResult,
+  locale: LocaleType = LocaleType.ZH_CN,
+): IWorkbookData | null {
   const sheets = spreadsheetPreviewSheets(preview)
   if (sheets.length === 0) {
     return null
@@ -121,7 +124,7 @@ export function workbookSnapshotFromPreview(preview: LocalArtifactPreviewResult)
   return {
     appVersion: univerWorkbookAppVersion,
     id: "artifact-spreadsheet-preview",
-    locale: LocaleType.ZH_CN,
+    locale,
     name: "Artifact Spreadsheet Preview",
     sheetOrder,
     sheets: workbookSheets,

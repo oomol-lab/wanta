@@ -31,6 +31,47 @@ export interface ProviderGridCenteredScrollTopInput {
   viewportHeight: number
 }
 
+export function getProviderGridKeyboardTargetIndex({
+  columnCount,
+  currentIndex,
+  key,
+  providerCount,
+}: {
+  columnCount: number
+  currentIndex: number
+  key: string
+  providerCount: number
+}): number | null {
+  if (providerCount <= 0) return null
+  const lastIndex = providerCount - 1
+  const safeIndex = Math.min(Math.max(0, currentIndex), lastIndex)
+  const columns = Math.max(1, columnCount)
+  const column = safeIndex % columns
+  const target =
+    key === "ArrowLeft"
+      ? column > 0
+        ? safeIndex - 1
+        : safeIndex
+      : key === "ArrowRight"
+        ? column < columns - 1 && safeIndex < lastIndex
+          ? safeIndex + 1
+          : safeIndex
+        : key === "ArrowUp"
+          ? safeIndex >= columns
+            ? safeIndex - columns
+            : safeIndex
+          : key === "ArrowDown"
+            ? safeIndex + columns <= lastIndex
+              ? safeIndex + columns
+              : safeIndex
+            : key === "Home"
+              ? 0
+              : key === "End"
+                ? lastIndex
+                : null
+  return target
+}
+
 export function getProviderGridColumnCount(
   width: number,
   minColumnWidth = providerGridMinColumnWidthPx,

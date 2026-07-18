@@ -5,6 +5,23 @@ export interface ZipArchiveStats {
   totalUncompressedSize: number
 }
 
+export interface ZipArchiveLimits {
+  maxCompressionRatio: number
+  maxEntries: number
+  maxEntryUncompressedSize: number
+  maxTotalUncompressedSize: number
+}
+
+export function zipArchiveWithinLimits(stats: ZipArchiveStats, limits: ZipArchiveLimits): boolean {
+  const compressionRatio = stats.totalUncompressedSize / Math.max(stats.totalCompressedSize, 1)
+  return (
+    stats.entryCount <= limits.maxEntries &&
+    stats.totalUncompressedSize <= limits.maxTotalUncompressedSize &&
+    stats.maxEntryUncompressedSize <= limits.maxEntryUncompressedSize &&
+    compressionRatio <= limits.maxCompressionRatio
+  )
+}
+
 const endOfCentralDirectorySignature = 0x06054b50
 const centralDirectoryEntrySignature = 0x02014b50
 const maxEndRecordSearchBytes = 65_557

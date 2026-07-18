@@ -1,3 +1,5 @@
+import type { ConnectionAppSummary } from "../../electron/connections/common.ts"
+
 import { afterEach, describe, expect, it } from "vitest"
 import {
   clearOAuthPendingOperations,
@@ -10,7 +12,26 @@ import {
   readOAuthPendingOperation,
   readOAuthPendingOperationsForWorkspace,
   rememberOAuthPendingOperation,
+  resolveOAuthConnectionReadyTarget,
 } from "./connection-oauth-pending.ts"
+
+function connectionApp(
+  id: string,
+  service: string,
+  connectionName: string,
+  status: ConnectionAppSummary["status"] = "active",
+): ConnectionAppSummary {
+  return {
+    authType: "oauth2",
+    connectionName,
+    createdAt: 1,
+    id,
+    isDefault: false,
+    service,
+    status,
+    updatedAt: 1,
+  }
+}
 
 class MemoryStorage implements Storage {
   private readonly items = new Map<string, string>()
@@ -117,5 +138,46 @@ describe("connection OAuth pending key", () => {
 
     expect(readOAuthPendingOperationsForWorkspace(orgName, 3_000, storage)).toEqual([second])
     expect(readOAuthPendingOperationsForWorkspace(organization, 3_000, storage)).toEqual([otherWorkspace])
+  })
+
+  it("resolves the newly connected OAuth account after polling resumes", () => {
+    const operation = createOAuthPendingOperation(
+      { organizationName: "org-name" },
+      { authType: "oauth2", service: "gmail" },
+      1,
+      1_000,
+      ["existing"],
+    )
+
+    expect(
+      resolveOAuthConnectionReadyTarget(
+        [connectionApp("existing", "gmail", "old"), connectionApp("new", "gmail", "new")],
+        operation,
+      ),
+    ).toEqual({
+      connectionName: "new",
+      service: "gmail",
+      workspaceKey: "organization:org-name",
+    })
+  })
+
+  it("resolves the requested account when OAuth reconnects", () => {
+    const operation = createOAuthPendingOperation(
+      { organizationName: "org-name" },
+      { appId: "target", authType: "oauth2", service: "gmail" },
+      1,
+      1_000,
+    )
+
+    expect(
+      resolveOAuthConnectionReadyTarget(
+        [connectionApp("other", "gmail", "other"), connectionApp("target", "gmail", "target")],
+        operation,
+      ),
+    ).toEqual({
+      connectionName: "target",
+      service: "gmail",
+      workspaceKey: "organization:org-name",
+    })
   })
 })

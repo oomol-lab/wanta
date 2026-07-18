@@ -9,7 +9,6 @@ import type { TranslateFn } from "@/i18n/i18n"
 
 import { Code2, Copy, ExternalLink, File, FolderOpen, Info, Music, Package } from "lucide-react"
 import * as React from "react"
-import { parseCsvPreview } from "./artifact-csv-preview.ts"
 import { htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 import {
   artifactMetaLabel,
@@ -24,7 +23,6 @@ import {
 } from "./artifact-metadata.ts"
 import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
 import { FileKindIcon } from "./file-type-icons.tsx"
-import { fileVisualKind } from "./file-type-kind.ts"
 import {
   CodeBlock,
   CodeBlockActions,
@@ -134,10 +132,15 @@ export function ArtifactPreview({
   }, [item?.path, onModeChange])
 
   React.useEffect(() => {
-    if (fileVisualKind(item ?? undefined, pack) === "spreadsheet") {
+    if (
+      item &&
+      (isCsvArtifact(item) ||
+        item.name.toLowerCase().endsWith(".xlsx") ||
+        item.mime.toLowerCase() === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) {
       void loadArtifactUniverSpreadsheetPreview()
     }
-  }, [item, pack])
+  }, [item?.mime, item?.name])
 
   if (!item) {
     return <ArtifactsEmptyState />
@@ -348,55 +351,6 @@ function ArtifactUnavailablePreview({
   )
 }
 
-function ArtifactCsvPreview({ item, preview }: { item: LocalArtifactItem; preview: LocalArtifactPreviewResult }) {
-  const t = useT()
-  const parsed = React.useMemo(() => parseCsvPreview(preview.text ?? ""), [preview.text])
-  const [head = [], ...body] = parsed.rows
-  const columnCount = Math.max(1, ...parsed.rows.map((row) => row.length))
-  const columns = Array.from({ length: columnCount }, (_, index) => index)
-
-  if (parsed.rows.length === 0) {
-    return <ArtifactSourcePreview item={item} preview={preview} />
-  }
-
-  return (
-    <div className="min-h-full bg-background p-3">
-      <div className="oo-border-divider overflow-auto rounded-md border">
-        <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
-          {head.length > 0 ? (
-            <thead className="sticky top-0 z-10 bg-muted text-muted-foreground">
-              <tr>
-                {columns.map((index) => (
-                  <th
-                    key={index}
-                    className="oo-border-divider border-b px-3 py-2 align-top font-medium whitespace-nowrap"
-                  >
-                    {head[index] || "-"}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-          ) : null}
-          <tbody>
-            {body.map((row, rowIndex) => (
-              <tr key={rowIndex} className="odd:bg-background even:bg-muted/25">
-                {columns.map((columnIndex) => (
-                  <td key={columnIndex} className="oo-border-divider max-w-72 border-b px-3 py-2 align-top break-words">
-                    {row[columnIndex] || ""}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {preview.truncated || parsed.truncated ? (
-        <p className="oo-text-caption mt-2 text-muted-foreground">{t("artifacts.previewTruncated")}</p>
-      ) : null}
-    </div>
-  )
-}
-
 function ArtifactSpreadsheetLoadingPreview() {
   const t = useT()
 
@@ -601,10 +555,6 @@ export function ArtifactConsumablePreview({
       )
     }
     return <ArtifactHtmlPreview preview={preview} />
-  }
-
-  if (preview?.kind === "text" && isCsvArtifact(item)) {
-    return <ArtifactCsvPreview item={item} preview={preview} />
   }
 
   if (preview?.kind === "text") {

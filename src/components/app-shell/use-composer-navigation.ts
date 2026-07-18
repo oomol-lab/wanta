@@ -14,7 +14,6 @@ export interface ComposerNavigationController {
   handleNewSession: () => void
   handleNewTaskSession: () => void
   handleOpenProjectDraft: (project: SessionProject) => void
-  handleReturnToConnections: () => void
   handleSelectComposerProject: (projectId: string | undefined) => Promise<void>
   handleSelectComposerProjectFolder: () => Promise<void>
   handleSelectProjectFolder: () => Promise<void>
@@ -31,6 +30,7 @@ export function useComposerNavigation({
   draftProjectId,
   isDraftSession,
   lastProjectId,
+  releaseTransientFocus,
   route,
   sessionScope,
   setComposerFocusRequest,
@@ -52,6 +52,7 @@ export function useComposerNavigation({
   draftProjectId: string | null
   isDraftSession: boolean
   lastProjectId: () => string | null
+  releaseTransientFocus: () => void
   route: AppShellRoute
   sessionScope: SessionScope | null
   setComposerFocusRequest: React.Dispatch<React.SetStateAction<number>>
@@ -174,27 +175,24 @@ export function useComposerNavigation({
         releaseTransientFocus()
       }
     },
-    [createProject, handleCreatedProject, t],
+    [createProject, handleCreatedProject, releaseTransientFocus, t],
   )
   const handleSelectSession = React.useCallback(
     (session: SessionInfo): void => {
       setSelectedSessionId(session.id)
       setIsDraftSession(false)
       setDraftProjectId(null)
+      setPendingChatTransition(null)
       setRoute("chat")
       setSidebarSegment(session.projectId ? "projects" : "tasks")
     },
-    [setDraftProjectId, setIsDraftSession, setRoute, setSelectedSessionId, setSidebarSegment],
+    [setDraftProjectId, setIsDraftSession, setPendingChatTransition, setRoute, setSelectedSessionId, setSidebarSegment],
   )
   const requestComposerFocus = React.useCallback((): void => {
     setRoute("chat")
     setSearchOpen(false)
     setComposerFocusRequest((request) => request + 1)
   }, [setComposerFocusRequest, setRoute, setSearchOpen])
-  const handleReturnToConnections = React.useCallback((): void => {
-    setSearchOpen(false)
-    setRoute("connections")
-  }, [setRoute, setSearchOpen])
   const handleSelectComposerProjectFolder = React.useCallback(
     (): Promise<void> => handleSelectProjectDirectory("composer"),
     [handleSelectProjectDirectory],
@@ -208,24 +206,12 @@ export function useComposerNavigation({
     handleNewSession,
     handleNewTaskSession,
     handleOpenProjectDraft,
-    handleReturnToConnections,
     handleSelectComposerProject,
     handleSelectComposerProjectFolder,
     handleSelectProjectFolder,
     handleSelectSession,
     requestComposerFocus,
   }
-}
-
-function releaseTransientFocus(): void {
-  const blurActiveElement = (): void => {
-    const activeElement = document.activeElement
-    if (activeElement instanceof HTMLElement) {
-      activeElement.blur()
-    }
-  }
-  blurActiveElement()
-  window.requestAnimationFrame(blurActiveElement)
 }
 
 function showSessionError(cause: unknown, t: ReturnType<typeof useT>): void {

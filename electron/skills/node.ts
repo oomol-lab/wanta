@@ -3,18 +3,16 @@ import type { OoCommandResult } from "../oo-command.ts"
 import type {
   CheckSkillVersionsRequest,
   DeleteSkillRequest,
-  ExecuteSkillUpdateRequest,
   InstallRegistrySkillRequest,
+  InstallRegistrySkillsResult,
   OpenSkillPathRequest,
   PublishSkillRequest,
   PublishSkillResult,
   SkillDocument,
   SkillDocumentRequest,
-  SkillInventoryChangedEvent,
   SkillInventory,
-  SkillCliChangedEvent,
+  SkillInventoryChangedEvent,
   SkillService,
-  SkillSummary,
   SkillVersionReport,
   UpdateRegistrySkillRequest,
 } from "./common.ts"
@@ -88,6 +86,9 @@ interface SkillServiceOptions {
   onRuntimeSkillsChanged?: (reason: string) => void
 }
 
+// 默认 Skill 安装只供主进程生命周期调用；使用 symbol 避免注册 service 时形成字符串 RPC 方法。
+export const ensureDefaultRegistrySkillsInstalled = Symbol("ensureDefaultRegistrySkillsInstalled")
+
 export class SkillServiceImpl extends ConnectionService<SkillService> implements IConnectionService<SkillService> {
   private readonly authService: AuthManager
   private readonly fileWatcher: SkillFileWatcher
@@ -98,12 +99,12 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private defaultRegistrySkillInstallInFlight: Promise<void> | undefined
   private readonly externalRuntimeSynchronizer: ExternalSkillRuntimeSynchronizer
   private readonly registryRuntimeSynchronizer: RegistrySkillRuntimeSynchronizer
+  private skillMutationQueue: Promise<void> = Promise.resolve()
   private runtimeSyncQueue: Promise<void> = Promise.resolve()
   private removedSkillStore: RemovedSkillStore | undefined
   private readonly options: SkillServiceOptions
   private readonly unsubscribeAuthStateChanged: () => void
   private isDisposed = false
-  public readonly cliChanged = new ServiceEvent<SkillCliChangedEvent>()
   public readonly inventoryChanged = new ServiceEvent<SkillInventoryChangedEvent>()
 
   public constructor(authService: AuthManager, options: SkillServiceOptions = {}) {
@@ -218,24 +219,14 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return this.readSharedSkillInventory({ writeManifest: true })
   }
 
-  public async checkSkillInventory(): Promise<SkillInventory> {
-    const inventory = await this.refreshSharedSkillInventory({ writeManifest: true })
-    await this.emitInventoryChanged()
-    return inventory
-  }
-
-  public async getSkillSummary(): Promise<SkillSummary> {
-    return (await this.getSkillInventory()).summary
-  }
-
-  public async ensureDefaultRegistrySkillsInstalled(
+  public async [ensureDefaultRegistrySkillsInstalled](
     specs: readonly DefaultRegistrySkillSpec[] = defaultRegistrySkills,
   ): Promise<void> {
     if (this.defaultRegistrySkillInstallInFlight) {
       return this.defaultRegistrySkillInstallInFlight
     }
 
-    const promise = this.installDefaultRegistrySkills(specs)
+    const promise = this.enqueueSkillMutation(() => this.installDefaultRegistrySkills(specs))
     this.defaultRegistrySkillInstallInFlight = promise
 
     try {
@@ -248,6 +239,50 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   }
 
   public async installRegistrySkill(request: InstallRegistrySkillRequest): Promise<SkillInventory> {
+    return this.enqueueSkillMutation(async () => {
+      await this.installRegistrySkillTarget(request)
+      this.notifyRuntimeSkillsChanged("install-registry-skill")
+      return this.readAndPublishSkillInventory()
+    })
+  }
+
+  public async installRegistrySkills(requests: InstallRegistrySkillRequest[]): Promise<InstallRegistrySkillsResult> {
+    if (!Array.isArray(requests) || requests.length > 100) {
+      throw new Error("Skill batch install accepts at most 100 targets.")
+    }
+    return this.enqueueSkillMutation(async () => {
+      const installed: InstallRegistrySkillRequest[] = []
+      const failures: InstallRegistrySkillsResult["failures"] = []
+      const uniqueRequests = Array.from(
+        new Map(
+          requests.map((request) => [
+            `${request.packageName.trim()}\u0000${request.skillId.trim()}`,
+            { packageName: request.packageName.trim(), skillId: request.skillId.trim() },
+          ]),
+        ).values(),
+      ).filter((request) => request.packageName && request.skillId)
+
+      for (const request of uniqueRequests) {
+        try {
+          await this.installRegistrySkillTarget(request)
+          installed.push(request)
+        } catch (error) {
+          failures.push({ ...request, error: runtimeErrorMessage(error) })
+        }
+      }
+
+      if (installed.length > 0) {
+        this.notifyRuntimeSkillsChanged("install-registry-skills")
+      }
+      return {
+        failures,
+        installed,
+        inventory: await this.readAndPublishSkillInventory(),
+      }
+    })
+  }
+
+  private async installRegistrySkillTarget(request: InstallRegistrySkillRequest): Promise<void> {
     const result = await this.runOoCommand(createInstallRegistrySkillArgs(request), {
       owner: "skill-service",
       rejectOnFailure: false,
@@ -260,37 +295,32 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         packageName: request.packageName,
       }),
     )
-    this.notifyRuntimeSkillsChanged("install-registry-skill")
-
-    return this.readAndPublishSkillInventory()
   }
 
   public async updateRegistrySkill(request: UpdateRegistrySkillRequest): Promise<SkillInventory> {
-    const result = await this.runOoCommand(createUpdateRegistrySkillArgs(request), {
-      owner: "skill-service",
-      rejectOnFailure: false,
+    return this.enqueueSkillMutation(async () => {
+      const result = await this.runOoCommand(createUpdateRegistrySkillArgs(request), {
+        owner: "skill-service",
+        rejectOnFailure: false,
+      })
+      assertOoSkillOperationResult(result, "skills.update")
+      await this.enqueueRuntimeSync(() => this.registryRuntimeSynchronizer.syncUpdated(request))
+      this.notifyRuntimeSkillsChanged("update-registry-skill")
+
+      return this.readAndPublishSkillInventory()
     })
-    assertOoSkillOperationResult(result, "skills.update")
-    await this.enqueueRuntimeSync(() => this.registryRuntimeSynchronizer.syncUpdated(request))
-    this.notifyRuntimeSkillsChanged("update-registry-skill")
-
-    return this.readAndPublishSkillInventory()
-  }
-
-  public async executeRegistrySkillUpdate(request: ExecuteSkillUpdateRequest): Promise<SkillVersionReport> {
-    await this.updateRegistrySkill(request)
-    return this.checkSkillVersions({ forceRefresh: true })
   }
 
   public async executeCliUpdate(): Promise<SkillVersionReport> {
-    await this.runOoCommand(createCliUpdateArgs(), {
-      owner: "skill-service",
+    return this.enqueueSkillMutation(async () => {
+      await this.runOoCommand(createCliUpdateArgs(), {
+        owner: "skill-service",
+      })
+      this.invalidateVersionReport()
+      this.notifyRuntimeSkillsChanged("update-skill-cli")
+      await this.emitInventoryChanged()
+      return this.checkSkillVersions({ forceRefresh: true })
     })
-    this.invalidateVersionReport()
-    this.emitCliChanged()
-    this.notifyRuntimeSkillsChanged("update-skill-cli")
-    await this.emitInventoryChanged()
-    return this.checkSkillVersions({ forceRefresh: true })
   }
 
   public async openSkillFolder(request: OpenSkillPathRequest): Promise<void> {
@@ -339,6 +369,10 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   }
 
   public async publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult> {
+    return this.enqueueSkillMutation(() => this.publishSkillUnlocked(request))
+  }
+
+  private async publishSkillUnlocked(request: PublishSkillRequest): Promise<PublishSkillResult> {
     const skillPath = await this.resolveAllowedSkillPath(request.path)
     let { args, metadata, result } = await this.attemptPublishSkill({ request, skillPath })
     const requiredScope = readSkillPublishRequiredScope(result)
@@ -362,6 +396,10 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   }
 
   public async deleteSkill(request: DeleteSkillRequest): Promise<SkillInventory> {
+    return this.enqueueSkillMutation(() => this.deleteSkillUnlocked(request))
+  }
+
+  private async deleteSkillUnlocked(request: DeleteSkillRequest): Promise<SkillInventory> {
     if (!request.confirmed) {
       throw new Error("Skill deletion requires confirmation.")
     }
@@ -502,12 +540,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     await this.send("skillInventoryChanged", event)
   }
 
-  private emitCliChanged(): void {
-    this.cliChanged.emit({
-      updatedAt: new Date().toISOString(),
-    })
-  }
-
   private async installDefaultRegistrySkills(specs: readonly DefaultRegistrySkillSpec[]): Promise<void> {
     const enabledSpecs = specs.filter((spec) => spec.enabled)
     if (enabledSpecs.length === 0) {
@@ -547,7 +579,9 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       }
 
       try {
-        inventory = await this.installRegistrySkill(request)
+        await this.installRegistrySkillTarget(request)
+        this.notifyRuntimeSkillsChanged("install-default-registry-skill")
+        inventory = await this.readAndPublishSkillInventory()
         installStore = upsertDefaultSkillInstallRecord(installStore, {
           ...request,
           installedAt: now,
@@ -590,6 +624,15 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private enqueueRuntimeSync<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.runtimeSyncQueue.catch(() => undefined).then(operation)
     this.runtimeSyncQueue = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
+
+  private enqueueSkillMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.skillMutationQueue.catch(() => undefined).then(operation)
+    this.skillMutationQueue = result.then(
       () => undefined,
       () => undefined,
     )

@@ -28,6 +28,39 @@ test("public Skill lists share cached and in-flight requests", async () => {
   assert.equal(fetchMock.mock.calls.length, 1)
 })
 
+test("force refresh supersedes an older pending request and prevents stale cache writes", async () => {
+  let resolveFirst: ((response: Response) => void) | undefined
+  const firstResponse = new Promise<Response>((resolve) => {
+    resolveFirst = resolve
+  })
+  const fetchMock = vi
+    .fn<() => Promise<Response>>()
+    .mockImplementationOnce(() => firstResponse)
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: [{ name: "new", skills: [{ name: "new-skill" }] }] }), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      }),
+    )
+  vi.stubGlobal("fetch", fetchMock)
+
+  const staleRequest = listPublicSkillPackages()
+  const freshCatalog = await listPublicSkillPackages({ forceRefresh: true })
+  resolveFirst?.(
+    new Response(JSON.stringify({ data: [{ name: "old", skills: [{ name: "old-skill" }] }] }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    }),
+  )
+  const staleCatalog = await staleRequest
+  const cachedCatalog = await listPublicSkillPackages()
+
+  assert.equal(fetchMock.mock.calls.length, 2)
+  assert.equal(freshCatalog.items[0]?.name, "new")
+  assert.equal(staleCatalog.items[0]?.name, "old")
+  assert.equal(cachedCatalog.items[0]?.name, "new")
+})
+
 test("exact public package lookups reuse the shared package detail cache", async () => {
   const fetchMock = vi.fn(async () => {
     return new Response(

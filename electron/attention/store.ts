@@ -1,10 +1,11 @@
-import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
+import { atomicWriteText } from "../atomic-file.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface UnreadAttentionEntry {
   createdAt: number
+  organizationId?: string
   runId: string
 }
 
@@ -25,13 +26,22 @@ function validEntry(value: unknown): value is UnreadAttentionEntry {
   )
 }
 
+function normalizedEntry(value: UnreadAttentionEntry): UnreadAttentionEntry {
+  const organizationId = value.organizationId?.trim()
+  return {
+    createdAt: value.createdAt,
+    ...(organizationId ? { organizationId } : {}),
+    runId: value.runId,
+  }
+}
+
 export function normalizeAttentionState(value: unknown): Map<string, UnreadAttentionEntry> {
   const source = value && typeof value === "object" ? (value as PersistedAttentionState).unreadSessions : undefined
   const entries = new Map<string, UnreadAttentionEntry>()
   if (!source || typeof source !== "object") return entries
   for (const [sessionId, entry] of Object.entries(source)) {
     if (sessionId && validEntry(entry)) {
-      entries.set(sessionId, entry)
+      entries.set(sessionId, normalizedEntry(entry))
     }
   }
   return entries
@@ -59,14 +69,6 @@ export class AttentionStore {
   }
 
   public async write(entries: Map<string, UnreadAttentionEntry>): Promise<void> {
-    await mkdir(path.dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp-${process.pid}-${randomUUID()}`
-    try {
-      await writeFile(tmp, JSON.stringify(serializeAttentionState(entries), null, 2), "utf-8")
-      await rename(tmp, this.file)
-    } catch (error) {
-      await rm(tmp, { force: true })
-      throw error
-    }
+    await atomicWriteText(this.file, JSON.stringify(serializeAttentionState(entries), null, 2))
   }
 }

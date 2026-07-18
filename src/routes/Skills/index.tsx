@@ -1,4 +1,3 @@
-import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ManagedSkillGroup, PublicSkillPackage, PublishSkillResult } from "../../../electron/skills/common.ts"
 import type { BusyAction } from "./organization-management-model.ts"
 import type {
@@ -18,6 +17,7 @@ import type {
 } from "./SkillPublishDialogs.tsx"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
+import type { ProviderSkillRecommendationsState } from "@/hooks/useProviderSkillRecommendations"
 
 import * as React from "react"
 import { toast } from "sonner"
@@ -30,7 +30,7 @@ import {
   getGroupStatus,
   getInstallableOrganizationSkills,
   getLocalSkillPublishPath,
-  getPublicPackagePrimarySkill,
+  getPublicPackageInstallSkills,
   getRuntimeHosts,
   getSkillVersionCheck,
   getSkillVersionCheckKey,
@@ -46,16 +46,15 @@ import { SkillPageHeader } from "./SkillPageHeader.tsx"
 import { OrganizationLinkDialog, PublishSkillDialog } from "./SkillPublishDialogs.tsx"
 import { SkillManagementSheet } from "./SkillUiParts.tsx"
 import { useOrganizationSkillActions } from "./use-organization-skill-actions.ts"
+import { useRegistrySkillUpdate } from "./use-registry-skill-update.ts"
 import { useSkillService } from "@/components/AppContext"
 import {
   useAuthStateResource,
-  useHomeSummaryResource,
   useSkillInventoryResource,
   useSkillVersionReportResource,
 } from "@/components/AppDataHooks"
 import { DeleteSkillConfirmDialog } from "@/components/DeleteSkillConfirmDialog"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
-import { useProviderSkillRecommendations } from "@/hooks/useProviderSkillRecommendations"
 import { useAppI18n } from "@/i18n"
 import { addOrganizationSkill } from "@/lib/organization-skills-client"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -64,6 +63,7 @@ import {
   invalidatePublicSkillCatalog,
   listMyPublishedSkillPackages,
   listPublicSkillPackages,
+  searchPublicSkillPackages,
 } from "@/lib/skills-catalog-client"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 
@@ -87,16 +87,16 @@ function visibleSkillOperationError(
 }
 
 export function SkillsRoute({
-  connectedProviders,
   connectedProvidersLoading = false,
   focusRequest,
   organizationSkills,
+  providerSkillRecommendationsState,
   workspace,
 }: {
-  connectedProviders: ConnectionProvider[]
   connectedProvidersLoading?: boolean
   focusRequest?: { nonce: number; tab: SkillPageTab } | null
   organizationSkills: UseOrganizationSkills
+  providerSkillRecommendationsState: ProviderSkillRecommendationsState
   workspace: UseOrganizationWorkspace
 }) {
   const { locale, t } = useAppI18n()
@@ -104,15 +104,10 @@ export function SkillsRoute({
   const authResource = useAuthStateResource()
   const inventoryResource = useSkillInventoryResource()
   const versionResource = useSkillVersionReportResource()
-  const homeSummaryResource = useHomeSummaryResource()
   const inventory = inventoryResource.data
   const installedSkillGroupById = React.useMemo<ManagedSkillGroupById>(() => {
     return new Map((inventory?.groups ?? []).map((group) => [group.id, group]))
   }, [inventory?.groups])
-  const providerSkillRecommendationsState = useProviderSkillRecommendations({
-    groupById: installedSkillGroupById,
-    providers: connectedProviders,
-  })
   const providerSkillRecommendations = providerSkillRecommendationsState.recommendations
   const installableProviderSkillRecommendations = providerSkillRecommendationsState.installable
   const versionCheckByKey = React.useMemo<SkillVersionCheckByKey>(() => {
@@ -134,11 +129,16 @@ export function SkillsRoute({
   const deferredInstalledQuery = React.useDeferredValue(query)
   const deferredOrganizationQuery = React.useDeferredValue(organizationQuery)
   const deferredDiscoveryQuery = React.useDeferredValue(discoveryQuery)
+  const [debouncedDiscoveryQuery, setDebouncedDiscoveryQuery] = React.useState("")
   const [publicPackageCatalog, dispatchPublicPackageCatalog] = React.useReducer(
     publicPackageCatalogReducer,
     initialPublicPackageCatalogState,
   )
   const [myPublishedPackageCatalog, dispatchMyPublishedPackageCatalog] = React.useReducer(
+    publicPackageCatalogReducer,
+    initialPublicPackageCatalogState,
+  )
+  const [publicPackageSearchCatalog, dispatchPublicPackageSearchCatalog] = React.useReducer(
     publicPackageCatalogReducer,
     initialPublicPackageCatalogState,
   )
@@ -148,23 +148,39 @@ export function SkillsRoute({
   const [publishingSkillId, setPublishingSkillId] = React.useState<string | null>(null)
   const [publishDialogSkill, setPublishDialogSkill] = React.useState<ManagedSkillGroup | null>(null)
   const [organizationLinkTarget, setOrganizationLinkTarget] = React.useState<SkillOrganizationLinkTarget | null>(null)
-  const [updatingRegistrySkillId, setUpdatingRegistrySkillId] = React.useState<string | null>(null)
   const [organizationSkillBusyAction, setOrganizationSkillBusyAction] = React.useState<BusyAction | null>(null)
   const [isExecutingCliUpdate, setIsExecutingCliUpdate] = React.useState(false)
-  const publishSkillInFlightRef = React.useRef(false)
-  const updateRegistryInFlightRef = React.useRef(false)
-  const cliUpdateInFlightRef = React.useRef(false)
-  const installRegistryInFlightRef = React.useRef(false)
+  const skillMutationInFlightRef = React.useRef(false)
   const requestedVersionCheckRef = React.useRef(false)
   const publicPackageRequestIdRef = React.useRef(0)
   const myPublishedPackageRequestIdRef = React.useRef(0)
+  const publicPackageSearchRequestIdRef = React.useRef(0)
   const { copySkillPath, isRemovingSkill, openSkillFolder, removeSkill, removeTarget, setRemoveTarget } =
     useSkillObjectActions({
       onDeleted: () => {
         setSelectedSkillId(null)
-        homeSummaryResource.invalidate()
       },
     })
+  const handleRegistrySkillUpdateBusy = React.useCallback(() => {
+    toast.info(t("skills.operationInProgress"))
+  }, [t])
+  const handleRegistrySkillUpdateError = React.useCallback((cause: unknown, skillId: string) => {
+    setPlanError({
+      cause: resolveUserFacingError(cause, { area: "skills" }),
+      operation: "update",
+      skillId,
+    })
+  }, [])
+  const clearRegistrySkillUpdateError = React.useCallback(() => setPlanError(null), [])
+  const { updateRegistrySkill, updatingRegistrySkillId } = useRegistrySkillUpdate({
+    inventoryResource,
+    mutationInFlightRef: skillMutationInFlightRef,
+    onBusy: handleRegistrySkillUpdateBusy,
+    onError: handleRegistrySkillUpdateError,
+    onStart: clearRegistrySkillUpdateError,
+    skillService,
+    versionResource,
+  })
 
   const searchedGroups = React.useMemo(() => {
     const groups = inventory?.groups ?? []
@@ -228,8 +244,23 @@ export function SkillsRoute({
     if (!focusRequest) {
       return
     }
-    setActiveTab(focusRequest.tab)
-  }, [focusRequest])
+    setActiveTab(
+      focusRequest.tab === "organization" && !workspace.activeWorkspace.organizationId ? "discover" : focusRequest.tab,
+    )
+  }, [focusRequest, workspace.activeWorkspace.organizationId])
+
+  React.useEffect(() => {
+    if (activeTab === "organization" && !workspace.activeWorkspace.organizationId) {
+      setActiveTab("discover")
+    }
+  }, [activeTab, workspace.activeWorkspace.organizationId])
+
+  React.useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedDiscoveryQuery(discoveryQuery.trim())
+    }, 250)
+    return () => window.clearTimeout(timeout)
+  }, [discoveryQuery])
 
   const selectSkill = React.useCallback((skillId: SkillSelectionKey) => {
     setSelectedSkillId(skillId)
@@ -287,6 +318,33 @@ export function SkillsRoute({
     [authResource.data],
   )
 
+  const loadPublicSkillSearch = React.useCallback(
+    async (query: string, options: { forceRefresh?: boolean; next?: string | null; replace?: boolean } = {}) => {
+      const next = options.next?.trim() || undefined
+      const append = Boolean(next && !options.forceRefresh && !options.replace)
+      const requestId = publicPackageSearchRequestIdRef.current + 1
+      publicPackageSearchRequestIdRef.current = requestId
+      dispatchPublicPackageSearchCatalog({
+        append,
+        clearItems: options.replace,
+        requestId,
+        type: "load-start",
+      })
+
+      try {
+        const catalog = await searchPublicSkillPackages({ forceRefresh: options.forceRefresh, next, query })
+        dispatchPublicPackageSearchCatalog({ append, catalog, requestId, type: "load-success" })
+      } catch (cause) {
+        dispatchPublicPackageSearchCatalog({
+          error: cause instanceof Error ? cause.message : String(cause),
+          requestId,
+          type: "load-error",
+        })
+      }
+    },
+    [],
+  )
+
   React.useEffect(() => {
     if (
       activeTab !== "discover" ||
@@ -331,13 +389,35 @@ export function SkillsRoute({
     myPublishedPackageCatalog.status,
   ])
 
-  const activePackageCatalog = discoveryFilter === "mine" ? myPublishedPackageCatalog : publicPackageCatalog
+  React.useEffect(() => {
+    if (activeTab !== "discover" || discoveryFilter !== "all" || !debouncedDiscoveryQuery) {
+      return
+    }
+    void loadPublicSkillSearch(debouncedDiscoveryQuery, { replace: true }).catch((error: unknown) => {
+      reportRendererHandledError("skills", "public skill package search failed", error)
+    })
+  }, [activeTab, debouncedDiscoveryQuery, discoveryFilter, loadPublicSkillSearch])
+
+  const isPublicSearchActive = discoveryFilter === "all" && Boolean(debouncedDiscoveryQuery)
+  const activePackageCatalog =
+    discoveryFilter === "mine"
+      ? myPublishedPackageCatalog
+      : isPublicSearchActive
+        ? publicPackageSearchCatalog
+        : publicPackageCatalog
   const activePackageDispatcher =
-    discoveryFilter === "mine" ? dispatchMyPublishedPackageCatalog : dispatchPublicPackageCatalog
+    discoveryFilter === "mine"
+      ? dispatchMyPublishedPackageCatalog
+      : isPublicSearchActive
+        ? dispatchPublicPackageSearchCatalog
+        : dispatchPublicPackageCatalog
   const filteredPublicPackages = React.useMemo(() => {
+    if (discoveryFilter === "all") {
+      return activePackageCatalog.items
+    }
     const normalizedQuery = deferredDiscoveryQuery.trim().toLowerCase()
     return activePackageCatalog.items.filter((pkg) => matchesPublicPackageQuery(pkg, normalizedQuery))
-  }, [activePackageCatalog.items, deferredDiscoveryQuery])
+  }, [activePackageCatalog.items, deferredDiscoveryQuery, discoveryFilter])
 
   const selectedPublicPackage = React.useMemo(() => {
     return activePackageCatalog.selectedId
@@ -347,42 +427,65 @@ export function SkillsRoute({
 
   const openManagedPublicSkill = React.useCallback((skillName: string) => {
     dispatchPublicPackageCatalog({ id: null, type: "select" })
+    dispatchPublicPackageSearchCatalog({ id: null, type: "select" })
     dispatchMyPublishedPackageCatalog({ id: null, type: "select" })
     setSelectedSkillId(skillName)
   }, [])
 
   const installPublicSkill = React.useCallback(
     async (pkg: PublicSkillPackage, skillName?: string) => {
-      if (installRegistryInFlightRef.current) {
+      if (skillMutationInFlightRef.current) {
+        toast.info(t("skills.operationInProgress"))
         return
       }
 
-      const targetSkillName = skillName ?? getPublicPackagePrimarySkill(pkg)?.name
-      if (!targetSkillName) {
+      const targetSkills = skillName
+        ? pkg.skills.filter((skill) => skill.name === skillName)
+        : getPublicPackageInstallSkills(installedSkillGroupById, pkg)
+      const primaryTarget = targetSkills[0]
+      if (!primaryTarget) {
         toast.error(t("skills.discoverInstallNoSkill"))
         return
       }
 
-      installRegistryInFlightRef.current = true
-      setInstallingRegistryResultId(`${pkg.id}:${targetSkillName}`)
+      skillMutationInFlightRef.current = true
+      setInstallingRegistryResultId(`${pkg.id}:${primaryTarget.name}`)
 
       try {
-        const nextInventory = await skillService.invoke("installRegistrySkill", {
-          packageName: pkg.name,
-          skillId: targetSkillName,
-        })
-        inventoryResource.setData(nextInventory)
-        homeSummaryResource.invalidate()
+        if (targetSkills.length === 1) {
+          const nextInventory = await skillService.invoke("installRegistrySkill", {
+            packageName: pkg.name,
+            skillId: primaryTarget.name,
+          })
+          inventoryResource.setData(nextInventory)
+          toast.success(t("skills.registryInstallDone", { name: primaryTarget.name }))
+        } else {
+          const result = await skillService.invoke(
+            "installRegistrySkills",
+            targetSkills.map((skill) => ({ packageName: pkg.name, skillId: skill.name })),
+          )
+          inventoryResource.setData(result.inventory)
+          if (result.installed.length > 0) {
+            toast.success(t("skills.registryInstallBatchDone", { count: result.installed.length }))
+          }
+          if (result.failures.length > 0) {
+            toast.error(
+              t("skills.registryInstallBatchFailed", {
+                count: result.failures.length,
+                error: result.failures[0]?.error ?? "",
+              }),
+            )
+          }
+        }
         versionResource.invalidate()
-        toast.success(t("skills.registryInstallDone", { name: targetSkillName }))
       } catch (cause) {
         toast.error(t("skills.registryInstallFailed", { error: skillErrorMessage(cause, t) }))
       } finally {
-        installRegistryInFlightRef.current = false
+        skillMutationInFlightRef.current = false
         setInstallingRegistryResultId(null)
       }
     },
-    [homeSummaryResource, inventoryResource, skillService, t, versionResource],
+    [installedSkillGroupById, inventoryResource, skillService, t, versionResource],
   )
 
   const {
@@ -416,47 +519,6 @@ export function SkillsRoute({
     organizationSkills.skills,
   ])
 
-  const updateRegistrySkill = React.useCallback(
-    async (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => {
-      if (updateRegistryInFlightRef.current) {
-        return
-      }
-
-      const packageName = skill.packageName?.trim()
-      if (!packageName) {
-        return
-      }
-
-      updateRegistryInFlightRef.current = true
-      setUpdatingRegistrySkillId(skill.id)
-      setPlanError(null)
-
-      try {
-        if (skill.kind !== "registry") {
-          return
-        }
-
-        const nextInventory = await skillService.invoke("updateRegistrySkill", {
-          packageName,
-          skillId: skill.id,
-        })
-        inventoryResource.setData(nextInventory)
-        await versionResource.refresh({ forceRefresh: true, silent: true })
-        homeSummaryResource.invalidate()
-      } catch (cause) {
-        setPlanError({
-          cause: resolveUserFacingError(cause, { area: "skills" }),
-          operation: "update",
-          skillId: skill.id,
-        })
-      } finally {
-        updateRegistryInFlightRef.current = false
-        setUpdatingRegistrySkillId(null)
-      }
-    },
-    [homeSummaryResource, inventoryResource, skillService, versionResource],
-  )
-
   const linkPublishedSkillToOrganization = React.useCallback(
     async (target: SkillOrganizationLinkTarget, organizationId: string): Promise<void> => {
       await addOrganizationSkill(organizationId, {
@@ -479,7 +541,8 @@ export function SkillsRoute({
       skill: ManagedSkillGroup,
       options: { visibility: SkillPublishVisibility },
     ): Promise<PublishSkillResult | null> => {
-      if (publishSkillInFlightRef.current) {
+      if (skillMutationInFlightRef.current) {
+        toast.info(t("skills.operationInProgress"))
         return null
       }
 
@@ -489,7 +552,7 @@ export function SkillsRoute({
         return null
       }
 
-      publishSkillInFlightRef.current = true
+      skillMutationInFlightRef.current = true
       setPublishingSkillId(skill.id)
       setPlanError(null)
 
@@ -508,7 +571,6 @@ export function SkillsRoute({
           .catch((error: unknown) =>
             reportRendererHandledError("skills", "silent skill version refresh failed after publish", error),
           )
-        homeSummaryResource.invalidate()
         toast.success(t("skills.publishDone", { name: skill.name }))
         void loadMyPublishedSkillPackages({ forceRefresh: true }).catch((error: unknown) => {
           reportRendererHandledError("skills", "published skill package refresh failed after publish", error)
@@ -527,13 +589,12 @@ export function SkillsRoute({
         })
         throw cause
       } finally {
-        publishSkillInFlightRef.current = false
+        skillMutationInFlightRef.current = false
         setPublishingSkillId(null)
       }
     },
     [
       authResource.data,
-      homeSummaryResource,
       inventoryResource,
       loadMyPublishedSkillPackages,
       loadPublicSkillPackages,
@@ -545,11 +606,12 @@ export function SkillsRoute({
   )
 
   const executeCliUpdate = React.useCallback(async () => {
-    if (cliUpdateInFlightRef.current) {
+    if (skillMutationInFlightRef.current) {
+      toast.info(t("skills.operationInProgress"))
       return
     }
 
-    cliUpdateInFlightRef.current = true
+    skillMutationInFlightRef.current = true
     setIsExecutingCliUpdate(true)
     setCliUpdateError(null)
 
@@ -557,14 +619,13 @@ export function SkillsRoute({
       const report = await skillService.invoke("executeCliUpdate")
       versionResource.setData(report)
       await inventoryResource.refresh({ forceRefresh: true, silent: true })
-      homeSummaryResource.invalidate()
     } catch (cause) {
       setCliUpdateError(cause instanceof Error ? cause.message : String(cause))
     } finally {
-      cliUpdateInFlightRef.current = false
+      skillMutationInFlightRef.current = false
       setIsExecutingCliUpdate(false)
     }
-  }, [homeSummaryResource, inventoryResource, skillService, versionResource])
+  }, [inventoryResource, skillService, t, versionResource])
 
   const isPublicPackageLoadingMore = activePackageCatalog.status === "loading-more"
   const isPublicPackageReplacing =
@@ -663,7 +724,9 @@ export function SkillsRoute({
             onLoadMore={() =>
               void (discoveryFilter === "mine"
                 ? loadMyPublishedSkillPackages({ next: activePackageCatalog.next })
-                : loadPublicSkillPackages({ next: activePackageCatalog.next }))
+                : isPublicSearchActive
+                  ? loadPublicSkillSearch(debouncedDiscoveryQuery, { next: activePackageCatalog.next })
+                  : loadPublicSkillPackages({ next: activePackageCatalog.next }))
             }
             onOpenManagedSkill={openManagedPublicSkill}
             onOpenOrganizationRecommendations={() => setActiveTab("organization")}
@@ -674,7 +737,9 @@ export function SkillsRoute({
                 }
                 return
               }
-              void loadPublicSkillPackages({ forceRefresh: true })
+              void (isPublicSearchActive
+                ? loadPublicSkillSearch(debouncedDiscoveryQuery, { forceRefresh: true, replace: true })
+                : loadPublicSkillPackages({ forceRefresh: true }))
             }}
             onSelectPackage={(pkg) => activePackageDispatcher({ id: pkg.id, type: "select" })}
           />

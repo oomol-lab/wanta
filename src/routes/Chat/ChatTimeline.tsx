@@ -432,9 +432,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     [providers],
   )
   const answerPermissionSafely = React.useCallback(
-    (requestId: string, reply: ChatPermissionReply): void => {
-      void onAnswerPermission(requestId, reply).catch(() => undefined)
-    },
+    (requestId: string, reply: ChatPermissionReply): Promise<void> => onAnswerPermission(requestId, reply),
     [onAnswerPermission],
   )
   const activeAssistantMessageId =
@@ -452,7 +450,9 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   const visibleArtifactGroups = React.useMemo<ResolvedArtifactGroup[]>(
     () =>
       artifactBundles.map((bundle) => ({
+        display: bundle.display,
         messageId: bundle.messageId,
+        kind: bundle.kind,
         group: {
           root: {
             path: bundle.rootPath,

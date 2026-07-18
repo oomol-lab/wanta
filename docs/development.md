@@ -8,7 +8,7 @@
 - **私有包鉴权**：`@oomol/connection*` 来自 GitHub Packages（`.npmrc`：`@oomol:registry=https://npm.pkg.github.com`），本地需要带 `read:packages` 的 PAT（一般配在全局 `~/.npmrc`），否则 `npm install` 401。注意两种失败的严重性不同：私有包 401 发生在依赖解析阶段、**致命**；下面两个 postinstall 下载脚本才是 best-effort（仅 warn）——PAT 缺失时哪怕只看到一堆 warn 也不能继续，`@oomol/connection` 没装上 dev 起不来。
 - `npm install` 的 postinstall 串联两个 best-effort 脚本（失败仅 warn 不阻断）：
   - `scripts/download-electron.ts` → 下载 dev 专用 Electron 副本到 `.electron-dist/` 并改写 macOS Info.plist 为 `com.oomol.wanta-local` / `wanta-local` scheme（dev deep-link 用）。`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 跳过。
-  - `scripts/download-oo.ts` → 下载 oo 二进制到 `.oo-bin/`（版本锁定见 `scripts/oo-cli.ts` 的 `OO_CLI_VERSION`；含 sha512 integrity 校验与 `chmod 0o755`）。oo / ripgrep 下载统一使用 30 秒单次超时与最多 3 次瞬时错误重试，确定性的 4xx 不重试。`OO_SKIP_BINARY_DOWNLOAD=1` 跳过。
+  - `scripts/download-oo.ts` → 下载 oo 二进制到 `.oo-bin/`（版本锁定见 `scripts/oo-cli.ts` 的 `OO_CLI_VERSION`；含 sha512 integrity 校验与 `chmod 0o755`）。oo / ripgrep 下载统一使用 30 秒单次超时与最多 3 次请求尝试（最多重试 2 次），确定性的 4xx 不重试。`OO_SKIP_BINARY_DOWNLOAD=1` 跳过。
 
 ## 2. .env 配置
 

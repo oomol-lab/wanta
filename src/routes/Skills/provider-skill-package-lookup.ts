@@ -246,6 +246,9 @@ async function searchProviderSkillPackage(
         return conventionalPackage
       }
     } catch (error) {
+      if (signal?.aborted) {
+        throw error
+      }
       reportRendererHandledError(
         "providerSkillPackageLookup.readConventionalPackage",
         "Failed to read conventional provider Skill package",

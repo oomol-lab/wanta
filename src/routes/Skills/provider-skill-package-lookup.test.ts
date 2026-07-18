@@ -78,4 +78,19 @@ describe("provider Skill package lookup", () => {
     expect(searchPublicSkillPackages).toHaveBeenCalledTimes(1)
     expect(searchPublicSkillPackages).toHaveBeenCalledWith({ query: "PostHog", size: 12 })
   })
+
+  test("propagates cancellation without starting fallback searches", async () => {
+    const controller = new AbortController()
+    const cancellation = new Error("Provider Skill lookup was cancelled.")
+    vi.mocked(readPublicSkillPackageByName).mockImplementationOnce(async () => {
+      controller.abort(cancellation)
+      throw cancellation
+    })
+
+    await expect(
+      readProviderSkillPackage({ providerDisplayName: "PostHog", service: "posthog" }, controller.signal),
+    ).rejects.toBe(cancellation)
+
+    expect(searchPublicSkillPackages).not.toHaveBeenCalled()
+  })
 })

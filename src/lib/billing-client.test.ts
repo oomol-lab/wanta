@@ -446,4 +446,35 @@ describe("billing-client", () => {
     expect(overview.usageSubscriptionAvailable).toBe(false)
     expect(overview.teamPendingPaymentAvailable).toBe(false)
   })
+
+  it("rejects parent cancellation even after a core billing request succeeds", async () => {
+    const controller = new AbortController()
+    const cancellation = new Error("Billing view was closed.")
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      const url = urlOf(input)
+      if (url.pathname === "/v1/balance/available") {
+        return Response.json({
+          data: {
+            items: [{ currentCredit: "8", originalCredit: "10" }],
+            total: { currentCredit: "8", originalCredit: "10" },
+          },
+        })
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal
+        const abort = () => reject(signal?.reason)
+        if (signal?.aborted) {
+          abort()
+        } else {
+          signal?.addEventListener("abort", abort, { once: true })
+        }
+      })
+    })
+
+    const overview = getBillingOverview(30, organizationScope, controller.signal)
+    await Promise.resolve()
+    controller.abort(cancellation)
+
+    await expect(overview).rejects.toBe(cancellation)
+  })
 })

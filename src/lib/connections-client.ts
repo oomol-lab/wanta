@@ -146,7 +146,10 @@ function invalidateWorkspaceApps(workspace: ConnectionWorkspace, appId?: string)
       return false
     }
     const path = key.slice(prefix.length)
-    return path === "/v1/apps" || (appId ? path === `/v1/apps/by-id/${encodeURIComponent(appId)}` : false)
+    return (
+      path === "/v1/apps" ||
+      (appId ? path === `/v1/apps/by-id/${encodeURIComponent(appId)}` : path.startsWith("/v1/apps/by-id/"))
+    )
   })
 }
 

@@ -34,4 +34,17 @@ describe("fetchWithRetry", () => {
     })
     expect(fetcher).toHaveBeenCalledTimes(2)
   })
+
+  it("preserves a Request input signal and cancels retry backoff", async () => {
+    const controller = new AbortController()
+    const request = new Request("https://example.com/file", { signal: controller.signal })
+    const fetcher = vi.fn<typeof fetch>(async () => new Response("unavailable", { status: 503 }))
+
+    const response = fetchWithRetry(request, {}, { backoffMs: 10_000, fetcher })
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce())
+    controller.abort(new Error("Download was cancelled."))
+
+    await expect(response).rejects.toThrow("Download was cancelled.")
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
 })

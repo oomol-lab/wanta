@@ -3,6 +3,7 @@ import type { BillingOverviewResult } from "../../electron/chat/common.ts"
 import assert from "node:assert/strict"
 import { afterEach, test, vi } from "vitest"
 import {
+  BillingOverviewRequestSupersededError,
   clearBillingOverviewCache,
   getBillingOverviewCacheEntry,
   loadBillingOverviewEntry,
@@ -86,7 +87,7 @@ test("forced billing refresh supersedes an older in-flight snapshot", async () =
   assert.equal(entry.data, freshData)
 
   resolveStale(staleData)
-  assert.match(String(await staleResult), /superseded/)
+  assert.ok((await staleResult) instanceof BillingOverviewRequestSupersededError)
   assert.equal(entry.data, freshData)
 })
 

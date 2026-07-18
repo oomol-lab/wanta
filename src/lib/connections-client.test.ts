@@ -307,6 +307,29 @@ describe("connections-client", () => {
     expect(providerReads).toBe(1)
   })
 
+  it("invalidates all workspace app detail caches after a service-level connection mutation", async () => {
+    let detailReads = 0
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input)
+      if (url.includes("/v1/apps/by-id/app-1") && (!init?.method || init.method === "GET")) {
+        detailReads += 1
+        return Response.json({ data: { id: "app-1", service: "demo", status: "active" } })
+      }
+      if (url.includes("/v1/apps/demo/connect/no-auth")) {
+        return Response.json({ data: {} })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const workspace = { organizationName: "org-name" }
+
+    await getConnectionAppDetail("app-1", workspace)
+    await connectProvider({ authType: "no_auth", service: "demo" }, workspace)
+    await getConnectionAppDetail("app-1", workspace)
+
+    expect(detailReads).toBe(2)
+  })
+
   it("deduplicates identical concurrent OAuth start requests", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({ data: { authorizationUrl: "https://accounts.example.com/oauth" } }),

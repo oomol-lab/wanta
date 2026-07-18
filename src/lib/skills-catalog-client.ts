@@ -433,7 +433,7 @@ export async function listMyPublishedSkillPackages(
       }
       const items = (
         await mapWithConcurrency(
-          publishedPackages.items,
+          publishedPackages.items.slice(0, myPublishedSkillPackagePageSize),
           myPublishedSkillPackageInfoConcurrency,
           async (publishedPackage) => {
             input.signal?.throwIfAborted()

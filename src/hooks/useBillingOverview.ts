@@ -9,6 +9,13 @@ import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 const defaultStaleMs = 60_000
 const billingOverviewRequestTimeoutMs = 15_000
 
+export class BillingOverviewRequestSupersededError extends Error {
+  public constructor() {
+    super("Billing overview request was superseded.")
+    this.name = "BillingOverviewRequestSupersededError"
+  }
+}
+
 interface BillingOverviewCacheEntry {
   data: BillingOverviewResult | null
   loadedAt: number
@@ -79,7 +86,12 @@ export function useBillingOverview(
 
   React.useEffect(() => {
     const entry = getBillingOverviewCacheEntry(cacheScopeKey, days)
-    const listener = () => setData(entry.data)
+    const listener = () => {
+      setData(entry.data)
+      if (entry.data) {
+        setError(null)
+      }
+    }
     entry.listeners?.add(listener)
     return () => {
       entry.listeners?.delete(listener)
@@ -120,6 +132,9 @@ export function useBillingOverview(
         }
         return nextData
       } catch (nextError) {
+        if (nextError instanceof BillingOverviewRequestSupersededError) {
+          return null
+        }
         if (mounted.current && requestId.current === currentRequest) {
           const resolved = resolveUserFacingError(nextError, { area: "billing" })
           setError(resolved)
@@ -207,7 +222,7 @@ export function startBillingOverviewRequest(
   request: (signal: AbortSignal) => Promise<BillingOverviewResult>,
   timeoutMs = billingOverviewRequestTimeoutMs,
 ): Promise<BillingOverviewResult> {
-  entry.controller?.abort(new Error("Billing overview request was superseded."))
+  entry.controller?.abort(new BillingOverviewRequestSupersededError())
   const controller = new AbortController()
   const promise = withBillingOverviewTimeout(request, controller, timeoutMs)
   entry.controller = controller

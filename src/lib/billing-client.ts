@@ -481,15 +481,14 @@ function optionalBillingSignal(signal?: AbortSignal): { cleanup: () => void; sig
 
 function settleOnAbort<T>(request: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(signal.reason)
-      return
-    }
     const abort = () => reject(signal.reason)
     signal.addEventListener("abort", abort, { once: true })
     void request.then(resolve, reject).finally(() => {
       signal.removeEventListener("abort", abort)
     })
+    if (signal.aborted) {
+      abort()
+    }
   })
 }
 
@@ -521,6 +520,9 @@ export async function getBillingOverview(
     teamPendingPaymentPromise,
   ])
   detailsRequest.cleanup()
+  if (signal?.aborted) {
+    throw signal.reason
+  }
   logSettledFailure("balance", balance)
   logSettledFailure("spend", spend)
   logSettledFailure("metering", metering)

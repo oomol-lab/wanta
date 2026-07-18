@@ -30,20 +30,36 @@ test("public Skill lists share cached and in-flight requests", async () => {
 })
 
 test("my published Skill pages cap registry detail fanout at 20 packages", async () => {
+  const packages = Array.from({ length: 25 }, (_, index) => ({
+    name: `@acme/package-${index}`,
+    skills: [{ name: `skill-${index}` }],
+    version: "1.0.0",
+  }))
+  let registryReads = 0
   const fetchMock = vi.fn<typeof fetch>(async (input) => {
     const url = new URL(String(input))
     if (url.pathname === "/v1/packages/-/my") {
-      return Response.json({ data: [] })
+      return Response.json({ data: packages })
+    }
+    if (url.pathname.startsWith("/-/oomol/package-info/")) {
+      registryReads += 1
+      const packageName = decodeURIComponent(url.pathname.split("/").at(-2) ?? "")
+      return Response.json({
+        packageName,
+        packageVersion: "1.0.0",
+        skills: [{ name: `${packageName}-skill` }],
+      })
     }
     throw new Error(`Unexpected URL: ${url}`)
   })
   vi.stubGlobal("fetch", fetchMock)
 
-  await listMyPublishedSkillPackages({ account: { id: "user-1", name: "Alice" } })
+  const result = await listMyPublishedSkillPackages({ account: { id: "user-1", name: "Alice" } })
 
   const requestUrl = new URL(String(fetchMock.mock.calls[0]?.[0]))
   assert.equal(requestUrl.searchParams.get("size"), "20")
-  assert.equal(fetchMock.mock.calls.length, 1)
+  assert.equal(registryReads, 20)
+  assert.equal(result.items.length, 20)
 })
 
 test("force refresh supersedes an older pending request and prevents stale cache writes", async () => {

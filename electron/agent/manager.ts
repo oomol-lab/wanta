@@ -207,6 +207,7 @@ export class AgentManager {
   private organizationUpdateChain: Promise<void> = Promise.resolve()
   private sessionOrganizationNames = new Map<string, string>()
   private authorizedServicesCache = new Map<string, { loadedAt: number; services: string[] }>()
+  private authorizedServicesLoadControllers = new Map<string, AbortController>()
   private authorizedServicesLoads = new Map<string, Promise<string[]>>()
   private readonly eventMetrics = new ActivityMetrics((snapshot) => {
     logDiagnostic("performance", "opencode event activity", { ...snapshot }, "trace")
@@ -799,14 +800,19 @@ export class AgentManager {
     }
     let load = this.authorizedServicesLoads.get(cacheKey)
     if (!load) {
-      load = this.listAuthorizedServices(organizationName, signal).then((services) => {
-        this.authorizedServicesCache.set(cacheKey, { loadedAt: Date.now(), services })
+      const controller = new AbortController()
+      load = this.listAuthorizedServices(organizationName, controller.signal).then((services) => {
+        if (!this.disposed && this.authorizedServicesLoads.get(cacheKey) === load) {
+          this.authorizedServicesCache.set(cacheKey, { loadedAt: Date.now(), services })
+        }
         return services
       })
+      this.authorizedServicesLoadControllers.set(cacheKey, controller)
       this.authorizedServicesLoads.set(cacheKey, load)
       const finishLoad = () => {
         if (this.authorizedServicesLoads.get(cacheKey) === load) {
           this.authorizedServicesLoads.delete(cacheKey)
+          this.authorizedServicesLoadControllers.delete(cacheKey)
         }
       }
       void load.then(finishLoad, finishLoad)
@@ -814,7 +820,7 @@ export class AgentManager {
     if (cached) {
       return cached.services
     }
-    return settleWithinPromptBudget(load, authorizedServicesPromptBudgetMs)
+    return settleWithinPromptBudget(load, authorizedServicesPromptBudgetMs, signal)
   }
 
   /** 直查 connector /v1/apps，返回已授权（active）service 名清单（R4 动态系统提示用）。 */
@@ -976,6 +982,10 @@ export class AgentManager {
     this.started = false
     this.eventMetrics.dispose()
     this.authorizedServicesCache.clear()
+    for (const controller of this.authorizedServicesLoadControllers.values()) {
+      controller.abort(new Error("Agent manager was disposed."))
+    }
+    this.authorizedServicesLoadControllers.clear()
     this.authorizedServicesLoads.clear()
     // 同时回收"启动中"的实例：退出/重启可能正卡在 startSidecar 的 await 上，此时 this.sidecar 仍为
     // null，但 startingSidecar 已 spawn opencode，必须一并连根回收，否则它会成为漏网孤儿。
@@ -1086,31 +1096,35 @@ function signalWithTimeout(
   }
 }
 
-function settleWithinPromptBudget(request: Promise<string[]>, timeoutMs: number): Promise<string[]> {
+function settleWithinPromptBudget(
+  request: Promise<string[]>,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<string[]> {
   return new Promise((resolve) => {
     let completed = false
-    const timer = setTimeout(() => {
-      if (!completed) {
-        completed = true
-        resolve([])
+    const settle = (services: string[]): void => {
+      if (completed) {
+        return
       }
+      completed = true
+      clearTimeout(timer)
+      signal?.removeEventListener("abort", abort)
+      resolve(services)
+    }
+    const abort = (): void => settle([])
+    const timer = setTimeout(() => {
+      settle([])
     }, timeoutMs)
     timer.unref?.()
+    if (signal?.aborted) {
+      settle([])
+    } else {
+      signal?.addEventListener("abort", abort, { once: true })
+    }
     void request.then(
-      (services) => {
-        if (!completed) {
-          completed = true
-          clearTimeout(timer)
-          resolve(services)
-        }
-      },
-      () => {
-        if (!completed) {
-          completed = true
-          clearTimeout(timer)
-          resolve([])
-        }
-      },
+      (services) => settle(services),
+      () => settle([]),
     )
   })
 }

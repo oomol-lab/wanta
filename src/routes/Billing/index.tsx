@@ -271,19 +271,19 @@ export function BillingRoute({
 
               {balanceOverview}
             </section>
-
-            {canManageFunding ? (
-              <UsageSubscriptionPanel
-                currentPlan={currentUsageSubscription}
-                disabled={isSessionExpired || loading || data?.usageSubscriptionAvailable !== true}
-                openExternalCheckout={openExternalCheckout}
-                userId={authState?.account?.id}
-              />
-            ) : null}
           </>
         ) : (
           balanceOverview
         )}
+
+        {canManageFunding ? (
+          <UsageSubscriptionPanel
+            currentPlan={currentUsageSubscription}
+            disabled={isSessionExpired || loading || data?.usageSubscriptionAvailable !== true}
+            openExternalCheckout={openExternalCheckout}
+            userId={authState?.account?.id}
+          />
+        ) : null}
 
         <UsageDetailsDisclosure
           balanceLots={data?.balance?.items ?? []}

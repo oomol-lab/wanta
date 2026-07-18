@@ -58,6 +58,7 @@ export function ConnectionListToolbar({
   onFilterChange,
   onQueryChange,
   query,
+  showConnectionState,
   totalCount,
 }: {
   activeFilter: ConnectionCatalogFilter
@@ -70,6 +71,7 @@ export function ConnectionListToolbar({
   onFilterChange: (filter: ConnectionCatalogFilter) => void
   onQueryChange: (query: string) => void
   query: string
+  showConnectionState: boolean
   totalCount: number
 }) {
   const t = useT()
@@ -124,7 +126,11 @@ export function ConnectionListToolbar({
       )
       const nextCount = getFittingCategoryFilterCount({
         availableWidth,
-        baseFilterWidths: [allWidth, availableToolsWidth, connectedWidth, directlyAvailableWidth, attentionWidth],
+        baseFilterWidths: [
+          allWidth,
+          ...(showConnectionState ? [availableToolsWidth, connectedWidth, attentionWidth] : []),
+          directlyAvailableWidth,
+        ],
         categoryFilterWidths,
         filters: categoryFilters,
         gap,
@@ -151,6 +157,7 @@ export function ConnectionListToolbar({
     directlyAvailableCount,
     loading,
     selectedCategory,
+    showConnectionState,
     totalCount,
   ])
 
@@ -179,26 +186,32 @@ export function ConnectionListToolbar({
             }}
           >
             <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
-            <FilterToggleItem
-              count={loading ? null : availableToolsCount}
-              label={t("connections.filterAvailableTools")}
-              value="available-tools"
-            />
-            <FilterToggleItem
-              count={loading ? null : connectedCount}
-              label={t("connections.filterConnected")}
-              value="connected"
-            />
+            {showConnectionState ? (
+              <>
+                <FilterToggleItem
+                  count={loading ? null : availableToolsCount}
+                  label={t("connections.filterAvailableTools")}
+                  value="available-tools"
+                />
+                <FilterToggleItem
+                  count={loading ? null : connectedCount}
+                  label={t("connections.filterConnected")}
+                  value="connected"
+                />
+              </>
+            ) : null}
             <FilterToggleItem
               count={loading ? null : directlyAvailableCount}
               label={t("connections.filterDirectlyAvailable")}
               value="directly-available"
             />
-            <FilterToggleItem
-              count={loading ? null : attentionCount}
-              label={t("connections.needsAttention")}
-              value="attention"
-            />
+            {showConnectionState ? (
+              <FilterToggleItem
+                count={loading ? null : attentionCount}
+                label={t("connections.needsAttention")}
+                value="attention"
+              />
+            ) : null}
             {visibleCategoryFilters.map((filter) => (
               <FilterToggleItem
                 key={filter.label}
@@ -338,6 +351,7 @@ export function ProviderCatalog({
   providers,
   scrollParentRef,
   selectedService,
+  showConnectionState,
   onSelect,
 }: {
   canManageConnections: boolean
@@ -345,6 +359,7 @@ export function ProviderCatalog({
   providers: ConnectionProviderSummary[]
   scrollParentRef: React.RefObject<HTMLDivElement | null>
   selectedService: string | null
+  showConnectionState: boolean
 }) {
   return (
     <ProviderGrid
@@ -352,6 +367,7 @@ export function ProviderCatalog({
       providers={providers}
       scrollParentRef={scrollParentRef}
       selectedService={selectedService}
+      showConnectionState={showConnectionState}
       onSelect={onSelect}
     />
   )
@@ -362,6 +378,7 @@ function ProviderGrid({
   providers,
   scrollParentRef,
   selectedService,
+  showConnectionState,
   onSelect,
 }: {
   canManageConnections: boolean
@@ -369,6 +386,7 @@ function ProviderGrid({
   providers: ConnectionProviderSummary[]
   scrollParentRef: React.RefObject<HTMLDivElement | null>
   selectedService: string | null
+  showConnectionState: boolean
 }) {
   const itemCount = providers.length
   const gridRef = React.useRef<HTMLDivElement | null>(null)
@@ -606,6 +624,7 @@ function ProviderGrid({
               provider={provider}
               index={index}
               selected={provider.service === selectedService}
+              showConnectionState={showConnectionState}
               tabIndex={index === focusedIndex ? 0 : -1}
               onFocus={() => setFocusedIndex(index)}
               onKeyDown={(event) => {
@@ -636,6 +655,7 @@ function ProviderGrid({
     onSelect,
     providers,
     selectedService,
+    showConnectionState,
     visibleRange.endIndex,
     visibleRange.startIndex,
   ])
@@ -663,6 +683,7 @@ const ProviderCard = React.memo(function ProviderCard({
   provider,
   index,
   selected,
+  showConnectionState,
   tabIndex,
   onFocus,
   onKeyDown,
@@ -674,12 +695,16 @@ const ProviderCard = React.memo(function ProviderCard({
   onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
   provider: ConnectionProviderSummary
   selected: boolean
+  showConnectionState: boolean
   tabIndex: number
   onSelect: (provider: ConnectionProviderSummary) => void
 }) {
   const t = useT()
   const tone = getProviderStatusTone(provider)
-  const statusLabel = getProviderCatalogLabel(provider, canManageConnections, t)
+  const statusLabel =
+    showConnectionState || tone === "directly-available"
+      ? getProviderCatalogLabel(provider, canManageConnections, t)
+      : null
   return (
     <button
       type="button"
@@ -701,7 +726,7 @@ const ProviderCard = React.memo(function ProviderCard({
           <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
           <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
         </span>
-        {tone === "directly-available" ? (
+        {statusLabel && tone === "directly-available" ? (
           <Badge
             variant="secondary"
             className="max-w-24 border border-[var(--accent-ring)] bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] text-[var(--accent-strong)]"
@@ -709,7 +734,7 @@ const ProviderCard = React.memo(function ProviderCard({
           >
             <span className="truncate">{statusLabel}</span>
           </Badge>
-        ) : (
+        ) : statusLabel ? (
           <span className="flex shrink-0 items-center gap-1.5" title={statusLabel}>
             {tone === "connected" || tone === "attention" ? (
               <span
@@ -723,7 +748,7 @@ const ProviderCard = React.memo(function ProviderCard({
             ) : null}
             <span className="oo-text-micro max-w-16 truncate font-medium text-muted-foreground">{statusLabel}</span>
           </span>
-        )}
+        ) : null}
       </span>
     </button>
   )

@@ -21,6 +21,7 @@ import {
   normalizeConnectionAliasInput,
   parseFilterValue,
   selectVisibleCategoryFilters,
+  shouldShowConnectionState,
   shouldLoadProviderDetail,
 } from "./connection-route-model.ts"
 import { translate } from "@/i18n/i18n"
@@ -121,6 +122,13 @@ test("connection catalog filter rejects click events and malformed categories", 
     kind: "category",
     category: "Productivity",
   })
+})
+
+test("organization connection state is private to managers with a confirmed response", () => {
+  assert.equal(shouldShowConnectionState(false, "ready"), false)
+  assert.equal(shouldShowConnectionState(true, "unavailable"), false)
+  assert.equal(shouldShowConnectionState(true, "forbidden"), false)
+  assert.equal(shouldShowConnectionState(true, "ready"), true)
 })
 
 test("available tools filter combines connected and directly available providers", () => {

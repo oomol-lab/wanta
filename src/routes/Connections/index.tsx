@@ -21,6 +21,7 @@ import {
   isDirectlyAvailableProvider,
   matchesProviderFilter,
   matchesProviderQuery,
+  shouldShowConnectionState,
 } from "./connection-route-model.ts"
 import {
   ConnectionDrawerSkeleton,
@@ -28,12 +29,7 @@ import {
   ProviderCatalog,
   ProviderListSkeleton,
 } from "./ConnectionCatalog.tsx"
-import {
-  ConnectionStateNotice,
-  EmptyList,
-  ProviderDetail,
-  ReadOnlyConnectionNotice,
-} from "./ConnectionProviderDetailPane.tsx"
+import { ConnectionStateNotice, EmptyList, ProviderDetail } from "./ConnectionProviderDetailPane.tsx"
 import { DisconnectDialog } from "./DisconnectDialog.tsx"
 import { shouldOpenOAuthClientDialog } from "./oauth-client-config.ts"
 import { useConnectionProviderDetail } from "./use-connection-provider-detail.ts"
@@ -122,6 +118,7 @@ export function ConnectionsPanel({
   )
   const directlyAvailableCount = React.useMemo(() => providers.filter(isDirectlyAvailableProvider).length, [providers])
   const availableToolsCount = connectedCount + directlyAvailableCount
+  const showConnectionState = shouldShowConnectionState(canManageConnections, summary?.appsStatus)
   const catalogProviders = React.useMemo(
     () => providers.filter((provider) => matchesProviderFilter(provider, activeFilter)),
     [activeFilter, providers],
@@ -144,7 +141,7 @@ export function ConnectionsPanel({
   const selectedProviderDetailLoading = providerDetail.loading
   const selectedProviderDetailError = providerDetail.error
   const selectedProviderActionsBlocked = Boolean(
-    !canManageConnections || (providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError),
+    !showConnectionState || (providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError),
   )
   const selectedProviderActionsPending = Boolean(
     providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailLoading,
@@ -242,6 +239,19 @@ export function ConnectionsPanel({
       setActiveFilter({ kind: "all" })
     }
   }, [activeFilter, categoryFilters])
+
+  React.useEffect(() => {
+    if (showConnectionState) {
+      return
+    }
+    if (
+      activeFilter.kind === "available-tools" ||
+      activeFilter.kind === "connected" ||
+      activeFilter.kind === "attention"
+    ) {
+      setActiveFilter({ kind: "all" })
+    }
+  }, [activeFilter.kind, showConnectionState])
 
   React.useEffect(() => {
     if (!selectedProviderService || !summary) {
@@ -476,6 +486,7 @@ export function ConnectionsPanel({
           directlyAvailableCount={directlyAvailableCount}
           loading={summaryLoading}
           query={query}
+          showConnectionState={showConnectionState}
           totalCount={summary?.providerCount ?? providers.length}
           onFilterChange={setActiveFilter}
           onQueryChange={setQuery}
@@ -488,8 +499,7 @@ export function ConnectionsPanel({
       >
         <SplitViewListPane ref={listPaneRef} narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
-            {!canManageConnections ? <ReadOnlyConnectionNotice /> : null}
-            {summary?.appsStatus && summary.appsStatus !== "ready" ? (
+            {canManageConnections && summary?.appsStatus && summary.appsStatus !== "ready" ? (
               <ConnectionStateNotice status={summary.appsStatus} />
             ) : null}
             {listErrorNotice ? (
@@ -509,6 +519,7 @@ export function ConnectionsPanel({
                 providers={filteredProviders}
                 scrollParentRef={listPaneRef}
                 selectedService={selectedProvider?.service ?? null}
+                showConnectionState={showConnectionState}
                 onSelect={(provider) => selectProvider(provider.service)}
               />
             )}

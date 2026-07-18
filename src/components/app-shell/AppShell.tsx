@@ -493,10 +493,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     organizationSkills,
     route,
   })
-  const sharedConnectorCount = connectionSummaryMatchesWorkspace
-    ? connections.summary?.connectedProviderCount
-    : undefined
-  const emptyStateConnectionSummary = connectionSummaryMatchesWorkspace
+  const connectionAppsReady = connectionSummaryMatchesWorkspace && connections.summary?.appsStatus === "ready"
+  const sharedConnectorCount = connectionAppsReady ? connections.summary?.connectedProviderCount : undefined
+  const emptyStateConnectionSummary = connectionAppsReady
     ? connections.summary
       ? summarizeEmptyStateConnections(connections.summary.providers, connections.summary.connectedProviderCount)
       : null

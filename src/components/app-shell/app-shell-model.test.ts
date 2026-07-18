@@ -9,6 +9,7 @@ import {
   newSessionComposerDraftKeyForScopeKey,
   resolveNewSessionTarget,
   resolveNotificationOrganization,
+  resolveOrganizationProviderOptionsAvailability,
   resolveWorkspaceActivationState,
   sessionRecordScopeKey,
   sessionTitleGenerationKey,
@@ -41,6 +42,38 @@ describe("notification organization resolution", () => {
 
   test("waits while the organization list is unresolved", () => {
     expect(resolveNotificationOrganization({ ...input, hasLoaded: false, organizationIds: [] })).toBe("wait")
+  })
+})
+
+describe("organization provider option availability", () => {
+  test("waits for the shared connection summary instead of starting a duplicate request", () => {
+    expect(
+      resolveOrganizationProviderOptionsAvailability({
+        appsStatus: undefined,
+        summaryMatchesWorkspace: false,
+        workspaceActivationFailed: false,
+      }),
+    ).toBe("pending")
+  })
+
+  test("uses shared provider options after the workspace summary is ready", () => {
+    expect(
+      resolveOrganizationProviderOptionsAvailability({
+        appsStatus: "ready",
+        summaryMatchesWorkspace: true,
+        workspaceActivationFailed: false,
+      }),
+    ).toBe("ready")
+  })
+
+  test("allows the details request fallback after shared loading fails", () => {
+    expect(
+      resolveOrganizationProviderOptionsAvailability({
+        appsStatus: undefined,
+        summaryMatchesWorkspace: false,
+        workspaceActivationFailed: true,
+      }),
+    ).toBe("fallback")
   })
 })
 

@@ -37,7 +37,7 @@ export function useOrganizationDetails({
 }: {
   activeAccountId: string | undefined
   canManage: boolean
-  providerOptions: OrganizationProviderOption[] | null
+  providerOptions?: OrganizationProviderOption[] | null
   selectedOrganization: Organization | null
 }) {
   const [membersState, setMembersState] = React.useState<LoadState<OrganizationMember[]>>(() => loadState([]))
@@ -87,7 +87,7 @@ export function useOrganizationDetails({
       const cachedSummaries = options.forceRefresh
         ? null
         : getCachedOrganizationUserSummaries(resourceAccountId, organization.id, cachedSummaryUserIds)
-      const cachedProviderOptions = providerOptions
+      const cachedProviderOptions = Array.isArray(providerOptions)
         ? providerOptions
         : canManageDetails && !options.forceRefresh
           ? getCachedOrganizationProviderOptions(resourceAccountId, organization.id)
@@ -124,13 +124,15 @@ export function useOrganizationDetails({
         getOrganizationMembersResource(resourceAccountId, organization.id, { forceRefresh: options.forceRefresh }),
       )
       const providerOptionsRequest =
-        canManageDetails && !providerOptions
+        canManageDetails && providerOptions === null
           ? settle(
               getOrganizationProviderOptionsResource(resourceAccountId, organization.id, organization.name, {
                 forceRefresh: options.forceRefresh,
               }),
             )
-          : Promise.resolve<AsyncResult<OrganizationProviderOption[]>>({ ok: true, value: providerOptions ?? [] })
+          : canManageDetails && providerOptions === undefined
+            ? null
+            : Promise.resolve<AsyncResult<OrganizationProviderOption[]>>({ ok: true, value: providerOptions ?? [] })
       const appAccessRequest = canManageDetails
         ? settle(
             getOrganizationAppAccessResource(resourceAccountId, organization.id, {
@@ -138,10 +140,13 @@ export function useOrganizationDetails({
             }),
           )
         : Promise.resolve<AsyncResult<OrganizationAppAccess | null>>({ ok: true, value: null })
-      const providerOptionsTask = providerOptionsRequest.then((result) => {
-        if (!canManageDetails || detailsRequestId.current !== requestId) return
-        setProviderOptionsState((current) => (result.ok ? readyState(result.value) : errorState(current, result.error)))
-      })
+      const providerOptionsTask =
+        providerOptionsRequest?.then((result) => {
+          if (!canManageDetails || detailsRequestId.current !== requestId) return
+          setProviderOptionsState((current) =>
+            result.ok ? readyState(result.value) : errorState(current, result.error),
+          )
+        }) ?? Promise.resolve()
       const appAccessTask = appAccessRequest.then((result) => {
         if (!canManageDetails || detailsRequestId.current !== requestId) return
         setAppAccessState((current) => (result.ok ? readyState(result.value) : errorState(current, result.error)))

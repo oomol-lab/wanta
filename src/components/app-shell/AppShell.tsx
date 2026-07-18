@@ -38,6 +38,7 @@ import {
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
   resolveNotificationOrganization,
+  resolveOrganizationProviderOptionsAvailability,
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
@@ -463,15 +464,22 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeProviders = connectionSummaryMatchesWorkspace
     ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
     : EMPTY_CONNECTION_PROVIDERS
+  const organizationProviderOptionsAvailability = resolveOrganizationProviderOptionsAvailability({
+    appsStatus: connections.summary?.appsStatus,
+    summaryMatchesWorkspace: connectionSummaryMatchesWorkspace,
+    workspaceActivationFailed: workspaceActivationHasFailed(workspaceActivationState),
+  })
   const activeOrganizationProviderOptions = React.useMemo(
     () =>
-      connectionSummaryMatchesWorkspace && connections.summary?.appsStatus === "ready"
+      organizationProviderOptionsAvailability === "ready"
         ? activeProviders
             .filter((provider) => provider.apps.some((app) => app.status !== "disconnected"))
             .map((provider) => ({ label: provider.displayName, service: provider.service }))
             .sort((left, right) => left.label.localeCompare(right.label))
-        : null,
-    [activeProviders, connectionSummaryMatchesWorkspace, connections.summary?.appsStatus],
+        : organizationProviderOptionsAvailability === "pending"
+          ? undefined
+          : null,
+    [activeProviders, organizationProviderOptionsAvailability],
   )
   const {
     entryVisible: organizationSkillEntryVisible,

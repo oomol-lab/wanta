@@ -88,6 +88,23 @@ export function shouldShowRecommendedSkillEntry({
 
 export type NotificationOrganizationResolution = "ready" | "refresh" | "select" | "unavailable" | "wait"
 
+export type OrganizationProviderOptionsAvailability = "fallback" | "pending" | "ready"
+
+export function resolveOrganizationProviderOptionsAvailability({
+  appsStatus,
+  summaryMatchesWorkspace,
+  workspaceActivationFailed,
+}: {
+  appsStatus: "forbidden" | "ready" | "unavailable" | undefined
+  summaryMatchesWorkspace: boolean
+  workspaceActivationFailed: boolean
+}): OrganizationProviderOptionsAvailability {
+  if (!summaryMatchesWorkspace) {
+    return workspaceActivationFailed ? "fallback" : "pending"
+  }
+  return appsStatus === "ready" ? "ready" : "fallback"
+}
+
 export function resolveNotificationOrganization({
   activeOrganizationId,
   hasLoaded,

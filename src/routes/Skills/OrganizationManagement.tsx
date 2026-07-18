@@ -67,7 +67,7 @@ export function OrganizationManagementRoute({
 }: {
   connectedProvidersLoading?: boolean
   organizationSkills?: UseOrganizationSkills
-  providerOptions: OrganizationProviderOption[] | null
+  providerOptions?: OrganizationProviderOption[] | null
   providerSkillRecommendationsState: ProviderSkillRecommendationsState
   workspace: UseOrganizationWorkspace
 }) {
@@ -226,6 +226,7 @@ export function OrganizationManagementRoute({
 
   React.useEffect(() => {
     resetMemberSearch()
+    setBusyAction(null)
     setAddMemberOpen(false)
     setAddMemberError(null)
     setMembersPanelOpen(false)

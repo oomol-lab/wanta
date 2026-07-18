@@ -46,6 +46,11 @@ interface OrganizationMemberActionsOptions {
   setProviderAccessForm: React.Dispatch<React.SetStateAction<ProviderAccessForm>>
 }
 
+interface MemberActionOperation {
+  busyAction: BusyAction
+  id: number
+}
+
 export function useOrganizationMemberActions({
   activeAccountId,
   busyAction,
@@ -65,6 +70,36 @@ export function useOrganizationMemberActions({
   setProviderAccessForm,
 }: OrganizationMemberActionsOptions) {
   const { t } = useAppI18n()
+  const actionSequenceRef = React.useRef(0)
+  const actionContextKey = `${activeAccountId ?? "anonymous"}\u0000${selectedOrganization?.id ?? "none"}`
+  const actionContextKeyRef = React.useRef(actionContextKey)
+  React.useLayoutEffect(() => {
+    if (actionContextKeyRef.current !== actionContextKey) {
+      actionContextKeyRef.current = actionContextKey
+      actionSequenceRef.current += 1
+    }
+  }, [actionContextKey])
+
+  const beginOperation = React.useCallback(
+    (nextBusyAction: BusyAction): MemberActionOperation => {
+      const operation = { busyAction: nextBusyAction, id: actionSequenceRef.current + 1 }
+      actionSequenceRef.current = operation.id
+      setBusyAction(nextBusyAction)
+      return operation
+    },
+    [setBusyAction],
+  )
+  const operationIsCurrent = React.useCallback(
+    (operation: MemberActionOperation): boolean => actionSequenceRef.current === operation.id,
+    [],
+  )
+  const finishOperation = React.useCallback(
+    (operation: MemberActionOperation): void => {
+      if (!operationIsCurrent(operation)) return
+      setBusyAction((current) => (current === operation.busyAction ? null : current))
+    },
+    [operationIsCurrent, setBusyAction],
+  )
 
   const addMember = React.useCallback(
     async (event: React.FormEvent) => {
@@ -82,16 +117,18 @@ export function useOrganizationMemberActions({
         return
       }
 
-      setBusyAction("add")
+      const operation = beginOperation("add")
       setAddMemberError(null)
       try {
         await addOrganizationMember({ orgId: selectedOrganization.id, userId })
         invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
+        if (!operationIsCurrent(operation)) return
         toast.success(t("organizations.addMemberSuccess"))
         resetMemberSearch()
         setAddMemberOpen(false)
         await reloadDetails()
       } catch (error) {
+        if (!operationIsCurrent(operation)) return
         const message = errorMessage(error)
         setAddMemberError(
           isOrganizationMemberLimitError(error)
@@ -101,21 +138,23 @@ export function useOrganizationMemberActions({
               : organizationErrorMessage(error, t),
         )
       } finally {
-        setBusyAction(null)
+        finishOperation(operation)
       }
     },
     [
       activeAccountId,
+      beginOperation,
       canManage,
+      finishOperation,
       memberInput,
       memberSearch.items.length,
+      operationIsCurrent,
       reloadDetails,
       resetMemberSearch,
       selectedOrganization,
       selectedSearchUserId,
       setAddMemberError,
       setAddMemberOpen,
-      setBusyAction,
       t,
     ],
   )
@@ -123,19 +162,29 @@ export function useOrganizationMemberActions({
   const removeMember = React.useCallback(
     async (member: OrganizationMember) => {
       if (!selectedOrganization || !canManage) return
-      setBusyAction(`remove:${member.user_id}`)
+      const operation = beginOperation(`remove:${member.user_id}`)
       try {
         await removeOrganizationMember({ orgId: selectedOrganization.id, userId: member.user_id })
         invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
+        if (!operationIsCurrent(operation)) return
         toast.success(t("organizations.removeMemberSuccess"))
         await reloadDetails()
       } catch (error) {
-        toast.error(organizationErrorMessage(error, t))
+        if (operationIsCurrent(operation)) toast.error(organizationErrorMessage(error, t))
       } finally {
-        setBusyAction(null)
+        finishOperation(operation)
       }
     },
-    [activeAccountId, canManage, reloadDetails, selectedOrganization, setBusyAction, t],
+    [
+      activeAccountId,
+      beginOperation,
+      canManage,
+      finishOperation,
+      operationIsCurrent,
+      reloadDetails,
+      selectedOrganization,
+      t,
+    ],
   )
 
   const updateMembersStatus = React.useCallback(
@@ -144,20 +193,30 @@ export function useOrganizationMemberActions({
       const normalizedUserIds = uniqueStrings(userIds.map((userId) => userId.trim()).filter(Boolean))
       if (normalizedUserIds.length === 0) return
 
-      setBusyAction(disabled ? "disableMembers" : "enableMembers")
+      const operation = beginOperation(disabled ? "disableMembers" : "enableMembers")
       try {
         const input = { orgId: selectedOrganization.id, userIds: normalizedUserIds }
         await (disabled ? disableOrganizationMembers(input) : enableOrganizationMembers(input))
         invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
+        if (!operationIsCurrent(operation)) return
         toast.success(disabled ? t("organizations.disableMembersSuccess") : t("organizations.enableMembersSuccess"))
         await reloadDetails()
       } catch (error) {
-        toast.error(organizationErrorMessage(error, t))
+        if (operationIsCurrent(operation)) toast.error(organizationErrorMessage(error, t))
       } finally {
-        setBusyAction(null)
+        finishOperation(operation)
       }
     },
-    [activeAccountId, canManage, reloadDetails, selectedOrganization, setBusyAction, t],
+    [
+      activeAccountId,
+      beginOperation,
+      canManage,
+      finishOperation,
+      operationIsCurrent,
+      reloadDetails,
+      selectedOrganization,
+      t,
+    ],
   )
 
   const openGrantProviderAccess = React.useCallback(
@@ -204,10 +263,13 @@ export function useOrganizationMemberActions({
         return void toast.error(t("organizations.providerRequired"))
       }
 
-      setBusyAction("saveProviderAccess")
+      const operation = beginOperation("saveProviderAccess")
       try {
         const parsed = parseProviderGrants(await getOrganizationAppAccess(selectedOrganization.id))
-        if (!parsed.ok) return void toast.error(t("organizations.providerAccessLoadFailed"))
+        if (!parsed.ok) {
+          if (operationIsCurrent(operation)) toast.error(t("organizations.providerAccessLoadFailed"))
+          return
+        }
         const existingGrant = parsed.grants.find((grant) => grant.userId === userId)
         const allProviders =
           providerAccessForm.mode === "create"
@@ -222,23 +284,26 @@ export function useOrganizationMemberActions({
           setProviderGrant(parsed.access, userId, providers, allProviders),
         )
         invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
+        if (!operationIsCurrent(operation)) return
         setAppAccessForOrganization(activeAccountId, selectedOrganization.id, updated)
         setProviderAccessForm(initialProviderAccessForm)
         toast.success(t("organizations.providerAccessSaveSuccess"))
       } catch (error) {
-        toast.error(organizationErrorMessage(error, t))
+        if (operationIsCurrent(operation)) toast.error(organizationErrorMessage(error, t))
       } finally {
-        setBusyAction(null)
+        finishOperation(operation)
       }
     },
     [
       activeAccountId,
+      beginOperation,
       canManage,
+      finishOperation,
+      operationIsCurrent,
       providerAccessError,
       providerAccessForm,
       selectedOrganization,
       setAppAccessForOrganization,
-      setBusyAction,
       setProviderAccessForm,
       t,
     ],
@@ -247,30 +312,36 @@ export function useOrganizationMemberActions({
   const revokeProviderAccess = React.useCallback(
     async (grant: ProviderGrantView) => {
       if (!selectedOrganization || !canManage || providerAccessError) return
-      setBusyAction(`revokeProviderAccess:${grant.userId}`)
+      const operation = beginOperation(`revokeProviderAccess:${grant.userId}`)
       try {
         const parsed = parseProviderGrants(await getOrganizationAppAccess(selectedOrganization.id))
-        if (!parsed.ok) return void toast.error(t("organizations.providerAccessLoadFailed"))
+        if (!parsed.ok) {
+          if (operationIsCurrent(operation)) toast.error(t("organizations.providerAccessLoadFailed"))
+          return
+        }
         const updated = await updateOrganizationAppAccess(
           selectedOrganization.id,
           removeProviderGrant(parsed.access, grant.userId),
         )
         invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
+        if (!operationIsCurrent(operation)) return
         setAppAccessForOrganization(activeAccountId, selectedOrganization.id, updated)
         toast.success(t("organizations.providerAccessRevokeSuccess"))
       } catch (error) {
-        toast.error(organizationErrorMessage(error, t))
+        if (operationIsCurrent(operation)) toast.error(organizationErrorMessage(error, t))
       } finally {
-        setBusyAction(null)
+        finishOperation(operation)
       }
     },
     [
       activeAccountId,
+      beginOperation,
       canManage,
+      finishOperation,
+      operationIsCurrent,
       providerAccessError,
       selectedOrganization,
       setAppAccessForOrganization,
-      setBusyAction,
       t,
     ],
   )

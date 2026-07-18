@@ -17,6 +17,7 @@ import {
   isConnected,
   isDirectlyAvailableProvider,
   matchesProviderFilter,
+  normalizeConnectionCatalogFilter,
   normalizeConnectionAliasInput,
   parseFilterValue,
   selectVisibleCategoryFilters,
@@ -110,6 +111,16 @@ test("read-only provider labels describe state instead of offering management ac
 test("availability catalog filters round trip", () => {
   assert.deepEqual(parseFilterValue("available-tools"), { kind: "available-tools" })
   assert.deepEqual(parseFilterValue("directly-available"), { kind: "directly-available" })
+})
+
+test("connection catalog filter rejects click events and malformed categories", () => {
+  assert.deepEqual(normalizeConnectionCatalogFilter({ type: "click" }), { kind: "all" })
+  assert.deepEqual(normalizeConnectionCatalogFilter({ kind: "category", category: "" }), { kind: "all" })
+  assert.deepEqual(normalizeConnectionCatalogFilter({ kind: "connected" }), { kind: "connected" })
+  assert.deepEqual(normalizeConnectionCatalogFilter({ kind: "category", category: "Productivity" }), {
+    kind: "category",
+    category: "Productivity",
+  })
 })
 
 test("available tools filter combines connected and directly available providers", () => {

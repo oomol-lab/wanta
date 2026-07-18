@@ -92,6 +92,7 @@ import { chatTurnAllowsDirectSend, chatTurnQueuesNewMessage, resolveChatTurnStat
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 import { summarizeEmptyStateConnections } from "@/routes/Chat/empty-state-connections"
+import { normalizeConnectionCatalogFilter } from "@/routes/Connections/connection-route-model.ts"
 
 const ArchivedRoute = React.lazy(() =>
   import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
@@ -1042,7 +1043,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   }, [completeMatchingRetries, connections.connectionReadyEvent, connections.summaryWorkspaceKey])
 
   const handleOpenConnections = React.useCallback(
-    (filter: ConnectionCatalogFilter = { kind: "all" }): void => {
+    (filter?: ConnectionCatalogFilter): void => {
       cancelRetryForDrawer(activeComposerDraftKey)
       setChatConnectionDrawers((current) => {
         if (!Object.hasOwn(current, activeComposerDraftKey)) {
@@ -1053,7 +1054,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         return next
       })
       setSelectedService(null)
-      setConnectionCatalogFilter(filter)
+      setConnectionCatalogFilter(normalizeConnectionCatalogFilter(filter))
       setRoute("connections")
       void connections.refresh({}, { silent: true })
     },
@@ -1111,6 +1112,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     clearRetries()
     setChatConnectionDrawers({})
     setSelectedService(null)
+    setConnectionCatalogFilter({ kind: "all" })
     setSelectedSessionId(null)
     setIsDraftSession(false)
     setDraftPermissionMode("default")
@@ -1608,7 +1610,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         onLogout={auth.logout}
         onNavigate={setRoute}
         onNewSession={handleNewSessionWithKnowledgeReset}
-        onOpenConnections={handleOpenConnections}
+        onOpenConnections={() => handleOpenConnections()}
         onOpenSearch={handleOpenSearch}
         onPinProject={projectActions.handlePin}
         onPinSession={sessionActions.handlePin}

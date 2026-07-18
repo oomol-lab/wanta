@@ -367,6 +367,23 @@ export function getFilterValue(filter: ConnectionCatalogFilter): string {
   return filter.kind === "category" ? `${categoryFilterPrefix}${filter.category}` : filter.kind
 }
 
+/**
+ * React 点击处理器会把 MouseEvent 作为首参传入；跨组件复用带可选筛选参数的回调时，
+ * 运行时必须把这类非筛选值收敛到全部目录，避免事件对象让所有 Provider 都被过滤。
+ */
+export function normalizeConnectionCatalogFilter(value: unknown): ConnectionCatalogFilter {
+  if (!value || typeof value !== "object") {
+    return { kind: "all" }
+  }
+  const candidate = value as { category?: unknown; kind?: unknown }
+  if (candidate.kind === "category") {
+    return typeof candidate.category === "string" && candidate.category.length > 0
+      ? { kind: "category", category: candidate.category }
+      : { kind: "all" }
+  }
+  return typeof candidate.kind === "string" ? (parseFilterValue(candidate.kind) ?? { kind: "all" }) : { kind: "all" }
+}
+
 export function parseFilterValue(value: string): ConnectionCatalogFilter | null {
   if (
     value === "all" ||

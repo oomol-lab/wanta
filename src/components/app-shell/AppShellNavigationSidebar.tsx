@@ -19,14 +19,14 @@ import {
   SidebarSegmentControl,
   SidebarTitlebarActions,
 } from "./AppShellSidebar.tsx"
-import { projectHasRunningSession } from "./sidebar-sessions.ts"
+import { runningProjectIds } from "./sidebar-sessions.ts"
 import { BrandIcon } from "@/components/BrandIcon"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { useT } from "@/i18n/i18n"
 import { appCommandAriaShortcut } from "@/lib/app-shortcuts"
 import { cn } from "@/lib/utils"
 
-export function AppShellNavigationSidebar({
+export const AppShellNavigationSidebar = React.memo(function AppShellNavigationSidebar({
   accountName,
   activeRoute,
   avatarUrl,
@@ -125,6 +125,10 @@ export function AppShellNavigationSidebar({
     const id = window.setInterval(() => setNow(Date.now()), 60_000)
     return () => window.clearInterval(id)
   }, [])
+  const projectsWithRunningSessions = React.useMemo(
+    () => runningProjectIds(projectSessions, isSessionRunning),
+    [isSessionRunning, projectSessions],
+  )
   const renderProjectGroup = (group: ProjectSidebarGroup) => (
     <ProjectSidebarGroupItem
       key={group.project.id}
@@ -134,7 +138,7 @@ export function AppShellNavigationSidebar({
       hasUnreadSession={hasUnreadSession}
       isSessionRunning={isSessionRunning}
       now={now}
-      running={projectHasRunningSession(group.project.id, projectSessions, isSessionRunning)}
+      running={projectsWithRunningSessions.has(group.project.id)}
       onExpandedChange={(expanded) => onProjectExpandedChange(group.project.id, expanded)}
       onNewSession={onSelectProjectDraft}
       onPinProject={onPinProject}
@@ -333,4 +337,4 @@ export function AppShellNavigationSidebar({
       />
     </aside>
   )
-}
+})

@@ -568,7 +568,10 @@ export class SessionServiceImpl
     }
     await this.persistActivity()
     try {
-      await this.refreshAndEmit()
+      await this.send("sessionsChanged", {
+        activity: { sessionId: id, usedAt },
+        reason: "record session use",
+      })
     } catch (error) {
       this.logFailure("failed to broadcast sessions changed", error, { action: "record session use", sessionId: id })
     }

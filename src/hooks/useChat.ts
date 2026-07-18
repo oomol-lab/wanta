@@ -17,6 +17,7 @@ import type {
 import type { ModelChoice } from "../../electron/models/common.ts"
 import type { SessionScope } from "../../electron/session/common.ts"
 import type { ChatMessagesMap } from "./use-chat-event-buffer.ts"
+import type { UserFacingError } from "@/lib/user-facing-error"
 import type { QuestionDraftStore } from "@/routes/Chat/question-fields"
 import type { ChatStatus } from "ai"
 
@@ -45,6 +46,7 @@ import { useChatEventBuffer } from "./use-chat-event-buffer.ts"
 import { useChatRunState } from "./use-chat-run-state.ts"
 import { useChatService } from "@/components/AppContext"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
+import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 type MessagesMap = ChatMessagesMap
 type PendingQuestionsMap = Record<string, ChatQuestionRequest[]>
@@ -65,11 +67,13 @@ export interface UseChat {
   status: ChatStatus
   activity: AssistantActivityEvent | null
   messagesLoaded: boolean
+  sessionSnapshotError: UserFacingError | null
   error: string | null
   getSessionStatus: (sessionId: string) => ChatStatus
   getSessionRunStartedAt: (sessionId: string) => number | null
   forgetSession: (sessionId: string) => void
   resetSessionCache: () => void
+  retrySessionSnapshot: () => void
   send: (
     sessionId: string,
     text: string,
@@ -91,7 +95,7 @@ export interface UseChat {
   rejectQuestion: (sessionId: string, requestId: string) => Promise<void>
   questionDrafts: QuestionDraftStore
   permissionMode: AgentPermissionMode
-  setPermissionMode: (sessionId: string, mode: AgentPermissionMode) => number
+  setPermissionMode: (sessionId: string, mode: AgentPermissionMode) => Promise<void>
 }
 
 export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: string): UseChat {
@@ -113,6 +117,11 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
   const [permissionModes, setPermissionModes] = React.useState<Record<string, AgentPermissionMode>>({})
   const [globalError, setGlobalError] = React.useState<string | null>(null)
   const [errorsBySession, setErrorsBySession] = React.useState<Record<string, string | undefined>>({})
+  const [sessionSnapshotErrorState, setSessionSnapshotErrorState] = React.useState<{
+    error: UserFacingError
+    sessionId: string
+  } | null>(null)
+  const [sessionSnapshotReloadVersion, setSessionSnapshotReloadVersion] = React.useState(0)
   const userStoppedSessions = React.useRef(new Map<string, number>())
   const cancelledToolParts = React.useRef<CancelledToolPartsMap>(new Map())
   const pendingQuestionsMutationVersions = React.useRef(new Map<string, number>())
@@ -229,6 +238,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
     setPermissionModes({})
     setGlobalError(null)
     setErrorsBySession({})
+    setSessionSnapshotErrorState(null)
     userStoppedSessions.current.clear()
     cancelledToolParts.current.clear()
     pendingQuestionsMutationVersions.current.clear()
@@ -239,6 +249,14 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
     answeredQuestionIds.current.clear()
     recentSessionIds.current = []
   }, [resetEventBuffer, resetRunState])
+
+  const retrySessionSnapshot = React.useCallback((): void => {
+    if (!activeSessionId) {
+      return
+    }
+    setSessionSnapshotErrorState(null)
+    setSessionSnapshotReloadVersion((current) => current + 1)
+  }, [activeSessionId])
 
   const markActiveRunMutated = React.useCallback((sessionId: string): void => {
     activeRunMutationVersions.current.set(sessionId, (activeRunMutationVersions.current.get(sessionId) ?? 0) + 1)
@@ -363,15 +381,22 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
   }, [])
 
   const setPermissionMode = React.useCallback(
-    (sessionId: string, mode: AgentPermissionMode): number => {
+    async (sessionId: string, mode: AgentPermissionMode): Promise<void> => {
+      const previousMode = permissionModesRef.current[sessionId] ?? "default"
       const version = setLocalPermissionMode(sessionId, mode)
-      void chatService
-        .invoke("setPermissionMode", { sessionId, permissionMode: mode, version })
-        .catch((err: unknown) => {
-          console.error("[wanta] set chat permission mode failed", err)
-          reportRendererHandledError("chat", "setPermissionMode invoke failed", err)
-        })
-      return version
+      try {
+        await chatService.invoke("setPermissionMode", { sessionId, permissionMode: mode, version })
+      } catch (err) {
+        if (permissionModeVersionsRef.current[sessionId] === version) {
+          setPermissionModes((current) =>
+            current[sessionId] === previousMode ? current : { ...current, [sessionId]: previousMode },
+          )
+          permissionModesRef.current = { ...permissionModesRef.current, [sessionId]: previousMode }
+        }
+        console.error("[wanta] set chat permission mode failed", err)
+        reportRendererHandledError("chat", "setPermissionMode invoke failed", err)
+        throw err
+      }
     },
     [chatService, setLocalPermissionMode],
   )
@@ -794,34 +819,44 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
   }, [activeRunsRefreshKey, applyActiveRun, chatService])
 
   React.useEffect(() => {
-    if (activeSessionId) {
-      let cancelled = false
-      const activeRunMutationVersion = activeRunMutationVersions.current.get(activeSessionId) ?? 0
-      const messagesMutationVersion = messagesMutationVersions.current.get(activeSessionId) ?? 0
-      const pendingQuestionsMutationVersion = pendingQuestionsMutationVersions.current.get(activeSessionId) ?? 0
-      const pendingPermissionsMutationVersion = pendingPermissionsMutationVersions.current.get(activeSessionId) ?? 0
-      void chatService
-        .invoke("getSessionSnapshot", activeSessionId)
-        .then((snapshot) => {
-          if (cancelled || snapshot.sessionId !== activeSessionId) {
-            return
-          }
-          applySessionSnapshot(snapshot, {
-            activeRunMutationVersion,
-            messagesMutationVersion,
-            pendingPermissionsMutationVersion,
-            pendingQuestionsMutationVersion,
-          })
-        })
-        .catch((err: unknown) => {
-          console.error("[wanta] getSessionSnapshot failed", err)
-          reportRendererHandledError("chat", "getSessionSnapshot failed", err)
-        })
-      return () => {
-        cancelled = true
-      }
+    if (!activeSessionId) {
+      setSessionSnapshotErrorState(null)
+      return
     }
-  }, [activeSessionId, applySessionSnapshot, chatService])
+    let cancelled = false
+    setSessionSnapshotErrorState(null)
+    const activeRunMutationVersion = activeRunMutationVersions.current.get(activeSessionId) ?? 0
+    const messagesMutationVersion = messagesMutationVersions.current.get(activeSessionId) ?? 0
+    const pendingQuestionsMutationVersion = pendingQuestionsMutationVersions.current.get(activeSessionId) ?? 0
+    const pendingPermissionsMutationVersion = pendingPermissionsMutationVersions.current.get(activeSessionId) ?? 0
+    void chatService
+      .invoke("getSessionSnapshot", activeSessionId)
+      .then((snapshot) => {
+        if (cancelled || snapshot.sessionId !== activeSessionId) {
+          return
+        }
+        applySessionSnapshot(snapshot, {
+          activeRunMutationVersion,
+          messagesMutationVersion,
+          pendingPermissionsMutationVersion,
+          pendingQuestionsMutationVersion,
+        })
+      })
+      .catch((err: unknown) => {
+        if (cancelled) {
+          return
+        }
+        console.error("[wanta] getSessionSnapshot failed", err)
+        reportRendererHandledError("chat", "getSessionSnapshot failed", err)
+        setSessionSnapshotErrorState({
+          error: resolveUserFacingError(err, { area: "chat" }),
+          sessionId: activeSessionId,
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSessionId, applySessionSnapshot, chatService, sessionSnapshotReloadVersion])
 
   const send = React.useCallback(
     async (
@@ -1039,6 +1074,8 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
   const status = activeSessionId ? (statuses[activeSessionId] ?? "ready") : "ready"
   const activity = activeSessionId ? (activities[activeSessionId] ?? null) : null
   const messagesLoaded = activeSessionId ? Object.hasOwn(messagesMap, activeSessionId) : true
+  const sessionSnapshotError =
+    !messagesLoaded && sessionSnapshotErrorState?.sessionId === activeSessionId ? sessionSnapshotErrorState.error : null
   const questionDrafts = React.useMemo<QuestionDraftStore>(
     () => ({
       read: (sessionId, request, expectedDraftCount) => {
@@ -1062,11 +1099,13 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
     status,
     activity,
     messagesLoaded,
+    sessionSnapshotError,
     error,
     getSessionStatus,
     getSessionRunStartedAt,
     forgetSession,
     resetSessionCache,
+    retrySessionSnapshot,
     send,
     stop,
     answerQuestion,

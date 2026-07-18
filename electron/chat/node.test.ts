@@ -2537,9 +2537,14 @@ test("forgetSession clears session-scoped permission state", async () => {
   assert.equal(bridge.answerPermission.mock.calls.length, 0)
 })
 
-test("unchanged permission mode updates do not emit session activity", async () => {
+test("permission mode updates use the persistence callback without emitting session activity", async () => {
   const bridge = createBridgeAgent()
-  const service = new ChatServiceImpl(bridge.agent)
+  const persistedModes: string[] = []
+  const service = new ChatServiceImpl(bridge.agent, {
+    onPermissionModeChanged: (_sessionId, permissionMode) => {
+      persistedModes.push(permissionMode)
+    },
+  })
   const activities: Array<{ sessionId: string; usedAt: number }> = []
   service.sessionActivity.on((activity) => activities.push(activity))
 
@@ -2547,8 +2552,37 @@ test("unchanged permission mode updates do not emit session activity", async () 
   await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access", version: 2 })
   await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access", version: 3 })
 
-  assert.equal(activities.length, 1)
-  assert.equal(activities[0]?.sessionId, "session-1")
+  assert.deepEqual(persistedModes, ["full_access"])
+  assert.equal(activities.length, 0)
+})
+
+test("permission mode persistence failures roll back the runtime mode", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent, {
+    onPermissionModeChanged: async () => {
+      throw new Error("metadata unavailable")
+    },
+  })
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await assert.rejects(
+    service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access", version: 1 }),
+    /metadata unavailable/,
+  )
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ["npm install"],
+      metadata: { command: "npm install" },
+    },
+  })
+
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+  assert.equal(bridge.answerPermission.mock.calls.length, 0)
 })
 
 test("automatic permission replies are deduplicated across pending reload and events", async () => {

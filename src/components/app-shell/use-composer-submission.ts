@@ -73,7 +73,7 @@ export function useComposerSubmission({
   messagesLoaded: boolean
   organizationSkills: ChatOrganizationSkillContext[]
   knowledgeBaseIds: string[]
-  persistPermissionMode: (sessionId: string, mode: AgentPermissionMode) => void
+  persistPermissionMode: (sessionId: string, mode: AgentPermissionMode) => Promise<void>
   persistKnowledgeBaseIds: (sessionId: string, ids: string[]) => void
   send: UseChat["send"]
   sessionScope: SessionScope | null
@@ -181,7 +181,14 @@ export function useComposerSubmission({
             )
           }
         }
-        persistPermissionMode(sessionId, selectedPermissionMode)
+        try {
+          await persistPermissionMode(sessionId, selectedPermissionMode)
+        } catch (error) {
+          if (bridgeEmptySend && isCurrentSendTarget()) {
+            setPendingChatTransition(null)
+          }
+          return { error, status: "failed" }
+        }
         persistKnowledgeBaseIds(sessionId, knowledgeBaseIds)
         if (shouldRefreshTitle) {
           void titleGeneration.refreshGeneratedTitle(

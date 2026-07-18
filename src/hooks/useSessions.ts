@@ -5,6 +5,7 @@ import type {
   SessionInfo,
   SessionProject,
   SessionScope,
+  SessionsChangedEvent,
 } from "../../electron/session/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
@@ -28,6 +29,20 @@ export function mergeSessionsWithLocalCreated(
     merged.push(session)
   }
   return merged.sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+export function applySessionActivity(sessions: SessionInfo[], event: SessionsChangedEvent): SessionInfo[] {
+  const activity = event.activity
+  if (!activity) {
+    return sessions
+  }
+  const index = sessions.findIndex((session) => session.id === activity.sessionId)
+  if (index < 0 || sessions[index]!.updatedAt >= activity.usedAt) {
+    return sessions
+  }
+  const next = [...sessions]
+  next[index] = { ...next[index]!, updatedAt: activity.usedAt }
+  return next
 }
 
 function sortSessionProjects(projects: SessionProject[]): SessionProject[] {
@@ -55,7 +70,6 @@ export interface UseSessions {
   listArchived: () => Promise<SessionInfo[]>
   createProject: (req: Omit<CreateProjectRequest, "scope">) => Promise<SessionProject>
   assignSessionProject: (sessionId: string, projectId?: string) => Promise<void>
-  setSessionPermissionMode: (id: string, permissionMode: SessionInfo["permissionMode"]) => Promise<void>
   setSessionKnowledgeBases: (id: string, update: KnowledgeBaseIdsUpdate) => Promise<void>
   renameProject: (id: string, name: string) => Promise<void>
   pinProject: (id: string, pinned: boolean) => Promise<void>
@@ -112,8 +126,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const enabledRef = React.useRef(enabled)
   const requestSequenceRef = React.useRef(0)
   const localCreatedSessionsRef = React.useRef(new Map<string, SessionInfo>())
-  const permissionModeWriteQueuesRef = React.useRef(new Map<string, Promise<void>>())
-  const permissionModeWriteVersionsRef = React.useRef(new Map<string, number>())
   const knowledgeBasesWriteQueuesRef = React.useRef(new Map<string, Promise<void>>())
   const knowledgeBasesWriteVersionsRef = React.useRef(new Map<string, number>())
   const knowledgeBasesIntendedIdsRef = React.useRef(new Map<string, string[]>())
@@ -218,8 +230,12 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       return
     }
     void refresh()
-    return sessionService.serverEvents.on("sessionsChanged", () => {
+    return sessionService.serverEvents.on("sessionsChanged", (event) => {
       if (!enabledRef.current) {
+        return
+      }
+      if (event.activity) {
+        setSessions((current) => applySessionActivity(current, event))
         return
       }
       void refresh()
@@ -277,45 +293,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
           return next
         }),
       )
-    },
-    [isCurrentScope, scopeKey, sessionService],
-  )
-
-  const setSessionPermissionMode = React.useCallback(
-    async (id: string, permissionMode: SessionInfo["permissionMode"]) => {
-      const mutationScopeKey = scopeKey
-      const normalizedPermissionMode = permissionMode ?? "default"
-      const version = (permissionModeWriteVersionsRef.current.get(id) ?? 0) + 1
-      permissionModeWriteVersionsRef.current.set(id, version)
-      const previousWrite = permissionModeWriteQueuesRef.current.get(id) ?? Promise.resolve()
-      const queuedWrite = previousWrite
-        .catch(() => undefined)
-        .then(() => sessionService.invoke("setPermissionMode", { id, permissionMode: normalizedPermissionMode }))
-      const trackedWrite = queuedWrite.catch(() => undefined).then(() => undefined)
-      permissionModeWriteQueuesRef.current.set(id, trackedWrite)
-      void trackedWrite.finally(() => {
-        if (permissionModeWriteQueuesRef.current.get(id) === trackedWrite) {
-          permissionModeWriteQueuesRef.current.delete(id)
-        }
-      })
-
-      await queuedWrite
-      if (permissionModeWriteVersionsRef.current.get(id) !== version || !isCurrentScope(mutationScopeKey)) {
-        return
-      }
-      const applyPermissionMode = (session: SessionInfo): SessionInfo =>
-        session.id === id
-          ? (() => {
-              const next = { ...session }
-              if (normalizedPermissionMode === "full_access") {
-                next.permissionMode = normalizedPermissionMode
-              } else {
-                delete next.permissionMode
-              }
-              return next
-            })()
-          : session
-      setSessions((current) => current.map(applyPermissionMode))
     },
     [isCurrentScope, scopeKey, sessionService],
   )
@@ -512,7 +489,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     listArchived,
     createProject,
     assignSessionProject,
-    setSessionPermissionMode,
     setSessionKnowledgeBases,
     renameProject,
     pinProject,

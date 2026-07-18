@@ -237,6 +237,8 @@ interface ChatServiceDeps {
   }
   /** 渲染层切换组织 workspace 时，同步 agent 的组织作用域（main 持有 agent 与 activeAgentOrganizationName）。 */
   onSetAgentOrganization?: (organizationName: string | undefined) => Promise<void> | void
+  /** 权限模式由 ChatService 统一提交，避免 renderer 分别写运行态与会话元数据。 */
+  onPermissionModeChanged?: (sessionId: string, permissionMode: AgentPermissionMode) => Promise<void> | void
   /** 正常完成且产物已收尾后通知主进程 attention 域；停止和错误路径不触发。 */
   onSessionCompleted?: (input: { organizationId: string; runId: string; sessionId: string }) => Promise<void> | void
 }
@@ -450,7 +452,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           this.generations.clearAcknowledgementWatchdog(activitySessionId)
         }
         if (translated.event === "messageStarted") {
-          this.emitSessionActivity(generationSessionId ?? translated.data.sessionId)
           if (!this.rememberMessageStarted(translated)) {
             continue
           }
@@ -1745,8 +1746,24 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async setPermissionMode(req: SetChatPermissionModeRequest): Promise<void> {
-    const changed = this.sessionPermissionMode(req.sessionId) !== req.permissionMode
+    const previousMode = this.sessionPermissionMode(req.sessionId)
     if (!this.setSessionPermissionModeValue(req.sessionId, req.permissionMode, req.version)) {
+      return
+    }
+    if (previousMode === req.permissionMode) {
+      return
+    }
+    try {
+      await this.deps.onPermissionModeChanged?.(req.sessionId, req.permissionMode)
+    } catch (error) {
+      // 仅回滚仍由本次请求持有的运行态；不能覆盖等待期间抵达的更新版本。
+      if (this.sessionPermissionMode(req.sessionId) === req.permissionMode) {
+        this.setSessionPermissionModeValue(req.sessionId, previousMode)
+      }
+      throw error
+    }
+    // 持久化等待期间可能已有更新版本接管该会话，旧请求不得继续改子会话或自动批准权限。
+    if (this.sessionPermissionMode(req.sessionId) !== req.permissionMode) {
       return
     }
     const affectedSessionIds = [req.sessionId]
@@ -1757,9 +1774,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     if (req.permissionMode === "full_access") {
       await Promise.all(affectedSessionIds.map((sessionId) => this.autoAnswerPendingPermissions(sessionId)))
-    }
-    if (changed) {
-      this.emitSessionActivity(req.sessionId)
     }
   }
 }

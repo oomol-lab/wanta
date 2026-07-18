@@ -172,6 +172,8 @@ const chatService = new ChatServiceImpl(null, {
   trustedAttachmentPaths,
   turnOutputStore,
   userAttachmentStore,
+  onPermissionModeChanged: (sessionId, permissionMode) =>
+    sessionService.setPermissionMode({ id: sessionId, permissionMode }),
   onSetAgentOrganization: handleAgentOrganizationChanged,
   onSessionCompleted: (input) => attentionService.completeSession(input),
 })

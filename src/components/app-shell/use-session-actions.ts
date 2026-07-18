@@ -98,22 +98,29 @@ export function useSessionActions({
     setRenameSessionId(null)
     setArchiveSessionId(null)
   }, [])
-
-  return {
-    archiveConfirming,
-    archiveTarget,
-    closeArchive: () => setArchiveSessionId(null),
-    closeRename: () => setRenameSessionId(null),
-    handleArchive,
-    handlePin,
-    handleRename,
-    renameTarget,
-    requestArchive: (session) => {
+  const closeArchive = React.useCallback((): void => setArchiveSessionId(null), [])
+  const closeRename = React.useCallback((): void => setRenameSessionId(null), [])
+  const requestArchive = React.useCallback(
+    (session: SessionInfo): void => {
       if (!isSessionRunning(session.id)) {
         setArchiveSessionId(session.id)
       }
     },
-    requestRename: (session) => setRenameSessionId(session.id),
+    [isSessionRunning],
+  )
+  const requestRename = React.useCallback((session: SessionInfo): void => setRenameSessionId(session.id), [])
+
+  return {
+    archiveConfirming,
+    archiveTarget,
+    closeArchive,
+    closeRename,
+    handleArchive,
+    handlePin,
+    handleRename,
+    renameTarget,
+    requestArchive,
+    requestRename,
     resetDialogs,
   }
 }

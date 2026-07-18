@@ -2,7 +2,7 @@ import type { SessionInfo } from "../../electron/session/common.ts"
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { mergeSessionsWithLocalCreated, resolveKnowledgeBaseIdsUpdate } from "./useSessions.ts"
+import { applySessionActivity, mergeSessionsWithLocalCreated, resolveKnowledgeBaseIdsUpdate } from "./useSessions.ts"
 
 test("mergeSessionsWithLocalCreated keeps a locally created session while remote list catches up", () => {
   const oldSession: SessionInfo = {
@@ -54,4 +54,36 @@ test("resolveKnowledgeBaseIdsUpdate composes rapid knowledge-base toggles from t
 
 test("resolveKnowledgeBaseIdsUpdate normalizes duplicate and blank ids", () => {
   assert.deepEqual(resolveKnowledgeBaseIdsUpdate(["existing"], [" existing ", "", "new", "new"]), ["existing", "new"])
+})
+
+test("applySessionActivity updates a known session without replacing unrelated sessions", () => {
+  const first: SessionInfo = { id: "first", title: "First", createdAt: 1_000, updatedAt: 1_000 }
+  const second: SessionInfo = { id: "second", title: "Second", createdAt: 2_000, updatedAt: 2_000 }
+
+  const updated = applySessionActivity([first, second], {
+    activity: { sessionId: "first", usedAt: 3_000 },
+    reason: "record session use",
+  })
+
+  assert.equal(updated[0]?.updatedAt, 3_000)
+  assert.equal(updated[1], second)
+})
+
+test("applySessionActivity ignores unknown and stale activity updates", () => {
+  const session: SessionInfo = { id: "session", title: "Session", createdAt: 1_000, updatedAt: 2_000 }
+
+  assert.equal(
+    applySessionActivity([session], {
+      activity: { sessionId: "unknown", usedAt: 3_000 },
+      reason: "record session use",
+    })[0],
+    session,
+  )
+  assert.equal(
+    applySessionActivity([session], {
+      activity: { sessionId: "session", usedAt: 1_500 },
+      reason: "record session use",
+    })[0],
+    session,
+  )
 })

@@ -63,6 +63,10 @@ export interface SetSessionKnowledgeBasesRequest {
 }
 
 export interface SessionsChangedEvent {
+  activity?: {
+    sessionId: string
+    usedAt: number
+  }
   reason: string
 }
 

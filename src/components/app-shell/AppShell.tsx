@@ -157,7 +157,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     create,
     createProject,
     assignSessionProject,
-    setSessionPermissionMode,
     setSessionKnowledgeBases,
     renameProject: renameProjectAction,
     pinProject: pinProjectAction,
@@ -294,6 +293,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     status,
     activity,
     messagesLoaded,
+    sessionSnapshotError,
     error,
     forgetSession: forgetChatSession,
     getSessionStatus,
@@ -307,6 +307,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     rejectQuestion,
     questionDrafts,
     resetSessionCache: resetChatSessionCache,
+    retrySessionSnapshot,
   } = useChat(activeChatSessionId, activeWorkspaceKey)
   const hasUnreadSession = attention.hasUnreadSession
 
@@ -523,26 +524,24 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     if (!activeChatSessionId || !activeSession) {
       return
     }
-    setChatPermissionMode(activeChatSessionId, activeSession.permissionMode ?? "default")
+    void setChatPermissionMode(activeChatSessionId, activeSession.permissionMode ?? "default").catch(
+      (cause: unknown) => {
+        console.error("[wanta] sync chat permission mode failed", cause)
+        reportRendererHandledError("appShell.permissionMode", "Failed to sync session permission mode", cause)
+      },
+    )
   }, [activeChatSessionId, activeSession?.permissionMode, setChatPermissionMode])
 
   const persistPermissionMode = React.useCallback(
-    (sessionId: string, mode: AgentPermissionMode): void => {
-      void setSessionPermissionMode(sessionId, mode).catch((cause: unknown) => {
-        console.error("[wanta] persist session permission mode failed", cause)
-        reportRendererHandledError("appShell.permissionMode", "Failed to persist session permission mode", cause)
+    async (sessionId: string, mode: AgentPermissionMode): Promise<void> => {
+      try {
+        await setChatPermissionMode(sessionId, mode)
+      } catch (cause) {
         toast.error(userFacingErrorDescription(resolveUserFacingError(cause, { area: "session" }), t))
-      })
+        throw cause
+      }
     },
-    [setSessionPermissionMode, t],
-  )
-
-  const setAndPersistPermissionMode = React.useCallback(
-    (sessionId: string, mode: AgentPermissionMode): void => {
-      setChatPermissionMode(sessionId, mode)
-      persistPermissionMode(sessionId, mode)
-    },
-    [persistPermissionMode, setChatPermissionMode],
+    [setChatPermissionMode, t],
   )
   const persistKnowledgeBaseIds = React.useCallback(
     (sessionId: string, update: KnowledgeBaseIdsUpdate): void => {
@@ -681,7 +680,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const agentStartupError =
     agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
   const workspaceStartupError = workspaceActivationState.status === "failed" ? workspaceActivationState.error : null
-  const startupError = agentStartupError ?? workspaceStartupError
+  const startupError = agentStartupError ?? workspaceStartupError ?? sessionSnapshotError
   const retryWorkspaceActivation = React.useCallback(() => {
     if (workspaceActivationState.status !== "failed") {
       return
@@ -1229,7 +1228,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       const session = await create(fallbackTitle, projectContext?.id ?? activeProject?.id)
 
       titleGeneration.rememberAutoFallbackTitle(session.id, fallbackTitle)
-      persistPermissionMode(session.id, permissionMode)
+      await persistPermissionMode(session.id, permissionMode)
       persistKnowledgeBaseIds(session.id, activeKnowledgeBaseIds)
       setSelectedSessionId(session.id)
       setIsDraftSession(false)
@@ -1327,12 +1326,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const handlePermissionModeChange = React.useCallback(
     (mode: AgentPermissionMode): void => {
       if (activeChatSessionId) {
-        setAndPersistPermissionMode(activeChatSessionId, mode)
+        void persistPermissionMode(activeChatSessionId, mode).catch(() => undefined)
         return
       }
       setDraftPermissionMode(mode)
     },
-    [activeChatSessionId, setAndPersistPermissionMode],
+    [activeChatSessionId, persistPermissionMode],
   )
 
   const handleViewBilling = React.useCallback((target?: BillingDetailsTarget) => {
@@ -1516,20 +1515,20 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         workspaceSwitching={workspaceNavigationSwitching}
         onArchiveProjectRequest={projectActions.requestArchive}
         onArchiveSessionRequest={sessionActions.requestArchive}
-        onLogout={() => void auth.logout()}
+        onLogout={auth.logout}
         onNavigate={setRoute}
         onNewSession={handleNewSessionWithKnowledgeReset}
-        onOpenConnections={() => handleOpenConnections()}
+        onOpenConnections={handleOpenConnections}
         onOpenSearch={handleOpenSearch}
-        onPinProject={(project) => void projectActions.handlePin(project)}
-        onPinSession={(session) => void sessionActions.handlePin(session)}
+        onPinProject={projectActions.handlePin}
+        onPinSession={sessionActions.handlePin}
         onProjectExpandedChange={handleProjectSidebarExpandedChange}
         onRemoveProjectRequest={projectActions.requestRemove}
         onRenameProjectRequest={projectActions.requestRename}
         onWorkspaceSwitchStart={handleWorkspaceSwitchStart}
         onRenameSessionRequest={sessionActions.requestRename}
         onSelectProjectDraft={handleOpenProjectDraft}
-        onSelectProjectFolder={() => void handleSelectProjectFolder()}
+        onSelectProjectFolder={handleSelectProjectFolder}
         onSelectSession={handleSelectSession}
         onSetSidebarSegment={setSidebarSegment}
         onShowProjectInFolder={projectActions.handleShowInFolder}
@@ -1618,7 +1617,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       showEmptyState={showChatEmptyState}
                       bootstrapping={chatBootstrapping}
                       startupError={startupError}
-                      onStartupRetry={workspaceStartupError ? retryWorkspaceActivation : undefined}
+                      onStartupRetry={
+                        workspaceStartupError
+                          ? retryWorkspaceActivation
+                          : sessionSnapshotError
+                            ? retrySessionSnapshot
+                            : undefined
+                      }
                       error={error}
                       emptyTitle={chatEmptyTitle}
                       generatedArtifacts={latestArtifactSelection}

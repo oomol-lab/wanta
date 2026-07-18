@@ -2,7 +2,7 @@ import type { SessionInfo } from "../../../electron/session/common.ts"
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { groupSidebarSessions, nextActiveSessionIdAfterArchive, projectHasRunningSession } from "./sidebar-sessions.ts"
+import { groupSidebarSessions, nextActiveSessionIdAfterArchive, runningProjectIds } from "./sidebar-sessions.ts"
 
 function session(id: string, updatedAt: number, extras: Partial<SessionInfo> = {}): SessionInfo {
   return {
@@ -95,23 +95,17 @@ test("nextActiveSessionIdAfterArchive picks the next visible session", () => {
   assert.equal(nextActiveSessionIdAfterArchive([session("only", 1_000)], "only"), null)
 })
 
-test("projectHasRunningSession includes pinned project sessions", () => {
+test("runningProjectIds includes pinned project sessions", () => {
   const sessions = [
     session("other", 1_000, { projectId: "project-b" }),
     session("pinned", 2_000, { pinnedAt: 3_000, projectId: "project-a" }),
   ]
 
-  assert.equal(
-    projectHasRunningSession("project-a", sessions, (id) => id === "pinned"),
-    true,
-  )
+  assert.deepEqual([...runningProjectIds(sessions, (id) => id === "pinned")], ["project-a"])
 })
 
-test("projectHasRunningSession ignores archived sessions", () => {
+test("runningProjectIds ignores archived sessions", () => {
   const sessions = [session("archived", 1_000, { archivedAt: 2_000, projectId: "project-a" })]
 
-  assert.equal(
-    projectHasRunningSession("project-a", sessions, (id) => id === "archived"),
-    false,
-  )
+  assert.deepEqual([...runningProjectIds(sessions, (id) => id === "archived")], [])
 })

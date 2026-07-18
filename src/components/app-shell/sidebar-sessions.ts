@@ -54,14 +54,17 @@ export function groupSidebarSessions(sessions: SessionInfo[], order: SidebarSess
   }
 }
 
-export function projectHasRunningSession(
-  projectId: string,
+export function runningProjectIds(
   sessions: SessionInfo[],
   isSessionRunning: (sessionId: string) => boolean,
-): boolean {
-  return sessions.some(
-    (session) => session.projectId === projectId && !session.archivedAt && isSessionRunning(session.id),
-  )
+): Set<string> {
+  const projectIds = new Set<string>()
+  for (const session of sessions) {
+    if (session.projectId && !session.archivedAt && isSessionRunning(session.id)) {
+      projectIds.add(session.projectId)
+    }
+  }
+  return projectIds
 }
 
 export function nextActiveSessionIdAfterArchive(sessions: SessionInfo[], archivedId: string): string | null {

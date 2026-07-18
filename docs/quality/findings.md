@@ -125,36 +125,36 @@
 ## Q-2026-008：缩略图缓存只有条目上限，没有字节预算
 
 - Category: performance
-- Status: hypothesis
+- Status: rejected
 - Area: chat
 - User impact: 128 个 data URL 缩略图可能在图片密集会话中占用较多 renderer heap。
-- Evidence: `artifact-thumbnail-cache.ts` 限制 128 项，但未估算 data URL 字节；主预览缓存已有 64 MiB 双重预算。
-- Root cause: 尚未证明实际缩略图大小达到问题阈值。
+- Evidence: 主进程固定把缩略图压到 160×160 PNG，renderer 最多保留 128 项且只为 near-viewport 图片加载。确定性图像样本的单项 data URL 为：纯色 714 字符、渐变 1914 字符、棋盘格 886 字符、不可压缩噪声 120410 字符；128 个极端噪声缩略图合计约 14.7 MiB ASCII payload，常见可压缩图形仅约 0.09–0.23 MiB。
+- Root cause: 假设未成立；缓存已有尺寸归一化、按需加载和 128 项 LRU 三重上界，未观察到无界增长或达到 long-session heap 瓶颈的证据。
 - Scope: artifact thumbnail cache。
 - Guardrails: 不降低图片预览清晰度或移除图片 gallery。
-- Before metric: 待记录 128 项实际总字符数与 heap 增量。
-- Target: 若证实，增加可测试的字节预算且保持命中率。
-- Verification: 缓存驱逐单测和图片密集会话 profile。
-- Risk and rollback: 低。
+- Before metric: 128 个 160×160 不可压缩噪声 PNG 的 data URL 字符总量约 14.7 MiB；可压缩样本低两个数量级。
+- Target: 只有真实图片密集会话 profile 证明该有界缓存造成 heap 压力或 GC 卡顿时，才增加字节预算。
+- Verification: 已完成编码尺寸测量；后续若重新打开，按 chat performance runbook 采集 renderer heap、GC 和缓存命中率。
+- Risk and rollback: 本轮不改代码，无回滚风险；贸然降低预算反而可能造成滚动时反复 IPC 和 PNG 编码。
 - Priority: P3
-- Decision: defer
+- Decision: reject
 
 ## Q-2026-009：后台资源比较可能重复深序列化大型清单
 
 - Category: performance | duplication
-- Status: hypothesis
+- Status: rejected
 - Area: shell | skills
 - User impact: 每分钟后台刷新时可能在 renderer 主线程产生不必要的 JSON 序列化和排序成本。
-- Evidence: `isRefreshDataEqual` 对当前值和新值各执行递归 normalize + `JSON.stringify`，技能 inventory 可能较大。
-- Root cause: 没有 profile，可能远低于可感知阈值。
+- Evidence: 用当前真实技能清单构造与 renderer 相同的比较路径：42 groups、143367 bytes JSON，1000 次比较中位数 1.809ms、p95 2.277ms、最大 2.731ms；放大到 420 groups、1204830 bytes 后，200 次比较中位数 16.482ms、p95 17.041ms、最大 20.085ms。
+- Root cause: 假设未成立；当前每分钟一次的约 2ms 比较没有形成 50ms long task，即使数据放大 10 倍仍低于 long-task 阈值。
 - Scope: `src/components/AppDataProvider.tsx`。
 - Guardrails: 不得因浅比较制造无效整树更新。
-- Before metric: 待记录 inventory 规模、比较耗时和提交次数。
-- Target: 只有 profile 超预算时才引入版本/hash 或域级比较。
-- Verification: performance mark 和 React Profiler。
-- Risk and rollback: 中，未测量前不实施。
+- Before metric: 当前清单 p95 2.277ms，10 倍清单 p95 17.041ms。
+- Target: 单次比较达到 50ms，或 profiler 证明它在高频路径中累计造成可感知卡顿时才重新设计。
+- Verification: 同一进程完成 warm-up 后逐次采样，并额外验证 10 倍数据规模；不实施 memo、hash 或服务端版本字段。
+- Risk and rollback: 本轮不改代码，无回滚风险；保留深比较可避免仅因 `updatedAt` 变化导致无效 React 更新。
 - Priority: P3
-- Decision: defer
+- Decision: reject
 
 ## Q-2026-010：大型懒加载 chunk 的真实首开成本未知
 

@@ -67,3 +67,11 @@
 - 清理采用 Map detach，清理前的在途请求即使随后成功，也只能写回已脱离的旧 entry，不能污染同 key 的新账号缓存；
 - 新增 1 个回归测试，测试总数从 1568 增至 1569；`ts-check`、`lint`、`format`、234 个测试文件和 production build 通过；
 - `npm run dev` 在 200ms ready，main/preload 和 Agent sidecar 正常启动，观察期没有新增 warn/error diagnostics；当前账号环境无法执行真实换号交互。
+
+## 第五轮性能假设复核
+
+- 缩略图由主进程统一生成 160×160 PNG，renderer 仅在 near viewport 加载并最多保存 128 项；纯色、渐变、棋盘格和不可压缩噪声样本的 data URL 分别为 714、1914、886、120410 字符；
+- 128 个极端噪声缩略图约为 14.7 MiB ASCII payload，常见可压缩样本合计约 0.09–0.23 MiB；在没有 heap/GC 异常证据时增加字节预算会提高滚动重载成本，因此 Q-2026-008 标记为 rejected；
+- 当前真实技能清单为 42 groups、143367 bytes JSON；与 renderer 相同的 normalize + stringify 双边比较执行 1000 次，中位数 1.809ms、p95 2.277ms、最大 2.731ms；
+- 10 倍合成清单为 420 groups、1204830 bytes，200 次比较中位数 16.482ms、p95 17.041ms、最大 20.085ms；两种规模均未达到 50ms long-task 阈值，因此 Q-2026-009 标记为 rejected；
+- 两项均只更新证据和决策，没有为了理论数字改动运行时代码。

@@ -92,14 +92,14 @@ export function useBillingOverview(
       setLoading(true)
       setError(null)
 
-      // 手动刷新也复用已在途请求，避免浮层、详情页或重试按钮同时触发时又发起一套账单聚合请求。
+      // 普通刷新复用已在途请求；充值、订阅或登录后的强制刷新必须越过旧请求，避免旧快照回填。
       const scope: BillingRequestScope = {
         canManageBilling: requestCanManageBilling,
         canManageFunding: requestCanManageFunding,
         teamId: requestTeamId,
         organizationName: requestOrganizationName,
       }
-      const promise = entry.promise ?? startBillingOverviewRequest(entry, () => getBillingOverview(days, scope))
+      const promise = loadBillingOverviewEntry(entry, () => getBillingOverview(days, scope), { force })
 
       try {
         const nextData = await promise
@@ -198,6 +198,17 @@ export function startBillingOverviewRequest(
     },
   )
   return promise
+}
+
+export function loadBillingOverviewEntry(
+  entry: BillingOverviewCacheEntry,
+  request: () => Promise<BillingOverviewResult>,
+  options: { force?: boolean; timeoutMs?: number } = {},
+): Promise<BillingOverviewResult> {
+  if (!options.force && entry.promise) {
+    return entry.promise
+  }
+  return startBillingOverviewRequest(entry, request, options.timeoutMs)
 }
 
 function withBillingOverviewTimeout(

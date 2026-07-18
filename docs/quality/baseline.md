@@ -1,0 +1,46 @@
+# 质量基线
+
+> 本文记录首轮质量优化使用的可复现基线。长期方法和执行规则见
+> [全项目质量优化计划](../quality-improvement-plan.md)。
+
+## 2026-07-18 首轮基线
+
+环境：
+
+- macOS Darwin 25.5.0，arm64；
+- npm 10.9.4；
+- 当前 shell 为 Node 22.21.1，低于仓库要求的 Node 22.22.2；
+- CI 使用 Node 24，因此本机结果用于发现回归，最终合入仍以 CI 为准。
+
+结果：
+
+| 检查               | 结果 | 记录                                                  |
+| ------------------ | ---- | ----------------------------------------------------- |
+| `npm run ts-check` | 通过 | 无类型错误                                            |
+| `npm run lint`     | 通过 | 无 lint 错误                                          |
+| `npm run format`   | 通过 | 首次检查 774 个文件                                   |
+| `npm test`         | 通过 | 修改前 232 个测试文件、1554 个测试                    |
+| `npm run build`    | 通过 | renderer、main、preload 均构建成功；存在大 chunk 警告 |
+
+源码规模仅用于规划审计范围，不作为质量目标：
+
+- `electron/`、`src/`、`scripts/` 下约 742 个 TypeScript/TSX 文件；
+- 合计约 134,496 行；
+- 显式 TODO 共 1 个，是消息反馈 API 的已知预留。
+
+## 当前验证缺口
+
+- 本轮没有真实账号，因此没有执行登录、组织切换、连接器 OAuth、支付返回和 Agent 对话金路径；
+- 没有以签名 packaged app 验证通知；
+- 尚未采集长会话 React Profiler、Chromium Performance trace 和多进程内存曲线；
+- 当前 shell Node 版本低于仓库最低要求，不能替代 Node 24 CI 结果。
+
+后续性能 finding 在没有同环境 before/after 数据前只能保持 `hypothesis`。
+
+## 首轮修复后的结果
+
+- 新增 5 个回归测试，测试总数从 1554 增至 1559；
+- `ts-check`、`lint`、`format`、全部测试和 production build 通过；
+- `npm run dev` 在 195ms 内启动 Vite，main/preload 构建成功，Agent sidecar 正常 ready；
+- 开发版启动观察期没有新增主进程或 renderer 错误日志；
+- 真实账单支付返回和账号/组织切换仍因缺少可用测试账号而未实机验收。

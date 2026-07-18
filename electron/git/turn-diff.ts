@@ -11,6 +11,7 @@ const gitCommandTimeoutMs = 5_000
 const maxSnapshotBytes = 1024 * 1024
 const maxPatchChars = 220_000
 const maxDiffEditLength = 50_000
+const snapshotConcurrency = 8
 
 interface GitCommandOutput {
   stdout: string
@@ -60,6 +61,25 @@ function splitZ(output: string): string[] {
 
 function unique(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+}
+
+async function mapConcurrent<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = Array.from({ length: values.length })
+  let nextIndex = 0
+  const runNext = async (): Promise<void> => {
+    while (nextIndex < values.length) {
+      const index = nextIndex
+      nextIndex += 1
+      const value = values[index]
+      if (value !== undefined) results[index] = await mapper(value, index)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, () => runNext()))
+  return results
 }
 
 function safeRelativePath(value: string): string | null {
@@ -222,11 +242,9 @@ export async function captureGitTurnBaseline(repositoryRoot: string): Promise<Gi
   const root = path.resolve(repositoryRoot)
   const dirtyPaths = await listDirtyPaths(root)
   const snapshots: Record<string, TextSnapshot> = {}
-  await Promise.all(
-    dirtyPaths.map(async (relativePath) => {
-      snapshots[relativePath] = await readWorkingSnapshot(root, relativePath)
-    }),
-  )
+  await mapConcurrent(dirtyPaths, snapshotConcurrency, async (relativePath) => {
+    snapshots[relativePath] = await readWorkingSnapshot(root, relativePath)
+  })
   return { repositoryRoot: root, snapshots }
 }
 
@@ -236,12 +254,11 @@ export async function collectGitTurnDiffs(
 ): Promise<GitTurnFileDiff[]> {
   const endDirtyPaths = await listDirtyPaths(baseline.repositoryRoot)
   const candidates = unique([...Object.keys(baseline.snapshots), ...endDirtyPaths])
-  const diffs: GitTurnFileDiff[] = []
-  for (const relativePath of candidates) {
+  const candidatesDiffs = await mapConcurrent(candidates, snapshotConcurrency, async (relativePath) => {
     const before = baseline.snapshots[relativePath] ?? (await readHeadSnapshot(baseline.repositoryRoot, relativePath))
     const after = await readWorkingSnapshot(baseline.repositoryRoot, relativePath)
     if (snapshotEqual(before, after)) {
-      continue
+      return null
     }
     const mime = mimeFromPath(relativePath)
     const changeKind: TurnOutputChangeKind = before.exists ? (after.exists ? "modified" : "deleted") : "added"
@@ -251,12 +268,12 @@ export async function collectGitTurnDiffs(
         : before.binary || after.binary || before.tooLarge || after.tooLarge
           ? binaryDiff(relativePath, mime, before, after)
           : buildUnifiedDiff(relativePath, before.content ?? "", after.content ?? "", mime)
-    diffs.push({
+    return {
       path: relativePath,
       changeKind,
       diff,
       ...((after.size ?? before.size) ? { size: after.size ?? before.size } : {}),
-    })
-  }
-  return diffs
+    } satisfies GitTurnFileDiff
+  })
+  return candidatesDiffs.filter((diff): diff is GitTurnFileDiff => Boolean(diff))
 }

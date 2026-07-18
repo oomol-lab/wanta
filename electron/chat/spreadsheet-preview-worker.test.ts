@@ -61,3 +61,37 @@ test("spreadsheet preview worker parses an XLSX end to end", async () => {
     await rm(directory, { force: true, recursive: true })
   }
 })
+
+test("spreadsheet preview worker parses CSV and TSV end to end", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "wanta-delimited-worker-"))
+  const worker = new Worker(new URL("./spreadsheet-preview-worker.ts", import.meta.url), {
+    execArgv: ["--experimental-strip-types"],
+  })
+  try {
+    const fixtures = [
+      { content: 'name,note\nWanta,"hello, world"', extension: "csv", mime: "text/csv" },
+      { content: "name\tnote\nWanta\thello", extension: "tsv", mime: "text/tab-separated-values" },
+    ] as const
+    for (const fixture of fixtures) {
+      const filePath = path.join(directory, `fixture.${fixture.extension}`)
+      await writeFile(filePath, fixture.content)
+      const response = await new Promise<SpreadsheetPreviewWorkerResponse>((resolve, reject) => {
+        worker.once("message", resolve)
+        worker.once("error", reject)
+        worker.postMessage({
+          id: fixture.extension,
+          mime: fixture.mime,
+          path: filePath,
+          size: Buffer.byteLength(fixture.content),
+        })
+      })
+      assert.ok("result" in response)
+      assert.equal(response.result.kind, "spreadsheet")
+      assert.equal(response.result.spreadsheet?.activeSheet, "fixture")
+      assert.deepEqual(response.result.spreadsheet?.rows[0], ["name", "note"])
+    }
+  } finally {
+    await worker.terminate()
+    await rm(directory, { force: true, recursive: true })
+  }
+})

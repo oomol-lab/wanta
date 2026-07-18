@@ -64,6 +64,7 @@ test("buildArtifactBundle omits resumable task state beside final image outputs"
       completedAt: 2,
       createdAt: 1,
       generatedPreviewCount: 1,
+      materializedOrigins: new Map([["summer.png", "assistant_preview"]]),
       messageId: "assistant-1",
       sessionId: "session-1",
     })
@@ -290,6 +291,27 @@ test("buildArtifactBundle marks an incompletely persisted image set as partial",
   }
 })
 
+test("buildArtifactBundle does not let an unrelated image mask a failed generated preview", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-unrelated-image-"))
+  try {
+    await writeFile(path.join(root, "existing.png"), "unrelated")
+
+    const bundle = await buildArtifactBundle({
+      artifactRoot: root,
+      completedAt: 2,
+      createdAt: 1,
+      generatedPreviewCount: 1,
+      messageId: "assistant-1",
+      sessionId: "session-1",
+    })
+
+    assert.equal(bundle?.status, "partial")
+    assert.equal(bundle?.failure, "generated_preview_not_persisted")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("materializeAssistantArtifacts copies assistant files into managed storage", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-materialize-"))
   try {
@@ -326,6 +348,82 @@ test("materializeAssistantArtifacts copies assistant files into managed storage"
     assert.deepEqual([...copied], [["temporary-image.png", "assistant_attachment"]])
     assert.equal(await readFile(path.join(managed, "temporary-image.png"), "utf8"), "image")
   } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("materializeAssistantArtifacts records an image source already inside managed storage", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-already-managed-"))
+  try {
+    const imagePath = path.join(root, "generated.png")
+    await writeFile(imagePath, "image")
+    const origins = await materializeAssistantArtifacts(
+      [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          createdAt: 1,
+          parts: [
+            {
+              kind: "attachment",
+              partId: "image-1",
+              attachment: {
+                id: "image-1",
+                kind: "file",
+                mime: "image/png",
+                name: "generated.png",
+                path: imagePath,
+                size: 5,
+              },
+            },
+          ],
+        },
+      ],
+      "assistant-1",
+      root,
+    )
+
+    assert.deepEqual([...origins], [["generated.png", "assistant_attachment"]])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("materializeAssistantArtifacts prefers a duplicate markdown image over a non-image attachment", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-duplicate-source-"))
+  const sourcePath = path.join(path.dirname(root), `${path.basename(root)}-source.png`)
+  try {
+    await writeFile(sourcePath, "image")
+    const origins = await materializeAssistantArtifacts(
+      [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          createdAt: 1,
+          parts: [
+            {
+              kind: "attachment",
+              partId: "file-1",
+              attachment: {
+                id: "file-1",
+                kind: "file",
+                mime: "application/octet-stream",
+                name: "source.png",
+                path: sourcePath,
+                size: 5,
+              },
+            },
+            { kind: "text", partId: "text-1", text: `![generated](${sourcePath})` },
+          ],
+        },
+      ],
+      "assistant-1",
+      root,
+    )
+
+    assert.deepEqual([...origins.values()], ["assistant_preview"])
+  } finally {
+    await rm(sourcePath, { force: true })
     await rm(root, { recursive: true, force: true })
   }
 })

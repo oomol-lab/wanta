@@ -538,7 +538,7 @@ export type ArtifactBundleKind = LocalArtifactPackKind
 export type ArtifactBundleDisplay = LocalArtifactDisplayMode
 export type ArtifactBundleStatus = "ready" | "partial" | "failed"
 export type ArtifactBundleFailure = "generated_preview_not_persisted"
-export type ArtifactItemStatus = "ready" | "missing"
+export type ArtifactItemStatus = "ready"
 export type ArtifactItemOrigin = "managed_output" | "assistant_attachment" | "assistant_preview" | "recovered_output"
 
 export type LocalArtifactEntryRole = "primary" | "supporting" | "summary" | "metadata"

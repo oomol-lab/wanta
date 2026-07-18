@@ -36,6 +36,7 @@ import { branding } from "./branding.ts"
 import { ArtifactBundleStore } from "./chat/artifact-bundles.ts"
 import { AuthorizationOverlayStore } from "./chat/authorization.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
+import { removeSessionOutputDirectories } from "./chat/output-directory-cleanup.ts"
 import { SpreadsheetPreviewWorkerClient } from "./chat/spreadsheet-preview-worker-client.ts"
 import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
 import { TurnOutputStore } from "./chat/turn-outputs.ts"
@@ -180,6 +181,15 @@ const sessionService = new SessionServiceImpl(null, {
   onSessionArchived: (sessionId) => attentionService.removeSession(sessionId),
   onSessionRemoved: async (sessionId) => {
     chatService.forgetSession(sessionId)
+    const [artifactBundles, turnOutputs] = await Promise.all([artifactBundleStore.read(), turnOutputStore.read()])
+    await removeSessionOutputDirectories({
+      agentRoot: path.join(app.getPath("userData"), "agent"),
+      artifactBundles: artifactBundles.get(sessionId)?.values(),
+      sessionId,
+      turnOutputs: turnOutputs.get(sessionId)?.values(),
+    }).catch((error: unknown) => {
+      console.warn("[wanta] failed to clean removed session directories", error)
+    })
     await Promise.all([
       artifactBundleStore.removeSession(sessionId),
       attentionService.removeSession(sessionId),

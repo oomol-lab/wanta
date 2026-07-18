@@ -1,4 +1,6 @@
 import type {
+  ArtifactBundleDisplay,
+  ArtifactBundleKind,
   LocalArtifactGroup,
   LocalArtifactPack,
   ResolveLocalArtifactsResult,
@@ -10,7 +12,9 @@ export interface ResolvedArtifactPayload {
 }
 
 export interface ResolvedArtifactGroup {
+  display?: ArtifactBundleDisplay
   messageId: string
+  kind?: ArtifactBundleKind
   group: LocalArtifactGroup
   pack?: LocalArtifactPack
   status?: "ready" | "partial" | "failed"

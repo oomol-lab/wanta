@@ -58,7 +58,7 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { clipboard, dialog, nativeImage, shell } from "electron"
-import { copyFile, readFile } from "node:fs/promises"
+import { copyFile, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { ActivityMetrics } from "../activity-metrics.ts"
@@ -125,6 +125,19 @@ function errorMessage(error: unknown): string {
     return error.message
   }
   return String(error)
+}
+
+async function removeUnsubmittedTurnDirectories(
+  artifactDir: string | undefined,
+  processDir: string | undefined,
+): Promise<void> {
+  await Promise.all(
+    [artifactDir, processDir]
+      .filter((directory): directory is string => Boolean(directory))
+      .map((directory) => rm(directory, { force: true, recursive: true })),
+  ).catch((error: unknown) => {
+    console.warn("[wanta] failed to clean unsubmitted turn directories", error)
+  })
 }
 
 /** 仅放行 http/https 的外开 URL，避免渲染层诱导主进程打开 file:// 或自定义协议。 */
@@ -1187,6 +1200,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       await this.agent.setSessionOrganizationName(req.sessionId, organizationName)
       if (!this.isCurrentGeneration(req.sessionId, activeGeneration.id) || activeGeneration.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
+        await removeUnsubmittedTurnDirectories(artifactDir, processDir)
         return
       }
       const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
@@ -1277,9 +1291,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             this.scheduleGenerationStartWatchdog(req.sessionId, promptGeneration.id)
           }
         })
-        .catch((error: unknown) => {
+        .catch(async (error: unknown) => {
           this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
           this.turnOutputs.delete(req.sessionId, promptGeneration.id)
+          await removeUnsubmittedTurnDirectories(artifactDir, processDir)
           if (
             !this.isCurrentGeneration(req.sessionId, promptGeneration.id) ||
             promptGeneration.controller.signal.aborted
@@ -1300,8 +1315,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         })
     } catch (error) {
       if (generation) {
+        this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
+        this.turnOutputs.delete(req.sessionId, generation.id)
         this.clearSessionGeneration(req.sessionId, generation.id)
       }
+      await removeUnsubmittedTurnDirectories(artifactDir, processDir)
       throw error
     }
   }

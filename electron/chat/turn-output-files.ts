@@ -10,8 +10,12 @@ import { mimeFromPath } from "./artifacts.ts"
 import { artifactPackVisiblePaths, localArtifactItem, readArtifactPack } from "./local-artifacts.ts"
 
 export const artifactTextPreviewMaxBytes = 512 * 1024
+export const turnOutputPatchBudgetChars = 2_000_000
 
 const maxProcessFiles = 200
+const maxProcessEntries = 5_000
+const maxProcessDepth = 24
+const processScanBudgetMs = 1_500
 const intermediateCodeExtensions = new Set([
   ".bash",
   ".c",
@@ -129,11 +133,39 @@ export function summarizeTurnFiles(files: StoredTurnOutputFile[]): StoredTurnOut
   }
 }
 
+export function boundTurnOutputPatchPayloads(
+  files: StoredTurnOutputFile[],
+  budgetChars = turnOutputPatchBudgetChars,
+): StoredTurnOutputFile[] {
+  let remaining = Math.max(0, budgetChars)
+  return files.map((file) => {
+    const patch = file.diff.patch
+    if (!patch) return file
+    if (patch.length <= remaining) {
+      remaining -= patch.length
+      return file
+    }
+    const { patch: _patch, ...diff } = file.diff
+    return {
+      ...file,
+      truncated: true,
+      diff: { ...diff, kind: "too_large", truncated: true },
+    }
+  })
+}
+
 async function listProcessFiles(rootDir: string): Promise<string[]> {
   const root = path.resolve(rootDir)
   const found: string[] = []
-  async function visit(dir: string): Promise<void> {
-    if (found.length >= maxProcessFiles) {
+  let visitedEntries = 0
+  const deadline = Date.now() + processScanBudgetMs
+  async function visit(dir: string, depth: number): Promise<void> {
+    if (
+      found.length >= maxProcessFiles ||
+      visitedEntries >= maxProcessEntries ||
+      depth > maxProcessDepth ||
+      Date.now() >= deadline
+    ) {
       return
     }
     let entries
@@ -143,8 +175,11 @@ async function listProcessFiles(rootDir: string): Promise<string[]> {
       return
     }
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) {
+      visitedEntries += 1
       if (
         found.length >= maxProcessFiles ||
+        visitedEntries > maxProcessEntries ||
+        Date.now() >= deadline ||
         entry.name === ".DS_Store" ||
         entry.name === WANTA_MANAGED_PYTHON_ENV_DIRNAME
       ) {
@@ -155,7 +190,7 @@ async function listProcessFiles(rootDir: string): Promise<string[]> {
         continue
       }
       if (entry.isDirectory()) {
-        await visit(absolute)
+        await visit(absolute, depth + 1)
         continue
       }
       if (entry.isFile()) {
@@ -163,7 +198,7 @@ async function listProcessFiles(rootDir: string): Promise<string[]> {
       }
     }
   }
-  await visit(root)
+  await visit(root, 0)
   return found
 }
 

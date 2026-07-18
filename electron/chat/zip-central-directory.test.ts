@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { zipArchiveStats } from "./zip-central-directory.ts"
+import { zipArchiveStats, zipArchiveWithinLimits } from "./zip-central-directory.ts"
 
 function syntheticZip(entries: Array<{ compressed: number; name: string; uncompressed: number }>): Uint8Array {
   const centralSize = entries.reduce((total, entry) => total + 46 + new TextEncoder().encode(entry.name).length, 0)
@@ -56,4 +56,27 @@ test("zipArchiveStats ignores a false end record inside the archive comment", ()
     totalCompressedSize: 10,
     totalUncompressedSize: 100,
   })
+})
+
+test("zipArchiveWithinLimits rejects oversized and highly compressed archives", () => {
+  const limits = {
+    maxCompressionRatio: 20,
+    maxEntries: 5,
+    maxEntryUncompressedSize: 1_000,
+    maxTotalUncompressedSize: 2_000,
+  }
+  assert.equal(
+    zipArchiveWithinLimits(
+      { entryCount: 2, maxEntryUncompressedSize: 600, totalCompressedSize: 100, totalUncompressedSize: 1_200 },
+      limits,
+    ),
+    true,
+  )
+  assert.equal(
+    zipArchiveWithinLimits(
+      { entryCount: 2, maxEntryUncompressedSize: 1_500, totalCompressedSize: 10, totalUncompressedSize: 1_500 },
+      limits,
+    ),
+    false,
+  )
 })

@@ -450,7 +450,9 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   const visibleArtifactGroups = React.useMemo<ResolvedArtifactGroup[]>(
     () =>
       artifactBundles.map((bundle) => ({
+        display: bundle.display,
         messageId: bundle.messageId,
+        kind: bundle.kind,
         group: {
           root: {
             path: bundle.rootPath,

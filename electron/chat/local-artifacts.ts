@@ -203,7 +203,7 @@ export async function directoryArtifacts(dirPath: string, maxItems: number): Pro
     return { root, items: [], totalItems: 0, truncated: false }
   }
   const sorted = entries
-    .filter((entry) => !entry.name.startsWith("."))
+    .filter((entry) => !entry.name.startsWith(".") && !entry.isSymbolicLink())
     .sort((a, b) => {
       if (a.isDirectory() !== b.isDirectory()) {
         return a.isDirectory() ? -1 : 1

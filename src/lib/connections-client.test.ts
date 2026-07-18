@@ -325,6 +325,14 @@ describe("connections-client", () => {
     const workspace = { organizationName: "org-name" }
 
     await Promise.all([getConnectionAppDetail("app-1", workspace), getConnectionAppDetail("app-2", workspace)])
+    await Promise.all([getConnectionAppDetail("app-1", workspace), getConnectionAppDetail("app-2", workspace)])
+    expect(detailReads).toEqual(
+      new Map([
+        ["app-1", 1],
+        ["app-2", 1],
+      ]),
+    )
+
     await connectProvider({ authType: "no_auth", service: "demo" }, workspace)
     await Promise.all([getConnectionAppDetail("app-1", workspace), getConnectionAppDetail("app-2", workspace)])
 

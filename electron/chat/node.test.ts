@@ -813,7 +813,8 @@ test("an idle generation fails recoverably when completion cannot be verified be
     await vi.advanceTimersByTimeAsync(2_100)
     await Promise.resolve()
   }
-  await Promise.resolve()
+  vi.useRealTimers()
+  await waitForCondition(() => !service.hasActiveGeneration())
 
   assert.equal(service.hasActiveGeneration(), false)
   assert.equal(events.filter((event) => event.event === "messageCompleted").length, 0)

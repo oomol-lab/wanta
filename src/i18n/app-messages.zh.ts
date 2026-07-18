@@ -117,6 +117,8 @@ export const zhCNMessages = {
   "sidebar.searchPlaceholder": "搜索任务",
   "sidebar.searchResults": "搜索到 {count} 个任务",
   "sidebar.searchEmpty": "没有匹配的任务",
+  "sidebar.showMoreSearchResults": "再显示 {count} 个结果",
+  "sidebar.showMoreTasks": "再显示 {count} 个任务",
   "sidebar.closeSearch": "关闭搜索",
   "sidebar.accountMenu": "账号菜单",
   "sidebar.switchingAccount": "正在切换账号…",

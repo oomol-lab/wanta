@@ -3,7 +3,7 @@ import type { PendingChatTransition } from "./pending-chat.ts"
 
 import assert from "node:assert/strict"
 import { describe, test } from "vitest"
-import { isPendingChatCaughtUp } from "./pending-chat.ts"
+import { isPendingChatCaughtUp, pendingChatTransitionForActiveSession } from "./pending-chat.ts"
 
 function pending(sessionId: string | null = "session-1"): PendingChatTransition {
   return {
@@ -107,5 +107,24 @@ describe("isPendingChatCaughtUp", () => {
     const messages = [message({ role: "assistant", id: "local-assistant-1", parts: [] })]
 
     assert.equal(isPendingChatCaughtUp(pending("session-1"), "session-1", messages), false)
+  })
+})
+
+describe("pendingChatTransitionForActiveSession", () => {
+  test("rejects a transition owned by another session", () => {
+    const transition = pending("created-session")
+
+    assert.equal(pendingChatTransitionForActiveSession(transition, transition.scopeKey, "history-session"), null)
+    assert.equal(
+      pendingChatTransitionForActiveSession(transition, transition.scopeKey, transition.sessionId),
+      transition,
+    )
+  })
+
+  test("only applies an unassigned transition to a new draft", () => {
+    const transition = pending(null)
+
+    assert.equal(pendingChatTransitionForActiveSession(transition, transition.scopeKey, null), transition)
+    assert.equal(pendingChatTransitionForActiveSession(transition, transition.scopeKey, "history-session"), null)
   })
 })

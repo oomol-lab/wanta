@@ -5,6 +5,10 @@ export interface SidebarSessionGroups {
   regular: SessionInfo[]
 }
 
+export interface LimitedSidebarSessionGroups extends SidebarSessionGroups {
+  hiddenCount: number
+}
+
 export interface SidebarSessionOrder {
   getSessionRunStartedAt?: (sessionId: string) => number | null
   isSessionRunning?: (sessionId: string) => boolean
@@ -51,6 +55,26 @@ export function groupSidebarSessions(sessions: SessionInfo[], order: SidebarSess
     regular: sessions
       .filter((session) => !session.pinnedAt && !session.archivedAt)
       .sort((a, b) => compareSidebarSessions(a, b, order)),
+  }
+}
+
+export function limitSidebarSessionGroups(
+  groups: SidebarSessionGroups,
+  limit: number,
+  selectedSessionId?: string | null,
+): LimitedSidebarSessionGroups {
+  const normalizedLimit = Math.max(0, Math.floor(limit))
+  const ordered = [...groups.pinned, ...groups.regular]
+  const visible = ordered.slice(0, normalizedLimit)
+  const selected = selectedSessionId ? ordered.find((session) => session.id === selectedSessionId) : undefined
+  if (selected && !visible.some((session) => session.id === selected.id)) {
+    visible.push(selected)
+  }
+  const visibleIds = new Set(visible.map((session) => session.id))
+  return {
+    pinned: groups.pinned.filter((session) => visibleIds.has(session.id)),
+    regular: groups.regular.filter((session) => visibleIds.has(session.id)),
+    hiddenCount: Math.max(0, ordered.length - visible.length),
   }
 }
 

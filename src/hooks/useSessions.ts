@@ -45,6 +45,30 @@ export function applySessionActivity(sessions: SessionInfo[], event: SessionsCha
   return next
 }
 
+export function applySessionTitle(sessions: SessionInfo[], id: string, title: string): SessionInfo[] {
+  return sessions.map((session) => (session.id === id ? { ...session, title } : session))
+}
+
+export function applySessionPinned(
+  sessions: SessionInfo[],
+  id: string,
+  pinned: boolean,
+  pinnedAt = Date.now(),
+): SessionInfo[] {
+  return sessions.map((session) => {
+    if (session.id !== id) {
+      return session
+    }
+    const next = { ...session }
+    if (pinned) {
+      next.pinnedAt = pinnedAt
+    } else {
+      delete next.pinnedAt
+    }
+    return next
+  })
+}
+
 function sortSessionProjects(projects: SessionProject[]): SessionProject[] {
   return [...projects].sort((a, b) => {
     const pinnedDiff = (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0)
@@ -125,6 +149,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const enabledRef = React.useRef(enabled)
   const requestSequenceRef = React.useRef(0)
+  const refreshFlightsRef = React.useRef(new Map<string, Promise<void>>())
+  const trailingRefreshScopeKeysRef = React.useRef(new Set<string>())
   const localCreatedSessionsRef = React.useRef(new Map<string, SessionInfo>())
   const knowledgeBasesWriteQueuesRef = React.useRef(new Map<string, Promise<void>>())
   const knowledgeBasesWriteVersionsRef = React.useRef(new Map<string, number>())
@@ -169,7 +195,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     setError(null)
   }, [scopeKey])
 
-  const refresh = React.useCallback(async () => {
+  const refreshOnce = React.useCallback(async () => {
     const refreshScopeKey = scopeKey
     if (currentScopeKeyRef.current !== refreshScopeKey) {
       return
@@ -220,6 +246,38 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     }
   }, [enabled, isCurrentScope, requestScope, scopeKey, sessionService])
 
+  const runRefresh = React.useCallback(
+    (trailingIfRunning: boolean): Promise<void> => {
+      const activeFlight = refreshFlightsRef.current.get(scopeKey)
+      if (activeFlight) {
+        if (trailingIfRunning) {
+          trailingRefreshScopeKeysRef.current.add(scopeKey)
+        }
+        return activeFlight
+      }
+
+      const flight = (async () => {
+        do {
+          trailingRefreshScopeKeysRef.current.delete(scopeKey)
+          await refreshOnce()
+        } while (
+          trailingRefreshScopeKeysRef.current.delete(scopeKey) &&
+          enabledRef.current &&
+          currentScopeKeyRef.current === scopeKey
+        )
+      })().finally(() => {
+        if (refreshFlightsRef.current.get(scopeKey) === flight) {
+          refreshFlightsRef.current.delete(scopeKey)
+        }
+      })
+      refreshFlightsRef.current.set(scopeKey, flight)
+      return flight
+    },
+    [refreshOnce, scopeKey],
+  )
+
+  const refresh = React.useCallback((): Promise<void> => runRefresh(false), [runRefresh])
+
   React.useEffect(() => {
     if (!enabled) {
       setSessions([])
@@ -238,9 +296,9 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
         setSessions((current) => applySessionActivity(current, event))
         return
       }
-      void refresh()
+      void runRefresh(true)
     })
-  }, [enabled, sessionService, refresh])
+  }, [enabled, sessionService, refresh, runRefresh])
 
   const create = React.useCallback(
     async (title?: string, projectId?: string) => {
@@ -432,16 +490,24 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
 
   const rename = React.useCallback(
     async (id: string, title: string) => {
+      const mutationScopeKey = scopeKey
       await sessionService.invoke("rename", { id, title })
+      if (isCurrentScope(mutationScopeKey)) {
+        setSessions((current) => applySessionTitle(current, id, title))
+      }
     },
-    [sessionService],
+    [isCurrentScope, scopeKey, sessionService],
   )
 
   const pin = React.useCallback(
     async (id: string, pinned: boolean) => {
+      const mutationScopeKey = scopeKey
       await sessionService.invoke("pin", { id, pinned })
+      if (isCurrentScope(mutationScopeKey)) {
+        setSessions((current) => applySessionPinned(current, id, pinned))
+      }
     },
-    [sessionService],
+    [isCurrentScope, scopeKey, sessionService],
   )
 
   const archive = React.useCallback(

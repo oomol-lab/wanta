@@ -129,6 +129,8 @@ export const enMessages = {
   "sidebar.searchPlaceholder": "Search tasks",
   "sidebar.searchResults": "{count} tasks found",
   "sidebar.searchEmpty": "No matching tasks",
+  "sidebar.showMoreSearchResults": "Show {count} more result(s)",
+  "sidebar.showMoreTasks": "Show {count} more task(s)",
   "sidebar.closeSearch": "Close search",
   "sidebar.accountMenu": "Account menu",
   "sidebar.switchingAccount": "Switching account…",

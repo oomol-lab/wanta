@@ -7,7 +7,7 @@ import {
   RenameProjectDialog,
   RenameSessionDialog,
 } from "./AppShellDialogs.tsx"
-import { SessionSearchOverlay } from "./AppShellSidebar.tsx"
+import { SessionSearchOverlay } from "./SessionSearchOverlay.tsx"
 
 export function AppShellSessionProjectDialogs({
   archiveConfirming,

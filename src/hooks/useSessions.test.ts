@@ -2,7 +2,13 @@ import type { SessionInfo } from "../../electron/session/common.ts"
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { applySessionActivity, mergeSessionsWithLocalCreated, resolveKnowledgeBaseIdsUpdate } from "./useSessions.ts"
+import {
+  applySessionActivity,
+  applySessionPinned,
+  applySessionTitle,
+  mergeSessionsWithLocalCreated,
+  resolveKnowledgeBaseIdsUpdate,
+} from "./useSessions.ts"
 
 test("mergeSessionsWithLocalCreated keeps a locally created session while remote list catches up", () => {
   const oldSession: SessionInfo = {
@@ -86,4 +92,23 @@ test("applySessionActivity ignores unknown and stale activity updates", () => {
     })[0],
     session,
   )
+})
+
+test("applySessionTitle updates only the matching session", () => {
+  const first: SessionInfo = { id: "first", title: "First", createdAt: 1_000, updatedAt: 1_000 }
+  const second: SessionInfo = { id: "second", title: "Second", createdAt: 2_000, updatedAt: 2_000 }
+
+  const updated = applySessionTitle([first, second], "first", "Renamed")
+
+  assert.equal(updated[0]?.title, "Renamed")
+  assert.equal(updated[1], second)
+})
+
+test("applySessionPinned adds and removes local pin metadata", () => {
+  const original: SessionInfo = { id: "session", title: "Session", createdAt: 1_000, updatedAt: 1_000 }
+  const pinned = applySessionPinned([original], original.id, true, 2_000)
+  const unpinned = applySessionPinned(pinned, original.id, false, 3_000)
+
+  assert.equal(pinned[0]?.pinnedAt, 2_000)
+  assert.equal(unpinned[0]?.pinnedAt, undefined)
 })

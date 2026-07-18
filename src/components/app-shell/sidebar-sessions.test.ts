@@ -2,7 +2,12 @@ import type { SessionInfo } from "../../../electron/session/common.ts"
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { groupSidebarSessions, nextActiveSessionIdAfterArchive, runningProjectIds } from "./sidebar-sessions.ts"
+import {
+  groupSidebarSessions,
+  limitSidebarSessionGroups,
+  nextActiveSessionIdAfterArchive,
+  runningProjectIds,
+} from "./sidebar-sessions.ts"
 
 function session(id: string, updatedAt: number, extras: Partial<SessionInfo> = {}): SessionInfo {
   return {
@@ -88,6 +93,43 @@ test("groupSidebarSessions excludes archived sessions", () => {
     groups.regular.map((item) => item.id),
     ["active"],
   )
+})
+
+test("limitSidebarSessionGroups caps the combined pinned and regular history", () => {
+  const limited = limitSidebarSessionGroups(
+    {
+      pinned: [session("pinned", 3_000, { pinnedAt: 4_000 })],
+      regular: [session("first", 2_000), session("second", 1_000)],
+    },
+    2,
+  )
+
+  assert.deepEqual(
+    limited.pinned.map((item) => item.id),
+    ["pinned"],
+  )
+  assert.deepEqual(
+    limited.regular.map((item) => item.id),
+    ["first"],
+  )
+  assert.equal(limited.hiddenCount, 1)
+})
+
+test("limitSidebarSessionGroups keeps a selected session visible beyond the cap", () => {
+  const limited = limitSidebarSessionGroups(
+    {
+      pinned: [],
+      regular: [session("first", 3_000), session("second", 2_000), session("selected", 1_000)],
+    },
+    1,
+    "selected",
+  )
+
+  assert.deepEqual(
+    limited.regular.map((item) => item.id),
+    ["first", "selected"],
+  )
+  assert.equal(limited.hiddenCount, 1)
 })
 
 test("nextActiveSessionIdAfterArchive picks the next visible session", () => {

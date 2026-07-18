@@ -49,7 +49,7 @@ import { AppShellMainTitlebar } from "./AppShellMainTitlebar.tsx"
 import { AppShellNavigationSidebar } from "./AppShellNavigationSidebar.tsx"
 import { AppShellSessionProjectDialogs } from "./AppShellSessionProjectDialogs.tsx"
 import { KnowledgeContextBar } from "./KnowledgeContextBar.tsx"
-import { isPendingChatCaughtUp } from "./pending-chat.ts"
+import { isPendingChatCaughtUp, pendingChatTransitionForActiveSession } from "./pending-chat.ts"
 import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
 import { nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
 import { useAppShellCommands } from "./use-app-shell-commands.ts"
@@ -632,7 +632,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     route === "chat" &&
     activeChatConnectionDrawer?.open === true &&
     Boolean(chatConnectionAuthIntent || chatConnectionSelectedService)
-  const activePendingChatTransition = pendingChatTransition?.scopeKey === currentScopeKey ? pendingChatTransition : null
+  const activePendingChatTransition = pendingChatTransitionForActiveSession(
+    pendingChatTransition,
+    currentScopeKey,
+    activeChatSessionId,
+  )
   const pendingCaughtUp = isPendingChatCaughtUp(activePendingChatTransition, activeChatSessionId, messages)
   const initialSendPending = Boolean(activePendingChatTransition && !pendingCaughtUp)
   const bridgeInitialSendPending = initialSendPending && messages.length === 0
@@ -833,6 +837,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     draftProjectId,
     isDraftSession,
     lastProjectId: readLastProjectId,
+    releaseTransientFocus,
     route,
     sessionScope,
     setComposerFocusRequest,
@@ -1505,6 +1510,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         projectRegularGroups={projectRegularGroups}
         projectSessions={visibleProjectSessions}
         projectSidebarGroups={projectSidebarGroups}
+        restoring={isSidebarRestoring}
         sessionsError={sessionsError}
         showKnowledge={knowledgeBaseBetaEnabled}
         sidebarSegment={sidebarSegment}

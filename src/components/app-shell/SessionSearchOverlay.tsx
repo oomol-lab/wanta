@@ -2,6 +2,7 @@ import type { SessionInfo } from "../../../electron/session/common.ts"
 
 import { Search } from "lucide-react"
 import * as React from "react"
+import { Dialog } from "@/components/ui/dialog"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { useT } from "@/i18n/i18n"
 
@@ -20,6 +21,8 @@ function sessionSearchResultId(sessionId: string): string {
   return `session-search-result-${encodedDomIdSegment(sessionId)}`
 }
 
+const searchResultPageSize = 100
+
 export function SessionSearchOverlay({
   sessions,
   open,
@@ -36,28 +39,37 @@ export function SessionSearchOverlay({
   const resultRefs = React.useRef(new Map<string, HTMLButtonElement>())
   const [query, setQuery] = React.useState("")
   const [activeIndex, setActiveIndex] = React.useState(0)
+  const [resultLimit, setResultLimit] = React.useState(searchResultPageSize)
   const normalizedQuery = normalizeSearchText(query)
-  const filteredSessions = normalizedQuery
-    ? sessions.filter((session) => normalizeSearchText(session.title).includes(normalizedQuery))
-    : sessions
-  const activeSession = filteredSessions[activeIndex]
+  const deferredQuery = React.useDeferredValue(normalizedQuery)
+  const filteredSessions = React.useMemo(
+    () =>
+      deferredQuery
+        ? sessions.filter((session) => normalizeSearchText(session.title).includes(deferredQuery))
+        : sessions,
+    [deferredQuery, sessions],
+  )
+  const visibleSessions = filteredSessions.slice(0, resultLimit)
+  const hiddenResultCount = filteredSessions.length - visibleSessions.length
+  const activeSession = visibleSessions[activeIndex]
   const activeResultId = activeSession ? sessionSearchResultId(activeSession.id) : undefined
 
   React.useEffect(() => {
     if (open) {
       setQuery("")
       setActiveIndex(0)
-      window.setTimeout(() => inputRef.current?.focus(), 0)
+      setResultLimit(searchResultPageSize)
     }
   }, [open])
 
   React.useEffect(() => {
     setActiveIndex(0)
+    setResultLimit(searchResultPageSize)
   }, [normalizedQuery])
 
   React.useEffect(() => {
-    setActiveIndex((index) => Math.min(index, Math.max(0, filteredSessions.length - 1)))
-  }, [filteredSessions.length])
+    setActiveIndex((index) => Math.min(index, Math.max(0, visibleSessions.length - 1)))
+  }, [visibleSessions.length])
 
   React.useEffect(() => {
     if (!activeSession) {
@@ -73,57 +85,47 @@ export function SessionSearchOverlay({
     onSelect(session)
   }
 
-  if (!open) {
-    return null
-  }
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("sidebar.search")}
-      className="oo-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center p-5"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose()
-        }
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault()
-          onClose()
-          return
-        }
-        if (filteredSessions.length === 0) {
-          return
-        }
-        if (event.key === "ArrowDown") {
-          event.preventDefault()
-          setActiveIndex((index) => (index + 1) % filteredSessions.length)
-          return
-        }
-        if (event.key === "ArrowUp") {
-          event.preventDefault()
-          setActiveIndex((index) => (index - 1 + filteredSessions.length) % filteredSessions.length)
-          return
-        }
-        if (event.key === "Home") {
-          event.preventDefault()
-          setActiveIndex(0)
-          return
-        }
-        if (event.key === "End") {
-          event.preventDefault()
-          setActiveIndex(filteredSessions.length - 1)
-          return
-        }
-        if (event.key === "Enter") {
-          event.preventDefault()
-          selectSession(filteredSessions[activeIndex])
-        }
-      }}
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t("sidebar.search")}
+      headerHidden
+      initialFocus={() => inputRef.current}
+      className="max-w-[520px]"
+      contentClassName="p-5"
     >
-      <section className="oo-modal-surface w-full max-w-[520px] rounded-lg border p-5">
+      <div
+        onKeyDown={(event) => {
+          if (visibleSessions.length === 0) {
+            return
+          }
+          if (event.key === "ArrowDown") {
+            event.preventDefault()
+            setActiveIndex((index) => (index + 1) % visibleSessions.length)
+            return
+          }
+          if (event.key === "ArrowUp") {
+            event.preventDefault()
+            setActiveIndex((index) => (index - 1 + visibleSessions.length) % visibleSessions.length)
+            return
+          }
+          if (event.key === "Home") {
+            event.preventDefault()
+            setActiveIndex(0)
+            return
+          }
+          if (event.key === "End") {
+            event.preventDefault()
+            setActiveIndex(visibleSessions.length - 1)
+            return
+          }
+          if (event.key === "Enter") {
+            event.preventDefault()
+            selectSession(visibleSessions[activeIndex])
+          }
+        }}
+      >
         <InputGroup className="oo-session-search-input h-10 rounded-lg shadow-none">
           <InputGroupAddon align="inline-start">
             <Search className="size-4" aria-hidden="true" />
@@ -157,7 +159,7 @@ export function SessionSearchOverlay({
           aria-label={t("sidebar.searchResults", { count: filteredSessions.length })}
         >
           <div className="grid gap-1">
-            {filteredSessions.map((session, index) => (
+            {visibleSessions.map((session, index) => (
               <button
                 key={session.id}
                 id={sessionSearchResultId(session.id)}
@@ -184,7 +186,18 @@ export function SessionSearchOverlay({
             )}
           </div>
         </div>
-      </section>
-    </div>
+        {hiddenResultCount > 0 ? (
+          <button
+            type="button"
+            className="oo-session-search-result oo-text-label mt-1 flex h-9 min-w-0 items-center rounded-md px-3 text-left"
+            onClick={() => setResultLimit((current) => current + searchResultPageSize)}
+          >
+            {t("sidebar.showMoreSearchResults", {
+              count: Math.min(searchResultPageSize, hiddenResultCount),
+            })}
+          </button>
+        ) : null}
+      </div>
+    </Dialog>
   )
 }

@@ -36,9 +36,6 @@ import { useI18n, useT } from "@/i18n/i18n"
 import { appCommandAriaShortcut, appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
 import { cn } from "@/lib/utils"
 
-export { SessionSearchOverlay } from "./SessionSearchOverlay.tsx"
-export { SidebarFooterControls } from "./SidebarAccountControls.tsx"
-
 export function SessionItem({
   session,
   selected,

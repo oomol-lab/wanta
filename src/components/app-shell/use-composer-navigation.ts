@@ -30,6 +30,7 @@ export function useComposerNavigation({
   draftProjectId,
   isDraftSession,
   lastProjectId,
+  releaseTransientFocus,
   route,
   sessionScope,
   setComposerFocusRequest,
@@ -51,6 +52,7 @@ export function useComposerNavigation({
   draftProjectId: string | null
   isDraftSession: boolean
   lastProjectId: () => string | null
+  releaseTransientFocus: () => void
   route: AppShellRoute
   sessionScope: SessionScope | null
   setComposerFocusRequest: React.Dispatch<React.SetStateAction<number>>
@@ -173,17 +175,18 @@ export function useComposerNavigation({
         releaseTransientFocus()
       }
     },
-    [createProject, handleCreatedProject, t],
+    [createProject, handleCreatedProject, releaseTransientFocus, t],
   )
   const handleSelectSession = React.useCallback(
     (session: SessionInfo): void => {
       setSelectedSessionId(session.id)
       setIsDraftSession(false)
       setDraftProjectId(null)
+      setPendingChatTransition(null)
       setRoute("chat")
       setSidebarSegment(session.projectId ? "projects" : "tasks")
     },
-    [setDraftProjectId, setIsDraftSession, setRoute, setSelectedSessionId, setSidebarSegment],
+    [setDraftProjectId, setIsDraftSession, setPendingChatTransition, setRoute, setSelectedSessionId, setSidebarSegment],
   )
   const requestComposerFocus = React.useCallback((): void => {
     setRoute("chat")
@@ -209,17 +212,6 @@ export function useComposerNavigation({
     handleSelectSession,
     requestComposerFocus,
   }
-}
-
-function releaseTransientFocus(): void {
-  const blurActiveElement = (): void => {
-    const activeElement = document.activeElement
-    if (activeElement instanceof HTMLElement) {
-      activeElement.blur()
-    }
-  }
-  blurActiveElement()
-  window.requestAnimationFrame(blurActiveElement)
 }
 
 function showSessionError(cause: unknown, t: ReturnType<typeof useT>): void {

@@ -54,39 +54,39 @@
 - Priority: P1
 - Decision: fix
 
-## Q-2026-004：初始登录快照可能覆盖更新事件
+## Q-2026-004：初始登录快照会覆盖更新事件
 
 - Category: bug | state
-- Status: hypothesis
+- Status: verified
 - Area: auth
 - User impact: renderer 启动时若登录状态在 `getAuthState` 与 `authStateChanged` 之间变化，旧快照可能短暂或持续覆盖新状态。
-- Evidence: `useAuth` 的初始 invoke 没有事件版本保护，而同仓库 `useAttention` 已使用该保护模式。
-- Root cause: 尚未确认。
-- Scope: `src/hooks/useAuth.ts`。
+- Evidence: 可控 deferred 测试证明事件先返回、初始读取后返回时旧状态会获胜；同步事件重放测试在修复前稳定得到 `2 → 1`。
+- Root cause: 初始 `getAuthState` 与 `authStateChanged` 分别直接写 React state，没有共享 generation；初始失败也会在成功事件后留下错误。
+- Scope: `src/hooks/useAuth.ts`、`src/hooks/auth-state-observer.ts` 及其单元测试。
 - Guardrails: 不改变 token 门控、登录回调或 AuthManager 边界。
-- Before metric: 待建立可控 RPC/event 顺序测试。
+- Before metric: 事件值 `2` 会被迟到初始值 `1` 覆盖。
 - Target: 任意完成顺序都以最新服务端事件为准。
-- Verification: 先建立 hook/service harness，再决定是否修复。
+- Verification: 4 个事件顺序、错误和 dispose 单测，完整质量门、生产构建和开发版启动。
 - Risk and rollback: 中；认证路径需要真实运行补验。
 - Priority: P1
-- Decision: defer
+- Decision: fix
 
 ## Q-2026-005：知识库列表读取缺少请求版本隔离
 
 - Category: bug | state
-- Status: hypothesis
+- Status: verified
 - Area: knowledge
 - User impact: 快速启停 beta 开关、刷新或收到连续变更事件时，旧列表响应可能覆盖新列表，卸载后也会继续执行状态更新路径。
-- Evidence: `useKnowledgeBases.load()` 没有 generation 或 AbortSignal；effect 只取消订阅，不使已开始的读取失效。
-- Root cause: 尚未确认。
-- Scope: `src/hooks/useKnowledgeBases.ts`。
+- Evidence: 两个 deferred 列表请求按新请求先完成、旧请求后完成的顺序结算；旧实现没有任何条件阻止最后到达的旧列表写入。
+- Root cause: `load()` 的每次调用都直接写 items/error/loading，effect cleanup 只取消事件订阅，没有使已开始请求失效。
+- Scope: `src/hooks/useKnowledgeBases.ts`、`src/hooks/knowledge-base-list-observer.ts` 及其单元测试。
 - Guardrails: 关闭 beta 时不得请求或注入知识库；错误时保留现有恢复语义。
-- Before metric: 待建立乱序响应测试。
+- Before metric: 旧列表、旧错误和卸载后的结果都具备 state 写入路径。
 - Target: 只有当前 enabled generation 的最后一次读取可以更新状态。
-- Verification: 可控 deferred response 测试和 beta 开关实机验证。
+- Verification: 3 个乱序、错误和 dispose 单测，完整质量门、生产构建和开发版启动。
 - Risk and rollback: 中低。
 - Priority: P2
-- Decision: defer
+- Decision: fix
 
 ## Q-2026-006：账单缓存缺少认证切换清理
 
@@ -171,4 +171,21 @@
 - Verification: production build trace，而不是仅比较 chunk 文件大小。
 - Risk and rollback: 高，未测量前不实施。
 - Priority: P3
+- Decision: defer
+
+## Q-2026-011：冷启动技能清单扫描耗时超过两秒
+
+- Category: performance
+- Status: hypothesis
+- Area: skills | shell
+- User impact: 已登录启动时技能清单或依赖该清单的界面可能延迟就绪，主进程同时承担较长的文件扫描工作。
+- Evidence: 第二轮开发版启动 diagnostics 记录首次 skill inventory scan 为 2154ms，扫描 3 个 agent root、63 个已安装 skill、101 个最终条目；紧随其后的同类扫描为 54ms。
+- Root cause: 尚未确认是冷文件系统、重复全量扫描、hash 计算、CLI 探测还是 manifest 重建占主导。
+- Scope: `electron/skills/node.ts`、`scan.ts`、`file-watcher.ts` 和 AppData 首次读取时序。
+- Guardrails: 不得漏掉外部 agent skill、同名优先级、removed/default 状态或 watcher 后续更新。
+- Before metric: 当前环境冷启动首次扫描 2154ms，后续扫描 54ms。
+- Target: 先分段测量并确认是否阻塞主窗口或 Agent ready，再制定预算。
+- Verification: diagnostics 分段计时、至少 5 次冷/热启动分布和技能清单一致性测试。
+- Risk and rollback: 中；没有分段证据前不改变扫描语义或并发模型。
+- Priority: P2
 - Decision: defer

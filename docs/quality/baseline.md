@@ -44,3 +44,11 @@
 - `npm run dev` 在 195ms 内启动 Vite，main/preload 构建成功，Agent sidecar 正常 ready；
 - 开发版启动观察期没有新增主进程或 renderer 错误日志；
 - 真实账单支付返回和账号/组织切换仍因缺少可用测试账号而未实机验收。
+
+## 第二轮修复后的结果
+
+- 新增 2 个测试文件、7 个乱序响应测试，测试总数从 1559 增至 1566；
+- `ts-check`、`lint`、`format`、234 个测试文件和 production build 通过；
+- `npm run dev` 在 322ms 内启动 Vite，main/preload 构建成功，Agent sidecar 正常 ready；
+- 启动观察期未发现认证或知识库相关错误；主动结束开发进程后仅记录预期的 renderer `clean-exit`；
+- 真实登录回调、换号和知识库 beta 开关切换仍需账号环境补验。

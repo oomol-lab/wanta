@@ -176,16 +176,16 @@
 ## Q-2026-011：冷启动技能清单扫描耗时超过两秒
 
 - Category: performance
-- Status: hypothesis
+- Status: verified
 - Area: skills | shell
 - User impact: 已登录启动时技能清单或依赖该清单的界面可能延迟就绪，主进程同时承担较长的文件扫描工作。
-- Evidence: 第二轮开发版启动 diagnostics 记录首次 skill inventory scan 为 2154ms，扫描 3 个 agent root、63 个已安装 skill、101 个最终条目；紧随其后的同类扫描为 54ms。
-- Root cause: 尚未确认是冷文件系统、重复全量扫描、hash 计算、CLI 探测还是 manifest 重建占主导。
-- Scope: `electron/skills/node.ts`、`scan.ts`、`file-watcher.ts` 和 AppData 首次读取时序。
-- Guardrails: 不得漏掉外部 agent skill、同名优先级、removed/default 状态或 watcher 后续更新。
-- Before metric: 当前环境冷启动首次扫描 2154ms，后续扫描 54ms。
-- Target: 先分段测量并确认是否阻塞主窗口或 Agent ready，再制定预算。
-- Verification: diagnostics 分段计时、至少 5 次冷/热启动分布和技能清单一致性测试。
-- Risk and rollback: 中；没有分段证据前不改变扫描语义或并发模型。
+- Evidence: 三次改动前开发版启动的完整 inventory scan 为 2097–2154ms；分段基准显示 skill 文件扫描仅需 32–52ms，而完整 agent discovery 为 2381–2425ms。旧探测会并发执行每个候选 CLI 的 `--version`，Hermes 在启动争用下触发 1500ms timeout，并被错误判为未安装。
+- Root cause: agent discovery 为判断可执行文件是否存在而实际启动所有第三方 CLI；这既引入进程冷启动和 timeout 成本，也把“命令存在”错误耦合为“版本子命令须在 1.5 秒内成功”。
+- Scope: `electron/agents/catalog.ts` 及其单元测试。
+- Guardrails: 保留 login-shell PATH 合并、Windows `PATHEXT`、agent 顺序、skill root 发现规则、同名优先级和 watcher 行为；主进程继续只用异步 fs。
+- Before metric: 实际冷启动 2097–2154ms，63 个外部 skill；旧分段基准最差 2425ms，且漏掉已安装 Hermes。
+- Target: 实际开发版冷启动 inventory scan 低于 1 秒，不再为发现 agent 启动第三方 CLI。
+- Verification: 新实现以异步 executable access 检查绝对路径或 PATH，并覆盖“不启动无效程序”“PATH 命中与缺失”两个回归测试；五次冷 discovery + scan 基准为 1141–1249ms，五次热 scan 为 50–77ms；真实开发版首次 inventory scan 为 610ms，随后为 65–68ms，并正确发现 Hermes（125 个最终条目）。完整质量门、production build 和开发版启动均通过，启动观察期无 warn/error diagnostics。
+- Risk and rollback: 低到中；可执行文件存在但自身依赖损坏时仍会被视为已安装，不过真正调用时仍由对应 agent 报错；可单独回退到版本子进程探测。
 - Priority: P2
-- Decision: defer
+- Decision: fix

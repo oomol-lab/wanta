@@ -52,3 +52,11 @@
 - `npm run dev` 在 322ms 内启动 Vite，main/preload 构建成功，Agent sidecar 正常 ready；
 - 启动观察期未发现认证或知识库相关错误；主动结束开发进程后仅记录预期的 renderer `clean-exit`；
 - 真实登录回调、换号和知识库 beta 开关切换仍需账号环境补验。
+
+## 第三轮性能修复后的结果
+
+- 确认首次技能清单的主要瓶颈不是 101 个 skill 的 hash，而是 agent discovery 实际启动第三方 CLI 并等待 `--version` timeout；
+- 改为在 login-shell 合并后的 PATH 中异步检查 executable，不再为发现操作启动第三方进程；新增 2 个回归测试，测试总数从 1566 增至 1568；
+- 五次显式重置缓存的 discovery + scan 为 1141–1249ms，五次缓存内 scan 为 50–77ms；剩余冷启动时间主要来自用户 login shell PATH 解析；
+- 真实 `npm run dev` 首次 inventory scan 从前三次的 2097–2154ms 降至 610ms，随后两次为 68ms 和 65ms；同时正确发现旧探测超时漏掉的 Hermes，最终 installed skill 数从 101 变为 125；
+- `ts-check`、`lint`、`format`、234 个测试文件、1568 个测试和 production build 通过；开发版 Vite 在 198ms ready，Agent sidecar 正常 ready，观察期没有 warn/error diagnostics。

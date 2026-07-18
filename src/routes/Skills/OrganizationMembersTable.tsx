@@ -17,7 +17,6 @@ import {
   ConfirmDialogFooter,
   ConfirmDialogHeader,
   ConfirmDialogTitle,
-  ConfirmDialogTrigger,
 } from "@/components/ui/confirm-dialog"
 import {
   DropdownMenu,
@@ -36,7 +35,6 @@ export function MembersTable({
   appAccessLoading,
   busyAction,
   canManage,
-  compact = false,
   grantsByUserId,
   members,
   onEditProviderAccess,
@@ -51,7 +49,6 @@ export function MembersTable({
   appAccessLoading: boolean
   busyAction: BusyAction | null
   canManage: boolean
-  compact?: boolean
   grantsByUserId: Map<string, ProviderGrantView>
   members: MemberView[]
   onDisableMembers: (userIds: string[]) => void
@@ -155,130 +152,6 @@ export function MembersTable({
     </ConfirmDialog>
   )
 
-  if (compact) {
-    return (
-      <>
-        {canBulkManage ? (
-          <MemberStatusBulkToolbar
-            allSelected={allSelected}
-            bulkBusy={bulkBusy}
-            disableBusy={busyAction === "disableMembers"}
-            enableBusy={busyAction === "enableMembers"}
-            enableDisabled={selectedEnableUserIds.length === 0}
-            disableDisabled={selectedDisableUserIds.length === 0}
-            selectAllDisabled={selectableMembers.length === 0}
-            selectedCount={selectedCount}
-            showSelectAll
-            someSelected={someSelected}
-            onDisable={disableSelectedMembers}
-            onEnable={enableSelectedMembers}
-            onToggleAll={toggleAll}
-          />
-        ) : null}
-        <div className="divide-y">
-          {members.map((member) => {
-            const grant = grantsByUserId.get(member.user_id) ?? null
-            const canRemove = canManage && member.role !== "creator"
-            const selectable = isBulkEditableMember(member)
-            const accessDisabled = appAccessLoading || bulkBusy || Boolean(providerAccessError)
-            const removeBusy = busyAction === `remove:${member.user_id}`
-            const revokeBusy = grant ? busyAction === `revokeProviderAccess:${grant.userId}` : false
-            return (
-              <div
-                key={member.user_id}
-                className={cn(
-                  "oo-list-render-boundary grid min-w-0 items-center gap-x-3 px-3 py-2.5",
-                  canBulkManage ? "grid-cols-[auto_auto_minmax(0,1fr)_auto]" : "grid-cols-[auto_minmax(0,1fr)_auto]",
-                )}
-              >
-                {canBulkManage ? (
-                  <MemberStatusCheckbox
-                    ariaLabel={t("organizations.selectMember", { name: member.displayName })}
-                    checked={selectedUserIds.has(member.user_id)}
-                    disabled={bulkBusy || !selectable}
-                    onCheckedChange={(checked) => toggleMember(member.user_id, checked)}
-                  />
-                ) : null}
-                <UserAvatar avatar={member.avatar} fallback={member.fallback} />
-                <div className="min-w-0 self-center">
-                  <CompactMemberIdentity member={member}>
-                    {member.role === "creator" && showProviderAccess ? (
-                      <Badge variant="secondary">{t("organizations.creatorDefaultAccessCompact")}</Badge>
-                    ) : (
-                      <Badge variant="secondary">
-                        {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-                      </Badge>
-                    )}
-                    {showStatusColumn ? <MemberStatusBadge member={member} /> : null}
-                    {showProviderAccess && member.role !== "creator" ? (
-                      <ProviderAccessSummary
-                        compact
-                        allProvidersLabel={t("organizations.allProviders")}
-                        grant={grant}
-                        loading={appAccessLoading}
-                        notAuthorizedLabel={
-                          providerAccessError
-                            ? t("organizations.providerAccessUnavailable")
-                            : t("organizations.notAuthorized")
-                        }
-                      />
-                    ) : null}
-                  </CompactMemberIdentity>
-                </div>
-
-                <div className="flex min-w-0 items-center justify-end gap-2">
-                  {canRemove && showProviderAccess && !grant && !appAccessLoading ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 shrink-0 px-2"
-                      disabled={accessDisabled}
-                      onClick={() => onGrantProviderAccess(member.user_id)}
-                    >
-                      <ShieldCheckIcon className="size-3.5" />
-                      {t("organizations.grantProviderAccessAction")}
-                    </Button>
-                  ) : null}
-                  {canRemove ? (
-                    <MemberActionsMenu
-                      compact
-                      editProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
-                      removeDisabled={bulkBusy || removeBusy}
-                      revokeProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
-                      onEditProviderAccess={grant && showProviderAccess ? () => onEditProviderAccess(grant) : undefined}
-                      onRemove={() => setRemoveTarget(member)}
-                      onRevokeProviderAccess={grant && showProviderAccess ? () => setRevokeTarget(grant) : undefined}
-                    />
-                  ) : null}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-        {removeConfirmDialog}
-        {revokeConfirmDialog}
-      </>
-    )
-  }
-
-  const gridTemplateColumns = [
-    canBulkManage ? "2rem" : null,
-    "minmax(12rem,1fr)",
-    "7rem",
-    showStatusColumn ? "7rem" : null,
-    canManage && showProviderAccess ? "minmax(12rem,1fr)" : null,
-    canManage ? "auto" : null,
-  ]
-    .filter(Boolean)
-    .join(" ")
-  const minWidthClassName =
-    canBulkManage && canManage && showProviderAccess
-      ? "min-w-[50rem]"
-      : canBulkManage || (canManage && showProviderAccess)
-        ? "min-w-[40rem]"
-        : "min-w-[32rem]"
-
   return (
     <>
       {canBulkManage ? (
@@ -291,159 +164,97 @@ export function MembersTable({
           disableDisabled={selectedDisableUserIds.length === 0}
           selectAllDisabled={selectableMembers.length === 0}
           selectedCount={selectedCount}
-          showSelectAll={false}
+          showSelectAll
           someSelected={someSelected}
           onDisable={disableSelectedMembers}
           onEnable={enableSelectedMembers}
           onToggleAll={toggleAll}
         />
       ) : null}
-      <div className="min-w-0 overflow-x-auto">
-        <div className={minWidthClassName}>
-          <div
-            className={cn(
-              "oo-text-caption-compact grid gap-3 border-b bg-muted/30 px-3 py-2 font-medium text-muted-foreground",
-            )}
-            style={{ gridTemplateColumns }}
-          >
-            {canBulkManage ? (
-              <MemberStatusCheckbox
-                ariaLabel={t("organizations.selectAllMembers")}
-                checked={allSelected}
-                disabled={bulkBusy || selectableMembers.length === 0}
-                indeterminate={someSelected}
-                onCheckedChange={toggleAll}
-              />
-            ) : null}
-            <div>{t("organizations.member")}</div>
-            <div>{t("organizations.role")}</div>
-            {showStatusColumn ? <div>{t("organizations.memberStatus")}</div> : null}
-            {canManage && showProviderAccess ? <div>{t("organizations.usableConnections")}</div> : null}
-            {canManage ? <div className="text-right">{t("organizations.actions")}</div> : null}
-          </div>
-          <div className="divide-y">
-            {members.map((member) => {
-              const grant = grantsByUserId.get(member.user_id) ?? null
-              const canRemove = canManage && member.role !== "creator"
-              const selectable = isBulkEditableMember(member)
-              return (
-                <div
-                  key={member.user_id}
-                  className="oo-list-render-boundary grid items-center gap-3 px-3 py-3"
-                  style={{ gridTemplateColumns }}
-                >
-                  {canBulkManage ? (
-                    <MemberStatusCheckbox
-                      ariaLabel={t("organizations.selectMember", { name: member.displayName })}
-                      checked={selectedUserIds.has(member.user_id)}
-                      disabled={bulkBusy || !selectable}
-                      onCheckedChange={(checked) => toggleMember(member.user_id, checked)}
-                    />
-                  ) : null}
-                  <div className="flex min-w-0 items-center gap-3">
-                    <UserAvatar avatar={member.avatar} fallback={member.fallback} />
-                    <div className="min-w-0">
-                      <MemberIdentity member={member} />
-                    </div>
-                  </div>
-                  <div>
+      <div className="divide-y">
+        {members.map((member) => {
+          const grant = grantsByUserId.get(member.user_id) ?? null
+          const canRemove = canManage && member.role !== "creator"
+          const selectable = isBulkEditableMember(member)
+          const accessDisabled = appAccessLoading || bulkBusy || Boolean(providerAccessError)
+          const removeBusy = busyAction === `remove:${member.user_id}`
+          const revokeBusy = grant ? busyAction === `revokeProviderAccess:${grant.userId}` : false
+          return (
+            <div
+              key={member.user_id}
+              className={cn(
+                "oo-list-render-boundary grid min-w-0 items-center gap-x-3 px-3 py-2.5",
+                canBulkManage ? "grid-cols-[auto_auto_minmax(0,1fr)_auto]" : "grid-cols-[auto_minmax(0,1fr)_auto]",
+              )}
+            >
+              {canBulkManage ? (
+                <MemberStatusCheckbox
+                  ariaLabel={t("organizations.selectMember", { name: member.displayName })}
+                  checked={selectedUserIds.has(member.user_id)}
+                  disabled={bulkBusy || !selectable}
+                  onCheckedChange={(checked) => toggleMember(member.user_id, checked)}
+                />
+              ) : null}
+              <UserAvatar avatar={member.avatar} fallback={member.fallback} />
+              <div className="min-w-0 self-center">
+                <CompactMemberIdentity member={member}>
+                  {member.role === "creator" && showProviderAccess ? (
+                    <Badge variant="secondary">{t("organizations.creatorDefaultAccessCompact")}</Badge>
+                  ) : (
                     <Badge variant="secondary">
                       {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
                     </Badge>
-                  </div>
-                  {showStatusColumn ? (
-                    <div>
-                      <MemberStatusBadge member={member} />
-                    </div>
+                  )}
+                  {showStatusColumn ? <MemberStatusBadge member={member} /> : null}
+                  {showProviderAccess && member.role !== "creator" ? (
+                    <ProviderAccessSummary
+                      allProvidersLabel={t("organizations.allProviders")}
+                      grant={grant}
+                      loading={appAccessLoading}
+                      notAuthorizedLabel={
+                        providerAccessError
+                          ? t("organizations.providerAccessUnavailable")
+                          : t("organizations.notAuthorized")
+                      }
+                    />
                   ) : null}
-                  {canManage && showProviderAccess ? (
-                    <div>
-                      {member.role === "creator" ? (
-                        <Badge variant="secondary">{t("organizations.creatorDefaultAccess")}</Badge>
-                      ) : (
-                        <ProviderAccessSummary
-                          allProvidersLabel={t("organizations.allProviders")}
-                          grant={grant}
-                          loading={appAccessLoading}
-                          notAuthorizedLabel={
-                            providerAccessError
-                              ? t("organizations.providerAccessUnavailable")
-                              : t("organizations.notAuthorized")
-                          }
-                        />
-                      )}
-                    </div>
-                  ) : null}
-                  {canManage ? (
-                    <div className="flex justify-end gap-2">
-                      {member.role === "creator" ? (
-                        <span className="oo-text-body text-muted-foreground">
-                          {t("organizations.creatorProtected")}
-                        </span>
-                      ) : (
-                        <>
-                          {showProviderAccess ? (
-                            <ProviderAccessActions
-                              busyAction={busyAction}
-                              disabled={appAccessLoading || bulkBusy || Boolean(providerAccessError)}
-                              grant={grant}
-                              memberId={member.user_id}
-                              onEdit={onEditProviderAccess}
-                              onGrant={onGrantProviderAccess}
-                              onRevoke={onRevokeProviderAccess}
-                            />
-                          ) : null}
-                          <MemberActionsMenu
-                            removeDisabled={!canRemove || bulkBusy || busyAction === `remove:${member.user_id}`}
-                            onRemove={() => setRemoveTarget(member)}
-                          />
-                        </>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              )
-            })}
-          </div>
-        </div>
+                </CompactMemberIdentity>
+              </div>
+
+              <div className="flex min-w-0 items-center justify-end gap-2">
+                {canRemove && showProviderAccess && !grant && !appAccessLoading ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 shrink-0 px-2"
+                    disabled={accessDisabled}
+                    onClick={() => onGrantProviderAccess(member.user_id)}
+                  >
+                    <ShieldCheckIcon className="size-3.5" />
+                    {t("organizations.grantProviderAccessAction")}
+                  </Button>
+                ) : null}
+                {canRemove ? (
+                  <MemberActionsMenu
+                    editProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
+                    removeDisabled={bulkBusy || removeBusy}
+                    revokeProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
+                    onEditProviderAccess={grant && showProviderAccess ? () => onEditProviderAccess(grant) : undefined}
+                    onRemove={() => setRemoveTarget(member)}
+                    onRevokeProviderAccess={grant && showProviderAccess ? () => setRevokeTarget(grant) : undefined}
+                  />
+                ) : null}
+              </div>
+            </div>
+          )
+        })}
       </div>
       {removeConfirmDialog}
+      {revokeConfirmDialog}
     </>
   )
 }
-
-function MemberIdentity({ member }: { member: MemberView }) {
-  const { t } = useAppI18n()
-
-  return (
-    <div className="group/member-identity grid min-w-0 gap-0.5">
-      <div className="flex min-w-0 items-center">
-        <CopyTextButton
-          ariaLabel={t("organizations.copyMemberName")}
-          className="oo-text-label min-w-0 truncate"
-          copiedLabel={t("organizations.memberNameCopied")}
-          value={member.displayName}
-        />
-      </div>
-      <div className="flex min-w-0 items-center gap-1.5">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="oo-text-caption-compact min-w-0 truncate font-mono text-muted-foreground">
-              {member.secondaryLabel}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-80 font-mono break-all">{member.user_id}</TooltipContent>
-        </Tooltip>
-        <CopyValueButton
-          ariaLabel={t("organizations.copyMemberUserId")}
-          copiedLabel={t("organizations.memberUserIdCopied")}
-          value={member.user_id}
-        />
-      </div>
-    </div>
-  )
-}
-
 function CompactMemberIdentity({ children, member }: { children: React.ReactNode; member: MemberView }) {
   const { t } = useAppI18n()
 
@@ -637,7 +448,6 @@ function CopyValueButton({ ariaLabel, copiedLabel, value }: { ariaLabel: string;
 }
 
 function MemberActionsMenu({
-  compact = false,
   editProviderAccessDisabled = false,
   onEditProviderAccess,
   onRemove,
@@ -645,7 +455,6 @@ function MemberActionsMenu({
   removeDisabled = false,
   revokeProviderAccessDisabled = false,
 }: {
-  compact?: boolean
   editProviderAccessDisabled?: boolean
   onEditProviderAccess?: () => void
   onRemove?: () => void
@@ -667,7 +476,7 @@ function MemberActionsMenu({
           type="button"
           variant="ghost"
           size="icon"
-          className={compact ? "size-[1.375rem]" : undefined}
+          className="size-[1.375rem]"
           disabled={disabled}
           aria-label={t("organizations.actions")}
         >
@@ -705,13 +514,11 @@ function MemberActionsMenu({
 
 function ProviderAccessSummary({
   allProvidersLabel,
-  compact = false,
   grant,
   loading,
   notAuthorizedLabel,
 }: {
   allProvidersLabel: string
-  compact?: boolean
   grant: ProviderGrantView | null
   loading: boolean
   notAuthorizedLabel: string
@@ -726,13 +533,10 @@ function ProviderAccessSummary({
     return <Badge variant="secondary">{allProvidersLabel}</Badge>
   }
 
-  const visibleProviders = grant.providers.slice(0, compact ? 1 : 3)
+  const visibleProviders = grant.providers.slice(0, 1)
   const hiddenProviderCount = grant.providers.length - visibleProviders.length
   return (
-    <div
-      className={cn("flex min-w-0 gap-2", compact ? "flex-wrap" : "flex-nowrap")}
-      title={grant.providers.map((provider) => provider.label).join(", ")}
-    >
+    <div className="flex min-w-0 flex-wrap gap-2" title={grant.providers.map((provider) => provider.label).join(", ")}>
       {visibleProviders.map((provider) => (
         <Badge key={provider.service} variant="secondary" className="max-w-full" title={provider.service}>
           <span className="truncate">{provider.label}</span>
@@ -740,81 +544,6 @@ function ProviderAccessSummary({
       ))}
       {hiddenProviderCount > 0 ? <Badge variant="secondary">+{hiddenProviderCount}</Badge> : null}
     </div>
-  )
-}
-
-function ProviderAccessActions({
-  busyAction,
-  compact = false,
-  disabled,
-  grant,
-  memberId,
-  onEdit,
-  onGrant,
-  onRevoke,
-}: {
-  busyAction: BusyAction | null
-  compact?: boolean
-  disabled: boolean
-  grant: ProviderGrantView | null
-  memberId: string
-  onEdit: (grant: ProviderGrantView) => void
-  onGrant: (userId: string) => void
-  onRevoke: (grant: ProviderGrantView) => void
-}) {
-  const { t } = useAppI18n()
-  if (!grant) {
-    return (
-      <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onGrant(memberId)}>
-        {compact ? <ShieldCheckIcon className="size-4" /> : null}
-        {t("organizations.grantProviderAccessAction")}
-      </Button>
-    )
-  }
-
-  const revokeBusy = busyAction === `revokeProviderAccess:${grant.userId}`
-  return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled={disabled || revokeBusy}
-        aria-label={compact ? t("organizations.editProviderAccessAction") : undefined}
-        onClick={() => onEdit(grant)}
-      >
-        <PencilIcon className="size-4" />
-        {compact ? null : t("organizations.editProviderAccessAction")}
-      </Button>
-      <ConfirmDialog>
-        <ConfirmDialogTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={disabled || revokeBusy}
-            aria-label={compact ? t("organizations.revokeProviderAccess") : undefined}
-          >
-            <Trash2Icon className="size-4" />
-            {compact ? null : t("organizations.revokeProviderAccess")}
-          </Button>
-        </ConfirmDialogTrigger>
-        <ConfirmDialogContent>
-          <ConfirmDialogHeader>
-            <ConfirmDialogTitle>{t("organizations.revokeProviderAccessConfirmTitle")}</ConfirmDialogTitle>
-            <ConfirmDialogDescription>
-              {t("organizations.revokeProviderAccessConfirmDescription")}
-            </ConfirmDialogDescription>
-          </ConfirmDialogHeader>
-          <ConfirmDialogFooter>
-            <ConfirmDialogCancel>{t("common.cancel")}</ConfirmDialogCancel>
-            <ConfirmDialogAction onClick={() => onRevoke(grant)}>
-              {t("organizations.revokeProviderAccess")}
-            </ConfirmDialogAction>
-          </ConfirmDialogFooter>
-        </ConfirmDialogContent>
-      </ConfirmDialog>
-    </>
   )
 }
 

@@ -59,7 +59,6 @@ export function useOrganizationForms({
   const [editAvatar, setEditAvatar] = React.useState("")
   const [editAvatarFile, setEditAvatarFile] = React.useState<File | null>(null)
   const [editDuplicated, setEditDuplicated] = React.useState(false)
-  const editAvatarUploadVersion = React.useRef(0)
   const editingOrganization = React.useMemo(
     () => (editOrganizationId ? (organizations.find((item) => item.id === editOrganizationId) ?? null) : null),
     [editOrganizationId, organizations],
@@ -86,19 +85,22 @@ export function useOrganizationForms({
       setBusyAction("create")
       try {
         let organization = await createOrganization({ orgName })
-        if (createAvatarFile) {
-          const { avatar } = await uploadOrganizationAvatar(organization.id, createAvatarFile)
-          organization = await updateOrganization({ avatar, orgId: organization.id, orgName: organization.name })
-          upsertOrganization(organization, { avatarFile: createAvatarFile })
-        } else {
-          upsertOrganization(organization)
-        }
-        toast.success(t("organizations.createOrganizationSuccess"))
+        upsertOrganization(organization)
+        selectOrganization(organization.id)
         setCreateOpen(false)
         setCreateName("")
         setCreateAvatarFile(null)
         setCreateDuplicated(false)
-        selectOrganization(organization.id)
+        if (createAvatarFile) {
+          try {
+            const { avatar } = await uploadOrganizationAvatar(organization.id, createAvatarFile)
+            organization = await updateOrganization({ avatar, orgId: organization.id, orgName: organization.name })
+            upsertOrganization(organization, { avatarFile: createAvatarFile })
+          } catch {
+            toast.error(t("organizations.avatarUpdatePartialFailure"))
+          }
+        }
+        toast.success(t("organizations.createOrganizationSuccess"))
         await refreshWorkspace({ forceRefresh: true })
       } catch (error) {
         if (isConflictError(error)) {
@@ -124,7 +126,7 @@ export function useOrganizationForms({
   }, [])
 
   const closeEdit = React.useCallback(() => {
-    if (busyAction === "updateOrganization" || busyAction === "uploadOrganizationAvatar") return
+    if (busyAction === "updateOrganization") return
     setEditOpen(false)
     setEditOrganizationId(null)
     setEditName("")
@@ -135,32 +137,12 @@ export function useOrganizationForms({
 
   const changeEditAvatarFile = React.useCallback(
     (file: File | null) => {
-      editAvatarUploadVersion.current += 1
       setEditAvatarFile(file)
-      if (!file) return
       if (!editingOrganization || !canManageOrganization(editingOrganization)) {
         setEditAvatarFile(null)
-        return
       }
-
-      const version = editAvatarUploadVersion.current
-      setBusyAction("uploadOrganizationAvatar")
-      void uploadOrganizationAvatar(editingOrganization.id, file)
-        .then((uploaded) => {
-          if (editAvatarUploadVersion.current === version) setEditAvatar(uploaded.avatar)
-        })
-        .catch((error) => {
-          if (editAvatarUploadVersion.current !== version) return
-          setEditAvatarFile(null)
-          toast.error(organizationErrorMessage(error, t))
-        })
-        .finally(() => {
-          if (editAvatarUploadVersion.current === version) {
-            setBusyAction((current) => (current === "uploadOrganizationAvatar" ? null : current))
-          }
-        })
     },
-    [canManageOrganization, editingOrganization, setBusyAction, t],
+    [canManageOrganization, editingOrganization],
   )
 
   const submitEdit = React.useCallback(
@@ -182,7 +164,11 @@ export function useOrganizationForms({
 
       setBusyAction("updateOrganization")
       try {
-        const avatar = editAvatar.trim()
+        let avatar = editAvatar.trim()
+        if (editAvatarFile) {
+          const uploaded = await uploadOrganizationAvatar(editingOrganization.id, editAvatarFile)
+          avatar = uploaded.avatar
+        }
         const organization = await updateOrganization({ avatar, orgId: editingOrganization.id, orgName })
         upsertOrganization(
           organization,

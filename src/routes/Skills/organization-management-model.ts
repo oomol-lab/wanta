@@ -21,7 +21,6 @@ export type BusyAction =
   | "enableMembers"
   | "installSkillBatch"
   | "saveProviderAccess"
-  | "uploadOrganizationAvatar"
   | "updateOrganization"
   | `addSkill:${string}`
   | `installSkill:${string}`
@@ -34,6 +33,7 @@ export type ProviderAccessMode = "create" | "edit"
 export interface LoadState<T> {
   data: T
   error: string | null
+  errorStatus: number | null
   status: LoadStatus
 }
 
@@ -72,15 +72,6 @@ export interface AccountSummaryLike {
   name: string
 }
 
-export interface OrganizationManagementSnapshot {
-  appAccessState: LoadState<OrganizationAppAccess | null>
-  detailsOrganizationId: string | null
-  membersState: LoadState<OrganizationMember[]>
-  providerOptionsState: LoadState<OrganizationProviderOption[]>
-  savedAt: number
-  summariesState: LoadState<Record<string, OrganizationUserSummary>>
-}
-
 export interface OrganizationSkillPackageItem {
   packageName: string
 }
@@ -97,11 +88,9 @@ export interface OrganizationSkillBulkPlan<T extends OrganizationSkillPackageIte
 }
 
 export const maxOrganizationNameLength = 100
-export const maxOrganizationAvatarLength = 4095
 export const minimumMemberSearchLength = 2
 
 const organizationNamePattern = /^[A-Za-z0-9._'-]+$/
-const organizationPageSnapshotTtlMs = 30_000
 
 export const initialProviderAccessForm: ProviderAccessForm = {
   allProviders: false,
@@ -111,42 +100,27 @@ export const initialProviderAccessForm: ProviderAccessForm = {
   userId: "",
 }
 
-export const organizationManagementSnapshotsByAccountId = new Map<string, OrganizationManagementSnapshot>()
-
 export function loadState<T>(data: T): LoadState<T> {
-  return { data, error: null, status: "idle" }
+  return { data, error: null, errorStatus: null, status: "idle" }
 }
 
 export function loadingState<T>(current: LoadState<T>): LoadState<T> {
-  return { ...current, error: null, status: "loading" }
+  return { ...current, error: null, errorStatus: null, status: "loading" }
 }
 
 export function errorState<T>(current: LoadState<T>, error: unknown): LoadState<T> {
-  return { ...current, error: errorMessage(error), status: "error" }
+  return { ...current, error: errorMessage(error), errorStatus: httpErrorStatus(error), status: "error" }
 }
 
 export function readyState<T>(data: T): LoadState<T> {
-  return { data, error: null, status: "ready" }
+  return { data, error: null, errorStatus: null, status: "ready" }
 }
 
-export function readOrganizationManagementSnapshot(
-  accountId: string | undefined,
-): OrganizationManagementSnapshot | undefined {
-  if (!accountId) {
-    return undefined
+function httpErrorStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object" || !("status" in error)) {
+    return null
   }
-
-  const snapshot = organizationManagementSnapshotsByAccountId.get(accountId)
-  if (!snapshot) {
-    return undefined
-  }
-
-  if (Date.now() - snapshot.savedAt > organizationPageSnapshotTtlMs) {
-    organizationManagementSnapshotsByAccountId.delete(accountId)
-    return undefined
-  }
-
-  return snapshot
+  return typeof error.status === "number" && Number.isFinite(error.status) ? error.status : null
 }
 
 export function errorMessage(error: unknown): string {

@@ -179,13 +179,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeWorkspaceKey = workspaceSelectionSwitchKey(organizationWorkspace.activeWorkspace)
   const activeOrganizationId = organizationWorkspace.activeWorkspace.organizationId || null
   const activeOrganizationSkillsMatched = organizationSkills.organizationId === activeOrganizationId
-  const organizationSkillsError =
-    activeOrganizationId && activeOrganizationSkillsMatched && !organizationSkills.loading
-      ? organizationSkills.error
-      : null
   const organizationSkillsSettled =
     !activeOrganizationId ||
-    (activeOrganizationSkillsMatched && !organizationSkills.loading && organizationSkills.hasLoaded)
+    (activeOrganizationSkillsMatched &&
+      !organizationSkills.loading &&
+      (organizationSkills.hasLoaded || Boolean(organizationSkills.error)))
   const {
     activationBlocked: workspaceActivationBlocked,
     activationState: workspaceActivationState,
@@ -200,7 +198,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       connectionsRefreshing: connections.busy === "refresh",
       currentScopeKey,
       loadedSessionScopeKey: sessionsLoadedScopeKey,
-      organizationSkillsError,
       organizationSkillsSettled,
       workspaceMetadataError: organizationWorkspace.error,
     },
@@ -680,8 +677,20 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
   const needsDefaultSessionSelection =
     sessionsSettledForCurrentScope && !isDraftSession && !selectedSessionId && selectableSidebarSessions.length > 0
-  const startupError =
+  const agentStartupError =
     agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
+  const workspaceStartupError = workspaceActivationState.status === "failed" ? workspaceActivationState.error : null
+  const startupError = agentStartupError ?? workspaceStartupError
+  const retryWorkspaceActivation = React.useCallback(() => {
+    if (workspaceActivationState.status !== "failed") {
+      return
+    }
+    if (workspaceActivationState.reason === "agent_scope") {
+      connections.retryScopeSync()
+      return
+    }
+    void organizationWorkspace.refresh({ forceRefresh: true })
+  }, [connections.retryScopeSync, organizationWorkspace.refresh, workspaceActivationState])
   const hasVisibleLoadedSession = Boolean(activeChatSessionId && messagesLoaded)
   const chatBootstrapping =
     !startupError &&
@@ -1601,6 +1610,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       showEmptyState={showChatEmptyState}
                       bootstrapping={chatBootstrapping}
                       startupError={startupError}
+                      onStartupRetry={workspaceStartupError ? retryWorkspaceActivation : undefined}
                       error={error}
                       emptyTitle={chatEmptyTitle}
                       generatedArtifacts={latestArtifactSelection}

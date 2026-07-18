@@ -47,34 +47,6 @@ export interface ReorderOrganizationSkillInput {
   order: number
 }
 
-export interface ResolvedOrganizationSkillManifestFile {
-  checksum?: string
-  path: string
-}
-
-export interface ResolvedOrganizationSkillManifest {
-  entry?: string
-  files: ResolvedOrganizationSkillManifestFile[]
-  format?: string
-}
-
-export interface ResolvedOrganizationSkill {
-  archiveUrl?: string
-  assetBaseUrl?: string
-  checksum?: string
-  configId: string
-  manifest?: ResolvedOrganizationSkillManifest
-  packageName: string
-  skillName: string
-  skillPath?: string
-  version: string
-}
-
-export interface ResolvedOrganizationSkills {
-  skills: ResolvedOrganizationSkill[]
-  updatedAt: string
-}
-
 interface OrganizationSkillPackageRawItem {
   description?: unknown
   displayName?: unknown
@@ -367,79 +339,4 @@ export async function reorderOrganizationSkills(
     },
   )
   return normalizeOrganizationSkillConfig(response)
-}
-
-export function normalizeResolvedOrganizationSkills(value: unknown): ResolvedOrganizationSkills {
-  const payload = asPlainObject(value)
-  const rawSkills = Array.isArray(payload?.["skills"]) ? payload["skills"] : []
-  return {
-    skills: rawSkills
-      .map((entry): ResolvedOrganizationSkill | undefined => {
-        const item = asPlainObject(entry)
-        const configId = asString(item?.["configId"] ?? item?.["config_id"])
-        const packageName = asString(item?.["packageName"] ?? item?.["package_name"])
-        const skillName = asString(item?.["skillName"] ?? item?.["skill_name"])
-        const version = asString(item?.["version"])
-        if (!configId || !packageName || !skillName || !version) {
-          return undefined
-        }
-        const manifest = normalizeResolvedManifest(item?.["manifest"])
-        return {
-          ...(asString(item?.["archiveUrl"] ?? item?.["archive_url"])
-            ? { archiveUrl: asString(item?.["archiveUrl"] ?? item?.["archive_url"]) }
-            : {}),
-          ...(asString(item?.["assetBaseUrl"] ?? item?.["asset_base_url"])
-            ? { assetBaseUrl: asString(item?.["assetBaseUrl"] ?? item?.["asset_base_url"]) }
-            : {}),
-          ...(asString(item?.["checksum"]) ? { checksum: asString(item?.["checksum"]) } : {}),
-          configId,
-          ...(manifest ? { manifest } : {}),
-          packageName,
-          skillName,
-          ...(asString(item?.["skillPath"] ?? item?.["skill_path"])
-            ? { skillPath: asString(item?.["skillPath"] ?? item?.["skill_path"]) }
-            : {}),
-          version,
-        }
-      })
-      .filter((item): item is ResolvedOrganizationSkill => Boolean(item)),
-    updatedAt: asString(payload?.["updatedAt"] ?? payload?.["updated_at"]) ?? new Date().toISOString(),
-  }
-}
-
-function normalizeResolvedManifest(value: unknown): ResolvedOrganizationSkillManifest | undefined {
-  const manifest = asPlainObject(value)
-  if (!manifest) {
-    return undefined
-  }
-  const rawFiles = Array.isArray(manifest["files"]) ? manifest["files"] : []
-  const files = rawFiles
-    .map((entry): ResolvedOrganizationSkillManifestFile | undefined => {
-      const item = asPlainObject(entry)
-      const path = asString(item?.["path"])
-      if (!path) {
-        return undefined
-      }
-      return {
-        ...(asString(item?.["checksum"]) ? { checksum: asString(item?.["checksum"]) } : {}),
-        path,
-      }
-    })
-    .filter((item): item is ResolvedOrganizationSkillManifestFile => Boolean(item))
-  if (files.length === 0) {
-    return undefined
-  }
-  return {
-    ...(asString(manifest["entry"]) ? { entry: asString(manifest["entry"]) } : {}),
-    files,
-    ...(asString(manifest["format"]) ? { format: asString(manifest["format"]) } : {}),
-  }
-}
-
-export async function listResolvedOrganizationSkills(orgId: string): Promise<ResolvedOrganizationSkills> {
-  const response = await oomolFetchJson<unknown>(
-    new URL(`/v1/organizations/${encodePath(orgId)}/skills/resolved`, orgControlBaseUrl),
-    { timeoutMs: organizationSkillRequestTimeoutMs },
-  )
-  return normalizeResolvedOrganizationSkills(response)
 }

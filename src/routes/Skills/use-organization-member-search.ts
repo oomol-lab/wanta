@@ -183,7 +183,6 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
     selectedSearchUserId,
     setActiveSearchUserId,
     setMemberInput,
-    setMemberSearch,
     setSelectedSearchUserId,
   }
 }

@@ -26,7 +26,6 @@ const readyInput = {
   connectionsRefreshing: false,
   currentScopeKey: "organization:acme",
   loadedSessionScopeKey: "organization:acme",
-  organizationSkillsError: null,
   organizationSkillsSettled: true,
   targetScopeKey: "organization:acme",
   workspaceMetadataError: null,
@@ -176,22 +175,16 @@ describe("workspace activation state", () => {
     expect(workspaceActivationBlocksInput(state)).toBe(true)
   })
 
-  test("fails when organization skills cannot load for the active workspace", () => {
+  test("treats organization skill loading failures as a soft dependency", () => {
     const state = resolveWorkspaceActivationState({
       ...readyInput,
-      organizationSkillsError: activationError,
-      organizationSkillsSettled: false,
+      organizationSkillsSettled: true,
     })
 
-    expect(state).toEqual({
-      error: activationError,
-      reason: "organization_skills",
-      status: "failed",
-      targetScopeKey: "organization:acme",
-    })
+    expect(state).toEqual({ status: "idle", targetScopeKey: "organization:acme" })
     expect(workspaceActivationIsPending(state)).toBe(false)
-    expect(workspaceActivationBlocksInput(state)).toBe(true)
-    expect(workspaceActivationHasFailed(state)).toBe(true)
+    expect(workspaceActivationBlocksInput(state)).toBe(false)
+    expect(workspaceActivationHasFailed(state)).toBe(false)
   })
 
   test("is idle once every target-scoped dependency settles", () => {

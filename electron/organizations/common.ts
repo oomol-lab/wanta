@@ -58,14 +58,6 @@ export interface UploadOrganizationAvatarResponse {
   avatar: string
 }
 
-export interface OrganizationCacheRequest {
-  forceRefresh?: boolean
-}
-
-export interface OrganizationIdRequest extends OrganizationCacheRequest {
-  orgId: string
-}
-
 export interface OrganizationMemberRequest {
   orgId: string
   userId: string
@@ -74,21 +66,4 @@ export interface OrganizationMemberRequest {
 export interface UpdateOrganizationMembersStatusRequest {
   orgId: string
   userIds: string[]
-}
-
-export interface UpdateOrganizationAppAccessRequest {
-  access: OrganizationAppAccess
-  orgId: string
-}
-
-export interface OrganizationProviderOptionsRequest extends OrganizationCacheRequest {
-  organizationName: string
-}
-
-export interface OrganizationUsersRequest extends OrganizationCacheRequest {
-  userIds: string[]
-}
-
-export interface OrganizationUserSearchRequest extends OrganizationCacheRequest {
-  keyword: string
 }

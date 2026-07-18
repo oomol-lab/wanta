@@ -99,7 +99,6 @@ export function CreateOrganizationDialog({
 export function EditOrganizationDialog({
   avatar,
   avatarFile,
-  avatarUploading,
   busy,
   name,
   nameError,
@@ -113,7 +112,6 @@ export function EditOrganizationDialog({
 }: {
   avatar: string
   avatarFile: File | null
-  avatarUploading: boolean
   busy: boolean
   name: string
   nameError: string | null
@@ -126,7 +124,7 @@ export function EditOrganizationDialog({
   organization: Organization | null
 }) {
   const { t } = useAppI18n()
-  const disabled = organizationNameValidation(name.trim()) !== "valid" || Boolean(nameError) || busy || avatarUploading
+  const disabled = organizationNameValidation(name.trim()) !== "valid" || Boolean(nameError) || busy
   const avatarPreviewUrl = useObjectUrl(avatarFile)
 
   return (
@@ -155,7 +153,7 @@ export function EditOrganizationDialog({
           previewUrl={avatarPreviewUrl}
           seed={organization?.id || organization?.name || name}
           title={t("organizations.organizationAvatar")}
-          uploading={avatarUploading}
+          uploading={busy}
           onAvatarClear={() => {
             onAvatarChange("")
             onAvatarFileChange(null)

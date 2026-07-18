@@ -118,6 +118,7 @@ export interface UseConnections {
   scopeSyncError: UserFacingError | null
   clearActionError: () => void
   refresh: (request?: ConnectionSummaryRequest, options?: ConnectionRefreshOptions) => Promise<ConnectionSummary | null>
+  retryScopeSync: () => void
   connect: (input: ConnectionConnectInput) => Promise<boolean>
   disconnect: (service: string) => Promise<boolean>
   disconnectAccount: (appId: string) => Promise<boolean>
@@ -135,6 +136,7 @@ export interface UseConnections {
 export function useConnections(workspace: ConnectionWorkspace | null): UseConnections {
   const chatService = useChatService()
   const [state, dispatch] = React.useReducer(connectionsStateReducer, initialConnectionsState)
+  const [scopeSyncAttempt, setScopeSyncAttempt] = React.useState(0)
   const {
     actionError,
     agentScopeWorkspaceKey,
@@ -390,10 +392,16 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
         const resolved = resolveConnectionError(error, "summary")
         reportRendererHandledError("connections", "agent organization scope sync failed", error)
+        appliedWorkspaceKey.current = null
         dispatch({ type: "workspaceScopeSyncFailed", error: resolved })
       }
     })()
-  }, [chatService, invalidateWorkspaceWork, isCurrentWorkspace, refresh, workspace])
+  }, [chatService, invalidateWorkspaceWork, isCurrentWorkspace, refresh, scopeSyncAttempt, workspace])
+
+  const retryScopeSync = React.useCallback((): void => {
+    appliedWorkspaceKey.current = null
+    setScopeSyncAttempt((attempt) => attempt + 1)
+  }, [])
 
   React.useEffect(
     () => () => {
@@ -663,6 +671,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     scopeSyncError,
     clearActionError,
     refresh,
+    retryScopeSync,
     connect,
     disconnect,
     disconnectAccount,

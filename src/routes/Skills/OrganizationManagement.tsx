@@ -193,13 +193,19 @@ export function OrganizationManagementRoute({
     [connectedProviders, providerSkillPackageLookup.packagesByService, skillGroupById],
   )
   const canManage = activeWorkspace.canManage
-  const { appAccessState, membersState, providerOptionsState, reload, setAppAccessState, summariesState } =
-    useOrganizationDetails({
-      activeAccountId,
-      activeOrganizationId: activeWorkspaceOrganizationId,
-      canManage,
-      selectedOrganization,
-    })
+  const {
+    appAccessState,
+    membersState,
+    providerOptionsState,
+    refresh: refreshDetails,
+    reload,
+    setAppAccessState,
+    summariesState,
+  } = useOrganizationDetails({
+    activeAccountId,
+    canManage,
+    selectedOrganization,
+  })
   const {
     activeSearchUserId,
     memberInput,
@@ -222,7 +228,9 @@ export function OrganizationManagementRoute({
       }),
     [activeAccount, activeWorkspace, membersState.data, selectedOrganization, summariesState.data],
   )
-  const membersError = memberViews.length > 0 && membersState.error?.includes("HTTP 403") ? null : membersState.error
+  const membersError = membersState.error
+  const membersForbidden = membersState.errorStatus === 403
+  const membersComplete = membersState.status === "ready"
   const grantState = React.useMemo(
     () => buildGrantViews(appAccessState.data, memberViews, providerOptionsState.data),
     [appAccessState.data, memberViews, providerOptionsState.data],
@@ -246,10 +254,11 @@ export function OrganizationManagementRoute({
   React.useEffect(() => {
     const handleWindowFocus = () => {
       void refreshWorkspace()
+      void refreshDetails()
     }
     window.addEventListener("focus", handleWindowFocus)
     return () => window.removeEventListener("focus", handleWindowFocus)
-  }, [refreshWorkspace])
+  }, [refreshDetails, refreshWorkspace])
 
   const organizationForms = useOrganizationForms({
     busyAction,
@@ -309,6 +318,7 @@ export function OrganizationManagementRoute({
                   canManage={canManage}
                   getOrganizationRole={getWorkspaceOrganizationRole}
                   members={memberViews}
+                  membersComplete={membersComplete}
                   membersLoading={membersState.status === "loading"}
                   organizations={organizations}
                   avatarPreviewUrls={avatarPreviewUrls}
@@ -357,7 +367,6 @@ export function OrganizationManagementRoute({
                 {selectedOrganization ? (
                   <OrganizationMembersSheet open={membersPanelOpen} onClose={() => setMembersPanelOpen(false)}>
                     <OrganizationDetailPanel
-                      compact
                       appAccessLoading={
                         appAccessState.status === "loading" || providerOptionsState.status === "loading"
                       }
@@ -365,7 +374,9 @@ export function OrganizationManagementRoute({
                       canManage={canManage}
                       grantsByUserId={grantsByUserId}
                       members={memberViews}
+                      membersComplete={membersComplete}
                       membersError={membersError}
+                      membersForbidden={membersForbidden}
                       membersLoading={membersState.status === "loading"}
                       organization={selectedOrganization}
                       providerAccessError={providerAccessError}
@@ -375,6 +386,7 @@ export function OrganizationManagementRoute({
                       onEnableMembers={memberActions.enableMembers}
                       onGrantProviderAccess={memberActions.openGrantProviderAccess}
                       onRemoveMember={memberActions.removeMember}
+                      onRetryMembers={() => void reload()}
                       onRevokeProviderAccess={memberActions.revokeProviderAccess}
                     />
                   </OrganizationMembersSheet>
@@ -484,7 +496,6 @@ export function OrganizationManagementRoute({
         nameError={organizationForms.edit.nameError}
         open={organizationForms.edit.open}
         organization={organizationForms.edit.organization}
-        avatarUploading={busyAction === "uploadOrganizationAvatar"}
         onAvatarChange={organizationForms.edit.setAvatar}
         onAvatarFileChange={organizationForms.edit.changeAvatarFile}
         onClose={organizationForms.edit.close}

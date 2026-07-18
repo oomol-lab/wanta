@@ -31,6 +31,7 @@ export function OrganizationSwitcherPanel({
   avatarPreviewUrls,
   canManage,
   members,
+  membersComplete,
   membersLoading,
   getOrganizationRole,
   onCreate,
@@ -46,6 +47,7 @@ export function OrganizationSwitcherPanel({
   avatarPreviewUrls: Record<string, string>
   canManage: boolean
   members: MemberView[]
+  membersComplete: boolean
   membersLoading: boolean
   getOrganizationRole: (organization: Organization) => OrganizationRole
   onCreate: () => void
@@ -100,6 +102,7 @@ export function OrganizationSwitcherPanel({
               <OrganizationMemberAccessButton
                 canManage={canManage}
                 members={members}
+                membersComplete={membersComplete}
                 membersLoading={membersLoading}
                 onAddMember={onAddMember}
                 onOpen={onOpenMembers}

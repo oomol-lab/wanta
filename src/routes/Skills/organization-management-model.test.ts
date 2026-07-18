@@ -13,8 +13,10 @@ import {
   buildMemberViews,
   buildOrganizationMemberViews,
   createOrganizationSkillPackageSet,
+  errorState,
   filterOrganizationProviderOptions,
   maxOrganizationNameLength,
+  loadState,
   organizationCanManage,
   organizationNameValidation,
   organizationRole,
@@ -31,6 +33,17 @@ test("organizationNameValidation accepts the product naming rules", () => {
   assert.equal(organizationNameValidation("a".repeat(maxOrganizationNameLength + 1)), "too-long")
   assert.equal(organizationNameValidation("team.alpha-1"), "valid")
   assert.equal(organizationNameValidation("alwaysmavs'team"), "valid")
+})
+
+test("errorState preserves a structured HTTP status for permission-aware UI", () => {
+  const state = errorState(loadState(["cached"]), Object.assign(new Error("forbidden"), { status: 403 }))
+
+  assert.deepEqual(state, {
+    data: ["cached"],
+    error: "forbidden",
+    errorStatus: 403,
+    status: "error",
+  })
 })
 
 test("allOrganizations de-duplicates created and joined organizations", () => {

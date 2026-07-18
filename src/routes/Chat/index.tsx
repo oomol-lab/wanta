@@ -58,6 +58,7 @@ interface ChatAreaProps {
   showEmptyState: boolean
   bootstrapping: boolean
   startupError?: UserFacingError | null
+  onStartupRetry?: () => void
   error: string | null
   emptyTitle?: string
   generatedArtifacts?: ArtifactSelection | null
@@ -257,6 +258,7 @@ export const ChatArea = React.memo(function ChatArea({
   showEmptyState,
   bootstrapping,
   startupError,
+  onStartupRetry,
   error,
   emptyTitle,
   generatedArtifacts,
@@ -372,7 +374,10 @@ export const ChatArea = React.memo(function ChatArea({
     <div
       className={cn("mx-auto grid min-h-full w-full place-items-center px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
     >
-      <ErrorNotice error={startupError} />
+      <ErrorNotice
+        error={startupError}
+        action={onStartupRetry ? { label: t("organizations.retry"), onClick: onStartupRetry } : undefined}
+      />
     </div>
   ) : bootstrapping ? (
     <div className={cn("mx-auto min-h-full w-full px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)} aria-busy="true">

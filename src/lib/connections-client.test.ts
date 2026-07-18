@@ -308,12 +308,13 @@ describe("connections-client", () => {
   })
 
   it("invalidates all workspace app detail caches after a service-level connection mutation", async () => {
-    let detailReads = 0
+    const detailReads = new Map<string, number>()
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
-      if (url.includes("/v1/apps/by-id/app-1") && (!init?.method || init.method === "GET")) {
-        detailReads += 1
-        return Response.json({ data: { id: "app-1", service: "demo", status: "active" } })
+      const appId = /\/v1\/apps\/by-id\/(app-[12])/.exec(url)?.[1]
+      if (appId && (!init?.method || init.method === "GET")) {
+        detailReads.set(appId, (detailReads.get(appId) ?? 0) + 1)
+        return Response.json({ data: { id: appId, service: "demo", status: "active" } })
       }
       if (url.includes("/v1/apps/demo/connect/no-auth")) {
         return Response.json({ data: {} })
@@ -323,11 +324,16 @@ describe("connections-client", () => {
     vi.stubGlobal("fetch", fetchMock)
     const workspace = { organizationName: "org-name" }
 
-    await getConnectionAppDetail("app-1", workspace)
+    await Promise.all([getConnectionAppDetail("app-1", workspace), getConnectionAppDetail("app-2", workspace)])
     await connectProvider({ authType: "no_auth", service: "demo" }, workspace)
-    await getConnectionAppDetail("app-1", workspace)
+    await Promise.all([getConnectionAppDetail("app-1", workspace), getConnectionAppDetail("app-2", workspace)])
 
-    expect(detailReads).toBe(2)
+    expect(detailReads).toEqual(
+      new Map([
+        ["app-1", 2],
+        ["app-2", 2],
+      ]),
+    )
   })
 
   it("deduplicates identical concurrent OAuth start requests", async () => {

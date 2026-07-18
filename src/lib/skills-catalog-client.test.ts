@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { afterEach, test, vi } from "vitest"
-import { packageAssetsBaseUrl, registryBaseUrl, searchBaseUrl } from "@/lib/domain"
+import { packageAssetsBaseUrl, searchBaseUrl } from "@/lib/domain"
 import {
   clearSkillCatalogCache,
   listMyPublishedSkillPackages,
@@ -158,7 +158,7 @@ test("searchPublicSkillPackages renders search results without per-package regis
   assert.equal(fetchMock.mock.calls.length, 1)
 })
 
-test("searchPublicSkillPackages falls back when registry info returns a different version", async () => {
+test("searchPublicSkillPackages builds fallback package details from the search result", async () => {
   const fetchMock = vi.fn(async (input: string | URL | Request) => {
     const url = String(input)
     if (url.startsWith(`${searchBaseUrl}/v1/packages/-/skills-search`)) {
@@ -175,18 +175,6 @@ test("searchPublicSkillPackages falls back when registry info returns a differen
               visibility: "public",
             },
           ],
-        }),
-        { headers: { "content-type": "application/json" }, status: 200 },
-      )
-    }
-
-    if (url === `${registryBaseUrl}/-/oomol/package-info/%40acme%2Fdemo/1.0.0`) {
-      return new Response(
-        JSON.stringify({
-          packageName: "@acme/demo",
-          packageVersion: "2.0.0",
-          skills: [{ name: "new-skill", title: "New Skill" }],
-          title: "Demo Package",
         }),
         { headers: { "content-type": "application/json" }, status: 200 },
       )

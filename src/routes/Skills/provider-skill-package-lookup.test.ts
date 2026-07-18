@@ -82,7 +82,8 @@ describe("provider Skill package lookup", () => {
   test("propagates cancellation without starting fallback searches", async () => {
     const controller = new AbortController()
     const cancellation = new Error("Provider Skill lookup was cancelled.")
-    vi.mocked(readPublicSkillPackageByName).mockImplementationOnce(async () => {
+    vi.mocked(readPublicSkillPackageByName).mockImplementationOnce(async (_packageName, signal) => {
+      expect(signal).toBe(controller.signal)
       controller.abort(cancellation)
       throw cancellation
     })

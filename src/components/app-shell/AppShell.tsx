@@ -1075,7 +1075,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     async (projectId: string): Promise<void> => {
       const projectSessions = visibleSessions.filter((session) => session.projectId === projectId)
       if (projectSessions.some((session) => isSessionRunning(session.id))) {
-        throw new Error(t("project.archiveRunning"))
+        throw resolveUserFacingError(new Error(t("project.archiveRunning")), {
+          area: "session",
+          preserveMessage: true,
+        })
       }
       await archiveProjectAction(projectId)
       for (const session of projectSessions) {
@@ -1098,9 +1101,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const removeSessionWithRuntimeCleanup = React.useCallback(
     async (sessionId: string): Promise<void> => {
       await removeSession(sessionId)
-      forgetSessionRuntime(sessionId)
+      forgetSessionRuntime(sessionId, existingSessionComposerDraftKey(currentScopeKey, sessionId))
     },
-    [forgetSessionRuntime, removeSession],
+    [currentScopeKey, forgetSessionRuntime, removeSession],
   )
   const handledConnectionReadyEventIdRef = React.useRef<number | null>(null)
 

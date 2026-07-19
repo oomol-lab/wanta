@@ -413,11 +413,10 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   const artifactGroupsByMessageIdRef = React.useRef<Map<string, ResolvedArtifactGroup[]>>(new Map())
   const artifactGroupsByTurnIdRef = React.useRef<Map<string, ResolvedArtifactGroup[]>>(new Map())
   const latestAssistant = React.useMemo(() => latestAssistantMessage(messages), [messages])
-  const turnGrouping = React.useMemo(() => {
-    const next = updateChatTurnGrouping(turnGroupingRef.current, messages)
-    turnGroupingRef.current = next
-    return next
-  }, [messages])
+  const turnGrouping = React.useMemo(() => updateChatTurnGrouping(turnGroupingRef.current, messages), [messages])
+  React.useLayoutEffect(() => {
+    turnGroupingRef.current = turnGrouping
+  }, [turnGrouping])
   const { associationTurns, assistantMessageIdsKey: messageIdsKey, turns } = turnGrouping
   const artifactBundles = useArtifactBundles(activeSessionId, messageIdsKey)
   const turnOutputRecords = useTurnOutputRecords(activeSessionId, messageIdsKey)
@@ -479,10 +478,11 @@ export const ChatTimeline = React.memo(function ChatTimeline({
       groups.push(group)
       byMessageId.set(group.messageId, groups)
     }
-    const stable = reuseStableArtifactGroupMap(artifactGroupsByMessageIdRef.current, byMessageId)
-    artifactGroupsByMessageIdRef.current = stable
-    return stable
+    return reuseStableArtifactGroupMap(artifactGroupsByMessageIdRef.current, byMessageId)
   }, [visibleArtifactGroups])
+  React.useLayoutEffect(() => {
+    artifactGroupsByMessageIdRef.current = artifactGroupsByMessageId
+  }, [artifactGroupsByMessageId])
   const artifactGroupsByTurnId = React.useMemo(() => {
     const byTurnId = new Map<string, ResolvedArtifactGroup[]>()
     for (const turn of associationTurns) {
@@ -491,10 +491,11 @@ export const ChatTimeline = React.memo(function ChatTimeline({
         byTurnId.set(turn.id, groups)
       }
     }
-    const stable = reuseStableArtifactGroupMap(artifactGroupsByTurnIdRef.current, byTurnId)
-    artifactGroupsByTurnIdRef.current = stable
-    return stable
+    return reuseStableArtifactGroupMap(artifactGroupsByTurnIdRef.current, byTurnId)
   }, [artifactGroupsByMessageId, associationTurns])
+  React.useLayoutEffect(() => {
+    artifactGroupsByTurnIdRef.current = artifactGroupsByTurnId
+  }, [artifactGroupsByTurnId])
   const latestArtifactGroupMessageId = visibleArtifactGroups.at(-1)?.messageId
   React.useEffect(() => {
     if (latestTurnOutputRecord) {

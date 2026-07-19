@@ -1416,10 +1416,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         : undefined
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
       this.rememberTrustedAttachments(req.sessionId, req.attachments)
-      for (const attachment of req.attachments ?? []) {
-        this.deps.trustedAttachmentPaths?.delete(attachment.path)
-        if (attachment.agentPath) this.deps.trustedAttachmentPaths?.delete(attachment.agentPath)
-      }
+      this.discardTrustedAttachmentPaths(req.attachments)
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
       submitted = true
       this.scheduleGenerationSubmitWatchdog(req.sessionId, promptGeneration.id)
@@ -1503,15 +1500,19 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         "warn",
       )
     } finally {
-      for (const attachment of attachments ?? []) {
-        this.deps.trustedAttachmentPaths?.delete(attachment.path)
-        if (attachment.agentPath) this.deps.trustedAttachmentPaths?.delete(attachment.agentPath)
-      }
+      this.discardTrustedAttachmentPaths(attachments)
       this.managedUserMessageIds.delete(messageId)
       this.internalAttachmentPathsByMessage.delete(messageId)
       const messageIds = this.managedUserMessageIdsBySession.get(sessionId)
       messageIds?.delete(messageId)
       if (messageIds?.size === 0) this.managedUserMessageIdsBySession.delete(sessionId)
+    }
+  }
+
+  private discardTrustedAttachmentPaths(attachments: readonly ChatAttachment[] | undefined): void {
+    for (const attachment of attachments ?? []) {
+      this.deps.trustedAttachmentPaths?.delete(attachment.path)
+      if (attachment.agentPath) this.deps.trustedAttachmentPaths?.delete(attachment.agentPath)
     }
   }
 

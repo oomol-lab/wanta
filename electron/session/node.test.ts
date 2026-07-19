@@ -893,6 +893,73 @@ test("archiveProject rolls back project state when metadata persistence fails", 
   assert.equal(restoredProject?.pinnedAt, 2_000)
 })
 
+test("pin keeps the live snapshot unchanged when metadata persistence fails", async () => {
+  const persistedMetadata = metadataStore(new Map([["session", { scope: testOrganizationScope }]]))
+  let failWrite = true
+  const service = new SessionServiceImpl(
+    agentWithSessions([{ id: "session", title: "Session", createdAt: 1_000, updatedAt: 1_000 }]),
+    {
+      metadataStore: {
+        read: persistedMetadata.read,
+        write: async (next: Map<string, SessionMetadata>) => {
+          if (failWrite) {
+            failWrite = false
+            throw new Error("metadata write failed")
+          }
+          await persistedMetadata.write(next)
+        },
+      } as SessionMetadataStore,
+    },
+  )
+
+  await assert.rejects(service.pin({ id: "session", pinned: true }), /metadata write failed/)
+  assert.equal((await service.list({ scope: testOrganizationScope }))[0]?.pinnedAt, undefined)
+
+  await service.archive("session")
+
+  const metadata = (await persistedMetadata.read()).get("session")
+  assert.equal(metadata?.pinnedAt, undefined)
+  assert.equal(typeof metadata?.archivedAt, "number")
+})
+
+test("removeProject restores both stores when metadata persistence fails", async () => {
+  const project: SessionProject = {
+    id: "project",
+    name: "Wanta",
+    path: "/Users/example/code/wanta",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    scope: testOrganizationScope,
+  }
+  const persistedMetadata = metadataStore(
+    new Map([["session", { projectId: project.id, scope: testOrganizationScope }]]),
+  )
+  const persistedProjects = projectStore(new Map([[project.id, project]]))
+  let failWrite = true
+  const service = new SessionServiceImpl(agentWithSessions([]), {
+    metadataStore: {
+      read: persistedMetadata.read,
+      write: async (next: Map<string, SessionMetadata>) => {
+        if (failWrite) {
+          failWrite = false
+          throw new Error("metadata write failed")
+        }
+        await persistedMetadata.write(next)
+      },
+    } as SessionMetadataStore,
+    projectStore: persistedProjects,
+  })
+
+  await assert.rejects(service.removeProject(project.id), /metadata write failed/)
+
+  assert.deepEqual(
+    (await service.listProjects({ scope: testOrganizationScope })).map((item) => item.id),
+    [project.id],
+  )
+  assert.equal((await persistedProjects.read()).has(project.id), true)
+  assert.equal((await persistedMetadata.read()).get("session")?.projectId, project.id)
+})
+
 test("create persists project assignment when the project matches the session scope", async () => {
   const persistedMetadata = metadataStore()
   const project: SessionProject = {

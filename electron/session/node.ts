@@ -231,17 +231,19 @@ export class SessionServiceImpl
     }
     const project = projectId ? this.projects.get(projectId) : undefined
     const scopedProjectId = project && sessionScopeMatches(project.scope, scope) ? project.id : undefined
-    const previousMetadata = this.sessionMetadata.get(info.id)
-    this.setMetadataEntry(info.id, {
-      ...this.sessionMetadata.get(info.id),
-      scope,
-      ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
-    })
+    const nextMetadata = new Map(this.sessionMetadata)
+    this.setMetadataEntry(
+      info.id,
+      {
+        ...this.sessionMetadata.get(info.id),
+        scope,
+        ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
+      },
+      nextMetadata,
+    )
     try {
-      await this.persistMetadata()
+      await this.commitMetadata(nextMetadata)
     } catch (error) {
-      if (previousMetadata) this.sessionMetadata.set(info.id, previousMetadata)
-      else this.sessionMetadata.delete(info.id)
       try {
         await agent.deleteSession(info.id)
       } catch (rollbackError) {
@@ -281,8 +283,8 @@ export class SessionServiceImpl
       if (wasArchived) {
         delete next.pinnedAt
       }
-      this.projects.set(existing.id, next)
-      await this.persistProjects()
+      const nextProjects = new Map(this.projects).set(existing.id, next)
+      await this.commitProjects(nextProjects)
       this.broadcastChangedBestEffort("create project")
       return next
     }
@@ -295,8 +297,8 @@ export class SessionServiceImpl
       updatedAt: now,
       scope,
     }
-    this.projects.set(project.id, project)
-    await this.persistProjects()
+    const nextProjects = new Map(this.projects).set(project.id, project)
+    await this.commitProjects(nextProjects)
     this.broadcastChangedBestEffort("create project")
     return project
   }
@@ -318,8 +320,9 @@ export class SessionServiceImpl
     } else {
       delete next.projectId
     }
-    this.setMetadataEntry(req.sessionId, next)
-    await this.persistMetadata()
+    const nextMetadata = new Map(this.sessionMetadata)
+    this.setMetadataEntry(req.sessionId, next, nextMetadata)
+    await this.commitMetadata(nextMetadata)
     this.broadcastChangedBestEffort("assign session project")
   }
 
@@ -340,8 +343,9 @@ export class SessionServiceImpl
     } else {
       delete next.permissionMode
     }
-    this.setMetadataEntry(req.id, next)
-    await this.persistMetadata()
+    const nextMetadata = new Map(this.sessionMetadata)
+    this.setMetadataEntry(req.id, next, nextMetadata)
+    await this.commitMetadata(nextMetadata)
     this.broadcastChangedBestEffort("set session permission mode")
   }
 
@@ -359,8 +363,9 @@ export class SessionServiceImpl
     const next = { ...current }
     if (knowledgeBaseIds.length > 0) next.knowledgeBaseIds = knowledgeBaseIds
     else delete next.knowledgeBaseIds
-    this.setMetadataEntry(req.id, next)
-    await this.persistMetadata()
+    const nextMetadata = new Map(this.sessionMetadata)
+    this.setMetadataEntry(req.id, next, nextMetadata)
+    await this.commitMetadata(nextMetadata)
     this.broadcastChangedBestEffort("set session knowledge bases")
   }
 
@@ -373,6 +378,7 @@ export class SessionServiceImpl
     const normalizedId = knowledgeBaseId.trim()
     if (!normalizedId) return 0
     await this.ensureMetadataLoaded(revision)
+    const nextMetadata = new Map(this.sessionMetadata)
     let changed = 0
     for (const [sessionId, metadata] of this.sessionMetadata) {
       const current = metadata.knowledgeBaseIds
@@ -381,11 +387,11 @@ export class SessionServiceImpl
       const ids = current.filter((id) => id !== normalizedId)
       if (ids.length > 0) next.knowledgeBaseIds = ids
       else delete next.knowledgeBaseIds
-      this.setMetadataEntry(sessionId, next)
+      this.setMetadataEntry(sessionId, next, nextMetadata)
       changed += 1
     }
     if (changed === 0) return 0
-    await this.persistMetadata()
+    await this.commitMetadata(nextMetadata)
     this.broadcastChangedBestEffort("remove knowledge base references")
     return changed
   }
@@ -404,8 +410,8 @@ export class SessionServiceImpl
     if (!current || current.archivedAt) {
       return
     }
-    this.projects.set(req.id, { ...current, name, updatedAt: Date.now() })
-    await this.persistProjects()
+    const nextProjects = new Map(this.projects).set(req.id, { ...current, name, updatedAt: Date.now() })
+    await this.commitProjects(nextProjects)
     this.broadcastChangedBestEffort("rename project")
   }
 
@@ -425,8 +431,8 @@ export class SessionServiceImpl
     } else {
       delete next.pinnedAt
     }
-    this.projects.set(req.id, next)
-    await this.persistProjects()
+    const nextProjects = new Map(this.projects).set(req.id, next)
+    await this.commitProjects(nextProjects)
     this.broadcastChangedBestEffort("pin project")
   }
 
@@ -442,39 +448,26 @@ export class SessionServiceImpl
       return
     }
     const now = Date.now()
-    const previousProject = current
-    const previousMetadata = new Map<string, SessionMetadata>()
+    const nextProjects = new Map(this.projects)
+    const nextMetadata = new Map(this.sessionMetadata)
+    const archivedSessionIds: string[] = []
     const nextProject = { ...current, archivedAt: now }
     delete nextProject.pinnedAt
-    this.projects.set(id, nextProject)
+    nextProjects.set(id, nextProject)
     for (const [sessionId, metadata] of this.sessionMetadata.entries()) {
       if (metadata.projectId !== id) {
         continue
       }
-      previousMetadata.set(sessionId, metadata)
-      const nextMetadata = { ...metadata, archivedAt: now }
-      delete nextMetadata.pinnedAt
-      this.setMetadataEntry(sessionId, nextMetadata)
+      archivedSessionIds.push(sessionId)
+      const nextSessionMetadata = { ...metadata, archivedAt: now }
+      delete nextSessionMetadata.pinnedAt
+      this.setMetadataEntry(sessionId, nextSessionMetadata, nextMetadata)
     }
-    try {
-      await this.persistProjects()
-      await this.persistMetadata()
-    } catch (error) {
-      this.projects.set(id, previousProject)
-      for (const [sessionId, metadata] of previousMetadata) {
-        this.setMetadataEntry(sessionId, metadata)
-      }
-      try {
-        await this.persistProjects()
-        await this.persistMetadata()
-      } catch (rollbackError) {
-        // 回滚落盘是 best-effort；仍向调用方暴露原始持久化错误。
-        this.logFailure("failed to rollback project archive", rollbackError, { projectId: id })
-      }
-      throw error
-    }
+    await this.commitProjectsAndMetadata(nextProjects, nextMetadata, "failed to rollback project archive", {
+      projectId: id,
+    })
     await Promise.all(
-      [...previousMetadata.keys()].map(async (sessionId) => {
+      archivedSessionIds.map(async (sessionId) => {
         try {
           await this.deps.onSessionArchived?.(sessionId)
         } catch (error) {
@@ -492,19 +485,23 @@ export class SessionServiceImpl
   private async removeProjectMutation(id: string, revision: number): Promise<void> {
     await this.ensureMetadataLoaded(revision)
     await this.ensureProjectsLoaded(revision)
-    if (!this.projects.delete(id)) {
+    if (!this.projects.has(id)) {
       return
     }
+    const nextProjects = new Map(this.projects)
+    const nextMetadata = new Map(this.sessionMetadata)
+    nextProjects.delete(id)
     for (const [sessionId, metadata] of this.sessionMetadata.entries()) {
       if (metadata.projectId !== id) {
         continue
       }
       const next = { ...metadata }
       delete next.projectId
-      this.setMetadataEntry(sessionId, next)
+      this.setMetadataEntry(sessionId, next, nextMetadata)
     }
-    await this.persistProjects()
-    await this.persistMetadata()
+    await this.commitProjectsAndMetadata(nextProjects, nextMetadata, "failed to rollback project removal", {
+      projectId: id,
+    })
     this.broadcastChangedBestEffort("remove project")
   }
 
@@ -537,14 +534,15 @@ export class SessionServiceImpl
     if (current.archivedAt) {
       return
     }
+    const nextMetadata = new Map(this.sessionMetadata)
     if (req.pinned) {
-      this.sessionMetadata.set(req.id, { ...current, pinnedAt: Date.now() })
+      nextMetadata.set(req.id, { ...current, pinnedAt: Date.now() })
     } else {
       const next = { ...current }
       delete next.pinnedAt
-      this.setMetadataEntry(req.id, next)
+      this.setMetadataEntry(req.id, next, nextMetadata)
     }
-    await this.persistMetadata()
+    await this.commitMetadata(nextMetadata)
     this.broadcastChangedBestEffort("pin session")
   }
 
@@ -557,8 +555,8 @@ export class SessionServiceImpl
     const current = this.sessionMetadata.get(id) ?? {}
     const next = { ...current, archivedAt: Date.now() }
     delete next.pinnedAt
-    this.sessionMetadata.set(id, next)
-    await this.persistMetadata()
+    const nextMetadata = new Map(this.sessionMetadata).set(id, next)
+    await this.commitMetadata(nextMetadata)
     try {
       await this.deps.onSessionArchived?.(id)
     } catch (error) {
@@ -580,42 +578,30 @@ export class SessionServiceImpl
     if (!current) {
       return null
     }
-    const previousMetadata = current
     const scope = normalizeSessionScope(current.scope)
     const project = current.projectId ? this.projects.get(current.projectId) : undefined
     const shouldRestoreProject = Boolean(project?.archivedAt && sessionScopeMatches(project.scope, scope))
     const previousProject = shouldRestoreProject && project ? project : null
+    const nextMetadata = new Map(this.sessionMetadata)
+    const nextProjects = new Map(this.projects)
     const next = { ...current }
     delete next.archivedAt
     delete next.pinnedAt
-    this.setMetadataEntry(id, next)
+    this.setMetadataEntry(id, next, nextMetadata)
     if (previousProject) {
       const restoredProject = { ...previousProject, updatedAt: Date.now() }
       delete restoredProject.archivedAt
       delete restoredProject.pinnedAt
-      this.projects.set(previousProject.id, restoredProject)
+      nextProjects.set(previousProject.id, restoredProject)
     }
-    try {
-      if (previousProject) {
-        await this.persistProjects()
-      }
-      await this.persistMetadata()
-    } catch (error) {
-      this.setMetadataEntry(id, previousMetadata)
-      if (previousProject) {
-        this.projects.set(previousProject.id, previousProject)
-      }
-      try {
-        if (previousProject) {
-          await this.persistProjects()
-        }
-        await this.persistMetadata()
-      } catch (rollbackError) {
-        // 回滚落盘是 best-effort；仍向调用方暴露原始持久化错误。
-        this.logFailure("failed to rollback session unarchive", rollbackError, { sessionId: id })
-      }
-      throw error
+    if (previousProject) {
+      await this.commitProjectsAndMetadata(nextProjects, nextMetadata, "failed to rollback session unarchive", {
+        sessionId: id,
+      })
+    } else {
+      await this.commitMetadata(nextMetadata)
     }
+    this.assertRuntimeMatches(agent, revision)
     const restored = await this.resolveSession(id, "active")
     this.broadcastChangedBestEffort("unarchive session")
     return restored
@@ -632,11 +618,18 @@ export class SessionServiceImpl
     this.assertRuntimeMatches(agent, revision)
     await agent.deleteSession(id)
     this.assertRuntimeMatches(agent, revision)
-    this.sessionActivityAt.delete(id)
-    this.sessionMetadata.delete(id)
-    await this.deps.onSessionRemoved?.(id)
-    await this.persistActivity()
-    await this.persistMetadata()
+    const nextActivity = new Map(this.sessionActivityAt)
+    const nextMetadata = new Map(this.sessionMetadata)
+    nextActivity.delete(id)
+    nextMetadata.delete(id)
+    try {
+      await this.deps.onSessionRemoved?.(id)
+    } catch (error) {
+      this.logFailure("failed to clean removed session runtime state", error, { sessionId: id })
+    }
+    await this.commitActivityAndMetadata(nextActivity, nextMetadata, "failed to rollback removed session state", {
+      sessionId: id,
+    })
     this.broadcastChangedBestEffort("remove session")
   }
 
@@ -662,10 +655,11 @@ export class SessionServiceImpl
 
   private async recordUseAndEmitMutation(id: string, usedAt: number, revision: number): Promise<void> {
     await this.ensureActivityLoaded(revision)
-    if (!this.markUsed(id, usedAt)) {
+    if (!Number.isFinite(usedAt) || usedAt <= 0 || usedAt <= (this.sessionActivityAt.get(id) ?? 0)) {
       return
     }
-    await this.persistActivity()
+    const nextActivity = new Map(this.sessionActivityAt).set(id, usedAt)
+    await this.commitActivity(nextActivity)
     try {
       await this.send("sessionsChanged", {
         activity: { sessionId: id, usedAt },
@@ -711,8 +705,15 @@ export class SessionServiceImpl
     }
   }
 
-  private async persistActivity(): Promise<void> {
-    await this.deps.activityStore?.write(this.sessionActivityAt)
+  private async persistActivity(activity = this.sessionActivityAt): Promise<void> {
+    await this.deps.activityStore?.write(activity)
+  }
+
+  /** 仅在持久化成功后替换在线快照；runtime 换代时旧 mutation 不得把旧 Map 装回服务。 */
+  private async commitActivity(next: Map<string, number>): Promise<void> {
+    const previous = this.sessionActivityAt
+    await this.persistActivity(next)
+    if (this.sessionActivityAt === previous) this.sessionActivityAt = next
   }
 
   private async ensureMetadataLoaded(expectedRevision?: number): Promise<void> {
@@ -747,8 +748,14 @@ export class SessionServiceImpl
     }
   }
 
-  private async persistMetadata(): Promise<void> {
-    await this.deps.metadataStore?.write(this.sessionMetadata)
+  private async persistMetadata(metadata = this.sessionMetadata): Promise<void> {
+    await this.deps.metadataStore?.write(metadata)
+  }
+
+  private async commitMetadata(next: Map<string, SessionMetadata>): Promise<void> {
+    const previous = this.sessionMetadata
+    await this.persistMetadata(next)
+    if (this.sessionMetadata === previous) this.sessionMetadata = next
   }
 
   private async ensureProjectsLoaded(expectedRevision?: number): Promise<void> {
@@ -783,11 +790,73 @@ export class SessionServiceImpl
     }
   }
 
-  private async persistProjects(): Promise<void> {
-    await this.deps.projectStore?.write(this.projects)
+  private async persistProjects(projects = this.projects): Promise<void> {
+    await this.deps.projectStore?.write(projects)
   }
 
-  private setMetadataEntry(id: string, metadata: SessionMetadata): void {
+  private async commitProjects(next: Map<string, SessionProject>): Promise<void> {
+    const previous = this.projects
+    await this.persistProjects(next)
+    if (this.projects === previous) this.projects = next
+  }
+
+  private async commitProjectsAndMetadata(
+    nextProjects: Map<string, SessionProject>,
+    nextMetadata: Map<string, SessionMetadata>,
+    rollbackMessage: string,
+    fields: Record<string, unknown>,
+  ): Promise<void> {
+    const previousProjects = this.projects
+    const previousMetadata = this.sessionMetadata
+    try {
+      await this.persistProjects(nextProjects)
+      await this.persistMetadata(nextMetadata)
+    } catch (error) {
+      const rollbackResults = await Promise.allSettled([
+        this.persistProjects(previousProjects),
+        this.persistMetadata(previousMetadata),
+      ])
+      const rollbackErrors = rollbackResults.flatMap((result) => (result.status === "rejected" ? [result.reason] : []))
+      if (rollbackErrors.length > 0) {
+        this.logFailure(rollbackMessage, new AggregateError(rollbackErrors), fields)
+      }
+      throw error
+    }
+    if (this.projects === previousProjects) this.projects = nextProjects
+    if (this.sessionMetadata === previousMetadata) this.sessionMetadata = nextMetadata
+  }
+
+  private async commitActivityAndMetadata(
+    nextActivity: Map<string, number>,
+    nextMetadata: Map<string, SessionMetadata>,
+    rollbackMessage: string,
+    fields: Record<string, unknown>,
+  ): Promise<void> {
+    const previousActivity = this.sessionActivityAt
+    const previousMetadata = this.sessionMetadata
+    try {
+      await this.persistActivity(nextActivity)
+      await this.persistMetadata(nextMetadata)
+    } catch (error) {
+      const rollbackResults = await Promise.allSettled([
+        this.persistActivity(previousActivity),
+        this.persistMetadata(previousMetadata),
+      ])
+      const rollbackErrors = rollbackResults.flatMap((result) => (result.status === "rejected" ? [result.reason] : []))
+      if (rollbackErrors.length > 0) {
+        this.logFailure(rollbackMessage, new AggregateError(rollbackErrors), fields)
+      }
+      throw error
+    }
+    if (this.sessionActivityAt === previousActivity) this.sessionActivityAt = nextActivity
+    if (this.sessionMetadata === previousMetadata) this.sessionMetadata = nextMetadata
+  }
+
+  private setMetadataEntry(
+    id: string,
+    metadata: SessionMetadata,
+    records: Map<string, SessionMetadata> = this.sessionMetadata,
+  ): void {
     if (
       metadata.scope ||
       metadata.projectId ||
@@ -796,9 +865,9 @@ export class SessionServiceImpl
       metadata.pinnedAt ||
       metadata.archivedAt
     ) {
-      this.sessionMetadata.set(id, metadata)
+      records.set(id, metadata)
     } else {
-      this.sessionMetadata.delete(id)
+      records.delete(id)
     }
   }
 

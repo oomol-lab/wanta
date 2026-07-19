@@ -183,7 +183,10 @@ const sessionService = new SessionServiceImpl(null, {
   metadataStore: sessionMetadataStore,
   onSessionArchived: (sessionId) => attentionService.removeSession(sessionId),
   onSessionRemoved: async (sessionId) => {
-    await chatService.forgetSession(sessionId)
+    await chatService.forgetSession(sessionId).catch((error: unknown) => {
+      console.warn("[wanta] failed to clear removed session chat state", error)
+      logMainError("failed to clear removed session chat state", error, { sessionId })
+    })
     const [artifactBundles, turnOutputs] = await Promise.all([artifactBundleStore.read(), turnOutputStore.read()])
     await removeSessionOutputDirectories({
       agentRoot: path.join(app.getPath("userData"), "agent"),

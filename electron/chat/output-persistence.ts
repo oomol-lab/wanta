@@ -78,8 +78,11 @@ export class OutputPersistence {
     await this.enqueueMutation(async (revision) => {
       await this.ensureAuthorizationLoaded()
       if (revision !== this.revision) return
-      if (!recordAuthorizationOverlay(this.authorizationOverlays, sessionId, messageId, partId, value)) return
-      await this.stores.authorization?.write(cloneAuthorizationOverlays(this.authorizationOverlays))
+      const previous = this.authorizationOverlays
+      const next = cloneAuthorizationOverlays(previous)
+      if (!recordAuthorizationOverlay(next, sessionId, messageId, partId, value)) return
+      await this.stores.authorization?.write(next)
+      if (revision === this.revision && this.authorizationOverlays === previous) this.authorizationOverlays = next
     })
   }
 
@@ -87,8 +90,11 @@ export class OutputPersistence {
     await this.enqueueMutation(async (revision) => {
       await this.ensureStoppedLoaded()
       if (revision !== this.revision) return
-      if (!recordStoppedGeneration(this.stoppedGenerations, sessionId, messageId, partIds, stoppedAt)) return
-      await this.stores.stoppedGeneration?.write(cloneStoppedGenerations(this.stoppedGenerations))
+      const previous = this.stoppedGenerations
+      const next = cloneStoppedGenerations(previous)
+      if (!recordStoppedGeneration(next, sessionId, messageId, partIds, stoppedAt)) return
+      await this.stores.stoppedGeneration?.write(next)
+      if (revision === this.revision && this.stoppedGenerations === previous) this.stoppedGenerations = next
     })
   }
 
@@ -96,16 +102,39 @@ export class OutputPersistence {
     await this.enqueueMutation(async (revision) => {
       await Promise.all([this.ensureAuthorizationLoaded(), this.ensureStoppedLoaded()])
       if (revision !== this.revision) return
-      const authorizationChanged = this.authorizationOverlays.delete(sessionId)
-      const stoppedChanged = this.stoppedGenerations.delete(sessionId)
-      await Promise.all([
-        authorizationChanged
-          ? this.stores.authorization?.write(cloneAuthorizationOverlays(this.authorizationOverlays))
-          : undefined,
-        stoppedChanged
-          ? this.stores.stoppedGeneration?.write(cloneStoppedGenerations(this.stoppedGenerations))
-          : undefined,
-      ])
+      const previousAuthorization = this.authorizationOverlays
+      const previousStopped = this.stoppedGenerations
+      const nextAuthorization = cloneAuthorizationOverlays(previousAuthorization)
+      const nextStopped = cloneStoppedGenerations(previousStopped)
+      const authorizationChanged = nextAuthorization.delete(sessionId)
+      const stoppedChanged = nextStopped.delete(sessionId)
+      if (!authorizationChanged && !stoppedChanged) return
+      try {
+        if (authorizationChanged) await this.stores.authorization?.write(nextAuthorization)
+        if (stoppedChanged) await this.stores.stoppedGeneration?.write(nextStopped)
+      } catch (error) {
+        const rollbackResults = await Promise.allSettled([
+          authorizationChanged ? this.stores.authorization?.write(previousAuthorization) : undefined,
+          stoppedChanged ? this.stores.stoppedGeneration?.write(previousStopped) : undefined,
+        ])
+        const rollbackErrors = rollbackResults.flatMap((result) =>
+          result.status === "rejected" ? [result.reason] : [],
+        )
+        if (rollbackErrors.length > 0) {
+          const rollbackError = new AggregateError(rollbackErrors)
+          console.warn("[wanta] failed to roll back output persistence session removal:", rollbackError)
+          logDiagnostic(
+            "chat-service",
+            "failed to roll back output persistence session removal",
+            { error: rollbackError, sessionId },
+            "warn",
+          )
+        }
+        throw error
+      }
+      if (revision !== this.revision) return
+      if (this.authorizationOverlays === previousAuthorization) this.authorizationOverlays = nextAuthorization
+      if (this.stoppedGenerations === previousStopped) this.stoppedGenerations = nextStopped
     })
   }
 

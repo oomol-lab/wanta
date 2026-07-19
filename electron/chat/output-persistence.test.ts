@@ -1,11 +1,15 @@
-import type { AuthorizationOverlays } from "./authorization.ts"
-import type { AuthorizationOverlayStore } from "./authorization.ts"
-import type { StoppedGenerations } from "./stopped-generations.ts"
-import type { StoppedGenerationStore } from "./stopped-generations.ts"
+import type { AuthorizationOverlayStore, AuthorizationOverlays } from "./authorization.ts"
+import type { AuthorizationInfo } from "./common.ts"
+import type { StoppedGenerationStore, StoppedGenerations } from "./stopped-generations.ts"
 
 import assert from "node:assert/strict"
-import { test, vi } from "vitest"
+import { expect, it, test, vi } from "vitest"
 import { OutputPersistence } from "./output-persistence.ts"
+
+const authorization: AuthorizationInfo = {
+  displayName: "Supabase",
+  service: "supabase",
+}
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void
@@ -47,7 +51,7 @@ test("concurrent stopped-generation records are serialized without losing a sess
 })
 
 test("removeSession deletes authorization and stopped overlays together", async () => {
-  let authorization: AuthorizationOverlays = new Map([
+  let authorizationRecords: AuthorizationOverlays = new Map([
     ["session-1", new Map([["message-1", new Map([["part-1", { displayName: "App", service: "app" }]])]])],
   ])
   let stopped: StoppedGenerations = new Map([
@@ -56,9 +60,9 @@ test("removeSession deletes authorization and stopped overlays together", async 
   const persistence = new OutputPersistence(
     {
       authorization: {
-        read: async () => authorization,
+        read: async () => authorizationRecords,
         write: async (records: AuthorizationOverlays) => {
-          authorization = records
+          authorizationRecords = records
         },
       } as unknown as AuthorizationOverlayStore,
       stoppedGeneration: {
@@ -73,6 +77,71 @@ test("removeSession deletes authorization and stopped overlays together", async 
 
   await persistence.removeSession("session-1")
 
-  assert.equal(authorization.has("session-1"), false)
+  assert.equal(authorizationRecords.has("session-1"), false)
   assert.equal(stopped.has("session-1"), false)
+})
+
+it("keeps authorization overlays unchanged when persistence fails", async () => {
+  let persisted: AuthorizationOverlays = new Map()
+  let failWrite = true
+  const store = {
+    read: async () => persisted,
+    write: async (next: AuthorizationOverlays) => {
+      if (failWrite) {
+        failWrite = false
+        throw new Error("authorization write failed")
+      }
+      persisted = next
+    },
+  } as AuthorizationOverlayStore
+  const persistence = new OutputPersistence({ authorization: store }, () => undefined)
+
+  await expect(persistence.recordAuthorization("session-1", "message-1", "part-1", authorization)).rejects.toThrow(
+    "authorization write failed",
+  )
+  expect(await persistence.overlaysFor("session-1")).toBeUndefined()
+
+  await persistence.recordAuthorization("session-2", "message-2", "part-2", authorization)
+
+  expect(persisted.has("session-1")).toBe(false)
+  expect(persisted.get("session-2")?.get("message-2")?.get("part-2")).toEqual(authorization)
+})
+
+it("restores authorization records when stopped-state removal fails", async () => {
+  const initialAuthorization: AuthorizationOverlays = new Map([
+    ["session-1", new Map([["message-1", new Map([["part-1", authorization]])]])],
+  ])
+  const initialStopped: StoppedGenerations = new Map([
+    ["session-1", new Map([["message-1", { partIds: new Set(["part-1"]), stoppedAt: 1_000 }]])],
+  ])
+  let persistedAuthorization = initialAuthorization
+  let persistedStopped = initialStopped
+  let failStoppedWrite = true
+  const authorizationStore = {
+    read: async () => persistedAuthorization,
+    write: async (next: AuthorizationOverlays) => {
+      persistedAuthorization = next
+    },
+  } as AuthorizationOverlayStore
+  const stoppedStore = {
+    read: async () => persistedStopped,
+    write: async (next: StoppedGenerations) => {
+      if (failStoppedWrite) {
+        failStoppedWrite = false
+        throw new Error("stopped write failed")
+      }
+      persistedStopped = next
+    },
+  } as StoppedGenerationStore
+  const persistence = new OutputPersistence(
+    { authorization: authorizationStore, stoppedGeneration: stoppedStore },
+    () => undefined,
+  )
+
+  await expect(persistence.removeSession("session-1")).rejects.toThrow("stopped write failed")
+
+  expect(await persistence.overlaysFor("session-1")).toBeDefined()
+  expect(await persistence.stoppedFor("session-1")).toBeDefined()
+  expect(persistedAuthorization.has("session-1")).toBe(true)
+  expect(persistedStopped.has("session-1")).toBe(true)
 })

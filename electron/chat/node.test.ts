@@ -1505,19 +1505,45 @@ test("sendMessage cleans a turn directory when its sibling directory creation fa
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-partial-directories-"))
   try {
     const artifactDir = path.join(root, "artifacts")
+    const snapshotDirectory = path.join(root, "attachments", "originals", "attachment-1")
+    const snapshotPath = path.join(snapshotDirectory, "input.txt")
+    await mkdir(snapshotDirectory, { recursive: true })
+    await writeFile(snapshotPath, "input")
     const bridge = createBridgeAgent()
     bridge.createArtifactDir.mockImplementationOnce(async () => {
       await mkdir(artifactDir)
       return artifactDir
     })
     bridge.createProcessDir.mockRejectedValueOnce(new Error("process directory failed"))
-    const service = new ChatServiceImpl(bridge.agent)
+    const store = new UserAttachmentStore(root)
+    const trustedAttachmentPaths = new Set([snapshotPath])
+    const service = new ChatServiceImpl(bridge.agent, {
+      trustedAttachmentPaths,
+      userAttachmentStore: store,
+    })
 
     await assert.rejects(
-      service.sendMessage({ scope: testOrganizationScope, sessionId: "session-1", text: "hello" }),
+      service.sendMessage({
+        attachments: [
+          {
+            id: "attachment-1",
+            kind: "file",
+            mime: "text/plain",
+            name: "input.txt",
+            path: snapshotPath,
+            size: 5,
+          },
+        ],
+        scope: testOrganizationScope,
+        sessionId: "session-1",
+        text: "hello",
+      }),
       /process directory failed/,
     )
     await assert.rejects(readFile(artifactDir), { code: "ENOENT" })
+    await assert.rejects(readFile(snapshotPath), { code: "ENOENT" })
+    assert.equal((await store.read()).has("session-1"), false)
+    assert.equal(trustedAttachmentPaths.has(snapshotPath), false)
     assert.equal(service.hasActiveGeneration(), false)
   } finally {
     await rm(root, { force: true, recursive: true })

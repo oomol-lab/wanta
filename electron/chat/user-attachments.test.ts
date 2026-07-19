@@ -9,6 +9,7 @@ import { applyUserAttachmentRecords, UserAttachmentStore } from "./user-attachme
 const temporaryDirectories: string[] = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { force: true, recursive: true })))
 })
 
@@ -89,6 +90,53 @@ describe("UserAttachmentStore", () => {
     expect(records.has("session-1")).toBe(false)
     expect(records.get("session-2")?.get("message-2")?.attachments[0]?.path).toBe(snapshotPath)
     await chmod(snapshotDirectory, 0o700)
+  })
+
+  it("removes one unsubmitted message without touching other session attachments", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-user-attachment-message-rollback-"))
+    temporaryDirectories.push(directory)
+    const removedDirectory = path.join(directory, "attachments", "originals", "removed")
+    const retainedDirectory = path.join(directory, "attachments", "originals", "retained")
+    const removedPath = path.join(removedDirectory, "removed.xlsx")
+    const retainedPath = path.join(retainedDirectory, "retained.xlsx")
+    await Promise.all([mkdir(removedDirectory, { recursive: true }), mkdir(retainedDirectory, { recursive: true })])
+    await Promise.all([writeFile(removedPath, "removed"), writeFile(retainedPath, "retained")])
+    const store = new UserAttachmentStore(directory)
+    await store.record("session-1", "message-1", [{ ...workbook(), path: removedPath }])
+    await store.record("session-1", "message-2", [{ ...workbook(), id: "attachment-2", path: retainedPath }])
+
+    await store.removeMessage("session-1", "message-1")
+
+    await expect(access(removedDirectory)).rejects.toThrow()
+    expect(await readFile(retainedPath, "utf8")).toBe("retained")
+    const records = await store.read()
+    expect(records.get("session-1")?.has("message-1")).toBe(false)
+    expect(records.get("session-1")?.has("message-2")).toBe(true)
+  })
+
+  it("commits message rollback when managed-file cleanup needs a later retry", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-user-attachment-message-cleanup-"))
+    temporaryDirectories.push(directory)
+    const snapshotDirectory = path.join(directory, "attachments", "originals", "attachment-1")
+    const snapshotPath = path.join(snapshotDirectory, "inventory.xlsx")
+    await mkdir(snapshotDirectory, { recursive: true })
+    await writeFile(snapshotPath, "workbook")
+    const removeManagedPath = vi
+      .fn<(target: string, options: { force: boolean; recursive?: boolean }) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("cleanup failed"))
+      .mockImplementation((target, options) => rm(target, options))
+    const store = new UserAttachmentStore(directory, { removeManagedPath })
+    await store.record("session-1", "message-1", [{ ...workbook(), path: snapshotPath }])
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+
+    await store.removeMessage("session-1", "message-1")
+
+    expect((await store.read()).has("session-1")).toBe(false)
+    expect(await readFile(snapshotPath, "utf8")).toBe("workbook")
+
+    await store.pruneExpiredUnreferenced(1, Date.now() + 10_000)
+
+    await expect(access(snapshotDirectory)).rejects.toThrow()
   })
 
   it("retains the session record when cleanup fails and retries safely", async () => {

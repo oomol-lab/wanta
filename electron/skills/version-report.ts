@@ -12,10 +12,7 @@ import {
   normalizeRegistrySkillCheckUpdateResults,
 } from "./actions.ts"
 
-export type RunSkillOoCommand = (
-  args: string[],
-  options: { owner: string; rejectOnFailure?: boolean },
-) => Promise<OoCommandResult>
+export type RunSkillOoCommand = (args: string[], options: { rejectOnFailure?: boolean }) => Promise<OoCommandResult>
 
 export async function readSkillVersionReport(
   inventory: SkillInventory,
@@ -84,7 +81,6 @@ export async function readSkillVersionReport(
 
 async function readCurrentOoCliVersion(runCommand: RunSkillOoCommand): Promise<string | undefined> {
   const result = await runCommand(["version", "--json"], {
-    owner: "skill-service",
     rejectOnFailure: false,
   })
 
@@ -101,7 +97,6 @@ async function readCliVersionCheck(
 ): Promise<SkillCliVersionCheck> {
   const command = createCliCheckUpdateArgs()
   const result = await runCommand(command, {
-    owner: "skill-service",
     rejectOnFailure: false,
   })
 
@@ -136,7 +131,6 @@ async function readRegistrySkillVersionChecks(
 > {
   const command = createRegistrySkillCheckUpdateArgs()
   const result = await runCommand(command, {
-    owner: "skill-service",
     rejectOnFailure: false,
   })
 

@@ -72,12 +72,9 @@ export interface ConnectionAuthIntent {
   source: "chat"
 }
 
-/** 组织连接状态只向可管理当前工作区、且服务端已确认读取成功的用户展示。 */
-export function shouldShowConnectionState(
-  canManageConnections: boolean,
-  appsStatus: ConnectionAppsStatus | undefined,
-): boolean {
-  return canManageConnections && appsStatus === "ready"
+/** 组织成员可只读查看连接状态；只有连接管理动作受 canManageConnections 限制。 */
+export function shouldShowConnectionState(appsStatus: ConnectionAppsStatus | undefined): boolean {
+  return appsStatus === "ready"
 }
 
 export function connectionDetailCacheKey(workspaceKey: string, service: string): string {

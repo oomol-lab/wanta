@@ -124,11 +124,11 @@ test("connection catalog filter rejects click events and malformed categories", 
   })
 })
 
-test("organization connection state is private to managers with a confirmed response", () => {
-  assert.equal(shouldShowConnectionState(false, "ready"), false)
-  assert.equal(shouldShowConnectionState(true, "unavailable"), false)
-  assert.equal(shouldShowConnectionState(true, "forbidden"), false)
-  assert.equal(shouldShowConnectionState(true, "ready"), true)
+test("organization members can view connection state after a confirmed response", () => {
+  assert.equal(shouldShowConnectionState("unavailable"), false)
+  assert.equal(shouldShowConnectionState("forbidden"), false)
+  assert.equal(shouldShowConnectionState(undefined), false)
+  assert.equal(shouldShowConnectionState("ready"), true)
 })
 
 test("available tools filter combines connected and directly available providers", () => {

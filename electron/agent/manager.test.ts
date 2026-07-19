@@ -281,9 +281,15 @@ describe("AgentManager", () => {
       await manager.setOrganizationName("workspace-default")
       await manager.setSessionOrganizationName("session-a", "org-a")
       await manager.setSessionOrganizationName("session-b", undefined)
+      await manager.setSessionKnowledgeBaseIds("session-a", [" knowledge-a ", "knowledge-a", "knowledge-b"])
+      await manager.inheritSessionKnowledgeBaseIds("session-a", "session-child")
 
       await expect(readFile(scopePath, "utf8").then((content) => JSON.parse(content))).resolves.toEqual({
         organizationName: "workspace-default",
+        sessionKnowledgeBaseIds: {
+          "session-a": ["knowledge-a", "knowledge-b"],
+          "session-child": ["knowledge-a", "knowledge-b"],
+        },
         sessionOrganizations: {
           "session-a": "org-a",
           "session-b": "",
@@ -291,9 +297,14 @@ describe("AgentManager", () => {
       })
 
       await manager.clearSessionOrganizationName("session-a")
+      await manager.removeKnowledgeBaseAccess("knowledge-a")
 
       await expect(readFile(scopePath, "utf8").then((content) => JSON.parse(content))).resolves.toEqual({
         organizationName: "workspace-default",
+        sessionKnowledgeBaseIds: {
+          "session-a": ["knowledge-b"],
+          "session-child": ["knowledge-b"],
+        },
         sessionOrganizations: {
           "session-b": "",
         },

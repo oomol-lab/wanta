@@ -274,6 +274,14 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         : [],
     [activeKnowledgeBaseIds, knowledgeBaseBetaEnabled, knowledgeLibrary.items],
   )
+  React.useEffect(() => {
+    if (!knowledgeBaseBetaEnabled || knowledgeLibrary.loading || knowledgeLibrary.error) return
+    const availableIds = new Set(knowledgeLibrary.items.map((item) => item.id))
+    setDraftKnowledgeBaseIds((current) => {
+      const next = current.filter((id) => availableIds.has(id))
+      return next.length === current.length ? current : next
+    })
+  }, [knowledgeBaseBetaEnabled, knowledgeLibrary.error, knowledgeLibrary.items, knowledgeLibrary.loading])
   const pinnedKnowledgeMentions = React.useMemo(
     () =>
       activeKnowledgeBases.map((item) => ({

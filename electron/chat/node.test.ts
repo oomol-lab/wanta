@@ -44,8 +44,10 @@ function createBridgeAgent(): {
   getPendingPermissionsForSessions: ReturnType<typeof vi.fn>
   getPendingQuestions: ReturnType<typeof vi.fn>
   getPendingQuestionsForSessions: ReturnType<typeof vi.fn>
+  inheritSessionKnowledgeBaseIds: ReturnType<typeof vi.fn>
   promptStreaming: ReturnType<typeof vi.fn>
   rejectQuestion: ReturnType<typeof vi.fn>
+  setSessionKnowledgeBaseIds: ReturnType<typeof vi.fn>
   setSessionOrganizationName: ReturnType<typeof vi.fn>
 } {
   let listener:
@@ -68,6 +70,7 @@ function createBridgeAgent(): {
     const results = await Promise.all(sessionIds.map((sessionId) => getPendingQuestions(sessionId)))
     return results.flat()
   })
+  const inheritSessionKnowledgeBaseIds = vi.fn(async () => undefined)
   const promptStreaming = vi.fn(
     async (_sessionId: string, _text: string, _options: { messageId?: string }) => undefined,
   )
@@ -93,6 +96,8 @@ function createBridgeAgent(): {
   })
   const rejectQuestion = vi.fn(async () => undefined)
   const clearSessionOrganizationName = vi.fn(async () => undefined)
+  const clearSessionKnowledgeBaseIds = vi.fn(async () => undefined)
+  const setSessionKnowledgeBaseIds = vi.fn(async () => undefined)
   const setSessionOrganizationName = vi.fn(async () => undefined)
   const agent = {
     isReady: () => true,
@@ -111,14 +116,17 @@ function createBridgeAgent(): {
     createArtifactDir,
     createProcessDir,
     clearSessionOrganizationName,
+    clearSessionKnowledgeBaseIds,
     rejectQuestion,
     setSessionOrganizationName,
+    setSessionKnowledgeBaseIds,
     promptStreaming,
     getMessages,
     getPendingPermissions,
     getPendingPermissionsForSessions,
     getPendingQuestions,
     getPendingQuestionsForSessions,
+    inheritSessionKnowledgeBaseIds,
   } as unknown as AgentManager
   return {
     agent,
@@ -141,9 +149,11 @@ function createBridgeAgent(): {
     getPendingPermissionsForSessions,
     getPendingQuestions,
     getPendingQuestionsForSessions,
+    inheritSessionKnowledgeBaseIds,
     getMessages,
     promptStreaming,
     rejectQuestion,
+    setSessionKnowledgeBaseIds,
     setSessionOrganizationName,
   }
 }
@@ -1891,6 +1901,7 @@ test("sendMessage passes selected context, organization skills, and project as p
         kind: "connection",
         service: "gmail",
       },
+      { id: "knowledge-1", kind: "knowledge", name: "Product handbook" },
     ],
     organizationSkills: [
       {
@@ -1928,6 +1939,7 @@ test("sendMessage passes selected context, organization skills, and project as p
   assert.match(options?.system ?? "", /User-selected context for this turn/)
   assert.match(options?.system ?? "", /ecommerce-image-studio/)
   assert.match(options?.system ?? "", /gmail/)
+  assert.match(options?.system ?? "", /Product handbook/)
   assert.doesNotMatch(options?.system ?? "", /account: "work"/)
   assert.match(options?.system ?? "", /consider the selected connection first/)
   assert.match(options?.system ?? "", /Do not use it for unrelated local files/)
@@ -1935,6 +1947,7 @@ test("sendMessage passes selected context, organization skills, and project as p
   assert.match(options?.system ?? "", /\/Users\/example\/code\/wanta/)
   assert.match(options?.system ?? "", /use this project directory as an absolute path/)
   assert.match(options?.system ?? "", /Do not mention the full project directory/)
+  assert.deepEqual(bridge.setSessionKnowledgeBaseIds.mock.calls, [["session-1", ["knowledge-1"]]])
   assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", undefined]])
 })
 
@@ -2187,6 +2200,7 @@ test("trusted project permissions are approved for task subagent sessions", asyn
 
   await service.sendMessage({
     scope: testOrganizationScope,
+    contextMentions: [{ id: "knowledge-1", kind: "knowledge", name: "Product handbook" }],
     projectContext: {
       id: "project-1",
       name: "wanta",
@@ -2217,6 +2231,8 @@ test("trusted project permissions are approved for task subagent sessions", asyn
       },
     },
   })
+  await waitForCondition(() => bridge.inheritSessionKnowledgeBaseIds.mock.calls.length === 1)
+  assert.deepEqual(bridge.inheritSessionKnowledgeBaseIds.mock.calls, [["parent-session", "child-session"]])
   bridge.emit({
     type: "permission.v2.asked",
     properties: {

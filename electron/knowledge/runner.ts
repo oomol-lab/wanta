@@ -5,7 +5,7 @@ const execFileAsync = promisify(execFile)
 const metadataTimeoutMs = 30_000
 const queryTimeoutMs = 60_000
 const maxJsonBytes = 8 * 1024 * 1024
-const maxCoverBytes = 16 * 1024 * 1024
+const maxCoverBytes = 4 * 1024 * 1024
 
 export interface WikiGraphRuntime {
   executablePath: string

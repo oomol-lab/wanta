@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { dirname, resolve } from "node:path"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
 describe("query_knowledge guidance", () => {
@@ -11,6 +12,9 @@ describe("query_knowledge guidance", () => {
     expect(source).toContain("expose managed archive paths")
     expect(source).toContain("sanitizeErrorMessage(error, archivePath)")
     expect(source).toContain('replaceAll(value, "[managed knowledge archive]")')
+    expect(source).toContain("sessionKnowledgeBaseIds")
+    expect(source).toContain("context.sessionID")
+    expect(source).toContain("knowledge base is not pinned to the current conversation")
   })
 })
 
@@ -23,6 +27,41 @@ interface LoadedTool {
 
 interface LoadedListAppsTool {
   execute: (args: { service?: string }, context: { sessionID: string }) => Promise<string>
+}
+
+interface LoadedKnowledgeTool {
+  execute: (args: { knowledgeBaseId: string; operation: "inspect" }, context: { sessionID: string }) => Promise<string>
+}
+
+function loadKnowledgeTool(
+  execFile: (...args: unknown[]) => Promise<unknown>,
+  readFile: (path: string) => Promise<string>,
+): LoadedKnowledgeTool {
+  const raw = AGENT_TOOL_FILES["query_knowledge.ts"] ?? ""
+  const source = raw
+    .replace(/^import .*$/gm, "")
+    .replace("export default tool(", "const exportedTool = tool(")
+    .concat("\nreturn exportedTool")
+  const schema = {
+    describe() {
+      return this
+    },
+    optional() {
+      return this
+    },
+  }
+  const tool = Object.assign((value: unknown) => value, {
+    schema: { enum: () => schema, number: () => schema, string: () => schema },
+  })
+  const factory = new Function("tool", "execFile", "readFile", "dirname", "resolve", "promisify", source) as (
+    toolValue: typeof tool,
+    execFileValue: typeof execFile,
+    readFileValue: typeof readFile,
+    dirnameValue: typeof dirname,
+    resolveValue: typeof resolve,
+    promisifyValue: (value: typeof execFile) => typeof execFile,
+  ) => LoadedKnowledgeTool
+  return factory(tool, execFile, readFile, dirname, resolve, (value) => value)
 }
 
 function loadListAppsTool(
@@ -85,12 +124,104 @@ function loadCallActionTool(execFile: (...args: unknown[]) => Promise<unknown>):
 
 afterEach(() => {
   delete process.env.WANTA_CONSOLE_URL
+  delete process.env.WANTA_KNOWLEDGE_REGISTRY
   delete process.env.WANTA_ORGANIZATION_NAME
   delete process.env.WANTA_ORGANIZATION_SCOPE_PATH
+  delete process.env.WANTA_WIKIGRAPH_CLI
+  delete process.env.WANTA_WIKIGRAPH_EXECUTABLE
 })
 
 beforeEach(() => {
   process.env.WANTA_ORGANIZATION_NAME = "org-a"
+})
+
+describe("query_knowledge embedded runtime", () => {
+  it("rejects IDs outside the current OpenCode session allowlist", async () => {
+    process.env.WANTA_KNOWLEDGE_REGISTRY = "/tmp/knowledge-registry.json"
+    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/agent-scope.json"
+    process.env.WANTA_WIKIGRAPH_CLI = "/tmp/wiki-graph-cli.js"
+    process.env.WANTA_WIKIGRAPH_EXECUTABLE = "/tmp/node"
+    const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
+    const readFile = vi.fn(async (filePath: string) => {
+      if (filePath === "/tmp/agent-scope.json") {
+        return JSON.stringify({ sessionKnowledgeBaseIds: { "session-1": ["allowed"] } })
+      }
+      return JSON.stringify({
+        version: 1,
+        records: [{ filePath: "/tmp/files/allowed.wikg", id: "allowed", title: "Allowed" }],
+      })
+    })
+    const loaded = loadKnowledgeTool(execFile, readFile)
+
+    const denied = JSON.parse(
+      await loaded.execute({ knowledgeBaseId: "other", operation: "inspect" }, { sessionID: "session-1" }),
+    ) as { message?: string; status?: string }
+    expect(denied).toEqual({
+      message: "knowledge base is not pinned to the current conversation",
+      status: "error",
+    })
+    expect(execFile).not.toHaveBeenCalled()
+
+    await expect(
+      loaded.execute({ knowledgeBaseId: "allowed", operation: "inspect" }, { sessionID: "session-1" }),
+    ).resolves.toBe('{"ok":true}')
+    expect(execFile).toHaveBeenCalledOnce()
+  })
+
+  it("fails closed without exposing private paths when the scope or registry cannot be read", async () => {
+    process.env.WANTA_KNOWLEDGE_REGISTRY = "/private/user-data/knowledge-bases/library.json"
+    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/private/user-data/agent-scope.json"
+    process.env.WANTA_WIKIGRAPH_CLI = "/tmp/wiki-graph-cli.js"
+    process.env.WANTA_WIKIGRAPH_EXECUTABLE = "/tmp/node"
+    const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
+    const readFile = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("ENOENT: /private/user-data/agent-scope.json"))
+      .mockResolvedValueOnce(JSON.stringify({ sessionKnowledgeBaseIds: { "session-1": ["allowed"] } }))
+      .mockResolvedValueOnce("{broken")
+    const loaded = loadKnowledgeTool(execFile, readFile)
+
+    const missingScope = JSON.parse(
+      await loaded.execute({ knowledgeBaseId: "allowed", operation: "inspect" }, { sessionID: "session-1" }),
+    ) as { message?: string; status?: string }
+    expect(missingScope).toEqual({ message: "knowledge access scope is unavailable", status: "error" })
+
+    const corruptRegistry = JSON.parse(
+      await loaded.execute({ knowledgeBaseId: "allowed", operation: "inspect" }, { sessionID: "session-1" }),
+    ) as { message?: string; status?: string }
+    expect(corruptRegistry).toEqual({ message: "knowledge registry is unavailable", status: "error" })
+    expect(JSON.stringify([missingScope, corruptRegistry])).not.toContain("/private/user-data")
+    expect(execFile).not.toHaveBeenCalled()
+  })
+
+  it("waits briefly for a task subagent allowlist to inherit from its parent session", async () => {
+    process.env.WANTA_KNOWLEDGE_REGISTRY = "/tmp/knowledge-registry.json"
+    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/agent-scope.json"
+    process.env.WANTA_WIKIGRAPH_CLI = "/tmp/wiki-graph-cli.js"
+    process.env.WANTA_WIKIGRAPH_EXECUTABLE = "/tmp/node"
+    const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
+    let scopeReads = 0
+    const readFile = vi.fn(async (filePath: string) => {
+      if (filePath === "/tmp/agent-scope.json") {
+        scopeReads += 1
+        return JSON.stringify({
+          sessionKnowledgeBaseIds:
+            scopeReads === 1 ? { parent: ["allowed"] } : { child: ["allowed"], parent: ["allowed"] },
+        })
+      }
+      return JSON.stringify({
+        version: 1,
+        records: [{ filePath: "/tmp/files/allowed.wikg", id: "allowed", title: "Allowed" }],
+      })
+    })
+    const loaded = loadKnowledgeTool(execFile, readFile)
+
+    await expect(
+      loaded.execute({ knowledgeBaseId: "allowed", operation: "inspect" }, { sessionID: "child" }),
+    ).resolves.toBe('{"ok":true}')
+    expect(scopeReads).toBe(2)
+    expect(execFile).toHaveBeenCalledOnce()
+  })
 })
 
 describe("list_apps embedded runtime", () => {

@@ -4,28 +4,19 @@ import type { KnowledgeBaseRecord, KnowledgeStore } from "./store.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
-import { dialog, shell } from "electron"
+import { dialog, nativeImage, shell } from "electron"
 import path from "node:path"
 import { ServiceEvent } from "../service-events.ts"
 import { KnowledgeService as KnowledgeServiceName } from "./common.ts"
 import { inspectWikiGraph, readWikiGraphCover, readWikiGraphMetadata, wikiGraphCoverageReady } from "./runner.ts"
+import { isBoundedKnowledgeCoverDataUrl, knowledgeCoverDataUrl } from "./thumbnail.ts"
 import { knowledgeArchiveUri } from "./uri.ts"
 
 export interface KnowledgeServiceDeps {
+  onRemoved?: (id: string) => Promise<void>
   runtime: WikiGraphRuntime
   store: KnowledgeStore
   trustedImportPaths?: Iterable<string>
-}
-
-function coverDataUrl(cover: Buffer | null): string | undefined {
-  if (!cover) return undefined
-  if (cover.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) {
-    return `data:image/jpeg;base64,${cover.toString("base64")}`
-  }
-  if (cover.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
-    return `data:image/png;base64,${cover.toString("base64")}`
-  }
-  return undefined
 }
 
 function summaryFromInspection(
@@ -34,7 +25,7 @@ function summaryFromInspection(
   inspect: WikiGraphInspect,
   cover: Buffer | null,
 ): KnowledgeBaseRecord {
-  const encodedCover = coverDataUrl(cover)
+  const encodedCover = knowledgeCoverDataUrl(cover, (buffer) => nativeImage.createFromBuffer(buffer))
   return {
     ...base,
     title: metadata.title?.trim() || path.basename(base.sourceFileName, path.extname(base.sourceFileName)),
@@ -65,6 +56,7 @@ function summaryFromInspection(
 
 function publicSummary(record: KnowledgeBaseRecord): KnowledgeBaseSummary {
   const { filePath: _filePath, fingerprint: _fingerprint, ...summary } = record
+  if (summary.coverDataUrl && !isBoundedKnowledgeCoverDataUrl(summary.coverDataUrl)) delete summary.coverDataUrl
   return summary
 }
 
@@ -148,13 +140,16 @@ export class KnowledgeServiceImpl
       readWikiGraphCover(this.deps.runtime, archiveUri),
     ])
     const record = summaryFromInspection(current, metadata, inspect, cover)
-    await this.deps.store.save(record)
+    if (!(await this.deps.store.update(record))) throw new Error("Knowledge base was removed while refreshing")
     this.broadcastChanged("refresh knowledge base")
     return publicSummary(record)
   }
 
   public async remove(id: string): Promise<void> {
     await this.deps.store.remove(id)
+    await this.deps.onRemoved?.(id).catch((error: unknown) => {
+      console.warn("[wanta] failed to clean removed knowledge base references:", error)
+    })
     this.broadcastChanged("remove knowledge base")
   }
 

@@ -511,6 +511,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           const childSessionId = taskChildSessionId(translated.data)
           if (childSessionId) {
             this.subagentSessions.remember(translated.data.sessionId, childSessionId)
+            void this.agent
+              ?.inheritSessionKnowledgeBaseIds(translated.data.sessionId, childSessionId)
+              .catch((error: unknown) => {
+                console.warn("[wanta] failed to inherit task subagent knowledge scope:", error)
+              })
           }
         }
         if (translated.event === "toolCallResult") {
@@ -527,6 +532,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           const childSessionId = taskChildSessionId(translated.data)
           if (childSessionId) {
             this.subagentSessions.forget(translated.data.sessionId, childSessionId)
+            void this.agent?.clearSessionKnowledgeBaseIds(childSessionId).catch((error: unknown) => {
+              console.warn("[wanta] failed to clear task subagent knowledge scope:", error)
+            })
           }
           if (translated.data.authorization) {
             void this.rememberAuthorizationOverlay(
@@ -1030,13 +1038,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     if (generation) this.clearCompletionRetry(`${sessionId}\0${generation.id}`)
     this.generations.clear(sessionId, generationId)
+    const childSessionIds = this.subagentSessions.childSessionIds(sessionId)
     this.subagentSessions.forgetAll(sessionId)
     this.forgetSessionPendingPermissionRequests(sessionId)
     this.removeGenerationPermissionGrants(sessionId, generation?.id)
     this.activeRuns.delete(sessionId, generationId)
-    void this.agent?.clearSessionOrganizationName(sessionId).catch((error: unknown) => {
-      console.warn("[wanta] failed to clear session organization scope:", error)
-    })
+    const agent = this.agent
+    if (agent) {
+      void Promise.all([
+        agent.clearSessionOrganizationName(sessionId),
+        agent.clearSessionKnowledgeBaseIds(sessionId),
+        ...childSessionIds.map((childSessionId) => agent.clearSessionKnowledgeBaseIds(childSessionId)),
+      ]).catch((error: unknown) => {
+        console.warn("[wanta] failed to clear session agent scope:", error)
+      })
+    }
   }
 
   private scheduleGenerationStartWatchdog(sessionId: string, generationId: string): void {
@@ -1316,7 +1332,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.connectionFailedSessions.delete(req.sessionId)
       this.clearMessageErrorSignatures(req.sessionId)
       this.emitSessionActivity(req.sessionId)
-      await this.agent.setSessionOrganizationName(req.sessionId, organizationName)
+      const knowledgeBaseIds = (req.contextMentions ?? []).flatMap((mention) =>
+        mention.kind === "knowledge" && mention.id.trim() ? [mention.id.trim()] : [],
+      )
+      await Promise.all([
+        this.agent.setSessionOrganizationName(req.sessionId, organizationName),
+        this.agent.setSessionKnowledgeBaseIds(req.sessionId, knowledgeBaseIds),
+      ])
       if (!this.isCurrentGeneration(req.sessionId, activeGeneration.id) || activeGeneration.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
         await removeUnsubmittedTurnDirectories(artifactDir, processDir)

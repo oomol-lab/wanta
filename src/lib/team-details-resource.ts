@@ -17,6 +17,10 @@ function resourceKey(accountId: string, teamId: string, resource: string): strin
   return `${accountId}\u0000${teamId}\u0000${resource}`
 }
 
+function providerOptionsResourceKey(accountId: string, teamId: string, teamName: string): string {
+  return resourceKey(accountId, teamId, `provider-options:${teamName.trim()}`)
+}
+
 function isFresh<T>(entry: ResourceEntry<T>): entry is ResourceEntry<T> & { data: T } {
   return entry.data !== null && Date.now() - entry.loadedAt < teamDetailsStaleMs
 }
@@ -84,8 +88,12 @@ export function subscribeTeamMembersResource(accountId: string, teamId: string, 
   }
 }
 
-export function getCachedTeamProviderOptions(accountId: string, teamId: string): TeamProviderOption[] | null {
-  return readCached(resourceKey(accountId, teamId, "provider-options"))
+export function getCachedTeamProviderOptions(
+  accountId: string,
+  teamId: string,
+  teamName: string,
+): TeamProviderOption[] | null {
+  return readCached(providerOptionsResourceKey(accountId, teamId, teamName))
 }
 
 export function getCachedTeamAppAccess(accountId: string, teamId: string): TeamAppAccess | null {
@@ -116,7 +124,7 @@ export function getTeamProviderOptionsResource(
   options: TeamDetailsResourceOptions = {},
 ): Promise<TeamProviderOption[]> {
   return loadResource(
-    resourceKey(accountId, teamId, "provider-options"),
+    providerOptionsResourceKey(accountId, teamId, teamName),
     () => listTeamProviderOptions(teamName),
     options.forceRefresh,
   )

@@ -1,7 +1,6 @@
 import type { BillingRequestScope } from "@/lib/billing-client"
 
 const paymentRecoveryPendingKeyPrefix = "team-payment-recovery-pending"
-const legacyPaymentRecoveryPendingKeyPrefix = "organization-payment-recovery-pending"
 const paymentRecoveryPendingTtlMs = 24 * 60 * 60 * 1000
 
 export interface PaymentRecoveryStorage {
@@ -22,11 +21,11 @@ export function paymentRecoveryPendingStorageKey(cacheScope: string, requestScop
 function legacyPaymentRecoveryPendingStorageKey(cacheScope: string, requestScope: BillingRequestScope): string {
   const requestScopeKey = {
     canManageFunding: requestScope.canManageFunding,
-    organizationId: requestScope.teamId,
+    teamId: requestScope.teamId,
     organizationName: requestScope.teamName,
   }
   const legacyCacheScope = cacheScope.replace(/(^|:)team:/, "$1organization:")
-  return `${legacyPaymentRecoveryPendingKeyPrefix}:${encodeURIComponent(JSON.stringify({ cacheScope: legacyCacheScope, requestScopeKey }))}`
+  return `${paymentRecoveryPendingKeyPrefix}:${encodeURIComponent(JSON.stringify({ cacheScope: legacyCacheScope, requestScopeKey }))}`
 }
 
 export function markPaymentRecoveryPending(

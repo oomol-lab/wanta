@@ -243,6 +243,20 @@ test("refreshAfterCommittedTeamMutation reports refresh failure without rejectin
   assert.equal(reportedError, refreshError)
 })
 
+test("refreshAfterCommittedTeamMutation returns true without reporting a failure after refresh succeeds", async () => {
+  let failureReported = false
+
+  const refreshed = await refreshAfterCommittedTeamMutation(
+    () => Promise.resolve(),
+    () => {
+      failureReported = true
+    },
+  )
+
+  assert.equal(refreshed, true)
+  assert.equal(failureReported, false)
+})
+
 test("scoped busy operations reject stale ids and stale team contexts", () => {
   const operation = { action: "addSkillBatch" as const, contextKey: "account-1\u0000team-1", id: 3 }
 

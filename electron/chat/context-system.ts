@@ -90,7 +90,7 @@ export function buildProjectContextSystem(project: ChatProjectContext | undefine
     "Current local project context:",
     `- Project name: ${quoted(project.name)}`,
     `- Project directory: ${quoted(projectPath)}`,
-    "- Treat this directory as the active project when the user's request involves code, files, repository state, local analysis, or file team.",
+    "- Treat this directory as the active project when the user's request involves code, files, repository state, local analysis, or file organization.",
     "- The shell and file tool cwd may still be Wanta's private scratch workspace; use this project directory as an absolute path instead of assuming cwd.",
     "- For project dependency commands, make this directory explicit with `cd <project-directory> && <package-manager> ...` or the package manager's explicit project-directory option. Do not use global installation, a custom registry, or a user config unless the user explicitly asks.",
     "- Do not mention the full project directory to the user unless they ask for the path or the path is necessary for the task outcome.",

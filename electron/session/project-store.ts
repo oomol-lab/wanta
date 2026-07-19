@@ -1,9 +1,10 @@
-import type { SessionProject, SessionScope } from "./common.ts"
+import type { SessionProject } from "./common.ts"
 
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { atomicWriteText } from "../atomic-file.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
+import { normalizeSessionScopeValue } from "./common.ts"
 
 export interface PersistedSessionProjects {
   projects?: Record<string, SessionProject>
@@ -12,21 +13,6 @@ export interface PersistedSessionProjects {
 
 function validTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
-}
-
-function normalizeScope(value: unknown): SessionScope | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined
-  }
-  const source = value as Partial<SessionScope> & { organizationId?: unknown; organizationName?: unknown }
-  const rawTeamId = "teamId" in source ? source.teamId : source.organizationId
-  const rawTeamName = "teamName" in source ? source.teamName : source.organizationName
-  const teamId = typeof rawTeamId === "string" ? rawTeamId.trim() : undefined
-  const teamName = typeof rawTeamName === "string" ? rawTeamName.trim() : undefined
-  if (!teamId || !teamName) {
-    return undefined
-  }
-  return { teamId, teamName }
 }
 
 function normalizeProject(id: string, value: unknown): SessionProject | null {
@@ -41,7 +27,7 @@ function normalizeProject(id: string, value: unknown): SessionProject | null {
   const name = typeof source.name === "string" ? source.name.trim() : ""
   const createdAt = validTimestamp(source.createdAt) ? source.createdAt : Date.now()
   const updatedAt = validTimestamp(source.updatedAt) ? source.updatedAt : createdAt
-  const scope = normalizeScope(source.scope)
+  const scope = normalizeSessionScopeValue(source.scope)
   return {
     id,
     name: name || path.basename(projectPath.replace(/[\\/]+$/, "")) || projectPath,

@@ -31,7 +31,7 @@ export const teamAvatarPalette = [
 
 export function teamInitials(name: string): string {
   const characters = Array.from(name.trim())
-  return characters.slice(0, 2).join("").toLocaleUpperCase() || "OR"
+  return characters.slice(0, 2).join("").toLocaleUpperCase() || "TM"
 }
 
 export function teamAvatarStyle(seed: string): TeamAvatarStyle {

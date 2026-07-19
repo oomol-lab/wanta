@@ -18,5 +18,5 @@ test("teamAvatarStyle is stable for the same team seed", () => {
 test("teamInitials uses the first two visible characters", () => {
   assert.equal(teamInitials("netless"), "NE")
   assert.equal(teamInitials(" 团队 "), "团队")
-  assert.equal(teamInitials(""), "OR")
+  assert.equal(teamInitials(""), "TM")
 })

@@ -83,7 +83,7 @@ export function useTeamDetails({
       const cachedProviderOptions = Array.isArray(providerOptions)
         ? providerOptions
         : canManageDetails && !options.forceRefresh
-          ? getCachedTeamProviderOptions(resourceAccountId, team.id)
+          ? getCachedTeamProviderOptions(resourceAccountId, team.id, team.name)
           : null
       const cachedAppAccess =
         canManageDetails && !options.forceRefresh ? getCachedTeamAppAccess(resourceAccountId, team.id) : null
@@ -115,15 +115,13 @@ export function useTeamDetails({
         getTeamMembersResource(resourceAccountId, team.id, { forceRefresh: options.forceRefresh }),
       )
       const providerOptionsRequest =
-        canManageDetails && providerOptions === null
+        canManageDetails && !Array.isArray(providerOptions)
           ? settle(
               getTeamProviderOptionsResource(resourceAccountId, team.id, team.name, {
                 forceRefresh: options.forceRefresh,
               }),
             )
-          : canManageDetails && providerOptions === undefined
-            ? null
-            : Promise.resolve<AsyncResult<TeamProviderOption[]>>({ ok: true, value: providerOptions ?? [] })
+          : Promise.resolve<AsyncResult<TeamProviderOption[]>>({ ok: true, value: providerOptions ?? [] })
       const appAccessRequest = canManageDetails
         ? settle(
             getTeamAppAccessResource(resourceAccountId, team.id, {
@@ -131,13 +129,10 @@ export function useTeamDetails({
             }),
           )
         : Promise.resolve<AsyncResult<TeamAppAccess | null>>({ ok: true, value: null })
-      const providerOptionsTask =
-        providerOptionsRequest?.then((result) => {
-          if (!canManageDetails || detailsRequestId.current !== requestId) return
-          setProviderOptionsState((current) =>
-            result.ok ? readyState(result.value) : errorState(current, result.error),
-          )
-        }) ?? Promise.resolve()
+      const providerOptionsTask = providerOptionsRequest.then((result) => {
+        if (!canManageDetails || detailsRequestId.current !== requestId) return
+        setProviderOptionsState((current) => (result.ok ? readyState(result.value) : errorState(current, result.error)))
+      })
       const appAccessTask = appAccessRequest.then((result) => {
         if (!canManageDetails || detailsRequestId.current !== requestId) return
         setAppAccessState((current) => (result.ok ? readyState(result.value) : errorState(current, result.error)))

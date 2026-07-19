@@ -105,4 +105,22 @@ describe("sidebar persistence", () => {
     expect(storage.getItem(key)).toBe('["project-a"]')
     expect(storage.getItem(legacyKey)).toBeNull()
   })
+
+  test("retains the legacy collapsed-project key when migration cannot be written", () => {
+    const values = new Map<string, string>()
+    const key = "wanta.projectSidebarCollapsed:account-a:team:team-id"
+    const legacyKey = "wanta.projectSidebarCollapsed:account-a:organization:team-id"
+    values.set(legacyKey, '["project-a"]')
+    const storage = {
+      getItem: (storageKey: string) => values.get(storageKey) ?? null,
+      removeItem: (storageKey: string) => void values.delete(storageKey),
+      setItem: () => {
+        throw new Error("quota exceeded")
+      },
+    }
+
+    expect(readStoredCollapsedProjectIds(storage, key)).toEqual(new Set(["project-a"]))
+    expect(values.get(legacyKey)).toBe('["project-a"]')
+    expect(values.has(key)).toBe(false)
+  })
 })

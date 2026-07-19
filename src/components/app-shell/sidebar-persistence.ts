@@ -16,11 +16,16 @@ function readItem(storage: LocalStorageLike | null | undefined, key: string): st
   }
 }
 
-function writeItem(storage: LocalStorageLike | null | undefined, key: string, value: string): void {
+function writeItem(storage: LocalStorageLike | null | undefined, key: string, value: string): boolean {
+  if (!storage) {
+    return false
+  }
   try {
-    storage?.setItem(key, value)
+    storage.setItem(key, value)
+    return true
   } catch {
     // 本地存储不可用时仅保留本次会话状态。
+    return false
   }
 }
 
@@ -80,8 +85,9 @@ export function readStoredCollapsedProjectIds(
     }
     const ids = new Set(parsed.filter((value): value is string => typeof value === "string" && value.trim().length > 0))
     if (legacyRaw !== null) {
-      writeItem(storage, key, JSON.stringify([...ids].sort()))
-      removeItem(storage, legacyKey)
+      if (writeItem(storage, key, JSON.stringify([...ids].sort()))) {
+        removeItem(storage, legacyKey)
+      }
     }
     return ids
   } catch {

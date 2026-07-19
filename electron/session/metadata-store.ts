@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { atomicWriteText } from "../atomic-file.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
+import { normalizeSessionScopeValue } from "./common.ts"
 
 export interface SessionMetadata {
   scope?: SessionScope
@@ -34,21 +35,6 @@ export function normalizeKnowledgeBaseIds(value: unknown): string[] | undefined 
   return ids.length > 0 ? ids : undefined
 }
 
-function normalizeScope(value: unknown): SessionScope | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined
-  }
-  const source = value as Partial<SessionScope> & { organizationId?: unknown; organizationName?: unknown }
-  const rawTeamId = "teamId" in source ? source.teamId : source.organizationId
-  const rawTeamName = "teamName" in source ? source.teamName : source.organizationName
-  const teamId = typeof rawTeamId === "string" ? rawTeamId.trim() : undefined
-  const teamName = typeof rawTeamName === "string" ? rawTeamName.trim() : undefined
-  if (!teamId || !teamName) {
-    return undefined
-  }
-  return { teamId, teamName }
-}
-
 function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
   const record = value && typeof value === "object" ? (value as PersistedSessionMetadata).sessions : undefined
   const metadata = new Map<string, SessionMetadata>()
@@ -62,7 +48,7 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
     }
     const source = entry as SessionMetadata
     const next: SessionMetadata = {}
-    const scope = normalizeScope(source.scope)
+    const scope = normalizeSessionScopeValue(source.scope)
     if (scope) {
       next.scope = scope
     }
@@ -102,7 +88,7 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
       continue
     }
     const next: SessionMetadata = {}
-    const scope = normalizeScope(entry.scope)
+    const scope = normalizeSessionScopeValue(entry.scope)
     if (scope) {
       next.scope = scope
     }

@@ -21,10 +21,10 @@ function createStorage(): PaymentRecoveryStorage {
 function legacyPaymentKey(cacheScope: string, scope: BillingRequestScope): string {
   const requestScopeKey = {
     canManageFunding: scope.canManageFunding,
-    organizationId: scope.teamId,
+    teamId: scope.teamId,
     organizationName: scope.teamName,
   }
-  return `organization-payment-recovery-pending:${encodeURIComponent(JSON.stringify({ cacheScope, requestScopeKey }))}`
+  return `team-payment-recovery-pending:${encodeURIComponent(JSON.stringify({ cacheScope, requestScopeKey }))}`
 }
 
 function teamScope(overrides: Partial<BillingRequestScope> = {}): BillingRequestScope {

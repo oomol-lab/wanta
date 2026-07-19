@@ -23,6 +23,21 @@ export interface SessionScope {
   teamName: string
 }
 
+export function normalizeSessionScopeValue(value: unknown): SessionScope | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined
+  }
+  const source = value as Partial<SessionScope> & { organizationId?: unknown; organizationName?: unknown }
+  const rawTeamId = "teamId" in source ? source.teamId : source.organizationId
+  const rawTeamName = "teamName" in source ? source.teamName : source.organizationName
+  const teamId = typeof rawTeamId === "string" ? rawTeamId.trim() : undefined
+  const teamName = typeof rawTeamName === "string" ? rawTeamName.trim() : undefined
+  if (!teamId || !teamName) {
+    return undefined
+  }
+  return { teamId, teamName }
+}
+
 export type SessionPlacement = "all" | "project" | "task"
 
 export interface SessionScopeRequest {

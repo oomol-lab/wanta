@@ -28,7 +28,7 @@ export function upsertOverviewTeam(overview: TeamOverview | null, team: Team): T
   let joined = patchList(overview.joined)
 
   if (!found) {
-    if (team.creator_user_id === overview.accountId || team.role === "creator") {
+    if (team.role === "creator" || (team.role === undefined && team.creator_user_id === overview.accountId)) {
       created = [...created, team]
     } else if (team.role === "member") {
       joined = [...joined, team]

@@ -55,6 +55,26 @@ describe("team overview patching", () => {
     expect(next?.created[0]?.name).toBe("acme")
   })
 
+  it("honors an explicit member role before the creator id fallback", () => {
+    const overview = {
+      accountId: "user-1",
+      created: [],
+      joined: [],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }
+
+    const next = upsertOverviewTeam(overview, {
+      avatar: "",
+      creator_user_id: "user-1",
+      id: "team-1",
+      name: "acme",
+      role: "member",
+    })
+
+    expect(next?.created).toHaveLength(0)
+    expect(next?.joined).toHaveLength(1)
+  })
+
   it("does not add unrelated optimistic patches to another account overview", () => {
     const overview = {
       accountId: "user-2",

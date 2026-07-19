@@ -1,6 +1,6 @@
 # 决策日志：背景 → 决策 → 理由 → 后果
 
-> 来源：开发会话记录 + 当前代码核验。只收录改变方向的重大决策，按主题团队——**这不是 changelog**：不写 commit hash（需要时用 `git log` 按主题检索），不要随新 commit 逐条追加。相关：[architecture.md](architecture.md) · [project-overview.md](project-overview.md)
+> 来源：开发会话记录 + 当前代码核验。只收录改变方向的重大决策，按主题组织——**这不是 changelog**：不写 commit hash（需要时用 `git log` 按主题检索），不要随新 commit 逐条追加。相关：[architecture.md](architecture.md) · [project-overview.md](project-overview.md)
 
 ## 1. 工程化整体镜像 oo-desktop
 

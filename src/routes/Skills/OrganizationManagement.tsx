@@ -219,7 +219,9 @@ export function OrganizationManagementRoute({
     () => new Map(grantState.grants.map((grant) => [grant.userId, grant])),
     [grantState.grants],
   )
-  const providerAccessError = appAccessState.error ?? providerOptionsState.error ?? grantState.error
+  const providerAccessMutationError = appAccessState.error ?? grantState.error
+  const providerOptionsError = providerOptionsState.error
+  const providerAccessError = providerAccessMutationError ?? providerOptionsError
   const showOverviewLoading = organizations.length === 0 && (workspace.loading || !workspace.hasLoaded)
   const showOverviewError = organizations.length === 0 && Boolean(workspace.error)
   const showOrganizationEmptyState = !showOverviewLoading && !showOverviewError && organizations.length === 0
@@ -250,6 +252,7 @@ export function OrganizationManagementRoute({
     canManageOrganization: getWorkspaceOrganizationCanManage,
     organizations,
     refreshWorkspace,
+    selectedOrganizationId,
     selectOrganization: selectOrganizationWorkspace,
     setBusyAction,
     upsertOrganization: upsertWorkspaceOrganization,
@@ -268,7 +271,8 @@ export function OrganizationManagementRoute({
     canManage,
     memberInput,
     memberSearch,
-    providerAccessError,
+    providerAccessMutationError,
+    providerOptionsError,
     providerAccessForm,
     reloadDetails: reload,
     resetMemberSearch,
@@ -351,9 +355,7 @@ export function OrganizationManagementRoute({
                 {selectedOrganization ? (
                   <OrganizationMembersSheet open={membersPanelOpen} onClose={() => setMembersPanelOpen(false)}>
                     <OrganizationDetailPanel
-                      appAccessLoading={
-                        appAccessState.status === "loading" || providerOptionsState.status === "loading"
-                      }
+                      appAccessLoading={appAccessState.status === "loading"}
                       busyAction={busyAction}
                       canManage={canManage}
                       grantsByUserId={grantsByUserId}
@@ -364,6 +366,9 @@ export function OrganizationManagementRoute({
                       membersLoading={membersState.status === "loading"}
                       organization={selectedOrganization}
                       providerAccessError={providerAccessError}
+                      providerAccessMutationError={providerAccessMutationError}
+                      providerOptionsError={providerOptionsError}
+                      providerOptionsLoading={providerOptionsState.status === "loading"}
                       onAddMember={() => setAddMemberOpen(true)}
                       onDisableMembers={memberActions.disableMembers}
                       onEditProviderAccess={memberActions.openEditProviderAccess}

@@ -92,6 +92,9 @@ export function subscribeOrganizationMembersResource(
   entry.listeners.add(listener)
   return () => {
     entry.listeners.delete(listener)
+    if (entry.listeners.size === 0 && entry.data === null && entry.promise === null) {
+      resourceCache.delete(resourceKey(accountId, organizationId, "members"))
+    }
   }
 }
 
@@ -183,6 +186,7 @@ export function invalidateOrganizationDetailsResource(accountId: string | undefi
         entry.loadedAt = 0
         entry.promise = null
         notifyResourceEntry(entry)
+        if (entry.listeners.size === 0) resourceCache.delete(key)
       }
     }
   }

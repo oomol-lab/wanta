@@ -39,7 +39,7 @@ export interface UseOrganizationSkills {
   skills: OrganizationSkillConfigItem[]
 }
 
-interface OrganizationSkillCacheEntry {
+export interface OrganizationSkillCacheEntry {
   cacheKey: string
   fetchedAt: number
   organizationId: string
@@ -48,9 +48,31 @@ interface OrganizationSkillCacheEntry {
 
 const organizationSkillCacheMs = 30_000
 const organizationSkillPersistentCacheMaxAgeMs = 24 * 60 * 60 * 1000
+const organizationSkillCacheMaxEntries = 50
 const organizationSkillPersistentCacheStorageKey = "wanta.organization-skill-cache.v2"
 const organizationSkillCache = new Map<string, OrganizationSkillCacheEntry>()
 let organizationSkillPersistentCacheRead = false
+
+export function selectOrganizationSkillCacheEntries(
+  entries: readonly OrganizationSkillCacheEntry[],
+  now = Date.now(),
+  maxEntries = organizationSkillCacheMaxEntries,
+): OrganizationSkillCacheEntry[] {
+  const minimumFetchedAt = now - organizationSkillPersistentCacheMaxAgeMs
+  return entries
+    .filter((entry) => entry.fetchedAt >= minimumFetchedAt)
+    .sort((left, right) => right.fetchedAt - left.fetchedAt)
+    .slice(0, Math.max(0, maxEntries))
+}
+
+function pruneOrganizationSkillCache(now = Date.now()): void {
+  const retainedKeys = new Set(
+    selectOrganizationSkillCacheEntries([...organizationSkillCache.values()], now).map((entry) => entry.cacheKey),
+  )
+  for (const key of organizationSkillCache.keys()) {
+    if (!retainedKeys.has(key)) organizationSkillCache.delete(key)
+  }
+}
 
 function isOrganizationSkillCacheEntry(value: unknown): value is OrganizationSkillCacheEntry {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -85,6 +107,8 @@ function readPersistentOrganizationSkillCache(): void {
         organizationSkillCache.set(entry.cacheKey, entry)
       }
     }
+    pruneOrganizationSkillCache()
+    persistOrganizationSkillCache()
   } catch {
     // localStorage 不可用或内容已损坏时退回网络请求，不影响组织切换。
   }
@@ -96,8 +120,8 @@ function persistOrganizationSkillCache(): void {
   }
 
   try {
-    const minimumFetchedAt = Date.now() - organizationSkillPersistentCacheMaxAgeMs
-    const entries = [...organizationSkillCache.values()].filter((entry) => entry.fetchedAt >= minimumFetchedAt)
+    pruneOrganizationSkillCache()
+    const entries = [...organizationSkillCache.values()]
     window.localStorage.setItem(organizationSkillPersistentCacheStorageKey, JSON.stringify(entries))
   } catch {
     // 配置缓存只是体验优化，存储失败不能阻断组织 Skill 的正常加载。
@@ -115,6 +139,7 @@ function getOrganizationSkillCacheEntry(
 
 function setOrganizationSkillCacheEntry(entry: OrganizationSkillCacheEntry): void {
   organizationSkillCache.set(entry.cacheKey, entry)
+  pruneOrganizationSkillCache()
   persistOrganizationSkillCache()
 }
 
@@ -122,6 +147,11 @@ function deleteOrganizationSkillCacheEntry(cacheKey: string): void {
   if (organizationSkillCache.delete(cacheKey)) {
     persistOrganizationSkillCache()
   }
+}
+
+export function invalidateOrganizationSkillCache(accountId: string | undefined, organizationId: string): void {
+  const accountKey = accountId?.trim() || "anonymous"
+  deleteOrganizationSkillCacheEntry(`${accountKey}\u0000${organizationId}`)
 }
 
 function organizationWorkspaceKey(workspace: WorkspaceSelection): string {

@@ -55,6 +55,7 @@ import {
 } from "@/components/AppDataHooks"
 import { DeleteSkillConfirmDialog } from "@/components/DeleteSkillConfirmDialog"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
+import { invalidateOrganizationSkillCache } from "@/hooks/useOrganizationSkills"
 import { useAppI18n } from "@/i18n"
 import { addOrganizationSkill } from "@/lib/organization-skills-client"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -563,13 +564,15 @@ export function SkillsRoute({
         version: target.version,
         versionPolicy: "pinned",
       })
+      const accountId = authResource.data?.status === "authenticated" ? authResource.data.account?.id : undefined
+      invalidateOrganizationSkillCache(accountId, organizationId)
 
       if (workspace.activeWorkspace.organizationId === organizationId) {
         await organizationSkills.refresh({ forceRefresh: true })
       }
       toast.success(t("skills.organizationLinkDone", { name: target.title }))
     },
-    [organizationSkills, t, workspace.activeWorkspace],
+    [authResource.data, organizationSkills, t, workspace.activeWorkspace],
   )
 
   const publishSkill = React.useCallback(

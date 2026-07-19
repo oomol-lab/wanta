@@ -18,11 +18,14 @@ import {
   loadState,
   organizationCanManage,
   organizationNameValidation,
+  organizationOperationTargetsCurrentOrganization,
   organizationRole,
   organizationSkillPackageLinked,
   planProviderSkillRecommendationBulkLinks,
   providerOptionsWithSelected,
+  refreshAfterCommittedOrganizationMutation,
 } from "./organization-management-model.ts"
+import { scopedBusyOperationIsCurrent } from "./use-scoped-busy-action.ts"
 
 test("organizationNameValidation accepts the product naming rules", () => {
   assert.equal(organizationNameValidation(""), "empty")
@@ -228,6 +231,35 @@ test("planProviderSkillRecommendationBulkLinks deduplicates by package and skips
     plan.linked.map((item) => item.skillId),
     ["slack"],
   )
+})
+
+test("refreshAfterCommittedOrganizationMutation reports refresh failure without rejecting the committed mutation", async () => {
+  const refreshError = new Error("offline")
+  let reportedError: unknown
+
+  const refreshed = await refreshAfterCommittedOrganizationMutation(
+    () => Promise.reject(refreshError),
+    (error) => {
+      reportedError = error
+    },
+  )
+
+  assert.equal(refreshed, false)
+  assert.equal(reportedError, refreshError)
+})
+
+test("scoped busy operations reject stale ids and stale organization contexts", () => {
+  const operation = { action: "addSkillBatch" as const, contextKey: "account-1\u0000org-1", id: 3 }
+
+  assert.equal(scopedBusyOperationIsCurrent(operation, 3, "account-1\u0000org-1"), true)
+  assert.equal(scopedBusyOperationIsCurrent(operation, 4, "account-1\u0000org-1"), false)
+  assert.equal(scopedBusyOperationIsCurrent(operation, 3, "account-1\u0000org-2"), false)
+})
+
+test("organization mutations reject confirmation targets captured in another organization", () => {
+  assert.equal(organizationOperationTargetsCurrentOrganization("org-1", "org-1"), true)
+  assert.equal(organizationOperationTargetsCurrentOrganization("org-1", "org-2"), false)
+  assert.equal(organizationOperationTargetsCurrentOrganization("org-1", null), false)
 })
 
 function organization(id: string, creatorUserId = "creator"): Organization {

@@ -29,7 +29,8 @@ interface OrganizationMemberActionsOptions {
   canManage: boolean
   memberInput: string
   memberSearch: MemberSearchState
-  providerAccessError: string | null
+  providerAccessMutationError: string | null
+  providerOptionsError: string | null
   providerAccessForm: ProviderAccessForm
   reloadDetails: () => Promise<void>
   resetMemberSearch: () => void
@@ -57,7 +58,8 @@ export function useOrganizationMemberActions({
   canManage,
   memberInput,
   memberSearch,
-  providerAccessError,
+  providerAccessMutationError,
+  providerOptionsError,
   providerAccessForm,
   reloadDetails,
   resetMemberSearch,
@@ -256,7 +258,7 @@ export function useOrganizationMemberActions({
   const saveProviderAccess = React.useCallback(
     async (event: React.FormEvent) => {
       event.preventDefault()
-      if (!selectedOrganization || !canManage || providerAccessError) return
+      if (!selectedOrganization || !canManage || providerAccessMutationError || providerOptionsError) return
       const userId = providerAccessForm.userId.trim()
       if (!userId) return void toast.error(t("organizations.memberRequired"))
       if (!providerAccessForm.allProviders && providerAccessForm.providers.length === 0) {
@@ -302,7 +304,8 @@ export function useOrganizationMemberActions({
       canManage,
       finishOperation,
       operationIsCurrent,
-      providerAccessError,
+      providerAccessMutationError,
+      providerOptionsError,
       providerAccessForm,
       selectedOrganization,
       setAppAccessForOrganization,
@@ -313,7 +316,7 @@ export function useOrganizationMemberActions({
 
   const revokeProviderAccess = React.useCallback(
     async (grant: ProviderGrantView) => {
-      if (!selectedOrganization || !canManage || providerAccessError) return
+      if (!selectedOrganization || !canManage || providerAccessMutationError) return
       const operation = beginOperation(`revokeProviderAccess:${grant.userId}`)
       try {
         const snapshot = await getOrganizationAppAccessSnapshot(selectedOrganization.id)
@@ -343,7 +346,7 @@ export function useOrganizationMemberActions({
       canManage,
       finishOperation,
       operationIsCurrent,
-      providerAccessError,
+      providerAccessMutationError,
       selectedOrganization,
       setAppAccessForOrganization,
       t,

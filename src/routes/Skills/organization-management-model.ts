@@ -36,6 +36,26 @@ export interface LoadState<T> {
   status: LoadStatus
 }
 
+export async function refreshAfterCommittedOrganizationMutation(
+  refresh: () => Promise<unknown>,
+  onFailure: (error: unknown) => void,
+): Promise<boolean> {
+  try {
+    await refresh()
+    return true
+  } catch (error) {
+    onFailure(error)
+    return false
+  }
+}
+
+export function organizationOperationTargetsCurrentOrganization(
+  targetOrganizationId: string,
+  currentOrganizationId: string | null,
+): boolean {
+  return Boolean(currentOrganizationId) && targetOrganizationId === currentOrganizationId
+}
+
 export interface MemberView extends OrganizationMember {
   avatar: string
   displayName: string

@@ -8,15 +8,19 @@ import {
   isConflictError,
   maxOrganizationNameLength,
   organizationNameValidation,
+  refreshAfterCommittedOrganizationMutation,
 } from "./organization-management-model.ts"
+import { useScopedBusyAction } from "./use-scoped-busy-action.ts"
 import { useAppI18n } from "@/i18n"
 import { createOrganization, updateOrganization, uploadOrganizationAvatar } from "@/lib/organizations-client"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 interface OrganizationFormsOptions {
   busyAction: BusyAction | null
   canManageOrganization: (organization: Organization) => boolean
   organizations: Organization[]
   refreshWorkspace: (options?: { forceRefresh?: boolean }) => Promise<unknown>
+  selectedOrganizationId: string | null
   selectOrganization: (organizationId: string) => void
   setBusyAction: React.Dispatch<React.SetStateAction<BusyAction | null>>
   upsertOrganization: (organization: Organization, options?: { avatarFile?: File | null }) => void
@@ -44,6 +48,7 @@ export function useOrganizationForms({
   canManageOrganization,
   organizations,
   refreshWorkspace,
+  selectedOrganizationId,
   selectOrganization,
   setBusyAction,
   upsertOrganization,
@@ -65,6 +70,21 @@ export function useOrganizationForms({
   )
   const createNameError = useNameError(createName, createDuplicated)
   const editNameError = useNameError(editName, editDuplicated)
+  const action = useScopedBusyAction({
+    busyAction,
+    contextKey: selectedOrganizationId ?? "no-organization",
+    setBusyAction,
+  })
+
+  const refreshAfterMutation = React.useCallback(async (): Promise<void> => {
+    await refreshAfterCommittedOrganizationMutation(
+      () => refreshWorkspace({ forceRefresh: true }),
+      (error) => {
+        reportRendererHandledError("organizations", "workspace refresh after organization mutation failed", error)
+        toast.error(t("organizations.refreshFailedTitle"))
+      },
+    )
+  }, [refreshWorkspace, t])
 
   const submitCreate = React.useCallback(
     async (event: React.FormEvent) => {
@@ -82,27 +102,32 @@ export function useOrganizationForms({
         return
       }
 
-      setBusyAction("create")
+      const operation = action.begin("create")
+      if (!operation) return
       try {
         let organization = await createOrganization({ orgName })
         upsertOrganization(organization)
-        selectOrganization(organization.id)
-        setCreateOpen(false)
-        setCreateName("")
-        setCreateAvatarFile(null)
-        setCreateDuplicated(false)
+        const shouldPresentResult = action.isCurrent(operation)
+        if (shouldPresentResult) {
+          selectOrganization(organization.id)
+          setCreateOpen(false)
+          setCreateName("")
+          setCreateAvatarFile(null)
+          setCreateDuplicated(false)
+        }
         if (createAvatarFile) {
           try {
             const { avatar } = await uploadOrganizationAvatar(organization.id, createAvatarFile)
             organization = await updateOrganization({ avatar, orgId: organization.id, orgName: organization.name })
             upsertOrganization(organization, { avatarFile: createAvatarFile })
           } catch {
-            toast.error(t("organizations.avatarUpdatePartialFailure"))
+            if (shouldPresentResult) toast.error(t("organizations.avatarUpdatePartialFailure"))
           }
         }
-        toast.success(t("organizations.createOrganizationSuccess"))
-        await refreshWorkspace({ forceRefresh: true })
+        if (shouldPresentResult) toast.success(t("organizations.createOrganizationSuccess"))
+        await refreshAfterMutation()
       } catch (error) {
+        if (!action.isCurrent(operation)) return
         if (isConflictError(error)) {
           setCreateDuplicated(true)
           toast.error(t("organizations.organizationNameDuplicated"))
@@ -110,10 +135,10 @@ export function useOrganizationForms({
           toast.error(organizationErrorMessage(error, t))
         }
       } finally {
-        setBusyAction(null)
+        action.finish(operation)
       }
     },
-    [createAvatarFile, createName, refreshWorkspace, selectOrganization, setBusyAction, t, upsertOrganization],
+    [action, createAvatarFile, createName, refreshAfterMutation, selectOrganization, t, upsertOrganization],
   )
 
   const openEdit = React.useCallback((organization: Organization) => {
@@ -162,7 +187,8 @@ export function useOrganizationForms({
         return
       }
 
-      setBusyAction("updateOrganization")
+      const operation = action.begin("updateOrganization")
+      if (!operation) return
       try {
         let avatar = editAvatar.trim()
         if (editAvatarFile) {
@@ -174,6 +200,7 @@ export function useOrganizationForms({
           organization,
           editAvatarFile || avatar !== editingOrganization.avatar ? { avatarFile: editAvatarFile } : undefined,
         )
+        if (!action.isCurrent(operation)) return
         toast.success(t("organizations.updateOrganizationSuccess"))
         setEditOpen(false)
         setEditOrganizationId(null)
@@ -182,8 +209,9 @@ export function useOrganizationForms({
         setEditAvatarFile(null)
         setEditDuplicated(false)
         selectOrganization(organization.id)
-        await refreshWorkspace({ forceRefresh: true })
+        await refreshAfterMutation()
       } catch (error) {
+        if (!action.isCurrent(operation)) return
         if (isConflictError(error)) {
           setEditDuplicated(true)
           toast.error(t("organizations.organizationNameDuplicated"))
@@ -191,7 +219,7 @@ export function useOrganizationForms({
           toast.error(organizationErrorMessage(error, t))
         }
       } finally {
-        setBusyAction(null)
+        action.finish(operation)
       }
     },
     [
@@ -200,9 +228,9 @@ export function useOrganizationForms({
       editAvatarFile,
       editName,
       editingOrganization,
-      refreshWorkspace,
+      action,
+      refreshAfterMutation,
       selectOrganization,
-      setBusyAction,
       t,
       upsertOrganization,
     ],
@@ -214,7 +242,9 @@ export function useOrganizationForms({
       close: () => {
         if (busyAction !== "create") {
           setCreateOpen(false)
+          setCreateName("")
           setCreateAvatarFile(null)
+          setCreateDuplicated(false)
         }
       },
       name: createName,

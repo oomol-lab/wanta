@@ -175,6 +175,7 @@ export const skillsMessages = {
     "organizations.skillManageLinkAll": "全部设为组织推荐 {{count}}",
     "organizations.skillManageAddInstallAll": "全部安装并设为组织推荐 {{count}}",
     "organizations.skillManageAddSuccess": "已设为组织推荐。",
+    "organizations.skillManageRuntimeInstallPartialFailure": "已设为组织推荐，但本机安装失败：{{error}}",
     "organizations.skillManageBulkAddSuccess": "已将 {{count}} 个 Skill 设为组织推荐。",
     "organizations.skillManageBulkAddInstallSuccess": "已安装并将 {{count}} 个 Skill 设为组织推荐。",
     "organizations.skillManageBulkAddFailed": "{{count}} 个 Skill 设为组织推荐失败：{{error}}",
@@ -608,6 +609,8 @@ export const skillsMessages = {
     "organizations.skillManageLinkAll": "Set all {{count}} as organization recommendations",
     "organizations.skillManageAddInstallAll": "Install and set all {{count}} as organization recommendations",
     "organizations.skillManageAddSuccess": "Set as organization recommendation.",
+    "organizations.skillManageRuntimeInstallPartialFailure":
+      "Set as an organization recommendation, but local installation failed: {{error}}",
     "organizations.skillManageBulkAddSuccess": "{{count}} Skills set as organization recommendations.",
     "organizations.skillManageBulkAddInstallSuccess":
       "{{count}} Skills installed and set as organization recommendations.",

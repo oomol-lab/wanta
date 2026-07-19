@@ -5,7 +5,6 @@ import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill
 
 import { ChevronDownIcon, PackageIcon, RefreshCwIcon } from "lucide-react"
 import * as React from "react"
-import { toast } from "sonner"
 import {
   createOrganizationSkillPackageSet,
   errorMessage,
@@ -28,7 +27,7 @@ import {
   OrganizationSkillPackageListSkeleton,
   OrganizationSkillRecommendationRow,
 } from "./OrganizationSkillManageRows.tsx"
-import { skillErrorMessage } from "./skill-errors.ts"
+import { useOrganizationSkillRemoval } from "./use-organization-skill-removal.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { SearchField } from "@/components/SearchField"
 import { Button } from "@/components/ui/button"
@@ -107,10 +106,8 @@ export function OrganizationSkillManageDialog({
 }) {
   const { t } = useAppI18n()
   const isActive = variant === "inline" || open
-  const [busyConfigId, setBusyConfigId] = React.useState<string | null>(null)
-  const [organizationRemoveTarget, setOrganizationRemoveTarget] = React.useState<
-    UseOrganizationSkills["skills"][number] | null
-  >(null)
+  const skillRemoval = useOrganizationSkillRemoval({ organizationSkills })
+  const busyConfigId = skillRemoval.busySkillId
   const [activeTab, setActiveTab] = React.useState<OrganizationSkillManageTab>("recommendations")
   const [recommendationSourceFilter, setRecommendationSourceFilter] = React.useState<
     "all" | "configured" | "recommended"
@@ -277,16 +274,19 @@ export function OrganizationSkillManageDialog({
       return
     }
 
+    const controller = new AbortController()
     setMarketExactLoading(true)
     const timer = window.setTimeout(() => {
-      void readPublicSkillPackageByName(query)
+      void readPublicSkillPackageByName(query, controller.signal)
         .then((pkg) => {
           if (marketExactRequestIdRef.current === requestId) {
             setMarketExactPackage(pkg)
           }
         })
         .catch((error: unknown) => {
-          reportRendererHandledError("organization-skills", "exact market package lookup failed", error)
+          if (!controller.signal.aborted) {
+            reportRendererHandledError("organization-skills", "exact market package lookup failed", error)
+          }
         })
         .finally(() => {
           if (marketExactRequestIdRef.current === requestId) {
@@ -295,7 +295,10 @@ export function OrganizationSkillManageDialog({
         })
     }, 250)
 
-    return () => window.clearTimeout(timer)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
   }, [activeTab, isActive, searchQuery])
 
   const changeActiveTab = React.useCallback((tab: OrganizationSkillManageTab) => {
@@ -352,23 +355,6 @@ export function OrganizationSkillManageDialog({
       requestNextMarketPage()
     }
   }, [marketCatalog.status, marketPackages.length, requestNextMarketPage])
-
-  const removeOrganizationSkill = async (): Promise<void> => {
-    const skill = organizationRemoveTarget
-    if (!skill || !organizationSkills.canManage || busyConfigId) {
-      return
-    }
-    setBusyConfigId(skill.id)
-    try {
-      await organizationSkills.removePackage(skill.packageName)
-      toast.success(t("organizations.skillManagePackageRemoved", { name: skill.packageName }))
-      setOrganizationRemoveTarget(null)
-    } catch (error) {
-      toast.error(skillErrorMessage(error, t))
-    } finally {
-      setBusyConfigId(null)
-    }
-  }
 
   const inline = variant === "inline"
   const emptyStateClassName = inline ? "m-3 border-0 bg-transparent" : undefined
@@ -610,7 +596,7 @@ export function OrganizationSkillManageDialog({
                         })
                       }
                       onOpenManagedSkill={() => onOpenManagedSkill(item.skill.skillName)}
-                      onRemove={() => setOrganizationRemoveTarget(item.skill)}
+                      onRemove={() => skillRemoval.open(item.skill)}
                     />
                   ) : (
                     <OrganizationSkillRecommendationRow
@@ -709,20 +695,15 @@ export function OrganizationSkillManageDialog({
 
   const removeRecommendationDialog = (
     <OrganizationPackageRemoveConfirmDialog
-      busy={organizationRemoveTarget ? busyConfigId === organizationRemoveTarget.id : false}
+      busy={skillRemoval.target ? busyConfigId === skillRemoval.target.id : false}
       packageSkillCount={
-        organizationRemoveTarget
-          ? organizationSkills.skills.filter((skill) => skill.packageName === organizationRemoveTarget.packageName)
-              .length
+        skillRemoval.target
+          ? organizationSkills.skills.filter((skill) => skill.packageName === skillRemoval.target?.packageName).length
           : 0
       }
-      target={organizationRemoveTarget}
-      onClose={() => {
-        if (!busyConfigId) {
-          setOrganizationRemoveTarget(null)
-        }
-      }}
-      onConfirm={() => void removeOrganizationSkill()}
+      target={skillRemoval.target}
+      onClose={skillRemoval.close}
+      onConfirm={() => void skillRemoval.confirm()}
     />
   )
 

@@ -140,6 +140,9 @@ export function OrganizationDetailPanel({
   onRevokeProviderAccess,
   organization,
   providerAccessError,
+  providerAccessMutationError,
+  providerOptionsError,
+  providerOptionsLoading,
 }: {
   appAccessLoading: boolean
   busyAction: BusyAction | null
@@ -160,6 +163,9 @@ export function OrganizationDetailPanel({
   onRevokeProviderAccess: (grant: ProviderGrantView) => Promise<void>
   organization: Organization | null
   providerAccessError: string | null
+  providerAccessMutationError: string | null
+  providerOptionsError: string | null
+  providerOptionsLoading: boolean
 }) {
   const { t } = useAppI18n()
   const showProviderAccess = canManage
@@ -215,7 +221,9 @@ export function OrganizationDetailPanel({
                 grantsByUserId={grantsByUserId}
                 members={members}
                 showProviderAccess={showProviderAccess}
-                providerAccessError={providerAccessError}
+                providerAccessMutationError={providerAccessMutationError}
+                providerOptionsError={providerOptionsError}
+                providerOptionsLoading={providerOptionsLoading}
                 onDisableMembers={onDisableMembers}
                 onEditProviderAccess={onEditProviderAccess}
                 onEnableMembers={onEnableMembers}

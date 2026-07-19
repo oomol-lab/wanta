@@ -43,7 +43,9 @@ export function MembersTable({
   onGrantProviderAccess,
   onRemoveMember,
   onRevokeProviderAccess,
-  providerAccessError,
+  providerAccessMutationError,
+  providerOptionsError,
+  providerOptionsLoading,
   showProviderAccess,
 }: {
   appAccessLoading: boolean
@@ -57,7 +59,9 @@ export function MembersTable({
   onGrantProviderAccess: (userId: string) => void
   onRemoveMember: (member: OrganizationMember) => Promise<void>
   onRevokeProviderAccess: (grant: ProviderGrantView) => Promise<void>
-  providerAccessError: string | null
+  providerAccessMutationError: string | null
+  providerOptionsError: string | null
+  providerOptionsLoading: boolean
   showProviderAccess: boolean
 }) {
   const { t } = useAppI18n()
@@ -176,7 +180,8 @@ export function MembersTable({
           const grant = grantsByUserId.get(member.user_id) ?? null
           const canRemove = canManage && member.role !== "creator"
           const selectable = isBulkEditableMember(member)
-          const accessDisabled = appAccessLoading || bulkBusy || Boolean(providerAccessError)
+          const accessDisabled = appAccessLoading || bulkBusy || Boolean(providerAccessMutationError)
+          const accessEditDisabled = accessDisabled || providerOptionsLoading || Boolean(providerOptionsError)
           const removeBusy = busyAction === `remove:${member.user_id}`
           const revokeBusy = grant ? busyAction === `revokeProviderAccess:${grant.userId}` : false
           return (
@@ -212,7 +217,7 @@ export function MembersTable({
                       grant={grant}
                       loading={appAccessLoading}
                       notAuthorizedLabel={
-                        providerAccessError
+                        providerAccessMutationError
                           ? t("organizations.providerAccessUnavailable")
                           : t("organizations.notAuthorized")
                       }
@@ -228,7 +233,7 @@ export function MembersTable({
                     variant="outline"
                     size="sm"
                     className="h-7 shrink-0 px-2"
-                    disabled={accessDisabled}
+                    disabled={accessEditDisabled}
                     onClick={() => onGrantProviderAccess(member.user_id)}
                   >
                     <ShieldCheckIcon className="size-3.5" />
@@ -237,7 +242,7 @@ export function MembersTable({
                 ) : null}
                 {canRemove ? (
                   <MemberActionsMenu
-                    editProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
+                    editProviderAccessDisabled={accessEditDisabled || busyAction === "saveProviderAccess" || revokeBusy}
                     removeDisabled={bulkBusy || removeBusy}
                     revokeProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
                     onEditProviderAccess={grant && showProviderAccess ? () => onEditProviderAccess(grant) : undefined}

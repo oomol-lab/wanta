@@ -5,10 +5,8 @@ import type { ManagedSkillGroupById } from "./skill-route-model.ts"
 import type { OrganizationSkillFilter } from "./SkillPageHeader.tsx"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
-import type { TranslateFn as TFunction } from "@/i18n"
 
 import * as React from "react"
-import { toast } from "sonner"
 import { planProviderSkillRecommendationBulkLinks } from "./organization-management-model.ts"
 import {
   buildOrganizationSkillRecommendationItems,
@@ -29,6 +27,7 @@ import {
 } from "./skill-route-model.ts"
 import { SkillListRow } from "./SkillListRow.tsx"
 import { SkillIconFrame, SkillManagementSheet, SkillPageScrollArea } from "./SkillUiParts.tsx"
+import { useOrganizationSkillRemoval } from "./use-organization-skill-removal.ts"
 import { AppIcons } from "@/components/AppIcons"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { InspectorCard, InspectorInsetCard } from "@/components/InspectorPanel"
@@ -37,12 +36,8 @@ import { Button } from "@/components/ui/button"
 import { CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppI18n } from "@/i18n"
-import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
+import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
-
-function skillErrorMessage(cause: unknown, t: TFunction): string {
-  return userFacingErrorDescription(resolveUserFacingError(cause, { area: "skills" }), t)
-}
 
 interface OrganizationSkillsPaneProps {
   busyAction: BusyAction | null
@@ -80,10 +75,6 @@ export function OrganizationSkillsPane({
 }: OrganizationSkillsPaneProps) {
   const { t } = useAppI18n()
   const canManage = workspace.activeWorkspace.canManage
-  const [busyConfigId, setBusyConfigId] = React.useState<string | null>(null)
-  const [organizationRemoveTarget, setOrganizationRemoveTarget] = React.useState<
-    UseOrganizationSkills["skills"][number] | null
-  >(null)
   const [selectedItemId, setSelectedItemId] = React.useState<string | null>(null)
   const openManagedSkill = React.useCallback(
     (skillName: string) => {
@@ -96,6 +87,15 @@ export function OrganizationSkillsPane({
   const activeOrganizationId = workspace.activeWorkspace.organizationId
   const selectedOrganizationSkills =
     organizationSkills.organizationId === activeOrganizationId ? organizationSkills : null
+  const skillRemoval = useOrganizationSkillRemoval({
+    onRemoved: () => setSelectedItemId(null),
+    organizationSkills: selectedOrganizationSkills,
+  })
+  const busyConfigId = skillRemoval.busySkillId
+
+  React.useEffect(() => {
+    setSelectedItemId(null)
+  }, [activeOrganizationId])
 
   const normalizedQuery = organizationQuery.trim().toLowerCase()
   const recommendationLookupLoading = providerRecommendationsLoading && organizationFilter !== "configured"
@@ -114,24 +114,6 @@ export function OrganizationSkillsPane({
   const selectedOrganizationItem = selectedItemId
     ? filteredOrganizationItems.find((item) => item.id === selectedItemId)
     : undefined
-
-  const removeOrganizationSkill = async (): Promise<void> => {
-    const skill = organizationRemoveTarget
-    if (!skill || !selectedOrganizationSkills?.canManage || busyConfigId) {
-      return
-    }
-    setBusyConfigId(skill.id)
-    try {
-      await selectedOrganizationSkills.removePackage(skill.packageName)
-      toast.success(t("organizations.skillManagePackageRemoved", { name: skill.packageName }))
-      setSelectedItemId(null)
-      setOrganizationRemoveTarget(null)
-    } catch (cause) {
-      toast.error(skillErrorMessage(cause, t))
-    } finally {
-      setBusyConfigId(null)
-    }
-  }
 
   return (
     <SkillPageScrollArea>
@@ -252,26 +234,22 @@ export function OrganizationSkillsPane({
             onAddRecommendation={(recommendation) => onAddRecommendation(recommendation, { installRuntime: false })}
             onInstallRuntimeSkill={onInstallRuntimeSkill}
             onOpenManagedSkill={openManagedSkill}
-            onRemoveConfiguredSkill={setOrganizationRemoveTarget}
+            onRemoveConfiguredSkill={skillRemoval.open}
           />
         </SkillManagementSheet>
       ) : null}
       <OrganizationPackageRemoveConfirmDialog
-        busy={organizationRemoveTarget ? busyConfigId === organizationRemoveTarget.id : false}
+        busy={skillRemoval.target ? busyConfigId === skillRemoval.target.id : false}
         packageSkillCount={
-          organizationRemoveTarget
+          skillRemoval.target
             ? (selectedOrganizationSkills?.skills.filter(
-                (skill) => skill.packageName === organizationRemoveTarget.packageName,
+                (skill) => skill.packageName === skillRemoval.target?.packageName,
               ).length ?? 0)
             : 0
         }
-        target={organizationRemoveTarget}
-        onClose={() => {
-          if (!busyConfigId) {
-            setOrganizationRemoveTarget(null)
-          }
-        }}
-        onConfirm={() => void removeOrganizationSkill()}
+        target={skillRemoval.target}
+        onClose={skillRemoval.close}
+        onConfirm={() => void skillRemoval.confirm()}
       />
     </SkillPageScrollArea>
   )

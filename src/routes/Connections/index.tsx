@@ -118,7 +118,7 @@ export function ConnectionsPanel({
   )
   const directlyAvailableCount = React.useMemo(() => providers.filter(isDirectlyAvailableProvider).length, [providers])
   const availableToolsCount = connectedCount + directlyAvailableCount
-  const showConnectionState = shouldShowConnectionState(canManageConnections, summary?.appsStatus)
+  const showConnectionState = shouldShowConnectionState(summary?.appsStatus)
   const catalogProviders = React.useMemo(
     () => providers.filter((provider) => matchesProviderFilter(provider, activeFilter)),
     [activeFilter, providers],
@@ -141,7 +141,9 @@ export function ConnectionsPanel({
   const selectedProviderDetailLoading = providerDetail.loading
   const selectedProviderDetailError = providerDetail.error
   const selectedProviderActionsBlocked = Boolean(
-    !showConnectionState || (providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError),
+    !canManageConnections ||
+    !showConnectionState ||
+    (providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError),
   )
   const selectedProviderActionsPending = Boolean(
     providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailLoading,
@@ -499,7 +501,7 @@ export function ConnectionsPanel({
       >
         <SplitViewListPane ref={listPaneRef} narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
-            {canManageConnections && summary?.appsStatus && summary.appsStatus !== "ready" ? (
+            {summary?.appsStatus && summary.appsStatus !== "ready" ? (
               <ConnectionStateNotice status={summary.appsStatus} />
             ) : null}
             {listErrorNotice ? (

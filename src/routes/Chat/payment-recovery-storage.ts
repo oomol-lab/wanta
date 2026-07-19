@@ -76,21 +76,37 @@ export function hasPaymentRecoveryPending(
     const scopedKey = paymentRecoveryPendingStorageKey(cacheScope, requestScope)
     const legacyKey = legacyPaymentRecoveryPendingStorageKey(cacheScope, requestScope)
     const currentRaw = storage.getItem(scopedKey)
-    const legacyRaw = currentRaw === null ? storage.getItem(legacyKey) : null
-    const raw = currentRaw ?? legacyRaw
-    if (!raw) {
-      return false
+    const legacyRaw = storage.getItem(legacyKey)
+    const readExpiresAt = (raw: string | null): number | null => {
+      if (!raw) {
+        return null
+      }
+      try {
+        const parsed = JSON.parse(raw) as { expiresAt?: unknown }
+        return typeof parsed.expiresAt === "number" && Number.isFinite(parsed.expiresAt) ? parsed.expiresAt : null
+      } catch {
+        return null
+      }
     }
-    const parsed = JSON.parse(raw) as { expiresAt?: unknown }
-    const expiresAt = typeof parsed.expiresAt === "number" ? parsed.expiresAt : 0
-    if (now <= expiresAt) {
+    const currentExpiresAt = readExpiresAt(currentRaw)
+    const legacyExpiresAt = readExpiresAt(legacyRaw)
+    if (currentExpiresAt !== null && now <= currentExpiresAt) {
       if (legacyRaw !== null) {
-        storage.setItem(scopedKey, raw)
         storage.removeItem(legacyKey)
       }
       return true
     }
-    storage.removeItem(legacyRaw !== null ? legacyKey : scopedKey)
+    if (currentRaw !== null) {
+      storage.removeItem(scopedKey)
+    }
+    if (legacyExpiresAt !== null && now <= legacyExpiresAt && legacyRaw !== null) {
+      storage.setItem(scopedKey, legacyRaw)
+      storage.removeItem(legacyKey)
+      return true
+    }
+    if (legacyRaw !== null) {
+      storage.removeItem(legacyKey)
+    }
     return false
   } catch {
     return false

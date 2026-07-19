@@ -114,4 +114,25 @@ describe("payment recovery storage", () => {
     expect(values.has(legacyKey)).toBe(false)
     expect(values.has(paymentRecoveryPendingStorageKey("user-1:team:team-1", scope))).toBe(true)
   })
+
+  it.each([
+    ["expired", JSON.stringify({ expiresAt: 500 })],
+    ["malformed", "{broken"],
+  ])("falls back to a valid legacy marker when the current marker is %s", (_case, currentValue) => {
+    const values = new Map<string, string>()
+    const storage: PaymentRecoveryStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      removeItem: (key) => void values.delete(key),
+      setItem: (key, value) => void values.set(key, value),
+    }
+    const scope = teamScope()
+    const currentKey = paymentRecoveryPendingStorageKey("user-1:team:team-1", scope)
+    const legacyKey = legacyPaymentKey("user-1:organization:team-1", scope)
+    values.set(currentKey, currentValue)
+    values.set(legacyKey, JSON.stringify({ expiresAt: 2_000 }))
+
+    expect(hasPaymentRecoveryPending("user-1:team:team-1", scope, storage, 1_000)).toBe(true)
+    expect(values.get(currentKey)).toBe(JSON.stringify({ expiresAt: 2_000 }))
+    expect(values.has(legacyKey)).toBe(false)
+  })
 })

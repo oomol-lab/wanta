@@ -73,26 +73,34 @@ export function readStoredCollapsedProjectIds(
   }
   const legacyKey = key.replace(":team:", ":organization:")
   const currentRaw = readItem(storage, key)
-  const legacyRaw = currentRaw === null && legacyKey !== key ? readItem(storage, legacyKey) : null
-  const raw = currentRaw ?? legacyRaw
-  if (!raw) {
-    return new Set()
-  }
-  try {
-    const parsed: unknown = JSON.parse(raw)
+  const parseIds = (raw: string | null): Set<string> | null => {
+    if (!raw) {
+      return null
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return null
+    }
     if (!Array.isArray(parsed)) {
-      return new Set()
+      return null
     }
-    const ids = new Set(parsed.filter((value): value is string => typeof value === "string" && value.trim().length > 0))
-    if (legacyRaw !== null) {
-      if (writeItem(storage, key, JSON.stringify([...ids].sort()))) {
-        removeItem(storage, legacyKey)
-      }
-    }
-    return ids
-  } catch {
+    return new Set(parsed.filter((value): value is string => typeof value === "string" && value.trim().length > 0))
+  }
+  const currentIds = parseIds(currentRaw)
+  if (currentIds) {
+    return currentIds
+  }
+  const legacyRaw = legacyKey !== key ? readItem(storage, legacyKey) : null
+  const legacyIds = parseIds(legacyRaw)
+  if (!legacyIds) {
     return new Set()
   }
+  if (writeItem(storage, key, JSON.stringify([...legacyIds].sort()))) {
+    removeItem(storage, legacyKey)
+  }
+  return legacyIds
 }
 
 export function writeStoredCollapsedProjectIds(

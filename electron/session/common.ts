@@ -28,14 +28,12 @@ export function normalizeSessionScopeValue(value: unknown): SessionScope | undef
     return undefined
   }
   const source = value as Partial<SessionScope> & { organizationId?: unknown; organizationName?: unknown }
-  const rawTeamId = "teamId" in source ? source.teamId : source.organizationId
-  const rawTeamName = "teamName" in source ? source.teamName : source.organizationName
-  const teamId = typeof rawTeamId === "string" ? rawTeamId.trim() : undefined
-  const teamName = typeof rawTeamName === "string" ? rawTeamName.trim() : undefined
-  if (!teamId || !teamName) {
-    return undefined
+  const normalizePair = (id: unknown, name: unknown): SessionScope | undefined => {
+    const teamId = typeof id === "string" ? id.trim() : undefined
+    const teamName = typeof name === "string" ? name.trim() : undefined
+    return teamId && teamName ? { teamId, teamName } : undefined
   }
-  return { teamId, teamName }
+  return normalizePair(source.teamId, source.teamName) ?? normalizePair(source.organizationId, source.organizationName)
 }
 
 export type SessionPlacement = "all" | "project" | "task"

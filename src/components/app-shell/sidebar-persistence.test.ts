@@ -123,4 +123,16 @@ describe("sidebar persistence", () => {
     expect(values.get(legacyKey)).toBe('["project-a"]')
     expect(values.has(key)).toBe(false)
   })
+
+  test("falls back to valid legacy collapsed-project data when the current value is invalid", () => {
+    const storage = new MemoryStorage()
+    const key = "wanta.projectSidebarCollapsed:account-a:team:team-id"
+    const legacyKey = "wanta.projectSidebarCollapsed:account-a:organization:team-id"
+    storage.setItem(key, "{broken")
+    storage.setItem(legacyKey, '["project-a"]')
+
+    expect(readStoredCollapsedProjectIds(storage, key)).toEqual(new Set(["project-a"]))
+    expect(storage.getItem(key)).toBe('["project-a"]')
+    expect(storage.getItem(legacyKey)).toBeNull()
+  })
 })

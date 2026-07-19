@@ -5,6 +5,7 @@ import { mkdtemp, readdir, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
+import { normalizeSessionScopeValue } from "./common.ts"
 import { SessionMetadataStore } from "./metadata-store.ts"
 
 test("SessionMetadataStore persists scope, permission mode, knowledge, pinned, and archived metadata", async () => {
@@ -83,4 +84,24 @@ test("SessionMetadataStore migrates legacy organization scope fields", async () 
 
   const store = new SessionMetadataStore(dir)
   assert.deepEqual(await store.read(), new Map([["legacy", { scope: { teamId: "team-id", teamName: "team-name" } }]]))
+})
+
+test("normalizeSessionScopeValue never mixes partial current and legacy scope pairs", () => {
+  assert.deepEqual(
+    normalizeSessionScopeValue({
+      organizationId: "legacy-id",
+      organizationName: "legacy-name",
+      teamId: "current-id",
+    }),
+    { teamId: "legacy-id", teamName: "legacy-name" },
+  )
+  assert.deepEqual(
+    normalizeSessionScopeValue({
+      organizationId: "legacy-id",
+      organizationName: "legacy-name",
+      teamId: "current-id",
+      teamName: "current-name",
+    }),
+    { teamId: "current-id", teamName: "current-name" },
+  )
 })

@@ -20,7 +20,7 @@ function ConnectionDrawerLoadingFallback() {
   )
 }
 
-export function AppShellConnectionDrawer({
+export const AppShellConnectionDrawer = React.memo(function AppShellConnectionDrawer({
   authIntent,
   canManageConnections,
   connections,
@@ -61,4 +61,4 @@ export function AppShellConnectionDrawer({
       ) : null}
     </aside>
   )
-}
+})

@@ -35,6 +35,7 @@ export function useLocalArtifactThumbnail(item: LocalArtifactItem | null): strin
       return
     }
     const key = thumbnailCacheKey(item)
+    const controller = new AbortController()
     let promise = thumbnailCache.get(key)
     if (promise) {
       rememberThumbnail(key, promise)
@@ -43,6 +44,7 @@ export function useLocalArtifactThumbnail(item: LocalArtifactItem | null): strin
       promise = scheduleArtifactPreviewLoad(
         () => chatService.invoke("getLocalArtifactThumbnail", { path: item.path }).then((result) => result.dataUrl),
         "background",
+        controller.signal,
       ).catch(() => {
         thumbnailCache.delete(key)
         return null
@@ -57,6 +59,7 @@ export function useLocalArtifactThumbnail(item: LocalArtifactItem | null): strin
     })
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [chatService, item])
 

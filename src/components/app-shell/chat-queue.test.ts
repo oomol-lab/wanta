@@ -10,6 +10,7 @@ import {
   latestQueuedMessage,
   moveQueuedMessage,
   removeQueuedMessage,
+  settleQueuedMessageAfterDispatchFailure,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
 
@@ -22,6 +23,15 @@ function message(id: string, sessionId = "session-1"): QueuedChatMessage {
     createdAt: 1_700_000_000_000,
   }
 }
+
+test("failed queued dispatch stays consumed after optimistic submission", () => {
+  const first = message("first")
+  const second = message("second")
+  const queues = appendQueuedMessage(appendQueuedMessage({}, first), second)
+
+  assert.deepEqual(settleQueuedMessageAfterDispatchFailure(queues, first, true), { "session-1": [second] })
+  assert.equal(settleQueuedMessageAfterDispatchFailure(queues, first, false), queues)
+})
 
 describe("chat queue", () => {
   test("appends queued messages per session", () => {

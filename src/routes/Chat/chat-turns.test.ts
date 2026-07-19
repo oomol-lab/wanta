@@ -16,6 +16,7 @@ import {
   shouldShowSuggestedAuthorization,
   shouldShowTurnProcess,
   summarizeTurnProcess,
+  updateChatTurnGrouping,
 } from "./chat-turns.ts"
 
 function message(id: string, role: ChatMessage["role"], parts: ChatMessagePart[] = []): ChatMessage {
@@ -68,6 +69,50 @@ describe("groupChatTurns", () => {
 
     expect(stable[0]).toBe(previous[0])
     expect(stable[1]).toBe(next[1])
+  })
+
+  it("updates only the changed turn and keeps ID associations stable during streaming", () => {
+    const user1 = message("u1", "user", [text("u1-text", "first")])
+    const assistant1 = message("a1", "assistant", [text("a1-text", "done")])
+    const user2 = message("u2", "user", [text("u2-text", "second")])
+    const assistant2 = message("a2", "assistant", [text("a2-text", "partial")])
+    const initialMessages = [user1, assistant1, user2, assistant2]
+    const initialTurns = groupChatTurns(initialMessages)
+    const previous = {
+      associationTurns: initialTurns,
+      assistantMessageIdsKey: assistantMessageIdsKey(initialMessages),
+      messages: initialMessages,
+      turns: initialTurns,
+    }
+    const updatedAssistant2 = message("a2", "assistant", [text("a2-text", "partial answer")])
+
+    const next = updateChatTurnGrouping(previous, [user1, assistant1, user2, updatedAssistant2])
+
+    expect(next.turns[0]).toBe(initialTurns[0])
+    expect(next.turns[1]).not.toBe(initialTurns[1])
+    expect(next.turns[1]?.assistants).toEqual([updatedAssistant2])
+    expect(next.associationTurns).toBe(initialTurns)
+    expect(next.assistantMessageIdsKey).toBe(previous.assistantMessageIdsKey)
+  })
+
+  it("rebuilds ID associations when the message structure changes", () => {
+    const user = message("u1", "user")
+    const assistant = message("a1", "assistant")
+    const initialMessages = [user, assistant]
+    const initialTurns = groupChatTurns(initialMessages)
+    const previous = {
+      associationTurns: initialTurns,
+      assistantMessageIdsKey: assistantMessageIdsKey(initialMessages),
+      messages: initialMessages,
+      turns: initialTurns,
+    }
+    const nextAssistant = message("a2", "assistant")
+
+    const next = updateChatTurnGrouping(previous, [user, assistant, nextAssistant])
+
+    expect(next.associationTurns).toBe(next.turns)
+    expect(next.assistantMessageIdsKey).toBe("a1\na2")
+    expect(next.turns[0]?.assistants).toEqual([assistant, nextAssistant])
   })
 
   it("finds the latest assistant message without changing message order", () => {

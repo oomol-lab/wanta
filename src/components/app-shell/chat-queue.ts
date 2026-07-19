@@ -55,6 +55,15 @@ export function removeQueuedMessage(queues: ChatQueueMap, sessionId: string, mes
   return next
 }
 
+/** optimistic turn 已进入聊天记录时由 turn 自己承载失败恢复；否则原队列保持不变。 */
+export function settleQueuedMessageAfterDispatchFailure(
+  queues: ChatQueueMap,
+  message: QueuedChatMessage,
+  optimisticSubmitted: boolean,
+): ChatQueueMap {
+  return optimisticSubmitted ? removeQueuedMessage(queues, message.sessionId, message.id) : queues
+}
+
 export function moveQueuedMessage(
   queues: ChatQueueMap,
   sessionId: string,

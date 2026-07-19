@@ -20,6 +20,7 @@ import {
   clearQueuedMessages,
   moveQueuedMessage,
   removeQueuedMessage,
+  settleQueuedMessageAfterDispatchFailure,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -201,8 +202,11 @@ export function useChatQueueState({
       return
     }
     dispatchingQueuedSessionsRef.current.add(activeSessionId)
+    let optimisticSubmitted = false
     void sendQueuedMessage({
       afterOptimisticSubmit: () => {
+        optimisticSubmitted = true
+        // optimistic turn 已进入聊天记录，后续失败由该 turn 的错误恢复处理，不能再塞回队列造成重复发送。
         setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, message.id))
       },
       attachments: message.attachments,
@@ -217,19 +221,15 @@ export function useChatQueueState({
       text: message.text,
     })
       .then((result) => {
-        if (result.status !== "accepted") {
+        if (result.status === "failed") {
           setQueuedMessagesBySession((current) =>
-            current[activeSessionId]?.some((item) => item.id === message.id)
-              ? current
-              : appendQueuedMessage(current, message),
+            settleQueuedMessageAfterDispatchFailure(current, message, optimisticSubmitted),
           )
         }
       })
       .catch((cause: unknown) => {
         setQueuedMessagesBySession((current) =>
-          current[activeSessionId]?.some((item) => item.id === message.id)
-            ? current
-            : appendQueuedMessage(current, message),
+          settleQueuedMessageAfterDispatchFailure(current, message, optimisticSubmitted),
         )
         console.error("[wanta] dispatch queued message failed", cause)
         reportRendererHandledError("chatQueue.dispatch", "Failed to dispatch queued message", cause)

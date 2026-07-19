@@ -280,6 +280,7 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
   const [contextMenu, setContextMenu] = React.useState<ArtifactContextMenuState | null>(null)
   const previewCache = React.useRef<LocalArtifactPreviewCache>(new Map()).current
   const shellRef = React.useRef<HTMLElement | null>(null)
+  const navigationRequestRef = React.useRef(0)
   const [artifactListHeight, setArtifactListHeight] = React.useState(readArtifactListHeight)
   const [browseLevels, setBrowseLevels] = React.useState<ArtifactBrowseLevel[]>([])
   const groups = React.useMemo(() => {
@@ -337,10 +338,20 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
   }
 
   const showParent = (filePath: string | undefined): void => {
+    navigationRequestRef.current += 1
     showInFolder(filePath ?? selectedEntry?.group.root?.path)
   }
 
-  React.useEffect(() => {
+  const openArtifactPath = React.useCallback(
+    (path: string | undefined): void => {
+      navigationRequestRef.current += 1
+      openPath(path)
+    },
+    [openPath],
+  )
+
+  React.useLayoutEffect(() => {
+    navigationRequestRef.current += 1
     setBrowseLevels([])
   }, [selection])
 
@@ -361,18 +372,24 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
   }, [selection])
 
   const selectPreviewPath = React.useCallback((path: string): void => {
+    navigationRequestRef.current += 1
     setSelectedPath(path)
     setPreviewMode("preview")
   }, [])
 
   const enterFolder = React.useCallback(
     async (entry: ArtifactPanelEntry): Promise<void> => {
+      const requestId = navigationRequestRef.current + 1
+      navigationRequestRef.current = requestId
       if (entry.item.kind !== "directory") {
         openPath(entry.item.path)
         return
       }
       try {
         const result = await chatService.invoke("resolveLocalArtifacts", { artifactRoot: entry.item.path })
+        if (navigationRequestRef.current !== requestId) {
+          return
+        }
         const nextGroups = resolveArtifactResultPayloads(result).map((payload) => ({
           messageId: entry.messageId,
           ...payload,
@@ -392,6 +409,9 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
         setSelectedPath(firstPanelEntryPath(nextGroups))
         setPreviewMode("preview")
       } catch (cause) {
+        if (navigationRequestRef.current !== requestId) {
+          return
+        }
         reportRendererHandledError("generatedArtifacts.enterFolder", "Failed to resolve artifact folder", cause)
         const error = resolveUserFacingError(cause, { area: "artifact" })
         toast.error(userFacingErrorDescription(error, t))
@@ -402,6 +422,7 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
 
   const navigateToBreadcrumb = React.useCallback(
     (index: number): void => {
+      navigationRequestRef.current += 1
       if (index < 0) {
         const nextSelectedPath = browseLevels[0]?.path ?? firstPanelEntryPath(groups)
         setBrowseLevels([])
@@ -495,8 +516,9 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
         activeInfoPath={previewMode === "info" ? selectedItem?.path : null}
         menu={contextMenu}
         onClose={() => setContextMenu(null)}
-        onOpenPath={openPath}
+        onOpenPath={openArtifactPath}
         onToggleInfo={(item) => {
+          navigationRequestRef.current += 1
           if (previewMode === "info" && selectedItem?.path === item.path) {
             setPreviewMode("preview")
             return
@@ -565,7 +587,7 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
               baseCrumb={baseCrumb}
               browseLevels={browseLevels}
               selectedItem={selectedItem}
-              onOpenPath={openPath}
+              onOpenPath={openArtifactPath}
               onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
               onEnterFolder={(entry) => void enterFolder(entry)}
               onModeChange={setPreviewMode}
@@ -587,7 +609,7 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
                   truncated={activeGroups.some(({ group }) => group.truncated)}
                   onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
                   onEnterFolder={(entry) => void enterFolder(entry)}
-                  onOpenPath={openPath}
+                  onOpenPath={openArtifactPath}
                   onNavigateBreadcrumb={navigateToBreadcrumb}
                   onResizeDoubleClick={() => updateArtifactListHeight(artifactListDefaultHeightPx)}
                   onResizeKeyDown={handleArtifactListResizeKeyDown}
@@ -604,7 +626,7 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
                 previewCache={previewCache}
                 showHeader={false}
                 onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
-                onOpen={() => openPath(selectedItem?.path)}
+                onOpen={() => openArtifactPath(selectedItem?.path)}
               />
             </>
           )

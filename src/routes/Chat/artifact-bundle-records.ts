@@ -1,46 +1,33 @@
 import type { ArtifactBundle } from "../../../electron/chat/common.ts"
 
 import * as React from "react"
+import { useSessionRecordResource } from "./session-record-resource.ts"
 import { useChatService } from "@/components/AppContext"
 
 export function useArtifactBundles(sessionId: string | null, messageIdsKey: string): ArtifactBundle[] {
   const chatService = useChatService()
-  const [bundles, setBundles] = React.useState<ArtifactBundle[]>([])
-  const [refreshToken, setRefreshToken] = React.useState(0)
-
-  React.useEffect(
-    () =>
+  const key = sessionId && messageIdsKey ? `${sessionId}\0${messageIdsKey}` : null
+  const subscribe = React.useCallback(
+    (refresh: () => void) =>
       chatService.serverEvents.on("artifactBundleUpdated", (event) => {
-        if (!sessionId || event.sessionId === sessionId) {
-          setRefreshToken((value) => value + 1)
+        if (event.sessionId === sessionId) {
+          refresh()
         }
       }),
     [chatService, sessionId],
   )
-
-  React.useEffect(() => {
-    let cancelled = false
+  const load = React.useCallback(async (): Promise<ArtifactBundle[]> => {
     if (!sessionId || !messageIdsKey) {
-      setBundles([])
-      return
+      return []
     }
-    void chatService
-      .invoke("getArtifactBundles", { sessionId, messageIds: messageIdsKey.split("\n") })
-      .then((nextBundles) => {
-        if (!cancelled) {
-          setBundles(nextBundles.sort((left, right) => left.createdAt - right.createdAt))
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          console.error("[wanta] getArtifactBundles failed", error)
-          setBundles([])
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [chatService, messageIdsKey, refreshToken, sessionId])
-
-  return bundles
+    const bundles = await chatService.invoke("getArtifactBundles", {
+      sessionId,
+      messageIds: messageIdsKey.split("\n"),
+    })
+    return [...bundles].sort((left, right) => left.createdAt - right.createdAt)
+  }, [chatService, messageIdsKey, sessionId])
+  const onError = React.useCallback((error: unknown): void => {
+    console.error("[wanta] getArtifactBundles failed", error)
+  }, [])
+  return useSessionRecordResource({ key, load, onError, subscribe })
 }

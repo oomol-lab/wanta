@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest"
 import {
   chatTurnAllowsDirectSend,
   chatTurnAllowsStop,
-  chatTurnBlocksQueueDispatch,
   chatTurnQueuesNewMessage,
   chatTurnShowsGenerating,
   resolveChatTurnState,
@@ -20,7 +19,6 @@ describe("chat turn state", () => {
     expect(state).toEqual({ chatStatus: "ready", status: "idle" })
     expect(chatTurnAllowsDirectSend(state)).toBe(true)
     expect(chatTurnQueuesNewMessage(state)).toBe(false)
-    expect(chatTurnBlocksQueueDispatch(state)).toBe(false)
     expect(chatTurnAllowsStop(state)).toBe(false)
     expect(chatTurnShowsGenerating(state)).toBe(false)
   })
@@ -36,7 +34,6 @@ describe("chat turn state", () => {
     expect(state).toEqual({ chatStatus: "streaming", status: "streaming" })
     expect(chatTurnAllowsDirectSend(state)).toBe(false)
     expect(chatTurnQueuesNewMessage(state)).toBe(true)
-    expect(chatTurnBlocksQueueDispatch(state)).toBe(true)
     expect(chatTurnAllowsStop(state)).toBe(true)
     expect(chatTurnShowsGenerating(state)).toBe(true)
   })
@@ -52,7 +49,6 @@ describe("chat turn state", () => {
     expect(state).toEqual({ chatStatus: "ready", pendingPermissionCount: 1, status: "awaiting_permission" })
     expect(chatTurnAllowsDirectSend(state)).toBe(false)
     expect(chatTurnQueuesNewMessage(state)).toBe(true)
-    expect(chatTurnBlocksQueueDispatch(state)).toBe(true)
     expect(chatTurnAllowsStop(state)).toBe(false)
     expect(chatTurnShowsGenerating(state)).toBe(false)
   })
@@ -68,7 +64,6 @@ describe("chat turn state", () => {
     expect(state).toEqual({ chatStatus: "streaming", pendingPermissionCount: 1, status: "awaiting_permission" })
     expect(chatTurnAllowsDirectSend(state)).toBe(false)
     expect(chatTurnQueuesNewMessage(state)).toBe(true)
-    expect(chatTurnBlocksQueueDispatch(state)).toBe(true)
     expect(chatTurnAllowsStop(state)).toBe(false)
     expect(chatTurnShowsGenerating(state)).toBe(false)
   })
@@ -84,7 +79,6 @@ describe("chat turn state", () => {
     expect(state).toEqual({ chatStatus: "streaming", pendingQuestionCount: 1, status: "awaiting_question" })
     expect(chatTurnAllowsDirectSend(state)).toBe(false)
     expect(chatTurnQueuesNewMessage(state)).toBe(true)
-    expect(chatTurnBlocksQueueDispatch(state)).toBe(true)
     expect(chatTurnAllowsStop(state)).toBe(true)
     expect(chatTurnShowsGenerating(state)).toBe(false)
   })
@@ -100,7 +94,6 @@ describe("chat turn state", () => {
     expect(state).toEqual({ chatStatus: "ready", pendingQuestionCount: 1, status: "awaiting_question" })
     expect(chatTurnAllowsDirectSend(state)).toBe(false)
     expect(chatTurnQueuesNewMessage(state)).toBe(true)
-    expect(chatTurnBlocksQueueDispatch(state)).toBe(true)
     expect(chatTurnAllowsStop(state)).toBe(false)
     expect(chatTurnShowsGenerating(state)).toBe(false)
   })
@@ -116,7 +109,6 @@ describe("chat turn state", () => {
     expect(state).toEqual({ chatStatus: "error", status: "failed" })
     expect(chatTurnAllowsDirectSend(state)).toBe(true)
     expect(chatTurnQueuesNewMessage(state)).toBe(false)
-    expect(chatTurnBlocksQueueDispatch(state)).toBe(false)
     expect(chatTurnAllowsStop(state)).toBe(false)
     expect(chatTurnShowsGenerating(state)).toBe(false)
   })

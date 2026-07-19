@@ -119,6 +119,7 @@ function loadCachedArtifactPreview(
   item: LocalArtifactItem,
   load: () => Promise<LocalArtifactPreviewResult>,
   priority: ArtifactPreviewLoadPriority,
+  signal: AbortSignal,
 ): Promise<LocalArtifactPreviewResult> {
   const key = artifactPreviewCacheKey(item)
   const cached = cache.get(key)
@@ -130,7 +131,7 @@ function loadCachedArtifactPreview(
     rememberArtifactPreview(cache, key, cached)
     return cached.promise
   }
-  const promise = scheduleArtifactPreviewLoad(load, priority)
+  const promise = scheduleArtifactPreviewLoad(load, priority, signal)
     .then((result) => {
       rememberArtifactPreview(cache, key, { estimatedBytes: artifactPreviewEstimatedBytes(result), result })
       return result
@@ -186,12 +187,14 @@ export function useLocalArtifactPreview(
       return
     }
     let cancelled = false
+    const controller = new AbortController()
     setLoading(true)
     void loadCachedArtifactPreview(
       previewCache,
       item,
       () => chatService.invoke("getLocalArtifactPreview", { path: item.path }),
       priority,
+      controller.signal,
     )
       .then((result) => {
         if (!cancelled) {
@@ -205,6 +208,7 @@ export function useLocalArtifactPreview(
       })
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [chatService, item, previewCache, priority, reloadVersion])
 

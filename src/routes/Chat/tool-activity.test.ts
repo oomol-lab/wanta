@@ -14,21 +14,7 @@ import {
   toolActivityTitle,
 } from "./tool-activity.ts"
 
-const labels: Record<string, string> = {
-  "chat.toolCategoryConnector": "connector",
-  "chat.toolCategoryShell": "shell",
-  "chat.toolCategoryFile": "file",
-  "chat.toolCategoryWeb": "web",
-  "chat.toolCategoryTask": "task",
-  "chat.toolCategorySkill": "skill",
-  "chat.toolCategoryCustom": "custom",
-  "chat.toolCategoryMixed": "mixed",
-}
-
 const t: TranslateFn = (key, vars) => {
-  if (labels[key]) {
-    return labels[key]
-  }
   return `${key}:${vars?.count ?? ""}`
 }
 

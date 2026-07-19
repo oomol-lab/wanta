@@ -346,7 +346,3 @@ export function toolActionSummary(t: TranslateFn, part: ChatMessagePart): string
       return t("chat.toolGeneric", { detail: compactToolDetail(fallbackDetail) })
   }
 }
-
-export function toolInputString(value: unknown): string {
-  return str(value)
-}

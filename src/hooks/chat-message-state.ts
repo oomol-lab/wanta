@@ -534,32 +534,39 @@ export function applyCancelledToolParts(
 
 export function setTextPart(msgs: ChatMessage[], event: MessageDeltaEvent): ChatMessage[] {
   const ensured = ensureMessage(msgs, event.messageId, "assistant")
-  return ensured.map((message) => {
-    if (message.id !== event.messageId) {
-      return message
-    }
-    const parts =
-      message.role === "user"
-        ? message.parts.filter((part) => !(part.kind === "text" && part.partId === "local"))
-        : message.parts
-    const existing = parts.find((part) => part.partId === event.partId)
-    const currentText = existing?.kind === "text" ? (existing.text ?? "") : ""
-    const text = event.text || (event.delta ? currentText + event.delta : currentText)
-    return { ...message, parts: upsertPart(parts, { kind: "text", partId: event.partId, text }) }
-  })
+  const messageIndex = ensured.findIndex((message) => message.id === event.messageId)
+  const message = ensured[messageIndex]
+  if (!message) {
+    return ensured
+  }
+  const parts =
+    message.role === "user"
+      ? message.parts.filter((part) => !(part.kind === "text" && part.partId === "local"))
+      : message.parts
+  const existing = parts.find((part) => part.partId === event.partId)
+  const currentText = existing?.kind === "text" ? (existing.text ?? "") : ""
+  const text = event.text || (event.delta ? currentText + event.delta : currentText)
+  const next = ensured.slice()
+  next[messageIndex] = { ...message, parts: upsertPart(parts, { kind: "text", partId: event.partId, text }) }
+  return next
 }
 
 export function setReasoningPart(msgs: ChatMessage[], event: MessageReasoningDeltaEvent): ChatMessage[] {
   const ensured = ensureMessage(msgs, event.messageId, "assistant")
-  return ensured.map((message) => {
-    if (message.id !== event.messageId) {
-      return message
-    }
-    const existing = message.parts.find((part) => part.partId === event.partId)
-    const currentText = existing?.kind === "reasoning" ? (existing.text ?? "") : ""
-    const text = event.text || (event.delta ? currentText + event.delta : currentText)
-    return { ...message, parts: upsertPart(message.parts, { kind: "reasoning", partId: event.partId, text }) }
-  })
+  const messageIndex = ensured.findIndex((message) => message.id === event.messageId)
+  const message = ensured[messageIndex]
+  if (!message) {
+    return ensured
+  }
+  const existing = message.parts.find((part) => part.partId === event.partId)
+  const currentText = existing?.kind === "reasoning" ? (existing.text ?? "") : ""
+  const text = event.text || (event.delta ? currentText + event.delta : currentText)
+  const next = ensured.slice()
+  next[messageIndex] = {
+    ...message,
+    parts: upsertPart(message.parts, { kind: "reasoning", partId: event.partId, text }),
+  }
+  return next
 }
 
 export function hasVisibleMessageDelta(event: MessageDeltaEvent): boolean {

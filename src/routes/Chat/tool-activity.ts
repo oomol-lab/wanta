@@ -210,27 +210,6 @@ function toolActivityTitleKind(parts: ChatMessagePart[], category: ToolCategory)
   }
 }
 
-export function toolCategoryLabel(t: TranslateFn, category: ToolCategory): string {
-  switch (category) {
-    case "connector":
-      return t("chat.toolCategoryConnector")
-    case "shell":
-      return t("chat.toolCategoryShell")
-    case "file":
-      return t("chat.toolCategoryFile")
-    case "web":
-      return t("chat.toolCategoryWeb")
-    case "task":
-      return t("chat.toolCategoryTask")
-    case "skill":
-      return t("chat.toolCategorySkill")
-    case "custom":
-      return t("chat.toolCategoryCustom")
-    case "mixed":
-      return t("chat.toolCategoryMixed")
-  }
-}
-
 export function formatToolDuration(part: ChatMessagePart, now = Date.now()): string | null {
   const start = part.timing?.start
   const end = part.timing?.end ?? (isActiveToolPart(part) ? now : undefined)

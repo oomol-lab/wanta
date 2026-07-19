@@ -423,6 +423,10 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
     return timer
   }, [])
 
+  const unmarkSessionUserStopped = React.useCallback((sessionId: string) => {
+    userStoppedSessions.current.delete(sessionId)
+  }, [])
+
   const isSessionUserStopped = React.useCallback((sessionId: string): boolean => {
     const expiresAt = userStoppedSessions.current.get(sessionId)
     if (!expiresAt) {
@@ -924,18 +928,20 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       setGlobalError(null)
       clearSessionError(sessionId)
       markSessionUserStopped(sessionId)
-      markCurrentToolsCancelled(sessionId)
-      clearPendingQuestions(sessionId)
-      clearPendingPermissions(sessionId)
       try {
         await chatService.invoke("stopGeneration", sessionId)
+        markCurrentToolsCancelled(sessionId)
+        clearPendingQuestions(sessionId)
+        clearPendingPermissions(sessionId)
         setStatus(sessionId, "ready")
         setActivity(sessionId, undefined)
       } catch (err) {
+        unmarkSessionUserStopped(sessionId)
         reportRendererHandledError("chat", "stopGeneration invoke failed", err)
         setStatus(sessionId, "error")
         setActivity(sessionId, undefined)
         setSessionError(sessionId, String(err))
+        throw err
       }
     },
     [
@@ -948,6 +954,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       setActivity,
       setSessionError,
       setStatus,
+      unmarkSessionUserStopped,
     ],
   )
 

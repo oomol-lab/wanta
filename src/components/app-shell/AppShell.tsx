@@ -88,7 +88,12 @@ import { billingRequestScopeForWorkspace } from "@/lib/billing-scope"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
-import { chatTurnAllowsDirectSend, chatTurnQueuesNewMessage, resolveChatTurnState } from "@/routes/Chat/chat-turn-state"
+import {
+  chatTurnAllowsDirectSend,
+  chatTurnAllowsStop,
+  chatTurnQueuesNewMessage,
+  resolveChatTurnState,
+} from "@/routes/Chat/chat-turn-state"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 import { summarizeEmptyStateConnections } from "@/routes/Chat/empty-state-connections"
@@ -1408,9 +1413,17 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setSearchOpen(false)
     setRoute("settings")
   }, [])
+  const handleArtifactsToggle = React.useCallback((): void => {
+    setArtifactsPanelOpen((open) => !open)
+  }, [setArtifactsPanelOpen])
+  const handleOpenKnowledgeLibrary = React.useCallback((): void => {
+    setRoute("knowledge")
+  }, [])
   const handleStopGenerationCommand = React.useCallback((): void => {
-    void handleChatStop()
-  }, [handleChatStop])
+    if (chatTurnAllowsStop(activeChatTurnState)) {
+      void handleChatStop().catch(() => undefined)
+    }
+  }, [activeChatTurnState, handleChatStop])
   useAppShellCommands({
     appUpdate,
     onFocusComposer: requestComposerFocus,
@@ -1524,6 +1537,39 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       visibleProjects,
     ],
   )
+  const handleArchiveProjectDialog = React.useCallback(
+    (project: Parameters<typeof projectActions.handleArchive>[0]): void => {
+      void projectActions.handleArchive(project)
+    },
+    [projectActions.handleArchive],
+  )
+  const handleArchiveSessionDialog = React.useCallback(
+    (session: Parameters<typeof sessionActions.handleArchive>[0]): void => {
+      void sessionActions.handleArchive(session)
+    },
+    [sessionActions.handleArchive],
+  )
+  const handleCloseSearch = React.useCallback((): void => setSearchOpen(false), [])
+  const handleRemoveProjectDialog = React.useCallback(
+    (project: Parameters<typeof projectActions.handleRemove>[0]): void => {
+      void projectActions.handleRemove(project)
+    },
+    [projectActions.handleRemove],
+  )
+  const handleRenameProjectDialog = React.useCallback(
+    (projectId: string, name: string): void => {
+      void projectActions.handleRename(projectId, name)
+    },
+    [projectActions.handleRename],
+  )
+  const handleSearchSelect = React.useCallback(
+    (session: SessionInfo): void => {
+      handleSelectSession(session)
+      setPendingChatTransition(null)
+      setSearchOpen(false)
+    },
+    [handleSelectSession],
+  )
 
   if (route === "settings") {
     return (
@@ -1617,7 +1663,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         onLogout={auth.logout}
         onNavigate={setRoute}
         onNewSession={handleNewSessionWithKnowledgeReset}
-        onOpenConnections={() => handleOpenConnections()}
+        onOpenConnections={handleOpenConnectionsCommand}
         onOpenSearch={handleOpenSearch}
         onPinProject={projectActions.handlePin}
         onPinSession={sessionActions.handlePin}
@@ -1658,7 +1704,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             titlebarEditable={titlebarEditable}
             titlebarTitle={titlebarTitle}
             workspace={organizationWorkspace.activeWorkspace}
-            onArtifactsToggle={() => setArtifactsPanelOpen((open) => !open)}
+            onArtifactsToggle={handleArtifactsToggle}
             onOpenSearch={handleOpenSearch}
             onRenameSession={sessionActions.handleRename}
             onToggleSidebar={handleToggleSidebar}
@@ -1772,7 +1818,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       onTurnOutputAvailable={handleTurnOutputAvailable}
                       onOpenConnections={handleOpenConnections}
                       onOpenConnectionProvider={handleOpenChatConnectionProvider}
-                      onOpenKnowledgeLibrary={() => setRoute("knowledge")}
+                      onOpenKnowledgeLibrary={handleOpenKnowledgeLibrary}
                       onOpenOrganizations={handleOpenOrganizations}
                       onSelectKnowledgeBase={handleAddKnowledgeBaseReference}
                       onViewBilling={handleViewBilling}
@@ -1821,22 +1867,18 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         renameProjectTarget={projectActions.renameTarget}
         renameSession={sessionActions.renameTarget}
         sessions={visibleSessions}
-        onArchiveProject={(project) => void projectActions.handleArchive(project)}
-        onArchiveSession={(session) => void sessionActions.handleArchive(session)}
+        onArchiveProject={handleArchiveProjectDialog}
+        onArchiveSession={handleArchiveSessionDialog}
         onCloseArchiveProject={projectActions.closeArchive}
         onCloseArchiveSession={sessionActions.closeArchive}
         onCloseRemoveProject={projectActions.closeRemove}
         onCloseRenameProject={projectActions.closeRename}
         onCloseRenameSession={sessionActions.closeRename}
-        onCloseSearch={() => setSearchOpen(false)}
-        onRemoveProject={(project) => void projectActions.handleRemove(project)}
-        onRenameProject={(projectId, name) => void projectActions.handleRename(projectId, name)}
+        onCloseSearch={handleCloseSearch}
+        onRemoveProject={handleRemoveProjectDialog}
+        onRenameProject={handleRenameProjectDialog}
         onRenameSession={sessionActions.handleRename}
-        onSearchSelect={(session) => {
-          handleSelectSession(session)
-          setPendingChatTransition(null)
-          setSearchOpen(false)
-        }}
+        onSearchSelect={handleSearchSelect}
       />
     </div>
   )

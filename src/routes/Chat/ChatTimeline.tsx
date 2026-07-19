@@ -11,6 +11,7 @@ import type { ChatErrorKind } from "../../../electron/chat/error.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ResolvedArtifactGroup } from "./artifact-resolution.ts"
 import type { ChatTurn, ChatTurnRetrySource } from "./chat-turns.ts"
+import type { ChatTurnGrouping } from "./chat-turns.ts"
 import type { QuestionDraftStore } from "./question-fields.ts"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
@@ -30,15 +31,13 @@ import { shouldRenderConnectionSuggestion } from "./assistant-turn-renderer-mode
 import { TurnProcessActivity } from "./AssistantTurnRenderer.tsx"
 import {
   activityForChatTurn,
-  assistantMessageIdsKey,
-  groupChatTurns,
   latestAssistantMessage,
   retrySourceFromTurn,
-  reuseStableChatTurns,
   shouldShowPlainTurnActivity,
   shouldShowSuggestedAuthorization,
   shouldShowTurnProcess,
   summarizeTurnProcess,
+  updateChatTurnGrouping,
 } from "./chat-turns.ts"
 import {
   AssistantMessageActions,
@@ -405,17 +404,21 @@ export const ChatTimeline = React.memo(function ChatTimeline({
 }: ChatTimelineProps) {
   const conversationRef = React.useRef<StickToBottomContext | null>(null)
   const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
-  const stableTurnsRef = React.useRef<ChatTurn[]>([])
+  const turnGroupingRef = React.useRef<ChatTurnGrouping>({
+    associationTurns: [],
+    assistantMessageIdsKey: "",
+    messages: [],
+    turns: [],
+  })
   const artifactGroupsByMessageIdRef = React.useRef<Map<string, ResolvedArtifactGroup[]>>(new Map())
   const artifactGroupsByTurnIdRef = React.useRef<Map<string, ResolvedArtifactGroup[]>>(new Map())
   const latestAssistant = React.useMemo(() => latestAssistantMessage(messages), [messages])
-  const groupedTurns = React.useMemo(() => groupChatTurns(messages), [messages])
-  const turns = React.useMemo(() => {
-    const stableTurns = reuseStableChatTurns(stableTurnsRef.current, groupedTurns)
-    stableTurnsRef.current = stableTurns
-    return stableTurns
-  }, [groupedTurns])
-  const messageIdsKey = React.useMemo(() => assistantMessageIdsKey(messages), [messages])
+  const turnGrouping = React.useMemo(() => {
+    const next = updateChatTurnGrouping(turnGroupingRef.current, messages)
+    turnGroupingRef.current = next
+    return next
+  }, [messages])
+  const { associationTurns, assistantMessageIdsKey: messageIdsKey, turns } = turnGrouping
   const artifactBundles = useArtifactBundles(activeSessionId, messageIdsKey)
   const turnOutputRecords = useTurnOutputRecords(activeSessionId, messageIdsKey)
   const turnOutputRecordsByMessage = React.useMemo(
@@ -423,8 +426,8 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     [turnOutputRecords],
   )
   const turnOutputRecordsByTurn = React.useMemo(
-    () => turnOutputRecordsByTurnId(turns, turnOutputRecordsByMessage),
-    [turnOutputRecordsByMessage, turns],
+    () => turnOutputRecordsByTurnId(associationTurns, turnOutputRecordsByMessage),
+    [associationTurns, turnOutputRecordsByMessage],
   )
   const latestTurnOutputRecord = turnOutputRecords.at(-1)
   const providerByService = React.useMemo(
@@ -482,7 +485,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   }, [visibleArtifactGroups])
   const artifactGroupsByTurnId = React.useMemo(() => {
     const byTurnId = new Map<string, ResolvedArtifactGroup[]>()
-    for (const turn of turns) {
+    for (const turn of associationTurns) {
       const groups = turn.assistants.flatMap((message) => artifactGroupsByMessageId.get(message.id) ?? [])
       if (groups.length > 0) {
         byTurnId.set(turn.id, groups)
@@ -491,7 +494,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     const stable = reuseStableArtifactGroupMap(artifactGroupsByTurnIdRef.current, byTurnId)
     artifactGroupsByTurnIdRef.current = stable
     return stable
-  }, [artifactGroupsByMessageId, turns])
+  }, [artifactGroupsByMessageId, associationTurns])
   const latestArtifactGroupMessageId = visibleArtifactGroups.at(-1)?.messageId
   React.useEffect(() => {
     if (latestTurnOutputRecord) {

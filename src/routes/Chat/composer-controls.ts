@@ -1,6 +1,7 @@
+import type { ChatTurnState } from "./chat-turn-state.ts"
 import type { ChatStatus } from "ai"
 
-import { chatTurnAllowsStop, chatTurnShowsGenerating, resolveChatTurnState } from "./chat-turn-state.ts"
+import { chatTurnAllowsStop, chatTurnShowsGenerating } from "./chat-turn-state.ts"
 
 export type ComposerVoiceControlMode =
   | "idle"
@@ -47,31 +48,22 @@ export function composerVoiceControlMode({
 
 export function composerSubmitState({
   canSubmit,
-  initialSendPending,
-  isGenerating,
-  status,
+  turnState,
   willQueueMessage,
 }: {
   canSubmit: boolean
-  initialSendPending: boolean
-  isGenerating: boolean
-  status: ChatStatus
+  turnState: ChatTurnState
   willQueueMessage: boolean
 }): ComposerSubmitState {
-  const turnState = resolveChatTurnState({
-    initialSendPending,
-    pendingPermissionCount: 0,
-    pendingQuestionCount: 0,
-    status,
-  })
+  const initialSendPending = turnState.status === "submitting" && turnState.initialSendPending
   const canStop = chatTurnAllowsStop(turnState)
-  const showGenerating = isGenerating || chatTurnShowsGenerating(turnState)
+  const showGenerating = chatTurnShowsGenerating(turnState)
   const queueSendAvailable = willQueueMessage && canSubmit && !initialSendPending
   return {
     aria: initialSendPending ? "sending" : queueSendAvailable ? "queue" : canStop ? "stop" : "send",
     disabled: initialSendPending ? true : queueSendAvailable ? false : canStop ? false : !canSubmit,
     queuesMessage: queueSendAvailable,
     stopsGeneration: canStop && !initialSendPending && !queueSendAvailable,
-    visualStatus: showGenerating && !queueSendAvailable ? status : undefined,
+    visualStatus: showGenerating && !queueSendAvailable ? turnState.chatStatus : undefined,
   }
 }

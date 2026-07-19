@@ -2,6 +2,7 @@ import type { TurnOutputRecord, TurnOutputFileRole } from "../../../electron/cha
 import type { ChatTurn } from "./chat-turns.ts"
 
 import * as React from "react"
+import { useSessionRecordResource } from "./session-record-resource.ts"
 import { useChatService } from "@/components/AppContext"
 
 function visibleTurnOutputRecords(records: TurnOutputRecord[]): TurnOutputRecord[] {
@@ -47,46 +48,30 @@ export function turnOutputRecordsByTurnId(
 
 export function useTurnOutputRecords(sessionId: string | null, messageIdsKey: string): TurnOutputRecord[] {
   const chatService = useChatService()
-  const [records, setRecords] = React.useState<TurnOutputRecord[]>([])
-  const [refreshToken, setRefreshToken] = React.useState(0)
-
-  React.useEffect(() => {
-    return chatService.serverEvents.on("turnOutputUpdated", (event) => {
-      if (!sessionId || event.sessionId === sessionId) {
-        setRefreshToken((value) => value + 1)
-      }
-    })
-  }, [chatService, sessionId])
-
-  React.useEffect(() => {
-    let cancelled = false
+  const key = sessionId && messageIdsKey ? `${sessionId}\0${messageIdsKey}` : null
+  const subscribe = React.useCallback(
+    (refresh: () => void) =>
+      chatService.serverEvents.on("turnOutputUpdated", (event) => {
+        if (event.sessionId === sessionId) {
+          refresh()
+        }
+      }),
+    [chatService, sessionId],
+  )
+  const load = React.useCallback(async (): Promise<TurnOutputRecord[]> => {
     if (!sessionId || !messageIdsKey) {
-      setRecords([])
-      return
+      return []
     }
-    const messageIds = messageIdsKey.split("\n")
-    void chatService
-      .invoke("getTurnOutputs", { sessionId, messageIds })
-      .then((nextRecords) => {
-        if (cancelled) {
-          return
-        }
-        setRecords(
-          visibleTurnOutputRecords(nextRecords).sort(
-            (left, right) => turnOutputRecordSortValue(left) - turnOutputRecordSortValue(right),
-          ),
-        )
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          console.error("[wanta] getTurnOutputs failed", error)
-          setRecords([])
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [chatService, messageIdsKey, refreshToken, sessionId])
-
-  return records
+    const records = await chatService.invoke("getTurnOutputs", {
+      sessionId,
+      messageIds: messageIdsKey.split("\n"),
+    })
+    return visibleTurnOutputRecords(records).sort(
+      (left, right) => turnOutputRecordSortValue(left) - turnOutputRecordSortValue(right),
+    )
+  }, [chatService, messageIdsKey, sessionId])
+  const onError = React.useCallback((error: unknown): void => {
+    console.error("[wanta] getTurnOutputs failed", error)
+  }, [])
+  return useSessionRecordResource({ key, load, onError, subscribe })
 }

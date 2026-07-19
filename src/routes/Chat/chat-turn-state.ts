@@ -63,10 +63,6 @@ export function chatTurnAllowsStop(state: ChatTurnState): boolean {
   )
 }
 
-export function chatTurnBlocksQueueDispatch(state: ChatTurnState): boolean {
-  return chatTurnQueuesNewMessage(state)
-}
-
 export function chatTurnShowsGenerating(state: ChatTurnState): boolean {
   return state.status === "submitting" || state.status === "streaming"
 }

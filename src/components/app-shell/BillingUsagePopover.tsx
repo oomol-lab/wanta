@@ -1,4 +1,4 @@
-import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
+import type { WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 
 import {
   ArrowRightIcon,

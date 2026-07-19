@@ -1,5 +1,5 @@
 import type { AppShellRoute } from "./app-shell-types.ts"
-import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
+import type { UseTeamWorkspace, WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 
 import {
   AlertTriangle,
@@ -26,7 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { organizationAvatarStyle, organizationInitials } from "@/hooks/useOrganizationWorkspace"
+import { teamAvatarStyle, teamInitials } from "@/hooks/useTeamWorkspace"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
@@ -36,9 +36,9 @@ function accountInitial(name?: string): string {
 }
 
 function WorkspaceAvatar({ className = "size-7", workspace }: { className?: string; workspace: WorkspaceSelection }) {
-  const avatarUrl = workspace.avatarPreviewUrl ?? workspace.organization?.avatar
-  const fallback = organizationInitials(workspace.organization?.name ?? workspace.organizationId)
-  const fallbackStyle = organizationAvatarStyle(workspace.organizationId)
+  const avatarUrl = workspace.avatarPreviewUrl ?? workspace.team?.avatar
+  const fallback = teamInitials(workspace.team?.name ?? workspace.teamId)
+  const fallbackStyle = teamAvatarStyle(workspace.teamId)
 
   return (
     <span
@@ -58,25 +58,25 @@ function WorkspaceAvatar({ className = "size-7", workspace }: { className?: stri
 
 function WorkspaceMenuContent({
   loading,
-  onManageOrganizations,
+  onManageTeams,
   onRefresh,
-  onSelectOrganization,
+  onSelectTeam,
   error,
-  getOrganizationCanManage,
-  getOrganizationRole,
+  getTeamCanManage,
+  getTeamRole,
   hasLoaded,
-  organizations,
+  teams,
   workspace,
 }: {
-  error: UseOrganizationWorkspace["error"]
-  getOrganizationCanManage: UseOrganizationWorkspace["getOrganizationCanManage"]
-  getOrganizationRole: UseOrganizationWorkspace["getOrganizationRole"]
+  error: UseTeamWorkspace["error"]
+  getTeamCanManage: UseTeamWorkspace["getTeamCanManage"]
+  getTeamRole: UseTeamWorkspace["getTeamRole"]
   hasLoaded: boolean
   loading: boolean
-  onManageOrganizations: () => void
+  onManageTeams: () => void
   onRefresh: () => void
-  onSelectOrganization: (organizationId: string) => void
-  organizations: UseOrganizationWorkspace["organizations"]
+  onSelectTeam: (teamId: string) => void
+  teams: UseTeamWorkspace["teams"]
   workspace: WorkspaceSelection
 }) {
   const t = useT()
@@ -89,12 +89,12 @@ function WorkspaceMenuContent({
   return (
     <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-72">
       <div className="flex items-center justify-between gap-2 px-2 py-1.5">
-        <div className="min-w-0 truncate text-sm font-medium">{t("organizations.workspaceGroup")}</div>
+        <div className="min-w-0 truncate text-sm font-medium">{t("teams.workspaceGroup")}</div>
         <DropdownMenuItem
           className="flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
           disabled={loading}
-          title={error ? t("organizations.retry") : t("organizations.refreshWorkspaces")}
-          aria-label={error ? t("organizations.retry") : t("organizations.refreshWorkspaces")}
+          title={error ? t("teams.retry") : t("teams.refreshWorkspaces")}
+          aria-label={error ? t("teams.retry") : t("teams.refreshWorkspaces")}
           onSelect={(event) => {
             event.preventDefault()
             onRefresh()
@@ -111,36 +111,36 @@ function WorkspaceMenuContent({
       {showRefreshWarning ? (
         <div className="oo-text-caption-compact mx-2 my-1.5 flex min-w-0 items-start gap-2 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-2.5 py-2 text-muted-foreground">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--oo-warning-foreground)]" />
-          <span className="min-w-0">{t("organizations.refreshFailedDescription")}</span>
+          <span className="min-w-0">{t("teams.refreshFailedDescription")}</span>
         </div>
       ) : null}
-      {organizations.map((organization) => {
-        const selected = activeKey === `organization:${organization.id}`
-        const role = getOrganizationRole(organization)
-        const canManage = getOrganizationCanManage(organization)
+      {teams.map((team) => {
+        const selected = activeKey === `team:${team.id}`
+        const role = getTeamRole(team)
+        const canManage = getTeamCanManage(team)
         return (
           <DropdownMenuItem
-            key={organization.id}
+            key={team.id}
             className={workspaceItemClassName}
-            onSelect={() => onSelectOrganization(organization.id)}
+            onSelect={() => onSelectTeam(team.id)}
             data-active={selected}
             aria-current={selected ? "true" : undefined}
           >
-            <WorkspaceAvatar workspace={{ canManage, organization, organizationId: organization.id, role }} />
-            <span className="min-w-0 flex-1 truncate">{organization.name}</span>
+            <WorkspaceAvatar workspace={{ canManage, team, teamId: team.id, role }} />
+            <span className="min-w-0 flex-1 truncate">{team.name}</span>
             <Badge variant="outline" className="flex w-full justify-end px-0 text-right font-normal">
-              {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+              {role === "creator" ? t("teams.roleCreator") : t("teams.roleMember")}
             </Badge>
           </DropdownMenuItem>
         )
       })}
-      {!loading && organizations.length === 0 && !showBlockingError ? (
-        <div className="oo-text-caption oo-text-muted px-2 py-1.5">{t("organizations.emptyOrganizations")}</div>
+      {!loading && teams.length === 0 && !showBlockingError ? (
+        <div className="oo-text-caption oo-text-muted px-2 py-1.5">{t("teams.emptyTeams")}</div>
       ) : null}
       <DropdownMenuSeparator />
-      <DropdownMenuItem onSelect={onManageOrganizations}>
+      <DropdownMenuItem onSelect={onManageTeams}>
         <Building2 className="size-4" />
-        {t("organizations.manageOrganizations")}
+        {t("teams.manageTeams")}
       </DropdownMenuItem>
     </DropdownMenuContent>
   )
@@ -164,7 +164,7 @@ export function SidebarFooterControls({
   onNavigate: (route: AppShellRoute) => void
   onLogout: () => void
   onWorkspaceSwitchStart: (targetScopeKey: string) => void
-  workspace: UseOrganizationWorkspace
+  workspace: UseTeamWorkspace
   workspaceSwitching: boolean
 }) {
   const t = useT()
@@ -172,7 +172,7 @@ export function SidebarFooterControls({
   const [accountMenuOpen, setAccountMenuOpen] = React.useState(false)
   const trimmedAccountName = accountName?.trim()
   const displayName = trimmedAccountName || t("settings.account")
-  const activeWorkspaceLabel = workspace.activeWorkspace.organization?.name ?? t("organizations.workspace")
+  const activeWorkspaceLabel = workspace.activeWorkspace.team?.name ?? t("teams.workspace")
   const workspaceButtonTitle = workspaceSwitching ? t("sidebar.switchingAccount") : activeWorkspaceLabel
 
   React.useEffect(() => {
@@ -206,7 +206,7 @@ export function SidebarFooterControls({
             type="button"
             className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left disabled:cursor-default disabled:opacity-80"
             aria-busy={workspaceSwitching}
-            aria-label={workspaceSwitching ? t("sidebar.switchingAccount") : t("organizations.workspaceSwitcher")}
+            aria-label={workspaceSwitching ? t("sidebar.switchingAccount") : t("teams.workspaceSwitcher")}
             aria-expanded={workspaceMenuOpen}
             disabled={workspaceSwitching}
             title={workspaceButtonTitle}
@@ -226,21 +226,21 @@ export function SidebarFooterControls({
         </DropdownMenuTrigger>
         <WorkspaceMenuContent
           error={workspace.error}
-          getOrganizationCanManage={workspace.getOrganizationCanManage}
-          getOrganizationRole={workspace.getOrganizationRole}
+          getTeamCanManage={workspace.getTeamCanManage}
+          getTeamRole={workspace.getTeamRole}
           hasLoaded={workspace.hasLoaded}
           loading={workspace.loading}
-          organizations={workspace.organizations}
+          teams={workspace.teams}
           workspace={workspace.activeWorkspace}
-          onManageOrganizations={() => {
+          onManageTeams={() => {
             closeMenus()
-            onNavigate("organizations")
+            onNavigate("teams")
           }}
           onRefresh={() => void workspace.refresh({ forceRefresh: true })}
-          onSelectOrganization={(organizationId) => {
+          onSelectTeam={(teamId) => {
             closeMenus()
-            onWorkspaceSwitchStart(`organization:${organizationId}`)
-            workspace.selectOrganization(organizationId)
+            onWorkspaceSwitchStart(`team:${teamId}`)
+            workspace.selectTeam(teamId)
           }}
         />
       </DropdownMenu>

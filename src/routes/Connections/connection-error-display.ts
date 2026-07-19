@@ -67,7 +67,7 @@ function connectionDetailPermissionDisplayError(error: UserFacingError): UserFac
 
   return {
     ...error,
-    descriptionKey: "error.connections.permissionConfigure.organization.description",
+    descriptionKey: "error.connections.permissionConfigure.team.description",
     descriptionText: undefined,
     titleKey: "error.connections.permissionConfigure.title",
   }

@@ -72,12 +72,12 @@ export interface ConnectionAuthIntent {
   source: "chat"
 }
 
-/** 组织连接状态是成员可读摘要；管理权限只控制连接、重连和断开等写操作。 */
+/** 团队连接状态是成员可读摘要；管理权限只控制连接、重连和断开等写操作。 */
 export function shouldShowConnectionState(appsStatus: ConnectionAppsStatus | undefined): boolean {
   return appsStatus === "ready"
 }
 
-/** 写操作要求当前用户可管理连接，且组织连接状态仍是服务端确认的最新状态。 */
+/** 写操作要求当前用户可管理连接，且团队连接状态仍是服务端确认的最新状态。 */
 export function canMutateConnections(
   canManageConnections: boolean,
   appsStatus: ConnectionAppsStatus | undefined,

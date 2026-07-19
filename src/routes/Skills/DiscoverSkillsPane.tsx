@@ -40,7 +40,7 @@ interface DiscoverSkillsPaneProps {
   onInstall: (pkg: PublicSkillPackage, skillName?: string) => void
   onLoadMore: () => void
   onOpenManagedSkill: (skillName: string) => void
-  onOpenOrganizationRecommendations?: () => void
+  onOpenTeamRecommendations?: () => void
   onRetry: () => void
   onSelectPackage: (pkg: PublicSkillPackage) => void
   packages: PublicSkillPackage[]
@@ -50,10 +50,10 @@ interface DiscoverSkillsPaneProps {
 
 function ProviderSkillRecommendationNotice({
   count,
-  onOpenOrganizationRecommendations,
+  onOpenTeamRecommendations,
 }: {
   count: number
-  onOpenOrganizationRecommendations: () => void
+  onOpenTeamRecommendations: () => void
 }) {
   const { t } = useAppI18n()
 
@@ -71,14 +71,8 @@ function ProviderSkillRecommendationNotice({
           {t("skills.providerRecommendationsMarketHint")}
         </div>
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="shrink-0"
-        onClick={onOpenOrganizationRecommendations}
-      >
-        {t("skills.providerRecommendationsOpenOrganization")}
+      <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={onOpenTeamRecommendations}>
+        {t("skills.providerRecommendationsOpenTeam")}
       </Button>
     </div>
   )
@@ -98,7 +92,7 @@ export function DiscoverSkillsPane({
   onInstall,
   onLoadMore,
   onOpenManagedSkill,
-  onOpenOrganizationRecommendations,
+  onOpenTeamRecommendations,
   onRetry,
   onSelectPackage,
   packages,
@@ -130,10 +124,10 @@ export function DiscoverSkillsPane({
   return (
     <SkillPageScrollArea onScroll={handleScroll}>
       <div className="grid gap-3">
-        {onOpenOrganizationRecommendations && providerRecommendations.length > 0 ? (
+        {onOpenTeamRecommendations && providerRecommendations.length > 0 ? (
           <ProviderSkillRecommendationNotice
             count={providerRecommendations.length}
-            onOpenOrganizationRecommendations={onOpenOrganizationRecommendations}
+            onOpenTeamRecommendations={onOpenTeamRecommendations}
           />
         ) : null}
         {error ? (

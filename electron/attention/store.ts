@@ -5,7 +5,7 @@ import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface UnreadAttentionEntry {
   createdAt: number
-  organizationId?: string
+  teamId?: string
   runId: string
 }
 
@@ -26,11 +26,12 @@ function validEntry(value: unknown): value is UnreadAttentionEntry {
   )
 }
 
-function normalizedEntry(value: UnreadAttentionEntry): UnreadAttentionEntry {
-  const organizationId = value.organizationId?.trim()
+function normalizedEntry(value: UnreadAttentionEntry & { organizationId?: unknown }): UnreadAttentionEntry {
+  const rawTeamId = typeof value.teamId === "string" ? value.teamId : value.organizationId
+  const teamId = typeof rawTeamId === "string" ? rawTeamId.trim() : undefined
   return {
     createdAt: value.createdAt,
-    ...(organizationId ? { organizationId } : {}),
+    ...(teamId ? { teamId } : {}),
     runId: value.runId,
   }
 }

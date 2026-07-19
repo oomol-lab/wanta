@@ -2,7 +2,7 @@ import type {
   AgentPermissionMode,
   ChatContextMention,
   ChatMessage,
-  ChatOrganizationSkillContext,
+  ChatTeamSkillContext,
   ChatQuestionRequest,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
@@ -72,7 +72,7 @@ interface ChatComposerProps {
   permissionMode: AgentPermissionMode
   pendingQuestions: ChatQuestionRequest[]
   placeholder: string
-  organizationSkills?: ChatOrganizationSkillContext[]
+  teamSkills?: ChatTeamSkillContext[]
   providers: ConnectionProvider[]
   queueHeld: boolean
   queuedMessages: QueuedChatMessage[]
@@ -169,7 +169,7 @@ export function ChatComposer({
   permissionMode,
   pendingQuestions = [],
   placeholder,
-  organizationSkills = [],
+  teamSkills = [],
   providers,
   queueHeld,
   queuedMessages,
@@ -260,9 +260,9 @@ export function ChatComposer({
           description: t("chat.commandCreatorSkillDescription"),
           title: t("chat.commandCreatorSkill"),
         },
-        organizationSkills,
+        teamSkills,
       ),
-    [organizationSkills, skillInventory.data?.groups, t],
+    [teamSkills, skillInventory.data?.groups, t],
   )
   const connectionItems = React.useMemo(
     () =>

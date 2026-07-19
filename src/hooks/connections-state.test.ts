@@ -39,7 +39,7 @@ function summary(workspace: ConnectionWorkspace): ConnectionSummary {
 }
 
 test("connectionsStateReducer clears old summary while workspace sync starts", () => {
-  const previousSummary = summary({ organizationName: "org-name" })
+  const previousSummary = summary({ teamName: "team-name" })
   const loadedState = connectionsStateReducer(initialConnectionsState, {
     summary: previousSummary,
     type: "summarySet",
@@ -48,7 +48,7 @@ test("connectionsStateReducer clears old summary while workspace sync starts", (
     {
       ...loadedState,
       actionError: error,
-      agentScopeWorkspaceKey: "organization:org-name",
+      agentScopeWorkspaceKey: "team:team-name",
       scopeSyncError: error,
       summaryError: error,
     },
@@ -66,7 +66,7 @@ test("connectionsStateReducer clears old summary while workspace sync starts", (
 
 test("partial app refresh keeps confirmed connections for the same workspace", () => {
   const current = {
-    ...summary({ organizationName: "acme" }),
+    ...summary({ teamName: "acme" }),
     apps: [
       {
         authType: "oauth2" as const,
@@ -81,7 +81,7 @@ test("partial app refresh keeps confirmed connections for the same workspace", (
     connectedProviderCount: 1,
   }
   const next = {
-    ...summary({ organizationName: "acme" }),
+    ...summary({ teamName: "acme" }),
     appsStatus: "unavailable" as const,
     updatedAt: "2026-07-17T00:00:00.000Z",
     usageStatus: "loading" as const,
@@ -96,8 +96,8 @@ test("partial app refresh keeps confirmed connections for the same workspace", (
 })
 
 test("partial app refresh does not reuse data from another workspace", () => {
-  const current = summary({ organizationName: "old-org" })
-  const next = { ...summary({ organizationName: "new-org" }), appsStatus: "forbidden" as const }
+  const current = summary({ teamName: "old-team" })
+  const next = { ...summary({ teamName: "new-team" }), appsStatus: "forbidden" as const }
 
   assert.equal(preserveConnectionSummaryOnPartialRefresh(current, next), next)
 })
@@ -140,9 +140,9 @@ test("connectionsStateReducer resets state while workspace is pending", () => {
       actionError: error,
       busy: "connect",
       polling: "provider",
-      summary: summary({ organizationName: "org-name" }),
+      summary: summary({ teamName: "team-name" }),
       summaryError: error,
-      summaryWorkspaceKey: "organization:org-name",
+      summaryWorkspaceKey: "team:team-name",
     },
     { type: "workspacePending" },
   )
@@ -151,13 +151,13 @@ test("connectionsStateReducer resets state while workspace is pending", () => {
 })
 
 test("connectionsStateReducer records workspace sync failures as summary failures", () => {
-  const previousSummary = summary({ organizationName: "org-a" })
+  const previousSummary = summary({ teamName: "team-a" })
   const next = connectionsStateReducer(
     {
       ...initialConnectionsState,
       busy: "refresh",
       summary: previousSummary,
-      summaryWorkspaceKey: "organization:org-a",
+      summaryWorkspaceKey: "team:team-a",
     },
     { type: "workspaceScopeSyncFailed", error },
   )
@@ -170,35 +170,35 @@ test("connectionsStateReducer records workspace sync failures as summary failure
 })
 
 test("connectionsStateReducer clears hidden previous summaries when refresh fails for a new workspace", () => {
-  const previousSummary = summary({ organizationName: "org-name" })
+  const previousSummary = summary({ teamName: "team-name" })
   const next = connectionsStateReducer(
     {
       ...initialConnectionsState,
       summary: previousSummary,
       summaryWorkspaceKey: null,
     },
-    { type: "refreshFailed", error, workspaceKey: "organization:acme" },
+    { type: "refreshFailed", error, workspaceKey: "team:acme" },
   )
 
   assert.equal(next.summary, null)
   assert.equal(next.summaryError, error)
-  assert.equal(next.summaryWorkspaceKey, "organization:acme")
+  assert.equal(next.summaryWorkspaceKey, "team:acme")
 })
 
 test("connectionsStateReducer keeps current summaries visible when refresh fails for the same workspace", () => {
-  const currentSummary = summary({ organizationName: "acme" })
+  const currentSummary = summary({ teamName: "acme" })
   const next = connectionsStateReducer(
     {
       ...initialConnectionsState,
       summary: currentSummary,
-      summaryWorkspaceKey: "organization:acme",
+      summaryWorkspaceKey: "team:acme",
     },
-    { type: "refreshFailed", error, workspaceKey: "organization:acme" },
+    { type: "refreshFailed", error, workspaceKey: "team:acme" },
   )
 
   assert.equal(next.summary, currentSummary)
   assert.equal(next.summaryError, error)
-  assert.equal(next.summaryWorkspaceKey, "organization:acme")
+  assert.equal(next.summaryWorkspaceKey, "team:acme")
 })
 
 test("connectionsStateReducer updates action busy and polling state", () => {
@@ -218,33 +218,33 @@ test("connectionsStateReducer updates action busy and polling state", () => {
 test("connectionsStateReducer records synced workspace scope", () => {
   const next = connectionsStateReducer(initialConnectionsState, {
     type: "workspaceScopeSynced",
-    workspaceKey: "organization:acme",
+    workspaceKey: "team:acme",
   })
 
-  assert.equal(next.agentScopeWorkspaceKey, "organization:acme")
+  assert.equal(next.agentScopeWorkspaceKey, "team:acme")
 })
 
 test("connectionsStateReducer derives summary workspace keys consistently", () => {
-  const orgName = connectionsStateReducer(initialConnectionsState, {
-    summary: summary({ organizationName: "org-name" }),
+  const teamName = connectionsStateReducer(initialConnectionsState, {
+    summary: summary({ teamName: "team-name" }),
     type: "refreshSucceeded",
   })
-  const organization = connectionsStateReducer(
+  const team = connectionsStateReducer(
     { ...initialConnectionsState, summaryError: error },
     {
-      summary: summary({ organizationName: "acme" }),
+      summary: summary({ teamName: "acme" }),
       type: "summarySet",
     },
   )
 
-  assert.equal(orgName.summaryWorkspaceKey, "organization:org-name")
-  assert.equal(orgName.summaryError, null)
-  assert.equal(organization.summaryWorkspaceKey, "organization:acme")
-  assert.equal(organization.summaryError, null)
+  assert.equal(teamName.summaryWorkspaceKey, "team:team-name")
+  assert.equal(teamName.summaryError, null)
+  assert.equal(team.summaryWorkspaceKey, "team:acme")
+  assert.equal(team.summaryError, null)
 })
 
 test("connectionsStateReducer hydrates usage only for the active workspace", () => {
-  const currentSummary = summary({ organizationName: "org-name" })
+  const currentSummary = summary({ teamName: "team-name" })
   const loaded = connectionsStateReducer(initialConnectionsState, { summary: currentSummary, type: "summarySet" })
   const usage = {
     calls: 3,
@@ -259,12 +259,12 @@ test("connectionsStateReducer hydrates usage only for the active workspace", () 
   const ignored = connectionsStateReducer(loaded, {
     type: "usageHydrated",
     usage,
-    workspaceKey: "organization:other",
+    workspaceKey: "team:other",
   })
   const hydrated = connectionsStateReducer(loaded, {
     type: "usageHydrated",
     usage,
-    workspaceKey: "organization:org-name",
+    workspaceKey: "team:team-name",
   })
 
   assert.equal(ignored, loaded)
@@ -274,13 +274,13 @@ test("connectionsStateReducer hydrates usage only for the active workspace", () 
 
 test("connectionsStateReducer clears usage loading when background hydration fails", () => {
   const loaded = connectionsStateReducer(initialConnectionsState, {
-    summary: { ...summary({ organizationName: "org-name" }), usageStatus: "loading" },
+    summary: { ...summary({ teamName: "team-name" }), usageStatus: "loading" },
     type: "summarySet",
   })
 
   const failed = connectionsStateReducer(loaded, {
     type: "usageHydrationFailed",
-    workspaceKey: "organization:org-name",
+    workspaceKey: "team:team-name",
   })
 
   assert.equal(failed.summary?.usageStatus, "unavailable")

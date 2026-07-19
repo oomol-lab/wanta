@@ -15,7 +15,7 @@ export const discoverAutoLoadThresholdPx = 160
 export const discoverPreloadMinimumThresholdPx = 480
 
 export type SkillSelectionKey = string
-export type SkillPageTab = "discover" | "installed" | "organization"
+export type SkillPageTab = "discover" | "installed" | "team"
 export type DiscoverSkillFilter = "all" | "mine"
 export type InstalledSkillFilter = "all" | "wanta" | "codex" | "claude-code" | "updates" | "local"
 export type SkillDocumentViewMode = "preview" | "raw"
@@ -29,7 +29,7 @@ export type PublicSkillInstallState =
 export type PublicPackageCatalogStatus = "idle" | "load-error" | "loading" | "loading-more" | "refreshing"
 export type ManagedSkillGroupById = ReadonlyMap<string, ManagedSkillGroup>
 export type SkillVersionCheckByKey = ReadonlyMap<string, SkillVersionReport["skills"][number]>
-export type OrganizationSkillRuntimeState =
+export type TeamSkillRuntimeState =
   | "external-only"
   | "installed-modified"
   | "installed-same"
@@ -48,15 +48,15 @@ export interface PublicPackageCatalogState {
   status: PublicPackageCatalogStatus
 }
 
-export interface OrganizationSkillRuntimeStatusInput {
+export interface TeamSkillRuntimeStatusInput {
   packageName: string
   skillName: string
   version?: string
 }
 
-export interface OrganizationSkillRuntimeStatus {
+export interface TeamSkillRuntimeStatus {
   host?: ManagedSkillHostCoverage
-  state: OrganizationSkillRuntimeState
+  state: TeamSkillRuntimeState
 }
 
 export interface RuntimeSkillRemoveTarget {
@@ -471,10 +471,10 @@ export function getPublicPackagePrimarySkill(
   return pkg.skills[0]
 }
 
-export function getOrganizationSkillRuntimeStatus(
+export function getTeamSkillRuntimeStatus(
   groupById: ManagedSkillGroupById | undefined,
-  skill: OrganizationSkillRuntimeStatusInput,
-): OrganizationSkillRuntimeStatus {
+  skill: TeamSkillRuntimeStatusInput,
+): TeamSkillRuntimeStatus {
   const normalizedSkillName = skill.skillName.trim()
   if (!normalizedSkillName) {
     return { state: "missing" }
@@ -508,7 +508,7 @@ export function getOrganizationSkillRuntimeStatus(
   return { host: runtimeHost, state: "same-id-different-package" }
 }
 
-export function getInstallableOrganizationSkills<T extends OrganizationSkillRuntimeStatusInput>(
+export function getInstallableTeamSkills<T extends TeamSkillRuntimeStatusInput>(
   groupById: ManagedSkillGroupById | undefined,
   skills: readonly T[],
 ): T[] {
@@ -516,7 +516,7 @@ export function getInstallableOrganizationSkills<T extends OrganizationSkillRunt
     if ("enabled" in skill && skill.enabled === false) {
       return false
     }
-    const status = getOrganizationSkillRuntimeStatus(groupById, skill).state
+    const status = getTeamSkillRuntimeStatus(groupById, skill).state
     return status === "missing" || status === "external-only"
   })
 }

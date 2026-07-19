@@ -11,33 +11,33 @@ const execFileAsync = promisify(execFile)
 const OO_BIN = process.env.WANTA_OO_BIN || "oo"
 const OO_EXEC_OPTIONS = { maxBuffer: 16 * 1024 * 1024, timeout: 10 * 1000 }
 
-async function currentOrganizationName(sessionID) {
-  const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
+async function currentTeamName(sessionID) {
+  const scopePath = process.env.WANTA_TEAM_SCOPE_PATH || process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
   if (scopePath) {
     const parsed = JSON.parse(await readFile(scopePath, "utf8"))
-    const sessionOrganizations = parsed && parsed.sessionOrganizations
+    const sessionTeams = parsed && parsed.sessionTeams
     if (
       sessionID &&
-      sessionOrganizations &&
-      typeof sessionOrganizations === "object" &&
-      typeof sessionOrganizations[sessionID] === "string"
+      sessionTeams &&
+      typeof sessionTeams === "object" &&
+      typeof sessionTeams[sessionID] === "string"
     ) {
-      return sessionOrganizations[sessionID]
+      return sessionTeams[sessionID]
     }
-    if (parsed && typeof parsed.organizationName === "string") {
-      return parsed.organizationName
+    if (parsed && typeof parsed.teamName === "string") {
+      return parsed.teamName
     }
     throw new Error("workspace identity is unavailable")
   }
-  return process.env.WANTA_ORGANIZATION_NAME || ""
+  return process.env.WANTA_TEAM_NAME || process.env.WANTA_ORGANIZATION_NAME || ""
 }
 
 async function currentIdentity(sessionID) {
-  const organizationName = (await currentOrganizationName(sessionID)).trim()
-  if (!organizationName) {
+  const teamName = (await currentTeamName(sessionID)).trim()
+  if (!teamName) {
     throw new Error("workspace identity is unavailable")
   }
-  return { cacheKey: "organization:" + organizationName, organizationName: organizationName }
+  return { cacheKey: "team:" + teamName, teamName: teamName }
 }
 
 async function appendIdentityArgs(argv, identity, sessionID) {
@@ -46,7 +46,7 @@ async function appendIdentityArgs(argv, identity, sessionID) {
 }
 
 function linkWorkspaceArgs(identity) {
-  return ["--organization", identity.organizationName]
+  return ["--organization", identity.teamName]
 }
 
 function connectionInventoryError(identity, message) {
@@ -55,7 +55,7 @@ function connectionInventoryError(identity, message) {
     errorCode: "connection_inventory_unavailable",
     operation: "list_connected_apps",
     workspace: {
-      organizationName: identity.organizationName,
+      teamName: identity.teamName,
     },
     message: message,
   }
@@ -168,8 +168,8 @@ async function providerAuthTypes(sessionID) {
   }
   try {
     const headers = { authorization: "Bearer " + token }
-    if (identity.organizationName) {
-      headers["x-oo-organization-name"] = identity.organizationName
+    if (identity.teamName) {
+      headers["x-oo-organization-name"] = identity.teamName
     }
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 10 * 1000)
@@ -635,7 +635,7 @@ const execFileAsync = promisify(execFile)
 const EXECUTABLE = process.env.WANTA_WIKIGRAPH_EXECUTABLE || ""
 const CLI = process.env.WANTA_WIKIGRAPH_CLI || ""
 const REGISTRY = process.env.WANTA_KNOWLEDGE_REGISTRY || ""
-const SCOPE = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
+const SCOPE = process.env.WANTA_TEAM_SCOPE_PATH || process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
 const SCOPE_SYNC_ATTEMPTS = 5
 const SCOPE_SYNC_RETRY_MS = 20
 const OPTIONS = {

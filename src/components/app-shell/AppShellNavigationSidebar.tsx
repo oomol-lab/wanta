@@ -3,7 +3,7 @@ import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { ProjectSidebarGroup } from "./app-sidebar-model.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
 import type { SidebarSessionGroups } from "./sidebar-sessions.ts"
-import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
+import type { UseTeamWorkspace } from "@/hooks/useTeamWorkspace"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
 import { Building2, FolderPlus, LibraryBig, Package, Plug, SquarePen } from "lucide-react"
@@ -120,7 +120,7 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   sidebarSessionGroups: SidebarSessionGroups
   taskSessions: SessionInfo[]
   width: number
-  workspace: UseOrganizationWorkspace
+  workspace: UseTeamWorkspace
   workspaceSwitching: boolean
 }) {
   const t = useT()
@@ -129,7 +129,7 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   const [taskSessionLimit, setTaskSessionLimit] = React.useState(taskSessionPageSize)
   React.useEffect(() => {
     setTaskSessionLimit(taskSessionPageSize)
-  }, [workspace.activeWorkspace.organizationId])
+  }, [workspace.activeWorkspace.teamId])
   React.useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 60_000)
     return () => window.clearInterval(id)
@@ -248,14 +248,14 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
           ) : null}
           <button
             type="button"
-            onClick={() => onNavigate("organizations")}
+            onClick={() => onNavigate("teams")}
             className={cn(
               "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-              activeRoute === "organizations" && "bg-sidebar-accent text-sidebar-accent-foreground",
+              activeRoute === "teams" && "bg-sidebar-accent text-sidebar-accent-foreground",
             )}
           >
             <Building2 className="size-4 shrink-0" />
-            <span className="oo-sidebar-nav-label truncate">{t("organizations.title")}</span>
+            <span className="oo-sidebar-nav-label truncate">{t("teams.title")}</span>
           </button>
         </nav>
 

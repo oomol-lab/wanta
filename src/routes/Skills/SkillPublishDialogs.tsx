@@ -13,33 +13,33 @@ export type SkillPublishVisibility = "private" | "public"
 
 type SkillPublishStep = "form" | "published" | "link-failed"
 
-export type SkillOrganizationLinkTarget = {
+export type SkillTeamLinkTarget = {
   packageName: string
   skillName: string
   title: string
   version: string
 }
 
-export type ManagedOrganizationOption = {
+export type ManagedTeamOption = {
   id: string
   name: string
 }
 
 export function PublishSkillDialog({
   busy,
-  managedOrganizations,
+  managedTeams,
   open,
   skill,
   onClose,
-  onLinkOrganization,
+  onLinkTeam,
   onPublish,
 }: {
   busy: boolean
-  managedOrganizations: ManagedOrganizationOption[]
+  managedTeams: ManagedTeamOption[]
   open: boolean
   skill: ManagedSkillGroup | null
   onClose: () => void
-  onLinkOrganization: (target: SkillOrganizationLinkTarget, organizationId: string) => Promise<void>
+  onLinkTeam: (target: SkillTeamLinkTarget, teamId: string) => Promise<void>
   onPublish: (
     skill: ManagedSkillGroup,
     options: { visibility: SkillPublishVisibility },
@@ -48,66 +48,62 @@ export function PublishSkillDialog({
   const { t } = useAppI18n()
   const [visibility, setVisibility] = React.useState<SkillPublishVisibility>("private")
   const [linkAfterPublish, setLinkAfterPublish] = React.useState(false)
-  const [selectedOrganizationId, setSelectedOrganizationId] = React.useState("")
+  const [selectedTeamId, setSelectedTeamId] = React.useState("")
   const [step, setStep] = React.useState<SkillPublishStep>("form")
-  const [publishedTarget, setPublishedTarget] = React.useState<SkillOrganizationLinkTarget | null>(null)
+  const [publishedTarget, setPublishedTarget] = React.useState<SkillTeamLinkTarget | null>(null)
   const [publishError, setPublishError] = React.useState<string | null>(null)
   const [linkError, setLinkError] = React.useState<string | null>(null)
-  const [linkedOrganizationId, setLinkedOrganizationId] = React.useState<string | null>(null)
+  const [linkedTeamId, setLinkedTeamId] = React.useState<string | null>(null)
   const [linking, setLinking] = React.useState(false)
-  const [availableOrganizations, setAvailableOrganizations] = React.useState<ManagedOrganizationOption[]>([])
+  const [availableTeams, setAvailableTeams] = React.useState<ManagedTeamOption[]>([])
   const initializedSkillIdRef = React.useRef<string | null>(null)
-  const hasManagedOrganizations = availableOrganizations.length > 0
+  const hasManagedTeams = availableTeams.length > 0
   const visibilityLabel = visibility === "private" ? t("skills.visibility.private") : t("skills.visibility.public")
-  const linkedOrganization = linkedOrganizationId
-    ? availableOrganizations.find((organization) => organization.id === linkedOrganizationId)
-    : undefined
+  const linkedTeam = linkedTeamId ? availableTeams.find((team) => team.id === linkedTeamId) : undefined
 
   React.useEffect(() => {
     if (!open) {
       initializedSkillIdRef.current = null
-      setAvailableOrganizations([])
+      setAvailableTeams([])
       return
     }
     const skillId = skill?.id ?? null
     if (initializedSkillIdRef.current === skillId) {
-      setAvailableOrganizations(managedOrganizations)
+      setAvailableTeams(managedTeams)
       return
     }
     initializedSkillIdRef.current = skillId
     setVisibility("private")
     setLinkAfterPublish(false)
-    setSelectedOrganizationId(managedOrganizations[0]?.id ?? "")
-    setAvailableOrganizations(managedOrganizations)
+    setSelectedTeamId(managedTeams[0]?.id ?? "")
+    setAvailableTeams(managedTeams)
     setStep("form")
     setPublishedTarget(null)
     setPublishError(null)
     setLinkError(null)
-    setLinkedOrganizationId(null)
+    setLinkedTeamId(null)
     setLinking(false)
-  }, [managedOrganizations, open, skill?.id])
+  }, [managedTeams, open, skill?.id])
 
   React.useEffect(() => {
-    if (!open || availableOrganizations.length === 0) {
+    if (!open || availableTeams.length === 0) {
       return
     }
-    setSelectedOrganizationId((current) =>
-      current && availableOrganizations.some((organization) => organization.id === current)
-        ? current
-        : (availableOrganizations[0]?.id ?? ""),
+    setSelectedTeamId((current) =>
+      current && availableTeams.some((team) => team.id === current) ? current : (availableTeams[0]?.id ?? ""),
     )
-  }, [availableOrganizations, open])
+  }, [availableTeams, open])
 
   const linkPublishedTarget = React.useCallback(
-    async (target: SkillOrganizationLinkTarget, organizationId: string): Promise<boolean> => {
-      if (!organizationId) {
+    async (target: SkillTeamLinkTarget, teamId: string): Promise<boolean> => {
+      if (!teamId) {
         return false
       }
       setLinking(true)
       setLinkError(null)
       try {
-        await onLinkOrganization(target, organizationId)
-        setLinkedOrganizationId(organizationId)
+        await onLinkTeam(target, teamId)
+        setLinkedTeamId(teamId)
         setStep("published")
         return true
       } catch (cause) {
@@ -118,7 +114,7 @@ export function PublishSkillDialog({
         setLinking(false)
       }
     },
-    [onLinkOrganization, t],
+    [onLinkTeam, t],
   )
 
   const submitPublish = React.useCallback(async () => {
@@ -136,7 +132,7 @@ export function PublishSkillDialog({
     if (!result) {
       return
     }
-    const target: SkillOrganizationLinkTarget = {
+    const target: SkillTeamLinkTarget = {
       packageName: result.packageName,
       skillName: skill.id,
       title: skill.name,
@@ -144,10 +140,10 @@ export function PublishSkillDialog({
     }
     setPublishedTarget(target)
     setStep("published")
-    if (linkAfterPublish && selectedOrganizationId) {
-      await linkPublishedTarget(target, selectedOrganizationId)
+    if (linkAfterPublish && selectedTeamId) {
+      await linkPublishedTarget(target, selectedTeamId)
     }
-  }, [busy, linkAfterPublish, linkPublishedTarget, linking, onPublish, selectedOrganizationId, skill, t, visibility])
+  }, [busy, linkAfterPublish, linkPublishedTarget, linking, onPublish, selectedTeamId, skill, t, visibility])
 
   const footer =
     step === "form" ? (
@@ -162,15 +158,15 @@ export function PublishSkillDialog({
       </>
     ) : (
       <>
-        {publishedTarget && hasManagedOrganizations && !linkedOrganizationId ? (
+        {publishedTarget && hasManagedTeams && !linkedTeamId ? (
           <Button
             type="button"
             variant="outline"
-            disabled={linking || !selectedOrganizationId}
-            onClick={() => void linkPublishedTarget(publishedTarget, selectedOrganizationId)}
+            disabled={linking || !selectedTeamId}
+            onClick={() => void linkPublishedTarget(publishedTarget, selectedTeamId)}
           >
             {linking ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.share />}
-            {linking ? t("skills.organizationLinking") : t("skills.organizationLink")}
+            {linking ? t("skills.teamLinking") : t("skills.teamLink")}
           </Button>
         ) : null}
         <Button type="button" onClick={onClose} disabled={linking}>
@@ -196,27 +192,27 @@ export function PublishSkillDialog({
         </div>
         {step === "form" ? (
           <PublishForm
-            availableOrganizations={availableOrganizations}
-            hasManagedOrganizations={hasManagedOrganizations}
+            availableTeams={availableTeams}
+            hasManagedTeams={hasManagedTeams}
             linkAfterPublish={linkAfterPublish}
             publishError={publishError}
-            selectedOrganizationId={selectedOrganizationId}
+            selectedTeamId={selectedTeamId}
             visibility={visibility}
             onLinkAfterPublishChange={setLinkAfterPublish}
-            onOrganizationChange={setSelectedOrganizationId}
+            onTeamChange={setSelectedTeamId}
             onVisibilityChange={setVisibility}
           />
         ) : (
           <PublishResult
-            availableOrganizations={availableOrganizations}
-            hasManagedOrganizations={hasManagedOrganizations}
+            availableTeams={availableTeams}
+            hasManagedTeams={hasManagedTeams}
             linkError={linkError}
-            linkedOrganizationName={linkedOrganization?.name}
-            selectedOrganizationId={selectedOrganizationId}
+            linkedTeamName={linkedTeam?.name}
+            selectedTeamId={selectedTeamId}
             showLinkError={step === "link-failed"}
             target={publishedTarget}
             visibilityLabel={visibilityLabel}
-            onOrganizationChange={setSelectedOrganizationId}
+            onTeamChange={setSelectedTeamId}
           />
         )}
       </div>
@@ -225,24 +221,24 @@ export function PublishSkillDialog({
 }
 
 function PublishForm({
-  availableOrganizations,
-  hasManagedOrganizations,
+  availableTeams,
+  hasManagedTeams,
   linkAfterPublish,
   publishError,
-  selectedOrganizationId,
+  selectedTeamId,
   visibility,
   onLinkAfterPublishChange,
-  onOrganizationChange,
+  onTeamChange,
   onVisibilityChange,
 }: {
-  availableOrganizations: ManagedOrganizationOption[]
-  hasManagedOrganizations: boolean
+  availableTeams: ManagedTeamOption[]
+  hasManagedTeams: boolean
   linkAfterPublish: boolean
   publishError: string | null
-  selectedOrganizationId: string
+  selectedTeamId: string
   visibility: SkillPublishVisibility
   onLinkAfterPublishChange: (enabled: boolean) => void
-  onOrganizationChange: (organizationId: string) => void
+  onTeamChange: (teamId: string) => void
   onVisibilityChange: (visibility: SkillPublishVisibility) => void
 }) {
   const { t } = useAppI18n()
@@ -281,24 +277,18 @@ function PublishForm({
             type="checkbox"
             className="mt-1"
             checked={linkAfterPublish}
-            disabled={!hasManagedOrganizations}
+            disabled={!hasManagedTeams}
             onChange={(event) => onLinkAfterPublishChange(event.currentTarget.checked)}
           />
           <span className="grid gap-0.5">
             <span className="oo-text-caption-compact font-medium">{t("skills.publishLinkAfterPublish")}</span>
             <span className="oo-text-caption">
-              {hasManagedOrganizations
-                ? t("skills.publishLinkAfterPublishDescription")
-                : t("skills.publishNoOrganizations")}
+              {hasManagedTeams ? t("skills.publishLinkAfterPublishDescription") : t("skills.publishNoTeams")}
             </span>
           </span>
         </label>
-        {linkAfterPublish && hasManagedOrganizations ? (
-          <OrganizationSelect
-            organizations={availableOrganizations}
-            selectedOrganizationId={selectedOrganizationId}
-            onChange={onOrganizationChange}
-          />
+        {linkAfterPublish && hasManagedTeams ? (
+          <TeamSelect teams={availableTeams} selectedTeamId={selectedTeamId} onChange={onTeamChange} />
         ) : null}
         {publishError ? (
           <div className="rounded-md border border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)] px-3 py-2 text-sm text-destructive">
@@ -311,25 +301,25 @@ function PublishForm({
 }
 
 function PublishResult({
-  availableOrganizations,
-  hasManagedOrganizations,
+  availableTeams,
+  hasManagedTeams,
   linkError,
-  linkedOrganizationName,
-  selectedOrganizationId,
+  linkedTeamName,
+  selectedTeamId,
   showLinkError,
   target,
   visibilityLabel,
-  onOrganizationChange,
+  onTeamChange,
 }: {
-  availableOrganizations: ManagedOrganizationOption[]
-  hasManagedOrganizations: boolean
+  availableTeams: ManagedTeamOption[]
+  hasManagedTeams: boolean
   linkError: string | null
-  linkedOrganizationName?: string
-  selectedOrganizationId: string
+  linkedTeamName?: string
+  selectedTeamId: string
   showLinkError: boolean
-  target: SkillOrganizationLinkTarget | null
+  target: SkillTeamLinkTarget | null
   visibilityLabel: string
-  onOrganizationChange: (organizationId: string) => void
+  onTeamChange: (teamId: string) => void
 }) {
   const { t } = useAppI18n()
   return (
@@ -338,46 +328,42 @@ function PublishResult({
         <div className="oo-text-caption-compact font-medium">{t("skills.publishResultTitle")}</div>
         <div className="oo-text-caption">{t("skills.publishResultDescription", { visibility: visibilityLabel })}</div>
       </div>
-      {target && hasManagedOrganizations ? (
+      {target && hasManagedTeams ? (
         <div className="grid gap-2">
-          <div className="oo-text-label">{t("skills.organizationUse")}</div>
-          {linkedOrganizationName ? (
+          <div className="oo-text-label">{t("skills.teamUse")}</div>
+          {linkedTeamName ? (
             <div className="oo-text-caption rounded-md border bg-muted/30 px-3 py-2.5">
-              {t("skills.organizationLinkedResult", { name: linkedOrganizationName })}
+              {t("skills.teamLinkedResult", { name: linkedTeamName })}
             </div>
           ) : (
-            <OrganizationSelect
-              organizations={availableOrganizations}
-              selectedOrganizationId={selectedOrganizationId}
-              onChange={onOrganizationChange}
-            />
+            <TeamSelect teams={availableTeams} selectedTeamId={selectedTeamId} onChange={onTeamChange} />
           )}
         </div>
       ) : null}
       {showLinkError && linkError ? (
         <div className="rounded-md border border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)] px-3 py-2 text-sm text-destructive">
-          {t("skills.organizationLinkFailed", { error: linkError })}
+          {t("skills.teamLinkFailed", { error: linkError })}
         </div>
       ) : null}
     </div>
   )
 }
 
-export function OrganizationLinkDialog({
-  managedOrganizations,
+export function TeamLinkDialog({
+  managedTeams,
   open,
   target,
   onClose,
-  onLinkOrganization,
+  onLinkTeam,
 }: {
-  managedOrganizations: ManagedOrganizationOption[]
+  managedTeams: ManagedTeamOption[]
   open: boolean
-  target: SkillOrganizationLinkTarget | null
+  target: SkillTeamLinkTarget | null
   onClose: () => void
-  onLinkOrganization: (target: SkillOrganizationLinkTarget, organizationId: string) => Promise<void>
+  onLinkTeam: (target: SkillTeamLinkTarget, teamId: string) => Promise<void>
 }) {
   const { t } = useAppI18n()
-  const [selectedOrganizationId, setSelectedOrganizationId] = React.useState("")
+  const [selectedTeamId, setSelectedTeamId] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -385,32 +371,32 @@ export function OrganizationLinkDialog({
     if (!open) {
       return
     }
-    setSelectedOrganizationId(managedOrganizations[0]?.id ?? "")
+    setSelectedTeamId(managedTeams[0]?.id ?? "")
     setBusy(false)
     setError(null)
-  }, [managedOrganizations, open, target?.packageName])
+  }, [managedTeams, open, target?.packageName])
 
   const submit = React.useCallback(async () => {
-    if (!target || !selectedOrganizationId || busy) {
+    if (!target || !selectedTeamId || busy) {
       return
     }
     setBusy(true)
     setError(null)
     try {
-      await onLinkOrganization(target, selectedOrganizationId)
+      await onLinkTeam(target, selectedTeamId)
       onClose()
     } catch (cause) {
       setError(skillErrorMessage(cause, t))
     } finally {
       setBusy(false)
     }
-  }, [busy, onClose, onLinkOrganization, selectedOrganizationId, t, target])
+  }, [busy, onClose, onLinkTeam, selectedTeamId, t, target])
 
   return (
     <Dialog
       open={open}
-      title={t("skills.organizationLinkDialogTitle", { name: target?.title ?? "" })}
-      description={t("skills.organizationLinkDialogDescription")}
+      title={t("skills.teamLinkDialogTitle", { name: target?.title ?? "" })}
+      description={t("skills.teamLinkDialogDescription")}
       closeLabel={t("common.cancel")}
       footer={
         <>
@@ -419,31 +405,25 @@ export function OrganizationLinkDialog({
           </Button>
           <Button
             type="button"
-            disabled={busy || !selectedOrganizationId || managedOrganizations.length === 0}
+            disabled={busy || !selectedTeamId || managedTeams.length === 0}
             onClick={() => void submit()}
           >
             {busy ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.share />}
-            {busy ? t("skills.organizationLinking") : t("skills.organizationLink")}
+            {busy ? t("skills.teamLinking") : t("skills.teamLink")}
           </Button>
         </>
       }
       onClose={busy ? () => undefined : onClose}
     >
       <div className="grid gap-3">
-        {managedOrganizations.length > 0 ? (
-          <OrganizationSelect
-            organizations={managedOrganizations}
-            selectedOrganizationId={selectedOrganizationId}
-            onChange={setSelectedOrganizationId}
-          />
+        {managedTeams.length > 0 ? (
+          <TeamSelect teams={managedTeams} selectedTeamId={selectedTeamId} onChange={setSelectedTeamId} />
         ) : (
-          <div className="oo-text-caption rounded-md border bg-muted/30 px-3 py-2.5">
-            {t("skills.publishNoOrganizations")}
-          </div>
+          <div className="oo-text-caption rounded-md border bg-muted/30 px-3 py-2.5">{t("skills.publishNoTeams")}</div>
         )}
         {error ? (
           <div className="rounded-md border border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)] px-3 py-2 text-sm text-destructive">
-            {t("skills.organizationLinkFailed", { error })}
+            {t("skills.teamLinkFailed", { error })}
           </div>
         ) : null}
       </div>
@@ -451,30 +431,30 @@ export function OrganizationLinkDialog({
   )
 }
 
-function OrganizationSelect({
-  organizations,
-  selectedOrganizationId,
+function TeamSelect({
+  teams,
+  selectedTeamId,
   onChange,
 }: {
-  organizations: ManagedOrganizationOption[]
-  selectedOrganizationId: string
-  onChange: (organizationId: string) => void
+  teams: ManagedTeamOption[]
+  selectedTeamId: string
+  onChange: (teamId: string) => void
 }) {
   const { t } = useAppI18n()
   return (
     <div className="grid gap-1.5">
-      <label className="oo-text-caption-compact font-medium" htmlFor="skill-organization-link-target">
-        {t("skills.organizationSelect")}
+      <label className="oo-text-caption-compact font-medium" htmlFor="skill-team-link-target">
+        {t("skills.teamSelect")}
       </label>
-      <Select value={selectedOrganizationId} onValueChange={onChange}>
-        <SelectTrigger id="skill-organization-link-target" className="w-full">
-          <SelectValue placeholder={t("organizations.selectOrganization")} />
+      <Select value={selectedTeamId} onValueChange={onChange}>
+        <SelectTrigger id="skill-team-link-target" className="w-full">
+          <SelectValue placeholder={t("teams.selectTeam")} />
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            {organizations.map((organization) => (
-              <SelectItem key={organization.id} value={organization.id}>
-                {organization.name}
+            {teams.map((team) => (
+              <SelectItem key={team.id} value={team.id}>
+                {team.name}
               </SelectItem>
             ))}
           </SelectGroup>

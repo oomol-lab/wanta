@@ -9,9 +9,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppI18n } from "@/i18n"
 
-export type OrganizationSkillFilter = "all" | "recommended" | "configured"
+export type TeamSkillFilter = "all" | "recommended" | "configured"
 
-function isOrganizationSkillFilter(value: string): value is OrganizationSkillFilter {
+function isTeamSkillFilter(value: string): value is TeamSkillFilter {
   return value === "all" || value === "recommended" || value === "configured"
 }
 
@@ -21,16 +21,16 @@ interface SkillPageHeaderProps {
   discoveryQuery: string
   installedFilter: InstalledSkillFilter
   installedQuery: string
-  organizationFilter: OrganizationSkillFilter
-  organizationQuery: string
-  organizationTabAvailable: boolean
-  organizationAction?: ReactNode
+  teamFilter: TeamSkillFilter
+  teamQuery: string
+  teamTabAvailable: boolean
+  teamAction?: ReactNode
   onDiscoveryFilterChange: (filter: DiscoverSkillFilter) => void
   onDiscoveryQueryChange: (value: string) => void
   onInstalledFilterChange: (filter: InstalledSkillFilter) => void
   onInstalledQueryChange: (value: string) => void
-  onOrganizationFilterChange: (filter: OrganizationSkillFilter) => void
-  onOrganizationQueryChange: (value: string) => void
+  onTeamFilterChange: (filter: TeamSkillFilter) => void
+  onTeamQueryChange: (value: string) => void
   onTabChange: (tab: SkillPageTab) => void
 }
 
@@ -40,38 +40,38 @@ export function SkillPageHeader({
   discoveryQuery,
   installedFilter,
   installedQuery,
-  organizationFilter,
-  organizationQuery,
-  organizationTabAvailable,
-  organizationAction,
+  teamFilter,
+  teamQuery,
+  teamTabAvailable,
+  teamAction,
   onDiscoveryFilterChange,
   onDiscoveryQueryChange,
   onInstalledFilterChange,
   onInstalledQueryChange,
-  onOrganizationFilterChange,
-  onOrganizationQueryChange,
+  onTeamFilterChange,
+  onTeamQueryChange,
   onTabChange,
 }: SkillPageHeaderProps) {
   const { t } = useAppI18n()
   const isDiscoverTab = activeTab === "discover"
-  const isOrganizationTab = activeTab === "organization"
-  const searchValue = isDiscoverTab ? discoveryQuery : isOrganizationTab ? organizationQuery : installedQuery
+  const isTeamTab = activeTab === "team"
+  const searchValue = isDiscoverTab ? discoveryQuery : isTeamTab ? teamQuery : installedQuery
   const searchPlaceholder = isDiscoverTab
     ? "skills.discoverSearch"
-    : isOrganizationTab
-      ? "skills.organizationSearch"
+    : isTeamTab
+      ? "skills.teamSearch"
       : "skills.installedSearch"
-  const filterValue = isDiscoverTab ? discoveryFilter : isOrganizationTab ? organizationFilter : installedFilter
+  const filterValue = isDiscoverTab ? discoveryFilter : isTeamTab ? teamFilter : installedFilter
   const filterOptions = isDiscoverTab
     ? [
         { label: t("skills.discoverFilter.all"), value: "all" },
         { label: t("skills.discoverFilter.mine"), value: "mine" },
       ]
-    : isOrganizationTab
+    : isTeamTab
       ? [
-          { label: t("organizations.skillManageSourceAll"), value: "all" },
-          { label: t("organizations.skillManageRecommended"), value: "recommended" },
-          { label: t("organizations.skillManageConfigured"), value: "configured" },
+          { label: t("teams.skillManageSourceAll"), value: "all" },
+          { label: t("teams.skillManageRecommended"), value: "recommended" },
+          { label: t("teams.skillManageConfigured"), value: "configured" },
         ]
       : [
           { label: t("skills.installedFilter.all"), value: "all" },
@@ -84,11 +84,7 @@ export function SkillPageHeader({
 
   return (
     <header className="oo-border-divider flex min-h-12 items-center gap-2 border-b px-3 py-2">
-      <SkillTabList
-        activeTab={activeTab}
-        organizationTabAvailable={organizationTabAvailable}
-        onTabChange={onTabChange}
-      />
+      <SkillTabList activeTab={activeTab} teamTabAvailable={teamTabAvailable} onTabChange={onTabChange} />
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <SearchField
           className="flex-1"
@@ -100,8 +96,8 @@ export function SkillPageHeader({
               onDiscoveryQueryChange(value)
               return
             }
-            if (isOrganizationTab) {
-              onOrganizationQueryChange(value)
+            if (isTeamTab) {
+              onTeamQueryChange(value)
               return
             }
             onInstalledQueryChange(value)
@@ -117,17 +113,17 @@ export function SkillPageHeader({
               return
             }
 
-            if (isOrganizationTab && isOrganizationSkillFilter(value)) {
-              onOrganizationFilterChange(value)
+            if (isTeamTab && isTeamSkillFilter(value)) {
+              onTeamFilterChange(value)
               return
             }
 
-            if (!isDiscoverTab && !isOrganizationTab && isInstalledSkillFilter(value)) {
+            if (!isDiscoverTab && !isTeamTab && isInstalledSkillFilter(value)) {
               onInstalledFilterChange(value)
             }
           }}
         />
-        {isOrganizationTab && organizationAction ? <div className="shrink-0">{organizationAction}</div> : null}
+        {isTeamTab && teamAction ? <div className="shrink-0">{teamAction}</div> : null}
       </div>
     </header>
   )
@@ -135,20 +131,18 @@ export function SkillPageHeader({
 
 function SkillTabList({
   activeTab,
-  organizationTabAvailable,
+  teamTabAvailable,
   onTabChange,
 }: {
   activeTab: SkillPageTab
-  organizationTabAvailable: boolean
+  teamTabAvailable: boolean
   onTabChange: (tab: SkillPageTab) => void
 }) {
   const { t } = useAppI18n()
   const tabs: Array<{ label: string; value: SkillPageTab }> = [
     { label: t("skills.tab.discover"), value: "discover" },
     { label: t("skills.tab.installed"), value: "installed" },
-    ...(organizationTabAvailable
-      ? [{ label: t("skills.tab.organization"), value: "organization" as SkillPageTab }]
-      : []),
+    ...(teamTabAvailable ? [{ label: t("skills.tab.team"), value: "team" as SkillPageTab }] : []),
   ]
 
   return (
@@ -159,7 +153,7 @@ function SkillTabList({
       className="shrink-0"
       value={activeTab}
       onValueChange={(value) => {
-        if (value === "organization" || value === "discover" || value === "installed") {
+        if (value === "team" || value === "discover" || value === "installed") {
           onTabChange(value)
         }
       }}

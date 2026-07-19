@@ -1,5 +1,4 @@
 import type { ManagedSkillGroup, PublicSkillPackage, PublishSkillResult } from "../../../electron/skills/common.ts"
-import type { BusyAction } from "./organization-management-model.ts"
 import type {
   DiscoverSkillFilter,
   InstalledSkillFilter,
@@ -9,26 +8,21 @@ import type {
   SkillVersionCheckByKey,
 } from "./skill-route-model.ts"
 import type { SkillDetailContentProps } from "./SkillDetailContent.tsx"
-import type { OrganizationSkillFilter } from "./SkillPageHeader.tsx"
-import type {
-  ManagedOrganizationOption,
-  SkillOrganizationLinkTarget,
-  SkillPublishVisibility,
-} from "./SkillPublishDialogs.tsx"
-import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
-import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
+import type { TeamSkillFilter } from "./SkillPageHeader.tsx"
+import type { ManagedTeamOption, SkillTeamLinkTarget, SkillPublishVisibility } from "./SkillPublishDialogs.tsx"
+import type { BusyAction } from "./team-management-model.ts"
 import type { ProviderSkillRecommendationsState } from "@/hooks/useProviderSkillRecommendations"
+import type { UseTeamSkills } from "@/hooks/useTeamSkills"
+import type { UseTeamWorkspace } from "@/hooks/useTeamWorkspace"
 
 import * as React from "react"
 import { toast } from "sonner"
 import { DiscoverSkillsPane } from "./DiscoverSkillsPane.tsx"
 import { InstalledSkillsPane } from "./InstalledSkillsPane.tsx"
-import { OrganizationInstallMissingButton } from "./OrganizationSkillManageRows.tsx"
-import { OrganizationSkillsPane } from "./OrganizationSkillsPane.tsx"
 import { skillErrorMessage } from "./skill-errors.ts"
 import {
   getGroupStatus,
-  getInstallableOrganizationSkills,
+  getInstallableTeamSkills,
   getLocalSkillPublishPath,
   getPublicPackageInstallSkills,
   getRuntimeHosts,
@@ -43,10 +37,12 @@ import {
 } from "./skill-route-model.ts"
 import { SkillDetailContent } from "./SkillDetailContent.tsx"
 import { SkillPageHeader } from "./SkillPageHeader.tsx"
-import { OrganizationLinkDialog, PublishSkillDialog } from "./SkillPublishDialogs.tsx"
+import { TeamLinkDialog, PublishSkillDialog } from "./SkillPublishDialogs.tsx"
 import { SkillManagementSheet } from "./SkillUiParts.tsx"
-import { useOrganizationSkillActions } from "./use-organization-skill-actions.ts"
+import { TeamInstallMissingButton } from "./TeamSkillManageRows.tsx"
+import { TeamSkillsPane } from "./TeamSkillsPane.tsx"
 import { useRegistrySkillUpdate } from "./use-registry-skill-update.ts"
+import { useTeamSkillActions } from "./use-team-skill-actions.ts"
 import { useSkillService } from "@/components/AppContext"
 import {
   useAuthStateResource,
@@ -55,9 +51,8 @@ import {
 } from "@/components/AppDataHooks"
 import { DeleteSkillConfirmDialog } from "@/components/DeleteSkillConfirmDialog"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
-import { invalidateOrganizationSkillCache } from "@/hooks/useOrganizationSkills"
+import { invalidateTeamSkillCache } from "@/hooks/useTeamSkills"
 import { useAppI18n } from "@/i18n"
-import { addOrganizationSkill } from "@/lib/organization-skills-client"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import {
   invalidateMyPublishedSkillCatalog,
@@ -66,6 +61,7 @@ import {
   listPublicSkillPackages,
   searchPublicSkillPackages,
 } from "@/lib/skills-catalog-client"
+import { addTeamSkill } from "@/lib/team-skills-client"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 type SkillOperationError = {
@@ -90,15 +86,15 @@ function visibleSkillOperationError(
 export function SkillsRoute({
   connectedProvidersLoading = false,
   focusRequest,
-  organizationSkills,
+  teamSkills,
   providerSkillRecommendationsState,
   workspace,
 }: {
   connectedProvidersLoading?: boolean
   focusRequest?: { nonce: number; tab: SkillPageTab } | null
-  organizationSkills: UseOrganizationSkills
+  teamSkills: UseTeamSkills
   providerSkillRecommendationsState: ProviderSkillRecommendationsState
-  workspace: UseOrganizationWorkspace
+  workspace: UseTeamWorkspace
 }) {
   const { locale, t } = useAppI18n()
   const skillService = useSkillService()
@@ -124,11 +120,11 @@ export function SkillsRoute({
   const [query, setQuery] = React.useState("")
   const [discoveryFilter, setDiscoveryFilter] = React.useState<DiscoverSkillFilter>("all")
   const [installedFilter, setInstalledFilter] = React.useState<InstalledSkillFilter>("all")
-  const [organizationFilter, setOrganizationFilter] = React.useState<OrganizationSkillFilter>("all")
-  const [organizationQuery, setOrganizationQuery] = React.useState("")
+  const [teamFilter, setTeamFilter] = React.useState<TeamSkillFilter>("all")
+  const [teamQuery, setTeamQuery] = React.useState("")
   const [discoveryQuery, setDiscoveryQuery] = React.useState("")
   const deferredInstalledQuery = React.useDeferredValue(query)
-  const deferredOrganizationQuery = React.useDeferredValue(organizationQuery)
+  const deferredTeamQuery = React.useDeferredValue(teamQuery)
   const deferredDiscoveryQuery = React.useDeferredValue(discoveryQuery)
   const [debouncedDiscoveryQuery, setDebouncedDiscoveryQuery] = React.useState("")
   const [publicPackageCatalog, dispatchPublicPackageCatalog] = React.useReducer(
@@ -148,8 +144,8 @@ export function SkillsRoute({
   const [cliUpdateError, setCliUpdateError] = React.useState<string | null>(null)
   const [publishingSkillId, setPublishingSkillId] = React.useState<string | null>(null)
   const [publishDialogSkill, setPublishDialogSkill] = React.useState<ManagedSkillGroup | null>(null)
-  const [organizationLinkTarget, setOrganizationLinkTarget] = React.useState<SkillOrganizationLinkTarget | null>(null)
-  const [organizationSkillBusyAction, setOrganizationSkillBusyAction] = React.useState<BusyAction | null>(null)
+  const [teamLinkTarget, setTeamLinkTarget] = React.useState<SkillTeamLinkTarget | null>(null)
+  const [teamSkillBusyAction, setTeamSkillBusyAction] = React.useState<BusyAction | null>(null)
   const [isExecutingCliUpdate, setIsExecutingCliUpdate] = React.useState(false)
   const skillMutationInFlightRef = React.useRef(false)
   const requestedVersionCheckRef = React.useRef(false)
@@ -211,21 +207,19 @@ export function SkillsRoute({
   const selectedSkill = getSelectedManagedSkillGroup(inventory?.groups ?? [], selectedSkillId)
   const selectedStatus = selectedSkill ? getGroupStatus(selectedSkill, t, getRuntimeHosts(selectedSkill)) : null
   const selectedVersionCheck = getSkillVersionCheck(versionCheckByKey, selectedSkill)
-  const managedOrganizationOptions = React.useMemo<ManagedOrganizationOption[]>(() => {
-    return workspace.organizations
-      .filter((organization) => workspace.getOrganizationCanManage(organization))
-      .map((organization) => ({ id: organization.id, name: organization.name }))
-  }, [workspace.getOrganizationCanManage, workspace.organizations])
-  const selectedSkillLinkedToActiveOrganization = React.useMemo(() => {
+  const managedTeamOptions = React.useMemo<ManagedTeamOption[]>(() => {
+    return workspace.teams
+      .filter((team) => workspace.getTeamCanManage(team))
+      .map((team) => ({ id: team.id, name: team.name }))
+  }, [workspace.getTeamCanManage, workspace.teams])
+  const selectedSkillLinkedToActiveTeam = React.useMemo(() => {
     const packageName = selectedSkill?.packageName?.trim()
     if (!packageName) {
       return false
     }
-    return organizationSkills.skills.some((skill) => skill.packageName === packageName)
-  }, [organizationSkills.skills, selectedSkill?.packageName])
-  const showSelectedSkillOrganizationLinkAction = Boolean(
-    selectedSkill?.packageName?.trim() && managedOrganizationOptions.length > 0,
-  )
+    return teamSkills.skills.some((skill) => skill.packageName === packageName)
+  }, [teamSkills.skills, selectedSkill?.packageName])
+  const showSelectedSkillTeamLinkAction = Boolean(selectedSkill?.packageName?.trim() && managedTeamOptions.length > 0)
   React.useEffect(() => {
     if (requestedVersionCheckRef.current) {
       return
@@ -247,16 +241,14 @@ export function SkillsRoute({
     if (!focusRequest) {
       return
     }
-    setActiveTab(
-      focusRequest.tab === "organization" && !workspace.activeWorkspace.organizationId ? "discover" : focusRequest.tab,
-    )
-  }, [focusRequest, workspace.activeWorkspace.organizationId])
+    setActiveTab(focusRequest.tab === "team" && !workspace.activeWorkspace.teamId ? "discover" : focusRequest.tab)
+  }, [focusRequest, workspace.activeWorkspace.teamId])
 
   React.useEffect(() => {
-    if (activeTab === "organization" && !workspace.activeWorkspace.organizationId) {
+    if (activeTab === "team" && !workspace.activeWorkspace.teamId) {
       setActiveTab("discover")
     }
-  }, [activeTab, workspace.activeWorkspace.organizationId])
+  }, [activeTab, workspace.activeWorkspace.teamId])
 
   React.useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -526,53 +518,43 @@ export function SkillsRoute({
   )
 
   const {
-    addOrganizationSkillFromRecommendation,
-    installRuntimeSkill: installOrganizationRuntimeSkill,
-    installRuntimeSkills: installOrganizationRuntimeSkills,
-  } = useOrganizationSkillActions({
-    busyAction: organizationSkillBusyAction,
-    organizationSkills,
-    setBusyAction: setOrganizationSkillBusyAction,
+    addTeamSkillFromRecommendation,
+    installRuntimeSkill: installTeamRuntimeSkill,
+    installRuntimeSkills: installTeamRuntimeSkills,
+  } = useTeamSkillActions({
+    busyAction: teamSkillBusyAction,
+    teamSkills,
+    setBusyAction: setTeamSkillBusyAction,
   })
-  const activeOrganizationId = workspace.activeWorkspace.organizationId
-  const organizationHeaderInstallTargets = React.useMemo(() => {
-    if (
-      activeTab !== "organization" ||
-      !activeOrganizationId ||
-      organizationSkills.organizationId !== activeOrganizationId
-    ) {
+  const activeTeamId = workspace.activeWorkspace.teamId
+  const teamHeaderInstallTargets = React.useMemo(() => {
+    if (activeTab !== "team" || !activeTeamId || teamSkills.teamId !== activeTeamId) {
       return []
     }
 
-    return getInstallableOrganizationSkills(installedSkillGroupById, organizationSkills.skills).map((skill) => ({
+    return getInstallableTeamSkills(installedSkillGroupById, teamSkills.skills).map((skill) => ({
       packageName: skill.packageName,
       skillName: skill.skillName,
     }))
-  }, [
-    activeOrganizationId,
-    activeTab,
-    installedSkillGroupById,
-    organizationSkills.organizationId,
-    organizationSkills.skills,
-  ])
+  }, [activeTeamId, activeTab, installedSkillGroupById, teamSkills.teamId, teamSkills.skills])
 
-  const linkPublishedSkillToOrganization = React.useCallback(
-    async (target: SkillOrganizationLinkTarget, organizationId: string): Promise<void> => {
-      await addOrganizationSkill(organizationId, {
+  const linkPublishedSkillToTeam = React.useCallback(
+    async (target: SkillTeamLinkTarget, teamId: string): Promise<void> => {
+      await addTeamSkill(teamId, {
         packageName: target.packageName,
         skillName: target.skillName,
         version: target.version,
         versionPolicy: "pinned",
       })
       const accountId = authResource.data?.status === "authenticated" ? authResource.data.account?.id : undefined
-      invalidateOrganizationSkillCache(accountId, organizationId)
+      invalidateTeamSkillCache(accountId, teamId)
 
-      if (workspace.activeWorkspace.organizationId === organizationId) {
-        await organizationSkills.refresh({ forceRefresh: true })
+      if (workspace.activeWorkspace.teamId === teamId) {
+        await teamSkills.refresh({ forceRefresh: true })
       }
-      toast.success(t("skills.organizationLinkDone", { name: target.title }))
+      toast.success(t("skills.teamLinkDone", { name: target.title }))
     },
-    [authResource.data, organizationSkills, t, workspace.activeWorkspace],
+    [authResource.data, teamSkills, t, workspace.activeWorkspace],
   )
 
   const publishSkill = React.useCallback(
@@ -673,17 +655,17 @@ export function SkillsRoute({
     copySkillPath,
     inventoryInitialLoading: inventoryResource.isInitialLoading,
     isRemovingSkill,
-    isSkillLinkedToOrganization: selectedSkillLinkedToActiveOrganization,
+    isSkillLinkedToTeam: selectedSkillLinkedToActiveTeam,
     openSkillFolder,
     publishSkill: setPublishDialogSkill,
     publishingSkillId,
     requestRemoveSkill: (skill) => setRemoveTarget({ skill }),
-    requestOrganizationLink: (skill) => {
+    requestTeamLink: (skill) => {
       const packageName = skill.packageName?.trim()
       if (!packageName) {
         return
       }
-      setOrganizationLinkTarget({
+      setTeamLinkTarget({
         packageName,
         skillName: skill.id,
         title: skill.name,
@@ -693,18 +675,18 @@ export function SkillsRoute({
     selectedPlanError: visibleSkillOperationError(planError, selectedSkill?.id),
     selectedSkill,
     selectedStatus,
-    showOrganizationLinkAction: showSelectedSkillOrganizationLinkAction,
+    showTeamLinkAction: showSelectedSkillTeamLinkAction,
     selectedVersionCheck,
     updateRegistrySkill,
     updatingRegistrySkillId,
   }
-  const organizationInstallMissingAction =
-    activeTab === "organization" && organizationHeaderInstallTargets.length > 1 ? (
-      <OrganizationInstallMissingButton
-        busy={organizationSkillBusyAction === "installSkillBatch"}
-        count={organizationHeaderInstallTargets.length}
-        disabled={Boolean(organizationSkillBusyAction)}
-        onClick={() => installOrganizationRuntimeSkills(organizationHeaderInstallTargets)}
+  const teamInstallMissingAction =
+    activeTab === "team" && teamHeaderInstallTargets.length > 1 ? (
+      <TeamInstallMissingButton
+        busy={teamSkillBusyAction === "installSkillBatch"}
+        count={teamHeaderInstallTargets.length}
+        disabled={Boolean(teamSkillBusyAction)}
+        onClick={() => installTeamRuntimeSkills(teamHeaderInstallTargets)}
       />
     ) : null
   return (
@@ -716,32 +698,32 @@ export function SkillsRoute({
           discoveryQuery={discoveryQuery}
           installedFilter={installedFilter}
           installedQuery={query}
-          organizationFilter={organizationFilter}
-          organizationQuery={organizationQuery}
-          organizationTabAvailable={Boolean(workspace.activeWorkspace.organizationId)}
-          organizationAction={organizationInstallMissingAction}
+          teamFilter={teamFilter}
+          teamQuery={teamQuery}
+          teamTabAvailable={Boolean(workspace.activeWorkspace.teamId)}
+          teamAction={teamInstallMissingAction}
           onDiscoveryFilterChange={setDiscoveryFilter}
           onDiscoveryQueryChange={setDiscoveryQuery}
           onInstalledFilterChange={setInstalledFilter}
           onInstalledQueryChange={setQuery}
-          onOrganizationFilterChange={setOrganizationFilter}
-          onOrganizationQueryChange={setOrganizationQuery}
+          onTeamFilterChange={setTeamFilter}
+          onTeamQueryChange={setTeamQuery}
           onTabChange={setActiveTab}
         />
-        {activeTab === "organization" ? (
-          <OrganizationSkillsPane
-            busyAction={organizationSkillBusyAction}
+        {activeTab === "team" ? (
+          <TeamSkillsPane
+            busyAction={teamSkillBusyAction}
             groupById={installedSkillGroupById}
-            organizationFilter={organizationFilter}
-            organizationQuery={deferredOrganizationQuery}
-            organizationSkills={organizationSkills}
+            teamFilter={teamFilter}
+            teamQuery={deferredTeamQuery}
+            teamSkills={teamSkills}
             providerRecommendationsLoading={connectedProvidersLoading || providerSkillRecommendationsState.isLoading}
             providerRecommendationsPendingCount={providerSkillRecommendationsState.pendingCount}
             providerRecommendations={providerSkillRecommendations}
             providerRecommendationsTotalCount={providerSkillRecommendationsState.totalCount}
             workspace={workspace}
-            onAddRecommendation={addOrganizationSkillFromRecommendation}
-            onInstallRuntimeSkill={installOrganizationRuntimeSkill}
+            onAddRecommendation={addTeamSkillFromRecommendation}
+            onInstallRuntimeSkill={installTeamRuntimeSkill}
             onOpenManagedSkill={openManagedPublicSkill}
           />
         ) : activeTab === "discover" ? (
@@ -768,7 +750,7 @@ export function SkillsRoute({
                   : loadPublicSkillPackages({ next: activePackageCatalog.next }))
             }
             onOpenManagedSkill={openManagedPublicSkill}
-            onOpenOrganizationRecommendations={() => setActiveTab("organization")}
+            onOpenTeamRecommendations={() => setActiveTab("team")}
             onRetry={() => {
               if (discoveryFilter === "mine") {
                 if (authResource.data?.status === "authenticated") {
@@ -818,7 +800,7 @@ export function SkillsRoute({
       />
       <PublishSkillDialog
         busy={Boolean(publishingSkillId)}
-        managedOrganizations={managedOrganizationOptions}
+        managedTeams={managedTeamOptions}
         open={Boolean(publishDialogSkill)}
         skill={publishDialogSkill}
         onClose={() => {
@@ -827,15 +809,15 @@ export function SkillsRoute({
             setPlanError(null)
           }
         }}
-        onLinkOrganization={linkPublishedSkillToOrganization}
+        onLinkTeam={linkPublishedSkillToTeam}
         onPublish={publishSkill}
       />
-      <OrganizationLinkDialog
-        managedOrganizations={managedOrganizationOptions}
-        open={Boolean(organizationLinkTarget)}
-        target={organizationLinkTarget}
-        onClose={() => setOrganizationLinkTarget(null)}
-        onLinkOrganization={linkPublishedSkillToOrganization}
+      <TeamLinkDialog
+        managedTeams={managedTeamOptions}
+        open={Boolean(teamLinkTarget)}
+        target={teamLinkTarget}
+        onClose={() => setTeamLinkTarget(null)}
+        onLinkTeam={linkPublishedSkillToTeam}
       />
     </>
   )

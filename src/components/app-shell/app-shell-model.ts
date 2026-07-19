@@ -3,7 +3,7 @@ import type {
   AgentPermissionMode,
   ChatAttachment,
   ChatContextMention,
-  ChatOrganizationSkillContext,
+  ChatTeamSkillContext,
   ChatProjectContext,
   ChatMessage,
   ReasoningLevel,
@@ -14,7 +14,7 @@ import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { QueuedChatMessage } from "./chat-queue.ts"
-import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
+import type { WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
 import { shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
@@ -59,38 +59,36 @@ function recommendedPackageKey(packageName: string | undefined): string | null {
 }
 
 export function getUnlinkedProviderSkillRecommendations<T extends ProviderRecommendedSkillIdentity>(
-  organizationSkills: readonly RecommendedSkillIdentity[],
+  teamSkills: readonly RecommendedSkillIdentity[],
   providerRecommendations: readonly T[],
 ): T[] {
-  const organizationPackageKeys = new Set(
-    organizationSkills
-      .map((skill) => recommendedPackageKey(skill.packageName))
-      .filter((key): key is string => Boolean(key)),
+  const teamPackageKeys = new Set(
+    teamSkills.map((skill) => recommendedPackageKey(skill.packageName)).filter((key): key is string => Boolean(key)),
   )
 
   return providerRecommendations.filter((recommendation) => {
     const key = recommendedPackageKey(recommendation.packageName)
-    return !key || !organizationPackageKeys.has(key)
+    return !key || !teamPackageKeys.has(key)
   })
 }
 
 export function shouldShowRecommendedSkillEntry({
-  organizationId,
-  organizationSkillCount,
+  teamId,
+  teamSkillCount,
   providerRecommendationCount,
 }: {
-  organizationId: string | null
-  organizationSkillCount: number
+  teamId: string | null
+  teamSkillCount: number
   providerRecommendationCount: number
 }): boolean {
-  return Boolean(organizationId && (organizationSkillCount > 0 || providerRecommendationCount > 0))
+  return Boolean(teamId && (teamSkillCount > 0 || providerRecommendationCount > 0))
 }
 
-export type NotificationOrganizationResolution = "ready" | "refresh" | "select" | "unavailable" | "wait"
+export type NotificationTeamResolution = "ready" | "refresh" | "select" | "unavailable" | "wait"
 
-export type OrganizationProviderOptionsAvailability = "fallback" | "pending" | "ready"
+export type TeamProviderOptionsAvailability = "fallback" | "pending" | "ready"
 
-export function resolveOrganizationProviderOptionsAvailability({
+export function resolveTeamProviderOptionsAvailability({
   appsStatus,
   summaryMatchesWorkspace,
   workspaceActivationFailed,
@@ -98,32 +96,32 @@ export function resolveOrganizationProviderOptionsAvailability({
   appsStatus: "forbidden" | "ready" | "unavailable" | undefined
   summaryMatchesWorkspace: boolean
   workspaceActivationFailed: boolean
-}): OrganizationProviderOptionsAvailability {
+}): TeamProviderOptionsAvailability {
   if (!summaryMatchesWorkspace) {
     return workspaceActivationFailed ? "fallback" : "pending"
   }
   return appsStatus === "ready" ? "ready" : "fallback"
 }
 
-export function resolveNotificationOrganization({
-  activeOrganizationId,
+export function resolveNotificationTeam({
+  activeTeamId,
   hasLoaded,
   loading,
-  organizationIds,
+  teamIds,
   refreshAttempted,
-  targetOrganizationId,
+  targetTeamId,
 }: {
-  activeOrganizationId: string | null
+  activeTeamId: string | null
   hasLoaded: boolean
   loading: boolean
-  organizationIds: readonly string[]
+  teamIds: readonly string[]
   refreshAttempted: boolean
-  targetOrganizationId: string
-}): NotificationOrganizationResolution {
-  if (targetOrganizationId === activeOrganizationId) {
+  targetTeamId: string
+}): NotificationTeamResolution {
+  if (targetTeamId === activeTeamId) {
     return "ready"
   }
-  if (organizationIds.includes(targetOrganizationId)) {
+  if (teamIds.includes(targetTeamId)) {
     return "select"
   }
   if (loading || !hasLoaded) {
@@ -134,7 +132,7 @@ export function resolveNotificationOrganization({
 
 export interface TurnRetryOptions {
   contextMentions?: ChatContextMention[]
-  organizationSkills?: ChatOrganizationSkillContext[]
+  teamSkills?: ChatTeamSkillContext[]
   projectContext?: ChatProjectContext
   model?: ModelChoice
   reasoningLevel?: ReasoningLevel
@@ -149,7 +147,7 @@ export interface ChatSendRequest {
   contextMentions?: ChatContextMention[]
   mode?: AgentMode
   model?: ModelChoice
-  organizationSkills?: ChatOrganizationSkillContext[]
+  teamSkills?: ChatTeamSkillContext[]
   permissionMode?: AgentPermissionMode
   projectContext?: ChatProjectContext
   reasoningLevel?: ReasoningLevel
@@ -242,7 +240,7 @@ export function createQueuedChatMessage(
   reasoningLevel?: ReasoningLevel,
   mode?: AgentMode,
   permissionMode?: AgentPermissionMode,
-  organizationSkills?: ChatOrganizationSkillContext[],
+  teamSkills?: ChatTeamSkillContext[],
   projectContext?: ChatProjectContext,
   sessionScope?: SessionScope,
 ): QueuedChatMessage {
@@ -253,7 +251,7 @@ export function createQueuedChatMessage(
     attachments,
     ...(contextMentions && contextMentions.length > 0 ? { contextMentions } : {}),
     model,
-    ...(organizationSkills && organizationSkills.length > 0 ? { organizationSkills } : {}),
+    ...(teamSkills && teamSkills.length > 0 ? { teamSkills } : {}),
     ...(projectContext ? { projectContext } : {}),
     reasoningLevel,
     ...(sessionScope ? { sessionScope } : {}),
@@ -264,12 +262,13 @@ export function createQueuedChatMessage(
 }
 
 export function initialRoute(): Route {
-  const route = (import.meta.env as Record<string, string | undefined>)["VITE_WANTA_ROUTE"]
+  const configuredRoute = (import.meta.env as Record<string, string | undefined>)["VITE_WANTA_ROUTE"]
+  const route = configuredRoute === "organizations" ? "teams" : configuredRoute
   return route === "settings" ||
     route === "connections" ||
     route === "skills" ||
     route === "knowledge" ||
-    route === "organizations" ||
+    route === "teams" ||
     route === "billing" ||
     route === "archived"
     ? route
@@ -329,30 +328,30 @@ export function chatMessageText(message: ChatMessage): string {
 }
 
 export function sessionScopeFromWorkspace(workspace: WorkspaceSelection): SessionScope | null {
-  const organizationId = workspace.organizationId.trim()
-  const organizationName = workspace.organization?.name.trim()
-  if (!organizationId || !organizationName) {
+  const teamId = workspace.teamId.trim()
+  const teamName = workspace.team?.name.trim()
+  if (!teamId || !teamName) {
     return null
   }
-  return { organizationId, organizationName }
+  return { teamId, teamName }
 }
 
 export function workspaceSelectionSwitchKey(workspace: WorkspaceSelection): string {
-  return workspace.organizationId ? `organization:${workspace.organizationId}` : "workspace-loading"
+  return workspace.teamId ? `team:${workspace.teamId}` : "workspace-loading"
 }
 
 export function sessionScopeKey(scope: SessionScope | null): string {
   if (!scope) {
     return "workspace-loading"
   }
-  return `organization:${scope.organizationId}`
+  return `team:${scope.teamId}`
 }
 
 export function sessionRecordScopeKey(scope: SessionScope | undefined): string {
-  if (!scope?.organizationId) {
+  if (!scope?.teamId) {
     return "workspace-loading"
   }
-  return `organization:${scope.organizationId}`
+  return `team:${scope.teamId}`
 }
 
 export interface WorkspaceActivationInput {
@@ -363,7 +362,7 @@ export interface WorkspaceActivationInput {
   connectionsRefreshing: boolean
   currentScopeKey: string
   loadedSessionScopeKey: string | null
-  organizationSkillsSettled: boolean
+  teamSkillsSettled: boolean
   targetScopeKey: string | null
   workspaceMetadataError: UserFacingError | null
 }
@@ -376,7 +375,7 @@ export type WorkspaceActivationPhase =
   | "workspace_metadata"
   | "agent_scope"
   | "connections"
-  | "organization_skills"
+  | "team_skills"
 
 export type WorkspaceActivationFailureReason = "agent_scope" | "workspace_metadata"
 
@@ -425,8 +424,8 @@ export function resolveWorkspaceActivationState(input: WorkspaceActivationInput)
   if (input.connectionsRefreshing || input.connectionSettledWorkspaceKey !== input.connectionWorkspaceKey) {
     return { phase: "connections", status: "activating", targetScopeKey: input.targetScopeKey }
   }
-  if (!input.organizationSkillsSettled) {
-    return { phase: "organization_skills", status: "activating", targetScopeKey: input.targetScopeKey }
+  if (!input.teamSkillsSettled) {
+    return { phase: "team_skills", status: "activating", targetScopeKey: input.targetScopeKey }
   }
   return { status: "idle", targetScopeKey: input.targetScopeKey }
 }
@@ -449,9 +448,9 @@ export function isWorkspaceSwitchPending(input: WorkspaceSwitchPendingInput): bo
 
 export interface WorkspaceSwitchTargetReachableInput {
   activeWorkspaceKey: string
-  hasLoadedOrganizations: boolean
-  loadingOrganizations: boolean
-  organizationIds: readonly string[]
+  hasLoadedTeams: boolean
+  loadingTeams: boolean
+  teamIds: readonly string[]
   targetScopeKey: string | null
 }
 
@@ -459,13 +458,13 @@ export interface WorkspaceSwitchClearInput extends WorkspaceSwitchTargetReachabl
   workspaceSwitching: boolean
 }
 
-export function workspaceSwitchOrganizationId(scopeKey: string): string | null {
-  const prefix = "organization:"
-  if (!scopeKey.startsWith(prefix)) {
+export function workspaceSwitchTeamId(scopeKey: string): string | null {
+  const prefix = scopeKey.startsWith("team:") ? "team:" : scopeKey.startsWith("organization:") ? "organization:" : null
+  if (!prefix) {
     return null
   }
-  const organizationId = scopeKey.slice(prefix.length)
-  return organizationId ? organizationId : null
+  const teamId = scopeKey.slice(prefix.length)
+  return teamId ? teamId : null
 }
 
 export function isWorkspaceSwitchTargetReachable(input: WorkspaceSwitchTargetReachableInput): boolean {
@@ -475,11 +474,11 @@ export function isWorkspaceSwitchTargetReachable(input: WorkspaceSwitchTargetRea
   if (input.activeWorkspaceKey === input.targetScopeKey) {
     return true
   }
-  if (input.loadingOrganizations || !input.hasLoadedOrganizations) {
+  if (input.loadingTeams || !input.hasLoadedTeams) {
     return true
   }
-  const organizationId = workspaceSwitchOrganizationId(input.targetScopeKey)
-  return organizationId ? input.organizationIds.includes(organizationId) : false
+  const teamId = workspaceSwitchTeamId(input.targetScopeKey)
+  return teamId ? input.teamIds.includes(teamId) : false
 }
 
 export function shouldClearWorkspaceSwitchTarget(input: WorkspaceSwitchClearInput): boolean {

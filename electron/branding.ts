@@ -9,8 +9,8 @@
 export const branding = {
   /** 产品显示名（窗口标题、应用菜单、侧边栏 logo 文案）。 */
   appName: "Wanta",
-  /** OOMOL 组织/服务品牌名（如内置模型 provider、官方技能维护者）。 */
-  organizationName: "OOMOL",
+  /** OOMOL 公司/服务品牌名（如内置模型 provider、官方技能维护者）。 */
+  companyName: "OOMOL",
   /** 生产包 appId（electron-builder.ts 从这里派生）。 */
   appId: "com.oomol.wanta",
   /** 本地开发版 Electron 的 bundle id（download-electron 改写 .electron-dist 的 plist）。 */

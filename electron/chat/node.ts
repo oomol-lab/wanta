@@ -41,7 +41,7 @@ import type {
   SendMessageRequest,
   SaveLocalImageAsResult,
   SetChatPermissionModeRequest,
-  SetAgentOrganizationRequest,
+  SetAgentTeamRequest,
   ShowLocalPathInFolderRequest,
   ToolCallResultEvent,
   ToolCallStartedEvent,
@@ -80,7 +80,7 @@ import {
 import { ChatService as ChatServiceName } from "./common.ts"
 import {
   buildContextMentionsSystem as buildContextMentionsSystemPrompt,
-  buildOrganizationSkillsSystem,
+  buildTeamSkillsSystem,
   buildPermissionModeSystem,
   buildProjectContextSystem,
   mergeSystemPrompts,
@@ -183,18 +183,18 @@ function createMessageErrorPayload(sessionId: string, message: string, messageId
   }
 }
 
-function organizationNameFromRequest(req: SendMessageRequest): string | undefined {
-  const organizationName = req.scope?.organizationName.trim()
-  return organizationName ? organizationName : undefined
+function teamNameFromRequest(req: SendMessageRequest): string | undefined {
+  const teamName = req.scope?.teamName.trim()
+  return teamName ? teamName : undefined
 }
 
 function runWorkspaceFromRequest(req: SendMessageRequest): ChatRunWorkspace {
-  const organizationId = req.scope?.organizationId.trim() ?? ""
-  const organizationName = req.scope?.organizationName.trim() ?? ""
-  if (!organizationId || !organizationName) {
-    throw new Error("Organization scope is invalid")
+  const teamId = req.scope?.teamId.trim() ?? ""
+  const teamName = req.scope?.teamName.trim() ?? ""
+  if (!teamId || !teamName) {
+    throw new Error("Team scope is invalid")
   }
-  return { organizationId, organizationName }
+  return { teamId, teamName }
 }
 
 function messageErrorSignature(message: string): string {
@@ -238,12 +238,12 @@ interface ChatServiceDeps {
     appVersion: string
     platform: NodeJS.Platform
   }
-  /** 渲染层切换组织 workspace 时，同步 agent 的组织作用域（main 持有 agent 与 activeAgentOrganizationName）。 */
-  onSetAgentOrganization?: (organizationName: string | undefined) => Promise<void> | void
+  /** 渲染层切换团队 workspace 时，同步 agent 的团队作用域（main 持有 agent 与 activeAgentTeamName）。 */
+  onSetAgentTeam?: (teamName: string | undefined) => Promise<void> | void
   /** 权限模式由 ChatService 统一提交，避免 renderer 分别写运行态与会话元数据。 */
   onPermissionModeChanged?: (sessionId: string, permissionMode: AgentPermissionMode) => Promise<void> | void
   /** 正常完成且产物已收尾后通知主进程 attention 域；停止和错误路径不触发。 */
-  onSessionCompleted?: (input: { organizationId: string; runId: string; sessionId: string }) => Promise<void> | void
+  onSessionCompleted?: (input: { teamId: string; runId: string; sessionId: string }) => Promise<void> | void
 }
 
 interface StopSessionGenerationOptions {
@@ -278,7 +278,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
   private readonly outputPersistence: OutputPersistence
   private scopeMutationQueue: Promise<void> = Promise.resolve()
-  private desiredWorkspaceOrganizationName: string | undefined
+  private desiredWorkspaceTeamName: string | undefined
   private streamEventBuffer: ChatStreamEventBuffer | null = null
   private startedMessages = new Set<string>()
   private readonly completionChecks = new Set<string>()
@@ -341,7 +341,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.subagentSessions.clear()
     this.permissions.clear()
     this.outputPersistence.reset()
-    this.desiredWorkspaceOrganizationName = undefined
+    this.desiredWorkspaceTeamName = undefined
     this.startedMessages.clear()
     this.completionChecks.clear()
     this.clearAllCompletionRetries()
@@ -948,7 +948,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (completedRun) {
         void Promise.resolve(
           this.deps.onSessionCompleted?.({
-            organizationId: completedRun.workspace.organizationId,
+            teamId: completedRun.workspace.teamId,
             runId: completedRun.runId,
             sessionId,
           }),
@@ -1046,7 +1046,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const agent = this.agent
     if (agent) {
       void Promise.all([
-        agent.clearSessionOrganizationName(sessionId),
+        agent.clearSessionTeamName(sessionId),
         agent.clearSessionKnowledgeBaseIds(sessionId),
         ...childSessionIds.map((childSessionId) => agent.clearSessionKnowledgeBaseIds(childSessionId)),
       ]).catch((error: unknown) => {
@@ -1299,7 +1299,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       req.permissionModeVersion,
     )
     const userMessageId = createOpencodeMessageId()
-    const organizationName = organizationNameFromRequest(req)
+    const teamName = teamNameFromRequest(req)
     const bugReport = parseBugReportCommand(req.text)
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
@@ -1334,7 +1334,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         mention.kind === "knowledge" && mention.id.trim() ? [mention.id.trim()] : [],
       )
       await Promise.all([
-        this.agent.setSessionOrganizationName(req.sessionId, organizationName),
+        this.agent.setSessionTeamName(req.sessionId, teamName),
         this.agent.setSessionKnowledgeBaseIds(req.sessionId, knowledgeBaseIds),
       ])
       if (!this.isCurrentGeneration(req.sessionId, activeGeneration.id) || activeGeneration.controller.signal.aborted) {
@@ -1428,11 +1428,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           mode: execution.mode,
           messageId: userMessageId,
           model: req.model,
-          organizationName,
+          teamName,
           reasoningLevel: req.reasoningLevel,
           signal: promptGeneration.controller.signal,
           system: mergeSystemPrompts(
-            buildOrganizationSkillsSystem(req.organizationSkills),
+            buildTeamSkillsSystem(req.teamSkills),
             buildContextMentionsSystemPrompt(req.contextMentions),
             buildProjectContextSystem(req.projectContext),
             buildPermissionModeSystem(req.permissionMode),
@@ -1802,17 +1802,17 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     await shell.openExternal(ensureExternalHttpUrl(req.url))
   }
 
-  public async setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void> {
-    const organizationName = req.organizationName.trim()
-    if (!organizationName) {
-      throw new Error("Organization name is required")
+  public async setAgentTeam(req: SetAgentTeamRequest): Promise<void> {
+    const teamName = req.teamName.trim()
+    if (!teamName) {
+      throw new Error("Team name is required")
     }
-    this.desiredWorkspaceOrganizationName = organizationName
+    this.desiredWorkspaceTeamName = teamName
     await this.runWithScopeMutation(async () => {
-      if (this.desiredWorkspaceOrganizationName !== organizationName) {
+      if (this.desiredWorkspaceTeamName !== teamName) {
         return
       }
-      await this.deps.onSetAgentOrganization?.(organizationName)
+      await this.deps.onSetAgentTeam?.(teamName)
     })
   }
 

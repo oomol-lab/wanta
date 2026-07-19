@@ -163,7 +163,7 @@ export const PlanComparison = React.forwardRef<
             features={[
               t("billing.planComparison.planning"),
               t("billing.planComparison.sharedLinks"),
-              t("billing.planComparison.orgGovernance"),
+              t("billing.planComparison.teamGovernance"),
               t("billing.planComparison.plusMembers"),
               t("billing.planComparison.plusAccounts"),
             ]}

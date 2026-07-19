@@ -37,8 +37,8 @@ import {
   newSessionComposerDraftKeyForScopeKey,
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
-  resolveNotificationOrganization,
-  resolveOrganizationProviderOptionsAvailability,
+  resolveNotificationTeam,
+  resolveTeamProviderOptionsAvailability,
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
@@ -78,10 +78,10 @@ import { useAttention } from "@/hooks/useAttention"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useKnowledgeBases } from "@/hooks/useKnowledgeBases"
-import { useOrganizationSkills } from "@/hooks/useOrganizationSkills"
-import { useOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
 import { useProjectGit } from "@/hooks/useProjectGit"
 import { useSessions } from "@/hooks/useSessions"
+import { useTeamSkills } from "@/hooks/useTeamSkills"
+import { useTeamWorkspace } from "@/hooks/useTeamWorkspace"
 import { useT } from "@/i18n/i18n"
 import { appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
 import { billingRequestScopeForWorkspace } from "@/lib/billing-scope"
@@ -108,8 +108,8 @@ const ChatArea = React.lazy(() => import("@/routes/Chat").then((module) => ({ de
 const ConnectionsPanel = React.lazy(() =>
   import("@/routes/Connections").then((module) => ({ default: module.ConnectionsPanel })),
 )
-const OrganizationManagementRoute = React.lazy(() =>
-  import("@/routes/Skills/OrganizationManagement").then((module) => ({ default: module.OrganizationManagementRoute })),
+const TeamManagementRoute = React.lazy(() =>
+  import("@/routes/Skills/TeamManagement").then((module) => ({ default: module.TeamManagementRoute })),
 )
 const KnowledgeRoute = React.lazy(() =>
   import("@/routes/Knowledge").then((module) => ({ default: module.KnowledgeRoute })),
@@ -144,15 +144,15 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const [ready, setReady] = React.useState(false)
   const [billingInitialTarget, setBillingInitialTarget] = React.useState<BillingDetailsTarget | null>(null)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
-  const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
-  const organizationSkills = useOrganizationSkills(organizationWorkspace.activeWorkspace, auth.state?.account?.id)
+  const teamWorkspace = useTeamWorkspace(auth.state?.account?.id)
+  const teamSkills = useTeamSkills(teamWorkspace.activeWorkspace, auth.state?.account?.id)
   const skillInventory = useSkillInventoryResource()
   const knowledgeBaseBetaEnabled = appSettings.settings.knowledgeBaseBetaEnabled
   const knowledgeLibrary = useKnowledgeBases(knowledgeBaseBetaEnabled)
-  const connections = useConnections(organizationWorkspace.connectionWorkspace)
+  const connections = useConnections(teamWorkspace.connectionWorkspace)
   const sessionScope = React.useMemo(
-    () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
-    [organizationWorkspace.activeWorkspace],
+    () => sessionScopeFromWorkspace(teamWorkspace.activeWorkspace),
+    [teamWorkspace.activeWorkspace],
   )
   const sessionsEnabled = auth.state?.status === "authenticated" && sessionScope !== null
   const {
@@ -181,17 +181,15 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     refresh: refreshSessions,
   } = useSessions({ enabled: sessionsEnabled, scope: sessionScope })
   const currentScopeKey = sessionScopeKey(sessionScope)
-  const currentConnectionWorkspaceKey = organizationWorkspace.connectionWorkspace
-    ? connectionWorkspaceSwitchKey(organizationWorkspace.connectionWorkspace)
+  const currentConnectionWorkspaceKey = teamWorkspace.connectionWorkspace
+    ? connectionWorkspaceSwitchKey(teamWorkspace.connectionWorkspace)
     : null
-  const activeWorkspaceKey = workspaceSelectionSwitchKey(organizationWorkspace.activeWorkspace)
-  const activeOrganizationId = organizationWorkspace.activeWorkspace.organizationId || null
-  const activeOrganizationSkillsMatched = organizationSkills.organizationId === activeOrganizationId
-  const organizationSkillsSettled =
-    !activeOrganizationId ||
-    (activeOrganizationSkillsMatched &&
-      !organizationSkills.loading &&
-      (organizationSkills.hasLoaded || Boolean(organizationSkills.error)))
+  const activeWorkspaceKey = workspaceSelectionSwitchKey(teamWorkspace.activeWorkspace)
+  const activeTeamId = teamWorkspace.activeWorkspace.teamId || null
+  const activeTeamSkillsMatched = teamSkills.teamId === activeTeamId
+  const teamSkillsSettled =
+    !activeTeamId ||
+    (activeTeamSkillsMatched && !teamSkills.loading && (teamSkills.hasLoaded || Boolean(teamSkills.error)))
   const {
     activationBlocked: workspaceActivationBlocked,
     activationState: workspaceActivationState,
@@ -206,13 +204,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       connectionsRefreshing: connections.busy === "refresh",
       currentScopeKey,
       loadedSessionScopeKey: sessionsLoadedScopeKey,
-      organizationSkillsSettled,
-      workspaceMetadataError: organizationWorkspace.error,
+      teamSkillsSettled,
+      workspaceMetadataError: teamWorkspace.error,
     },
     activeWorkspaceKey,
-    hasLoadedOrganizations: organizationWorkspace.hasLoaded,
-    loadingOrganizations: organizationWorkspace.loading,
-    organizationIds: organizationWorkspace.organizations.map((organization) => organization.id),
+    hasLoadedTeams: teamWorkspace.hasLoaded,
+    loadingTeams: teamWorkspace.loading,
+    teamIds: teamWorkspace.teams.map((team) => team.id),
   })
   const sessionsSettledForCurrentScope = sessionsLoaded && sessionsLoadedScopeKey === currentScopeKey
   const visibleSessions = React.useMemo(
@@ -234,8 +232,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [selectedSessionId, setSelectedSessionId] = React.useState<string | null>(null)
   const [pendingAttentionSession, setPendingAttentionSession] = React.useState<{
-    organizationRefreshAttempted: boolean
-    organizationId?: string
+    teamRefreshAttempted: boolean
+    teamId?: string
     sessionRefreshAttempted: boolean
     sessionId: string
   } | null>(null)
@@ -354,12 +352,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
 
   React.useEffect(
     () =>
-      attentionService.serverEvents.on("openSessionRequested", ({ organizationId, sessionId }) => {
+      attentionService.serverEvents.on("openSessionRequested", ({ teamId, sessionId }) => {
         setPendingAttentionSession({
-          organizationRefreshAttempted: false,
+          teamRefreshAttempted: false,
           sessionRefreshAttempted: false,
           sessionId,
-          ...(organizationId ? { organizationId } : {}),
+          ...(teamId ? { teamId } : {}),
         })
         setRoute("chat")
       }),
@@ -367,23 +365,23 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   )
 
   React.useEffect(() => {
-    const organizationId = pendingAttentionSession?.organizationId
-    if (!pendingAttentionSession || !organizationId || organizationId === activeOrganizationId) {
+    const teamId = pendingAttentionSession?.teamId
+    if (!pendingAttentionSession || !teamId || teamId === activeTeamId) {
       return
     }
 
-    const resolution = resolveNotificationOrganization({
-      activeOrganizationId,
-      hasLoaded: organizationWorkspace.hasLoaded,
-      loading: organizationWorkspace.loading,
-      organizationIds: organizationWorkspace.organizations.map((organization) => organization.id),
-      refreshAttempted: pendingAttentionSession.organizationRefreshAttempted,
-      targetOrganizationId: organizationId,
+    const resolution = resolveNotificationTeam({
+      activeTeamId,
+      hasLoaded: teamWorkspace.hasLoaded,
+      loading: teamWorkspace.loading,
+      teamIds: teamWorkspace.teams.map((team) => team.id),
+      refreshAttempted: pendingAttentionSession.teamRefreshAttempted,
+      targetTeamId: teamId,
     })
 
     if (resolution === "select") {
-      handleWorkspaceSwitchStart(`organization:${organizationId}`)
-      organizationWorkspace.selectOrganization(organizationId)
+      handleWorkspaceSwitchStart(`team:${teamId}`)
+      teamWorkspace.selectTeam(teamId)
       return
     }
     if (resolution === "wait" || resolution === "ready") {
@@ -391,30 +389,28 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     }
     if (resolution === "refresh") {
       setPendingAttentionSession((current) =>
-        current?.sessionId === pendingAttentionSession.sessionId
-          ? { ...current, organizationRefreshAttempted: true }
-          : current,
+        current?.sessionId === pendingAttentionSession.sessionId ? { ...current, teamRefreshAttempted: true } : current,
       )
-      void organizationWorkspace.refresh({ forceRefresh: true }).catch((error: unknown) => {
-        reportRendererHandledError("attention", "refresh notification organization failed", error)
+      void teamWorkspace.refresh({ forceRefresh: true }).catch((error: unknown) => {
+        reportRendererHandledError("attention", "refresh notification team failed", error)
       })
       return
     }
 
     setPendingAttentionSession(null)
-    toast.error(t("sidebar.notificationOrganizationUnavailable"))
+    toast.error(t("sidebar.notificationTeamUnavailable"))
     void attentionService.invoke("markSessionViewed", pendingAttentionSession.sessionId).catch((error: unknown) => {
       reportRendererHandledError("attention", "clear inaccessible notification session failed", error)
     })
   }, [
-    activeOrganizationId,
+    activeTeamId,
     attentionService,
     handleWorkspaceSwitchStart,
-    organizationWorkspace.hasLoaded,
-    organizationWorkspace.loading,
-    organizationWorkspace.organizations,
-    organizationWorkspace.refresh,
-    organizationWorkspace.selectOrganization,
+    teamWorkspace.hasLoaded,
+    teamWorkspace.loading,
+    teamWorkspace.teams,
+    teamWorkspace.refresh,
+    teamWorkspace.selectTeam,
     pendingAttentionSession,
     t,
   ])
@@ -422,7 +418,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   React.useEffect(() => {
     if (
       !pendingAttentionSession ||
-      (pendingAttentionSession.organizationId && pendingAttentionSession.organizationId !== activeOrganizationId) ||
+      (pendingAttentionSession.teamId && pendingAttentionSession.teamId !== activeTeamId) ||
       !sessionsSettledForCurrentScope
     ) {
       return
@@ -463,7 +459,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       reportRendererHandledError("attention", "mark routed notification session viewed failed", error)
     })
   }, [
-    activeOrganizationId,
+    activeTeamId,
     attentionService,
     pendingAttentionSession,
     refreshSessions,
@@ -479,32 +475,32 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeProviders = connectionSummaryMatchesWorkspace
     ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
     : EMPTY_CONNECTION_PROVIDERS
-  const organizationProviderOptionsAvailability = resolveOrganizationProviderOptionsAvailability({
+  const teamProviderOptionsAvailability = resolveTeamProviderOptionsAvailability({
     appsStatus: connections.summary?.appsStatus,
     summaryMatchesWorkspace: connectionSummaryMatchesWorkspace,
     workspaceActivationFailed: workspaceActivationHasFailed(workspaceActivationState),
   })
-  const activeOrganizationProviderOptions = React.useMemo(
+  const activeTeamProviderOptions = React.useMemo(
     () =>
-      organizationProviderOptionsAvailability === "ready"
+      teamProviderOptionsAvailability === "ready"
         ? activeProviders
             .filter((provider) => provider.apps.some((app) => app.status !== "disconnected"))
             .map((provider) => ({ label: provider.displayName, service: provider.service }))
             .sort((left, right) => left.label.localeCompare(right.label))
-        : organizationProviderOptionsAvailability === "pending"
+        : teamProviderOptionsAvailability === "pending"
           ? undefined
           : null,
-    [activeProviders, organizationProviderOptionsAvailability],
+    [activeProviders, teamProviderOptionsAvailability],
   )
   const {
-    entryVisible: organizationSkillEntryVisible,
+    entryVisible: teamSkillEntryVisible,
     pendingInstallCount: recommendedSkillPendingInstallCount,
     providerRecommendations: providerSkillRecommendations,
-    showcaseItems: organizationSkillShowcaseItems,
+    showcaseItems: teamSkillShowcaseItems,
   } = useAppShellSkillRecommendations({
     activeProviders,
     inventory: skillInventory.data,
-    organizationSkills,
+    teamSkills,
     route,
   })
   const connectionAppsReady = connectionSummaryMatchesWorkspace && connections.summary?.appsStatus === "ready"
@@ -516,7 +512,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     : activeProvidersLoading
       ? undefined
       : null
-  const canManageWorkspaceConnections = organizationWorkspace.activeWorkspace.canManage
+  const canManageWorkspaceConnections = teamWorkspace.activeWorkspace.canManage
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   const [connectionCatalogFilter, setConnectionCatalogFilter] = React.useState<ConnectionCatalogFilter>({ kind: "all" })
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
@@ -769,8 +765,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       connections.retryScopeSync()
       return
     }
-    void organizationWorkspace.refresh({ forceRefresh: true })
-  }, [connections.retryScopeSync, organizationWorkspace.refresh, workspaceActivationState])
+    void teamWorkspace.refresh({ forceRefresh: true })
+  }, [connections.retryScopeSync, teamWorkspace.refresh, workspaceActivationState])
   const hasVisibleLoadedSession = Boolean(activeChatSessionId && messagesLoaded)
   const chatBootstrapping =
     !startupError &&
@@ -823,8 +819,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             ? t("skills.title")
             : route === "knowledge" && knowledgeBaseBetaEnabled
               ? t("knowledge.title")
-              : route === "organizations"
-                ? t("organizations.title")
+              : route === "teams"
+                ? t("teams.title")
                 : route === "archived"
                   ? t("archived.title")
                   : (activeSession?.title ?? t("chat.newSession"))
@@ -951,7 +947,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     messages,
     messagesLoaded,
     knowledgeBaseIds: activeKnowledgeBaseIds,
-    organizationSkills: organizationSkills.chatContextSkills,
+    teamSkills: teamSkills.chatContextSkills,
     persistKnowledgeBaseIds,
     persistPermissionMode,
     send,
@@ -1252,7 +1248,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           reasoningLevel,
           mode,
           permissionMode,
-          organizationSkills.chatContextSkills,
+          teamSkills.chatContextSkills,
           activeProjectContext,
           sessionScope ?? undefined,
         )
@@ -1281,7 +1277,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       activeChatTurnState,
       activeProjectContext,
       commitComposerDraft,
-      organizationSkills.chatContextSkills,
+      teamSkills.chatContextSkills,
       pinnedKnowledgeMentions,
       queueActiveMessage,
       releaseActiveQueue,
@@ -1343,7 +1339,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           attachments: source.attachments,
           contextMentions:
             storedOptions?.contextMentions ?? lastContextMentionsBySession.current.get(activeChatSessionId),
-          organizationSkills: storedOptions?.organizationSkills ?? organizationSkills.chatContextSkills,
+          teamSkills: storedOptions?.teamSkills ?? teamSkills.chatContextSkills,
           projectContext: storedOptions?.projectContext ?? activeProjectContext,
           model: storedOptions?.model ?? lastModelBySession.current.get(activeChatSessionId),
           reasoningLevel: storedOptions?.reasoningLevel ?? lastReasoningLevelBySession.current.get(activeChatSessionId),
@@ -1361,7 +1357,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       activeProjectContext,
       activeChatSessionId,
       displayedPermissionMode,
-      organizationSkills.chatContextSkills,
+      teamSkills.chatContextSkills,
       prepareRetry,
       sessionScope,
     ],
@@ -1391,7 +1387,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         displayedPermissionMode
       const contextMentions =
         storedOptions?.contextMentions ?? lastContextMentionsBySession.current.get(activeChatSessionId) ?? []
-      const retryOrganizationSkills = storedOptions?.organizationSkills ?? organizationSkills.chatContextSkills
+      const retryTeamSkills = storedOptions?.teamSkills ?? teamSkills.chatContextSkills
       const titleInput = { ...buildSessionTitleInput([], source.text, source.attachments), model }
       const fallbackTitle = buildFallbackSessionTitle(titleInput)
       const session = await create(fallbackTitle, projectContext?.id ?? activeProject?.id)
@@ -1408,7 +1404,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         contextMentions,
         mode,
         model,
-        organizationSkills: retryOrganizationSkills,
+        teamSkills: retryTeamSkills,
         permissionMode,
         projectContext,
         reasoningLevel,
@@ -1422,7 +1418,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       activeProjectContext,
       create,
       displayedPermissionMode,
-      organizationSkills.chatContextSkills,
+      teamSkills.chatContextSkills,
       persistKnowledgeBaseIds,
       persistPermissionMode,
       send,
@@ -1446,7 +1442,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           storedOptions?.contextMentions ?? lastContextMentionsBySession.current.get(activeChatSessionId) ?? [],
         mode: storedOptions?.mode ?? lastModeBySession.current.get(activeChatSessionId),
         model: storedOptions?.model ?? lastModelBySession.current.get(activeChatSessionId),
-        organizationSkills: storedOptions?.organizationSkills ?? organizationSkills.chatContextSkills,
+        teamSkills: storedOptions?.teamSkills ?? teamSkills.chatContextSkills,
         permissionMode:
           storedOptions?.permissionMode ??
           lastPermissionModeBySession.current.get(activeChatSessionId) ??
@@ -1461,7 +1457,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       activeProjectContext,
       auth,
       displayedPermissionMode,
-      organizationSkills.chatContextSkills,
+      teamSkills.chatContextSkills,
       send,
       sessionScope,
     ],
@@ -1552,17 +1548,17 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       ) : null,
     [activeKnowledgeBases, activeQueuedMessages.length, handleToggleKnowledgeBaseReference, knowledgeLibrary.items],
   )
-  const handleOpenOrganizations = React.useCallback(() => setRoute("organizations"), [])
+  const handleOpenTeams = React.useCallback(() => setRoute("teams"), [])
   const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
-  const billingWorkspaceCacheScope = organizationWorkspace.activeWorkspace.organizationId
-    ? `organization:${organizationWorkspace.activeWorkspace.organizationId}`
+  const billingWorkspaceCacheScope = teamWorkspace.activeWorkspace.teamId
+    ? `team:${teamWorkspace.activeWorkspace.teamId}`
     : "workspace-loading"
   const billingCacheScope = `${auth.state?.account?.id ?? "authenticated"}:${billingWorkspaceCacheScope}`
   const billingRequestScope = React.useMemo(
-    () => billingRequestScopeForWorkspace(organizationWorkspace.activeWorkspace),
-    [organizationWorkspace.activeWorkspace],
+    () => billingRequestScopeForWorkspace(teamWorkspace.activeWorkspace),
+    [teamWorkspace.activeWorkspace],
   )
   const newChatShortcut = appCommandShortcutLabel(APP_COMMANDS.newChat)
   const newChatLabel = labelWithShortcut(
@@ -1657,7 +1653,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           initialTarget={billingInitialTarget}
           sharedConnectorCount={sharedConnectorCount}
           titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
-          workspace={organizationWorkspace.activeWorkspace}
+          workspace={teamWorkspace.activeWorkspace}
           onBack={() => setRoute("chat")}
         />
       </React.Suspense>
@@ -1722,7 +1718,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         sidebarSessionGroups={sidebarSessionGroups}
         taskSessions={visibleTaskSessions}
         width={sidebarWidth}
-        workspace={organizationWorkspace}
+        workspace={teamWorkspace}
         workspaceSwitching={workspaceNavigationSwitching}
         onArchiveProjectRequest={projectActions.requestArchive}
         onArchiveSessionRequest={sessionActions.requestArchive}
@@ -1769,7 +1765,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             sidebarCollapsed={sidebarCollapsed}
             titlebarEditable={titlebarEditable}
             titlebarTitle={titlebarTitle}
-            workspace={organizationWorkspace.activeWorkspace}
+            workspace={teamWorkspace.activeWorkspace}
             onArtifactsToggle={handleArtifactsToggle}
             onOpenSearch={handleOpenSearch}
             onRenameSession={sessionActions.handleRename}
@@ -1791,19 +1787,19 @@ export function AppShell({ auth }: { auth: UseAuth }) {
               ) : route === "skills" ? (
                 <SkillsRoute
                   connectedProvidersLoading={activeProvidersLoading}
-                  organizationSkills={organizationSkills}
+                  teamSkills={teamSkills}
                   providerSkillRecommendationsState={providerSkillRecommendations}
-                  workspace={organizationWorkspace}
+                  workspace={teamWorkspace}
                 />
               ) : route === "knowledge" && knowledgeBaseBetaEnabled ? (
                 <KnowledgeRoute knowledge={knowledgeLibrary} onStartChat={handleStartKnowledgeChat} />
-              ) : route === "organizations" ? (
-                <OrganizationManagementRoute
+              ) : route === "teams" ? (
+                <TeamManagementRoute
                   connectedProvidersLoading={activeProvidersLoading}
-                  organizationSkills={organizationSkills}
-                  providerOptions={activeOrganizationProviderOptions}
+                  teamSkills={teamSkills}
+                  providerOptions={activeTeamProviderOptions}
                   providerSkillRecommendationsState={providerSkillRecommendations}
-                  workspace={organizationWorkspace}
+                  workspace={teamWorkspace}
                 />
               ) : (
                 <div className="flex h-full min-h-0 overflow-hidden">
@@ -1848,10 +1844,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       composerFocusRequest={composerFocusRequest}
                       canManageWorkspaceConnections={canManageWorkspaceConnections}
                       emptyStateConnectionSummary={emptyStateConnectionSummary}
-                      organizationSkillEntryVisible={organizationSkillEntryVisible}
-                      organizationSkillShowcaseItems={organizationSkillShowcaseItems}
-                      organizationSkillPendingInstallCount={recommendedSkillPendingInstallCount}
-                      organizationSkills={organizationSkills.chatContextSkills}
+                      teamSkillEntryVisible={teamSkillEntryVisible}
+                      teamSkillShowcaseItems={teamSkillShowcaseItems}
+                      teamSkillPendingInstallCount={recommendedSkillPendingInstallCount}
+                      teamSkills={teamSkills.chatContextSkills}
                       providers={activeProviders}
                       queueHeld={activeQueueHeld}
                       queuedMessages={activeQueuedMessages}
@@ -1885,7 +1881,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       onOpenConnections={handleOpenConnections}
                       onOpenConnectionProvider={handleOpenChatConnectionProvider}
                       onOpenKnowledgeLibrary={handleOpenKnowledgeLibrary}
-                      onOpenOrganizations={handleOpenOrganizations}
+                      onOpenTeams={handleOpenTeams}
                       onSelectKnowledgeBase={handleAddKnowledgeBaseReference}
                       onViewBilling={handleViewBilling}
                     />

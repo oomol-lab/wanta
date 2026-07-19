@@ -55,7 +55,7 @@ export function projectSidebarCollapsedStorageKey(
   if (!accountId || !scope) {
     return null
   }
-  const scopeKey = `organization:${scope.organizationId}`
+  const scopeKey = `team:${scope.teamId}`
   return `${projectCollapsedStoragePrefix}:${accountId}:${scopeKey}`
 }
 
@@ -66,7 +66,10 @@ export function readStoredCollapsedProjectIds(
   if (!key) {
     return new Set()
   }
-  const raw = readItem(storage, key)
+  const legacyKey = key.replace(":team:", ":organization:")
+  const currentRaw = readItem(storage, key)
+  const legacyRaw = currentRaw === null && legacyKey !== key ? readItem(storage, legacyKey) : null
+  const raw = currentRaw ?? legacyRaw
   if (!raw) {
     return new Set()
   }
@@ -75,7 +78,12 @@ export function readStoredCollapsedProjectIds(
     if (!Array.isArray(parsed)) {
       return new Set()
     }
-    return new Set(parsed.filter((value): value is string => typeof value === "string" && value.trim().length > 0))
+    const ids = new Set(parsed.filter((value): value is string => typeof value === "string" && value.trim().length > 0))
+    if (legacyRaw !== null) {
+      writeItem(storage, key, JSON.stringify([...ids].sort()))
+      removeItem(storage, legacyKey)
+    }
+    return ids
   } catch {
     return new Set()
   }

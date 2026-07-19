@@ -95,7 +95,7 @@ export class AuthManager {
 
   /**
    * 运行时账号 = 持久化 profile + 会话 token。无 profile 或无 token（过期）时返回 null —— 即"未登录/会话失效"。
-   * main 用它装配 agent / connector / org / skills，billing 也由它派生：token 在则全可用，token 失则全不可用（一致生命周期）。
+   * main 用它装配 agent / connector / team / skills，billing 也由它派生：token 在则全可用，token 失则全不可用（一致生命周期）。
    */
   public async activeRuntimeAccount(): Promise<AuthRuntimeAccount | null> {
     if (this.sessionInvalidated) {

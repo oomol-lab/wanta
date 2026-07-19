@@ -19,8 +19,8 @@ export interface SessionInfo {
 export type SessionPermissionMode = "default" | "full_access"
 
 export interface SessionScope {
-  organizationId: string
-  organizationName: string
+  teamId: string
+  teamName: string
 }
 
 export type SessionPlacement = "all" | "project" | "task"

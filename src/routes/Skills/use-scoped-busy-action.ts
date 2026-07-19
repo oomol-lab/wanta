@@ -1,4 +1,4 @@
-import type { BusyAction } from "./organization-management-model.ts"
+import type { BusyAction } from "./team-management-model.ts"
 
 import * as React from "react"
 
@@ -16,7 +16,7 @@ export function scopedBusyOperationIsCurrent(
   return currentId === operation.id && currentContextKey === operation.contextKey
 }
 
-/** 用上下文和递增序号隔离异步操作，避免旧组织的 finally 清掉新组织的忙碌状态。 */
+/** 用上下文和递增序号隔离异步操作，避免旧团队的 finally 清掉新团队的忙碌状态。 */
 export function useScopedBusyAction({
   busyAction,
   contextKey,

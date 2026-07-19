@@ -38,7 +38,7 @@ import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 // 连接器面板的全部 HTTP 在渲染层直接发起：原先这些是渲染业务驱动、却由主进程 ConnectionsServiceImpl
 // 代发的请求（且在每 2s 的 oauth 轮询里高频触发，正是"主进程做太多"的典型）。凭证经 httpOnly 会话 cookie
 // 自动附带（oomolFetch 内 credentials:"include"），token 不进渲染层（守 R4）；域名从 @/lib/domain 派生（守 R2）。
-// oauth2 的"开系统浏览器"与"同步 agent 组织作用域"仍是主进程职责，分别经 openExternalUrl / setAgentOrganization IPC。
+// oauth2 的"开系统浏览器"与"同步 agent 团队作用域"仍是主进程职责，分别经 openExternalUrl / setAgentTeam IPC。
 // summary/usage/executions/federated/domain 的纯函数复用主进程同款模块。
 
 const connectorRequestTimeoutMs = 20_000
@@ -176,7 +176,7 @@ function connectorOAuthReturnProtocol(): string {
 }
 
 function workspaceHeaders(workspace: ConnectionWorkspace): Record<string, string> {
-  return { "x-oo-organization-name": workspace.organizationName }
+  return { "x-oo-organization-name": workspace.teamName }
 }
 
 function clampExecutionLogLimit(value: number | undefined): number {
@@ -245,7 +245,7 @@ async function readConnectorPayload(response: Response): Promise<unknown> {
   }
 }
 
-/** 变更类请求（POST/DELETE/PATCH/PUT）：不缓存，cookie 鉴权 + 可选组织头。 */
+/** 变更类请求（POST/DELETE/PATCH/PUT）：不缓存，cookie 鉴权 + 可选团队头。 */
 async function requestConnector<T>(
   path: string,
   workspace: ConnectionWorkspace,
@@ -268,7 +268,7 @@ async function requestConnector<T>(
   return unwrapConnectorEnvelope<T>(payload)
 }
 
-/** 用户级连接器请求：OAuth client config 不随组织 workspace 变化。 */
+/** 用户级连接器请求：OAuth client config 不随团队 workspace 变化。 */
 async function requestConnectorGlobal<T>(
   path: string,
   init: Omit<RequestInit, "headers"> & { headers?: Record<string, string> } = {},
@@ -289,7 +289,7 @@ async function requestConnectorGlobal<T>(
   return unwrapConnectorEnvelope<T>(payload)
 }
 
-/** 读类 GET：带条件请求 + 30s TTL；组织资源按 workspace 隔离，公共目录使用 global 键。 */
+/** 读类 GET：带条件请求 + 30s TTL；团队资源按 workspace 隔离，公共目录使用 global 键。 */
 async function getConnector<T>(
   path: string,
   workspace: ConnectionWorkspace | null,
@@ -382,7 +382,7 @@ export async function getConnectionCatalogSummary(
 ): Promise<ConnectionSummary> {
   const [appsResult, providersResult] = await Promise.allSettled([
     getConnectionApps(workspace, options),
-    // Provider 是公共发现目录，不应因当前组织的连接管理权限而不可见。
+    // Provider 是公共发现目录，不应因当前团队的连接管理权限而不可见。
     getConnectionProviders(options),
   ])
   if (providersResult.status === "rejected") {
@@ -403,7 +403,7 @@ export async function getConnectionCatalogSummary(
     appsResult.status === "rejected" &&
     !(appsResult.reason instanceof ConnectorRequestError && appsResult.reason.status === 403)
   ) {
-    reportRendererHandledError("connections", "organization connection state request failed", appsResult.reason)
+    reportRendererHandledError("connections", "team connection state request failed", appsResult.reason)
   }
   return {
     ...mergeConnectionSummary({
@@ -418,7 +418,7 @@ export async function getConnectionCatalogSummary(
   }
 }
 
-/** 供组织详情与连接器目录复用同一份 workspace apps 条件请求缓存。 */
+/** 供团队详情与连接器目录复用同一份 workspace apps 条件请求缓存。 */
 export function getConnectionApps(
   workspace: ConnectionWorkspace,
   options: ConnectorReadOptions = {},

@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 const identitySection = "identity"
-const organizationKeyPattern = /^\s*organization\s*=/
+const teamKeyPattern = /^\s*organization\s*=/
 const sectionPattern = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/
 
 function tomlString(value: string): string {
@@ -50,16 +50,16 @@ function sectionName(line: string): string | undefined {
   return match?.[1]?.trim()
 }
 
-function identityOrganizationLine(organizationName: string): string {
-  return `organization = ${tomlString(organizationName)}`
+function identityTeamLine(teamName: string): string {
+  return `organization = ${tomlString(teamName)}`
 }
 
 function ensureTrailingNewline(value: string): string {
   return value.endsWith("\n") || value.length === 0 ? value : `${value}\n`
 }
 
-export function updateOoIdentitySettings(source: string, organizationName: string | undefined): string {
-  const normalized = organizationName?.trim()
+export function updateOoIdentitySettings(source: string, teamName: string | undefined): string {
+  const normalized = teamName?.trim()
   const lines = source.split(/\r?\n/)
   if (lines.at(-1) === "") {
     lines.pop()
@@ -87,32 +87,32 @@ export function updateOoIdentitySettings(source: string, organizationName: strin
       return source
     }
     const prefix = ensureTrailingNewline(source)
-    return `${prefix}${prefix.trim() ? "\n" : ""}[${identitySection}]\n${identityOrganizationLine(normalized)}\n`
+    return `${prefix}${prefix.trim() ? "\n" : ""}[${identitySection}]\n${identityTeamLine(normalized)}\n`
   }
 
   const nextLines = [...lines]
-  let organizationLine = -1
+  let teamLine = -1
   for (let index = identityStart + 1; index < identityEnd; index += 1) {
-    if (organizationKeyPattern.test(nextLines[index] ?? "")) {
-      organizationLine = index
+    if (teamKeyPattern.test(nextLines[index] ?? "")) {
+      teamLine = index
       break
     }
   }
 
   if (normalized) {
-    if (organizationLine >= 0) {
-      nextLines[organizationLine] = identityOrganizationLine(normalized)
+    if (teamLine >= 0) {
+      nextLines[teamLine] = identityTeamLine(normalized)
     } else {
-      nextLines.splice(identityEnd, 0, identityOrganizationLine(normalized))
+      nextLines.splice(identityEnd, 0, identityTeamLine(normalized))
     }
-  } else if (organizationLine >= 0) {
-    nextLines.splice(organizationLine, 1)
+  } else if (teamLine >= 0) {
+    nextLines.splice(teamLine, 1)
   }
 
   return `${nextLines.join("\n")}\n`
 }
 
-export async function writeOoIdentitySettings(configDir: string, organizationName: string | undefined): Promise<void> {
+export async function writeOoIdentitySettings(configDir: string, teamName: string | undefined): Promise<void> {
   const settingsPath = path.join(configDir, "settings.toml")
   let current = ""
   try {
@@ -123,7 +123,7 @@ export async function writeOoIdentitySettings(configDir: string, organizationNam
     }
   }
 
-  const next = updateOoIdentitySettings(current, organizationName)
+  const next = updateOoIdentitySettings(current, teamName)
   if (next === current) {
     return
   }

@@ -197,8 +197,8 @@ function sameActiveRun(left: ChatActiveRun, right: ChatActiveRun): boolean {
     left.runId === right.runId &&
     left.sessionId === right.sessionId &&
     left.startedAt === right.startedAt &&
-    left.workspace.organizationId === right.workspace.organizationId &&
-    left.workspace.organizationName === right.workspace.organizationName &&
+    left.workspace.teamId === right.workspace.teamId &&
+    left.workspace.teamName === right.workspace.teamName &&
     sameStringArray(left.activeToolPartIds, right.activeToolPartIds) &&
     sameStringArray(left.blockingRequestIds, right.blockingRequestIds)
   )

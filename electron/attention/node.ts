@@ -34,7 +34,7 @@ interface AttentionServiceDeps {
 }
 
 interface CompleteSessionRequest {
-  organizationId: string
+  teamId: string
   runId: string
   sessionId: string
 }
@@ -136,7 +136,7 @@ export class AttentionServiceImpl
       } else {
         this.unreadSessions.set(req.sessionId, {
           createdAt: Date.now(),
-          organizationId: req.organizationId,
+          teamId: req.teamId,
           runId: req.runId,
         })
         await this.persistAndPublish()
@@ -269,12 +269,10 @@ export class AttentionServiceImpl
     if (sessionId) {
       notification.once("click", () => {
         this.deps.revealWindow()
-        const organizationId = this.unreadSessions.get(sessionId)?.organizationId
-        void this.send("openSessionRequested", { sessionId, ...(organizationId ? { organizationId } : {}) }).catch(
-          (error: unknown) => {
-            console.warn("[wanta] failed to route task completion notification:", error)
-          },
-        )
+        const teamId = this.unreadSessions.get(sessionId)?.teamId
+        void this.send("openSessionRequested", { sessionId, ...(teamId ? { teamId } : {}) }).catch((error: unknown) => {
+          console.warn("[wanta] failed to route task completion notification:", error)
+        })
       })
     }
     let showListener: (() => void) | null = null

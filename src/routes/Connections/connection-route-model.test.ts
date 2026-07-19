@@ -125,14 +125,14 @@ test("connection catalog filter rejects click events and malformed categories", 
   })
 })
 
-test("organization connection state is visible whenever the member read succeeds", () => {
+test("team connection state is visible whenever the member read succeeds", () => {
   assert.equal(shouldShowConnectionState(undefined), false)
   assert.equal(shouldShowConnectionState("unavailable"), false)
   assert.equal(shouldShowConnectionState("forbidden"), false)
   assert.equal(shouldShowConnectionState("ready"), true)
 })
 
-test("connection mutations require management permission and a confirmed organization state", () => {
+test("connection mutations require management permission and a confirmed team state", () => {
   assert.equal(canMutateConnections(false, "ready"), false)
   assert.equal(canMutateConnections(true, undefined), false)
   assert.equal(canMutateConnections(true, "unavailable"), false)
@@ -208,10 +208,10 @@ test("normalizeConnectionAliasInput keeps connector-safe connection names", () =
 })
 
 test("connection detail cache keys separate workspaces for the same provider", () => {
-  const workspaceKey = connectionDetailCacheKey("organization:acme", "canva")
-  const organizationKey = connectionDetailCacheKey("organization:Design", "canva")
+  const workspaceKey = connectionDetailCacheKey("team:acme", "canva")
+  const teamKey = connectionDetailCacheKey("team:Design", "canva")
 
-  assert.notEqual(workspaceKey, organizationKey)
+  assert.notEqual(workspaceKey, teamKey)
 })
 
 test("selectVisibleCategoryFilters keeps an active overflow category visible", () => {

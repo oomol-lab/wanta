@@ -1,4 +1,4 @@
-import type { BusyAction, MemberView } from "./organization-management-model.ts"
+import type { BusyAction, MemberView } from "./team-management-model.ts"
 
 import * as React from "react"
 

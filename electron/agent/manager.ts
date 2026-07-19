@@ -52,8 +52,8 @@ export interface AgentManagerOptions {
   knowledgeRegistryPath?: string
   /** 内置 oo skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
-  /** 当前组织工作区名称；未设置表示组织身份尚未解析。 */
-  organizationName?: string
+  /** 当前团队工作区名称；未设置表示团队身份尚未解析。 */
+  teamName?: string
   /** App 私有根目录（userData 下）：workspace / oo-store / isolation 都在其下。 */
   rootDir: string
   /** 自定义 OpenAI-compatible 模型配置。apiKey 只进入 sidecar env config，不落到 OpenCode 文件。 */
@@ -62,8 +62,8 @@ export interface AgentManagerOptions {
   disableServerAuth?: boolean
 }
 
-function normalizeOrganizationName(organizationName: string | undefined): string | undefined {
-  const normalized = organizationName?.trim()
+function normalizeTeamName(teamName: string | undefined): string | undefined {
+  const normalized = teamName?.trim()
   return normalized ? normalized : undefined
 }
 
@@ -83,31 +83,31 @@ export function buildManagedSkillRuntimeEnv(nodeBin: string = process.execPath):
   }
 }
 
-export interface OrganizationScopePersistenceOptions {
+export interface TeamScopePersistenceOptions {
   currentName: string | undefined
   nextName: string | undefined
-  writeScope: (organizationName: string | undefined) => Promise<void>
+  writeScope: (teamName: string | undefined) => Promise<void>
 }
 
-export async function persistOrganizationScopeUpdate({
+export async function persistTeamScopeUpdate({
   currentName,
   nextName,
   writeScope,
-}: OrganizationScopePersistenceOptions): Promise<void> {
+}: TeamScopePersistenceOptions): Promise<void> {
   try {
     await writeScope(nextName)
   } catch (error) {
     try {
       await writeScope(currentName)
     } catch (rollbackError) {
-      console.warn("[wanta] failed to rollback agent organization scope:", rollbackError)
+      console.warn("[wanta] failed to rollback agent team scope:", rollbackError)
       logDiagnostic(
         "agent",
-        "failed to rollback agent organization scope",
-        { error: rollbackError, organizationName: currentName },
+        "failed to rollback agent team scope",
+        { error: rollbackError, teamName: currentName },
         "warn",
       )
-      throw new AggregateError([error, rollbackError], "Failed to persist and rollback agent organization scope.")
+      throw new AggregateError([error, rollbackError], "Failed to persist and rollback agent team scope.")
     }
     throw error
   }
@@ -145,7 +145,7 @@ export interface PromptStreamingOptions {
   attachments?: ChatAttachment[]
   mode?: AgentMode
   model?: ModelChoice
-  organizationName?: string
+  teamName?: string
   reasoningLevel?: ReasoningLevel
   artifactDir?: string
   processDir?: string
@@ -211,10 +211,10 @@ export class AgentManager {
   private runtimeRecovery: Promise<void> | null = null
   private started = false
   private eventLoopStopped = false
-  private organizationName: string | undefined
-  private organizationScopePath: string | undefined
-  private organizationUpdateChain: Promise<void> = Promise.resolve()
-  private sessionOrganizationNames = new Map<string, string>()
+  private teamName: string | undefined
+  private teamScopePath: string | undefined
+  private teamUpdateChain: Promise<void> = Promise.resolve()
+  private sessionTeamNames = new Map<string, string>()
   private sessionKnowledgeBaseIds = new Map<string, string[]>()
   private authorizedServicesCache = new Map<string, { loadedAt: number; services: string[] }>()
   private authorizedServicesLoadControllers = new Map<string, AbortController>()
@@ -225,7 +225,7 @@ export class AgentManager {
 
   public constructor(options: AgentManagerOptions) {
     this.options = options
-    this.organizationName = normalizeOrganizationName(options.organizationName)
+    this.teamName = normalizeTeamName(options.teamName)
   }
 
   public get client(): OpencodeClient {
@@ -243,49 +243,49 @@ export class AgentManager {
     return this.started
   }
 
-  /** 更新 Link 工具使用的组织工作区，不重启 sidecar，避免刷新会话列表。 */
-  public async setOrganizationName(organizationName?: string): Promise<void> {
-    const nextOrganizationName = normalizeOrganizationName(organizationName)
-    await this.queueOrganizationUpdate(async () => {
-      if (nextOrganizationName === this.organizationName) {
+  /** 更新 Link 工具使用的团队工作区，不重启 sidecar，避免刷新会话列表。 */
+  public async setTeamName(teamName?: string): Promise<void> {
+    const nextTeamName = normalizeTeamName(teamName)
+    await this.queueTeamUpdate(async () => {
+      if (nextTeamName === this.teamName) {
         return
       }
-      const previousOrganizationName = this.organizationName
-      await persistOrganizationScopeUpdate({
-        currentName: previousOrganizationName,
-        nextName: nextOrganizationName,
-        writeScope: (name) => this.writeOrganizationState(name),
+      const previousTeamName = this.teamName
+      await persistTeamScopeUpdate({
+        currentName: previousTeamName,
+        nextName: nextTeamName,
+        writeScope: (name) => this.writeTeamState(name),
       })
-      this.organizationName = nextOrganizationName
+      this.teamName = nextTeamName
     })
   }
 
-  /** 记录单个 OpenCode session 的 Link 组织身份，供并发工具调用按 session 隔离读取。 */
-  public async setSessionOrganizationName(sessionId: string, organizationName?: string): Promise<void> {
+  /** 记录单个 OpenCode session 的 Link 团队身份，供并发工具调用按 session 隔离读取。 */
+  public async setSessionTeamName(sessionId: string, teamName?: string): Promise<void> {
     const normalizedSessionId = sessionId.trim()
     if (!normalizedSessionId) {
       throw new Error("Session id is required")
     }
-    const nextOrganizationName = normalizeOrganizationName(organizationName) ?? ""
-    await this.queueOrganizationUpdate(async () => {
-      if (this.sessionOrganizationNames.get(normalizedSessionId) === nextOrganizationName) {
+    const nextTeamName = normalizeTeamName(teamName) ?? ""
+    await this.queueTeamUpdate(async () => {
+      if (this.sessionTeamNames.get(normalizedSessionId) === nextTeamName) {
         return
       }
-      this.sessionOrganizationNames.set(normalizedSessionId, nextOrganizationName)
-      await this.writeOrganizationScope(this.organizationName)
+      this.sessionTeamNames.set(normalizedSessionId, nextTeamName)
+      await this.writeTeamScope(this.teamName)
     })
   }
 
-  public async clearSessionOrganizationName(sessionId: string): Promise<void> {
+  public async clearSessionTeamName(sessionId: string): Promise<void> {
     const normalizedSessionId = sessionId.trim()
     if (!normalizedSessionId) {
       return
     }
-    await this.queueOrganizationUpdate(async () => {
-      if (!this.sessionOrganizationNames.delete(normalizedSessionId)) {
+    await this.queueTeamUpdate(async () => {
+      if (!this.sessionTeamNames.delete(normalizedSessionId)) {
         return
       }
-      await this.writeOrganizationScope(this.organizationName)
+      await this.writeTeamScope(this.teamName)
     })
   }
 
@@ -294,20 +294,20 @@ export class AgentManager {
     const normalizedSessionId = sessionId.trim()
     if (!normalizedSessionId) throw new Error("Session id is required")
     const normalizedIds = normalizeKnowledgeBaseIds(knowledgeBaseIds)
-    await this.queueOrganizationUpdate(async () => {
+    await this.queueTeamUpdate(async () => {
       if (sameStringArray(this.sessionKnowledgeBaseIds.get(normalizedSessionId), normalizedIds)) return
       if (normalizedIds.length > 0) this.sessionKnowledgeBaseIds.set(normalizedSessionId, normalizedIds)
       else this.sessionKnowledgeBaseIds.delete(normalizedSessionId)
-      await this.writeOrganizationScope(this.organizationName)
+      await this.writeTeamScope(this.teamName)
     })
   }
 
   public async clearSessionKnowledgeBaseIds(sessionId: string): Promise<void> {
     const normalizedSessionId = sessionId.trim()
     if (!normalizedSessionId) return
-    await this.queueOrganizationUpdate(async () => {
+    await this.queueTeamUpdate(async () => {
       if (!this.sessionKnowledgeBaseIds.delete(normalizedSessionId)) return
-      await this.writeOrganizationScope(this.organizationName)
+      await this.writeTeamScope(this.teamName)
     })
   }
 
@@ -316,19 +316,19 @@ export class AgentManager {
     const normalizedParentId = parentSessionId.trim()
     const normalizedChildId = childSessionId.trim()
     if (!normalizedParentId || !normalizedChildId || normalizedParentId === normalizedChildId) return
-    await this.queueOrganizationUpdate(async () => {
+    await this.queueTeamUpdate(async () => {
       const parentIds = this.sessionKnowledgeBaseIds.get(normalizedParentId) ?? []
       if (sameStringArray(this.sessionKnowledgeBaseIds.get(normalizedChildId), parentIds)) return
       if (parentIds.length > 0) this.sessionKnowledgeBaseIds.set(normalizedChildId, [...parentIds])
       else this.sessionKnowledgeBaseIds.delete(normalizedChildId)
-      await this.writeOrganizationScope(this.organizationName)
+      await this.writeTeamScope(this.teamName)
     })
   }
 
   public async removeKnowledgeBaseAccess(knowledgeBaseId: string): Promise<void> {
     const normalizedId = knowledgeBaseId.trim()
     if (!normalizedId) return
-    await this.queueOrganizationUpdate(async () => {
+    await this.queueTeamUpdate(async () => {
       let changed = false
       for (const [sessionId, ids] of this.sessionKnowledgeBaseIds) {
         const next = ids.filter((id) => id !== normalizedId)
@@ -337,14 +337,14 @@ export class AgentManager {
         if (next.length > 0) this.sessionKnowledgeBaseIds.set(sessionId, next)
         else this.sessionKnowledgeBaseIds.delete(sessionId)
       }
-      if (changed) await this.writeOrganizationScope(this.organizationName)
+      if (changed) await this.writeTeamScope(this.teamName)
     })
   }
 
-  private async queueOrganizationUpdate(update: () => Promise<void>): Promise<void> {
-    const task = this.organizationUpdateChain.then(update, update)
-    this.organizationUpdateChain = task.catch((error: unknown) => {
-      logDiagnostic("agent", "agent organization scope update failed", { error }, "warn")
+  private async queueTeamUpdate(update: () => Promise<void>): Promise<void> {
+    const task = this.teamUpdateChain.then(update, update)
+    this.teamUpdateChain = task.catch((error: unknown) => {
+      logDiagnostic("agent", "agent team scope update failed", { error }, "warn")
     })
     await task
   }
@@ -358,11 +358,11 @@ export class AgentManager {
   private async prepareWorkspace(): Promise<void> {
     const { bundledSkillsDir, rootDir } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
-    const organizationScopePath = path.join(rootDir, "organization-scope.json")
+    const teamScopePath = path.join(rootDir, "team-scope.json")
 
     await ensureAgentWorkspace(workspaceDir, bundledSkillsDir)
-    this.organizationScopePath = organizationScopePath
-    await this.writeOrganizationState(this.organizationName)
+    this.teamScopePath = teamScopePath
+    await this.writeTeamState(this.teamName)
   }
 
   private async startSidecar(): Promise<void> {
@@ -380,13 +380,13 @@ export class AgentManager {
     const workspaceDir = path.join(rootDir, "workspace")
     const isolationDir = path.join(rootDir, "isolation")
     const storeDir = path.join(rootDir, "oo-store")
-    const organizationScopePath = this.organizationScopePath ?? path.join(rootDir, "organization-scope.json")
+    const teamScopePath = this.teamScopePath ?? path.join(rootDir, "team-scope.json")
 
     const config = buildOpencodeConfig({ authToken, customModels })
     const ooEnv = buildOoEnv({
       authToken,
-      organizationName: this.organizationName,
-      organizationScopePath,
+      teamName: this.teamName,
+      teamScopePath,
       storeDir,
       ooBinPath,
     })
@@ -797,8 +797,8 @@ export class AgentManager {
       return
     }
     const tail = mergeSystemPrompts(
-      buildWorkspaceIdentitySystem(options.organizationName),
-      await this.buildAuthorizedSystem(options.organizationName, options.signal),
+      buildWorkspaceIdentitySystem(options.teamName),
+      await this.buildAuthorizedSystem(options.teamName, options.signal),
       options.system,
       buildArtifactSystem(options.artifactDir),
       buildProcessSystem(options.processDir),
@@ -840,8 +840,8 @@ export class AgentManager {
   }
 
   /** R4：构建注入系统提示末尾的已授权 Link 可用性提示（无已授权则 undefined）。 */
-  public async buildAuthorizedSystem(organizationName?: string, signal?: AbortSignal): Promise<string | undefined> {
-    const services = await this.authorizedServicesForPrompt(organizationName, signal)
+  public async buildAuthorizedSystem(teamName?: string, signal?: AbortSignal): Promise<string | undefined> {
+    const services = await this.authorizedServicesForPrompt(teamName, signal)
     if (services.length === 0) {
       return undefined
     }
@@ -854,8 +854,8 @@ export class AgentManager {
   }
 
   /** 提示词关键路径只等待很短预算；过期值可立即复用，刷新在后台完成。 */
-  private async authorizedServicesForPrompt(organizationName?: string, signal?: AbortSignal): Promise<string[]> {
-    const cacheKey = normalizeOrganizationName(organizationName) ?? ""
+  private async authorizedServicesForPrompt(teamName?: string, signal?: AbortSignal): Promise<string[]> {
+    const cacheKey = normalizeTeamName(teamName) ?? ""
     const cached = this.authorizedServicesCache.get(cacheKey)
     if (cached && Date.now() - cached.loadedAt < authorizedServicesCacheTtlMs) {
       return cached.services
@@ -863,7 +863,7 @@ export class AgentManager {
     let load = this.authorizedServicesLoads.get(cacheKey)
     if (!load) {
       const controller = new AbortController()
-      load = this.listAuthorizedServices(organizationName, controller.signal).then((services) => {
+      load = this.listAuthorizedServices(teamName, controller.signal).then((services) => {
         if (!this.disposed && this.authorizedServicesLoads.get(cacheKey) === load) {
           this.authorizedServicesCache.set(cacheKey, { loadedAt: Date.now(), services })
         }
@@ -886,17 +886,17 @@ export class AgentManager {
   }
 
   /** 直查 connector /v1/apps，返回已授权（active）service 名清单（R4 动态系统提示用）。 */
-  public async listAuthorizedServices(organizationName?: string, signal?: AbortSignal): Promise<string[]> {
+  public async listAuthorizedServices(teamName?: string, signal?: AbortSignal): Promise<string[]> {
     if (!this.started) {
       return []
     }
-    const normalizedOrganizationName = normalizeOrganizationName(organizationName)
+    const normalizedTeamName = normalizeTeamName(teamName)
     const requestSignal = signalWithTimeout(signal, 15_000)
     try {
       const response = await fetch(`${connectorBaseUrl}/v1/apps`, {
         headers: {
           Authorization: `Bearer ${this.options.authToken}`,
-          ...(normalizedOrganizationName ? { "x-oo-organization-name": normalizedOrganizationName } : {}),
+          ...(normalizedTeamName ? { "x-oo-organization-name": normalizedTeamName } : {}),
         },
         signal: requestSignal.signal,
       })
@@ -1000,35 +1000,35 @@ export class AgentManager {
     return { sessionId: id, messages }
   }
 
-  private async writeOrganizationScope(organizationName: string | undefined): Promise<void> {
-    if (!this.organizationScopePath) {
+  private async writeTeamScope(teamName: string | undefined): Promise<void> {
+    if (!this.teamScopePath) {
       return
     }
     const content = JSON.stringify({
-      organizationName: organizationName ?? "",
+      teamName: teamName ?? "",
       sessionKnowledgeBaseIds: Object.fromEntries(this.sessionKnowledgeBaseIds),
-      sessionOrganizations: Object.fromEntries(this.sessionOrganizationNames),
+      sessionTeams: Object.fromEntries(this.sessionTeamNames),
     })
-    await atomicWriteText(this.organizationScopePath, content)
+    await atomicWriteText(this.teamScopePath, content)
   }
 
-  private async writeOrganizationState(organizationName: string | undefined): Promise<void> {
-    const previousOrganizationName = this.organizationName
-    await this.writeOoIdentity(organizationName)
+  private async writeTeamState(teamName: string | undefined): Promise<void> {
+    const previousTeamName = this.teamName
+    await this.writeOoIdentity(teamName)
     try {
-      await this.writeOrganizationScope(organizationName)
+      await this.writeTeamScope(teamName)
     } catch (error) {
       try {
-        await this.writeOoIdentity(previousOrganizationName)
+        await this.writeOoIdentity(previousTeamName)
       } catch (rollbackError) {
-        throw new AggregateError([error, rollbackError], "Failed to persist and rollback agent organization state.")
+        throw new AggregateError([error, rollbackError], "Failed to persist and rollback agent team state.")
       }
       throw error
     }
   }
 
-  private async writeOoIdentity(organizationName: string | undefined): Promise<void> {
-    await writeOoIdentitySettings(path.join(this.options.rootDir, "oo-store", "config"), organizationName)
+  private async writeOoIdentity(teamName: string | undefined): Promise<void> {
+    await writeOoIdentitySettings(path.join(this.options.rootDir, "oo-store", "config"), teamName)
   }
 
   /**
@@ -1098,12 +1098,12 @@ export class AgentManager {
   }
 }
 
-export function buildWorkspaceIdentitySystem(organizationName?: string): string {
-  const normalizedOrganizationName = normalizeOrganizationName(organizationName)
-  if (!normalizedOrganizationName) {
-    throw new Error("Organization workspace identity is unavailable")
+export function buildWorkspaceIdentitySystem(teamName?: string): string {
+  const normalizedTeamName = normalizeTeamName(teamName)
+  if (!normalizedTeamName) {
+    throw new Error("Team workspace identity is unavailable")
   }
-  return `Current-turn Link workspace: organization ${JSON.stringify(normalizedOrganizationName)}; raw oo selector: --organization ${JSON.stringify(normalizedOrganizationName)}.`
+  return `Current-turn Link workspace: team ${JSON.stringify(normalizedTeamName)}; raw oo selector: --organization ${JSON.stringify(normalizedTeamName)}.`
 }
 
 async function buildPromptParts(

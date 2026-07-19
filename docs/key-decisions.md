@@ -1,6 +1,6 @@
 # 决策日志：背景 → 决策 → 理由 → 后果
 
-> 来源：开发会话记录 + 当前代码核验。只收录改变方向的重大决策，按主题组织——**这不是 changelog**：不写 commit hash（需要时用 `git log` 按主题检索），不要随新 commit 逐条追加。相关：[architecture.md](architecture.md) · [project-overview.md](project-overview.md)
+> 来源：开发会话记录 + 当前代码核验。只收录改变方向的重大决策，按主题团队——**这不是 changelog**：不写 commit hash（需要时用 `git log` 按主题检索），不要随新 commit 逐条追加。相关：[architecture.md](architecture.md) · [project-overview.md](project-overview.md)
 
 ## 1. 工程化整体镜像 oo-desktop
 
@@ -57,7 +57,7 @@
 
 - **背景**：三个并行问题——assistant 消息纯文本不渲染 Markdown；工具调用 UI 太显眼；模型瞎猜 connector 参数（实例：hackernews `get_item` 传 `item_id`，schema 要求 `id` 且 `additionalProperties:false` 被拒）。
 - **决策**：
-  - 参数问题根因是工具集缺 schema 查询能力（`search_actions` 不返回 inputSchema），纯改提示词治标不治本 → 新增第三个工具 `inspect_action`（`oo connector schema "<service>.<action>" [...] --json`，oo 1.3.0 起用点号 id 寻址、可一次批量取多个契约；2+ 个 id 返回请求顺序的 JSON 数组），提示词强制 **search → inspect → call** 流程，inputSchema 是参数唯一事实来源。oo-cli 1.4.2 提供 `oo connector apps --json --organization` 后，新增 `list_apps` 专门回答当前组织已连接 provider/app 清单，避免把 catalog search 当作连接状态查询。
+  - 参数问题根因是工具集缺 schema 查询能力（`search_actions` 不返回 inputSchema），纯改提示词治标不治本 → 新增第三个工具 `inspect_action`（`oo connector schema "<service>.<action>" [...] --json`，oo 1.3.0 起用点号 id 寻址、可一次批量取多个契约；2+ 个 id 返回请求顺序的 JSON 数组），提示词强制 **search → inspect → call** 流程，inputSchema 是参数唯一事实来源。oo-cli 1.4.2 提供 `oo connector apps --json --organization` 后，新增 `list_apps` 专门回答当前团队已连接 provider/app 清单，避免把 catalog search 当作连接状态查询。
   - 提示词分层（R4）：稳定人格/工具/契约放 agent.prompt 利于 prompt 缓存；每轮变化的已授权存在性提示走 `body.system` 动态注入，默认不列具体 provider 名。
   - Markdown 用 react-markdown@10 + remark-gfm（不引 rehype-raw，保 HTML 转义防 XSS）；同时主进程新增外链处理（`setWindowOpenHandler` + `will-navigate` 共用 `openExternalUrl`，白名单 http/https/mailto/tel——mailto/tel 是对抗审查发现"可点击但无反应"后补的）。
   - 工具调用 UI 默认折叠一行摘要，点击展开参数/结果。

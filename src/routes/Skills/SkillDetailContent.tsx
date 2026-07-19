@@ -145,14 +145,14 @@ export interface SkillDetailContentProps {
   copySkillPath: (pathname: string) => void
   inventoryInitialLoading: boolean
   isRemovingSkill: boolean
-  isSkillLinkedToOrganization: boolean
+  isSkillLinkedToTeam: boolean
   openSkillFolder: (pathname: string) => void
   publishSkill: (skill: ManagedSkillGroup) => void
   publishingSkillId: string | null
   requestRemoveSkill: (skill: ManagedSkillGroup) => void
-  requestOrganizationLink: (skill: ManagedSkillGroup) => void
+  requestTeamLink: (skill: ManagedSkillGroup) => void
   showPublishAction?: boolean
-  showOrganizationLinkAction: boolean
+  showTeamLinkAction: boolean
   selectedPlanError: unknown
   selectedSkill: ManagedSkillGroup | undefined
   selectedStatus: ReturnType<typeof getGroupStatus> | null
@@ -165,17 +165,17 @@ export function SkillDetailContent({
   copySkillPath,
   inventoryInitialLoading,
   isRemovingSkill,
-  isSkillLinkedToOrganization,
+  isSkillLinkedToTeam,
   openSkillFolder,
   publishSkill,
   publishingSkillId,
   requestRemoveSkill,
-  requestOrganizationLink,
+  requestTeamLink,
   showPublishAction = true,
   selectedPlanError,
   selectedSkill,
   selectedStatus,
-  showOrganizationLinkAction,
+  showTeamLinkAction,
   selectedVersionCheck,
   updateRegistrySkill,
   updatingRegistrySkillId,
@@ -195,12 +195,12 @@ export function SkillDetailContent({
         publishSkill={publishSkill}
         publishingSkillId={publishingSkillId}
         isRemovingSkill={isRemovingSkill}
-        isSkillLinkedToOrganization={isSkillLinkedToOrganization}
+        isSkillLinkedToTeam={isSkillLinkedToTeam}
         requestRemoveSkill={requestRemoveSkill}
-        requestOrganizationLink={requestOrganizationLink}
+        requestTeamLink={requestTeamLink}
         selectedSkill={selectedSkill}
         selectedStatus={selectedStatus}
-        showOrganizationLinkAction={showOrganizationLinkAction}
+        showTeamLinkAction={showTeamLinkAction}
         showPublishAction={showPublishAction}
         selectedVersionCheck={selectedVersionCheck}
         updateRegistrySkill={updateRegistrySkill}
@@ -219,12 +219,12 @@ interface SkillPeekProps {
   planError: unknown
   publishSkill: (skill: ManagedSkillGroup) => void
   publishingSkillId: string | null
-  isSkillLinkedToOrganization: boolean
+  isSkillLinkedToTeam: boolean
   requestRemoveSkill: (skill: ManagedSkillGroup) => void
-  requestOrganizationLink: (skill: ManagedSkillGroup) => void
+  requestTeamLink: (skill: ManagedSkillGroup) => void
   selectedSkill: ManagedSkillGroup
   selectedStatus: ReturnType<typeof getGroupStatus>
-  showOrganizationLinkAction: boolean
+  showTeamLinkAction: boolean
   showPublishAction: boolean
   selectedVersionCheck?: SkillVersionReport["skills"][number]
   updateRegistrySkill: (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => void
@@ -238,12 +238,12 @@ function SkillPeek({
   planError,
   publishSkill,
   publishingSkillId,
-  isSkillLinkedToOrganization,
+  isSkillLinkedToTeam,
   requestRemoveSkill,
-  requestOrganizationLink,
+  requestTeamLink,
   selectedSkill,
   selectedStatus,
-  showOrganizationLinkAction,
+  showTeamLinkAction,
   showPublishAction,
   selectedVersionCheck,
   updateRegistrySkill,
@@ -467,10 +467,10 @@ function SkillPeek({
                     : t("skills.publishToMarket")}
               </Button>
             ) : null}
-            {showOrganizationLinkAction && selectedSkill.packageName?.trim() && selectedSkill.version?.trim() ? (
-              <Button type="button" variant="outline" size="sm" onClick={() => requestOrganizationLink(selectedSkill)}>
+            {showTeamLinkAction && selectedSkill.packageName?.trim() && selectedSkill.version?.trim() ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => requestTeamLink(selectedSkill)}>
                 <AppIcons.action.share />
-                {isSkillLinkedToOrganization ? t("skills.organizationManageLink") : t("skills.organizationLink")}
+                {isSkillLinkedToTeam ? t("skills.teamManageLink") : t("skills.teamLink")}
               </Button>
             ) : null}
             <Button

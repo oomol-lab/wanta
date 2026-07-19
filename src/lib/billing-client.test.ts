@@ -29,11 +29,11 @@ function urlOf(input: string | URL | Request): URL {
   return new URL(typeof input === "string" || input instanceof URL ? input.toString() : input.url)
 }
 
-const organizationScope = {
+const teamScope = {
   canManageBilling: true,
   canManageFunding: true,
   teamId: "team-1",
-  organizationName: "acme",
+  teamName: "acme",
 } as const
 
 function stubTeamSubscriptionFetch(data: Record<string, unknown>): { requestBody: () => string } {
@@ -66,10 +66,10 @@ describe("billing-client", () => {
     let status = 401
     vi.stubGlobal("fetch", async () => new Response("nope", { status }))
 
-    expect((await rejection(() => getCreditBalance(organizationScope))).message).toBe(billingAuthRequiredMessage)
+    expect((await rejection(() => getCreditBalance(teamScope))).message).toBe(billingAuthRequiredMessage)
 
     status = 403
-    const error = await rejection(() => getCreditBalance(organizationScope))
+    const error = await rejection(() => getCreditBalance(teamScope))
     expect(error.message).not.toBe(billingAuthRequiredMessage)
     expect(error).toBeInstanceOf(OomolHttpError)
     expect((error as OomolHttpError).status).toBe(403)
@@ -84,10 +84,10 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    expect((await rejection(() => getBillingOverview(30, organizationScope))).message).toBe(billingAuthRequiredMessage)
+    expect((await rejection(() => getBillingOverview(30, teamScope))).message).toBe(billingAuthRequiredMessage)
   })
 
-  it("scopes organization billing reads and includes pending Team payment", async () => {
+  it("scopes team billing reads and includes pending Team payment", async () => {
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = urlOf(input)
       if (url.pathname === "/v1/balance/available") {
@@ -158,7 +158,7 @@ describe("billing-client", () => {
       canManageBilling: true,
       canManageFunding: true,
       teamId: "team-1",
-      organizationName: "acme",
+      teamName: "acme",
     })
 
     expect(summary.teamPendingPayment?.paymentURL).toBe("https://console.example.com/team-pay")
@@ -169,7 +169,7 @@ describe("billing-client", () => {
     expect(summary.usageSubscriptionAvailable).toBe(true)
   })
 
-  it("does not request organization subscriptions for members without billing permission", async () => {
+  it("does not request team subscriptions for members without billing permission", async () => {
     const paths: string[] = []
     vi.stubGlobal("fetch", async (input: string | URL | Request) => {
       const url = urlOf(input)
@@ -184,7 +184,7 @@ describe("billing-client", () => {
       canManageBilling: false,
       canManageFunding: false,
       teamId: "team-1",
-      organizationName: "acme",
+      teamName: "acme",
     })
 
     expect(paths.some((path) => path.startsWith("/api/org/"))).toBe(false)
@@ -199,7 +199,7 @@ describe("billing-client", () => {
     expect(summary.teamPendingPaymentAvailable).toBe(true)
   })
 
-  it("surfaces member session expiry from organization usage without reading a personal balance", async () => {
+  it("surfaces member session expiry from team usage without reading a personal balance", async () => {
     const paths: string[] = []
     vi.stubGlobal("fetch", async (input: string | URL | Request) => {
       const url = urlOf(input)
@@ -212,7 +212,7 @@ describe("billing-client", () => {
         canManageBilling: false,
         canManageFunding: false,
         teamId: "team-1",
-        organizationName: "acme",
+        teamName: "acme",
       }),
     )
 
@@ -269,13 +269,13 @@ describe("billing-client", () => {
       canManageBilling: true,
       canManageFunding: true,
       teamId: "team-1",
-      organizationName: "acme",
+      teamName: "acme",
     })
 
     expect(result).toEqual({ balance: "$7.5", hasCredits: true })
   })
 
-  it("does not expose the signed-in member's personal balance as organization funding", async () => {
+  it("does not expose the signed-in member's personal balance as team funding", async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
 
@@ -284,7 +284,7 @@ describe("billing-client", () => {
         canManageBilling: false,
         canManageFunding: false,
         teamId: "team-1",
-        organizationName: "acme",
+        teamName: "acme",
       }),
     )
 
@@ -379,7 +379,7 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    await getBillingOverview(30, organizationScope)
+    await getBillingOverview(30, teamScope)
 
     expect(balanceRequests).toHaveLength(100)
     expect(balanceRequests[0]).toBe("first")
@@ -404,7 +404,7 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
     })
 
-    const summary = await getBillingOverview(30, organizationScope)
+    const summary = await getBillingOverview(30, teamScope)
 
     expect(summary.balance?.items.length).toBe(2)
     expect(balanceRequests).toEqual(["first", "repeat-token"])
@@ -432,7 +432,7 @@ describe("billing-client", () => {
       return new Promise<Response>(() => undefined)
     })
 
-    const overviewPromise = getBillingOverview(30, organizationScope)
+    const overviewPromise = getBillingOverview(30, teamScope)
 
     await vi.advanceTimersByTimeAsync(3_000)
     const overview = await overviewPromise
@@ -471,7 +471,7 @@ describe("billing-client", () => {
       })
     })
 
-    const overview = getBillingOverview(30, organizationScope, controller.signal)
+    const overview = getBillingOverview(30, teamScope, controller.signal)
     await Promise.resolve()
     controller.abort(cancellation)
 

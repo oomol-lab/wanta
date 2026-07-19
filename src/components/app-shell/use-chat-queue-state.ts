@@ -3,7 +3,7 @@ import type {
   AgentPermissionMode,
   ChatAttachment,
   ChatContextMention,
-  ChatOrganizationSkillContext,
+  ChatTeamSkillContext,
   ChatProjectContext,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
@@ -37,7 +37,7 @@ export type QueueSessionMessage = (
   reasoningLevel?: ReasoningLevel,
   mode?: AgentMode,
   permissionMode?: AgentPermissionMode,
-  organizationSkills?: ChatOrganizationSkillContext[],
+  teamSkills?: ChatTeamSkillContext[],
   projectContext?: ChatProjectContext,
   sessionScope?: SessionScope,
 ) => void
@@ -84,7 +84,7 @@ export function useChatQueueState({
       reasoningLevel?: ReasoningLevel,
       mode?: AgentMode,
       permissionMode?: AgentPermissionMode,
-      organizationSkills?: ChatOrganizationSkillContext[],
+      teamSkills?: ChatTeamSkillContext[],
       projectContext?: ChatProjectContext,
       sessionScope?: SessionScope,
     ): void => {
@@ -97,7 +97,7 @@ export function useChatQueueState({
         reasoningLevel,
         mode,
         permissionMode,
-        organizationSkills,
+        teamSkills,
         projectContext,
         sessionScope,
       )
@@ -115,7 +115,7 @@ export function useChatQueueState({
       reasoningLevel?: ReasoningLevel,
       mode?: AgentMode,
       permissionMode?: AgentPermissionMode,
-      organizationSkills?: ChatOrganizationSkillContext[],
+      teamSkills?: ChatTeamSkillContext[],
       projectContext?: ChatProjectContext,
       sessionScope?: SessionScope,
     ): boolean => {
@@ -131,7 +131,7 @@ export function useChatQueueState({
         reasoningLevel,
         mode,
         permissionMode,
-        organizationSkills,
+        teamSkills,
         projectContext,
         sessionScope,
       )
@@ -236,7 +236,7 @@ export function useChatQueueState({
       contextMentions: message.contextMentions ?? [],
       mode: message.mode,
       model: message.model,
-      organizationSkills: message.organizationSkills,
+      teamSkills: message.teamSkills,
       permissionMode: message.permissionMode,
       projectContext: message.projectContext,
       reasoningLevel: message.reasoningLevel,

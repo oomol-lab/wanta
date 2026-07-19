@@ -34,7 +34,7 @@ export interface BillingRequestScope {
   canManageBilling: boolean
   canManageFunding: boolean
   teamId: string
-  organizationName: string
+  teamName: string
 }
 
 /** 会话过期/缺失的哨兵文案（与 oomol-http 的 authRequiredMessage 同字面量）；resolveUserFacingError 据此归为 auth_required。 */
@@ -344,10 +344,10 @@ function logSettledFailure(label: string, result: PromiseSettledResult<unknown>)
 }
 
 function billingScopeHeaders(scope?: BillingRequestScope): HeadersInit | undefined {
-  if (!scope?.organizationName.trim()) {
+  if (!scope?.teamName.trim()) {
     return undefined
   }
-  return { "x-oo-organization-name": scope.organizationName }
+  return { "x-oo-organization-name": scope.teamName }
 }
 
 function fetchAuthenticatedJson(url: URL, scope?: BillingRequestScope, signal?: AbortSignal): Promise<unknown> {
@@ -360,7 +360,7 @@ function fetchAuthenticatedJson(url: URL, scope?: BillingRequestScope, signal?: 
 
 export async function getCreditBalance(scope: BillingRequestScope, signal?: AbortSignal): Promise<CreditBalanceResult> {
   if (!scope.canManageFunding) {
-    throw new Error("The organization funding account is managed by its creator.")
+    throw new Error("The team funding account is managed by its creator.")
   }
   const url = new URL("/v1/balance/available", insightBaseUrl)
   return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url, undefined, signal)))
@@ -497,8 +497,8 @@ export async function getBillingOverview(
   scope: BillingRequestScope,
   signal?: AbortSignal,
 ): Promise<BillingOverviewResult> {
-  // Team 计划和统计按组织读取；现有用量钱包属于组织创建者个人，不能带组织 header 查询不存在的组织余额。
-  // 普通成员也不能退化为查询自己的个人余额，否则会把错误的付款账户展示成组织可用额度。
+  // Team 计划和统计按团队读取；现有用量钱包属于团队创建者个人，不能带团队 header 查询不存在的团队余额。
+  // 普通成员也不能退化为查询自己的个人余额，否则会把错误的付款账户展示成团队可用额度。
   const balancePromise = scope.canManageFunding ? getAllCreditUsages(signal) : Promise.resolve(null)
   const spendPromise = getCreditSpendStats(days, scope, signal)
   const meteringPromise = getCreditMeteringStats(days, scope, signal)
@@ -555,7 +555,7 @@ export async function getBillingOverview(
   }
 }
 
-/** 个人用量折扣订阅结账页；与组织 Team 计划的订阅接口相互独立。 */
+/** 个人用量折扣订阅结账页；与团队 Team 计划的订阅接口相互独立。 */
 export function subscriptionCheckoutUrl(plan: SubscriptionPlanTag, userId?: string): string {
   const url = new URL("/api/user/subscriptions/page", consoleServerBaseUrl)
   url.searchParams.set("payment_type", "subscription")

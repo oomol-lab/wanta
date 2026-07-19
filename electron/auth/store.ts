@@ -12,7 +12,7 @@ export interface AuthAccount {
 
 /**
  * 运行时账号：profile + 会话 token（oomol-token）。会话 token 是全应用唯一凭证——
- * 聊天/连接器/组织/技能/账单一律用它鉴权（网关层接受 cookie/token/api-key），不再获取或落盘长期 api-key。
+ * 聊天/连接器/团队/技能/账单一律用它鉴权（网关层接受 cookie/token/api-key），不再获取或落盘长期 api-key。
  * token 只活在 Electron 会话 cookie（持久但会过期）与运行态内存，永不写入 auth.json。
  */
 export interface AuthRuntimeAccount extends AuthAccount {

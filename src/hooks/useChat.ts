@@ -7,7 +7,7 @@ import type {
   ChatContextMention,
   GenerationStoppedEvent,
   ChatMessage,
-  ChatOrganizationSkillContext,
+  ChatTeamSkillContext,
   ChatPermissionReply,
   ChatPermissionRequest,
   ChatProjectContext,
@@ -82,7 +82,7 @@ export interface UseChat {
       contextMentions?: ChatContextMention[]
       mode?: AgentMode
       model?: ModelChoice
-      organizationSkills?: ChatOrganizationSkillContext[]
+      teamSkills?: ChatTeamSkillContext[]
       permissionMode?: AgentPermissionMode
       projectContext?: ChatProjectContext
       reasoningLevel?: ReasoningLevel
@@ -873,7 +873,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         contextMentions?: ChatContextMention[]
         mode?: AgentMode
         model?: ModelChoice
-        organizationSkills?: ChatOrganizationSkillContext[]
+        teamSkills?: ChatTeamSkillContext[]
         permissionMode?: AgentPermissionMode
         projectContext?: ChatProjectContext
         reasoningLevel?: ReasoningLevel
@@ -881,7 +881,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       } = {},
     ) => {
       if (!options.sessionScope) {
-        throw new Error("Organization scope is required")
+        throw new Error("Team scope is required")
       }
       setGlobalError(null)
       clearSessionError(sessionId)
@@ -900,7 +900,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
           contextMentions: options.contextMentions,
           mode: options.mode,
           model: options.model,
-          organizationSkills: options.organizationSkills,
+          teamSkills: options.teamSkills,
           permissionMode: selectedPermissionMode,
           permissionModeVersion,
           projectContext: options.projectContext,

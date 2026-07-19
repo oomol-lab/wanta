@@ -160,7 +160,7 @@ npm run build
 按责任边界逐域调查，不按文件扩展名或文件长度随机清理。建议顺序：
 
 1. Chat 数据流：SSE 事件 → 主进程翻译 → IPC → renderer state → timeline/artifact 渲染；
-2. Agent 生命周期：sidecar 启停、session、permission、工具调用、组织切换；
+2. Agent 生命周期：sidecar 启停、session、permission、工具调用、团队切换；
 3. Auth 与安全边界：cookie/session token、登录回跳、登出、失效和日志脱敏；
 4. Connections/Skills/Billing 请求层：缓存、在途合并、失效、错误映射和竞态；
 5. App shell 与页面状态：导航、当前 session、面板、弹窗、草稿和派生状态；
@@ -175,7 +175,7 @@ npm run build
 
 重点检查：
 
-- 异步竞态：旧请求覆盖新请求、组织/账号/session 切换后迟到响应写回；
+- 异步竞态：旧请求覆盖新请求、团队/账号/session 切换后迟到响应写回；
 - 生命周期：订阅、timer、AbortController、listener、worker、object URL、sidecar 和临时资源未清理；
 - 错误路径：错误被吞、loading 永不结束、取消被当成失败、失败被当成成功；
 - 状态恢复：重启、登出、token 失效、窗口隐藏/恢复、系统睡眠/唤醒；
@@ -234,7 +234,7 @@ npm run build
 1. Derived state 默认不另存一份，避免 effect 同步两份事实；
 2. Ephemeral UI state 放在最小共同所有者，不上提到全局；
 3. 服务端状态不与本地副本双向同步，除非明确定义编辑草稿和提交边界；
-4. 缓存必须说明 key、TTL、在途合并、失效、容量和账号/组织/session 隔离；
+4. 缓存必须说明 key、TTL、在途合并、失效、容量和账号/团队/session 隔离；
 5. Effect 用于外部副作用，不用于可以在 render、事件处理器或纯函数中完成的派生；
 6. Reducer 用于同一领域内多事件驱动的相关状态，不作为“文件太大”的通用解法；
 7. 状态机只在存在有限命名状态、明确事件、受约束转换，以及非法组合已经造成风险时使用；
@@ -281,7 +281,7 @@ npm run build
 先处理以下强制优先项：
 
 - P0：安全/凭证泄露、数据损坏、不可恢复丢失、权限绕过、发布阻断；
-- P1：常见崩溃、核心流程错误、明显卡顿/泄漏、跨账号或跨组织污染；
+- P1：常见崩溃、核心流程错误、明显卡顿/泄漏、跨账号或跨团队污染；
 - P2：有证据的维护风险、重复规则、局部性能问题和高概率回归点；
 - P3：低影响清理、命名、文件布局和没有近期修改压力的复杂度。
 
@@ -351,7 +351,7 @@ PR 合并后判断问题为什么能进入代码库：
 推荐首轮只做审计，输出前 10 个有证据的 finding，不做大规模重构。优先场景：
 
 1. 长会话持续流式输出时的 renderer commit、long task 和内存增长；
-2. session/organization/account 快速切换时的迟到异步结果；
+2. session/team/account 快速切换时的迟到异步结果；
 3. sidecar 重启、登出、停止任务和窗口退出时的订阅及资源释放；
 4. Connections/Skills/Billing 请求的在途合并、缓存隔离和定向失效；
 5. AppShell/useChat 中 source state、derived state 和 process state 的所有权；

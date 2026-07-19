@@ -30,7 +30,7 @@
 
 ## 当前验证缺口
 
-- 本轮没有真实账号，因此没有执行登录、组织切换、连接器 OAuth、支付返回和 Agent 对话金路径；
+- 本轮没有真实账号，因此没有执行登录、团队切换、连接器 OAuth、支付返回和 Agent 对话金路径；
 - 没有以签名 packaged app 验证通知；
 - 尚未采集长会话 React Profiler、Chromium Performance trace 和多进程内存曲线；
 - 当前 shell Node 版本低于仓库最低要求，不能替代 Node 24 CI 结果。
@@ -43,7 +43,7 @@
 - `ts-check`、`lint`、`format`、全部测试和 production build 通过；
 - `npm run dev` 在 195ms 内启动 Vite，main/preload 构建成功，Agent sidecar 正常 ready；
 - 开发版启动观察期没有新增主进程或 renderer 错误日志；
-- 真实账单支付返回和账号/组织切换仍因缺少可用测试账号而未实机验收。
+- 真实账单支付返回和账号/团队切换仍因缺少可用测试账号而未实机验收。
 
 ## 第二轮修复后的结果
 
@@ -63,7 +63,7 @@
 
 ## 第四轮缓存生命周期修复后的结果
 
-- 账单缓存现在随认证 identity 变化清空，不再在登出或换号后永久保留历史账号、组织和权限组合的数据；
+- 账单缓存现在随认证 identity 变化清空，不再在登出或换号后永久保留历史账号、团队和权限组合的数据；
 - 清理采用 Map detach，清理前的在途请求即使随后成功，也只能写回已脱离的旧 entry，不能污染同 key 的新账号缓存；
 - 新增 1 个回归测试，测试总数从 1568 增至 1569；`ts-check`、`lint`、`format`、234 个测试文件和 production build 通过；
 - `npm run dev` 在 200ms ready，main/preload 和 Agent sidecar 正常启动，观察期没有新增 warn/error diagnostics；当前账号环境无法执行真实换号交互。

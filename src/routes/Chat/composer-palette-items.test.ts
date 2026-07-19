@@ -168,21 +168,21 @@ describe("composer palette items", () => {
 
   it("pins Creator Skill first in skill items and deduplicates inventory entries", () => {
     const items = buildSkillPaletteItems(
-      [runtimeSkillGroup("zeta"), runtimeSkillGroup(creatorSkillId), runtimeSkillGroup("org-skill")],
+      [runtimeSkillGroup("zeta"), runtimeSkillGroup(creatorSkillId), runtimeSkillGroup("team-skill")],
       "Fallback",
       {
         description: translations["chat.commandCreatorSkillDescription"] ?? "",
         title: translations["chat.commandCreatorSkill"] ?? "",
       },
-      [{ id: "organization:org-skill", name: "org-skill", packageName: "@acme/skills" }],
+      [{ id: "team:team-skill", name: "team-skill", packageName: "@acme/skills" }],
     )
 
-    expect(items.map((item) => item.skillId)).toEqual([creatorSkillId, "organization:org-skill", "zeta"])
+    expect(items.map((item) => item.skillId)).toEqual([creatorSkillId, "team:team-skill", "zeta"])
     expect(items[0]?.title).toBe("Creator Skill")
-    expect(items[1]?.meta).toBe("organization")
+    expect(items[1]?.meta).toBe("team")
   })
 
-  it("deduplicates organization skills against matching runtime inventory skills", () => {
+  it("deduplicates team skills against matching runtime inventory skills", () => {
     const items = buildSkillPaletteItems(
       [runtimeSkillGroup("gpt-image-2", "registry", ":simple-icons:openai:", "@openai/gpt-image-2")],
       "Fallback",
@@ -193,7 +193,7 @@ describe("composer palette items", () => {
       [
         {
           description: "Generate images",
-          id: "organization:@openai/gpt-image-2:gpt-image-2",
+          id: "team:@openai/gpt-image-2:gpt-image-2",
           name: "GPT Image 2",
           packageName: "@openai/gpt-image-2",
           skillName: "gpt-image-2",
@@ -201,9 +201,9 @@ describe("composer palette items", () => {
       ],
     )
 
-    expect(items.map((item) => item.skillId)).toEqual([creatorSkillId, "organization:@openai/gpt-image-2:gpt-image-2"])
+    expect(items.map((item) => item.skillId)).toEqual([creatorSkillId, "team:@openai/gpt-image-2:gpt-image-2"])
     expect(items[1]).toMatchObject({
-      meta: "organization",
+      meta: "team",
       title: "GPT Image 2",
     })
   })

@@ -12,7 +12,7 @@ export interface VisibleSessionRequest {
 }
 
 export interface OpenAttentionSessionEvent {
-  organizationId?: string
+  teamId?: string
   sessionId: string
 }
 

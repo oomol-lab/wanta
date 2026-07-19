@@ -5,7 +5,6 @@ import {
   assistantMessagesFromTimelineBlocks,
   assistantTimelineBlocks,
   segmentAssistantTimeline,
-  splitAssistantTimelineBlocks,
   textFromTimelineBlocks,
   timelineHasVisibleOutcome,
 } from "./assistant-timeline.ts"
@@ -55,11 +54,15 @@ describe("assistantTimelineBlocks", () => {
   })
 
   it("splits processing feedback before the last tool from final response after it", () => {
-    const { processBlocks, responseBlocks } = splitAssistantTimelineBlocks([
+    const segments = segmentAssistantTimeline([
       message("a1", [textPart("process-1", "I will inspect the page."), toolPart("tool-1")]),
       message("a2", [textPart("process-2", "The mobile page is blocked."), toolPart("tool-2")]),
       message("a3", [textPart("response-1", "The site blocks automated requests. Use a browser script instead.")]),
     ])
+    const processBlocks = segments.filter((segment) => segment.kind === "process").flatMap((segment) => segment.blocks)
+    const responseBlocks = segments
+      .filter((segment) => segment.kind === "response")
+      .flatMap((segment) => segment.blocks)
 
     expect(
       processBlocks.map(({ block }) => ({
@@ -101,14 +104,14 @@ describe("assistantTimelineBlocks", () => {
   })
 
   it("treats a text-only assistant message as final response", () => {
-    const { processBlocks, responseBlocks } = splitAssistantTimelineBlocks([
-      message("a1", [textPart("response-1", "Done.")]),
-    ])
+    const segments = segmentAssistantTimeline([message("a1", [textPart("response-1", "Done.")])])
 
-    expect(processBlocks).toEqual([])
-    expect(responseBlocks.map(({ block }) => (block.kind === "text" ? block.part.partId : block.kind))).toEqual([
-      "response-1",
-    ])
+    expect(segments.map((segment) => segment.kind)).toEqual(["response"])
+    expect(
+      segments.flatMap((segment) =>
+        segment.blocks.map(({ block }) => (block.kind === "text" ? block.part.partId : block.kind)),
+      ),
+    ).toEqual(["response-1"])
   })
 
   it("keeps a long structured plan visible before later tools", () => {

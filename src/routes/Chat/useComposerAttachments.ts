@@ -6,6 +6,7 @@ import * as React from "react"
 import {
   filesFromDataTransfer,
   isImageAttachment,
+  releaseAttachmentSnapshots,
   revokeAttachmentPreviewUrls,
   setAttachmentPreviewUrl,
 } from "./chat-attachment-utils.ts"
@@ -256,6 +257,8 @@ export function useComposerAttachments({
       }
       if (mountedRef.current) {
         addAttachments(next)
+      } else {
+        releaseAttachmentSnapshots(next)
       }
     },
     [addAttachments, clearInputError, showTrustedInputError, t],
@@ -274,9 +277,16 @@ export function useComposerAttachments({
         return
       }
       try {
-        addAttachments(await picker(kind))
+        const selected = await picker(kind)
+        if (mountedRef.current) {
+          addAttachments(selected)
+        } else {
+          releaseAttachmentSnapshots(selected)
+        }
       } catch (error) {
-        showUnexpectedInputError(error)
+        if (mountedRef.current) {
+          showUnexpectedInputError(error)
+        }
       }
     },
     [addAttachments, clearInputError, showTrustedInputError, showUnexpectedInputError, t],
@@ -286,9 +296,7 @@ export function useComposerAttachments({
     (id: string) => {
       const removed = attachmentsRef.current.filter((attachment) => attachment.id === id)
       revokeAttachmentPreviewUrls(removed)
-      void globalThis.wanta
-        ?.releaseAttachmentPaths(removed.flatMap((attachment) => [attachment.path, attachment.agentPath ?? ""]))
-        .catch(() => undefined)
+      releaseAttachmentSnapshots(removed)
       attachmentsRef.current = attachmentsRef.current.filter((attachment) => attachment.id !== id)
       dispatch({ type: "remove-attachment", id })
     },

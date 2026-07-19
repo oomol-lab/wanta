@@ -160,6 +160,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const localCreatedSessionsRef = React.useRef(new Map<string, SessionInfo>())
   const knowledgeBasesWriteQueuesRef = React.useRef(new Map<string, Promise<void>>())
   const knowledgeBasesWriteVersionsRef = React.useRef(new Map<string, number>())
+  const knowledgeBasesNextWriteVersionRef = React.useRef(0)
   const knowledgeBasesIntendedIdsRef = React.useRef(new Map<string, string[]>())
   const knowledgeBasesPersistedIdsRef = React.useRef(new Map<string, string[]>())
   const scopeKey = sessionScopeKey(requestScope)
@@ -188,6 +189,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     if (!enabled) {
       requestSequenceRef.current += 1
       localCreatedSessionsRef.current.clear()
+      knowledgeBasesWriteQueuesRef.current.clear()
+      knowledgeBasesWriteVersionsRef.current.clear()
       knowledgeBasesIntendedIdsRef.current.clear()
       knowledgeBasesPersistedIdsRef.current.clear()
     }
@@ -196,6 +199,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   React.useEffect(() => {
     requestSequenceRef.current += 1
     localCreatedSessionsRef.current.clear()
+    knowledgeBasesWriteQueuesRef.current.clear()
+    knowledgeBasesWriteVersionsRef.current.clear()
     knowledgeBasesIntendedIdsRef.current.clear()
     knowledgeBasesPersistedIdsRef.current.clear()
     setSessions([])
@@ -385,7 +390,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       setSessions((current) =>
         current.map((item) => (item.id === id ? applySessionKnowledgeBaseIds(item, normalizedIds) : item)),
       )
-      const version = (knowledgeBasesWriteVersionsRef.current.get(id) ?? 0) + 1
+      const version = knowledgeBasesNextWriteVersionRef.current + 1
+      knowledgeBasesNextWriteVersionRef.current = version
       knowledgeBasesWriteVersionsRef.current.set(id, version)
       const previousWrite = knowledgeBasesWriteQueuesRef.current.get(id) ?? Promise.resolve()
       const queuedWrite = previousWrite
@@ -535,6 +541,10 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
         return
       }
       localCreatedSessionsRef.current.delete(id)
+      knowledgeBasesWriteQueuesRef.current.delete(id)
+      knowledgeBasesWriteVersionsRef.current.delete(id)
+      knowledgeBasesIntendedIdsRef.current.delete(id)
+      knowledgeBasesPersistedIdsRef.current.delete(id)
       setSessions((current) => current.filter((session) => session.id !== id))
     },
     [isCurrentScope, scopeKey, sessionService],
@@ -555,6 +565,10 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
         return
       }
       localCreatedSessionsRef.current.delete(id)
+      knowledgeBasesWriteQueuesRef.current.delete(id)
+      knowledgeBasesWriteVersionsRef.current.delete(id)
+      knowledgeBasesIntendedIdsRef.current.delete(id)
+      knowledgeBasesPersistedIdsRef.current.delete(id)
       setSessions((current) => current.filter((session) => session.id !== id))
     },
     [isCurrentScope, scopeKey, sessionService],

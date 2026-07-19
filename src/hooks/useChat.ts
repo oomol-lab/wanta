@@ -210,6 +210,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       updatePendingPermissionsMap((current) => omitSessionRecord(current, sessionId))
       setPermissionModes((current) => omitSessionRecord(current, sessionId))
       permissionModesRef.current = omitSessionRecord(permissionModesRef.current, sessionId)
+      permissionModeVersionsRef.current = omitSessionRecord(permissionModeVersionsRef.current, sessionId)
       setErrorsBySession((current) => omitSessionRecord(current, sessionId))
       userStoppedSessions.current.delete(sessionId)
       cancelledToolParts.current.delete(sessionId)
@@ -235,6 +236,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
     pendingPermissionsMapRef.current = {}
     setPendingPermissionsMap({})
     permissionModesRef.current = {}
+    permissionModeVersionsRef.current = {}
     setPermissionModes({})
     setGlobalError(null)
     setErrorsBySession({})

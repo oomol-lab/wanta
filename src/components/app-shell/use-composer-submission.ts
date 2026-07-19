@@ -30,11 +30,23 @@ export interface ComposerSubmissionMemory {
 }
 
 export interface ComposerSubmissionController {
+  forgetSession: (sessionId: string) => void
   isDraftSendInFlight: (draftKey: string) => boolean
   isSendInFlight: () => boolean
   memory: ComposerSubmissionMemory
   resetMemory: () => void
   sendNow: (request: ChatSendRequest) => Promise<ChatSendResult>
+}
+
+const retainedSubmissionSessionLimit = 12
+
+function touchSessionValue<T>(store: Map<string, T>, sessionId: string): void {
+  if (!store.has(sessionId)) {
+    return
+  }
+  const value = store.get(sessionId) as T
+  store.delete(sessionId)
+  store.set(sessionId, value)
 }
 
 export function useComposerSubmission({
@@ -98,6 +110,34 @@ export function useComposerSubmission({
   const scopeKeyRef = React.useRef(currentScopeKey)
   activeDraftKeyRef.current = activeComposerDraftKey
   scopeKeyRef.current = currentScopeKey
+
+  const forgetSession = React.useCallback((sessionId: string): void => {
+    modelBySession.current.delete(sessionId)
+    reasoningLevelBySession.current.delete(sessionId)
+    modeBySession.current.delete(sessionId)
+    permissionModeBySession.current.delete(sessionId)
+    contextMentionsBySession.current.delete(sessionId)
+    retryOptionsBySession.current.delete(sessionId)
+  }, [])
+
+  const retainRecentSession = React.useCallback(
+    (sessionId: string): void => {
+      touchSessionValue(modelBySession.current, sessionId)
+      touchSessionValue(reasoningLevelBySession.current, sessionId)
+      touchSessionValue(modeBySession.current, sessionId)
+      touchSessionValue(permissionModeBySession.current, sessionId)
+      touchSessionValue(contextMentionsBySession.current, sessionId)
+      touchSessionValue(retryOptionsBySession.current, sessionId)
+      while (retryOptionsBySession.current.size > retainedSubmissionSessionLimit) {
+        const oldestSessionId = retryOptionsBySession.current.keys().next().value
+        if (!oldestSessionId) {
+          break
+        }
+        forgetSession(oldestSessionId)
+      }
+    },
+    [forgetSession],
+  )
 
   const sendNow = React.useCallback(
     async (request: ChatSendRequest): Promise<ChatSendResult> => {
@@ -213,6 +253,7 @@ export function useComposerSubmission({
           permissionMode: selectedPermissionMode,
           sessionScope: effectiveSessionScope,
         })
+        retainRecentSession(sessionId)
         try {
           const sendPromise = send(sessionId, text, attachments, {
             contextMentions,
@@ -252,6 +293,7 @@ export function useComposerSubmission({
       knowledgeBaseIds,
       persistKnowledgeBaseIds,
       persistPermissionMode,
+      retainRecentSession,
       send,
       sessionScope,
       setIsDraftSession,
@@ -281,6 +323,7 @@ export function useComposerSubmission({
   }, [])
 
   return {
+    forgetSession,
     isDraftSendInFlight,
     isSendInFlight,
     memory: {

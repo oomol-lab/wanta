@@ -24,6 +24,7 @@ import {
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
+import { releaseAttachmentSnapshots } from "@/routes/Chat/chat-attachment-utils"
 
 type SendQueuedMessage = (request: ChatSendRequest & { afterOptimisticSubmit?: () => void }) => Promise<ChatSendResult>
 
@@ -59,6 +60,15 @@ export function useChatQueueState({
   status,
 }: UseChatQueueStateOptions) {
   const [queuedMessagesBySession, setQueuedMessagesBySession] = React.useState<ChatQueueMap>({})
+  const queuedMessagesBySessionRef = React.useRef(queuedMessagesBySession)
+  queuedMessagesBySessionRef.current = queuedMessagesBySession
+  const updateQueuedMessages = React.useCallback((update: (current: ChatQueueMap) => ChatQueueMap): void => {
+    setQueuedMessagesBySession((current) => {
+      const next = update(current)
+      queuedMessagesBySessionRef.current = next
+      return next
+    })
+  }, [])
   const [heldQueuedSessions, setHeldQueuedSessions] = React.useState<Set<string>>(() => new Set())
   const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
@@ -91,9 +101,9 @@ export function useChatQueueState({
         projectContext,
         sessionScope,
       )
-      setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
+      updateQueuedMessages((current) => appendQueuedMessage(current, queuedMessage))
     },
-    [],
+    [updateQueuedMessages],
   )
 
   const queueActiveMessage = React.useCallback(
@@ -161,17 +171,30 @@ export function useChatQueueState({
     [queuedMessagesBySession],
   )
 
-  const clearQueuedSession = React.useCallback((sessionId: string): void => {
-    setQueuedMessagesBySession((current) => clearQueuedMessages(current, sessionId))
-    setHeldQueuedSessions((current) => {
-      if (!current.has(sessionId)) {
-        return current
-      }
-      const next = new Set(current)
-      next.delete(sessionId)
-      return next
-    })
-  }, [])
+  const clearQueuedSession = React.useCallback(
+    (sessionId: string): void => {
+      const discarded = queuedMessagesBySessionRef.current[sessionId] ?? []
+      releaseAttachmentSnapshots(discarded.flatMap((message) => message.attachments))
+      updateQueuedMessages((current) => clearQueuedMessages(current, sessionId))
+      setHeldQueuedSessions((current) => {
+        if (!current.has(sessionId)) {
+          return current
+        }
+        const next = new Set(current)
+        next.delete(sessionId)
+        return next
+      })
+    },
+    [updateQueuedMessages],
+  )
+
+  React.useEffect(
+    () => () => {
+      const discarded = Object.values(queuedMessagesBySessionRef.current).flat()
+      releaseAttachmentSnapshots(discarded.flatMap((message) => message.attachments))
+    },
+    [],
+  )
 
   React.useEffect(() => {
     setHeldQueuedSessions((current) => {
@@ -207,7 +230,7 @@ export function useChatQueueState({
       afterOptimisticSubmit: () => {
         optimisticSubmitted = true
         // optimistic turn 已进入聊天记录，后续失败由该 turn 的错误恢复处理，不能再塞回队列造成重复发送。
-        setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, message.id))
+        updateQueuedMessages((current) => removeQueuedMessage(current, activeSessionId, message.id))
       },
       attachments: message.attachments,
       contextMentions: message.contextMentions ?? [],
@@ -222,13 +245,13 @@ export function useChatQueueState({
     })
       .then((result) => {
         if (result.status === "failed") {
-          setQueuedMessagesBySession((current) =>
+          updateQueuedMessages((current) =>
             settleQueuedMessageAfterDispatchFailure(current, message, optimisticSubmitted),
           )
         }
       })
       .catch((cause: unknown) => {
-        setQueuedMessagesBySession((current) =>
+        updateQueuedMessages((current) =>
           settleQueuedMessageAfterDispatchFailure(current, message, optimisticSubmitted),
         )
         console.error("[wanta] dispatch queued message failed", cause)
@@ -246,6 +269,7 @@ export function useChatQueueState({
     queuedMessagesBySession,
     sendQueuedMessage,
     status,
+    updateQueuedMessages,
   ])
 
   const handleQueuedMessageRemove = React.useCallback(
@@ -253,9 +277,15 @@ export function useChatQueueState({
       if (!activeSessionId) {
         return
       }
-      setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, messageId))
+      const discarded = (queuedMessagesBySessionRef.current[activeSessionId] ?? []).find(
+        (message) => message.id === messageId,
+      )
+      if (discarded) {
+        releaseAttachmentSnapshots(discarded.attachments)
+      }
+      updateQueuedMessages((current) => removeQueuedMessage(current, activeSessionId, messageId))
     },
-    [activeSessionId],
+    [activeSessionId, updateQueuedMessages],
   )
 
   const handleQueuedMessageMove = React.useCallback(
@@ -263,11 +293,9 @@ export function useChatQueueState({
       if (!activeSessionId) {
         return
       }
-      setQueuedMessagesBySession((current) =>
-        moveQueuedMessage(current, activeSessionId, messageId, targetId, placement),
-      )
+      updateQueuedMessages((current) => moveQueuedMessage(current, activeSessionId, messageId, targetId, placement))
     },
-    [activeSessionId],
+    [activeSessionId, updateQueuedMessages],
   )
 
   const handleQueuedMessageResume = React.useCallback(() => {

@@ -17,7 +17,7 @@ import type { ConnectionAuthIntent } from "@/routes/Connections/connection-route
 
 import * as React from "react"
 import { sessionScopeKey } from "./app-shell-model.ts"
-import { connectionRetryTargetMatches } from "./connection-retry-model.ts"
+import { connectionRetryTargetMatches, discardConnectionRetriesForSession } from "./connection-retry-model.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 export interface ChatConnectionDrawerState {
@@ -48,6 +48,7 @@ type SetChatConnectionDrawers = React.Dispatch<React.SetStateAction<Record<strin
 type PendingChatConnectionRetry = ChatConnectionRetryInput
 
 interface UseChatConnectionRetryOptions {
+  isSessionAvailable: (sessionId: string, scope: SessionScope) => boolean
   isSessionRunning: (sessionId: string) => boolean
   queueSessionMessage: QueueSessionMessage
   send: UseChat["send"]
@@ -60,6 +61,7 @@ interface UseChatConnectionRetryOptions {
 }
 
 export function useChatConnectionRetry({
+  isSessionAvailable,
   isSessionRunning,
   queueSessionMessage,
   send,
@@ -84,6 +86,28 @@ export function useChatConnectionRetry({
     pendingRetries.current.set(input.drawerKey, input)
   }, [])
 
+  const forgetSession = React.useCallback(
+    (sessionId: string): void => {
+      const discardedDrawerKeys = discardConnectionRetriesForSession(pendingRetries.current, sessionId)
+      if (discardedDrawerKeys.length === 0) {
+        return
+      }
+      const discarded = new Set(discardedDrawerKeys)
+      setChatConnectionDrawers((current) => {
+        const next = { ...current }
+        let changed = false
+        for (const drawerKey of discarded) {
+          if (Object.hasOwn(next, drawerKey)) {
+            delete next[drawerKey]
+            changed = true
+          }
+        }
+        return changed ? next : current
+      })
+    },
+    [setChatConnectionDrawers],
+  )
+
   // 只有连接动作确实成功后才重试，避免已有的同 provider 账号让授权抽屉刚打开就误触发。
   const completeRetryForDrawer = React.useCallback(
     (drawerKey: string, target: { service: string; connectionName?: string }): void => {
@@ -92,6 +116,10 @@ export function useChatConnectionRetry({
         return
       }
       if (sessionScopeKey(sessionScope) !== sessionScopeKey(pending.sessionScope)) {
+        return
+      }
+      if (!isSessionAvailable(pending.sessionId, pending.sessionScope)) {
+        forgetSession(pending.sessionId)
         return
       }
 
@@ -141,6 +169,8 @@ export function useChatConnectionRetry({
     },
     [
       isSessionRunning,
+      isSessionAvailable,
+      forgetSession,
       queueSessionMessage,
       send,
       sessionScope,
@@ -161,5 +191,12 @@ export function useChatConnectionRetry({
     [completeRetryForDrawer],
   )
 
-  return { cancelRetryForDrawer, clearRetries, completeMatchingRetries, completeRetryForDrawer, prepareRetry }
+  return {
+    cancelRetryForDrawer,
+    clearRetries,
+    completeMatchingRetries,
+    completeRetryForDrawer,
+    forgetSession,
+    prepareRetry,
+  }
 }

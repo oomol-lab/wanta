@@ -6,7 +6,7 @@ import type {
 } from "../../../electron/chat/common.ts"
 import type { ChatErrorKind } from "../../../electron/chat/error.ts"
 import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
-import type { SessionInfo } from "../../../electron/session/common.ts"
+import type { SessionInfo, SessionScope } from "../../../electron/session/common.ts"
 import type { ChatSendRequest, ChatSendResult } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
@@ -88,6 +88,7 @@ import { billingRequestScopeForWorkspace } from "@/lib/billing-scope"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
+import { releaseAttachmentSnapshots } from "@/routes/Chat/chat-attachment-utils"
 import {
   chatTurnAllowsDirectSend,
   chatTurnAllowsStop,
@@ -679,14 +680,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     },
     [activeChatSessionId, activeProjectId],
   )
-  const projectActions = useProjectActions({
-    archiveProject: archiveProjectAction,
-    onProjectUnavailable: handleProjectUnavailable,
-    pinProject: pinProjectAction,
-    projects: visibleProjects,
-    removeProject: removeProjectAction,
-    renameProject: renameProjectAction,
-  })
   const projectGit = useProjectGit(activeProject)
   const activeProjectContext = React.useMemo(
     () => projectContextFromProject(activeProject, projectGit.state),
@@ -791,50 +784,31 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     !activePendingChatTransition &&
     (!activeChatSessionId || (messagesLoaded && messages.length === 0))
 
-  // 默认选中当前侧边栏里实际排在最前面的会话，避免内部数据顺序和 UI 顺序不一致。
+  // 统一修复默认选中和失效选中，避免多个 effect 在同一轮分别写入首项与 null。
   React.useLayoutEffect(() => {
-    if (
-      sessionsSettledForCurrentScope &&
-      !isDraftSession &&
-      !selectedSessionId &&
-      selectableSidebarSessions.length > 0
-    ) {
-      setSelectedSessionId(selectableSidebarSessions[0].id)
-    }
-  }, [selectableSidebarSessions, sessionsSettledForCurrentScope, selectedSessionId, isDraftSession])
-
-  React.useEffect(() => {
-    if (!sessionsSettledForCurrentScope || isDraftSession || !selectedSessionId) {
+    if (!sessionsSettledForCurrentScope || isDraftSession) {
       return
     }
-    if (selectableSidebarSessions.some((session) => session.id === selectedSessionId)) {
+    if (selectedSessionId && selectableSidebarSessions.some((session) => session.id === selectedSessionId)) {
       return
     }
-    if (selectableSidebarSessions.length > 0) {
-      setSelectedSessionId(selectableSidebarSessions[0].id)
-      setDraftProjectId(null)
-      setPendingChatTransition(null)
+    const fallbackSession = selectableSidebarSessions[0]
+    if (fallbackSession) {
+      setSelectedSessionId(fallbackSession.id)
+      if (selectedSessionId) {
+        setDraftProjectId(null)
+        setPendingChatTransition(null)
+      }
       return
     }
-    if (visibleSessions.some((session) => session.id === selectedSessionId)) {
-      return
-    }
-    setSelectedSessionId(null)
-    setDraftProjectId(null)
-    setPendingChatTransition(null)
-  }, [isDraftSession, selectableSidebarSessions, selectedSessionId, sessionsSettledForCurrentScope, visibleSessions])
-
-  React.useEffect(() => {
-    if (!sessionsSettledForCurrentScope || !selectedSessionId) {
-      return
-    }
-    if (visibleSessions.some((session) => session.id === selectedSessionId)) {
+    if (!selectedSessionId || visibleSessions.some((session) => session.id === selectedSessionId)) {
       return
     }
     setSelectedSessionId(null)
     setIsDraftSession(false)
+    setDraftProjectId(null)
     setPendingChatTransition(null)
-  }, [selectedSessionId, sessionsSettledForCurrentScope, visibleSessions])
+  }, [isDraftSession, selectableSidebarSessions, selectedSessionId, sessionsSettledForCurrentScope, visibleSessions])
 
   const showComposerProjectContext = route === "chat"
   const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
@@ -899,7 +873,20 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   )
 
   const clearComposerDraft = React.useCallback((draftKey: string): void => {
+    const draft = composerDraftsByKey.current.get(draftKey)
+    if (draft) {
+      releaseAttachmentSnapshots(draft.attachments)
+    }
     composerDraftsByKey.current.delete(draftKey)
+  }, [])
+  const commitComposerDraft = React.useCallback((draftKey: string): void => {
+    composerDraftsByKey.current.delete(draftKey)
+  }, [])
+  const clearAllComposerDrafts = React.useCallback((): void => {
+    for (const draft of composerDraftsByKey.current.values()) {
+      releaseAttachmentSnapshots(draft.attachments)
+    }
+    composerDraftsByKey.current.clear()
   }, [])
   const readLastProjectId = React.useCallback((): string | null => lastChatProjectId.current, [])
   const {
@@ -938,31 +925,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setDraftKnowledgeBaseIds([])
     handleNewSession()
   }, [handleNewSession])
-  const handleSessionArchived = React.useCallback(
-    (session: SessionInfo): void => {
-      forgetChatSession(session.id)
-      clearComposerDraft(existingSessionComposerDraftKey(sessionRecordScopeKey(session.scope), session.id))
-      if (activeChatSessionId !== session.id) {
-        return
-      }
-      setSelectedSessionId(nextActiveSessionIdAfterArchive(selectableSidebarSessions, session.id))
-      setIsDraftSession(false)
-      setPendingChatTransition(null)
-      setRoute("chat")
-    },
-    [activeChatSessionId, clearComposerDraft, forgetChatSession, selectableSidebarSessions],
-  )
-  const sessionActions = useSessionActions({
-    archive,
-    clearAutoFallbackTitle,
-    isSessionRunning,
-    onArchived: handleSessionArchived,
-    pin,
-    rename,
-    sessions: visibleSessions,
-  })
-
   const {
+    forgetSession: forgetComposerSubmissionSession,
     isDraftSendInFlight,
     isSendInFlight,
     memory: {
@@ -1028,18 +992,116 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     previousQueuedSessionIdRef.current = activeChatSessionId
   }, [activeChatSessionId, holdQueuedSessionIfQueued])
 
-  const { cancelRetryForDrawer, clearRetries, completeMatchingRetries, completeRetryForDrawer, prepareRetry } =
-    useChatConnectionRetry({
-      isSessionRunning,
-      queueSessionMessage,
-      send,
-      sessionScope,
-      setChatConnectionDrawers,
-      setIsDraftSession,
-      setPendingChatTransition,
-      setRoute,
-      setSelectedSessionId,
-    })
+  const isRetrySessionAvailable = React.useCallback(
+    (sessionId: string, scope: SessionScope): boolean =>
+      !sessionsSettledForCurrentScope ||
+      visibleSessions.some(
+        (session) => session.id === sessionId && sessionRecordScopeKey(session.scope) === sessionRecordScopeKey(scope),
+      ),
+    [sessionsSettledForCurrentScope, visibleSessions],
+  )
+  const {
+    cancelRetryForDrawer,
+    clearRetries,
+    completeMatchingRetries,
+    completeRetryForDrawer,
+    forgetSession: forgetConnectionRetrySession,
+    prepareRetry,
+  } = useChatConnectionRetry({
+    isSessionAvailable: isRetrySessionAvailable,
+    isSessionRunning,
+    queueSessionMessage,
+    send,
+    sessionScope,
+    setChatConnectionDrawers,
+    setIsDraftSession,
+    setPendingChatTransition,
+    setRoute,
+    setSelectedSessionId,
+  })
+
+  const forgetSessionRuntime = React.useCallback(
+    (sessionId: string, draftKey?: string): void => {
+      forgetChatSession(sessionId)
+      clearQueuedSession(sessionId)
+      forgetConnectionRetrySession(sessionId)
+      forgetComposerSubmissionSession(sessionId)
+      if (draftKey) {
+        clearComposerDraft(draftKey)
+        setChatConnectionDrawers((current) => {
+          if (!Object.hasOwn(current, draftKey)) {
+            return current
+          }
+          const next = { ...current }
+          delete next[draftKey]
+          return next
+        })
+      }
+      setPendingChatTransition((pending) => (pending?.sessionId === sessionId ? null : pending))
+    },
+    [
+      clearComposerDraft,
+      clearQueuedSession,
+      forgetChatSession,
+      forgetComposerSubmissionSession,
+      forgetConnectionRetrySession,
+    ],
+  )
+  const handleSessionArchived = React.useCallback(
+    (session: SessionInfo): void => {
+      forgetSessionRuntime(
+        session.id,
+        existingSessionComposerDraftKey(sessionRecordScopeKey(session.scope), session.id),
+      )
+      if (activeChatSessionId !== session.id) {
+        return
+      }
+      setSelectedSessionId(nextActiveSessionIdAfterArchive(selectableSidebarSessions, session.id))
+      setIsDraftSession(false)
+      setRoute("chat")
+    },
+    [activeChatSessionId, forgetSessionRuntime, selectableSidebarSessions],
+  )
+  const sessionActions = useSessionActions({
+    archive,
+    clearAutoFallbackTitle,
+    isSessionRunning,
+    onArchived: handleSessionArchived,
+    pin,
+    rename,
+    sessions: visibleSessions,
+  })
+  const archiveProjectWithRuntimeCleanup = React.useCallback(
+    async (projectId: string): Promise<void> => {
+      const projectSessions = visibleSessions.filter((session) => session.projectId === projectId)
+      if (projectSessions.some((session) => isSessionRunning(session.id))) {
+        throw new Error(t("project.archiveRunning"))
+      }
+      await archiveProjectAction(projectId)
+      for (const session of projectSessions) {
+        forgetSessionRuntime(
+          session.id,
+          existingSessionComposerDraftKey(sessionRecordScopeKey(session.scope), session.id),
+        )
+      }
+    },
+    [archiveProjectAction, forgetSessionRuntime, isSessionRunning, t, visibleSessions],
+  )
+  const projectActions = useProjectActions({
+    archiveProject: archiveProjectWithRuntimeCleanup,
+    onProjectUnavailable: handleProjectUnavailable,
+    pinProject: pinProjectAction,
+    projects: visibleProjects,
+    removeProject: removeProjectAction,
+    renameProject: renameProjectAction,
+  })
+  const removeSessionWithRuntimeCleanup = React.useCallback(
+    async (sessionId: string): Promise<void> => {
+      await removeSession(sessionId)
+      forgetSessionRuntime(sessionId)
+    },
+    [forgetSessionRuntime, removeSession],
+  )
   const handledConnectionReadyEventIdRef = React.useRef<number | null>(null)
 
   React.useEffect(() => {
@@ -1120,7 +1182,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     previousActiveChatSessionIdRef.current = null
     resetChatSessionCache()
     resetComposerSubmissionMemory()
-    composerDraftsByKey.current.clear()
+    clearAllComposerDrafts()
     clearRetries()
     setChatConnectionDrawers({})
     setSelectedService(null)
@@ -1137,6 +1199,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     releaseTransientFocus()
   }, [
     activeWorkspaceKey,
+    clearAllComposerDrafts,
     clearRetries,
     handleArtifactsReset,
     holdQueuedSessionIfQueued,
@@ -1174,7 +1237,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       ]
       const draftKey = activeComposerDraftKey
       const clearSubmittedDraft = (): void => {
-        clearComposerDraft(draftKey)
+        commitComposerDraft(draftKey)
         afterOptimisticSubmit?.()
       }
       if (activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isDraftSendInFlight(draftKey))) {
@@ -1205,7 +1268,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       })
       if (chatSendAccepted(result)) {
         releaseActiveQueue()
-        clearComposerDraft(draftKey)
+        commitComposerDraft(draftKey)
       }
       return result
     },
@@ -1214,7 +1277,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       activeChatSessionId,
       activeChatTurnState,
       activeProjectContext,
-      clearComposerDraft,
+      commitComposerDraft,
       organizationSkills.chatContextSkills,
       pinnedKnowledgeMentions,
       queueActiveMessage,
@@ -1612,7 +1675,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             setSidebarSegment(session.projectId ? "projects" : "tasks")
           }}
           refreshSessions={refreshSessions}
-          removeSession={removeSession}
+          removeSession={removeSessionWithRuntimeCleanup}
           ready={ready}
           titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
           unarchiveSession={unarchive}

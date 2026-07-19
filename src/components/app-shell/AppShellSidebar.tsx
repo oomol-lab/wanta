@@ -331,7 +331,7 @@ export function ProjectSidebarGroupItem({
                     <Pencil className="size-4" />
                     <span>{t("project.rename")}</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => onArchiveProject(group.project)}>
+                  <DropdownMenuItem disabled={running} onSelect={() => onArchiveProject(group.project)}>
                     <Archive className="size-4" />
                     <span>{t("project.archive")}</span>
                   </DropdownMenuItem>

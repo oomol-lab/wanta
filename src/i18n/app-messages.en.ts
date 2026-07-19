@@ -168,6 +168,7 @@ export const enMessages = {
   "project.archiveConfirmDescription": "This project and its chats will be hidden from the sidebar.",
   "project.archiveConfirmAction": "Archive",
   "project.archiveConfirming": "Archiving…",
+  "project.archiveRunning": "A project with a running task cannot be archived yet.",
   "project.remove": "Remove",
   "project.removeConfirmTitle": "Remove project",
   "project.removeConfirmDescription":
@@ -219,7 +220,6 @@ export const enMessages = {
   "archived.retry": "Retry",
   "archived.listMeta": "Archived on {date}",
   "archived.updatedAt": "Updated {date}",
-  "archived.chatCount": "{count} chat(s)",
   "archived.rowActions": "Archived chat actions",
   "archived.restore": "Restore",
   "archived.delete": "Delete",

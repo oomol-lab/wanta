@@ -16,6 +16,7 @@ import { getConnectionDetailErrorNotice, getConnectionListErrorNotice } from "./
 import { compareConnectionProvidersByRecommendation } from "./connection-provider-ranking.ts"
 import {
   buildCategoryFilters,
+  canMutateConnections,
   detailPaneAnimationMs,
   isConnected,
   isDirectlyAvailableProvider,
@@ -103,7 +104,7 @@ export function ConnectionsPanel({
   } | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState<DisconnectTarget | null>(null)
   const detailCloseTimerRef = React.useRef<number | null>(null)
-  const connectRequestIdRef = React.useRef(0)
+  const connectionActionRequestIdRef = React.useRef(0)
   const detailWorkspaceKeyRef = React.useRef<string | null>(summaryWorkspaceKey)
   const listPaneRef = React.useRef<HTMLDivElement | null>(null)
 
@@ -118,7 +119,8 @@ export function ConnectionsPanel({
   )
   const directlyAvailableCount = React.useMemo(() => providers.filter(isDirectlyAvailableProvider).length, [providers])
   const availableToolsCount = connectedCount + directlyAvailableCount
-  const showConnectionState = shouldShowConnectionState(canManageConnections, summary?.appsStatus)
+  const showConnectionState = shouldShowConnectionState(summary?.appsStatus)
+  const connectionActionsEnabled = canMutateConnections(canManageConnections, summary?.appsStatus)
   const catalogProviders = React.useMemo(
     () => providers.filter((provider) => matchesProviderFilter(provider, activeFilter)),
     [activeFilter, providers],
@@ -132,7 +134,7 @@ export function ConnectionsPanel({
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
   const providerDetail = useConnectionProviderDetail({
-    enabled: canManageConnections,
+    enabled: connectionActionsEnabled,
     getProviderDetail,
     provider: selectedProvider,
     workspaceKey: summaryWorkspaceKey,
@@ -141,7 +143,9 @@ export function ConnectionsPanel({
   const selectedProviderDetailLoading = providerDetail.loading
   const selectedProviderDetailError = providerDetail.error
   const selectedProviderActionsBlocked = Boolean(
-    !showConnectionState || (providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError),
+    !connectionActionsEnabled ||
+    !showConnectionState ||
+    (providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError),
   )
   const selectedProviderActionsPending = Boolean(
     providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailLoading,
@@ -160,17 +164,17 @@ export function ConnectionsPanel({
       return
     }
     detailWorkspaceKeyRef.current = summaryWorkspaceKey
-    connectRequestIdRef.current += 1
+    connectionActionRequestIdRef.current += 1
     setDialog(null)
     setConfirmDisconnect(null)
   }, [summaryWorkspaceKey])
 
   React.useEffect(() => {
-    if (canManageConnections) return
-    connectRequestIdRef.current += 1
+    if (connectionActionsEnabled) return
+    connectionActionRequestIdRef.current += 1
     setDialog(null)
     setConfirmDisconnect(null)
-  }, [canManageConnections])
+  }, [connectionActionsEnabled])
 
   const clearDetailCloseTimer = React.useCallback(() => {
     if (detailCloseTimerRef.current === null) {
@@ -274,15 +278,15 @@ export function ConnectionsPanel({
       authType: Exclude<ConnectionAuthType, null>,
       appId?: string,
     ): Promise<void> => {
-      if (!canManageConnections) {
+      if (!connectionActionsEnabled) {
         return
       }
       if (polling && !isConnectionServicePollingTarget(polling, provider.service)) {
         return
       }
-      const requestId = connectRequestIdRef.current + 1
-      connectRequestIdRef.current = requestId
-      const requestIsCurrent = (): boolean => connectRequestIdRef.current === requestId
+      const requestId = connectionActionRequestIdRef.current + 1
+      connectionActionRequestIdRef.current = requestId
+      const requestIsCurrent = (): boolean => connectionActionRequestIdRef.current === requestId
       const loadProviderDetail = () => providerDetail.loadCached(provider.service)
       try {
         if (authType === "oauth2") {
@@ -354,7 +358,7 @@ export function ConnectionsPanel({
       }
     },
     [
-      canManageConnections,
+      connectionActionsEnabled,
       connect,
       deleteCachedDetailForService,
       getAppDetail,
@@ -366,11 +370,17 @@ export function ConnectionsPanel({
 
   const submitConnectDialog = React.useCallback(
     (input: ConnectionConnectInput): void => {
-      if (!canManageConnections) {
+      if (!connectionActionsEnabled) {
         return
       }
+      const requestId = connectionActionRequestIdRef.current + 1
+      connectionActionRequestIdRef.current = requestId
+      const requestIsCurrent = (): boolean => connectionActionRequestIdRef.current === requestId
       void (async () => {
         const ok = await connect(input)
+        if (!requestIsCurrent()) {
+          return
+        }
         if (ok) {
           deleteCachedDetailForService(input.service)
           onConnectionReady?.({
@@ -384,22 +394,37 @@ export function ConnectionsPanel({
         setDialog(null)
       }
     },
-    [canManageConnections, connect, deleteCachedDetailForService, dialog, onConnectionReady],
+    [connect, connectionActionsEnabled, deleteCachedDetailForService, dialog, onConnectionReady],
+  )
+
+  const requestDisconnectTarget = React.useCallback(
+    (target: DisconnectTarget): void => {
+      if (!connectionActionsEnabled) {
+        return
+      }
+      setConfirmDisconnect(target)
+    },
+    [connectionActionsEnabled],
   )
 
   const confirmDisconnectTarget = React.useCallback(
     async (target: DisconnectTarget): Promise<void> => {
-      if (!canManageConnections) {
+      if (!connectionActionsEnabled) {
         setConfirmDisconnect(null)
         return
       }
+      const requestId = connectionActionRequestIdRef.current + 1
+      connectionActionRequestIdRef.current = requestId
       const ok = target.app ? await disconnectAccount(target.app.id) : await disconnect(target.provider.service)
+      if (connectionActionRequestIdRef.current !== requestId) {
+        return
+      }
       if (ok) {
         deleteCachedDetailForService(target.provider.service)
         setConfirmDisconnect(null)
       }
     },
-    [canManageConnections, deleteCachedDetailForService, disconnect, disconnectAccount],
+    [connectionActionsEnabled, deleteCachedDetailForService, disconnect, disconnectAccount],
   )
 
   if (presentation === "drawer") {
@@ -419,7 +444,7 @@ export function ConnectionsPanel({
             onCancelPolling={cancelPolling}
             onClose={onClose ?? closeDetail}
             onConnect={connectProvider}
-            onDisconnect={setConfirmDisconnect}
+            onDisconnect={requestDisconnectTarget}
             polling={polling}
             provider={selectedProvider}
             summary={summary}
@@ -499,7 +524,7 @@ export function ConnectionsPanel({
       >
         <SplitViewListPane ref={listPaneRef} narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
-            {canManageConnections && summary?.appsStatus && summary.appsStatus !== "ready" ? (
+            {summary?.appsStatus && summary.appsStatus !== "ready" ? (
               <ConnectionStateNotice status={summary.appsStatus} />
             ) : null}
             {listErrorNotice ? (
@@ -547,7 +572,7 @@ export function ConnectionsPanel({
               onCancelPolling={cancelPolling}
               onClose={closeDetail}
               onConnect={connectProvider}
-              onDisconnect={setConfirmDisconnect}
+              onDisconnect={requestDisconnectTarget}
               polling={polling}
               provider={selectedProvider}
               summary={summary}
@@ -577,7 +602,7 @@ export function ConnectionsPanel({
               onCancelPolling={cancelPolling}
               onClose={closeDetail}
               onConnect={connectProvider}
-              onDisconnect={setConfirmDisconnect}
+              onDisconnect={requestDisconnectTarget}
               polling={polling}
               provider={selectedProvider}
               summary={summary}

@@ -1,8 +1,8 @@
-import type { ChatOrganizationSkillContext } from "../../../electron/chat/common.ts"
+import type { ChatTeamSkillContext } from "../../../electron/chat/common.ts"
 import type { ConnectionProviderSummary } from "../../../electron/connections/common.ts"
 import type { SkillInventory } from "../../../electron/skills/common.ts"
 import type { AppShellRoute } from "./app-shell-types.ts"
-import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
+import type { UseTeamSkills } from "@/hooks/useTeamSkills"
 
 import * as React from "react"
 import {
@@ -11,43 +11,41 @@ import {
   shouldShowRecommendedSkillEntry,
 } from "./app-shell-model.ts"
 import { useProviderSkillRecommendations } from "@/hooks/useProviderSkillRecommendations"
-import { getInstallableOrganizationSkills } from "@/routes/Skills/skill-route-model"
+import { getInstallableTeamSkills } from "@/routes/Skills/skill-route-model"
 
 export function useAppShellSkillRecommendations({
   activeProviders,
   inventory,
-  organizationSkills,
+  teamSkills,
   route,
 }: {
   activeProviders: ConnectionProviderSummary[]
   inventory: SkillInventory | null | undefined
-  organizationSkills: UseOrganizationSkills
+  teamSkills: UseTeamSkills
   route: AppShellRoute
 }) {
   const groupById = React.useMemo(
     () => new Map((inventory?.groups ?? []).map((group) => [group.id, group])),
     [inventory?.groups],
   )
-  const installableOrganizationSkills = React.useMemo(() => {
-    if (!organizationSkills.organizationId || !inventory) {
+  const installableTeamSkills = React.useMemo(() => {
+    if (!teamSkills.teamId || !inventory) {
       return []
     }
-    return getInstallableOrganizationSkills(groupById, organizationSkills.skills)
-  }, [groupById, inventory, organizationSkills.organizationId, organizationSkills.skills])
-  const recommendationsEnabled = route === "chat" || route === "skills" || route === "organizations"
+    return getInstallableTeamSkills(groupById, teamSkills.skills)
+  }, [groupById, inventory, teamSkills.teamId, teamSkills.skills])
+  const recommendationsEnabled = route === "chat" || route === "skills" || route === "teams"
   const providerRecommendations = useProviderSkillRecommendations({
     groupById,
-    providers:
-      organizationSkills.organizationId && recommendationsEnabled ? activeProviders : EMPTY_CONNECTION_PROVIDERS,
+    providers: teamSkills.teamId && recommendationsEnabled ? activeProviders : EMPTY_CONNECTION_PROVIDERS,
   })
   const installableProviderRecommendations = React.useMemo(
-    () => getUnlinkedProviderSkillRecommendations(organizationSkills.skills, providerRecommendations.installable),
-    [organizationSkills.skills, providerRecommendations.installable],
+    () => getUnlinkedProviderSkillRecommendations(teamSkills.skills, providerRecommendations.installable),
+    [teamSkills.skills, providerRecommendations.installable],
   )
-  const showcaseItems = React.useMemo<ChatOrganizationSkillContext[]>(() => {
-    const organizationShowcaseSkills =
-      installableOrganizationSkills.length > 0 ? installableOrganizationSkills : organizationSkills.skills
-    const organizationItems = organizationShowcaseSkills.map((skill) => ({
+  const showcaseItems = React.useMemo<ChatTeamSkillContext[]>(() => {
+    const teamShowcaseSkills = installableTeamSkills.length > 0 ? installableTeamSkills : teamSkills.skills
+    const teamItems = teamShowcaseSkills.map((skill) => ({
       ...(skill.description ? { description: skill.description } : {}),
       ...(skill.icon ? { icon: skill.icon } : {}),
       id: skill.id,
@@ -68,17 +66,17 @@ export function useAppShellSkillRecommendations({
         version: recommendation.package.version,
       }
     })
-    return [...organizationItems, ...providerItems]
-  }, [installableOrganizationSkills, installableProviderRecommendations, organizationSkills.skills])
+    return [...teamItems, ...providerItems]
+  }, [installableTeamSkills, installableProviderRecommendations, teamSkills.skills])
 
   return {
     entryVisible: shouldShowRecommendedSkillEntry({
-      organizationId: organizationSkills.organizationId,
-      organizationSkillCount: organizationSkills.skills.length,
+      teamId: teamSkills.teamId,
+      teamSkillCount: teamSkills.skills.length,
       providerRecommendationCount: installableProviderRecommendations.length,
     }),
     pendingInstallCount: inventory
-      ? installableOrganizationSkills.length + installableProviderRecommendations.length
+      ? installableTeamSkills.length + installableProviderRecommendations.length
       : undefined,
     providerRecommendations,
     showcaseItems,

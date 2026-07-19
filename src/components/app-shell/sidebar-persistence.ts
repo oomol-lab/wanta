@@ -16,11 +16,16 @@ function readItem(storage: LocalStorageLike | null | undefined, key: string): st
   }
 }
 
-function writeItem(storage: LocalStorageLike | null | undefined, key: string, value: string): void {
+function writeItem(storage: LocalStorageLike | null | undefined, key: string, value: string): boolean {
+  if (!storage) {
+    return false
+  }
   try {
-    storage?.setItem(key, value)
+    storage.setItem(key, value)
+    return true
   } catch {
     // 本地存储不可用时仅保留本次会话状态。
+    return false
   }
 }
 
@@ -55,7 +60,7 @@ export function projectSidebarCollapsedStorageKey(
   if (!accountId || !scope) {
     return null
   }
-  const scopeKey = `organization:${scope.organizationId}`
+  const scopeKey = `team:${scope.teamId}`
   return `${projectCollapsedStoragePrefix}:${accountId}:${scopeKey}`
 }
 
@@ -66,19 +71,36 @@ export function readStoredCollapsedProjectIds(
   if (!key) {
     return new Set()
   }
-  const raw = readItem(storage, key)
-  if (!raw) {
-    return new Set()
-  }
-  try {
-    const parsed: unknown = JSON.parse(raw)
+  const legacyKey = key.replace(":team:", ":organization:")
+  const currentRaw = readItem(storage, key)
+  const parseIds = (raw: string | null): Set<string> | null => {
+    if (!raw) {
+      return null
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return null
+    }
     if (!Array.isArray(parsed)) {
-      return new Set()
+      return null
     }
     return new Set(parsed.filter((value): value is string => typeof value === "string" && value.trim().length > 0))
-  } catch {
+  }
+  const currentIds = parseIds(currentRaw)
+  if (currentIds) {
+    return currentIds
+  }
+  const legacyRaw = legacyKey !== key ? readItem(storage, legacyKey) : null
+  const legacyIds = parseIds(legacyRaw)
+  if (!legacyIds) {
     return new Set()
   }
+  if (writeItem(storage, key, JSON.stringify([...legacyIds].sort()))) {
+    removeItem(storage, legacyKey)
+  }
+  return legacyIds
 }
 
 export function writeStoredCollapsedProjectIds(

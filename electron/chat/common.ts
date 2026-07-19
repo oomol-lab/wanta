@@ -240,8 +240,8 @@ export type ChatRunPhase =
   | "awaiting_question"
 
 export interface ChatRunWorkspace {
-  organizationId: string
-  organizationName: string
+  teamId: string
+  teamName: string
 }
 
 export interface ChatActiveRun {
@@ -350,7 +350,7 @@ export interface SendMessageRequest {
   text: string
   attachments?: ChatAttachment[]
   contextMentions?: ChatContextMention[]
-  organizationSkills?: ChatOrganizationSkillContext[]
+  teamSkills?: ChatTeamSkillContext[]
   projectContext?: ChatProjectContext
   scope: SessionScope
   model?: ModelChoice
@@ -372,7 +372,7 @@ export interface ChatProjectContext {
   path: string
 }
 
-export interface ChatOrganizationSkillContext {
+export interface ChatTeamSkillContext {
   description?: string
   icon?: string
   id: string
@@ -679,8 +679,8 @@ export interface OpenExternalUrlRequest {
   url: string
 }
 
-export interface SetAgentOrganizationRequest {
-  organizationName: string
+export interface SetAgentTeamRequest {
+  teamName: string
 }
 
 export type RechargePrice = "5_USD" | "20_USD" | "100_USD"
@@ -853,8 +853,8 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     showLocalPathInFolder(req: ShowLocalPathInFolderRequest): Promise<void>
     /** 用系统浏览器打开一个 http/https URL（额度中心等渲染层已自行解析好 URL 后调用；主进程仅校验+外开）。 */
     openExternalUrl(req: OpenExternalUrlRequest): Promise<void>
-    /** 同步 agent 的组织作用域（连接器请求已在渲染层带组织头；agent 仍由主进程持有，需单独告知）。 */
-    setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void>
+    /** 同步 agent 的团队作用域（连接器请求已在渲染层带团队头；agent 仍由主进程持有，需单独告知）。 */
+    setAgentTeam(req: SetAgentTeamRequest): Promise<void>
     stopGeneration(sessionId: string): Promise<void>
     getActiveRuns(): Promise<ChatActiveRun[]>
     getActiveRun(sessionId: string): Promise<ChatActiveRun | null>

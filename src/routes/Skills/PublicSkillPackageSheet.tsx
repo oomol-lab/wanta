@@ -137,7 +137,7 @@ function PublicSkillPackageDetail({
                       ? t("skills.discoverInstallMissing")
                       : primaryState === "unavailable"
                         ? t("skills.discoverUnavailable")
-                        : t("organizations.skillManageInstallRuntime")}
+                        : t("teams.skillManageInstallRuntime")}
                 </Button>
               )}
               {additionalActions}

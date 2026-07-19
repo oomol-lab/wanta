@@ -27,6 +27,7 @@ import {
   pinchDiagramViewerState,
   zoomDiagramViewerToScale,
 } from "./diagram-viewer.ts"
+import { useClipboardCopy } from "@/hooks/useClipboardCopy"
 import { useT } from "@/i18n/i18n"
 
 export interface MermaidRendererControls {
@@ -100,15 +101,6 @@ function useMermaidRendererContext(): MermaidRendererContextValue {
   return context
 }
 
-async function copyText(value: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(value)
-    return true
-  } catch {
-    return false
-  }
-}
-
 export async function renderMermaidSource({
   code,
   config,
@@ -164,7 +156,7 @@ export function MermaidRenderer({ code, isIncomplete }: CustomRendererProps) {
   const [result, setResult] = useState<MermaidRenderResult | null>(null)
   const [failure, setFailure] = useState<MermaidRenderFailure | null>(null)
   const [retry, setRetry] = useState(0)
-  const [copied, setCopied] = useState(false)
+  const { copied, copyText } = useClipboardCopy({ failureMessage: t("error.copyFailed"), resetDelayMs: 2_000 })
   const [viewerOpen, setViewerOpen] = useState(false)
   const fullscreenButtonRef = useRef<HTMLButtonElement>(null)
 
@@ -204,11 +196,7 @@ export function MermaidRenderer({ code, isIncomplete }: CustomRendererProps) {
   }, [code, config, isIncomplete, plugin, renderId, retry])
 
   const handleCopy = async (): Promise<void> => {
-    if (!(await copyText(code))) {
-      return
-    }
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 2_000)
+    await copyText(code)
   }
 
   const closeViewer = (): void => {
@@ -295,7 +283,7 @@ function MermaidViewer({ code, onClose, svg }: { code: string; onClose: () => vo
   const diagramSize = useMemo(() => mermaidSvgSize(svg) ?? { height: 600, width: 1000 }, [svg])
   const [stageSize, setStageSize] = useState<DiagramViewerSize>({ height: 0, width: 0 })
   const [viewerState, setViewerState] = useState<DiagramViewerState>({ offset: { x: 0, y: 0 }, scale: 1 })
-  const [copied, setCopied] = useState(false)
+  const { copied, copyText } = useClipboardCopy({ failureMessage: t("error.copyFailed"), resetDelayMs: 2_000 })
   const [dragging, setDragging] = useState(false)
   const stageRef = useRef<HTMLDivElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
@@ -526,11 +514,7 @@ function MermaidViewer({ code, onClose, svg }: { code: string; onClose: () => vo
   }
 
   const handleCopy = async (): Promise<void> => {
-    if (!(await copyText(code))) {
-      return
-    }
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 2_000)
+    await copyText(code)
   }
 
   return (

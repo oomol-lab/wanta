@@ -2,7 +2,7 @@ import type {
   AgentMode,
   AgentPermissionMode,
   ChatContextMention,
-  ChatOrganizationSkillContext,
+  ChatTeamSkillContext,
   ChatProjectContext,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
@@ -60,7 +60,7 @@ export function useComposerSubmission({
   displayedPermissionMode,
   messages,
   messagesLoaded,
-  organizationSkills,
+  teamSkills,
   knowledgeBaseIds,
   persistPermissionMode,
   persistKnowledgeBaseIds,
@@ -83,7 +83,7 @@ export function useComposerSubmission({
   displayedPermissionMode: AgentPermissionMode
   messages: Parameters<typeof buildSessionTitleInput>[0]
   messagesLoaded: boolean
-  organizationSkills: ChatOrganizationSkillContext[]
+  teamSkills: ChatTeamSkillContext[]
   knowledgeBaseIds: string[]
   persistPermissionMode: (sessionId: string, mode: AgentPermissionMode) => Promise<void>
   persistKnowledgeBaseIds: (sessionId: string, ids: string[]) => void
@@ -147,7 +147,7 @@ export function useComposerSubmission({
         contextMentions = [],
         mode,
         model,
-        organizationSkills: requestOrganizationSkills,
+        teamSkills: requestTeamSkills,
         permissionMode: permissionModeArg,
         projectContext: requestProjectContext,
         reasoningLevel,
@@ -156,7 +156,7 @@ export function useComposerSubmission({
       } = request
       const effectiveSessionScope = requestSessionScope ?? sessionScope
       const effectiveScopeKey = sessionScopeKey(effectiveSessionScope)
-      const effectiveOrganizationSkills = requestOrganizationSkills ?? organizationSkills
+      const effectiveTeamSkills = requestTeamSkills ?? teamSkills
       const effectiveProjectContext = requestProjectContext ?? activeProjectContext
       const sendKey = activeComposerDraftKey
       const isCurrentSendTarget = (): boolean =>
@@ -245,7 +245,7 @@ export function useComposerSubmission({
         contextMentionsBySession.current.set(sessionId, contextMentions)
         rememberTurnRetryOptions(retryOptionsBySession.current, sessionId, chatTurnInputKey({ text, attachments }), {
           contextMentions,
-          organizationSkills: effectiveOrganizationSkills,
+          teamSkills: effectiveTeamSkills,
           projectContext: effectiveProjectContext,
           model,
           reasoningLevel,
@@ -258,7 +258,7 @@ export function useComposerSubmission({
           const sendPromise = send(sessionId, text, attachments, {
             contextMentions,
             model,
-            organizationSkills: effectiveOrganizationSkills,
+            teamSkills: effectiveTeamSkills,
             projectContext: effectiveProjectContext,
             reasoningLevel,
             sessionScope: effectiveSessionScope,
@@ -289,7 +289,7 @@ export function useComposerSubmission({
       displayedPermissionMode,
       messages,
       messagesLoaded,
-      organizationSkills,
+      teamSkills,
       knowledgeBaseIds,
       persistKnowledgeBaseIds,
       persistPermissionMode,

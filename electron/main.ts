@@ -50,7 +50,7 @@ import { isAudioOnlyMediaRequest, isTrustedRendererUrl } from "./media-permissio
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
 import { installOomolCorsShim } from "./net/oomol-cors.ts"
-// Organizations 请求已整体搬到渲染层（src/lib/organizations-client.ts），不再有对应主进程 service。
+// Teams 请求已整体搬到渲染层（src/lib/teams-client.ts），不再有对应主进程 service。
 import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstanceLock } from "./protocol.ts"
 import { normalizeRendererErrorReport } from "./renderer-error-report.ts"
 import { SessionActivityStore } from "./session/activity-store.ts"
@@ -149,8 +149,8 @@ const trustedAttachmentPaths = new ExpiringTrustedPathRegistry()
 const trustedProjectPaths = new ExpiringTrustedPathRegistry()
 const artifactResourceLeaseStore = new ArtifactResourceLeaseStore()
 const spreadsheetPreviewWorker = new SpreadsheetPreviewWorkerClient()
-// Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 组织作用域同步，
-// 经 ChatService.setAgentOrganization → onSetAgentOrganization 回调（渲染层切 workspace 时调用）。
+// Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 团队作用域同步，
+// 经 ChatService.setAgentTeam → onSetAgentTeam 回调（渲染层切 workspace 时调用）。
 const chatService = new ChatServiceImpl(null, {
   bugReportRuntime: {
     appCommit: typeof __APP_COMMIT__ === "string" ? __APP_COMMIT__ : "unknown",
@@ -175,7 +175,7 @@ const chatService = new ChatServiceImpl(null, {
   userAttachmentStore,
   onPermissionModeChanged: (sessionId, permissionMode) =>
     sessionService.setPermissionMode({ id: sessionId, permissionMode }),
-  onSetAgentOrganization: handleAgentOrganizationChanged,
+  onSetAgentTeam: handleAgentTeamChanged,
   onSessionCompleted: (input) => attentionService.completeSession(input),
 })
 const sessionService = new SessionServiceImpl(null, {
@@ -517,8 +517,8 @@ function applyAuthAccount(account: AuthRuntimeAccount | null): Promise<void> {
 
 /** 最近一次成功装配的账号：同凭证重复 apply 时短路，避免无谓的 sidecar 重启。 */
 let appliedAccount: AuthRuntimeAccount | null = null
-// agent 的当前组织作用域：由渲染层切 workspace 时经 setAgentOrganization IPC 更新；agent 重建时据此设初值。
-let activeAgentOrganizationName: string | undefined
+// agent 的当前团队作用域：由渲染层切 workspace 时经 setAgentTeam IPC 更新；agent 重建时据此设初值。
+let activeAgentTeamName: string | undefined
 
 async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<void> {
   if (isQuitting) {
@@ -562,14 +562,14 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   }
 
   if (!account || isQuitting) {
-    activeAgentOrganizationName = undefined
+    activeAgentTeamName = undefined
     await attentionService.clearAll().catch((error: unknown) => {
       console.warn("[wanta] failed to clear attention state during sign-out:", error)
     })
     return
   }
   if (previousAccountId && previousAccountId !== account.id) {
-    activeAgentOrganizationName = undefined
+    activeAgentTeamName = undefined
     await attentionService.clearAll().catch((error: unknown) => {
       console.warn("[wanta] failed to clear attention state during account switch:", error)
     })
@@ -587,7 +587,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     wikiGraphExecutablePath: process.execPath,
     knowledgeRegistryPath: knowledgeStore.registryPath(),
     bundledSkillsDir,
-    organizationName: activeAgentOrganizationName,
+    teamName: activeAgentTeamName,
     rootDir: path.join(app.getPath("userData"), "agent"),
     customModels,
   })
@@ -627,14 +627,14 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   })
 }
 
-async function handleAgentOrganizationChanged(organizationName: string | undefined): Promise<void> {
-  const previousOrganizationName = activeAgentOrganizationName
-  const nextOrganizationName = organizationName?.trim() ? organizationName.trim() : undefined
-  activeAgentOrganizationName = nextOrganizationName
+async function handleAgentTeamChanged(teamName: string | undefined): Promise<void> {
+  const previousTeamName = activeAgentTeamName
+  const nextTeamName = teamName?.trim() ? teamName.trim() : undefined
+  activeAgentTeamName = nextTeamName
   try {
-    await agent?.setOrganizationName(nextOrganizationName)
+    await agent?.setTeamName(nextTeamName)
   } catch (error: unknown) {
-    activeAgentOrganizationName = previousOrganizationName
+    activeAgentTeamName = previousTeamName
     console.error("[wanta] failed to update agent workspace scope:", error)
     throw error
   }

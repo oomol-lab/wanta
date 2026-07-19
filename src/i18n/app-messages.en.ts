@@ -49,10 +49,10 @@ export const enMessages = {
   "error.connections.detailFailed.title": "Unable to read connector details",
   "error.connections.updateAliasFailed.title": "Unable to update the connection name",
   "error.connections.permissionDenied.description":
-    "This account cannot perform this connection operation in the current workspace. Switch to an account or organization with access and try again.",
+    "This account cannot perform this connection operation in the current workspace. Switch to an account or team with access and try again.",
   "error.connections.permissionConfigure.title": "You can't configure this connection",
-  "error.connections.permissionConfigure.organization.description":
-    "You don't have permission to configure or add connections in this organization. Ask an organization admin to grant connection management access, or switch to an account or organization with access.",
+  "error.connections.permissionConfigure.team.description":
+    "You don't have permission to configure or add connections in this team. Ask a team admin to grant connection management access, or switch to an account or team with access.",
   "error.connections.permissionConnect.title": "No permission to connect",
   "error.connections.permissionReconnect.title": "No permission to reconnect",
   "error.connections.permissionDisconnect.title": "No permission to disconnect",
@@ -117,7 +117,7 @@ export const enMessages = {
   "nav.restartToUpdate": "Restart to update",
   "nav.updateUpToDate": "Wanta is up to date (v{version})",
   "sidebar.newSession": "New chat",
-  "sidebar.notificationOrganizationUnavailable": "The organization for this task is no longer available",
+  "sidebar.notificationTeamUnavailable": "The team for this task is no longer available",
   "sidebar.segmentTasks": "Tasks",
   "sidebar.segmentProjects": "Projects",
   "sidebar.pinned": "Pinned",
@@ -248,12 +248,12 @@ export const enMessages = {
   "chat.emptyCurrentConnectorsLoadingMeta": "Loading…",
   "chat.emptyCurrentConnectorsUnavailableMeta": "Temporarily unavailable",
   "chat.emptyCurrentConnectorsCheckAction": "Check",
-  "chat.emptyOrganizationSkillsTitle": "Recommended skills",
-  "chat.emptyOrganizationSkillsMeta": "{count} to install",
-  "chat.emptyOrganizationSkillsRecommendedMeta": "{count}",
-  "chat.emptyOrganizationSkillsAction": "Install",
-  "chat.emptyOrganizationSkillsViewAction": "View",
-  "chat.emptyOrganizationSkillsAria": "Open organizations to view recommended skills",
+  "chat.emptyTeamSkillsTitle": "Recommended skills",
+  "chat.emptyTeamSkillsMeta": "{count} to install",
+  "chat.emptyTeamSkillsRecommendedMeta": "{count}",
+  "chat.emptyTeamSkillsAction": "Install",
+  "chat.emptyTeamSkillsViewAction": "View",
+  "chat.emptyTeamSkillsAria": "Open teams to view recommended skills",
   "chat.inputPlaceholder": "What can I help with? @ for files or accounts, / for commands, $ for skills",
   "chat.attachFile": "Add attachment",
   "chat.attachFileAction": "Add file",
@@ -454,7 +454,7 @@ export const enMessages = {
   "chatError.paymentRequired.primaryAction": "Add credits",
   "chatError.paymentRequired.secondaryAction": "View usage",
   "chatError.paymentRequired.creatorDescription":
-    "This response could not be completed because the organization creator's usage balance is insufficient. Ask the organization creator to top up the balance, then try again.",
+    "This response could not be completed because the team creator's usage balance is insufficient. Ask the team creator to top up the balance, then try again.",
   "chatError.paymentRequired.creatorAction": "View usage account",
   "chatError.paymentDialog.title": "Not enough credits",
   "chatError.paymentDialog.description":
@@ -516,7 +516,7 @@ export const enMessages = {
   "billing.title": "Plans and seats",
   "billing.backToChat": "Back to chat",
   "billing.subtitle":
-    "Team plans center on seats, shared connections, and organization management. Usage balance covers model, built-in API, and connector spend.",
+    "Team plans center on seats, shared connections, and team management. Usage balance covers model, built-in API, and connector spend.",
   "billing.period": "Period",
   "billing.period7": "7 days",
   "billing.period30": "30 days",
@@ -550,16 +550,16 @@ export const enMessages = {
   "billing.popover.proRecommendation":
     "Your team size or connector call frequency is getting close to the main Plus use case. Pro fits stable sharing and higher-frequency automation.",
   "billing.popover.noPlanRecommendation":
-    "Choose a Team plan to enable shared connections and organization management. Extra seats can also be added separately.",
+    "Choose a Team plan to enable shared connections and team management. Extra seats can also be added separately.",
   "billing.popover.planDescription":
-    "Team plans provide team sharing and organization management. Additional seats and usage balance are managed separately.",
+    "Team plans support collaboration and team management. Additional seats and usage balance are managed separately.",
   "billing.popover.manageSeats": "Manage seats",
   "billing.summary": "Usage summary",
   "billing.availableCredits": "Usage balance",
   "billing.fundingAccount": "Usage account",
-  "billing.fundingManagedByCreator": "Paid by the organization creator",
+  "billing.fundingManagedByCreator": "Paid by the team creator",
   "billing.fundingMemberDescription":
-    "The organization creator manages credits and top-ups. This view shows usage for the current organization.",
+    "The team creator manages credits and top-ups. This view shows usage for the current team.",
   "billing.topUpBalance": "Top up balance",
   "billing.coverage": "About {days} days available at current daily use",
   "billing.coverageStable": "No ongoing spend",
@@ -608,11 +608,11 @@ export const enMessages = {
   "billing.teamPreview.immediate": "Effective immediately",
   "billing.teamPreview.nextCycle": "Effective next cycle",
   "billing.teamPreview.confirm": "Confirm and pay",
-  "billing.managePermission.title": "This account cannot manage this organization's plan",
+  "billing.managePermission.title": "This account cannot manage this team's plan",
   "billing.managePermission.description":
-    "Team plans and seats can only be managed by the organization owner or members with management permission. You can still view the current status and usage balance.",
+    "Team plans and seats can only be managed by the team owner or members with management permission. You can still view the current status and usage balance.",
   "billing.teamSharedLinks": "Shared connections",
-  "billing.organizationWorkspace": "Organization workspace",
+  "billing.teamWorkspace": "Team workspace",
   "billing.teamPromotionTitle": "Current promotion",
   "billing.teamPromotionDescription": "Choose a Team plan during the promotion to keep permanent 20% off pricing.",
   "billing.teamPromotionBadge": "Permanent 20% off",
@@ -624,9 +624,9 @@ export const enMessages = {
   "billing.teamProPlanOriginalPrice": "$100",
   "billing.planStatus.title": "Current plan and seats",
   "billing.planStatus.freeDescription":
-    "Extra seats can be added separately as the team grows. Choose a Team plan to enable shared connections and organization management.",
+    "Extra seats can be added separately as the team grows. Choose a Team plan to enable shared connections and team management.",
   "billing.planStatus.activeDescription":
-    "The current plan covers team seats, shared connections, and organization management. Usage balance only handles runtime spend.",
+    "The current plan covers team seats, shared connections, and team management. Usage balance only handles runtime spend.",
   "billing.planStatus.pendingDescription": "Plan or seat changes take effect after the pending payment completes.",
   "billing.planStatus.overCapacityDescription":
     "The current member count exceeds seat capacity. Add seats or upgrade the plan.",
@@ -642,7 +642,7 @@ export const enMessages = {
   "billing.additionalSeats.current": "Current additional seats",
   "billing.additionalSeats.unitPrice": "Unit price",
   "billing.additionalSeats.price": "$6/mo",
-  "billing.additionalSeats.organizationMembers": "Organization members",
+  "billing.additionalSeats.teamMembers": "Team members",
   "billing.additionalSeats.inputLabel": "Additional seats",
   "billing.usageDetails.title": "Expand usage details",
   "billing.usageDetails.description": "Usage categories, balance sources, and daily spend stay collapsed by default.",
@@ -682,14 +682,14 @@ export const enMessages = {
   "billing.proRecommendation.cta": "View Pro",
   "billing.planComparison.title": "Choose a Team plan",
   "billing.planComparison.meta":
-    "Plans provide team sharing and organization management. Seats and usage balance are managed separately.",
+    "Plans support collaboration and team management. Seats and usage balance are managed separately.",
   "billing.planComparison.plusDescription":
-    "For small teams sharing connection permissions, centralizing credentials, and starting organization management.",
+    "For small teams sharing connection permissions, centralizing credentials, and starting team management.",
   "billing.planComparison.proDescription":
-    "For teams with higher-frequency Agent usage, more connected accounts, and fuller organization governance.",
-  "billing.planComparison.planning": "Team sharing and organization management",
+    "For teams with higher-frequency Agent usage, more connected accounts, and fuller team governance.",
+  "billing.planComparison.planning": "Team collaboration and management",
   "billing.planComparison.sharedLinks": "Team-shared connection permissions",
-  "billing.planComparison.orgGovernance": "Central credential custody and basic governance",
+  "billing.planComparison.teamGovernance": "Central credential custody and basic governance",
   "billing.planComparison.advancedGovernance": "Fuller permissions, audit records, and team reports",
   "billing.planComparison.plusMembers": "Up to 10 members",
   "billing.planComparison.proMembers": "Up to 30 members",
@@ -1104,12 +1104,12 @@ export const enMessages = {
     "The connection service is temporarily unavailable. The app will retry on refresh.",
   "connections.readOnlyTitle": "Connections are read-only in this workspace",
   "connections.readOnlyDescription":
-    "You can browse the connector catalog. Adding, editing, reconnecting, or disconnecting requires organization administrator access.",
-  "connections.stateUnavailableTitle": "Organization connection status unavailable",
+    "You can browse the connector catalog. Adding, editing, reconnecting, or disconnecting requires team administrator access.",
+  "connections.stateUnavailableTitle": "Team connection status unavailable",
   "connections.stateForbiddenDescription":
-    "You cannot read this organization's connection status, but you can still browse the connector catalog.",
+    "You cannot read this team's connection status, but you can still browse the connector catalog.",
   "connections.stateUnavailableDescription":
-    "This organization's connection status could not be refreshed, but you can still browse the connector catalog.",
+    "This team's connection status could not be refreshed, but you can still browse the connector catalog.",
   "connections.emptyTitle": "No provider connected yet",
   "connections.readyEmptyDescription": "The connection service is available, but no provider is connected yet.",
   "connections.oauthWaiting": "Waiting for authorization",

@@ -1,5 +1,5 @@
 import type { BillingPeriodDays } from "../../../electron/chat/common.ts"
-import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
+import type { WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 
 import { LogInIcon } from "lucide-react"
 import * as React from "react"
@@ -85,13 +85,7 @@ export function BillingRoute({
   const originalCredit = toNumber(data?.balance?.total.originalCredit)
   const modelSpend = getSummary(summaries, "model").credit
   const billingContext = React.useMemo(
-    () =>
-      buildBillingWorkspaceContext(
-        workspace,
-        seatState.count,
-        sharedConnectorCount,
-        t("billing.organizationWorkspace"),
-      ),
+    () => buildBillingWorkspaceContext(workspace, seatState.count, sharedConnectorCount, t("billing.teamWorkspace")),
     [seatState.count, sharedConnectorCount, t, workspace],
   )
   const teamOverview = React.useMemo(
@@ -125,7 +119,7 @@ export function BillingRoute({
     () => getCurrentUsageSubscription(data?.usageSubscription ?? null),
     [data?.usageSubscription],
   )
-  const teamId = canManageTeamBilling(workspace) ? workspace.organizationId : null
+  const teamId = canManageTeamBilling(workspace) ? workspace.teamId : null
   const showTeamPlans = teamId !== null
   const teamDetailsAvailable = data?.subscriptionAvailable === true && data.teamPendingPaymentAvailable === true
   const averageDailySpend = period > 0 ? totalSpend / period : 0
@@ -321,8 +315,8 @@ interface BillingWorkspaceContext {
   canManage: boolean
   connectedProviderCount?: number
   memberCount: number | null
-  organizationId?: string
-  organizationName?: string
+  teamId?: string
+  teamName?: string
   workspaceLabel: string
 }
 
@@ -330,15 +324,15 @@ function buildBillingWorkspaceContext(
   workspace: WorkspaceSelection,
   memberCount: number | null,
   connectedProviderCount?: number,
-  organizationWorkspaceLabel = "Organization",
+  teamWorkspaceLabel = "Team",
 ): BillingWorkspaceContext {
-  const organizationName = workspace.organization?.name ?? ""
+  const teamName = workspace.team?.name ?? ""
   return {
     canManage: workspace.canManage,
     connectedProviderCount,
     memberCount: memberCount === null ? null : Math.max(1, memberCount),
-    organizationId: workspace.organizationId,
-    organizationName,
-    workspaceLabel: organizationName || organizationWorkspaceLabel,
+    teamId: workspace.teamId,
+    teamName,
+    workspaceLabel: teamName || teamWorkspaceLabel,
   }
 }

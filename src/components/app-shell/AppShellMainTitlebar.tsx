@@ -1,7 +1,7 @@
 import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { BillingDetailsTarget } from "@/components/app-shell/BillingUsagePopover"
 import type { UseAppUpdate } from "@/hooks/useAppUpdate"
-import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
+import type { WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 import type { LucideIcon } from "lucide-react"
 
 import * as React from "react"

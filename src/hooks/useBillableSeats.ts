@@ -1,14 +1,10 @@
-import type { WorkspaceSelection } from "./useOrganizationWorkspace.ts"
+import type { WorkspaceSelection } from "./useTeamWorkspace.ts"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
 import * as React from "react"
 import { useAuth } from "@/hooks/useAuth"
-import {
-  getCachedOrganizationMembers,
-  getOrganizationMembersResource,
-  subscribeOrganizationMembersResource,
-} from "@/lib/organization-details-resource"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
+import { getCachedTeamMembers, getTeamMembersResource, subscribeTeamMembersResource } from "@/lib/team-details-resource"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 export interface UseBillableSeats {
@@ -20,8 +16,8 @@ export interface UseBillableSeats {
 export function useBillableSeats(workspace: WorkspaceSelection, enabled = true): UseBillableSeats {
   const { state: authState } = useAuth()
   const accountId = authState?.status === "authenticated" ? (authState.account?.id ?? null) : null
-  const organizationId = workspace.organizationId || null
-  const cachedMembers = accountId && organizationId ? getCachedOrganizationMembers(accountId, organizationId) : null
+  const teamId = workspace.teamId || null
+  const cachedMembers = accountId && teamId ? getCachedTeamMembers(accountId, teamId) : null
   const [count, setCount] = React.useState<number | null>(() =>
     cachedMembers ? Math.max(1, cachedMembers.length) : null,
   )
@@ -30,16 +26,16 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
   const [resourceVersion, setResourceVersion] = React.useState(0)
 
   React.useEffect(() => {
-    if (!accountId || !organizationId) {
+    if (!accountId || !teamId) {
       return
     }
-    return subscribeOrganizationMembersResource(accountId, organizationId, () => {
+    return subscribeTeamMembersResource(accountId, teamId, () => {
       setResourceVersion((version) => version + 1)
     })
-  }, [accountId, organizationId])
+  }, [accountId, teamId])
 
   React.useEffect(() => {
-    if (!enabled || !accountId || !organizationId) {
+    if (!enabled || !accountId || !teamId) {
       setCount(null)
       setError(null)
       setLoading(false)
@@ -47,7 +43,7 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
     }
 
     let cancelled = false
-    const cached = getCachedOrganizationMembers(accountId, organizationId)
+    const cached = getCachedTeamMembers(accountId, teamId)
     if (cached) {
       setCount(Math.max(1, cached.length))
       setError(null)
@@ -57,7 +53,7 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
 
     setLoading(true)
     setError(null)
-    void getOrganizationMembersResource(accountId, organizationId)
+    void getTeamMembersResource(accountId, teamId)
       .then((members) => {
         if (!cancelled) {
           setCount(Math.max(1, members.length))
@@ -79,7 +75,7 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
     return () => {
       cancelled = true
     }
-  }, [accountId, enabled, organizationId, resourceVersion])
+  }, [accountId, enabled, teamId, resourceVersion])
 
   return { count, error, loading }
 }

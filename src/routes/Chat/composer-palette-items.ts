@@ -1,4 +1,4 @@
-import type { ChatOrganizationSkillContext } from "../../../electron/chat/common.ts"
+import type { ChatTeamSkillContext } from "../../../electron/chat/common.ts"
 import type { LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
 import type { ConnectionAppSummary } from "../../../electron/connections/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
@@ -195,13 +195,13 @@ function skillIdentityKey(packageName: string | undefined, skillName: string | u
   return `${normalizedPackageName}\u0000${normalizedSkillName}`
 }
 
-function organizationSkillIdentityKeys(skill: ChatOrganizationSkillContext): string[] {
+function teamSkillIdentityKeys(skill: ChatTeamSkillContext): string[] {
   const keys = [
     skillIdentityKey(skill.packageName, skill.skillName),
     skillIdentityKey(
       skill.packageName,
       skill.id
-        .replace(/^organization:/, "")
+        .replace(/^team:/, "")
         .split(":")
         .at(-1),
     ),
@@ -265,14 +265,14 @@ export function buildSkillPaletteItems(
   groups: ManagedSkillGroup[],
   fallbackDescription: string,
   creatorSkillCopy: CreatorSkillPaletteCopy,
-  organizationSkills: ChatOrganizationSkillContext[] = [],
+  teamSkills: ChatTeamSkillContext[] = [],
 ): SkillPaletteItem[] {
   const creatorSkillGroup = groups.find((group) => group.id === creatorSkillId)
   const creatorSkillItem = buildCreatorSkillPaletteItem(creatorSkillCopy, creatorSkillGroup?.icon)
-  const validatedOrganizationSkills = organizationSkills.filter((skill) => skill.id.trim() && skill.name.trim())
-  const organizationSkillKeys = new Set(validatedOrganizationSkills.flatMap(organizationSkillIdentityKeys))
-  const organizationSkillNames = new Set(validatedOrganizationSkills.map((skill) => normalizedSearchText(skill.name)))
-  const organizationItems = validatedOrganizationSkills
+  const validatedTeamSkills = teamSkills.filter((skill) => skill.id.trim() && skill.name.trim())
+  const teamSkillKeys = new Set(validatedTeamSkills.flatMap(teamSkillIdentityKeys))
+  const teamSkillNames = new Set(validatedTeamSkills.map((skill) => normalizedSearchText(skill.name)))
+  const teamItems = validatedTeamSkills
     .slice()
     .sort((left, right) => left.name.localeCompare(right.name))
     .map(
@@ -283,7 +283,7 @@ export function buildSkillPaletteItems(
         ...(skill.icon ? { iconSource: skill.icon } : {}),
         id: `skill:${skill.id}`,
         kind: "skill",
-        meta: "organization",
+        meta: "team",
         skillId: skill.id,
         skillName: skill.name,
         title: skill.name,
@@ -293,10 +293,10 @@ export function buildSkillPaletteItems(
     .filter((group) => installedSkillHostCount(group) > 0)
     .filter((group) => group.id !== creatorSkillId)
     .filter((group) => {
-      if (managedSkillIdentityKeys(group).some((key) => organizationSkillKeys.has(key))) {
+      if (managedSkillIdentityKeys(group).some((key) => teamSkillKeys.has(key))) {
         return false
       }
-      return !organizationSkillNames.has(normalizedSearchText(group.name || group.id))
+      return !teamSkillNames.has(normalizedSearchText(group.name || group.id))
     })
     .slice()
     .sort((left, right) => left.name.localeCompare(right.name))
@@ -315,7 +315,7 @@ export function buildSkillPaletteItems(
       }),
     )
 
-  return [creatorSkillItem, ...organizationItems, ...inventoryItems]
+  return [creatorSkillItem, ...teamItems, ...inventoryItems]
 }
 
 export interface ConnectionPaletteCopy {

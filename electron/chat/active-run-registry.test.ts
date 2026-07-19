@@ -6,8 +6,8 @@ test("permission blocking takes precedence until every blocking request is remov
   const updates = vi.fn()
   const registry = new ActiveRunRegistry(updates)
   registry.create("session-1", "generation-1", {
-    organizationId: "org-id",
-    organizationName: "org-name",
+    teamId: "team-id",
+    teamName: "team-name",
   })
 
   registry.addBlockingRequest("session-1", "question-1", "awaiting_question")
@@ -24,12 +24,12 @@ test("permission blocking takes precedence until every blocking request is remov
 test("late cleanup cannot delete a replacement active run", () => {
   const registry = new ActiveRunRegistry(() => undefined)
   registry.create("session-1", "generation-1", {
-    organizationId: "org-id",
-    organizationName: "org-name",
+    teamId: "team-id",
+    teamName: "team-name",
   })
   registry.create("session-1", "generation-2", {
-    organizationId: "org-id",
-    organizationName: "org-name",
+    teamId: "team-id",
+    teamName: "team-name",
   })
 
   registry.delete("session-1", "generation-1")
@@ -39,8 +39,8 @@ test("late cleanup cannot delete a replacement active run", () => {
 test("assistant events advance active run presentation phases", () => {
   const registry = new ActiveRunRegistry(() => undefined)
   registry.create("session-1", "generation-1", {
-    organizationId: "org-id",
-    organizationName: "org-name",
+    teamId: "team-id",
+    teamName: "team-name",
   })
   registry.applyEvent({
     event: "messageDelta",

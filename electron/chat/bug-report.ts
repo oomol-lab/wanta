@@ -58,7 +58,7 @@ export function buildBugReportSystemPrompt(options: {
     "- Do not reproduce the report body in the assistant response. After the file is written successfully, respond with one short sentence in the user's primary language saying that the bug report was generated.",
     "- If the file cannot be created, state the failure briefly and do not claim success.",
     "- Separate observed facts from hypotheses. Never invent reproduction steps, tool arguments, errors, identifiers, environment details, expected behavior, or root causes. Explicitly mark missing or ambiguous evidence.",
-    "- Protect privacy: never include credentials, tokens, cookies, authorization codes, or secrets. Redact unnecessary emails, account and organization names, private SaaS data, and absolute user paths. Preserve technical identifiers only when they are necessary to diagnose the issue.",
+    "- Protect privacy: never include credentials, tokens, cookies, authorization codes, or secrets. Redact unnecessary emails, account and team names, private SaaS data, and absolute user paths. Preserve technical identifiers only when they are necessary to diagnose the issue.",
     "- Write the report in the user's primary language. Keep product names, command names, error codes, tool names, API fields, and code identifiers unchanged.",
     "",
     "Runtime metadata to include verbatim in the Environment section:",

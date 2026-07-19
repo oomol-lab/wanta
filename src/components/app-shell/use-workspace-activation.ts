@@ -19,15 +19,15 @@ export interface WorkspaceActivationController {
 export function useWorkspaceActivation({
   activationInput,
   activeWorkspaceKey,
-  hasLoadedOrganizations,
-  loadingOrganizations,
-  organizationIds,
+  hasLoadedTeams,
+  loadingTeams,
+  teamIds,
 }: {
   activationInput: Omit<WorkspaceActivationInput, "targetScopeKey">
   activeWorkspaceKey: string
-  hasLoadedOrganizations: boolean
-  loadingOrganizations: boolean
-  organizationIds: string[]
+  hasLoadedTeams: boolean
+  loadingTeams: boolean
+  teamIds: string[]
 }): WorkspaceActivationController {
   const [targetScopeKey, setTargetScopeKey] = React.useState<string | null>(null)
   const [timedOutKey, setTimedOutKey] = React.useState<string | null>(null)
@@ -52,7 +52,7 @@ export function useWorkspaceActivation({
       return
     }
     observedWorkspaceKey.current = activeWorkspaceKey
-    // 组织管理页也能切 workspace，这里把非侧边栏入口并入同一套 activation 流。
+    // 团队管理页也能切 workspace，这里把非侧边栏入口并入同一套 activation 流。
     handleSwitchStart(activeWorkspaceKey)
   }, [activeWorkspaceKey, handleSwitchStart])
 
@@ -64,9 +64,9 @@ export function useWorkspaceActivation({
     if (
       shouldClearWorkspaceSwitchTarget({
         activeWorkspaceKey,
-        hasLoadedOrganizations,
-        loadingOrganizations,
-        organizationIds,
+        hasLoadedTeams,
+        loadingTeams,
+        teamIds,
         targetScopeKey,
         workspaceSwitching: switching,
       })
@@ -74,7 +74,7 @@ export function useWorkspaceActivation({
       setTimedOutKey(null)
       setTargetScopeKey(null)
     }
-  }, [activeWorkspaceKey, hasLoadedOrganizations, loadingOrganizations, organizationIds, switching, targetScopeKey])
+  }, [activeWorkspaceKey, hasLoadedTeams, loadingTeams, teamIds, switching, targetScopeKey])
 
   React.useEffect(() => {
     if (!targetScopeKey) {

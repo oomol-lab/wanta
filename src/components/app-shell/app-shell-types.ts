@@ -4,6 +4,6 @@ export type AppShellRoute =
   | "chat"
   | "connections"
   | "knowledge"
-  | "organizations"
+  | "teams"
   | "skills"
   | "settings"

@@ -19,8 +19,21 @@ export interface SessionInfo {
 export type SessionPermissionMode = "default" | "full_access"
 
 export interface SessionScope {
-  organizationId: string
-  organizationName: string
+  teamId: string
+  teamName: string
+}
+
+export function normalizeSessionScopeValue(value: unknown): SessionScope | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined
+  }
+  const source = value as Partial<SessionScope> & { organizationId?: unknown; organizationName?: unknown }
+  const normalizePair = (id: unknown, name: unknown): SessionScope | undefined => {
+    const teamId = typeof id === "string" ? id.trim() : undefined
+    const teamName = typeof name === "string" ? name.trim() : undefined
+    return teamId && teamName ? { teamId, teamName } : undefined
+  }
+  return normalizePair(source.teamId, source.teamName) ?? normalizePair(source.organizationId, source.organizationName)
 }
 
 export type SessionPlacement = "all" | "project" | "task"

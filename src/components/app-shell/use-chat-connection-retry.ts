@@ -3,7 +3,7 @@ import type {
   AgentPermissionMode,
   ChatAttachment,
   ChatContextMention,
-  ChatOrganizationSkillContext,
+  ChatTeamSkillContext,
   ChatProjectContext,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
@@ -33,7 +33,7 @@ export interface ChatConnectionRetryInput {
   drawerKey: string
   mode?: AgentMode
   model?: ModelChoice
-  organizationSkills?: ChatOrganizationSkillContext[]
+  teamSkills?: ChatTeamSkillContext[]
   permissionMode?: AgentPermissionMode
   projectContext?: ChatProjectContext
   reasoningLevel?: ReasoningLevel
@@ -147,7 +147,7 @@ export function useChatConnectionRetry({
           pending.reasoningLevel,
           pending.mode,
           pending.permissionMode,
-          pending.organizationSkills ?? [],
+          pending.teamSkills ?? [],
           pending.projectContext,
           pending.sessionScope,
         )
@@ -156,7 +156,7 @@ export function useChatConnectionRetry({
 
       void send(pending.sessionId, pending.text, pending.attachments, {
         contextMentions: pending.contextMentions ?? [],
-        organizationSkills: pending.organizationSkills ?? [],
+        teamSkills: pending.teamSkills ?? [],
         projectContext: pending.projectContext,
         model: pending.model,
         reasoningLevel: pending.reasoningLevel,

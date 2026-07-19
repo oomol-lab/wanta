@@ -69,7 +69,7 @@ test("summarizeEmptyStateConnections excludes connectionless no-auth providers t
   })
 })
 
-test("resolveCurrentToolsPresentation keeps organization issue copy and action aligned", () => {
+test("resolveCurrentToolsPresentation keeps team issue copy and action aligned", () => {
   assert.deepEqual(resolveCurrentToolsPresentation({ availableCount: 2, needsAttentionCount: 1 }), {
     actionKey: "chat.emptyCurrentConnectorsCheckAction",
     ariaLabelKey: "chat.emptySharedConnectorsAttentionAria",
@@ -83,7 +83,7 @@ test("resolveCurrentToolsPresentation keeps organization issue copy and action a
   })
 })
 
-test("resolveCurrentToolsPresentation covers organization tool and empty states", () => {
+test("resolveCurrentToolsPresentation covers team tool and empty states", () => {
   assert.equal(
     resolveCurrentToolsPresentation({ availableCount: 2, needsAttentionCount: 0 }).actionKey,
     "chat.emptySharedConnectorsAction",

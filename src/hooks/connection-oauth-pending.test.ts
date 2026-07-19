@@ -69,7 +69,7 @@ describe("connection OAuth pending key", () => {
   })
 
   it("deduplicates OAuth requests by workspace, service, and target app", () => {
-    const workspace = { organizationName: "org-name" } as const
+    const workspace = { teamName: "team-name" } as const
 
     expect(createOAuthPendingKey(workspace, { appId: "app-1", authType: "oauth2", service: "gmail" })).toBe(
       createOAuthPendingKey(workspace, { appId: "app-1", authType: "oauth2", service: "gmail" }),
@@ -79,21 +79,18 @@ describe("connection OAuth pending key", () => {
     )
   })
 
-  it("separates services and organization workspaces", () => {
-    const orgGmail = createOAuthPendingKey({ organizationName: "org-name" }, { authType: "oauth2", service: "gmail" })
-    const orgSlack = createOAuthPendingKey({ organizationName: "org-name" }, { authType: "oauth2", service: "slack" })
-    const organizationGmail = createOAuthPendingKey(
-      { organizationName: "acme" },
-      { authType: "oauth2", service: "gmail" },
-    )
+  it("separates services and team workspaces", () => {
+    const firstTeamGmail = createOAuthPendingKey({ teamName: "team-name" }, { authType: "oauth2", service: "gmail" })
+    const firstTeamSlack = createOAuthPendingKey({ teamName: "team-name" }, { authType: "oauth2", service: "slack" })
+    const secondTeamGmail = createOAuthPendingKey({ teamName: "acme" }, { authType: "oauth2", service: "gmail" })
 
-    expect(orgGmail).not.toBe(orgSlack)
-    expect(orgGmail).not.toBe(organizationGmail)
+    expect(firstTeamGmail).not.toBe(firstTeamSlack)
+    expect(firstTeamGmail).not.toBe(secondTeamGmail)
   })
 
   it("shares workspace and polling key formatting helpers", () => {
-    expect(connectionWorkspaceKey({ organizationName: "org-name" })).toBe("organization:org-name")
-    expect(connectionWorkspaceKey({ organizationName: "acme" })).toBe("organization:acme")
+    expect(connectionWorkspaceKey({ teamName: "team-name" })).toBe("team:team-name")
+    expect(connectionWorkspaceKey({ teamName: "acme" })).toBe("team:acme")
     expect(createConnectionPollingKey("gmail")).toBe("gmail")
     expect(createConnectionPollingKey("gmail", "app-1")).toBe("gmail\0app-1")
     expect(isConnectionPollingTarget("gmail\0app-1", "gmail", "app-1")).toBe(true)
@@ -103,7 +100,7 @@ describe("connection OAuth pending key", () => {
   })
 
   it("stores pending OAuth operations until they expire", () => {
-    const workspace = { organizationName: "org-name" } as const
+    const workspace = { teamName: "team-name" } as const
     const operation = createOAuthPendingOperation(
       workspace,
       { appId: "app-1", authType: "oauth2", service: "gmail" },
@@ -120,29 +117,29 @@ describe("connection OAuth pending key", () => {
       existingActiveAppIds: ["app-0"],
       pollingKey: "gmail\0app-1",
       service: "gmail",
-      workspaceKey: "organization:org-name",
+      workspaceKey: "team:team-name",
     })
     expect(readOAuthPendingOperation(operation.key, operation.expiresAt, storage)).toBeNull()
   })
 
   it("keeps only one pending OAuth operation per workspace", () => {
-    const orgName = { organizationName: "org-name" } as const
-    const organization = { organizationName: "acme" } as const
-    const first = createOAuthPendingOperation(orgName, { authType: "oauth2", service: "gmail" }, 1, 1_000)
-    const second = createOAuthPendingOperation(orgName, { authType: "oauth2", service: "slack" }, 2, 2_000)
-    const otherWorkspace = createOAuthPendingOperation(organization, { authType: "oauth2", service: "gmail" }, 3, 3_000)
+    const teamName = { teamName: "team-name" } as const
+    const team = { teamName: "acme" } as const
+    const first = createOAuthPendingOperation(teamName, { authType: "oauth2", service: "gmail" }, 1, 1_000)
+    const second = createOAuthPendingOperation(teamName, { authType: "oauth2", service: "slack" }, 2, 2_000)
+    const otherWorkspace = createOAuthPendingOperation(team, { authType: "oauth2", service: "gmail" }, 3, 3_000)
 
     rememberOAuthPendingOperation(first, storage)
     rememberOAuthPendingOperation(second, storage)
     rememberOAuthPendingOperation(otherWorkspace, storage)
 
-    expect(readOAuthPendingOperationsForWorkspace(orgName, 3_000, storage)).toEqual([second])
-    expect(readOAuthPendingOperationsForWorkspace(organization, 3_000, storage)).toEqual([otherWorkspace])
+    expect(readOAuthPendingOperationsForWorkspace(teamName, 3_000, storage)).toEqual([second])
+    expect(readOAuthPendingOperationsForWorkspace(team, 3_000, storage)).toEqual([otherWorkspace])
   })
 
   it("resolves the newly connected OAuth account after polling resumes", () => {
     const operation = createOAuthPendingOperation(
-      { organizationName: "org-name" },
+      { teamName: "team-name" },
       { authType: "oauth2", service: "gmail" },
       1,
       1_000,
@@ -157,13 +154,13 @@ describe("connection OAuth pending key", () => {
     ).toEqual({
       connectionName: "new",
       service: "gmail",
-      workspaceKey: "organization:org-name",
+      workspaceKey: "team:team-name",
     })
   })
 
   it("resolves the requested account when OAuth reconnects", () => {
     const operation = createOAuthPendingOperation(
-      { organizationName: "org-name" },
+      { teamName: "team-name" },
       { appId: "target", authType: "oauth2", service: "gmail" },
       1,
       1_000,
@@ -177,7 +174,7 @@ describe("connection OAuth pending key", () => {
     ).toEqual({
       connectionName: "target",
       service: "gmail",
-      workspaceKey: "organization:org-name",
+      workspaceKey: "team:team-name",
     })
   })
 })

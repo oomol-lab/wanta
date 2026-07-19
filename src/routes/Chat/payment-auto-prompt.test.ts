@@ -29,7 +29,7 @@ describe("canAutoPromptPayment", () => {
     expect(canAutoPromptPayment({ ...baseState, autoOpenKey: undefined })).toBe(false)
   })
 
-  it("never prompts organization members to top up their personal account", () => {
+  it("never prompts team members to top up their personal account", () => {
     expect(canAutoPromptPayment({ ...baseState, canManageFunding: false })).toBe(false)
   })
 })

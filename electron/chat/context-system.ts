@@ -1,9 +1,4 @@
-import type {
-  AgentPermissionMode,
-  ChatContextMention,
-  ChatOrganizationSkillContext,
-  ChatProjectContext,
-} from "./common.ts"
+import type { AgentPermissionMode, ChatContextMention, ChatTeamSkillContext, ChatProjectContext } from "./common.ts"
 
 function quoted(value: string): string {
   return JSON.stringify(value)
@@ -62,14 +57,14 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
   return lines.join("\n")
 }
 
-export function buildOrganizationSkillsSystem(skills: ChatOrganizationSkillContext[] | undefined): string | undefined {
+export function buildTeamSkillsSystem(skills: ChatTeamSkillContext[] | undefined): string | undefined {
   const enabledSkills = (skills ?? []).filter((skill) => skill.id.trim() && skill.name.trim())
   if (enabledSkills.length === 0) {
     return undefined
   }
 
   const lines = [
-    "Organization-configured skills for the active workspace:",
+    "Team-configured skills for the active workspace:",
     "- Treat these skills as workspace guidance, not mandatory tool calls.",
     "- Use them only when they are relevant to the user's actual task.",
     "- If the user selected a different explicit context for this turn, prefer the explicit user selection.",

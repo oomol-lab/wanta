@@ -1,15 +1,16 @@
-import { describe, expect, test } from "vitest"
+import { afterEach, describe, expect, test, vi } from "vitest"
 import {
   existingSessionComposerDraftKey,
   chatSendAccepted,
   getUnlinkedProviderSkillRecommendations,
+  initialRoute,
   NO_DRAFT_PROJECT_ID,
   isWorkspaceSwitchPending,
   newSessionComposerDraftKey,
   newSessionComposerDraftKeyForScopeKey,
   resolveNewSessionTarget,
-  resolveNotificationOrganization,
-  resolveOrganizationProviderOptionsAvailability,
+  resolveNotificationTeam,
+  resolveTeamProviderOptionsAvailability,
   resolveWorkspaceActivationState,
   sessionRecordScopeKey,
   sessionTitleGenerationKey,
@@ -18,37 +19,55 @@ import {
   workspaceActivationBlocksInput,
   workspaceActivationHasFailed,
   workspaceActivationIsPending,
+  workspaceSwitchTeamId,
 } from "./app-shell-model.ts"
 
-describe("notification organization resolution", () => {
-  const input = {
-    activeOrganizationId: "org-current",
-    hasLoaded: true,
-    loading: false,
-    organizationIds: ["org-current", "org-target"],
-    refreshAttempted: false,
-    targetOrganizationId: "org-target",
-  }
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
-  test("selects a known notification organization", () => {
-    expect(resolveNotificationOrganization(input)).toBe("select")
+describe("team route and scope migration", () => {
+  test("maps the legacy organizations route to teams", () => {
+    vi.stubEnv("VITE_WANTA_ROUTE", "organizations")
+    expect(initialRoute()).toBe("teams")
   })
 
-  test("refreshes once before rejecting an unknown notification organization", () => {
-    const unknown = { ...input, organizationIds: [] }
-    expect(resolveNotificationOrganization(unknown)).toBe("refresh")
-    expect(resolveNotificationOrganization({ ...unknown, refreshAttempted: true })).toBe("unavailable")
-  })
-
-  test("waits while the organization list is unresolved", () => {
-    expect(resolveNotificationOrganization({ ...input, hasLoaded: false, organizationIds: [] })).toBe("wait")
+  test("accepts team and legacy organization scope keys", () => {
+    expect(workspaceSwitchTeamId("team:team-1")).toBe("team-1")
+    expect(workspaceSwitchTeamId("organization:team-1")).toBe("team-1")
+    expect(workspaceSwitchTeamId("personal:user-1")).toBeNull()
   })
 })
 
-describe("organization provider option availability", () => {
+describe("notification team resolution", () => {
+  const input = {
+    activeTeamId: "team-current",
+    hasLoaded: true,
+    loading: false,
+    teamIds: ["team-current", "team-target"],
+    refreshAttempted: false,
+    targetTeamId: "team-target",
+  }
+
+  test("selects a known notification team", () => {
+    expect(resolveNotificationTeam(input)).toBe("select")
+  })
+
+  test("refreshes once before rejecting an unknown notification team", () => {
+    const unknown = { ...input, teamIds: [] }
+    expect(resolveNotificationTeam(unknown)).toBe("refresh")
+    expect(resolveNotificationTeam({ ...unknown, refreshAttempted: true })).toBe("unavailable")
+  })
+
+  test("waits while the team list is unresolved", () => {
+    expect(resolveNotificationTeam({ ...input, hasLoaded: false, teamIds: [] })).toBe("wait")
+  })
+})
+
+describe("team provider option availability", () => {
   test("waits for the shared connection summary instead of starting a duplicate request", () => {
     expect(
-      resolveOrganizationProviderOptionsAvailability({
+      resolveTeamProviderOptionsAvailability({
         appsStatus: undefined,
         summaryMatchesWorkspace: false,
         workspaceActivationFailed: false,
@@ -58,7 +77,7 @@ describe("organization provider option availability", () => {
 
   test("uses shared provider options after the workspace summary is ready", () => {
     expect(
-      resolveOrganizationProviderOptionsAvailability({
+      resolveTeamProviderOptionsAvailability({
         appsStatus: "ready",
         summaryMatchesWorkspace: true,
         workspaceActivationFailed: false,
@@ -68,7 +87,7 @@ describe("organization provider option availability", () => {
 
   test("allows the details request fallback after shared loading fails", () => {
     expect(
-      resolveOrganizationProviderOptionsAvailability({
+      resolveTeamProviderOptionsAvailability({
         appsStatus: undefined,
         summaryMatchesWorkspace: false,
         workspaceActivationFailed: true,
@@ -79,14 +98,14 @@ describe("organization provider option availability", () => {
 
 const readyInput = {
   agentScopeSyncError: null,
-  agentScopeWorkspaceKey: "organization:acme",
-  connectionSettledWorkspaceKey: "organization:acme",
-  connectionWorkspaceKey: "organization:acme",
+  agentScopeWorkspaceKey: "team:acme",
+  connectionSettledWorkspaceKey: "team:acme",
+  connectionWorkspaceKey: "team:acme",
   connectionsRefreshing: false,
-  currentScopeKey: "organization:acme",
-  loadedSessionScopeKey: "organization:acme",
-  organizationSkillsSettled: true,
-  targetScopeKey: "organization:acme",
+  currentScopeKey: "team:acme",
+  loadedSessionScopeKey: "team:acme",
+  teamSkillsSettled: true,
+  targetScopeKey: "team:acme",
   workspaceMetadataError: null,
 }
 
@@ -108,24 +127,24 @@ describe("workspace switch pending state", () => {
   })
 
   test("waits for sessions to load for the target scope", () => {
-    expect(isWorkspaceSwitchPending({ ...readyInput, loadedSessionScopeKey: "organization:old" })).toBe(true)
+    expect(isWorkspaceSwitchPending({ ...readyInput, loadedSessionScopeKey: "team:old" })).toBe(true)
   })
 
   test("waits for the current connection workspace to settle", () => {
     expect(
       isWorkspaceSwitchPending({
         ...readyInput,
-        connectionSettledWorkspaceKey: "organization:Old",
-        connectionWorkspaceKey: "organization:New",
+        connectionSettledWorkspaceKey: "team:Old",
+        connectionWorkspaceKey: "team:New",
       }),
     ).toBe(true)
   })
 
-  test("waits until the agent organization scope reaches the target workspace", () => {
-    expect(isWorkspaceSwitchPending({ ...readyInput, agentScopeWorkspaceKey: "organization:old" })).toBe(true)
+  test("waits until the agent team scope reaches the target workspace", () => {
+    expect(isWorkspaceSwitchPending({ ...readyInput, agentScopeWorkspaceKey: "team:old" })).toBe(true)
   })
 
-  test("stops waiting when agent organization scope sync fails", () => {
+  test("stops waiting when agent team scope sync fails", () => {
     expect(
       isWorkspaceSwitchPending({
         ...readyInput,
@@ -144,8 +163,8 @@ describe("workspace switch pending state", () => {
     expect(isWorkspaceSwitchPending({ ...readyInput, connectionWorkspaceKey: null })).toBe(true)
   })
 
-  test("waits for organization skills when the target needs them", () => {
-    expect(isWorkspaceSwitchPending({ ...readyInput, organizationSkillsSettled: false })).toBe(true)
+  test("waits for team skills when the target needs them", () => {
+    expect(isWorkspaceSwitchPending({ ...readyInput, teamSkillsSettled: false })).toBe(true)
   })
 
   test("settles when all target-scoped requests are done", () => {
@@ -173,9 +192,9 @@ describe("workspace activation state", () => {
   })
 
   test("reports the first pending activation phase", () => {
-    const state = resolveWorkspaceActivationState({ ...readyInput, loadedSessionScopeKey: "organization:old" })
+    const state = resolveWorkspaceActivationState({ ...readyInput, loadedSessionScopeKey: "team:old" })
 
-    expect(state).toEqual({ phase: "sessions", status: "activating", targetScopeKey: "organization:acme" })
+    expect(state).toEqual({ phase: "sessions", status: "activating", targetScopeKey: "team:acme" })
     expect(workspaceActivationIsPending(state)).toBe(true)
     expect(workspaceActivationBlocksInput(state)).toBe(true)
     expect(workspaceActivationHasFailed(state)).toBe(false)
@@ -193,7 +212,7 @@ describe("workspace activation state", () => {
       error: activationError,
       reason: "agent_scope",
       status: "failed",
-      targetScopeKey: "organization:acme",
+      targetScopeKey: "team:acme",
     })
     expect(workspaceActivationIsPending(state)).toBe(false)
     expect(workspaceActivationBlocksInput(state)).toBe(true)
@@ -228,19 +247,19 @@ describe("workspace activation state", () => {
       error: activationError,
       reason: "workspace_metadata",
       status: "failed",
-      targetScopeKey: "organization:acme",
+      targetScopeKey: "team:acme",
     })
     expect(workspaceActivationIsPending(state)).toBe(false)
     expect(workspaceActivationBlocksInput(state)).toBe(true)
   })
 
-  test("treats organization skill loading failures as a soft dependency", () => {
+  test("treats team skill loading failures as a soft dependency", () => {
     const state = resolveWorkspaceActivationState({
       ...readyInput,
-      organizationSkillsSettled: true,
+      teamSkillsSettled: true,
     })
 
-    expect(state).toEqual({ status: "idle", targetScopeKey: "organization:acme" })
+    expect(state).toEqual({ status: "idle", targetScopeKey: "team:acme" })
     expect(workspaceActivationIsPending(state)).toBe(false)
     expect(workspaceActivationBlocksInput(state)).toBe(false)
     expect(workspaceActivationHasFailed(state)).toBe(false)
@@ -249,32 +268,32 @@ describe("workspace activation state", () => {
   test("is idle once every target-scoped dependency settles", () => {
     const state = resolveWorkspaceActivationState(readyInput)
 
-    expect(state).toEqual({ status: "idle", targetScopeKey: "organization:acme" })
+    expect(state).toEqual({ status: "idle", targetScopeKey: "team:acme" })
   })
 })
 
 describe("recommended Skill empty state entry", () => {
-  test("shows when a provider recommendation is installable without organization configured Skills", () => {
+  test("shows when a provider recommendation is installable without team configured Skills", () => {
     expect(
       shouldShowRecommendedSkillEntry({
-        organizationId: "org-1",
-        organizationSkillCount: 0,
+        teamId: "team-1",
+        teamSkillCount: 0,
         providerRecommendationCount: 1,
       }),
     ).toBe(true)
   })
 
-  test("stays hidden outside an organization workspace", () => {
+  test("stays hidden outside a team workspace", () => {
     expect(
       shouldShowRecommendedSkillEntry({
-        organizationId: null,
-        organizationSkillCount: 0,
+        teamId: null,
+        teamSkillCount: 0,
         providerRecommendationCount: 1,
       }),
     ).toBe(false)
   })
 
-  test("deduplicates provider recommendations already configured by the organization", () => {
+  test("deduplicates provider recommendations already configured by the team", () => {
     const recommendations = getUnlinkedProviderSkillRecommendations(
       [{ packageName: "oo-posthog", skillName: "posthog" }],
       [
@@ -290,11 +309,11 @@ describe("recommended Skill empty state entry", () => {
 
 describe("workspace switch target cleanup", () => {
   const cleanupInput = {
-    activeWorkspaceKey: "organization:new",
-    hasLoadedOrganizations: true,
-    loadingOrganizations: false,
-    organizationIds: ["new"],
-    targetScopeKey: "organization:new",
+    activeWorkspaceKey: "team:new",
+    hasLoadedTeams: true,
+    loadingTeams: false,
+    teamIds: ["new"],
+    targetScopeKey: "team:new",
     workspaceSwitching: true,
   }
 
@@ -306,12 +325,12 @@ describe("workspace switch target cleanup", () => {
     expect(shouldClearWorkspaceSwitchTarget({ ...cleanupInput, workspaceSwitching: false })).toBe(true)
   })
 
-  test("clears when an organization target is no longer reachable", () => {
+  test("clears when a team target is no longer reachable", () => {
     expect(
       shouldClearWorkspaceSwitchTarget({
         ...cleanupInput,
-        activeWorkspaceKey: "organization:acme",
-        organizationIds: [],
+        activeWorkspaceKey: "team:acme",
+        teamIds: [],
       }),
     ).toBe(true)
   })
@@ -320,19 +339,19 @@ describe("workspace switch target cleanup", () => {
     expect(
       shouldClearWorkspaceSwitchTarget({
         ...cleanupInput,
-        activeWorkspaceKey: "organization:acme",
+        activeWorkspaceKey: "team:acme",
       }),
     ).toBe(false)
   })
 
-  test("keeps an organization target reachable while organizations are still loading", () => {
+  test("keeps a team target reachable while teams are still loading", () => {
     expect(
       shouldClearWorkspaceSwitchTarget({
         ...cleanupInput,
-        activeWorkspaceKey: "organization:acme",
-        hasLoadedOrganizations: false,
-        loadingOrganizations: true,
-        organizationIds: [],
+        activeWorkspaceKey: "team:acme",
+        hasLoadedTeams: false,
+        loadingTeams: true,
+        teamIds: [],
       }),
     ).toBe(false)
   })
@@ -405,18 +424,16 @@ describe("new session target resolution", () => {
 })
 
 describe("composer draft keys", () => {
-  test("keeps loading organization draft keys separated by selected workspace", () => {
+  test("keeps loading team draft keys separated by selected workspace", () => {
     expect(newSessionComposerDraftKey(null, undefined)).toBe("__new_session__:workspace-loading:none")
-    expect(newSessionComposerDraftKeyForScopeKey("organization:org-a", undefined)).toBe(
-      "__new_session__:organization:org-a:none",
-    )
-    expect(newSessionComposerDraftKeyForScopeKey("organization:org-b", "project-1")).toBe(
-      "__new_session__:organization:org-b:project-1",
+    expect(newSessionComposerDraftKeyForScopeKey("team:team-a", undefined)).toBe("__new_session__:team:team-a:none")
+    expect(newSessionComposerDraftKeyForScopeKey("team:team-b", "project-1")).toBe(
+      "__new_session__:team:team-b:project-1",
     )
   })
 
   test("separates drafts for projects in the same workspace", () => {
-    const scope = { organizationId: "org-a", organizationName: "A" }
+    const scope = { teamId: "team-a", teamName: "A" }
 
     expect(newSessionComposerDraftKey(scope, "project-a")).not.toBe(newSessionComposerDraftKey(scope, "project-b"))
   })
@@ -424,23 +441,23 @@ describe("composer draft keys", () => {
 
 describe("composer draft scope keys", () => {
   test("separates existing session drafts by workspace scope", () => {
-    expect(existingSessionComposerDraftKey("organization:org-a", "session-1")).not.toBe(
-      existingSessionComposerDraftKey("organization:org-b", "session-1"),
+    expect(existingSessionComposerDraftKey("team:team-a", "session-1")).not.toBe(
+      existingSessionComposerDraftKey("team:team-b", "session-1"),
     )
-    expect(existingSessionComposerDraftKey("organization:org-a", "session-1")).not.toBe(
-      existingSessionComposerDraftKey("organization:acme", "session-1"),
+    expect(existingSessionComposerDraftKey("team:team-a", "session-1")).not.toBe(
+      existingSessionComposerDraftKey("team:acme", "session-1"),
     )
   })
 
   test("separates new session drafts by workspace scope", () => {
-    expect(newSessionComposerDraftKey({ organizationId: "org-a", organizationName: "A" }, undefined)).not.toBe(
-      newSessionComposerDraftKey({ organizationId: "org-id", organizationName: "org-name" }, undefined),
+    expect(newSessionComposerDraftKey({ teamId: "team-a", teamName: "A" }, undefined)).not.toBe(
+      newSessionComposerDraftKey({ teamId: "team-id", teamName: "team-name" }, undefined),
     )
   })
 
   test("normalizes persisted sessions without scope as unavailable workspace sessions", () => {
     expect(sessionRecordScopeKey(undefined)).toBe("workspace-loading")
-    expect(sessionRecordScopeKey({ organizationId: "org-a", organizationName: "A" })).toBe("organization:org-a")
+    expect(sessionRecordScopeKey({ teamId: "team-a", teamName: "A" })).toBe("team:team-a")
   })
 })
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp } from "node:fs/promises"
+import { mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
@@ -17,7 +17,7 @@ test("SessionProjectStore persists local projects", async () => {
         path: "/Users/example/code/wanta",
         createdAt: 1_000,
         updatedAt: 2_000,
-        scope: { organizationId: "org-id", organizationName: "org-name" },
+        scope: { teamId: "team-id", teamName: "team-name" },
         pinnedAt: 3_000,
       },
     ],
@@ -64,4 +64,27 @@ test("SessionProjectStore supports concurrent writes", async () => {
   ])
 
   assert.equal((await store.read()).size, 1)
+})
+
+test("SessionProjectStore migrates legacy organization scope fields", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-session-projects-"))
+  await writeFile(
+    path.join(dir, "session-projects.json"),
+    JSON.stringify({
+      version: 1,
+      projects: {
+        legacy: {
+          name: "Legacy",
+          path: "/tmp/legacy",
+          createdAt: 1_000,
+          updatedAt: 2_000,
+          scope: { organizationId: "team-id", organizationName: "team-name" },
+        },
+      },
+    }),
+    "utf-8",
+  )
+
+  const project = (await new SessionProjectStore(dir).read()).get("legacy")
+  assert.deepEqual(project?.scope, { teamId: "team-id", teamName: "team-name" })
 })

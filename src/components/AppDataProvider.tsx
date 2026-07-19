@@ -9,10 +9,10 @@ import { useAuth } from "@/hooks/useAuth"
 import { clearBillingOverviewCache } from "@/hooks/useBillingOverview"
 import { clearAvatarImageCache } from "@/lib/avatar-image-cache"
 import { clearConnectorCache } from "@/lib/connections-client"
-import { clearOrganizationDetailsResources } from "@/lib/organization-details-resource"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { createResource } from "@/lib/resource-store"
 import { clearSkillCatalogCache } from "@/lib/skills-catalog-client"
+import { clearTeamDetailsResources } from "@/lib/team-details-resource"
 
 const backgroundRefreshMs = 60_000
 const refreshMetadataKeys = new Set(["updatedAt", "checkedAt"])
@@ -90,7 +90,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (authCacheScope(previousAuthState) !== authCacheScope(auth.state)) {
         clearAvatarImageCache()
         clearBillingOverviewCache()
-        clearOrganizationDetailsResources()
+        clearTeamDetailsResources()
       }
       resources.authState.setData(auth.state)
     }
@@ -101,7 +101,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       clearAvatarImageCache()
       clearBillingOverviewCache()
       clearConnectorCache()
-      clearOrganizationDetailsResources()
+      clearTeamDetailsResources()
       clearSkillCatalogCache()
     },
     [],

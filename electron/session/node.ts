@@ -37,20 +37,20 @@ interface SessionServiceDeps {
 }
 
 const invalidSessionScope: SessionScope = {
-  organizationId: "__invalid__",
-  organizationName: "__invalid__",
+  teamId: "__invalid__",
+  teamName: "__invalid__",
 }
 
 function normalizeSessionScope(scope: SessionScope | undefined): SessionScope {
   if (scope) {
-    const organizationId = scope.organizationId.trim()
-    const organizationName = scope.organizationName.trim()
-    if (!organizationId || !organizationName) {
+    const teamId = scope.teamId.trim()
+    const teamName = scope.teamName.trim()
+    if (!teamId || !teamName) {
       return invalidSessionScope
     }
     return {
-      organizationId,
-      organizationName,
+      teamId,
+      teamName,
     }
   }
   return invalidSessionScope
@@ -58,19 +58,19 @@ function normalizeSessionScope(scope: SessionScope | undefined): SessionScope {
 
 function normalizeRequestedSessionScope(scope: SessionScope | undefined): SessionScope {
   if (!scope) {
-    throw new Error("Organization scope is required")
+    throw new Error("Team scope is required")
   }
-  const organizationId = scope.organizationId.trim()
-  const organizationName = scope.organizationName.trim()
-  if (!organizationId || !organizationName) {
-    throw new Error("Organization scope is invalid")
+  const teamId = scope.teamId.trim()
+  const teamName = scope.teamName.trim()
+  if (!teamId || !teamName) {
+    throw new Error("Team scope is invalid")
   }
-  return { organizationId, organizationName }
+  return { teamId, teamName }
 }
 
 function sessionScopeMatches(sessionScope: SessionScope | undefined, requestedScope: SessionScope): boolean {
   const normalizedSessionScope = normalizeSessionScope(sessionScope)
-  return normalizedSessionScope.organizationId === requestedScope.organizationId
+  return normalizedSessionScope.teamId === requestedScope.teamId
 }
 
 function normalizeSessionPlacement(placement: SessionPlacement | undefined): SessionPlacement {

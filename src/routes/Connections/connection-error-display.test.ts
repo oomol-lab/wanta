@@ -34,12 +34,12 @@ describe("connection error display", () => {
     const detailError = error({ titleKey: "error.connections.permissionDetail.title" })
 
     expect(getConnectionDetailErrorNotice({ actionError: null, detailError })?.error).toMatchObject({
-      descriptionKey: "error.connections.permissionConfigure.organization.description",
+      descriptionKey: "error.connections.permissionConfigure.team.description",
       titleKey: "error.connections.permissionConfigure.title",
     })
   })
 
-  it("explains organization provider detail permission errors as connection configuration access", () => {
+  it("explains team provider detail permission errors as connection configuration access", () => {
     const detailError = error({
       descriptionText: "Forbidden",
       titleKey: "error.connections.permissionDetail.title",
@@ -51,7 +51,7 @@ describe("connection error display", () => {
         detailError,
       })?.error,
     ).toMatchObject({
-      descriptionKey: "error.connections.permissionConfigure.organization.description",
+      descriptionKey: "error.connections.permissionConfigure.team.description",
       descriptionText: undefined,
       diagnostics: "Connector failed: HTTP 403",
       titleKey: "error.connections.permissionConfigure.title",

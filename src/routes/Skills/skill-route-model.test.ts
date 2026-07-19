@@ -3,9 +3,9 @@ import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/sk
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
-  getInstallableOrganizationSkills,
+  getInstallableTeamSkills,
   getGroupStatus,
-  getOrganizationSkillRuntimeStatus,
+  getTeamSkillRuntimeStatus,
   getPublicPackageInstallSkills,
   getPublicSkillInstallState,
   getPublicPackageInstallState,
@@ -207,52 +207,50 @@ test("runtime status ignores modified external hosts", () => {
   assert.equal(getGroupStatus(mixedGroup, t).tone, "attention")
 })
 
-test("getOrganizationSkillRuntimeStatus classifies installed and conflict states", () => {
-  const orgSkill = {
+test("getTeamSkillRuntimeStatus classifies installed and conflict states", () => {
+  const teamSkill = {
     packageName: "@alice/demo",
     skillName: "demo",
     version: "1.0.0",
   }
 
-  assert.equal(getOrganizationSkillRuntimeStatus(undefined, orgSkill).state, "missing")
+  assert.equal(getTeamSkillRuntimeStatus(undefined, teamSkill).state, "missing")
   assert.equal(
-    getOrganizationSkillRuntimeStatus(
+    getTeamSkillRuntimeStatus(
       new Map([["demo", managedSkillGroup("demo", "@alice/demo", { version: "1.0.0" })]]),
-      orgSkill,
+      teamSkill,
     ).state,
     "installed-same",
   )
   assert.equal(
-    getOrganizationSkillRuntimeStatus(
+    getTeamSkillRuntimeStatus(
       new Map([["demo", managedSkillGroup("demo", "@alice/demo", { version: "1.1.0" })]]),
-      orgSkill,
+      teamSkill,
     ).state,
     "installed-version-mismatch",
   )
   assert.equal(
-    getOrganizationSkillRuntimeStatus(
-      new Map([["demo", managedSkillGroup("demo", "@alice/demo", { version: "1.1.0" })]]),
-      { ...orgSkill, version: "latest" },
-    ).state,
+    getTeamSkillRuntimeStatus(new Map([["demo", managedSkillGroup("demo", "@alice/demo", { version: "1.1.0" })]]), {
+      ...teamSkill,
+      version: "latest",
+    }).state,
     "installed-same",
   )
   assert.equal(
-    getOrganizationSkillRuntimeStatus(
+    getTeamSkillRuntimeStatus(
       new Map([["demo", managedSkillGroup("demo", "@other/demo", { version: "1.0.0" })]]),
-      orgSkill,
+      teamSkill,
     ).state,
     "same-id-different-package",
   )
   assert.equal(
-    getOrganizationSkillRuntimeStatus(
-      new Map([["demo", managedSkillGroup("demo", undefined, { kind: "local" })]]),
-      orgSkill,
-    ).state,
+    getTeamSkillRuntimeStatus(new Map([["demo", managedSkillGroup("demo", undefined, { kind: "local" })]]), teamSkill)
+      .state,
     "local-conflict",
   )
 })
 
-test("getInstallableOrganizationSkills only returns runtime-missing skills", () => {
+test("getInstallableTeamSkills only returns runtime-missing skills", () => {
   const installed = managedSkillGroup("installed", "@alice/installed", { version: "1.0.0" })
   const externalOnlyHost = {
     agentId: "claude-code",
@@ -281,7 +279,7 @@ test("getInstallableOrganizationSkills only returns runtime-missing skills", () 
   ]
 
   assert.deepEqual(
-    getInstallableOrganizationSkills(groupById, skills).map((skill) => skill.skillName),
+    getInstallableTeamSkills(groupById, skills).map((skill) => skill.skillName),
     ["missing", "external"],
   )
 })

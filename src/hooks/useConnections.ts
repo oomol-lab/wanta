@@ -131,7 +131,7 @@ export interface UseConnections {
   updateAlias: (appId: string, alias: string) => Promise<boolean>
 }
 
-/** workspace 由 useOrganizationWorkspace 提供。null 表示组织已选但名称尚未就绪，此时暂停连接器请求。 */
+/** workspace 由 useTeamWorkspace 提供。null 表示团队已选但名称尚未就绪，此时暂停连接器请求。 */
 export function useConnections(workspace: ConnectionWorkspace | null): UseConnections {
   const chatService = useChatService()
   const [state, dispatch] = React.useReducer(connectionsStateReducer, initialConnectionsState)
@@ -373,7 +373,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     [clearActiveOAuthPending, isCurrentWorkspace, setCurrentSummary],
   )
 
-  // workspace 变化（含首帧）：同步 agent 组织作用域 + 重拉摘要。
+  // workspace 变化（含首帧）：同步 agent 团队作用域 + 重拉摘要。
   const appliedWorkspaceKey = React.useRef<string | null>(null)
   React.useEffect(() => {
     if (!workspace) {
@@ -392,11 +392,11 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     appliedWorkspaceKey.current = key
     invalidateWorkspaceWork()
     dispatch({ type: "workspaceSyncStarted" })
-    const organizationName = workspace.organizationName
+    const teamName = workspace.teamName
     const generation = workspaceGeneration.current
     void (async () => {
       try {
-        await chatService.invoke("setAgentOrganization", { organizationName })
+        await chatService.invoke("setAgentTeam", { teamName })
         if (!isCurrentWorkspace(generation, key)) {
           return
         }
@@ -407,7 +407,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           return
         }
         const resolved = resolveConnectionError(error, "summary")
-        reportRendererHandledError("connections", "agent organization scope sync failed", error)
+        reportRendererHandledError("connections", "agent team scope sync failed", error)
         appliedWorkspaceKey.current = null
         dispatch({ type: "workspaceScopeSyncFailed", error: resolved })
       }

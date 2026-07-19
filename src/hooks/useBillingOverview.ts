@@ -53,15 +53,15 @@ export function useBillingOverview(
     staleMs = defaultStaleMs,
   }: UseBillingOverviewOptions = {},
 ): UseBillingOverview {
-  // 顶部浮层、购买弹窗和账单详情页复用同一份聚合资源。资源内部的组织计划/用量与创建者个人余额
-  // 作用域不同；缓存边界仍须包含账号和工作区，避免付款权限或组织统计跨边界复用。
+  // 顶部浮层、购买弹窗和账单详情页复用同一份聚合资源。资源内部的团队计划/用量与创建者个人余额
+  // 作用域不同；缓存边界仍须包含账号和工作区，避免付款权限或团队统计跨边界复用。
   const requestCanManageBilling = requestScope?.canManageBilling ?? false
   const requestCanManageFunding = requestScope?.canManageFunding ?? false
   const requestTeamId = requestScope?.teamId ?? ""
-  const requestOrganizationName = requestScope?.organizationName ?? ""
+  const requestTeamName = requestScope?.teamName ?? ""
   const requestScopeReady = requestScope !== null
   const requestScopeKey = requestScope
-    ? `organization:${requestTeamId}:${requestOrganizationName}:${requestCanManageBilling}:${requestCanManageFunding}`
+    ? `team:${requestTeamId}:${requestTeamName}:${requestCanManageBilling}:${requestCanManageFunding}`
     : "blocked"
   const cacheScopeKey = `${cacheScope}\u0000${requestScopeKey}`
   const [data, setData] = React.useState<BillingOverviewResult | null>(() => cachedData(cacheScopeKey, days))
@@ -120,7 +120,7 @@ export function useBillingOverview(
         canManageBilling: requestCanManageBilling,
         canManageFunding: requestCanManageFunding,
         teamId: requestTeamId,
-        organizationName: requestOrganizationName,
+        teamName: requestTeamName,
       }
       const promise = loadBillingOverviewEntry(entry, (signal) => getBillingOverview(days, scope, signal), { force })
 
@@ -160,7 +160,7 @@ export function useBillingOverview(
       requestCanManageBilling,
       requestCanManageFunding,
       requestTeamId,
-      requestOrganizationName,
+      requestTeamName,
       requestScopeReady,
       staleMs,
     ],

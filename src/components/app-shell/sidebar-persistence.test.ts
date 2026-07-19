@@ -50,28 +50,28 @@ describe("sidebar persistence", () => {
   test("scopes collapsed project groups by account and workspace", () => {
     expect(
       projectSidebarCollapsedStorageKey(undefined, {
-        organizationId: "org-id",
-        organizationName: "org-name",
+        teamId: "team-id",
+        teamName: "team-name",
       }),
     ).toBeNull()
     expect(projectSidebarCollapsedStorageKey("account-a", null)).toBeNull()
     expect(
       projectSidebarCollapsedStorageKey("account-a", {
-        organizationId: "org-id",
-        organizationName: "org-name",
+        teamId: "team-id",
+        teamName: "team-name",
       }),
-    ).toBe("wanta.projectSidebarCollapsed:account-a:organization:org-id")
+    ).toBe("wanta.projectSidebarCollapsed:account-a:team:team-id")
     expect(
       projectSidebarCollapsedStorageKey("account-a", {
-        organizationId: "org-a",
-        organizationName: "Org A",
+        teamId: "team-a",
+        teamName: "Team A",
       }),
-    ).toBe("wanta.projectSidebarCollapsed:account-a:organization:org-a")
+    ).toBe("wanta.projectSidebarCollapsed:account-a:team:team-a")
   })
 
   test("reads, writes, removes, and prunes collapsed project ids", () => {
     const storage = new MemoryStorage()
-    const key = "wanta.projectSidebarCollapsed:account-a:organization:org-id"
+    const key = "wanta.projectSidebarCollapsed:account-a:team:team-id"
 
     expect(readStoredCollapsedProjectIds(storage, key)).toEqual(new Set())
     writeStoredCollapsedProjectIds(storage, key, new Set(["project-b", "project-a"]))
@@ -87,11 +87,52 @@ describe("sidebar persistence", () => {
 
   test("ignores invalid collapsed project records", () => {
     const storage = new MemoryStorage()
-    const key = "wanta.projectSidebarCollapsed:account-a:organization:org-id"
+    const key = "wanta.projectSidebarCollapsed:account-a:team:team-id"
 
     storage.setItem(key, '{"project-a":true}')
     expect(readStoredCollapsedProjectIds(storage, key)).toEqual(new Set())
     storage.setItem(key, '["project-a", "", 42, "project-b"]')
     expect(readStoredCollapsedProjectIds(storage, key)).toEqual(new Set(["project-a", "project-b"]))
+  })
+
+  test("migrates legacy organization-scoped collapsed project ids", () => {
+    const storage = new MemoryStorage()
+    const key = "wanta.projectSidebarCollapsed:account-a:team:team-id"
+    const legacyKey = "wanta.projectSidebarCollapsed:account-a:organization:team-id"
+    storage.setItem(legacyKey, '["project-a"]')
+
+    expect(readStoredCollapsedProjectIds(storage, key)).toEqual(new Set(["project-a"]))
+    expect(storage.getItem(key)).toBe('["project-a"]')
+    expect(storage.getItem(legacyKey)).toBeNull()
+  })
+
+  test("retains the legacy collapsed-project key when migration cannot be written", () => {
+    const values = new Map<string, string>()
+    const key = "wanta.projectSidebarCollapsed:account-a:team:team-id"
+    const legacyKey = "wanta.projectSidebarCollapsed:account-a:organization:team-id"
+    values.set(legacyKey, '["project-a"]')
+    const storage = {
+      getItem: (storageKey: string) => values.get(storageKey) ?? null,
+      removeItem: (storageKey: string) => void values.delete(storageKey),
+      setItem: () => {
+        throw new Error("quota exceeded")
+      },
+    }
+
+    expect(readStoredCollapsedProjectIds(storage, key)).toEqual(new Set(["project-a"]))
+    expect(values.get(legacyKey)).toBe('["project-a"]')
+    expect(values.has(key)).toBe(false)
+  })
+
+  test("falls back to valid legacy collapsed-project data when the current value is invalid", () => {
+    const storage = new MemoryStorage()
+    const key = "wanta.projectSidebarCollapsed:account-a:team:team-id"
+    const legacyKey = "wanta.projectSidebarCollapsed:account-a:organization:team-id"
+    storage.setItem(key, "{broken")
+    storage.setItem(legacyKey, '["project-a"]')
+
+    expect(readStoredCollapsedProjectIds(storage, key)).toEqual(new Set(["project-a"]))
+    expect(storage.getItem(key)).toBe('["project-a"]')
+    expect(storage.getItem(legacyKey)).toBeNull()
   })
 })

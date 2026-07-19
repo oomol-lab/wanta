@@ -25,10 +25,10 @@ export function isAuthBlocking(code: string | null): boolean {
 export interface OoEnvOptions {
   /** 网关鉴权凭证：现为会话 token（注入到 OO_API_KEY，网关层接受 cookie/token/api-key）。 */
   authToken: string
-  /** 当前组织工作区名称；未设置表示组织身份尚未解析。 */
-  organizationName?: string
-  /** 当前组织工作区状态文件；工具运行时读取，避免切换工作区时重启 sidecar。 */
-  organizationScopePath?: string
+  /** 当前团队工作区名称；未设置表示团队身份尚未解析。 */
+  teamName?: string
+  /** 当前团队工作区状态文件；工具运行时读取，避免切换工作区时重启 sidecar。 */
+  teamScopePath?: string
   /** oo-cli 私有目录根（App userData 下）。 */
   storeDir: string
   /** oo 二进制绝对路径（注入 WANTA_OO_BIN，供自定义工具直接调用，比 PATH 更稳）。 */
@@ -51,8 +51,8 @@ export interface OoMaintenanceEnvOptions {
 /** R3：自定义工具经 OpenCode 调用 oo 所需的全部环境变量。 */
 export function buildOoEnv({
   authToken,
-  organizationName,
-  organizationScopePath,
+  teamName,
+  teamScopePath,
   storeDir,
   ooBinPath,
 }: OoEnvOptions): Record<string, string> {
@@ -63,11 +63,11 @@ export function buildOoEnv({
     logDir: path.join(storeDir, "log"),
     ooBinPath,
   })
-  if (organizationScopePath) {
-    env.WANTA_ORGANIZATION_SCOPE_PATH = organizationScopePath
+  if (teamScopePath) {
+    env.WANTA_TEAM_SCOPE_PATH = teamScopePath
   }
-  if (organizationName) {
-    env.WANTA_ORGANIZATION_NAME = organizationName
+  if (teamName) {
+    env.WANTA_TEAM_NAME = teamName
   }
   return env
 }

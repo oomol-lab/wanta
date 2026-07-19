@@ -1,7 +1,7 @@
 import type { ConnectionSummary, ConnectionWorkspace } from "./common.ts"
 
 export const connectionUsageSummaryDays = 7
-const defaultConnectionWorkspace: ConnectionWorkspace = { organizationName: "unavailable" }
+const defaultConnectionWorkspace: ConnectionWorkspace = { teamName: "unavailable" }
 
 export function createEmptyConnectionUsageSummary(): ConnectionSummary["usage"] {
   return {

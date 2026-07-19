@@ -10,12 +10,12 @@ afterEach(() => {
 })
 
 describe("AgentManager", () => {
-  it("pins raw connector CLI guidance to the current organization", () => {
-    const organization = buildWorkspaceIdentitySystem('team "quoted"')
-    expect(organization).toContain('organization "team \\"quoted\\""')
-    expect(organization).toContain('--organization "team \\"quoted\\""')
+  it("pins raw connector CLI guidance to the current team", () => {
+    const system = buildWorkspaceIdentitySystem('team "quoted"')
+    expect(system).toContain('team "team \\"quoted\\""')
+    expect(system).toContain('--organization "team \\"quoted\\""')
 
-    expect(() => buildWorkspaceIdentitySystem(undefined)).toThrow("Organization workspace identity is unavailable")
+    expect(() => buildWorkspaceIdentitySystem(undefined)).toThrow("Team workspace identity is unavailable")
   })
 
   it("hides OpenCode subagent sessions from the user task list", () => {
@@ -76,7 +76,7 @@ describe("AgentManager", () => {
     })
     let resolveLookup: (services: string[]) => void = () => undefined
     let sharedSignal: AbortSignal | undefined
-    const lookup = vi.fn((_organizationName?: string, signal?: AbortSignal) => {
+    const lookup = vi.fn((_teamName?: string, signal?: AbortSignal) => {
       sharedSignal = signal
       return new Promise<string[]>((resolve) => {
         resolveLookup = resolve
@@ -109,13 +109,13 @@ describe("AgentManager", () => {
     let resolveLookup: (services: string[]) => void = () => undefined
     let sharedSignal: AbortSignal | undefined
     const lookup = vi
-      .fn((_organizationName?: string, signal?: AbortSignal) => {
+      .fn((_teamName?: string, signal?: AbortSignal) => {
         sharedSignal = signal
         return new Promise<string[]>((resolve) => {
           resolveLookup = resolve
         })
       })
-      .mockImplementationOnce((_organizationName?: string, signal?: AbortSignal) => {
+      .mockImplementationOnce((_teamName?: string, signal?: AbortSignal) => {
         sharedSignal = signal
         return new Promise<string[]>((resolve) => {
           resolveLookup = resolve
@@ -245,7 +245,7 @@ describe("AgentManager", () => {
     expect(system).not.toContain("Do not present a remote")
   })
 
-  it("syncs the oo CLI default identity with the active organization", async () => {
+  it("syncs the oo CLI default identity with the active team", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {
       const manager = new AgentManager({
@@ -256,17 +256,17 @@ describe("AgentManager", () => {
       })
       const settingsPath = path.join(rootDir, "oo-store", "config", "settings.toml")
 
-      await manager.setOrganizationName("acme-corp")
+      await manager.setTeamName("acme-corp")
       await expect(readFile(settingsPath, "utf8")).resolves.toContain('organization = "acme-corp"')
 
-      await manager.setOrganizationName(undefined)
+      await manager.setTeamName(undefined)
       await expect(readFile(settingsPath, "utf8")).resolves.not.toContain("organization =")
     } finally {
       await rm(rootDir, { force: true, recursive: true })
     }
   })
 
-  it("writes per-session organization scopes without replacing the default identity", async () => {
+  it("writes per-session team scopes without replacing the default identity", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {
       const manager = new AgentManager({
@@ -275,37 +275,37 @@ describe("AgentManager", () => {
         ooBinPath: "/tmp/oo",
         rootDir,
       })
-      const scopePath = path.join(rootDir, "organization-scope.json")
-      ;(manager as unknown as { organizationScopePath: string }).organizationScopePath = scopePath
+      const scopePath = path.join(rootDir, "team-scope.json")
+      ;(manager as unknown as { teamScopePath: string }).teamScopePath = scopePath
 
-      await manager.setOrganizationName("workspace-default")
-      await manager.setSessionOrganizationName("session-a", "org-a")
-      await manager.setSessionOrganizationName("session-b", undefined)
+      await manager.setTeamName("workspace-default")
+      await manager.setSessionTeamName("session-a", "team-a")
+      await manager.setSessionTeamName("session-b", undefined)
       await manager.setSessionKnowledgeBaseIds("session-a", [" knowledge-a ", "knowledge-a", "knowledge-b"])
       await manager.inheritSessionKnowledgeBaseIds("session-a", "session-child")
 
       await expect(readFile(scopePath, "utf8").then((content) => JSON.parse(content))).resolves.toEqual({
-        organizationName: "workspace-default",
+        teamName: "workspace-default",
         sessionKnowledgeBaseIds: {
           "session-a": ["knowledge-a", "knowledge-b"],
           "session-child": ["knowledge-a", "knowledge-b"],
         },
-        sessionOrganizations: {
-          "session-a": "org-a",
+        sessionTeams: {
+          "session-a": "team-a",
           "session-b": "",
         },
       })
 
-      await manager.clearSessionOrganizationName("session-a")
+      await manager.clearSessionTeamName("session-a")
       await manager.removeKnowledgeBaseAccess("knowledge-a")
 
       await expect(readFile(scopePath, "utf8").then((content) => JSON.parse(content))).resolves.toEqual({
-        organizationName: "workspace-default",
+        teamName: "workspace-default",
         sessionKnowledgeBaseIds: {
           "session-a": ["knowledge-b"],
           "session-child": ["knowledge-b"],
         },
-        sessionOrganizations: {
+        sessionTeams: {
           "session-b": "",
         },
       })
@@ -323,25 +323,25 @@ describe("AgentManager", () => {
     })
     const writes: string[] = []
     const internals = manager as unknown as {
-      organizationName: string | undefined
-      writeOoIdentity: (organizationName: string | undefined) => Promise<void>
-      writeOrganizationScope: (organizationName: string | undefined) => Promise<void>
-      writeOrganizationState: (organizationName: string | undefined) => Promise<void>
+      teamName: string | undefined
+      writeOoIdentity: (teamName: string | undefined) => Promise<void>
+      writeTeamScope: (teamName: string | undefined) => Promise<void>
+      writeTeamState: (teamName: string | undefined) => Promise<void>
     }
-    internals.organizationName = "old-org"
-    internals.writeOoIdentity = async (organizationName) => {
-      writes.push(`identity:${organizationName ?? ""}`)
+    internals.teamName = "old-team"
+    internals.writeOoIdentity = async (teamName) => {
+      writes.push(`identity:${teamName ?? ""}`)
     }
-    internals.writeOrganizationScope = async (organizationName) => {
-      writes.push(`scope:${organizationName ?? ""}`)
-      if (organizationName === "new-org") {
+    internals.writeTeamScope = async (teamName) => {
+      writes.push(`scope:${teamName ?? ""}`)
+      if (teamName === "new-team") {
         throw new Error("scope failed")
       }
     }
 
-    await expect(internals.writeOrganizationState("new-org")).rejects.toThrow("scope failed")
+    await expect(internals.writeTeamState("new-team")).rejects.toThrow("scope failed")
 
-    expect(writes).toEqual(["identity:new-org", "scope:new-org", "identity:old-org"])
+    expect(writes).toEqual(["identity:new-team", "scope:new-team", "identity:old-team"])
   })
 
   it("preserves the scope write failure when identity rollback also fails", async () => {
@@ -354,27 +354,27 @@ describe("AgentManager", () => {
     const scopeFailure = new Error("scope failed")
     const rollbackFailure = new Error("rollback failed")
     const internals = manager as unknown as {
-      organizationName: string | undefined
-      writeOoIdentity: (organizationName: string | undefined) => Promise<void>
-      writeOrganizationScope: (organizationName: string | undefined) => Promise<void>
-      writeOrganizationState: (organizationName: string | undefined) => Promise<void>
+      teamName: string | undefined
+      writeOoIdentity: (teamName: string | undefined) => Promise<void>
+      writeTeamScope: (teamName: string | undefined) => Promise<void>
+      writeTeamState: (teamName: string | undefined) => Promise<void>
     }
-    internals.organizationName = "old-org"
-    internals.writeOoIdentity = async (organizationName) => {
-      if (organizationName === "old-org") {
+    internals.teamName = "old-team"
+    internals.writeOoIdentity = async (teamName) => {
+      if (teamName === "old-team") {
         throw rollbackFailure
       }
     }
-    internals.writeOrganizationScope = async () => {
+    internals.writeTeamScope = async () => {
       throw scopeFailure
     }
 
-    await expect(internals.writeOrganizationState("new-org")).rejects.toMatchObject({
+    await expect(internals.writeTeamState("new-team")).rejects.toMatchObject({
       errors: [scopeFailure, rollbackFailure],
     })
   })
 
-  it("preserves existing oo settings when updating the default organization", async () => {
+  it("preserves existing oo settings when updating the default team", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {
       const manager = new AgentManager({
@@ -391,7 +391,7 @@ describe("AgentManager", () => {
         "utf8",
       )
 
-      await manager.setOrganizationName('team "quoted"')
+      await manager.setTeamName('team "quoted"')
 
       const settings = await readFile(settingsPath, "utf8")
       expect(settings).toContain("[skills.recommend]")
@@ -416,15 +416,15 @@ describe("AgentManager", () => {
     manager.buildAuthorizedSystem = async () => undefined
     await manager.promptStreaming("session-1", "plan it", {
       mode: "plan",
-      organizationName: "acme",
+      teamName: "acme",
       reasoningLevel: "high",
     })
     await manager.promptStreaming("session-1", "build it", {
-      organizationName: "acme",
+      teamName: "acme",
       reasoningLevel: "medium",
     })
     await manager.promptStreaming("session-1", "default reasoning", {
-      organizationName: "acme",
+      teamName: "acme",
       reasoningLevel: "default",
     })
 
@@ -461,7 +461,7 @@ describe("AgentManager", () => {
             size: 1024,
           },
         ],
-        organizationName: "acme",
+        teamName: "acme",
       })
 
       const calls = promptAsync.mock.calls as unknown as Array<
@@ -518,12 +518,12 @@ describe("AgentManager", () => {
       await manager.promptStreaming("session-1", "analyze", {
         attachments: [json, image],
         model: { kind: "builtin", id: "deepseek-v4-flash" },
-        organizationName: "acme",
+        teamName: "acme",
       })
       await manager.promptStreaming("session-1", "analyze", {
         attachments: [image],
         model: { kind: "builtin", id: "oopilot" },
-        organizationName: "acme",
+        teamName: "acme",
       })
 
       const calls = promptAsync.mock.calls as unknown as Array<

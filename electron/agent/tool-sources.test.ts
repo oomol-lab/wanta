@@ -125,6 +125,8 @@ function loadCallActionTool(execFile: (...args: unknown[]) => Promise<unknown>):
 afterEach(() => {
   delete process.env.WANTA_CONSOLE_URL
   delete process.env.WANTA_KNOWLEDGE_REGISTRY
+  delete process.env.WANTA_TEAM_NAME
+  delete process.env.WANTA_TEAM_SCOPE_PATH
   delete process.env.WANTA_ORGANIZATION_NAME
   delete process.env.WANTA_ORGANIZATION_SCOPE_PATH
   delete process.env.WANTA_WIKIGRAPH_CLI
@@ -132,13 +134,13 @@ afterEach(() => {
 })
 
 beforeEach(() => {
-  process.env.WANTA_ORGANIZATION_NAME = "org-a"
+  process.env.WANTA_TEAM_NAME = "team-a"
 })
 
 describe("query_knowledge embedded runtime", () => {
   it("rejects IDs outside the current OpenCode session allowlist", async () => {
     process.env.WANTA_KNOWLEDGE_REGISTRY = "/tmp/knowledge-registry.json"
-    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/agent-scope.json"
+    process.env.WANTA_TEAM_SCOPE_PATH = "/tmp/agent-scope.json"
     process.env.WANTA_WIKIGRAPH_CLI = "/tmp/wiki-graph-cli.js"
     process.env.WANTA_WIKIGRAPH_EXECUTABLE = "/tmp/node"
     const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
@@ -170,7 +172,7 @@ describe("query_knowledge embedded runtime", () => {
 
   it("fails closed without exposing private paths when the scope or registry cannot be read", async () => {
     process.env.WANTA_KNOWLEDGE_REGISTRY = "/private/user-data/knowledge-bases/library.json"
-    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/private/user-data/agent-scope.json"
+    process.env.WANTA_TEAM_SCOPE_PATH = "/private/user-data/agent-scope.json"
     process.env.WANTA_WIKIGRAPH_CLI = "/tmp/wiki-graph-cli.js"
     process.env.WANTA_WIKIGRAPH_EXECUTABLE = "/tmp/node"
     const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
@@ -196,7 +198,7 @@ describe("query_knowledge embedded runtime", () => {
 
   it("waits briefly for a task subagent allowlist to inherit from its parent session", async () => {
     process.env.WANTA_KNOWLEDGE_REGISTRY = "/tmp/knowledge-registry.json"
-    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/agent-scope.json"
+    process.env.WANTA_TEAM_SCOPE_PATH = "/tmp/agent-scope.json"
     process.env.WANTA_WIKIGRAPH_CLI = "/tmp/wiki-graph-cli.js"
     process.env.WANTA_WIKIGRAPH_EXECUTABLE = "/tmp/node"
     const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
@@ -225,8 +227,22 @@ describe("query_knowledge embedded runtime", () => {
 })
 
 describe("list_apps embedded runtime", () => {
-  it("keeps organization identity in structured inventory errors", async () => {
-    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/organization-scope.json"
+  it("reads legacy organization environment variables during migration", async () => {
+    delete process.env.WANTA_TEAM_NAME
+    process.env.WANTA_ORGANIZATION_NAME = "legacy-team"
+    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/legacy-scope.json"
+    const runtime = loadListAppsTool(
+      async (_command, args) => ({ stdout: JSON.stringify([{ args }]) }),
+      async () => JSON.stringify({ sessionTeams: { "session-1": "legacy-session-team" } }),
+    )
+
+    const output = JSON.parse(await runtime.execute({}, { sessionID: "session-1" })) as Array<{ args: string[] }>
+
+    expect(output[0]?.args).toContain("legacy-session-team")
+  })
+
+  it("keeps team identity in structured inventory errors", async () => {
+    process.env.WANTA_TEAM_SCOPE_PATH = "/tmp/team-scope.json"
     const commands: string[][] = []
     const runtime = loadListAppsTool(
       async (...args) => {
@@ -237,26 +253,26 @@ describe("list_apps embedded runtime", () => {
       },
       async () =>
         JSON.stringify({
-          organizationName: "workspace-default",
-          sessionOrganizations: { "session-1": "org-a" },
+          teamName: "workspace-default",
+          sessionTeams: { "session-1": "team-a" },
         }),
     )
 
     const output = JSON.parse(await runtime.execute({ service: "posthog" }, { sessionID: "session-1" })) as {
       errorCode?: string
-      workspace?: { organizationName?: string }
+      workspace?: { teamName?: string }
     }
 
-    expect(commands).toEqual([["connector", "apps", "posthog", "--organization", "org-a", "--json"]])
+    expect(commands).toEqual([["connector", "apps", "posthog", "--organization", "team-a", "--json"]])
     expect(output).toMatchObject({
       errorCode: "connection_inventory_unavailable",
-      workspace: { organizationName: "org-a" },
+      workspace: { teamName: "team-a" },
     })
   })
 
   it("fails closed when the session workspace file is unreadable", async () => {
-    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/organization-scope.json"
-    process.env.WANTA_ORGANIZATION_NAME = "stale-default"
+    process.env.WANTA_TEAM_SCOPE_PATH = "/tmp/team-scope.json"
+    process.env.WANTA_TEAM_NAME = "stale-default"
     let calls = 0
     const runtime = loadListAppsTool(
       async () => {

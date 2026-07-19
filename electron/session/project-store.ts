@@ -1,9 +1,10 @@
-import type { SessionProject, SessionScope } from "./common.ts"
+import type { SessionProject } from "./common.ts"
 
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { atomicWriteText } from "../atomic-file.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
+import { normalizeSessionScopeValue } from "./common.ts"
 
 export interface PersistedSessionProjects {
   projects?: Record<string, SessionProject>
@@ -12,21 +13,6 @@ export interface PersistedSessionProjects {
 
 function validTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
-}
-
-function normalizeScope(value: unknown): SessionScope | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined
-  }
-  const source = value as Partial<SessionScope>
-  const rawOrganizationId = "organizationId" in source ? source.organizationId : undefined
-  const rawOrganizationName = "organizationName" in source ? source.organizationName : undefined
-  const organizationId = typeof rawOrganizationId === "string" ? rawOrganizationId.trim() : undefined
-  const organizationName = typeof rawOrganizationName === "string" ? rawOrganizationName.trim() : undefined
-  if (!organizationId || !organizationName) {
-    return undefined
-  }
-  return { organizationId, organizationName }
 }
 
 function normalizeProject(id: string, value: unknown): SessionProject | null {
@@ -41,7 +27,7 @@ function normalizeProject(id: string, value: unknown): SessionProject | null {
   const name = typeof source.name === "string" ? source.name.trim() : ""
   const createdAt = validTimestamp(source.createdAt) ? source.createdAt : Date.now()
   const updatedAt = validTimestamp(source.updatedAt) ? source.updatedAt : createdAt
-  const scope = normalizeScope(source.scope)
+  const scope = normalizeSessionScopeValue(source.scope)
   return {
     id,
     name: name || path.basename(projectPath.replace(/[\\/]+$/, "")) || projectPath,

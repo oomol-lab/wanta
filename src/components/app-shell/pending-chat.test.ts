@@ -8,7 +8,7 @@ import { isPendingChatCaughtUp, pendingChatTransitionForActiveSession } from "./
 function pending(sessionId: string | null = "session-1"): PendingChatTransition {
   return {
     sessionId,
-    scopeKey: "organization:acme",
+    scopeKey: "team:acme",
     text: "今天杭州天气怎么样",
     attachments: [],
     createdAt: 1_700_000_000_000,

@@ -3,7 +3,7 @@ import type {
   AssistantActivityEvent,
   AgentPermissionMode,
   ChatMessage,
-  ChatOrganizationSkillContext,
+  ChatTeamSkillContext,
   ChatPermissionReply,
   ChatPermissionRequest,
   ChatQuestionRequest,
@@ -74,10 +74,10 @@ interface ChatAreaProps {
   pinnedContextBar?: React.ReactNode
   emptyStateConnectionSummary?: EmptyStateConnectionSummary | null
   canManageWorkspaceConnections: boolean
-  organizationSkillEntryVisible?: boolean
-  organizationSkillPendingInstallCount?: number
-  organizationSkillShowcaseItems?: OrganizationSkillShowcaseItem[]
-  organizationSkills?: ChatOrganizationSkillContext[]
+  teamSkillEntryVisible?: boolean
+  teamSkillPendingInstallCount?: number
+  teamSkillShowcaseItems?: TeamSkillShowcaseItem[]
+  teamSkills?: ChatTeamSkillContext[]
   onSend: (request: ChatSendRequest) => Promise<ChatSendResult>
   onPermissionModeChange: (mode: AgentPermissionMode) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
@@ -99,14 +99,14 @@ interface ChatAreaProps {
   onOpenConnections?: (filter?: ConnectionCatalogFilter) => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onOpenKnowledgeLibrary?: () => void
-  onOpenOrganizations?: () => void
+  onOpenTeams?: () => void
   onViewBilling?: () => void
   onSelectKnowledgeBase: (id: string) => void
 }
 
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
 const EMPTY_COMPOSER_MAX_WIDTH_CLASS = "min-w-0 max-w-[47.5rem]"
-interface OrganizationSkillShowcaseItem {
+interface TeamSkillShowcaseItem {
   id: string
   name: string
 }
@@ -114,32 +114,30 @@ interface OrganizationSkillShowcaseItem {
 function EmptyStateActions({
   canManageWorkspaceConnections,
   connectionSummary,
-  organizationSkillEntryVisible = false,
-  organizationSkillPendingInstallCount,
-  organizationSkillShowcaseItems = [],
+  teamSkillEntryVisible = false,
+  teamSkillPendingInstallCount,
+  teamSkillShowcaseItems = [],
   onOpenConnections,
-  onOpenOrganizations,
+  onOpenTeams,
 }: {
-  organizationSkillEntryVisible?: boolean
-  organizationSkillPendingInstallCount?: number
-  organizationSkillShowcaseItems?: OrganizationSkillShowcaseItem[]
+  teamSkillEntryVisible?: boolean
+  teamSkillPendingInstallCount?: number
+  teamSkillShowcaseItems?: TeamSkillShowcaseItem[]
   canManageWorkspaceConnections: boolean
   connectionSummary?: EmptyStateConnectionSummary | null
   onOpenConnections?: (filter?: ConnectionCatalogFilter) => void
-  onOpenOrganizations?: () => void
+  onOpenTeams?: () => void
 }) {
   const t = useT()
   const currentTools = resolveCurrentToolsPresentation(connectionSummary)
-  const pendingOrganizationSkillCount = organizationSkillPendingInstallCount ?? organizationSkillShowcaseItems.length
-  const organizationSkillMeta =
-    pendingOrganizationSkillCount > 0
-      ? t("chat.emptyOrganizationSkillsMeta", { count: pendingOrganizationSkillCount })
-      : t("chat.emptyOrganizationSkillsRecommendedMeta", { count: organizationSkillShowcaseItems.length })
-  const organizationSkillAction =
-    pendingOrganizationSkillCount > 0
-      ? t("chat.emptyOrganizationSkillsAction")
-      : t("chat.emptyOrganizationSkillsViewAction")
-  const hasPendingOrganizationSkills = pendingOrganizationSkillCount > 0
+  const pendingTeamSkillCount = teamSkillPendingInstallCount ?? teamSkillShowcaseItems.length
+  const teamSkillMeta =
+    pendingTeamSkillCount > 0
+      ? t("chat.emptyTeamSkillsMeta", { count: pendingTeamSkillCount })
+      : t("chat.emptyTeamSkillsRecommendedMeta", { count: teamSkillShowcaseItems.length })
+  const teamSkillAction =
+    pendingTeamSkillCount > 0 ? t("chat.emptyTeamSkillsAction") : t("chat.emptyTeamSkillsViewAction")
+  const hasPendingTeamSkills = pendingTeamSkillCount > 0
 
   return (
     <div className="w-full pl-2 text-muted-foreground">
@@ -165,15 +163,15 @@ function EmptyStateActions({
           ariaLabel={t("chat.emptyConnectorsAria")}
           onClick={() => onOpenConnections?.({ kind: "all" })}
         />
-        {organizationSkillEntryVisible ? (
+        {teamSkillEntryVisible ? (
           <EmptyCapabilityAction
             icon={<Package className="size-4" />}
-            title={t("chat.emptyOrganizationSkillsTitle")}
-            meta={organizationSkillMeta}
-            actionLabel={organizationSkillAction}
-            ariaLabel={t("chat.emptyOrganizationSkillsAria")}
-            highlighted={hasPendingOrganizationSkills}
-            onClick={onOpenOrganizations}
+            title={t("chat.emptyTeamSkillsTitle")}
+            meta={teamSkillMeta}
+            actionLabel={teamSkillAction}
+            ariaLabel={t("chat.emptyTeamSkillsAria")}
+            highlighted={hasPendingTeamSkills}
+            onClick={onOpenTeams}
           />
         ) : null}
       </div>
@@ -269,15 +267,15 @@ export const ChatArea = React.memo(function ChatArea({
   providers,
   emptyStateConnectionSummary,
   canManageWorkspaceConnections,
-  organizationSkillEntryVisible,
-  organizationSkillPendingInstallCount,
-  organizationSkillShowcaseItems,
+  teamSkillEntryVisible,
+  teamSkillPendingInstallCount,
+  teamSkillShowcaseItems,
   queueHeld,
   queuedMessages,
   placeholder,
   contextBar,
   pinnedContextBar,
-  organizationSkills,
+  teamSkills,
   onComposerStateChange,
   onSend,
   onPermissionModeChange,
@@ -299,7 +297,7 @@ export const ChatArea = React.memo(function ChatArea({
   onOpenConnections,
   onOpenConnectionProvider,
   onOpenKnowledgeLibrary,
-  onOpenOrganizations,
+  onOpenTeams,
   onViewBilling,
   onSelectKnowledgeBase,
 }: ChatAreaProps) {
@@ -346,7 +344,7 @@ export const ChatArea = React.memo(function ChatArea({
       pendingQuestions={pendingQuestions}
       placeholder={placeholder}
       contextBar={showCenteredEmptyState ? contextBar : undefined}
-      organizationSkills={organizationSkills}
+      teamSkills={teamSkills}
       providers={providers}
       queueHeld={queueHeld}
       queuedMessages={queuedMessages}
@@ -375,7 +373,7 @@ export const ChatArea = React.memo(function ChatArea({
     >
       <ErrorNotice
         error={startupError}
-        action={onStartupRetry ? { label: t("organizations.retry"), onClick: onStartupRetry } : undefined}
+        action={onStartupRetry ? { label: t("teams.retry"), onClick: onStartupRetry } : undefined}
       />
     </div>
   ) : bootstrapping ? (
@@ -404,11 +402,11 @@ export const ChatArea = React.memo(function ChatArea({
           <EmptyStateActions
             canManageWorkspaceConnections={canManageWorkspaceConnections}
             connectionSummary={emptyStateConnectionSummary}
-            organizationSkillEntryVisible={organizationSkillEntryVisible}
-            organizationSkillPendingInstallCount={organizationSkillPendingInstallCount}
-            organizationSkillShowcaseItems={organizationSkillShowcaseItems}
+            teamSkillEntryVisible={teamSkillEntryVisible}
+            teamSkillPendingInstallCount={teamSkillPendingInstallCount}
+            teamSkillShowcaseItems={teamSkillShowcaseItems}
             onOpenConnections={onOpenConnections}
-            onOpenOrganizations={onOpenOrganizations}
+            onOpenTeams={onOpenTeams}
           />
         </div>
       </div>

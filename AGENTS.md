@@ -120,7 +120,7 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
   （网关侧别名），勿据此"纠正"Auto 模型名。
 - 登录：浏览器登录 + deep-link（生产 `wanta://signin`，dev `wanta-local://signin`）。
   **全应用唯一凭证是会话 token `oomol-token`**（Electron 会话 cookie，短命会过期；网关层统一接受
-  cookie/token/api-key，故聊天/连接器/组织/技能/账单一律用它）；`userData/auth.json` 只存账号 profile
+  cookie/token/api-key，故聊天/连接器/团队/技能/账单一律用它）；`userData/auth.json` 只存账号 profile
   **不存任何凭证**，也不再获取长期 api-key。token 失效即全局判为未登录（`AuthManager.currentState` 门控）。
 - 连接器工具：`list_apps` 列当前 workspace 已连接 app；`search_actions` → `inspect_action` → `call_action`
   （源码内嵌在 `electron/agent/tool-sources.ts`，运行于 OpenCode 的 Bun，

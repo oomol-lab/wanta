@@ -61,7 +61,7 @@ export const DEFAULT_BUILTIN_MODEL_ID: BuiltinModelId = "oopilot"
 export const BUILTIN_PROVIDER_DEFINITIONS: BuiltinProviderDefinition[] = [
   {
     id: "oomol",
-    displayName: branding.organizationName,
+    displayName: branding.companyName,
     kind: "openai-compatible",
     npm: "@ai-sdk/openai-compatible",
   },
@@ -76,7 +76,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
   {
     id: "oopilot",
     displayName: "Auto",
-    providerName: branding.organizationName,
+    providerName: branding.companyName,
     runtime: {
       providerID: "oomol",
       modelID: "oopilot",

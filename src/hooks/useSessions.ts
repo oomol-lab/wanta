@@ -140,12 +140,9 @@ function applyIntendedKnowledgeBaseIds(
 
 export function useSessions({ enabled = true, scope }: { enabled?: boolean; scope: SessionScope | null }): UseSessions {
   const sessionService = useSessionService()
-  const organizationId = scope?.organizationId ?? ""
-  const organizationName = scope?.organizationName ?? ""
-  const requestScope = React.useMemo<SessionScope>(
-    () => ({ organizationId, organizationName }),
-    [organizationId, organizationName],
-  )
+  const teamId = scope?.teamId ?? ""
+  const teamName = scope?.teamName ?? ""
+  const requestScope = React.useMemo<SessionScope>(() => ({ teamId, teamName }), [teamId, teamName])
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
   const sessionsRef = React.useRef(sessions)
   sessionsRef.current = sessions

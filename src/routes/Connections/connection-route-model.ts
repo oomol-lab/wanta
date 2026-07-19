@@ -77,6 +77,14 @@ export function shouldShowConnectionState(appsStatus: ConnectionAppsStatus | und
   return appsStatus === "ready"
 }
 
+/** 写操作要求当前用户可管理连接，且组织连接状态仍是服务端确认的最新状态。 */
+export function canMutateConnections(
+  canManageConnections: boolean,
+  appsStatus: ConnectionAppsStatus | undefined,
+): boolean {
+  return canManageConnections && shouldShowConnectionState(appsStatus)
+}
+
 export function connectionDetailCacheKey(workspaceKey: string, service: string): string {
   return `${workspaceKey}\u0000${service}`
 }

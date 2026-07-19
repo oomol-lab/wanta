@@ -5,6 +5,7 @@ import { test } from "vitest"
 import {
   buildCredentialSummaryDisplayValues,
   buildFederatedCredentialDisplayValues,
+  canMutateConnections,
   connectionDetailCacheKey,
   getConnectionAppNote,
   getFittingCategoryFilterCount,
@@ -129,6 +130,14 @@ test("organization connection state is visible whenever the member read succeeds
   assert.equal(shouldShowConnectionState("unavailable"), false)
   assert.equal(shouldShowConnectionState("forbidden"), false)
   assert.equal(shouldShowConnectionState("ready"), true)
+})
+
+test("connection mutations require management permission and a confirmed organization state", () => {
+  assert.equal(canMutateConnections(false, "ready"), false)
+  assert.equal(canMutateConnections(true, undefined), false)
+  assert.equal(canMutateConnections(true, "unavailable"), false)
+  assert.equal(canMutateConnections(true, "forbidden"), false)
+  assert.equal(canMutateConnections(true, "ready"), true)
 })
 
 test("available tools filter combines connected and directly available providers", () => {

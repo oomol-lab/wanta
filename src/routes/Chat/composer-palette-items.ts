@@ -164,10 +164,6 @@ export function composerQueryScore(item: ComposerPaletteItem, query: string): nu
   return bestScore
 }
 
-export function matchesComposerQuery(item: ComposerPaletteItem, query: string): boolean {
-  return Number.isFinite(composerQueryScore(item, query))
-}
-
 export function filterComposerPaletteItems<TItem extends ComposerPaletteItem>(
   items: TItem[],
   query: string,

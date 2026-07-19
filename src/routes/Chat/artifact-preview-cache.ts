@@ -1,13 +1,15 @@
 import type { LocalArtifactItem, LocalArtifactPreviewResult } from "../../../electron/chat/common.ts"
 import type { ArtifactPreviewLoadPriority } from "./artifact-preview-scheduler.ts"
+import type { SharedRequest } from "@/lib/shared-request"
 
 import * as React from "react"
 import { scheduleArtifactPreviewLoad } from "./artifact-preview-scheduler.ts"
 import { useChatService } from "@/components/AppContext"
+import { createSharedRequest, waitForSharedRequest } from "@/lib/shared-request"
 
 export interface LocalArtifactPreviewCacheEntry {
   estimatedBytes?: number
-  promise?: Promise<LocalArtifactPreviewResult>
+  request?: SharedRequest<LocalArtifactPreviewResult>
   result?: LocalArtifactPreviewResult
 }
 
@@ -30,7 +32,7 @@ export function artifactPreviewEstimatedBytes(result: LocalArtifactPreviewResult
     return result.resourceUrl.length * 2 + 256
   }
   if (result.dataUrl) {
-    return result.dataUrl.length
+    return result.dataUrl.length * 2
   }
   if (result.text) {
     return result.text.length * 2
@@ -114,11 +116,12 @@ function cachedArtifactPreviewResult(
   return entry.result
 }
 
-function loadCachedArtifactPreview(
+export function loadCachedArtifactPreview(
   cache: LocalArtifactPreviewCache,
   item: LocalArtifactItem,
   load: () => Promise<LocalArtifactPreviewResult>,
   priority: ArtifactPreviewLoadPriority,
+  signal: AbortSignal,
 ): Promise<LocalArtifactPreviewResult> {
   const key = artifactPreviewCacheKey(item)
   const cached = cache.get(key)
@@ -126,21 +129,33 @@ function loadCachedArtifactPreview(
     rememberArtifactPreview(cache, key, cached)
     return Promise.resolve(cached.result)
   }
-  if (cached?.promise) {
+  if (cached?.request) {
     rememberArtifactPreview(cache, key, cached)
-    return cached.promise
-  }
-  const promise = scheduleArtifactPreviewLoad(load, priority)
-    .then((result) => {
-      rememberArtifactPreview(cache, key, { estimatedBytes: artifactPreviewEstimatedBytes(result), result })
-      return result
-    })
-    .catch(() => {
-      cache.delete(key)
+    return waitForSharedRequest(cached.request, signal).catch((error: unknown) => {
+      if (signal.aborted) {
+        throw error
+      }
       return fallbackArtifactPreview(item)
     })
-  rememberArtifactPreview(cache, key, { promise })
-  return promise
+  }
+  const request = createSharedRequest((sharedSignal) => scheduleArtifactPreviewLoad(load, priority, sharedSignal))
+  rememberArtifactPreview(cache, key, { request })
+  void request.promise.then(
+    (result) => {
+      rememberArtifactPreview(cache, key, { estimatedBytes: artifactPreviewEstimatedBytes(result), result })
+    },
+    () => {
+      if (cache.get(key)?.request === request) {
+        cache.delete(key)
+      }
+    },
+  )
+  return waitForSharedRequest(request, signal).catch((error: unknown) => {
+    if (signal.aborted) {
+      throw error
+    }
+    return fallbackArtifactPreview(item)
+  })
 }
 
 export function useLocalArtifactPreview(
@@ -186,18 +201,21 @@ export function useLocalArtifactPreview(
       return
     }
     let cancelled = false
+    const controller = new AbortController()
     setLoading(true)
     void loadCachedArtifactPreview(
       previewCache,
       item,
       () => chatService.invoke("getLocalArtifactPreview", { path: item.path }),
       priority,
+      controller.signal,
     )
       .then((result) => {
         if (!cancelled) {
           setPreview(result)
         }
       })
+      .catch(() => undefined)
       .finally(() => {
         if (!cancelled) {
           setLoading(false)
@@ -205,6 +223,7 @@ export function useLocalArtifactPreview(
       })
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [chatService, item, previewCache, priority, reloadVersion])
 

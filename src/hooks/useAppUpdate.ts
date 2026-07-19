@@ -199,5 +199,8 @@ export function useAppUpdate(): UseAppUpdate {
     [service],
   )
 
-  return { ...snapshot, check, checkAndDownload, download, install, setChannel }
+  return React.useMemo(
+    () => ({ ...snapshot, check, checkAndDownload, download, install, setChannel }),
+    [check, checkAndDownload, download, install, setChannel, snapshot],
+  )
 }

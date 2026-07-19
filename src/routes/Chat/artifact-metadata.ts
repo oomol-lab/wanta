@@ -174,15 +174,6 @@ export function artifactGroupDisplayItem(
   return group.items[0] ?? group.root
 }
 
-export function artifactSummary(t: TranslateFn, group: LocalArtifactGroup): string {
-  const count = group.root?.kind === "directory" ? group.totalItems : group.items.length
-  const imageCount = group.items.filter(isImageArtifact).length
-  if (imageCount > 0 && imageCount === group.items.length) {
-    return t("artifacts.imageCount", { count })
-  }
-  return t("artifacts.count", { count })
-}
-
 export function previewLanguage(item: LocalArtifactItem): string {
   const extension = fileExtension(item.name).slice(1)
   switch (extension) {

@@ -94,6 +94,17 @@ export function revokeAttachmentPreviewUrls(attachments: DraftAttachment[]): voi
   }
 }
 
+/** 丢弃未发送附件时同时释放主进程托管的原始快照和 agent 中间文件。 */
+export function releaseAttachmentSnapshots(
+  attachments: ReadonlyArray<Pick<ChatAttachment, "agentPath" | "path">>,
+): void {
+  const paths = attachments.flatMap((attachment) => [attachment.path, attachment.agentPath ?? ""]).filter(Boolean)
+  if (paths.length === 0) {
+    return
+  }
+  void globalThis.wanta?.releaseAttachmentPaths(paths).catch(() => undefined)
+}
+
 export function attachmentWithPreview(attachment: ChatAttachment): DraftAttachment {
   if (!isImageAttachment(attachment)) {
     return attachment

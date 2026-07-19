@@ -25,10 +25,6 @@ export function modelMenuItemElementId(itemId: string): string {
   return `model-menu-item-${encoded}`
 }
 
-export function reasoningLevelMenuItemElementId(level: ReasoningLevel): string {
-  return `reasoning-level-menu-item-${level}`
-}
-
 export function reasoningLevelLabel(level: ReasoningLevel, t: ReturnType<typeof useT>): string {
   switch (level) {
     case "default":

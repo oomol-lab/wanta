@@ -13,7 +13,7 @@ const TurnOutputsPanel = React.lazy(() =>
   import("@/routes/Chat/TurnOutputs").then((module) => ({ default: module.TurnOutputsPanel })),
 )
 
-export function AppShellArtifactsPanel({
+export const AppShellArtifactsPanel = React.memo(function AppShellArtifactsPanel({
   artifactSelection,
   artifactsPanelContentRef,
   artifactsPanelIsMaximized,
@@ -106,4 +106,4 @@ export function AppShellArtifactsPanel({
       </div>
     </div>
   )
-}
+})

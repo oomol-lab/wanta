@@ -7,17 +7,19 @@ import type {
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
+import type { ChatTurnState } from "./chat-turn-state.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app-shell-model"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
-import type { ChatStatus } from "ai"
 
 import { Bug, X } from "lucide-react"
 import * as React from "react"
+import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
 import { AttachmentList } from "./ChatAttachments.tsx"
+import { composerPaletteItemElementId } from "./composer-palette-accessibility.ts"
 import {
   buildArtifactPaletteItems,
   buildConnectionPaletteItems,
@@ -32,7 +34,6 @@ import { ComposerPalette } from "./ComposerPalette.tsx"
 import { ComposerTrailingControls } from "./ComposerTrailingControls.tsx"
 import { buildContextUsageInfo } from "./context-usage.ts"
 import { ContextMentionChips } from "./ContextMentionChips.tsx"
-import { AddCustomModelDialog } from "./ModelControls.tsx"
 import { answerSingleTextQuestion, isSingleTextQuestion } from "./question-answer.ts"
 import { QueuedMessagePanel } from "./QueuedMessagePanel.tsx"
 import { normalizeServiceSlug } from "./tool-display.ts"
@@ -62,7 +63,6 @@ interface ChatComposerProps {
   generatedArtifacts?: ArtifactSelection | null
   hasMessages: boolean
   initialComposerState?: ComposerState
-  initialSendPending: boolean
   messages: ChatMessage[]
   knowledgeBaseIds: string[]
   knowledgeEnabled: boolean
@@ -77,7 +77,7 @@ interface ChatComposerProps {
   queueHeld: boolean
   queuedMessages: QueuedChatMessage[]
   contextBar?: React.ReactNode
-  status: ChatStatus
+  turnState: ChatTurnState
   submitDisabled: boolean
   willQueueMessage: boolean
   onQueuedMessageMove: (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => void
@@ -160,7 +160,6 @@ export function ChatComposer({
   generatedArtifacts = null,
   hasMessages,
   initialComposerState: initialComposerStateProp,
-  initialSendPending,
   messages,
   knowledgeBaseIds,
   knowledgeEnabled,
@@ -175,7 +174,7 @@ export function ChatComposer({
   queueHeld,
   queuedMessages,
   contextBar,
-  status,
+  turnState,
   submitDisabled,
   willQueueMessage,
   onQueuedMessageMove,
@@ -217,15 +216,15 @@ export function ChatComposer({
     window.requestAnimationFrame(() => textareaRef.current?.focus())
   }, [])
   const voiceInput = useVoiceComposerInput(appendVoiceTranscription)
+  const paletteId = React.useId()
   const { attachments, command, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
-  const isGenerating = status === "submitted" || status === "streaming"
   const activePendingQuestion = pendingQuestions[0]
   const activePendingQuestionId = activePendingQuestion?.id
   const composerQuestionBlocked = Boolean(activePendingQuestion && !isSingleTextQuestion(activePendingQuestion))
   const composerAttachmentsDisabled = Boolean(activePendingQuestion)
-  const composerSubmitStatus = activePendingQuestion ? "ready" : status
-  const composerSubmitGenerating = activePendingQuestion ? false : isGenerating
+  const composerTurnState: ChatTurnState = activePendingQuestion ? { chatStatus: "ready", status: "idle" } : turnState
   const composerWillQueueMessage = activePendingQuestion ? false : willQueueMessage
+  const initialSendPending = turnState.status === "submitting" && turnState.initialSendPending
   const submitBlocked = submitDisabled || initialSendPending
   const composerDisabled =
     submitDisabled || voiceInput.busy || initialSendPending || answeringQuestion || composerQuestionBlocked
@@ -579,6 +578,15 @@ export function ChatComposer({
           value={draft}
           disabled={composerDisabled}
           placeholder={composerPlaceholder}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={composerPalette.open}
+          aria-controls={composerPalette.open ? paletteId : undefined}
+          aria-activedescendant={
+            composerPalette.open && composerPalette.activeItem
+              ? composerPaletteItemElementId(paletteId, composerPalette.activeItem.id)
+              : undefined
+          }
           onChange={(e) => {
             dispatchComposer({
               type: "set-draft",
@@ -608,13 +616,11 @@ export function ChatComposer({
           canSubmit={canSubmit}
           composerDisabled={composerDisabled}
           contextUsage={contextUsage}
-          initialSendPending={initialSendPending}
-          isGenerating={composerSubmitGenerating}
+          turnState={composerTurnState}
           modelCatalog={modelCatalog}
           agentMode={agentMode}
           permissionMode={permissionMode}
           reasoningLevel={reasoningLevel}
-          status={composerSubmitStatus}
           voiceActive={voiceInput.active}
           voiceBars={voiceInput.bars}
           voiceDurationMs={voiceInput.durationMs}
@@ -676,9 +682,12 @@ export function ChatComposer({
     composerPalette.open && composerPalette.activeTrigger ? (
       <ComposerPalette
         activeId={composerPalette.activeItem?.id}
+        backLabel={t("chat.questionPrevious")}
         emptyLabel={emptyLabel}
         headerLabel={headerLabel}
+        id={paletteId}
         items={composerPalette.items}
+        label={headerLabel ?? t("chat.paletteLabel")}
         onBack={composerPalette.handleBack}
         onSelect={composerPalette.onSelect}
         onSecondarySelect={composerPalette.onSecondarySelect}

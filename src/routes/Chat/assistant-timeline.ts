@@ -16,11 +16,6 @@ export interface AssistantTimelineSegment {
   blocks: AssistantTimelineBlock[]
 }
 
-export interface AssistantTimelineSplit {
-  processBlocks: AssistantTimelineBlock[]
-  responseBlocks: AssistantTimelineBlock[]
-}
-
 const progressTextMaxLength = 240
 
 export function assistantTimelineBlocks(messages: ChatMessage[]): AssistantTimelineBlock[] {
@@ -97,15 +92,6 @@ export function segmentAssistantTimeline(messages: ChatMessage[]): AssistantTime
     segments.push({ kind, key: blockKey(item), blocks: [item] })
   }
   return segments
-}
-
-/** 兼容只需要两类集合的调用方；实际渲染使用 segmentAssistantTimeline 保持原始时序。 */
-export function splitAssistantTimelineBlocks(messages: ChatMessage[]): AssistantTimelineSplit {
-  const segments = segmentAssistantTimeline(messages)
-  return {
-    processBlocks: segments.filter((segment) => segment.kind === "process").flatMap((segment) => segment.blocks),
-    responseBlocks: segments.filter((segment) => segment.kind === "response").flatMap((segment) => segment.blocks),
-  }
 }
 
 export function assistantMessagesFromTimelineBlocks(blocks: AssistantTimelineBlock[]): ChatMessage[] {

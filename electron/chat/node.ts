@@ -1298,33 +1298,31 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       req.permissionMode ?? this.sessionPermissionMode(req.sessionId),
       req.permissionModeVersion,
     )
-    this.rememberTrustedAttachments(req.sessionId, req.attachments)
-    for (const attachment of req.attachments ?? []) {
-      this.deps.trustedAttachmentPaths?.delete(attachment.path)
-      if (attachment.agentPath) this.deps.trustedAttachmentPaths?.delete(attachment.agentPath)
-    }
     const userMessageId = createOpencodeMessageId()
-    if (req.attachments?.length) {
-      await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments)
-      this.managedUserMessageIds.add(userMessageId)
-      const sessionMessageIds = this.managedUserMessageIdsBySession.get(req.sessionId) ?? new Set<string>()
-      sessionMessageIds.add(userMessageId)
-      this.managedUserMessageIdsBySession.set(req.sessionId, sessionMessageIds)
-      this.internalAttachmentPathsByMessage.set(
-        userMessageId,
-        new Set(
-          req.attachments
-            .map((attachment) => attachment.agentPath?.trim())
-            .filter((value): value is string => Boolean(value)),
-        ),
-      )
-    }
     const organizationName = organizationNameFromRequest(req)
     const bugReport = parseBugReportCommand(req.text)
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
     let processDir: string | undefined
+    let attachmentsRecorded = false
+    let submitted = false
     try {
+      if (req.attachments?.length) {
+        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments)
+        attachmentsRecorded = true
+        this.managedUserMessageIds.add(userMessageId)
+        const sessionMessageIds = this.managedUserMessageIdsBySession.get(req.sessionId) ?? new Set<string>()
+        sessionMessageIds.add(userMessageId)
+        this.managedUserMessageIdsBySession.set(req.sessionId, sessionMessageIds)
+        this.internalAttachmentPathsByMessage.set(
+          userMessageId,
+          new Set(
+            req.attachments
+              .map((attachment) => attachment.agentPath?.trim())
+              .filter((value): value is string => Boolean(value)),
+          ),
+        )
+      }
       generation = this.beginSessionGeneration(req.sessionId, userMessageId)
       this.createActiveRun(req, generation)
       const activeGeneration = generation
@@ -1342,6 +1340,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (!this.isCurrentGeneration(req.sessionId, activeGeneration.id) || activeGeneration.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
         await removeUnsubmittedTurnDirectories(artifactDir, processDir)
+        if (attachmentsRecorded) {
+          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+        }
         return
       }
       const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
@@ -1366,6 +1367,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (!this.isCurrentGeneration(req.sessionId, activeGeneration.id) || activeGeneration.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
         await removeUnsubmittedTurnDirectories(artifactDir, processDir)
+        if (attachmentsRecorded) {
+          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+        }
         return
       }
       this.trustedAccess.setProjectRoot(req.sessionId, trustedProjectRoot)
@@ -1411,7 +1415,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           })
         : undefined
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
+      this.rememberTrustedAttachments(req.sessionId, req.attachments)
+      this.discardTrustedAttachmentPaths(req.attachments)
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
+      submitted = true
       this.scheduleGenerationSubmitWatchdog(req.sessionId, promptGeneration.id)
       void this.agent
         .promptStreaming(req.sessionId, req.text, {
@@ -1470,7 +1477,42 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.clearSessionGeneration(req.sessionId, generation.id)
       }
       await removeUnsubmittedTurnDirectories(artifactDir, processDir)
+      if (attachmentsRecorded && !submitted) {
+        await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+      }
       throw error
+    }
+  }
+
+  private async rollbackUnsubmittedUserAttachments(
+    sessionId: string,
+    messageId: string,
+    attachments: readonly ChatAttachment[] | undefined,
+  ): Promise<void> {
+    try {
+      await this.deps.userAttachmentStore?.removeMessage(sessionId, messageId)
+    } catch (error) {
+      console.warn("[wanta] failed to roll back unsubmitted user attachments:", error)
+      logDiagnostic(
+        "chat-service",
+        "failed to roll back unsubmitted user attachments",
+        { error, messageId, sessionId },
+        "warn",
+      )
+    } finally {
+      this.discardTrustedAttachmentPaths(attachments)
+      this.managedUserMessageIds.delete(messageId)
+      this.internalAttachmentPathsByMessage.delete(messageId)
+      const messageIds = this.managedUserMessageIdsBySession.get(sessionId)
+      messageIds?.delete(messageId)
+      if (messageIds?.size === 0) this.managedUserMessageIdsBySession.delete(sessionId)
+    }
+  }
+
+  private discardTrustedAttachmentPaths(attachments: readonly ChatAttachment[] | undefined): void {
+    for (const attachment of attachments ?? []) {
+      this.deps.trustedAttachmentPaths?.delete(attachment.path)
+      if (attachment.agentPath) this.deps.trustedAttachmentPaths?.delete(attachment.agentPath)
     }
   }
 

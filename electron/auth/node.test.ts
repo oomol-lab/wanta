@@ -135,3 +135,59 @@ test("cookie persistence failure rolls the account profile back", async () => {
   assert.deepEqual(store.value(), previous)
   assert.equal(cookie, "old-token")
 })
+
+test("expired sessions stay unauthenticated when cookie cleanup fails", async () => {
+  const store = memoryStore({ accounts: [{ id: "one", name: "Account one" }], currentId: "one" })
+  const applyAccount = vi.fn(async () => undefined)
+  const manager = new AuthManager({
+    applyAccount,
+    protocolScheme: "wanta",
+    store,
+    runtime: {
+      clearCookies: async () => {
+        throw new Error("cookie cleanup failed")
+      },
+      confirmLogin: async () => true,
+      exchangeLogin: async () => account("one"),
+      openExternal: async () => undefined,
+      persistCookie: async () => undefined,
+      readCookie: async () => "stale-token",
+    },
+  })
+  vi.spyOn(console, "warn").mockImplementation(() => undefined)
+
+  const state = await manager.expireSession()
+
+  assert.equal(state.status, "unauthenticated")
+  assert.equal(await manager.currentSessionToken(), undefined)
+  assert.equal(await manager.activeRuntimeAccount(), null)
+  assert.deepEqual(store.value(), { accounts: [{ id: "one", name: "Account one" }], currentId: "one" })
+  assert.deepEqual(applyAccount.mock.calls, [[null]])
+})
+
+test("logout never exposes a stale cookie after cleanup fails", async () => {
+  const store = memoryStore({ accounts: [{ id: "one", name: "Account one" }], currentId: "one" })
+  const manager = new AuthManager({
+    applyAccount: vi.fn(async () => undefined),
+    protocolScheme: "wanta",
+    store,
+    runtime: {
+      clearCookies: async () => {
+        throw new Error("cookie cleanup failed")
+      },
+      confirmLogin: async () => true,
+      exchangeLogin: async () => account("one"),
+      openExternal: async () => undefined,
+      persistCookie: async () => undefined,
+      readCookie: async () => "stale-token",
+    },
+  })
+  vi.spyOn(console, "warn").mockImplementation(() => undefined)
+
+  const state = await manager.logout()
+
+  assert.equal(state.status, "unauthenticated")
+  assert.equal(await manager.currentSessionToken(), undefined)
+  assert.equal(await manager.activeRuntimeAccount(), null)
+  assert.deepEqual(store.value(), { accounts: [], currentId: undefined })
+})

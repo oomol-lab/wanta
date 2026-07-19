@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { resolveChatTurnState } from "./chat-turn-state.ts"
 import { composerSubmitState, composerVoiceControlMode } from "./composer-controls.ts"
 
 describe("composer controls", () => {
@@ -37,9 +38,12 @@ describe("composer controls", () => {
     expect(
       composerSubmitState({
         canSubmit: false,
-        initialSendPending: false,
-        isGenerating: true,
-        status: "streaming",
+        turnState: resolveChatTurnState({
+          initialSendPending: false,
+          pendingPermissionCount: 0,
+          pendingQuestionCount: 0,
+          status: "streaming",
+        }),
         willQueueMessage: false,
       }),
     ).toEqual({
@@ -55,9 +59,12 @@ describe("composer controls", () => {
     expect(
       composerSubmitState({
         canSubmit: true,
-        initialSendPending: false,
-        isGenerating: true,
-        status: "streaming",
+        turnState: resolveChatTurnState({
+          initialSendPending: false,
+          pendingPermissionCount: 0,
+          pendingQuestionCount: 0,
+          status: "streaming",
+        }),
         willQueueMessage: true,
       }),
     ).toEqual({
@@ -69,13 +76,37 @@ describe("composer controls", () => {
     })
   })
 
+  it("uses the shared pending-permission state instead of exposing a conflicting stop control", () => {
+    expect(
+      composerSubmitState({
+        canSubmit: false,
+        turnState: resolveChatTurnState({
+          initialSendPending: false,
+          pendingPermissionCount: 1,
+          pendingQuestionCount: 0,
+          status: "streaming",
+        }),
+        willQueueMessage: false,
+      }),
+    ).toEqual({
+      aria: "send",
+      disabled: true,
+      queuesMessage: false,
+      stopsGeneration: false,
+      visualStatus: undefined,
+    })
+  })
+
   it("keeps submitted submit disabled while the initial send is pending", () => {
     expect(
       composerSubmitState({
         canSubmit: true,
-        initialSendPending: true,
-        isGenerating: true,
-        status: "submitted",
+        turnState: resolveChatTurnState({
+          initialSendPending: true,
+          pendingPermissionCount: 0,
+          pendingQuestionCount: 0,
+          status: "submitted",
+        }),
         willQueueMessage: true,
       }),
     ).toEqual({
@@ -91,9 +122,12 @@ describe("composer controls", () => {
     expect(
       composerSubmitState({
         canSubmit: false,
-        initialSendPending: false,
-        isGenerating: true,
-        status: "submitted",
+        turnState: resolveChatTurnState({
+          initialSendPending: false,
+          pendingPermissionCount: 0,
+          pendingQuestionCount: 0,
+          status: "submitted",
+        }),
         willQueueMessage: false,
       }),
     ).toEqual({
@@ -109,9 +143,12 @@ describe("composer controls", () => {
     expect(
       composerSubmitState({
         canSubmit: false,
-        initialSendPending: false,
-        isGenerating: false,
-        status: "ready",
+        turnState: resolveChatTurnState({
+          initialSendPending: false,
+          pendingPermissionCount: 0,
+          pendingQuestionCount: 0,
+          status: "ready",
+        }),
         willQueueMessage: false,
       }),
     ).toEqual({

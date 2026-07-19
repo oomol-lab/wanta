@@ -55,6 +55,15 @@ export function removeQueuedMessage(queues: ChatQueueMap, sessionId: string, mes
   return next
 }
 
+/** optimistic turn 已进入聊天记录时由 turn 自己承载失败恢复；否则原队列保持不变。 */
+export function settleQueuedMessageAfterDispatchFailure(
+  queues: ChatQueueMap,
+  message: QueuedChatMessage,
+  optimisticSubmitted: boolean,
+): ChatQueueMap {
+  return optimisticSubmitted ? removeQueuedMessage(queues, message.sessionId, message.id) : queues
+}
+
 export function moveQueuedMessage(
   queues: ChatQueueMap,
   sessionId: string,
@@ -94,29 +103,6 @@ export function clearQueuedMessages(queues: ChatQueueMap, sessionId: string): Ch
   const next = { ...queues }
   delete next[sessionId]
   return next
-}
-
-export function consumeNextQueuedMessage(
-  queues: ChatQueueMap,
-  sessionId: string,
-): { queues: ChatQueueMap; message: QueuedChatMessage | null } {
-  const queue = queues[sessionId] ?? []
-  const message = queue[0] ?? null
-  if (!message) {
-    return { queues, message: null }
-  }
-  const nextQueue = queue.slice(1)
-  const next = { ...queues }
-  if (nextQueue.length === 0) {
-    delete next[sessionId]
-  } else {
-    next[sessionId] = nextQueue
-  }
-  return { queues: next, message }
-}
-
-export function latestQueuedMessage(queues: ChatQueueMap, sessionId: string): QueuedChatMessage | null {
-  return queues[sessionId]?.at(-1) ?? null
 }
 
 export function shouldDispatchQueuedMessage(

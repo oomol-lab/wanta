@@ -314,7 +314,7 @@ function ArchivedSessionRow({
 
   return (
     <article
-      className={cn("grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-4 px-5 py-4", pending && "opacity-60")}
+      className={cn("grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-4", pending && "opacity-60")}
     >
       <button
         type="button"
@@ -331,9 +331,6 @@ function ArchivedSessionRow({
         </div>
         <div className="oo-text-caption text-muted-foreground">{t("archived.updatedAt", { date: updatedAt })}</div>
       </button>
-      <div className="oo-text-caption hidden whitespace-nowrap text-muted-foreground sm:block">
-        {t("archived.chatCount", { count: 1 })}
-      </div>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button

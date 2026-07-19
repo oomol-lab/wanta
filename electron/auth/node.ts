@@ -58,6 +58,7 @@ export class AuthManager {
   private pending: PendingLogin | undefined
   private callbackQueue: Promise<void> = Promise.resolve()
   private authEpoch = 0
+  private sessionInvalidated = false
   private emitState: (state: AuthState) => Promise<void> = async () => {}
   private profileRefreshCompletedAccountId: string | undefined
   private profileRefreshInFlightAccountId: string | undefined
@@ -87,7 +88,8 @@ export class AuthManager {
   }
 
   /** 当前会话 token（全应用唯一凭证，来自 Electron 会话 cookie）；未登录或已过期/被驱逐时为 undefined。 */
-  public currentSessionToken(): Promise<string | undefined> {
+  public async currentSessionToken(): Promise<string | undefined> {
+    if (this.sessionInvalidated) return undefined
     return this.runtime.readCookie()
   }
 
@@ -96,6 +98,9 @@ export class AuthManager {
    * main 用它装配 agent / connector / org / skills，billing 也由它派生：token 在则全可用，token 失则全不可用（一致生命周期）。
    */
   public async activeRuntimeAccount(): Promise<AuthRuntimeAccount | null> {
+    if (this.sessionInvalidated) {
+      return null
+    }
     const account = this.activeAccount()
     if (!account) {
       return null
@@ -129,6 +134,7 @@ export class AuthManager {
   /** 会话 token 被服务端判定失效：清 cookie、停 agent、广播未登录；不删除本地 profile。 */
   public async expireSession(): Promise<AuthState> {
     this.authEpoch += 1
+    this.sessionInvalidated = true
     this.rejectPending(new Error("Sign-in was cancelled."))
     await this.runtime.clearCookies().catch((error: unknown) => {
       console.warn("[wanta] failed to clear expired session cookies:", error)
@@ -161,6 +167,7 @@ export class AuthManager {
 
   public async logout(): Promise<AuthState> {
     this.authEpoch += 1
+    this.sessionInvalidated = true
     this.rejectPending(new Error("Sign-in was cancelled."))
     const account = this.activeAccount()
     if (account) {
@@ -239,7 +246,7 @@ export class AuthManager {
   private async currentState(): Promise<AuthState> {
     const account = this.activeAccount()
     const updatedAt = new Date().toISOString()
-    if (!account) {
+    if (!account || this.sessionInvalidated) {
       return { status: "unauthenticated", updatedAt }
     }
     const sessionToken = await this.runtime.readCookie()
@@ -270,6 +277,7 @@ export class AuthManager {
       }
       throw error
     }
+    this.sessionInvalidated = false
     const state = await this.currentState()
     this.stateChanged.emit(state)
     await this.emitState(state)
@@ -282,6 +290,7 @@ export class AuthManager {
 
   /** 兼容旧 auth.json：若账号缺头像，用当前会话 token 后台补拉 profile 并只广播渲染层展示状态。 */
   private async refreshActiveAccountProfile(): Promise<void> {
+    if (this.sessionInvalidated) return
     const account = this.activeAccount()
     if (
       !account ||

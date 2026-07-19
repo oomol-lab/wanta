@@ -64,12 +64,17 @@ function urlForCookie(cookie: { domain?: string; path?: string; secure?: boolean
 export async function clearOomolSessionCookies(): Promise<void> {
   await ensureElectronSessionReady()
   const cookies = await session.defaultSession.cookies.get({ name: oomolTokenCookieName })
+  const matchingCookies = cookies.filter((item) => {
+    const domain = (item.domain || apiHost).replace(/^\./, "")
+    return domain === ooEndpoint || domain.endsWith(`.${ooEndpoint}`)
+  })
+  const firstAttempt = await Promise.allSettled(
+    matchingCookies.map((item) => session.defaultSession.cookies.remove(urlForCookie(item), oomolTokenCookieName)),
+  )
+  const failedCookies = matchingCookies.filter((_, index) => firstAttempt[index]?.status === "rejected")
+  if (failedCookies.length === 0) return
+  // Electron cookie store 偶发瞬时失败时重试一次；仍失败则交给 AuthManager 的 invalidated 状态隔离旧 token。
   await Promise.all(
-    cookies
-      .filter((item) => {
-        const domain = (item.domain || apiHost).replace(/^\./, "")
-        return domain === ooEndpoint || domain.endsWith(`.${ooEndpoint}`)
-      })
-      .map((item) => session.defaultSession.cookies.remove(urlForCookie(item), oomolTokenCookieName)),
+    failedCookies.map((item) => session.defaultSession.cookies.remove(urlForCookie(item), oomolTokenCookieName)),
   )
 }

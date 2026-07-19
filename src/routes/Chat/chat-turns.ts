@@ -16,6 +16,14 @@ export interface ChatTurn {
   assistants: ChatMessage[]
 }
 
+export interface ChatTurnGrouping {
+  /** 仅供按消息 ID 关联附属记录；流式正文变化时保持引用稳定。 */
+  associationTurns: ChatTurn[]
+  assistantMessageIdsKey: string
+  messages: ChatMessage[]
+  turns: ChatTurn[]
+}
+
 export interface ChatTurnRetrySource {
   text: string
   attachments: ChatAttachment[]
@@ -108,6 +116,73 @@ export function reuseStableChatTurns(previous: ChatTurn[], next: ChatTurn[]): Ch
     return turn
   })
   return changed ? turns : previous
+}
+
+function sameMessageGroupingIdentity(left: ChatMessage, right: ChatMessage): boolean {
+  return left.id === right.id && left.clientId === right.clientId && left.role === right.role
+}
+
+function replaceChangedMessageInTurns(
+  turns: ChatTurn[],
+  previousMessage: ChatMessage,
+  nextMessage: ChatMessage,
+): ChatTurn[] | null {
+  for (let turnIndex = 0; turnIndex < turns.length; turnIndex += 1) {
+    const turn = turns[turnIndex]
+    if (!turn) continue
+    if (turn.user === previousMessage) {
+      const nextTurns = [...turns]
+      nextTurns[turnIndex] = { ...turn, user: nextMessage }
+      return nextTurns
+    }
+    const assistantIndex = turn.assistants.indexOf(previousMessage)
+    if (assistantIndex < 0) continue
+    const assistants = [...turn.assistants]
+    assistants[assistantIndex] = nextMessage
+    const nextTurns = [...turns]
+    nextTurns[turnIndex] = { ...turn, assistants }
+    return nextTurns
+  }
+  return null
+}
+
+export function updateChatTurnGrouping(previous: ChatTurnGrouping, messages: ChatMessage[]): ChatTurnGrouping {
+  if (previous.messages.length === messages.length) {
+    let previousChangedMessage: ChatMessage | undefined
+    let nextChangedMessage: ChatMessage | undefined
+    for (let index = 0; index < messages.length; index += 1) {
+      if (previous.messages[index] === messages[index]) continue
+      if (previousChangedMessage) {
+        previousChangedMessage = undefined
+        break
+      }
+      previousChangedMessage = previous.messages[index]
+      nextChangedMessage = messages[index]
+    }
+    if (!previousChangedMessage) {
+      if (previous.messages.every((message, index) => message === messages[index])) {
+        return previous.messages === messages ? previous : { ...previous, messages }
+      }
+    } else if (nextChangedMessage && sameMessageGroupingIdentity(previousChangedMessage, nextChangedMessage)) {
+      const turns = replaceChangedMessageInTurns(previous.turns, previousChangedMessage, nextChangedMessage)
+      if (turns) {
+        return {
+          associationTurns: previous.associationTurns,
+          assistantMessageIdsKey: previous.assistantMessageIdsKey,
+          messages,
+          turns,
+        }
+      }
+    }
+  }
+
+  const turns = reuseStableChatTurns(previous.turns, groupChatTurns(messages))
+  return {
+    associationTurns: turns,
+    assistantMessageIdsKey: assistantMessageIdsKey(messages),
+    messages,
+    turns,
+  }
 }
 
 export function latestAssistantMessage(messages: ChatMessage[]): ChatMessage | undefined {

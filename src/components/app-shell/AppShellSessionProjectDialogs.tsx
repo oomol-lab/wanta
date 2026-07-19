@@ -1,5 +1,6 @@
 import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
 
+import * as React from "react"
 import {
   ArchiveProjectDialog,
   ArchiveSessionDialog,
@@ -9,7 +10,7 @@ import {
 } from "./AppShellDialogs.tsx"
 import { SessionSearchOverlay } from "./SessionSearchOverlay.tsx"
 
-export function AppShellSessionProjectDialogs({
+export const AppShellSessionProjectDialogs = React.memo(function AppShellSessionProjectDialogs({
   archiveConfirming,
   archiveProjectConfirming,
   archiveProjectTarget,
@@ -103,4 +104,4 @@ export function AppShellSessionProjectDialogs({
       />
     </>
   )
-}
+})

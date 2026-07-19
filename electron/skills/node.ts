@@ -201,7 +201,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private async runOoCommand(
     args: string[],
-    options: Omit<Parameters<typeof runOoCommand>[1], "env">,
+    options: Omit<Parameters<typeof runOoCommand>[1], "env"> = {},
   ): Promise<OoCommandResult> {
     const authToken = await this.readSkillAuthToken()
 
@@ -284,7 +284,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private async installRegistrySkillTarget(request: InstallRegistrySkillRequest): Promise<void> {
     const result = await this.runOoCommand(createInstallRegistrySkillArgs(request), {
-      owner: "skill-service",
       rejectOnFailure: false,
     })
     assertOoSkillOperationResult(result, "skills.install")
@@ -300,7 +299,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   public async updateRegistrySkill(request: UpdateRegistrySkillRequest): Promise<SkillInventory> {
     return this.enqueueSkillMutation(async () => {
       const result = await this.runOoCommand(createUpdateRegistrySkillArgs(request), {
-        owner: "skill-service",
         rejectOnFailure: false,
       })
       assertOoSkillOperationResult(result, "skills.update")
@@ -313,9 +311,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   public async executeCliUpdate(): Promise<SkillVersionReport> {
     return this.enqueueSkillMutation(async () => {
-      await this.runOoCommand(createCliUpdateArgs(), {
-        owner: "skill-service",
-      })
+      await this.runOoCommand(createCliUpdateArgs())
       this.invalidateVersionReport()
       this.notifyRuntimeSkillsChanged("update-skill-cli")
       await this.emitInventoryChanged()
@@ -362,7 +358,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     })
     const args = createPublishSkillArgs({ ...input.request, path: input.skillPath })
     const result = await this.runOoCommand(args, {
-      owner: "skill-service",
       rejectOnFailure: false,
     })
     return { args, metadata, result }
@@ -679,7 +674,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private async repairCachedRegistrySkillSource(request: { packageName: string; skillId: string }): Promise<void> {
     const result = await this.runOoCommand(createInstallRegistrySkillArgs({ ...request, force: true }), {
-      owner: "skill-service",
       rejectOnFailure: false,
     })
     assertOoSkillOperationResult(result, "skills.install")
@@ -735,7 +729,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
     return runOoCommand(args, {
       env,
-      owner: "skill-service",
       rejectOnFailure: false,
     })
   }

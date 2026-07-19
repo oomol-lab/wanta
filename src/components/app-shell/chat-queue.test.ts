@@ -6,10 +6,9 @@ import { createQueuedChatMessage } from "./app-shell-model.ts"
 import {
   appendQueuedMessage,
   clearQueuedMessages,
-  consumeNextQueuedMessage,
-  latestQueuedMessage,
   moveQueuedMessage,
   removeQueuedMessage,
+  settleQueuedMessageAfterDispatchFailure,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
 
@@ -23,6 +22,15 @@ function message(id: string, sessionId = "session-1"): QueuedChatMessage {
   }
 }
 
+test("failed queued dispatch stays consumed after optimistic submission", () => {
+  const first = message("first")
+  const second = message("second")
+  const queues = appendQueuedMessage(appendQueuedMessage({}, first), second)
+
+  assert.deepEqual(settleQueuedMessageAfterDispatchFailure(queues, first, true), { "session-1": [second] })
+  assert.equal(settleQueuedMessageAfterDispatchFailure(queues, first, false), queues)
+})
+
 describe("chat queue", () => {
   test("appends queued messages per session", () => {
     const queues = appendQueuedMessage(appendQueuedMessage({}, message("first")), message("second"))
@@ -31,42 +39,6 @@ describe("chat queue", () => {
       queues["session-1"]?.map((item) => item.id),
       ["first", "second"],
     )
-  })
-
-  test("consumes the oldest queued message and keeps later messages", () => {
-    const queues = {
-      "session-1": [message("first"), message("second")],
-      "session-2": [message("other", "session-2")],
-    }
-
-    const result = consumeNextQueuedMessage(queues, "session-1")
-
-    assert.equal(result.message?.id, "first")
-    assert.deepEqual(
-      result.queues["session-1"]?.map((item) => item.id),
-      ["second"],
-    )
-    assert.deepEqual(
-      result.queues["session-2"]?.map((item) => item.id),
-      ["other"],
-    )
-  })
-
-  test("peeks the latest queued message without mutating the queue", () => {
-    const queues = { "session-1": [message("first"), message("second")] }
-
-    assert.equal(latestQueuedMessage(queues, "session-1")?.id, "second")
-    assert.deepEqual(
-      queues["session-1"]?.map((item) => item.id),
-      ["first", "second"],
-    )
-  })
-
-  test("drops the session bucket after consuming its only queued message", () => {
-    const result = consumeNextQueuedMessage({ "session-1": [message("only")] }, "session-1")
-
-    assert.equal(result.message?.id, "only")
-    assert.equal(result.queues["session-1"], undefined)
   })
 
   test("removes a queued message and drops the empty session bucket", () => {

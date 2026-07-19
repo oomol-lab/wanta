@@ -210,6 +210,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       updatePendingPermissionsMap((current) => omitSessionRecord(current, sessionId))
       setPermissionModes((current) => omitSessionRecord(current, sessionId))
       permissionModesRef.current = omitSessionRecord(permissionModesRef.current, sessionId)
+      permissionModeVersionsRef.current = omitSessionRecord(permissionModeVersionsRef.current, sessionId)
       setErrorsBySession((current) => omitSessionRecord(current, sessionId))
       userStoppedSessions.current.delete(sessionId)
       cancelledToolParts.current.delete(sessionId)
@@ -235,6 +236,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
     pendingPermissionsMapRef.current = {}
     setPendingPermissionsMap({})
     permissionModesRef.current = {}
+    permissionModeVersionsRef.current = {}
     setPermissionModes({})
     setGlobalError(null)
     setErrorsBySession({})
@@ -421,6 +423,10 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       }
     }, userStoppedToolCancelWindowMs)
     return timer
+  }, [])
+
+  const unmarkSessionUserStopped = React.useCallback((sessionId: string) => {
+    userStoppedSessions.current.delete(sessionId)
   }, [])
 
   const isSessionUserStopped = React.useCallback((sessionId: string): boolean => {
@@ -924,18 +930,20 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       setGlobalError(null)
       clearSessionError(sessionId)
       markSessionUserStopped(sessionId)
-      markCurrentToolsCancelled(sessionId)
-      clearPendingQuestions(sessionId)
-      clearPendingPermissions(sessionId)
       try {
         await chatService.invoke("stopGeneration", sessionId)
+        markCurrentToolsCancelled(sessionId)
+        clearPendingQuestions(sessionId)
+        clearPendingPermissions(sessionId)
         setStatus(sessionId, "ready")
         setActivity(sessionId, undefined)
       } catch (err) {
+        unmarkSessionUserStopped(sessionId)
         reportRendererHandledError("chat", "stopGeneration invoke failed", err)
         setStatus(sessionId, "error")
         setActivity(sessionId, undefined)
         setSessionError(sessionId, String(err))
+        throw err
       }
     },
     [
@@ -948,6 +956,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       setActivity,
       setSessionError,
       setStatus,
+      unmarkSessionUserStopped,
     ],
   )
 

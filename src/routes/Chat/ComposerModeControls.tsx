@@ -3,8 +3,9 @@ import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.
 import type { ContextUsageInfo } from "./context-usage.ts"
 
 import { Mic } from "lucide-react"
+import { AgentModePicker } from "./AgentModePicker.tsx"
 import { ComposerContextUsageIndicator } from "./ComposerContextUsageIndicator.tsx"
-import { AgentModePicker, ModelReasoningPicker } from "./ModelControls.tsx"
+import { ModelReasoningPicker } from "./ModelReasoningPicker.tsx"
 import { PermissionModePicker } from "./PermissionModePicker.tsx"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"

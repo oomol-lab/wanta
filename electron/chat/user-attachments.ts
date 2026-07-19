@@ -3,6 +3,7 @@ import type { ChatAttachment, ChatMessage, ChatMessagePart } from "./common.ts"
 import { chmod, lstat, readFile, readdir, rm } from "node:fs/promises"
 import path from "node:path"
 import { atomicWriteText } from "../atomic-file.ts"
+import { logDiagnostic } from "../diagnostics-log.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface StoredUserAttachmentRecord {
@@ -188,6 +189,37 @@ export class UserAttachmentStore {
       await this.removeUnreferencedManagedFiles(removed, retainedPaths)
       await this.persist(records)
       this.records = records
+    })
+  }
+
+  /** 消息未提交时精确回滚附件记录；只删除未被其他消息继续引用的托管副本。 */
+  public async removeMessage(sessionId: string, messageId: string): Promise<void> {
+    await this.enqueueMutation(async () => {
+      const records = cloneRecords(await this.loadRecords())
+      const sessionRecords = records.get(sessionId)
+      const removed = sessionRecords?.get(messageId)
+      if (!sessionRecords || !removed) return
+      sessionRecords.delete(messageId)
+      if (sessionRecords.size === 0) records.delete(sessionId)
+      const retainedPaths = new Set(
+        [...records.values()]
+          .flatMap((messages) => [...messages.values()])
+          .flatMap((record) => [
+            ...record.attachments.map((attachment) => path.resolve(attachment.path)),
+            ...record.internalPaths.map((internalPath) => path.resolve(internalPath)),
+          ]),
+      )
+      await this.persist(records)
+      this.records = records
+      await this.removeUnreferencedManagedFiles([removed], retainedPaths).catch((error: unknown) => {
+        console.warn("[wanta] failed to clean rolled-back user attachments:", error)
+        logDiagnostic(
+          "chat-service",
+          "failed to clean rolled-back user attachments",
+          { error, messageId, sessionId },
+          "warn",
+        )
+      })
     })
   }
 

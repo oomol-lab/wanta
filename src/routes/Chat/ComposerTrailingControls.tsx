@@ -1,7 +1,7 @@
 import type { AgentMode, AgentPermissionMode, ReasoningLevel } from "../../../electron/chat/common.ts"
 import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.ts"
+import type { ChatTurnState } from "./chat-turn-state.ts"
 import type { ContextUsageInfo } from "./context-usage.ts"
-import type { ChatStatus } from "ai"
 
 import { ListPlus, Loader2, RotateCcw, Square, X } from "lucide-react"
 import * as React from "react"
@@ -20,13 +20,11 @@ interface ComposerTrailingControlsProps {
   canSubmit: boolean
   composerDisabled: boolean
   contextUsage: ContextUsageInfo | null
-  initialSendPending: boolean
-  isGenerating: boolean
+  turnState: ChatTurnState
   modelCatalog: ModelCatalog | null
   agentMode: AgentMode
   permissionMode: AgentPermissionMode
   reasoningLevel: ReasoningLevel
-  status: ChatStatus
   voiceActive: boolean
   voiceBars: readonly number[]
   voiceDurationMs: number
@@ -167,13 +165,11 @@ export function ComposerTrailingControls({
   canSubmit,
   composerDisabled,
   contextUsage,
-  initialSendPending,
-  isGenerating,
+  turnState,
   modelCatalog,
   agentMode,
   permissionMode,
   reasoningLevel,
-  status,
   voiceActive,
   voiceBars,
   voiceDurationMs,
@@ -199,7 +195,7 @@ export function ComposerTrailingControls({
   const t = useT()
   const visibleVoiceError = voiceError ?? voiceRecorderError
   const voiceMode = composerVoiceControlMode({ voiceActive, voiceStarting, voiceTranscribing, visibleVoiceError })
-  const submit = composerSubmitState({ canSubmit, initialSendPending, isGenerating, status, willQueueMessage })
+  const submit = composerSubmitState({ canSubmit, turnState, willQueueMessage })
   const retryDisabled = !voiceRetryBlob || voiceTranscribing
   const stopLabel = labelWithShortcut(t("aria.stop"), appCommandShortcutLabel(APP_COMMANDS.stopGeneration))
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { ArtifactPreviewLoadScheduler } from "./artifact-preview-scheduler.ts"
+import { ArtifactPreviewLoadCancelledError, ArtifactPreviewLoadScheduler } from "./artifact-preview-scheduler.ts"
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -59,4 +59,43 @@ test("preview scheduler starts queued interactive work before background work", 
   await Promise.all([first, background, interactive])
 
   assert.deepEqual(order, ["active-background", "interactive", "queued-background"])
+})
+
+test("preview scheduler cancels queued work before it starts", async () => {
+  const scheduler = new ArtifactPreviewLoadScheduler(1)
+  const blocker = deferred<void>()
+  const controller = new AbortController()
+  let cancelledStarted = false
+  const first = scheduler.schedule(() => blocker.promise, "interactive")
+  const cancelled = scheduler.schedule(
+    async () => {
+      cancelledStarted = true
+    },
+    "background",
+    controller.signal,
+  )
+
+  controller.abort()
+  await assert.rejects(cancelled, ArtifactPreviewLoadCancelledError)
+  blocker.resolve()
+  await first
+  assert.equal(cancelledStarted, false)
+})
+
+test("preview scheduler drops the oldest background task when the queue is full", async () => {
+  const scheduler = new ArtifactPreviewLoadScheduler(1, 1)
+  const blocker = deferred<void>()
+  const order: string[] = []
+  const first = scheduler.schedule(() => blocker.promise, "interactive")
+  const dropped = scheduler.schedule(async () => {
+    order.push("dropped")
+  }, "background")
+  const retained = scheduler.schedule(async () => {
+    order.push("retained")
+  }, "background")
+
+  await assert.rejects(dropped, ArtifactPreviewLoadCancelledError)
+  blocker.resolve()
+  await Promise.all([first, retained])
+  assert.deepEqual(order, ["retained"])
 })

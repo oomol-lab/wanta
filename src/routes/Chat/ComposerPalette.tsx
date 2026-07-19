@@ -1,5 +1,6 @@
 import { ArrowRight, ChevronLeft } from "lucide-react"
 import * as React from "react"
+import { composerPaletteItemElementId } from "./composer-palette-accessibility.ts"
 import { cn } from "@/lib/utils"
 
 export interface ComposerPaletteItem {
@@ -19,9 +20,12 @@ export interface ComposerPaletteItem {
 
 export interface ComposerPaletteProps<TItem extends ComposerPaletteItem = ComposerPaletteItem> {
   activeId?: string
+  backLabel: string
   emptyLabel: string
   headerLabel?: string
+  id: string
   items: TItem[]
+  label: string
   onBack?: () => void
   onSelect: (item: TItem) => void
   onSecondarySelect?: (item: TItem) => void
@@ -35,15 +39,18 @@ function readTitlebarHeight(): number {
 
 export function ComposerPalette<TItem extends ComposerPaletteItem>({
   activeId,
+  backLabel,
   emptyLabel,
   headerLabel,
+  id,
   items,
+  label,
   onBack,
   onSelect,
   onSecondarySelect,
 }: ComposerPaletteProps<TItem>) {
   const rootRef = React.useRef<HTMLDivElement | null>(null)
-  const activeItemRef = React.useRef<HTMLDivElement | null>(null)
+  const activeItemRef = React.useRef<HTMLButtonElement | null>(null)
   const [maxHeight, setMaxHeight] = React.useState<number | undefined>(undefined)
 
   const updateMaxHeight = React.useCallback(() => {
@@ -85,7 +92,10 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
 
   return (
     <div
+      id={id}
       ref={rootRef}
+      role="listbox"
+      aria-label={label}
       style={maxHeight === undefined ? undefined : { maxHeight }}
       className="oo-border-divider absolute right-0 bottom-full left-0 z-20 mb-2 overflow-y-auto rounded-xl border bg-popover p-2 text-popover-foreground shadow-xl"
     >
@@ -94,6 +104,7 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
           {onBack ? (
             <button
               type="button"
+              aria-label={backLabel}
               className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
               onMouseDown={(event) => event.preventDefault()}
               onClick={onBack}
@@ -119,7 +130,6 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
           return (
             <div
               key={item.id}
-              ref={active ? activeItemRef : undefined}
               className={cn(
                 "group flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left outline-none focus-within:bg-accent focus-within:text-accent-foreground hover:bg-accent hover:text-accent-foreground",
                 active && "bg-accent text-accent-foreground",
@@ -127,7 +137,11 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
               )}
             >
               <button
+                id={composerPaletteItemElementId(id, item.id)}
+                ref={active ? activeItemRef : undefined}
                 type="button"
+                role="option"
+                aria-selected={active}
                 disabled={item.disabled}
                 className={cn(
                   "-mx-2 flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none",
@@ -190,7 +204,9 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
           )
         })
       ) : (
-        <div className="oo-text-body px-3 py-5 text-center text-muted-foreground">{emptyLabel}</div>
+        <div role="status" className="oo-text-body px-3 py-5 text-center text-muted-foreground">
+          {emptyLabel}
+        </div>
       )}
     </div>
   )

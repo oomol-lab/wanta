@@ -32,10 +32,11 @@ describe("KnowledgeStore", () => {
 
   it("serializes concurrent record mutations without losing updates", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-knowledge-"))
-    const store = new KnowledgeStore(path.join(dir, "user-data"))
+    const userDataDir = path.join(dir, "user-data")
+    const store = new KnowledgeStore(userDataDir)
     const record = (id: string) => ({
       id,
-      filePath: path.join(dir, `${id}.wikg`),
+      filePath: path.join(userDataDir, "knowledge-bases", "files", `${id}.wikg`),
       fingerprint: `${id}-fingerprint`,
       importedAt: 1,
       size: 1,
@@ -101,12 +102,39 @@ describe("KnowledgeStore", () => {
     expect(await readFile(registryPath, "utf-8")).toBe("{broken")
   })
 
+  it("rejects malformed nested records and paths outside the managed directory", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-knowledge-"))
+    const userDataDir = path.join(dir, "user-data")
+    const registryPath = path.join(userDataDir, "knowledge-bases", "library.json")
+    await mkdir(path.dirname(registryPath), { recursive: true })
+    const base = {
+      id: "knowledge",
+      filePath: path.join(userDataDir, "knowledge-bases", "files", "knowledge.wikg"),
+      fingerprint: "knowledge-fingerprint",
+      importedAt: 1,
+      size: 1,
+      sourceFileName: "knowledge.wikg",
+      title: "Knowledge",
+      authors: [],
+      capabilities: { fullTextSearch: true, knowledgeGraph: false, readingGraph: false, summary: false },
+      statistics: {},
+    }
+    const store = new KnowledgeStore(userDataDir)
+
+    await writeFile(registryPath, JSON.stringify({ version: 1, records: [{ ...base, capabilities: {} }] }))
+    await expect(store.listRecords()).rejects.toThrow("Knowledge library could not be read safely")
+
+    await writeFile(registryPath, JSON.stringify({ version: 1, records: [{ ...base, filePath: "/tmp/other.wikg" }] }))
+    await expect(store.listRecords()).rejects.toThrow("Knowledge library could not be read safely")
+  })
+
   it("updates only records that still exist", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-knowledge-"))
-    const store = new KnowledgeStore(path.join(dir, "user-data"))
+    const userDataDir = path.join(dir, "user-data")
+    const store = new KnowledgeStore(userDataDir)
     const record = {
       id: "knowledge",
-      filePath: path.join(dir, "knowledge.wikg"),
+      filePath: path.join(userDataDir, "knowledge-bases", "files", "knowledge.wikg"),
       fingerprint: "knowledge-fingerprint",
       importedAt: 1,
       size: 1,

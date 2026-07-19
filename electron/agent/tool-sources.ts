@@ -628,6 +628,7 @@ export default tool({
 const QUERY_KNOWLEDGE_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
 import { readFile } from "node:fs/promises"
+import { dirname, resolve } from "node:path"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
@@ -635,6 +636,8 @@ const EXECUTABLE = process.env.WANTA_WIKIGRAPH_EXECUTABLE || ""
 const CLI = process.env.WANTA_WIKIGRAPH_CLI || ""
 const REGISTRY = process.env.WANTA_KNOWLEDGE_REGISTRY || ""
 const SCOPE = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
+const SCOPE_SYNC_ATTEMPTS = 5
+const SCOPE_SYNC_RETRY_MS = 20
 const OPTIONS = {
   encoding: "utf8",
   env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NO_COLOR: "1" },
@@ -665,20 +668,53 @@ function relativeObject(value) {
 
 async function allowedKnowledgeBaseIds(sessionID) {
   if (!SCOPE || !sessionID) throw new Error("knowledge access scope is unavailable")
-  const parsed = JSON.parse(await readFile(SCOPE, "utf8"))
-  const sessions = parsed && parsed.sessionKnowledgeBaseIds
-  const ids = sessions && typeof sessions === "object" ? sessions[sessionID] : undefined
-  return Array.isArray(ids) ? ids.filter((id) => typeof id === "string") : []
+  for (let attempt = 0; attempt < SCOPE_SYNC_ATTEMPTS; attempt += 1) {
+    let parsed
+    try {
+      parsed = JSON.parse(await readFile(SCOPE, "utf8"))
+    } catch {
+      throw new Error("knowledge access scope is unavailable")
+    }
+    const sessions = parsed && parsed.sessionKnowledgeBaseIds
+    const hasSession = sessions && typeof sessions === "object" && Object.hasOwn(sessions, sessionID)
+    if (hasSession) {
+      const ids = sessions[sessionID]
+      if (!Array.isArray(ids)) throw new Error("knowledge access scope is unavailable")
+      return ids.filter((id) => typeof id === "string")
+    }
+    if (attempt + 1 < SCOPE_SYNC_ATTEMPTS) {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, SCOPE_SYNC_RETRY_MS))
+    }
+  }
+  return []
 }
 
 async function recordFor(id, sessionID) {
   if (!REGISTRY) throw new Error("knowledge registry is unavailable")
   const allowedIds = await allowedKnowledgeBaseIds(sessionID)
   if (!allowedIds.includes(id)) throw new Error("knowledge base is not pinned to the current conversation")
-  const parsed = JSON.parse(await readFile(REGISTRY, "utf8"))
-  const records = Array.isArray(parsed && parsed.records) ? parsed.records : []
+  let parsed
+  try {
+    parsed = JSON.parse(await readFile(REGISTRY, "utf8"))
+  } catch {
+    throw new Error("knowledge registry is unavailable")
+  }
+  if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.records)) {
+    throw new Error("knowledge registry is unavailable")
+  }
+  const records = parsed.records
   const record = records.find((item) => item && item.id === id)
-  if (!record || typeof record.filePath !== "string") throw new Error("knowledge base not found")
+  if (
+    !record ||
+    typeof record.filePath !== "string" ||
+    !record.filePath.trim() ||
+    typeof record.title !== "string"
+  ) {
+    throw new Error("knowledge base not found")
+  }
+  if (dirname(resolve(record.filePath)) !== resolve(dirname(REGISTRY), "files")) {
+    throw new Error("knowledge base has an invalid managed path")
+  }
   return record
 }
 

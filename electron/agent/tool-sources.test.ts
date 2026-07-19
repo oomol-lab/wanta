@@ -1,3 +1,4 @@
+import { dirname, resolve } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
@@ -52,13 +53,15 @@ function loadKnowledgeTool(
   const tool = Object.assign((value: unknown) => value, {
     schema: { enum: () => schema, number: () => schema, string: () => schema },
   })
-  const factory = new Function("tool", "execFile", "readFile", "promisify", source) as (
+  const factory = new Function("tool", "execFile", "readFile", "dirname", "resolve", "promisify", source) as (
     toolValue: typeof tool,
     execFileValue: typeof execFile,
     readFileValue: typeof readFile,
+    dirnameValue: typeof dirname,
+    resolveValue: typeof resolve,
     promisifyValue: (value: typeof execFile) => typeof execFile,
   ) => LoadedKnowledgeTool
-  return factory(tool, execFile, readFile, (value) => value)
+  return factory(tool, execFile, readFile, dirname, resolve, (value) => value)
 }
 
 function loadListAppsTool(
@@ -144,7 +147,8 @@ describe("query_knowledge embedded runtime", () => {
         return JSON.stringify({ sessionKnowledgeBaseIds: { "session-1": ["allowed"] } })
       }
       return JSON.stringify({
-        records: [{ filePath: "/managed/allowed.wikg", id: "allowed", title: "Allowed" }],
+        version: 1,
+        records: [{ filePath: "/tmp/files/allowed.wikg", id: "allowed", title: "Allowed" }],
       })
     })
     const loaded = loadKnowledgeTool(execFile, readFile)
@@ -161,6 +165,61 @@ describe("query_knowledge embedded runtime", () => {
     await expect(
       loaded.execute({ knowledgeBaseId: "allowed", operation: "inspect" }, { sessionID: "session-1" }),
     ).resolves.toBe('{"ok":true}')
+    expect(execFile).toHaveBeenCalledOnce()
+  })
+
+  it("fails closed without exposing private paths when the scope or registry cannot be read", async () => {
+    process.env.WANTA_KNOWLEDGE_REGISTRY = "/private/user-data/knowledge-bases/library.json"
+    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/private/user-data/agent-scope.json"
+    process.env.WANTA_WIKIGRAPH_CLI = "/tmp/wiki-graph-cli.js"
+    process.env.WANTA_WIKIGRAPH_EXECUTABLE = "/tmp/node"
+    const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
+    const readFile = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("ENOENT: /private/user-data/agent-scope.json"))
+      .mockResolvedValueOnce(JSON.stringify({ sessionKnowledgeBaseIds: { "session-1": ["allowed"] } }))
+      .mockResolvedValueOnce("{broken")
+    const loaded = loadKnowledgeTool(execFile, readFile)
+
+    const missingScope = JSON.parse(
+      await loaded.execute({ knowledgeBaseId: "allowed", operation: "inspect" }, { sessionID: "session-1" }),
+    ) as { message?: string; status?: string }
+    expect(missingScope).toEqual({ message: "knowledge access scope is unavailable", status: "error" })
+
+    const corruptRegistry = JSON.parse(
+      await loaded.execute({ knowledgeBaseId: "allowed", operation: "inspect" }, { sessionID: "session-1" }),
+    ) as { message?: string; status?: string }
+    expect(corruptRegistry).toEqual({ message: "knowledge registry is unavailable", status: "error" })
+    expect(JSON.stringify([missingScope, corruptRegistry])).not.toContain("/private/user-data")
+    expect(execFile).not.toHaveBeenCalled()
+  })
+
+  it("waits briefly for a task subagent allowlist to inherit from its parent session", async () => {
+    process.env.WANTA_KNOWLEDGE_REGISTRY = "/tmp/knowledge-registry.json"
+    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/agent-scope.json"
+    process.env.WANTA_WIKIGRAPH_CLI = "/tmp/wiki-graph-cli.js"
+    process.env.WANTA_WIKIGRAPH_EXECUTABLE = "/tmp/node"
+    const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
+    let scopeReads = 0
+    const readFile = vi.fn(async (filePath: string) => {
+      if (filePath === "/tmp/agent-scope.json") {
+        scopeReads += 1
+        return JSON.stringify({
+          sessionKnowledgeBaseIds:
+            scopeReads === 1 ? { parent: ["allowed"] } : { child: ["allowed"], parent: ["allowed"] },
+        })
+      }
+      return JSON.stringify({
+        version: 1,
+        records: [{ filePath: "/tmp/files/allowed.wikg", id: "allowed", title: "Allowed" }],
+      })
+    })
+    const loaded = loadKnowledgeTool(execFile, readFile)
+
+    await expect(
+      loaded.execute({ knowledgeBaseId: "allowed", operation: "inspect" }, { sessionID: "child" }),
+    ).resolves.toBe('{"ok":true}')
+    expect(scopeReads).toBe(2)
     expect(execFile).toHaveBeenCalledOnce()
   })
 })

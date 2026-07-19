@@ -44,6 +44,7 @@ function createBridgeAgent(): {
   getPendingPermissionsForSessions: ReturnType<typeof vi.fn>
   getPendingQuestions: ReturnType<typeof vi.fn>
   getPendingQuestionsForSessions: ReturnType<typeof vi.fn>
+  inheritSessionKnowledgeBaseIds: ReturnType<typeof vi.fn>
   promptStreaming: ReturnType<typeof vi.fn>
   rejectQuestion: ReturnType<typeof vi.fn>
   setSessionKnowledgeBaseIds: ReturnType<typeof vi.fn>
@@ -69,6 +70,7 @@ function createBridgeAgent(): {
     const results = await Promise.all(sessionIds.map((sessionId) => getPendingQuestions(sessionId)))
     return results.flat()
   })
+  const inheritSessionKnowledgeBaseIds = vi.fn(async () => undefined)
   const promptStreaming = vi.fn(
     async (_sessionId: string, _text: string, _options: { messageId?: string }) => undefined,
   )
@@ -124,6 +126,7 @@ function createBridgeAgent(): {
     getPendingPermissionsForSessions,
     getPendingQuestions,
     getPendingQuestionsForSessions,
+    inheritSessionKnowledgeBaseIds,
   } as unknown as AgentManager
   return {
     agent,
@@ -146,6 +149,7 @@ function createBridgeAgent(): {
     getPendingPermissionsForSessions,
     getPendingQuestions,
     getPendingQuestionsForSessions,
+    inheritSessionKnowledgeBaseIds,
     getMessages,
     promptStreaming,
     rejectQuestion,
@@ -2196,6 +2200,7 @@ test("trusted project permissions are approved for task subagent sessions", asyn
 
   await service.sendMessage({
     scope: testOrganizationScope,
+    contextMentions: [{ id: "knowledge-1", kind: "knowledge", name: "Product handbook" }],
     projectContext: {
       id: "project-1",
       name: "wanta",
@@ -2226,6 +2231,8 @@ test("trusted project permissions are approved for task subagent sessions", asyn
       },
     },
   })
+  await waitForCondition(() => bridge.inheritSessionKnowledgeBaseIds.mock.calls.length === 1)
+  assert.deepEqual(bridge.inheritSessionKnowledgeBaseIds.mock.calls, [["parent-session", "child-session"]])
   bridge.emit({
     type: "permission.v2.asked",
     properties: {

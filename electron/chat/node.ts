@@ -511,6 +511,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           const childSessionId = taskChildSessionId(translated.data)
           if (childSessionId) {
             this.subagentSessions.remember(translated.data.sessionId, childSessionId)
+            void this.agent
+              ?.inheritSessionKnowledgeBaseIds(translated.data.sessionId, childSessionId)
+              .catch((error: unknown) => {
+                console.warn("[wanta] failed to inherit task subagent knowledge scope:", error)
+              })
           }
         }
         if (translated.event === "toolCallResult") {
@@ -527,6 +532,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           const childSessionId = taskChildSessionId(translated.data)
           if (childSessionId) {
             this.subagentSessions.forget(translated.data.sessionId, childSessionId)
+            void this.agent?.clearSessionKnowledgeBaseIds(childSessionId).catch((error: unknown) => {
+              console.warn("[wanta] failed to clear task subagent knowledge scope:", error)
+            })
           }
           if (translated.data.authorization) {
             void this.rememberAuthorizationOverlay(
@@ -1030,6 +1038,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     if (generation) this.clearCompletionRetry(`${sessionId}\0${generation.id}`)
     this.generations.clear(sessionId, generationId)
+    const childSessionIds = this.subagentSessions.childSessionIds(sessionId)
     this.subagentSessions.forgetAll(sessionId)
     this.forgetSessionPendingPermissionRequests(sessionId)
     this.removeGenerationPermissionGrants(sessionId, generation?.id)
@@ -1039,6 +1048,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       void Promise.all([
         agent.clearSessionOrganizationName(sessionId),
         agent.clearSessionKnowledgeBaseIds(sessionId),
+        ...childSessionIds.map((childSessionId) => agent.clearSessionKnowledgeBaseIds(childSessionId)),
       ]).catch((error: unknown) => {
         console.warn("[wanta] failed to clear session agent scope:", error)
       })

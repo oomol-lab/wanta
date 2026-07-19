@@ -31,18 +31,52 @@ function parseKnowledgeLibrary(value: unknown): KnowledgeBaseRecord[] {
 function isRecord(value: unknown): value is KnowledgeBaseRecord {
   if (!value || typeof value !== "object") return false
   const record = value as Partial<KnowledgeBaseRecord>
+  const capabilities = record.capabilities
+  const statistics = record.statistics
   return Boolean(
-    typeof record.id === "string" &&
-    typeof record.title === "string" &&
-    typeof record.filePath === "string" &&
-    typeof record.fingerprint === "string" &&
-    typeof record.sourceFileName === "string" &&
-    typeof record.size === "number" &&
-    typeof record.importedAt === "number" &&
+    nonEmptyString(record.id) &&
+    nonEmptyString(record.title) &&
+    nonEmptyString(record.filePath) &&
+    nonEmptyString(record.fingerprint) &&
+    nonEmptyString(record.sourceFileName) &&
+    nonNegativeFiniteNumber(record.size) &&
+    nonNegativeFiniteNumber(record.importedAt) &&
     Array.isArray(record.authors) &&
-    record.capabilities &&
-    record.statistics,
+    record.authors.every((author) => typeof author === "string") &&
+    optionalString(record.publisher) &&
+    optionalString(record.publishedAt) &&
+    optionalString(record.language) &&
+    optionalString(record.coverDataUrl) &&
+    Boolean(
+      capabilities &&
+      typeof capabilities.fullTextSearch === "boolean" &&
+      typeof capabilities.knowledgeGraph === "boolean" &&
+      typeof capabilities.readingGraph === "boolean" &&
+      typeof capabilities.summary === "boolean",
+    ) &&
+    Boolean(
+      statistics &&
+      optionalNonNegativeFiniteNumber(statistics.totalChapters) &&
+      optionalNonNegativeFiniteNumber(statistics.contentChapters) &&
+      optionalNonNegativeFiniteNumber(statistics.sourceWords),
+    ),
   )
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && Boolean(value.trim())
+}
+
+function optionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string"
+}
+
+function nonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+}
+
+function optionalNonNegativeFiniteNumber(value: unknown): value is number | undefined {
+  return value === undefined || nonNegativeFiniteNumber(value)
 }
 
 export async function fileSha256(filePath: string): Promise<string> {
@@ -74,7 +108,11 @@ export class KnowledgeStore {
 
   public async listRecords(): Promise<KnowledgeBaseRecord[]> {
     try {
-      return parseKnowledgeLibrary(JSON.parse(await readFile(this.libraryFile, "utf-8")))
+      const records = parseKnowledgeLibrary(JSON.parse(await readFile(this.libraryFile, "utf-8")))
+      if (records.some((record) => path.dirname(record.filePath) !== this.filesDir)) {
+        throw new Error("Knowledge library contains an invalid managed file path")
+      }
+      return records
     } catch (error) {
       if (isMissingFileError(error)) return []
       logStoreReadFailure("knowledge library", this.libraryFile, error)
@@ -176,7 +214,14 @@ export class KnowledgeStore {
         }
         throw error
       }
-      if (staged) await rm(stagedPath, { force: true })
+      if (staged) {
+        try {
+          await rm(stagedPath, { force: true })
+        } catch (error) {
+          // registry 已经提交删除，不能再把逻辑成功报告为失败；残留暂存文件不再可被查询。
+          console.warn("[wanta] failed to remove staged knowledge base file:", error)
+        }
+      }
     })
   }
 

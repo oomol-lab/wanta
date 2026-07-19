@@ -311,6 +311,20 @@ export class AgentManager {
     })
   }
 
+  /** task 子会话使用独立 sessionID，必须显式继承父会话的知识库 allowlist。 */
+  public async inheritSessionKnowledgeBaseIds(parentSessionId: string, childSessionId: string): Promise<void> {
+    const normalizedParentId = parentSessionId.trim()
+    const normalizedChildId = childSessionId.trim()
+    if (!normalizedParentId || !normalizedChildId || normalizedParentId === normalizedChildId) return
+    await this.queueOrganizationUpdate(async () => {
+      const parentIds = this.sessionKnowledgeBaseIds.get(normalizedParentId) ?? []
+      if (sameStringArray(this.sessionKnowledgeBaseIds.get(normalizedChildId), parentIds)) return
+      if (parentIds.length > 0) this.sessionKnowledgeBaseIds.set(normalizedChildId, [...parentIds])
+      else this.sessionKnowledgeBaseIds.delete(normalizedChildId)
+      await this.writeOrganizationScope(this.organizationName)
+    })
+  }
+
   public async removeKnowledgeBaseAccess(knowledgeBaseId: string): Promise<void> {
     const normalizedId = knowledgeBaseId.trim()
     if (!normalizedId) return

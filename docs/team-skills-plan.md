@@ -1,59 +1,95 @@
-# 团队级 Skill 配置方案
+# Team-Level Skill Configuration Plan
 
-> 状态：部分实施。当前线上 Registry 只支持“团队关联整个 package”：读取使用团队 `package-infos`，添加和删除使用 package ↔ team 关联接口。下文第 4 节的 per-Skill `org-control` 模型仍是后续演进方案，当前客户端不得调用其中的 PATCH、单 Skill DELETE 或排序接口，也不提供无法持久化的单 Skill启停 UI。当前运行时边界和模块地图以 [architecture.md](architecture.md) 及源码为准。
+> Status: partially implemented. Phases 1–3 of §10 are live: the renderer client
+> (`src/lib/team-skills-client.ts`), the `useTeamSkills` hook, the SkillsRoute team tab, the
+> composer palette merge, and the per-turn system prompt via `buildTeamSkillsSystem`. The live
+> Registry only supports "associating a whole package with a team": reads use the team's
+> `package-infos`, add and remove use the package ↔ team association endpoints. The per-Skill
+> `org-control` model in §4 below remains a future evolution — the client must not call its PATCH,
+> per-Skill DELETE, or reorder endpoints, and must not offer per-Skill enable/disable UI that
+> cannot be persisted. For current runtime boundaries and the module map, defer to
+> [architecture.md](architecture.md) and the source.
 >
-> 相关：[project-overview.md](project-overview.md)（产品定位）· [architecture.md](architecture.md)（进程与 Agent）· [conventions.md](conventions.md)（约定）
+> Related: [project-overview.md](project-overview.md) (product positioning) ·
+> [architecture.md](architecture.md) (processes and Agent) · [conventions.md](conventions.md)
+> (conventions)
 
-## 1. 背景与目标
+## 1. Background and goals
 
-当团队连接了大量 SaaS 服务后，Agent 只依赖 action 搜索与 schema inspect，容易出现服务选择不稳定、参数理解偏差、任务流程不一致等问题。团队级 Skill 的目标是让团队管理员把与团队工作流强相关的 Skill 配置到团队工作区，使成员切换到该团队后，Agent 自动获得这组 Skill 的指导，从而更准确地调用团队连接器与本地工具。
+Once a team has connected many SaaS services, an Agent that relies only on action search and
+schema inspect tends to pick services inconsistently, misread parameters, and drift across task
+flows. The goal of team-level Skills is to let a team admin configure the Skills most relevant to
+the team's workflows into the team workspace, so that when a member switches to that team, the
+Agent automatically receives this set of Skills as guidance and calls team connectors and local
+tools more accurately.
 
-本功能要满足：
+The feature must satisfy:
 
-- 团队拥有自己的 Skill 配置，并与当前团队的 runtime Skill 共同生效。
-- 用户切换团队时，连接器作用域与团队 Skill 作用域同步变化。
-- 成员可查看团队 Skill，团队 creator 可管理团队 Skill。
-- 配置结果必须进入 Agent 生效路径，而不是只显示在 UI 上。
-- 后端 API 参考 Console 现有 Skill / team / connection 设计，但 Wanta 前端按当前三栏与 Skills Route 结构接入。
+- A team owns its own Skill configuration, effective together with the current team's runtime
+  Skills.
+- When the user switches teams, the connector scope and the team Skill scope change in sync.
+- Members can view team Skills; the team creator can manage them.
+- The configuration must enter the Agent's effective path — not merely show up in the UI.
+- The backend API takes Console's existing Skill / team / connection design as reference, but the
+  Wanta frontend integrates it into the current three-pane layout and Skills Route structure.
 
-## 2. Console 参考结论
+## 2. Conclusions from the Console reference
 
-Console 的 Skill 菜单主要是“我发布的 Skill”管理和分享，不是完整的团队级 Skill 配置。
+Console's Skill menu is mainly "my published Skills" management and sharing — not a full
+team-level Skill configuration.
 
-可直接参考的部分：
+Directly reusable parts:
 
-| 范围                | Console 位置                         | 可复用点                                                                                       |
-| ------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| 我发布的 Skill 列表 | `src/api/skills.ts`                  | `GET search.<endpoint>/v1/packages/-/my-skills?size=100&lang=...`                              |
-| Skill Markdown 预览 | `src/api/skills.ts`                  | `GET package-assets.../packages/{packageName}/{version}/files/package/skills/{skill}/SKILL.md` |
-| 私有 Skill 临时分享 | `src/api/skills.ts`                  | `POST registry.<endpoint>/-/oomol/package-shares/share/{packageName}`，仅适合临时分享          |
-| 团队 workspace 选择 | `src/stores/team-workspace/store.ts` | UI 存 team id，请求连接器时解析 team name                                                      |
-| 团队权限 Schema     | `src/api/teams.ts`                   | `Team` 返回 `role?: "creator" \| "member"` 与 `writable?: boolean`，权限优先读后端字段         |
-| 连接器团队作用域    | `src/api/connections.ts`             | 连接器请求通过 `x-oo-organization-name` header 切团队                                          |
+| Scope                      | Console location                     | Reusable point                                                                                 |
+| -------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| My published Skills list   | `src/api/skills.ts`                  | `GET search.<endpoint>/v1/packages/-/my-skills?size=100&lang=...`                              |
+| Skill Markdown preview     | `src/api/skills.ts`                  | `GET package-assets.../packages/{packageName}/{version}/files/package/skills/{skill}/SKILL.md` |
+| Private Skill temp sharing | `src/api/skills.ts`                  | `POST registry.<endpoint>/-/oomol/package-shares/share/{packageName}`, temp sharing only       |
+| Team workspace selection   | `src/stores/team-workspace/store.ts` | UI stores the team id, resolves the team name when requesting connectors                       |
+| Team permission schema     | `src/api/teams.ts`                   | `Team` returns `role?: "creator" \| "member"` and `writable?: boolean`; prefer backend fields  |
+| Connector team scope       | `src/api/connections.ts`             | Connector requests switch teams via the `x-oo-organization-name` header                        |
 
-不可照搬的部分：
+Parts that must not be copied wholesale:
 
-- Console 的 Skill 页没有“团队配置”概念，也不会让 Agent runtime 生效。
-- Console 的临时 share id 不适合作为团队长期配置。团队配置私有 Skill 应由后端按团队权限校验。
-- Wanta 已有更完整的 Skill 页面与本地 runtime 管理，应该增量接入团队层，而不是替换成 Console 的单列表页。
+- Console's Skill page has no "team configuration" concept and never makes the Agent runtime take
+  effect.
+- Console's temporary share id is unsuitable as long-term team configuration. Configuring a
+  private Skill for a team must be validated by the backend against team permissions.
+- Wanta already has a more complete Skill page and local runtime management; the team layer should
+  be added incrementally, not replaced by Console's single-list page.
 
-## 3. 当前 Wanta 基础
+## 3. Current Wanta foundation
 
-Wanta 已具备以下基础能力：
+Wanta already has these building blocks:
 
-- 团队列表、成员、权限、app access 请求已在渲染层直连，见 `src/lib/teams-client.ts`。
-- 连接器请求已按 workspace 带 `x-oo-organization-name`，见 `src/lib/connections-client.ts`。
-- Agent 团队作用域已通过 `chatService.setAgentTeam` 同步到主进程，`AgentManager` 写 `team-scope.json`，自定义 connector 工具运行时读取团队名。
-- Skills Route 已有 Discover / Installed / install / update / publish / preview，见 `src/routes/Skills/index.tsx`。
-- Runtime Skill 当前经 `SkillServiceImpl` 安装到 Wanta runtime skill root，并通过 agent refresh 让 OpenCode 重新扫描。
+- Team list, members, permissions, and app access requests are called directly from the renderer;
+  see `src/lib/teams-client.ts`.
+- Connector requests already carry `x-oo-organization-name` per workspace; see
+  `src/lib/connections-client.ts`.
+- The Agent team scope is synced to the main process via `chatService.setAgentTeam`;
+  `AgentManager` writes `team-scope.json`, and the custom connector tools read the team name at
+  runtime.
+- Skills Route has Discover / Installed / install / update / publish / preview; see
+  `src/routes/Skills/index.tsx`.
+- Runtime Skills are installed to the Wanta runtime skill root via `SkillServiceImpl`, and an
+  agent refresh makes OpenCode rescan.
+- The team-Skill client, `useTeamSkills` hook, SkillsRoute team tab, composer palette merge, and
+  per-turn system prompt (phases 1–3 in §10) are implemented; see §5–§6.
 
-因此团队级 Skill 的主要新增点是：远端团队配置 API、团队配置 UI、团队配置到 Agent 生效路径的同步。
+The remaining new work is therefore the per-Skill remote configuration API (§4) and the runtime
+file-sync path from team configuration to the Agent (§6.2).
 
-## 4. 后端 API 设计
+## 4. Backend API design (future work)
 
-团队级 Skill 是团队策略，建议 API 放在 `org-control.<endpoint>`。Skill 包浏览、Markdown 预览、registry 信息仍复用 search / registry / package-assets。
+Team-level Skills are team policy, so the API belongs on `org-control.<endpoint>`. Skill package
+browsing, Markdown preview, and registry info continue to reuse search / registry /
+package-assets.
 
-### 4.1 团队 Skill 配置模型
+None of the endpoints in this section are live. Until they exist, the client uses the interim
+registry association endpoints described in §5.1 and must not call the PATCH, per-Skill DELETE, or
+reorder endpoints below.
+
+### 4.1 Team Skill configuration model
 
 ```ts
 interface TeamSkillConfigItem {
@@ -74,21 +110,23 @@ interface TeamSkillConfigItem {
 }
 ```
 
-约束：
+Constraints:
 
-- `packageName + skillName` 在同一团队内唯一。
-- 默认 `versionPolicy = "pinned"`，保存具体版本，保证团队配置可复现。
-- `latest` 仅作为显式选择，后端在 resolved API 中解析到当前最新版本。
-- `enabled=false` 保留配置但不进入 Agent 生效集合。
+- `packageName + skillName` is unique within a team.
+- Default `versionPolicy = "pinned"`, storing a concrete version so team configuration stays
+  reproducible.
+- `latest` is an explicit opt-in only; the backend resolves it to the current latest version in
+  the resolved API.
+- `enabled=false` keeps the configuration but excludes it from the Agent's effective set.
 
-### 4.2 读取团队配置
+### 4.2 Read team configuration
 
 ```http
 GET /v1/organizations/{teamId}/skills
 Host: org-control.<endpoint>
 ```
 
-响应：
+Response:
 
 ```json
 {
@@ -114,12 +152,12 @@ Host: org-control.<endpoint>
 }
 ```
 
-权限：
+Permissions:
 
-- 团队 creator / member 均可读。
-- 用户不属于团队返回 403。
+- Both team creator and member can read.
+- A user outside the team gets 403.
 
-### 4.3 新增配置
+### 4.3 Add configuration
 
 ```http
 POST /v1/organizations/{teamId}/skills
@@ -127,7 +165,7 @@ Host: org-control.<endpoint>
 Content-Type: application/json
 ```
 
-请求：
+Request:
 
 ```json
 {
@@ -139,12 +177,13 @@ Content-Type: application/json
 }
 ```
 
-权限：
+Permissions:
 
-- 仅团队 creator 可写。
-- 后端校验 package 存在、skill 属于该 package、private package 对该团队或操作者可见。
+- Only the team creator can write.
+- The backend validates that the package exists, the skill belongs to that package, and a private
+  package is visible to the team or the operator.
 
-### 4.4 更新配置
+### 4.4 Update configuration
 
 ```http
 PATCH /v1/organizations/{teamId}/skills/{configId}
@@ -152,7 +191,7 @@ Host: org-control.<endpoint>
 Content-Type: application/json
 ```
 
-请求：
+Request:
 
 ```json
 {
@@ -163,14 +202,14 @@ Content-Type: application/json
 }
 ```
 
-### 4.5 删除配置
+### 4.5 Delete configuration
 
 ```http
 DELETE /v1/organizations/{teamId}/skills/{configId}
 Host: org-control.<endpoint>
 ```
 
-### 4.6 批量替换排序
+### 4.6 Bulk reorder
 
 ```http
 PUT /v1/organizations/{teamId}/skills/order
@@ -178,7 +217,7 @@ Host: org-control.<endpoint>
 Content-Type: application/json
 ```
 
-请求：
+Request:
 
 ```json
 {
@@ -191,14 +230,15 @@ Content-Type: application/json
 
 ### 4.7 Resolved API
 
-Wanta 要让 Skill 真正进入 Agent runtime，最终需要拿到可下载、可校验的 Skill artifact。建议新增：
+For Skills to truly enter the Agent runtime, Wanta ultimately needs a downloadable, verifiable
+Skill artifact. Proposed addition:
 
 ```http
 GET /v1/organizations/{teamId}/skills/resolved
 Host: org-control.<endpoint>
 ```
 
-响应：
+Response:
 
 ```json
 {
@@ -224,268 +264,326 @@ Host: org-control.<endpoint>
 }
 ```
 
-`resolved` endpoint 应是运行时解析的权威入口：后端在这里完成 package 权限校验、版本解析、artifact 地址生成和 checksum/manifest 生成。Wanta 只按响应下载单个 Skill artifact，并用 `checksum` 与 `manifest.files` 校验完整性后再释放到 runtime。
+The `resolved` endpoint must be the authoritative entry point for runtime resolution: the backend
+performs package permission checks, version resolution, artifact URL generation, and
+checksum/manifest generation there. Wanta only downloads the single Skill artifact per the
+response, verifies integrity against `checksum` and `manifest.files`, and only then releases it
+into the runtime.
 
-如果 registry 短期还没有单 Skill 归档，可以临时返回 `assetBaseUrl` + `skillPath` 作为目录 fallback，但仍必须同时返回 manifest 与每个文件 checksum。客户端不能只靠目录路径推断结构，否则容易遗漏 `references/`、`assets/`、脚本或后续新增资源。
+If the registry has no single-Skill archive in the short term, it may temporarily return
+`assetBaseUrl` + `skillPath` as a directory fallback — but it must still return the manifest and a
+checksum per file. The client must never infer structure from directory paths alone, or it will
+miss `references/`, `assets/`, scripts, or assets added later.
 
-## 5. Wanta 前端接入
+## 5. Wanta frontend integration
 
-### 5.1 新增请求客户端
+### 5.1 Request client
 
-新增 `src/lib/team-skills-client.ts`：
+`src/lib/team-skills-client.ts` exists and, until the §4 API ships, targets the registry's
+package ↔ team association endpoints:
 
-- `listTeamSkills(teamId)`
-- `addTeamSkill(teamId, input)`
-- `updateTeamSkill(teamId, configId, patch)`
-- `removeTeamSkill(teamId, configId)`
-- `reorderTeamSkills(teamId, items)`
-- `listResolvedTeamSkills(teamId)`（runtime 同步阶段使用）
-- `listMyPublishedSkills(locale)`（参考 Console `my-skills`）
-- `readSkillMarkdown(packageName, version, skillName)`
+- `listTeamSkills(teamId)` — `GET /-/oomol/orgs/{teamId}/package-infos` on the registry base URL;
+  the response is normalized (`normalizeTeamSkillPackages`) into `TeamSkillConfigItem`s, one per
+  skill in each associated package.
+- `addTeamSkill(teamId, input)` — `PUT /-/oomol/packages/{packageName}/orgs/{teamId}`; this
+  associates the whole package. `skillName` only feeds the local optimistic item; after refresh
+  the backend `package-infos` is the source of truth.
+- `removeTeamSkill(teamId, packageName)` — `DELETE` on the same URL; note it takes a
+  `packageName`, not a per-Skill `configId`, because the association is package-level.
+- `teamSkillsApiEnabled()` — feature switch read from `VITE_WANTA_TEAM_SKILLS_API` (legacy alias
+  `VITE_WANTA_ORGANIZATION_SKILLS_API`); `0` / `false` / `off` disable it.
+- `teamSkillMentionId(skill)` — stable `team:`-prefixed id used for composer mentions.
 
-实现要求：
+Still proposals, blocked on the §4 model: `updateTeamSkill(teamId, configId, patch)`,
+`reorderTeamSkills(teamId, items)`, `listResolvedTeamSkills(teamId)` (used in the runtime sync
+phase), `listMyPublishedSkills(locale)` (per Console `my-skills`), and
+`readSkillMarkdown(packageName, version, skillName)`.
 
-- 统一使用 `oomolFetchJson` / `oomolFetch`。
-- base URL 从 `@/lib/domain` 派生，补充 `packageAssetsBaseUrl` 常量时也必须来自 `electron/domain.ts`。
-- 不在渲染层设置 `Authorization` / `Cookie`，继续依赖 httpOnly `oomol-token` cookie。
-- 401 归一为现有 auth_required 流程。
+Binding implementation requirements (the current client satisfies them; keep them true):
 
-### 5.2 SkillsRoute 接收 workspace
+- Use `oomolFetchJson` / `oomolFetch` uniformly.
+- Base URLs derive from `@/lib/domain`; if a `packageAssetsBaseUrl` constant is added, it must
+  also come from `electron/domain.ts`.
+- Never set `Authorization` / `Cookie` in the renderer; keep relying on the httpOnly `oomol-token`
+  cookie.
+- Normalize 401 into the existing auth_required flow.
 
-当前 `AppShell` 已持有 `teamWorkspace`。将：
+### 5.2 SkillsRoute receives the workspace
 
-```tsx
-<SkillsRoute />
-```
-
-改为：
+Implemented. `AppShell` holds `teamWorkspace` and renders:
 
 ```tsx
 <SkillsRoute workspace={teamWorkspace} />
 ```
 
-`SkillsRoute` 内根据 `workspace.activeWorkspace` 决定团队配置区域状态：
+In practice the wiring went further than this plan: `SkillsRoute` also receives `teamSkills` (from
+`useTeamSkills`) plus connected-provider props (see `src/components/app-shell/AppShell.tsx` and
+the props in `src/routes/Skills/index.tsx`). Inside `SkillsRoute`, the team configuration area is
+gated on `workspace.activeWorkspace` (team tab shown when `activeWorkspace.teamId` is set):
 
-- 团队对象未解析：显示 loading。
-- 团队已解析：显示团队配置 tab / section。
+- Team object not yet resolved: show loading.
+- Team resolved: show the team configuration tab / section.
 
-### 5.3 新增 hook
+### 5.3 Hook
 
-新增 `src/routes/Skills/useTeamSkillConfig.ts` 或放入 `src/hooks/`：
+Implemented as `src/hooks/useTeamSkills.ts` (not the originally proposed `useTeamSkillConfig`):
 
 ```ts
-interface UseTeamSkillConfig {
+interface UseTeamSkills {
+  addSkill(input: AddTeamSkillInput, options?: { refresh?: boolean }): Promise<void>
+  apiEnabled: boolean
   canManage: boolean
+  chatContextSkills: TeamSkillChatContext[]
   error: UserFacingError | null
+  hasLoaded: boolean
   loading: boolean
+  teamId: string | null
+  teamName: string | null
+  refresh(options?: { forceRefresh?: boolean }): Promise<void>
+  removePackage(packageName: string): Promise<void>
   skills: TeamSkillConfigItem[]
-  addSkill(input: AddTeamSkillInput): Promise<void>
-  removeSkill(configId: string): Promise<void>
-  reload(options?: { forceRefresh?: boolean }): Promise<void>
-  reorder(items: { id: string; order: number }[]): Promise<void>
-  updateSkill(configId: string, patch: UpdateTeamSkillInput): Promise<void>
 }
 ```
 
-缓存 key 使用 `team:${teamId}`。切换团队时必须清空上一团队的配置状态，避免短暂显示错团队 Skill。
+`updateSkill` / `reorder` are deliberately absent: they cannot be persisted under the current
+package-level association and arrive with the §4 model. Caching is keyed per team (30 s in-memory
+cache plus a persisted cache under `wanta.team-skill-cache.v3`, 24 h max age, capped entries;
+the legacy `wanta.organization-skill-cache.v2` key is migrated). Switching teams must clear the
+previous team's configuration state so the wrong team's Skills are never shown, even briefly.
 
-### 5.4 UI 结构
+### 5.4 UI structure
 
-建议在现有 Skills 页面中加入团队区域，而不是创建新主路由：
+The team area lives inside the existing Skills page — no new top-level route. The team tab and the
+creator management flow are implemented (see `src/routes/Skills/index.tsx` and
+`src/routes/Skills/team-skill-manage-helpers.ts`):
 
-- 顶部显示当前团队名。
-- 团队态显示 `Team Skills` section。
-- 已配置 Skill 列表展示：icon、displayName、packageName@version、enabled 状态、更新时间。
-- creator 可见操作：Add、Enable/Disable、Remove、Update version、Reorder。
-- member 只读，操作区显示“Managed by team creator”。
+- The current team name shows at the top.
+- In team state, a `Team Skills` section is shown.
+- Configured Skills list: icon, displayName, packageName@version, enabled state, update time.
+- Creator-visible operations: Add and Remove today; Enable/Disable, Update version, and Reorder
+  are blocked on the §4 per-Skill model and must not be offered until it ships.
+- Members are read-only; the action area shows "Managed by team creator".
 
-Add Skill 面板：
+Add Skill panel (design intent; verify against the source for current coverage):
 
-- 数据源 tab：
-  - My published：使用 Console 的 `my-skills` API。
-  - Public：复用 Wanta 现有 public catalog。
-- 搜索字段匹配 displayName / skillName / packageName / description。
-- 选择具体 skill，而不是只选择 package。
-- 右侧预览 `SKILL.md`。
-- 确认后调用团队配置新增 API。
+- Data source tabs:
+  - My published: uses Console's `my-skills` API.
+  - Public: reuses Wanta's existing public catalog.
+- Search matches displayName / skillName / packageName / description.
+- Select a concrete skill, not just a package (note: persistence is package-level until §4).
+- `SKILL.md` preview on the right.
+- Confirmation calls the team configuration add API.
 
-### 5.5 Composer Palette
+### 5.5 Composer palette
 
-当前 `ChatComposer` 的 Skill palette 只来自 runtime inventory。团队态需要合并团队配置：
+Implemented. `buildSkillPaletteItems` (`src/routes/Chat/composer-palette-items.ts`) takes a
+`teamSkills` parameter, and `AppShell` injects the team Skills from `useTeamSkills`. The merged
+palette is: creator skill, then team Skills, then runtime inventory, with these rules:
 
-- 团队 Skill 排在本地 runtime Skill 前。
-- 同名 Skill 以团队配置优先。
-- 禁用的团队 Skill 不进入 palette。
-- 团队 Skill item 的 meta 显示 `team`。
-- 选中后仍生成 `ChatContextMention { kind: "skill" }`，进入当前 turn 的 system prompt。
+- Team Skills sort before local runtime Skills.
+- On a name/identity collision, the team configuration wins — matching inventory items are
+  deduplicated out.
+- Disabled team Skills do not enter the palette.
+- Team Skill items show `team` as their meta.
+- Selecting one still produces a `ChatContextMention { kind: "skill" }` that enters the current
+  turn's system prompt.
 
-## 6. Agent 生效路径
+Merge and dedup behavior is covered by `src/routes/Chat/composer-palette-items.test.ts`.
 
-团队级 Skill 有两阶段生效方案。
+## 6. Agent effective path
 
-### 6.1 第一阶段：system prompt 生效
+Team-level Skills take effect in two stages.
 
-这是最小可交付版本，不要求立刻同步 Skill 文件。
+### 6.1 Stage one: system prompt (implemented)
 
-流程：
+This was the minimum deliverable; it does not require syncing Skill files. It is live end to end:
 
-1. 渲染层切团队后加载团队 Skill 配置。
-2. 发送消息时把当前启用的团队 Skill 摘要传给 `chatService.sendMessage`，或主进程按 active team 自行读取缓存。
-3. `ChatServiceImpl` 构造 per-turn system prompt。
-4. `AgentManager.promptStreaming` 与现有 `buildAuthorizedSystem()`、`buildContextMentionsSystem()` 合并。
+1. The renderer loads the team Skill configuration after a team switch, and passes the enabled
+   team Skills through `ChatRoute` → `useChat` (`src/hooks/useChat.ts`).
+2. `SendMessageRequest` carries a `teamSkills` field (`electron/chat/common.ts`).
+3. `buildTeamSkillsSystem` (`electron/chat/context-system.ts`) builds the per-turn team Skills
+   system prompt.
+4. `sendMessage` in `electron/chat/node.ts` merges it (`mergeSystemPrompts`) with the existing
+   context / project / permission / bug-report systems before `AgentManager.promptStreaming`.
 
-提示词原则：
+Prompt principles (encoded in `buildTeamSkillsSystem`):
 
-- 只描述“团队为当前 workspace 配置了这些 Skill”，不强迫使用。
-- 明确“仅当用户请求相关时使用”。
-- 显式 `@skill` 的权重高于团队默认配置。
-- 不把大量完整 `SKILL.md` 全量塞进每轮 system，避免 prompt 膨胀；只放名称、id、描述、package。
+- It only states "the team configured these Skills for the current workspace" — never forces use.
+- It says explicitly to use them only when relevant to the user's actual task.
+- An explicit `@skill` selection outweighs the team default configuration.
+- It never inlines full `SKILL.md` bodies into every turn's system prompt (prompt bloat); only
+  name, id, package, version, description.
 
-示例：
+Actual output shape:
 
 ```text
 Team-configured skills for the active workspace:
-- Treat these as workspace guidance, not mandatory tool calls.
+- Treat these skills as workspace guidance, not mandatory tool calls.
 - Use them only when they are relevant to the user's actual task.
+- If the user selected a different explicit context for this turn, prefer the explicit user selection.
 - "Gmail Report"; id: "gmail-report"; package: "@oomol/gmail-skills"; description: "Generate repeatable Gmail summaries and reports."
 ```
 
-优点：切换团队即时生效；实现风险低。缺点：不等价于 OpenCode 原生 Skill 加载，复杂 Skill 的 references / scripts 不能自动读取。
+Strength: team switches take effect immediately; low implementation risk. Limitation: it is not
+equivalent to OpenCode-native Skill loading — a complex Skill's `references/` and scripts cannot
+be read automatically.
 
-### 6.2 第二阶段：runtime Skill 文件同步
+### 6.2 Stage two: runtime Skill file sync (future work)
 
-完整方案是把团队 Skill 同步到 Wanta app-private runtime skill root，让 OpenCode 扫描到真实 `SKILL.md` 与配套文件。
+The complete solution syncs team Skills into Wanta's app-private runtime skill root so OpenCode
+scans real `SKILL.md` files and their companion assets.
 
-目录建议：
+Proposed directories:
 
 ```text
 userData/agent/team-skills/{teamId}/{skillName}/
 userData/agent/workspace/.opencode/skill/{skillName}/
 ```
 
-注意：
+Cautions:
 
-- 不写 `~/.agents/skills`，避免污染用户目录和其他 agent。
-- 不删除 bundled skills。
-- 不删除用户本地 runtime skills，除非明确采用“团队覆盖同名 skill”的策略。
-- 同团队内禁止重复 `skillName`。
-- 切团队后同步完成再触发 agent refresh。
+- Never write `~/.agents/skills` — do not pollute the user's home directory or other agents.
+- Never delete bundled skills.
+- Never delete the user's local runtime skills, unless a "team overrides same-name skill" policy
+  is explicitly adopted.
+- Duplicate `skillName` within a team is forbidden.
+- Trigger the agent refresh only after the sync completes on a team switch.
 
-同步流程：
+Sync flow:
 
-1. 渲染层或主进程得知 active team 变化。
-2. 主进程拉 `resolved` API。
-3. 下载每个 enabled Skill artifact。
-4. 校验 checksum。
-5. 写入 `userData/agent/team-skills/{teamId}/`。
-6. 重建 `.opencode/skill/` 中的团队 Skill 映射。
-7. 复用 `scheduleAgentRefreshForSkillChange()` 重启 sidecar。
-8. 如果当前有 active generation，沿用 busy retry 机制，回复完成后再刷新。
+1. Renderer or main process learns the active team changed.
+2. Main process fetches the `resolved` API.
+3. Download each enabled Skill artifact.
+4. Verify checksums.
+5. Write into `userData/agent/team-skills/{teamId}/`.
+6. Rebuild the team Skill mapping inside `.opencode/skill/`.
+7. Reuse the `AgentRefreshScheduler` (`electron/agent-refresh-scheduler.ts`, triggered via the
+   `onRuntimeSkillsChanged` callback in `electron/main.ts` → `agentRefreshScheduler.schedule()`)
+   to refresh the sidecar.
+8. If a generation is active, keep the existing busy-retry behavior — refresh after the reply
+   completes.
 
-建议把远端同步逻辑拆到新模块，例如 `electron/team-skills/`，不要把 `SkillServiceImpl` 继续变成巨型类。
+Put the remote sync logic in a new module, e.g. `electron/team-skills/`; do not keep growing
+`SkillServiceImpl` into a giant class.
 
-## 7. 团队切换流程
+## 7. Team switch flow
 
-切换团队后应发生：
+After a team switch the following happens (step 7 is stage two, future work):
 
-1. `useTeamWorkspace` 更新 active workspace。
-2. `useConnections` 用 team name 刷新连接器 summary。
-3. `chatService.setAgentTeam` 更新主进程 agent 团队名，保持现状。
-4. `useTeamSkillConfig` 加载团队 Skill 配置。
-5. Composer palette 刷新团队 Skill。
-6. 第一阶段：下一轮消息 system prompt 带团队 Skill 摘要。
-7. 第二阶段：主进程同步 Skill 文件并刷新 agent runtime。
+1. `useTeamWorkspace` updates the active workspace.
+2. `useConnections` refreshes the connector summary with the team name.
+3. `chatService.setAgentTeam` updates the main-process agent team name (existing behavior).
+4. `useTeamSkills` loads the team Skill configuration.
+5. The composer palette refreshes team Skills.
+6. Stage one: the next turn's system prompt carries the team Skill summary.
+7. Stage two: the main process syncs Skill files and refreshes the agent runtime.
 
-如果团队 id 已选中但 team name 尚未解析：
+If a team id is selected but the team name is not yet resolved:
 
-- 连接器请求必须保持 pending，并清空当前连接器 summary；不能沿用上一个团队 workspace 的 `x-oo-organization-name`。
-- 团队 Skill 配置可按 team id 读取。
-- `chatService.setAgentTeam` 应先清空主进程 agent 团队名，Agent connector tool 在新 team name 可用并完成连接器 scope 刷新前暂停团队连接器调用。
-- team name 可用后，先用新 team name 刷新连接器 summary，再恢复 Agent connector tool 与 UI 操作，确保所有 connector/tool 请求都使用新的团队上下文。
+- Connector requests must stay pending and the current connector summary must be cleared; never
+  reuse the previous team workspace's `x-oo-organization-name`.
+- Team Skill configuration may be read by team id.
+- `chatService.setAgentTeam` must first clear the main-process agent team name; the Agent
+  connector tool pauses team connector calls until the new team name is available and the
+  connector scope refresh has completed.
+- Once the team name is available, refresh the connector summary with the new team name first,
+  then restore the Agent connector tool and UI operations, so every connector/tool request uses
+  the new team context.
 
-## 8. 权限与安全
+## 8. Permissions and security
 
-- 团队 Skill 只对可管理团队的用户开放；权限优先使用团队 Schema 的 `writable`，没有该字段时再按 creator 推断。
-- 团队 role 用于展示创建者/成员；后端返回 `role` 时优先使用，缺失时再按 `creator_user_id` 与 created 列表兼容旧响应。
-- private package 权限必须由后端校验，不接受客户端传 share id 绕过。
-- 渲染层不接触 session token。
-- 主进程同步 Skill 文件时必须校验路径，禁止 artifact 解压写出目标目录。
-- `skillName` 用作目录名前必须做安全校验，拒绝 `/`、`\`、`.`、`..`。
-- 下载 artifact 要有大小限制和超时。
-- 团队 Skill 不应进入外部 agent skill root。
+- Team Skills are manageable only by users who can manage the team; prefer the team schema's
+  `writable` field, and fall back to creator inference only when the field is absent.
+- The team role is for displaying creator/member; prefer the backend `role` when returned, and
+  only fall back to `creator_user_id` plus the created list for older responses.
+- Private package permissions must be validated by the backend; never accept a client-supplied
+  share id as a bypass.
+- The renderer never touches the session token.
+- When the main process syncs Skill files, it must validate paths — artifact extraction must never
+  write outside the target directory.
+- `skillName` must pass safety validation before use as a directory name: reject `/`, `\`, `.`,
+  `..`.
+- Artifact downloads need a size limit and a timeout.
+- Team Skills must never enter an external agent skill root.
 
-## 9. 版本与更新策略
+## 9. Version and update strategy
 
-默认策略：
+Default policy:
 
-- 添加团队 Skill 时保存具体 `version`，`versionPolicy = "pinned"`。
-- UI 提供 “Update to latest”。
-- 后端或 Wanta 可检查团队 Skill 是否有新版本。
-- `latest` 策略仅给高级场景使用，UI 要明确提示会自动变化。
+- Adding a team Skill stores a concrete `version` with `versionPolicy = "pinned"`.
+- After the §4 per-Skill model ships, the UI offers "Update to latest".
+- The backend or Wanta can check whether a team Skill has a newer version.
+- The `latest` policy is for advanced scenarios only; the UI must state clearly that it changes
+  automatically.
 
-更新检查可复用现有 registry version check 思路，但团队 Skill 的检查结果应与本地 Installed Skill 分开展示，避免用户误以为本地已安装 Skill 需要更新。
+Update checks can reuse the existing registry version-check approach, but team Skill check results
+must be displayed separately from local Installed Skills, so users do not mistake locally
+installed Skills as needing updates.
 
-## 10. 实施阶段
+## 10. Implementation phases
 
-### 阶段 1：后端 API 与前端只读
+### Phase 1: backend API and read-only frontend — done
 
-- 后端提供团队 Skill CRUD 中的 `GET /skills`。
-- Wanta 新增 `team-skills-client.ts`。
-- SkillsRoute 在团队态显示只读团队 Skill 列表。
-- 切换团队时状态正确隔离。
+- Reads go through the team `package-infos` endpoint (interim; the §4 `GET /skills` replaces it).
+- `team-skills-client.ts` exists in Wanta.
+- SkillsRoute shows the team Skill list in team state.
+- State is correctly isolated across team switches.
 
-### 阶段 2：团队 Skill 管理 UI
+### Phase 2: team Skill management UI — done (within current backend limits)
 
-- creator 可添加 / 删除 / 启停 / 排序。
-- Add Skill 复用 public catalog 与 Console `my-skills`。
-- 支持 `SKILL.md` 预览。
-- member 只读。
+- Creator can add / remove (package-level); enable/disable and reorder await the §4 model.
+- Add Skill reuses the public catalog and Console `my-skills`.
+- `SKILL.md` preview supported.
+- Members read-only.
 
-### 阶段 3：system prompt MVP 生效
+### Phase 3: system prompt MVP — done
 
-- 团队 Skill 摘要进入每轮 system。
-- Composer palette 合并团队 Skill。
-- 增加测试覆盖 prompt 构造与 palette 合并。
+- The team Skill summary enters each turn's system prompt (`buildTeamSkillsSystem`).
+- The composer palette merges team Skills.
+- Tests cover prompt construction and palette merging.
 
-### 阶段 4：runtime 同步完整生效
+### Phase 4: full runtime sync — future
 
-- 后端提供 resolved artifact API。
-- 主进程同步团队 Skill 到 app-private runtime root。
-- 切团队后刷新 agent。
-- 处理 active generation busy retry。
+- Backend provides the resolved artifact API.
+- Main process syncs team Skills into the app-private runtime root.
+- Agent refresh after team switches.
+- Handle active-generation busy retry.
 
-### 阶段 5：版本管理与治理
+### Phase 5: version management and governance — future
 
-- 团队 Skill 更新检查。
-- Update to latest。
-- 操作审计 / updatedBy。
-- 同名冲突策略 UI 明示。
+- Team Skill update checks.
+- Update to latest.
+- Operation audit / updatedBy.
+- Same-name conflict policy made explicit in the UI.
 
-## 11. 测试建议
+## 11. Testing recommendations
 
-纯函数 / 单测：
+Pure functions / unit tests:
 
-- team skill API normalize。
-- team switch 后 cache key 隔离。
-- creator / member 权限 UI model。
-- team skill + installed skill palette 合并去重。
-- system prompt 构造：不强迫使用、不泄漏无关数据、显式 mention 优先。
-- artifact 路径校验与解压目录逃逸防护。
+- Team skill API normalization.
+- Cache key isolation after a team switch.
+- Creator / member permission UI model.
+- Team skill + installed skill palette merge and dedup (covered by
+  `src/routes/Chat/composer-palette-items.test.ts`).
+- System prompt construction: no forced use, no leakage of unrelated data, explicit mentions win.
+- Artifact path validation and extraction directory-escape protection.
 
-集成 / 手工验证：
+Integration / manual verification:
 
-- 团队身份未解析时不显示团队 Skill 配置。
-- 切团队 A → B 后列表、Composer、agent scope 同步变化。
-- 团队成员只读。
-- creator 添加 private Skill 后成员可见并能用于团队工作区。
-- active generation 期间修改团队 Skill 不打断当前回复。
-- 登出后团队 Skill cache 不泄漏到下一个账号。
+- No team Skill configuration shown while the team identity is unresolved.
+- After switching team A → B, the list, composer, and agent scope all change in sync.
+- Team members are read-only.
+- After the creator adds a private Skill, members can see it and use it in the team workspace.
+- Modifying team Skills during an active generation does not interrupt the current reply.
+- After logout, the team Skill cache does not leak into the next account.
 
-## 12. 主要风险
+## 12. Key risks
 
-- 只有 UI 配置但不进入 Agent 生效路径，会达不到产品目标。
-- 使用临时 share id 做长期团队配置会在过期后失效。
-- `latest` 自动漂移会造成团队内任务结果不可复现。
-- team id 与 team name 混用会导致 org-control 和 connector 作用域错乱。
-- runtime 同步若粗暴重建 `.opencode/skill/`，可能删掉 bundled skills 或本地 runtime skills。
-- 生成中重启 sidecar 会影响用户体验，必须沿用现有延迟刷新策略。
+- UI-only configuration that never enters the Agent's effective path misses the product goal.
+- Using a temporary share id for long-term team configuration breaks when it expires.
+- Automatic `latest` drift makes team task results non-reproducible within a team.
+- Mixing team id and team name scrambles the org-control and connector scopes.
+- A runtime sync that crudely rebuilds `.opencode/skill/` can delete bundled skills or local
+  runtime skills.
+- Restarting the sidecar mid-generation hurts the user experience; the existing deferred-refresh
+  strategy must be kept.

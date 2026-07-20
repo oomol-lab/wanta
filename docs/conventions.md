@@ -1,9 +1,11 @@
-# 编码约定与安全基线
+# Coding Conventions and Security Baseline
 
-> 仓库根指南列的是铁律；本文是完整版。相关：[architecture.md](architecture.md) · [development.md](development.md)
+> The root guide (AGENTS.md / CLAUDE.md — one file under two names via symlink) lists the hard rules;
+> this doc is the full version. Related: [architecture.md](architecture.md) · [development.md](development.md)
 
-## 1. 设计编号体系（注释中反复出现，沿自原始计划）
+## 1. Design numbering system (recurs in comments, inherited from the original plan)
 
+<<<<<<< HEAD
 - **R1** 品牌单一来源：`electron/branding.ts`。`electron-builder.ts` 必须从该模块派生 appId / productName / protocol。`OO_` env 前缀、`x-oomol-*` 头是外部协议契约，不随品牌改。
 - **R2** endpoint 单一来源：`electron/domain.ts` 派生一切域名，禁止散落硬编码（现为构建期常量，动态切换已移除）。
 - **R3** oo 只经环境变量控制：`electron/agent/oo.ts` 的 `buildOoEnv` 是全集。
@@ -13,34 +15,86 @@
 - **R7 在代码中重载，grep 时注意区分**：原计划义 = **IPC 流式**（ClientInvokes 发起 + ServerEvents 推送，见 `electron/chat/common.ts` 注释与 [architecture.md §3](architecture.md)）；而 `electron/agent/system-prompt.ts` 头注释里的 "R7" 是**提示词修订号**（放开本地编码的那一版），与 IPC 无关。
 - **R8** 安全：不持久化明文会话 token；settings.json 不存凭证（与 auth.json 分离）；BYOK Key 只进 OS 安全存储，构建/发布密钥只走 env / CI secrets。
 - 注释中的"阶段 0..6"对应最初 7 个 commit（见 [project-overview.md §4](project-overview.md)）。
+=======
+- **R1** Branding single source of truth: `electron/branding.ts`. `electron-builder.ts` must derive
+  appId / productName / protocol from that module. The `OO_` env prefix and `x-oomol-*` headers are
+  external protocol contracts and do not change with branding.
+- **R2** Endpoint single source of truth: `electron/domain.ts` derives every domain; scattered
+  hardcoding is forbidden (now a build-time constant; dynamic switching has been removed).
+- **R3** oo is controlled only through environment variables: `buildOoEnv` in `electron/agent/oo.ts`
+  is the complete set.
+- **R4** Dynamic system prompt: the stable persona lives in agent.prompt (prompt-cache friendly);
+  the per-turn presence hint for authorized Link providers (sourced from `/v1/apps`) is injected at
+  the end via `body.system` (verified in practice to append, not override); by default do not list
+  specific provider names, so availability context does not become tool bait.
+- **R5** Discovery / invocation / authorization signals all travel through structured tool results —
+  never parse model free text; unauthorized detection relies on the stderr `errorCode: <code>` token
+  (a locale-independent anchor; the zh copy uses full-width parentheses, so the regex must exclude
+  `)）`).
+- **R6** System prompt contract: the blueprint comes from the oo-cli built-in oo skill, with
+  CLI-specific clauses removed.
+- **R7 is overloaded in code — distinguish when grepping**: the original-plan meaning =
+  **IPC streaming** (ClientInvokes initiate + ServerEvents push, see the comments in
+  `electron/chat/common.ts` and [architecture.md §3](architecture.md)); whereas the "R7" in the
+  header comment of `electron/agent/system-prompt.ts` is a **prompt revision number** (the revision
+  that unlocked local coding) and has nothing to do with IPC.
+- **R8** Security: never persist plaintext session tokens; settings.json stores no credentials
+  (kept separate from auth.json); secrets travel only via env / CI secrets.
+- "Phase 0..6" in comments corresponds to the original 7 commits
+  (see [project-overview.md §4](project-overview.md)).
+>>>>>>> origin/main
 
-## 2. 主进程 fs 纪律
+## 2. Main-process fs discipline
 
-- **禁止在 Electron 主进程使用同步 fs API**（`existsSync` / `readFileSync` 等会阻塞主进程进而拖慢渲染）。
-  - dev 期存在性检查 → predev 守卫 `scripts/check-oo.ts`（独立 Node CLI，sync fs 无妨）。
-  - 打包产物一定内置二进制，运行时无需任何存在性检查。
-  - 运行时文件操作用 `node:fs/promises`（如 `electron/agent/workspace.ts`）。
-  - 既存例外（小量、一次性，勿扩散）：`electron/auth/store.ts` 与 `electron/settings/store.ts` 的小型 JSON 读写。
+- **Never use synchronous fs APIs in the Electron main process** (`existsSync` / `readFileSync` etc.
+  block the main process and in turn stall the renderer).
+  - Dev-time existence checks → the predev guard `scripts/check-oo.ts` (a standalone Node CLI, where
+    sync fs is fine).
+  - Packaged builds always bundle the binaries; no existence check is needed at runtime.
+  - Runtime file operations use `node:fs/promises` (e.g. `electron/agent/workspace.ts`).
+  - Existing exceptions (small, one-off, do not spread): the small JSON reads/writes in
+    `electron/auth/store.ts` and `electron/settings/store.ts`.
 
-## 3. 文件与模块布局
+## 3. File and module layout
 
-- 每个 service 域同目录共置：`common.ts`（契约 + 纯类型，main/renderer 共享 import）/ `node.ts`(主进程实现) / `store.ts`（持久化）/ `*.test.ts`。
-- 可单测的逻辑拆成纯函数文件：`auth/browser-login.ts`、`connections/summary.ts`、`agent/event-translator.ts`、`auth/store.ts` 皆是此模式。新逻辑优先照此拆分。
-- `electron/agent/` 保持 **electron-free**（不 import electron），保证 headless smoke 可直接构造 `AgentManager`。
-- 相对导入带显式 `.ts` 扩展名（tsconfig `allowImportingTsExtensions`；`node --experimental-strip-types` 直跑 scripts 时也需要）。
-- `node --experimental-strip-types` 不支持 TS 参数属性：类一律显式字段 + 构造函数赋值，不写 `constructor(private x)`。
-- 渲染层路径别名 `@/` → `src/`（vite + tsconfig paths；components.json 同步）。
+- Service domains registered as main-process RPC services co-locate in one directory:
+  `common.ts` (contract + pure types, imported by both main and renderer) / `node.ts` (main-process
+  implementation) / `store.ts` (persistence) / `*.test.ts`. This applies to the RPC-registered
+  domains (currently attention / auth / chat / git / knowledge / models / session / settings /
+  skills / update — see the source tree); `connections` and `teams` keep only `common.ts` contracts
+  and pure functions under `electron/`, with their request logic living in the renderer at
+  `src/lib/*-client.ts`.
+- Unit-testable logic is split into pure-function files: `auth/browser-login.ts`,
+  `connections/summary.ts`, `agent/event-translator.ts`, `auth/store.ts` all follow this pattern.
+  Prefer this split for new logic.
+- `electron/agent/` stays **electron-free** (no electron imports), so headless smoke tests can
+  construct an `AgentManager` directly.
+- Relative imports carry an explicit `.ts` extension (tsconfig `allowImportingTsExtensions`; also
+  required when running scripts directly with `node --experimental-strip-types`).
+- `node --experimental-strip-types` does not support TS parameter properties: classes always use
+  explicit fields + constructor assignment, never `constructor(private x)`.
+- Renderer path alias `@/` → `src/` (vite + tsconfig paths; components.json kept in sync).
 
-## 4. 语言与日志
+## 4. Language and logging
 
-- 注释：中文。代码标识符 / 系统提示词 / 日志文本：英文。
-- 所有 Git 操作中的人类可读文本必须用英文，包括但不限于 commit message、branch name、PR title、PR description、PR review/comment、tag/release note；不要为 Codex/agent 提交使用中文 Git 文案。
-- 文档（docs/ 与根指南）：按主题组织，**不写 commit hash、不逐 commit 追加记录**（git log 才是历史的权威来源）；不硬编码根指南的文件名（它以两个互为 symlink 的名字存在）。
-- 主进程业务日志统一 `console.*("[wanta] ...")` 前缀。既存例外（历史遗留，新代码勿仿）：`electron/protocol.ts` 用 `[protocol]` 前缀、`electron/preload.ts` 的 contextBridge 兜底 `console.error(error)` 无前缀。
-- **deep-link 日志必须脱敏**（query 含可兑换凭证的 authID）：只记 scheme/host/path（见 `main.ts` 的 `redactDeepLink`）。
+- Comments: English. Code identifiers / system prompts / log text: English.
+- Docs (docs/ and the root guide): English.
+- All human-readable text in Git operations must be English, including but not limited to commit
+  messages, branch names, PR titles, PR descriptions, PR reviews/comments, tags/release notes; do
+  not use Chinese Git copy for Codex/agent commits either.
+- Legacy Chinese comments still exist in older code and are being migrated separately; write new or
+  edited comments in English, and do not mass-translate unrelated comments in feature PRs.
+- Docs are organized by topic — **no commit hashes, no per-commit append records** (git log is the
+  authoritative source of history); do not hardcode the root guide's filename (it exists under two
+  mutually symlinked names).
+- Main-process business logs uniformly use the `console.*("[wanta] ...")` prefix — no exceptions
+  remain (`electron/protocol.ts` and `electron/preload.ts` also use `[wanta]`).
+- **Deep-link logs must be redacted** (the query contains an authID redeemable for credentials):
+  log only scheme/host/path (see `redactDeepLink` in `main.ts`).
 
-## 5. 安全基线（新代码不得弱化）
+## 5. Security baseline (new code must not weaken it)
 
+<<<<<<< HEAD
 - OOMOL 凭证永不进渲染进程：OOMOL 能力的唯一凭证是会话 token `oomol-token`；持有它的 `AuthManager`（`currentSessionToken`/`activeRuntimeAccount`）不注册为 RPC service（`@oomol/connection` 注册即全公开、无方法白名单）；只注册契约门面。**不再获取或落盘 OOMOL 长期 api-key**——网关层统一接受 cookie/token/api-key，全程用会话 token。
 - custom model BYOK：用户在 Renderer 表单中新输入的 Key 只经 `saveCustomModel` 单向提交，catalog/事件/读取 IPC 永远只返回 `apiKeyConfigured`。`models.json` 禁止出现 Key；`ModelCredentialStore` 用 Electron `safeStorage` 写独立 0600 密文文件，只有主进程组装 runtime 时按 ID 解密。Linux `basic_text`/unknown 后端必须显式拒绝，禁止明文或弱存储降级。
 - `auth.json`：0600 权限、tmp+rename 原子写；**只存账号 profile、不存任何凭证**。会话 token 只活在 Electron 会话 cookie 与运行态内存；启动 `AuthStore.purgeLegacy()` 抹除旧版残留的落盘 api-key。
@@ -49,47 +103,209 @@
 - 外开 URL 协议白名单 `{http, https, mailto, tel}`，集中在 `main.ts` 的 `openExternalUrl`；`setWindowOpenHandler` 与 `will-navigate` 必须共用该 helper。新增协议要同时考虑两条路径。审查误报留档（已证伪，勿再报）："dev host 非 localhost 时 will-navigate 误拦渲染页"——窗口加载的就是同一 `viteDevServerUrl` 字符串（前缀自匹配恒成立），且 vite-plugin-electron 的 `resolveServerUrl` 把 `0.0.0.0`/`::` 都映射成 localhost。
 - Markdown 渲染不引入 raw HTML（streamdown/原 react-markdown 均保持 HTML 转义防 XSS）；收紧链接协议应在渲染层做，而非只在 Electron 侧 deny（否则出现"可点击但无反应"）。
 - OpenCode 配置经 `OPENCODE_CONFIG_CONTENT` 内联注入，凭证（会话 token）只入内存 env 不落盘；provider 的 `options.apiKey` 与 oo 的 `OO_API_KEY` 字段名保留（外部契约），值为会话 token。
+=======
+- Credentials never enter the renderer: the only OOMOL credential in the app is the session token
+  `oomol-token`; the `AuthManager` that holds it (`currentSessionToken` / `activeRuntimeAccount`) is
+  deliberately not registered as an RPC service (`@oomol/connection` registration exposes
+  everything — there is no method allowlist); only the contract facade is registered. **Long-lived
+  api-keys are no longer fetched or persisted** — the gateway layer uniformly accepts
+  cookie/token/api-key, so the session token is used throughout. User-entered third-party custom
+  model API keys (DeepSeek / Gemini / OpenRouter, etc.) are the exception: they are persisted in
+  plaintext in `userData/models.json` (0600 + atomic write) and are never returned to the renderer
+  (only an `apiKeyConfigured` boolean is exposed).
+- `auth.json`: 0600 permissions, tmp+rename atomic write; **stores only the account profile, never
+  any credential**. The session token lives only in the Electron session cookie and runtime memory;
+  `AuthStore.purgeLegacy()` at startup wipes any legacy persisted api-key remnants.
+- **Every** signin deep-link callback requires a system-dialog confirmation (anti login-CSRF) —
+  including pending logins initiated by this app, because the launcher returns no verifiable
+  state/nonce. There is no "app-initiated may skip" path; do not add a confirmation-free shortcut
+  for pending logins.
+- The sidecar HTTP server carries random-password Basic Auth (`OPENCODE_SERVER_PASSWORD`).
+- External URL opening uses the protocol allowlist `{http, https, mailto, tel}`, centralized in
+  `openExternalUrl` in `main.ts`; `setWindowOpenHandler` and `will-navigate` must share that helper.
+  When adding a protocol, consider both paths. Archived falsified review finding (disproven, do not
+  re-report): "will-navigate wrongly blocks the renderer page when the dev host is not localhost" —
+  the window loads the very same `viteDevServerUrl` string (prefix self-match always holds), and
+  vite-plugin-electron's `resolveServerUrl` maps `0.0.0.0`/`::` to localhost anyway.
+- Markdown rendering introduces no raw HTML (streamdown, like the former react-markdown, keeps HTML
+  escaping for XSS protection); tightening link protocols should happen in the renderer, not only as
+  an Electron-side deny (otherwise you get "clickable but nothing happens").
+- OpenCode configuration is injected inline via `OPENCODE_CONFIG_CONTENT`; the session token enters
+  only the in-memory env and never touches disk (custom model API keys, persisted in
+  `userData/models.json` as above, are injected inline through the same config); the provider's
+  `options.apiKey` and oo's `OO_API_KEY` field names are retained (external contract), with the
+  session token as the value.
+>>>>>>> origin/main
 
-## 6. 错误处理
+## 6. Error handling
 
-- service 方法在 agent 缺失时：读类返回空集合/false，写类 throw（如 "Agent not configured (sign in first)"）。
-- 后台广播失败静默：`.catch(() => undefined)`。
-- agent 启动失败必须回滚引用，不留僵尸状态（见 `main.ts` 的 `applyAuthAccountNow`）。
-- 凭证/agent 装配一律经 `applyAuthAccount` 串行链，不要旁路（曾有双路径竞态）。
+- Service methods when the agent is missing: read-type methods return empty collections/false,
+  write-type methods throw (e.g. "Agent not configured (sign in first)").
+- Background broadcast failures are silent: `.catch(() => undefined)`.
+- Agent startup failure must roll back the reference — no zombie state left behind (see
+  `applyAuthAccountNow` in `main.ts`).
+- Credential/agent assembly always goes through the serialized `applyAuthAccount` chain — never
+  bypass it (a dual-path race happened before).
 
-## 7. Agent / 工具相关
+## 7. Agent / tools
 
-- **能力三处同步**：`config.ts` 的 tools 配置（现状：无禁用表，内置工具全启用）、permission（agent 级 + 根级）、`system-prompt.ts` 提示词。改任何能力策略三处必须一起改。
-- **permission 的 `"ask"` 必须有 UI 验证**：`permission.asked` / `permission.v2.asked`
-  先经 ChatService 主进程本地访问策略处理；默认访问把 bash 作为正常工作通道，自动批准普通 shell 命令、脚本、项目检查、数据处理、简单输出过滤、普通文件读写与具体非敏感路径。具体非敏感文件、普通目录及项目文件的读取不应制造弹窗；宽泛 home/system 根扫描才提示。凭证/密钥、浏览器登录态、邮件/消息/通讯录/日历等私密应用数据必须先于通用目录 grant 判定，普通文件夹授权绝不覆盖这些敏感子路径。第三方 Python 依赖必须放进每轮 process 目录下的私有 `.wanta-python` venv；仅允许该 venv 中无额外参数、纯包名的 `python -m pip install` 获得“本次任务允许这些 Python 依赖”的窄 grant，绝不覆盖 `--user`、`--break-system-packages`、额外索引、URL/本地路径/requirements 文件或新顶级包。当前选定项目中、显式指定项目目录的标准 npm/pnpm/yarn/bun 依赖操作也可获得仅当前 generation 有效的任务级 grant，但全局安装、自定义 registry、user config 和项目外命令绝不适用。本会话 grant 仍可覆盖用户已明确允许的非敏感请求；完全访问 = 会话级本地 YOLO，确认后由主进程自动 reply 本会话本地 permission，不再逐次做本地风险判断。
-  新增 ask 规则要验证 pending permission 查询、事件推送、自动审批去重与 reply。
-- **oo CLI 快速路径**：OpenCode 配置仍保留首 token 为 `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}` 的快速放行；
-  其余本地 bash / external_directory ask 才进入 ChatService 默认访问策略。shell 管道/重定向本身不是提示理由，只有命中基础安全风险时才提示；`sudo`、管道执行 shell、写入敏感路径等仍需确认。
-- **permission 只闸内置工具**：`bash: deny` 等不约束 `.opencode` 自定义工具（权限闸写在各内置工具 execute 内）——重新收紧权限时，连接器元工具照常 spawn oo，不受影响。
-- **question/反问只认运行时 pending request**：`question.asked` 是 agent 暂停等待用户补充信息的运行时 interrupt，不是权限提示，也不是历史消息恢复机制。渲染层只展示 ChatService/sidecar 当前 pending question；历史 question tool 只作历史展示。取消反问 = `rejectQuestion`，不得顺手停止 generation；停止 generation 才清空当前 pending question UI。不要用 localStorage、历史消息或 stopped/recoverable/dismissed 状态伪造可继续交互。
-- 内嵌工具源码（`tool-sources.ts`，String.raw）**不得含反引号与 `${}`**（破坏模板字符串）；这些代码跑在 OpenCode 的 Bun，不参与本项目 tsc/oxlint。工具描述本身也是提示词的一部分，保持 list/search/inspect/call 的职责边界与交叉引用。
-- sidecar cwd = `userData/agent/workspace`，不可改（`.opencode/tools/` 在其下）；文件访问越界走 `external_directory: "ask"`，由 ChatService 本地访问策略处理。
-- `parseConnectorErrorCode`（`oo.ts`）与 `call_action` 内联正则必须保持一致，改一处要同步另一处。`AUTH_BLOCKING_ERROR_CODES`（`connection_required` 等）来自 connector 上游而非 oo-cli，**权威定义**是 connector OpenAPI 错误 schema（`https://connector.<endpoint>/openapi.json`，需 `Authorization: Bearer <会话 token>`）——增删该集合先核对此处。
-- Link 工具的 `connectionName` 是连接器内部定位值，不能由模型从 provider 展示名、账号标签、alias 或邮箱猜测；显式传入前必须用当前 workspace 的 `list_apps` 结果校验。连接清单不可读时不得静默切换默认账号。
-- `list_apps` 只回答连接清单或校验用户显式选择的账号，不得作为普通 Link 读取/动作的前置健康检查。每轮动态 system 必须写明该轮团队；自定义 Link 工具按 session 自动应用，裸 `oo connector` CLI 若不可避免则必须显式传同一 `--organization`，错误后禁止省略 selector 或切换身份重试。
-- 同一批次的 `call_action` 由工具层做 canary、同目标限流与短期授权熔断；连接阻断后的排队调用返回 `status: "skipped"`，不得继续访问 connector 或生成第二个授权提示。聊天 UI 的连接操作按本轮 workspace/service/target/error 聚合，工具明细保留但每个同源问题只提供一个用户操作。
-- 新增需要 endpoint 的代码：从 `domain.ts` import 派生常量；不要新增 `__OO_ENDPOINT__` 引用点（define 覆盖范围需与 vite/vitest 配置同步；当前三处 define：renderer/main/preload）。
-- **制成品只认系统登记的真实文件**：生产者写入每轮托管输出目录；已登记项目的 Build 任务先写入 `<project>/.wanta/artifacts/<session>/<turn>/`，完成后由主进程把最终制成品按相对布局发布到项目根下成为普通可见文件；无项目或 Plan 模式只写 `userData/agent/artifacts/<session>/<turn>/`，过程文件始终留在私有 process 目录。项目发布必须保留合法 Unicode 名称、以 `-2`、`-3` 原子避让同名文件或顶级目录、禁止覆盖和符号链接越界；发布文件属于用户，清理会话只能删除托管目录。项目内托管路径的既存目录段禁止是符号链接。主进程建立并持久化 `ArtifactBundle`，渲染层只消费结构化 bundle。禁止解析 assistant 自由文本、复制内容或任意路径来推断制成品；禁止依赖模型生成的 manifest 决定文件是否存在、类型或数量。第三方 Skill 不受 Wanta 控制，可能把 session、resume、checkpoint 等运行状态 sidecar 与最终成果写入同一目录；主进程可用保守、可测试的文件名与结构化内容组合规则将证据充分的运行状态排除在 `ArtifactBundle` 外，但不得删除或移动原文件、不得只按扩展名过滤、不得隐藏唯一输出，明确的 assistant attachment/preview 优先保留，无法可靠判断时也必须保留。图片正文预览与制成品持久化必须解耦且最终图片两者都要产出：主进程可从明确的 assistant 图片附件或 Markdown 图片节点物化本地/data/公开 HTTPS 图片，但不能从普通文案猜路径；远程物化必须限制协议、内网地址、重定向、MIME、大小和超时。未持久化或未发布到项目时必须产生明确失败状态，不能通过隐藏预览或托管副本来规避失败。每轮开始记录本轮实际存储位置下当前会话旧制成品目录的文件基线；若旧脚本误写旧目录，结束时只恢复基线后新增/变化的普通文件到当前轮，禁止改写旧 bundle、跨会话扫描、跟随符号链接，基线不完整时禁止恢复。
-- **用户附件与模型表示分离**：普通文件选中后先复制为 Wanta 私有 0400 只读快照，预览、解析和 agent 工具只读快照，禁止修改用户源路径或附件快照；用户要求修改时先复制进本轮 artifact 目录，以副本作为新输出。公开消息附件由 `UserAttachmentStore` 按 user message ID 持久化，是聊天历史的事实来源；XLSX 文本、图片优化副本、OCR 等 `agentPath` 只能作为内部 representation，不得替换附件卡片、进入复制正文或在历史恢复时冒充用户原件。OpenCode 的 synthetic 文件展开必须按结构化标记过滤，禁止靠 Read 文案或自由文本猜测。目录附件是本地引用，不适用递归快照。
+- **Capabilities sync across three places**: the tools configuration in `config.ts` (current state:
+  no disable table, all built-in tools enabled), permission (agent-level + root-level), and the
+  `system-prompt.ts` prompt. Changing any capability policy means changing all three together.
+- **Permission `"ask"` must be verified against the UI**: `permission.asked` /
+  `permission.v2.asked` are first handled by the ChatService main-process local access policy;
+  Default Access treats bash as a normal working channel, auto-approving ordinary shell commands,
+  scripts, project checks, data processing, simple output filtering, ordinary file reads/writes, and
+  specific non-sensitive paths. Reading specific non-sensitive files, ordinary directories, and
+  project files should not create prompts; only broad home/system root scans prompt. Credentials/
+  secrets, browser login state, and private app data such as mail/messages/contacts/calendar must be
+  evaluated before any generic directory grant — an ordinary folder grant never covers these
+  sensitive sub-paths. Third-party Python dependencies must go into the private `.wanta-python` venv
+  under each turn's process directory; only a plain-package-name, no-extra-flags
+  `python -m pip install` inside that venv earns the narrow "these Python deps are allowed for this
+  task" grant — it never covers `--user`, `--break-system-packages`, extra indexes,
+  URL/local-path/requirements files, or new top-level packages. Standard npm/pnpm/yarn/bun
+  dependency operations in the currently selected project with an explicitly specified project
+  directory can also earn a task-level grant valid only for the current generation, but global
+  installs, custom registries, user config, and out-of-project commands never qualify. Session
+  grants may still cover non-sensitive requests the user has explicitly allowed; Full Access =
+  session-level local YOLO — once confirmed, the main process auto-replies local permissions for the
+  session and stops doing per-request local risk judgment.
+  New ask rules must be verified end to end: pending-permission queries, event push, auto-approve
+  dedup, and reply.
+- **oo CLI fast path**: the OpenCode configuration still keeps the fast pass for commands whose
+  first token is `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}`; all other local bash /
+  external_directory asks fall through to the ChatService Default Access policy. Shell pipes/
+  redirection are not by themselves a reason to prompt — prompt only on a genuine baseline security
+  risk; `sudo`, piping into a shell, writes to sensitive paths, etc. still require confirmation.
+- **Permission gates only built-in tools**: `bash: deny` and the like do not constrain `.opencode`
+  custom tools (their permission gate lives inside each built-in tool's execute) — when
+  re-tightening permissions, the connector meta-tools keep spawning oo unaffected.
+- **Questions only honor the runtime pending request**: `question.asked` is a runtime interrupt
+  where the agent pauses to await extra user input — it is not a permission prompt, nor a
+  history-message recovery mechanism. The renderer shows only the current pending question from
+  ChatService/the sidecar; historical question tools render as history only. Cancelling a question =
+  `rejectQuestion` — it must not also stop the generation; only stopping the generation clears the
+  current pending-question UI. Never fake resumable interaction from localStorage, history messages,
+  or stopped/recoverable/dismissed states.
+- Embedded tool source (`tool-sources.ts`, String.raw) **must not contain backticks or `${}`**
+  (they break the template string); that code runs in OpenCode's Bun and does not participate in
+  this project's tsc/oxlint. The embedded custom tools are the four connector tools plus
+  `query_knowledge` (knowledge-base archive queries, incl. pack/`--budget` operations), backed by
+  the full `electron/knowledge/` service domain registered as an RPC service. Tool descriptions are
+  themselves part of the prompt: keep the list/search/inspect/call responsibility boundaries and
+  cross-references, and keep `query_knowledge` scoped to knowledge-base retrieval.
+- The embedded tools do not rely on OpenCode implicitly installing npm packages on the user's
+  machine: the tool helper and Zod schema are bundled at build time by
+  `scripts/build-agent-tool-runtime.ts` (entry `scripts/agent-tool-runtime-entry.ts`) into a
+  single-file runtime, synced by `workspace.ts` into `<workspace>/.opencode/`; every tool uniformly
+  does `import { tool } from "../runtime/tool.js"`. When changing embedded tools, account for this
+  runtime as well.
+- Sidecar cwd = `userData/agent/workspace`, not changeable (`.opencode/tools/` lives under it);
+  file access escaping it goes through `external_directory: "ask"`, handled by the ChatService local
+  access policy.
+- `parseConnectorErrorCode` (`oo.ts`) and the inline regex in `call_action` must stay identical —
+  change one, sync the other. `AUTH_BLOCKING_ERROR_CODES` (`connection_required` etc.) comes from
+  the connector upstream, not oo-cli; the **authoritative definition** is the connector OpenAPI
+  error schema (`https://connector.<endpoint>/openapi.json`, requires
+  `Authorization: Bearer <session token>`) — check there before adding to or removing from the set.
+- The Link tools' `connectionName` is a connector-internal locator: the model must never guess it
+  from provider display names, account labels, aliases, or email addresses; before passing it
+  explicitly it must be validated against the current workspace's `list_apps` result. When the
+  connection list is unreadable, never silently switch to a default account.
+- `list_apps` only answers the connection inventory or validates an account the user explicitly
+  chose — never use it as a pre-flight health check for ordinary Link reads/actions. The per-turn
+  dynamic system prompt must state that turn's team; custom Link tools apply per session
+  automatically, and if a bare `oo connector` CLI call is unavoidable it must explicitly pass the
+  same `--organization`; after an error, never drop the selector or retry under a different
+  identity.
+- `call_action` batches get canarying, per-target throttling, and a short-term authorization
+  circuit breaker at the tool layer; queued calls after a connection block return
+  `status: "skipped"` and must not keep hitting the connector or generate a second authorization
+  prompt. Connection actions in the chat UI aggregate by this turn's workspace/service/target/error;
+  tool details are retained but each same-origin problem offers exactly one user action.
+- New code that needs an endpoint: import derived constants from `domain.ts`; do not add new
+  `__OO_ENDPOINT__` reference points (the define coverage must stay in sync with the vite/vitest
+  configs; currently three define points: renderer/main/preload).
+- **Artifacts are only the real files registered by the system**: producers write into each turn's
+  managed output directory; Build tasks for a registered project first write to
+  `<project>/.wanta/artifacts/<session>/<turn>/`, and on completion the main process publishes the
+  final artifacts to the project root — relative layout preserved — as ordinary visible files; with
+  no project, or in Plan mode, writes go only to `userData/agent/artifacts/<session>/<turn>/`, and
+  process files always stay in the private process directory. Project publishing must preserve
+  valid Unicode names, atomically sidestep same-named files or top-level directories with `-2`,
+  `-3` suffixes, and never overwrite or escape via symlinks; published files belong to the user —
+  session cleanup may delete only the managed directories. No pre-existing directory segment of the
+  managed path inside a project may be a symlink. The main process builds and persists the
+  `ArtifactBundle`; the renderer consumes only the structured bundle. Never infer artifacts by
+  parsing assistant free text, copied content, or arbitrary paths; never rely on a model-generated
+  manifest to decide whether files exist, their type, or their count. Third-party Skills are outside
+  Wanta's control and may write runtime-state sidecars (session, resume, checkpoint, etc.) into the
+  same directory as final results; the main process may exclude well-evidenced runtime state from
+  the `ArtifactBundle` using conservative, testable rules that combine filenames with structured
+  content, but must not delete or move the original files, must not filter by extension alone, and
+  must not hide the only output; explicit assistant attachments/previews take precedence for
+  retention, and anything that cannot be reliably classified must also be kept. Inline image preview
+  and artifact persistence must be decoupled, and a final image must produce both: the main process
+  may materialize local/data/public-HTTPS images from explicit assistant image attachments or
+  Markdown image nodes, but must not guess paths from ordinary copy; remote materialization must
+  restrict protocol, private-network addresses, redirects, MIME, size, and timeout. Failing to
+  persist, or to publish to the project, must yield an explicit failure state — never dodge failure
+  by hiding the preview or the managed copy. At the start of each turn, record a file baseline of
+  the current session's older artifact directories under this turn's actual storage location; if an
+  old script mistakenly writes into an old directory, recover at turn end only the regular files
+  added or changed after the baseline into the current turn — never rewrite old bundles, scan across
+  sessions, or follow symlinks, and never recover when the baseline is incomplete.
+- **User attachments are separated from model representations**: when an ordinary file is selected
+  it is first copied into a Wanta-private 0400 read-only snapshot; preview, parsing, and agent
+  tools read only the snapshot — never modify the user's source path or the attachment snapshot.
+  When the user asks for modifications, first copy into the current turn's artifact directory and
+  make the copy the new output. Public message attachments are persisted by `UserAttachmentStore`
+  keyed by user message ID and are the source of truth for chat history; `agentPath`
+  representations (XLSX text extraction, optimized image copies, OCR, etc.) are internal only —
+  they must not replace the attachment card, enter copied text, or impersonate the user's original
+  during history restore. OpenCode's synthetic file expansions must be filtered by structured
+  markers — never guessed from Read copy or free text. Directory attachments are local references
+  and do not get recursive snapshots.
 
-## 8. 渲染层 / UI
+## 8. Renderer / UI
 
-- 无路由库：页面切换是 `AppShell.tsx` 内部 state，新增"页面"先考虑是否真的需要路由库。
-- 流式渲染稳定性：文本 part 用稳定 React key（partId），`upsertPart` 原地替换——不重挂载、无闪烁；`messageDelta` 是累计全文非增量。
-- streaming 时 Enter 必须只发送、不停止（停止仅响应按钮显式点击；曾是 HIGH 回归）。
-- 聊天结果的视觉层级固定为：最终制成品使用单文件/集合卡片；项目原位修改使用审查卡片；中间脚本、临时数据和日志只使用次级“执行详情”入口。消息成果卡只代表产出它的当前轮次：单文件直接预览，多文件只打开本轮集合，不得隐式混入整个会话的历史成果。多文件制成品不得同时提供行为相同的集合卡片和“查看全部”入口，不得把内部轮次目录名展示给用户，也不得把 process 文件标成制成品。`process` 与 `project_change` 共用文件审查组件；两类并存时必须在同一面板内切换角色，不得复制两套详情面板。
-- vendored 组件规则：新 vendored 文件放 `src/components/ui/` 或 `src/components/ai-elements/`（享受 `react/only-export-components` override）；`ui/badge.tsx` 是 shadcn 标准 + 项目自有 success/warning/muted 变体的合并版，升级勿直接覆盖；registry 源码自带的 `// @ts-expect-error ... v6` 注释 vendoring 时必须删除（本项目装的就是 ai v6，该指令变"未使用"会卡 ts-check）。
-- `src/index.css` 的 `@source "../node_modules/streamdown/dist"` 不可删（Tailwind v4 不扫 node_modules，删了 streamdown 的类不生成）。
-- i18n：自研轻量实现（`src/i18n/i18n.ts`），扁平 dot key + `{var}` 占位，zh-CN 基准 + en 镜像，新增文案两个 locale 都要加；`useT()` 取翻译函数。
-- ai-elements 是聊天组件库，没有 sidebar/导航/表单/列表项——非聊天界面用 shadcn 原语，勿强行 ai-elements 化。
+- No router library: page switching is internal state in `AppShell.tsx`; before adding a "page",
+  first ask whether a router library is truly needed.
+- Streaming render stability: text parts use a stable React key (partId), `upsertPart` replaces in
+  place — no remounting, no flicker; `messageDelta` is cumulative full text, not incremental.
+- During streaming, Enter must only send — never stop (stop responds solely to an explicit button
+  click; this was once a HIGH regression).
+- The visual hierarchy of chat results is fixed: final artifacts use single-file/collection cards;
+  in-place project modifications use review cards; intermediate scripts, temporary data, and logs
+  use only the secondary "execution details" entry. A message's result card represents only the
+  turn that produced it: single files preview directly, multi-file cards open only this turn's
+  collection, never implicitly mixing in the whole session's historical results. Multi-file
+  artifacts must not offer both a collection card and a behaviorally identical "view all" entry,
+  must not expose internal turn directory names to the user, and must not label process files as
+  artifacts. `process` and `project_change` share the file review component; when both are present
+  they must switch roles inside the same panel — never duplicate two detail panels.
+- Vendored component rules: new vendored files go in `src/components/ui/` or
+  `src/components/ai-elements/` (covered by the `react/only-export-components` override);
+  `ui/badge.tsx` is a merge of the shadcn standard plus this project's own success/warning/muted
+  variants — do not overwrite it directly on upgrade; the `// @ts-expect-error ... v6` comments that
+  ship with registry sources must be deleted when vendoring (this project installs ai v6, so the
+  directive becomes "unused" and blocks ts-check).
+- The two `@source` lines in `src/styles/theme.css` — `@source "../../node_modules/streamdown/dist"`
+  and `@source "../../node_modules/@streamdown/mermaid/dist"` — must not be deleted (Tailwind v4
+  does not scan node_modules; deleting them means the classes those packages use are not generated).
+- i18n: an in-house lightweight implementation (`src/i18n/i18n.ts`), flat dot keys + `{var}`
+  placeholders, zh-CN as baseline + en mirror; new copy must be added to both locales; `useT()`
+  returns the translate function.
+- ai-elements is a chat component library — it has no sidebar/navigation/forms/list items; build
+  non-chat UI with shadcn primitives, do not force ai-elements onto them.
 
-## 9. 验证纪律（会话记录沉淀）
+## 9. Verification discipline (distilled from session records)
 
-- 每个改动的 DoD 必须真实运行验证（日志/截图证据），不能臆测；每完成一个阶段先 commit。
-- UI/运行态改动光过编译不够：`npm run dev` 实机验证（需登录 + agent sidecar）。
-- 改 vite 构建配置必须保持不变式：build 产物默认 oomol.com、不受 `.env.local` 影响、只有显式 `WANTA_ENDPOINT` 能覆盖（验证方法：带 `.env.local=oomol.dev` 跑 build 后 grep 产物）。
+- Every change's DoD must be verified by a real run (log/screenshot evidence), never assumed;
+  commit after each completed phase.
+- For UI/runtime changes, compiling is not enough: verify live with `npm run dev` (requires login +
+  the agent sidecar).
+- Changes to the vite build config must preserve the invariants: build output defaults to
+  oomol.com, is unaffected by `.env.local`, and only an explicit `WANTA_ENDPOINT` can override it
+  (verification: run build with `.env.local=oomol.dev`, then grep the output).

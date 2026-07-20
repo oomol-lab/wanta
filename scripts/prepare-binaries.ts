@@ -8,6 +8,7 @@
 import { chmodSync, copyFileSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { buildAgentToolRuntime } from "./build-agent-tool-runtime.ts"
 import { downloadOoBinary, ooExecutableName } from "./oo-cli.ts"
 import { downloadRipgrepBinary, ripgrepExecutableName } from "./ripgrep.ts"
 import { bundledSkillsDir, exportBundledSkills } from "./skills.ts"
@@ -46,3 +47,6 @@ bundle("ripgrep", ripgrepSrc, ripgrepExecutableName())
 // 运行时拷进 OpenCode workspace 的 .opencode/skill/（见 electron/agent/workspace.ts）。
 await exportBundledSkills()
 console.log(`[wanta] bundled skills: ${path.basename(bundledSkillsDir)}`)
+
+// 自定义工具的 tool helper + Zod 合并为单文件，随包发布，工具加载不依赖首次启动隐式联网安装 npm 包。
+await buildAgentToolRuntime()

@@ -52,6 +52,10 @@ export default {
       from: "resources/skills",
       to: "skills",
     },
+    {
+      from: "resources/agent-tool-runtime",
+      to: "agent-tool-runtime",
+    },
   ],
   mac: {
     icon: "branding/icon.icns",

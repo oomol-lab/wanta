@@ -45,6 +45,9 @@ resources/bin
 # Bundled oo skills exported by scripts/skills.ts (not committed)
 resources/skills
 
+# Bundled self-contained OpenCode custom-tool runtime (not committed)
+resources/agent-tool-runtime
+
 # Local dev scratch
 .lumo-dev/
 .wanta-dev/

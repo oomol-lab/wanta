@@ -422,7 +422,10 @@ test("isAuthBlocking flags the upstream authorization-blocking codes", () => {
 
 test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("connector"))
-  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("@opencode-ai/plugin"))
+  for (const source of Object.values(AGENT_TOOL_FILES)) {
+    assert.ok(source.includes("../runtime/tool.js"))
+    assert.ok(!source.includes("@opencode-ai/plugin"))
+  }
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("private/account-specific SaaS data or actions"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("concrete URLs"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("On success, returns a JSON array"))

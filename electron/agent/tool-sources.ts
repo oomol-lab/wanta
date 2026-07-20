@@ -1,6 +1,7 @@
 // 自定义工具（R5）的源码，以字符串内嵌：运行时由 workspace.ts 写入
-// <workspace>/.opencode/tools/，供 OpenCode sidecar 加载（OpenCode 自带
-// @opencode-ai/plugin，无需在 workspace 旁安装）。工具通过 execFile 调用内置
+// <workspace>/.opencode/tools/，供 OpenCode sidecar 加载。tool helper 与 Zod schema 已在
+// 构建期合并为单文件 runtime，并随工具一起写入 workspace，不依赖 OpenCode 在用户机器上隐式安装 npm 包。
+// 工具通过 execFile 调用内置
 // oo（路径由 WANTA_OO_BIN 注入），将连接器发现/调用/授权信号都走"工具结果"。
 //
 // 用 String.raw 内嵌：保留正则中的反斜杠；工具代码刻意不含反引号与模板插值语法，
@@ -63,7 +64,7 @@ function connectionInventoryError(identity, message) {
 `
 
 const SEARCH_ACTIONS_TOOL_TS =
-  String.raw`import { tool } from "@opencode-ai/plugin"
+  String.raw`import { tool } from "../runtime/tool.js"
 import { execFile } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import { promisify } from "node:util"
@@ -253,7 +254,7 @@ export default tool({
 `
 
 const LIST_APPS_TOOL_TS =
-  String.raw`import { tool } from "@opencode-ai/plugin"
+  String.raw`import { tool } from "../runtime/tool.js"
 import { execFile } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import { promisify } from "node:util"
@@ -300,7 +301,7 @@ export default tool({
 })
 `
 
-const INSPECT_ACTION_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
+const INSPECT_ACTION_TOOL_TS = String.raw`import { tool } from "../runtime/tool.js"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
@@ -335,7 +336,7 @@ export default tool({
 `
 
 const CALL_ACTION_TOOL_TS =
-  String.raw`import { tool } from "@opencode-ai/plugin"
+  String.raw`import { tool } from "../runtime/tool.js"
 import { execFile } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import { promisify } from "node:util"
@@ -625,7 +626,7 @@ export default tool({
 })
 `
 
-const QUERY_KNOWLEDGE_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
+const QUERY_KNOWLEDGE_TOOL_TS = String.raw`import { tool } from "../runtime/tool.js"
 import { execFile } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"

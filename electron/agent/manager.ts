@@ -52,6 +52,8 @@ export interface AgentManagerOptions {
   knowledgeRegistryPath?: string
   /** 内置 oo skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
+  /** 构建期合并的自定义工具 runtime；启动时拷进 .opencode/runtime/tool.js。 */
+  bundledToolRuntimePath?: string
   /** 当前团队工作区名称；未设置表示团队身份尚未解析。 */
   teamName?: string
   /** App 私有根目录（userData 下）：workspace / oo-store / isolation 都在其下。 */
@@ -357,11 +359,11 @@ export class AgentManager {
   }
 
   private async prepareWorkspace(): Promise<void> {
-    const { bundledSkillsDir, rootDir } = this.options
+    const { bundledSkillsDir, bundledToolRuntimePath, rootDir } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
     const teamScopePath = path.join(rootDir, "team-scope.json")
 
-    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir)
+    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath)
     this.teamScopePath = teamScopePath
     await this.writeTeamState(this.teamName)
   }

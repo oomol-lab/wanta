@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
@@ -27,15 +27,21 @@ test("ensureAgentWorkspace writes tool sources and copies bundled skills into .o
   try {
     const workspaceDir = path.join(base, "workspace")
     const bundledSkillsDir = path.join(base, "bundled-skills")
+    const bundledToolRuntimePath = path.join(base, "tool.js")
     await writeSkill(bundledSkillsDir, "oo")
     await writeSkill(bundledSkillsDir, "oo-find-skills")
+    await writeFile(bundledToolRuntimePath, "export const tool = (input) => input\n", "utf-8")
 
-    const result = await ensureAgentWorkspace(workspaceDir, bundledSkillsDir)
+    const result = await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath)
     assert.equal(result, workspaceDir)
 
     for (const toolName of Object.keys(AGENT_TOOL_FILES)) {
       assert.ok(await exists(path.join(workspaceDir, ".opencode", "tools", toolName)), `tool ${toolName} written`)
     }
+    assert.equal(
+      await readFile(path.join(workspaceDir, ".opencode", "runtime", "tool.js"), "utf-8"),
+      "export const tool = (input) => input\n",
+    )
 
     const skillRoot = path.join(workspaceDir, ".opencode", "skill")
     assert.ok(await exists(path.join(skillRoot, "oo", "SKILL.md")), "oo SKILL.md copied")

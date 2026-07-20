@@ -22,6 +22,7 @@ interface SkillPageHeaderProps {
   installedFilter: InstalledSkillFilter
   installedQuery: string
   teamFilter: TeamSkillFilter
+  teamName?: string
   teamQuery: string
   teamTabAvailable: boolean
   teamAction?: ReactNode
@@ -41,6 +42,7 @@ export function SkillPageHeader({
   installedFilter,
   installedQuery,
   teamFilter,
+  teamName,
   teamQuery,
   teamTabAvailable,
   teamAction,
@@ -62,6 +64,11 @@ export function SkillPageHeader({
       ? "skills.teamSearch"
       : "skills.installedSearch"
   const filterValue = isDiscoverTab ? discoveryFilter : isTeamTab ? teamFilter : installedFilter
+  const scopeDescription = isDiscoverTab
+    ? t("skills.scopeDescription.discover")
+    : isTeamTab
+      ? t("skills.scopeDescription.team", { name: teamName?.trim() || t("skills.scopeDescription.teamUnknown") })
+      : t("skills.scopeDescription.installed")
   const filterOptions = isDiscoverTab
     ? [
         { label: t("skills.discoverFilter.all"), value: "all" },
@@ -83,48 +90,53 @@ export function SkillPageHeader({
         ]
 
   return (
-    <header className="oo-border-divider flex min-h-12 items-center gap-2 border-b px-3 py-2">
-      <SkillTabList activeTab={activeTab} teamTabAvailable={teamTabAvailable} onTabChange={onTabChange} />
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <SearchField
-          className="flex-1"
-          placeholder={t(searchPlaceholder)}
-          value={searchValue}
-          onChange={(event) => {
-            const value = event.currentTarget.value
-            if (isDiscoverTab) {
-              onDiscoveryQueryChange(value)
-              return
-            }
-            if (isTeamTab) {
-              onTeamQueryChange(value)
-              return
-            }
-            onInstalledQueryChange(value)
-          }}
-        />
-        <SkillFilterDropdown
-          ariaLabel={t("skills.filter")}
-          options={filterOptions}
-          value={filterValue}
-          onValueChange={(value) => {
-            if (isDiscoverTab && isDiscoverSkillFilter(value)) {
-              onDiscoveryFilterChange(value)
-              return
-            }
+    <header className="oo-border-divider grid min-h-12 gap-1.5 border-b px-3 py-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <SkillTabList activeTab={activeTab} teamTabAvailable={teamTabAvailable} onTabChange={onTabChange} />
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <SearchField
+            className="flex-1"
+            placeholder={t(searchPlaceholder)}
+            value={searchValue}
+            onChange={(event) => {
+              const value = event.currentTarget.value
+              if (isDiscoverTab) {
+                onDiscoveryQueryChange(value)
+                return
+              }
+              if (isTeamTab) {
+                onTeamQueryChange(value)
+                return
+              }
+              onInstalledQueryChange(value)
+            }}
+          />
+          <SkillFilterDropdown
+            ariaLabel={t("skills.filter")}
+            options={filterOptions}
+            value={filterValue}
+            onValueChange={(value) => {
+              if (isDiscoverTab && isDiscoverSkillFilter(value)) {
+                onDiscoveryFilterChange(value)
+                return
+              }
 
-            if (isTeamTab && isTeamSkillFilter(value)) {
-              onTeamFilterChange(value)
-              return
-            }
+              if (isTeamTab && isTeamSkillFilter(value)) {
+                onTeamFilterChange(value)
+                return
+              }
 
-            if (!isDiscoverTab && !isTeamTab && isInstalledSkillFilter(value)) {
-              onInstalledFilterChange(value)
-            }
-          }}
-        />
-        {isTeamTab && teamAction ? <div className="shrink-0">{teamAction}</div> : null}
+              if (!isDiscoverTab && !isTeamTab && isInstalledSkillFilter(value)) {
+                onInstalledFilterChange(value)
+              }
+            }}
+          />
+          {isTeamTab && teamAction ? <div className="shrink-0">{teamAction}</div> : null}
+        </div>
       </div>
+      <p className="oo-text-caption min-w-0 truncate text-muted-foreground" title={scopeDescription}>
+        {scopeDescription}
+      </p>
     </header>
   )
 }

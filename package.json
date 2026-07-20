@@ -3,8 +3,17 @@
   "displayName": "Wanta",
   "version": "0.0.0",
   "private": true,
-  "description": "Wanta — AI agent chat client for non-coding analysis and automation over OOMOL connectors.",
+  "description": "Wanta — open-source desktop AI agent for connected apps, local files, and automation.",
+  "homepage": "https://wanta.ai/",
+  "bugs": {
+    "url": "https://github.com/oomol-lab/wanta/issues"
+  },
+  "license": "Apache-2.0",
   "author": "OOMOL",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oomol-lab/wanta.git"
+  },
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {

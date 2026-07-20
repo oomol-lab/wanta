@@ -224,6 +224,22 @@ describe("GeneratedArtifactsShelf", () => {
     expect(html).toContain("001")
   })
 
+  it("explains when a managed output could not be published into the project", () => {
+    const report = artifactItem("report.pdf", "application/pdf")
+    const html = renderArtifactShelf([
+      {
+        messageId: "assistant-1",
+        group: { root: artifactFolder("managed-output"), items: [report], totalItems: 1, truncated: false },
+        status: "partial",
+        failure: "project_output_publish_failed",
+      },
+    ])
+
+    expect(html).toContain("制成品未保存到项目")
+    expect(html).toContain("仍可在 Wanta 中查看")
+    expect(html).toContain("report")
+  })
+
   it("falls back to the latest displayable group when a newer group is empty", () => {
     const html = renderArtifactShelf([
       {

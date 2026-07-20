@@ -1,4 +1,9 @@
-import type { LocalArtifactGroup, LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
+import type {
+  ArtifactBundleFailure,
+  LocalArtifactGroup,
+  LocalArtifactItem,
+  LocalArtifactPack,
+} from "../../../electron/chat/common.ts"
 import type { LocalArtifactPreviewCache } from "./artifact-preview-cache.ts"
 import type { ResolvedArtifactGroup } from "./artifact-resolution.ts"
 import type { ArtifactBrowseLevel, ArtifactPanelEntry } from "./ArtifactBrowser.tsx"
@@ -129,19 +134,37 @@ function selectionWithContext(
   return { messageId, group, groups, ...(pack ? { pack } : {}), selectedPath }
 }
 
-function ArtifactPersistenceWarning({ partial = false }: { partial?: boolean }) {
+function ArtifactPersistenceWarning({
+  failure,
+  partial = false,
+}: {
+  failure?: ArtifactBundleFailure
+  partial?: boolean
+}) {
   const t = useT()
+  const projectPublishFailure = failure === "project_output_publish_failed"
+  const projectPublishPartial = failure === "project_output_publish_partial"
+  const titleKey = projectPublishFailure
+    ? "artifacts.projectPublishFailedTitle"
+    : projectPublishPartial
+      ? "artifacts.projectPublishPartialTitle"
+      : partial
+        ? "artifacts.persistencePartialTitle"
+        : "artifacts.persistenceFailedTitle"
+  const descriptionKey = projectPublishFailure
+    ? "artifacts.projectPublishFailedDescription"
+    : projectPublishPartial
+      ? "artifacts.projectPublishPartialDescription"
+      : partial
+        ? "artifacts.persistencePartialDescription"
+        : "artifacts.persistenceFailedDescription"
   return (
     <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2.5">
       <div className="flex min-w-0 items-start gap-2.5">
         <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
         <div className="min-w-0">
-          <p className="oo-text-label text-foreground">
-            {t(partial ? "artifacts.persistencePartialTitle" : "artifacts.persistenceFailedTitle")}
-          </p>
-          <p className="oo-text-caption mt-0.5 text-muted-foreground">
-            {t(partial ? "artifacts.persistencePartialDescription" : "artifacts.persistenceFailedDescription")}
-          </p>
+          <p className="oo-text-label text-foreground">{t(titleKey)}</p>
+          <p className="oo-text-caption mt-0.5 text-muted-foreground">{t(descriptionKey)}</p>
         </div>
       </div>
     </div>
@@ -190,7 +213,7 @@ export function GeneratedArtifactsShelf({
     }
     return (
       <section className="not-prose mt-0">
-        <ArtifactPersistenceWarning />
+        <ArtifactPersistenceWarning failure={newest.failure} />
       </section>
     )
   }
@@ -219,9 +242,9 @@ export function GeneratedArtifactsShelf({
   return (
     <section className="not-prose mt-0 grid gap-1.5">
       {newest?.status === "failed" ? (
-        <ArtifactPersistenceWarning />
+        <ArtifactPersistenceWarning failure={newest.failure} />
       ) : primary.status === "partial" ? (
-        <ArtifactPersistenceWarning partial />
+        <ArtifactPersistenceWarning failure={primary.failure} partial />
       ) : null}
       <OutputShelfCard
         title={title}

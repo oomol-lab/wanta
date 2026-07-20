@@ -104,7 +104,10 @@ function validBundle(value: unknown): value is ArtifactBundle {
     Number.isInteger(bundle.totalItems) &&
     (bundle.totalItems ?? -1) >= 0 &&
     typeof bundle.truncated === "boolean" &&
-    (bundle.failure === undefined || bundle.failure === "generated_preview_not_persisted") &&
+    (bundle.failure === undefined ||
+      bundle.failure === "generated_preview_not_persisted" ||
+      bundle.failure === "project_output_publish_failed" ||
+      bundle.failure === "project_output_publish_partial") &&
     Array.isArray(bundle.items) &&
     bundle.items.every(
       (item) =>

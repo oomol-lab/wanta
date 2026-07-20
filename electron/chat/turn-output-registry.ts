@@ -10,6 +10,7 @@ export interface ActiveTurnOutput {
   processRoot: string
   projectBaseline?: GitTurnBaseline
   projectRoot?: string
+  outputProjectRoot?: string
   requestText: string
 }
 

@@ -3,10 +3,10 @@ import type { SessionProject } from "../session/common.ts"
 import type { ChatMessage } from "./common.ts"
 
 import assert from "node:assert/strict"
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { afterEach, test, vi } from "vitest"
+import { afterEach, expect, test, vi } from "vitest"
 import { ExpiringTrustedPathRegistry } from "../trusted-path-registry.ts"
 import {
   ArtifactBundleStore,
@@ -1049,6 +1049,59 @@ test("message completion publishes artifact-only outputs without turn output rec
   }
 })
 
+test("message completion publishes project deliverables as visible project files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-project-output-"))
+  try {
+    const artifactDir = path.join(root, "managed-artifacts")
+    const processDir = path.join(root, "process")
+    const projectPath = path.join(root, "project")
+    await Promise.all([
+      mkdir(artifactDir, { recursive: true }),
+      mkdir(processDir, { recursive: true }),
+      mkdir(projectPath, { recursive: true }),
+    ])
+
+    const bridge = createBridgeAgent()
+    bridge.createArtifactDir.mockResolvedValue(artifactDir)
+    bridge.createProcessDir.mockResolvedValue(processDir)
+    const artifactBundleStore = new ArtifactBundleStore(root)
+    const service = new ChatServiceImpl(bridge.agent, {
+      artifactBundleStore,
+      projectStore: projectStore([
+        {
+          id: "project-1",
+          name: "Project",
+          path: projectPath,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ]),
+    })
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+
+    await service.sendMessage({
+      scope: testTeamScope,
+      projectContext: { id: "project-1", name: "Project", path: projectPath },
+      sessionId: "session-1",
+      text: "Create a report",
+    })
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    await writeFile(path.join(artifactDir, "报告.pdf"), "pdf", "utf8")
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await waitForCondition(() => events.some((event) => event.event === "artifactBundleUpdated"))
+
+    const item = (await artifactBundleStore.read()).get("session-1")?.get("assistant-1")?.items[0]
+    assert.equal(item?.path, path.join(await realpath(projectPath), "报告.pdf"))
+    assert.equal(await readFile(path.join(projectPath, "报告.pdf"), "utf8"), "pdf")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
 test("message completion recovers files that a reused script writes into an old artifact turn", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-artifact-recovery-"))
   try {
@@ -1952,11 +2005,13 @@ test("sendMessage passes selected context, team skills, and project as per-turn 
   const options = bridge.promptStreaming.mock.calls[0]?.[2] as
     | {
         mode?: string
+        outputProjectRoot?: string
         reasoningLevel?: string
         system?: string
       }
     | undefined
   assert.equal(options?.mode, "plan")
+  assert.equal(options?.outputProjectRoot, undefined)
   assert.equal(options?.reasoningLevel, "high")
   assert.match(options?.system ?? "", /Team-configured skills/)
   assert.match(options?.system ?? "", /Sales Mail Summary/)
@@ -2075,6 +2130,7 @@ test("build mode stores artifacts under the registered project", async () => {
 
   assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", projectPath]])
   assert.deepEqual(bridge.artifactSessionDir.mock.calls, [["session-1", projectPath]])
+  expect(bridge.promptStreaming.mock.calls[0]?.[2]).toMatchObject({ outputProjectRoot: projectPath })
 })
 
 test("unregistered project context keeps artifacts in managed storage", async () => {
@@ -2090,6 +2146,7 @@ test("unregistered project context keeps artifacts in managed storage", async ()
 
   assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", undefined]])
   assert.deepEqual(bridge.artifactSessionDir.mock.calls, [["session-1", undefined]])
+  expect(bridge.promptStreaming.mock.calls[0]?.[2]).toMatchObject({ outputProjectRoot: undefined })
 })
 
 test("trusted project permissions are approved without showing a permission card", async () => {

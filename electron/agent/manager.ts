@@ -148,6 +148,7 @@ export interface PromptStreamingOptions {
   teamName?: string
   reasoningLevel?: ReasoningLevel
   artifactDir?: string
+  outputProjectRoot?: string
   processDir?: string
   messageId?: string
   signal?: AbortSignal
@@ -800,7 +801,7 @@ export class AgentManager {
       buildWorkspaceIdentitySystem(options.teamName),
       await this.buildAuthorizedSystem(options.teamName, options.signal),
       options.system,
-      buildArtifactSystem(options.artifactDir),
+      buildArtifactSystem(options.artifactDir, options.outputProjectRoot),
       buildProcessSystem(options.processDir),
     )
     if (options.signal?.aborted) {
@@ -1199,14 +1200,23 @@ function sleep(ms: number): Promise<void> {
   })
 }
 
-export function buildArtifactSystem(artifactDir: string | undefined): string | undefined {
+export function buildArtifactSystem(artifactDir: string | undefined, outputProjectRoot?: string): string | undefined {
   if (!artifactDir) {
     return undefined
   }
+  const projectPublication = outputProjectRoot
+    ? [
+        `- This turn belongs to a folder project. Wanta will publish final deliverables from this managed directory into the visible project directory: ${outputProjectRoot}`,
+        "- Use descriptive user-facing file and directory names. Preserve any project-relative output layout explicitly requested by the user inside this managed directory; Wanta will reproduce that layout in the project.",
+        "- Do not write a second copy directly into the project directory. Wanta performs the checked, collision-safe publication after the turn completes.",
+        "- In the final response, refer to deliverables by their user-facing names or requested project-relative locations. Do not present the managed artifact path as the final project location.",
+      ]
+    : []
   return [
     "Artifact output contract for this turn:",
     `- Use this exact directory for files you create, convert, export, download, or modify as user-facing deliverables: ${artifactDir}`,
     "- Do not create files just because this artifact directory is provided.",
+    ...projectPublication,
     "- For edits to an existing local project, modify the requested project files in place; even when this artifact directory is inside the project, use it only for exported deliverables, generated assets, converted files, reports, or packaged outputs.",
     "- Wanta indexes the directory recursively and determines the artifact type from the actual files. Do not create a manifest or describe files that do not exist.",
     "- Treat HTML reports, images, PDFs, charts, spreadsheets, presentations, archives, and documents as user-facing deliverables.",
@@ -1219,7 +1229,9 @@ export function buildArtifactSystem(artifactDir: string | undefined): string | u
     "- Do not reuse output folders from earlier turns or other chats.",
     "- If you reuse a script from an earlier turn, copy or update it before running and replace every embedded output path with this turn's artifact directory. Never run a prior-turn script while it still targets an earlier output directory.",
     "- Do not write deliverables to Desktop, Downloads, the OpenCode workspace, or prior output directories unless the user explicitly requested that exact destination.",
-    "- When you finish, summarize the deliverable contents and report generated file paths in prose or inline code, not fenced code blocks; fenced blocks are only for code or multi-line text.",
+    outputProjectRoot
+      ? "- When you finish, summarize the deliverable contents and names in prose; Wanta will surface the checked final project locations after publication."
+      : "- When you finish, summarize the deliverable contents and report generated file paths in prose or inline code, not fenced code blocks; fenced blocks are only for code or multi-line text.",
     "- Do not open generated files with system commands unless the user explicitly asks you to open them externally; the app is responsible for surfacing artifacts in the UI.",
   ].join("\n")
 }

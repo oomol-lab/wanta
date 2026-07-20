@@ -89,7 +89,10 @@ MIME 和快照路径。若用户要求修改附件，agent 必须先复制到本
 或 Plan 模式继续使用 `userData/agent/artifacts/<session>/<turn>/`。项目路径必须先通过登记校验，项目内
 `.wanta/artifacts` 的既存路径段不得是符号链接，避免制成品越界写出项目。轮次结束后
 `ChatServiceImpl` 只按真实文件建立 `ArtifactBundle`，并由 `ArtifactBundleStore` 原子持久化到
-`userData/artifact-bundles.json`。本地 assistant attachment 会先复制进托管目录；主进程递归扫描目录里的非隐藏
+`userData/artifact-bundles.json`。已登记项目的 Build 任务还会把本轮最终制成品按托管目录中的相对布局发布为
+项目根下的普通可见文件；根级同名文件和顶级目录均以 `-2`、`-3` 递增避让，绝不覆盖，发布后的文件由用户持有，
+删除会话只清理 `.wanta` 托管目录而不删除可见文件。无项目和 Plan 模式不执行项目发布。本地 assistant attachment
+会先复制进托管目录；主进程递归扫描目录里的非隐藏
 普通文件，再对第三方 Skill 混写的运行状态 sidecar 做保守分类：只有文件名呈 session/resume/checkpoint/state 语义、
 小型 JSON 同时具有任务标识和运行态字段、目录内另有明确成果且该文件并非 assistant 明确附件/预览时，才保留原文件
 但不登记进 bundle；唯一输出、损坏/过大/结构不确定的 JSON 一律保留为成果。其余文件递归登记为 `ArtifactItem`，

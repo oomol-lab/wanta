@@ -855,11 +855,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (active.projectRoot) {
         roots.add(active.projectRoot)
       }
+      if (active.outputProjectRoot) {
+        roots.add(active.outputProjectRoot)
+      }
     }
     const [artifactBundles, turnOutputs] = await Promise.all([this.readArtifactBundles(), this.readTurnOutputs()])
     for (const records of artifactBundles.values()) {
       for (const bundle of records.values()) {
         roots.add(bundle.rootPath)
+        for (const item of bundle.items) roots.add(item.path)
       }
     }
     for (const records of turnOutputs.values()) {
@@ -1397,6 +1401,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(artifactBaseline ? { artifactBaseline } : {}),
         ...(project.baseline ? { projectBaseline: project.baseline } : {}),
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
+        ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
       })
       const promptGeneration = activeGeneration
       const bugReportSystem = bugReport
@@ -1424,6 +1429,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         .promptStreaming(req.sessionId, req.text, {
           attachments: req.attachments,
           artifactDir,
+          outputProjectRoot: artifactProjectRoot,
           processDir,
           mode: execution.mode,
           messageId: userMessageId,

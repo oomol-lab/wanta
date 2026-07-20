@@ -597,7 +597,7 @@ OOMOL 模式：
 
 - OOMOL token 和 custom API Key 不进入 Renderer；
 - Renderer 状态和 IPC/RPC payload 不包含 `sessionToken`；
-- `auth.json` 和模型元数据不含明文凭证，且 `auth.json` 保持 `0600` 权限并使用原子写入；
+- `auth.json` 仅保存 profile、不保存任何形式的凭证，且保持 `0600` 权限并使用原子写入；模型元数据不含明文凭证；
 - 日志和 deep-link 始终完整脱敏，特别是包含 `authID` 的 query；
 - 本地附件和会话不会在登录后自动上传；
 - community build 不包含私有 registry、内部凭证或开发 endpoint。

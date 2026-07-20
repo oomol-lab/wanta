@@ -272,6 +272,9 @@ flowchart TD
 
 ### 阶段 3：支持未登录 Agent 与 BYOK
 
+> 工程状态：主进程 local/OOMOL 双 runtime、`model_required` 生命周期、custom-only OpenCode
+> 配置和 local session 发送链已完成；登录墙、模型 onboarding 和 capability 化提示词/Connector 工具分别留在阶段 4–5。
+
 #### 目标
 
 只要存在一个可用自定义模型，未登录用户就可以启动 OpenCode Agent。
@@ -293,7 +296,7 @@ type RuntimeCapabilities = { kind: "local"; connector: false } | { kind: "oomol"
 
 interface AgentManagerOptions {
   cloudRuntime: MainProcessCloudRuntime
-  selectedModel: ModelChoice
+  defaultModel: ModelChoice
   customModels: PersistedCustomModel[]
   opencodeBinPath: string
   rootDir: string
@@ -325,6 +328,13 @@ OOMOL 模式：
 - 删除最后一个模型：进入 `model_required`；
 - 登出且有 custom model：回退 local runtime；
 - 登出且无 custom model：保持应用可用并进入 `model_required`。
+
+当前主进程通过纯函数同时解析身份、选中模型和 custom model 清单：有 OOMOL session 时装配云 runtime，
+无 session 但存在 custom model 时装配不带 OOMOL token、builtin provider 或 oo 环境的 local runtime；两者都
+不存在时不启动 sidecar 并进入 `model_required`。新增、删除或切换模型统一经过现有串行 refresh/retirement
+链，旧 sidecar 确认退出后才启动新实例。local runtime 已实测可以在不提供 oo 路径的情况下启动 OpenCode
+sidecar，ChatService 也接受 local workspace；完整模型回答仍需阶段 4 先移除 Connector 提示与工具暴露，
+再由阶段 5 开放未登录 AppShell 进行端到端验收。
 
 #### 主要影响文件
 

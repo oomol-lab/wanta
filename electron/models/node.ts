@@ -45,6 +45,7 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
       const models = await this.deps.store.read()
       const selected = isKnownModelChoice(models, choice) ? choice : defaultModelChoice()
       await this.deps.store.write({ ...models, selected })
+      this.deps.onCustomModelsChanged?.()
       return this.emitCatalog()
     })
   }

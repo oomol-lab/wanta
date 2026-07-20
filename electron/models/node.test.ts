@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { test } from "vitest"
+import { test, vi } from "vitest"
 import { externalModelProviderBaseUrls } from "../domain.ts"
 import { ModelsServiceImpl } from "./node.ts"
 import { ModelsStore } from "./store.ts"
@@ -132,4 +132,23 @@ test("ModelsServiceImpl serializes concurrent model mutations", async () => {
     "first-model",
     "second-model",
   ])
+})
+
+test("ModelsServiceImpl requests runtime refresh for save, selection, and deletion", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
+  const onCustomModelsChanged = vi.fn()
+  const service = new ModelsServiceImpl({ store: new ModelsStore(dir), onCustomModelsChanged })
+
+  const catalog = await service.saveCustomModel({
+    providerId: "openrouter",
+    baseUrl: providerBaseUrls.openrouter,
+    apiKey: "runtime-key",
+    modelName: "runtime-model",
+  })
+  const customModel = catalog.customModels[0]
+  assert.ok(customModel)
+  await service.setSelectedModel({ kind: "custom", id: customModel.id })
+  await service.deleteCustomModel(customModel.id)
+
+  assert.equal(onCustomModelsChanged.mock.calls.length, 3)
 })

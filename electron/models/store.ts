@@ -461,8 +461,20 @@ export class ModelsStore {
   }
 
   public async runtimeCustomModels(): Promise<PersistedCustomModel[]> {
-    return (await this.read()).customModels ?? []
+    return ((await this.read()).customModels ?? []).filter(isRuntimeCustomModel)
   }
+
+  public async runtimeModels(): Promise<Required<Pick<PersistedModels, "customModels" | "selected">>> {
+    const models = await this.read()
+    return {
+      customModels: (models.customModels ?? []).filter(isRuntimeCustomModel),
+      selected: models.selected ?? defaultModelChoice(),
+    }
+  }
+}
+
+function isRuntimeCustomModel(model: PersistedCustomModel): boolean {
+  return Boolean(model.id.trim() && model.baseUrl.trim() && model.apiKey.trim() && model.modelName.trim())
 }
 
 function isPersistedCustomModel(value: unknown): value is PersistedCustomModel {

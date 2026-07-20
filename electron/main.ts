@@ -56,6 +56,7 @@ import { installOomolCorsShim } from "./net/oomol-cors.ts"
 // Teams 请求已整体搬到渲染层（src/lib/teams-client.ts），不再有对应主进程 service。
 import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstanceLock } from "./protocol.ts"
 import { normalizeRendererErrorReport } from "./renderer-error-report.ts"
+import { resolveAgentRuntime } from "./runtime/agent-runtime.ts"
 import { resolveRuntimeCapabilities } from "./runtime/common.ts"
 import { SessionActivityStore } from "./session/activity-store.ts"
 import { SessionMetadataStore } from "./session/metadata-store.ts"
@@ -146,6 +147,7 @@ let agent: AgentManager | null = null
 let applyChain: Promise<void> = Promise.resolve()
 let agentRuntimeVersion = 0
 let appliedAgentRuntimeVersion = -1
+let runtimeInitialized = false
 
 const authStore = new AuthStore(app.getPath("userData"))
 const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
@@ -230,7 +232,7 @@ const authManager = new AuthManager({
   applyAccount: applyAuthAccount,
 })
 const agentRefreshScheduler = new AgentRefreshScheduler({
-  canRefresh: () => Boolean(authManager.activeAccount() && agent?.isReady()),
+  canRefresh: () => runtimeInitialized,
   isBusy: () => chatService.hasActiveGeneration(),
   isQuitting: () => isQuitting,
   refresh: refreshAgentRuntime,
@@ -344,14 +346,7 @@ if (isLocked) {
       void authManager
         .activeRuntimeAccount()
         .then((account) => {
-          if (account) {
-            return applyAuthAccount(account)
-          }
-          void attentionService.clearAll().catch((error: unknown) => {
-            console.warn("[wanta] failed to clear signed-out task attention:", error)
-          })
-          console.log("[wanta] not signed in (or session expired) — login page will be shown")
-          return undefined
+          return applyAuthAccount(account)
         })
         .catch((error: unknown) => {
           console.error("[wanta] agent sidecar failed to start:", error)
@@ -531,6 +526,7 @@ function applyAuthAccount(account: AuthRuntimeAccount | null): Promise<void> {
 
 /** 最近一次成功装配的账号：同凭证重复 apply 时短路，避免无谓的 sidecar 重启。 */
 let appliedAccount: AuthRuntimeAccount | null = null
+let appliedRuntimeKey: string | null = null
 // agent 的当前团队作用域：由渲染层切 workspace 时经 setAgentTeam IPC 更新；agent 重建时据此设初值。
 let activeAgentTeamName: string | undefined
 
@@ -538,21 +534,23 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   if (isQuitting) {
     return
   }
+  runtimeInitialized = true
   const runtimeVersionAtStart = agentRuntimeVersion
-  // account 恒带会话 token（来自 activeRuntimeAccount / adoptAccount）；token 缺失即为 null = 登出态。
-  // 幂等短路：冷启动 deep-link 与 whenReady 双路径会用同一账号 apply 两次。
+  const runtimeModels = await modelsStore.runtimeModels()
+  const runtime = resolveAgentRuntime(account, runtimeModels.selected, runtimeModels.customModels)
+  // 冷启动 deep-link、模型事件与 auth 广播可能重复触发；运行时身份和配置版本均未变化时短路。
   if (
-    account &&
-    appliedAccount &&
+    runtime &&
+    appliedRuntimeKey === runtime.key &&
     agent?.isReady() &&
     appliedAgentRuntimeVersion === agentRuntimeVersion &&
-    account.id === appliedAccount.id &&
-    account.sessionToken === appliedAccount.sessionToken
+    account?.id === appliedAccount?.id
   ) {
     return
   }
   const previousAccountId = appliedAccount?.id
   appliedAccount = null
+  appliedRuntimeKey = null
   // 旧 sidecar 必须在新 sidecar 启动前完成回收，避免共享 workspace/isolation 的两个运行时短暂并存。
   const previousAgent = agent
   agent = null
@@ -560,10 +558,10 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   chatService.setRuntimeCapabilities(
     resolveRuntimeCapabilities({
       mode: account ? "oomol" : "local",
-      localAgentAvailable: Boolean(account),
+      localAgentAvailable: Boolean(runtime),
     }),
   )
-  chatService.setAgentStatus(account ? { status: "starting" } : { status: "signed_out" })
+  chatService.setAgentStatus(runtime ? { status: "starting" } : { status: "model_required" })
   sessionService.setAgent(null)
 
   if (previousAgent) {
@@ -581,26 +579,31 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     }
   }
 
-  if (!account || isQuitting) {
+  if (!runtime || isQuitting) {
     activeAgentTeamName = undefined
     await attentionService.clearAll().catch((error: unknown) => {
       console.warn("[wanta] failed to clear attention state during sign-out:", error)
     })
+    if (!account) console.log("[wanta] local Agent requires a configured custom model")
     return
   }
-  if (previousAccountId && previousAccountId !== account.id) {
+  if (previousAccountId && previousAccountId !== account?.id) {
     activeAgentTeamName = undefined
     await attentionService.clearAll().catch((error: unknown) => {
       console.warn("[wanta] failed to clear attention state during account switch:", error)
     })
   }
 
-  const customModels = await modelsStore.runtimeCustomModels()
   if (isQuitting) {
     return
   }
+  const cloudRuntime =
+    runtime.cloudRuntime.kind === "oomol"
+      ? { ...runtime.cloudRuntime, teamName: activeAgentTeamName }
+      : runtime.cloudRuntime
   const nextAgent = new AgentManager({
-    authToken: account.sessionToken,
+    cloudRuntime,
+    defaultModel: runtime.defaultModel,
     opencodeBinPath,
     ooBinPath,
     wikiGraphCliPath,
@@ -608,9 +611,8 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     knowledgeRegistryPath: knowledgeStore.registryPath(),
     bundledSkillsDir,
     bundledToolRuntimePath,
-    teamName: activeAgentTeamName,
     rootDir: path.join(app.getPath("userData"), "agent"),
-    customModels,
+    customModels: runtimeModels.customModels,
   })
   agent = nextAgent
   chatService.setAgent(nextAgent)
@@ -636,6 +638,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     return
   }
   appliedAccount = account
+  appliedRuntimeKey = runtime.key
   appliedAgentRuntimeVersion = runtimeVersionAtStart
   chatService.startEventBridge()
   chatService.setAgentStatus({ status: "ready" })
@@ -665,8 +668,7 @@ function restartAgentForModelConfig(): void {
   if (isQuitting) {
     return
   }
-  if (agent?.isReady()) agentRefreshScheduler.schedule("model configuration changed", 0)
-  else agentRuntimeVersion += 1
+  agentRefreshScheduler.schedule("model configuration changed", 0)
 }
 
 async function refreshAgentRuntime(_reason: string): Promise<void> {

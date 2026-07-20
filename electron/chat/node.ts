@@ -69,6 +69,7 @@ import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
 import { resolveRuntimeCapabilities } from "../runtime/common.ts"
 import { ServiceEvent } from "../service-events.ts"
+import { normalizeSessionScopeValue } from "../session/common.ts"
 import { ActiveRunRegistry } from "./active-run-registry.ts"
 import { captureArtifactSessionBaseline } from "./artifact-bundles.ts"
 import { normalizeLocalPathCandidate } from "./artifacts.ts"
@@ -191,12 +192,9 @@ function teamNameFromRequest(req: SendMessageRequest): string | undefined {
 }
 
 function runWorkspaceFromRequest(req: SendMessageRequest): ChatRunWorkspace {
-  const teamId = req.scope.kind === "team" ? req.scope.teamId.trim() : ""
-  const teamName = req.scope.kind === "team" ? req.scope.teamName.trim() : ""
-  if (!teamId || !teamName) {
-    throw new Error("Team scope is required by the current Agent runtime")
-  }
-  return { teamId, teamName }
+  const scope = normalizeSessionScopeValue(req.scope)
+  if (!scope) throw new Error("Workspace scope is invalid")
+  return scope
 }
 
 function messageErrorSignature(message: string): string {
@@ -277,7 +275,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private readonly subagentSessions: SubagentSessions
   private readonly permissions = new PermissionState()
   private readonly deps: ChatServiceDeps
-  private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
+  private agentStatus: AgentRuntimeStatus = { status: "model_required" }
   private runtimeCapabilities: RuntimeCapabilities = resolveRuntimeCapabilities({
     mode: "local",
     localAgentAvailable: false,
@@ -963,7 +961,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.activeRuns.delete(sessionId, generation.id)
       this.emitSessionActivity(sessionId)
       this.sendBestEffort(emit, "messageCompleted", { sessionId }, { sessionId })
-      if (completedRun) {
+      if (completedRun?.workspace.kind === "team") {
         void Promise.resolve(
           this.deps.onSessionCompleted?.({
             teamId: completedRun.workspace.teamId,

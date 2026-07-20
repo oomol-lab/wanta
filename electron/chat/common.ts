@@ -240,10 +240,7 @@ export type ChatRunPhase =
   | "awaiting_permission"
   | "awaiting_question"
 
-export interface ChatRunWorkspace {
-  teamId: string
-  teamName: string
-}
+export type ChatRunWorkspace = SessionScope
 
 export interface ChatActiveRun {
   activeAssistantMessageId?: string
@@ -278,7 +275,7 @@ export interface AgentErrorEvent {
   message: string
 }
 export type AgentRuntimeStatus =
-  | { status: "signed_out" }
+  | { status: "model_required" }
   | { status: "starting" }
   | { status: "ready" }
   | { status: "error"; message: string }
@@ -877,7 +874,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     setPermissionMode(req: SetChatPermissionModeRequest): Promise<void>
     getAgentStatus(): Promise<AgentRuntimeStatus>
     getRuntimeCapabilities(): Promise<RuntimeCapabilities>
-    /** Agent sidecar 是否就绪（未配置 OO_API_KEY 时为 false）。 */
+    /** Agent sidecar 是否就绪；本地模式缺少 custom model 时为 false。 */
     isReady(): Promise<boolean>
   }
 }>

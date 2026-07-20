@@ -241,6 +241,27 @@ test("ModelsStore exposes custom model image support", async () => {
   assert.equal(catalog.customModels[0]?.inputTokenLimit, 128_000)
 })
 
+test("ModelsStore excludes incomplete custom models from runtime configuration", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
+  const store = new ModelsStore(dir)
+  await store.write({
+    selected: { kind: "custom", id: "missing-key" },
+    customModels: [
+      {
+        id: "missing-key",
+        providerId: "custom",
+        providerName: "Custom",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        apiKey: "",
+        modelName: "local-model",
+      },
+    ],
+  })
+
+  assert.deepEqual((await store.runtimeModels()).customModels, [])
+  assert.deepEqual(await store.runtimeCustomModels(), [])
+})
+
 test("sanitizeBaseUrl trims trailing slash and rejects invalid protocols", () => {
   assert.equal(sanitizeBaseUrl(` ${providerBaseUrls.openrouter}/ `), providerBaseUrls.openrouter)
   assert.throws(() => sanitizeBaseUrl("file:///tmp/model"))

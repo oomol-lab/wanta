@@ -1,4 +1,5 @@
 import type { BuiltinModelDefinition } from "../models/builtin.ts"
+import type { ModelChoice } from "../models/common.ts"
 import type { WantaReasoningVariant } from "./reasoning.ts"
 import type { Config } from "@opencode-ai/sdk/v2/client"
 
@@ -7,6 +8,7 @@ import {
   BUILTIN_MODEL_DEFINITIONS,
   BUILTIN_PROVIDER_DEFINITIONS,
   DEFAULT_BUILTIN_MODEL_ID,
+  isBuiltinModelId,
   resolveBuiltinModel,
 } from "../models/builtin.ts"
 import { effectiveMaxOutputTokens } from "../models/limits.ts"
@@ -88,18 +90,19 @@ const QWEN_REASONING_VARIANTS = {
 } as const satisfies Partial<Record<WantaReasoningVariant, OpencodeReasoningVariantConfig>>
 
 export interface OpencodeConfigOptions {
-  /** 网关鉴权凭证：现为会话 token（网关层接受 cookie/token/api-key）。仅入内存 env，不落盘。 */
-  authToken: string
+  cloudRuntime: { kind: "local" } | { kind: "oomol"; sessionToken: string }
   customModels?: OpencodeCustomModel[]
+  defaultModel?: ModelChoice
 }
 
-/** 构建 OpenCode 配置（经 OPENCODE_CONFIG_CONTENT 内联注入；authToken 仅入内存 env，不落盘）。 */
-export function buildOpencodeConfig({ authToken, customModels = [] }: OpencodeConfigOptions): Config {
+/** 构建 OpenCode 配置；OOMOL token 与自定义模型 Key 只进入 sidecar 内存环境，不落 OpenCode 文件。 */
+export function buildOpencodeConfig({ cloudRuntime, customModels = [], defaultModel }: OpencodeConfigOptions): Config {
+  const model = resolveDefaultConfigModel(cloudRuntime, customModels, defaultModel)
   return {
     $schema: "https://opencode.ai/config.json",
-    model: `${WANTA_PROVIDER_ID}/${WANTA_MODEL_ID}`,
+    model,
     provider: {
-      ...builtinProviderConfigs(authToken),
+      ...(cloudRuntime.kind === "oomol" ? builtinProviderConfigs(cloudRuntime.sessionToken) : {}),
       ...Object.fromEntries(customModels.map((model) => [customProviderId(model.id), customProviderConfig(model)])),
     },
     agent: {
@@ -119,6 +122,27 @@ export function buildOpencodeConfig({ authToken, customModels = [] }: OpencodeCo
     },
     permission: WANTA_PERMISSION,
   }
+}
+
+function resolveDefaultConfigModel(
+  cloudRuntime: OpencodeConfigOptions["cloudRuntime"],
+  customModels: OpencodeCustomModel[],
+  defaultModel: ModelChoice | undefined,
+): string {
+  if (defaultModel?.kind === "custom") {
+    const customModel = customModels.find((model) => model.id === defaultModel.id)
+    if (customModel) return `${customProviderId(customModel.id)}/${customModel.modelName}`
+  }
+  if (cloudRuntime.kind === "local") {
+    const customModel = customModels[0]
+    if (!customModel) throw new Error("A custom model is required for the local Agent runtime.")
+    return `${customProviderId(customModel.id)}/${customModel.modelName}`
+  }
+  if (defaultModel?.kind === "builtin" && isBuiltinModelId(defaultModel.id)) {
+    const runtime = resolveBuiltinModel(defaultModel.id).runtime
+    return `${runtime.providerID}/${runtime.modelID}`
+  }
+  return `${WANTA_PROVIDER_ID}/${WANTA_MODEL_ID}`
 }
 
 export function customProviderId(id: string): string {

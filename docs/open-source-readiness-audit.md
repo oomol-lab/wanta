@@ -151,13 +151,13 @@ Official OOMOL build：
 - 新增无凭证的 `RuntimeCapabilities` 类型；
 - 将本地能力与 OOMOL 托管能力分开表达；
 - capability 摘要明确禁止携带 `sessionToken`、`authToken` 或 `apiKey`；
-- 在 local Agent 真正落地前，能力计算可以显式保持 `localAgentAvailable: false`，避免提前宣称尚未实现的能力；
-- ChatService 已提供 capability 查询和变更事件，主进程在 OOMOL runtime 装配与退出时更新该事实源；
+- capability 只在 local custom-model sidecar 实际装配时声明 `localAgentAvailable: true`，无模型时保持 false；
+- ChatService 已提供 capability 查询和变更事件，主进程在 local/OOMOL runtime 装配与退出时更新该事实源；
 - Renderer 已在 AuthGate 外层订阅 capability，并在身份与 capability 快照都就绪后决定当前入口；
 - capability 订阅采用“先订阅、再加载快照”的竞态保护，迟到的初始快照或错误不能覆盖更新事件；
 - 增加 local、未就绪和 OOMOL 三种组合的纯函数测试。
 
-Renderer 接入后仍保留登录墙，因为 local Agent 尚未实现，local workspace 也尚未开放到应用入口。
+Renderer 接入后仍保留登录墙；local Agent runtime 已落地，但 local workspace 尚未开放到应用入口。
 
 阶段 2 的 local workspace 数据基础现已完成：
 
@@ -167,13 +167,22 @@ Renderer 接入后仍保留登录墙，因为 local Agent 尚未实现，local w
 - SessionService、项目存储、会话/草稿 key 和侧边栏持久化隔离 local/team 命名空间；
 - local/team 使用相同业务 ID 时仍不会混淆，会话和项目的跨 scope 绑定继续被拒绝。
 
-由于 local Agent 尚未装配，Renderer 仍保留登录墙，真实未登录会话创建与 workspace 切换 UI 尚未开放。
+阶段 3 的 local Agent runtime 基础现已完成：
+
+- 主进程私有 `local | oomol` runtime 显式隔离 OOMOL session token；
+- local OpenCode 配置只注册 custom provider，不生成 builtin provider 或 oo CLI 环境；
+- 无 custom model 时不启动 sidecar，Agent 状态为 `model_required`；
+- 首个模型新增、最后模型删除、模型切换、登录和登出共用串行重装配链；
+- ChatService active run 支持 local workspace，local turn 不写团队 attention 记录；
+- local sidecar 已在不提供 OOMOL token 和 oo 路径的条件下完成启动 smoke。
+
+Renderer 仍保留登录墙，真实未登录模型回答、会话创建与 workspace 切换 UI 尚未开放。
 下一工程切片推荐顺序：
 
-1. 允许 custom model 在无 OOMOL token 时启动；
-2. 将 `signed_out` 语义拆为 OOMOL unauthenticated 与 Agent `model_required`；
-3. 按 capability 装配系统提示与 Connector 工具；
-4. 最后移除启动登录墙并完成本地/团队 workspace 切换和 UI 实机验证。
+1. 按 capability 装配系统提示与 Connector 工具；
+2. 移除启动登录墙并增加模型 onboarding；
+3. 完成本地/团队 workspace 切换和 UI 实机验证；
+4. 稳定登录、登出和 token 过期后的 runtime 切换。
 
 ## 8. 发布前检查清单
 

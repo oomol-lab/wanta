@@ -420,8 +420,26 @@ test("sendMessage exposes active run snapshots with the request workspace", asyn
   const run = await service.getActiveRun("session-1")
   assert.equal(run?.sessionId, "session-1")
   assert.equal(run?.phase, "submitted")
-  assert.deepEqual(run?.workspace, { teamId: "team-id", teamName: "acme-corp" })
+  assert.deepEqual(run?.workspace, { kind: "team", teamId: "team-id", teamName: "acme-corp" })
   assert.ok(events.some((event) => event.event === "activeRunUpdated"))
+})
+
+test("sendMessage accepts a local workspace without assigning a team", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+
+  await service.sendMessage({
+    scope: { kind: "local", workspaceId: "local", workspaceName: "Local" },
+    sessionId: "local-session",
+    text: "hello locally",
+  })
+
+  assert.deepEqual((await service.getActiveRun("local-session"))?.workspace, {
+    kind: "local",
+    workspaceId: "local",
+    workspaceName: "Local",
+  })
+  assert.deepEqual(bridge.setSessionTeamName.mock.calls, [["local-session", undefined]])
 })
 
 test("getSessionSnapshot returns messages, pending asks, and active run together", async () => {
@@ -1930,6 +1948,7 @@ test("rejectQuestion resolves the waiting question without stopping the generati
   assert.equal(waitingRun?.phase, "awaiting_question")
   assert.equal(waitingRun?.sessionId, "session-1")
   assert.deepEqual(waitingRun?.workspace, {
+    kind: "team",
     teamId: "team-id",
     teamName: "team-name",
   })

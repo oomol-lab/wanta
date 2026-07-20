@@ -108,8 +108,8 @@ Beyond all the hard rules in the root guide, this plan specifically emphasizes:
    dependencies;
 7. Do not delete files required for dynamic loading, build scripts, packaging resources, CI,
    deep-link, protocol registration, or runtime binaries just because of static-scan results;
-8. Use English for all human-readable Git text, Chinese for code comments, and English for code
-   identifiers, logs, and system prompts.
+8. Use English for all human-readable Git text, code comments, identifiers, logs, and system
+   prompts.
 
 ## 4. Work products
 

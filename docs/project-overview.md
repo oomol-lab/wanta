@@ -103,7 +103,7 @@ node is in [key-decisions.md](key-decisions.md).
 - **sidecar**: the local `opencode serve` child process started with the app — an HTTP+SSE service
   hosting the agent loop.
 - **endpoint**: the OOMOL primary domain (`oomol.com` / internal development `oomol.dev`), fixed at
-  build time; all subdomains derive from it.
+  build time; all OOMOL subdomains derive from it.
 - **golden path**: the GA→PV use case above; all phase acceptance during development revolved
   around it.
 - **R1–R8 / Phases 0–6**: the rule and phase numbering from the original plan, scattered through code

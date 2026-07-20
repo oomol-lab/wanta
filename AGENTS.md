@@ -21,7 +21,7 @@ toolchain = tsgo (type check) / oxlint / oxfmt / vitest.
 
 ## Layout
 
-```
+```text
 electron/        Main process + preload. One directory per service/feature domain (agent/
                  auth/ chat/ knowledge/ skills/ ... — non-exhaustive; module map in
                  docs/architecture.md §8)

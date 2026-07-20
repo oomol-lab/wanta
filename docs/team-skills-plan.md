@@ -511,7 +511,7 @@ If a team id is selected but the team name is not yet resolved:
 Default policy:
 
 - Adding a team Skill stores a concrete `version` with `versionPolicy = "pinned"`.
-- The UI offers "Update to latest".
+- After the §4 per-Skill model ships, the UI offers "Update to latest".
 - The backend or Wanta can check whether a team Skill has a newer version.
 - The `latest` policy is for advanced scenarios only; the UI must state clearly that it changes
   automatically.

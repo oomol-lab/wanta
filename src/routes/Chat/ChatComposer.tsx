@@ -545,7 +545,10 @@ export function ChatComposer({
       showTrustedInputError(t("chat.sendNotAccepted"))
       return
     }
-    appendComposerHistory(text)
+    // 文本历史无法恢复命令 chip；排除命令，避免召回后把命令备注误发成普通消息。
+    if (command === null) {
+      appendComposerHistory(text)
+    }
     clearAfterOptimisticSubmit()
   }
 

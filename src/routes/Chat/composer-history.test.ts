@@ -51,6 +51,23 @@ describe("composer history", () => {
     ).toEqual(["describe it"])
   })
 
+  it("excludes command submissions from messages and the queue", () => {
+    expect(
+      buildComposerHistory(
+        [
+          message(10, "user", "before"),
+          message(20, "user", "/bug-report"),
+          message(30, "user", "/bug-report include diagnostics"),
+          message(40, "user", "after"),
+        ],
+        [
+          { createdAt: 50, text: "/bug-report queued note" },
+          { createdAt: 60, text: "queued message" },
+        ],
+      ),
+    ).toEqual(["before", "after", "queued message"])
+  })
+
   it("deduplicates consecutive prompts and keeps the newest limit", () => {
     expect(
       buildComposerHistory(
@@ -97,6 +114,7 @@ describe("composer history", () => {
 
     expect(appendStoredComposerHistory(scope, " same ", storage)).toEqual(["same"])
     expect(appendStoredComposerHistory(scope, "same", storage)).toEqual(["same"])
+    expect(appendStoredComposerHistory(scope, "/bug-report stored note", storage)).toEqual(["same"])
     storage.values.set(composerHistoryStorageKey(scope), "{broken")
     expect(readStoredComposerHistory(scope, storage)).toEqual([])
   })

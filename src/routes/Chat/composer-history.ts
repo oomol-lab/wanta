@@ -2,6 +2,7 @@ import type { ChatMessage } from "../../../electron/chat/common.ts"
 import type { QueuedChatMessage } from "@/components/app-shell/chat-queue"
 
 import { storageKey } from "../../../electron/branding.ts"
+import { BUG_REPORT_COMMAND } from "../../../electron/chat/common.ts"
 import { visibleUserText } from "./message-text.ts"
 
 const COMPOSER_HISTORY_LIMIT = 20
@@ -37,11 +38,15 @@ function normalizeHistory(values: unknown, limit = COMPOSER_HISTORY_LIMIT): stri
       continue
     }
     const text = value.trim()
-    if (text && history.at(-1) !== text) {
+    if (text && !isCommandSubmission(text) && history.at(-1) !== text) {
       history.push(text)
     }
   }
   return history.slice(-limit)
+}
+
+function isCommandSubmission(text: string): boolean {
+  return text === BUG_REPORT_COMMAND || text.startsWith(`${BUG_REPORT_COMMAND} `)
 }
 
 export function readStoredComposerHistory(scope: string, storage: ComposerHistoryStorage = localStorage): string[] {
@@ -109,13 +114,13 @@ export function buildComposerHistory(
       continue
     }
     const text = messageText(message)
-    if (text) {
+    if (text && !isCommandSubmission(text)) {
       candidates.push({ createdAt: message.createdAt, order: order++, text })
     }
   }
   for (const message of queuedMessages) {
     const text = message.text.trim()
-    if (text) {
+    if (text && !isCommandSubmission(text)) {
       candidates.push({ createdAt: message.createdAt, order: order++, text })
     }
   }

@@ -721,7 +721,6 @@ export function SkillsRoute({
           installedFilter={installedFilter}
           installedQuery={query}
           teamFilter={teamFilter}
-          teamName={workspace.activeWorkspace.team?.name}
           teamQuery={teamQuery}
           teamTabAvailable={cloudEnabled && Boolean(workspace.activeWorkspace.teamId)}
           publishedFilterAvailable={cloudEnabled}

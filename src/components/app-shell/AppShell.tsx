@@ -1879,7 +1879,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       willQueueMessage={Boolean(
                         activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isSendInFlight()),
                       )}
-                      voiceEnabled={runtimeCapabilities?.voice === true}
                       initialComposerState={initialComposerState}
                       initialSendPending={initialSendPending}
                       composerFocusRequest={composerFocusRequest}

@@ -2,13 +2,10 @@ import type { AgentMode, AgentPermissionMode, ReasoningLevel } from "../../../el
 import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.ts"
 import type { ContextUsageInfo } from "./context-usage.ts"
 
-import { Mic } from "lucide-react"
 import { AgentModePicker } from "./AgentModePicker.tsx"
 import { ComposerContextUsageIndicator } from "./ComposerContextUsageIndicator.tsx"
 import { ModelReasoningPicker } from "./ModelReasoningPicker.tsx"
 import { PermissionModePicker } from "./PermissionModePicker.tsx"
-import { Button } from "@/components/ui/button"
-import { useT } from "@/i18n/i18n"
 
 interface ComposerModeControlsProps {
   agentMode: AgentMode
@@ -17,6 +14,7 @@ interface ComposerModeControlsProps {
   modelCatalog: ModelCatalog | null
   permissionMode: AgentPermissionMode
   reasoningLevel: ReasoningLevel
+  modelRequired?: boolean
   onAddModel: () => void
   onDeleteModel: (id: string) => void
   onRequestFullAccessPermissionMode: () => void
@@ -24,7 +22,6 @@ interface ComposerModeControlsProps {
   onSelectDefaultPermissionMode: () => void
   onSelectModel: (choice: ModelChoice) => void
   onSelectReasoningLevel: (level: ReasoningLevel) => void
-  onStartVoice?: () => void
 }
 
 export function ComposerModeControls({
@@ -34,6 +31,7 @@ export function ComposerModeControls({
   modelCatalog,
   permissionMode,
   reasoningLevel,
+  modelRequired = false,
   onAddModel,
   onDeleteModel,
   onRequestFullAccessPermissionMode,
@@ -41,10 +39,7 @@ export function ComposerModeControls({
   onSelectDefaultPermissionMode,
   onSelectModel,
   onSelectReasoningLevel,
-  onStartVoice,
 }: ComposerModeControlsProps) {
-  const t = useT()
-
   return (
     <>
       <ComposerContextUsageIndicator usage={contextUsage} />
@@ -58,26 +53,13 @@ export function ComposerModeControls({
       <ModelReasoningPicker
         catalog={modelCatalog}
         disabled={composerDisabled}
+        modelRequired={modelRequired}
         reasoningLevel={reasoningLevel}
         onAddModel={onAddModel}
         onDeleteModel={onDeleteModel}
         onSelectModel={onSelectModel}
         onSelectReasoningLevel={onSelectReasoningLevel}
       />
-      {onStartVoice ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          title={t("chat.voiceInput")}
-          aria-label={t("chat.voiceInput")}
-          disabled={composerDisabled}
-          className="size-8 rounded-full"
-          onClick={onStartVoice}
-        >
-          <Mic className="size-4" />
-        </Button>
-      ) : null}
     </>
   )
 }

@@ -5,7 +5,7 @@ import type { ModelMenuItem } from "./model-control-options.ts"
 import { Brain, Check, ChevronDown, ChevronRight, Settings2 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
-import { buildModelMenuItems, combinedModelReasoningLabel, selectedModelSummary } from "./model-control-options.ts"
+import { buildModelMenuItems, modelReasoningTriggerLabel, selectedModelSummary } from "./model-control-options.ts"
 import { ModelRow, ProviderMark } from "./model-control-rows.tsx"
 import { clampNumber, modelMenuItemElementId, nextModelMenuIndex, reasoningLevelLabel } from "./model-control-utils.ts"
 import { selectedModelReasoningLevels } from "./model-reasoning-levels.ts"
@@ -35,6 +35,7 @@ function modelReasoningRootItemElementId(itemId: string): string {
 export function ModelReasoningPicker({
   catalog,
   disabled,
+  modelRequired = false,
   reasoningLevel,
   onSelectModel,
   onDeleteModel,
@@ -43,6 +44,7 @@ export function ModelReasoningPicker({
 }: {
   catalog: ModelCatalog | null
   disabled: boolean
+  modelRequired?: boolean
   reasoningLevel: ReasoningLevel
   onSelectModel: (choice: ModelChoice) => void
   onDeleteModel: (id: string) => void
@@ -63,8 +65,15 @@ export function ModelReasoningPicker({
   const availableReasoningLevels = React.useMemo(() => selectedModelReasoningLevels(catalog), [catalog])
   const effectiveReasoningLevel = availableReasoningLevels.includes(reasoningLevel) ? reasoningLevel : "default"
   const selectedReasoningLabel = reasoningLevelLabel(effectiveReasoningLevel, t)
-  const triggerLabel = combinedModelReasoningLabel(selected.label, selectedReasoningLabel)
-  const triggerTitle = selected.supportsImages ? `${triggerLabel} · ${t("chat.modelVision")}` : triggerLabel
+  const modelLabel = modelRequired ? t("chat.modelSelectOrConfigure") : selected.label
+  const triggerLabel = modelReasoningTriggerLabel({
+    modelLabel: selected.label,
+    modelRequired,
+    modelRequiredLabel: modelLabel,
+    reasoningLabel: selectedReasoningLabel,
+  })
+  const triggerTitle =
+    !modelRequired && selected.supportsImages ? `${triggerLabel} · ${t("chat.modelVision")}` : triggerLabel
   const rootItems = React.useMemo<ModelReasoningRootItem[]>(
     () => [
       ...availableReasoningLevels.map(
@@ -79,10 +88,10 @@ export function ModelReasoningPicker({
       {
         id: "model",
         kind: "model",
-        title: selected.label,
+        title: modelLabel,
       },
     ],
-    [availableReasoningLevels, effectiveReasoningLevel, selected.label, t],
+    [availableReasoningLevels, effectiveReasoningLevel, modelLabel, t],
   )
   const modelItems = React.useMemo<ModelMenuItem[]>(
     () => buildModelMenuItems(catalog, t("chat.modelAdd")),
@@ -574,9 +583,13 @@ export function ModelReasoningPicker({
       >
         <Brain className="size-4 shrink-0" />
         <span className="oo-composer-model-text flex min-w-0 flex-1 items-center gap-1 text-left">
-          <span className="min-w-0 truncate">{selected.label}</span>
-          <span className="oo-composer-model-reasoning shrink-0 text-muted-foreground">·</span>
-          <span className="oo-composer-model-reasoning shrink-0">{selectedReasoningLabel}</span>
+          <span className="min-w-0 truncate">{modelLabel}</span>
+          {!modelRequired ? (
+            <>
+              <span className="oo-composer-model-reasoning shrink-0 text-muted-foreground">·</span>
+              <span className="oo-composer-model-reasoning shrink-0">{selectedReasoningLabel}</span>
+            </>
+          ) : null}
         </span>
         <ChevronDown
           className={cn("oo-composer-control-chevron size-3.5 shrink-0 transition-transform", open && "rotate-180")}

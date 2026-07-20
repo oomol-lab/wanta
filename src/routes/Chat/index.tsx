@@ -67,7 +67,6 @@ interface ChatAreaProps {
   historyScope: string
   submitDisabled: boolean
   willQueueMessage: boolean
-  voiceEnabled?: boolean
   initialComposerState?: ComposerState
   initialSendPending: boolean
   providers: ConnectionProvider[]
@@ -286,7 +285,6 @@ export const ChatArea = React.memo(function ChatArea({
   historyScope,
   submitDisabled,
   willQueueMessage,
-  voiceEnabled = true,
   initialComposerState,
   initialSendPending,
   providers,
@@ -380,7 +378,6 @@ export const ChatArea = React.memo(function ChatArea({
       turnState={turnState}
       submitDisabled={submitDisabled}
       willQueueMessage={willQueueMessage}
-      voiceEnabled={voiceEnabled}
       onComposerStateChange={onComposerStateChange}
       onQueuedMessageMove={onQueuedMessageMove}
       onQueuedMessageRemove={onQueuedMessageRemove}

@@ -374,6 +374,7 @@ export const enMessages = {
   "chat.contextUsagePanelTokensUnknown": "{used} tokens used",
   "chat.modelReasoningPicker": "Switch model and reasoning",
   "chat.modelSection": "Model",
+  "chat.modelSelectOrConfigure": "Select or configure model",
   "chat.modelCustom": "Custom models",
   "chat.modelAdd": "Configure custom model",
   "chat.modelDelete": "Delete custom model",

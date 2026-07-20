@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest"
 import { resolveChatTurnState } from "./chat-turn-state.ts"
-import { composerSubmitState, composerVoiceControlMode } from "./composer-controls.ts"
+import { composerModeControlsDisabled, composerSubmitState, composerVoiceControlMode } from "./composer-controls.ts"
 
 describe("composer controls", () => {
+  it("keeps mode and model controls available while waiting for model configuration", () => {
+    expect(composerModeControlsDisabled({ composerDisabled: true, modelRequired: true })).toBe(false)
+    expect(composerModeControlsDisabled({ composerDisabled: true, modelRequired: false })).toBe(true)
+  })
+
   it("selects the voice control mode from active and error state", () => {
     expect(composerVoiceControlMode({ voiceActive: false, voiceStarting: false, voiceTranscribing: false })).toBe(
       "idle",

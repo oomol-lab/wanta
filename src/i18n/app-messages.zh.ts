@@ -358,6 +358,7 @@ export const zhCNMessages = {
   "chat.contextUsagePanelTokensUnknown": "已用 {used} 标记",
   "chat.modelReasoningPicker": "切换模型和推理",
   "chat.modelSection": "模型",
+  "chat.modelSelectOrConfigure": "选择或配置模型",
   "chat.modelCustom": "自定义模型",
   "chat.modelAdd": "配置自定义模型",
   "chat.modelDelete": "删除自定义模型",

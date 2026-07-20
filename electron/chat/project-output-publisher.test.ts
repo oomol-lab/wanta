@@ -98,4 +98,23 @@ describe("publishArtifactBundleToProject", () => {
       publishArtifactBundleToProject(await bundleFor(artifactRoot), artifactRoot, linkedRoot),
     ).rejects.toThrow("Project output root is not a plain directory")
   })
+
+  it.runIf(process.platform !== "win32")("refuses a symbolic-link artifact source", async () => {
+    const artifactRoot = await temporaryRoot("wanta-managed-output-")
+    const projectRoot = await temporaryRoot("wanta-project-output-")
+    const outsideRoot = await temporaryRoot("wanta-outside-output-")
+    const artifactPath = path.join(artifactRoot, "result.txt")
+    await writeFile(path.join(outsideRoot, "secret.txt"), "secret")
+    await writeFile(artifactPath, "result")
+    const bundle = await bundleFor(artifactRoot)
+    await rm(artifactPath)
+    await symlink(path.join(outsideRoot, "secret.txt"), artifactPath)
+
+    const result = await publishArtifactBundleToProject(bundle, artifactRoot, projectRoot)
+
+    expect(result.bundle.status).toBe("failed")
+    expect(result.bundle.failure).toBe("project_output_publish_failed")
+    expect(result.publishedPaths.size).toBe(0)
+    await expect(readFile(path.join(projectRoot, "result.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  })
 })

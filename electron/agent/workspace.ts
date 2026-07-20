@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
@@ -14,6 +14,9 @@ export async function ensureAgentWorkspace(
   bundledSkillsDir?: string,
   bundledToolRuntimePath?: string,
 ): Promise<string> {
+  if (!bundledToolRuntimePath) {
+    throw new Error("Bundled agent tool runtime path is required.")
+  }
   const opencodeDir = path.join(rootDir, ".opencode")
   const toolsDir = path.join(opencodeDir, "tools")
   const runtimeSkillsDir = path.join(opencodeDir, "skills")
@@ -28,14 +31,18 @@ export async function ensureAgentWorkspace(
 }
 
 /** 把构建期合并的 tool helper + Zod runtime 覆盖到 workspace，工具加载不依赖 OpenCode 首启联网安装插件。 */
-async function syncToolRuntime(opencodeDir: string, bundledToolRuntimePath: string | undefined): Promise<void> {
+async function syncToolRuntime(opencodeDir: string, bundledToolRuntimePath: string): Promise<void> {
   const runtimeDir = path.join(opencodeDir, "runtime")
-  if (!bundledToolRuntimePath) {
-    return
-  }
   const runtimeSource = await readFile(bundledToolRuntimePath)
-  await mkdir(runtimeDir, { recursive: true })
-  await writeFile(path.join(runtimeDir, "tool.js"), runtimeSource)
+  const stagingDir = await mkdtemp(path.join(opencodeDir, ".runtime-"))
+  try {
+    await writeFile(path.join(stagingDir, "tool.js"), runtimeSource, { flag: "wx" })
+    await rm(runtimeDir, { force: true, recursive: true })
+    await rename(stagingDir, runtimeDir)
+  } catch (error) {
+    await rm(stagingDir, { force: true, recursive: true })
+    throw error
+  }
 }
 
 /**

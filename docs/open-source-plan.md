@@ -270,7 +270,8 @@ flowchart TD
 #### 设计
 
 ```ts
-type CloudRuntime =
+/** 仅存在于 Electron 主进程，不得用于 preload、Renderer 状态或 IPC/RPC 契约。 */
+type MainProcessCloudRuntime =
   | { kind: "local" }
   | {
       kind: "oomol"
@@ -278,8 +279,13 @@ type CloudRuntime =
       organizationName?: string
     }
 
+/** 可跨 preload/Renderer 边界共享的无凭证能力摘要。 */
+type RuntimeCapabilities =
+  | { kind: "local"; connector: false }
+  | { kind: "oomol"; connector: true; organizationName?: string }
+
 interface AgentManagerOptions {
-  cloudRuntime: CloudRuntime
+  cloudRuntime: MainProcessCloudRuntime
   selectedModel: ModelChoice
   customModels: PersistedCustomModel[]
   opencodeBinPath: string
@@ -328,7 +334,8 @@ OOMOL 模式：
 - 本地 Shell、文件和项目工具可用；
 - 没有模型时应用不崩溃；
 - 模型新增、删除和切换能安全刷新 runtime；
-- local runtime 环境中不存在 OOMOL session token。
+- local runtime 环境中不存在 OOMOL session token；
+- Renderer 状态和 IPC/RPC payload 中不包含 `sessionToken`，只暴露无凭证的 `RuntimeCapabilities`。
 
 ### 阶段 4：按能力装配系统提示与 Connector 工具
 
@@ -342,7 +349,7 @@ OOMOL 模式：
 2. 新增基于 capability 的提示组合函数；
 3. 本地模式不写入 `list_apps`、`search_actions`、`inspect_action` 和 `call_action`；
 4. 本地模式不注入 `OO_API_KEY`、Connector URL 和 organization scope；
-5. OOMOL 模式保留现有四工具、授权语义、canary、限流和熔断；
+5. OOMOL 模式保留现有四个工具、授权语义、canary、限流和熔断；
 6. 能力策略变更时同步检查 tools、agent permission、root permission 和 system prompt；
 7. 为两种 runtime 建立配置和提示词快照/断言测试。
 
@@ -359,7 +366,7 @@ OOMOL 模式：
 
 - 本地模式提示词与 OpenCode workspace 中均不存在 Connector 工具；
 - 本地模式环境中不存在 `OO_API_KEY`；
-- OOMOL 模式 Connector 金路径没有功能退化；
+- OOMOL 模式 Connector 关键路径没有功能退化；
 - Build / Plan 权限语义和 permission ask UI 闭环正常。
 
 ### 阶段 5：移除登录墙并增加首次引导
@@ -589,8 +596,9 @@ OOMOL 模式：
 安全检查：
 
 - OOMOL token 和 custom API Key 不进入 Renderer；
-- `auth.json` 和模型元数据不含明文凭证；
-- 日志和 deep-link 完整脱敏；
+- Renderer 状态和 IPC/RPC payload 不包含 `sessionToken`；
+- `auth.json` 和模型元数据不含明文凭证，且 `auth.json` 保持 `0600` 权限并使用原子写入；
+- 日志和 deep-link 始终完整脱敏，特别是包含 `authID` 的 query；
 - 本地附件和会话不会在登录后自动上传；
 - community build 不包含私有 registry、内部凭证或开发 endpoint。
 

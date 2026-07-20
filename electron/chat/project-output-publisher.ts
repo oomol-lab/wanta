@@ -1,7 +1,8 @@
 import type { ArtifactBundle, ArtifactBundleFailure, ArtifactItem } from "./common.ts"
+import type { FileHandle } from "node:fs/promises"
 
 import { constants } from "node:fs"
-import { copyFile, lstat, mkdir, realpath } from "node:fs/promises"
+import { lstat, mkdir, open, realpath, rm } from "node:fs/promises"
 import path from "node:path"
 import { localArtifactItem } from "./local-artifacts.ts"
 
@@ -101,16 +102,79 @@ async function ensureNewSubdirectory(parent: string, name: string): Promise<stri
   return directory
 }
 
-async function copyUniqueFile(source: string, parent: string, requestedName: string): Promise<string> {
-  for (let suffix = 1; suffix < 10_000; suffix += 1) {
-    const name = suffix === 1 ? requestedName : suffixedName(requestedName, suffix)
-    const target = path.join(parent, name)
-    try {
-      await copyFile(source, target, constants.COPYFILE_EXCL)
-      return target
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error
+async function openPlainArtifactFile(artifactRoot: string, source: string): Promise<FileHandle> {
+  const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0
+  const handle = await open(source, constants.O_RDONLY | noFollow)
+  try {
+    const [root, resolved, pathInfo, openedInfo] = await Promise.all([
+      realpath(artifactRoot),
+      realpath(source),
+      lstat(source),
+      handle.stat(),
+    ])
+    if (
+      !pathInside(root, resolved) ||
+      !pathInfo.isFile() ||
+      pathInfo.isSymbolicLink() ||
+      !openedInfo.isFile() ||
+      pathInfo.dev !== openedInfo.dev ||
+      pathInfo.ino !== openedInfo.ino
+    ) {
+      throw new Error("Artifact source changed before publication.")
     }
+    return handle
+  } catch (error) {
+    await handle.close()
+    throw error
+  }
+}
+
+async function copyUniqueFile(
+  artifactRoot: string,
+  source: string,
+  parent: string,
+  requestedName: string,
+): Promise<string> {
+  const sourceHandle = await openPlainArtifactFile(artifactRoot, source)
+  try {
+    for (let suffix = 1; suffix < 10_000; suffix += 1) {
+      const name = suffix === 1 ? requestedName : suffixedName(requestedName, suffix)
+      const target = path.join(parent, name)
+      let targetHandle: FileHandle
+      try {
+        targetHandle = await open(target, "wx")
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "EEXIST") continue
+        throw error
+      }
+      try {
+        const buffer = Buffer.allocUnsafe(64 * 1024)
+        let position = 0
+        while (true) {
+          const { bytesRead } = await sourceHandle.read(buffer, 0, buffer.length, position)
+          if (bytesRead === 0) break
+          let bytesWritten = 0
+          while (bytesWritten < bytesRead) {
+            const result = await targetHandle.write(
+              buffer,
+              bytesWritten,
+              bytesRead - bytesWritten,
+              position + bytesWritten,
+            )
+            bytesWritten += result.bytesWritten
+          }
+          position += bytesRead
+        }
+        return target
+      } catch (error) {
+        await rm(target, { force: true })
+        throw error
+      } finally {
+        await targetHandle.close()
+      }
+    }
+  } finally {
+    await sourceHandle.close()
   }
   throw new Error("Could not allocate a unique project output file.")
 }
@@ -166,7 +230,7 @@ async function publishGroups(
             parent = await ensureNewSubdirectory(parent, segment)
           }
           const requestedName = entry.relativeSegments.at(-1) ?? safeOutputName(entry.item.name, "output")
-          const target = await copyUniqueFile(entry.source, parent, requestedName)
+          const target = await copyUniqueFile(artifactRoot, entry.source, parent, requestedName)
           const visibleItem = await localArtifactItem(target)
           if (!visibleItem || visibleItem.kind !== "file") throw new Error("Published project output is unavailable.")
           published.set(entry.item.id, { ...entry.item, ...visibleItem })
@@ -205,7 +269,9 @@ export async function publishArtifactBundleToProject(
     bundle: {
       ...bundle,
       items: result.items,
-      ...(failure ? { failure, status: "partial" as const } : {}),
+      ...(failure
+        ? { failure, status: failure === "project_output_publish_failed" ? ("failed" as const) : ("partial" as const) }
+        : {}),
     },
     publishedPaths: result.publishedPaths,
   }

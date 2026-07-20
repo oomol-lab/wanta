@@ -1,0 +1,43 @@
+name: Test Aliyun OIDC
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: oidc-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  assume-role:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Show OIDC claims
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const token = await core.getIDToken("https://github.com/oomol-lab")
+            const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString())
+
+            core.info(JSON.stringify({
+              iss: payload.iss,
+              aud: payload.aud,
+              sub: payload.sub,
+              repository: payload.repository,
+              ref: payload.ref,
+            }, null, 2))
+
+      - name: Assume Wanta role
+        uses: aliyun/configure-aliyun-credentials-action@v1.1.0
+        with:
+          role-to-assume: ${{ vars.ALIYUN_OOMOL_WANTA_ROLE }}
+          oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER }}
+          role-session-name: github-action-oidc-smoke-test
+          role-session-expiration: 1800
+          audience: https://github.com/oomol-lab

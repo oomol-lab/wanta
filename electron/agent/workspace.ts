@@ -1,6 +1,6 @@
 import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { AGENT_TOOL_FILES } from "./tool-sources.ts"
+import { agentToolFilesForRuntime } from "./tool-sources.ts"
 
 /**
  * 在 rootDir 下生成 OpenCode workspace 的自定义工具文件（.opencode/tools/*.ts）与内置 skill（.opencode/skill/*）。
@@ -13,6 +13,7 @@ export async function ensureAgentWorkspace(
   rootDir: string,
   bundledSkillsDir?: string,
   bundledToolRuntimePath?: string,
+  cloudRuntime: "local" | "oomol" = "oomol",
 ): Promise<string> {
   if (!bundledToolRuntimePath) {
     throw new Error("Bundled agent tool runtime path is required.")
@@ -23,10 +24,12 @@ export async function ensureAgentWorkspace(
   await rm(toolsDir, { force: true, recursive: true })
   await Promise.all([mkdir(toolsDir, { recursive: true }), mkdir(runtimeSkillsDir, { recursive: true })])
   await Promise.all(
-    Object.entries(AGENT_TOOL_FILES).map(([name, source]) => writeFile(path.join(toolsDir, name), source, "utf-8")),
+    Object.entries(agentToolFilesForRuntime(cloudRuntime)).map(([name, source]) =>
+      writeFile(path.join(toolsDir, name), source, "utf-8"),
+    ),
   )
   await syncToolRuntime(opencodeDir, bundledToolRuntimePath)
-  await syncBundledSkills(opencodeDir, bundledSkillsDir)
+  await syncBundledSkills(opencodeDir, cloudRuntime === "oomol" ? bundledSkillsDir : undefined)
   return rootDir
 }
 

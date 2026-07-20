@@ -796,3 +796,9 @@ export const AGENT_TOOL_FILES: Readonly<Record<string, string>> = {
   "call_action.ts": CALL_ACTION_TOOL_TS,
   "query_knowledge.ts": QUERY_KNOWLEDGE_TOOL_TS,
 }
+
+/** 按云能力装配 workspace 自定义工具；本地运行态不暴露任何 Connector 入口。 */
+export function agentToolFilesForRuntime(runtime: "local" | "oomol"): Readonly<Record<string, string>> {
+  if (runtime === "oomol") return AGENT_TOOL_FILES
+  return { "query_knowledge.ts": QUERY_KNOWLEDGE_TOOL_TS }
+}

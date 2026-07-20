@@ -356,6 +356,10 @@ sidecar，ChatService 也接受 local workspace；完整模型回答仍需阶段
 
 ### 阶段 4：按能力装配系统提示与 Connector 工具
 
+> 工程状态：local/OOMOL 已按同一 runtime capability 装配 Build/Plan 提示、bash permission、
+> workspace 自定义工具和 bundled Connector Skills；本地模式只保留 `query_knowledge`，OOMOL 模式保持
+> 四个 Connector 工具和现有授权链。真实未登录聊天入口仍留待阶段 5。
+
 #### 目标
 
 让模型看到的工具、权限和系统提示与实际能力一致。
@@ -385,6 +389,12 @@ sidecar，ChatService 也接受 local workspace；完整模型回答仍需阶段
 - 本地模式环境中不存在 `OO_API_KEY`；
 - OOMOL 模式 Connector 关键路径没有功能退化；
 - Build / Plan 权限语义和 permission ask UI 闭环正常。
+
+当前实现通过 `buildWantaSystemPrompt()` / `buildWantaPlanSystemPrompt()`、
+`agentToolFilesForRuntime()` 和 runtime-aware permission factory 共享同一能力判断。本地 workspace 启动时会
+清除旧的 Connector 工具与 bundled oo Skills，避免从 OOMOL runtime 切回本地后残留；registry/runtime
+Skills 目录和 `query_knowledge` 保持可用。local `bash` 不再继承 oo CLI 快速放行规则，OOMOL Build、Plan
+和根级 permission 继续保持原有 ask/快速路径语义。
 
 ### 阶段 5：移除登录墙并增加首次引导
 

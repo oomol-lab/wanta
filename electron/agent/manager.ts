@@ -370,7 +370,7 @@ export class AgentManager {
     const workspaceDir = path.join(rootDir, "workspace")
     const teamScopePath = path.join(rootDir, "team-scope.json")
 
-    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath)
+    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, this.options.cloudRuntime.kind)
     this.teamScopePath = teamScopePath
     await this.writeTeamState(this.teamName)
   }
@@ -860,6 +860,7 @@ export class AgentManager {
 
   /** R4：构建注入系统提示末尾的已授权 Link 可用性提示（无已授权则 undefined）。 */
   public async buildAuthorizedSystem(teamName?: string, signal?: AbortSignal): Promise<string | undefined> {
+    if (this.options.cloudRuntime.kind !== "oomol") return undefined
     const services = await this.authorizedServicesForPrompt(teamName, signal)
     if (services.length === 0) {
       return undefined

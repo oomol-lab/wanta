@@ -12,7 +12,12 @@ import { AgentManager, buildManagedSkillRuntimeEnv, persistTeamScopeUpdate } fro
 import { WANTA_BUILD_AGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
 import { OO_CLI_BASH_PERMISSION } from "./oo-command-permission.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
-import { WANTA_PLAN_SYSTEM_PROMPT, WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
+import {
+  WANTA_LOCAL_PLAN_SYSTEM_PROMPT,
+  WANTA_LOCAL_SYSTEM_PROMPT,
+  WANTA_PLAN_SYSTEM_PROMPT,
+  WANTA_SYSTEM_PROMPT,
+} from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
 function modelVariantKeys(model: unknown): string[] {
@@ -297,6 +302,36 @@ test("build and plan agents enable Wanta prompt through OpenCode native modes", 
   assert.deepEqual(rootPermission?.bash, buildPermission?.bash)
   assert.equal(rootPermission?.edit, "ask")
   assert.equal(rootPermission?.external_directory, "ask")
+})
+
+test("local runtime config omits Connector guidance and oo command permission shortcuts", () => {
+  const config = buildOpencodeConfig({
+    cloudRuntime: { kind: "local" },
+    customModels: [
+      {
+        id: "local-model",
+        providerName: "Local",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        apiKey: "local-key",
+        modelName: "local-model",
+      },
+    ],
+  })
+  const buildAgent = config.agent?.[WANTA_BUILD_AGENT_NAME]
+  const planAgent = config.agent?.[WANTA_PLAN_AGENT_NAME]
+  const buildPermission = buildAgent?.permission as unknown as Record<string, unknown> | undefined
+  const planPermission = planAgent?.permission as unknown as Record<string, unknown> | undefined
+  const rootPermission = config.permission as unknown as Record<string, unknown> | undefined
+
+  assert.equal(buildAgent?.prompt, WANTA_LOCAL_SYSTEM_PROMPT)
+  assert.equal(planAgent?.prompt, WANTA_LOCAL_PLAN_SYSTEM_PROMPT)
+  assert.equal(buildPermission?.bash, "ask")
+  assert.equal(planPermission?.bash, "ask")
+  assert.equal(rootPermission?.bash, "ask")
+  assert.match(WANTA_LOCAL_SYSTEM_PROMPT, /query_knowledge/)
+  assert.match(WANTA_LOCAL_SYSTEM_PROMPT, /local web tools/)
+  assert.doesNotMatch(WANTA_LOCAL_SYSTEM_PROMPT, /## Link work|list_apps|search_actions|inspect_action|call_action/)
+  assert.doesNotMatch(WANTA_LOCAL_SYSTEM_PROMPT, /OOMOL|oo CLI|connected SaaS|Link side effects/)
 })
 
 test("system prompt treats Link as a contextual capability, not the default path", () => {

@@ -176,13 +176,20 @@ Renderer 接入后仍保留登录墙；local Agent runtime 已落地，但 local
 - ChatService active run 支持 local workspace，local turn 不写团队 attention 记录；
 - local sidecar 已在不提供 OOMOL token 和 oo 路径的条件下完成启动 smoke。
 
+阶段 4 的 capability 装配现已完成：
+
+- local/OOMOL runtime 从同一能力判断选择 Build/Plan 系统提示和 permission；
+- local workspace 只释放 `query_knowledge`，不会释放四个 Connector 工具或 bundled oo Skills；
+- 从 OOMOL 切回 local 时会幂等清除旧 Connector 文件，runtime Skills 目录不受影响；
+- local bash 不包含 oo CLI 快速放行规则，动态授权 provider 提示也被 runtime 边界直接阻断；
+- OOMOL runtime 继续保留 Connector 工具、提示契约、授权感知和 oo permission 快速路径。
+
 Renderer 仍保留登录墙，真实未登录模型回答、会话创建与 workspace 切换 UI 尚未开放。
 下一工程切片推荐顺序：
 
-1. 按 capability 装配系统提示与 Connector 工具；
-2. 移除启动登录墙并增加模型 onboarding；
-3. 完成本地/团队 workspace 切换和 UI 实机验证；
-4. 稳定登录、登出和 token 过期后的 runtime 切换。
+1. 移除启动登录墙并增加模型 onboarding；
+2. 完成本地/团队 workspace 切换和 UI 实机验证；
+3. 稳定登录、登出和 token 过期后的 runtime 切换。
 
 ## 8. 发布前检查清单
 

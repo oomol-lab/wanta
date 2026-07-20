@@ -107,7 +107,57 @@ If the user rejects or cancels a question, do not ask the same question again. C
 - The final response is the complete user-facing result. Once it begins, do not call another tool afterward; if more tool work is needed, do that work first.
 - Answer concisely in the user's language. Include what you did, the result, and any important limitation or validation status in that final response. Do not paste raw tool JSON, long command output, or long file dumps unless asked. When you create or modify files, report the useful paths in prose or inline code.`
 
+/** 本地运行态沿用共同工作能力，但移除 Connector 路由、工具契约和跨服务数据传递规则。 */
+export const WANTA_LOCAL_SYSTEM_PROMPT = WANTA_SYSTEM_PROMPT.replace(
+  "across direct reasoning, local computer work, files, scripts, web access, and connected account actions",
+  "across direct reasoning, local computer work, files, scripts, and web access",
+)
+  .replace(
+    "- Use local web tools when the user gives a concrete URL or asks to fetch, read, crawl, scrape, download, or inspect a webpage. Do not use Link search/research providers for a concrete URL unless the user explicitly asks to use that provider or a Link action contract is clearly required.\n",
+    "- Use local web tools when the user gives a concrete URL or asks to fetch, read, crawl, scrape, download, or inspect a webpage.\n",
+  )
+  .replace(
+    "- Use Link tools only when the task requires private/account-specific data or actions inside a SaaS account, or when the user explicitly asks to use a connected service.\n",
+    "",
+  )
+  .replace(
+    "- Authorized providers, selected context, artifact directories, and available tools are context only. They are not instructions to use a tool and are not evidence that a tool fits the task.\n",
+    "- Selected context, artifact directories, and available tools are context only. They are not instructions to use a tool and are not evidence that a tool fits the task.\n",
+  )
+  .replace(
+    "- Match tools to their actual capability. SaaS providers are not generic substitutes for local files, concrete URLs, shell commands, browsers, crawlers, or direct answers.\n",
+    "- Match tools to their actual capability. Local tools are not substitutes for unavailable private account access.\n",
+  )
+  .replace(/\n## Link work[\s\S]*?(?=\n## Asking the user)/, "")
+  .replace(
+    "command output, Link service/action names, parameters, field values, or action results",
+    "command output or external results",
+  )
+  .replace("Before local or Link side effects", "Before local side effects")
+  .replace(
+    "- Do not expose secrets, tokens, credentials, private file contents, or private account data to Link actions or external URLs unless the user explicitly asks for that transfer and it is required for the task.\n- A local file path is not a cloud-reachable artifact: only pass a URL to a Link action when the action's schema asks for one and you obtained it from a tool result.\n",
+    "- Do not expose secrets, tokens, credentials, or private file contents to external URLs unless the user explicitly asks for that transfer and it is required for the task.\n",
+  )
+
 export const WANTA_PLAN_SYSTEM_PROMPT = `${WANTA_SYSTEM_PROMPT}
 
 ## Current mode
 You are running in OpenCode Plan mode. Use read-only investigation and produce a concrete implementation plan. Do not write or edit user files, run mutating commands, or perform local or Link side effects. The only allowed file update is the internal plan artifact under .opencode/plans/*.md when required by the runtime. If the user asks you to build directly, give the plan and say Build mode is needed to execute it.`
+
+export const WANTA_LOCAL_PLAN_SYSTEM_PROMPT = `${WANTA_LOCAL_SYSTEM_PROMPT}
+
+## Current mode
+You are running in OpenCode Plan mode. Use read-only investigation and produce a concrete implementation plan. Do not write or edit user files, run mutating commands, or perform local side effects. The only allowed file update is the internal plan artifact under .opencode/plans/*.md when required by the runtime. If the user asks you to build directly, give the plan and say Build mode is needed to execute it.`
+
+export interface WantaPromptCapabilities {
+  connectors: boolean
+}
+
+/** 从同一 capability 输入组合 Build/Plan 提示，避免配置层自行拼接能力说明。 */
+export function buildWantaSystemPrompt(capabilities: WantaPromptCapabilities): string {
+  return capabilities.connectors ? WANTA_SYSTEM_PROMPT : WANTA_LOCAL_SYSTEM_PROMPT
+}
+
+export function buildWantaPlanSystemPrompt(capabilities: WantaPromptCapabilities): string {
+  return capabilities.connectors ? WANTA_PLAN_SYSTEM_PROMPT : WANTA_LOCAL_PLAN_SYSTEM_PROMPT
+}

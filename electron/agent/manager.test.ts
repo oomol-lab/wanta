@@ -51,6 +51,32 @@ describe("AgentManager", () => {
     }
   })
 
+  it("never injects Connector authorization guidance into a local runtime", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
+    try {
+      const manager = new AgentManager({
+        cloudRuntime: { kind: "local" },
+        customModels: [
+          {
+            id: "local-model",
+            providerId: "custom",
+            providerName: "Local",
+            baseUrl: "http://127.0.0.1:11434/v1",
+            apiKey: "local-key",
+            modelName: "local-model",
+          },
+        ],
+        opencodeBinPath: "/tmp/opencode",
+        rootDir,
+      })
+      manager.listAuthorizedServices = async () => ["gmail"]
+
+      await expect(manager.buildAuthorizedSystem()).resolves.toBeUndefined()
+    } finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("never queries Connector authorization in the local runtime", async () => {
     const manager = new AgentManager({
       cloudRuntime: { kind: "local" },

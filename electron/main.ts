@@ -188,6 +188,7 @@ const chatService = new ChatServiceImpl(null, {
   userAttachmentStore,
   onPermissionModeChanged: (sessionId, permissionMode) =>
     sessionService.setPermissionMode({ id: sessionId, permissionMode }),
+  onOomolAuthRequired: () => authManager.expireSession().then(() => undefined),
   onSetAgentTeam: handleAgentTeamChanged,
   onSessionCompleted: (input) => attentionService.completeSession(input),
 })

@@ -53,6 +53,17 @@ describe("normalizeChatError", () => {
     expect(error).toMatchObject({ kind, retryable })
   })
 
+  it("keeps a local custom provider 401 separate from OOMOL session expiry", () => {
+    expect(normalizeChatError('{"status":401,"message":"invalid api key"}', { runtimeMode: "local" })).toMatchObject({
+      kind: "model_auth_required",
+      retryable: false,
+    })
+    expect(normalizeChatError('{"status":401,"message":"session expired"}', { runtimeMode: "oomol" })).toMatchObject({
+      kind: "auth_required",
+      retryable: false,
+    })
+  })
+
   it("keeps unknown error display details separate from diagnostics", () => {
     const error = normalizeChatError("PROVIDER_FAILED: upstream failed")
 

@@ -496,6 +496,8 @@ export const zhCNMessages = {
   "chatError.authRequired.title": "需要登录",
   "chatError.authRequired.description": "登录后才能继续使用 Wanta。",
   "chatError.authRequired.primaryAction": "登录",
+  "chatError.modelAuthRequired.title": "模型 API Key 无效",
+  "chatError.modelAuthRequired.description": "请检查这个自定义模型的 API Key 和接口地址，然后更新模型配置。",
   "chatError.permissionDenied.title": "没有访问权限",
   "chatError.permissionDenied.description": "当前账号无法使用此功能或资源。",
   "chatError.permissionDenied.primaryAction": "切换账号",

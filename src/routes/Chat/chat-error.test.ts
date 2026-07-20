@@ -22,6 +22,16 @@ describe("resolveChatError", () => {
     expect(resolveChatError("Permission denied").kind).toBe("permission_denied")
   })
 
+  it("directs a local model 401 to model configuration instead of OOMOL sign-in", () => {
+    expect(resolveChatError("HTTP 401 invalid API key", { errorKind: "model_auth_required" })).toMatchObject({
+      descriptionKey: "chatError.modelAuthRequired.description",
+      kind: "model_auth_required",
+      retryable: false,
+      titleKey: "chatError.modelAuthRequired.title",
+    })
+    expect(chatErrorRecoveryKind("model_auth_required")).toBeNull()
+  })
+
   it("explains content inspection failures without exposing the provider text as the user-facing message", () => {
     const error = resolveChatError(
       "Input data may contain inappropriate content. (request id: 2026071610124879712460311981024)",

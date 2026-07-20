@@ -521,6 +521,9 @@ export const enMessages = {
   "chatError.authRequired.title": "Sign in required",
   "chatError.authRequired.description": "Sign in to continue using Wanta.",
   "chatError.authRequired.primaryAction": "Sign in",
+  "chatError.modelAuthRequired.title": "Model API key rejected",
+  "chatError.modelAuthRequired.description":
+    "Check the API key and endpoint for this custom model, then update the model configuration.",
   "chatError.permissionDenied.title": "Access denied",
   "chatError.permissionDenied.description": "This account cannot use this feature or resource.",
   "chatError.permissionDenied.primaryAction": "Switch account",

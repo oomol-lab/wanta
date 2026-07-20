@@ -34,6 +34,8 @@ export function chatErrorRecoveryKind(kind: ChatErrorKind): ChatErrorRecoveryKin
     case "auth_required":
     case "permission_denied":
       return "reauthenticate"
+    case "model_auth_required":
+      return null
     case "timeout":
     case "connection_interrupted":
     case "rate_limited":
@@ -115,6 +117,15 @@ export function resolveChatError(rawMessage: string, options: ResolveChatErrorOp
         titleKey: "chatError.authRequired.title",
         descriptionKey: "chatError.authRequired.description",
         primaryActionKey: "chatError.authRequired.primaryAction",
+        retryable: false,
+        diagnostics: normalized.diagnostics,
+      }
+    case "model_auth_required":
+      return {
+        kind: normalized.kind,
+        severity: "warning",
+        titleKey: "chatError.modelAuthRequired.title",
+        descriptionKey: "chatError.modelAuthRequired.description",
         retryable: false,
         diagnostics: normalized.diagnostics,
       }

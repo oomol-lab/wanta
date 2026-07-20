@@ -147,6 +147,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const runtimeCapabilities = useRuntimeCapabilities().capabilities
   const authenticated = auth.state?.status === "authenticated"
   const cloudEnabled = authenticated && runtimeCapabilities?.mode === "oomol"
+  React.useEffect(() => {
+    if (auth.error?.kind === "auth_required") {
+      toast.info(userFacingErrorDescription(auth.error, t), { id: "auth-session-expired" })
+    }
+  }, [auth.error, t])
   const [ready, setReady] = React.useState(false)
   const [billingInitialTarget, setBillingInitialTarget] = React.useState<BillingDetailsTarget | null>(null)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })

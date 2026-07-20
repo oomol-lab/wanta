@@ -110,8 +110,10 @@ test("cookie persistence failure rolls the account profile back", async () => {
   const previous = { accounts: [{ id: "old", name: "Old" }], currentId: "old" }
   const store = memoryStore(previous)
   let cookie: string | undefined = "old-token"
+  const applyAccount = vi.fn(async () => undefined)
+  const emitted: string[] = []
   const manager = new AuthManager({
-    applyAccount: vi.fn(async () => undefined),
+    applyAccount,
     protocolScheme: "wanta",
     store,
     runtime: {
@@ -128,12 +130,17 @@ test("cookie persistence failure rolls the account profile back", async () => {
       readCookie: async () => cookie,
     },
   })
+  manager.bindStateEmitter(async (state) => {
+    emitted.push(`${state.status}:${state.account?.id ?? "local"}`)
+  })
   vi.spyOn(console, "error").mockImplementation(() => undefined)
 
   assert.equal(await manager.completeBrowserLoginCallback("wanta://signin?authID=auth-1"), true)
 
   assert.deepEqual(store.value(), previous)
   assert.equal(cookie, "old-token")
+  assert.deepEqual(emitted, ["unauthenticated:local", "authenticated:old"])
+  assert.equal(applyAccount.mock.calls.length, 0)
 })
 
 test("expired sessions stay unauthenticated when cookie cleanup fails", async () => {
@@ -157,8 +164,10 @@ test("expired sessions stay unauthenticated when cookie cleanup fails", async ()
   vi.spyOn(console, "warn").mockImplementation(() => undefined)
 
   const state = await manager.expireSession()
+  const repeatedState = await manager.expireSession()
 
   assert.equal(state.status, "unauthenticated")
+  assert.equal(repeatedState.status, "unauthenticated")
   assert.equal(await manager.currentSessionToken(), undefined)
   assert.equal(await manager.activeRuntimeAccount(), null)
   assert.deepEqual(store.value(), { accounts: [{ id: "one", name: "Account one" }], currentId: "one" })
@@ -190,4 +199,106 @@ test("logout never exposes a stale cookie after cleanup fails", async () => {
   assert.equal(await manager.currentSessionToken(), undefined)
   assert.equal(await manager.activeRuntimeAccount(), null)
   assert.deepEqual(store.value(), { accounts: [], currentId: undefined })
+})
+
+test("logout revokes the cookie before applying local runtime and does so without a stored profile", async () => {
+  const events: string[] = []
+  const manager = new AuthManager({
+    applyAccount: async (next) => {
+      events.push(`apply:${next?.id ?? "local"}`)
+    },
+    protocolScheme: "wanta",
+    store: memoryStore(),
+    runtime: {
+      clearCookies: async () => {
+        events.push("clear-cookie")
+      },
+      confirmLogin: async () => true,
+      exchangeLogin: async () => account("one"),
+      openExternal: async () => undefined,
+      persistCookie: async () => undefined,
+      readCookie: async () => "orphaned-token",
+    },
+  })
+  manager.bindStateEmitter(async (state) => {
+    events.push(`state:${state.status}`)
+  })
+
+  const state = await manager.logout()
+
+  assert.equal(state.status, "unauthenticated")
+  assert.deepEqual(events, ["state:unauthenticated", "clear-cookie", "apply:local"])
+})
+
+test("session expiry broadcasts signed-out state even when local runtime fallback fails", async () => {
+  const store = memoryStore({ accounts: [{ id: "one", name: "Account one" }], currentId: "one" })
+  const emitted: string[] = []
+  const manager = new AuthManager({
+    applyAccount: async () => {
+      throw new Error("runtime fallback failed")
+    },
+    protocolScheme: "wanta",
+    store,
+    runtime: {
+      clearCookies: async () => undefined,
+      confirmLogin: async () => true,
+      exchangeLogin: async () => account("one"),
+      openExternal: async () => undefined,
+      persistCookie: async () => undefined,
+      readCookie: async () => "expired-token",
+    },
+  })
+  manager.bindStateEmitter(async (state) => {
+    emitted.push(state.status)
+  })
+  vi.spyOn(console, "error").mockImplementation(() => undefined)
+
+  const state = await manager.expireSession()
+
+  assert.equal(state.status, "unauthenticated")
+  assert.deepEqual(emitted, ["unauthenticated"])
+  assert.deepEqual(store.value(), { accounts: [{ id: "one", name: "Account one" }], currentId: "one" })
+  assert.equal(await manager.activeRuntimeAccount(), null)
+})
+
+test("account switching leaves the old cloud scope before replacing its cookie and runtime", async () => {
+  const store = memoryStore({ accounts: [{ id: "old", name: "Old" }], currentId: "old" })
+  const events: string[] = []
+  let cookie: string | undefined = "token-old"
+  const manager = new AuthManager({
+    applyAccount: async (next) => {
+      events.push(`apply:${next?.id ?? "local"}`)
+    },
+    protocolScheme: "wanta",
+    store,
+    runtime: {
+      clearCookies: async () => {
+        cookie = undefined
+        events.push("clear-cookie")
+      },
+      confirmLogin: async () => true,
+      exchangeLogin: async () => account("new"),
+      openExternal: async () => undefined,
+      persistCookie: async (token) => {
+        cookie = token
+        events.push(`persist:${token}`)
+      },
+      readCookie: async () => cookie,
+    },
+  })
+  manager.bindStateEmitter(async (state) => {
+    events.push(`state:${state.status}:${state.account?.id ?? "local"}`)
+  })
+
+  assert.equal(await manager.completeBrowserLoginCallback("wanta://signin?authID=auth-new"), true)
+
+  assert.deepEqual(events, ["state:unauthenticated:local", "persist:token-new", "apply:new", "state:authenticated:new"])
+  assert.equal(cookie, "token-new")
+  assert.deepEqual(store.value(), {
+    accounts: [
+      { id: "old", name: "Old" },
+      { id: "new", name: "Account new" },
+    ],
+    currentId: "new",
+  })
 })

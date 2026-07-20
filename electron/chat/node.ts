@@ -174,8 +174,13 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   })
 }
 
-function createMessageErrorPayload(sessionId: string, message: string, messageId?: string): MessageErrorEvent {
-  const normalized = normalizeChatError(message)
+function createMessageErrorPayload(
+  sessionId: string,
+  message: string,
+  runtimeMode: RuntimeCapabilities["mode"],
+  messageId?: string,
+): MessageErrorEvent {
+  const normalized = normalizeChatError(message, { runtimeMode })
   return {
     sessionId,
     ...(messageId ? { messageId } : {}),
@@ -240,6 +245,8 @@ interface ChatServiceDeps {
   }
   /** 渲染层切换团队 workspace 时，同步 agent 的团队作用域（main 持有 agent 与 activeAgentTeamName）。 */
   onSetAgentTeam?: (teamName: string | undefined) => Promise<void> | void
+  /** OOMOL runtime 的模型/工具请求收到 401 时使全局 session 失效；local provider 401 不调用。 */
+  onOomolAuthRequired?: () => Promise<void> | void
   /** 权限模式由 ChatService 统一提交，避免 renderer 分别写运行态与会话元数据。 */
   onPermissionModeChanged?: (sessionId: string, permissionMode: AgentPermissionMode) => Promise<void> | void
   /** 正常完成且产物已收尾后通知主进程 attention 域；停止和错误路径不触发。 */
@@ -662,7 +669,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.rememberMessageError(sessionId, message)) {
       return
     }
-    this.sendBestEffort(emit, "messageError", createMessageErrorPayload(sessionId, message, messageId), {
+    const payload = createMessageErrorPayload(sessionId, message, this.runtimeCapabilities.mode, messageId)
+    if (payload.errorKind === "auth_required") {
+      void Promise.resolve(this.deps.onOomolAuthRequired?.()).catch((error: unknown) => {
+        console.warn("[wanta] failed to expire OOMOL session after chat 401:", error)
+        logDiagnostic("chat-service", "failed to expire OOMOL session after chat 401", { error }, "warn")
+      })
+    }
+    this.sendBestEffort(emit, "messageError", payload, {
       messageId,
       sessionId,
     })

@@ -1454,6 +1454,51 @@ test("agent errors from multiple opencode channels produce one message error per
   assert.equal(events.filter((event) => event.event === "messageError").length, 2)
 })
 
+test("only OOMOL runtime chat 401 expires the global session", async () => {
+  const localBridge = createBridgeAgent()
+  const localExpiry = vi.fn(async () => undefined)
+  const localService = new ChatServiceImpl(localBridge.agent, { onOomolAuthRequired: localExpiry })
+  const localEvents = captureServiceEvents(localService)
+  localService.startEventBridge()
+  await localService.sendMessage({ scope: testTeamScope, sessionId: "local-session", text: "hello" })
+  localBridge.emit({
+    type: "session.error",
+    properties: {
+      sessionID: "local-session",
+      error: { name: "APIError", data: { message: '{"status":401,"message":"invalid api key"}' } },
+    },
+  })
+  await waitForMessageErrorCount(localEvents, 1)
+
+  const localError = localEvents.find((event) => event.event === "messageError") as
+    | { data: { errorKind?: string } }
+    | undefined
+  assert.equal(localError?.data.errorKind, "model_auth_required")
+  assert.equal(localExpiry.mock.calls.length, 0)
+
+  const oomolBridge = createBridgeAgent()
+  const oomolExpiry = vi.fn(async () => undefined)
+  const oomolService = new ChatServiceImpl(oomolBridge.agent, { onOomolAuthRequired: oomolExpiry })
+  oomolService.setRuntimeCapabilities(resolveRuntimeCapabilities({ mode: "oomol", localAgentAvailable: true }))
+  const oomolEvents = captureServiceEvents(oomolService)
+  oomolService.startEventBridge()
+  await oomolService.sendMessage({ scope: testTeamScope, sessionId: "oomol-session", text: "hello" })
+  oomolBridge.emit({
+    type: "session.error",
+    properties: {
+      sessionID: "oomol-session",
+      error: { name: "APIError", data: { message: '{"status":401,"message":"session expired"}' } },
+    },
+  })
+  await waitForMessageErrorCount(oomolEvents, 1)
+  await vi.waitFor(() => expect(oomolExpiry).toHaveBeenCalledOnce())
+
+  const oomolError = oomolEvents.find((event) => event.event === "messageError") as
+    | { data: { errorKind?: string } }
+    | undefined
+  assert.equal(oomolError?.data.errorKind, "auth_required")
+})
+
 test("hasActiveGeneration tracks pending and completed assistant turns", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)

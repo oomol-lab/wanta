@@ -4,14 +4,6 @@
 
 ## 1. Environment Setup
 
-<<<<<<< HEAD
-- **Node >= 22.22.2**（与钉死的 OpenCode 依赖链最低版本一致；PR CI 钉 Node 24，release CI 用 `lts/*`——当前解析为 24）。仓库通过 `packageManager` 声明 npm 10.9.4，并使用 package-lock.json。
-- **依赖来源全部公开**：`@oomol/connection` / `@oomol/connection-electron-adapter` 已发布到公共 registry（`registry.npmjs.org`），`npm install` **无需任何 token 或 `.npmrc`**——本仓库开源后 fresh clone 与外部 fork CI 都能直接安装（历史上曾走 GitHub Packages 私有 registry + `read:packages` PAT，仓库转公开、包同步发到公共 npm 后已移除该鉴权链）。若本机全局 `~/.npmrc` 仍把 `@oomol` scope 指向 `npm.pkg.github.com`，会覆盖默认公共 registry——删掉那行即可。注意：postinstall 的二进制/skill 下载脚本是 best-effort（仅 warn），但 `@oomol/connection` 装不上 dev 起不来，安装失败不能忽略。
-- `npm install` 的 postinstall 串联二进制/skill 下载脚本，并在最后构建自定义工具 runtime：
-  - `scripts/download-electron.ts` → 下载 dev 专用 Electron 副本到 `.electron-dist/` 并改写 macOS Info.plist 为 `com.oomol.wanta-local` / `wanta-local` scheme（dev deep-link 用）。`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 跳过。
-  - `scripts/download-oo.ts` → 下载 oo 二进制到 `.oo-bin/`（版本锁定见 `scripts/oo-cli.ts` 的 `OO_CLI_VERSION`；含 sha512 integrity 校验与 `chmod 0o755`）。oo / ripgrep 下载统一使用 30 秒单次超时与最多 3 次请求尝试（最多重试 2 次），确定性的 4xx 不重试。`OO_SKIP_BINARY_DOWNLOAD=1` 跳过。
-  - `scripts/build-agent-tool-runtime.ts` → 用 Rolldown 把 `@opencode-ai/plugin/tool` 及 Zod 合并为 `resources/agent-tool-runtime/tool.js`；dev 与打包产物都把它同步到私有 workspace，工具加载不依赖首次启动时的 npm 安装结果。
-=======
 - **Node >= 22.22.2** (matches the minimum of the pinned OpenCode dependency chain; PR CI pins
   Node 24, release CI pins Node 22 in all four jobs that set up Node — compute-version,
   release-mac, release-win, create-release; the fifth job, refresh-cdn-cache, installs no Node at
@@ -47,7 +39,6 @@
     Zod into `resources/agent-tool-runtime/tool.js`; both dev and the packaged artifact sync it
     into the private workspace, so tool loading does not depend on an npm install succeeding at
     first launch.
->>>>>>> origin/main
 
 ## 2. .env Configuration
 
@@ -55,10 +46,6 @@
 cp .env.example .env.local   # .env.local is gitignored
 ```
 
-<<<<<<< HEAD
-- `WANTA_ENDPOINT`：endpoint 主域，缺省 `oomol.com`，对接开发环境可改 `oomol.dev`；第三方发行方也可在构建时把它设为遵循当前 endpoint 子域约定的自部署服务主域，让随包携带的 oo CLI 调用其 OpenConnector 兼容服务。该变量不是面向最终用户的运行时切换器。**读取规则**（`vite.config.ts` 的 `resolveOoEndpoint`）：dev 与 vitest 经 `loadEnv` 读 `.env(.local)`；**build 刻意不读文件**（防开发域名进发布包）；两种模式都尊重显式环境变量，例如 `WANTA_ENDPOINT=example.com npm run build:linux`。已知坑：`oomol.dev` 的 LLM 网关曾对 Auto/`oopilot` 返回 403 "Model disabled"（后端限制，非代码问题），dev endpoint 主要用于 connector 联调，聊天 403 时先怀疑网关侧。
-- `WANTA_OO_BIN`（可选，进程环境变量而非 .env 文件读取）：覆盖 oo 二进制路径，`WANTA_OO_BIN=/abs/path/to/oo npm run dev`。设置后 predev 守卫跳过检查。
-=======
 - `WANTA_ENDPOINT`: the endpoint apex domain, default `oomol.com`; switch to `oomol.dev` to target
   the dev environment. **Read rules** (`resolveOoEndpoint` in `vite.config.ts`): dev and vitest
   read `.env(.local)` via `loadEnv`; **build deliberately reads no file** (keeps dev domains out of
@@ -73,7 +60,6 @@ cp .env.example .env.local   # .env.local is gitignored
 - `WANTA_PACKAGE_ASSETS_BASE_URL` (optional): overrides the package-assets base URL, injected as
   the `__PACKAGE_ASSETS_BASE_URL__` define, default `https://package-assets.<endpoint>`.
   `vite.config.ts` reads it from `process.env` only; `vitest.config.ts` reads it via `loadEnv`.
->>>>>>> origin/main
 
 ## 3. Day-to-Day Development
 
@@ -168,13 +154,6 @@ npm run dev:no-electron
 npm run build:mac     # = build:app + prepare:binaries + electron-builder --mac (also build:win / build:linux / build:electron)
 ```
 
-<<<<<<< HEAD
-- `scripts/prepare-binaries.ts`：把 opencode（`node_modules/opencode-ai/bin/opencode.exe`，所有平台固定此文件名）与 oo（`.oo-bin/`，缺失则现场下载）复制到 `resources/bin/` 并 chmod 755，同时导出 bundled skills 并重建自定义工具 runtime。默认官方与社区打包都携带 oo；local runtime 不注册 Connector tools，也不生成 oo 环境，因此携带二进制不等于强制最终用户启用 Connector。
-- `electron-builder.ts`：appId / productName / protocols 从 `electron/branding.ts` 派生，asar、output `release/${version}`、files 仅 dist + dist-electron（排除 map/d.ts，**不含 electron/ 源码与测试**）、extraResources 包含 `resources/bin → bin`、`resources/skills → skills`、`resources/agent-tool-runtime → agent-tool-runtime`，以及 Wanta `LICENSE`、`NOTICE`、`TRADEMARKS.md` 和 `THIRD_PARTY_NOTICES.md`；`sqlite3` 原生模块从 asar 解包（供精确钉死的 `wiki-graph@0.3.0` 使用）、afterPack `scripts/electron-builder-after-pack.cjs`（删约 20MB 的 LICENSES.chromium.html；hook 用 .cjs，因 electron-builder require hook 不支持 .ts）。mac dmg+zip arm64；win nsis x64（signtool 证书指纹）；linux AppImage。
-- **签名/公证只能在 CI 完成**，本地只产未签名包（mac 证书、Apple ID、win USB 证书都在 CI secrets）。macOS 公证要求 app 内**每个可执行文件**都签名 + Hardened Runtime——`Resources/bin` 下的 oo 与 opencode 也在范围内；新增任何捆绑二进制（或改 extraResources 布局）须纳入签名/公证范围，否则公证会失败。
-- 自动更新（`electron/update/`，common.ts 契约 + node.ts 实现 + channel.ts/policy.ts 纯函数）：electron-updater generic provider，feed = `https://static.<ep>/release/apps/wanta/<platform>/<arch>`；仅打包态。启动后随机延迟 5–15 秒首查，stable 每 2 小时、beta 每 1 小时检查（±12.5% 抖动）；Windows/macOS/Linux 从睡眠唤醒，或窗口重新进入前台且距上次成功检查超过 30 分钟时，分别随机延迟 10–30 秒 / 3–10 秒补查。发现更新后后台下载；下载完成且窗口在后台时发送原生通知，Windows 托盘增加“重启并更新”，窗口在前台且 Agent 空闲时显示更新对话框；任务运行中不弹对话框，用户可推迟 4 小时。正常退出仍会安装已下载更新。`autoDownload=false` 仍由 Wanta 状态机显式控制下载，开始下载后才武装 `autoInstallOnAppQuit=true`。**双渠道**：stable 拉 `latest*.yml`，beta 拉 `beta*.yml`；渠道经 `setFeedURL` 的 `channel` 字段传入（**勿用 `autoUpdater.channel` setter**——它会静默把 `allowDowngrade` 置 true），并显式 `allowDowngrade=false`（beta 切回 stable 默认等下一个正式版收敛，绝不自动降级）。渠道合并规则 `用户设置 ?? (自身版本含 -beta ? beta : stable)`（`channel.ts`），持久化在 settings.json 的 `updateChannel` 键。更新调度、检查结果、原生通知与托盘安装失败均写入 diagnostics log。
-- `electron-builder.ts` 的 `generateUpdatesFilesForAllChannels: true`：stable 构建同时产出 `beta*.yml`（指向该 stable），beta 用户在正式版发布后立即收敛；generic provider 由版本号 `-beta.N` 自动推导渠道（detectUpdateChannel 默认开）。`electron-builder` 与 `electron-updater` **精确钉死**（渠道行为对版本敏感，升级前先核对 GenericProvider/PublishManager 的渠道逻辑未变）。
-=======
 - `scripts/prepare-binaries.ts`: copies three binaries into `resources/bin/` and chmods 755 —
   opencode (`node_modules/opencode-ai/bin/opencode.exe`, this exact filename on all platforms), oo
   (from `.oo-bin/`, downloaded on the spot if missing), and ripgrep (`rg`, placed in the same
@@ -220,15 +199,9 @@ npm run build:mac     # = build:app + prepare:binaries + electron-builder --mac 
   automatically (detectUpdateChannel is on by default). `electron-builder` and `electron-updater`
   are **exactly pinned** (channel behavior is version-sensitive; before upgrading, verify the
   GenericProvider/PublishManager channel logic is unchanged).
->>>>>>> origin/main
 
 ## 7. CI (.github/workflows/)
 
-<<<<<<< HEAD
-- **pr.yml**（PR → main，ubuntu，Node 24）：无 PAT 执行 npm ci（`@oomol/connection*` 来自公共 npm；设 `ELECTRON_SKIP_BINARY_DOWNLOAD=1` + `OO_SKIP_BINARY_DOWNLOAD=1` 跳过本 job 不使用的二进制下载）→ lint → format → ts-check → test → build。
-- **release.yml**（workflow_dispatch，输入 channel stable/beta + expected_version + version_bump）：`compute-version`（版本计算在 `scripts/release-version.ts`，有 vitest 覆盖——stable 自动 bump **过滤全部 beta tag**，beta 基线 = max(最新 stable 的 patch+1, 既存 beta 最高基线)、N 递增）→ `release-mac`（macos-latest：导入证书、签名+公证、`npm version` 改写版本、build:mac、渠道 yml 校验、rclone 上传阿里云 OSS `oomol-static-cn-prod/release/apps/wanta`，OIDC）+ `release-win`（self-hosted Windows x64 runner + USB 证书；**勿依赖系统工具如 tar 存在**）→ `create-release`（打 tag + GitHub release，stable `--latest` / beta `--prerelease`）→ `refresh-cdn-cache`（按渠道刷新指针：stable 刷 latest\*+beta\* 4 个，beta 只刷 beta\* 2 个）。无 linux 发布 job。secret 名照搬 oo-desktop（`MACOS_CERTIFICATE` / `MACOS_CERTIFICATE_PWD` / `APPLEID` / `APPLEID_PASS` / `APPLE_TEAM_ID` 等），勿自拟。
-- **双渠道发布纪律**：rclone 上传是 include 白名单——beta 发布绝不触碰 `latest*.yml`（这就是 stable 指针的保护栏）；stable 发布连带上传+刷新 `beta*.yml`（收敛 beta 用户），**除非** compute-version 算出 `refresh_beta=false`（本次 stable 低于既存 beta 最高基线，跳过 beta 指针防倒退）；mac/win 各有渠道 yml 硬校验步骤（缺文件/指错版本在上传前大声失败）。generic provider 对缺失渠道 yml 是硬错（`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`，无回退），所以 beta 渠道一旦开张，两个平台目录的 `beta*.yml` 必须常在。首个 beta 前必须先发过一个带渠道感知 updater 的 stable。整个 workflow 在 `release` 并发组内串行（并发 dispatch 会算出同一版本竞写 OSS）。
-=======
 - **pr.yml** (PR → main, ubuntu, Node 24): npm ci (no registry auth — @oomol packages come from
   public npm; sets `ELECTRON_SKIP_BINARY_DOWNLOAD=1` + `OO_SKIP_BINARY_DOWNLOAD=1` to skip binary
   downloads) → lint → format → ts-check → test → build. The test step sets
@@ -261,7 +234,6 @@ npm run build:mac     # = build:app + prepare:binaries + electron-builder --mac 
   the channel-aware updater must already have shipped. The whole workflow serializes in the
   `release` concurrency group (concurrent dispatches would compute the same version and race-write
   OSS).
->>>>>>> origin/main
 
 ## 8. Special Directory Quick Reference (all gitignored, except resources/ itself)
 

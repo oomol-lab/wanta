@@ -71,46 +71,6 @@ tags/release notes) is English. Details: [docs/development.md](docs/development.
 > R1–R8 are rule numbers from the original project plan, defined in
 > [docs/conventions.md](docs/conventions.md) §1.
 
-<<<<<<< HEAD
-1. **主进程禁止同步 fs API**（`existsSync` 等会阻塞渲染进程）。
-   dev 期存在性检查放 predev 守卫 `scripts/check-oo.ts`（独立 CLI 脚本可用 sync fs）；
-   打包产物一定内置二进制，运行时无需检查。既存例外清单见
-   [docs/conventions.md](docs/conventions.md) §2——不要新增例外。
-2. **禁止硬编码域名**。endpoint 是构建期常量 `__OO_ENDPOINT__`（vite/vitest define 注入），
-   一切 base URL 从 `electron/domain.ts` 派生；build 模式刻意不读 `.env` 文件，
-   发布产物必须 grep 不到 `oomol.dev`。
-3. **品牌标识只改一处**：`electron/branding.ts`（R1）。但 `OO_` 环境变量前缀、
-   `x-oomol-*` 头是外部协议契约，不随品牌改。
-4. **OOMOL 凭证永不进渲染进程**。`@oomol/connection` 注册即全公开（无方法白名单），
-   持有会话 token 的 `AuthManager`（`currentSessionToken` / `activeRuntimeAccount`）刻意不注册为
-   RPC service，只注册薄门面 `AuthServiceImpl`。auth.json 0600 + 原子写、**只存 profile 不存凭证**；
-   deep-link 日志必须脱敏（query 含 authID）。custom model Key 仅允许用户在 Renderer 表单中新输入时经
-   `saveCustomModel` 单向提交，任何读取/事件只能返回 `apiKeyConfigured`；主进程使用 Electron
-   `safeStorage` 独立保存，`models.json` 禁止出现 Key，Linux 弱存储后端禁止明文降级。
-5. **版本钉死，禁止浮动**：`opencode-ai` / `@opencode-ai/sdk` / `@opencode-ai/plugin`
-   三包同为 `1.17.13`（上游无 API 稳定承诺）；oo CLI 版本由 `scripts/oo-cli.ts` 的
-   `OO_CLI_VERSION = "1.5.1"` 单一锁定。
-6. **OpenCode permission 的 `"ask"` 必须接 Wanta 两档权限 UI**。当前已处理
-   `permission.asked` / `permission.v2.asked` 与 reply；高风险本地能力走 ask。
-   默认权限逐次批准/拒绝当前本地 ask，完全访问确认后自动 reply；新增 ask 类权限时必须验证该闭环
-   （见 [docs/key-decisions.md](docs/key-decisions.md) §9）。
-7. **Agent 能力由三处共同决定**：`electron/agent/config.ts` 的 tools 配置
-   （现状：无禁用表，内置工具全启用）与 permission（agent 级 + 根级）、
-   `electron/agent/system-prompt.ts` 提示词。改能力策略时三处必须同步，
-   否则模型自我拒绝或行为矛盾。
-8. **spawn oo 必须注入全套 `OO_*` 环境变量**（`electron/agent/oo.ts`，R3）——
-   尤其 `OO_SKILLS_SYNC_DISABLED=1`，否则 oo 每次运行会写用户家目录（`~/.claude` 等）。
-9. **相对导入带显式 `.ts` 扩展名**；scripts 用 `node --experimental-strip-types` 直跑，
-   故不能用 TS 参数属性（`constructor(private x)`）。
-10. 注释中文；代码标识符/日志/系统提示英文；所有 Git 操作中的人类可读文本必须英文
-    （commit message、branch name、PR title/description/comment、tag/release note 等）；
-    主进程业务日志统一 `[wanta]` 前缀（既存例外见 [docs/conventions.md](docs/conventions.md) §4）。
-11. **Univer 表格预览是明确业务需求，禁止删除、降级或替换。**
-    `ArtifactUniverSpreadsheetPreview.tsx`、`artifact-univer-snapshot.ts` 及
-    `@univerjs/core` / `@univerjs/preset-sheets-core` / `rxjs` 是有意保留的产品能力；
-    不得以只读、bundle size、原生 table 可替代等理由移除。任何替换或删除必须先取得产品方明确同意；
-    性能优化必须保留 Univer 的完整工作簿渲染和交互。
-=======
 1. **No synchronous fs APIs in the Electron main process** (`existsSync` etc. block the
    renderer). Dev-time existence checks belong in the predev guard `scripts/check-oo.ts`
    (standalone CLI scripts may use sync fs). Existing exceptions are listed in
@@ -125,6 +85,12 @@ tags/release notes) is English. Details: [docs/development.md](docs/development.
    (`currentSessionToken` / `activeRuntimeAccount`) is deliberately NOT registered — only the
    thin `AuthServiceImpl` facade is. `auth.json` is 0600 + atomic writes and stores
    **profile only, never credentials**; deep-link logs must be redacted (query carries authID).
+   Custom model API keys are one-way: accepted only from new user input via `saveCustomModel`
+   in the Renderer form; any read/event returns only `apiKeyConfigured`. `models.json` must
+   never contain a key; `ModelCredentialStore` writes each key to a separate 0600 ciphertext
+   file using Electron `safeStorage` — decrypted only at agent-runtime assembly in the main
+   process. On Linux, weak/unknown storage backends must be explicitly rejected; silent
+   plaintext fallback is prohibited.
 5. **Versions are pinned, never floating**: `opencode-ai` / `@opencode-ai/sdk` /
    `@opencode-ai/plugin` share one exact version (upstream has no API-stability promise);
    the oo CLI version is locked solely by `OO_CLI_VERSION` in `scripts/oo-cli.ts`.
@@ -153,7 +119,6 @@ tags/release notes) is English. Details: [docs/development.md](docs/development.
     table would do" grounds; any replacement or removal needs explicit product-owner
     approval, and performance work must preserve full Univer workbook rendering and
     interaction.
->>>>>>> origin/main
 
 Full coding conventions (naming, pure-function extraction, embedded tool-source limits,
 vendored-UI rules, ...) live in [docs/conventions.md](docs/conventions.md).

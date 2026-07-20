@@ -5,17 +5,6 @@
 
 ## 1. Design numbering system (recurs in comments, inherited from the original plan)
 
-<<<<<<< HEAD
-- **R1** 品牌单一来源：`electron/branding.ts`。`electron-builder.ts` 必须从该模块派生 appId / productName / protocol。`OO_` env 前缀、`x-oomol-*` 头是外部协议契约，不随品牌改。
-- **R2** endpoint 单一来源：`electron/domain.ts` 派生一切域名，禁止散落硬编码（现为构建期常量，动态切换已移除）。
-- **R3** oo 只经环境变量控制：`electron/agent/oo.ts` 的 `buildOoEnv` 是全集。
-- **R4** 动态系统提示：稳定人格放 agent.prompt（prompt 缓存友好），每轮已授权 Link provider 存在性提示（来源 `/v1/apps`）经 `body.system` 注入末尾（实测追加非覆盖）；默认不列具体 provider 名，避免可用性上下文变成工具诱导。
-- **R5** 发现/调用/授权信号全走结构化工具结果，不解析模型自由文本；未授权判定靠 stderr `errorCode: <code>` token（locale 无关锚点；zh 文案用全角括号，正则需排除 `)）`）。
-- **R6** 系统提示契约：蓝本来自 oo-cli 内置 oo skill，剔除 CLI 特定条款。
-- **R7 在代码中重载，grep 时注意区分**：原计划义 = **IPC 流式**（ClientInvokes 发起 + ServerEvents 推送，见 `electron/chat/common.ts` 注释与 [architecture.md §3](architecture.md)）；而 `electron/agent/system-prompt.ts` 头注释里的 "R7" 是**提示词修订号**（放开本地编码的那一版），与 IPC 无关。
-- **R8** 安全：不持久化明文会话 token；settings.json 不存凭证（与 auth.json 分离）；BYOK Key 只进 OS 安全存储，构建/发布密钥只走 env / CI secrets。
-- 注释中的"阶段 0..6"对应最初 7 个 commit（见 [project-overview.md §4](project-overview.md)）。
-=======
 - **R1** Branding single source of truth: `electron/branding.ts`. `electron-builder.ts` must derive
   appId / productName / protocol from that module. The `OO_` env prefix and `x-oomol-*` headers are
   external protocol contracts and do not change with branding.
@@ -42,7 +31,6 @@
   (kept separate from auth.json); secrets travel only via env / CI secrets.
 - "Phase 0..6" in comments corresponds to the original 7 commits
   (see [project-overview.md §4](project-overview.md)).
->>>>>>> origin/main
 
 ## 2. Main-process fs discipline
 
@@ -94,25 +82,17 @@
 
 ## 5. Security baseline (new code must not weaken it)
 
-<<<<<<< HEAD
-- OOMOL 凭证永不进渲染进程：OOMOL 能力的唯一凭证是会话 token `oomol-token`；持有它的 `AuthManager`（`currentSessionToken`/`activeRuntimeAccount`）不注册为 RPC service（`@oomol/connection` 注册即全公开、无方法白名单）；只注册契约门面。**不再获取或落盘 OOMOL 长期 api-key**——网关层统一接受 cookie/token/api-key，全程用会话 token。
-- custom model BYOK：用户在 Renderer 表单中新输入的 Key 只经 `saveCustomModel` 单向提交，catalog/事件/读取 IPC 永远只返回 `apiKeyConfigured`。`models.json` 禁止出现 Key；`ModelCredentialStore` 用 Electron `safeStorage` 写独立 0600 密文文件，只有主进程组装 runtime 时按 ID 解密。Linux `basic_text`/unknown 后端必须显式拒绝，禁止明文或弱存储降级。
-- `auth.json`：0600 权限、tmp+rename 原子写；**只存账号 profile、不存任何凭证**。会话 token 只活在 Electron 会话 cookie 与运行态内存；启动 `AuthStore.purgeLegacy()` 抹除旧版残留的落盘 api-key。
-- 非本应用发起的 signin deep link 须系统对话框确认（防 login-CSRF），勿绕过。
-- sidecar HTTP server 带随机口令 Basic Auth（`OPENCODE_SERVER_PASSWORD`）。
-- 外开 URL 协议白名单 `{http, https, mailto, tel}`，集中在 `main.ts` 的 `openExternalUrl`；`setWindowOpenHandler` 与 `will-navigate` 必须共用该 helper。新增协议要同时考虑两条路径。审查误报留档（已证伪，勿再报）："dev host 非 localhost 时 will-navigate 误拦渲染页"——窗口加载的就是同一 `viteDevServerUrl` 字符串（前缀自匹配恒成立），且 vite-plugin-electron 的 `resolveServerUrl` 把 `0.0.0.0`/`::` 都映射成 localhost。
-- Markdown 渲染不引入 raw HTML（streamdown/原 react-markdown 均保持 HTML 转义防 XSS）；收紧链接协议应在渲染层做，而非只在 Electron 侧 deny（否则出现"可点击但无反应"）。
-- OpenCode 配置经 `OPENCODE_CONFIG_CONTENT` 内联注入，凭证（会话 token）只入内存 env 不落盘；provider 的 `options.apiKey` 与 oo 的 `OO_API_KEY` 字段名保留（外部契约），值为会话 token。
-=======
 - Credentials never enter the renderer: the only OOMOL credential in the app is the session token
   `oomol-token`; the `AuthManager` that holds it (`currentSessionToken` / `activeRuntimeAccount`) is
   deliberately not registered as an RPC service (`@oomol/connection` registration exposes
   everything — there is no method allowlist); only the contract facade is registered. **Long-lived
   api-keys are no longer fetched or persisted** — the gateway layer uniformly accepts
   cookie/token/api-key, so the session token is used throughout. User-entered third-party custom
-  model API keys (DeepSeek / Gemini / OpenRouter, etc.) are the exception: they are persisted in
-  plaintext in `userData/models.json` (0600 + atomic write) and are never returned to the renderer
-  (only an `apiKeyConfigured` boolean is exposed).
+  model API keys (DeepSeek / Gemini / OpenRouter, etc.) are the exception: they are stored as
+  ciphertext by `ModelCredentialStore` using Electron `safeStorage` — one 0600 file per key ID —
+  and are never returned to the renderer (only an `apiKeyConfigured` boolean is exposed).
+  `models.json` must not contain any key. On Linux, weak/unknown `safeStorage` backends must be
+  explicitly rejected; silent plaintext fallback is prohibited.
 - `auth.json`: 0600 permissions, tmp+rename atomic write; **stores only the account profile, never
   any credential**. The session token lives only in the Electron session cookie and runtime memory;
   `AuthStore.purgeLegacy()` at startup wipes any legacy persisted api-key remnants.
@@ -135,7 +115,6 @@
   `userData/models.json` as above, are injected inline through the same config); the provider's
   `options.apiKey` and oo's `OO_API_KEY` field names are retained (external contract), with the
   session token as the value.
->>>>>>> origin/main
 
 ## 6. Error handling
 

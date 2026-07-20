@@ -11,6 +11,7 @@ import {
   resolveNewSessionTarget,
   resolveNotificationTeam,
   routeAvailableForRuntime,
+  projectContextControlsDisabled,
   resolveTeamProviderOptionsAvailability,
   resolveWorkspaceActivationState,
   sessionRecordScopeKey,
@@ -78,6 +79,12 @@ describe("local workspace", () => {
     expect(routeAvailableForRuntime("teams", false)).toBe(false)
     expect(routeAvailableForRuntime("billing", false)).toBe(false)
     expect(routeAvailableForRuntime("billing", true)).toBe(true)
+  })
+
+  test("keeps project controls available without a running session", () => {
+    expect(projectContextControlsDisabled(null, false)).toBe(false)
+    expect(projectContextControlsDisabled("session-id", false)).toBe(false)
+    expect(projectContextControlsDisabled("session-id", true)).toBe(true)
   })
 })
 

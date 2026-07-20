@@ -283,6 +283,10 @@ export function routeAvailableForRuntime(route: Route, cloudEnabled: boolean): b
   return cloudEnabled || (route !== "billing" && route !== "teams")
 }
 
+export function projectContextControlsDisabled(activeSessionId: string | null, activeSessionRunning: boolean): boolean {
+  return Boolean(activeSessionId && activeSessionRunning)
+}
+
 export function clampSidebarWidth(width: number): number {
   return Math.min(SIDEBAR_MAX_WIDTH_PX, Math.max(SIDEBAR_MIN_WIDTH_PX, width))
 }

@@ -37,6 +37,7 @@ import {
   newSessionComposerDraftKeyForScopeKey,
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
+  projectContextControlsDisabled,
   resolveNotificationTeam,
   routeAvailableForRuntime,
   resolveTeamProviderOptionsAvailability,
@@ -1600,7 +1601,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       showComposerProjectContext ? (
         <ProjectContextBar
           activeProject={activeProject}
-          disabled={!ready || Boolean(activeChatSessionId && isSessionRunning(activeChatSessionId))}
+          disabled={projectContextControlsDisabled(
+            activeChatSessionId,
+            Boolean(activeChatSessionId && isSessionRunning(activeChatSessionId)),
+          )}
           gitError={projectGit.error}
           gitLoading={projectGit.loading}
           gitState={projectGit.state}
@@ -1624,7 +1628,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       projectGit.loading,
       projectGit.refresh,
       projectGit.state,
-      ready,
       showComposerProjectContext,
       visibleProjects,
     ],

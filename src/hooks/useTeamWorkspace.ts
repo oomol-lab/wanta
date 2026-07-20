@@ -63,7 +63,6 @@ interface PendingWorkspaceTeamPatch {
 }
 
 const selectedWorkspaceStorageKeyPrefix = `${branding.storageKeyPrefix}:active-workspace:`
-const legacySelectedWorkspaceStorageKeyPrefix = "lumo:active-workspace:"
 const workspaceOverviewCacheMs = 30_000
 const workspaceOverviewPatchTtlMs = 120_000
 let workspaceOverviewCache: WorkspaceOverviewCacheEntry | null = null
@@ -76,10 +75,6 @@ function workspaceTeamPatchKey(accountId: string, teamId: string): string {
 
 function selectedWorkspaceStorageKey(accountId: string): string {
   return `${selectedWorkspaceStorageKeyPrefix}${accountId}`
-}
-
-function legacySelectedWorkspaceStorageKey(accountId: string): string {
-  return `${legacySelectedWorkspaceStorageKeyPrefix}${accountId}`
 }
 
 export function storedTeamIdFromValue(value: unknown): string | null {
@@ -97,10 +92,7 @@ function readStoredTeamId(accountId: string | undefined): string | null {
   }
   try {
     const key = selectedWorkspaceStorageKey(accountId)
-    const legacyKey = legacySelectedWorkspaceStorageKey(accountId)
-    const currentRaw = window.localStorage.getItem(key)
-    const legacyRaw = currentRaw === null ? window.localStorage.getItem(legacyKey) : null
-    const raw = currentRaw ?? legacyRaw
+    const raw = window.localStorage.getItem(key)
     if (!raw) {
       return null
     }
@@ -112,9 +104,8 @@ function readStoredTeamId(accountId: string | undefined): string | null {
     if (!storedTeamId) {
       return null
     }
-    if (legacyRaw !== null || !("teamId" in parsed)) {
+    if (!("teamId" in parsed)) {
       window.localStorage.setItem(key, JSON.stringify({ teamId: storedTeamId }))
-      window.localStorage.removeItem(legacyKey)
     }
     return storedTeamId
   } catch {

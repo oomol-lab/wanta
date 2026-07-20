@@ -47,14 +47,6 @@ export function detectComposerTrigger(
     return null
   }
 
-  if (marker === "/") {
-    // Slash 只在行首或行首空白后触发，避免把文件路径识别为命令。
-    const lineStart = text.lastIndexOf("\n", start - 1) + 1
-    if (text.slice(lineStart, start).trim()) {
-      return null
-    }
-  }
-
   if (marker === "@" && !isContextTriggerBoundary(start > 0 ? text[start - 1] : undefined)) {
     return null
   }

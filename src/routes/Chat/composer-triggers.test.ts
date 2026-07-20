@@ -11,6 +11,21 @@ describe("detectComposerTrigger", () => {
     })
   })
 
+  it("detects a slash trigger after whitespace in existing text", () => {
+    expect(detectComposerTrigger("asdasd /", 8)).toEqual({
+      end: 8,
+      kind: "slash",
+      query: "",
+      start: 7,
+    })
+    expect(detectComposerTrigger("please /bug", 11)).toEqual({
+      end: 11,
+      kind: "slash",
+      query: "bug",
+      start: 7,
+    })
+  })
+
   it("detects a skill trigger after whitespace", () => {
     expect(detectComposerTrigger("use $ai-elements", 16)).toEqual({
       end: 16,
@@ -29,8 +44,8 @@ describe("detectComposerTrigger", () => {
     })
   })
 
-  it("does not detect slash inside a filesystem path", () => {
-    expect(detectComposerTrigger("open /Users/me/file.ts", 11)).toBeNull()
+  it("stops detecting slash when the query becomes a filesystem path", () => {
+    expect(detectComposerTrigger("open /Users/me/file.ts", 12)).toBeNull()
   })
 
   it("does not detect context trigger inside email or ordinary words", () => {

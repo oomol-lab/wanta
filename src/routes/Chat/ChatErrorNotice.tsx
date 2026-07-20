@@ -38,20 +38,10 @@ function autoPromptStorageKey(autoOpenKey: string): string {
   return `wanta-payment-dialog-opened:${autoOpenKey}`
 }
 
-function legacyAutoPromptStorageKey(autoOpenKey: string): string {
-  return `lumo-payment-dialog-opened:${autoOpenKey}`
-}
-
 function markAutoPromptOpened(autoOpenKey: string): boolean {
   const key = autoPromptStorageKey(autoOpenKey)
-  const legacyKey = legacyAutoPromptStorageKey(autoOpenKey)
   try {
     if (sessionStorage.getItem(key)) {
-      return false
-    }
-    if (sessionStorage.getItem(legacyKey)) {
-      sessionStorage.setItem(key, "1")
-      sessionStorage.removeItem(legacyKey)
       return false
     }
     sessionStorage.setItem(key, "1")

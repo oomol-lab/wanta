@@ -22,6 +22,7 @@ import { TurnOutputStore } from "./turn-outputs.ts"
 import { UserAttachmentStore } from "./user-attachments.ts"
 
 const testTeamScope = {
+  kind: "team" as const,
   teamId: "team-id",
   teamName: "team-name",
 }
@@ -271,7 +272,7 @@ test("sendMessage waits for the request team scope before prompting", async () =
   const service = new ChatServiceImpl(bridge.agent)
 
   const request = service.sendMessage({
-    scope: { teamId: "team-id", teamName: " acme-corp " },
+    scope: { kind: "team", teamId: "team-id", teamName: " acme-corp " },
     sessionId: "session-1",
     text: "hello",
   })
@@ -411,7 +412,7 @@ test("sendMessage exposes active run snapshots with the request workspace", asyn
   const events = captureServiceEvents(service)
 
   await service.sendMessage({
-    scope: { teamId: "team-id", teamName: " acme-corp " },
+    scope: { kind: "team", teamId: "team-id", teamName: " acme-corp " },
     sessionId: "session-1",
     text: "hello",
   })
@@ -520,14 +521,14 @@ test("sendMessage allows concurrent generations in different team scopes", async
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { teamId: "team-a", teamName: "team-a" },
+    scope: { kind: "team", teamId: "team-a", teamName: "team-a" },
     sessionId: "session-1",
     text: "first",
   })
   let secondCompleted = false
   const second = service
     .sendMessage({
-      scope: { teamId: "team-b", teamName: "team-b" },
+      scope: { kind: "team", teamId: "team-b", teamName: "team-b" },
       sessionId: "session-2",
       text: "second",
     })
@@ -553,14 +554,14 @@ test("sendMessage allows concurrent generations in the same team scope", async (
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { teamId: "team-a", teamName: "team-a" },
+    scope: { kind: "team", teamId: "team-a", teamName: "team-a" },
     sessionId: "session-1",
     text: "first",
   })
   let secondCompleted = false
   const second = service
     .sendMessage({
-      scope: { teamId: "team-a", teamName: "team-a" },
+      scope: { kind: "team", teamId: "team-a", teamName: "team-a" },
       sessionId: "session-2",
       text: "second",
     })
@@ -590,7 +591,7 @@ test("setAgentTeam applies only the latest queued workspace scope", async () => 
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { teamId: "team-a", teamName: "team-a" },
+    scope: { kind: "team", teamId: "team-a", teamName: "team-a" },
     sessionId: "session-1",
     text: "first",
   })
@@ -624,7 +625,7 @@ test("setAgentTeam is not superseded by per-turn team scopes", async () => {
   await waitForCondition(() => Boolean(releaseFirstScope))
   const secondSync = service.setAgentTeam({ teamName: "team-b" })
   await service.sendMessage({
-    scope: { teamId: "team-c", teamName: "team-c" },
+    scope: { kind: "team", teamId: "team-c", teamName: "team-c" },
     sessionId: "session-1",
     text: "turn scoped to team-c",
   })
@@ -646,7 +647,7 @@ test("setAgentTeam does not interrupt active generations from other team scopes"
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { teamId: "team-a", teamName: "team-a" },
+    scope: { kind: "team", teamId: "team-a", teamName: "team-a" },
     sessionId: "session-1",
     text: "first",
   })
@@ -670,7 +671,7 @@ test("setAgentTeam does not wait on active generations for the requested team sc
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { teamId: "team-a", teamName: "team-a" },
+    scope: { kind: "team", teamId: "team-a", teamName: "team-a" },
     sessionId: "session-1",
     text: "first",
   })
@@ -2063,7 +2064,7 @@ test("sendMessage turns /bug-report into a Markdown artifact-only turn", async (
       mode: "plan",
       model: { id: "oopilot", kind: "builtin" },
       permissionMode: "default",
-      scope: { teamId: "team-id", teamName: "team-name" },
+      scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
       sessionId: "session-1",
       text: "/bug-report Focus on the authorization state mismatch.",
     })

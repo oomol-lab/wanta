@@ -229,6 +229,9 @@ flowchart TD
 
 ### 阶段 2：引入本地 workspace
 
+> 工程状态：数据模型、持久化迁移、SessionService 隔离和 Renderer 会话键已完成；本地 Agent
+> 尚未装配，因此未登录用户进入 AppShell、真实离线会话创建与团队/本地 workspace UI 切换留待阶段 3–5。
+
 #### 目标
 
 让未登录用户拥有正式的数据归属和 session scope。
@@ -243,6 +246,12 @@ flowchart TD
 6. 登录后保留本地 workspace，并允许切换团队 workspace；
 7. 不自动迁移、复制或上传本地会话；
 8. 为会话、项目、归档和旧数据迁移增加测试。
+
+当前实现已经将 `SessionScope` 扩展为显式 `local | team` 联合类型，默认本地 workspace 使用稳定的
+`local` ID；新写入数据总是携带 `kind`，读取时继续兼容无 `kind` 的 `teamId` / `teamName` 与更早的
+`organizationId` / `organizationName`。本地与团队 scope key 使用不同命名空间，即使业务 ID 相同也不会
+混淆。会话、项目、草稿和侧边栏持久化均已接入该 key；当前 OOMOL Agent runtime 仍只接受团队 scope，
+避免在阶段 3 完成前把尚不可运行的本地 Agent 暴露给用户。
 
 #### 主要影响文件
 

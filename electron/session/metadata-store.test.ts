@@ -12,11 +12,11 @@ test("SessionMetadataStore persists scope, permission mode, knowledge, pinned, a
   const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-session-metadata-"))
   const store = new SessionMetadataStore(dir)
   const metadata = new Map<string, SessionMetadata>([
-    ["pinned", { pinnedAt: 1_000, scope: { teamId: "team-id", teamName: "team-name" } }],
+    ["pinned", { pinnedAt: 1_000, scope: { kind: "team", teamId: "team-id", teamName: "team-name" } }],
     ["archived", { archivedAt: 2_000 }],
     ["full-access", { permissionMode: "full_access" }],
     ["knowledge", { knowledgeBaseIds: ["journey-to-the-west", "characters"] }],
-    ["team", { scope: { teamId: "team-id", teamName: "team-name" } }],
+    ["team", { scope: { kind: "team", teamId: "team-id", teamName: "team-name" } }],
   ])
 
   await store.write(metadata)
@@ -64,7 +64,7 @@ test("SessionMetadataStore ignores corrupted team scope fields", async () => {
   assert.deepEqual(
     await store.read(),
     new Map<string, SessionMetadata>([
-      ["valid", { pinnedAt: 1_000, scope: { teamId: "team-id", teamName: "team-name" } }],
+      ["valid", { pinnedAt: 1_000, scope: { kind: "team", teamId: "team-id", teamName: "team-name" } }],
       ["corrupted", { archivedAt: 2_000 }],
       ["normalizedKnowledge", { knowledgeBaseIds: ["first", "second"] }],
     ]),
@@ -83,7 +83,20 @@ test("SessionMetadataStore migrates legacy organization scope fields", async () 
   )
 
   const store = new SessionMetadataStore(dir)
-  assert.deepEqual(await store.read(), new Map([["legacy", { scope: { teamId: "team-id", teamName: "team-name" } }]]))
+  assert.deepEqual(
+    await store.read(),
+    new Map([["legacy", { scope: { kind: "team", teamId: "team-id", teamName: "team-name" } }]]),
+  )
+})
+
+test("SessionMetadataStore persists an explicit local workspace scope", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-session-metadata-"))
+  const store = new SessionMetadataStore(dir)
+  const scope = { kind: "local" as const, workspaceId: "local", workspaceName: "Local" }
+
+  await store.write(new Map([["local-session", { scope }]]))
+
+  assert.deepEqual(await store.read(), new Map([["local-session", { scope }]]))
 })
 
 test("normalizeSessionScopeValue never mixes partial current and legacy scope pairs", () => {
@@ -93,7 +106,7 @@ test("normalizeSessionScopeValue never mixes partial current and legacy scope pa
       organizationName: "legacy-name",
       teamId: "current-id",
     }),
-    { teamId: "legacy-id", teamName: "legacy-name" },
+    { kind: "team", teamId: "legacy-id", teamName: "legacy-name" },
   )
   assert.deepEqual(
     normalizeSessionScopeValue({
@@ -102,6 +115,6 @@ test("normalizeSessionScopeValue never mixes partial current and legacy scope pa
       teamId: "current-id",
       teamName: "current-name",
     }),
-    { teamId: "current-id", teamName: "current-name" },
+    { kind: "team", teamId: "current-id", teamName: "current-name" },
   )
 })

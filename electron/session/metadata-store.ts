@@ -118,7 +118,7 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
       sessions[id] = next
     }
   }
-  return { version: 4, sessions }
+  return { version: 5, sessions }
 }
 
 /** 会话展示元数据：置顶和归档属于 Wanta 侧边栏状态，不修改 OpenCode 会话本体。 */

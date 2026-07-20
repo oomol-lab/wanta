@@ -17,6 +17,7 @@ import type { QueuedChatMessage } from "./chat-queue.ts"
 import type { WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
+import { sessionScopeKey as resolvedSessionScopeKey } from "../../../electron/session/common.ts"
 import { shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
 import { visibleUserText } from "@/routes/Chat/message-text"
 
@@ -333,7 +334,7 @@ export function sessionScopeFromWorkspace(workspace: WorkspaceSelection): Sessio
   if (!teamId || !teamName) {
     return null
   }
-  return { teamId, teamName }
+  return { kind: "team", teamId, teamName }
 }
 
 export function workspaceSelectionSwitchKey(workspace: WorkspaceSelection): string {
@@ -344,14 +345,14 @@ export function sessionScopeKey(scope: SessionScope | null): string {
   if (!scope) {
     return "workspace-loading"
   }
-  return `team:${scope.teamId}`
+  return resolvedSessionScopeKey(scope)
 }
 
 export function sessionRecordScopeKey(scope: SessionScope | undefined): string {
-  if (!scope?.teamId) {
+  if (!scope) {
     return "workspace-loading"
   }
-  return `team:${scope.teamId}`
+  return resolvedSessionScopeKey(scope)
 }
 
 export interface WorkspaceActivationInput {

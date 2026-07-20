@@ -186,15 +186,15 @@ function createMessageErrorPayload(sessionId: string, message: string, messageId
 }
 
 function teamNameFromRequest(req: SendMessageRequest): string | undefined {
-  const teamName = req.scope?.teamName.trim()
+  const teamName = req.scope.kind === "team" ? req.scope.teamName.trim() : ""
   return teamName ? teamName : undefined
 }
 
 function runWorkspaceFromRequest(req: SendMessageRequest): ChatRunWorkspace {
-  const teamId = req.scope?.teamId.trim() ?? ""
-  const teamName = req.scope?.teamName.trim() ?? ""
+  const teamId = req.scope.kind === "team" ? req.scope.teamId.trim() : ""
+  const teamName = req.scope.kind === "team" ? req.scope.teamName.trim() : ""
   if (!teamId || !teamName) {
-    throw new Error("Team scope is invalid")
+    throw new Error("Team scope is required by the current Agent runtime")
   }
   return { teamId, teamName }
 }

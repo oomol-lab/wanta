@@ -1,5 +1,7 @@
 import type { SessionScope } from "../../../electron/session/common.ts"
 
+import { sessionScopeKey } from "../../../electron/session/common.ts"
+
 export type SidebarSegment = "projects" | "tasks"
 
 type LocalStorageLike = Pick<Storage, "getItem" | "removeItem" | "setItem">
@@ -57,11 +59,11 @@ export function projectSidebarCollapsedStorageKey(
   accountId: string | undefined,
   scope: SessionScope | null,
 ): string | null {
-  if (!accountId || !scope) {
+  if (!scope || (scope.kind === "team" && !accountId)) {
     return null
   }
-  const scopeKey = `team:${scope.teamId}`
-  return `${projectCollapsedStoragePrefix}:${accountId}:${scopeKey}`
+  const ownerKey = scope.kind === "local" ? "local" : accountId
+  return `${projectCollapsedStoragePrefix}:${ownerKey}:${sessionScopeKey(scope)}`
 }
 
 export function readStoredCollapsedProjectIds(

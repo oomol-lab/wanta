@@ -157,12 +157,23 @@ Official OOMOL build：
 - capability 订阅采用“先订阅、再加载快照”的竞态保护，迟到的初始快照或错误不能覆盖更新事件；
 - 增加 local、未就绪和 OOMOL 三种组合的纯函数测试。
 
-Renderer 接入后仍保留登录墙，因为 local Agent 和 local workspace 尚未实现。下一工程切片推荐顺序：
+Renderer 接入后仍保留登录墙，因为 local Agent 尚未实现，local workspace 也尚未开放到应用入口。
 
-1. 引入 local workspace；
-2. 允许 custom model 在无 OOMOL token 时启动；
-3. 将 `signed_out` 语义拆为 OOMOL unauthenticated 与 Agent `model_required`；
-4. 最后移除启动登录墙并完成 UI 实机验证。
+阶段 2 的 local workspace 数据基础现已完成：
+
+- `SessionScope` 是显式的 `local | team` 联合类型；
+- 默认本地 workspace 使用稳定 ID，新数据显式持久化 `kind`；
+- 旧 `teamId` / `teamName` 与 legacy organization 字段继续兼容读取；
+- SessionService、项目存储、会话/草稿 key 和侧边栏持久化隔离 local/team 命名空间；
+- local/team 使用相同业务 ID 时仍不会混淆，会话和项目的跨 scope 绑定继续被拒绝。
+
+由于 local Agent 尚未装配，Renderer 仍保留登录墙，真实未登录会话创建与 workspace 切换 UI 尚未开放。
+下一工程切片推荐顺序：
+
+1. 允许 custom model 在无 OOMOL token 时启动；
+2. 将 `signed_out` 语义拆为 OOMOL unauthenticated 与 Agent `model_required`；
+3. 按 capability 装配系统提示与 Connector 工具；
+4. 最后移除启动登录墙并完成本地/团队 workspace 切换和 UI 实机验证。
 
 ## 8. 发布前检查清单
 

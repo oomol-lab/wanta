@@ -18,22 +18,63 @@ export interface SessionInfo {
 
 export type SessionPermissionMode = "default" | "full_access"
 
-export interface SessionScope {
+export interface LocalSessionScope {
+  kind: "local"
+  workspaceId: string
+  workspaceName: string
+}
+
+export interface TeamSessionScope {
+  kind: "team"
   teamId: string
   teamName: string
+}
+
+export type SessionScope = LocalSessionScope | TeamSessionScope
+
+export const DEFAULT_LOCAL_WORKSPACE: LocalSessionScope = {
+  kind: "local",
+  workspaceId: "local",
+  workspaceName: "Local",
+}
+
+interface LegacyTeamSessionScope {
+  organizationId?: unknown
+  organizationName?: unknown
+  teamId?: unknown
+  teamName?: unknown
 }
 
 export function normalizeSessionScopeValue(value: unknown): SessionScope | undefined {
   if (!value || typeof value !== "object") {
     return undefined
   }
-  const source = value as Partial<SessionScope> & { organizationId?: unknown; organizationName?: unknown }
-  const normalizePair = (id: unknown, name: unknown): SessionScope | undefined => {
+  const source = value as Partial<LocalSessionScope> & LegacyTeamSessionScope & { kind?: unknown }
+  if (source.kind === "local") {
+    const workspaceId = typeof source.workspaceId === "string" ? source.workspaceId.trim() : ""
+    const workspaceName = typeof source.workspaceName === "string" ? source.workspaceName.trim() : ""
+    return workspaceId && workspaceName ? { kind: "local", workspaceId, workspaceName } : undefined
+  }
+  const normalizeTeamPair = (id: unknown, name: unknown): TeamSessionScope | undefined => {
     const teamId = typeof id === "string" ? id.trim() : undefined
     const teamName = typeof name === "string" ? name.trim() : undefined
-    return teamId && teamName ? { teamId, teamName } : undefined
+    return teamId && teamName ? { kind: "team", teamId, teamName } : undefined
   }
-  return normalizePair(source.teamId, source.teamName) ?? normalizePair(source.organizationId, source.organizationName)
+  if (source.kind !== undefined && source.kind !== "team") {
+    return undefined
+  }
+  return (
+    normalizeTeamPair(source.teamId, source.teamName) ??
+    normalizeTeamPair(source.organizationId, source.organizationName)
+  )
+}
+
+export function sessionScopeKey(scope: SessionScope): string {
+  return scope.kind === "local" ? `local:${scope.workspaceId}` : `team:${scope.teamId}`
+}
+
+export function sessionScopesEqual(left: SessionScope, right: SessionScope): boolean {
+  return sessionScopeKey(left) === sessionScopeKey(right)
 }
 
 export type SessionPlacement = "all" | "project" | "task"

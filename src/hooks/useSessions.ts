@@ -10,6 +10,7 @@ import type {
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
+import { DEFAULT_LOCAL_WORKSPACE } from "../../electron/session/common.ts"
 import { useSessionService } from "../components/AppContext.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 import { sessionScopeKey } from "@/components/app-shell/app-shell-model"
@@ -140,9 +141,9 @@ function applyIntendedKnowledgeBaseIds(
 
 export function useSessions({ enabled = true, scope }: { enabled?: boolean; scope: SessionScope | null }): UseSessions {
   const sessionService = useSessionService()
-  const teamId = scope?.teamId ?? ""
-  const teamName = scope?.teamName ?? ""
-  const requestScope = React.useMemo<SessionScope>(() => ({ teamId, teamName }), [teamId, teamName])
+  const scopeKey = sessionScopeKey(scope)
+  const scopeName = scope?.kind === "local" ? scope.workspaceName : scope?.teamName
+  const requestScope = React.useMemo<SessionScope>(() => scope ?? DEFAULT_LOCAL_WORKSPACE, [scopeKey, scopeName])
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
   const sessionsRef = React.useRef(sessions)
   sessionsRef.current = sessions
@@ -160,7 +161,6 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const knowledgeBasesNextWriteVersionRef = React.useRef(0)
   const knowledgeBasesIntendedIdsRef = React.useRef(new Map<string, string[]>())
   const knowledgeBasesPersistedIdsRef = React.useRef(new Map<string, string[]>())
-  const scopeKey = sessionScopeKey(requestScope)
   const currentScopeKeyRef = React.useRef(scopeKey)
   currentScopeKeyRef.current = scopeKey
   const taskSessions = React.useMemo(

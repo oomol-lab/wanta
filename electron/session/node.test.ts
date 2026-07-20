@@ -1,6 +1,6 @@
 import type { AgentManager } from "../agent/manager.ts"
 import type { SessionActivityStore } from "./activity-store.ts"
-import type { SessionInfo, SessionProject } from "./common.ts"
+import type { SessionInfo, SessionProject, SessionScope } from "./common.ts"
 import type { SessionMetadata } from "./metadata-store.ts"
 import type { SessionMetadataStore } from "./metadata-store.ts"
 import type { SessionProjectStore } from "./project-store.ts"
@@ -10,6 +10,7 @@ import { test, vi } from "vitest"
 import { SessionServiceImpl } from "./node.ts"
 
 const testTeamScope = {
+  kind: "team" as const,
   teamId: "team-id",
   teamName: "team-name",
 }
@@ -272,31 +273,89 @@ test("list filters sessions by requested scope", async () => {
       metadataStore: metadataStore(
         new Map([
           ["archived", { scope: testTeamScope }],
-          ["aaa", { scope: { teamId: "aaa-id", teamName: "aaa" } }],
-          ["netless", { scope: { teamId: "netless-id", teamName: "netless" } }],
+          ["aaa", { scope: { kind: "team", teamId: "aaa-id", teamName: "aaa" } }],
+          ["netless", { scope: { kind: "team", teamId: "netless-id", teamName: "netless" } }],
         ]),
       ),
     },
   )
 
   assert.deepEqual(
-    (await service.list({ scope: { teamId: "team-id", teamName: "team-name" } })).map((session) => session.id),
+    (await service.list({ scope: { kind: "team", teamId: "team-id", teamName: "team-name" } })).map(
+      (session) => session.id,
+    ),
     ["archived"],
   )
   assert.deepEqual(
     (
       await service.list({
-        scope: { teamId: "aaa-id", teamName: "aaa" },
+        scope: { kind: "team", teamId: "aaa-id", teamName: "aaa" },
       })
     ).map((session) => session.id),
     ["aaa"],
   )
 })
 
-test("list rejects invalid team scope requests", async () => {
+test("list rejects invalid workspace scope requests", async () => {
   const service = new SessionServiceImpl(agentWithSessions([]))
 
-  await assert.rejects(() => service.list({ scope: { teamId: "", teamName: "Team" } }), /Team scope is invalid/)
+  await assert.rejects(
+    () => service.list({ scope: { kind: "team", teamId: "", teamName: "Team" } }),
+    /Workspace scope is invalid/,
+  )
+})
+
+test("local and team workspaces keep sessions with the same identifier isolated", async () => {
+  const localScope: SessionScope = { kind: "local", workspaceId: "shared", workspaceName: "Local" }
+  const teamScope: SessionScope = { kind: "team", teamId: "shared", teamName: "Team" }
+  const sessions: SessionInfo[] = [
+    { id: "local-session", title: "Local", createdAt: 1_000, updatedAt: 1_000 },
+    { id: "team-session", title: "Team", createdAt: 2_000, updatedAt: 2_000 },
+  ]
+  const service = new SessionServiceImpl(agentWithSessions(sessions), {
+    metadataStore: metadataStore(
+      new Map([
+        ["local-session", { scope: localScope }],
+        ["team-session", { scope: teamScope }],
+      ]),
+    ),
+  })
+
+  assert.deepEqual(
+    (await service.list({ scope: localScope })).map((session) => session.id),
+    ["local-session"],
+  )
+  assert.deepEqual(
+    (await service.list({ scope: teamScope })).map((session) => session.id),
+    ["team-session"],
+  )
+})
+
+test("creates sessions and projects in the local workspace", async () => {
+  const scope: SessionScope = { kind: "local", workspaceId: "local", workspaceName: "Local" }
+  const persistedMetadata = metadataStore()
+  const persistedProjects = projectStore()
+  const service = new SessionServiceImpl(
+    {
+      createSession: async () => ({
+        id: "local-session",
+        title: "Local task",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      }),
+      listSessions: async () => [],
+    } as unknown as AgentManager,
+    { metadataStore: persistedMetadata, projectStore: persistedProjects },
+  )
+
+  const project = await service.createProject({ path: "/tmp/local-project", scope })
+  const session = await service.create({ projectId: project.id, scope, title: "Local task" })
+
+  assert.deepEqual(project.scope, scope)
+  assert.deepEqual(session.scope, scope)
+  assert.equal(session.projectId, project.id)
+  assert.deepEqual((await persistedMetadata.read()).get(session.id)?.scope, scope)
+  assert.deepEqual((await persistedProjects.read()).get(project.id)?.scope, scope)
 })
 
 test("list filters sessions by requested placement", async () => {
@@ -306,7 +365,7 @@ test("list filters sessions by requested placement", async () => {
     path: "/Users/example/code/wanta",
     createdAt: 1_000,
     updatedAt: 1_000,
-    scope: { teamId: "team-id", teamName: "team-name" },
+    scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
   }
   const archivedProject: SessionProject = {
     id: "archived-project",
@@ -315,7 +374,7 @@ test("list filters sessions by requested placement", async () => {
     createdAt: 1_000,
     updatedAt: 1_000,
     archivedAt: 4_000,
-    scope: { teamId: "team-id", teamName: "team-name" },
+    scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
   }
   const scopedProject: SessionProject = {
     id: "scoped-project",
@@ -323,7 +382,7 @@ test("list filters sessions by requested placement", async () => {
     path: "/Users/example/code/scoped",
     createdAt: 1_000,
     updatedAt: 1_000,
-    scope: { teamId: "team", teamName: "Team" },
+    scope: { kind: "team", teamId: "team", teamName: "Team" },
   }
   const service = new SessionServiceImpl(
     agentWithSessions([
@@ -365,28 +424,28 @@ test("list filters sessions by requested placement", async () => {
           [
             "project-session",
             {
-              scope: { teamId: "team-id", teamName: "team-name" },
+              scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
               projectId: project.id,
             },
           ],
           [
             "dangling-project-session",
             {
-              scope: { teamId: "team-id", teamName: "team-name" },
+              scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
               projectId: "missing-project",
             },
           ],
           [
             "archived-project-session",
             {
-              scope: { teamId: "team-id", teamName: "team-name" },
+              scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
               projectId: archivedProject.id,
             },
           ],
           [
             "scoped-project-session",
             {
-              scope: { teamId: "team-id", teamName: "team-name" },
+              scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
               projectId: scopedProject.id,
             },
           ],
@@ -404,7 +463,7 @@ test("list filters sessions by requested placement", async () => {
 
   const allSessions = await service.list({
     placement: "all",
-    scope: { teamId: "team-id", teamName: "team-name" },
+    scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
   })
   assert.deepEqual(
     allSessions.map((session) => ({ id: session.id, projectId: session.projectId })),
@@ -420,7 +479,7 @@ test("list filters sessions by requested placement", async () => {
     (
       await service.list({
         placement: "project",
-        scope: { teamId: "team-id", teamName: "team-name" },
+        scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
       })
     ).map((session) => session.id),
     ["project-session"],
@@ -429,7 +488,7 @@ test("list filters sessions by requested placement", async () => {
     (
       await service.list({
         placement: "task",
-        scope: { teamId: "team-id", teamName: "team-name" },
+        scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
       })
     ).map((session) => session.id),
     ["scoped-project-session", "archived-project-session", "dangling-project-session", "task"],
@@ -443,7 +502,7 @@ test("listArchived filters sessions by requested placement", async () => {
     path: "/Users/example/code/wanta",
     createdAt: 1_000,
     updatedAt: 1_000,
-    scope: { teamId: "team-id", teamName: "team-name" },
+    scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
   }
   const service = new SessionServiceImpl(
     agentWithSessions([
@@ -467,14 +526,14 @@ test("listArchived filters sessions by requested placement", async () => {
             "archived-task",
             {
               archivedAt: 3_000,
-              scope: { teamId: "team-id", teamName: "team-name" },
+              scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
             },
           ],
           [
             "archived-project",
             {
               archivedAt: 4_000,
-              scope: { teamId: "team-id", teamName: "team-name" },
+              scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
               projectId: project.id,
             },
           ],
@@ -488,7 +547,7 @@ test("listArchived filters sessions by requested placement", async () => {
     (
       await service.listArchived({
         placement: "task",
-        scope: { teamId: "team-id", teamName: "team-name" },
+        scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
       })
     ).map((session) => session.id),
     ["archived-task"],
@@ -497,7 +556,7 @@ test("listArchived filters sessions by requested placement", async () => {
     (
       await service.listArchived({
         placement: "project",
-        scope: { teamId: "team-id", teamName: "team-name" },
+        scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
       })
     ).map((session) => session.id),
     ["archived-project"],
@@ -528,7 +587,7 @@ test("create persists the requested session scope", async () => {
     },
   )
 
-  const scope = { teamId: "aaa-id", teamName: "aaa" }
+  const scope: SessionScope = { kind: "team", teamId: "aaa-id", teamName: "aaa" }
   const created = await service.create({ scope, title: "Scoped" })
 
   assert.deepEqual(created.scope, scope)
@@ -567,11 +626,11 @@ test("createProject reuses an existing project in the same scope", async () => {
 
   const first = await service.createProject({
     path: "/Users/example/code/wanta",
-    scope: { teamId: "team-id", teamName: "team-name" },
+    scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
   })
   const second = await service.createProject({
     path: "/Users/example/code/wanta/",
-    scope: { teamId: "team-id", teamName: "team-name" },
+    scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
   })
 
   assert.equal(first.id, second.id)
@@ -618,7 +677,7 @@ test("createProject restores an archived project with the same path", async () =
           createdAt: 1_000,
           pinnedAt: 2_000,
           updatedAt: 1_000,
-          scope: { teamId: "team-id", teamName: "team-name" },
+          scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
         },
       ],
     ]),
@@ -629,7 +688,7 @@ test("createProject restores an archived project with the same path", async () =
 
   const restored = await service.createProject({
     path: "/Users/example/code/wanta",
-    scope: { teamId: "team-id", teamName: "team-name" },
+    scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
   })
 
   assert.equal(restored.id, "project")
@@ -654,7 +713,7 @@ test("project actions rename, pin, and sort projects", async () => {
           path: "/Users/example/code/a",
           createdAt: 1_000,
           updatedAt: 1_000,
-          scope: { teamId: "team-id", teamName: "team-name" },
+          scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
         },
       ],
       [
@@ -665,7 +724,7 @@ test("project actions rename, pin, and sort projects", async () => {
           path: "/Users/example/code/b",
           createdAt: 2_000,
           updatedAt: 2_000,
-          scope: { teamId: "team-id", teamName: "team-name" },
+          scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
         },
       ],
     ]),
@@ -693,10 +752,10 @@ test("archiveProject hides the project and archives assigned sessions", async ()
         {
           pinnedAt: 2_000,
           projectId: "project",
-          scope: { teamId: "team-id", teamName: "team-name" },
+          scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
         },
       ],
-      ["task", { scope: { teamId: "team-id", teamName: "team-name" } }],
+      ["task", { scope: { kind: "team", teamId: "team-id", teamName: "team-name" } }],
     ]),
   )
   const persistedProjects = projectStore(
@@ -710,7 +769,7 @@ test("archiveProject hides the project and archives assigned sessions", async ()
           createdAt: 1_000,
           updatedAt: 1_000,
           pinnedAt: 2_000,
-          scope: { teamId: "team-id", teamName: "team-name" },
+          scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
         },
       ],
     ]),
@@ -767,7 +826,7 @@ test("unarchive restores the assigned project when it was archived with the sess
           archivedAt: 3_000,
           pinnedAt: 2_000,
           projectId: "project",
-          scope: { teamId: "team-id", teamName: "team-name" },
+          scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
         },
       ],
     ]),
@@ -784,7 +843,7 @@ test("unarchive restores the assigned project when it was archived with the sess
           createdAt: 1_000,
           pinnedAt: 2_000,
           updatedAt: 1_000,
-          scope: { teamId: "team-id", teamName: "team-name" },
+          scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
         },
       ],
     ]),
@@ -825,7 +884,7 @@ test("archiveProject rolls back project state when metadata persistence fails", 
         {
           pinnedAt: 2_000,
           projectId: "project",
-          scope: { teamId: "team-id", teamName: "team-name" },
+          scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
         },
       ],
     ]),
@@ -852,7 +911,7 @@ test("archiveProject rolls back project state when metadata persistence fails", 
           createdAt: 1_000,
           updatedAt: 1_000,
           pinnedAt: 2_000,
-          scope: { teamId: "team-id", teamName: "team-name" },
+          scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
         },
       ],
     ]),
@@ -959,7 +1018,7 @@ test("create persists project assignment when the project matches the session sc
     path: "/Users/example/code/wanta",
     createdAt: 1_000,
     updatedAt: 1_000,
-    scope: { teamId: "team-id", teamName: "team-name" },
+    scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
   }
   const service = new SessionServiceImpl(
     {
@@ -986,7 +1045,7 @@ test("create persists project assignment when the project matches the session sc
 
   const created = await service.create({
     projectId: "project",
-    scope: { teamId: "team-id", teamName: "team-name" },
+    scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
     title: "Scoped",
   })
 
@@ -997,7 +1056,7 @@ test("create persists project assignment when the project matches the session sc
       [
         "created",
         {
-          scope: { teamId: "team-id", teamName: "team-name" },
+          scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
           projectId: "project",
         },
       ],
@@ -1007,7 +1066,7 @@ test("create persists project assignment when the project matches the session sc
 
 test("assignSessionProject persists only projects in the session scope", async () => {
   const persistedMetadata = metadataStore(
-    new Map([["session", { scope: { teamId: "team-id", teamName: "team-name" } }]]),
+    new Map([["session", { scope: { kind: "team", teamId: "team-id", teamName: "team-name" } }]]),
   )
   const archiveProject: SessionProject = {
     id: "archive-project",
@@ -1015,7 +1074,7 @@ test("assignSessionProject persists only projects in the session scope", async (
     path: "/Users/example/code/archive",
     createdAt: 1_000,
     updatedAt: 1_000,
-    scope: { teamId: "team-id", teamName: "team-name" },
+    scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
   }
   const teamProject: SessionProject = {
     id: "team-project",
@@ -1023,7 +1082,7 @@ test("assignSessionProject persists only projects in the session scope", async (
     path: "/Users/example/code/team",
     createdAt: 5_000,
     updatedAt: 5_000,
-    scope: { teamId: "team", teamName: "Team" },
+    scope: { kind: "team", teamId: "team", teamName: "Team" },
   }
   const archivedProject: SessionProject = {
     id: "archived-project",
@@ -1032,7 +1091,7 @@ test("assignSessionProject persists only projects in the session scope", async (
     archivedAt: 6_000,
     createdAt: 6_000,
     updatedAt: 6_000,
-    scope: { teamId: "team-id", teamName: "team-name" },
+    scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
   }
   const persistedProjects = projectStore(
     new Map([
@@ -1055,7 +1114,7 @@ test("assignSessionProject persists only projects in the session scope", async (
 
   assert.deepEqual(
     await persistedMetadata.read(),
-    new Map([["session", { scope: { teamId: "team-id", teamName: "team-name" } }]]),
+    new Map([["session", { scope: { kind: "team", teamId: "team-id", teamName: "team-name" } }]]),
   )
   assert.equal((await persistedProjects.read()).get("team-project")?.updatedAt, teamProject.updatedAt)
 
@@ -1063,7 +1122,7 @@ test("assignSessionProject persists only projects in the session scope", async (
 
   assert.deepEqual(
     await persistedMetadata.read(),
-    new Map([["session", { scope: { teamId: "team-id", teamName: "team-name" } }]]),
+    new Map([["session", { scope: { kind: "team", teamId: "team-id", teamName: "team-name" } }]]),
   )
   assert.equal((await persistedProjects.read()).get("archived-project")?.updatedAt, archivedProject.updatedAt)
 })
@@ -1079,7 +1138,7 @@ test("recordUseAndEmit keeps the assigned project's order unchanged", async () =
           path: "/Users/example/code/wanta",
           createdAt: 1_000,
           updatedAt: 1_000,
-          scope: { teamId: "team-id", teamName: "team-name" },
+          scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
         },
       ],
     ]),
@@ -1100,7 +1159,7 @@ test("recordUseAndEmit keeps the assigned project's order unchanged", async () =
           [
             "session",
             {
-              scope: { teamId: "team-id", teamName: "team-name" },
+              scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
               projectId: "project",
             },
           ],

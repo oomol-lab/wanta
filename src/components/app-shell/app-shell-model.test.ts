@@ -433,7 +433,7 @@ describe("composer draft keys", () => {
   })
 
   test("separates drafts for projects in the same workspace", () => {
-    const scope = { teamId: "team-a", teamName: "A" }
+    const scope = { kind: "team" as const, teamId: "team-a", teamName: "A" }
 
     expect(newSessionComposerDraftKey(scope, "project-a")).not.toBe(newSessionComposerDraftKey(scope, "project-b"))
   })
@@ -450,14 +450,24 @@ describe("composer draft scope keys", () => {
   })
 
   test("separates new session drafts by workspace scope", () => {
-    expect(newSessionComposerDraftKey({ teamId: "team-a", teamName: "A" }, undefined)).not.toBe(
-      newSessionComposerDraftKey({ teamId: "team-id", teamName: "team-name" }, undefined),
+    expect(newSessionComposerDraftKey({ kind: "team", teamId: "team-a", teamName: "A" }, undefined)).not.toBe(
+      newSessionComposerDraftKey({ kind: "team", teamId: "team-id", teamName: "team-name" }, undefined),
+    )
+  })
+
+  test("keeps local and team workspace draft keys distinct", () => {
+    expect(
+      newSessionComposerDraftKey({ kind: "local", workspaceId: "shared", workspaceName: "Local" }, undefined),
+    ).toBe("__new_session__:local:shared:none")
+    expect(newSessionComposerDraftKey({ kind: "team", teamId: "shared", teamName: "Team" }, undefined)).toBe(
+      "__new_session__:team:shared:none",
     )
   })
 
   test("normalizes persisted sessions without scope as unavailable workspace sessions", () => {
     expect(sessionRecordScopeKey(undefined)).toBe("workspace-loading")
-    expect(sessionRecordScopeKey({ teamId: "team-a", teamName: "A" })).toBe("team:team-a")
+    expect(sessionRecordScopeKey({ kind: "team", teamId: "team-a", teamName: "A" })).toBe("team:team-a")
+    expect(sessionRecordScopeKey({ kind: "local", workspaceId: "local", workspaceName: "Local" })).toBe("local:local")
   })
 })
 

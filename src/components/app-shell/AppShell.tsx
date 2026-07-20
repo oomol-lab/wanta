@@ -38,6 +38,7 @@ import {
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
   resolveNotificationTeam,
+  routeAvailableForRuntime,
   resolveTeamProviderOptionsAvailability,
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
@@ -80,6 +81,7 @@ import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useKnowledgeBases } from "@/hooks/useKnowledgeBases"
 import { useProjectGit } from "@/hooks/useProjectGit"
+import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities"
 import { useSessions } from "@/hooks/useSessions"
 import { useTeamSkills } from "@/hooks/useTeamSkills"
 import { useTeamWorkspace } from "@/hooks/useTeamWorkspace"
@@ -142,20 +144,24 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const attention = useAttention()
   const appUpdate = useAppUpdate()
   const appSettings = useAppSettings()
+  const runtimeCapabilities = useRuntimeCapabilities().capabilities
+  const authenticated = auth.state?.status === "authenticated"
+  const cloudEnabled = authenticated && runtimeCapabilities?.mode === "oomol"
   const [ready, setReady] = React.useState(false)
   const [billingInitialTarget, setBillingInitialTarget] = React.useState<BillingDetailsTarget | null>(null)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
-  const teamWorkspace = useTeamWorkspace(auth.state?.account?.id)
-  const teamSkills = useTeamSkills(teamWorkspace.activeWorkspace, auth.state?.account?.id)
+  const accountId = cloudEnabled ? auth.state?.account?.id : undefined
+  const teamWorkspace = useTeamWorkspace(accountId)
+  const teamSkills = useTeamSkills(teamWorkspace.activeWorkspace, accountId)
   const skillInventory = useSkillInventoryResource()
   const knowledgeBaseBetaEnabled = appSettings.settings.knowledgeBaseBetaEnabled
   const knowledgeLibrary = useKnowledgeBases(knowledgeBaseBetaEnabled)
-  const connections = useConnections(teamWorkspace.connectionWorkspace)
+  const connections = useConnections(cloudEnabled ? teamWorkspace.connectionWorkspace : null)
   const sessionScope = React.useMemo(
     () => sessionScopeFromWorkspace(teamWorkspace.activeWorkspace),
     [teamWorkspace.activeWorkspace],
   )
-  const sessionsEnabled = auth.state?.status === "authenticated" && sessionScope !== null
+  const sessionsEnabled = sessionScope !== null
   const {
     sessions,
     taskSessions,
@@ -203,6 +209,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       connectionSettledWorkspaceKey: connections.summaryWorkspaceKey,
       connectionWorkspaceKey: currentConnectionWorkspaceKey,
       connectionsRefreshing: connections.busy === "refresh",
+      cloudWorkspaceRequired: cloudEnabled,
       currentScopeKey,
       loadedSessionScopeKey: sessionsLoadedScopeKey,
       teamSkillsSettled,
@@ -231,6 +238,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [projects, sessionsSettledForCurrentScope],
   )
   const [route, setRoute] = React.useState<Route>(initialRoute)
+  React.useEffect(() => {
+    if (!routeAvailableForRuntime(route, cloudEnabled)) {
+      setRoute("chat")
+    }
+  }, [cloudEnabled, route])
   const [selectedSessionId, setSelectedSessionId] = React.useState<string | null>(null)
   const [pendingAttentionSession, setPendingAttentionSession] = React.useState<{
     teamRefreshAttempted: boolean
@@ -757,6 +769,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     sessionsSettledForCurrentScope && !isDraftSession && !selectedSessionId && selectableSidebarSessions.length > 0
   const agentStartupError =
     agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
+  const modelRequired = agentStatus.status === "model_required"
   const workspaceStartupError = workspaceActivationState.status === "failed" ? workspaceActivationState.error : null
   const startupError = agentStartupError ?? workspaceStartupError ?? sessionSnapshotError
   const retryWorkspaceActivation = React.useCallback(() => {
@@ -772,12 +785,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const hasVisibleLoadedSession = Boolean(activeChatSessionId && messagesLoaded)
   const chatBootstrapping =
     !startupError &&
+    !modelRequired &&
     ((!ready && !hasVisibleLoadedSession) ||
       !sessionsSettledForCurrentScope ||
       needsDefaultSessionSelection ||
       Boolean(activeChatSessionId && !messagesLoaded && !activePendingChatTransition))
   const showChatEmptyState =
-    ready &&
+    (ready || modelRequired) &&
     sessionsSettledForCurrentScope &&
     !activePendingChatTransition &&
     (!activeChatSessionId || (messagesLoaded && messages.length === 0))
@@ -1471,8 +1485,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     }
   }, [activeChatSessionId, stop])
   const handleOpenConnectionsCommand = React.useCallback((): void => {
-    handleOpenConnections()
-  }, [handleOpenConnections])
+    if (cloudEnabled) {
+      handleOpenConnections()
+      return
+    }
+    void auth.login()
+  }, [auth, cloudEnabled, handleOpenConnections])
   const handleOpenSettingsCommand = React.useCallback((): void => {
     setSearchOpen(false)
     setRoute("settings")
@@ -1557,7 +1575,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const billingWorkspaceCacheScope = teamWorkspace.activeWorkspace.teamId
     ? `team:${teamWorkspace.activeWorkspace.teamId}`
     : "workspace-loading"
-  const billingCacheScope = `${auth.state?.account?.id ?? "authenticated"}:${billingWorkspaceCacheScope}`
+  const billingCacheScope = `${accountId ?? "local"}:${billingWorkspaceCacheScope}`
   const billingRequestScope = React.useMemo(
     () => billingRequestScopeForWorkspace(teamWorkspace.activeWorkspace),
     [teamWorkspace.activeWorkspace],
@@ -1650,7 +1668,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     )
   }
 
-  if (route === "billing") {
+  if (route === "billing" && cloudEnabled) {
     return (
       <>
         <React.Suspense fallback={<RouteLoadingFallback />}>
@@ -1708,14 +1726,17 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     >
       <AppShellNavigationSidebar
         accountName={auth.state?.account?.name}
+        authenticated={authenticated}
         activeRoute={route}
         selectedSessionId={selectedSessionId}
         avatarUrl={auth.state?.account?.avatarUrl}
+        cloudEnabled={cloudEnabled}
         collapsed={sidebarCollapsed}
         collapsedProjectIds={collapsedProjectIds}
         hasUnreadSession={hasUnreadSession}
         isSessionRunning={isSessionRunning}
         loggingOut={auth.loggingOut}
+        loggingIn={auth.loggingIn}
         newChatLabel={newChatLabel}
         projectPinnedGroups={projectPinnedGroups}
         projectPinnedSessions={projectPinnedSessions}
@@ -1734,6 +1755,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         onArchiveProjectRequest={projectActions.requestArchive}
         onArchiveSessionRequest={sessionActions.requestArchive}
         onLogout={auth.logout}
+        onLogin={() => void auth.login()}
         onNavigate={setRoute}
         onNewSession={handleNewSessionWithKnowledgeReset}
         onOpenConnections={handleOpenConnectionsCommand}
@@ -1781,12 +1803,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             onOpenSearch={handleOpenSearch}
             onRenameSession={sessionActions.handleRename}
             onToggleSidebar={handleToggleSidebar}
-            onViewBilling={handleViewBilling}
+            onViewBilling={cloudEnabled ? handleViewBilling : undefined}
           />
 
           <main className="oo-content-surface min-h-0 min-w-0 overflow-hidden">
             <React.Suspense fallback={<RouteLoadingFallback />}>
-              {route === "connections" ? (
+              {route === "connections" && cloudEnabled ? (
                 <div className="h-full min-h-0 p-0">
                   <ConnectionsPanel
                     canManageConnections={canManageWorkspaceConnections}
@@ -1795,7 +1817,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                     selectedService={selectedService}
                   />
                 </div>
-              ) : route === "skills" ? (
+              ) : route === "skills" && cloudEnabled ? (
                 <SkillsRoute
                   connectedProvidersLoading={activeProvidersLoading}
                   teamSkills={teamSkills}
@@ -1804,7 +1826,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                 />
               ) : route === "knowledge" && knowledgeBaseBetaEnabled ? (
                 <KnowledgeRoute knowledge={knowledgeLibrary} onStartChat={handleStartKnowledgeChat} />
-              ) : route === "teams" ? (
+              ) : route === "teams" && cloudEnabled ? (
                 <TeamManagementRoute
                   connectedProvidersLoading={activeProvidersLoading}
                   teamSkills={teamSkills}
@@ -1828,6 +1850,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       }
                       knowledgeItems={knowledgeLibrary.items}
                       knowledgeLoading={knowledgeLibrary.loading}
+                      modelRequired={modelRequired}
                       permissionMode={displayedPermissionMode}
                       pendingPermissions={bridgeInitialSendPending ? [] : pendingPermissions}
                       pendingQuestions={bridgeInitialSendPending ? [] : pendingQuestions}
@@ -1851,16 +1874,18 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       willQueueMessage={Boolean(
                         activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isSendInFlight()),
                       )}
+                      voiceEnabled={runtimeCapabilities?.voice === true}
                       initialComposerState={initialComposerState}
                       initialSendPending={initialSendPending}
                       composerFocusRequest={composerFocusRequest}
-                      canManageWorkspaceConnections={canManageWorkspaceConnections}
-                      emptyStateConnectionSummary={emptyStateConnectionSummary}
-                      teamSkillEntryVisible={teamSkillEntryVisible}
+                      cloudModelsEnabled={runtimeCapabilities?.oomolCloudModels === true}
+                      canManageWorkspaceConnections={cloudEnabled && canManageWorkspaceConnections}
+                      emptyStateConnectionSummary={cloudEnabled ? emptyStateConnectionSummary : null}
+                      teamSkillEntryVisible={cloudEnabled && teamSkillEntryVisible}
                       teamSkillShowcaseItems={teamSkillShowcaseItems}
                       teamSkillPendingInstallCount={recommendedSkillPendingInstallCount}
-                      teamSkills={teamSkills.chatContextSkills}
-                      providers={activeProviders}
+                      teamSkills={cloudEnabled ? teamSkills.chatContextSkills : []}
+                      providers={cloudEnabled ? activeProviders : []}
                       queueHeld={activeQueueHeld}
                       queuedMessages={activeQueuedMessages}
                       contextBar={composerProjectContext}
@@ -1868,11 +1893,14 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       placeholder={
                         startupError
                           ? t("error.agent.title")
-                          : ready
-                            ? t("chat.inputPlaceholder")
-                            : t("chat.agentStarting")
+                          : modelRequired
+                            ? t("chat.modelRequiredPlaceholder")
+                            : ready
+                              ? t(cloudEnabled ? "chat.inputPlaceholder" : "chat.inputPlaceholderLocal")
+                              : t("chat.agentStarting")
                       }
                       onComposerStateChange={handleComposerStateChange}
+                      onLogin={!authenticated ? () => void auth.login() : undefined}
                       onSend={handleSend}
                       onAnswerQuestion={handleAnswerQuestion}
                       onAnswerPermission={handleAnswerPermission}
@@ -1890,21 +1918,21 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       onArtifactsAvailable={handleArtifactsAvailable}
                       onTurnOutputOpen={handleTurnOutputOpen}
                       onTurnOutputAvailable={handleTurnOutputAvailable}
-                      onOpenConnections={handleOpenConnections}
-                      onOpenConnectionProvider={handleOpenChatConnectionProvider}
+                      onOpenConnections={cloudEnabled ? handleOpenConnections : undefined}
+                      onOpenConnectionProvider={cloudEnabled ? handleOpenChatConnectionProvider : undefined}
                       onOpenKnowledgeLibrary={handleOpenKnowledgeLibrary}
-                      onOpenTeams={handleOpenTeams}
+                      onOpenTeams={cloudEnabled ? handleOpenTeams : undefined}
                       onSelectKnowledgeBase={handleAddKnowledgeBaseReference}
-                      onViewBilling={handleViewBilling}
+                      onViewBilling={cloudEnabled ? handleViewBilling : undefined}
                     />
                   </div>
                   <AppShellConnectionDrawer
                     authIntent={chatConnectionAuthIntent}
-                    canManageConnections={canManageWorkspaceConnections}
+                    canManageConnections={cloudEnabled && canManageWorkspaceConnections}
                     connections={connections}
                     onConnectionReady={handleChatConnectionReady}
                     selectedService={chatConnectionSelectedService}
-                    visible={chatConnectionDrawerVisible}
+                    visible={cloudEnabled && chatConnectionDrawerVisible}
                     onClose={handleCloseChatConnectionDrawer}
                   />
                 </div>

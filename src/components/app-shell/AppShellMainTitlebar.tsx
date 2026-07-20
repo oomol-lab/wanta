@@ -43,7 +43,7 @@ export const AppShellMainTitlebar = React.memo(function AppShellMainTitlebar({
   onOpenSearch: () => void
   onRenameSession: (sessionId: string, title: string) => void
   onToggleSidebar: () => void
-  onViewBilling: (target?: BillingDetailsTarget) => void
+  onViewBilling?: (target?: BillingDetailsTarget) => void
   showArtifactsToggle: boolean
   sidebarCollapsed: boolean
   titlebarEditable: boolean
@@ -78,12 +78,14 @@ export const AppShellMainTitlebar = React.memo(function AppShellMainTitlebar({
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         <AppUpdateTitlebarEntry update={appUpdate} />
-        <BillingUsagePopover
-          cacheScope={billingCacheScope}
-          sharedConnectorCount={sharedConnectorCount}
-          workspace={workspace}
-          onViewDetails={onViewBilling}
-        />
+        {onViewBilling ? (
+          <BillingUsagePopover
+            cacheScope={billingCacheScope}
+            sharedConnectorCount={sharedConnectorCount}
+            workspace={workspace}
+            onViewDetails={onViewBilling}
+          />
+        ) : null}
         {showArtifactsToggle ? (
           <button
             type="button"

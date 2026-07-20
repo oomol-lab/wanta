@@ -15,6 +15,7 @@ export { teamAvatarStyle, teamInitials, teamAvatarPalette } from "../lib/team-av
 
 export interface WorkspaceSelection {
   canManage: boolean
+  kind?: "local" | "team"
   team: Team | null
   avatarPreviewUrl?: string
   teamId: string
@@ -368,9 +369,19 @@ export function useTeamWorkspace(accountId: string | undefined): UseTeamWorkspac
   const teams = React.useMemo(() => uniqueTeams(overview), [overview])
   const selectedTeam = selectedTeamId ? (teams.find((team) => team.id === selectedTeamId) ?? null) : null
   const activeWorkspace = React.useMemo<WorkspaceSelection>(() => {
+    if (!accountId) {
+      return {
+        canManage: false,
+        kind: "local",
+        team: null,
+        teamId: "",
+        role: null,
+      }
+    }
     if (!selectedTeamId || !selectedTeam) {
       return {
         canManage: false,
+        kind: "team",
         team: null,
         teamId: "",
         role: null,
@@ -378,12 +389,13 @@ export function useTeamWorkspace(accountId: string | undefined): UseTeamWorkspac
     }
     return {
       avatarPreviewUrl: teamAvatarPreviewUrls[selectedTeamId],
+      kind: "team",
       teamId: selectedTeamId,
       team: selectedTeam,
       role: teamRole(overview, selectedTeam),
       canManage: teamCanManage(overview, selectedTeam),
     }
-  }, [teamAvatarPreviewUrls, overview, selectedTeam, selectedTeamId])
+  }, [accountId, teamAvatarPreviewUrls, overview, selectedTeam, selectedTeamId])
   const connectionWorkspace = React.useMemo<ConnectionWorkspace | null>(() => {
     return selectedTeam?.name ? { teamName: selectedTeam.name } : null
   }, [selectedTeam?.name, selectedTeamId])

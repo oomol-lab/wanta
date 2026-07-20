@@ -15,7 +15,7 @@ import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { Bug, X } from "lucide-react"
+import { Bug, KeyRound, LogIn, X } from "lucide-react"
 import * as React from "react"
 import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
 import { AttachmentList } from "./ChatAttachments.tsx"
@@ -52,7 +52,7 @@ import { normalizeServiceSlug } from "./tool-display.ts"
 import { stripDraftAttachment, useComposerAttachments } from "./useComposerAttachments.ts"
 import { useComposerPalette } from "./useComposerPalette.ts"
 import { useComposerPreferences } from "./useComposerPreferences.ts"
-import { useModelCatalog } from "./useModelCatalog.ts"
+import { modelCatalogForRuntime, useModelCatalog } from "./useModelCatalog.ts"
 import { useVoiceComposerInput } from "./useVoiceComposerInput.ts"
 import { getVoiceErrorNotice } from "./voice-error-display.ts"
 import {
@@ -64,6 +64,7 @@ import {
 } from "@/components/ai-elements/prompt-input"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { ErrorNotice } from "@/components/ErrorNotice"
+import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
@@ -71,6 +72,7 @@ import { authTypeLabel } from "@/routes/Connections/shared"
 
 interface ChatComposerProps {
   error: string | null
+  cloudModelsEnabled?: boolean
   focusRequest: number
   generatedArtifacts?: ArtifactSelection | null
   hasMessages: boolean
@@ -82,6 +84,7 @@ interface ChatComposerProps {
   knowledgeError: string | null
   knowledgeItems: KnowledgeBaseSummary[]
   knowledgeLoading: boolean
+  modelRequired?: boolean
   permissionMode: AgentPermissionMode
   pendingQuestions: ChatQuestionRequest[]
   placeholder: string
@@ -93,6 +96,7 @@ interface ChatComposerProps {
   turnState: ChatTurnState
   submitDisabled: boolean
   willQueueMessage: boolean
+  voiceEnabled?: boolean
   onQueuedMessageMove: (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => void
   onQueuedMessageRemove: (id: string) => void
   onQueuedMessageResume: () => void
@@ -103,6 +107,7 @@ interface ChatComposerProps {
   onPermissionModeFullAccess: () => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onOpenKnowledgeLibrary?: () => void
+  onLogin?: () => void
   onSelectKnowledgeBase: (id: string) => void
   onStop: () => Promise<void> | void
   onViewBilling?: () => void
@@ -168,6 +173,7 @@ function paletteLabels({
 }
 
 export function ChatComposer({
+  cloudModelsEnabled = true,
   error,
   focusRequest,
   generatedArtifacts = null,
@@ -180,6 +186,7 @@ export function ChatComposer({
   knowledgeError,
   knowledgeItems,
   knowledgeLoading,
+  modelRequired = false,
   permissionMode,
   pendingQuestions = [],
   placeholder,
@@ -191,6 +198,7 @@ export function ChatComposer({
   turnState,
   submitDisabled,
   willQueueMessage,
+  voiceEnabled = true,
   onQueuedMessageMove,
   onQueuedMessageRemove,
   onQueuedMessageResume,
@@ -201,6 +209,7 @@ export function ChatComposer({
   onPermissionModeFullAccess,
   onOpenConnectionProvider,
   onOpenKnowledgeLibrary,
+  onLogin,
   onSelectKnowledgeBase,
   onStop,
   onViewBilling,
@@ -259,7 +268,10 @@ export function ChatComposer({
   const submitBlocked = submitDisabled || initialSendPending
   const composerDisabled =
     submitDisabled || voiceInput.busy || initialSendPending || answeringQuestion || composerQuestionBlocked
-  const modelCatalog = modelCatalogState.catalog
+  const modelCatalog = React.useMemo(
+    () => modelCatalogForRuntime(modelCatalogState.catalog, cloudModelsEnabled),
+    [cloudModelsEnabled, modelCatalogState.catalog],
+  )
   const modelError = modelCatalogState.selectionError ?? modelCatalogState.catalogError
   const composerAttachments = useComposerAttachments({
     attachments,
@@ -703,6 +715,7 @@ export function ChatComposer({
           contextUsage={contextUsage}
           turnState={composerTurnState}
           modelCatalog={modelCatalog}
+          modelRequired={modelRequired}
           agentMode={agentMode}
           permissionMode={permissionMode}
           reasoningLevel={reasoningLevel}
@@ -724,7 +737,7 @@ export function ChatComposer({
           onRequestFullAccessPermissionMode={onPermissionModeFullAccess}
           onSelectReasoningLevel={setReasoningLevel}
           onSelectModel={modelCatalogState.selectModel}
-          onStartVoice={voiceInput.start}
+          onStartVoice={voiceEnabled ? voiceInput.start : undefined}
           onStop={onStop}
           onStopVoice={() => void voiceInput.stop()}
         />
@@ -734,6 +747,7 @@ export function ChatComposer({
 
   const modelDialog = (
     <AddCustomModelDialog
+      connectorsEnabled={cloudModelsEnabled}
       open={modelCatalogState.dialogOpen}
       providers={modelCatalog?.providers ?? []}
       error={modelCatalogState.dialogError}
@@ -783,6 +797,24 @@ export function ChatComposer({
     <>
       {errorBanner}
       <div className="flex flex-col gap-2">
+        {modelRequired ? (
+          <div className="rounded-xl border bg-card px-4 py-3 text-card-foreground shadow-sm">
+            <div className="oo-text-label">{t("chat.modelRequiredTitle")}</div>
+            <p className="oo-text-caption mt-1">{t("chat.modelRequiredDescription")}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" size="sm" onClick={modelCatalogState.openDialog}>
+                <KeyRound className="size-4" />
+                {t("chat.configureModel")}
+              </Button>
+              {onLogin ? (
+                <Button type="button" size="sm" variant="outline" onClick={onLogin}>
+                  <LogIn className="size-4" />
+                  {t("chat.loginForCloud")}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <div className="relative">
           {palette}
           <div className="relative z-10">{queuePanel}</div>

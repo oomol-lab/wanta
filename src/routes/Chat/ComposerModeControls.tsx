@@ -24,7 +24,7 @@ interface ComposerModeControlsProps {
   onSelectDefaultPermissionMode: () => void
   onSelectModel: (choice: ModelChoice) => void
   onSelectReasoningLevel: (level: ReasoningLevel) => void
-  onStartVoice: () => void
+  onStartVoice?: () => void
 }
 
 export function ComposerModeControls({
@@ -64,18 +64,20 @@ export function ComposerModeControls({
         onSelectModel={onSelectModel}
         onSelectReasoningLevel={onSelectReasoningLevel}
       />
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        title={t("chat.voiceInput")}
-        aria-label={t("chat.voiceInput")}
-        disabled={composerDisabled}
-        className="size-8 rounded-full"
-        onClick={onStartVoice}
-      >
-        <Mic className="size-4" />
-      </Button>
+      {onStartVoice ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title={t("chat.voiceInput")}
+          aria-label={t("chat.voiceInput")}
+          disabled={composerDisabled}
+          className="size-8 rounded-full"
+          onClick={onStartVoice}
+        >
+          <Mic className="size-4" />
+        </Button>
+      ) : null}
     </>
   )
 }

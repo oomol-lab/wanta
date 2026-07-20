@@ -646,9 +646,11 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   if (agentRuntimeVersion !== runtimeVersionAtStart) {
     agentRefreshScheduler.schedule("runtime configuration changed during agent startup", 0)
   }
-  void skillService[ensureDefaultRegistrySkillsInstalled]().catch((error: unknown) => {
-    console.warn("[wanta] default registry skill installation failed:", error)
-  })
+  if (runtime.mode === "oomol") {
+    void skillService[ensureDefaultRegistrySkillsInstalled]().catch((error: unknown) => {
+      console.warn("[wanta] default registry skill installation failed:", error)
+    })
+  }
 }
 
 async function handleAgentTeamChanged(teamName: string | undefined): Promise<void> {
@@ -675,7 +677,7 @@ async function refreshAgentRuntime(_reason: string): Promise<void> {
   agentRuntimeVersion += 1
   const account = await authManager.activeRuntimeAccount()
   await applyAuthAccount(account)
-  // 会话中途过期：装配登出态后主动广播"未登录"，渲染层据此落回登录页（一致生命周期）。
+  // 会话中途过期：装配登出态后主动广播“未登录”，渲染层据此切回本地 workspace。
   if (!account) await authManager.broadcastAuthState()
 }
 function resolveOoBin(): string {

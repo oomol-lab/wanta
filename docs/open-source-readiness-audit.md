@@ -54,7 +54,7 @@
 ### 2.4 开源核心仍被 OOMOL 登录门控
 
 - 等级：Engineering
-- 当前事实：`src/App.tsx` 的 AuthGate 在未登录时只显示 LoginRoute；主进程只有获得 OOMOL session token 后才创建 AgentManager；会话列表依赖已登录团队 workspace。
+- 当前事实：该阻塞已完成工程修复。`src/App.tsx` 的 AuthGate 只等待身份与 runtime capability 初始化；未登录进入 local AppShell 和稳定的 `local:local` session scope，有 custom model 时启动 local Agent，无模型时显示 BYOK/OOMOL 两条 CTA。
 - 风险：即使源码公开，用户仍无法免登录验证聊天、本地工具和自定义模型。
 - 处理：按 `docs/open-source-plan.md` 的 runtime capability、本地 workspace、BYOK Agent 和无登录 AppShell 阶段实施。
 - 验收：清空 OOMOL Cookie 后仍能进入主界面，并在配置 custom model 后完成本地 Agent 任务。
@@ -157,7 +157,7 @@ Official OOMOL build：
 - capability 订阅采用“先订阅、再加载快照”的竞态保护，迟到的初始快照或错误不能覆盖更新事件；
 - 增加 local、未就绪和 OOMOL 三种组合的纯函数测试。
 
-Renderer 接入后仍保留登录墙；local Agent runtime 已落地，但 local workspace 尚未开放到应用入口。
+Renderer capability 接入、local Agent runtime 和 local workspace 应用入口均已落地。
 
 阶段 2 的 local workspace 数据基础现已完成：
 
@@ -184,12 +184,23 @@ Renderer 接入后仍保留登录墙；local Agent runtime 已落地，但 local
 - local bash 不包含 oo CLI 快速放行规则，动态授权 provider 提示也被 runtime 边界直接阻断；
 - OOMOL runtime 继续保留 Connector 工具、提示契约、授权感知和 oo permission 快速路径。
 
-Renderer 仍保留登录墙，真实未登录模型回答、会话创建与 workspace 切换 UI 尚未开放。
+阶段 5 的免登录入口和首次引导现已完成：
+
+- 未登录不再进入强制 LoginRoute，而是在初始化完成后直接进入 AppShell；
+- 无模型时显示 BYOK 配置与 OOMOL 登录 CTA，保存首个 custom model 后 local sidecar 自动进入 ready；
+- local workspace 可加载会话、项目和知识库，模型清单只展示 custom model；
+- Connections、Teams、Billing、云 Skills、Connector 空状态和语音能力按 runtime capability 隔离；
+- 侧边栏、设置页和聊天引导均保留可选登录入口，登录失败不会卸载本地主界面；
+- local runtime 不触发默认 registry Skills 云端安装。
+
+隔离 userData 的 Electron smoke 已验证：空 Cookie/空模型直接显示 Local workspace 和模型配置 CTA；通过
+UI 保存 custom model 后 sidecar ready、CTA 消失、输入框启用，且云导航没有渲染。真实模型回答仍需使用
+有效的第三方 API Key 执行发布前 BYOK 端到端验收。
 下一工程切片推荐顺序：
 
-1. 移除启动登录墙并增加模型 onboarding；
-2. 完成本地/团队 workspace 切换和 UI 实机验证；
-3. 稳定登录、登出和 token 过期后的 runtime 切换。
+1. 稳定登录、登出和 token 过期后的 runtime 切换；
+2. 完成有效第三方模型的未登录回答与本地工具端到端验证；
+3. 迁移 custom model API Key 到系统安全存储。
 
 ## 8. 发布前检查清单
 

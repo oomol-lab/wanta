@@ -22,6 +22,7 @@ interface ComposerTrailingControlsProps {
   contextUsage: ContextUsageInfo | null
   turnState: ChatTurnState
   modelCatalog: ModelCatalog | null
+  modelRequired?: boolean
   agentMode: AgentMode
   permissionMode: AgentPermissionMode
   reasoningLevel: ReasoningLevel
@@ -43,7 +44,7 @@ interface ComposerTrailingControlsProps {
   onRequestFullAccessPermissionMode: () => void
   onSelectModel: (choice: ModelChoice) => void
   onSelectReasoningLevel: (level: ReasoningLevel) => void
-  onStartVoice: () => void
+  onStartVoice?: () => void
   onStop: () => Promise<void> | void
   onStopVoice: () => void
 }
@@ -167,6 +168,7 @@ export function ComposerTrailingControls({
   contextUsage,
   turnState,
   modelCatalog,
+  modelRequired = false,
   agentMode,
   permissionMode,
   reasoningLevel,
@@ -287,22 +289,24 @@ export function ComposerTrailingControls({
                 </Button>
               </>
             ) : null}
-            <ComposerModeControls
-              agentMode={agentMode}
-              composerDisabled={composerDisabled}
-              contextUsage={contextUsage}
-              modelCatalog={modelCatalog}
-              permissionMode={permissionMode}
-              reasoningLevel={reasoningLevel}
-              onAddModel={onAddModel}
-              onDeleteModel={onDeleteModel}
-              onRequestFullAccessPermissionMode={onRequestFullAccessPermissionMode}
-              onSelectAgentMode={onSelectAgentMode}
-              onSelectDefaultPermissionMode={onSelectDefaultPermissionMode}
-              onSelectModel={onSelectModel}
-              onSelectReasoningLevel={onSelectReasoningLevel}
-              onStartVoice={onStartVoice}
-            />
+            {!modelRequired ? (
+              <ComposerModeControls
+                agentMode={agentMode}
+                composerDisabled={composerDisabled}
+                contextUsage={contextUsage}
+                modelCatalog={modelCatalog}
+                permissionMode={permissionMode}
+                reasoningLevel={reasoningLevel}
+                onAddModel={onAddModel}
+                onDeleteModel={onDeleteModel}
+                onRequestFullAccessPermissionMode={onRequestFullAccessPermissionMode}
+                onSelectAgentMode={onSelectAgentMode}
+                onSelectDefaultPermissionMode={onSelectDefaultPermissionMode}
+                onSelectModel={onSelectModel}
+                onSelectReasoningLevel={onSelectReasoningLevel}
+                onStartVoice={onStartVoice}
+              />
+            ) : null}
             <PromptInputSubmit
               size="icon-sm"
               className="size-7"

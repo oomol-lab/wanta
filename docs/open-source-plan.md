@@ -398,6 +398,10 @@ Skills 目录和 `query_knowledge` 保持可用。local `bash` 不再继承 oo C
 
 ### 阶段 5：移除登录墙并增加首次引导
 
+> 工程状态：启动登录墙已移除；AuthGate 现在只等待身份与 runtime capability 初始化。未登录用户进入
+> `Local` workspace，无模型时在聊天空状态直接配置 BYOK，也可选择登录 OOMOL；配置模型后 local
+> sidecar 自动启动且不离开主界面。云导航、用量、语音、团队与 Connector 请求均按 capability 隔离。
+
 #### 目标
 
 用户打开应用后直接进入主界面，登录成为可选操作。
@@ -435,6 +439,12 @@ Skills 目录和 `query_knowledge` 保持可用。local `bash` 不再继承 oo C
 - 无模型时有明确配置入口；
 - 登录失败不会影响本地聊天；
 - 登出后仍留在主界面。
+
+当前实现保留 `LoginRoute` 作为独立登录展示组件，但它不再是默认入口。侧边栏账号菜单、设置账户区、
+无模型引导和聊天空状态云能力 CTA 都能发起 OOMOL 浏览器登录。local 模式使用稳定
+`local:local` session scope，显示本地会话/项目/知识库，隐藏 Connections、Teams、Billing、云 Skills 和
+语音入口；直接命中云 route 也会在渲染前回到聊天页，因此不会依赖一串 401 来判断未登录。默认 registry
+Skills 的云端安装只在 OOMOL runtime 启动，local runtime 不会发起该登录依赖请求。
 
 ### 阶段 6：稳定本地与 OOMOL 模式切换
 

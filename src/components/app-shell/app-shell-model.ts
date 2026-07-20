@@ -17,7 +17,10 @@ import type { QueuedChatMessage } from "./chat-queue.ts"
 import type { WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { sessionScopeKey as resolvedSessionScopeKey } from "../../../electron/session/common.ts"
+import {
+  DEFAULT_LOCAL_WORKSPACE,
+  sessionScopeKey as resolvedSessionScopeKey,
+} from "../../../electron/session/common.ts"
 import { shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
 import { visibleUserText } from "@/routes/Chat/message-text"
 
@@ -276,6 +279,10 @@ export function initialRoute(): Route {
     : "chat"
 }
 
+export function routeAvailableForRuntime(route: Route, cloudEnabled: boolean): boolean {
+  return cloudEnabled || (route !== "billing" && route !== "connections" && route !== "skills" && route !== "teams")
+}
+
 export function clampSidebarWidth(width: number): number {
   return Math.min(SIDEBAR_MAX_WIDTH_PX, Math.max(SIDEBAR_MIN_WIDTH_PX, width))
 }
@@ -329,6 +336,9 @@ export function chatMessageText(message: ChatMessage): string {
 }
 
 export function sessionScopeFromWorkspace(workspace: WorkspaceSelection): SessionScope | null {
+  if (workspace.kind === "local") {
+    return DEFAULT_LOCAL_WORKSPACE
+  }
   const teamId = workspace.teamId.trim()
   const teamName = workspace.team?.name.trim()
   if (!teamId || !teamName) {
@@ -338,6 +348,7 @@ export function sessionScopeFromWorkspace(workspace: WorkspaceSelection): Sessio
 }
 
 export function workspaceSelectionSwitchKey(workspace: WorkspaceSelection): string {
+  if (workspace.kind === "local") return resolvedSessionScopeKey(DEFAULT_LOCAL_WORKSPACE)
   return workspace.teamId ? `team:${workspace.teamId}` : "workspace-loading"
 }
 
@@ -361,6 +372,7 @@ export interface WorkspaceActivationInput {
   connectionSettledWorkspaceKey: string | null
   connectionWorkspaceKey: string | null
   connectionsRefreshing: boolean
+  cloudWorkspaceRequired: boolean
   currentScopeKey: string
   loadedSessionScopeKey: string | null
   teamSkillsSettled: boolean
@@ -391,6 +403,16 @@ export type WorkspaceActivationState =
     }
 
 export function resolveWorkspaceActivationState(input: WorkspaceActivationInput): WorkspaceActivationState {
+  if (!input.cloudWorkspaceRequired) {
+    if (!input.targetScopeKey) return { status: "idle", targetScopeKey: null }
+    if (input.currentScopeKey !== input.targetScopeKey) {
+      return { phase: "session_scope", status: "activating", targetScopeKey: input.targetScopeKey }
+    }
+    if (input.loadedSessionScopeKey !== input.targetScopeKey) {
+      return { phase: "sessions", status: "activating", targetScopeKey: input.targetScopeKey }
+    }
+    return { status: "idle", targetScopeKey: input.targetScopeKey }
+  }
   if (!input.connectionWorkspaceKey && input.workspaceMetadataError) {
     return {
       error: input.workspaceMetadataError,

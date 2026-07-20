@@ -10,15 +10,18 @@ import {
   newSessionComposerDraftKeyForScopeKey,
   resolveNewSessionTarget,
   resolveNotificationTeam,
+  routeAvailableForRuntime,
   resolveTeamProviderOptionsAvailability,
   resolveWorkspaceActivationState,
   sessionRecordScopeKey,
+  sessionScopeFromWorkspace,
   sessionTitleGenerationKey,
   shouldClearWorkspaceSwitchTarget,
   shouldShowRecommendedSkillEntry,
   workspaceActivationBlocksInput,
   workspaceActivationHasFailed,
   workspaceActivationIsPending,
+  workspaceSelectionSwitchKey,
   workspaceSwitchTeamId,
 } from "./app-shell-model.ts"
 
@@ -36,6 +39,45 @@ describe("team route and scope migration", () => {
     expect(workspaceSwitchTeamId("team:team-1")).toBe("team-1")
     expect(workspaceSwitchTeamId("organization:team-1")).toBe("team-1")
     expect(workspaceSwitchTeamId("personal:user-1")).toBeNull()
+  })
+})
+
+describe("local workspace", () => {
+  const localWorkspace = { canManage: false, kind: "local" as const, role: null, team: null, teamId: "" }
+
+  test("maps the local workspace to the stable local session scope", () => {
+    expect(sessionScopeFromWorkspace(localWorkspace)).toEqual({
+      kind: "local",
+      workspaceId: "local",
+      workspaceName: "Local",
+    })
+    expect(workspaceSelectionSwitchKey(localWorkspace)).toBe("local:local")
+  })
+
+  test("settles activation after local sessions load without cloud dependencies", () => {
+    expect(
+      resolveWorkspaceActivationState({
+        ...readyInput,
+        agentScopeSyncError: activationError,
+        cloudWorkspaceRequired: false,
+        connectionWorkspaceKey: null,
+        currentScopeKey: "local:local",
+        loadedSessionScopeKey: "local:local",
+        targetScopeKey: "local:local",
+        workspaceMetadataError: activationError,
+      }),
+    ).toEqual({ status: "idle", targetScopeKey: "local:local" })
+  })
+
+  test("keeps local routes available while blocking cloud pages", () => {
+    expect(routeAvailableForRuntime("chat", false)).toBe(true)
+    expect(routeAvailableForRuntime("knowledge", false)).toBe(true)
+    expect(routeAvailableForRuntime("settings", false)).toBe(true)
+    expect(routeAvailableForRuntime("connections", false)).toBe(false)
+    expect(routeAvailableForRuntime("skills", false)).toBe(false)
+    expect(routeAvailableForRuntime("teams", false)).toBe(false)
+    expect(routeAvailableForRuntime("billing", false)).toBe(false)
+    expect(routeAvailableForRuntime("billing", true)).toBe(true)
   })
 })
 
@@ -102,6 +144,7 @@ const readyInput = {
   connectionSettledWorkspaceKey: "team:acme",
   connectionWorkspaceKey: "team:acme",
   connectionsRefreshing: false,
+  cloudWorkspaceRequired: true,
   currentScopeKey: "team:acme",
   loadedSessionScopeKey: "team:acme",
   teamSkillsSettled: true,

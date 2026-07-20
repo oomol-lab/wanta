@@ -272,6 +272,18 @@ export const enMessages = {
   "chat.sendNotAccepted": "This message was not accepted yet. Try again shortly.",
   "chat.stopFailed": "Failed to stop generation.",
   "chat.agentStarting": "Agent starting…",
+  "chat.modelRequiredTitle": "Configure a model to start chatting",
+  "chat.modelRequiredDescription":
+    "Use your own API to run locally, or sign in to OOMOL for cloud models and connectors.",
+  "chat.modelRequiredPlaceholder": "Configure a model before sending a message",
+  "chat.inputPlaceholderLocal":
+    "What can I help you do today? Use @ for files or knowledge, / for commands, and $ for Skills",
+  "chat.configureModel": "Configure model",
+  "chat.loginForCloud": "Sign in to OOMOL",
+  "chat.emptyCloudTitle": "Cloud models and connectors",
+  "chat.emptyCloudMeta": "Optional OOMOL capabilities",
+  "chat.emptyCloudAction": "Sign in",
+  "chat.emptyCloudAria": "Sign in to use OOMOL cloud models and connectors",
   "chat.thinking": "Thinking",
   "chat.activityThinking": "Analyzing the request…",
   "chat.activityFinalizing": "Preparing the result…",
@@ -396,6 +408,8 @@ export const enMessages = {
   "chat.modelSupportsToolCalls": "Supports tool calls",
   "chat.modelSupportsToolCallsDescription":
     "Keep this on for connectors and local tools. Turn it off if the API rejects the tools parameter.",
+  "chat.modelSupportsToolCallsLocalDescription":
+    "Keep this enabled to use local tools; turn it off if the API rejects the tools parameter.",
   "chat.modelTokenLimits": "Token limits",
   "chat.modelTokenLimitsDescription":
     "All optional. OpenCode prefers the input limit for auto-compaction, then falls back to the context window.",
@@ -1289,6 +1303,7 @@ export const enMessages = {
   "settings.signedOut": "Signed out",
   "settings.userId": "User ID",
   "settings.logout": "Sign out",
+  "workspace.local": "Local workspace",
   "settings.about": "About",
   "settings.appVersion": "App version",
   "settings.appCommit": "App commit",

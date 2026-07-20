@@ -137,12 +137,14 @@ function optionalTokenLimit(value: string): number | undefined {
 const modelDialogControlClass = "h-[var(--oo-control-height)] w-full px-2.5 text-sm"
 
 export function AddCustomModelDialog({
+  connectorsEnabled = true,
   open,
   providers,
   error,
   onClose,
   onSave,
 }: {
+  connectorsEnabled?: boolean
   open: boolean
   providers: CustomModelProvider[]
   error: UserFacingError | null
@@ -448,7 +450,11 @@ export function AddCustomModelDialog({
             <span className="grid gap-1">
               <span className="oo-text-label">{t("chat.modelSupportsToolCalls")}</span>
               <span className="oo-text-caption text-muted-foreground">
-                {t("chat.modelSupportsToolCallsDescription")}
+                {t(
+                  connectorsEnabled
+                    ? "chat.modelSupportsToolCallsDescription"
+                    : "chat.modelSupportsToolCallsLocalDescription",
+                )}
               </span>
             </span>
           </label>

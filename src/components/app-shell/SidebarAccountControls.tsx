@@ -7,6 +7,8 @@ import {
   Building2,
   ChevronsUpDown,
   LoaderCircle,
+  Laptop,
+  LogIn,
   LogOut,
   Package,
   Plug,
@@ -36,6 +38,13 @@ function accountInitial(name?: string): string {
 }
 
 function WorkspaceAvatar({ className = "size-7", workspace }: { className?: string; workspace: WorkspaceSelection }) {
+  if (workspace.kind === "local") {
+    return (
+      <span className={cn("grid shrink-0 place-items-center rounded-full border bg-background", className)}>
+        <Laptop className="size-3.5" aria-hidden="true" />
+      </span>
+    )
+  }
   const avatarUrl = workspace.avatarPreviewUrl ?? workspace.team?.avatar
   const fallback = teamInitials(workspace.team?.name ?? workspace.teamId)
   const fallbackStyle = teamAvatarStyle(workspace.teamId)
@@ -148,21 +157,29 @@ function WorkspaceMenuContent({
 
 export function SidebarFooterControls({
   accountName,
+  authenticated,
   avatarUrl,
+  cloudEnabled,
   activeRoute,
   loggingOut,
+  loggingIn,
   onNavigate,
   onLogout,
+  onLogin,
   onWorkspaceSwitchStart,
   workspace,
   workspaceSwitching,
 }: {
   accountName?: string
+  authenticated: boolean
   avatarUrl?: string
+  cloudEnabled: boolean
   activeRoute: AppShellRoute
   loggingOut: boolean
+  loggingIn: boolean
   onNavigate: (route: AppShellRoute) => void
   onLogout: () => void
+  onLogin: () => void
   onWorkspaceSwitchStart: (targetScopeKey: string) => void
   workspace: UseTeamWorkspace
   workspaceSwitching: boolean
@@ -171,8 +188,11 @@ export function SidebarFooterControls({
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = React.useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = React.useState(false)
   const trimmedAccountName = accountName?.trim()
-  const displayName = trimmedAccountName || t("settings.account")
-  const activeWorkspaceLabel = workspace.activeWorkspace.team?.name ?? t("teams.workspace")
+  const displayName = trimmedAccountName || t("workspace.local")
+  const activeWorkspaceLabel =
+    workspace.activeWorkspace.kind === "local"
+      ? t("workspace.local")
+      : (workspace.activeWorkspace.team?.name ?? t("teams.workspace"))
   const workspaceButtonTitle = workspaceSwitching ? t("sidebar.switchingAccount") : activeWorkspaceLabel
 
   React.useEffect(() => {
@@ -200,50 +220,59 @@ export function SidebarFooterControls({
 
   return (
     <div className="oo-sidebar-account relative -mx-3 flex h-12 shrink-0 items-center gap-1 px-3 [-webkit-app-region:no-drag]">
-      <DropdownMenu open={workspaceMenuOpen} onOpenChange={handleWorkspaceMenuOpenChange}>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left disabled:cursor-default disabled:opacity-80"
-            aria-busy={workspaceSwitching}
-            aria-label={workspaceSwitching ? t("sidebar.switchingAccount") : t("teams.workspaceSwitcher")}
-            aria-expanded={workspaceMenuOpen}
-            disabled={workspaceSwitching}
-            title={workspaceButtonTitle}
-          >
-            <WorkspaceAvatar className="size-7" workspace={workspace.activeWorkspace} />
-            <div className="oo-sidebar-nav-label min-w-0 flex-1">
-              <div className="oo-text-body truncate text-sidebar-foreground" title={activeWorkspaceLabel}>
-                {activeWorkspaceLabel}
+      {cloudEnabled ? (
+        <DropdownMenu open={workspaceMenuOpen} onOpenChange={handleWorkspaceMenuOpenChange}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left disabled:cursor-default disabled:opacity-80"
+              aria-busy={workspaceSwitching}
+              aria-label={workspaceSwitching ? t("sidebar.switchingAccount") : t("teams.workspaceSwitcher")}
+              aria-expanded={workspaceMenuOpen}
+              disabled={workspaceSwitching}
+              title={workspaceButtonTitle}
+            >
+              <WorkspaceAvatar className="size-7" workspace={workspace.activeWorkspace} />
+              <div className="oo-sidebar-nav-label min-w-0 flex-1">
+                <div className="oo-text-body truncate text-sidebar-foreground" title={activeWorkspaceLabel}>
+                  {activeWorkspaceLabel}
+                </div>
               </div>
-            </div>
-            {workspaceSwitching ? (
-              <LoaderCircle className="oo-sidebar-nav-label size-4 shrink-0 animate-spin text-muted-foreground" />
-            ) : (
-              <ChevronsUpDown className="oo-sidebar-nav-label size-4 shrink-0 text-muted-foreground" />
-            )}
-          </button>
-        </DropdownMenuTrigger>
-        <WorkspaceMenuContent
-          error={workspace.error}
-          getTeamCanManage={workspace.getTeamCanManage}
-          getTeamRole={workspace.getTeamRole}
-          hasLoaded={workspace.hasLoaded}
-          loading={workspace.loading}
-          teams={workspace.teams}
-          workspace={workspace.activeWorkspace}
-          onManageTeams={() => {
-            closeMenus()
-            onNavigate("teams")
-          }}
-          onRefresh={() => void workspace.refresh({ forceRefresh: true })}
-          onSelectTeam={(teamId) => {
-            closeMenus()
-            onWorkspaceSwitchStart(`team:${teamId}`)
-            workspace.selectTeam(teamId)
-          }}
-        />
-      </DropdownMenu>
+              {workspaceSwitching ? (
+                <LoaderCircle className="oo-sidebar-nav-label size-4 shrink-0 animate-spin text-muted-foreground" />
+              ) : (
+                <ChevronsUpDown className="oo-sidebar-nav-label size-4 shrink-0 text-muted-foreground" />
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <WorkspaceMenuContent
+            error={workspace.error}
+            getTeamCanManage={workspace.getTeamCanManage}
+            getTeamRole={workspace.getTeamRole}
+            hasLoaded={workspace.hasLoaded}
+            loading={workspace.loading}
+            teams={workspace.teams}
+            workspace={workspace.activeWorkspace}
+            onManageTeams={() => {
+              closeMenus()
+              onNavigate("teams")
+            }}
+            onRefresh={() => void workspace.refresh({ forceRefresh: true })}
+            onSelectTeam={(teamId) => {
+              closeMenus()
+              onWorkspaceSwitchStart(`team:${teamId}`)
+              workspace.selectTeam(teamId)
+            }}
+          />
+        </DropdownMenu>
+      ) : (
+        <div className="flex h-10 min-w-0 flex-1 items-center gap-2 px-1.5">
+          <WorkspaceAvatar className="size-7" workspace={workspace.activeWorkspace} />
+          <span className="oo-sidebar-nav-label oo-text-body truncate text-sidebar-foreground">
+            {activeWorkspaceLabel}
+          </span>
+        </div>
+      )}
 
       <DropdownMenu
         open={accountMenuOpen}
@@ -274,24 +303,28 @@ export function SidebarFooterControls({
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={() => {
-              closeMenus()
-              onNavigate("connections")
-            }}
-          >
-            <Plug className="size-4" />
-            {t("connections.title")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() => {
-              closeMenus()
-              onNavigate("skills")
-            }}
-          >
-            <Package className="size-4" />
-            {t("skills.title")}
-          </DropdownMenuItem>
+          {cloudEnabled ? (
+            <DropdownMenuItem
+              onSelect={() => {
+                closeMenus()
+                onNavigate("connections")
+              }}
+            >
+              <Plug className="size-4" />
+              {t("connections.title")}
+            </DropdownMenuItem>
+          ) : null}
+          {cloudEnabled ? (
+            <DropdownMenuItem
+              onSelect={() => {
+                closeMenus()
+                onNavigate("skills")
+              }}
+            >
+              <Package className="size-4" />
+              {t("skills.title")}
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem
             onSelect={() => {
               closeMenus()
@@ -311,17 +344,30 @@ export function SidebarFooterControls({
             {t("settings.title")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            disabled={loggingOut}
-            variant="destructive"
-            onSelect={() => {
-              closeMenus()
-              onLogout()
-            }}
-          >
-            <LogOut className="size-4" />
-            {t("settings.logout")}
-          </DropdownMenuItem>
+          {authenticated ? (
+            <DropdownMenuItem
+              disabled={loggingOut}
+              variant="destructive"
+              onSelect={() => {
+                closeMenus()
+                onLogout()
+              }}
+            >
+              <LogOut className="size-4" />
+              {t("settings.logout")}
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              disabled={loggingIn}
+              onSelect={() => {
+                closeMenus()
+                onLogin()
+              }}
+            >
+              <LogIn className="size-4" />
+              {loggingIn ? t("login.waiting") : t("login.button")}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

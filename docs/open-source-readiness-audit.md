@@ -153,15 +153,16 @@ Official OOMOL build：
 - capability 摘要明确禁止携带 `sessionToken`、`authToken` 或 `apiKey`；
 - 在 local Agent 真正落地前，能力计算可以显式保持 `localAgentAvailable: false`，避免提前宣称尚未实现的能力；
 - ChatService 已提供 capability 查询和变更事件，主进程在 OOMOL runtime 装配与退出时更新该事实源；
+- Renderer 已在 AuthGate 外层订阅 capability，并在身份与 capability 快照都就绪后决定当前入口；
+- capability 订阅采用“先订阅、再加载快照”的竞态保护，迟到的初始快照或错误不能覆盖更新事件；
 - 增加 local、未就绪和 OOMOL 三种组合的纯函数测试。
 
-下一工程切片应让 Renderer 消费该能力摘要，但不能在本地 Agent 尚未实现时直接移除 AuthGate。推荐顺序：
+Renderer 接入后仍保留登录墙，因为 local Agent 和 local workspace 尚未实现。下一工程切片推荐顺序：
 
-1. 让 Renderer 读取无凭证 capability；
-2. 将 `signed_out` 语义拆为 OOMOL unauthenticated 与 Agent `model_required`；
-3. 引入 local workspace；
-4. 允许 custom model 在无 OOMOL token 时启动；
-5. 最后移除启动登录墙并完成 UI 实机验证。
+1. 引入 local workspace；
+2. 允许 custom model 在无 OOMOL token 时启动；
+3. 将 `signed_out` 语义拆为 OOMOL unauthenticated 与 Agent `model_required`；
+4. 最后移除启动登录墙并完成 UI 实机验证。
 
 ## 8. 发布前检查清单
 

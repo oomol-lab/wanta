@@ -7,7 +7,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promi
 import os from "node:os"
 import path from "node:path"
 import { afterEach, expect, test, vi } from "vitest"
-import { resolveRuntimeCapabilities } from "../runtime/capabilities.ts"
+import { resolveRuntimeCapabilities } from "../runtime/common.ts"
 import { ExpiringTrustedPathRegistry } from "../trusted-path-registry.ts"
 import {
   ArtifactBundleStore,

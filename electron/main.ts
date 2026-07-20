@@ -56,7 +56,7 @@ import { installOomolCorsShim } from "./net/oomol-cors.ts"
 // Teams 请求已整体搬到渲染层（src/lib/teams-client.ts），不再有对应主进程 service。
 import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstanceLock } from "./protocol.ts"
 import { normalizeRendererErrorReport } from "./renderer-error-report.ts"
-import { resolveRuntimeCapabilities } from "./runtime/capabilities.ts"
+import { resolveRuntimeCapabilities } from "./runtime/common.ts"
 import { SessionActivityStore } from "./session/activity-store.ts"
 import { SessionMetadataStore } from "./session/metadata-store.ts"
 import { SessionServiceImpl } from "./session/node.ts"

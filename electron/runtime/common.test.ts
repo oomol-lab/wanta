@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { resolveRuntimeCapabilities } from "./capabilities.ts"
+import { resolveRuntimeCapabilities } from "./common.ts"
 
 describe("resolveRuntimeCapabilities", () => {
   it("keeps cloud capabilities disabled for a local runtime", () => {

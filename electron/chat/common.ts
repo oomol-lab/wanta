@@ -1,7 +1,7 @@
 import type { WantaAgentMode } from "../agent/mode.ts"
 import type { WantaReasoningLevel } from "../agent/reasoning.ts"
 import type { ModelChoice } from "../models/common.ts"
-import type { RuntimeCapabilities } from "../runtime/capabilities.ts"
+import type { RuntimeCapabilities } from "../runtime/common.ts"
 import type { SessionScope } from "../session/common.ts"
 import type { ChatErrorKind } from "./error.ts"
 import type { ServiceName } from "@oomol/connection"

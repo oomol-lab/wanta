@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/ThemeProvider"
 import { Button } from "@/components/ui/button"
 import { AuthProvider, useAuth } from "@/hooks/useAuth"
 import { useGlobalScrollbars } from "@/hooks/useGlobalScrollbars"
+import { RuntimeCapabilitiesProvider, useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities"
 import { useT } from "@/i18n"
 import { detectInitialLocale, translate } from "@/i18n/i18n"
 import { I18nProvider } from "@/i18n/I18nProvider"
@@ -17,10 +18,15 @@ const AuthenticatedAppShell = lazy(() =>
 
 function AuthGate() {
   const auth = useAuth()
+  const runtime = useRuntimeCapabilities()
 
-  // 初始状态未知：渲染空背景，避免登录页/主界面闪烁。
-  if (!auth.state) {
+  // 身份或无凭证 capability 尚未就绪：渲染空背景，避免登录页/主界面闪烁。
+  if (!auth.state || (!runtime.capabilities && !runtime.error)) {
     return <div className="h-full bg-background" />
+  }
+
+  if (!runtime.capabilities) {
+    return <AppShellFallback />
   }
 
   if (auth.state.status !== "authenticated") {
@@ -34,7 +40,7 @@ function AuthGate() {
   return (
     <ErrorBoundary fallback={<AppShellFallback />}>
       <Suspense fallback={<div className="h-full bg-background" />}>
-        <AuthenticatedAppShell key={account?.id} auth={auth} />
+        <AuthenticatedAppShell key={`${account?.id}:${runtime.capabilities.mode}`} auth={auth} />
       </Suspense>
     </ErrorBoundary>
   )
@@ -61,7 +67,9 @@ export function App() {
       <I18nProvider>
         <ThemeProvider>
           <AuthProvider>
-            <AuthGate />
+            <RuntimeCapabilitiesProvider>
+              <AuthGate />
+            </RuntimeCapabilitiesProvider>
           </AuthProvider>
         </ThemeProvider>
       </I18nProvider>

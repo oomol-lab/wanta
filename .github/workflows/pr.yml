@@ -11,7 +11,6 @@ concurrency:
 
 permissions:
   contents: read
-  packages: read
 
 jobs:
   check:
@@ -26,14 +25,10 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: package-lock.json
-          registry-url: "https://npm.pkg.github.com"
-          scope: "@oomol"
 
       - name: Install dependencies
         run: npm ci
         env:
-          # 私有 @oomol/* 包来自 GitHub Packages；CI 用仓库 token 读取。
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 跳过 Electron 二进制下载（download-electron postinstall 也据此短路）。
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
           # 本 job 只做 lint/test/build:app，不打包，故无需下载 oo 二进制。

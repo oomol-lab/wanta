@@ -261,6 +261,7 @@ export async function intermediateArtifactProcessFiles(
 export async function projectOutputFiles(
   baseline: GitTurnBaseline | undefined,
   projectRoot: string | undefined,
+  excludedPaths: ReadonlySet<string> = new Set(),
 ): Promise<{ files: StoredTurnOutputFile[]; truncated: boolean }> {
   if (!baseline || !projectRoot) {
     return { files: [], truncated: false }
@@ -270,21 +271,24 @@ export async function projectOutputFiles(
     return { files: [], truncated: true }
   })
   return {
-    files: result.files.map((item): StoredTurnOutputFile => {
+    files: result.files.flatMap((item): StoredTurnOutputFile[] => {
       const absolutePath = path.join(projectRoot, item.path)
-      return {
-        path: absolutePath,
-        name: turnOutputFileName(item.path),
-        role: "project_change",
-        changeKind: item.changeKind,
-        mime: item.diff.mime,
-        additions: item.diff.additions,
-        deletions: item.diff.deletions,
-        ...(item.diff.kind === "binary" ? { binary: true } : {}),
-        ...(item.size !== undefined ? { size: item.size } : {}),
-        ...(item.diff.truncated ? { truncated: true } : {}),
-        diff: { ...item.diff, path: absolutePath },
-      }
+      if (excludedPaths.has(absolutePath)) return []
+      return [
+        {
+          path: absolutePath,
+          name: turnOutputFileName(item.path),
+          role: "project_change",
+          changeKind: item.changeKind,
+          mime: item.diff.mime,
+          additions: item.diff.additions,
+          deletions: item.diff.deletions,
+          ...(item.diff.kind === "binary" ? { binary: true } : {}),
+          ...(item.size !== undefined ? { size: item.size } : {}),
+          ...(item.diff.truncated ? { truncated: true } : {}),
+          diff: { ...item.diff, path: absolutePath },
+        },
+      ]
     }),
     truncated: result.truncated,
   }

@@ -903,6 +903,12 @@ export const enMessages = {
   "artifacts.persistencePartialTitle": "Some artifacts were not saved",
   "artifacts.persistencePartialDescription":
     "Some generated results were not saved as local files. Only successfully saved items are listed below.",
+  "artifacts.projectPublishFailedTitle": "Output not saved to the project",
+  "artifacts.projectPublishFailedDescription":
+    "The output remains available in Wanta, but it could not be copied into the project folder.",
+  "artifacts.projectPublishPartialTitle": "Some outputs were not saved to the project",
+  "artifacts.projectPublishPartialDescription":
+    "Some outputs were copied into the project folder. The remaining outputs are still available in Wanta.",
   "artifacts.viewAll": "View all {count}",
   "artifacts.outputCount": "{count} outputs",
   "artifacts.collectionDescription": "View and preview all files",

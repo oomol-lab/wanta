@@ -537,7 +537,10 @@ export type LocalArtifactDisplayMode = "gallery" | "document" | "table" | "proje
 export type ArtifactBundleKind = LocalArtifactPackKind
 export type ArtifactBundleDisplay = LocalArtifactDisplayMode
 export type ArtifactBundleStatus = "ready" | "partial" | "failed"
-export type ArtifactBundleFailure = "generated_preview_not_persisted"
+export type ArtifactBundleFailure =
+  | "generated_preview_not_persisted"
+  | "project_output_publish_failed"
+  | "project_output_publish_partial"
 export type ArtifactItemStatus = "ready"
 export type ArtifactItemOrigin = "managed_output" | "assistant_attachment" | "assistant_preview" | "recovered_output"
 

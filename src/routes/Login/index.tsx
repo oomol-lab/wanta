@@ -17,7 +17,7 @@ export function LoginRoute({ auth }: { auth: UseAuth }) {
       {/* 无边框窗口的可拖拽标题区 */}
       <header className="absolute inset-x-0 top-0 z-10 h-[var(--app-titlebar-height)] [-webkit-app-region:drag]" />
 
-      <main className="min-h-0 flex-1 p-4 md:p-6 lg:p-8">
+      <main className="oo-login-main min-h-0 flex-1">
         <div className="mx-auto grid h-full max-w-[1480px] grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)] gap-4 md:gap-6 lg:gap-8 xl:grid-cols-[minmax(24rem,0.78fr)_minmax(30rem,1.22fr)]">
           <section className="flex min-h-0 items-center">
             <div className="w-full max-w-[32rem] px-2 py-8 md:px-6 lg:-translate-y-5 lg:px-10 xl:px-12">

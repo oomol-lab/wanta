@@ -1,4 +1,5 @@
 import type {
+  ArtifactBundleFailure,
   ArtifactBundleDisplay,
   ArtifactBundleKind,
   LocalArtifactGroup,
@@ -18,7 +19,7 @@ export interface ResolvedArtifactGroup {
   group: LocalArtifactGroup
   pack?: LocalArtifactPack
   status?: "ready" | "partial" | "failed"
-  failure?: "generated_preview_not_persisted"
+  failure?: ArtifactBundleFailure
 }
 
 function artifactPackGroup(pack: LocalArtifactPack): LocalArtifactGroup {

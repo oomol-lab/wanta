@@ -23,10 +23,12 @@ test("removeSessionOutputDirectories removes managed and project turn directorie
     const processRoot = path.join(agentRoot, "process", "session-1", turnName)
     const localArtifactRoot = path.join(agentRoot, "artifacts", "session-1", turnName)
     const projectArtifactRoot = path.join(root, "project", ".wanta", "artifacts", "session-1", turnName)
+    const publishedOutput = path.join(root, "project", "report.pdf")
     for (const directory of [processRoot, localArtifactRoot, projectArtifactRoot]) {
       await mkdir(directory, { recursive: true })
       await writeFile(path.join(directory, "output.txt"), "output")
     }
+    await writeFile(publishedOutput, "published")
     const record = {
       sessionId: "session-1",
       messageId: "assistant-1",
@@ -36,7 +38,7 @@ test("removeSessionOutputDirectories removes managed and project turn directorie
       files: [],
       summary: { processFileCount: 0, changedFileCount: 0, additions: 0, deletions: 0 },
     } satisfies StoredTurnOutputRecord
-    const bundle = (rootPath: string): ArtifactBundle => ({
+    const bundle = (rootPath: string, publishedPath?: string): ArtifactBundle => ({
       id: rootPath,
       sessionId: "session-1",
       messageId: rootPath,
@@ -44,15 +46,27 @@ test("removeSessionOutputDirectories removes managed and project turn directorie
       status: "ready",
       kind: "document",
       display: "single",
-      items: [],
-      totalItems: 0,
+      items: publishedPath
+        ? [
+            {
+              id: "published-output",
+              kind: "file",
+              mime: "application/pdf",
+              name: "report.pdf",
+              origin: "managed_output",
+              path: publishedPath,
+              status: "ready",
+            },
+          ]
+        : [],
+      totalItems: publishedPath ? 1 : 0,
       truncated: false,
       createdAt: 1,
     })
 
     await removeSessionOutputDirectories({
       agentRoot,
-      artifactBundles: [bundle(localArtifactRoot), bundle(projectArtifactRoot)],
+      artifactBundles: [bundle(localArtifactRoot), bundle(projectArtifactRoot, publishedOutput)],
       sessionId: "session-1",
       turnOutputs: [record],
     })
@@ -60,6 +74,7 @@ test("removeSessionOutputDirectories removes managed and project turn directorie
     assert.equal(await pathExists(processRoot), false)
     assert.equal(await pathExists(localArtifactRoot), false)
     assert.equal(await pathExists(projectArtifactRoot), false)
+    assert.equal(await pathExists(publishedOutput), true)
   } finally {
     await rm(root, { force: true, recursive: true })
   }

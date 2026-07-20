@@ -8,7 +8,7 @@
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
-    "postinstall": "node --experimental-strip-types ./scripts/download-electron.ts && node --experimental-strip-types ./scripts/download-oo.ts && node --experimental-strip-types ./scripts/download-skills.ts && node --experimental-strip-types ./scripts/download-ripgrep.ts",
+    "postinstall": "node --experimental-strip-types ./scripts/download-electron.ts && node --experimental-strip-types ./scripts/download-oo.ts && node --experimental-strip-types ./scripts/download-skills.ts && node --experimental-strip-types ./scripts/download-ripgrep.ts && node --experimental-strip-types ./scripts/build-agent-tool-runtime.ts",
     "predev": "node --experimental-strip-types ./scripts/check-oo.ts",
     "dev": "vite",
     "dev:no-electron": "vite --mode no-electron",
@@ -70,6 +70,7 @@
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "read-excel-file": "9.2.0",
+    "rolldown": "1.0.3",
     "rxjs": "7.8.2",
     "shiki": "3.23.0",
     "sonner": "2.0.7",

@@ -11,6 +11,7 @@ import {
   materializeAssistantArtifacts,
   recoverMisplacedTurnArtifacts,
 } from "./artifact-bundles.ts"
+import { publishArtifactBundleToProject } from "./project-output-publisher.ts"
 import {
   boundTurnOutputPatchPayloads,
   intermediateArtifactProcessFiles,
@@ -58,7 +59,7 @@ export async function finalizeTurnOutput(options: {
 
     const completedAt = Date.now()
     const intermediateArtifactFiles = await intermediateArtifactProcessFiles(active.artifactRoot, active.requestText)
-    const [artifactBundle, processFiles, projectOutput] = await Promise.all([
+    const [managedArtifactBundle, processFiles] = await Promise.all([
       buildArtifactBundle({
         artifactRoot: active.artifactRoot,
         completedAt,
@@ -70,8 +71,29 @@ export async function finalizeTurnOutput(options: {
         sessionId,
       }),
       processOutputFiles(active.processRoot),
-      projectOutputFiles(active.projectBaseline, active.projectRoot),
     ])
+    let artifactBundle = managedArtifactBundle
+    let publishedPaths: ReadonlySet<string> = new Set()
+    if (artifactBundle && active.outputProjectRoot) {
+      try {
+        const published = await publishArtifactBundleToProject(
+          artifactBundle,
+          active.artifactRoot,
+          active.outputProjectRoot,
+        )
+        artifactBundle = published.bundle
+        publishedPaths = published.publishedPaths
+      } catch (error) {
+        console.warn("[wanta] failed to publish project outputs", error)
+        logDiagnostic("chat-service", "failed to publish project outputs", { error, messageId, sessionId }, "warn")
+        artifactBundle = {
+          ...artifactBundle,
+          failure: "project_output_publish_failed",
+          status: "partial",
+        }
+      }
+    }
+    const projectOutput = await projectOutputFiles(active.projectBaseline, active.projectRoot, publishedPaths)
     if (artifactBundle) await options.publishArtifactBundle(artifactBundle)
 
     const files = boundTurnOutputPatchPayloads([...processFiles, ...intermediateArtifactFiles, ...projectOutput.files])

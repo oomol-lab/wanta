@@ -245,6 +245,16 @@ describe("AgentManager", () => {
     expect(system).not.toContain("Do not present a remote")
   })
 
+  it("tells project turns that managed deliverables are published into the visible project", () => {
+    const system = buildArtifactSystem("/tmp/project/.wanta/artifacts/session/turn", "/tmp/project")
+
+    expect(system).toContain("Wanta will publish final deliverables")
+    expect(system).toContain("/tmp/project")
+    expect(system).toContain("descriptive user-facing file and directory names")
+    expect(system).toContain("Do not write a second copy directly into the project directory")
+    expect(system).toContain("Do not present the managed artifact path as the final project location")
+  })
+
   it("syncs the oo CLI default identity with the active team", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {

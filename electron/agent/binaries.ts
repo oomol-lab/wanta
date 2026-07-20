@@ -41,3 +41,13 @@ export function resolveDevBundledSkillsDir(repoRoot: string): string {
 export function resolveBundledSkillsDir(resourcesPath: string): string {
   return path.join(resourcesPath, "skills")
 }
+
+/** dev：构建期合并的自定义工具 runtime（postinstall 生成）。 */
+export function resolveDevBundledToolRuntimePath(repoRoot: string): string {
+  return path.join(repoRoot, "resources", "agent-tool-runtime", "tool.js")
+}
+
+/** 生产：从打包的 Resources/agent-tool-runtime 解析自定义工具 runtime。 */
+export function resolveBundledToolRuntimePath(resourcesPath: string): string {
+  return path.join(resourcesPath, "agent-tool-runtime", "tool.js")
+}

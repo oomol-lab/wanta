@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
@@ -9,7 +9,14 @@ import { AGENT_TOOL_FILES } from "./tool-sources.ts"
  * OpenCode 会扫描 cwd 下 .opencode/{skill,skills}/<name>/SKILL.md，故把 oo 自带的 4 个 skill 拷到这里，
  * Wanta 自己的 agent 即可直接读到——不再依赖把 skill 释放到其他 AI agent 的家目录。
  */
-export async function ensureAgentWorkspace(rootDir: string, bundledSkillsDir?: string): Promise<string> {
+export async function ensureAgentWorkspace(
+  rootDir: string,
+  bundledSkillsDir?: string,
+  bundledToolRuntimePath?: string,
+): Promise<string> {
+  if (!bundledToolRuntimePath) {
+    throw new Error("Bundled agent tool runtime path is required.")
+  }
   const opencodeDir = path.join(rootDir, ".opencode")
   const toolsDir = path.join(opencodeDir, "tools")
   const runtimeSkillsDir = path.join(opencodeDir, "skills")
@@ -18,8 +25,24 @@ export async function ensureAgentWorkspace(rootDir: string, bundledSkillsDir?: s
   await Promise.all(
     Object.entries(AGENT_TOOL_FILES).map(([name, source]) => writeFile(path.join(toolsDir, name), source, "utf-8")),
   )
+  await syncToolRuntime(opencodeDir, bundledToolRuntimePath)
   await syncBundledSkills(opencodeDir, bundledSkillsDir)
   return rootDir
+}
+
+/** 把构建期合并的 tool helper + Zod runtime 覆盖到 workspace，工具加载不依赖 OpenCode 首启联网安装插件。 */
+async function syncToolRuntime(opencodeDir: string, bundledToolRuntimePath: string): Promise<void> {
+  const runtimeDir = path.join(opencodeDir, "runtime")
+  const runtimeSource = await readFile(bundledToolRuntimePath)
+  const stagingDir = await mkdtemp(path.join(opencodeDir, ".runtime-"))
+  try {
+    await writeFile(path.join(stagingDir, "tool.js"), runtimeSource, { flag: "wx" })
+    await rm(runtimeDir, { force: true, recursive: true })
+    await rename(stagingDir, runtimeDir)
+  } catch (error) {
+    await rm(stagingDir, { force: true, recursive: true })
+    throw error
+  }
 }
 
 /**

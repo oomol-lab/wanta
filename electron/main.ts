@@ -13,7 +13,9 @@ import {
   opencodeBinaryName,
   resolveBundledBin,
   resolveBundledSkillsDir,
+  resolveBundledToolRuntimePath,
   resolveDevBundledSkillsDir,
+  resolveDevBundledToolRuntimePath,
   resolveDevOoBin,
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
@@ -126,6 +128,9 @@ process.env.OO_CLI_PATH = ooBinPath
 const bundledSkillsDir = app.isPackaged
   ? resolveBundledSkillsDir(process.resourcesPath)
   : resolveDevBundledSkillsDir(appRoot)
+const bundledToolRuntimePath = app.isPackaged
+  ? resolveBundledToolRuntimePath(process.resourcesPath)
+  : resolveDevBundledToolRuntimePath(appRoot)
 
 // Agent 内核：凭证来自 Electron 会话中的短期 token；userData/auth.json 仅保存账号 profile。
 // 未登录时 agent=null，服务仍注册但 isReady()=false，渲染层显示登录页；
@@ -587,6 +592,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     wikiGraphExecutablePath: process.execPath,
     knowledgeRegistryPath: knowledgeStore.registryPath(),
     bundledSkillsDir,
+    bundledToolRuntimePath,
     teamName: activeAgentTeamName,
     rootDir: path.join(app.getPath("userData"), "agent"),
     customModels,

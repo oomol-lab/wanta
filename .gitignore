@@ -49,6 +49,5 @@ resources/skills
 resources/agent-tool-runtime
 
 # Local dev scratch
-.lumo-dev/
 .wanta-dev/
 .playwright-mcp/

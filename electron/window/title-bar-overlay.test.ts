@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   buildWindowsTitleBarOverlay,
+  nativeFramelessWindowFrameForPlatform,
   nativeWindowMaterialForPlatform,
   resolveWindowsTitleBarTheme,
   shouldApplyWindowsTitleBarTheme,
@@ -40,6 +41,20 @@ describe("nativeWindowMaterialForPlatform", () => {
     expect(nativeWindowMaterialForPlatform("darwin")).toBe("macos-vibrancy")
     expect(nativeWindowMaterialForPlatform("win32")).toBe("windows-mica")
     expect(nativeWindowMaterialForPlatform("linux")).toBe("none")
+  })
+})
+
+describe("nativeFramelessWindowFrameForPlatform", () => {
+  it("keeps the native Windows frame and rounded corners enabled", () => {
+    expect(nativeFramelessWindowFrameForPlatform("win32")).toEqual({
+      roundedCorners: true,
+      thickFrame: true,
+    })
+  })
+
+  it("does not override native frame behavior on other platforms", () => {
+    expect(nativeFramelessWindowFrameForPlatform("darwin")).toEqual({})
+    expect(nativeFramelessWindowFrameForPlatform("linux")).toEqual({})
   })
 })
 

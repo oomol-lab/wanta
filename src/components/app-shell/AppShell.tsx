@@ -1846,6 +1846,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       error={error}
                       emptyTitle={chatEmptyTitle}
                       generatedArtifacts={latestArtifactSelection}
+                      historyScope={billingCacheScope}
                       submitDisabled={!ready || chatBootstrapping || workspaceActivationBlocked || !sessionScope}
                       willQueueMessage={Boolean(
                         activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isSendInFlight()),

@@ -153,6 +153,19 @@ describe("composer state", () => {
     })
   })
 
+  it("recalls history with the cursor at the end and clears palette suppression", () => {
+    const state = {
+      ...initialComposerState(),
+      dismissedTriggerKey: "slash:0:rev",
+    }
+
+    expect(composerReducer(state, { draft: "previous prompt", type: "recall-history" })).toMatchObject({
+      dismissedTriggerKey: null,
+      draft: "previous prompt",
+      draftSelection: { end: 15, start: 15 },
+    })
+  })
+
   it("preserves attachment draft metadata without preserving renderer preview URLs", () => {
     const empty = initialComposerState()
     const withAttachment = {

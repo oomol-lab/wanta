@@ -24,6 +24,7 @@ export type ComposerAction =
   | { type: "remove-attachment"; id: string }
   | { type: "remove-command" }
   | { type: "remove-context-mention"; mention: ChatContextMention }
+  | { type: "recall-history"; draft: string }
   | { type: "replace-trigger"; replacement: string; trigger: ComposerTrigger }
   | { type: "reset-after-submit" }
   | { type: "select-bug-report"; trigger: ComposerTrigger }
@@ -149,6 +150,13 @@ export function composerReducer(state: ComposerState, action: ComposerAction): C
       return {
         ...state,
         contextMentions: state.contextMentions.filter((mention) => !sameContextMention(mention, action.mention)),
+      }
+    case "recall-history":
+      return {
+        ...state,
+        dismissedTriggerKey: null,
+        draft: action.draft,
+        draftSelection: { end: action.draft.length, start: action.draft.length },
       }
     case "replace-trigger":
       return {

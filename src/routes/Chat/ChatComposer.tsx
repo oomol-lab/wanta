@@ -19,6 +19,13 @@ import { Bug, X } from "lucide-react"
 import * as React from "react"
 import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
 import { AttachmentList } from "./ChatAttachments.tsx"
+import {
+  appendStoredComposerHistory,
+  buildComposerHistory,
+  mergeComposerHistories,
+  navigateComposerHistory,
+  readStoredComposerHistory,
+} from "./composer-history.ts"
 import { composerPaletteItemElementId } from "./composer-palette-accessibility.ts"
 import {
   buildArtifactPaletteItems,
@@ -28,7 +35,12 @@ import {
   buildSkillPaletteItems,
   slashCommandItems,
 } from "./composer-palette-items.ts"
-import { composerReducer, composerSubmissionText, initialComposerState } from "./composer-state.ts"
+import {
+  composerReducer,
+  composerSubmissionText,
+  hasComposerDraftContent,
+  initialComposerState,
+} from "./composer-state.ts"
 import { ComposerAttachmentMenu } from "./ComposerAttachmentMenu.tsx"
 import { ComposerPalette } from "./ComposerPalette.tsx"
 import { ComposerTrailingControls } from "./ComposerTrailingControls.tsx"
@@ -62,6 +74,7 @@ interface ChatComposerProps {
   focusRequest: number
   generatedArtifacts?: ArtifactSelection | null
   hasMessages: boolean
+  historyScope: string
   initialComposerState?: ComposerState
   messages: ChatMessage[]
   knowledgeBaseIds: string[]
@@ -159,6 +172,7 @@ export function ChatComposer({
   focusRequest,
   generatedArtifacts = null,
   hasMessages,
+  historyScope,
   initialComposerState: initialComposerStateProp,
   messages,
   knowledgeBaseIds,
@@ -209,6 +223,10 @@ export function ChatComposer({
     [],
   )
   const [answeringQuestion, setAnsweringQuestion] = React.useState(false)
+  const [historyIndex, setHistoryIndex] = React.useState<number | null>(null)
+  const [storedComposerHistory, setStoredComposerHistory] = React.useState(() =>
+    readStoredComposerHistory(historyScope),
+  )
   const { agentMode, reasoningLevel, setAgentMode, setReasoningLevel } = useComposerPreferences()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const appendVoiceTranscription = React.useCallback((text: string) => {
@@ -218,6 +236,19 @@ export function ChatComposer({
   const voiceInput = useVoiceComposerInput(appendVoiceTranscription)
   const paletteId = React.useId()
   const { attachments, command, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
+  React.useEffect(() => {
+    setStoredComposerHistory(readStoredComposerHistory(historyScope))
+    setHistoryIndex(null)
+  }, [historyScope])
+  const composerHistory = React.useMemo(() => {
+    const currentChatHistory = buildComposerHistory(messages, queuedMessages)
+    return mergeComposerHistories(currentChatHistory, storedComposerHistory)
+  }, [messages, queuedMessages, storedComposerHistory])
+  React.useEffect(() => {
+    if (historyIndex !== null && draft !== composerHistory[historyIndex]) {
+      setHistoryIndex(null)
+    }
+  }, [composerHistory, draft, historyIndex])
   const activePendingQuestion = pendingQuestions[0]
   const activePendingQuestionId = activePendingQuestion?.id
   const composerQuestionBlocked = Boolean(activePendingQuestion && !isSingleTextQuestion(activePendingQuestion))
@@ -396,6 +427,49 @@ export function ChatComposer({
     skillItems,
     slashItems,
   })
+  const resetHistoryNavigation = React.useCallback(() => setHistoryIndex(null), [])
+  const appendComposerHistory = React.useCallback(
+    (text: string): void => {
+      setStoredComposerHistory(appendStoredComposerHistory(historyScope, text))
+    },
+    [historyScope],
+  )
+  const handleComposerKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+      composerPalette.handleKeyDown(event)
+      if (
+        event.defaultPrevented ||
+        event.nativeEvent.isComposing ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        (event.key !== "ArrowUp" && event.key !== "ArrowDown")
+      ) {
+        return
+      }
+
+      if (
+        historyIndex === null &&
+        (event.key !== "ArrowUp" || Boolean(activePendingQuestion) || hasComposerDraftContent(composer))
+      ) {
+        return
+      }
+
+      const navigation = navigateComposerHistory(
+        composerHistory,
+        historyIndex,
+        event.key === "ArrowUp" ? "older" : "newer",
+      )
+      if (!navigation) {
+        return
+      }
+      event.preventDefault()
+      setHistoryIndex(navigation.index)
+      dispatchComposer({ draft: navigation.text, type: "recall-history" })
+    },
+    [activePendingQuestion, composer, composerHistory, composerPalette, historyIndex],
+  )
 
   // 表单提交（含回车）始终走"发送"路径；"停止"只通过 ComposerTrailingControls
   // 的按钮点击触发，避免生成中按回车误中止流。
@@ -418,7 +492,9 @@ export function ChatComposer({
       setAnsweringQuestion(true)
       try {
         await onAnswerQuestion(activePendingQuestion.id, answerSingleTextQuestion(activePendingQuestion, text))
+        appendComposerHistory(text)
         composerAttachments.revokeCurrentPreviews()
+        resetHistoryNavigation()
         dispatchComposer({ type: "reset-after-submit" })
         clearInputError()
       } catch (err) {
@@ -441,6 +517,7 @@ export function ChatComposer({
       }
       clearedAfterSubmit = true
       composerAttachments.revokeCurrentPreviews()
+      resetHistoryNavigation()
       dispatchComposer({ type: "reset-after-submit" })
       clearInputError()
     }
@@ -468,6 +545,7 @@ export function ChatComposer({
       showTrustedInputError(t("chat.sendNotAccepted"))
       return
     }
+    appendComposerHistory(text)
     clearAfterOptimisticSubmit()
   }
 
@@ -588,6 +666,7 @@ export function ChatComposer({
               : undefined
           }
           onChange={(e) => {
+            resetHistoryNavigation()
             dispatchComposer({
               type: "set-draft",
               draft: e.target.value,
@@ -597,8 +676,11 @@ export function ChatComposer({
               },
             })
           }}
-          onClick={updateDraftSelection}
-          onKeyDown={composerPalette.handleKeyDown}
+          onClick={() => {
+            resetHistoryNavigation()
+            updateDraftSelection()
+          }}
+          onKeyDown={handleComposerKeyDown}
           onKeyUp={updateDraftSelection}
           onSelect={updateDraftSelection}
           onPaste={composerAttachments.handlePaste}

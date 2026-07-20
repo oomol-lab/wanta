@@ -62,6 +62,7 @@ interface ChatAreaProps {
   error: string | null
   emptyTitle?: string
   generatedArtifacts?: ArtifactSelection | null
+  historyScope: string
   submitDisabled: boolean
   willQueueMessage: boolean
   initialComposerState?: ComposerState
@@ -260,6 +261,7 @@ export const ChatArea = React.memo(function ChatArea({
   error,
   emptyTitle,
   generatedArtifacts,
+  historyScope,
   submitDisabled,
   willQueueMessage,
   initialComposerState,
@@ -333,6 +335,7 @@ export const ChatArea = React.memo(function ChatArea({
       focusRequest={composerFocusRequest}
       generatedArtifacts={generatedArtifacts}
       hasMessages={hasMessages}
+      historyScope={historyScope}
       initialComposerState={initialComposerState}
       messages={messages}
       knowledgeBaseIds={knowledgeBaseIds}

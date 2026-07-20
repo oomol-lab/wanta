@@ -15,7 +15,7 @@ import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { Bug, KeyRound, LogIn, X } from "lucide-react"
+import { Bug, X } from "lucide-react"
 import * as React from "react"
 import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
 import { AttachmentList } from "./ChatAttachments.tsx"
@@ -64,7 +64,6 @@ import {
 } from "@/components/ai-elements/prompt-input"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { ErrorNotice } from "@/components/ErrorNotice"
-import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
@@ -107,7 +106,6 @@ interface ChatComposerProps {
   onPermissionModeFullAccess: () => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onOpenKnowledgeLibrary?: () => void
-  onLogin?: () => void
   onSelectKnowledgeBase: (id: string) => void
   onStop: () => Promise<void> | void
   onViewBilling?: () => void
@@ -209,7 +207,6 @@ export function ChatComposer({
   onPermissionModeFullAccess,
   onOpenConnectionProvider,
   onOpenKnowledgeLibrary,
-  onLogin,
   onSelectKnowledgeBase,
   onStop,
   onViewBilling,
@@ -797,24 +794,6 @@ export function ChatComposer({
     <>
       {errorBanner}
       <div className="flex flex-col gap-2">
-        {modelRequired ? (
-          <div className="rounded-xl border bg-card px-4 py-3 text-card-foreground shadow-sm">
-            <div className="oo-text-label">{t("chat.modelRequiredTitle")}</div>
-            <p className="oo-text-caption mt-1">{t("chat.modelRequiredDescription")}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button type="button" size="sm" onClick={modelCatalogState.openDialog}>
-                <KeyRound className="size-4" />
-                {t("chat.configureModel")}
-              </Button>
-              {onLogin ? (
-                <Button type="button" size="sm" variant="outline" onClick={onLogin}>
-                  <LogIn className="size-4" />
-                  {t("chat.loginForCloud")}
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
         <div className="relative">
           {palette}
           <div className="relative z-10">{queuePanel}</div>

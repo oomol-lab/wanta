@@ -391,7 +391,6 @@ export const ChatArea = React.memo(function ChatArea({
       onPermissionModeFullAccess={requestFullAccess}
       onOpenConnectionProvider={onOpenConnectionProvider}
       onOpenKnowledgeLibrary={onOpenKnowledgeLibrary}
-      onLogin={onLogin}
       onSelectKnowledgeBase={onSelectKnowledgeBase}
       onStop={onStop}
       onViewBilling={onViewBilling}

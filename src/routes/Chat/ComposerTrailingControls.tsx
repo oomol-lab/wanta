@@ -3,7 +3,7 @@ import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.
 import type { ChatTurnState } from "./chat-turn-state.ts"
 import type { ContextUsageInfo } from "./context-usage.ts"
 
-import { ListPlus, Loader2, RotateCcw, Square, X } from "lucide-react"
+import { KeyRound, ListPlus, Loader2, RotateCcw, Square, X } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
@@ -289,7 +289,12 @@ export function ComposerTrailingControls({
                 </Button>
               </>
             ) : null}
-            {!modelRequired ? (
+            {modelRequired ? (
+              <Button type="button" variant="ghost" size="sm" className="h-8 rounded-full px-2" onClick={onAddModel}>
+                <KeyRound className="size-4" />
+                {t("chat.configureModel")}
+              </Button>
+            ) : (
               <ComposerModeControls
                 agentMode={agentMode}
                 composerDisabled={composerDisabled}
@@ -306,7 +311,7 @@ export function ComposerTrailingControls({
                 onSelectReasoningLevel={onSelectReasoningLevel}
                 onStartVoice={onStartVoice}
               />
-            ) : null}
+            )}
             <PromptInputSubmit
               size="icon-sm"
               className="size-7"

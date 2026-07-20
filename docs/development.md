@@ -5,7 +5,7 @@
 ## 1. 环境准备
 
 - **Node >= 22.22.2**（与钉死的 OpenCode 依赖链最低版本一致；PR CI 钉 Node 24，release CI 用 `lts/*`——当前解析为 24）。npm + package-lock.json。
-- **私有包鉴权**：`@oomol/connection*` 来自 GitHub Packages（`.npmrc`：`@oomol:registry=https://npm.pkg.github.com`），本地需要带 `read:packages` 的 PAT（一般配在全局 `~/.npmrc`），否则 `npm install` 401。注意两种失败的严重性不同：私有包 401 发生在依赖解析阶段、**致命**；下面两个 postinstall 下载脚本才是 best-effort（仅 warn）——PAT 缺失时哪怕只看到一堆 warn 也不能继续，`@oomol/connection` 没装上 dev 起不来。
+- **依赖来源全部公开**：`@oomol/connection` / `@oomol/connection-electron-adapter` 已发布到公共 registry（`registry.npmjs.org`），`npm install` **无需任何 token 或 `.npmrc`**——本仓库开源后 fresh clone 与外部 fork CI 都能直接安装（历史上曾走 GitHub Packages 私有 registry + `read:packages` PAT，仓库转公开、包同步发到公共 npm 后已移除该鉴权链）。若本机全局 `~/.npmrc` 仍把 `@oomol` scope 指向 `npm.pkg.github.com`，会覆盖默认公共 registry——删掉那行即可。注意：postinstall 的二进制/skill 下载脚本是 best-effort（仅 warn），但 `@oomol/connection` 装不上 dev 起不来，安装失败不能忽略。
 - `npm install` 的 postinstall 串联二进制/skill 下载脚本，并在最后构建自定义工具 runtime：
   - `scripts/download-electron.ts` → 下载 dev 专用 Electron 副本到 `.electron-dist/` 并改写 macOS Info.plist 为 `com.oomol.wanta-local` / `wanta-local` scheme（dev deep-link 用）。`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 跳过。
   - `scripts/download-oo.ts` → 下载 oo 二进制到 `.oo-bin/`（版本锁定见 `scripts/oo-cli.ts` 的 `OO_CLI_VERSION`；含 sha512 integrity 校验与 `chmod 0o755`）。oo / ripgrep 下载统一使用 30 秒单次超时与最多 3 次请求尝试（最多重试 2 次），确定性的 4xx 不重试。`OO_SKIP_BINARY_DOWNLOAD=1` 跳过。
@@ -32,7 +32,7 @@ npm run dev:no-electron
 - vite dev server 固定端口 `5273` 且 `strictPort=true`：如果已有 `npm run dev` 占用端口，新的 dev 进程会直接失败，避免悄悄切到 `5274+` 后再拉起第二个 Electron。需要临时禁用 Electron 自动启动时，也可用 `WANTA_ELECTRON_AUTO_START=0 npm run dev`。
 - `.electron-dist` 存在时 vite 自动设 `ELECTRON_OVERRIDE_DIST_PATH`，dev 用带 `wanta-local` scheme 的 Electron（菜单栏显示 dev 身份），浏览器登录回跳才能命中 dev 实例。
 - dev 的 userData 在 `~/Library/Application Support/wanta`（macOS）；agent 数据在其下 `agent/`（workspace / isolation / oo-store）。
-- 提代码必须走临时分支 + PR：先把本地 `main` 对齐 `origin/main`，再从 `main` 拉一次性分支（如 `codex/<task>`、`ci/<task>`、`fix/<task>`）。改动完成并通过质量门后推送临时分支，开 PR 到 `oomol/lumo:main`，由 PR 合并回 `main`。不要直接在 `main` 上提交或推送。PR 合并后同步最新 `main`，删除本地临时分支，并删除 fork/远端上的同名临时分支。所有 Git 操作中的人类可读文本必须用英文，包括 commit message、branch name、PR title、PR description、PR review/comment、tag/release note。
+- 提代码必须走临时分支 + PR：先把本地 `main` 对齐 `origin/main`，再从 `main` 拉一次性分支（如 `codex/<task>`、`ci/<task>`、`fix/<task>`）。改动完成并通过质量门后推送临时分支，开 PR 到 `oomol-lab/wanta:main`，由 PR 合并回 `main`。不要直接在 `main` 上提交或推送。PR 合并后同步最新 `main`，删除本地临时分支，并删除 fork/远端上的同名临时分支。所有 Git 操作中的人类可读文本必须用英文，包括 commit message、branch name、PR title、PR description、PR review/comment、tag/release note。
 - 改动后质量门四件套：`npm run ts-check && npm run lint && npm run format && npm test`。
 
 ## 4. 测试

@@ -36,7 +36,6 @@ on:
 permissions:
   contents: write
   id-token: write
-  packages: read
 
 # 串行化发布：并发 dispatch 会算出同一版本号并竞写同一批 OSS 对象/渠道指针。
 concurrency:
@@ -127,8 +126,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
-          registry-url: "https://npm.pkg.github.com"
-          scope: "@oomol"
       - name: Set env + version
         run: |
           echo "VERSION=${{ needs.compute-version.outputs.version }}" >> $GITHUB_ENV
@@ -157,7 +154,6 @@ jobs:
         env:
           npm_config_audit: "false"
           npm_config_fund: "false"
-          NODE_AUTH_TOKEN: ${{ secrets.PRIVATE_PACKAGE_PAT_READ }}
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
           # oo 二进制由后续 build:* 里的 prepare:binaries 在构建时下载，无需 postinstall 重复拉取。
           OO_SKIP_BINARY_DOWNLOAD: "1"
@@ -165,12 +161,10 @@ jobs:
       - name: Build (sign + notarize)
         run: npm run build:mac
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.PRIVATE_PACKAGE_PAT_READ }}
           CSC_IDENTITY_AUTO_DISCOVERY: "true"
           APPLE_ID: ${{ secrets.APPLEID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLEID_PASS }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          GH_TOKEN: ${{ secrets.ACCESS_REPO }}
 
       # 对齐 win 侧的产物硬校验：mac 自动更新器消费 <channel>-mac.yml + zip + zip.blockmap。
       # stable 构建经 generateUpdatesFilesForAllChannels 同时产出 beta-mac.yml，两个指针都校验；
@@ -237,11 +231,11 @@ jobs:
         id: aliyun_credentials
         uses: aliyun/configure-aliyun-credentials-action@v1.1.0
         with:
-          role-to-assume: ${{ vars.ALIYUN_INTERNAL_ROLE }}
+          role-to-assume: ${{ vars.ALIYUN_OOMOL_WANTA_ROLE }}
           oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER }}
           role-session-name: github-action-session
           role-session-expiration: 1800
-          audience: https://github.com/oomol
+          audience: https://github.com/oomol-lab
         continue-on-error: true
 
       - name: Configure Alibaba Cloud CLI (retry)
@@ -249,11 +243,11 @@ jobs:
         if: steps.aliyun_credentials.outcome == 'failure'
         uses: aliyun/configure-aliyun-credentials-action@v1.1.0
         with:
-          role-to-assume: ${{ vars.ALIYUN_INTERNAL_ROLE }}
+          role-to-assume: ${{ vars.ALIYUN_OOMOL_WANTA_ROLE }}
           oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER }}
           role-session-name: github-action-session
           role-session-expiration: 1800
-          audience: https://github.com/oomol
+          audience: https://github.com/oomol-lab
 
       - name: Cache rclone
         uses: actions/cache@v5
@@ -326,8 +320,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
-          registry-url: "https://npm.pkg.github.com"
-          scope: "@oomol"
       - name: Set env + version
         shell: bash
         run: |
@@ -347,16 +339,12 @@ jobs:
         env:
           npm_config_audit: "false"
           npm_config_fund: "false"
-          NODE_AUTH_TOKEN: ${{ secrets.PRIVATE_PACKAGE_PAT_READ }}
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
           # oo 二进制由后续 build:* 里的 prepare:binaries 在构建时下载，无需 postinstall 重复拉取。
           OO_SKIP_BINARY_DOWNLOAD: "1"
 
       - name: Build (signtool via electron-builder certificateSha1)
         run: npm run build:win
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.PRIVATE_PACKAGE_PAT_READ }}
-          GH_TOKEN: ${{ secrets.ACCESS_REPO }}
 
       # 硬防 electron-builder 未来行为漂移。NSIS 自动更新器消费 <channel>.yml + Setup.exe
       # + Setup.exe.blockmap；任一不变量回归即让 release 大声失败。
@@ -433,11 +421,11 @@ jobs:
         id: aliyun_credentials
         uses: aliyun/configure-aliyun-credentials-action@v1.1.0
         with:
-          role-to-assume: ${{ vars.ALIYUN_INTERNAL_ROLE }}
+          role-to-assume: ${{ vars.ALIYUN_OOMOL_WANTA_ROLE }}
           oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER }}
           role-session-name: github-action-session
           role-session-expiration: 1800
-          audience: https://github.com/oomol
+          audience: https://github.com/oomol-lab
         continue-on-error: true
 
       - name: Configure Alibaba Cloud CLI (retry)
@@ -445,11 +433,11 @@ jobs:
         if: steps.aliyun_credentials.outcome == 'failure'
         uses: aliyun/configure-aliyun-credentials-action@v1.1.0
         with:
-          role-to-assume: ${{ vars.ALIYUN_INTERNAL_ROLE }}
+          role-to-assume: ${{ vars.ALIYUN_OOMOL_WANTA_ROLE }}
           oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER }}
           role-session-name: github-action-session
           role-session-expiration: 1800
-          audience: https://github.com/oomol
+          audience: https://github.com/oomol-lab
 
       - name: Setup rclone
         shell: bash
@@ -524,7 +512,7 @@ jobs:
 
       - name: Create tag and release
         env:
-          GITHUB_TOKEN: ${{ secrets.ACCESS_REPO }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="${{ needs.compute-version.outputs.version }}"
@@ -609,19 +597,123 @@ jobs:
           fi
 
   # Release 发布后刷新 release 目录的 DCDN 缓存，使自动更新客户端无需等 CDN TTL 过期即可
-  # 看到新的 latest-mac.yml / latest.yml。复用 oomol/workflows 共享 workflow——
-  # 见 https://github.com/oomol/workflows 的入参定义。
+  # 看到新的 latest-mac.yml / latest.yml。
+  #
+  # 本 job 曾复用 oomol/workflows 的共享 workflow，仓库迁到 oomol-lab 后必须内联：
+  # oomol/workflows 是 private 且 Actions access 为 organization 级，跨 org 调用不被允许，
+  # 且两个 org 不在同一 enterprise 下（oomol=team / oomol-lab=free），无法通过放宽 access 解决。
+  # 实现照搬 oomol-lab/oo-cli 的 .github/workflows/refresh-cdn-cache.yaml（同 org 内已验证可用）。
   refresh-cdn-cache:
     needs: [compute-version, create-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
-    uses: oomol/workflows/.github/workflows/refresh-cdn-cache.yml@main
-    with:
-      domain: static.oomol.com
+    env:
+      PINNED_ALIYUN_CLI_VERSION: 3.0.286
+      ALIYUN_REGION: cn-hangzhou
+      CDN_DOMAIN: static.oomol.com
       # 只刷自动更新渠道指针文件（清单由 compute-version 按渠道计算：stable 刷
       # latest*+beta* 共 4 个，beta 只刷 beta* 两个）。版本化产物（Wanta-${VERSION}.dmg /
       # -Setup.exe 及其 .blockmap）住在每次 release 不可变的版本戳 URL 上，永不陈旧。
-      files: ${{ needs.compute-version.outputs.cdn_files }}
-      # Wanta 用标准 GitHub runner；共享 workflow 默认即 ubuntu-latest，这里显式指定。
-      runs-on: ubuntu-latest
+      CDN_FILES: ${{ needs.compute-version.outputs.cdn_files }}
+    steps:
+      - name: Cache Aliyun CLI
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/bin/aliyun
+          key: aliyun-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.PINNED_ALIYUN_CLI_VERSION }}
+
+      - name: Install Aliyun CLI
+        run: |
+          set -euo pipefail
+          if [ ! -x "$HOME/.local/bin/aliyun" ]; then
+            mkdir -p "$HOME/.local/bin"
+            curl -fsSL "https://aliyuncli.alicdn.com/aliyun-cli-linux-${PINNED_ALIYUN_CLI_VERSION}-amd64.tgz" -o /tmp/aliyun-cli.tgz
+            mkdir -p /tmp/aliyun-cli
+            tar -xzf /tmp/aliyun-cli.tgz -C /tmp/aliyun-cli
+            ALIYUN_BIN="$(find /tmp/aliyun-cli -type f -name aliyun | head -n 1)"
+            if [ -z "$ALIYUN_BIN" ]; then
+              echo "::error::Unable to find aliyun binary in downloaded archive"; exit 1
+            fi
+            install "$ALIYUN_BIN" "$HOME/.local/bin/aliyun"
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/aliyun" version
+
+      - name: Configure Alibaba Cloud credentials
+        id: aliyun_credentials
+        uses: aliyun/configure-aliyun-credentials-action@v1.1.0
+        with:
+          role-to-assume: ${{ vars.ALIYUN_CDN_CACHE_REFRESH_ROLE }}
+          oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER }}
+          role-session-name: github-action-cdn-cache-refresh
+          role-session-expiration: 1800
+          audience: https://github.com/oomol-lab
+
+      - name: Configure Aliyun CLI
+        env:
+          ALICLOUD_ACCESS_KEY_ID: ${{ steps.aliyun_credentials.outputs.aliyun-access-key-id }}
+          ALICLOUD_ACCESS_KEY_SECRET: ${{ steps.aliyun_credentials.outputs.aliyun-access-key-secret }}
+          ALICLOUD_SECURITY_TOKEN: ${{ steps.aliyun_credentials.outputs.aliyun-security-token }}
+        run: |
+          set -euo pipefail
+          aliyun configure set \
+            --mode StsToken \
+            --region "$ALIYUN_REGION" \
+            --access-key-id "$ALICLOUD_ACCESS_KEY_ID" \
+            --access-key-secret "$ALICLOUD_ACCESS_KEY_SECRET" \
+            --sts-token "$ALICLOUD_SECURITY_TOKEN"
+
+      - name: Refresh CDN cache
+        run: |
+          set -euo pipefail
+
+          # CDN_FILES 是 compute-version 产出的多行绝对路径清单；拼上域名成完整 URL。
+          # 空清单说明 outputs plumbing 回归（拼错输出名→空串），必须大声失败而不是静默跳过刷新。
+          URLS=""
+          COUNT=0
+          while IFS= read -r FILE; do
+            [ -n "$FILE" ] || continue
+            URLS="${URLS}https://${CDN_DOMAIN}${FILE}"$'\n'
+            COUNT=$((COUNT + 1))
+          done <<< "$CDN_FILES"
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::CDN_FILES is empty — nothing to refresh (channel pointer plumbing regression?)"
+            exit 1
+          fi
+
+          aliyun dcdn DescribeDcdnRefreshQuota --region "$ALIYUN_REGION" > quota.json
+          cat quota.json
+
+          URL_REMAIN="$(jq -r '.UrlRemain // empty' quota.json)"
+          if [ -n "$URL_REMAIN" ] && [ "$URL_REMAIN" -lt "$COUNT" ]; then
+            echo "::error::DCDN URL refresh quota insufficient (UrlRemain=$URL_REMAIN, need=$COUNT). Retry tomorrow or raise the daily quota via an Aliyun ticket."
+            exit 1
+          fi
+
+          echo "::notice title=Refresh target::${COUNT} channel pointer file(s)"
+          printf '%s' "$URLS"
+
+          # RefreshDcdnObjectCaches 的 ObjectPath 支持换行分隔的多 URL，一次提交即可。
+          aliyun dcdn RefreshDcdnObjectCaches \
+            --ObjectType File \
+            --ObjectPath "$(printf '%s' "$URLS")" \
+            --region "$ALIYUN_REGION" > refresh-result.json
+          cat refresh-result.json
+
+          REFRESH_TASK_ID="$(jq -r '.RefreshTaskId // ""' refresh-result.json)"
+          REQUEST_ID="$(jq -r '.RequestId // ""' refresh-result.json)"
+
+          {
+            echo "## CDN cache refresh"
+            echo ""
+            echo "- Refreshed ${COUNT} file(s):"
+            printf '%s' "$URLS" | sed 's/^/  - `/; s/$/`/'
+            echo "- Refresh task id: \`${REFRESH_TASK_ID:-unknown}\`"
+            echo "- Request id: \`${REQUEST_ID:-unknown}\`"
+            echo ""
+            echo "_DCDN refresh tasks typically take 5-6 minutes to take effect at every edge node._"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -34,7 +34,7 @@ docs/            本仓库文档（见下方索引）
 ## 常用命令（精确脚本名，见 package.json）
 
 ```bash
-npm install          # 需 @oomol 私有包 PAT（docs/development.md §1）；postinstall 自动下载 .electron-dist 与 .oo-bin/oo
+npm install          # 依赖全公开（@oomol/* 已在公共 npm），无需 token/.npmrc；postinstall 自动下载 .electron-dist 与 .oo-bin/oo
 npm run dev          # Vite dev（端口 5273）+ 主进程；predev 守卫检查 .oo-bin/oo
 npm run build        # = build:app = ts-check + vite build
 npm run ts-check     # tsgo -p tsconfig.json

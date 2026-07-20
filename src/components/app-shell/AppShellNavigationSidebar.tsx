@@ -219,32 +219,28 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
             <SquarePen className="size-4 shrink-0" />
             <span className="oo-sidebar-nav-label truncate">{t("sidebar.newSession")}</span>
           </button>
-          {cloudEnabled ? (
-            <button
-              type="button"
-              onClick={onOpenConnections}
-              className={cn(
-                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-                activeRoute === "connections" && "bg-sidebar-accent text-sidebar-accent-foreground",
-              )}
-            >
-              <Plug className="size-4 shrink-0" />
-              <span className="oo-sidebar-nav-label truncate">{t("connections.title")}</span>
-            </button>
-          ) : null}
-          {cloudEnabled ? (
-            <button
-              type="button"
-              onClick={() => onNavigate("skills")}
-              className={cn(
-                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-                activeRoute === "skills" && "bg-sidebar-accent text-sidebar-accent-foreground",
-              )}
-            >
-              <Package className="size-4 shrink-0" />
-              <span className="oo-sidebar-nav-label truncate">{t("skills.title")}</span>
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={onOpenConnections}
+            className={cn(
+              "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+              activeRoute === "connections" && "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+          >
+            <Plug className="size-4 shrink-0" />
+            <span className="oo-sidebar-nav-label truncate">{t("connections.title")}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate("skills")}
+            className={cn(
+              "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+              activeRoute === "skills" && "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+          >
+            <Package className="size-4 shrink-0" />
+            <span className="oo-sidebar-nav-label truncate">{t("skills.title")}</span>
+          </button>
           {showKnowledge ? (
             <button
               type="button"

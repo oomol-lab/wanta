@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils"
 
 interface PublicSkillPackageSheetProps {
   additionalActions?: React.ReactNode
+  canInstall?: boolean
   groupById: ManagedSkillGroupById
   installingKey: string | null
   locale: string
@@ -35,6 +36,7 @@ interface PublicSkillPackageSheetProps {
 
 export function PublicSkillPackageSheet({
   additionalActions,
+  canInstall = true,
   groupById,
   installingKey,
   locale,
@@ -52,6 +54,7 @@ export function PublicSkillPackageSheet({
     >
       <PublicSkillPackageDetail
         additionalActions={additionalActions}
+        canInstall={canInstall}
         groupById={groupById}
         installingKey={installingKey}
         locale={locale}
@@ -65,6 +68,7 @@ export function PublicSkillPackageSheet({
 
 interface PublicSkillPackageDetailProps {
   additionalActions?: React.ReactNode
+  canInstall: boolean
   className?: string
   groupById: ManagedSkillGroupById
   installingKey: string | null
@@ -76,6 +80,7 @@ interface PublicSkillPackageDetailProps {
 
 function PublicSkillPackageDetail({
   additionalActions,
+  canInstall,
   className,
   groupById,
   installingKey,
@@ -123,7 +128,7 @@ function PublicSkillPackageDetail({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={isInstallingPrimary || !canInstallPublicSkill(primaryState)}
+                  disabled={!canInstall || isInstallingPrimary || !canInstallPublicSkill(primaryState)}
                   onClick={() => onInstall(pkg)}
                 >
                   {isInstallingPrimary ? (
@@ -131,13 +136,15 @@ function PublicSkillPackageDetail({
                   ) : (
                     <AppIcons.action.installPackage />
                   )}
-                  {isInstallingPrimary
-                    ? t("skills.registryInstalling")
-                    : primaryState === "partially-installed"
-                      ? t("skills.discoverInstallMissing")
-                      : primaryState === "unavailable"
-                        ? t("skills.discoverUnavailable")
-                        : t("teams.skillManageInstallRuntime")}
+                  {!canInstall
+                    ? t("skills.signInToInstall")
+                    : isInstallingPrimary
+                      ? t("skills.registryInstalling")
+                      : primaryState === "partially-installed"
+                        ? t("skills.discoverInstallMissing")
+                        : primaryState === "unavailable"
+                          ? t("skills.discoverUnavailable")
+                          : t("teams.skillManageInstallRuntime")}
                 </Button>
               )}
               {additionalActions}

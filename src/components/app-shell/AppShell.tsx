@@ -111,6 +111,11 @@ const ChatArea = React.lazy(() => import("@/routes/Chat").then((module) => ({ de
 const ConnectionsPanel = React.lazy(() =>
   import("@/routes/Connections").then((module) => ({ default: module.ConnectionsPanel })),
 )
+const SelfHostedConnectionsPlaceholder = React.lazy(() =>
+  import("@/routes/Connections/SelfHostedConnectionsPlaceholder.tsx").then((module) => ({
+    default: module.SelfHostedConnectionsPlaceholder,
+  })),
+)
 const TeamManagementRoute = React.lazy(() =>
   import("@/routes/Skills/TeamManagement").then((module) => ({ default: module.TeamManagementRoute })),
 )
@@ -1494,8 +1499,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       handleOpenConnections()
       return
     }
-    void auth.login()
-  }, [auth, cloudEnabled, handleOpenConnections])
+    setRoute("connections")
+  }, [cloudEnabled, handleOpenConnections])
   const handleOpenSettingsCommand = React.useCallback((): void => {
     setSearchOpen(false)
     setRoute("settings")
@@ -1813,17 +1818,22 @@ export function AppShell({ auth }: { auth: UseAuth }) {
 
           <main className="oo-content-surface min-h-0 min-w-0 overflow-hidden">
             <React.Suspense fallback={<RouteLoadingFallback />}>
-              {route === "connections" && cloudEnabled ? (
-                <div className="h-full min-h-0 p-0">
-                  <ConnectionsPanel
-                    canManageConnections={canManageWorkspaceConnections}
-                    connections={connections}
-                    requestedFilter={connectionCatalogFilter}
-                    selectedService={selectedService}
-                  />
-                </div>
-              ) : route === "skills" && cloudEnabled ? (
+              {route === "connections" ? (
+                cloudEnabled ? (
+                  <div className="h-full min-h-0 p-0">
+                    <ConnectionsPanel
+                      canManageConnections={canManageWorkspaceConnections}
+                      connections={connections}
+                      requestedFilter={connectionCatalogFilter}
+                      selectedService={selectedService}
+                    />
+                  </div>
+                ) : (
+                  <SelfHostedConnectionsPlaceholder />
+                )
+              ) : route === "skills" ? (
                 <SkillsRoute
+                  cloudEnabled={cloudEnabled}
                   connectedProvidersLoading={activeProvidersLoading}
                   teamSkills={teamSkills}
                   providerSkillRecommendationsState={providerSkillRecommendations}

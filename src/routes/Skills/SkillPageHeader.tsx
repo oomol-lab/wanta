@@ -25,6 +25,8 @@ interface SkillPageHeaderProps {
   teamName?: string
   teamQuery: string
   teamTabAvailable: boolean
+  publishedFilterAvailable: boolean
+  registryUpdatesAvailable: boolean
   teamAction?: ReactNode
   onDiscoveryFilterChange: (filter: DiscoverSkillFilter) => void
   onDiscoveryQueryChange: (value: string) => void
@@ -45,6 +47,8 @@ export function SkillPageHeader({
   teamName,
   teamQuery,
   teamTabAvailable,
+  publishedFilterAvailable,
+  registryUpdatesAvailable,
   teamAction,
   onDiscoveryFilterChange,
   onDiscoveryQueryChange,
@@ -72,7 +76,7 @@ export function SkillPageHeader({
   const filterOptions = isDiscoverTab
     ? [
         { label: t("skills.discoverFilter.all"), value: "all" },
-        { label: t("skills.discoverFilter.mine"), value: "mine" },
+        ...(publishedFilterAvailable ? [{ label: t("skills.discoverFilter.mine"), value: "mine" }] : []),
       ]
     : isTeamTab
       ? [
@@ -85,7 +89,7 @@ export function SkillPageHeader({
           { label: t("skills.installedFilter.wanta"), value: "wanta" },
           { label: t("skills.installedFilter.codex"), value: "codex" },
           { label: t("skills.installedFilter.claudeCode"), value: "claude-code" },
-          { label: t("skills.installedFilter.updates"), value: "updates" },
+          ...(registryUpdatesAvailable ? [{ label: t("skills.installedFilter.updates"), value: "updates" }] : []),
           { label: t("skills.installedFilter.local"), value: "local" },
         ]
 

@@ -280,7 +280,7 @@ export function initialRoute(): Route {
 }
 
 export function routeAvailableForRuntime(route: Route, cloudEnabled: boolean): boolean {
-  return cloudEnabled || (route !== "billing" && route !== "connections" && route !== "skills" && route !== "teams")
+  return cloudEnabled || (route !== "billing" && route !== "teams")
 }
 
 export function clampSidebarWidth(width: number): number {

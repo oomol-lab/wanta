@@ -69,12 +69,12 @@ describe("local workspace", () => {
     ).toEqual({ status: "idle", targetScopeKey: "local:local" })
   })
 
-  test("keeps local routes available while blocking cloud pages", () => {
+  test("keeps community routes available while blocking account-only pages", () => {
     expect(routeAvailableForRuntime("chat", false)).toBe(true)
     expect(routeAvailableForRuntime("knowledge", false)).toBe(true)
     expect(routeAvailableForRuntime("settings", false)).toBe(true)
-    expect(routeAvailableForRuntime("connections", false)).toBe(false)
-    expect(routeAvailableForRuntime("skills", false)).toBe(false)
+    expect(routeAvailableForRuntime("connections", false)).toBe(true)
+    expect(routeAvailableForRuntime("skills", false)).toBe(true)
     expect(routeAvailableForRuntime("teams", false)).toBe(false)
     expect(routeAvailableForRuntime("billing", false)).toBe(false)
     expect(routeAvailableForRuntime("billing", true)).toBe(true)

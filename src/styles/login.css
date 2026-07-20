@@ -1,4 +1,27 @@
 @layer components {
+  .oo-login-main {
+    padding: 1rem;
+  }
+
+  @media (min-width: 768px) {
+    .oo-login-main {
+      padding: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .oo-login-main {
+      padding: 2rem;
+    }
+  }
+
+  /* Windows/Linux 的原生窗口按钮占用标题栏右上角；三边使用同一安全间距，让品牌面板完整落在按钮下方。 */
+  :is(:root[data-platform="win32"], :root[data-platform="linux"], :root[data-dev-window-controls="windows"])
+    .oo-login-main {
+    padding-block: calc(var(--app-titlebar-height) + 1rem);
+    padding-right: calc(var(--app-titlebar-height) + 1rem);
+  }
+
   .oo-login-brand-panel {
     position: relative;
     display: flex;

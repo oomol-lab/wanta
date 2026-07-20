@@ -1,86 +1,131 @@
-# 质量基线
+# Quality Baseline
 
-> 本文记录首轮质量优化使用的可复现基线。长期方法和执行规则见
-> [全项目质量优化计划](../quality-improvement-plan.md)。
+> This document records the reproducible baseline used for the first round of quality
+> optimization. For the long-term method and execution rules, see
+> [the whole-project quality optimization plan](../quality-improvement-plan.md).
 
-## 2026-07-18 首轮基线
+## 2026-07-18 first-round baseline
 
-环境：
+Environment:
 
-- macOS Darwin 25.5.0，arm64；
-- npm 10.9.4；
-- 当前 shell 为 Node 22.21.1，低于仓库要求的 Node 22.22.2；
-- CI 使用 Node 24，因此本机结果用于发现回归，最终合入仍以 CI 为准。
+- macOS Darwin 25.5.0, arm64;
+- npm 10.9.4;
+- current shell runs Node 22.21.1, below the repo requirement of Node 22.22.2;
+- CI uses Node 24, so local results are for spotting regressions while the final merge still
+  defers to CI.
 
-结果：
+Results:
 
-| 检查               | 结果 | 记录                                                  |
-| ------------------ | ---- | ----------------------------------------------------- |
-| `npm run ts-check` | 通过 | 无类型错误                                            |
-| `npm run lint`     | 通过 | 无 lint 错误                                          |
-| `npm run format`   | 通过 | 首次检查 774 个文件                                   |
-| `npm test`         | 通过 | 修改前 232 个测试文件、1554 个测试                    |
-| `npm run build`    | 通过 | renderer、main、preload 均构建成功；存在大 chunk 警告 |
+| Check              | Result | Record                                                              |
+| ------------------ | ------ | ------------------------------------------------------------------- |
+| `npm run ts-check` | pass   | no type errors                                                      |
+| `npm run lint`     | pass   | no lint errors                                                      |
+| `npm run format`   | pass   | first check covered 774 files                                       |
+| `npm test`         | pass   | before changes: 232 test files, 1554 tests                          |
+| `npm run build`    | pass   | renderer, main, and preload all built; large-chunk warning present  |
 
-源码规模仅用于规划审计范围，不作为质量目标：
+Source size is only for scoping the audit, not a quality target:
 
-- `electron/`、`src/`、`scripts/` 下约 742 个 TypeScript/TSX 文件；
-- 合计约 134,496 行；
-- 显式 TODO 共 1 个，是消息反馈 API 的已知预留。
+- about 742 TypeScript/TSX files under `electron/`, `src/`, and `scripts/`;
+- about 134,496 lines in total;
+- 1 explicit TODO, a known placeholder for the message-feedback API.
 
-## 当前验证缺口
+## Current verification gaps
 
-- 本轮没有真实账号，因此没有执行登录、团队切换、连接器 OAuth、支付返回和 Agent 对话金路径；
-- 没有以签名 packaged app 验证通知；
-- 尚未采集长会话 React Profiler、Chromium Performance trace 和多进程内存曲线；
-- 当前 shell Node 版本低于仓库最低要求，不能替代 Node 24 CI 结果。
+- This round had no real account, so login, team switching, connector OAuth, payment return, and
+  the Agent conversation golden path were not exercised;
+- notifications were not verified against a signed packaged app;
+- long-session React Profiler, Chromium Performance traces, and multi-process memory curves have
+  not yet been collected;
+- the current shell's Node version is below the repo minimum and cannot substitute for the Node 24
+  CI results.
 
-后续性能 finding 在没有同环境 before/after 数据前只能保持 `hypothesis`。
+Later performance findings must stay `hypothesis` until there is same-environment before/after data.
 
-## 首轮修复后的结果
+## Results after the first round of fixes
 
-- 新增 5 个回归测试，测试总数从 1554 增至 1559；
-- `ts-check`、`lint`、`format`、全部测试和 production build 通过；
-- `npm run dev` 在 195ms 内启动 Vite，main/preload 构建成功，Agent sidecar 正常 ready；
-- 开发版启动观察期没有新增主进程或 renderer 错误日志；
-- 真实账单支付返回和账号/团队切换仍因缺少可用测试账号而未实机验收。
+- added 5 regression tests, raising the total from 1554 to 1559;
+- `ts-check`, `lint`, `format`, all tests, and the production build pass;
+- `npm run dev` starts Vite within 195ms, main/preload build successfully, and the Agent sidecar
+  becomes ready normally;
+- no new main-process or renderer error logs during the dev-build startup observation window;
+- real billing payment return and account/team switching still lack acceptance on a real device
+  because no usable test account is available.
 
-## 第二轮修复后的结果
+## Results after the second round of fixes
 
-- 新增 2 个测试文件、7 个乱序响应测试，测试总数从 1559 增至 1566；
-- `ts-check`、`lint`、`format`、234 个测试文件和 production build 通过；
-- `npm run dev` 在 322ms 内启动 Vite，main/preload 构建成功，Agent sidecar 正常 ready；
-- 启动观察期未发现认证或知识库相关错误；主动结束开发进程后仅记录预期的 renderer `clean-exit`；
-- 真实登录回调、换号和知识库 beta 开关切换仍需账号环境补验。
+- added 2 test files and 7 out-of-order response tests, raising the total from 1559 to 1566;
+- `ts-check`, `lint`, `format`, 234 test files, and the production build pass;
+- `npm run dev` starts Vite within 322ms, main/preload build successfully, and the Agent sidecar
+  becomes ready normally;
+- no authentication- or knowledge-base-related errors during the startup observation window; after
+  the dev process was ended deliberately, only the expected renderer `clean-exit` was recorded;
+- real login callback, account switching, and toggling the knowledge-base beta switch still need
+  verification in an account environment.
 
-## 第三轮性能修复后的结果
+## Results after the third round of performance fixes
 
-- 确认首次技能清单的主要瓶颈不是 101 个 skill 的 hash，而是 agent discovery 实际启动第三方 CLI 并等待 `--version` timeout；
-- 改为在 login-shell 合并后的 PATH 中异步检查 executable，不再为发现操作启动第三方进程；新增 2 个回归测试，测试总数从 1566 增至 1568；
-- 五次显式重置缓存的 discovery + scan 为 1141–1249ms，五次缓存内 scan 为 50–77ms；剩余冷启动时间主要来自用户 login shell PATH 解析；
-- 真实 `npm run dev` 首次 inventory scan 从前三次的 2097–2154ms 降至 610ms，随后两次为 68ms 和 65ms；同时正确发现旧探测超时漏掉的 Hermes，最终 installed skill 数从 101 变为 125；
-- `ts-check`、`lint`、`format`、234 个测试文件、1568 个测试和 production build 通过；开发版 Vite 在 198ms ready，Agent sidecar 正常 ready，观察期没有 warn/error diagnostics。
+- confirmed the main bottleneck on the first skill inventory is not hashing the 101 skills, but
+  agent discovery actually launching third-party CLIs and waiting on `--version` timeout;
+- switched to asynchronously checking the executable in the login-shell-merged PATH, no longer
+  launching third-party processes for discovery; added 2 regression tests, raising the total from
+  1566 to 1568;
+- five discovery + scan runs with the cache explicitly reset took 1141–1249ms, and five in-cache
+  scans took 50–77ms; the remaining cold-start time comes mainly from resolving the user's login
+  shell PATH;
+- the real `npm run dev` first inventory scan dropped from the prior three runs' 2097–2154ms to
+  610ms, with the following two at 68ms and 65ms; it also correctly discovered Hermes, which the old
+  probe timeout had missed, so the final installed-skill count went from 101 to 125;
+- `ts-check`, `lint`, `format`, 234 test files, 1568 tests, and the production build pass; the
+  dev-build Vite is ready in 198ms, the Agent sidecar becomes ready normally, and there are no
+  warn/error diagnostics during the observation window.
 
-## 第四轮缓存生命周期修复后的结果
+## Results after the fourth round of cache-lifecycle fixes
 
-- 账单缓存现在随认证 identity 变化清空，不再在登出或换号后永久保留历史账号、团队和权限组合的数据；
-- 清理采用 Map detach，清理前的在途请求即使随后成功，也只能写回已脱离的旧 entry，不能污染同 key 的新账号缓存；
-- 新增 1 个回归测试，测试总数从 1568 增至 1569；`ts-check`、`lint`、`format`、234 个测试文件和 production build 通过；
-- `npm run dev` 在 200ms ready，main/preload 和 Agent sidecar 正常启动，观察期没有新增 warn/error diagnostics；当前账号环境无法执行真实换号交互。
+- the billing cache is now cleared when the authenticated identity changes, no longer permanently
+  retaining data for historical accounts, teams, and permission combinations after logout or
+  account switching;
+- cleanup uses a Map detach: an in-flight request from before cleanup, even if it later succeeds,
+  can only write back into the already-detached old entry and cannot pollute the new account's cache
+  under the same key;
+- added 1 regression test, raising the total from 1568 to 1569; `ts-check`, `lint`, `format`, 234
+  test files, and the production build pass;
+- `npm run dev` is ready in 200ms, main/preload and the Agent sidecar start normally, and there are
+  no new warn/error diagnostics during the observation window; the current account environment
+  cannot exercise a real account-switch interaction.
 
-## 第五轮性能假设复核
+## Fifth round performance hypothesis re-review
 
-- 缩略图由主进程统一生成 160×160 PNG，renderer 仅在 near viewport 加载并最多保存 128 项；纯色、渐变、棋盘格和不可压缩噪声样本的 data URL 分别为 714、1914、886、120410 字符；
-- 128 个极端噪声缩略图约为 14.7 MiB ASCII payload，常见可压缩样本合计约 0.09–0.23 MiB；在没有 heap/GC 异常证据时增加字节预算会提高滚动重载成本，因此 Q-2026-008 标记为 rejected；
-- 当前真实技能清单为 42 groups、143367 bytes JSON；与 renderer 相同的 normalize + stringify 双边比较执行 1000 次，中位数 1.809ms、p95 2.277ms、最大 2.731ms；
-- 10 倍合成清单为 420 groups、1204830 bytes，200 次比较中位数 16.482ms、p95 17.041ms、最大 20.085ms；两种规模均未达到 50ms long-task 阈值，因此 Q-2026-009 标记为 rejected；
-- 两项均只更新证据和决策，没有为了理论数字改动运行时代码。
+- thumbnails are generated uniformly by the main process as 160×160 PNGs; the renderer loads only
+  near-viewport items and keeps at most 128; the data URLs for solid-color, gradient, checkerboard,
+  and incompressible-noise samples are 714, 1914, 886, and 120410 characters respectively;
+- 128 extreme-noise thumbnails are about 14.7 MiB of ASCII payload, while common compressible
+  samples total about 0.09–0.23 MiB; with no evidence of heap/GC anomalies, raising the byte budget
+  would increase the scroll-reload cost, so Q-2026-008 is marked rejected;
+- the current real skill inventory is 42 groups, 143367 bytes of JSON; the same normalize +
+  stringify two-sided comparison used by the renderer, run 1000 times, has a median of 1.809ms, p95
+  of 2.277ms, and max of 2.731ms;
+- a 10x synthetic inventory is 420 groups, 1204830 bytes; across 200 comparisons the median is
+  16.482ms, p95 is 17.041ms, and max is 20.085ms; neither scale reaches the 50ms long-task
+  threshold, so Q-2026-009 is marked rejected;
+- both items only update evidence and the decision, with no runtime code changed for the sake of a
+  theoretical number.
 
-## 第六轮 production 制成品首开复核
+## Sixth round production artifact first-open re-review
 
-- 使用 production renderer、真实已登录 workspace 和固定 13.2 kB XLSX（3 sheets、16 个 SKU、13 列），禁用 Chromium cache，并在每次采样前整页冷重载；
-- 从点击制成品到 Univer 预览首个 canvas 出现的 5 次耗时为 641.5、570.6、687.3、691.7、583.4ms，中位数 641.5ms、最差 691.7ms；
-- Univer 相关 JS chunk 每次 decoded 4,967,993 bytes、encoded 1,368,949 bytes、transfer 1,369,249 bytes，resource duration 为 117.8–139.1ms；CSS 为 decoded 83,587 bytes、encoded 12,866 bytes，resource duration 为 9–28ms；
-- renderer heap 单次差值约为 0.09–31.04 MiB，受 GC 影响过大，不能从本次短测得出稳定内存结论；
-- 当前真实样本的 production 冷开均低于 700ms，构建警告本身没有证明可感知性能问题，因此 Q-2026-010 标记为 rejected；超大工作簿和 PDF 仍按 runbook 在出现真实慢场景时单独测量，不据此删除、降级或替换 Univer；
-- 结论写入后，`ts-check`、`lint`、`format`、234 个测试文件、1569 个测试和 production build 全部通过。
+- used the production renderer, a real logged-in workspace, and a fixed 13.2 kB XLSX (3 sheets, 16
+  SKUs, 13 columns), with the Chromium cache disabled and a full cold page reload before each
+  sample;
+- the 5 timings from clicking the artifact to the first canvas of the Univer preview appearing were
+  641.5, 570.6, 687.3, 691.7, and 583.4ms, with a median of 641.5ms and a worst of 691.7ms;
+- the Univer-related JS chunk was decoded 4,967,993 bytes, encoded 1,368,949 bytes, transfer
+  1,369,249 bytes each time, with a resource duration of 117.8–139.1ms; the CSS was decoded 83,587
+  bytes, encoded 12,866 bytes, with a resource duration of 9–28ms;
+- the renderer heap single-run delta was about 0.09–31.04 MiB, too affected by GC to draw a stable
+  memory conclusion from this short test;
+- the current real samples' production cold open are all below 700ms, and the build warning itself
+  does not prove a perceptible performance problem, so Q-2026-010 is marked rejected; oversized
+  workbooks and PDFs are still measured separately per the runbook when a real slow scenario
+  appears, and Univer is not deleted, downgraded, or replaced on that basis;
+- after the conclusions were written in, `ts-check`, `lint`, `format`, 234 test files, 1569 tests,
+  and the production build all pass.

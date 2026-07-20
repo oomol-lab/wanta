@@ -1,139 +1,174 @@
-# 全项目质量优化计划
+# Project-Wide Quality Improvement Plan
 
-> 本文定义 Wanta 的长期质量优化方法，供人类开发者与 Codex 等代码 Agent 共同执行。
-> 它不是一次“大重构”的需求清单，而是一套可重复运行的发现、排序、修复、验证和复盘流程。
+> This document defines Wanta's long-term quality-improvement method, to be executed jointly by
+> human developers and code agents such as Codex.
+> It is not a requirements list for a one-off "big refactor" but a repeatable process of discovery,
+> prioritization, fixing, verification, and retrospective.
 
-## 1. 目标与成功标准
+## 1. Goals and success criteria
 
-质量优化的目标不是让代码“看起来更整洁”，而是在不破坏既有产品能力的前提下，持续降低以下成本：
+The goal of quality improvement is not to make the code "look tidier," but to continuously lower the
+following costs without breaking existing product capabilities:
 
-1. 用户遇到错误、卡顿、数据丢失或行为不一致的概率；
-2. 开发者理解、修改和验证代码的时间；
-3. 因状态边界不清、重复实现或无效代码导致的回归风险；
-4. Electron 主进程、渲染进程、网络、Agent sidecar 和本地文件系统中的资源浪费；
-5. 无法通过自动化验证、只能依赖猜测的代码比例。
+1. The probability that users hit errors, stalls, data loss, or inconsistent behavior;
+2. The time developers spend understanding, modifying, and verifying code;
+3. Regression risk caused by unclear state boundaries, duplicate implementations, or dead code;
+4. Resource waste across the Electron main process, renderer, network, Agent sidecar, and local
+   file system;
+5. The proportion of code that cannot be verified through automation and can only be guessed at.
 
-每个优化任务必须至少改善一个可观察指标，并且不能只用“代码更优雅”“文件更短”作为完成依据。
+Every optimization task must improve at least one observable metric, and cannot use "more elegant
+code" or "shorter files" alone as its completion criterion.
 
-可观察指标包括：
+Observable metrics include:
 
-- 可稳定复现的缺陷消失，并新增能在修复前失败、修复后通过的回归测试；
-- 冷启动、页面切换、长会话渲染、流式消息更新或特定操作的耗时下降；
-- CPU、内存、网络请求次数、IPC 次数、重复计算或 bundle 体积下降；
-- 非法状态数量、状态来源数量、重复业务规则实现数量下降；
-- 已证明不可达的文件、导出、依赖或分支被安全移除；
-- 高风险路径的测试、运行态验证或诊断能力得到补齐。
+- A stably reproducible defect disappears, plus a new regression test that fails before the fix and
+  passes after;
+- Reduced latency for cold start, page switching, long-session rendering, streaming message updates,
+  or a specific operation;
+- Reduced CPU, memory, number of network requests, number of IPC calls, redundant computation, or
+  bundle size;
+- Reduced number of illegal states, number of state sources, or number of duplicate business-rule
+  implementations;
+- Files, exports, dependencies, or branches proven unreachable are safely removed;
+- Tests, runtime verification, or diagnostic capability added on high-risk paths.
 
-## 2. 基本原则
+## 2. Core principles
 
-### 2.1 先证据，后改动
+### 2.1 Evidence first, then changes
 
-以下内容都只是调查信号，不是问题本身：
+The following are only investigation signals, not problems in themselves:
 
-- 文件很长；
-- Hook 数量多；
-- 出现重复字符串或相似 JSX；
-- 使用了状态机、Reducer、Context、缓存、抽象层或适配器；
-- 某个文件暂时没有被静态 import；
-- 某个依赖体积较大。
+- A file is very long;
+- A component has many hooks;
+- Duplicate strings or similar JSX appear;
+- A state machine, reducer, context, cache, abstraction layer, or adapter is used;
+- A file is temporarily not statically imported;
+- A dependency is large.
 
-Agent 必须先证明这些信号造成了真实缺陷、性能损失、认知负担或维护风险，才能提出改动。不得为了追求行数、抽象数量、测试覆盖率或 bundle 数字而破坏产品能力。
+An agent must first prove that these signals cause a real defect, performance loss, cognitive
+burden, or maintenance risk before proposing a change. Never break product capabilities in pursuit
+of line count, abstraction count, test coverage, or bundle numbers.
 
-### 2.2 一次只验证一个主要假设
+### 2.2 Verify one primary hypothesis at a time
 
-每个 PR 应围绕一个主要问题展开，例如“长会话流式更新触发无关组件重复渲染”，而不是笼统的“优化 Chat 模块”。修复、测试和必要的小范围重构可以放在同一个 PR；无关的格式化、依赖升级、目录搬迁和顺手清理必须拆开。
+Each PR should center on one primary problem — for example, "long-session streaming updates trigger
+re-renders of unrelated components" — rather than a vague "optimize the Chat module." The fix,
+tests, and any necessary small-scope refactor can go in the same PR; unrelated formatting, dependency
+upgrades, directory moves, and drive-by cleanups must be split out.
 
-### 2.3 优先修复根因
+### 2.3 Fix the root cause first
 
-不通过增加延时、吞掉错误、无条件重试、全局缓存、随意 memo、复制状态或扩大权限来掩盖问题。修复前必须说明：
+Do not mask problems by adding delays, swallowing errors, retrying unconditionally, caching
+globally, memoizing carelessly, duplicating state, or widening permissions. Before fixing, you must
+state:
 
-- 触发条件；
-- 根因；
-- 为什么现有保护没有拦住；
-- 修复在哪个最小责任边界内完成；
-- 如何防止同类问题再次发生。
+- The trigger conditions;
+- The root cause;
+- Why existing protections did not catch it;
+- The minimal responsibility boundary within which the fix is done;
+- How to prevent the same class of problem from recurring.
 
-### 2.4 保持行为，除非任务明确要求改变行为
+### 2.4 Preserve behavior unless the task explicitly requires changing it
 
-纯重构、去重和文件清理默认必须保持外部行为。若发现需要改变交互、权限、安全边界、数据格式、兼容策略或产品能力，停止自动实施，把它作为独立产品或架构决策提交。
+Pure refactors, de-duplication, and file cleanup must preserve external behavior by default. If you
+find that interaction, permissions, security boundaries, data formats, compatibility strategy, or
+product capabilities need to change, stop the automatic implementation and submit it as a separate
+product or architecture decision.
 
-### 2.5 不以重写代替理解
+### 2.5 Do not substitute rewriting for understanding
 
-禁止以“统一架构”为理由整域重写。优先使用可回滚的小改动：补测试、提取纯函数、收窄状态所有权、消除一次重复请求、修复一次资源泄漏、删除一组已证明不可达的文件。
+Whole-domain rewrites justified by "unifying the architecture" are forbidden. Prefer small,
+rollback-able changes: add tests, extract pure functions, narrow state ownership, eliminate one
+duplicate request, fix one resource leak, delete a set of files proven unreachable.
 
-## 3. Wanta 不可破坏的边界
+## 3. Wanta's inviolable boundaries
 
-执行任何质量优化前，Agent 必须完整阅读根目录 `AGENTS.md`，并按任务涉及范围阅读：
+Before performing any quality improvement, the agent must fully read the root guide (AGENTS.md /
+CLAUDE.md — one file under two names via symlink), and read the following according to the scope of
+the task:
 
-- `docs/architecture.md`：修改主进程、preload、渲染进程、IPC 或 Agent 数据流前；
-- `docs/conventions.md`：修改任何代码前；
-- `docs/development.md`：运行、测试、构建和 Git 工作流；
-- `docs/key-decisions.md`：修改现有架构决策前；
-- `docs/network-request-caching.md`：修改渲染层请求、缓存或失效策略前。
+- `docs/architecture.md`: before modifying the main process, preload, renderer, IPC, or Agent data
+  flow;
+- `docs/conventions.md`: before modifying any code;
+- `docs/development.md`: for run, test, build, and Git workflows;
+- `docs/key-decisions.md`: before modifying an existing architecture decision;
+- `docs/network-request-caching.md`: before modifying renderer requests, caching, or invalidation
+  strategy.
 
-除 `AGENTS.md` 全部铁律外，本计划特别强调：
+Beyond all the hard rules in the root guide, this plan specifically emphasizes:
 
-1. 不得在 Electron 主进程新增同步文件系统 API；
-2. 不得硬编码 endpoint 或把凭证暴露给渲染进程；
-3. 不得破坏 OpenCode permission ask 与 Wanta 两档权限 UI 的闭环；
-4. 调整 Agent 能力时必须同步检查 tools、permission 和 system prompt 三处；
-5. 不得把钉死的 OpenCode、oo CLI 和 updater 相关版本随普通清理升级；
-6. 不得删除、降级或替换 Univer 表格预览及其必要依赖；
-7. 不得因静态扫描结果删除动态加载、构建脚本、打包资源、CI、deep-link、协议注册或运行时二进制所需文件；
-8. 所有 Git 人类可读文本使用英文，代码注释使用中文，代码标识符、日志和系统提示使用英文。
+1. Do not add synchronous file-system APIs in the Electron main process;
+2. Do not hardcode the endpoint or expose credentials to the renderer;
+3. Do not break the closed loop between OpenCode permission ask and Wanta's two-tier permission UI;
+4. When adjusting Agent capabilities, you must synchronously check all three places: tools,
+   permission, and system prompt;
+5. Do not upgrade pinned OpenCode, oo CLI, and updater-related versions as part of ordinary cleanup;
+6. Do not delete, downgrade, or replace the Univer spreadsheet preview and its required
+   dependencies;
+7. Do not delete files required for dynamic loading, build scripts, packaging resources, CI,
+   deep-link, protocol registration, or runtime binaries just because of static-scan results;
+8. Use English for all human-readable Git text, Chinese for code comments, and English for code
+   identifiers, logs, and system prompts.
 
-## 4. 工作产物
+## 4. Work products
 
-质量优化不是直接从搜索结果开始改代码。首次执行时应建立以下轻量产物；没有内容时不要预建空文件：
+Quality improvement does not start by editing code straight from search results. On first execution,
+establish the following lightweight products; do not pre-create empty files when there is no content:
 
 ```text
 docs/quality/
-  baseline.md          当前可复现的质量与性能基线
-  findings.md          已证实问题和待验证假设的台账
-  decisions.md         需要长期保留的质量相关决策
-  runbooks/            仅存可重复使用的测量或复现手册
+  baseline.md          current reproducible quality and performance baseline
+  findings.md          ledger of confirmed problems and hypotheses to verify
+  decisions.md         quality-related decisions to keep long-term
+  runbooks/            only reusable measurement or reproduction runbooks
 ```
 
-`findings.md` 中每个问题使用以下模板：
+Each problem in `findings.md` uses the following template:
 
 ```md
-## Q-YYYY-NNN：简短、可验证的问题标题
+## Q-YYYY-NNN: short, verifiable problem title
 
 - Category: bug | performance | state | duplication | dead-code | maintainability
 - Status: hypothesis | confirmed | selected | fixing | verified | rejected
 - Area: chat | agent | auth | connections | skills | billing | update | shell | build
-- User impact: 用户能观察到的影响；没有用户影响时写开发或运行成本
-- Evidence: 复现步骤、测试失败、profile、trace、日志或调用计数
-- Root cause: 已确认前不得填写为事实
-- Scope: 预计修改的责任边界
-- Guardrails: 本任务不可破坏的能力和不变量
-- Before metric: 修复前数据
-- Target: 可判定通过或失败的目标
-- Verification: 自动测试、质量门和运行态验证方法
-- Risk and rollback: 主要风险及回退方式
+- User impact: the impact a user can observe; when there is no user impact, write the development or runtime cost
+- Evidence: reproduction steps, failing test, profile, trace, logs, or call counts
+- Root cause: do not fill in as fact before it is confirmed
+- Scope: the responsibility boundary expected to change
+- Guardrails: capabilities and invariants this task must not break
+- Before metric: data before the fix
+- Target: a goal whose pass or fail can be decided
+- Verification: automated tests, quality gates, and runtime verification method
+- Risk and rollback: main risks and rollback method
 - Priority: P0 | P1 | P2 | P3
-- Decision: fix | defer | reject，并记录理由
+- Decision: fix | defer | reject, with the rationale recorded
 ```
 
-不得把只有静态猜测、没有复现或测量的数据登记为 `confirmed`。被证明不成立的假设保留简短结论并标记 `rejected`，避免后续 Agent 重复调查。
+Do not record data that has only static guesses, without reproduction or measurement, as
+`confirmed`. Keep a short conclusion for hypotheses proven false and mark them `rejected`, to avoid
+later agents re-investigating.
 
-## 5. 完整执行阶段
+## 5. Full execution phases
 
-### 阶段 0：确认工作区与保护栏
+### Phase 0: Confirm the workspace and guardrails
 
-操作：
+Actions:
 
-1. 阅读适用文档和当前 Git 状态；
-2. 确认没有覆盖用户未提交改动；
-3. 从最新 `main` 创建一次性临时分支；如果当前已在符合要求的任务分支，则不重复建分支；
-4. 写下本轮调查范围、非目标和允许的行为变化；
-5. 对涉及安全、权限、凭证、更新、数据迁移或产品交互的任务，先列出不可变条件。
+1. Read the applicable docs and the current Git status;
+2. Confirm you are not overwriting the user's uncommitted changes;
+3. Create a one-off temporary branch from the latest `main`; if you are already on a conforming task
+   branch, do not create another branch;
+4. Write down this round's investigation scope, non-goals, and the behavior changes allowed;
+5. For tasks touching security, permissions, credentials, update, data migration, or product
+   interaction, first list the invariants that must hold.
 
-退出条件：范围清楚，工作区安全，所需文档已经阅读，没有把产品决策伪装成代码清理。
+Exit condition: the scope is clear, the workspace is safe, the required docs have been read, and no
+product decision is disguised as code cleanup.
 
-### 阶段 1：建立可重复基线
+### Phase 1: Establish a reproducible baseline
 
-至少运行：
+At minimum run:
 
 ```bash
 npm run ts-check
@@ -143,302 +178,385 @@ npm test
 npm run build
 ```
 
-记录 Node/npm 版本、Git commit、平台、命令结果和测试数量。基线失败时，不得把既存失败冒充为本轮回归；先登记，再决定是否把它作为独立任务修复。
-
-涉及 UI 或运行态时，额外记录：
-
-- 冷启动至主窗口可交互时间，至少 5 次，报告中位数和最差值；
-- 目标页面或交互的稳定复现步骤；
-- React Profiler、Chromium Performance trace、网络面板或进程采样证据；
-- 主进程、renderer、sidecar 各自的 CPU/内存归属；
-- 测量使用的账号、数据规模、会话长度和构建模式，但不得记录凭证。
-
-退出条件：其他人能按记录复现相同基线，且知道测量误差和环境差异。
-
-### 阶段 2：建立系统地图并分域审计
-
-按责任边界逐域调查，不按文件扩展名或文件长度随机清理。建议顺序：
-
-1. Chat 数据流：SSE 事件 → 主进程翻译 → IPC → renderer state → timeline/artifact 渲染；
-2. Agent 生命周期：sidecar 启停、session、permission、工具调用、团队切换；
-3. Auth 与安全边界：cookie/session token、登录回跳、登出、失效和日志脱敏；
-4. Connections/Skills/Billing 请求层：缓存、在途合并、失效、错误映射和竞态；
-5. App shell 与页面状态：导航、当前 session、面板、弹窗、草稿和派生状态；
-6. Update、notification、Git、knowledge 和构建发布路径；
-7. scripts、resources、CI、依赖和打包清单。
-
-每个域先画出“状态/数据的唯一来源 → 转换 → 消费者 → 副作用 → 清理”的文字地图，再检查问题。审计阶段默认只记录发现，不批量修改。
-
-退出条件：重要状态与副作用有明确所有者，问题能够映射到责任边界，而不是只指向一个大文件。
-
-### 阶段 3：Bug 专项
-
-重点检查：
-
-- 异步竞态：旧请求覆盖新请求、团队/账号/session 切换后迟到响应写回；
-- 生命周期：订阅、timer、AbortController、listener、worker、object URL、sidecar 和临时资源未清理；
-- 错误路径：错误被吞、loading 永不结束、取消被当成失败、失败被当成成功；
-- 状态恢复：重启、登出、token 失效、窗口隐藏/恢复、系统睡眠/唤醒；
-- 边界输入：空值、大文件、长会话、重复事件、乱序事件、不完整 tool output；
-- 权限和安全：ask/reply 闭环、外链协议、敏感路径、日志脱敏、渲染进程凭证边界；
-- 平台差异：macOS、Windows、Linux 的路径、协议、通知、进程和打包行为；
-- 数据一致性：缓存失效、乐观更新回滚、持久化原子性和版本兼容。
-
-修复顺序固定为：稳定复现 → 最小失败测试 → 根因修复 → 目标测试 → 相关域测试 → 全量质量门 → 必要的实机验证。
-
-若无法自动化复现，必须提供可重复的手工步骤、诊断日志或 trace；不得仅凭阅读代码宣称 Bug 已修复。
-
-### 阶段 4：性能专项
-
-先确定性能预算和场景，再 profile。禁止先添加 `useMemo`、`useCallback`、缓存、虚拟化、并发或 worker，然后寻找理由。
-
-#### 渲染性能
-
-检查：
-
-- 流式 token 到达时，哪些组件重新渲染，是否波及不相关 session、侧栏、artifact 或设置页；
-- context value、selector、数组/object 派生是否造成全树无效更新；
-- effect 是否因为不稳定依赖重复订阅、重复请求或重复构造昂贵对象；
-- 长会话、图片、PDF、DOCX、Mermaid、Shiki 和 Univer 预览是否按可见性调度；
-- 列表 key、组件边界和缓存生命周期是否正确；
-- 用户输入、滚动和动画期间是否出现超过 50ms 的 long task。
-
-只有 profile 证明收益时才使用 memo；memo 的比较成本、失效频率和可读性必须计入结果。不得用降级 Univer 功能换取性能数字。
-
-#### 非渲染性能
-
-检查：
-
-- 主进程 event loop 是否被同步 I/O、过大 JSON、压缩、diff 或文件遍历阻塞；
-- renderer 网络请求是否重复、串行、缺少在途合并或使用错误 TTL/失效范围；
-- IPC 是否传输过大、过频或重复序列化的数据；
-- Agent SSE 翻译、会话快照、artifact 扫描和持久化是否重复全量工作；
-- sidecar、worker、预览器、缓存和 object URL 是否有内存增长或泄漏；
-- 启动时是否加载当前路径不需要的大型模块，是否可以在不改变行为的前提下延迟加载；
-- 构建产物是否意外重复包含运行时依赖或平台二进制。
-
-性能 PR 必须给出同一环境、同一场景、同一数据规模下的 before/after。至少报告原始数据、汇总方式和功能正确性验证；一次偶然快照不能证明优化成立。
-
-### 阶段 5：状态与过度设计专项
-
-先给状态分类：
-
-- Source state：来自用户输入、服务端、主进程或持久化的事实；
-- Derived state：可以由 source state 纯计算得到；
-- Ephemeral UI state：展开、焦点、hover、临时弹窗等局部状态；
-- Process state：请求、流式任务、更新、权限等异步过程状态；
-- Cached state：为了性能保存、但必须有明确失效规则的数据。
-
-处理规则：
-
-1. Derived state 默认不另存一份，避免 effect 同步两份事实；
-2. Ephemeral UI state 放在最小共同所有者，不上提到全局；
-3. 服务端状态不与本地副本双向同步，除非明确定义编辑草稿和提交边界；
-4. 缓存必须说明 key、TTL、在途合并、失效、容量和账号/团队/session 隔离；
-5. Effect 用于外部副作用，不用于可以在 render、事件处理器或纯函数中完成的派生；
-6. Reducer 用于同一领域内多事件驱动的相关状态，不作为“文件太大”的通用解法；
-7. 状态机只在存在有限命名状态、明确事件、受约束转换，以及非法组合已经造成风险时使用；
-8. 不把整个页面塞进一个巨型状态机，也不把简单布尔 UI 包装成状态机框架；
-9. 删除抽象前先确认它不是进程、安全、平台、供应商或测试替身边界。
-
-状态重构必须列出重构前的非法组合或同步链，以及重构后的状态表/转换表。若不能指出减少了哪些非法状态或副作用，则不应实施。
-
-### 阶段 6：重复设计专项
-
-按三类处理重复：
-
-1. 规则重复：同一业务判断、错误映射、权限规则、状态转换在多处实现；优先级最高；
-2. 行为重复：多个 Hook/组件独立完成相同请求、缓存、提交流程或生命周期；
-3. 外观重复：相似 JSX、样式和文案；只有语义和演进方向一致时才共享。
-
-提取共享实现前回答：
-
-- 它们是否有相同业务不变量，还是只是现在长得相似？
-- 未来变化是否需要同步？
-- 共享层的正确归属是纯函数、domain model、Hook、组件、service 还是 vendored UI？
-- 新抽象是否减少调用方知识，还是只把条件参数集中成更复杂的万能组件？
-
-禁止建立由大量布尔参数驱动的万能组件、跨域 `utils.ts` 垃圾桶或只有一个调用方且没有测试价值的薄包装。允许保留有意重复：不同安全边界、平台实现、供应商适配或未来演进方向不同的代码。
-
-### 阶段 7：冗余文件、导出和依赖专项
-
-删除前必须完成“可达性证明”，至少检查：
-
-- TypeScript 静态 import/export 和入口文件；
-- 动态 import、字符串路径、Electron preload/worker/worklet、OpenCode 内嵌工具源码；
-- `package.json` scripts、Vite/Vitest/electron-builder 配置；
-- `.github/workflows`、scripts、resources、协议、图标、打包 extraResources；
-- 测试、文档、手工 smoke、发布和平台专属路径；
-- npm 包的运行时 `require`、peer dependency 和原生模块；
-- Git 历史中保留该文件的原因。
-
-删除按小批次单独提交，并运行全量质量门和 `npm run build`。涉及 UI、打包、平台资源或运行时动态加载时，还必须执行对应实机或打包验证。
-
-“当前搜索不到引用”不是充分证据。无法证明安全时，将条目标记为 `hypothesis`，不删除。
-
-### 阶段 8：排序和选择
-
-先处理以下强制优先项：
-
-- P0：安全/凭证泄露、数据损坏、不可恢复丢失、权限绕过、发布阻断；
-- P1：常见崩溃、核心流程错误、明显卡顿/泄漏、跨账号或跨团队污染；
-- P2：有证据的维护风险、重复规则、局部性能问题和高概率回归点；
-- P3：低影响清理、命名、文件布局和没有近期修改压力的复杂度。
-
-普通条目可用以下维度各 1–5 分辅助排序：
-
-- Impact：单次发生的影响；
-- Frequency：发生频率；
-- Reach：影响用户或代码路径范围；
-- Confidence：证据可信度；
-- Effort：实现和验证成本；
-- Change risk：修复本身引入回归的风险。
-
-排序参考值：`Impact × Frequency × Reach × Confidence ÷ (Effort + Change risk)`。该值只用于比较，不覆盖 P0/P1 安全和正确性判断。
-
-每轮最多选择 1–3 个相互独立、能够完整验证的条目。未选中的条目留在台账，不为“顺手做完”扩大 PR。
-
-### 阶段 9：实施闭环
-
-每个已选条目按以下顺序执行：
-
-1. 建立或确认失败证据；
-2. 先补最贴近根因层级的测试；
-3. 做满足目标的最小实现；
-4. 运行目标测试和相关域测试；
-5. 检查 diff，移除调试代码、无关格式化和偶然改动；
-6. 运行 `ts-check`、`lint`、`format`、`test` 和必要的 `build`；
-7. UI/运行态改动运行 `npm run dev` 实机验证并保留日志、截图或 trace 证据；
-8. 更新 finding 的 before/after、风险、验证和决策；
-9. 用英文提交；每个阶段完成后形成可独立回退的 commit；
-10. 推送临时分支并通过 PR 合入 `main`，合并后删除临时分支。
-
-退出条件：问题有证据、修复有验证、外部行为变化有说明、回滚边界清楚、全部门禁通过。
-
-### 阶段 10：复盘并固化
-
-PR 合并后判断问题为什么能进入代码库：
-
-- 缺少哪一层测试或运行态验证？
-- 文档、不变量或 API 是否表达不清？
-- CI 是否能以低误报、低维护成本阻止同类问题？
-- 是否需要增加诊断信息、性能预算或开发期断言？
-
-只固化能稳定捕捉同类问题的门禁。不要为单次问题堆叠脆弱 lint 规则、快照或全局抽象。
-
-## 6. 当前仓库的首次基线与调查起点
-
-2026-07-18 在当前工作区进行的只读基线结果：
-
-- `npm run ts-check`：通过；
-- `npm run lint`：通过；
-- `npm run format`：通过，检查 774 个文件；
-- `npm test`：232 个测试文件、1554 个测试全部通过；
-- `npm run build`：通过；Vite 对若干大 chunk 给出警告，应作为测量起点而不是直接拆包的结论；
-- `electron/`、`src/`、`scripts/` 下约 742 个 TypeScript/TSX 文件、约 134,496 行；
-- 只发现 1 个显式 TODO，位于消息反馈 API 的预留逻辑。
-
-这说明首次质量优化不应从“让现有门禁变绿”开始，而应从运行态证据、复杂数据流、边界条件和长期维护风险开始。
-
-以下文件可作为首轮调查入口，但不能仅因体积或 Hook 数量直接重构：
-
-- `electron/chat/node.ts`：约 1846 行，处于聊天编排和多类副作用边界；
-- `src/components/app-shell/AppShell.tsx`：约 1820 行，包含较多页面级状态和协调逻辑；
-- `electron/agent/manager.ts`：约 1168 行，管理 sidecar、session 和事件生命周期；
-- `src/hooks/useChat.ts`：约 1125 行，是 renderer 聊天状态和事件的重要边界；
-- `electron/session/node.ts`、`electron/skills/node.ts`、`src/routes/Skills/index.tsx`、`src/routes/Chat/TurnOutputs.tsx`：适合检查责任聚合、异步竞态和重复规则。
-
-推荐首轮只做审计，输出前 10 个有证据的 finding，不做大规模重构。优先场景：
-
-1. 长会话持续流式输出时的 renderer commit、long task 和内存增长；
-2. session/team/account 快速切换时的迟到异步结果；
-3. sidecar 重启、登出、停止任务和窗口退出时的订阅及资源释放；
-4. Connections/Skills/Billing 请求的在途合并、缓存隔离和定向失效；
-5. AppShell/useChat 中 source state、derived state 和 process state 的所有权；
-6. artifact 各预览器在不可见、切换和销毁时的加载与清理；
-7. package/build/runtime 文件可达性和重复打包，但明确保护 Univer 与钉死依赖。
-
-## 7. Agent 自主操作边界
-
-Agent 可以自主实施：
-
-- 有稳定复现和明确预期的 Bug 修复；
-- 有 before/after profile 的局部性能优化；
-- 保持行为、测试覆盖充分的小范围纯重构；
-- 已完成完整可达性证明的冗余代码清理；
-- 补充测试、诊断和文档。
-
-Agent 必须暂停并请求产品或架构决定：
-
-- 删除、替换或降级产品能力；
-- 改变权限、安全、凭证、数据保留或外链策略；
-- 改变用户可见交互、兼容行为或错误恢复语义但需求没有说明；
-- 引入新的状态机框架、全局状态库、缓存框架或大型依赖；
-- 大范围跨域重写、数据迁移、协议变更或公共契约变更；
-- 无法证明文件/依赖在运行态和打包态均不可达；
-- 验证需要真实账号、签名产物、特定平台或外部服务，但当前环境不具备条件。
-
-## 8. 可直接交给 Codex 的总提示词
+Record Node/npm versions, the Git commit, the platform, command results, and the number of tests.
+When the baseline fails, do not pass off pre-existing failures as this round's regression; register
+them first, then decide whether to fix them as a separate task.
+
+When UI or runtime is involved, additionally record:
+
+- Time from cold start to the main window becoming interactive, at least 5 runs, reporting the median
+  and the worst case;
+- Stable reproduction steps for the target page or interaction;
+- React Profiler, Chromium Performance trace, network panel, or process sampling evidence;
+- CPU/memory attribution for the main process, renderer, and sidecar respectively;
+- The account, data scale, session length, and build mode used for measurement, but never record
+  credentials.
+
+Exit condition: others can reproduce the same baseline from the record, and know the measurement
+error and environment differences.
+
+### Phase 2: Build a system map and audit per domain
+
+Investigate domain by domain along responsibility boundaries; do not randomly clean up by file
+extension or file length. Suggested order:
+
+1. Chat data flow: SSE events → main-process translation → IPC → renderer state → timeline/artifact
+   rendering;
+2. Agent lifecycle: sidecar start/stop, session, permission, tool calls, team switching;
+3. Auth and security boundaries: cookie/session token, login redirect, logout, expiry, and log
+   redaction;
+4. Connections/Skills/Billing request layer: caching, in-flight coalescing, invalidation, error
+   mapping, and races;
+5. App shell and page state: navigation, current session, panels, dialogs, drafts, and derived
+   state;
+6. Update, notification, Git, knowledge, and build/release paths;
+7. scripts, resources, CI, dependencies, and the packaging manifest.
+
+For each domain, first draw a text map of "single source of state/data → transformations →
+consumers → side effects → cleanup," then check for problems. The audit phase records findings only
+by default and does not make bulk modifications.
+
+Exit condition: important state and side effects have clear owners, and problems can be mapped to a
+responsibility boundary rather than merely pointing at one large file.
+
+### Phase 3: Bug focus
+
+Key checks:
+
+- Async races: an old request overwrites a new one; late responses write back after
+  team/account/session switches;
+- Lifecycle: subscriptions, timers, AbortController, listeners, workers, object URLs, sidecar, and
+  temporary resources not cleaned up;
+- Error paths: errors swallowed, loading never ending, cancellation treated as failure, failure
+  treated as success;
+- State recovery: restart, logout, token expiry, window hide/restore, system sleep/wake;
+- Boundary inputs: empty values, large files, long sessions, duplicate events, out-of-order events,
+  incomplete tool output;
+- Permission and security: the ask/reply loop, external-link protocols, sensitive paths, log
+  redaction, the renderer credential boundary;
+- Platform differences: paths, protocols, notifications, processes, and packaging behavior on
+  macOS, Windows, Linux;
+- Data consistency: cache invalidation, optimistic-update rollback, persistence atomicity, and
+  version compatibility.
+
+The fix order is fixed: stable reproduction → minimal failing test → root-cause fix → target test →
+related-domain tests → full quality gate → necessary real-app verification.
+
+If you cannot reproduce automatically, you must provide repeatable manual steps, diagnostic logs, or
+a trace; you may not claim a bug is fixed based on reading code alone.
+
+### Phase 4: Performance focus
+
+Determine the performance budget and scenario first, then profile. Do not add `useMemo`,
+`useCallback`, caching, virtualization, concurrency, or workers first and then look for a reason.
+
+#### Rendering performance
+
+Check:
+
+- When streaming tokens arrive, which components re-render, and whether it spreads to unrelated
+  sessions, the sidebar, artifacts, or the settings page;
+- Whether context values, selectors, or array/object derivations cause whole-tree invalidation;
+- Whether effects re-subscribe, re-request, or re-construct expensive objects due to unstable
+  dependencies;
+- Whether long sessions, images, PDF, DOCX, Mermaid, Shiki, and Univer previews are scheduled by
+  visibility;
+- Whether list keys, component boundaries, and cache lifecycles are correct;
+- Whether long tasks over 50 ms appear during user input, scrolling, and animation.
+
+Use memo only when profiling proves the benefit; the memo's comparison cost, invalidation frequency,
+and readability must be counted in the result. Do not trade a downgraded Univer feature for a
+performance number.
+
+#### Non-rendering performance
+
+Check:
+
+- Whether the main-process event loop is blocked by synchronous I/O, oversized JSON, compression,
+  diff, or file traversal;
+- Whether renderer network requests are duplicated, serialized, missing in-flight coalescing, or
+  using the wrong TTL/invalidation scope;
+- Whether IPC transfers data that is too large, too frequent, or repeatedly serialized;
+- Whether Agent SSE translation, session snapshots, artifact scanning, and persistence repeat full
+  work;
+- Whether the sidecar, workers, previewers, caches, and object URLs have memory growth or leaks;
+- Whether startup loads large modules not needed by the current route, and whether they can be
+  lazy-loaded without changing behavior;
+- Whether build artifacts unexpectedly include runtime dependencies or platform binaries more than
+  once.
+
+Performance PRs must give before/after under the same environment, same scenario, and same data
+scale. At minimum report the raw data, the aggregation method, and functional-correctness
+verification; a single lucky snapshot cannot prove an optimization holds.
+
+### Phase 5: State and over-engineering focus
+
+Classify state first:
+
+- Source state: facts from user input, the server, the main process, or persistence;
+- Derived state: can be purely computed from source state;
+- Ephemeral UI state: local state such as expansion, focus, hover, transient dialogs;
+- Process state: async process state such as requests, streaming tasks, updates, permissions;
+- Cached state: data kept for performance but that must have explicit invalidation rules.
+
+Handling rules:
+
+1. Do not keep a second copy of derived state by default, to avoid an effect synchronizing two
+   facts;
+2. Put ephemeral UI state in the smallest common owner; do not lift it to global;
+3. Do not two-way sync server state with a local copy unless the edit-draft and commit boundaries
+   are explicitly defined;
+4. A cache must state its key, TTL, in-flight coalescing, invalidation, capacity, and
+   account/team/session isolation;
+5. Use effects for external side effects, not for derivations that can be done in render, event
+   handlers, or pure functions;
+6. Use a reducer for related state driven by multiple events within one domain, not as a general
+   remedy for "the file is too big";
+7. Use a state machine only when there are finite named states, explicit events, constrained
+   transitions, and illegal combinations already pose a risk;
+8. Do not cram an entire page into one giant state machine, and do not wrap simple boolean UI into a
+   state-machine framework;
+9. Before deleting an abstraction, confirm it is not a process, security, platform, vendor, or
+   test-double boundary.
+
+State refactors must list the illegal combinations or synchronization chains before the refactor,
+and the state table/transition table after. If you cannot point out which illegal states or side
+effects were reduced, do not proceed.
+
+### Phase 6: Duplication focus
+
+Handle duplication in three categories:
+
+1. Rule duplication: the same business decision, error mapping, permission rule, or state transition
+   implemented in multiple places; highest priority;
+2. Behavior duplication: multiple hooks/components independently doing the same request, caching,
+   submission flow, or lifecycle;
+3. Appearance duplication: similar JSX, styles, and copy; share only when the semantics and
+   evolution direction are consistent.
+
+Before extracting a shared implementation, answer:
+
+- Do they share the same business invariant, or do they just look similar now?
+- Will future changes need to be synchronized?
+- Is the correct home for the shared layer a pure function, domain model, hook, component, service,
+  or vendored UI?
+- Does the new abstraction reduce caller knowledge, or does it just concentrate conditionals into a
+  more complex do-everything component?
+
+Do not build do-everything components driven by many boolean parameters, a cross-domain `utils.ts`
+junk drawer, or a thin wrapper with a single caller and no test value. Intentional duplication is
+allowed: code with different security boundaries, platform implementations, vendor adapters, or
+diverging future evolution.
+
+### Phase 7: Redundant files, exports, and dependencies focus
+
+Before deletion you must complete a "reachability proof," checking at least:
+
+- TypeScript static import/export and entry files;
+- Dynamic imports, string paths, Electron preload/worker/worklet, OpenCode embedded tool source;
+- `package.json` scripts, Vite/Vitest/electron-builder config;
+- `.github/workflows`, scripts, resources, protocols, icons, packaging extraResources;
+- Tests, docs, manual smoke, release, and platform-specific paths;
+- npm packages' runtime `require`, peer dependencies, and native modules;
+- The reason the file is kept in Git history.
+
+Delete in small batches committed separately, and run the full quality gate and `npm run build`.
+When UI, packaging, platform resources, or runtime dynamic loading are involved, you must also
+perform the corresponding real-app or packaging verification.
+
+"No reference found by the current search" is not sufficient evidence. When you cannot prove it is
+safe, mark the item `hypothesis` and do not delete it.
+
+### Phase 8: Prioritization and selection
+
+Handle the following mandatory priorities first:
+
+- P0: security/credential leak, data corruption, unrecoverable loss, permission bypass, release
+  blocker;
+- P1: common crashes, core-flow errors, obvious stalls/leaks, cross-account or cross-team
+  contamination;
+- P2: evidenced maintenance risk, duplicate rules, local performance problems, and high-probability
+  regression points;
+- P3: low-impact cleanup, naming, file layout, and complexity with no near-term pressure to change.
+
+Ordinary items can be sorted with the following dimensions, each scored 1–5:
+
+- Impact: the impact of a single occurrence;
+- Frequency: how often it occurs;
+- Reach: the range of users or code paths affected;
+- Confidence: the credibility of the evidence;
+- Effort: implementation and verification cost;
+- Change risk: the risk that the fix itself introduces a regression.
+
+Ordering reference value: `Impact × Frequency × Reach × Confidence ÷ (Effort + Change risk)`. This
+value is only for comparison and does not override P0/P1 security and correctness judgments.
+
+Select at most 1–3 mutually independent items that can be fully verified per round. Leave unselected
+items in the ledger; do not expand the PR to "finish them while you're at it."
+
+### Phase 9: Implementation loop
+
+Execute each selected item in this order:
+
+1. Establish or confirm the failing evidence;
+2. Add the test closest to the root-cause level first;
+3. Do the minimal implementation that meets the target;
+4. Run the target test and related-domain tests;
+5. Review the diff; remove debug code, unrelated formatting, and incidental changes;
+6. Run `ts-check`, `lint`, `format`, `test`, and the necessary `build`;
+7. For UI/runtime changes, run `npm run dev` for real-app verification and keep logs, screenshots,
+   or trace evidence;
+8. Update the finding's before/after, risk, verification, and decision;
+9. Commit in English; form an independently rollback-able commit after each phase completes;
+10. Push the temporary branch and merge into `main` via PR; delete the temporary branch after merge.
+
+Exit condition: the problem has evidence, the fix has verification, external behavior changes are
+documented, the rollback boundary is clear, and all gates pass.
+
+### Phase 10: Retrospective and hardening
+
+After the PR merges, determine why the problem entered the codebase:
+
+- Which layer of test or runtime verification was missing?
+- Are docs, invariants, or the API unclear?
+- Can CI block the same class of problem at low false-positive and low-maintenance cost?
+- Do we need to add diagnostics, a performance budget, or dev-time assertions?
+
+Only harden gates that stably catch the same class of problem. Do not stack fragile lint rules,
+snapshots, or global abstractions for a one-off problem.
+
+## 6. This repository's first baseline and investigation starting point
+
+Read-only baseline results from 2026-07-18 in the current workspace:
+
+- `npm run ts-check`: passing;
+- `npm run lint`: passing;
+- `npm run format`: passing, 774 files checked;
+- `npm test`: 232 test files, 1554 tests, all passing;
+- `npm run build`: passing; Vite warns about several large chunks, which should be a measurement
+  starting point rather than a direct conclusion to split bundles;
+- About 742 TypeScript/TSX files under `electron/`, `src/`, `scripts/`, totaling about 134,496 lines;
+- Only 1 explicit TODO found, in reserved logic of the message-feedback API.
+
+This shows that the first quality-improvement pass should not start from "making existing gates
+green," but from runtime evidence, complex data flows, boundary conditions, and long-term
+maintenance risk.
+
+The following files can serve as first-round investigation entry points, but must not be refactored
+directly just because of their size or hook count:
+
+- `electron/chat/node.ts`: about 1846 lines, sits at the chat-orchestration and multi-kind
+  side-effect boundary;
+- `src/components/app-shell/AppShell.tsx`: about 1820 lines, contains a lot of page-level state and
+  coordination logic;
+- `electron/agent/manager.ts`: about 1168 lines, manages sidecar, session, and event lifecycles;
+- `src/hooks/useChat.ts`: about 1125 lines, an important boundary for renderer chat state and events;
+- `electron/session/node.ts`, `electron/skills/node.ts`, `src/routes/Skills/index.tsx`,
+  `src/routes/Chat/TurnOutputs.tsx`: suitable for checking responsibility aggregation, async races,
+  and duplicate rules.
+
+We recommend the first round do audit only, output the top 10 evidenced findings, and do no
+large-scale refactor. Priority scenarios:
+
+1. Renderer commits, long tasks, and memory growth during continuous streaming output in long
+   sessions;
+2. Late async results when switching session/team/account quickly;
+3. Subscription and resource release on sidecar restart, logout, task stop, and window exit;
+4. In-flight coalescing, cache isolation, and targeted invalidation for Connections/Skills/Billing
+   requests;
+5. Ownership of source state, derived state, and process state in AppShell/useChat;
+6. Loading and cleanup of each artifact previewer when invisible, switching, and being destroyed;
+7. package/build/runtime file reachability and duplicate packaging, while explicitly protecting
+   Univer and the pinned dependencies.
+
+## 7. Agent autonomy boundaries
+
+The agent may implement autonomously:
+
+- Bug fixes with stable reproduction and a clear expected result;
+- Local performance optimizations with before/after profiles;
+- Small-scope pure refactors that preserve behavior and have sufficient test coverage;
+- Redundant-code cleanup for which a full reachability proof is complete;
+- Adding tests, diagnostics, and docs.
+
+The agent must pause and request a product or architecture decision to:
+
+- Delete, replace, or downgrade a product capability;
+- Change permission, security, credential, data-retention, or external-link policy;
+- Change user-visible interaction, compatibility behavior, or error-recovery semantics when the
+  requirement does not specify it;
+- Introduce a new state-machine framework, global state library, cache framework, or large
+  dependency;
+- Do a wide cross-domain rewrite, data migration, protocol change, or public-contract change;
+- When it cannot prove a file/dependency is unreachable in both runtime and packaged form;
+- When verification needs a real account, signed artifact, specific platform, or external service
+  that the current environment does not have.
+
+## 8. Master prompt to hand directly to Codex
 
 ```text
-你正在 Wanta 仓库执行一次证据驱动的质量优化循环。
+You are running an evidence-driven quality-improvement loop in the Wanta repository.
 
-先完整阅读 AGENTS.md，并按任务范围阅读 docs/architecture.md、
-docs/conventions.md、docs/development.md、docs/key-decisions.md；涉及请求缓存时还要阅读
-docs/network-request-caching.md。严格保留其中全部安全、权限、版本和 Univer 产品边界。
+First read the root guide in full, and read docs/architecture.md,
+docs/conventions.md, docs/development.md, docs/key-decisions.md according to the task scope; when
+request caching is involved, also read docs/network-request-caching.md. Strictly preserve all the
+security, permission, version, and Univer product boundaries in them.
 
-本轮先审计，除非我明确指定了已确认问题，否则不要立刻做大范围重构。
+This round, audit first; unless I have explicitly named a confirmed problem, do not immediately do a
+wide refactor.
 
-执行流程：
-1. 检查 Git 状态和当前分支，不覆盖用户改动。
-2. 运行并记录 ts-check、lint、format、test、build 基线。
-3. 为指定领域画出数据/状态来源、转换、消费者、副作用和清理路径。
-4. 从 bug、performance、state、duplication、dead-code 五类调查，但把静态信号只当假设。
-5. 每个 finding 给出复现或测量证据、用户影响、根因可信度、修改边界、风险、验证方法和优先级。
-6. 输出优先级最高的 10 个 finding；证据不足的标记 hypothesis，不得写成 confirmed。
-7. 只选择 1–3 个有完整验证闭环的条目实施。每个条目先建立失败证据或 before 指标，再做最小修复。
-8. 禁止顺手升级依赖、全局格式化、引入万能抽象、盲目 memo、整域重写或仅凭无静态引用删除文件。
-9. 改动后运行目标测试、相关域测试、ts-check、lint、format、test 和必要的 build；UI/运行态改动必须 npm run dev 实机验证。
-10. 汇报 changed files、before/after、全部验证结果、未验证风险和建议的下一轮任务。
+Execution flow:
+1. Check the Git status and current branch; do not overwrite the user's changes.
+2. Run and record the ts-check, lint, format, test, build baseline.
+3. For the given domain, draw the data/state sources, transformations, consumers, side effects, and cleanup paths.
+4. Investigate the five categories bug, performance, state, duplication, dead-code, but treat static signals only as hypotheses.
+5. For each finding, give reproduction or measurement evidence, user impact, root-cause confidence, change boundary, risk, verification method, and priority.
+6. Output the top 10 findings by priority; mark those with insufficient evidence as hypothesis, never write them as confirmed.
+7. Select only 1-3 items with a complete verification loop to implement. For each item, establish failing evidence or a before metric first, then do the minimal fix.
+8. Do not upgrade dependencies on the side, format globally, introduce do-everything abstractions, memoize blindly, rewrite whole domains, or delete files based only on the absence of static references.
+9. After changes, run the target test, related-domain tests, ts-check, lint, format, test, and the necessary build; UI/runtime changes must be verified in the real app with npm run dev.
+10. Report changed files, before/after, all verification results, unverified risks, and suggested next-round tasks.
 
-完成标准不是“代码更简洁”，而是一个有证据的问题已经消失、回归保护已经建立，且既有能力没有退化。
+The completion criterion is not "the code is cleaner," but that one evidenced problem has disappeared, regression protection has been established, and existing capabilities have not regressed.
 ```
 
-## 9. 单条优化任务提示词
+## 9. Single-task prompt
 
 ```text
-处理 finding <ID>，不要扩大到其他清理。
+Work on finding <ID>; do not expand to other cleanups.
 
-开始前：
-- 复核 finding 的证据和当前代码是否仍成立；
-- 列出本任务不变量和允许修改的责任边界；
-- 如果工作区有用户改动，先避让；
-- 如果需要产品、权限、安全或架构决定，停止并说明。
+Before starting:
+- Re-check whether the finding's evidence and current code still hold;
+- List this task's invariants and the responsibility boundary allowed to change;
+- If the workspace has user changes, get out of the way first;
+- If a product, permission, security, or architecture decision is needed, stop and explain.
 
-实施时：
-- Bug：先补修复前失败的回归测试；
-- 性能：先用相同场景记录 before，再用相同方法测 after；
-- 状态：列出删除的重复事实、非法组合或 effect 同步链；
-- 去重：证明共享的是业务不变量，不只是相似代码；
-- 删除：给出静态、动态、构建、CI、资源和运行时可达性证明。
+While implementing:
+- Bug: add a regression test that fails before the fix first;
+- Performance: record before with the same scenario first, then measure after with the same method;
+- State: list the duplicate facts, illegal combinations, or effect synchronization chains removed;
+- De-duplication: prove that what is shared is a business invariant, not just similar code;
+- Deletion: give static, dynamic, build, CI, resource, and runtime reachability proofs.
 
-只做最小修复，保留外部行为。完成后运行目标测试、相关测试、四项质量门和必要的 build/dev 验证。
-最终汇报根因、改动、before/after、测试、运行态证据、风险和回滚方式。
+Do only the minimal fix and preserve external behavior. When done, run the target test, related tests, the four quality gates, and the necessary build/dev verification.
+Finally report the root cause, changes, before/after, tests, runtime evidence, risk, and rollback method.
 ```
 
-## 10. Review 检查清单
+## 10. Review checklist
 
-Reviewer 或第二个 Agent 应独立回答：
+The reviewer or a second agent should independently answer:
 
-- 问题证据是否可以复现，还是只有主观代码偏好？
-- 根因与改动层级是否匹配？
-- 是否有更小、更安全的修复？
-- 测试是否会在旧实现上失败，是否只测试了实现细节？
-- 性能数据是否同环境、同场景、同规模，是否包含误差？
-- 是否新增重复状态、隐藏副作用、无界缓存、泄漏或竞态？
-- 是否误删动态/构建/平台路径，或破坏 Univer、权限、凭证、endpoint、版本钉死等边界？
-- PR 是否混入无关格式化、升级、重命名或目录迁移？
-- 是否真实运行了仓库要求的全部门禁和必要实机验证？
-- finding 是否记录了结论，避免后续重复调查？
+- Is the problem's evidence reproducible, or is it only a subjective code preference?
+- Do the root cause and the change's level match?
+- Is there a smaller, safer fix?
+- Would the test fail against the old implementation, and does it test only implementation details?
+- Is the performance data same-environment, same-scenario, same-scale, and does it include error
+  margins?
+- Does it add duplicate state, hidden side effects, an unbounded cache, a leak, or a race?
+- Does it wrongly delete a dynamic/build/platform path, or break boundaries such as Univer,
+  permissions, credentials, endpoint, or pinned versions?
+- Does the PR mix in unrelated formatting, upgrades, renames, or directory moves?
+- Did it actually run all gates the repo requires and the necessary real-app verification?
+- Does the finding record its conclusion to avoid later re-investigation?
 
-只有以上问题都有明确答案，优化任务才算完成。
+Only when all the above questions have clear answers is the optimization task complete.

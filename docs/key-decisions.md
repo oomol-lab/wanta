@@ -1,92 +1,349 @@
-# 决策日志：背景 → 决策 → 理由 → 后果
+# Decision log: background → decision → rationale → consequences
 
-> 来源：开发会话记录 + 当前代码核验。只收录改变方向的重大决策，按主题组织——**这不是 changelog**：不写 commit hash（需要时用 `git log` 按主题检索），不要随新 commit 逐条追加。相关：[architecture.md](architecture.md) · [project-overview.md](project-overview.md)
+> Source: development session records + verification against current code. Only major
+> direction-changing decisions are recorded, organized by topic — **this is not a changelog**: no
+> commit hashes (use `git log` to search by topic when needed), and do not append entries for each
+> new commit. Related: [architecture.md](architecture.md) · [project-overview.md](project-overview.md)
 
-## 1. 工程化整体镜像 oo-desktop
+## 1. Engineering mirrors oo-desktop wholesale
 
-- **背景**：从零建 Electron 仓库，OOMOL 已有成熟的 oo-desktop。
-- **决策**：新建独立仓库（不 fork），但 vite/electron/tsconfig/oxlint/oxfmt/打包/签名/CI/postinstall（download-electron）/IPC 服务划分（`@oomol/connection` + common.ts/node.ts）/前端栈（React 19 + shadcn + Tailwind 4）全部复刻 oo-desktop。
-- **理由**：两 App UI 不割裂、维护成本共摊、CI secrets 名可直接照搬（`MACOS_CERTIFICATE` / `APPLEID` 等）。
-- **后果**：架构高度可预测；但 oo-desktop 的坑会同步引入（如 `open-url` 冷启动 bug，见 §4），且有刻意不照抄的点：connector 鉴权头用 `Bearer`（不带 `x-oomol-user-uuid`）、i18n 自建轻量实现而非 `@embra/i18n`。
+- **Background**: building an Electron repo from scratch, while OOMOL already had a mature
+  oo-desktop.
+- **Decision**: create a standalone repo (not a fork), but replicate oo-desktop entirely for
+  vite/electron/tsconfig/oxlint/oxfmt/packaging/signing/CI/postinstall (download-electron)/IPC
+  service split (`@oomol/connection` + common.ts/node.ts)/frontend stack (React 19 + shadcn +
+  Tailwind 4).
+- **Rationale**: the two apps' UI stays coherent, maintenance cost is shared, and CI secret names
+  carry over directly (`MACOS_CERTIFICATE` / `APPLEID`, etc.).
+- **Consequences**: highly predictable architecture; but oo-desktop's pitfalls come along with it
+  (e.g. the `open-url` cold-start bug, see §4), and there are deliberate divergences: the connector
+  auth header uses `Bearer` (without `x-oomol-user-uuid`), and i18n is a lightweight in-house
+  implementation instead of `@embra/i18n`.
 
-## 2. Agent 内核 = OpenCode 本地 sidecar
+## 2. Agent kernel = OpenCode local sidecar
 
-- **背景**：调研对比五种模式：云端 loop+薄客户端、本地 sidecar server（OpenCode）、Pi 进程内嵌、AI SDK 薄循环、stdio/ACP。云端 loop 评分最高但被用户否决（不想承担云端运维、要快出 POC）；Claude Agent SDK 被用户明确排除；Pi 落选主因是审批/权限层需全自建且 0.x 破坏性迭代。
-- **决策**：spawn 已发布二进制 `opencode-ai@1.17.13` 作 sidecar，主进程经 `@opencode-ai/sdk@1.17.13` HTTP+SSE 驱动；纯配置定制（自定义 agent prompt 整段替换 + `.opencode/tools/` 自定义工具），零源码改动。**不用 SDK 的 `createOpencodeServer`** 而是自己 spawn：后者不允许控制二进制路径/env/cwd，且生产打包时 opencode-ai 不在 node_modules（二进制走 extraResources）。
-- **理由**：OpenCode 内置权限模型 + 会话基建 + 公司化维护；import 库不可行（调研时 server 相关包全 private，`opencode-ai` 是纯 bin 包）；vendor monorepo 维护负担大（2026-05 调研时上游约 41 commits/天、无 API 兼容承诺）。
-- **后果**：三包版本钉死 `1.17.13` 禁止浮动；sidecar 须隔离目录（`XDG_*` 指向 userData，否则读全局 `~/.config/opencode` 泄漏本机配置）；默认系统提示按模型 ID 选（编码人格），必须用 agent `prompt` 字段整段替换。
+- **Background**: research compared five modes: cloud loop + thin client, local sidecar server
+  (OpenCode), Pi embedded in-process, AI SDK thin loop, stdio/ACP. The cloud loop scored highest
+  but was vetoed by the user (no appetite for cloud operations, wanted a fast POC); the Claude
+  Agent SDK was explicitly ruled out by the user; Pi lost mainly because the approval/permission
+  layer would have to be built entirely from scratch, plus its 0.x breaking iteration.
+- **Decision**: spawn the published binary `opencode-ai@1.17.13` as a sidecar; the main process
+  drives it via `@opencode-ai/sdk@1.17.13` over HTTP+SSE; pure-configuration customization
+  (full replacement of the custom agent prompt + `.opencode/tools/` custom tools), zero source
+  modifications. **Do not use the SDK's `createOpencodeServer`** — spawn it ourselves: the former
+  allows no control over binary path/env/cwd, and in production packaging opencode-ai is not in
+  node_modules (the binary ships via extraResources).
+- **Rationale**: OpenCode brings a built-in permission model + session infrastructure +
+  company-backed maintenance; importing it as a library was not viable (at research time all
+  server-related packages were private; `opencode-ai` is a pure bin package); vendoring the
+  monorepo carried a heavy maintenance burden (~41 commits/day upstream at the 2026-05 research,
+  with no API compatibility promise).
+- **Consequences**: the three packages are pinned at `1.17.13`, floating forbidden; the sidecar
+  must run in isolated directories (`XDG_*` pointed at userData, otherwise it reads the global
+  `~/.config/opencode` and leaks local machine config); the default system prompt is selected by
+  model ID (a coding persona), so it must be fully replaced via the agent `prompt` field.
 
-## 3. 连接器调用全经内置 oo 二进制
+## 3. Connector calls all go through the bundled oo binary
 
-- **背景**：oo-cli 跑在 Bun 上、约 30 个源文件深耦合 Bun 专有 API，无法 import 进 Node/Electron。
-- **决策**：electron-builder `extraResources` 内置平台二进制；只经 `OO_*` 环境变量控制（R3）；授权信号走结构化工具结果（R5）：`call_action` 解析 stderr 的 `errorCode: <code>` token，命中授权阻断码时返回 `{status:"authorization_required", authUrl}`，**不解析模型自由文本**。
-- **理由（连接器暴露策略，调研结论）**：把约 600 个 provider 全量注册成工具是死路——工具数超过 30–50 个时模型选择准确率显著下降；故选"只注入已授权存在性提示（R4，默认不列具体 provider 名）+ list/search/inspect/call 元工具渐进披露"的混合方案，**不要重新提议按 provider 生成工具或全量注册**。
-- **后果**：oo-cli 1.2.0 须先实现全套 `OO_*` 变量（曾是未声明硬前置，后上游发版补齐——此行为系 oo-cli 1.2.0 实测 + 上游发版记录，oo 是黑盒二进制、本仓库无法复核，升级 oo 时需重新验证）；`OO_SKILLS_SYNC_DISABLED=1` 必须设置否则 oo 每次运行写用户家目录（`~/.claude`、`~/.agents` 等，1.2.0 实测）。
-- **可靠性补充**：Link action 不能把模型自由填写的展示名当连接定位符；显式 `connectionName` 必须先由当前 workspace 的连接清单验证。批量同目标 action 在 `call_action` 内先 canary、再有限并发，命中授权阻断后短期熔断排队调用。聊天层按连接问题聚合 CTA；若同一连接目标本轮先成功、后返回授权错误，产品语义是“连接变为不可用或 connector 状态不一致”，不能直接断言用户从未授权。
+- **Background**: oo-cli runs on Bun, with ~30 source files deeply coupled to Bun-only APIs, and
+  cannot be imported into Node/Electron.
+- **Decision**: bundle the platform binary via electron-builder `extraResources`; control it solely
+  through `OO_*` environment variables (R3); authorization signaling uses structured tool results
+  (R5): `call_action` parses the `errorCode: <code>` token from stderr, and on an
+  authorization-blocking code returns `{status:"authorization_required", authUrl}` — **never parse
+  the model's free text**.
+- **Rationale (connector exposure strategy, research conclusion)**: registering all ~600 providers
+  as tools is a dead end — model tool-selection accuracy drops significantly beyond 30–50 tools;
+  hence the hybrid approach of "inject only an authorized-existence hint (R4, no specific provider
+  names by default) + list/search/inspect/call meta-tools for progressive disclosure" — **do not
+  re-propose per-provider tool generation or full registration**.
+- **Consequences**: oo-cli 1.2.0 had to implement the full `OO_*` variable set first (once an
+  undeclared hard precondition, later closed by an upstream release — this behavior comes from
+  oo-cli 1.2.0 live testing + upstream release records; oo is a black-box binary this repo cannot
+  re-verify, so re-validate on every oo upgrade); `OO_SKILLS_SYNC_DISABLED=1` must be set or oo
+  writes to the user's home directory on every run (`~/.claude`, `~/.agents`, etc., verified on
+  1.2.0).
+- **Reliability addendum**: the Link action must not treat a model-typed display name as a
+  connection locator; an explicit `connectionName` must first be validated against the current
+  workspace's connection list. For batches of same-target actions, `call_action` runs a canary
+  first, then bounded concurrency, and applies a short-term circuit breaker to queued calls after
+  hitting an authorization block. The chat layer aggregates CTAs by connection issue; if the same
+  connection target succeeded earlier in the turn and later returns an authorization error, the
+  product semantics are "the connection became unavailable or connector state is inconsistent" —
+  do not assert the user never authorized.
+- **Later evolution (bundled tool runtime)**: the custom tool sources now import
+  `"../runtime/tool.js"` instead of depending on `@opencode-ai/plugin` directly — postinstall's
+  `scripts/build-agent-tool-runtime.ts` uses rolldown to bundle the tool helper + Zod into
+  `resources/agent-tool-runtime/tool.js` (entry `scripts/agent-tool-runtime-entry.ts` merely
+  re-exports `@opencode-ai/plugin/tool`), and `workspace.ts` atomically places it at
+  `<workspace>/.opencode/runtime/tool.js`, so tool loading no longer depends on OpenCode installing
+  npm packages from the network on first start.
 
-## 4. 登录流修正：OO_API_KEY env → 浏览器登录
+## 4. Login flow correction: OO_API_KEY env → browser login
 
-- **背景（错在哪）**：原实现启动时直接读 `process.env["OO_API_KEY"]`，无该变量时 App 打开后什么都用不了，且无登录入口——对最终用户不可用。
-- **决策**：改为浏览器登录流（console launcher → deep-link 回跳 → authID 换 `oomol-token` 会话 token → profile 落盘 `auth.json` → `applyAuthAccount` 动态装配 agent）。完整 5 步与凭证细节见 [architecture.md §6](architecture.md)（现行流程的唯一权威描述）。
-- **后续修订（凭证统一为会话 token）**：原方案曾用会话 token 再换取**长期 default-api-key** 落盘并喂给 agent/连接器，仅账单用会话 token——导致会话过期时"聊天能用、用量看不了"的割裂，且长期 key 落盘不安全。现已改为**全程只用会话 token**（网关层统一接受 cookie/token/api-key），不再获取或落盘 api-key；token 失效即全局未登录、需重新登录（一致生命周期）。`auth.json` 只存 profile。
-- **理由**：流程与 oo-desktop 完全一致（仅协议名不同），复用已验证的模式。
-- **后果（多 agent 对抗审查确认 13 个问题并修复，要点）**：
-  - macOS 冷启动丢登录回调：`open-url` 在 ready 前派发且无缓冲 → 监听提前到模块顶层注册（oo-desktop 上游同 bug 未修）。
-  - 登录 CSRF：任意本地程序可推伪造 authID 的 deep link 静默换号 → 非本应用发起（无 pending）的回调须系统对话框确认。
-  - RPC 凭证泄露：`@oomol/connection` 注册即全公开 → 凭证逻辑移入**未注册**的 `AuthManager`，只注册薄门面。
-  - 装配竞态 → 统一走 `applyChain` 串行 + 同凭证幂等短路。
-  - 已知限制（当时明确"不修、仅记录"的已接受取舍）：
-    - 聊天记录存固定 `userData/agent`，多账号共用一份会话历史（换号时 AppShell 整树重挂载只重置 UI 状态，**不隔离会话存储**）。
-    - agent 启动失败时 UI 停在「Agent 启动中…」无重试按钮（可重新登录恢复；失败已不留僵尸状态）。
+- **Background (what was wrong)**: the original implementation read `process.env["OO_API_KEY"]` at
+  startup; without that variable the app opened but nothing worked, and there was no login entry —
+  unusable for end users.
+- **Decision**: switch to a browser login flow (console launcher → deep-link return → authID
+  exchanged for the `oomol-token` session token → profile persisted to `auth.json` →
+  `applyAuthAccount` dynamically assembles the agent). Full 5 steps and credential details:
+  [architecture.md §6](architecture.md) (the single authoritative description of the current flow).
+- **Follow-up revision (credentials unified on the session token)**: the original scheme used the
+  session token to fetch a **long-lived default-api-key**, persisted it, and fed it to the
+  agent/connectors, with only billing on the session token — producing a split where "chat works
+  but usage is unavailable" when the session expired, plus the insecurity of a long-lived key on
+  disk. Now the **session token is used throughout** (the gateway layer accepts
+  cookie/token/api-key uniformly); no api-key is fetched or persisted anymore; token expiry means
+  globally logged out and requires re-login (a consistent lifecycle). `auth.json` stores only the
+  profile.
+- **Rationale**: the flow is identical to oo-desktop (only the scheme name differs), reusing a
+  proven pattern.
+- **Consequences (multi-agent adversarial review confirmed 13 issues, all fixed; highlights)**:
+  - macOS cold-start losing the login callback: `open-url` fires before ready with no buffering →
+    listener registration moved up to module top level (same bug unfixed upstream in oo-desktop).
+  - Login CSRF: any local program can push a deep link with a forged authID to silently switch
+    accounts → because the launcher returns no verifiable state/nonce, **every** browser login
+    callback — including app-initiated ones with a pending login — must confirm the account
+    identity via a system dialog; canceling the confirmation rejects the pending login.
+  - RPC credential leak: `@oomol/connection` registration exposes everything → credential logic
+    moved into the **unregistered** `AuthManager`; only a thin facade is registered.
+  - Assembly race → everything goes through `applyChain` serialization + same-credential
+    idempotent short-circuit.
+  - Known limitations (accepted tradeoffs explicitly marked "not fixing, record only" at the time):
+    - Chat history lives in a fixed `userData/agent`; multiple accounts share one session history
+      (on account switch the AppShell remounts the whole tree, which only resets UI state — it
+      **does not isolate session storage**).
+    - When agent startup fails, the UI stays at "Agent starting…" with no retry button
+      (recoverable via re-login; failures no longer leave zombie state).
 
-## 5. 移除动态 endpoint 切换
+## 5. Removing dynamic endpoint switching
 
-- **背景**：阶段 5 实现了运行时切换 oomol.com/oomol.dev，但业务上不存在切换需求，且引入大量竞态处理代码；另有硬约束：**对外分发产物 grep 不到 `oomol.dev`**（防泄漏内部开发域名）。
-- **决策**：endpoint 改为 vite `define` 编译期常量 `__OO_ENDPOINT__`，`electron/domain.ts` 折叠为单常量 + 模板字符串派生全部 base URL；App 层不可见不可切换。`resolveOoEndpoint` 优先级：显式 `WANTA_ENDPOINT` 环境变量（**任何模式都生效，含 build**）> 仅 dev/serve 读 `.env(.local)`（**build 刻意不读文件**——被忽略的只是 `.env` 文件，不是环境变量）> 缺省 `oomol.com`。测试同步从 `node --test` 迁到 vitest（原生套用 vite define，免运行时注入 hack）。
-- **理由 / 教训**：第二轮改 loadEnv 时曾引入回归——本机 `.env.local=oomol.dev` 跑 build 会把 dev 域名打进产物（对抗审查抓到），最终修复是"build 不读文件"这一更根本的不变式，而非 CI grep 守卫。
-- **后果**：删除约 15 个文件中的切换抽象（`setEndpoint` / `reconfigure` / `supportedEndpoints` 等）；`auth/store.ts` 加 `migrateLegacyAccounts()` 丢弃与当前构建 endpoint 不符的历史账号；`oomol.dev` 字面量在**代码与配置**中仅允许出现在不进包的三处（vite.config.ts 注释、.env.example、store.test.ts）；文档（docs/ 与根指南）不在此限，若加 grep 守卫应排除文档。
+- **Background**: phase 5 implemented runtime switching between oomol.com/oomol.dev, but the
+  business has no switching need, and it introduced a lot of race-handling code; there is also a
+  hard constraint: **externally distributed artifacts must not grep `oomol.dev`** (prevents
+  leaking the internal development domain).
+- **Decision**: the endpoint became the vite `define` compile-time constant `__OO_ENDPOINT__`;
+  `electron/domain.ts` collapsed to a single constant + template-string derivation of all base
+  URLs; invisible and unswitchable at the app layer. `resolveOoEndpoint` priority: explicit
+  `WANTA_ENDPOINT` environment variable (**effective in every mode, including build**) >
+  `.env(.local)` read only in dev/serve (**build deliberately reads no files** — what gets ignored
+  is only `.env` files, not environment variables) > default `oomol.com`. Tests were migrated from
+  `node --test` to vitest in the same change (native vite define support, no runtime injection
+  hack).
+- **Rationale / lesson**: a second-round loadEnv change once introduced a regression — a local
+  `.env.local=oomol.dev` running build would bake the dev domain into the artifact (caught by
+  adversarial review); the final fix was the more fundamental invariant "build reads no files",
+  not a CI grep guard.
+- **Consequences**: removed the switching abstraction across ~15 files (`setEndpoint` /
+  `reconfigure` / `supportedEndpoints`, etc.); `auth/store.ts` gained `migrateLegacyAccounts()`,
+  which drops historical accounts that don't match the current build endpoint; the `oomol.dev`
+  literal is allowed in **code and config** only in three places that never ship
+  (a vite.config.ts comment, .env.example, store.test.ts); documentation is exempt (docs/ and the
+  root guide — AGENTS.md / CLAUDE.md, one file under two names via symlink), so a grep guard, if
+  added, should exclude docs.
 
-## 6. oo CLI 调用失败修复：node_modules 二进制 → `.oo-bin/` 自管理
+## 6. oo CLI invocation failure fix: node_modules binary → self-managed `.oo-bin/`
 
-- **背景（根因）**：agent 调连接器工具报 `spawn .../oo EACCES`。上游 `@oomol-lab/oo-cli-*` 平台包 tarball 内 `bin/oo` 本身就是 0644（发布时没带 +x）；dev 下 `which oo` 命中 `node_modules/.bin` 的 wrapper，wrapper spawn 无执行位的二进制 → EACCES。生产一直正常是因为 `prepare-binaries.ts` 复制时 chmod 0755——纯 dev 问题。
-- **决策**：移除 `@oomol-lab/oo-cli` npm 依赖；`scripts/oo-cli.ts` 的 `OO_CLI_VERSION` 为当前版本的单一来源，并集中维护平台/libc 映射、自写 ustar 提取器、npm packument `dist.integrity` sha512 校验、原子落位与 `chmod 0o755`。postinstall（`scripts/download-oo.ts`，best-effort）下载到 gitignore 的 `.oo-bin/`，dev 与打包共用。dev 解析顺序：`WANTA_OO_BIN` 覆盖 > `.oo-bin/oo`，删除 `which oo`。opencode 来源同步改为 `node_modules/opencode-ai/bin/opencode.exe`（修复既存的 Windows 包名错误：上游叫 `opencode-windows-x64` 而非 `win32`）。
-- **理由（被否方案）**：主进程加 `existsSync` 预检被用户否决——**主进程禁用同步 fs（阻塞渲染）**，改为 `predev` 守卫 `scripts/check-oo.ts`（独立 CLI 脚本用 sync fs 无妨）。这条已成项目铁律。
-- **后果**：升级 oo 只改 `OO_CLI_VERSION` 一处；缺 `.oo-bin/oo` 时 App 照常启动（错误只在首次工具调用时以 JSON 返回给模型），这正是 predev 守卫存在的原因。
+- **Background (root cause)**: agent connector tool calls failed with `spawn .../oo EACCES`. The
+  upstream `@oomol-lab/oo-cli-*` platform package tarballs shipped `bin/oo` itself as 0644
+  (published without +x); in dev, `which oo` hit the `node_modules/.bin` wrapper, and the wrapper
+  spawned a binary without the execute bit → EACCES. Production always worked because
+  `prepare-binaries.ts` chmods 0755 while copying — a dev-only problem.
+- **Decision**: remove the `@oomol-lab/oo-cli` npm dependency; `OO_CLI_VERSION` in
+  `scripts/oo-cli.ts` is the single source of truth for the current version, and that script
+  centralizes the platform/libc mapping, a hand-written ustar extractor, npm packument
+  `dist.integrity` sha512 verification, atomic placement, and `chmod 0o755`. Postinstall
+  (`scripts/download-oo.ts`, best-effort) downloads into the gitignored `.oo-bin/`, shared by dev
+  and packaging. Dev resolution order: `WANTA_OO_BIN` override > `.oo-bin/oo`; `which oo` was
+  removed. The opencode source was switched to `node_modules/opencode-ai/bin/opencode.exe` in the
+  same change (fixing a pre-existing Windows package-name error: upstream is
+  `opencode-windows-x64`, not `win32`).
+- **Rationale (rejected alternative)**: adding an `existsSync` pre-check in the main process was
+  vetoed by the user — **sync fs is banned in the main process (it blocks the renderer)**;
+  instead, a `predev` guard `scripts/check-oo.ts` (standalone CLI scripts may use sync fs). This
+  has since become a project hard rule.
+- **Consequences**: upgrading oo means changing only `OO_CLI_VERSION`; with `.oo-bin/oo` missing
+  the app still launches (the error surfaces only as JSON returned to the model on the first tool
+  call) — exactly why the predev guard exists. The managed-binary set later grew a third member:
+  postinstall also downloads ripgrep (`scripts/download-ripgrep.ts`) into `.oo-bin/`,
+  `prepare-binaries.ts` copies opencode + oo + rg together into `resources/bin/`, and AgentManager
+  prepends that directory to `PATH` so OpenCode's built-in grep tool can use it.
 
-## 7. Markdown 渲染 + 系统提示词 + 工具调用 UI
+## 7. Markdown rendering + system prompt + tool-call UI
 
-- **背景**：三个并行问题——assistant 消息纯文本不渲染 Markdown；工具调用 UI 太显眼；模型瞎猜 connector 参数（实例：hackernews `get_item` 传 `item_id`，schema 要求 `id` 且 `additionalProperties:false` 被拒）。
-- **决策**：
-  - 参数问题根因是工具集缺 schema 查询能力（`search_actions` 不返回 inputSchema），纯改提示词治标不治本 → 新增第三个工具 `inspect_action`（`oo connector schema "<service>.<action>" [...] --json`，oo 1.3.0 起用点号 id 寻址、可一次批量取多个契约；2+ 个 id 返回请求顺序的 JSON 数组），提示词强制 **search → inspect → call** 流程，inputSchema 是参数唯一事实来源。oo-cli 1.4.2 提供 `oo connector apps --json --organization` 后，新增 `list_apps` 专门回答当前团队已连接 provider/app 清单，避免把 catalog search 当作连接状态查询。
-  - 提示词分层（R4）：稳定人格/工具/契约放 agent.prompt 利于 prompt 缓存；每轮变化的已授权存在性提示走 `body.system` 动态注入，默认不列具体 provider 名。
-  - Markdown 用 react-markdown@10 + remark-gfm（不引 rehype-raw，保 HTML 转义防 XSS）；同时主进程新增外链处理（`setWindowOpenHandler` + `will-navigate` 共用 `openExternalUrl`，白名单 http/https/mailto/tel——mailto/tel 是对抗审查发现"可点击但无反应"后补的）。
-  - 工具调用 UI 默认折叠一行摘要，点击展开参数/结果。
-- **后果**：后端部分（inspect_action、提示词契约、外链处理）沿用至今；前端 Markdown/折叠 UI 后来在 ai-elements 迁移中被替换（react-markdown 已移除）。
+- **Background**: three parallel problems — assistant messages rendered as plain text without
+  Markdown; the tool-call UI was too prominent; the model guessed connector parameters (instance:
+  hackernews `get_item` was passed `item_id` while the schema requires `id`, and
+  `additionalProperties:false` rejected it).
+- **Decision**:
+  - The parameter problem's root cause was the toolset lacking schema-query capability
+    (`search_actions` does not return inputSchema); prompt-only fixes treat the symptom → added a
+    third tool `inspect_action` (`oo connector schema "<service>.<action>" [...] --json`; from oo
+    1.3.0, dot-notation id addressing and batch fetching of multiple contracts in one call; 2+ ids
+    return a JSON array in request order); the prompt mandates the **search → inspect → call**
+    flow, and inputSchema is the single source of truth for parameters. After oo-cli 1.4.2
+    provided `oo connector apps --json --organization`, `list_apps` was added specifically to
+    answer the current team's connected provider/app list, so catalog search stops being misused
+    as a connection-status query. The custom toolset has since grown a fifth tool,
+    `query_knowledge`: read-only queries against WikiGraph knowledge bases pinned to the session
+    (operations: inspect/search/related/evidence/pack), with session-level access control via
+    `WANTA_KNOWLEDGE_REGISTRY` / `WANTA_TEAM_SCOPE_PATH` (a knowledge base not pinned to the
+    current session is refused); it relies on the `wiki-graph` package, with runtime paths
+    injected via `WANTA_WIKIGRAPH_EXECUTABLE` / `WANTA_WIKIGRAPH_CLI`.
+  - Prompt layering (R4): the stable persona/tools/contracts live in agent.prompt to benefit from
+    prompt caching; the per-turn-changing authorized-existence hint goes through dynamic
+    `body.system` injection, with no specific provider names by default. That same `body.system`
+    channel now also carries per-turn team-skill injection (`buildTeamSkillsSystem`); bundled
+    skills are distributed via postinstall (`scripts/download-skills.ts`) → exported to
+    `resources/skills/` by prepare-binaries → rebuilt into the workspace's `.opencode/skill/` by
+    `syncBundledSkills`.
+  - Markdown via react-markdown@10 + remark-gfm (no rehype-raw, keeping HTML escaping to prevent
+    XSS); the main process also gained external-link handling (`setWindowOpenHandler` +
+    `will-navigate` sharing `openExternalUrl`, whitelist http/https/mailto/tel — mailto/tel were
+    added after adversarial review found links "clickable but unresponsive").
+  - Tool-call UI collapses to a one-line summary by default; click to expand params/results.
+- **Consequences**: the backend parts (inspect_action, the prompt contract, external-link
+  handling) live on; the frontend Markdown/collapse UI was later replaced in the ai-elements
+  migration (react-markdown removed).
 
-## 8. UI 框架迁移至 ai-elements
+## 8. UI framework migration to ai-elements
 
-- **背景**：用户目标"前端组件全部换成 ai-elements"（Vercel 经 shadcn registry 分发的 AI 聊天组件库）。
-- **决策**：**vendoring 而非 CLI 整装**——registry canonical 源码手工落地 `src/components/ai-elements/` 并裁剪（CLI 假定 Next.js；原版 prompt-input 37KB 深耦合无用 Radix 原语）。Markdown 渲染换 streamdown（MessageResponse 内置）。**迁移边界（用户拍板）**：只迁聊天界面等有真实对应物的部分；侧边栏/登录/连接器列表/表单保留 shadcn 原语（ai-elements 没有这些组件，勿强行全化）。
-- **理由**：控制依赖面（新增 Radix 收敛到 collapsible/input-group/slot）；保持源码 canonical 以便对照升级（`.claude/skills/ai-elements/references/` 是权威 API 参考，`skills-lock.json` 记录来源 hash）。
-- **后果（13-agent 审查确认 9 个运行时问题，已修）**：streaming 时 Enter 只发送不停止（曾是 HIGH 回归）；工具调用 UI 迁移为 `Task` 折叠摘要后，未接入的独立 Tool/CodeBlock 组件已移除；`src/index.css` 须 `@source "../node_modules/streamdown/dist"`（Tailwind v4 不扫 node_modules）；vendored 目录享受 oxlint override（`react/only-export-components` off）。
+- **Background**: the user's goal was "replace all frontend components with ai-elements"
+  (Vercel's AI chat component library distributed via the shadcn registry).
+- **Decision**: **vendoring, not CLI installation** — registry canonical sources hand-landed into
+  `src/components/ai-elements/` and trimmed (the CLI assumes Next.js; the original prompt-input
+  was 37KB deeply coupled to unused Radix primitives). Markdown rendering switched to streamdown
+  (built into MessageResponse). **Migration boundary (the user's call)**: migrate only the parts
+  with a real counterpart, i.e. the chat interface; sidebar/login/connector list/forms keep shadcn
+  primitives (ai-elements has no such components — do not force totality).
+- **Rationale**: control the dependency surface (new Radix confined to
+  collapsible/input-group/slot); keep sources canonical for side-by-side upgrades
+  (`.claude/skills/ai-elements/references/` is the authoritative API reference,
+  `skills-lock.json` records source hashes).
+- **Consequences (13-agent review confirmed 9 runtime issues, fixed)**: Enter during streaming
+  only sent instead of stopping (was a HIGH regression); after the tool-call UI migrated to the
+  `Task` collapsed summary, the unwired standalone Tool component was removed — CodeBlock,
+  however, was later reintroduced and is in active use (shiki highlighting, serving messages and
+  the artifact preview); Tailwind v4 does not scan node_modules, so `@source` declarations are
+  required — they now live in `src/styles/theme.css`: `@source "../../node_modules/streamdown/dist"`
+  and `@source "../../node_modules/@streamdown/mermaid/dist"`; the vendored directory gets an
+  oxlint override (`react/only-export-components` off).
 
-## 9. 放开 tools 权限并接入两档访问模式
+## 9. Opening up tools permissions and wiring in two-tier local access
 
-- **背景**：早期 agent 定位"非编码连接器助手"，内置工具全封禁。后果：答不了"我电脑上有哪些文件"，也无法写脚本组合多个 action 的 JSON 结果。
-- **决策（现在的权限模型）**：解除"三层封锁"（缺一不可）——① 删除 `DENIED_BUILTIN_TOOLS` 表（所有内置工具默认启用）；② Build agent、Plan agent 与根级 `WANTA_PERMISSION` 对本地 shell 和 `external_directory` 统一设为 `ask`，`edit` 在 Build 为 `ask`、Plan 仅允许 `.opencode/plans/*.md`；③ `event-translator.ts` 翻译 `permission.asked` / `permission.v2.asked` 与 replied 事件，ChatService 暴露 pending permission 查询和 reply；④ ChatService 主进程持有本地访问策略：默认访问把 bash 作为正常工作通道，自动批准普通 shell 命令、脚本、项目检查、数据处理、简单输出过滤、普通文件读写与具体非敏感路径；只把基础安全边界推给渲染层确认，如凭证/密钥路径、宽泛或递归的 home/system 扫描、破坏性删除、依赖安装、提权、`git push/reset/clean`、发布/部署、基础设施变更等。敏感资源检查优先于通用目录 session grant，通用 grant 也不能放行高风险请求；完全访问仍可经一次确认后接管本会话权限。渲染层只展示 pending UI、同步访问模式、回传用户选择；⑤ 系统提示词整段重写为双能力（connector 元工具 + 本地工具）并按访问模式动态追加——只放开工具不改提示词，模型仍会自我拒绝。
-- **理由（关键约束）**：OpenCode permission 取值 `ask | allow | deny`。Wanta 产品层不暴露细粒度权限，避免用户理解每个内置工具规则；但底层仍用 OpenCode ask 闸住高风险本地动作。**不改 sidecar cwd**（连接器工具依赖 `userData/agent/workspace/.opencode/tools/`），访问真实文件仍用绝对路径/`~` 并由 `external_directory: "ask"` 触发权限边界。
-- **后果**：当前安全姿态从"任意 shell / 文件读写 / 网络访问全无确认"收敛为"默认访问下 bash 和普通文件能力顺滑可用，只在真实风险边界暂停确认"。用户不需要为 `oo ... | head`、`npm test`、`rg`、数据处理脚本、普通桌面/下载目录文件等常规工作逐次批准；具体非敏感文件读取保持顺滑，只有整个 home/system 根等宽泛扫描才提示。`npm install`、读取凭证/密钥、浏览器登录态、邮件/消息/通讯录/日历数据、删除、提权、推送、部署等仍需确认；这类敏感读取优先于通用目录 session grant，不能因用户曾允许一个父文件夹而被静默放行。为避免编码任务因依赖处理连续审批，用户可对当前选定项目中、显式定位到项目目录的标准 npm/pnpm/yarn/bun 依赖操作授予一次任务级 grant；它仅在当前 generation 内有效，且不覆盖全局安装、自定义 registry、user config 或项目外命令。Python 仍在当轮 process 目录的私有 `.wanta-python` venv 中获得更窄的纯 PyPI 包名授权；`--user`、`--break-system-packages`、额外索引、URL/本地路径/requirements 文件和任意系统 Python 安装仍逐次确认。若将来继续细化敏感路径（如浏览器 profile、邮件数据库、更多凭证目录）或外部副作用分类，需要同步 `config.ts`、ChatService 本地访问策略、访问模式 UI、事件测试和 [conventions.md §7](conventions.md)。若将来重新收紧权限：OpenCode permission **只闸内置工具**，`bash: deny` 不会切断 `.opencode` 自定义工具（连接器元工具照常 spawn oo，见 [conventions.md §7](conventions.md)。
+- **Background**: the early agent was positioned as a "non-coding connector assistant" with all
+  built-in tools blocked. Consequence: it could not answer "what files are on my computer", nor
+  write scripts to combine multiple actions' JSON results.
+- **Decision (the current permission model)**: lift the "three-layer lockdown" (each layer
+  necessary) — ① delete the `DENIED_BUILTIN_TOOLS` table (all built-in tools enabled by default);
+  ② the Build agent, the Plan agent, and root-level `WANTA_PERMISSION` gate local shell through
+  the shared `OO_CLI_BASH_PERMISSION` pattern table rather than a flat `ask`: default
+  `"*": "ask"`, but pure oo CLI invocations (`oo`, `oo *`, `$WANTA_OO_BIN` and their quoted
+  variants) are `allow` — a deliberate fast path that preserves OpenCode's fast path for direct
+  oo CLI calls. Only `external_directory` (and `edit` in Build) is unconditionally `ask`; `edit`
+  in Plan allows only `.opencode/plans/*.md`; both levels also carry `webfetch: "allow"`;
+  ③ `event-translator.ts` translates the `permission.asked` / `permission.v2.asked` and replied
+  events; ChatService exposes pending-permission queries and reply; ④ ChatService in the main
+  process holds the local access policy: Default Access treats bash as a normal working channel,
+  auto-approving ordinary shell commands, scripts, project checks, data processing, simple output
+  filtering, ordinary file reads/writes, and specific non-sensitive paths; only fundamental
+  security boundaries are pushed to the renderer for confirmation — credential/key paths, broad or
+  recursive home/system scans, destructive deletion, dependency installation, privilege
+  escalation, `git push/reset/clean`, publish/deploy, infrastructure changes, and the like.
+  Sensitive-resource checks take precedence over generic directory session grants; a generic grant
+  can never green-light a high-risk request. Full Access can still take over the session's
+  permissions after a single confirmation. The renderer only displays the pending UI, syncs the
+  access mode, and relays the user's choice; ⑤ the system prompt was fully rewritten as
+  dual-capability (connector meta-tools + local tools) with dynamic additions per access mode —
+  opening the tools without changing the prompt leaves the model refusing itself.
+- **Rationale (key constraints)**: OpenCode permission values are `ask | allow | deny`. Wanta's
+  product layer does not expose fine-grained permissions, sparing users from understanding
+  per-built-in-tool rules; underneath, OpenCode ask still gates high-risk local actions. **Do not
+  change the sidecar cwd** (connector tools depend on `userData/agent/workspace/.opencode/tools/`);
+  accessing real files still uses absolute paths/`~` and hits the permission boundary via
+  `external_directory: "ask"`.
+- **Consequences**: the current security posture converged from "any shell / file IO / network
+  access with zero confirmation" to "under Default Access, bash and ordinary file capabilities
+  flow smoothly, pausing only at real risk boundaries". Users need not approve `oo ... | head`,
+  `npm test`, `rg`, data-processing scripts, or ordinary Desktop/Downloads files one by one;
+  specific non-sensitive file reads stay smooth, and only broad scans of the whole home/system
+  root prompt. `npm install`, reading credentials/keys, browser login state,
+  mail/messages/contacts/calendar data, deletion, privilege escalation, push, deploy, etc. still
+  require confirmation; such sensitive reads take precedence over generic directory session grants
+  and cannot be silently waved through because the user once allowed a parent folder. To keep
+  coding tasks from drowning in back-to-back approvals for dependency handling, the user can issue
+  a task-level grant for standard npm/pnpm/yarn/bun dependency operations explicitly targeted at
+  the currently selected project directory; it is valid only within the current generation and
+  does not cover global installs, custom registries, user config, or commands outside the project.
+  Python still gets a narrower pure-PyPI-package-name grant inside the turn's process-directory
+  private `.wanta-python` venv; `--user`, `--break-system-packages`, extra indexes,
+  URL/local-path/requirements files, and any system-Python installs remain per-request
+  confirmations. If sensitive paths (browser profiles, mail databases, more credential
+  directories) or external side-effect classification are refined further in the future,
+  `config.ts`, the ChatService local access policy, the access-mode UI, the event tests, and
+  [conventions.md §7](conventions.md) must be updated in sync. If permissions are ever
+  re-tightened: OpenCode permission **gates built-in tools only** — `bash: deny` does not cut off
+  `.opencode` custom tools (connector meta-tools spawn oo regardless, see
+  [conventions.md §7](conventions.md)).
 
-## 10. 反问 = 运行时 pending request，不做前端恢复状态机
+## 10. Questions = runtime pending requests, not a frontend recovery state machine
 
-- **背景**：OpenCode `question.asked` 接入后，渲染层曾为停止后继续、刷新恢复、取消后 dismiss、防重复恢复等异常流程维护 stopped/recoverable/dismissed/localStorage 状态，并从后端 pending、消息历史、本地缓存三处 reconciliation。结果是状态事实源过多：一个历史 question tool 可能被前端恢复成可交互问题，而 sidecar 实际未必还在等待同一个 request。
-- **决策**：反问只认主进程/sidecar 当前 pending question。`getPendingQuestions()` 与 `question.asked` 事件是唯一交互事实源；历史 question tool 只展示历史。用户提交走 `answerQuestion`；用户取消走 `rejectQuestion`，只拒绝当前 request，不隐式停止 generation；用户显式停止 generation 时才清空当前 pending question UI。草稿只保留当前内存态，不跨重启恢复。`rejectQuestion` 有短超时保护以免 UI 卡死，但超时也不自动 abort run。
-- **理由**：反问本质是 agent runtime interrupt，不是普通聊天消息，也不是权限提示。没有后端 checkpoint/run-state 支撑时，前端用历史消息和 localStorage 伪造"继续上一轮"会制造不可解释的中间态。若将来要支持刷新后继续回答，必须先有主进程/sidecar 可恢复同一 `requestId` 的 durable pending request；否则只能显示 expired/resolved 历史。
-- **后果**：删除反问恢复状态机与 resume message 拼接逻辑，状态边界收敛为"后端还在等就展示，否则只当历史"。系统提示词同步约束模型：只有缺失信息会实质影响结果、阻塞必要动作或带来风险时才窄问；用户拒绝/取消后不要原样重问，而应做安全假设、跳过可选动作、选择低风险路径或说明 blocker。
+- **Background**: after wiring up OpenCode `question.asked`, the renderer once maintained
+  stopped/recoverable/dismissed/localStorage state for exception flows — continue after stop,
+  restore after refresh, dismiss after cancel, dedup on restore — reconciling from three places:
+  backend pending, message history, and local cache. The result was too many sources of truth: a
+  historical question tool could be restored by the frontend into an interactive question while
+  the sidecar was not necessarily still waiting on that same request.
+- **Decision**: questions recognize only the main process/sidecar's current pending question.
+  `getPendingQuestions()` and the `question.asked` event are the sole interaction source of truth;
+  historical question tools display as history only. User submission goes through
+  `answerQuestion`; user cancel goes through `rejectQuestion`, which rejects only the current
+  request and does not implicitly stop the generation; only when the user explicitly stops the
+  generation is the current pending-question UI cleared. Drafts stay in-memory only, never
+  restored across restarts. `rejectQuestion` has a short timeout guard so the UI cannot hang, but
+  a timeout does not auto-abort the run.
+- **Rationale**: a question is fundamentally an agent runtime interrupt — not an ordinary chat
+  message, and not a permission prompt. Without backend checkpoint/run-state support, faking
+  "continue the previous turn" on the frontend from message history and localStorage manufactures
+  inexplicable intermediate states. To support answering after a refresh in the future, there must
+  first be a durable pending request whose same `requestId` the main process/sidecar can restore;
+  until then, only expired/resolved history can be shown.
+- **Consequences**: the question recovery state machine and resume-message splicing logic were
+  deleted; the state boundary converges to "show it while the backend is still waiting, otherwise
+  treat it as history". The system prompt constrains the model in tandem: ask narrowly only when
+  missing information would materially affect the result, block a necessary action, or create
+  risk; after the user rejects/cancels, do not re-ask verbatim — make safe assumptions, skip
+  optional actions, choose the lower-risk path, or state the blocker.
 
-## 11. Beta/Stable 双发行渠道
+## 11. Beta/Stable dual release channels
 
-- **背景**：需要每日构建走 beta 渠道、正式发布走 stable，用户可在设置里双向切换（默认 stable）。oo-desktop 是单渠道（仅 latest\*.yml），无先例可抄——这是相对 §1 镜像策略的 deliberate divergence（比照 Bearer 头 / i18n 先例）。
-- **决策**：用 electron-updater generic provider 的原生渠道机制——beta 版本号 `X.Y.Z-beta.N`（基线 = max(最新 stable 的 patch+1, 既存 beta 最高基线)，由 `scripts/release-version.ts` 计算并带防回退校验），electron-builder 自动产出 `beta*.yml` 与 `latest*.yml` 同目录并存；客户端渠道 = `用户设置 ?? 自身版本推导`，经 `setFeedURL` 的 `channel` 字段选择指针文件。开 `generateUpdatesFilesForAllChannels`：stable 构建同步刷新 `beta*.yml`，beta 用户在正式版发布后立即收敛（唯一例外：stable 低于既存 beta 基线时 CI 跳过 beta 指针，防倒退）。
-- **理由（三个关键约束）**：① patch+1 是唯一安全基线——它是下一个正式版的最小可能值，保证任何未来 stable 都大于在售 beta，收敛不依赖预测下个版本号；② **不用 `autoUpdater.channel` setter**——它会静默把 `allowDowngrade` 置 true（electron-updater AppUpdater 源码），与"beta 切回 stable 默认等下一个正式版、绝不自动降级"冲突，故渠道走 `setFeedURL` 配置并显式 `allowDowngrade=false`；③ 立即降级被否——electron-updater 对降级后的数据兼容（opencode sidecar 会话/存储 schema 由新版写入）无任何保护，等待收敛是官方对齐（roll-forward）的安全路径。
-- **后果**：发布纪律变重——rclone include 白名单按渠道收紧（beta 绝不触碰 `latest*.yml`）、CDN 刷新清单按渠道计算、mac/win 各有渠道 yml 硬校验；generic provider 缺渠道 yml 是硬错（无回退），`beta*.yml` 在两个平台目录必须常在；stable 自动 bump 必须过滤 beta tag（bash 算术遇 `-beta` 即爆，已固化为 release-version.ts 回归用例）；`electron-builder`/`electron-updater` 因渠道行为版本敏感而精确钉死。
+- **Background**: daily builds needed to go out on a beta channel and official releases on stable,
+  with users able to switch both ways in Settings (default stable). oo-desktop is single-channel
+  (only latest\*.yml), so there was no precedent to copy — a deliberate divergence from the §1
+  mirroring strategy (cf. the Bearer header / i18n precedents).
+- **Decision**: use electron-updater's generic-provider native channel mechanism — beta version
+  numbers are `X.Y.Z-beta.N` (baseline = max(latest stable patch+1, highest existing beta
+  baseline), computed by `scripts/release-version.ts` with anti-rollback validation);
+  electron-builder automatically emits `beta*.yml` alongside `latest*.yml` in the same directory;
+  client channel = `user setting ?? derived from own version`, selecting the pointer file via the
+  `channel` field of `setFeedURL`. `generateUpdatesFilesForAllChannels` is enabled: stable builds
+  also refresh `beta*.yml`, so beta users converge immediately after an official release (single
+  exception: when stable is below an existing beta baseline, CI skips the beta pointer to prevent
+  rollback).
+- **Rationale (three key constraints)**: ① patch+1 is the only safe baseline — it is the minimum
+  possible value of the next official release, guaranteeing any future stable exceeds the live
+  beta; convergence does not depend on predicting the next version number; ② **do not use the
+  `autoUpdater.channel` setter** — it silently flips `allowDowngrade` to true (electron-updater
+  AppUpdater source), conflicting with "switching beta→stable waits for the next official release
+  by default and never auto-downgrades"; hence the channel goes through `setFeedURL` configuration
+  with an explicit `allowDowngrade=false`; ③ immediate downgrade was rejected — electron-updater
+  offers no protection whatsoever for post-downgrade data compatibility (the opencode sidecar
+  session/storage schema is written by the newer version); waiting for convergence is the
+  officially aligned (roll-forward) safe path.
+- **Consequences**: release discipline got heavier — the rclone include whitelist is tightened per
+  channel (beta never touches `latest*.yml`), the CDN purge manifest is computed per channel, and
+  mac/win each carry hard channel-yml validation; a missing channel yml on the generic provider is
+  a hard error (no fallback), so `beta*.yml` must always exist in both platform directories; the
+  stable auto-bump must filter beta tags (bash arithmetic explodes on `-beta`, now locked in as a
+  release-version.ts regression case); `electron-builder`/`electron-updater` are pinned exactly
+  because channel behavior is version-sensitive.

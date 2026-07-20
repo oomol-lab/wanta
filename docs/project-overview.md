@@ -1,54 +1,110 @@
-# 项目概览：Wanta 是什么、为什么、与生态的关系
+# Project Overview: What Wanta Is, Why, and Its Place in the Ecosystem
 
-> 相关：[architecture.md](architecture.md)（怎么实现的）· [key-decisions.md](key-decisions.md)（为什么这样实现）
+> Related: [architecture.md](architecture.md) (how it is implemented) · [key-decisions.md](key-decisions.md)
+> (why it is implemented this way)
 
-## 1. 产品定位
+## 1. Product Positioning
 
-Wanta 是一个 Electron 桌面 AI Agent 聊天客户端。用户用自然语言提需求，Agent 理解后调度 OOMOL connector 云服务（约 600 个 SaaS provider、6000+ action）、本地工具和会话引用的 WikiGraph 知识库，并把结果流式返回到聊天区；现已放开本地能力（bash / 文件读写 / 写脚本执行），典型用法是"从多个 connector action 拉数据 → 写小脚本 join / 聚合 / 格式化"。
+Wanta is an Electron desktop AI Agent chat client. The user states a need in natural language; the Agent
+interprets it and orchestrates the OOMOL connector cloud service (~600 SaaS providers, 6000+ actions),
+local tools, and any WikiGraph knowledge bases the session references, streaming results back into the
+chat area. Local capabilities are now enabled (bash / file read-write / writing and executing scripts);
+the typical pattern is "pull data from several connector actions → write a small script to
+join / aggregate / format".
 
-- **目标用户与解决的问题**：非开发者（运营/分析/行政等知识工作者）。他们的数据散落在各 SaaS（GA、邮箱、issue tracker、表格、存储……），手工跨服务取数、对账、汇总既繁琐又难自动化；Wanta 让这一切变成一句自然语言——授权一次，之后由 Agent 自己发现 action、查 schema、调用并把结果整理好。
-- **核心数据流**：用户消息 → OpenCode Agent → OOMOL connector（经 `oo` CLI）/ 本地工具 → 流式回复。
-- **UI 形态**：三栏布局——左：会话导航（多会话增删改切）；中：聊天区（流式 Markdown + 可折叠工具调用步骤）；右：可折叠 Connections 面板（已连接 provider、新增授权）；设置入口在左栏。三栏响应式固定比例，无拖拽分隔条（已锁定决策）。
-- **金路径**（贯穿开发验收的主用例）：右侧连接 Google Analytics → 输入"查最近 7 天官网 PV" → Agent 知道 GA 已授权、直接调用 → 结果流式回到聊天区。
-- **卖点**：SaaS 凭证 OAuth 一次后云端加密托管，本地只拿结果，不落明文凭证。
+- **Target users and the problem solved**: non-developers (knowledge workers in operations, analytics,
+  administration, and similar roles). Their data is scattered across SaaS services (GA, email, issue
+  trackers, spreadsheets, storage, ...); manually pulling, reconciling, and summarizing across services
+  is tedious and hard to automate. Wanta turns all of that into one natural-language sentence —
+  authorize once, and from then on the Agent discovers actions, inspects schemas, calls them, and
+  organizes the results on its own.
+- **Core data flow**: user message → OpenCode Agent → OOMOL connector (via the `oo` CLI) / local tools →
+  streamed reply.
+- **UI shape**: three-pane layout — left: session navigation (create/delete/rename/switch across
+  sessions; the settings entry lives here); center: the main content area, switching across eight shell
+  routes (`archived` / `billing` / `chat` / `connections` / `knowledge` / `teams` / `skills` /
+  `settings`) — chat renders streamed Markdown plus collapsible tool-call steps, and Connections is a
+  standalone page route (connected providers, new authorization) with an additional on-demand in-chat
+  connection drawer (`AppShellConnectionDrawer`); right: the collapsible Artifacts panel (task outputs)
+  with a draggable, keyboard-operable splitter — width is adjustable and the panel can be maximized
+  (the original "fixed ratios, no drag handles" lock no longer holds).
+- **Product surface beyond chat**: team workspaces (connector requests attach the
+  `x-oo-organization-name` header when a team workspace is active); projects (a `ProjectContextBar`
+  with git-branch integration); a skills system (skills bundled at `Resources/skills` and copied into
+  the OpenCode workspace); billing/usage pages; and knowledge bases (Beta — see the WikiGraph row
+  in §2).
+- **Golden path** (the primary use case that drove acceptance throughout development): connect Google
+  Analytics → type "check the site's PV for the last 7 days" → the Agent knows GA is authorized and
+  calls it directly → the result streams back into the chat area.
+- **Selling points**: SaaS credentials are OAuth-ed once, then encrypted and hosted in the cloud — the
+  local machine only receives results and never persists plaintext credentials. Task outputs are
+  preserved as artifacts (see §5), surfaced in the right-hand Artifacts panel; main-process support
+  lives in `electron/artifact-resource/`.
 
-## 2. 与 OOMOL 生态的关系
+## 2. Relationship to the OOMOL Ecosystem
 
-| 组件           | 关系                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **OOMOL 云端** | LLM 网关（`https://llm.<endpoint>/v1`，内置模型默认 Auto，即 `oomol/oopilot`；GPT 5.5 选项为 `openai/gpt-5.5`）；connector 网关（`https://connector.<endpoint>`）；console（授权管理页）；hub（浏览器登录页）；api（账号 API）；static（自动更新分发）。全部由 `electron/domain.ts` 从单一 endpoint 派生。                                                                                                                                                                               |
-| **oo CLI**     | Agent 调用 connector 的唯一通道。作为黑盒**二进制**内置（dev 在 `.oo-bin/`，打包进 `Resources/bin`），只经 `OO_*` 环境变量控制（`electron/agent/oo.ts`），不改其源码。版本由 `scripts/oo-cli.ts` 的 `OO_CLI_VERSION` 单一锁定。**不再是 npm 依赖**——会话记录显示曾依赖 `@oomol-lab/oo-cli`，因 EACCES 问题改为项目自管理下载（见 [key-decisions.md §6](key-decisions.md)）。oo-cli 跑在 Bun 上无法 import 进 Node/Electron，库化被否（论证见 [key-decisions.md §3](key-decisions.md)）。 |
-| **WikiGraph**  | 本地 `.wikg` 知识库的解析与检索运行时。`wiki-graph@0.3.0` 作为精确版本的项目依赖随应用打包，主进程和 Agent 自定义只读工具都通过 Electron 的 Node 模式执行 CLI；知识库文件复制到 `userData/knowledge-bases/files` 统一管理。该能力当前属于默认关闭的 Beta 功能，用户在设置中开启后才显示知识库菜单并允许会话引用；开关持久化在本机 `settings.json`。会话只持久化知识库 ID，不把原始归档作为聊天附件发送。                                                                                 |
-| **oo-desktop** | 姊妹应用 + 工程化基线（独立仓库，不在本仓库内；本机路径因开发机而异）。Wanta 是新建独立仓库（不 fork），但构建/打包/CI/IPC 服务划分/UI 风格全部对齐 oo-desktop，保证两 App UI 不割裂、降低维护成本。注意已知差异：connector 鉴权头（Wanta 用 `Authorization: Bearer <会话 token>`，**不带** `x-oomol-user-uuid`；oo-desktop 用 auth.toml 账号 key 裸头——勿照抄）。                                                                                                                       |
-| **OpenCode**   | Agent 内核。spawn 已发布二进制 `opencode-ai@1.17.13`（sidecar），主进程经 `@opencode-ai/sdk@1.17.13` HTTP+SSE 驱动。纯配置级定制，零源码改动。调研时（2026-05）未发现 OpenCode 用于非 IDE/通用 agent 负载的社区先例，Wanta 是第一个已知案例（立项时定位非编码 agent，后放开了本地编码能力）。                                                                                                                                                                                            |
+| Component         | Relationship                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **OOMOL cloud**   | LLM gateway (`https://llm.<endpoint>/v1`; the built-in default is Auto, i.e. `oomol/oopilot`, and the GPT 5.5 option is `openai/gpt-5.5` — six built-in models in total, also including DeepSeek V4 Flash/Pro and Qwen 3.7 Plus/Max, see `electron/models/builtin.ts`); connector gateway (`https://connector.<endpoint>`); console (authorization management; `console.<endpoint>/launcher` is the browser login page); api (account API); org-control (team control); console-server (console API); insight (usage/balance); registry and search (skills registry/search); static (auto-update distribution); chat-as-proxy-dev (voice transcription). All derived from the single endpoint by `electron/domain.ts` (the authoritative list). A second build-time constant `__PACKAGE_ASSETS_BASE_URL__` (`packageAssetsBaseUrl`) serves skill asset files, and `externalModelProviderBaseUrls` holds fixed base URLs for third-party model providers (DeepSeek / Gemini / OpenRouter / Zhipu / Kimi / MiniMax / Qwen / Xiaomi) that are deliberately **not** derived from the endpoint. |
+| **oo CLI**        | The only channel through which the Agent calls connectors. Bundled as a black-box **binary** (dev in `.oo-bin/`, packaged into `Resources/bin`), controlled solely via `OO_*` environment variables (`electron/agent/oo.ts`); its source is never modified. The version is pinned in one place: `OO_CLI_VERSION` in `scripts/oo-cli.ts`. **No longer an npm dependency** — session records show it once depended on `@oomol-lab/oo-cli`; EACCES problems led to a project-managed download instead (see [key-decisions.md §6](key-decisions.md)). oo-cli runs on Bun and cannot be imported into Node/Electron; turning it into a library was rejected (argument in [key-decisions.md §3](key-decisions.md)).                                       |
+| **OpenConnector** | Open-source sibling in the same connector ecosystem ([github.com/oomol-lab/open-connector](https://github.com/oomol-lab/open-connector)). Wanta uses the same shared connector ecosystem as OpenConnector.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **WikiGraph**     | The parsing and retrieval runtime for local `.wikg` knowledge bases. `wiki-graph@0.3.0` ships as an exact-version project dependency; the main process and the Agent's custom read-only tool both execute its CLI via Electron's Node mode; knowledge-base files are copied to `userData/knowledge-bases/files` for unified management. Currently a Beta feature, off by default — the knowledge-base menu appears and sessions may reference knowledge bases only after the user enables it in Settings; the toggle persists in the local `settings.json`. Sessions persist only knowledge-base IDs and never send the raw archive as a chat attachment.                                                                                         |
+| **oo-desktop**    | Sister app + engineering baseline (separate repository, not inside this repo; local path varies per dev machine). Wanta was created as a new standalone repository (not a fork), but build/packaging/CI/IPC service layout/UI style all align with oo-desktop so the two apps' UIs stay coherent and maintenance cost stays low. Mind the known difference: connector auth headers (Wanta uses `Authorization: Bearer <session token>` **without** `x-oomol-user-uuid`; oo-desktop sends the auth.toml account key as a bare header — do not copy it).                                                                                                                                                                                            |
+| **OpenCode**      | The Agent kernel. Spawns the published binary `opencode-ai@1.17.13` as a sidecar; the main process drives it over HTTP+SSE via `@opencode-ai/sdk@1.17.13`. Pure configuration-level customization, zero source modification. At research time (2026-05) no community precedent was found for using OpenCode in non-IDE / general-agent workloads; Wanta was the first known case (positioned as a non-coding agent at inception; local coding capability was opened up later).                                                                                                                                                                                                                                                                   |
 
-## 3. 原始计划 vs 实际交付
+## 3. Original Plan vs Shipped
 
-原始计划文档 `WANTA_PROJECT_PLAN.md`（历史文档，仅存于原开发机、仓库内无副本；其规则与阶段编号已沉淀到 [conventions.md §1](conventions.md)）定义了 7 个阶段（阶段 0–6）与 8 条全局规则 R1–R8。会话记录显示最初 7 个 commit 即按阶段 0–6 逐一交付，其后是计划外的修正与演进（弧线见 §4）。计划与现状的主要偏离：
+The original plan document `WANTA_PROJECT_PLAN.md` (a historical document that existed only on the
+original dev machine — no copy in the repo; its rules and phase numbering are preserved in
+[conventions.md §1](conventions.md)) defined 7 phases (Phases 0–6) and 8 global rules R1–R8. Session
+records show that the first 7 commits delivered Phases 0–6 one by one, followed by unplanned fixes and
+evolution (arc in §4). The main divergences between plan and outcome:
 
-| 计划                                                                                | 实际（现状）                                                                                                                                                                                   |
-| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 凭证经 `OO_API_KEY` 环境变量注入，免登录直跑                                        | 改为浏览器登录流（console launcher → deep-link 回跳 → 换 `oomol-token` 会话 token；全程只用它，`auth.json` 只存 profile、不落盘凭证）                                                          |
-| endpoint 运行时可切换 `oomol.com` / `oomol.dev`（阶段 5 还做了 `setEndpoint` 联动） | **已整体移除**：endpoint 是构建期常量 `__OO_ENDPOINT__`，App 层不可见不可切换                                                                                                                  |
-| 严格非编码 agent：deny 所有内置编码工具，只留连接器工具                             | **已放开但受控**：OpenCode 内置工具启用；默认访问下 bash、普通文件读写和具体非敏感路径顺滑可用，仅凭证/密钥路径、破坏性删除、依赖安装、提权、推送、发布/部署等基础安全边界经聊天内确认卡片批准 |
-| 自定义工具只有 `search_actions` / `call_action`                                     | 新增 `inspect_action` 强制 inspect-before-call；新增 `list_apps` 直接列 active workspace 已连接 apps                                                                                           |
-| 前端 shadcn/ui 手写聊天界面                                                         | 聊天界面迁移到 vendored ai-elements 组件，Markdown 渲染从 react-markdown 换为 streamdown                                                                                                       |
-| 测试用 Node 原生 `node --test`                                                      | 迁移到 vitest（随 endpoint 常量化，vitest 原生套用 vite define）                                                                                                                               |
+| Planned                                                                                                        | Shipped (current state)                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Credentials injected via the `OO_API_KEY` environment variable; no login required                               | Replaced by a browser login flow (console launcher → deep-link return → exchange for the `oomol-token` session token; used exclusively throughout — `auth.json` stores only the profile, no credentials persisted to disk)                                                                                                     |
+| Endpoint switchable at runtime between `oomol.com` / `oomol.dev` (Phase 5 even wired up `setEndpoint`)          | **Removed entirely**: the endpoint is the build-time constant `__OO_ENDPOINT__`, invisible and unswitchable at the app layer                                                                                                                                                                                                    |
+| Strictly non-coding agent: deny all built-in coding tools, keep only connector tools                            | **Opened up but controlled**: OpenCode built-in tools are enabled; under Default Access, bash, ordinary file read/write, and specific non-sensitive paths flow without friction, while only the baseline safety boundaries — credential/secret paths, destructive deletion, dependency installation, privilege escalation, pushing, publishing/deploying, etc. — require approval via an in-chat confirmation card |
+| Custom tools were only `search_actions` / `call_action`                                                         | Grew to five custom tools: added `inspect_action` (enforcing inspect-before-call), `list_apps` (directly lists connected apps in the active workspace), and `query_knowledge` (read-only WikiGraph knowledge-base queries)                                                                                                     |
+| Front end: hand-written chat UI on shadcn/ui                                                                    | Chat UI migrated to vendored ai-elements components; Markdown rendering switched from react-markdown to streamdown                                                                                                                                                                                                              |
+| Tests on Node's native `node --test`                                                                            | Migrated to vitest (alongside the endpoint constant change — vitest natively applies vite define)                                                                                                                                                                                                                               |
 
-未变的锁定决策：Agent 内核 = OpenCode sidecar、连接器全经 oo CLI、LLM 网关由 endpoint 派生、已授权状态来源 `/v1/apps`、三栏不可拖拽、deep-link `wanta://signin`（dev `wanta-local`）、IPC 用 `@oomol/connection`。
+Locked decisions that held: Agent kernel = OpenCode sidecar; all connector traffic through the oo CLI;
+LLM gateway derived from the endpoint; authorization state sourced from `/v1/apps`; deep link
+`wanta://signin` (dev `wanta-local`); IPC over `@oomol/connection`. (The original "three panes, no drag
+handles" lock did not survive: the layout has since evolved into a right-hand Artifacts panel with a
+draggable resize splitter — see §1.)
 
-## 4. Git 历史弧线
+## 4. Git History Arc
 
-> 本节只描述演进脉络，**不维护逐 commit 清单**（具体 hash 与完整列表用 `git log --oneline` 查看），不要随新 commit 追加。
+> This section describes the evolution arc only and **does not maintain a per-commit list** (use
+> `git log --oneline` for hashes and the full list); do not append entries as new commits land.
 
-最初 7 个 commit 按阶段 0–6 逐一交付，commit message 即阶段名：脚手架（镜像 oo-desktop）→ Agent 内核 headless 金路径 → 聊天 UI 与流式渲染 → Connections 面板与 OAuth → 动态提示 + 聊天内授权闭环（R4）→ 设置与 endpoint 切换 → 打包/签名/公证/自动更新/CI。
+The first 7 commits delivered Phases 0–6 one by one, with commit messages matching the phase names:
+scaffolding (mirroring oo-desktop) → Agent-kernel headless golden path → chat UI and streamed
+rendering → Connections panel and OAuth → dynamic prompts + in-chat authorization loop (R4) → settings
+and endpoint switching → packaging/signing/notarization/auto-update/CI.
 
-其后是计划外的修正与演进：修复登录（浏览器登录流）→ 移除动态 endpoint 支持 → 修复 oo-cli（`.oo-bin` 自管理）→ 修复 Markdown 渲染 + 系统提示词 + 工具调用 UI → 优化右侧连接 UI → UI 框架迁移至 ai-elements → 放开 tools 权限并收敛为默认访问 / 完全访问两档。每个节点的"为什么"见 [key-decisions.md](key-decisions.md)。
+Unplanned fixes and evolution followed: login fix (browser login flow) → removal of dynamic endpoint
+support → oo-cli fix (self-managed `.oo-bin`) → Markdown rendering + system prompt + tool-call UI
+fixes → right-side connections UI polish → UI framework migration to ai-elements → tools permission
+opened up and consolidated into the two-tier Default Access / Full Access model. The "why" behind each
+node is in [key-decisions.md](key-decisions.md).
 
-## 5. 术语速查
+## 5. Glossary
 
-- **connector / provider / action**：OOMOL 云端的 SaaS 集成单元——provider 是服务（如 `hackernews`），action 是其下可调用的操作（如 `get_item`）；agent 用 `list_apps` 列当前 workspace 已连接 app，用 search/inspect/call 渐进发现并调用 action。
-- **sidecar**：随 App 启动的本地 `opencode serve` 子进程，HTTP+SSE 服务，承载 agent loop。
-- **endpoint**：OOMOL 主域（`oomol.com` / 内部开发 `oomol.dev`），构建期固定，派生全部子域。
-- **金路径（golden path）**：上文 GA→PV 用例，开发期所有阶段验收都围绕它。
-- **R1–R8 / 阶段 0–6**：原始计划的规则与阶段编号，散见于代码注释，详见 [conventions.md §1](conventions.md)。
+- **connector / provider / action**: the SaaS integration units of the OOMOL cloud — a provider is a
+  service (e.g. `hackernews`), an action is a callable operation under it (e.g. `get_item`); the agent
+  lists connected apps in the current workspace with `list_apps` and progressively discovers and calls
+  actions via search/inspect/call.
+- **artifact**: a task output the Agent produces and preserves (rather than losing it in chat scroll),
+  surfaced in the right-hand resizable Artifacts panel; main-process support lives in
+  `electron/artifact-resource/`.
+- **sidecar**: the local `opencode serve` child process started with the app — an HTTP+SSE service
+  hosting the agent loop.
+- **endpoint**: the OOMOL primary domain (`oomol.com` / internal development `oomol.dev`), fixed at
+  build time; all subdomains derive from it.
+- **golden path**: the GA→PV use case above; all phase acceptance during development revolved
+  around it.
+- **R1–R8 / Phases 0–6**: the rule and phase numbering from the original plan, scattered through code
+  comments; see [conventions.md §1](conventions.md).

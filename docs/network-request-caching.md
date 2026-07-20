@@ -1,75 +1,113 @@
-# 网络读取缓存与失效策略
+# Network Read Caching and Invalidation Policy
 
-> 本文定义渲染层直连 API 的读取资源边界。目标是避免同一账号、工作区或团队内的多个页面
-> 重复请求同一数据，同时不让成员、授权、支付等变更展示陈旧状态。
+> This doc defines the read-resource boundaries for renderer-direct API calls. The goal is to keep
+> multiple pages within the same account, workspace, or team from re-requesting the same data,
+> while never letting membership, authorization, or payment changes display stale state.
 
-## 1. 统一原则
+## 1. Unified principles
 
-1. 缓存按数据身份划分，不能按页面外观划分。例如顶部浮层、购买弹窗和账单详情页共用账单资源；账单资源内部仍须区分团队计划/用量和创建者个人余额，不能把个人余额解释成团队钱包。
-2. 缓存 key 必须包含数据权限边界：账号、团队、工作区、日期范围和查询条件。
-3. 同一个 key 的在途读取必须合并为一个 Promise。
-4. 成功变更后只失效受影响的资源；网络错误保留已有读值，授权过期则清空敏感的旧展示值。
-5. 日志、OAuth 轮询、上传、提交、支付和语音识别是实时状态或用户操作，不使用通用读取缓存。
+1. Caches are partitioned by data identity, never by page appearance. For example, the top-bar
+   flyout, the purchase dialog, and the billing detail page share one billing resource; inside that
+   resource, team plan/usage and the creator's personal balance must still be kept apart — the
+   personal balance must never be interpreted as the team wallet.
+2. Cache keys must include the data's permission boundary: account, team, workspace, date range,
+   and query conditions.
+3. In-flight reads for the same key must be merged into a single Promise.
+4. After a successful mutation, invalidate only the affected resources; on network errors keep the
+   existing read values, but when authorization expires clear sensitive stale display values.
+5. Logs, OAuth polling, uploads, submissions, payments, and speech recognition are real-time state
+   or user actions — they do not use the generic read cache.
 
-## 2. 现有资源
+## 2. Existing resources
 
-| 数据域           | 缓存边界                                                          | 新鲜期                                | 变更后的失效方式                            |
-| ---------------- | ----------------------------------------------------------------- | ------------------------------------- | ------------------------------------------- |
-| Skill catalog    | 账号、筛选和搜索词                                                | 2–10 分钟、最多 256 项                | 安装、卸载、认证切换时定向清理              |
-| Connections      | 工作区和请求路径                                                  | 30 秒 + ETag / Last-Modified          | mutation 仅清理当前工作区受影响的 Apps 路径 |
-| Billing overview | 账号（创建者余额/用量折扣订阅）、团队（Team 计划/用量）、统计周期 | 60 秒                                 | 充值或任一订阅/席位变更后强制刷新           |
-| Team details     | 账号、团队和详情资源                                              | 60 秒                                 | 成员或应用授权变更后清理该团队资源          |
-| Member search    | 单个添加成员弹窗、规范化查询词                                    | 60 秒、最多 50 项                     | 弹窗关闭即清空；输入变化时取消旧请求        |
-| Avatar images    | 当前登录账号和完整图片 URL                                        | 最多 128 个 Blob URL / 256 个失败标记 | 头像更新定向清理；换号或登出时全部清理      |
+| Data domain             | Cache boundary                                                                       | Freshness window                                                                                    | Invalidation after mutation                                                                                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Skill catalog           | Account, filters, and search term                                                    | 2–10 minutes, max 256 entries                                                                       | Publish targets the public catalog/search and the "my published" catalog (`invalidatePublicSkillCatalog` + `invalidateMyPublishedSkillCatalog`); explicit refresh bumps the per-key generation; auth-state changes clear everything and cancel all in-flight requests (`clearSkillCatalogCache`). Install/uninstall do **not** invalidate the registry catalog cache |
+| Team skills             | Account and team                                                                     | 30 seconds in memory, max 50 entries, plus a 24-hour persistent localStorage snapshot (key `wanta.team-skill-cache.v3`) — the only persisted read cache | Team skill add/remove/association changes call `invalidateTeamSkillCache(accountId, teamId)` for targeted invalidation                                                                                                             |
+| Team workspace overview | Account                                                                              | 30 seconds, with in-flight merging                                                                  | Local `pendingWorkspaceTeamPatches` overlay with a 120-second TTL bridges mutations until the next fresh read                                                                                                                       |
+| Connections             | Workspace and request path                                                           | 30 seconds + ETag / Last-Modified                                                                   | Connect/disconnect/alias mutations clear only the affected `/v1/apps` paths in the current workspace; saving an OAuth Client Config additionally invalidates the global provider list and provider-detail cache keys (and the OAuth client config cache itself) |
+| Billing overview        | Account (creator balance/usage/discount subscription), team (Team plan/usage), stats period | 60 seconds                                                                                          | Force refresh after top-up or any subscription/seat change                                                                                                                                                                          |
+| Team details            | Account, team, and detail resource                                                   | 60 seconds                                                                                          | Clear that team's resources after member or app-authorization changes                                                                                                                                                              |
+| Member search           | A single add-member dialog, normalized query term                                    | 60 seconds, max 50 entries                                                                          | Cleared when the dialog closes; old requests cancelled when input changes                                                                                                                                                           |
+| Avatar images           | Currently signed-in account and the full image URL                                   | Max 128 Blob URLs / 256 failure markers                                                             | Targeted invalidation on avatar update; full clear on account switch or sign-out                                                                                                                                                    |
 
-## 3. 团队详情资源
+## 3. Team details resource
 
-`src/lib/team-details-resource.ts` 是团队成员、成员摘要、Provider 选项和应用授权的共享读取层。
-团队管理页的成员读取按账号与团队隔离缓存，成员变更后定向失效。
+`src/lib/team-details-resource.ts` is the shared read layer for team members, member summaries,
+provider options, and app authorizations. The team management page's member reads are cached per
+account and team, with targeted invalidation after member changes.
 
-成员增删、启用/停用成员、更新或撤销应用授权后，团队管理页调用
-`invalidateTeamDetailsResource(accountId, teamId)`；已挂载的订阅者会立即收到失效通知并重新读取。
-应用授权的读改写若服务端返回 ETag，则写入携带 `If-Match`，让服务端拒绝基于旧版本的并发覆盖。
+After adding/removing members, enabling/disabling a member, or updating/revoking an app
+authorization, the team management page calls `invalidateTeamDetailsResource(accountId, teamId)`;
+mounted subscribers receive the invalidation notice immediately and re-read. For app-authorization
+read-modify-write, if the server returned an ETag, the write carries `If-Match` so the server can
+reject concurrent overwrites based on a stale version.
 
-## 4. 连接器首屏与 OAuth
+## 4. Connector first paint and OAuth
 
-连接器目录把不带团队头的全局 `/v1/providers` 作为首屏关键数据；团队作用域 `/v1/apps` 与目录并发读取，
-但权限拒绝或临时失败不得清空公共 Provider 网格。此时 UI 保留可搜索、可筛选的只读目录，并把团队连接
-状态标记为 `forbidden` / `unavailable`，不能用空数组冒充“确认未连接”。`/v1/usage/daily` 与
-`/v1/usage/services` 在后台补齐，不得阻塞目录骨架屏结束。
+The connector catalog treats the global `/v1/providers` (without a team header) as first-paint
+critical data; the team-scoped `/v1/apps` is read concurrently with the catalog, but a permission
+denial or transient failure must never clear the public provider grid. In that case the UI keeps a
+searchable, filterable read-only catalog and marks the team connection status as `forbidden` /
+`unavailable` — an empty array must never masquerade as "confirmed not connected". `/v1/usage/daily`
+and `/v1/usage/services` are filled in in the background and must not block the catalog skeleton
+from finishing.
 
-`/v1/apps` 成功时，团队连接摘要向当前团队成员展示，与连接管理权限分离；只有连接、重连、断开和配置等
-写操作受管理权限控制。读取被拒绝或暂时不可用时，成员必须看到明确的状态提示，不能静默隐藏为未知状态。
+When `/v1/apps` succeeds, the team connection summary is shown to current team members, decoupled
+from connection-management permission; only write operations — connect, reconnect, disconnect, and
+configure — are gated by the management permission. When the read is denied or temporarily
+unavailable, members must see an explicit status message; it must not be silently hidden as an
+unknown state.
 
-同一 workspace 已有成功摘要时，Apps 的部分刷新失败必须保留上一次确认的连接账号和 Provider 状态，
-仅更新降级标记；不得让短时错误把已有连接从 UI 中抹掉。切换 workspace 时禁止复用这份旧摘要。
+Once a workspace has a successful summary, a partial Apps refresh failure must keep the last
+confirmed connection accounts and provider states, updating only the degradation marker; a
+transient error must never wipe existing connections from the UI. When switching workspaces,
+reusing that stale summary is forbidden.
 
-连接器 GET 保留 30 秒缓存、ETag / Last-Modified 条件请求和在途合并；Provider 公共目录使用全局缓存键，
-Apps 等团队资源继续按 workspace 隔离。认证状态变更时必须调用
-`clearConnectorCache()`，避免团队工作区的内存结果跨账号复用。OAuth Client Config 为账号级短时资源，
-保存配置后立即失效；OAuth 授权开始前只读取当前服务的 active App 基线，不重拉完整目录和用量。
+Connector GETs keep the 30-second cache, ETag / Last-Modified conditional requests, and in-flight
+merging; the public provider catalog uses a global cache key, while team resources such as Apps
+remain isolated per workspace. On auth-state changes, `clearConnectorCache()` must be called to
+prevent team-workspace in-memory results from being reused across accounts. The OAuth Client
+Config is an account-level short-lived resource, invalidated immediately after saving the config;
+before an OAuth authorization starts, only the active App baseline for the current service is
+read — the full catalog and usage are not re-fetched.
 
-强制刷新不能简单复用任意旧请求，否则 mutation 后可能接受过时响应；同一 UI 刷新会携带同一个
-`refreshGeneration` 并合并在途请求，而新的 mutation 使用新的 generation。App Detail 使用与目录一致的
-30 秒短缓存和在途合并；执行日志仍保持强刷，以确保审计信息的新鲜度。
+A force refresh must not simply reuse an arbitrary old request, or a stale response may be
+accepted after a mutation; refreshes from the same UI carry the same `refreshGeneration` and merge
+in-flight requests, while a new mutation uses a new generation. App Detail uses the same 30-second
+short cache and in-flight merging as the catalog; execution logs remain force-refreshed to keep
+audit information fresh.
 
-Skill catalog 同样按 cache key 维护 generation。发布、显式刷新或定向失效会使旧 generation 的在途请求失去缓存写入资格，避免旧响应在 mutation 后重新污染公共目录或账号私有目录。
-公共搜索直接使用 search 响应，不逐包读取 registry 详情；“我发布的”每页最多 20 个 package，并在换页、刷新或组件卸载时取消旧的详情补全请求。
-带 `AbortSignal` 的多个同 key Skill 读取仍共享一个底层请求：调用方取消只结束自己的等待，最后一个消费者离开后才中止底层 fetch；认证切换的全量清理则会主动取消全部旧请求。
+The Skill catalog likewise maintains a generation per cache key. Publish, explicit refresh, or
+targeted invalidation disqualifies in-flight requests of the old generation from writing to the
+cache, so a stale response cannot re-pollute the public catalog or the account's private catalog
+after a mutation. Public search uses the search response directly, without reading registry
+details package by package; "my published" fetches at most 20 packages per page and cancels old
+detail-completion requests on page change, refresh, or component unmount. Multiple same-key Skill
+reads with an `AbortSignal` still share one underlying request: a caller's cancel only ends its own
+wait, and the underlying fetch is aborted only after the last consumer leaves; the full clear on an
+auth switch, however, actively cancels all old requests.
 
-## 5. 头像图片
+## 5. Avatar images
 
-`src/lib/avatar-image-cache.ts` 为 OOMOL 域名的已鉴权头像提供渲染进程内的 Blob URL LRU 和在途合并；
-普通读取允许 Chromium 使用 HTTP 缓存，只有头像内容明确变更后的定向刷新才绕过 HTTP 缓存。头像请求
-使用短超时，主动 fetch 失败后短期直接交给 `<img>` 加载，避免每次组件挂载都重复走一次失败的 fetch。
+`src/lib/avatar-image-cache.ts` provides an in-renderer Blob URL LRU and in-flight merging for
+authenticated avatars on OOMOL domains; ordinary reads let Chromium use its HTTP cache, and only
+the targeted refresh after an avatar's content has definitely changed bypasses the HTTP cache.
+Avatar requests use a short timeout; after an active fetch fails, loading is handed directly to
+`<img>` for a short period, so every component mount does not repeat a failing fetch.
 
-`CachedAvatarImage` 命中 Blob 缓存时直接保持可见，不能为了等待新的 `load` 事件先隐藏已缓存图片。
-认证账号变化或退出登录时必须同时清理头像图片和团队详情资源，避免受保护 URL 的结果跨账号复用。
+When `CachedAvatarImage` hits the Blob cache it stays visible directly — a cached image must never
+be hidden first while waiting for a new `load` event. When the authenticated account changes or the
+user signs out, both the avatar image cache and the team details resource must be cleared, to
+prevent protected-URL results from being reused across accounts.
 
-## 6. 新增读取代码的检查项
+## 6. Checklist for new read code
 
-- 是否已有对应数据域的资源层？有则复用，不能在页面组件中另起 `fetch`。
-- key 是否隔离了账号和团队/工作区？
-- 是否会因为多个组件同时挂载而重复发请求？
-- 列表、计数和详情是否真的需要同一份全量数据？如只需计数，优先使用轻量服务端字段或 endpoint。
-- 变更操作成功后，哪些资源必须失效？把失效和 mutation 放在同一个成功分支里。
+- Does a resource layer for this data domain already exist? If so, reuse it — never start another
+  `fetch` inside a page component.
+- Does the key isolate account and team/workspace?
+- Will multiple components mounting at once cause duplicate requests?
+- Do the list, the count, and the detail really need the same full dataset? If only a count is
+  needed, prefer a lightweight server-side field or endpoint.
+- After a mutation succeeds, which resources must be invalidated? Put the invalidation and the
+  mutation in the same success branch.

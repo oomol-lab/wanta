@@ -1,73 +1,116 @@
-# Skill Catalog 缓存设计
+# Skill Catalog Caching Design
 
-> 相关：[architecture.md](architecture.md)（渲染层直连请求边界）· [team-skills-plan.md](team-skills-plan.md)（团队 Skill 配置与 runtime 生效）
+> Related: [architecture.md](architecture.md) (renderer direct-request boundary) ·
+> [team-skills-plan.md](team-skills-plan.md) (team Skill configuration and runtime activation)
 
-## 目标
+## Goals
 
-Skill 页面、团队页面和连接器推荐会消费同一类 registry / search 数据。缓存必须在请求客户端统一处理，不能由每个页面分别维护 `useState + useEffect`，否则页面切换会产生重复请求，且同一 package 的详情会被不同入口重复读取。
+The Skills page, the team page, and connector recommendations consume the same class of
+registry / search data. Caching must be handled centrally in the request client — not maintained
+per page with `useState + useEffect` — otherwise page switches produce duplicate requests, and the
+detail of the same package gets fetched repeatedly through different entry points.
 
-缓存的目标是：
+The cache goals are:
 
-- 同一 app 会话内，同一 catalog key 只发起一次请求；并发消费者共享 in-flight promise。
-- 公共市场、团队市场、Provider 推荐和精确包名查询复用同一份 package detail。
-- 用户主动刷新、发布成功等明确变更才强制绕过或失效缓存。
-- 账号私有的“我发布的”列表和 package detail 必须按账号隔离，不能被公共缓存或另一个账号复用。
-- 已安装 Skill 是本地文件系统 inventory，不进入 catalog cache；它继续由主进程 watcher + 短 TTL resource 保证正确性。
+- Within one app session, each catalog key issues at most one request; concurrent consumers share
+  the in-flight promise.
+- The public market, the team market, Provider recommendations, and exact-package-name lookups
+  reuse the same package detail.
+- Only explicit changes — a user-initiated refresh, a successful publish — force-bypass or
+  invalidate the cache.
+- Account-private "my published" lists and package details must be isolated per account; they must
+  never be reused from the public cache or from another account.
+- Installed Skills are a local filesystem inventory and do not enter the catalog cache; their
+  correctness continues to be guaranteed by the main-process watcher plus a short-TTL resource.
 
-## 分层与归属
+## Layering and ownership
 
 ```text
-页面 / Dialog / Provider 推荐
+Pages / dialogs / Provider recommendations
           │
           ▼
 src/lib/skills-catalog-client.ts
-  - key 化缓存
-  - in-flight 去重
-  - TTL / 精确失效
+  - keyed cache
+  - in-flight dedup
+  - TTL / targeted invalidation
+  - capacity cap (256 entries)
           │
-          ├── search.<endpoint>（公共列表、搜索、我的发布）
-          └── registry.<endpoint>（package detail）
+          ├── search.<endpoint> (public list, search, my published)
+          └── registry.<endpoint> (package detail)
 ```
 
-缓存放在 `skills-catalog-client.ts`，因为这些请求都在渲染层以 httpOnly session cookie 直连；不引入主进程转发，也不将 token 带到渲染层。
+The cache lives in `skills-catalog-client.ts` because these requests all go directly from the
+renderer using the httpOnly session cookie; no main-process forwarding is introduced, and no token
+is brought into the renderer.
 
-## 缓存 scope 与 TTL
+## Cache scope and TTL
 
-| 数据                       | key scope                                    |                           TTL | 说明                                      |
-| -------------------------- | -------------------------------------------- | ----------------------------: | ----------------------------------------- |
-| 公共市场列表 / 分页        | `public:list:{next,size}`                    |                        5 分钟 | 技能页与团队市场共享                      |
-| 公共市场搜索               | `search:skills:{query,next,size}`            |                        2 分钟 | 搜索输入会变化较快                        |
-| 公共 package detail        | `public:package:{name,version}`              |                       10 分钟 | 精确包名查询、搜索补全、Provider 推荐共享 |
-| 我的发布列表               | `my:{accountId}:{next}`                      |                        2 分钟 | 仅账号隔离的内存缓存                      |
-| 我的发布 package detail    | `account:{accountId}:package:{name,version}` |                       10 分钟 | 绝不复用到其他账号                        |
-| Provider → package 解析    | `service + provider displayName`             |                       10 分钟 | 找不到 package 仍保留 24 小时负缓存       |
-| 团队 Skill 配置            | `accountId + teamId`                         | 30 秒新鲜期 / 24 小时本地保留 | 见 `useTeamSkills.ts`                     |
-| 本机已安装 Skill inventory | 全局 resource + 主进程扫描缓存               |                        5 分钟 | watcher 变化时主动失效；TTL 兜底缺失目录  |
+| Data                                   | key scope                                                             |                              TTL | Notes                                                                                                                                        |
+| -------------------------------------- | --------------------------------------------------------------------- | -------------------------------: | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public market list / pagination        | `public:list:{next,size}`                                             |                            5 min | Shared by the Skills page and the team market                                                                                                  |
+| Public market search                   | `search:skills:{query,next,size}`                                     |                            2 min | Search input changes quickly                                                                                                                   |
+| Public package detail                  | `public:package:{name,version}`                                       |                           10 min | Shared by exact-package-name lookup, search completion, and Provider recommendations                                                           |
+| My published list                      | `my:{accountId}:{next}`                                               |                            2 min | Account-isolated in-memory cache only                                                                                                          |
+| My published package detail            | `account:{accountId}:package:{name,version}`                          |                           10 min | Never reused across accounts                                                                                                                   |
+| Provider → package resolution          | `service + provider displayName`                                     |                           10 min | A "package not found" result is kept as a 24 h negative cache                                                                                  |
+| Team Skill configuration               | `accountId + teamId`                                                  | 30 s freshness / 24 h local hold | See `useTeamSkills.ts`                                                                                                                         |
+| Local installed Skill inventory        | global resource + main-process scan cache                             |                            5 min | Proactively invalidated on watcher changes; TTL is the fallback for missing directories                                                        |
+| Installed Skill registry version check | auth snapshot + inventory fingerprint (`createVersionReportCacheKey`) |                           30 min | Main-process cache in `SkillServiceImpl.checkSkillVersions` with in-flight dedup; the renderer `skillVersions` resource mirrors it (30 min `staleTimeMs`) |
 
-## Provider 推荐解析
+## Provider recommendation resolution
 
-团队推荐不是单独的远端列表：它由当前已连接的 Provider、package 解析结果、团队配置和本机 inventory 共同计算。
+Team recommendations are not a separate remote list: they are computed from the currently
+connected Providers, package resolution results, team configuration, and the local inventory.
 
-- 每个 Provider 先尝试约定包名 `oo-{service}`。
-- 约定包不匹配时才进入市场搜索 fallback；搜索每得到一个与 service 或 Skill 名精确匹配的 package 就立即结束，不再无条件执行剩余关键词搜索。
-- Provider 解析最多同时处理 4 个候选，避免团队切换时放大 registry 请求峰值。
-- UI 不等待所有 Provider 解析完毕：已有的团队配置和已解析推荐立即显示，未完成项只显示进度与轻量 loading row。
+- Each Provider first tries the conventional package name `oo-{service}`.
+- Only when the conventional package does not match does resolution fall back to market search;
+  the search stops as soon as it yields a package that exactly matches the service or Skill name —
+  it does not unconditionally run the remaining keyword searches.
+- Provider resolution processes at most 4 candidates concurrently, to avoid amplifying registry
+  request spikes on team switches.
+- The UI does not wait for all Providers to resolve: existing team configuration and
+  already-resolved recommendations render immediately; unfinished items show only progress and a
+  lightweight loading row.
 
-当服务端提供批量 Provider → package resolver 后，应优先使用该接口替代客户端启发式 fallback；客户端解析逻辑保留为兼容降级路径。
+Once the server provides a batch Provider → package resolver, that endpoint should be preferred
+over the client-side heuristic fallback; the client resolution logic is kept as a compatibility
+degradation path.
 
-## 失效规则
+## Invalidation rules
 
-- 发布 Skill 成功：失效当前账号的“我发布的”列表和私有 package detail，以及公共市场 / 搜索缓存。
-- 登录、登出或切换账号：清空整个会话级 catalog cache，避免任何可能受权限影响的 package 响应展示给另一账号。
-- 安装、更新、删除本机 Skill：只更新 `skillInventory`，不失效市场 catalog。
-- 外部 Agent 或 Wanta runtime Skill 文件变化：主进程 watcher 立即失效 inventory 扫描缓存并广播变更；无变化时不重复递归读取和 hash 全部 Skill。
-- 团队配置增删改：失效当前团队配置缓存；不失效公共 market 数据。
-- 连接器集合变化：Provider 推荐层按候选 provider key 重新计算；公共 package detail 继续复用。
-- 用户显式刷新：调用方传 `forceRefresh`，客户端重新请求该 key。
-- 强制刷新和定向失效会递增对应 key 的 generation；失效前启动的请求可以返回给原调用方，但不能再写入共享缓存。`forceRefresh` 不复用旧 generation 的 in-flight promise。
+- Skill published successfully: invalidate the current account's "my published" list and private
+  package details, plus the public market / search caches.
+- Sign-in, sign-out, or account switch: clear the entire session-level catalog cache, so no
+  package response that may be permission-dependent is ever shown to another account.
+- Installing, updating, or deleting a local Skill: only update `skillInventory`; do not invalidate
+  the market catalog.
+- External agent or Wanta runtime Skill file changes: the main-process watcher immediately
+  invalidates the inventory scan cache and broadcasts the change; when nothing changed it does not
+  re-recurse and re-hash every Skill.
+- Skill version report: watcher-detected inventory changes and auth state changes both call
+  `invalidateVersionReport`; the renderer `skillVersions` resource is invalidated on the
+  `skillInventoryChanged` event.
+- Team configuration create/update/delete: invalidate the current team's configuration cache; do
+  not invalidate public market data.
+- Connector set changes: the Provider recommendation layer recomputes per candidate provider key;
+  public package details keep being reused.
+- Explicit user refresh: the caller passes `forceRefresh` and the client re-requests that key.
+- Force refresh and targeted invalidation bump the corresponding key's generation; requests
+  started before the invalidation may still return to their original caller, but must not write
+  back into the shared cache. `forceRefresh` never reuses an in-flight promise from an older
+  generation.
+- Besides TTL expiry and targeted invalidation, entries have a third exit path: the cache is
+  capped at 256 entries (`skillCatalogCacheMaxEntries`). When a write exceeds the cap, the oldest
+  entries in Map insertion order are evicted, and an evicted key's generation is cleaned up
+  alongside when it has no pending request.
 
-## 非目标
+## Non-goals
 
-- 不将公共市场 list 持久化到磁盘。公共 catalog 的实时性比跨重启复用更重要；页面切换和多入口重复请求由会话级共享缓存解决。
-- 不以“打开页面”作为强制刷新条件。打开 Market tab 只读取缓存；仅缓存过期、查询变化或显式刷新才请求网络。
-- 不把团队 Skill artifact/runtime 同步混入 catalog cache。那一层依赖 `resolved` artifact、checksum 和主进程私有目录，属于后续 runtime 同步工作。
+- The public market list is not persisted to disk. Freshness of the public catalog matters more
+  than reuse across restarts; duplicate requests from page switches and multiple entry points are
+  solved by the session-level shared cache.
+- "Opening a page" is not a force-refresh trigger. Opening the Market tab only reads the cache;
+  the network is hit only on cache expiry, query change, or explicit refresh.
+- Team Skill artifact/runtime sync is not mixed into the catalog cache. That layer depends on the
+  `resolved` artifact, checksums, and a main-process private directory, and belongs to later
+  runtime-sync work.

@@ -1,191 +1,191 @@
-# 质量问题台账
+# Quality-issue ledger
 
-> 状态含义：`hypothesis` 仅表示值得测量；`confirmed` 表示已有可复现证据；`verified` 表示修复已通过完整门禁。
-> 调查方法和优先级规则见 [全项目质量优化计划](../quality-improvement-plan.md)。
+> Status meanings: `hypothesis` only means it is worth measuring; `confirmed` means there is reproducible evidence; `verified` means the fix has passed the full quality gate.
+> For the investigation method and priority rules, see [the project-wide quality-improvement plan](../quality-improvement-plan.md).
 
-## Q-2026-001：服务端推送的新数据会被旧读取覆盖
+## Q-2026-001: Server-pushed fresh data can be overwritten by a stale read
 
 - Category: bug | state
 - Status: verified
 - Area: shell | skills | auth
-- User impact: 后台读取尚未完成时，如果登录状态事件或技能 mutation 写入更新数据，旧读取随后完成会把界面退回旧状态。
-- Evidence: `ResourceStore.setData()` 不推进 `requestId`，新增回归测试在旧实现上稳定得到 `stale` 而不是 `pushed`。
-- Root cause: 共享资源层只让强制刷新和 reset 使旧请求失效，遗漏了权威推送和 mutation 结果。
-- Scope: `src/lib/resource-store.ts` 及其单元测试。
-- Guardrails: 保留普通读取的在途合并；旧 Promise 仍可向原调用者结算，但不得再写共享快照。
-- Before metric: 1 个确定性竞态用例失败。
-- Target: `setData()` 后完成的旧请求不能修改资源快照。
-- Verification: 3 个回归测试、完整质量门、生产构建和开发版启动均通过。
-- Risk and rollback: 低；变更只影响资源快照写入资格，可单独回退。
+- User impact: While a background read is still in flight, if an auth-state event or a skill mutation writes updated data, the stale read completing afterward reverts the UI to the old state.
+- Evidence: `ResourceStore.setData()` does not advance `requestId`; a new regression test reliably yields `stale` instead of `pushed` on the old implementation.
+- Root cause: The shared resource layer only invalidated stale requests on force-refresh and reset, missing authoritative pushes and mutation results.
+- Scope: `src/lib/resource-store.ts` and its unit tests.
+- Guardrails: Preserve in-flight coalescing for normal reads; the old Promise may still settle for its original caller, but must no longer write the shared snapshot.
+- Before metric: 1 deterministic race case fails.
+- Target: A stale request that completes after `setData()` must not modify the resource snapshot.
+- Verification: 3 regression tests, the full quality gate, production build, and dev-mode startup all pass.
+- Risk and rollback: Low; the change only affects eligibility to write the resource snapshot and can be rolled back independently.
 - Priority: P1
 - Decision: fix
 
-## Q-2026-002：资源失效仍会复用已过时的在途请求
+## Q-2026-002: Resource invalidation still reuses an already-stale in-flight request
 
 - Category: bug | state
 - Status: verified
 - Area: shell | skills
-- User impact: 技能安装、发布或认证变化后调用 `invalidate()` 时，变更前的读取仍可回填缓存；下一次 refresh 还会复用同一个旧 Promise。
-- Evidence: 新增两个确定性测试；旧实现不会发起第二次读取，且无数据资源会永久保持 `loading` 直到旧请求完成。
-- Root cause: `invalidate()` 只把已有数据的 `updatedAt` 设为 null，没有提升 generation、释放 `inFlight` 或处理首次加载。
-- Scope: `src/lib/resource-store.ts` 及其单元测试。
-- Guardrails: 不取消底层 Promise；只阻止失效前请求回写，并允许新的读取立即开始。
-- Before metric: 2 个确定性竞态用例失败。
-- Target: 失效后新 refresh 发起新请求；旧请求完成不污染快照；无数据资源回到 `idle`。
-- Verification: 2 个回归测试、完整质量门、生产构建和开发版启动均通过。
-- Risk and rollback: 中低；依赖旧 Promise 的直接调用者仍能收到结果，共享快照行为变得更严格。
+- User impact: When `invalidate()` is called after a skill install, publish, or auth change, a read from before the change can still backfill the cache; the next refresh also reuses the same old Promise.
+- Evidence: Two deterministic tests were added; the old implementation does not issue a second read, and a resource with no data stays `loading` forever until the old request completes.
+- Root cause: `invalidate()` only set `updatedAt` to null on existing data, without bumping the generation, releasing `inFlight`, or handling the first load.
+- Scope: `src/lib/resource-store.ts` and its unit tests.
+- Guardrails: Do not cancel the underlying Promise; only block a pre-invalidation request from writing back, and allow a new read to start immediately.
+- Before metric: 2 deterministic race cases fail.
+- Target: After invalidation a new refresh issues a new request; a completing stale request does not pollute the snapshot; a resource with no data returns to `idle`.
+- Verification: 2 regression tests, the full quality gate, production build, and dev-mode startup all pass.
+- Risk and rollback: Medium-low; direct callers depending on the old Promise still receive a result, and the shared-snapshot behavior becomes stricter.
 - Priority: P1
 - Decision: fix
 
-## Q-2026-003：账单强制刷新会复用变更前的请求
+## Q-2026-003: Billing force-refresh reuses a pre-change request
 
 - Category: bug | performance
 - Status: verified
 - Area: billing
-- User impact: 充值、订阅变更、支付弹窗关闭或重新登录后强制刷新时，如果旧账单请求仍在途，界面可能继续显示变更前余额或计划。
-- Evidence: `refresh({ force: true })` 绕过 TTL，却仍执行 `entry.promise ?? ...`；调用点明确在支付、登录和 mutation 后使用 force。
-- Root cause: 缓存新鲜度和在途请求 generation 被混为同一个复用条件。
-- Scope: `src/hooks/useBillingOverview.ts` 及其单元测试。
-- Guardrails: 普通并发刷新继续合并；只有 force 创建新 generation；旧请求结算后不能覆盖新结果。
-- Before metric: force 与普通刷新都返回同一个 Promise。
-- Target: 普通刷新保持一次请求；force 返回新 Promise，并且旧响应不能回填 cache entry。
-- Verification: 两个并发顺序单测、完整质量门、生产构建和开发版启动均通过。
-- Risk and rollback: 低；只在显式 force 时可能多发一个账单聚合请求。
+- User impact: On a force-refresh after a top-up, subscription change, payment-dialog close, or re-login, if an old billing request is still in flight, the UI may keep showing the pre-change balance or plan.
+- Evidence: `refresh({ force: true })` bypasses the TTL but still runs `entry.promise ?? ...`; call sites explicitly use force after payment, login, and mutations.
+- Root cause: Cache freshness and the in-flight request generation were conflated into a single reuse condition.
+- Scope: `src/hooks/useBillingOverview.ts` and its unit tests.
+- Guardrails: Normal concurrent refreshes keep coalescing; only force creates a new generation; an old request settling must not overwrite the new result.
+- Before metric: force and normal refresh both return the same Promise.
+- Target: Normal refresh keeps a single request; force returns a new Promise, and the old response must not backfill the cache entry.
+- Verification: Two concurrent-ordering unit tests, the full quality gate, production build, and dev-mode startup all pass.
+- Risk and rollback: Low; at most one extra billing-aggregation request may be issued, and only on explicit force.
 - Priority: P1
 - Decision: fix
 
-## Q-2026-004：初始登录快照会覆盖更新事件
+## Q-2026-004: The initial auth snapshot can overwrite an update event
 
 - Category: bug | state
 - Status: verified
 - Area: auth
-- User impact: renderer 启动时若登录状态在 `getAuthState` 与 `authStateChanged` 之间变化，旧快照可能短暂或持续覆盖新状态。
-- Evidence: 可控 deferred 测试证明事件先返回、初始读取后返回时旧状态会获胜；同步事件重放测试在修复前稳定得到 `2 → 1`。
-- Root cause: 初始 `getAuthState` 与 `authStateChanged` 分别直接写 React state，没有共享 generation；初始失败也会在成功事件后留下错误。
-- Scope: `src/hooks/useAuth.ts`、`src/hooks/auth-state-observer.ts` 及其单元测试。
-- Guardrails: 不改变 token 门控、登录回调或 AuthManager 边界。
-- Before metric: 事件值 `2` 会被迟到初始值 `1` 覆盖。
-- Target: 任意完成顺序都以最新服务端事件为准。
-- Verification: 4 个事件顺序、错误和 dispose 单测，完整质量门、生产构建和开发版启动。
-- Risk and rollback: 中；认证路径需要真实运行补验。
+- User impact: At renderer startup, if the auth state changes between `getAuthState` and `authStateChanged`, the old snapshot may briefly or persistently overwrite the new state.
+- Evidence: A controlled deferred test proves the old state wins when the event returns first and the initial read returns after; a synchronous event-replay test reliably yields `2 → 1` before the fix.
+- Root cause: The initial `getAuthState` and `authStateChanged` each wrote React state directly without a shared generation; an initial failure also left an error behind even after a successful event.
+- Scope: `src/hooks/useAuth.ts`, `src/hooks/auth-state-observer.ts`, and their unit tests.
+- Guardrails: Do not change the token gating, login callback, or AuthManager boundary.
+- Before metric: The event value `2` is overwritten by the late-arriving initial value `1`.
+- Target: Any completion order settles on the latest server event.
+- Verification: 4 unit tests covering event ordering, errors, and dispose, plus the full quality gate, production build, and dev-mode startup.
+- Risk and rollback: Medium; the auth path needs additional real-run verification.
 - Priority: P1
 - Decision: fix
 
-## Q-2026-005：知识库列表读取缺少请求版本隔离
+## Q-2026-005: Knowledge-base list reads lack request-version isolation
 
 - Category: bug | state
 - Status: verified
 - Area: knowledge
-- User impact: 快速启停 beta 开关、刷新或收到连续变更事件时，旧列表响应可能覆盖新列表，卸载后也会继续执行状态更新路径。
-- Evidence: 两个 deferred 列表请求按新请求先完成、旧请求后完成的顺序结算；旧实现没有任何条件阻止最后到达的旧列表写入。
-- Root cause: `load()` 的每次调用都直接写 items/error/loading，effect cleanup 只取消事件订阅，没有使已开始请求失效。
-- Scope: `src/hooks/useKnowledgeBases.ts`、`src/hooks/knowledge-base-list-observer.ts` 及其单元测试。
-- Guardrails: 关闭 beta 时不得请求或注入知识库；错误时保留现有恢复语义。
-- Before metric: 旧列表、旧错误和卸载后的结果都具备 state 写入路径。
-- Target: 只有当前 enabled generation 的最后一次读取可以更新状态。
-- Verification: 3 个乱序、错误和 dispose 单测，完整质量门、生产构建和开发版启动。
-- Risk and rollback: 中低。
+- User impact: When rapidly toggling the beta switch, refreshing, or receiving back-to-back change events, an old list response may overwrite the new list, and the state-update path still runs after unmount.
+- Evidence: Two deferred list requests settle in the order new-first, old-last; the old implementation has no condition preventing the last-arriving old list from writing.
+- Root cause: Every `load()` call wrote items/error/loading directly, and the effect cleanup only cancelled the event subscription without invalidating an already-started request.
+- Scope: `src/hooks/useKnowledgeBases.ts`, `src/hooks/knowledge-base-list-observer.ts`, and their unit tests.
+- Guardrails: When beta is off, must not request or inject knowledge bases; on error, preserve the existing recovery semantics.
+- Before metric: The old list, old error, and post-unmount result all have a state-write path.
+- Target: Only the last read of the currently enabled generation may update state.
+- Verification: 3 unit tests covering out-of-order, errors, and dispose, plus the full quality gate, production build, and dev-mode startup.
+- Risk and rollback: Medium-low.
 - Priority: P2
 - Decision: fix
 
-## Q-2026-006：账单缓存缺少认证切换清理
+## Q-2026-006: The billing cache lacks cleanup on auth switch
 
 - Category: performance | maintainability
 - Status: verified
 - Area: billing | auth
-- User impact: 账单数据按账号和 workspace 正确隔离，但退出和换号后旧余额仍保留在 renderer 模块内存，长生命周期多账号使用会持续增长。
-- Evidence: `overviewCache` 是无界模块级 Map，key 同时包含账号、workspace、团队名和权限；认证变化会清理 connector、skill、avatar 和 team cache，但旧账号的账单 entry 与 data 没有任何淘汰路径。
-- Root cause: 账单缓存正确实现了读取隔离，却没有接入全局认证 identity 的生命周期；TTL 只决定是否复用数据，不会删除 Map entry。
-- Scope: `src/hooks/useBillingOverview.ts`、`src/components/AppDataProvider.tsx` 及单元测试。
-- Guardrails: 不得因清理触发重复支付或把个人余额解释为团队余额。
-- Before metric: 每个历史账号/团队/权限组合至少永久保留一个 scope Map，退出后仍可由原 key 读取旧 data。
-- Target: 登出或账号变化后不保留旧账号账单数据。
-- Verification: 认证 identity 变化时统一清空账单缓存；回归测试证明清理后同 key 返回全新空 entry，且清理前在途请求结算不能回填新缓存。完整质量门、production build 和开发版启动通过；受限于当前账号环境，换号交互仍未实机执行。
-- Risk and rollback: 低。
+- User impact: Billing data is correctly isolated by account and workspace, but after logout and account switching the old balances remain in renderer module memory, growing continuously under long-lived multi-account use.
+- Evidence: `overviewCache` is an unbounded module-level Map whose key includes account, workspace, team name, and permission together; an auth change clears the connector, skill, avatar, and team caches, but the old account's billing entry and data have no eviction path.
+- Root cause: The billing cache correctly implemented read isolation but was not wired into the lifecycle of the global auth identity; the TTL only decides whether to reuse data, and never deletes the Map entry.
+- Scope: `src/hooks/useBillingOverview.ts`, `src/components/AppDataProvider.tsx`, and unit tests.
+- Guardrails: Cleanup must not trigger duplicate payments or interpret a personal balance as a team balance.
+- Before metric: Each historical account/team/permission combination permanently retains at least one scope Map, and the old data is still readable by its original key after logout.
+- Target: After logout or an account change, no old-account billing data is retained.
+- Verification: The billing cache is cleared wholesale when the auth identity changes; a regression test proves that after cleanup the same key returns a brand-new empty entry, and an in-flight request settling before cleanup cannot backfill the new cache. The full quality gate, production build, and dev-mode startup pass; constrained by the current account environment, the account-switch interaction has not yet been exercised on a real machine.
+- Risk and rollback: Low.
 - Priority: P2
 - Decision: fix
 
-## Q-2026-007：长会话流式更新的 renderer 成本未量化
+## Q-2026-007: The renderer cost of streaming updates in long sessions is unquantified
 
 - Category: performance
 - Status: hypothesis
 - Area: chat
-- User impact: 可能表现为输入、滚动或流式输出卡顿。
-- Evidence: 主进程已有 32ms 合并，renderer 也有事件 buffer；当前静态结构无法证明仍有无关组件提交。
-- Root cause: 未确认，禁止据此盲目 memo。
-- Scope: Chat SSE 到 `ChatTimeline` 的完整路径。
-- Guardrails: 保留累计全文 part、稳定 partId、Enter 只发送和制成品层级。
-- Before metric: 待采集固定长会话的 commit 次数、long task 和 heap 曲线。
-- Target: 先建立预算，再选择优化。
-- Verification: React Profiler、Chromium trace 和相同 fixture 的 before/after。
-- Risk and rollback: 高，未测量前不实施。
+- User impact: May manifest as jank while typing, scrolling, or streaming output.
+- Evidence: The main process already coalesces at 32ms and the renderer also buffers events; the current static structure cannot prove that unrelated components still commit.
+- Root cause: Unconfirmed; do not blindly memoize based on this.
+- Scope: The full path from chat SSE to `ChatTimeline`.
+- Guardrails: Preserve the accumulated full-text part, the stable partId, Enter-sends-only, and the artifact hierarchy.
+- Before metric: To be collected — commit counts, long tasks, and heap curves for a fixed long session.
+- Target: Establish a budget first, then choose optimizations.
+- Verification: React Profiler, a Chromium trace, and before/after on the same fixture.
+- Risk and rollback: High; do not implement before measuring.
 - Priority: P2
 - Decision: defer
 
-## Q-2026-008：缩略图缓存只有条目上限，没有字节预算
+## Q-2026-008: The thumbnail cache has only an entry cap, no byte budget
 
 - Category: performance
 - Status: rejected
 - Area: chat
-- User impact: 128 个 data URL 缩略图可能在图片密集会话中占用较多 renderer heap。
-- Evidence: 主进程固定把缩略图压到 160×160 PNG，renderer 最多保留 128 项且只为 near-viewport 图片加载。确定性图像样本的单项 data URL 为：纯色 714 字符、渐变 1914 字符、棋盘格 886 字符、不可压缩噪声 120410 字符；128 个极端噪声缩略图合计约 14.7 MiB ASCII payload，常见可压缩图形仅约 0.09–0.23 MiB。
-- Root cause: 假设未成立；缓存已有尺寸归一化、按需加载和 128 项 LRU 三重上界，未观察到无界增长或达到 long-session heap 瓶颈的证据。
-- Scope: artifact thumbnail cache。
-- Guardrails: 不降低图片预览清晰度或移除图片 gallery。
-- Before metric: 128 个 160×160 不可压缩噪声 PNG 的 data URL 字符总量约 14.7 MiB；可压缩样本低两个数量级。
-- Target: 只有真实图片密集会话 profile 证明该有界缓存造成 heap 压力或 GC 卡顿时，才增加字节预算。
-- Verification: 已完成编码尺寸测量；后续若重新打开，按 chat performance runbook 采集 renderer heap、GC 和缓存命中率。
-- Risk and rollback: 本轮不改代码，无回滚风险；贸然降低预算反而可能造成滚动时反复 IPC 和 PNG 编码。
+- User impact: 128 data-URL thumbnails could occupy a fair amount of renderer heap in image-heavy sessions.
+- Evidence: The main process always compresses thumbnails to a 160×160 PNG, and the renderer keeps at most 128 entries and loads only for near-viewport images. For a deterministic image sample, a single data URL is: solid color 714 chars, gradient 1914 chars, checkerboard 886 chars, incompressible noise 120410 chars; 128 extreme-noise thumbnails total about 14.7 MiB of ASCII payload, while common compressible graphics are only about 0.09–0.23 MiB.
+- Root cause: The hypothesis does not hold; the cache already has three upper bounds — size normalization, on-demand loading, and a 128-entry LRU — and no evidence of unbounded growth or of reaching a long-session heap bottleneck was observed.
+- Scope: The artifact thumbnail cache.
+- Guardrails: Do not reduce image-preview clarity or remove the image gallery.
+- Before metric: The total data-URL character count for 128 160×160 incompressible-noise PNGs is about 14.7 MiB; compressible samples are two orders of magnitude lower.
+- Target: Add a byte budget only when a profile of a genuinely image-heavy session proves this bounded cache causes heap pressure or GC jank.
+- Verification: Encoded-size measurement is complete; if reopened later, collect renderer heap, GC, and cache hit rate per the chat performance runbook.
+- Risk and rollback: No code change this round, so no rollback risk; rashly lowering the budget could instead cause repeated IPC and PNG encoding while scrolling.
 - Priority: P3
 - Decision: reject
 
-## Q-2026-009：后台资源比较可能重复深序列化大型清单
+## Q-2026-009: Background resource comparison may repeatedly deep-serialize a large inventory
 
 - Category: performance | duplication
 - Status: rejected
 - Area: shell | skills
-- User impact: 每分钟后台刷新时可能在 renderer 主线程产生不必要的 JSON 序列化和排序成本。
-- Evidence: 用当前真实技能清单构造与 renderer 相同的比较路径：42 groups、143367 bytes JSON，1000 次比较中位数 1.809ms、p95 2.277ms、最大 2.731ms；放大到 420 groups、1204830 bytes 后，200 次比较中位数 16.482ms、p95 17.041ms、最大 20.085ms。
-- Root cause: 假设未成立；当前每分钟一次的约 2ms 比较没有形成 50ms long task，即使数据放大 10 倍仍低于 long-task 阈值。
-- Scope: `src/components/AppDataProvider.tsx`。
-- Guardrails: 不得因浅比较制造无效整树更新。
-- Before metric: 当前清单 p95 2.277ms，10 倍清单 p95 17.041ms。
-- Target: 单次比较达到 50ms，或 profiler 证明它在高频路径中累计造成可感知卡顿时才重新设计。
-- Verification: 同一进程完成 warm-up 后逐次采样，并额外验证 10 倍数据规模；不实施 memo、hash 或服务端版本字段。
-- Risk and rollback: 本轮不改代码，无回滚风险；保留深比较可避免仅因 `updatedAt` 变化导致无效 React 更新。
+- User impact: The per-minute background refresh may incur unnecessary JSON serialization and sorting cost on the renderer main thread.
+- Evidence: Reproducing the renderer's comparison path with the current real skill inventory: 42 groups, 143367 bytes JSON, median 1.809ms / p95 2.277ms / max 2.731ms over 1000 comparisons; scaled up to 420 groups, 1204830 bytes, median 16.482ms / p95 17.041ms / max 20.085ms over 200 comparisons.
+- Root cause: The hypothesis does not hold; the current once-per-minute ~2ms comparison does not form a 50ms long task, and even at 10x the data it stays below the long-task threshold.
+- Scope: `src/components/AppDataProvider.tsx`.
+- Guardrails: Must not introduce spurious whole-tree updates via shallow comparison.
+- Before metric: Current inventory p95 2.277ms; 10x inventory p95 17.041ms.
+- Target: Redesign only when a single comparison reaches 50ms, or a profiler proves it accumulates into perceptible jank on a high-frequency path.
+- Verification: Sampled one by one after warm-up in the same process, with the 10x data scale additionally verified; memoization, hashing, and a server-side version field are not implemented.
+- Risk and rollback: No code change this round, so no rollback risk; keeping the deep comparison avoids spurious React updates caused merely by an `updatedAt` change.
 - Priority: P3
 - Decision: reject
 
-## Q-2026-010：大型懒加载 chunk 可能造成明显首开延迟
+## Q-2026-010: A large lazy-loaded chunk may cause noticeable first-open latency
 
 - Category: performance
 - Status: rejected
 - Area: build | chat
-- User impact: 首次打开表格时，大型 Univer chunk 可能造成用户可感知的等待或 renderer 内存峰值。
-- Evidence: 在 production renderer、禁用 Chromium cache、相同已登录 workspace 和固定 13.2 kB XLSX（3 sheets、16 个 SKU、13 列）下，逐次整页冷重载后首次打开 Univer 预览 5 次；以点击制成品到首个预览 canvas 出现作为可交互代理，耗时分别为 641.5、570.6、687.3、691.7、583.4ms，中位数 641.5ms、最差 691.7ms。对应 JS chunk 每次 decoded 4,967,993 bytes、encoded 1,368,949 bytes、transfer 1,369,249 bytes，resource duration 为 117.8–139.1ms。
-- Root cause: 假设未成立；production build 的 chunk size 警告没有在当前真实工作簿场景中形成超过 1 秒的首开等待，且 chunk resource duration 只占端到端时间的一部分，不能据此把剩余耗时归因于下载或拆包策略。
-- Scope: Vite chunk 图与 Univer artifact preview 动态 import；本次没有改运行时代码。
-- Guardrails: Univer 完整工作簿渲染和交互不可删除、降级或替换。
-- Before metric: 固定样本 production 冷开中位数 641.5ms、最差 691.7ms；JS resource duration 最差 139.1ms。
-- Target: 当前场景不实施优化；只有固定大工作簿或 PDF 样本稳定超过 1 秒，或 trace 指向明确的 parse/evaluate、worker、RPC 或渲染瓶颈时才重新打开。
-- Verification: 已用 Chrome DevTools Protocol 对 production bundle 连续采集 5 个冷样本；禁用 cache、每次整页重载并等待 Univer canvas。`performance.memory` 的单次差值受 GC 影响明显（约 0.09–31.04 MiB），不能作为稳定结论；后续大文件调查仍按 runbook 采集完整 trace 和关闭后 heap。
-- Risk and rollback: 本轮只更新证据和决策，无代码回滚风险；样本规模不能代表超大工作簿或 PDF，因此这些场景出现实际反馈时仍需单独测量。
+- User impact: On first opening a spreadsheet, the large Univer chunk may cause a user-perceptible wait or a renderer memory spike.
+- Evidence: In a production renderer, with the Chromium cache disabled, the same logged-in workspace, and a fixed 13.2 kB XLSX (3 sheets, 16 SKUs, 13 columns), the Univer preview was opened for the first time 5 times, each after a full-page cold reload; using click-artifact-to-first-preview-canvas as an interactivity proxy, timings were 641.5, 570.6, 687.3, 691.7, and 583.4ms, median 641.5ms, worst 691.7ms. The corresponding JS chunk was, each time, decoded 4,967,993 bytes, encoded 1,368,949 bytes, transfer 1,369,249 bytes, with a resource duration of 117.8–139.1ms.
+- Root cause: The hypothesis does not hold; the production build's chunk-size warning does not translate into a first-open wait exceeding 1 second in the current real-workbook scenario, and the chunk's resource duration is only part of the end-to-end time, so the remaining time cannot be attributed to download or chunk-splitting strategy.
+- Scope: The Vite chunk graph and the Univer artifact-preview dynamic import; no runtime code was changed this round.
+- Guardrails: Univer's full-workbook rendering and interaction must not be removed, downgraded, or replaced.
+- Before metric: For the fixed sample, production cold-open median 641.5ms, worst 691.7ms; JS resource duration worst 139.1ms.
+- Target: No optimization for the current scenario; reopen only when a fixed large-workbook or PDF sample stably exceeds 1 second, or a trace points to a clear parse/evaluate, worker, RPC, or rendering bottleneck.
+- Verification: Collected 5 consecutive cold samples on the production bundle via the Chrome DevTools Protocol, with the cache disabled, a full-page reload each time, and waiting for the Univer canvas. The single-shot delta of `performance.memory` is markedly affected by GC (about 0.09–31.04 MiB) and cannot serve as a stable conclusion; future large-file investigations should still collect a full trace and post-close heap per the runbook.
+- Risk and rollback: This round only updates evidence and the decision, so there is no code-rollback risk; the sample scale does not represent very large workbooks or PDFs, so those scenarios still need separate measurement when real feedback appears.
 - Priority: P3
 - Decision: reject
 
-## Q-2026-011：冷启动技能清单扫描耗时超过两秒
+## Q-2026-011: Cold-start skill-inventory scan takes over two seconds
 
 - Category: performance
 - Status: verified
 - Area: skills | shell
-- User impact: 已登录启动时技能清单或依赖该清单的界面可能延迟就绪，主进程同时承担较长的文件扫描工作。
-- Evidence: 三次改动前开发版启动的完整 inventory scan 为 2097–2154ms；分段基准显示 skill 文件扫描仅需 32–52ms，而完整 agent discovery 为 2381–2425ms。旧探测会并发执行每个候选 CLI 的 `--version`，Hermes 在启动争用下触发 1500ms timeout，并被错误判为未安装。
-- Root cause: agent discovery 为判断可执行文件是否存在而实际启动所有第三方 CLI；这既引入进程冷启动和 timeout 成本，也把“命令存在”错误耦合为“版本子命令须在 1.5 秒内成功”。
-- Scope: `electron/agents/catalog.ts` 及其单元测试。
-- Guardrails: 保留 login-shell PATH 合并、Windows `PATHEXT`、agent 顺序、skill root 发现规则、同名优先级和 watcher 行为；主进程继续只用异步 fs。
-- Before metric: 实际冷启动 2097–2154ms，63 个外部 skill；旧分段基准最差 2425ms，且漏掉已安装 Hermes。
-- Target: 实际开发版冷启动 inventory scan 低于 1 秒，不再为发现 agent 启动第三方 CLI。
-- Verification: 新实现以异步 executable access 检查绝对路径或 PATH，并覆盖“不启动无效程序”“PATH 命中与缺失”两个回归测试；五次冷 discovery + scan 基准为 1141–1249ms，五次热 scan 为 50–77ms；真实开发版首次 inventory scan 为 610ms，随后为 65–68ms，并正确发现 Hermes（125 个最终条目）。完整质量门、production build 和开发版启动均通过，启动观察期无 warn/error diagnostics。
-- Risk and rollback: 低到中；可执行文件存在但自身依赖损坏时仍会被视为已安装，不过真正调用时仍由对应 agent 报错；可单独回退到版本子进程探测。
+- User impact: On logged-in startup, the skill inventory or the UI that depends on it may be slow to become ready, while the main process simultaneously bears a lengthy file-scan workload.
+- Evidence: Across three pre-change dev-mode startups, the full inventory scan took 2097–2154ms; a segmented benchmark shows the skill file scan needs only 32–52ms, while full agent discovery took 2381–2425ms. The old probe concurrently ran `--version` for every candidate CLI; under startup contention Hermes hit the 1500ms timeout and was wrongly judged not installed.
+- Root cause: To decide whether an executable exists, agent discovery actually launched every third-party CLI; this both introduced process cold-start and timeout cost and wrongly coupled "the command exists" to "the version subcommand must succeed within 1.5 seconds".
+- Scope: `electron/agents/catalog.ts` and its unit tests.
+- Guardrails: Preserve login-shell PATH merging, Windows `PATHEXT`, agent ordering, skill-root discovery rules, same-name priority, and watcher behavior; the main process continues to use only async fs.
+- Before metric: Actual cold start 2097–2154ms with 63 external skills; the old segmented benchmark's worst case was 2425ms and missed the installed Hermes.
+- Target: The actual dev-mode cold-start inventory scan is under 1 second, and third-party CLIs are no longer launched to discover agents.
+- Verification: The new implementation checks the absolute path or PATH via async executable access, and covers two regression tests, "does not launch an invalid program" and "PATH hit vs. miss"; five cold discovery + scan benchmarks were 1141–1249ms, five warm scans were 50–77ms; the real dev-mode first inventory scan was 610ms and subsequently 65–68ms, correctly discovering Hermes (125 final entries). The full quality gate, production build, and dev-mode startup all pass, with no warn/error diagnostics during the startup observation window.
+- Risk and rollback: Low to medium; an executable that exists but has broken dependencies is still treated as installed, though the corresponding agent still errors on actual invocation; can be rolled back independently to version-subprocess probing.
 - Priority: P2
 - Decision: fix

@@ -1,5 +1,6 @@
 import type { WantaReasoningVariant } from "../agent/reasoning.ts"
 import type { CustomModelProvider, CustomModelSummary, ModelCatalog, ModelChoice } from "./common.ts"
+import type { ModelCredentialStore } from "./credential-store.ts"
 
 import { readFile } from "node:fs/promises"
 import path from "node:path"
@@ -24,7 +25,7 @@ export interface PersistedCustomModel {
   providerId: string
   providerName: string
   baseUrl: string
-  apiKey: string
+  apiKeyConfigured: boolean
   modelName: string
   displayName?: string
   supportsImages?: boolean
@@ -35,9 +36,17 @@ export interface PersistedCustomModel {
   reasoningVariants?: WantaReasoningVariant[]
 }
 
+export interface RuntimeCustomModel extends PersistedCustomModel {
+  apiKey: string
+}
+
 export interface PersistedModels {
   selected?: ModelChoice
   customModels?: PersistedCustomModel[]
+}
+
+export interface ModelsStoreOptions {
+  writeText?: typeof atomicWriteText
 }
 
 export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
@@ -375,7 +384,7 @@ export function publicCustomModel(model: PersistedCustomModel): CustomModelSumma
     baseUrl: model.baseUrl,
     modelName: model.modelName,
     displayName: customModelDisplayName(model),
-    apiKeyConfigured: model.apiKey.length > 0,
+    apiKeyConfigured: model.apiKeyConfigured,
     supportsImages: model.supportsImages === true,
     supportsToolCalls: model.supportsToolCalls !== false,
     ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
@@ -428,12 +437,22 @@ export function isKnownModelChoice(models: PersistedModels, choice: ModelChoice 
 
 export class ModelsStore {
   private readonly file: string
+  private migration: Promise<void> | null = null
 
-  public constructor(dir: string) {
+  public constructor(
+    dir: string,
+    private readonly credentials: ModelCredentialStore,
+    private readonly options: ModelsStoreOptions = {},
+  ) {
     this.file = path.join(dir, "models.json")
   }
 
   public async read(): Promise<PersistedModels> {
+    await this.ensureLegacyCredentialsMigrated()
+    return this.readMetadata()
+  }
+
+  private async readMetadata(): Promise<PersistedModels> {
     try {
       const parsed = JSON.parse(await readFile(this.file, "utf-8")) as PersistedModels
       return {
@@ -447,7 +466,13 @@ export class ModelsStore {
   }
 
   public async write(models: PersistedModels): Promise<void> {
-    await atomicWriteText(this.file, JSON.stringify(models, null, 2), { mode: 0o600 })
+    await (this.options.writeText ?? atomicWriteText)(
+      this.file,
+      JSON.stringify(persistedModelsPayload(models), null, 2),
+      {
+        mode: 0o600,
+      },
+    )
   }
 
   public async catalog(): Promise<ModelCatalog> {
@@ -460,21 +485,89 @@ export class ModelsStore {
     }
   }
 
-  public async runtimeCustomModels(): Promise<PersistedCustomModel[]> {
-    return ((await this.read()).customModels ?? []).filter(isRuntimeCustomModel)
+  public async runtimeCustomModels(): Promise<RuntimeCustomModel[]> {
+    return (await this.runtimeModels()).customModels
   }
 
-  public async runtimeModels(): Promise<Required<Pick<PersistedModels, "customModels" | "selected">>> {
+  public async runtimeModels(): Promise<{ customModels: RuntimeCustomModel[]; selected: ModelChoice }> {
     const models = await this.read()
+    const customModels = await Promise.all(
+      (models.customModels ?? []).filter(isRuntimeCustomModelMetadata).map(async (model) => {
+        const apiKey = await this.credentials.get(model.id)
+        return apiKey ? { ...model, apiKey } : null
+      }),
+    )
     return {
-      customModels: (models.customModels ?? []).filter(isRuntimeCustomModel),
+      customModels: customModels.filter((model): model is RuntimeCustomModel => model !== null),
       selected: models.selected ?? defaultModelChoice(),
     }
   }
+
+  public credentialStore(): ModelCredentialStore {
+    return this.credentials
+  }
+
+  private async ensureLegacyCredentialsMigrated(): Promise<void> {
+    if (!this.migration) {
+      this.migration = this.migrateLegacyCredentials().catch((error: unknown) => {
+        this.migration = null
+        throw error
+      })
+    }
+    await this.migration
+  }
+
+  private async migrateLegacyCredentials(): Promise<void> {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(await readFile(this.file, "utf8"))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+      // 损坏元数据仍由 readMetadata 的既有容错路径处理；这里绝不能覆盖原文件。
+      return
+    }
+    if (!parsed || typeof parsed !== "object") return
+    const raw = parsed as { customModels?: unknown; selected?: ModelChoice }
+    if (!Array.isArray(raw.customModels)) return
+    const legacyModels = raw.customModels.filter(isLegacyCustomModel)
+    if (legacyModels.length === 0) return
+    // 先原子写入全部密文；成功后才清理 models.json 明文。任一步失败都保留至少一份有效凭证。
+    await this.credentials.setMany(
+      new Map(legacyModels.filter((model) => model.apiKey.trim()).map((model) => [model.id, model.apiKey])),
+    )
+    const customModels = raw.customModels
+      .map(migrateCustomModelMetadata)
+      .filter((model): model is PersistedCustomModel => model !== null)
+    await this.write({
+      selected: isKnownModelChoice({ customModels }, raw.selected) ? raw.selected : defaultModelChoice(),
+      customModels,
+    })
+  }
 }
 
-function isRuntimeCustomModel(model: PersistedCustomModel): boolean {
-  return Boolean(model.id.trim() && model.baseUrl.trim() && model.apiKey.trim() && model.modelName.trim())
+function persistedModelsPayload(models: PersistedModels): PersistedModels {
+  return {
+    ...(models.selected ? { selected: models.selected } : {}),
+    customModels: (models.customModels ?? []).map((model) => ({
+      id: model.id,
+      providerId: model.providerId,
+      providerName: model.providerName,
+      baseUrl: model.baseUrl,
+      apiKeyConfigured: model.apiKeyConfigured,
+      modelName: model.modelName,
+      ...(model.displayName ? { displayName: model.displayName } : {}),
+      ...(model.supportsImages === undefined ? {} : { supportsImages: model.supportsImages }),
+      ...(model.supportsToolCalls === undefined ? {} : { supportsToolCalls: model.supportsToolCalls }),
+      ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+      ...(model.inputTokenLimit ? { inputTokenLimit: model.inputTokenLimit } : {}),
+      ...(model.maxOutputTokens ? { maxOutputTokens: model.maxOutputTokens } : {}),
+      ...(model.reasoningVariants ? { reasoningVariants: model.reasoningVariants } : {}),
+    })),
+  }
+}
+
+function isRuntimeCustomModelMetadata(model: PersistedCustomModel): boolean {
+  return Boolean(model.id.trim() && model.baseUrl.trim() && model.apiKeyConfigured && model.modelName.trim())
 }
 
 function isPersistedCustomModel(value: unknown): value is PersistedCustomModel {
@@ -487,7 +580,7 @@ function isPersistedCustomModel(value: unknown): value is PersistedCustomModel {
     typeof model.providerId === "string" &&
     typeof model.providerName === "string" &&
     typeof model.baseUrl === "string" &&
-    typeof model.apiKey === "string" &&
+    typeof model.apiKeyConfigured === "boolean" &&
     typeof model.modelName === "string" &&
     (model.displayName === undefined || typeof model.displayName === "string") &&
     (model.supportsImages === undefined || typeof model.supportsImages === "boolean") &&
@@ -497,6 +590,24 @@ function isPersistedCustomModel(value: unknown): value is PersistedCustomModel {
     (model.maxOutputTokens === undefined || isPositiveSafeInteger(model.maxOutputTokens)) &&
     (model.reasoningVariants === undefined || isReasoningVariantArray(model.reasoningVariants))
   )
+}
+
+interface LegacyCustomModel extends Omit<PersistedCustomModel, "apiKeyConfigured"> {
+  apiKey: string
+}
+
+function isLegacyCustomModel(value: unknown): value is LegacyCustomModel {
+  if (!value || typeof value !== "object") return false
+  const model = value as Record<string, unknown>
+  return typeof model.id === "string" && typeof model.apiKey === "string"
+}
+
+function migrateCustomModelMetadata(value: unknown): PersistedCustomModel | null {
+  if (isPersistedCustomModel(value)) return value
+  if (!isLegacyCustomModel(value)) return null
+  const { apiKey: _apiKey, ...metadata } = value
+  const migrated = { ...metadata, apiKeyConfigured: _apiKey.trim().length > 0 }
+  return isPersistedCustomModel(migrated) ? migrated : null
 }
 
 function isPositiveSafeInteger(value: unknown): value is number {

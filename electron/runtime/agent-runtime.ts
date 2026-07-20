@@ -1,6 +1,6 @@
 import type { MainProcessCloudRuntime } from "../agent/manager.ts"
 import type { ModelChoice } from "../models/common.ts"
-import type { PersistedCustomModel } from "../models/store.ts"
+import type { RuntimeCustomModel } from "../models/store.ts"
 
 import { defaultModelChoice } from "../models/store.ts"
 
@@ -19,7 +19,7 @@ export interface AgentRuntimeResolution {
 export function resolveAgentRuntime(
   account: RuntimeAccountInput | null,
   selected: ModelChoice,
-  customModels: readonly PersistedCustomModel[],
+  customModels: readonly RuntimeCustomModel[],
 ): AgentRuntimeResolution | null {
   const availableCustomModels = customModels.filter(
     (model) => model.id.trim() && model.baseUrl.trim() && model.apiKey.trim() && model.modelName.trim(),

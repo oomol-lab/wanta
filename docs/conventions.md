@@ -11,7 +11,7 @@
 - **R5** 发现/调用/授权信号全走结构化工具结果，不解析模型自由文本；未授权判定靠 stderr `errorCode: <code>` token（locale 无关锚点；zh 文案用全角括号，正则需排除 `)）`）。
 - **R6** 系统提示契约：蓝本来自 oo-cli 内置 oo skill，剔除 CLI 特定条款。
 - **R7 在代码中重载，grep 时注意区分**：原计划义 = **IPC 流式**（ClientInvokes 发起 + ServerEvents 推送，见 `electron/chat/common.ts` 注释与 [architecture.md §3](architecture.md)）；而 `electron/agent/system-prompt.ts` 头注释里的 "R7" 是**提示词修订号**（放开本地编码的那一版），与 IPC 无关。
-- **R8** 安全：不持久化明文会话 token；settings.json 不存凭证（与 auth.json 分离）；密钥只走 env / CI secrets。
+- **R8** 安全：不持久化明文会话 token；settings.json 不存凭证（与 auth.json 分离）；BYOK Key 只进 OS 安全存储，构建/发布密钥只走 env / CI secrets。
 - 注释中的"阶段 0..6"对应最初 7 个 commit（见 [project-overview.md §4](project-overview.md)）。
 
 ## 2. 主进程 fs 纪律
@@ -41,7 +41,8 @@
 
 ## 5. 安全基线（新代码不得弱化）
 
-- 凭证永不进渲染进程：全应用唯一凭证是会话 token `oomol-token`；持有它的 `AuthManager`（`currentSessionToken`/`activeRuntimeAccount`）不注册为 RPC service（`@oomol/connection` 注册即全公开、无方法白名单）；只注册契约门面。**不再获取或落盘长期 api-key**——网关层统一接受 cookie/token/api-key，全程用会话 token。
+- OOMOL 凭证永不进渲染进程：OOMOL 能力的唯一凭证是会话 token `oomol-token`；持有它的 `AuthManager`（`currentSessionToken`/`activeRuntimeAccount`）不注册为 RPC service（`@oomol/connection` 注册即全公开、无方法白名单）；只注册契约门面。**不再获取或落盘 OOMOL 长期 api-key**——网关层统一接受 cookie/token/api-key，全程用会话 token。
+- custom model BYOK：用户在 Renderer 表单中新输入的 Key 只经 `saveCustomModel` 单向提交，catalog/事件/读取 IPC 永远只返回 `apiKeyConfigured`。`models.json` 禁止出现 Key；`ModelCredentialStore` 用 Electron `safeStorage` 写独立 0600 密文文件，只有主进程组装 runtime 时按 ID 解密。Linux `basic_text`/unknown 后端必须显式拒绝，禁止明文或弱存储降级。
 - `auth.json`：0600 权限、tmp+rename 原子写；**只存账号 profile、不存任何凭证**。会话 token 只活在 Electron 会话 cookie 与运行态内存；启动 `AuthStore.purgeLegacy()` 抹除旧版残留的落盘 api-key。
 - 非本应用发起的 signin deep link 须系统对话框确认（防 login-CSRF），勿绕过。
 - sidecar HTTP server 带随机口令 Basic Auth（`OPENCODE_SERVER_PASSWORD`）。

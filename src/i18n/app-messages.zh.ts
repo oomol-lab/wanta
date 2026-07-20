@@ -20,6 +20,9 @@ export const zhCNMessages = {
   "error.auth.description": "登录流程没有完成。请重新发起登录，或确认浏览器登录页是否已经完成授权。",
   "error.authRequired.title": "需要重新登录",
   "error.authRequired.description": "当前登录状态已失效。请重新登录后再继续。",
+  "error.secureStorageUnavailable.title": "安全存储不可用",
+  "error.secureStorageUnavailable.description":
+    "请解锁系统钥匙串后重试。Linux 需要安装并启用 GNOME Keyring 或 KWallet；Wanta 不会把模型 Key 降级为明文保存。",
   "error.permissionDenied.title": "没有访问权限",
   "error.permissionDenied.description": "当前账号没有权限执行这个操作。你可以切换账号后再试。",
   "error.rateLimited.title": "请求过于频繁",

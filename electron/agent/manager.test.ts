@@ -63,6 +63,7 @@ describe("AgentManager", () => {
             providerName: "Local",
             baseUrl: "http://127.0.0.1:11434/v1",
             apiKey: "local-key",
+            apiKeyConfigured: true,
             modelName: "local-model",
           },
         ],
@@ -87,6 +88,7 @@ describe("AgentManager", () => {
           providerName: "Local",
           baseUrl: "http://127.0.0.1:11434/v1",
           apiKey: "local-key",
+          apiKeyConfigured: true,
           modelName: "local-model",
         },
       ],
@@ -822,6 +824,7 @@ describe("AgentManager", () => {
       customModels: [
         {
           apiKey: "custom-secret",
+          apiKeyConfigured: true,
           baseUrl: "https://models.example.test/v1/",
           id: "custom-1",
           modelName: "custom-model",

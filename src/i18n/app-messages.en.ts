@@ -21,6 +21,9 @@ export const enMessages = {
     "The sign-in flow was not completed. Start sign-in again or finish authorization in the browser.",
   "error.authRequired.title": "Sign in again",
   "error.authRequired.description": "Your current sign-in has expired. Sign in again to continue.",
+  "error.secureStorageUnavailable.title": "Secure storage unavailable",
+  "error.secureStorageUnavailable.description":
+    "Unlock your operating system keychain and try again. On Linux, install and enable GNOME Keyring or KWallet; Wanta will not save model keys as plaintext.",
   "error.permissionDenied.title": "Access denied",
   "error.permissionDenied.description":
     "This account cannot perform this operation. You can switch accounts and try again.",

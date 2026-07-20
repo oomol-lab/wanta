@@ -84,4 +84,18 @@ describe("resolveUserFacingError", () => {
       kind: "operation_failed",
     })
   })
+
+  it("explains secure model credential storage failures without suggesting plaintext fallback", () => {
+    expect(
+      resolveUserFacingError(
+        "Secure model credential storage requires GNOME Keyring or KWallet on Linux; plaintext fallback is disabled.",
+        { area: "model" },
+      ),
+    ).toMatchObject({
+      descriptionKey: "error.secureStorageUnavailable.description",
+      kind: "secure_storage_unavailable",
+      severity: "warning",
+      titleKey: "error.secureStorageUnavailable.title",
+    })
+  })
 })

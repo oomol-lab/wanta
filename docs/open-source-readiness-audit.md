@@ -211,11 +211,25 @@ UI 保存 custom model 后 sidecar ready、CTA 消失、输入框启用，且云
 OOMOL/local 两种 401 分流；隔离 userData 的 Electron smoke 继续确认未登录回退后保留 Local workspace、
 模型 onboarding 和本地数据入口。
 
+阶段 7 的 BYOK 凭证保护现已完成：
+
+- `models.json` 只保存 `apiKeyConfigured`，不再保存明文 API Key；
+- `ModelCredentialStore` 使用 Electron `safeStorage`，密文文件为 0600，runtime 在主进程按模型 ID 解密；
+- Renderer/模型 catalog 只接收脱敏摘要，新 Key 仅从模型表单单向提交；
+- 旧明文 Key 先批量写入安全存储，再原子清理元数据；任一步失败都保留至少一份有效凭证；
+- 保存元数据失败会回滚新增/更新凭证，删除元数据失败会恢复已删除凭证；
+- Linux `basic_text` 和 unknown backend 明确报错，UI 提示启用 GNOME Keyring 或 KWallet，不做明文降级；
+- OOMOL session token 仍只使用 Electron Cookie，与 custom model credential 文件及生命周期完全分离。
+
+隔离 userData 的真实 Electron `safeStorage` smoke 已验证：旧版 `models.json` 中的占位明文 Key 在启动时迁移，
+清理后的元数据只含 `apiKeyConfigured`，独立密文文件不含原文且两者权限均为 0600；随后 local sidecar 使用
+解密后的模型配置进入 ready，模型选择可见且输入框启用。
+
 下一工程切片推荐顺序：
 
-1. 迁移 custom model API Key 到系统安全存储；
+1. 让 oo CLI 和官方云能力成为社区构建的可选依赖；
 2. 完成有效第三方模型的未登录回答与本地工具端到端验证；
-3. 让 oo CLI 和官方云能力成为社区构建的可选依赖。
+3. 建立开源 README、贡献、安全、许可证和第三方声明体系。
 
 ## 8. 发布前检查清单
 

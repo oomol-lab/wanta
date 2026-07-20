@@ -1,17 +1,31 @@
 import assert from "node:assert/strict"
-import { mkdtemp } from "node:fs/promises"
+import { mkdtemp, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { test, vi } from "vitest"
 import { externalModelProviderBaseUrls } from "../domain.ts"
+import { ModelCredentialStore } from "./credential-store.ts"
 import { ModelsServiceImpl } from "./node.ts"
 import { ModelsStore } from "./store.ts"
 
 const providerBaseUrls = externalModelProviderBaseUrls
 
+function createStore(dir: string): ModelsStore {
+  const credentials = new ModelCredentialStore(
+    dir,
+    {
+      decryptString: (encrypted) => encrypted.toString("utf8").replace(/^encrypted:/, ""),
+      encryptString: (plainText) => Buffer.from(`encrypted:${plainText}`, "utf8"),
+      isEncryptionAvailable: () => true,
+    },
+    "darwin",
+  )
+  return new ModelsStore(dir, credentials)
+}
+
 test("ModelsServiceImpl preserves custom model image support on update", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
-  const service = new ModelsServiceImpl({ store: new ModelsStore(dir) })
+  const service = new ModelsServiceImpl({ store: createStore(dir) })
 
   const created = await service.saveCustomModel({
     providerId: "openrouter",
@@ -37,7 +51,7 @@ test("ModelsServiceImpl preserves custom model image support on update", async (
 
 test("ModelsServiceImpl defaults known provider image support but honors user choices", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
-  const service = new ModelsServiceImpl({ store: new ModelsStore(dir) })
+  const service = new ModelsServiceImpl({ store: createStore(dir) })
 
   const qwen = await service.saveCustomModel({
     providerId: "qwen",
@@ -77,7 +91,7 @@ test("ModelsServiceImpl defaults known provider image support but honors user ch
 
 test("ModelsServiceImpl can clear token limits on update", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
-  const service = new ModelsServiceImpl({ store: new ModelsStore(dir) })
+  const service = new ModelsServiceImpl({ store: createStore(dir) })
 
   const created = await service.saveCustomModel({
     providerId: "openrouter",
@@ -110,7 +124,7 @@ test("ModelsServiceImpl can clear token limits on update", async () => {
 
 test("ModelsServiceImpl serializes concurrent model mutations", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
-  const store = new ModelsStore(dir)
+  const store = createStore(dir)
   const service = new ModelsServiceImpl({ store })
 
   await Promise.all([
@@ -137,7 +151,7 @@ test("ModelsServiceImpl serializes concurrent model mutations", async () => {
 test("ModelsServiceImpl requests runtime refresh for save, selection, and deletion", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
   const onCustomModelsChanged = vi.fn()
-  const service = new ModelsServiceImpl({ store: new ModelsStore(dir), onCustomModelsChanged })
+  const service = new ModelsServiceImpl({ store: createStore(dir), onCustomModelsChanged })
 
   const catalog = await service.saveCustomModel({
     providerId: "openrouter",
@@ -151,4 +165,65 @@ test("ModelsServiceImpl requests runtime refresh for save, selection, and deleti
   await service.deleteCustomModel(customModel.id)
 
   assert.equal(onCustomModelsChanged.mock.calls.length, 3)
+})
+
+test("ModelsServiceImpl removes a newly stored credential when metadata save fails", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
+  const store = createStore(dir)
+  await store.read()
+  vi.spyOn(store, "write").mockRejectedValueOnce(new Error("metadata write failed"))
+  const service = new ModelsServiceImpl({ store })
+
+  await assert.rejects(
+    service.saveCustomModel({
+      providerId: "custom",
+      baseUrl: "https://models.example.test/v1",
+      apiKey: "new-secret",
+      modelName: "new-model",
+    }),
+    /metadata write failed/,
+  )
+
+  const credentialFile = await readFile(path.join(dir, "model-credentials.json"), "utf8")
+  assert.equal(credentialFile.includes("new-secret"), false)
+  assert.deepEqual((await store.read()).customModels, [])
+})
+
+test("ModelsServiceImpl restores a credential when model deletion metadata fails", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
+  const store = createStore(dir)
+  const service = new ModelsServiceImpl({ store })
+  const created = await service.saveCustomModel({
+    providerId: "custom",
+    baseUrl: "https://models.example.test/v1",
+    apiKey: "delete-secret",
+    modelName: "delete-model",
+  })
+  const model = created.customModels[0]
+  assert.ok(model)
+  vi.spyOn(store, "write").mockRejectedValueOnce(new Error("metadata delete failed"))
+
+  await assert.rejects(service.deleteCustomModel(model.id), /metadata delete failed/)
+
+  assert.equal(await store.credentialStore().get(model.id), "delete-secret")
+  assert.equal((await store.catalog()).customModels[0]?.id, model.id)
+})
+
+test("ModelsServiceImpl deletes the secure credential with its model", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
+  const store = createStore(dir)
+  const service = new ModelsServiceImpl({ store })
+  const created = await service.saveCustomModel({
+    providerId: "custom",
+    baseUrl: "https://models.example.test/v1",
+    apiKey: "delete-secret",
+    modelName: "delete-model",
+  })
+  const model = created.customModels[0]
+  assert.ok(model)
+
+  await service.deleteCustomModel(model.id)
+
+  assert.equal(await store.credentialStore().get(model.id), undefined)
+  assert.equal((await store.catalog()).customModels.length, 0)
 })

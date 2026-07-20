@@ -8,7 +8,7 @@ import type {
   ReasoningLevel,
 } from "../chat/common.ts"
 import type { ModelChoice } from "../models/common.ts"
-import type { PersistedCustomModel } from "../models/store.ts"
+import type { RuntimeCustomModel } from "../models/store.ts"
 import type { GenerateSessionTitleRequest, SessionInfo } from "../session/common.ts"
 import type { GeneratedSessionTitle } from "./session-title-generator.ts"
 import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@opencode-ai/sdk/v2/client"
@@ -59,7 +59,7 @@ export interface AgentManagerOptions {
   /** App 私有根目录（userData 下）：workspace / oo-store / isolation 都在其下。 */
   rootDir: string
   /** 自定义 OpenAI-compatible 模型配置。apiKey 只进入 sidecar env config，不落到 OpenCode 文件。 */
-  customModels?: PersistedCustomModel[]
+  customModels?: RuntimeCustomModel[]
   /** sidecar 启动默认模型；本地 runtime 必须解析为 custom model。 */
   defaultModel?: ModelChoice
   /** 关闭 sidecar Basic Auth（默认开，随机口令）。 */

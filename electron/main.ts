@@ -5,7 +5,18 @@ import type { AppUpdateState } from "./update/common.ts"
 
 import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, shell } from "electron"
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  nativeImage,
+  nativeTheme,
+  Notification,
+  safeStorage,
+  session,
+  shell,
+} from "electron"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { AgentRefreshScheduler } from "./agent-refresh-scheduler.ts"
@@ -50,6 +61,7 @@ import { GitServiceImpl } from "./git/node.ts"
 import { KnowledgeServiceImpl } from "./knowledge/node.ts"
 import { KnowledgeStore } from "./knowledge/store.ts"
 import { isAudioOnlyMediaRequest, isTrustedRendererUrl } from "./media-permission-policy.ts"
+import { ModelCredentialStore } from "./models/credential-store.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
 import { installOomolCorsShim } from "./net/oomol-cors.ts"
@@ -121,7 +133,8 @@ const server = new ConnectionServer(new ElectronServerAdapter())
 
 const settingsStore = new SettingsStore(app.getPath("userData"))
 const attentionStore = new AttentionStore(app.getPath("userData"))
-const modelsStore = new ModelsStore(app.getPath("userData"))
+const modelCredentialStore = new ModelCredentialStore(app.getPath("userData"), safeStorage)
+const modelsStore = new ModelsStore(app.getPath("userData"), modelCredentialStore)
 const knowledgeStore = new KnowledgeStore(app.getPath("userData"))
 const wikiGraphCliPath = path.join(app.getAppPath(), "node_modules", "wiki-graph", "dist", "cli.js")
 // 二进制解析：生产从打包 Resources/bin（extraResources），dev 从 node_modules（opencode）与 .oo-bin（oo）。

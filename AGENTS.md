@@ -68,10 +68,12 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
    发布产物必须 grep 不到 `oomol.dev`。
 3. **品牌标识只改一处**：`electron/branding.ts`（R1）。但 `OO_` 环境变量前缀、
    `x-oomol-*` 头是外部协议契约，不随品牌改。
-4. **凭证永不进渲染进程**。`@oomol/connection` 注册即全公开（无方法白名单），
+4. **OOMOL 凭证永不进渲染进程**。`@oomol/connection` 注册即全公开（无方法白名单），
    持有会话 token 的 `AuthManager`（`currentSessionToken` / `activeRuntimeAccount`）刻意不注册为
    RPC service，只注册薄门面 `AuthServiceImpl`。auth.json 0600 + 原子写、**只存 profile 不存凭证**；
-   deep-link 日志必须脱敏（query 含 authID）。
+   deep-link 日志必须脱敏（query 含 authID）。custom model Key 仅允许用户在 Renderer 表单中新输入时经
+   `saveCustomModel` 单向提交，任何读取/事件只能返回 `apiKeyConfigured`；主进程使用 Electron
+   `safeStorage` 独立保存，`models.json` 禁止出现 Key，Linux 弱存储后端禁止明文降级。
 5. **版本钉死，禁止浮动**：`opencode-ai` / `@opencode-ai/sdk` / `@opencode-ai/plugin`
    三包同为 `1.17.13`（上游无 API 稳定承诺）；oo CLI 版本由 `scripts/oo-cli.ts` 的
    `OO_CLI_VERSION = "1.5.1"` 单一锁定。

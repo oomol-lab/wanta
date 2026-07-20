@@ -1,15 +1,16 @@
-import type { PersistedCustomModel } from "../models/store.ts"
+import type { RuntimeCustomModel } from "../models/store.ts"
 
 import { describe, expect, test } from "vitest"
 import { resolveAgentRuntime } from "./agent-runtime.ts"
 
-const customModels: PersistedCustomModel[] = [
+const customModels: RuntimeCustomModel[] = [
   {
     id: "custom-a",
     providerId: "custom",
     providerName: "Custom",
     baseUrl: "http://127.0.0.1:11434/v1",
     apiKey: "local-key",
+    apiKeyConfigured: true,
     modelName: "model-a",
   },
   {
@@ -18,6 +19,7 @@ const customModels: PersistedCustomModel[] = [
     providerName: "Custom",
     baseUrl: "https://example.com/v1",
     apiKey: "remote-key",
+    apiKeyConfigured: true,
     modelName: "model-b",
   },
 ]

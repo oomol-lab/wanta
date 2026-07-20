@@ -82,10 +82,15 @@ npm run dev
 
 `npm install` prepares the Electron development runtime, the pinned OpenCode dependency, the `oo`
 CLI, ripgrep, and bundled Skills. The Vite development server and Electron app start together with
-`npm run dev`.
+`npm run dev`. The default desktop packages also include `oo`; local BYOK mode does not invoke its
+Connector tools, so users can run the local core without separately installing or configuring the
+CLI.
 
 Hosted models and connected services currently require signing in to an OOMOL account from the
 application. Each external service must also be authorized before Wanta can use its Actions.
+Distributors operating an endpoint-compatible, self-hosted OpenConnector deployment can set
+`WANTA_ENDPOINT` while building; see the [development guide](docs/development.md#2-env-配置). This
+is a build-time distribution setting, not an end-user runtime switch.
 
 ## Development
 

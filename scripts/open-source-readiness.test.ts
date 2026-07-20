@@ -10,6 +10,7 @@ const packageLockPath = path.join(repoRoot, "package-lock.json")
 
 interface PackageManifest {
   bugs?: { url?: string }
+  devDependencies?: Record<string, string>
   engines?: { node?: string }
   homepage?: string
   license?: string
@@ -48,6 +49,23 @@ describe("open-source installation contract", () => {
     expect(manifest.scripts?.["prepare:binaries"]).toContain("scripts/prepare-binaries.ts")
     for (const scriptName of ["build:electron", "build:mac", "build:win", "build:linux"]) {
       expect(manifest.scripts?.[scriptName]).toContain("npm run prepare:binaries")
+    }
+  })
+
+  test("documents OpenCode and packages release notices", () => {
+    const readme = readFileSync(path.join(repoRoot, "README.md"), "utf8")
+    const notices = readFileSync(path.join(repoRoot, "THIRD_PARTY_NOTICES.md"), "utf8")
+    const builderConfig = readFileSync(path.join(repoRoot, "electron-builder.ts"), "utf8")
+
+    expect(manifest.devDependencies?.["opencode-ai"]).toBe("1.17.13")
+    expect(manifest.devDependencies?.["@opencode-ai/plugin"]).toBe("1.17.13")
+    expect(readme).toContain("Agent Engine: OpenCode")
+    expect(readme).toContain("opencode-ai@1.17.13")
+    expect(notices).toContain("@opencode-ai/sdk@1.17.13")
+    expect(notices).toContain("@oomol-lab/oo-cli@1.5.1")
+    for (const fileName of ["LICENSE", "NOTICE", "TRADEMARKS.md", "THIRD_PARTY_NOTICES.md"]) {
+      expect(existsSync(path.join(repoRoot, fileName))).toBe(true)
+      expect(builderConfig).toContain(`from: "${fileName}"`)
     }
   })
 })

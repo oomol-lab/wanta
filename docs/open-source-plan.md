@@ -1,11 +1,16 @@
 # Wanta 开源化与免登录模式实施计划
 
-> 状态：Draft  
+> 状态：In progress（阶段 1–8 工程切片已完成，阶段 9 推进中）
 > 目标：将 Wanta 改造成默认免登录、支持 BYOK 和本地 Agent 能力的开源桌面应用；OOMOL 登录作为云模型、OpenConnector、团队、共享连接、云端 Skills 和账单等能力的可选增强入口。
 
 ## 1. 背景与目标
 
-Wanta 当前是 OOMOL 出品的 Electron 桌面 AI Agent 客户端。聊天 UI、OpenCode sidecar、本地工具、权限确认、Artifact、文档预览、自定义模型和 OpenConnector 客户端能力已经具备较完整的产品形态，但应用入口、Agent 生命周期、会话作用域和云端能力都与 OOMOL 登录状态深度绑定。
+Wanta 当前是 OOMOL 出品的 Electron 桌面 AI Agent 客户端。Agent 内核明确使用 MIT 许可的
+[OpenCode](https://github.com/anomalyco/opencode)：主进程把精确钉死的 `opencode-ai@1.17.13` 作为
+loopback-only `opencode serve` sidecar 启动，并通过同版本 `@opencode-ai/sdk` 驱动；Wanta 在其上提供
+桌面 UI、runtime 隔离、模型配置、权限闭环、会话、Connector tools 和 Artifact。聊天 UI、OpenCode
+sidecar、本地工具、权限确认、Artifact、文档预览、自定义模型和 OpenConnector 客户端能力已经具备较完整的
+产品形态，但应用入口、Agent 生命周期、会话作用域和云端能力都与 OOMOL 登录状态深度绑定。
 
 开源的核心目的不是开放 OOMOL 全部云端基础设施，而是让社区能够：
 
@@ -600,6 +605,13 @@ npm run dev
 
 ### 阶段 9：开源文档与贡献体系
 
+> 工程状态：README 已显式说明 Wanta 使用 OpenCode 1.17.13 作为 Agent engine，并区分 OpenCode 与
+> Wanta 自己负责的桌面/runtime 能力；已新增贡献指南、安全政策、Notice、商标政策、第三方声明和 Issue/PR
+> 模板。oo CLI 1.5.1 与其四个内置 Skills 按上游 MIT 授权记录，不再列为发布阻塞；两个公开
+> `@oomol/connection*` 包只保留上游 package license metadata 补全项。完整传递依赖许可证报告、品牌政策
+> 授权确认和 Git 历史 secret scan 仍待完成。未签名 macOS directory package 已验证把 Wanta LICENSE、
+> NOTICE、第三方声明、商标政策、OpenCode、oo CLI 和 ripgrep 一并放入应用 Resources。
+
 #### 必须新增或重写
 
 - `README.md`：定位、截图、Quick Start、BYOK、本地/OOMOL 模式、架构、安全、Roadmap；
@@ -612,6 +624,7 @@ npm run dev
 #### README 必须明确
 
 - Wanta 不只是聊天气泡 UI，而是完整桌面 Agent 客户端；
+- Wanta 使用 OpenCode 作为本地 Agent engine，并说明双方职责和精确钉死版本；
 - 不登录可以通过 BYOK 使用；
 - 登录 OOMOL 后可以使用托管模型和 OpenConnector；
 - 仓库不包含 OOMOL 云服务端；
@@ -752,7 +765,7 @@ OOMOL 模式：
 | 移除登录墙与 onboarding       |     3–5 天 |
 | 登录、登出和过期切换          |     4–7 天 |
 | 模型凭证安全存储              |     3–5 天 |
-| 私有 IPC 依赖公开或替换       |    2–10 天 |
+| IPC 公共 registry 与授权验证  |    2–10 天 |
 | oo CLI 公共下载与默认分发验证 |     2–4 天 |
 | 文档与开源 metadata           |     3–5 天 |
 | CI、跨平台和 fresh clone 验证 |     4–7 天 |
@@ -762,7 +775,7 @@ OOMOL 模式：
 - 本地可用 MVP：约 2–3 周；
 - 双模式稳定：约 3–4 周；
 - 正式开源发布质量：约 4–6 周；
-- 如果私有 IPC 包必须完全重写，额外预留约 1–2 周。
+- 两个 IPC 包现已公开发布，无需为私有包替换预留额外重写周期。
 
 ## 9. 主要风险
 

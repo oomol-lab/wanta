@@ -237,16 +237,16 @@ npm run build:mac     # = build:app + prepare:binaries + electron-builder --mac 
 
 ## 8. Special Directory Quick Reference (all gitignored, except resources/ itself)
 
-| Directory                       | Role                                                                    | Producer                                                             |
-| ------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `.oo-bin/`                      | oo + ripgrep (`rg`) binaries shared by dev and packaging                | postinstall `scripts/download-oo.ts` + `scripts/download-ripgrep.ts` |
-| `.electron-dist/`               | dev-only Electron copy (wanta-local scheme)                             | postinstall `scripts/download-electron.ts`                           |
-| `resources/bin/`                | pre-packaging binary staging (→ extraResources)                         | `scripts/prepare-binaries.ts`                                        |
-| `resources/skills/`             | bundled oo skills export (→ extraResources; re-ensured by predev and prepare-binaries) | postinstall `scripts/download-skills.ts` (`scripts/skills.ts`) |
-| `resources/agent-tool-runtime/` | self-contained runtime for custom tools (→ extraResources)              | `scripts/build-agent-tool-runtime.ts`                                |
-| `.wanta-dev/`                   | manual smoke / experiment scripts, outside every toolchain              | handwritten                                                          |
-| `dist/` `dist-electron/`        | vite build output (renderer / main+preload)                             | `npm run build`                                                      |
-| `release/`                      | electron-builder output                                                 | `npm run build:*`                                                    |
+| Directory                       | Role                                                                                   | Producer                                                             |
+| ------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `.oo-bin/`                      | oo + ripgrep (`rg`) binaries shared by dev and packaging                               | postinstall `scripts/download-oo.ts` + `scripts/download-ripgrep.ts` |
+| `.electron-dist/`               | dev-only Electron copy (wanta-local scheme)                                            | postinstall `scripts/download-electron.ts`                           |
+| `resources/bin/`                | pre-packaging binary staging (→ extraResources)                                        | `scripts/prepare-binaries.ts`                                        |
+| `resources/skills/`             | bundled oo skills export (→ extraResources; re-ensured by predev and prepare-binaries) | postinstall `scripts/download-skills.ts` (`scripts/skills.ts`)       |
+| `resources/agent-tool-runtime/` | self-contained runtime for custom tools (→ extraResources)                             | `scripts/build-agent-tool-runtime.ts`                                |
+| `.wanta-dev/`                   | manual smoke / experiment scripts, outside every toolchain                             | handwritten                                                          |
+| `dist/` `dist-electron/`        | vite build output (renderer / main+preload)                                            | `npm run build`                                                      |
+| `release/`                      | electron-builder output                                                                | `npm run build:*`                                                    |
 
 ## 9. Upgrade Notes
 

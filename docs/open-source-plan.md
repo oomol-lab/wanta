@@ -27,8 +27,8 @@ let the community:
 
 The target product must support two runtime modes:
 
-| Mode                 | Login required | Model source                       | Local tools | OpenConnector | Teams/billing |
-| -------------------- | -------------: | ---------------------------------- | ----------: | ------------: | ------------: |
+| Mode                 | Login required | Model source                          | Local tools | OpenConnector | Teams/billing |
+| -------------------- | -------------: | ------------------------------------- | ----------: | ------------: | ------------: |
 | Local community mode |             No | Custom API / local compatible service |   Supported | Not supported | Not supported |
 | OOMOL cloud mode     |            Yes | OOMOL built-in models + custom models |   Supported |     Supported |     Supported |
 
@@ -92,22 +92,22 @@ client-side integration:
 
 Implementation defaults to the following decisions:
 
-| Decision                                        | Choice                                   | Rationale                                                        |
-| ----------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------- |
-| Can the main UI be entered without login        | Yes                                      | The core requirement of login-free mode                          |
-| Block app entry when no model is configured     | No — only block sending                  | Users can still browse, manage settings, and add models          |
-| Agent state when no model is configured         | `model_required`                         | A missing model must never be misreported as being signed out    |
-| Disguise the local identity as a signed-in account | No                                    | Avoids muddling Auth, team, and billing semantics                |
-| Local workspace                                 | A formal first-class scope               | Avoids a long-lived fake-team implementation                     |
-| Keep local sessions after signin                | Yes                                      | Local and cloud data must coexist                                |
-| Auto-upload or migrate local sessions           | Never automatically                      | Never change data ownership without confirmation                 |
-| Stop the whole Agent on signout                 | No                                       | Only remove OOMOL cloud capabilities and fall back to local models |
-| Always install Connector tools                  | No                                       | Tools, permissions, and system prompt must match actual capability |
-| Custom model key storage                        | OS-level secure storage                  | BYOK is the community edition's core security boundary           |
-| Login page                                      | Kept, but removed from the startup gate  | Login is a capability upgrade, not a precondition for use        |
-| Repository strategy                             | Single repo, single mainline, capability layering | Avoids a long-term community/commercial fork              |
-| Open-source license                             | Apache-2.0 — **decided; `LICENSE` landed** (#197) | Suits a company-led project and grants an explicit patent license |
-| Brand strategy                                  | Code license separated from trademark license | Open-sourcing the code does not license brand redistribution |
+| Decision                                           | Choice                                            | Rationale                                                          |
+| -------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------ |
+| Can the main UI be entered without login           | Yes                                               | The core requirement of login-free mode                            |
+| Block app entry when no model is configured        | No — only block sending                           | Users can still browse, manage settings, and add models            |
+| Agent state when no model is configured            | `model_required`                                  | A missing model must never be misreported as being signed out      |
+| Disguise the local identity as a signed-in account | No                                                | Avoids muddling Auth, team, and billing semantics                  |
+| Local workspace                                    | A formal first-class scope                        | Avoids a long-lived fake-team implementation                       |
+| Keep local sessions after signin                   | Yes                                               | Local and cloud data must coexist                                  |
+| Auto-upload or migrate local sessions              | Never automatically                               | Never change data ownership without confirmation                   |
+| Stop the whole Agent on signout                    | No                                                | Only remove OOMOL cloud capabilities and fall back to local models |
+| Always install Connector tools                     | No                                                | Tools, permissions, and system prompt must match actual capability |
+| Custom model key storage                           | OS-level secure storage                           | BYOK is the community edition's core security boundary             |
+| Login page                                         | Kept, but removed from the startup gate           | Login is a capability upgrade, not a precondition for use          |
+| Repository strategy                                | Single repo, single mainline, capability layering | Avoids a long-term community/commercial fork                       |
+| Open-source license                                | Apache-2.0 — **decided; `LICENSE` landed** (#197) | Suits a company-led project and grants an explicit patent license  |
+| Brand strategy                                     | Code license separated from trademark license     | Open-sourcing the code does not license brand redistribution       |
 
 ## 4. Target runtime model
 
@@ -316,9 +316,7 @@ type MainProcessCloudRuntime =
     }
 
 /** Credential-free capability summary that may cross the preload/renderer boundary. */
-type RuntimeCapabilities =
-  | { kind: "local"; connector: false }
-  | { kind: "oomol"; connector: true; teamName?: string }
+type RuntimeCapabilities = { kind: "local"; connector: false } | { kind: "oomol"; connector: true; teamName?: string }
 
 interface AgentManagerOptions {
   cloudRuntime: MainProcessCloudRuntime
@@ -490,16 +488,16 @@ Make signin, signout, token expiry, and account switching safe and predictable.
 
 #### Acceptance matrix
 
-| Scenario                         | Expected                                                    |
-| -------------------------------- | ----------------------------------------------------------- |
-| Signin succeeds from local mode  | OOMOL capabilities added, local data preserved              |
-| Login canceled or failed         | Local functionality unaffected                              |
-| Signout from OOMOL mode          | Falls back to local mode                                    |
-| OOMOL token expires              | Falls back to local mode with a notice                      |
-| Custom model API 401             | Does not trigger OOMOL signout                              |
-| Signed-in account switched       | Previous account's cloud caches cleared, local data preserved |
-| Signout mid-generation           | Old generation stopped, runtime rebuilt safely              |
-| Signout with no custom model     | `model_required`, app remains usable                        |
+| Scenario                        | Expected                                                      |
+| ------------------------------- | ------------------------------------------------------------- |
+| Signin succeeds from local mode | OOMOL capabilities added, local data preserved                |
+| Login canceled or failed        | Local functionality unaffected                                |
+| Signout from OOMOL mode         | Falls back to local mode                                      |
+| OOMOL token expires             | Falls back to local mode with a notice                        |
+| Custom model API 401            | Does not trigger OOMOL signout                                |
+| Signed-in account switched      | Previous account's cloud caches cleared, local data preserved |
+| Signout mid-generation          | Old generation stopped, runtime rebuilt safely                |
+| Signout with no custom model    | `model_required`, app remains usable                          |
 
 ### Stage 7: protect custom model credentials
 
@@ -671,19 +669,19 @@ Security checks:
 
 All branch names, commit messages, PR titles, and descriptions are in English.
 
-| PR  | Suggested branch name                | Content                                                                 | Depends on          |
-| --- | ------------------------------------ | ----------------------------------------------------------------------- | ------------------- |
-| 1   | `codex/runtime-capabilities`         | Runtime capabilities and Agent state                                     | None                |
-| 2   | `codex/local-workspace`              | Local workspace and SessionScope migration                               | PR 1                |
-| 3   | `codex/local-agent-runtime`          | Start a custom-model Agent without an OOMOL token                        | PR 1, 2             |
-| 4   | `codex/capability-prompts`           | Capability-based system prompt and Connector tools                       | PR 3                |
-| 5   | `codex/passwordless-app-shell`       | Remove the login wall and add model onboarding                           | PR 2, 3             |
-| 6   | `codex/cloud-runtime-switching`      | Runtime switching after signin, signout, and expiry                      | PR 3, 4, 5          |
-| 7   | `codex/secure-model-credentials`     | API key secure storage and migration                                     | Parallel to PR 4–6  |
-| 8   | `codex/public-dependencies`          | Public IPC dependencies (**done**, #195) and oo optionalization (remaining) | Dependency decisions |
-| 9   | `codex/open-source-metadata`         | NOTICE and trademark files; LICENSE and package metadata **already landed** | After legal signoff |
-| 10  | `codex/community-documentation`      | CONTRIBUTING, SECURITY, and architecture docs (README **landed**, #197)  | After features stabilize |
-| 11  | `codex/community-release-validation` | CI, fresh clone, and cross-platform validation                           | All of the above    |
+| PR  | Suggested branch name                | Content                                                                     | Depends on               |
+| --- | ------------------------------------ | --------------------------------------------------------------------------- | ------------------------ |
+| 1   | `codex/runtime-capabilities`         | Runtime capabilities and Agent state                                        | None                     |
+| 2   | `codex/local-workspace`              | Local workspace and SessionScope migration                                  | PR 1                     |
+| 3   | `codex/local-agent-runtime`          | Start a custom-model Agent without an OOMOL token                           | PR 1, 2                  |
+| 4   | `codex/capability-prompts`           | Capability-based system prompt and Connector tools                          | PR 3                     |
+| 5   | `codex/passwordless-app-shell`       | Remove the login wall and add model onboarding                              | PR 2, 3                  |
+| 6   | `codex/cloud-runtime-switching`      | Runtime switching after signin, signout, and expiry                         | PR 3, 4, 5               |
+| 7   | `codex/secure-model-credentials`     | API key secure storage and migration                                        | Parallel to PR 4–6       |
+| 8   | `codex/public-dependencies`          | Public IPC dependencies (**done**, #195) and oo optionalization (remaining) | Dependency decisions     |
+| 9   | `codex/open-source-metadata`         | NOTICE and trademark files; LICENSE and package metadata **already landed** | After legal signoff      |
+| 10  | `codex/community-documentation`      | CONTRIBUTING, SECURITY, and architecture docs (README **landed**, #197)     | After features stabilize |
+| 11  | `codex/community-release-validation` | CI, fresh clone, and cross-platform validation                              | All of the above         |
 
 Every PR must keep the existing quality gates green; UI or runtime changes additionally require
 the corresponding live verification.
@@ -737,19 +735,19 @@ maintainable open-source release.
 Rough estimates for one engineer already familiar with the repo; legal approval and cross-team
 waits excluded:
 
-| Module                                     | Rough effort |
-| ------------------------------------------ | -----------: |
-| Runtime capability modeling                |     2–4 days |
-| Local workspace and data migration         |     3–5 days |
-| Not-signed-in Agent + BYOK                 |     4–7 days |
-| Prompt / Connector capability assembly     |     3–5 days |
-| Login wall removal and onboarding          |     3–5 days |
-| Signin, signout, and expiry switching      |     4–7 days |
-| Model credential secure storage            |     3–5 days |
-| Private IPC dependency publication/replacement | **done** — published publicly, no remaining work |
-| oo CLI optionalization                     |     2–4 days |
-| Docs and open-source metadata              |     3–5 days (LICENSE/README/metadata landed; NOTICE, trademarks, CONTRIBUTING, SECURITY remain) |
-| CI, cross-platform, and fresh clone validation |  4–7 days |
+| Module                                         |                                                                                 Rough effort |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------: |
+| Runtime capability modeling                    |                                                                                     2–4 days |
+| Local workspace and data migration             |                                                                                     3–5 days |
+| Not-signed-in Agent + BYOK                     |                                                                                     4–7 days |
+| Prompt / Connector capability assembly         |                                                                                     3–5 days |
+| Login wall removal and onboarding              |                                                                                     3–5 days |
+| Signin, signout, and expiry switching          |                                                                                     4–7 days |
+| Model credential secure storage                |                                                                                     3–5 days |
+| Private IPC dependency publication/replacement |                                             **done** — published publicly, no remaining work |
+| oo CLI optionalization                         |                                                                                     2–4 days |
+| Docs and open-source metadata                  | 3–5 days (LICENSE/README/metadata landed; NOTICE, trademarks, CONTRIBUTING, SECURITY remain) |
+| CI, cross-platform, and fresh clone validation |                                                                                     4–7 days |
 
 Suggested pacing:
 

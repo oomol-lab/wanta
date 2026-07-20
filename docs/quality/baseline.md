@@ -16,13 +16,13 @@ Environment:
 
 Results:
 
-| Check              | Result | Record                                                              |
-| ------------------ | ------ | ------------------------------------------------------------------- |
-| `npm run ts-check` | pass   | no type errors                                                      |
-| `npm run lint`     | pass   | no lint errors                                                      |
-| `npm run format`   | pass   | first check covered 774 files                                       |
-| `npm test`         | pass   | before changes: 232 test files, 1554 tests                          |
-| `npm run build`    | pass   | renderer, main, and preload all built; large-chunk warning present  |
+| Check              | Result | Record                                                             |
+| ------------------ | ------ | ------------------------------------------------------------------ |
+| `npm run ts-check` | pass   | no type errors                                                     |
+| `npm run lint`     | pass   | no lint errors                                                     |
+| `npm run format`   | pass   | first check covered 774 files                                      |
+| `npm test`         | pass   | before changes: 232 test files, 1554 tests                         |
+| `npm run build`    | pass   | renderer, main, and preload all built; large-chunk warning present |
 
 Source size is only for scoping the audit, not a quality target:
 

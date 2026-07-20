@@ -119,15 +119,15 @@ vendored-UI rules, ...) live in [docs/conventions.md](docs/conventions.md).
 
 ## Docs index
 
-| Doc                                                                | Read it when                                                                                                                  |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| [docs/project-overview.md](docs/project-overview.md)               | You want to know what Wanta is, who it serves, and how it relates to OOMOL cloud / oo CLI / oo-desktop; original plan vs shipped |
+| Doc                                                                | Read it when                                                                                                                            |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| [docs/project-overview.md](docs/project-overview.md)               | You want to know what Wanta is, who it serves, and how it relates to OOMOL cloud / oo CLI / oo-desktop; original plan vs shipped        |
 | [docs/architecture.md](docs/architecture.md)                       | Before touching any main/renderer code: process split, agent kernel, IPC patterns, chat streaming, auth & connections flows, module map |
-| [docs/key-decisions.md](docs/key-decisions.md)                     | You want to know "why is it like this": 11 major decisions as context → decision → rationale → consequences (incl. rejected paths) |
-| [docs/development.md](docs/development.md)                         | Environment setup, .env, dev loop, tests, lint/format, packaging/signing/release, CI, roles of the special directories          |
-| [docs/conventions.md](docs/conventions.md)                         | Before writing code: naming/layout/security/error-handling/UI & i18n conventions, the R1–R8 numbering, verification discipline  |
-| [docs/network-request-caching.md](docs/network-request-caching.md) | Before changing renderer read paths: cache boundaries, TTLs, in-flight merging, targeted invalidation after mutations           |
-| [docs/skill-catalog-caching.md](docs/skill-catalog-caching.md)     | Before touching Skill catalog/registry reads: catalog cache keys, TTLs, and generation-based invalidation                       |
+| [docs/key-decisions.md](docs/key-decisions.md)                     | You want to know "why is it like this": 11 major decisions as context → decision → rationale → consequences (incl. rejected paths)      |
+| [docs/development.md](docs/development.md)                         | Environment setup, .env, dev loop, tests, lint/format, packaging/signing/release, CI, roles of the special directories                  |
+| [docs/conventions.md](docs/conventions.md)                         | Before writing code: naming/layout/security/error-handling/UI & i18n conventions, the R1–R8 numbering, verification discipline          |
+| [docs/network-request-caching.md](docs/network-request-caching.md) | Before changing renderer read paths: cache boundaries, TTLs, in-flight merging, targeted invalidation after mutations                   |
+| [docs/skill-catalog-caching.md](docs/skill-catalog-caching.md)     | Before touching Skill catalog/registry reads: catalog cache keys, TTLs, and generation-based invalidation                               |
 
 Working documents — point-in-time plans, analyses, and ledgers; on conflict, the code and the
 reference docs above win: [docs/open-source-plan.md](docs/open-source-plan.md),

@@ -40,14 +40,14 @@ team-level Skill configuration.
 
 Directly reusable parts:
 
-| Scope                       | Console location                     | Reusable point                                                                                 |
-| --------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| My published Skills list    | `src/api/skills.ts`                  | `GET search.<endpoint>/v1/packages/-/my-skills?size=100&lang=...`                              |
-| Skill Markdown preview      | `src/api/skills.ts`                  | `GET package-assets.../packages/{packageName}/{version}/files/package/skills/{skill}/SKILL.md` |
-| Private Skill temp sharing  | `src/api/skills.ts`                  | `POST registry.<endpoint>/-/oomol/package-shares/share/{packageName}`, temp sharing only       |
-| Team workspace selection    | `src/stores/team-workspace/store.ts` | UI stores the team id, resolves the team name when requesting connectors                       |
-| Team permission schema      | `src/api/teams.ts`                   | `Team` returns `role?: "creator" \| "member"` and `writable?: boolean`; prefer backend fields  |
-| Connector team scope        | `src/api/connections.ts`             | Connector requests switch teams via the `x-oo-organization-name` header                        |
+| Scope                      | Console location                     | Reusable point                                                                                 |
+| -------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| My published Skills list   | `src/api/skills.ts`                  | `GET search.<endpoint>/v1/packages/-/my-skills?size=100&lang=...`                              |
+| Skill Markdown preview     | `src/api/skills.ts`                  | `GET package-assets.../packages/{packageName}/{version}/files/package/skills/{skill}/SKILL.md` |
+| Private Skill temp sharing | `src/api/skills.ts`                  | `POST registry.<endpoint>/-/oomol/package-shares/share/{packageName}`, temp sharing only       |
+| Team workspace selection   | `src/stores/team-workspace/store.ts` | UI stores the team id, resolves the team name when requesting connectors                       |
+| Team permission schema     | `src/api/teams.ts`                   | `Team` returns `role?: "creator" \| "member"` and `writable?: boolean`; prefer backend fields  |
+| Connector team scope       | `src/api/connections.ts`             | Connector requests switch teams via the `x-oo-organization-name` header                        |
 
 Parts that must not be copied wholesale:
 

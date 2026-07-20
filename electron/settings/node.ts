@@ -155,9 +155,6 @@ export class SettingsServiceImpl
     const backgroundColor = windowBackgroundColorForMaterial(nextTheme, material)
     for (const window of windows) {
       window.setBackgroundColor(backgroundColor)
-      if (material === "windows-mica") {
-        window.setBackgroundMaterial("mica")
-      }
       window.setTitleBarOverlay(overlay)
     }
     this.lastAppliedWindowsTitleBarTheme = nextTheme

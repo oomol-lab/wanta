@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   buildWindowsTitleBarOverlay,
-  nativeFramelessWindowFrameForPlatform,
+  nativeWindowFrameForPlatform,
   nativeWindowMaterialForPlatform,
   resolveWindowsTitleBarTheme,
   shouldApplyWindowsTitleBarTheme,
@@ -37,24 +37,22 @@ describe("windowBackgroundColorForTheme", () => {
 })
 
 describe("nativeWindowMaterialForPlatform", () => {
-  it("uses native materials only where Electron supports them", () => {
+  it("keeps Windows opaque while retaining macOS vibrancy", () => {
     expect(nativeWindowMaterialForPlatform("darwin")).toBe("macos-vibrancy")
-    expect(nativeWindowMaterialForPlatform("win32")).toBe("windows-mica")
+    expect(nativeWindowMaterialForPlatform("win32")).toBe("none")
     expect(nativeWindowMaterialForPlatform("linux")).toBe("none")
   })
 })
 
-describe("nativeFramelessWindowFrameForPlatform", () => {
-  it("keeps the native Windows frame and rounded corners enabled", () => {
-    expect(nativeFramelessWindowFrameForPlatform("win32")).toEqual({
-      roundedCorners: true,
-      thickFrame: true,
-    })
+describe("nativeWindowFrameForPlatform", () => {
+  it("keeps the native Windows frame so DWM owns the window outline", () => {
+    expect(nativeWindowFrameForPlatform("win32")).toEqual({})
   })
 
-  it("does not override native frame behavior on other platforms", () => {
-    expect(nativeFramelessWindowFrameForPlatform("darwin")).toEqual({})
-    expect(nativeFramelessWindowFrameForPlatform("linux")).toEqual({})
+  it("preserves the existing platform behavior elsewhere", () => {
+    expect(nativeWindowFrameForPlatform("darwin")).toEqual({})
+    expect(nativeWindowFrameForPlatform("linux")).toEqual({ frame: false })
+    expect(nativeWindowFrameForPlatform("freebsd")).toEqual({ frame: false })
   })
 })
 
@@ -64,9 +62,8 @@ describe("windowBackgroundColorForMaterial", () => {
     expect(windowBackgroundColorForMaterial("dark", "none")).toBe("#111113")
   })
 
-  it("uses a transparent window background when native material is active", () => {
+  it("uses a transparent window background only when macOS vibrancy is active", () => {
     expect(windowBackgroundColorForMaterial("light", "macos-vibrancy")).toBe(transparentWindowBackgroundColor)
-    expect(windowBackgroundColorForMaterial("dark", "windows-mica")).toBe(transparentWindowBackgroundColor)
   })
 })
 

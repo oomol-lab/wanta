@@ -1,9 +1,13 @@
 import type { UpdateChannel } from "./channel.ts"
 
-export const stableUpdateCheckIntervalMs = 4 * 60 * 60 * 1_000
-export const betaUpdateCheckIntervalMs = 2 * 60 * 60 * 1_000
-export const startupUpdateCheckDelayRangeMs = { max: 45_000, min: 15_000 } as const
-export const resumeUpdateCheckDelayRangeMs = { max: 90_000, min: 30_000 } as const
+export const stableUpdateCheckIntervalMs = 2 * 60 * 60 * 1_000
+export const betaUpdateCheckIntervalMs = 60 * 60 * 1_000
+export const startupUpdateCheckDelayRangeMs = { max: 15_000, min: 5_000 } as const
+export const resumeUpdateCheckDelayRangeMs = { max: 30_000, min: 10_000 } as const
+export const foregroundUpdateCheckDelayRangeMs = { max: 10_000, min: 3_000 } as const
+export const foregroundUpdateCheckTtlMs = 30 * 60 * 1_000
+export const resumeUpdateCheckTtlMs = 30 * 60 * 1_000
+export const minimumScheduledCheckSpacingMs = 60_000
 export const updateCheckJitterRatio = 0.125
 
 export function updateCheckIntervalMs(channel: UpdateChannel): number {
@@ -21,10 +25,20 @@ export function jitteredUpdateCheckIntervalMs(channel: UpdateChannel, random: nu
   return Math.round(interval * (1 - updateCheckJitterRatio + boundedRandom * updateCheckJitterRatio * 2))
 }
 
-export function shouldCheckAfterResume(checkedAt: string | undefined, nowMs: number, channel: UpdateChannel): boolean {
-  if (!checkedAt) {
-    return true
-  }
+export function shouldCheckAfterResume(checkedAt: string | undefined, nowMs: number): boolean {
+  return shouldCheckAfterTtl(checkedAt, nowMs, resumeUpdateCheckTtlMs)
+}
+
+export function shouldCheckAfterForeground(checkedAt: string | undefined, nowMs: number): boolean {
+  return shouldCheckAfterTtl(checkedAt, nowMs, foregroundUpdateCheckTtlMs)
+}
+
+export function hasRecentSuccessfulCheck(checkedAt: string | undefined, nowMs: number): boolean {
+  return !shouldCheckAfterTtl(checkedAt, nowMs, minimumScheduledCheckSpacingMs)
+}
+
+function shouldCheckAfterTtl(checkedAt: string | undefined, nowMs: number, ttlMs: number): boolean {
+  if (!checkedAt) return true
   const checkedAtMs = Date.parse(checkedAt)
-  return !Number.isFinite(checkedAtMs) || nowMs - checkedAtMs >= updateCheckIntervalMs(channel)
+  return !Number.isFinite(checkedAtMs) || nowMs - checkedAtMs >= ttlMs
 }

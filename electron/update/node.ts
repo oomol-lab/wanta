@@ -13,9 +13,12 @@ import { staticBaseUrl } from "../domain.ts"
 import { resolveUpdateChannel, updaterChannelName } from "./channel.ts"
 import { UpdateService as UpdateServiceName } from "./common.ts"
 import {
+  foregroundUpdateCheckDelayRangeMs,
+  hasRecentSuccessfulCheck,
   jitteredUpdateCheckIntervalMs,
   randomDelayMs,
   resumeUpdateCheckDelayRangeMs,
+  shouldCheckAfterForeground,
   shouldCheckAfterResume,
   startupUpdateCheckDelayRangeMs,
 } from "./policy.ts"
@@ -39,6 +42,7 @@ type AutoUpdater = ElectronUpdaterModule["autoUpdater"]
 
 export interface UpdateServiceDeps {
   beforeInstallDownloadedAppUpdate?: () => void | Promise<void>
+  onStateChanged?: (state: AppUpdateState) => void
   store: SettingsStore
 }
 
@@ -63,13 +67,15 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
   private missingAssetRetryGeneration = 0
   private missingAssetRetryTimer: NodeJS.Timeout | undefined
   private backgroundCheckTimer: NodeJS.Timeout | undefined
+  private foregroundCheckTimer: NodeJS.Timeout | undefined
   private backgroundChecksStarted = false
   private readonly handleSystemResume = (): void => {
-    if (!shouldCheckAfterResume(this.state.checkedAt, Date.now(), this.channel)) {
+    if (!shouldCheckAfterResume(this.state.checkedAt, Date.now())) {
       return
     }
     this.scheduleBackgroundCheck(
       randomDelayMs(resumeUpdateCheckDelayRangeMs.min, resumeUpdateCheckDelayRangeMs.max, Math.random()),
+      "resume",
     )
   }
   private state: AppUpdateState
@@ -95,7 +101,35 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     powerMonitor.on("resume", this.handleSystemResume)
     this.scheduleBackgroundCheck(
       randomDelayMs(startupUpdateCheckDelayRangeMs.min, startupUpdateCheckDelayRangeMs.max, Math.random()),
+      "startup",
     )
+  }
+
+  /** 窗口重新进入前台且上次成功检查已超过 30 分钟时，短延迟补查；不重置周期定时器。 */
+  public handleWindowForegrounded(): void {
+    if (
+      !this.backgroundChecksStarted ||
+      this.foregroundCheckTimer ||
+      !shouldCheckAfterForeground(this.state.checkedAt, Date.now())
+    ) {
+      return
+    }
+    const delayMs = randomDelayMs(
+      foregroundUpdateCheckDelayRangeMs.min,
+      foregroundUpdateCheckDelayRangeMs.max,
+      Math.random(),
+    )
+    logDiagnostic("update-service", "foreground update check scheduled", {
+      checkedAt: this.state.checkedAt,
+      delayMs,
+      scheduledAt: new Date(Date.now() + delayMs).toISOString(),
+    })
+    this.foregroundCheckTimer = setTimeout(() => {
+      this.foregroundCheckTimer = undefined
+      if (!shouldCheckAfterForeground(this.state.checkedAt, Date.now())) return
+      void this.runBackgroundCheck("foreground")
+    }, delayMs)
+    this.foregroundCheckTimer.unref()
   }
 
   public async checkForAppUpdate(): Promise<AppUpdateState> {
@@ -190,7 +224,7 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     this.state = { ...this.snapshotBase(), status: { status: "idle" } }
     this.sendStateChanged("set update channel")
     // 切渠道后立即按后台策略检查并准备更新（dev 下 runCheck 内部短路为 not-available）。
-    void this.runBackgroundCheck()
+    void this.runBackgroundCheck("channel-change")
     return Promise.resolve(this.state)
   }
 
@@ -202,6 +236,10 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     if (this.backgroundCheckTimer) {
       clearTimeout(this.backgroundCheckTimer)
       this.backgroundCheckTimer = undefined
+    }
+    if (this.foregroundCheckTimer) {
+      clearTimeout(this.foregroundCheckTimer)
+      this.foregroundCheckTimer = undefined
     }
     this.resetMissingAssetRetryState()
     this.cancellationToken?.cancel()
@@ -215,33 +253,58 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     super.dispose()
   }
 
-  private scheduleBackgroundCheck(delayMs: number): void {
+  private scheduleBackgroundCheck(delayMs: number, trigger: "interval" | "resume" | "startup"): void {
     if (!this.backgroundChecksStarted) {
       return
     }
     if (this.backgroundCheckTimer) {
       clearTimeout(this.backgroundCheckTimer)
     }
+    logDiagnostic("update-service", "background update check scheduled", {
+      checkedAt: this.state.checkedAt,
+      delayMs,
+      scheduledAt: new Date(Date.now() + delayMs).toISOString(),
+      trigger,
+    })
     this.backgroundCheckTimer = setTimeout(() => {
       this.backgroundCheckTimer = undefined
-      void this.runBackgroundCheck().finally(() => {
-        this.scheduleBackgroundCheck(jitteredUpdateCheckIntervalMs(this.channel, Math.random()))
+      void this.runBackgroundCheck(trigger).finally(() => {
+        this.scheduleBackgroundCheck(jitteredUpdateCheckIntervalMs(this.channel, Math.random()), "interval")
       })
     }, delayMs)
     this.backgroundCheckTimer.unref()
   }
 
-  private async runBackgroundCheck(): Promise<void> {
+  private async runBackgroundCheck(
+    trigger: "channel-change" | "foreground" | "interval" | "resume" | "startup",
+  ): Promise<void> {
     // 已下载的安装包必须保持 ready 状态；周期检查不能把它覆盖回 checking/available。
     if (this.state.status.status === "downloading" || this.state.status.status === "downloaded") {
       return
     }
+    if (trigger !== "channel-change" && hasRecentSuccessfulCheck(this.state.checkedAt, Date.now())) {
+      logDiagnostic("update-service", "scheduled update check skipped because state is fresh", {
+        checkedAt: this.state.checkedAt,
+        trigger,
+      })
+      return
+    }
+    logDiagnostic("update-service", "background update check started", {
+      channel: this.channel,
+      currentVersion: app.getVersion(),
+      trigger,
+    })
     try {
       const state = await this.checkForAppUpdate()
       // 普通桌面应用的默认路径：后台准备更新，只把“何时重启”留给用户决定。
       if (state.status.status === "available") {
         await this.downloadAppUpdate()
       }
+      logDiagnostic("update-service", "background update check completed", {
+        checkedAt: state.checkedAt,
+        status: state.status.status,
+        trigger,
+      })
     } catch (error) {
       this.logFailure("background update check failed", error, "warn")
     }
@@ -416,6 +479,11 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
   }
 
   private sendStateChanged(action: string): void {
+    try {
+      this.deps.onStateChanged?.(this.state)
+    } catch (error) {
+      this.logFailure("update state observer failed", error, "warn", { action, status: this.state.status.status })
+    }
     void this.send("appUpdateStateChanged", this.state).catch((error: unknown) => {
       this.logFailure("failed to emit app update state", error, "warn", { action, status: this.state.status.status })
     })

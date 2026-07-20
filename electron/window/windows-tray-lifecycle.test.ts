@@ -32,4 +32,20 @@ describe("buildWindowsTrayMenuTemplate", () => {
     expect(openItem?.label).toBe("打开 Wanta")
     expect(exitItem?.label).toBe("退出")
   })
+
+  it("adds a localized restart action when an update is ready", () => {
+    const onInstallUpdate = vi.fn()
+    const items = buildWindowsTrayMenuTemplate({
+      locale: "zh-CN",
+      onExit: () => undefined,
+      onInstallUpdate,
+      onOpen: () => undefined,
+      updateReadyVersion: "1.2.3",
+    })
+
+    expect(items[1]?.label).toBe("重启并更新到 1.2.3")
+    ;(items[1]!.click as TrayMenuClick)()
+    expect(onInstallUpdate).toHaveBeenCalledOnce()
+    expect(items[2]?.type).toBe("separator")
+  })
 })

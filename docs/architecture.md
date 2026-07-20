@@ -172,7 +172,7 @@ electron/
   session/ common,node        会话 CRUD（代理 AgentManager，sessionsChanged 广播）
   models/  common,node,store,builtin(+test)          内置 + 自定义模型清单；改自定义模型重启 agent
   settings/ common,node,store(+test)                themeSource + updateChannel；原子写；不存凭证（R8）
-  update/  common,node,channel(+test)               UpdateService：检查/下载/安装/渠道切换 + appUpdateStateChanged；
+  update/  common,node,channel,policy(+test)        UpdateService：检查/下载/安装/渠道切换、周期/前台/唤醒调度 + appUpdateStateChanged；
                               generic feed = static.<ep>/release/apps/wanta/<plat>/<arch>；仅打包态；autoDownload=false
                               （设置页 UI 显式触发）；渠道经 setFeedURL channel 字段（勿用 channel setter——
                               会静默置 allowDowngrade）+ 显式 allowDowngrade=false；404 容忍限次重试；

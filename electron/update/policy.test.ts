@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   betaUpdateCheckIntervalMs,
+  foregroundUpdateCheckTtlMs,
+  hasRecentSuccessfulCheck,
   jitteredUpdateCheckIntervalMs,
   randomDelayMs,
+  shouldCheckAfterForeground,
   shouldCheckAfterResume,
   stableUpdateCheckIntervalMs,
   updateCheckIntervalMs,
@@ -27,12 +30,24 @@ describe("update policy", () => {
     expect(randomDelayMs(10, 20, 2)).toBe(20)
   })
 
-  it("checks after resume only when the channel TTL expired", () => {
+  it("checks after resume when the 30 minute freshness window expired", () => {
     const now = Date.parse("2026-07-11T12:00:00.000Z")
-    expect(shouldCheckAfterResume(undefined, now, "stable")).toBe(true)
-    expect(shouldCheckAfterResume("invalid", now, "stable")).toBe(true)
-    expect(shouldCheckAfterResume("2026-07-11T09:00:01.000Z", now, "stable")).toBe(false)
-    expect(shouldCheckAfterResume("2026-07-11T08:00:00.000Z", now, "stable")).toBe(true)
-    expect(shouldCheckAfterResume("2026-07-11T10:00:00.000Z", now, "beta")).toBe(true)
+    expect(shouldCheckAfterResume(undefined, now)).toBe(true)
+    expect(shouldCheckAfterResume("invalid", now)).toBe(true)
+    expect(shouldCheckAfterResume(new Date(now - foregroundUpdateCheckTtlMs + 1).toISOString(), now)).toBe(false)
+    expect(shouldCheckAfterResume(new Date(now - foregroundUpdateCheckTtlMs).toISOString(), now)).toBe(true)
+  })
+
+  it("uses the same freshness window when the app returns to the foreground", () => {
+    const now = Date.parse("2026-07-11T12:00:00.000Z")
+    expect(shouldCheckAfterForeground(new Date(now - foregroundUpdateCheckTtlMs + 1).toISOString(), now)).toBe(false)
+    expect(shouldCheckAfterForeground(new Date(now - foregroundUpdateCheckTtlMs).toISOString(), now)).toBe(true)
+  })
+
+  it("suppresses scheduled checks immediately after another successful check", () => {
+    const now = Date.parse("2026-07-11T12:00:00.000Z")
+    expect(hasRecentSuccessfulCheck(new Date(now - 59_999).toISOString(), now)).toBe(true)
+    expect(hasRecentSuccessfulCheck(new Date(now - 60_000).toISOString(), now)).toBe(false)
+    expect(hasRecentSuccessfulCheck(undefined, now)).toBe(false)
   })
 })

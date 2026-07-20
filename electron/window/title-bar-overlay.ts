@@ -1,7 +1,8 @@
-import type { TitleBarOverlayOptions } from "electron"
+import type { BrowserWindowConstructorOptions, TitleBarOverlayOptions } from "electron"
 
 export type WindowsTitleBarTheme = "light" | "dark"
 export type NativeWindowMaterial = "macos-vibrancy" | "windows-mica" | "none"
+export type NativeFramelessWindowFrame = Pick<BrowserWindowConstructorOptions, "roundedCorners" | "thickFrame">
 
 export const windowsTitleBarOverlayHeight = 47
 export const transparentWindowBackgroundColor = "#00000000"
@@ -41,6 +42,17 @@ export function nativeWindowMaterialForPlatform(platform: NodeJS.Platform): Nati
     return "windows-mica"
   }
   return "none"
+}
+
+export function nativeFramelessWindowFrameForPlatform(platform: NodeJS.Platform): NativeFramelessWindowFrame {
+  if (platform !== "win32") {
+    return {}
+  }
+  return {
+    // 显式保留 DWM 框架与圆角，让普通窗口使用 Windows 11 原生轮廓；最大化和贴靠时由系统恢复直角。
+    roundedCorners: true,
+    thickFrame: true,
+  }
 }
 
 export function windowBackgroundColorForMaterial(theme: WindowsTitleBarTheme, material: NativeWindowMaterial): string {

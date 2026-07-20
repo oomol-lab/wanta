@@ -1,10 +1,11 @@
 import type { AppCommand } from "./app-command.ts"
 import type { AppLocale } from "./app-locale.ts"
 import type { AuthRuntimeAccount } from "./auth/store.ts"
+import type { AppUpdateState } from "./update/common.ts"
 
 import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, session, shell } from "electron"
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, shell } from "electron"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { AgentRefreshScheduler } from "./agent-refresh-scheduler.ts"
@@ -109,7 +110,10 @@ const agentRetirementPool = new AgentRetirementPool()
 let windowsTrayLifecycle: {
   dispose: () => void
   setLocale: (locale: string) => void
+  setUpdateReadyVersion: (version: string | undefined) => void
 } | null = null
+let updateReadyNotification: Notification | null = null
+let lastNotifiedUpdateVersion: string | null = null
 
 const server = new ConnectionServer(new ElectronServerAdapter())
 
@@ -254,6 +258,7 @@ const updateService = new UpdateServiceImpl({
     armAppQuit("update-install")
     await reapAgentForShutdown()
   },
+  onStateChanged: handleAppUpdateStateChanged,
   store: settingsStore,
 })
 const gitService = new GitServiceImpl({
@@ -413,6 +418,8 @@ function reapAgentForShutdown(): Promise<void> {
     agentRefreshScheduler.dispose()
     // 退出观感：先藏窗口，回收（含最长宽限期）在后台进行，不让用户盯着卡住的窗口。
     mainWindow?.hide()
+    updateReadyNotification?.close()
+    updateReadyNotification = null
     windowsTrayLifecycle?.dispose()
     windowsTrayLifecycle = null
     const activeAgent = agent
@@ -809,6 +816,11 @@ function createMainWindow(): void {
   })
 
   mainWindow.once("ready-to-show", () => mainWindow?.show())
+  mainWindow.on("focus", () => updateService.handleWindowForegrounded())
+  mainWindow.on("show", () => updateService.handleWindowForegrounded())
+  mainWindow.on("hide", () => {
+    void updateService.getAppUpdateState().then(handleAppUpdateStateChanged)
+  })
 
   if (process.platform === "darwin" || process.platform === "win32") {
     mainWindow.on(
@@ -830,6 +842,12 @@ function createMainWindow(): void {
             armAppQuit("user-quit")
             app.quit()
           },
+          onInstallUpdate: () => {
+            void updateService.installDownloadedAppUpdate().catch((error: unknown) => {
+              console.warn("[wanta] failed to install update from Windows tray", error)
+              logDiagnostic("update-service", "tray update install failed", { error }, "warn")
+            })
+          },
           onOpen: () => {
             if (mainWindow) {
               revealMainWindow(mainWindow)
@@ -838,6 +856,7 @@ function createMainWindow(): void {
             }
           },
         })
+        void updateService.getAppUpdateState().then(handleAppUpdateStateChanged)
       } catch (error) {
         console.warn("[wanta] failed to initialize Windows tray lifecycle", error)
       }
@@ -932,6 +951,53 @@ function showMainWindow(): void {
     return
   }
   revealMainWindow(mainWindow)
+}
+
+function handleAppUpdateStateChanged(state: AppUpdateState): void {
+  const readyVersion = state.status.status === "downloaded" ? state.status.version : undefined
+  windowsTrayLifecycle?.setUpdateReadyVersion(readyVersion)
+
+  if (!readyVersion) {
+    updateReadyNotification?.close()
+    updateReadyNotification = null
+    return
+  }
+  if (lastNotifiedUpdateVersion === readyVersion) return
+
+  const window = mainWindow
+  if (window?.isVisible() === true && window.isFocused()) {
+    // 前台由渲染层在 Agent 空闲时显示应用内对话框，避免原生通知与对话框重复。
+    return
+  }
+  lastNotifiedUpdateVersion = readyVersion
+  if (!Notification.isSupported()) {
+    logDiagnostic("update-service", "update ready notification unsupported", { version: readyVersion }, "warn")
+    return
+  }
+
+  const chinese = activeLocale() === "zh-CN"
+  const notification = new Notification({
+    body: chinese ? "打开 Wanta 即可选择合适的时间重启。" : "Open Wanta to restart when you're ready.",
+    groupId: "app-update",
+    id: `app-update-${readyVersion}`,
+    title: chinese ? `Wanta ${readyVersion} 已准备好` : `Wanta ${readyVersion} is ready`,
+  })
+  updateReadyNotification?.close()
+  updateReadyNotification = notification
+  notification.once("click", () => {
+    logDiagnostic("update-service", "update ready notification clicked", { version: readyVersion }, "info")
+    showMainWindow()
+  })
+  notification.once("show", () => {
+    logDiagnostic("update-service", "update ready notification accepted", { version: readyVersion }, "info")
+  })
+  notification.once("failed", (_event, error) => {
+    logDiagnostic("update-service", "update ready notification failed", { error, version: readyVersion }, "warn")
+  })
+  notification.once("close", () => {
+    if (updateReadyNotification === notification) updateReadyNotification = null
+  })
+  notification.show()
 }
 
 async function handleDeepLink(url: string): Promise<boolean> {

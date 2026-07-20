@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const electronMocks = vi.hoisted(() => ({
   app: {
@@ -61,6 +61,27 @@ describe("UpdateServiceImpl", () => {
     updaterMocks.listeners.clear()
     updaterMocks.updater.autoDownload = false
     updaterMocks.updater.autoInstallOnAppQuit = false
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("checks promptly on foreground and suppresses the overlapping startup check", async () => {
+    vi.useFakeTimers()
+    updaterMocks.updater.checkForUpdates.mockResolvedValue({
+      isUpdateAvailable: false,
+      updateInfo: { version: "1.0.0" },
+    })
+    const service = new UpdateServiceImpl({ store: settingsStore() })
+
+    service.startBackgroundChecks()
+    service.handleWindowForegrounded()
+    await vi.advanceTimersByTimeAsync(15_000)
+
+    expect(updaterMocks.updater.checkForUpdates).toHaveBeenCalledOnce()
+    expect(electronMocks.powerMonitor.on).toHaveBeenCalledWith("resume", expect.any(Function))
+    service.dispose()
   })
 
   it("ignores progress and completion events from a cancelled channel generation", async () => {

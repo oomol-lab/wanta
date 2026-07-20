@@ -71,6 +71,7 @@ import { useWorkspaceActivation } from "./use-workspace-activation.ts"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useAttentionService, useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
+import { AppUpdateReadyDialog } from "@/components/AppUpdateReadyDialog"
 import { AppUpdateTitlebarEntry } from "@/components/AppUpdateTitlebarEntry"
 import { useAppSettings } from "@/hooks/useAppSettings"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
@@ -734,6 +735,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     },
     [activeChatSessionId, activeChatTurnState, getSessionStatus],
   )
+  const hasRunningSession = visibleSessions.some((session) => isSessionRunning(session.id))
   const {
     pinnedProjectGroups: projectPinnedGroups,
     pinnedProjectSessions: projectPinnedSessions,
@@ -1635,51 +1637,60 @@ export function AppShell({ auth }: { auth: UseAuth }) {
 
   if (route === "settings") {
     return (
-      <React.Suspense fallback={<RouteLoadingFallback />}>
-        <SettingsRoute
-          update={appUpdate}
-          titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
-          onBack={() => setRoute("chat")}
-        />
-      </React.Suspense>
+      <>
+        <React.Suspense fallback={<RouteLoadingFallback />}>
+          <SettingsRoute
+            update={appUpdate}
+            titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
+            onBack={() => setRoute("chat")}
+          />
+        </React.Suspense>
+        <AppUpdateReadyDialog busy={hasRunningSession} update={appUpdate} />
+      </>
     )
   }
 
   if (route === "billing") {
     return (
-      <React.Suspense fallback={<RouteLoadingFallback />}>
-        <BillingRoute
-          cacheScope={billingCacheScope}
-          initialTarget={billingInitialTarget}
-          sharedConnectorCount={sharedConnectorCount}
-          titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
-          workspace={teamWorkspace.activeWorkspace}
-          onBack={() => setRoute("chat")}
-        />
-      </React.Suspense>
+      <>
+        <React.Suspense fallback={<RouteLoadingFallback />}>
+          <BillingRoute
+            cacheScope={billingCacheScope}
+            initialTarget={billingInitialTarget}
+            sharedConnectorCount={sharedConnectorCount}
+            titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
+            workspace={teamWorkspace.activeWorkspace}
+            onBack={() => setRoute("chat")}
+          />
+        </React.Suspense>
+        <AppUpdateReadyDialog busy={hasRunningSession} update={appUpdate} />
+      </>
     )
   }
 
   if (route === "archived") {
     return (
-      <React.Suspense fallback={<RouteLoadingFallback />}>
-        <ArchivedRoute
-          listArchived={listArchived}
-          onBack={() => setRoute("chat")}
-          onOpenSession={(session) => {
-            setSelectedSessionId(session.id)
-            setIsDraftSession(false)
-            setPendingChatTransition(null)
-            setRoute("chat")
-            setSidebarSegment(session.projectId ? "projects" : "tasks")
-          }}
-          refreshSessions={refreshSessions}
-          removeSession={removeSessionWithRuntimeCleanup}
-          ready={ready}
-          titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
-          unarchiveSession={unarchive}
-        />
-      </React.Suspense>
+      <>
+        <React.Suspense fallback={<RouteLoadingFallback />}>
+          <ArchivedRoute
+            listArchived={listArchived}
+            onBack={() => setRoute("chat")}
+            onOpenSession={(session) => {
+              setSelectedSessionId(session.id)
+              setIsDraftSession(false)
+              setPendingChatTransition(null)
+              setRoute("chat")
+              setSidebarSegment(session.projectId ? "projects" : "tasks")
+            }}
+            refreshSessions={refreshSessions}
+            removeSession={removeSessionWithRuntimeCleanup}
+            ready={ready}
+            titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
+            unarchiveSession={unarchive}
+          />
+        </React.Suspense>
+        <AppUpdateReadyDialog busy={hasRunningSession} update={appUpdate} />
+      </>
     )
   }
 
@@ -1942,6 +1953,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         onRenameSession={sessionActions.handleRename}
         onSearchSelect={handleSearchSelect}
       />
+      <AppUpdateReadyDialog busy={hasRunningSession} update={appUpdate} />
     </div>
   )
 }

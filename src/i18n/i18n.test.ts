@@ -24,6 +24,15 @@ test("translate interpolates OO-style {{var}}", () => {
   assert.equal(translate("zh-CN", "skills.installed"), "已安装")
 })
 
+test("skill page copy distinguishes global, device, and team scopes", () => {
+  assert.equal(translate("zh-CN", "skills.tab.installed"), "本机 Skills")
+  assert.equal(translate("en", "skills.tab.installed"), "Local Skills")
+  assert.equal(translate("zh-CN", "skills.tab.team"), "团队 Skills")
+  assert.match(translate("zh-CN", "skills.scopeDescription.discover"), /不随当前团队切换/)
+  assert.match(translate("zh-CN", "skills.scopeDescription.installed"), /当前设备/)
+  assert.match(translate("zh-CN", "skills.scopeDescription.team", { name: "Design" }), /当前团队：Design/)
+})
+
 test("full access permission mode is localized without implementation labels", () => {
   assert.equal(translate("zh-CN", "chat.permissionModeFullAccess"), "完全访问")
   assert.equal(translate("en", "chat.permissionModeFullAccess"), "Full access")

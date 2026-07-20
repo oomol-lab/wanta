@@ -88,7 +88,7 @@ export function SkillPageHeader({
 
   return (
     <header className="oo-border-divider flex min-h-12 items-center border-b px-3 py-2">
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex w-full min-w-0 items-center gap-2">
         <SkillTabList activeTab={activeTab} teamTabAvailable={teamTabAvailable} onTabChange={onTabChange} />
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <SearchField

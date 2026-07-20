@@ -68,7 +68,7 @@ import { UpdateServiceImpl } from "./update/node.ts"
 import { buildApplicationMenuTemplate } from "./window/application-menu.ts"
 import {
   buildWindowsTitleBarOverlay,
-  nativeFramelessWindowFrameForPlatform,
+  nativeWindowFrameForPlatform,
   nativeWindowMaterialForPlatform,
   resolveWindowsTitleBarTheme,
   windowBackgroundColorForMaterial,
@@ -805,9 +805,7 @@ function createMainWindow(): void {
     ...(isMac
       ? {}
       : {
-          ...nativeFramelessWindowFrameForPlatform(process.platform),
-          ...(nativeMaterial === "windows-mica" ? { backgroundMaterial: "mica" } : {}),
-          frame: false,
+          ...nativeWindowFrameForPlatform(process.platform),
           titleBarOverlay: buildWindowsTitleBarOverlay(titleBarTheme),
         }),
     webPreferences: {

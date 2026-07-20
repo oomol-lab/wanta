@@ -7,6 +7,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promi
 import os from "node:os"
 import path from "node:path"
 import { afterEach, expect, test, vi } from "vitest"
+import { resolveRuntimeCapabilities } from "../runtime/capabilities.ts"
 import { ExpiringTrustedPathRegistry } from "../trusted-path-registry.ts"
 import {
   ArtifactBundleStore,
@@ -28,6 +29,19 @@ const testTeamScope = {
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
+})
+
+test("runtime capabilities remain credential-free across the chat service boundary", async () => {
+  const service = new ChatServiceImpl()
+  expect(await service.getRuntimeCapabilities()).toEqual(
+    resolveRuntimeCapabilities({ mode: "local", localAgentAvailable: false }),
+  )
+
+  const capabilities = resolveRuntimeCapabilities({ mode: "oomol", localAgentAvailable: true })
+  service.setRuntimeCapabilities(capabilities)
+
+  expect(await service.getRuntimeCapabilities()).toEqual(capabilities)
+  expect(await service.getRuntimeCapabilities()).not.toHaveProperty("sessionToken")
 })
 
 function createBridgeAgent(): {

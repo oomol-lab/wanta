@@ -56,6 +56,7 @@ import { installOomolCorsShim } from "./net/oomol-cors.ts"
 // Teams 请求已整体搬到渲染层（src/lib/teams-client.ts），不再有对应主进程 service。
 import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstanceLock } from "./protocol.ts"
 import { normalizeRendererErrorReport } from "./renderer-error-report.ts"
+import { resolveRuntimeCapabilities } from "./runtime/capabilities.ts"
 import { SessionActivityStore } from "./session/activity-store.ts"
 import { SessionMetadataStore } from "./session/metadata-store.ts"
 import { SessionServiceImpl } from "./session/node.ts"
@@ -556,6 +557,12 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   const previousAgent = agent
   agent = null
   chatService.setAgent(null)
+  chatService.setRuntimeCapabilities(
+    resolveRuntimeCapabilities({
+      mode: account ? "oomol" : "local",
+      localAgentAvailable: Boolean(account),
+    }),
+  )
   chatService.setAgentStatus(account ? { status: "starting" } : { status: "signed_out" })
   sessionService.setAgent(null)
 

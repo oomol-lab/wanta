@@ -1,6 +1,7 @@
 import type { WantaAgentMode } from "../agent/mode.ts"
 import type { WantaReasoningLevel } from "../agent/reasoning.ts"
 import type { ModelChoice } from "../models/common.ts"
+import type { RuntimeCapabilities } from "../runtime/capabilities.ts"
 import type { SessionScope } from "../session/common.ts"
 import type { ChatErrorKind } from "./error.ts"
 import type { ServiceName } from "@oomol/connection"
@@ -284,6 +285,10 @@ export type AgentRuntimeStatus =
 
 export interface AgentStatusChangedEvent {
   status: AgentRuntimeStatus
+}
+
+export interface RuntimeCapabilitiesChangedEvent {
+  capabilities: RuntimeCapabilities
 }
 
 // ── 规范化消息（切换会话时加载历史用）──
@@ -840,6 +845,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     agentConnectionChanged: AgentConnectionChangedEvent
     agentError: AgentErrorEvent
     agentStatusChanged: AgentStatusChangedEvent
+    runtimeCapabilitiesChanged: RuntimeCapabilitiesChangedEvent
   }
   ClientInvokes: {
     sendMessage(req: SendMessageRequest): Promise<void>
@@ -870,6 +876,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     answerPermission(req: AnswerPermissionRequest): Promise<void>
     setPermissionMode(req: SetChatPermissionModeRequest): Promise<void>
     getAgentStatus(): Promise<AgentRuntimeStatus>
+    getRuntimeCapabilities(): Promise<RuntimeCapabilities>
     /** Agent sidecar 是否就绪（未配置 OO_API_KEY 时为 false）。 */
     isReady(): Promise<boolean>
   }

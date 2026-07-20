@@ -1,6 +1,7 @@
 import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentEventConnectionStatus, AgentManager } from "../agent/manager.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
+import type { RuntimeCapabilities } from "../runtime/capabilities.ts"
 import type { SessionProjectStore } from "../session/project-store.ts"
 import type { ArtifactBundleStore, ArtifactBundles } from "./artifact-bundles.ts"
 import type { AuthorizationOverlayStore } from "./authorization.ts"
@@ -66,6 +67,7 @@ import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { createOpencodeMessageId } from "../agent/opencode-id.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
+import { resolveRuntimeCapabilities } from "../runtime/capabilities.ts"
 import { ServiceEvent } from "../service-events.ts"
 import { ActiveRunRegistry } from "./active-run-registry.ts"
 import { captureArtifactSessionBaseline } from "./artifact-bundles.ts"
@@ -276,6 +278,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private readonly permissions = new PermissionState()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
+  private runtimeCapabilities: RuntimeCapabilities = resolveRuntimeCapabilities({
+    mode: "local",
+    localAgentAvailable: false,
+  })
   private readonly outputPersistence: OutputPersistence
   private scopeMutationQueue: Promise<void> = Promise.resolve()
   private desiredWorkspaceTeamName: string | undefined
@@ -357,6 +363,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     void this.send("agentStatusChanged", { status }).catch((error: unknown) => {
       console.warn("[wanta] failed to emit agent status:", error)
       logDiagnostic("chat-service", "failed to emit agent status", { error, status: status.status }, "warn")
+    })
+  }
+
+  public setRuntimeCapabilities(capabilities: RuntimeCapabilities): void {
+    this.runtimeCapabilities = capabilities
+    void this.send("runtimeCapabilitiesChanged", { capabilities }).catch((error: unknown) => {
+      console.warn("[wanta] failed to emit runtime capabilities:", error)
+      logDiagnostic("chat-service", "failed to emit runtime capabilities", { error, mode: capabilities.mode }, "warn")
     })
   }
 
@@ -1264,6 +1278,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async getAgentStatus(): Promise<AgentRuntimeStatus> {
     return this.agentStatus
+  }
+
+  public async getRuntimeCapabilities(): Promise<RuntimeCapabilities> {
+    return this.runtimeCapabilities
   }
 
   public async getActiveRuns(): Promise<ChatActiveRun[]> {

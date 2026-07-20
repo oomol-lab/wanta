@@ -5,6 +5,7 @@ import {
   hasRecentSuccessfulCheck,
   jitteredUpdateCheckIntervalMs,
   randomDelayMs,
+  resumeUpdateCheckTtlMs,
   shouldCheckAfterForeground,
   shouldCheckAfterResume,
   stableUpdateCheckIntervalMs,
@@ -34,8 +35,8 @@ describe("update policy", () => {
     const now = Date.parse("2026-07-11T12:00:00.000Z")
     expect(shouldCheckAfterResume(undefined, now)).toBe(true)
     expect(shouldCheckAfterResume("invalid", now)).toBe(true)
-    expect(shouldCheckAfterResume(new Date(now - foregroundUpdateCheckTtlMs + 1).toISOString(), now)).toBe(false)
-    expect(shouldCheckAfterResume(new Date(now - foregroundUpdateCheckTtlMs).toISOString(), now)).toBe(true)
+    expect(shouldCheckAfterResume(new Date(now - resumeUpdateCheckTtlMs + 1).toISOString(), now)).toBe(false)
+    expect(shouldCheckAfterResume(new Date(now - resumeUpdateCheckTtlMs).toISOString(), now)).toBe(true)
   })
 
   it("uses the same freshness window when the app returns to the foreground", () => {

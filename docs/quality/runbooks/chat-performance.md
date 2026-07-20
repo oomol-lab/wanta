@@ -1,77 +1,99 @@
-# Chat 与制成品性能测量 Runbook
+# Chat and Artifact Performance Measurement Runbook
 
-> 用于复核 Q-2026-007（长会话流式渲染）和 Q-2026-010（大型预览首次打开）。
-> 两项都依赖真实 renderer、真实会话或制成品，不能用 bundle 大小或静态阅读替代运行态证据。
+> For reviewing Q-2026-007 (long-session streaming render) and Q-2026-010 (large preview first open).
+> Both depend on a real renderer and a real session or artifact; bundle size or static reading must
+> not substitute for runtime evidence.
 
-## 1. 固定环境记录
+## 1. Fixed environment record
 
-每次测量先记录：
+Before each measurement, record:
 
-- Git commit、macOS/Windows/Linux 版本、CPU 架构、Node/npm 版本；
-- dev 或 production bundle，是否打开 DevTools，是否启用 Chromium cache；
-- 登录账号类型和 workspace 类型，但不记录账号标识、cookie 或 token；
-- 会话消息数、可见消息数、文本总字符数、图片数和制成品数量；
-- PDF 文件字节数/页数，工作簿字节数/sheet 数/非空单元格数。
+- Git commit, macOS/Windows/Linux version, CPU architecture, Node/npm version;
+- dev or production bundle, whether DevTools is open, whether Chromium cache is enabled;
+- account type and workspace type of the login, but do not record the account identifier, cookie, or
+  token;
+- session message count, visible message count, total text character count, image count, and
+  artifact count;
+- PDF file byte size / page count, workbook byte size / sheet count / non-empty cell count.
 
-同一轮 before/after 必须使用相同设备、构建模式、账号、workspace 和输入文件。关闭其他高负载应用，首次采样只用于 warm-up，不计入汇总。
+Within the same before/after round you must use the same device, build mode, account, workspace, and
+input files. Close other high-load applications; the first sample is used only for warm-up and does
+not count toward the summary.
 
-## 2. Q-2026-007：长会话流式更新
+## 2. Q-2026-007: long-session streaming updates
 
-### 场景
+### Scenario
 
-1. 运行 `npm run dev`，确认 Agent sidecar ready；
-2. 打开至少 200 条消息的会话，并滚动到最新消息；
-3. 准备一个能稳定输出至少 3000 个中文字符或 6000 个英文字符、持续至少 20 秒的只读请求；
-4. 分别记录流式开始前 5 秒、持续输出全程和完成后 5 秒；
-5. 至少执行 5 次，丢弃第一次 warm-up，报告其余样本的中位数、p95 和最差值。
+1. Run `npm run dev` and confirm the Agent sidecar is ready;
+2. Open a session with at least 200 messages and scroll to the newest message;
+3. Prepare a read-only request that reliably outputs at least 3000 Chinese characters or 6000 English
+   characters and lasts at least 20 seconds;
+4. Record the 5 seconds before streaming begins, the full duration of output, and the 5 seconds after
+   completion, separately;
+5. Run at least 5 times, discard the first warm-up run, and report the median, p95, and worst value of
+   the remaining samples.
 
 ### React Profiler
 
-记录并导出 profile，至少检查：
+Record and export the profile, and check at minimum:
 
-- `AppShell`、sidebar、composer、`ChatTimeline`、当前 turn 和 artifact panel 的 commit 次数；
-- 没有数据变化的 sidebar/settings/artifact 子树是否跟随每批 token commit；
-- 单次 commit duration 的中位数、p95 和最大值；
-- part key 是否保持稳定，是否出现 message/part 非预期重挂载。
+- the commit counts of `AppShell`, sidebar, composer, `ChatTimeline`, the current turn, and the
+  artifact panel;
+- whether sidebar/settings/artifact subtrees with no data change commit along with every batch of
+  tokens;
+- the median, p95, and maximum of a single commit duration;
+- whether part keys stay stable, and whether unexpected remounts of message/part occur.
 
 ### Chromium Performance
 
-启用 Screenshots 与 Memory，记录：
+Enable Screenshots and Memory, and record:
 
-- 大于 50ms 的 long task 数量、持续时间和调用栈；
-- scripting/layout/paint 时间；
-- 输入框键入和滚动期间的 Interaction latency；
-- renderer JS heap 在流式前、峰值和完成后 30 秒的数值；
-- GC 次数和单次暂停时间。
+- the count, duration, and call stacks of long tasks greater than 50ms;
+- scripting/layout/paint time;
+- Interaction latency during input-box typing and scrolling;
+- the renderer JS heap value before streaming, at peak, and 30 seconds after completion;
+- GC count and single pause duration.
 
-只有 profile 指向明确组件、selector、序列化或布局根因时才能改代码。不得仅凭 commit 次数添加全局 memo，也不得改变累计全文 part、稳定 partId、Enter 只发送或制成品层级。
+Only when the profile points to a definite root cause in a component, selector, serialization, or
+layout may you change code. Do not add a global memo based solely on commit count, and do not change
+the accumulated full-text part, the stable partId, Enter-to-send-only, or the artifact hierarchy.
 
-## 3. Q-2026-010：大型预览首次打开
+## 3. Q-2026-010: large preview first open
 
-### 构建与样本
+### Build and samples
 
-1. 运行 `npm run build`，使用 production renderer bundle；
-2. 准备固定的 PDF、XLSX 和 CSV 样本；工作簿测试必须保留 Univer 完整渲染与交互；
-3. 每类样本记录文件大小和结构规模，不使用包含隐私或凭证的数据；
-4. 每次冷测前关闭制成品预览并禁用 Chromium cache；热测保持 cache，各执行至少 5 次。
+1. Run `npm run build` and use the production renderer bundle;
+2. Prepare fixed PDF, XLSX, and CSV samples; the workbook test must preserve Univer's full rendering
+   and interaction;
+3. For each sample category, record file size and structural scale; do not use data containing private
+   information or credentials;
+4. Before each cold test, close the artifact preview and disable the Chromium cache; for hot tests keep
+   the cache; run each at least 5 times.
 
-### 采集点
+### Collection points
 
-从点击预览卡开始，到以下状态分别打点：
+Starting from clicking the preview card, mark timestamps at each of these states:
 
-- 动态 import 请求开始和完成；
-- JavaScript parse/evaluate 完成；
-- preview RPC/worker 开始和完成；
-- 首个可见内容绘制；
-- PDF 可滚动、工作簿可选择单元格时的可交互时间；
-- 打开前、首次可见、可交互和关闭后 30 秒的 renderer heap。
+- dynamic import request start and completion;
+- JavaScript parse/evaluate completion;
+- preview RPC/worker start and completion;
+- first visible content paint;
+- time-to-interactive when the PDF becomes scrollable and the workbook allows cell selection;
+- renderer heap before opening, at first visible, at interactive, and 30 seconds after closing.
 
-同时记录 Network、Performance trace 和 chunk 名称。区分下载、parse/evaluate、worker 数据准备和组件渲染，不能把总时间全部归因于 chunk 大小。
+Also record the Network, Performance trace, and chunk names. Distinguish download, parse/evaluate,
+worker data preparation, and component rendering; do not attribute the total time entirely to chunk
+size.
 
-## 4. 判定与归档
+## 4. Judgment and archiving
 
-- 原始 trace/profile 文件可能包含本地路径或业务内容，默认放 `.wanta-dev/quality/`，不得提交；
-- 在 `docs/quality/baseline.md` 只记录脱敏后的场景、原始数值、汇总方法和结论；
-- 达不到可感知阈值或没有稳定根因时，将 finding 标记 `rejected` 或继续 `defer`；
-- 确认问题时先记录 before 和目标，再做最小改动，并使用完全相同的场景复测；
-- Univer 预览不得删除、降级、替换或改成只读表格以换取性能数字。
+- Raw trace/profile files may contain local paths or business content; by default put them under
+  `.wanta-dev/quality/` and do not commit them;
+- In `docs/quality/baseline.md` record only the redacted scenario, raw values, summary method, and
+  conclusion;
+- When a perceptible threshold is not reached or there is no stable root cause, mark the finding
+  `rejected` or keep it `defer`;
+- When confirming a problem, first record the before state and the target, then make the minimal change,
+  and retest using the exact same scenario;
+- The Univer preview must not be removed, downgraded, replaced, or turned into a read-only table in
+  exchange for performance numbers.

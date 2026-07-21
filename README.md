@@ -187,7 +187,8 @@ oxlint, and oxfmt.
 Issues and pull requests are welcome. Before making changes, read [CONTRIBUTING.md](CONTRIBUTING.md),
 the [development guide](docs/development.md), and the [code conventions](docs/conventions.md).
 Create a short-lived branch from the latest `main`, keep the change focused, and include
-appropriate tests when behavior changes.
+appropriate tests when behavior changes. After the pull request is merged, delete the short-lived
+branch locally and from the remote.
 
 By submitting a contribution, you agree that it is provided under the Apache License, Version 2.0,
 unless you clearly state otherwise in writing.

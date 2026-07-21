@@ -71,8 +71,11 @@ Each copyright line above applies to its corresponding component family.
 Wanta uses the publicly downloadable `@oomol/connection@0.2.28` and
 `@oomol/connection-electron-adapter@0.2.12` packages for typed Electron IPC. They are maintained by
 OOMOL and their published tarballs include source code. Their current package versions do not yet
-declare license metadata or include a license file; adding that metadata in a follow-up package
-release will make the reuse terms explicit to downstream consumers.
+declare license metadata or include a license file. Public npm availability permits anonymous
+installation but does not by itself grant redistribution rights. Before an official distributable
+Wanta release, OOMOL must either publish package versions with explicit license terms or record
+written redistribution permission for these exact versions. Until then, this is a release-readiness
+blocker for redistributed binaries, not an installation or source-build blocker.
 
 ## Other Dependencies and Assets
 

@@ -32,13 +32,14 @@ oo CLI 1.5.1 及其内置 Skills 由 MIT 授权覆盖，不再是发布阻塞。
 
 ### 2.2 IPC 包已迁移到公共 npm
 
-- 等级：Verified / Follow-up
+- 等级：Verified install path / Release blocker
 - 当前事实：`@oomol/connection@0.2.28` 和 `@oomol/connection-electron-adapter@0.2.12` 已发布到
   `registry.npmjs.org`；仓库不再包含 `.npmrc`，`package-lock.json` 记录公共 npm 下载地址。
 - 2026-07-20 以未携带 PAT 的 `npm view --registry=https://registry.npmjs.org` 验证两个精确版本及其
   tarball 均可公开读取。
-- 维护项：两个 OOMOL 维护的包当前发布内容仍未声明 license；这不再被视为 Wanta 的私有依赖或安装阻塞，
-  但应在后续补发版本中加入明确的 package license metadata 和许可证文件，消除外部复用者的歧义。
+- 发布阻塞项：两个 OOMOL 维护的包当前发布内容仍未声明 license，也未包含许可证文件。公共 npm 可下载性
+  解决了匿名安装和源码构建问题，但本身不授予再分发权。正式发布可再分发的 Wanta 二进制前，必须补发带
+  明确许可证的版本，或由 OOMOL 授权负责人记录当前精确版本的书面再分发许可。
 - 验收结果：2026-07-20 在隔离目录使用 Node 22.22.2/npm 10.9.4，在无用户级 `.npmrc`、无 PAT、无预存
   `.oo-bin` 条件下完成 `npm ci`；新增自动化测试锁定 metadata、公共 registry 和默认 oo 分发链路。
 
@@ -80,8 +81,8 @@ oo CLI 1.5.1 及其内置 Skills 由 MIT 授权覆盖，不再是发布阻塞。
 | `@univerjs/preset-sheets-core`       | 0.25.1   | Apache-2.0   | 需要纳入第三方 Notice                |
 | `streamdown`                         | 2.5.0    | Apache-2.0   | 聊天 Markdown 渲染依赖               |
 | `react`                              | 19.2.7   | MIT          | 需要纳入完整依赖审计                 |
-| `@oomol/connection`                  | 0.2.28   | 未声明       | OOMOL 公共包；metadata follow-up     |
-| `@oomol/connection-electron-adapter` | 0.2.12   | 未声明       | OOMOL 公共包；metadata follow-up     |
+| `@oomol/connection`                  | 0.2.28   | 未声明       | 可匿名安装；再分发许可待确认         |
+| `@oomol/connection-electron-adapter` | 0.2.12   | 未声明       | 可匿名安装；再分发许可待确认         |
 
 该表不是完整的法律清单。正式发布前需要从 lockfile 生成全部直接和传递依赖的许可证报告，并人工处理多许可证、缺失许可证、二进制附带许可证、字体、图标、Logo 和 vendored 源码。
 

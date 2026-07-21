@@ -603,6 +603,57 @@ describe("AgentManager", () => {
     }
   })
 
+  it("uses the local default custom model for stale builtin prompt choices and capability checks", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-local-model-manager-"))
+    const imagePath = path.join(directory, "photo.png")
+    await writeFile(imagePath, "test image")
+    const promptAsync = vi.fn(async (_parameters: unknown) => ({ data: true }))
+    const manager = new AgentManager({
+      cloudRuntime: { kind: "local" },
+      customModels: [
+        {
+          apiKey: "local-secret",
+          apiKeyConfigured: true,
+          baseUrl: "http://127.0.0.1:11434/v1",
+          id: "local-default",
+          modelName: "local-model",
+          providerId: "custom",
+          providerName: "Local",
+          reasoningVariants: ["low"],
+          supportsImages: false,
+        },
+      ],
+      defaultModel: { kind: "custom", id: "local-default" },
+      opencodeBinPath: "/tmp/opencode",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { session: { promptAsync } } }
+
+    try {
+      await manager.promptStreaming("session-1", "analyze", {
+        attachments: [{ id: "image-1", mime: "image/png", name: "photo.png", path: imagePath, size: 100 }],
+        model: { kind: "builtin", id: "oopilot" },
+        reasoningLevel: "high",
+      })
+
+      const call = promptAsync.mock.calls[0]?.[0] as
+        | {
+            model?: { modelID: string; providerID: string }
+            parts?: Array<{ text?: string; type: string }>
+            variant?: string
+          }
+        | undefined
+      expect(call?.model).toEqual({ modelID: "local-model", providerID: "wanta-custom-local-default" })
+      expect(call).not.toHaveProperty("variant")
+      expect(call?.parts?.[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("does not support image input"),
+      })
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("restarts the OpenCode event stream after an unexpected disconnect", async () => {
     vi.useFakeTimers()
     const subscribe = vi
@@ -848,5 +899,43 @@ describe("AgentManager", () => {
     expect(String(url)).toBe("https://models.example.test/v1/chat/completions")
     expect(request?.headers).toMatchObject({ Authorization: "Bearer custom-secret" })
     expect(JSON.parse(String(request?.body))).toMatchObject({ model: "custom-model" })
+  })
+
+  it("uses the local default custom model for a stale builtin title choice", async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"本地模型标题"}' } }] }), {
+        status: 200,
+      })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const manager = new AgentManager({
+      cloudRuntime: { kind: "local" },
+      customModels: [
+        {
+          apiKey: "local-secret",
+          apiKeyConfigured: true,
+          baseUrl: "http://127.0.0.1:11434/v1/",
+          id: "local-default",
+          modelName: "local-model",
+          providerId: "custom",
+          providerName: "Local",
+        },
+      ],
+      defaultModel: { kind: "custom", id: "local-default" },
+      opencodeBinPath: "/tmp/opencode",
+      rootDir: "/tmp/wanta-agent",
+    })
+
+    const title = await manager.generateSessionTitle({
+      model: { kind: "builtin", id: "oopilot" },
+      text: "生成标题",
+    })
+
+    expect(title).toEqual({ generated: true, title: "本地模型标题" })
+    const [url, request] = fetchMock.mock.calls[0] ?? []
+    expect(String(url)).toBe("http://127.0.0.1:11434/v1/chat/completions")
+    expect(request?.headers).toMatchObject({ Authorization: "Bearer local-secret" })
+    expect(JSON.parse(String(request?.body))).toMatchObject({ model: "local-model" })
   })
 })

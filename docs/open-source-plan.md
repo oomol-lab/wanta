@@ -530,9 +530,11 @@ Make BYOK a security capability the project can publicly commit to.
 
 #### Goal
 
-The public repo installs and runs its core features in an environment with no PAT, no cookies,
-and no oo CLI. The PAT half is **done** (#195); oo CLI optionalization is the remaining open work
-in this stage.
+The public repo installs and runs in an environment with no PAT, cookies, internal `.npmrc`, or
+preinstalled oo CLI. The default `postinstall` and packaged builds continue to download and include
+the pinned public oo CLI and built-in Skills so official OOMOL Connector and compatible self-hosted
+OpenConnector deployments share one invocation path. Whether a user enables Connector capability
+is a runtime choice, not a build-content split.
 
 #### `@oomol/connection*` handling order
 
@@ -545,16 +547,22 @@ in this stage.
    type-safe Electron IPC layer;
 4. Regardless of the option taken, the security boundary must survive: credentials never enter the
    renderer. This invariant remains binding.
+5. Public availability removes the installation blocker but not the redistribution-license
+   requirement: before an official binary release, publish versions with explicit license terms or
+   record OOMOL's written redistribution permission for the pinned versions.
 
-#### Making the oo CLI optional
+#### oo CLI default inclusion and runtime gating
 
-- `postinstall` no longer treats the oo download as a community-core prerequisite;
-- `predev` no longer blocks local mode when oo is missing;
-- the local runtime neither resolves nor injects oo;
-- oo is checked only when the OOMOL Connector capability is enabled;
-- official release packages may keep bundling oo;
-- community builds may produce an app without oo;
-- when oo is missing, only mark the Connector as unavailable.
+- `postinstall` downloads the pinned public oo CLI, so contributors do not preinstall it;
+- `predev` verifies the repository-managed binary before launching development;
+- `prepare:binaries` and every default platform package include oo and the built-in Skills;
+- the local runtime does not inject oo credentials or expose Connector tools until the relevant
+  Connector capability is configured;
+- OOMOL runtime injects the session credential and hosted endpoint;
+- the planned self-hosted flow will inject its Base URL and optional Runtime Token into the same oo
+  invocation path;
+- `OO_SKIP_BINARY_DOWNLOAD=1` remains a CI/developer optimization only; official packaging prepares
+  the binary again.
 
 #### package metadata
 
@@ -626,7 +634,7 @@ npm run build
 Add a community-build CI job:
 
 - provides no `NODE_AUTH_TOKEN`;
-- downloads no oo;
+- starts with no preinstalled oo and lets the public `postinstall` path prepare the pinned binary;
 - provides no OOMOL cookie;
 - runs install, lint, format, ts-check, test, and build.
 
@@ -678,7 +686,7 @@ All branch names, commit messages, PR titles, and descriptions are in English.
 | 5   | `codex/passwordless-app-shell`       | Remove the login wall and add model onboarding                              | PR 2, 3                  |
 | 6   | `codex/cloud-runtime-switching`      | Runtime switching after signin, signout, and expiry                         | PR 3, 4, 5               |
 | 7   | `codex/secure-model-credentials`     | API key secure storage and migration                                        | Parallel to PR 4–6       |
-| 8   | `codex/public-dependencies`          | Public IPC dependencies (**done**, #195) and oo optionalization (remaining) | Dependency decisions     |
+| 8   | `codex/public-dependencies`          | Public IPC dependencies, license evidence, and default oo packaging         | Dependency decisions     |
 | 9   | `codex/open-source-metadata`         | NOTICE and trademark files; LICENSE and package metadata **already landed** | After legal signoff      |
 | 10  | `codex/community-documentation`      | CONTRIBUTING, SECURITY, and architecture docs (README **landed**, #197)     | After features stabilize |
 | 11  | `codex/community-release-validation` | CI, fresh clone, and cross-platform validation                              | All of the above         |
@@ -712,7 +720,7 @@ Result: community mode and the OOMOL-enhanced mode switch stably within one app.
 ### Milestone C: publicly developable
 
 - private npm dependencies handled — **done** (#195);
-- oo made optional;
+- oo prepared from its public distribution and included in default packages;
 - fresh clone;
 - API key secure storage;
 - community CI.
@@ -744,8 +752,9 @@ waits excluded:
 | Login wall removal and onboarding              |                                                                                     3–5 days |
 | Signin, signout, and expiry switching          |                                                                                     4–7 days |
 | Model credential secure storage                |                                                                                     3–5 days |
-| Private IPC dependency publication/replacement |                                             **done** — published publicly, no remaining work |
-| oo CLI optionalization                         |                                                                                     2–4 days |
+| Public IPC dependency installation             |                                                       **done** — public npm, no PAT required |
+| IPC redistribution license evidence            |                                    1–2 days — explicit package license or written permission |
+| oo CLI default packaging and runtime gating    |                                                                                     **done** |
 | Docs and open-source metadata                  | 3–5 days (LICENSE/README/metadata landed; NOTICE, trademarks, CONTRIBUTING, SECURITY remain) |
 | CI, cross-platform, and fresh clone validation |                                                                                     4–7 days |
 
@@ -755,7 +764,7 @@ Suggested pacing:
 - dual-mode stability: about 3–4 weeks;
 - official open-source release quality: about 4–6 weeks;
 - the extra 1–2 weeks once reserved for a full rewrite of the private IPC packages is no longer
-  needed — they are public.
+  needed; only explicit redistribution-license evidence remains.
 
 ## 9. Main risks
 
@@ -816,7 +825,8 @@ Open-sourcing counts as complete only when all of the following hold:
 - after signin, existing Connector capabilities show no visible regression;
 - local functionality survives signout and token expiry;
 - community installs require no private PAT — **already true** (#195);
-- the community does not need the oo CLI to run the core;
+- contributors do not need to preinstall the oo CLI; the default install prepares it, while local
+  core use does not require Connector configuration;
 - custom model keys are never stored in plaintext;
 - the repo carries a formal open-source license — **already true** (Apache-2.0, #197);
 - trademark and third-party asset licensing are clear;

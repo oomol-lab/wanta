@@ -136,10 +136,10 @@ function PublicSkillPackageDetail({
                   ) : (
                     <AppIcons.action.installPackage />
                   )}
-                  {!canInstall
-                    ? t("skills.signInToInstall")
-                    : isInstallingPrimary
-                      ? t("skills.registryInstalling")
+                  {isInstallingPrimary
+                    ? t("skills.registryInstalling")
+                    : !canInstall && canInstallPublicSkill(primaryState)
+                      ? t("skills.signInToInstall")
                       : primaryState === "partially-installed"
                         ? t("skills.discoverInstallMissing")
                         : primaryState === "unavailable"

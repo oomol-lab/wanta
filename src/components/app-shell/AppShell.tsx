@@ -1899,8 +1899,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       canManageWorkspaceConnections={cloudEnabled && canManageWorkspaceConnections}
                       emptyStateConnectionSummary={cloudEnabled ? emptyStateConnectionSummary : null}
                       teamSkillEntryVisible={cloudEnabled && teamSkillEntryVisible}
-                      teamSkillShowcaseItems={teamSkillShowcaseItems}
-                      teamSkillPendingInstallCount={recommendedSkillPendingInstallCount}
+                      teamSkillShowcaseItems={cloudEnabled ? teamSkillShowcaseItems : []}
+                      teamSkillPendingInstallCount={cloudEnabled ? recommendedSkillPendingInstallCount : 0}
                       teamSkills={cloudEnabled ? teamSkills.chatContextSkills : []}
                       providers={cloudEnabled ? activeProviders : []}
                       queueHeld={activeQueueHeld}

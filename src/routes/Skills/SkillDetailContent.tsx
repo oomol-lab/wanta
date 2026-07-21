@@ -572,7 +572,7 @@ function SkillPeek({
         </div>
       </InspectorInsetCard>
 
-      {hasPublishedUpdate && canUpdatePublishedSkill ? (
+      {showRegistryActions && hasPublishedUpdate && canUpdatePublishedSkill ? (
         <InspectorInsetCard className="shrink-0 gap-2 border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
           <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
             <ObjectStatusIcon tone="attention" />

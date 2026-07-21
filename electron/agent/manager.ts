@@ -715,11 +715,12 @@ export class AgentManager {
     modelID: string
   } {
     const effectiveChoice = choice ?? this.options.defaultModel
+    if (this.options.cloudRuntime.kind !== "oomol") {
+      const customModel = this.resolveLocalCustomModel(effectiveChoice)
+      return { apiKey: customModel.apiKey, baseUrl: customModel.baseUrl, modelID: customModel.modelName }
+    }
     const resolved = this.resolveModel(effectiveChoice)
     if (effectiveChoice?.kind !== "custom") {
-      if (this.options.cloudRuntime.kind !== "oomol") {
-        throw new Error("Builtin models require the OOMOL cloud runtime.")
-      }
       return { apiKey: this.options.cloudRuntime.sessionToken, baseUrl: llmBaseUrl, modelID: resolved.modelID }
     }
     const customModel = this.options.customModels?.find((item) => item.id === effectiveChoice.id)
@@ -1080,12 +1081,11 @@ export class AgentManager {
 
   private resolveModel(choice: ModelChoice | undefined): { providerID: string; modelID: string } {
     const effectiveChoice = choice ?? this.options.defaultModel
+    if (this.options.cloudRuntime.kind !== "oomol") {
+      const customModel = this.resolveLocalCustomModel(effectiveChoice)
+      return { providerID: customProviderId(customModel.id), modelID: customModel.modelName }
+    }
     if (!effectiveChoice || effectiveChoice.kind === "builtin") {
-      if (this.options.cloudRuntime.kind !== "oomol") {
-        const customModel = this.options.customModels?.find((item) => item.id === this.options.defaultModel?.id)
-        if (!customModel) throw new Error("A custom model is required for the local Agent runtime.")
-        return { providerID: customProviderId(customModel.id), modelID: customModel.modelName }
-      }
       const modelID =
         effectiveChoice && isBuiltinModelId(effectiveChoice.id) ? effectiveChoice.id : DEFAULT_BUILTIN_MODEL_ID
       return resolveBuiltinModel(modelID).runtime
@@ -1106,6 +1106,10 @@ export class AgentManager {
       return undefined
     }
     const effectiveChoice = choice ?? this.options.defaultModel
+    if (this.options.cloudRuntime.kind !== "oomol") {
+      const model = this.resolveLocalCustomModel(effectiveChoice)
+      return model.reasoningVariants?.includes(variant) ? variant : undefined
+    }
     if (effectiveChoice?.kind === "custom") {
       const model = this.options.customModels?.find((item) => item.id === effectiveChoice.id)
       return model?.reasoningVariants?.includes(variant) ? variant : undefined
@@ -1118,6 +1122,10 @@ export class AgentManager {
 
   private resolveAttachmentCapabilities(choice: ModelChoice | undefined): { images: boolean; pdf: boolean } {
     const effectiveChoice = choice ?? this.options.defaultModel
+    if (this.options.cloudRuntime.kind !== "oomol") {
+      const model = this.resolveLocalCustomModel(effectiveChoice)
+      return { images: model.supportsImages === true, pdf: false }
+    }
     if (effectiveChoice?.kind === "custom") {
       const model = this.options.customModels?.find((item) => item.id === effectiveChoice.id)
       return { images: model?.supportsImages === true, pdf: false }
@@ -1126,6 +1134,18 @@ export class AgentManager {
       effectiveChoice && isBuiltinModelId(effectiveChoice.id) ? effectiveChoice.id : DEFAULT_BUILTIN_MODEL_ID
     const capabilities = resolveBuiltinModel(modelID).capabilities
     return { images: capabilities.supportsImages, pdf: capabilities.supportsPdf }
+  }
+
+  private resolveLocalCustomModel(choice: ModelChoice | undefined): RuntimeCustomModel {
+    const modelId = choice?.kind === "custom" ? choice.id : this.options.defaultModel?.id
+    const model = this.options.customModels?.find((item) => item.id === modelId)
+    if (model) {
+      return model
+    }
+    if (choice?.kind === "custom") {
+      throw new Error("Selected custom model is no longer available.")
+    }
+    throw new Error("A custom model is required for the local Agent runtime.")
   }
 }
 

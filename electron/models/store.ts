@@ -448,7 +448,11 @@ export class ModelsStore {
   }
 
   public async read(): Promise<PersistedModels> {
-    await this.ensureLegacyCredentialsMigrated()
+    try {
+      await this.ensureLegacyCredentialsMigrated()
+    } catch (error) {
+      logStoreReadFailure("model credential migration", this.file, error)
+    }
     return this.readMetadata()
   }
 
@@ -493,7 +497,12 @@ export class ModelsStore {
     const models = await this.read()
     const customModels = await Promise.all(
       (models.customModels ?? []).filter(isRuntimeCustomModelMetadata).map(async (model) => {
-        const apiKey = await this.credentials.get(model.id)
+        let apiKey: string | undefined
+        try {
+          apiKey = await this.credentials.get(model.id)
+        } catch (error) {
+          logStoreReadFailure("model credentials", this.file, error)
+        }
         return apiKey ? { ...model, apiKey } : null
       }),
     )

@@ -342,8 +342,9 @@ test("legacy migration keeps the plaintext source when secure credential writing
   )
   const store = new ModelsStore(dir, credentials)
 
-  await assert.rejects(store.read(), /keychain write failed/)
+  const catalog = await store.catalog()
 
+  assert.ok(catalog.builtins.length > 0)
   assert.equal(readFileSync(modelsFile, "utf8").includes("only-copy"), true)
 })
 
@@ -372,10 +373,46 @@ test("legacy migration retains both copies when metadata cleanup fails after sec
     },
   })
 
-  await assert.rejects(store.read(), /metadata cleanup failed/)
+  const catalog = await store.catalog()
 
+  assert.ok(catalog.builtins.length > 0)
   assert.equal(readFileSync(modelsFile, "utf8").includes("migration-secret"), true)
   assert.equal(await credentials.get("legacy"), "migration-secret")
+})
+
+test("credential lookup failures preserve builtin catalog and omit unavailable custom runtimes", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
+  const credentials = new ModelCredentialStore(
+    dir,
+    {
+      decryptString: () => "",
+      encryptString: () => Buffer.from(""),
+      isEncryptionAvailable: () => false,
+    },
+    "darwin",
+  )
+  const store = new ModelsStore(dir, credentials)
+  await store.write({
+    selected: { kind: "custom", id: "locked-model" },
+    customModels: [
+      {
+        id: "locked-model",
+        providerId: "custom",
+        providerName: "Locked",
+        baseUrl: "https://models.example.test/v1",
+        apiKeyConfigured: true,
+        modelName: "locked-model",
+      },
+    ],
+  })
+
+  const catalog = await store.catalog()
+  const runtime = await store.runtimeModels()
+
+  assert.ok(catalog.builtins.length > 0)
+  assert.equal(catalog.customModels[0]?.id, "locked-model")
+  assert.deepEqual(runtime.customModels, [])
+  assert.deepEqual(runtime.selected, { kind: "custom", id: "locked-model" })
 })
 
 test("sanitizeBaseUrl trims trailing slash and rejects invalid protocols", () => {

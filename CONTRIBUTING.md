@@ -35,6 +35,8 @@ npm run build
 Use `npm run lint:fix` and `npm run format:fix` for mechanical fixes. Do not bypass a failing check
 or commit generated content from ignored build directories.
 
+After the pull request is merged, delete the short-lived branch locally and from the remote.
+
 ## Runtime and UI Verification
 
 Run `npm run dev` for changes that affect Electron startup, preload/IPC, runtime switching, Agent

@@ -6,6 +6,29 @@ export interface OperatingProfileTarget {
   mode: OperatingMode
 }
 
+export function operatingModeGateLoading({
+  authenticated,
+  linkRuntimeLoading,
+  modelCatalogAvailable,
+  modelCatalogFailed,
+  operatingMode,
+  settingsLoading,
+}: {
+  authenticated: boolean
+  linkRuntimeLoading: boolean
+  modelCatalogAvailable: boolean
+  modelCatalogFailed: boolean
+  operatingMode: OperatingMode | null
+  settingsLoading: boolean
+}): boolean {
+  return (
+    settingsLoading ||
+    linkRuntimeLoading ||
+    (!modelCatalogAvailable && !modelCatalogFailed) ||
+    (authenticated && !operatingMode)
+  )
+}
+
 export function operatingProfileTarget(
   authenticated: boolean,
   operatingMode: OperatingMode | null,

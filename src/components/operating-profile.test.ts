@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest"
-import { legacyOperatingMode, operatingProfileTarget } from "./operating-profile.ts"
+import { legacyOperatingMode, operatingModeGateLoading, operatingProfileTarget } from "./operating-profile.ts"
+
+describe("operatingModeGateLoading", () => {
+  const readyState = {
+    authenticated: false,
+    linkRuntimeLoading: false,
+    modelCatalogAvailable: true,
+    modelCatalogFailed: false,
+    operatingMode: "self-managed" as const,
+    settingsLoading: false,
+  }
+
+  it("waits while the model catalog is still loading", () => {
+    expect(operatingModeGateLoading({ ...readyState, modelCatalogAvailable: false })).toBe(true)
+  })
+
+  it("does not leave the app blank after model catalog loading fails", () => {
+    expect(operatingModeGateLoading({ ...readyState, modelCatalogAvailable: false, modelCatalogFailed: true })).toBe(
+      false,
+    )
+  })
+})
 
 describe("operatingProfileTarget", () => {
   it("keeps an unconfigured signed-out user in initial setup", () => {

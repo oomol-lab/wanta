@@ -10,6 +10,7 @@ import type { UserFacingError } from "@/lib/user-facing-error"
 import { ExternalLink } from "lucide-react"
 import * as React from "react"
 import { WANTA_REASONING_VARIANT_LEVELS } from "../../../electron/agent/reasoning.ts"
+import { customModelEndpointSelectionForBaseUrl } from "./custom-model-endpoint-selection.ts"
 import { reasoningLevelLabel } from "./model-control-utils.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
@@ -195,8 +196,9 @@ export function AddCustomModelDialog({
     setBaseUrl(model?.baseUrl ?? providerBaseUrl(initial))
     const initialModelName = model?.modelName ?? providerDefaultModelName(initial)
     setModelName(initialModelName)
-    setApiPlanId(providerDefaultApiPlanId(initial))
-    setApiRegionId(endpointDefaultApiRegionId(providerEndpoint(initial)))
+    const endpointSelection = model ? customModelEndpointSelectionForBaseUrl(initial, model.baseUrl) : null
+    setApiPlanId(endpointSelection?.apiPlanId ?? providerDefaultApiPlanId(initial))
+    setApiRegionId(endpointSelection?.apiRegionId ?? endpointDefaultApiRegionId(providerEndpoint(initial)))
     setSupportsImages(model?.supportsImages ?? providerDefaultSupportsImages(initial, initialModelName))
     setSupportsToolCalls(model?.supportsToolCalls ?? providerDefaultSupportsToolCalls(initial, initialModelName))
     setContextWindow(String(model?.contextWindow ?? providerDefaultContextWindow(initial, initialModelName)))

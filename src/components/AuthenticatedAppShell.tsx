@@ -3,7 +3,7 @@ import type { UseAuth } from "@/hooks/useAuth"
 import * as React from "react"
 import { AppShell } from "@/components/app-shell/AppShell"
 import { AppDataProvider } from "@/components/AppDataProvider"
-import { legacyOperatingMode, operatingProfileTarget } from "@/components/operating-profile"
+import { legacyOperatingMode, operatingModeGateLoading, operatingProfileTarget } from "@/components/operating-profile"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAppSettings } from "@/hooks/useAppSettings"
@@ -83,7 +83,16 @@ function OperatingModeGate({ auth }: { auth: UseAuth }) {
     }
   }, [linkRuntime, settings])
 
-  if (settings.loading || linkRuntime.loading || !models.catalog || (authenticated && !operatingMode)) {
+  if (
+    operatingModeGateLoading({
+      authenticated,
+      linkRuntimeLoading: linkRuntime.loading,
+      modelCatalogAvailable: Boolean(models.catalog),
+      modelCatalogFailed: Boolean(models.catalogError),
+      operatingMode,
+      settingsLoading: settings.loading,
+    })
+  ) {
     return <div className="h-full bg-background" />
   }
 

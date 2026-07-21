@@ -18,17 +18,6 @@ export function normalizeDefaultRegistrySkillRequest(spec: DefaultRegistrySkillS
   }
 }
 
-export function normalizeDefaultRegistryReplacementSkillIds(spec: DefaultRegistrySkillSpec): string[] {
-  const currentSkillId = normalizeSkillId(spec.skillId)
-  return Array.from(
-    new Set(
-      (spec.replacesSkillIds ?? [])
-        .map((skillId) => normalizeSkillId(skillId))
-        .filter((skillId) => skillId !== currentSkillId),
-    ),
-  )
-}
-
 export function isRuntimeSkillInstalled(inventory: SkillInventory, skillId: string): boolean {
   const normalizedSkillId = normalizeSkillId(skillId)
   const group = inventory.groups.find((item) => item.id === normalizedSkillId)

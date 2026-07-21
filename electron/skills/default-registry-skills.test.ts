@@ -7,8 +7,7 @@ describe("default Registry Skills", () => {
     expect(defaultRegistrySkills).toContainEqual({
       category: "other",
       enabled: true,
-      packageName: "@alwaysmavs/tikhub-social-research",
-      replacesSkillIds: ["tikhub-social-research"],
+      packageName: "@alwaysmavs/public-social-research",
       skillId: "public-social-research",
     })
   })

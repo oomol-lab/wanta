@@ -15,6 +15,7 @@ import {
   shouldShowPlainTurnActivity,
   shouldShowSuggestedAuthorization,
   shouldShowTurnProcess,
+  settlingToolPartId,
   summarizeTurnProcess,
   updateChatTurnGrouping,
 } from "./chat-turns.ts"
@@ -342,6 +343,29 @@ describe("summarizeTurnProcess", () => {
     expect(isLiveTurnProcess(process, true)).toBe(true)
     expect(chatTurnProcessStatus(process, true)).toBe("running")
     expect(chatTurnProcessStatus(process, false)).toBe("completed")
+    expect(settlingToolPartId(process, chatTurnProcessStatus(process, true))).toBe("tool-1")
+  })
+
+  it("keeps the loading shimmer on the active tool instead of a previous completed tool", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "create a page")]),
+      message("a1", "assistant", [tool("tool-1"), tool("tool-2", { status: "running" })]),
+    ])[0]
+
+    const process = summarizeTurnProcess(turn!, null, "a1")
+
+    expect(settlingToolPartId(process, chatTurnProcessStatus(process, true))).toBeUndefined()
+  })
+
+  it("does not shimmer a failed tool while the live turn recovers", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "create a page")]),
+      message("a1", "assistant", [tool("tool-1", { status: "error", error: "temporary failure" })]),
+    ])[0]
+
+    const process = summarizeTurnProcess(turn!, null, "a1")
+
+    expect(settlingToolPartId(process, chatTurnProcessStatus(process, true))).toBeUndefined()
   })
 
   it("does not treat a text-only live answer as an active process", () => {

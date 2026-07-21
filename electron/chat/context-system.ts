@@ -1,3 +1,4 @@
+import type { AppLocale } from "../app-locale.ts"
 import type { AgentPermissionMode, ChatContextMention, ChatTeamSkillContext, ChatProjectContext } from "./common.ts"
 
 function quoted(value: string): string {
@@ -130,6 +131,23 @@ export function buildPermissionModeSystem(mode: AgentPermissionMode | undefined)
     "- Concrete non-sensitive files, ordinary bounded directories, and shallow directory listings may also be approved automatically by Wanta, including paths outside the selected project when the task calls for them.",
     "- Wanta may pause only for basic safety boundaries such as credential/secret paths, broad home/system scans, private browser or Mail/Messages/Contacts/Calendars data, destructive deletion, dependency installation, privilege escalation, git push/reset/clean, publishing/deployment, or infrastructure mutations. Standard dependency operations explicitly scoped to the current project may be approved once for the current task; global installs, custom registries, and user configs remain protected.",
     "- Do not ask the user to approve ordinary local tool calls or switch modes. If Wanta pauses for a protected operation, ask only for that specific operation.",
+  ].join("\n")
+}
+
+export function buildResponseLanguageSystem(appLocale: AppLocale | undefined): string {
+  const fallback =
+    appLocale === "en"
+      ? "- If neither the latest request nor the conversation establishes a language, use the application interface language: English."
+      : appLocale === "zh-CN"
+        ? "- If neither the latest request nor the conversation establishes a language, use the application interface language: Simplified Chinese."
+        : "- If neither the latest request nor the conversation establishes a language, use the language that best fits the user's available context."
+  return [
+    "Response language policy for this turn:",
+    "- Use the primary language of the user's latest substantive request for every user-facing assistant message, including progress updates, tool-call commentary, structured questions, confirmations, error explanations, and the final response.",
+    "- If the user explicitly requests a response or deliverable language, follow that explicit request for the corresponding content.",
+    "- Determine the response language from the user's instruction, not from quoted material, source documents, attachments, tool output, skill content, code, identifiers, file paths, or an earlier turn when the latest request has a clear language.",
+    "- If the latest request is language-neutral or too short to determine, continue the established conversation language.",
+    fallback,
   ].join("\n")
 }
 

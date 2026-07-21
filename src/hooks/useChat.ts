@@ -45,6 +45,7 @@ import {
 import { useChatEventBuffer } from "./use-chat-event-buffer.ts"
 import { useChatRunState } from "./use-chat-run-state.ts"
 import { useChatService } from "@/components/AppContext"
+import { useI18n } from "@/i18n/i18n"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 
@@ -100,6 +101,7 @@ export interface UseChat {
 
 export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: string): UseChat {
   const chatService = useChatService()
+  const { locale } = useI18n()
   const {
     activities,
     applyActiveRun,
@@ -896,6 +898,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         await chatService.invoke("sendMessage", {
           sessionId,
           text,
+          appLocale: locale,
           attachments: agentAttachments(attachments),
           contextMentions: options.contextMentions,
           mode: options.mode,
@@ -922,7 +925,16 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         throw err
       }
     },
-    [chatService, clearSessionError, patch, sessionPermissionMode, setActivity, setLocalPermissionMode, setStatus],
+    [
+      chatService,
+      clearSessionError,
+      locale,
+      patch,
+      sessionPermissionMode,
+      setActivity,
+      setLocalPermissionMode,
+      setStatus,
+    ],
   )
 
   const stop = React.useCallback(

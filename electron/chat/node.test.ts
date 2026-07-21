@@ -2049,6 +2049,7 @@ test("sendMessage passes selected context, team skills, and project as per-turn 
 
   await service.sendMessage({
     scope: testTeamScope,
+    appLocale: "en",
     contextMentions: [
       { description: "Generate market-ready assets", id: "ecommerce-image-studio", kind: "skill", name: "Ecommerce" },
       {
@@ -2106,6 +2107,9 @@ test("sendMessage passes selected context, team skills, and project as per-turn 
   assert.match(options?.system ?? "", /\/Users\/example\/code\/wanta/)
   assert.match(options?.system ?? "", /use this project directory as an absolute path/)
   assert.match(options?.system ?? "", /Do not mention the full project directory/)
+  assert.match(options?.system ?? "", /Response language policy for this turn/)
+  assert.match(options?.system ?? "", /primary language of the user's latest substantive request/)
+  assert.match(options?.system ?? "", /application interface language: English/)
   assert.deepEqual(bridge.setSessionKnowledgeBaseIds.mock.calls, [["session-1", ["knowledge-1"]]])
   assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", undefined]])
 })

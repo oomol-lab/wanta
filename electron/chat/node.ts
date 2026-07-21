@@ -83,9 +83,10 @@ import {
 import { ChatService as ChatServiceName } from "./common.ts"
 import {
   buildContextMentionsSystem as buildContextMentionsSystemPrompt,
-  buildTeamSkillsSystem,
   buildPermissionModeSystem,
   buildProjectContextSystem,
+  buildResponseLanguageSystem,
+  buildTeamSkillsSystem,
   mergeSystemPrompts,
 } from "./context-system.ts"
 import { normalizeChatError } from "./error.ts"
@@ -1473,6 +1474,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             buildProjectContextSystem(req.projectContext),
             buildPermissionModeSystem(req.permissionMode),
             bugReportSystem,
+            buildResponseLanguageSystem(req.appLocale),
           ),
         })
         .then(() => {

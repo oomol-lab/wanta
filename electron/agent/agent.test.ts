@@ -352,6 +352,9 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /Use focused validation when feasible/)
   assert.match(WANTA_SYSTEM_PROMPT, /update its final state before writing the final response/)
   assert.match(WANTA_SYSTEM_PROMPT, /Do not put the complete user-facing deliverable in a progress update/)
+  assert.match(WANTA_SYSTEM_PROMPT, /primary language of the user's latest substantive request/)
+  assert.match(WANTA_SYSTEM_PROMPT, /every user-facing assistant message, including progress updates/)
+  assert.match(WANTA_SYSTEM_PROMPT, /more specific per-turn response language policy/)
   assert.match(
     WANTA_SYSTEM_PROMPT,
     /Complete all required tool calls, validation, artifact writes, and todo\/task updates/,

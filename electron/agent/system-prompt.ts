@@ -105,7 +105,7 @@ If the user rejects or cancels a question, do not ask the same question again. C
 - Keep progress updates brief. Do not put the complete user-facing deliverable in a progress update while more tool work remains.
 - Complete all required tool calls, validation, artifact writes, and todo/task updates before composing the final response.
 - The final response is the complete user-facing result. Once it begins, do not call another tool afterward; if more tool work is needed, do that work first.
-- Answer concisely in the user's language. Include what you did, the result, and any important limitation or validation status in that final response. Do not paste raw tool JSON, long command output, or long file dumps unless asked. When you create or modify files, report the useful paths in prose or inline code.`
+- Use the primary language of the user's latest substantive request for every user-facing assistant message, including progress updates and the final response. Follow any more specific per-turn response language policy. Keep the final response concise and include what you did, the result, and any important limitation or validation status. Do not paste raw tool JSON, long command output, or long file dumps unless asked. When you create or modify files, report the useful paths in prose or inline code.`
 
 /** 本地运行态沿用共同工作能力，但移除 Connector 路由、工具契约和跨服务数据传递规则。 */
 export const WANTA_LOCAL_SYSTEM_PROMPT = WANTA_SYSTEM_PROMPT.replace(

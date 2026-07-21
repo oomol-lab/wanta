@@ -27,6 +27,10 @@ describe("operatingProfileTarget", () => {
     expect(operatingProfileTarget(false, null)).toBeNull()
   })
 
+  it("gives an authenticated legacy session an explicit profile to persist", () => {
+    expect(operatingProfileTarget(true, null)).toEqual({ linkRuntime: "oomol", mode: "oomol" })
+  })
+
   it("maps each persisted mode to its complete Link runtime", () => {
     expect(operatingProfileTarget(false, "oomol")).toEqual({ linkRuntime: "oomol", mode: "oomol" })
     expect(operatingProfileTarget(false, "self-managed")).toEqual({

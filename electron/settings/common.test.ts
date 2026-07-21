@@ -6,6 +6,8 @@ describe("DEFAULT_APP_SETTINGS", () => {
     expect(DEFAULT_APP_SETTINGS).toMatchObject({
       completionNotificationCondition: "background",
       notificationSoundEnabled: true,
+      operatingMode: null,
+      selfManagedSetupDismissed: false,
       unreadBadgeEnabled: true,
     })
   })

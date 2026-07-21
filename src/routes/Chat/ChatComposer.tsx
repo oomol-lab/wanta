@@ -15,7 +15,7 @@ import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { Bug, X } from "lucide-react"
+import { BrainCircuit, Bug, Check, Circle, Server, X } from "lucide-react"
 import * as React from "react"
 import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
 import { AttachmentList } from "./ChatAttachments.tsx"
@@ -104,6 +104,11 @@ interface ChatComposerProps {
   onPermissionModeFullAccess: () => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onOpenKnowledgeLibrary?: () => void
+  selfManagedSetup?: {
+    openConnectorConfigured: boolean
+    onConfigureOpenConnector: () => void
+    onDismiss: () => void
+  }
   onSelectKnowledgeBase: (id: string) => void
   onStop: () => Promise<void> | void
   onViewBilling?: () => void
@@ -204,6 +209,7 @@ export function ChatComposer({
   onPermissionModeFullAccess,
   onOpenConnectionProvider,
   onOpenKnowledgeLibrary,
+  selfManagedSetup,
   onSelectKnowledgeBase,
   onStop,
   onViewBilling,
@@ -262,6 +268,7 @@ export function ChatComposer({
     [cloudModelsEnabled, modelCatalogState.catalog],
   )
   const modelError = modelCatalogState.selectionError ?? modelCatalogState.catalogError
+  const customModelConfigured = Boolean(modelCatalogState.catalog?.customModels.length)
   const composerAttachments = useComposerAttachments({
     attachments,
     clearInputError,
@@ -769,7 +776,103 @@ export function ChatComposer({
           ) : null}
         </div>
       </div>
+      {selfManagedSetup && !customModelConfigured ? (
+        <SelfManagedSetupChecklist
+          modelConfigured={customModelConfigured}
+          openConnectorConfigured={selfManagedSetup.openConnectorConfigured}
+          onConfigureModel={modelCatalogState.openDialog}
+          onConfigureOpenConnector={selfManagedSetup.onConfigureOpenConnector}
+          onDismiss={selfManagedSetup.onDismiss}
+        />
+      ) : null}
       {modelDialog}
     </>
+  )
+}
+
+function SelfManagedSetupChecklist({
+  modelConfigured,
+  onConfigureModel,
+  onConfigureOpenConnector,
+  onDismiss,
+  openConnectorConfigured,
+}: {
+  modelConfigured: boolean
+  onConfigureModel: () => void
+  onConfigureOpenConnector: () => void
+  onDismiss: () => void
+  openConnectorConfigured: boolean
+}) {
+  const t = useT()
+  return (
+    <section className="mt-2 rounded-xl border bg-card/70 p-3.5 shadow-xs">
+      <div className="mb-2.5 flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold">{t("chat.selfManagedSetupTitle")}</h3>
+          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("chat.selfManagedSetupDescription")}</p>
+        </div>
+        <button
+          type="button"
+          className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label={t("chat.dismissSelfManagedSetup")}
+          title={t("chat.dismissSelfManagedSetup")}
+          onClick={onDismiss}
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <SetupChecklistAction
+          complete={modelConfigured}
+          completeLabel={t("chat.setupComplete")}
+          icon={<BrainCircuit className="size-4" />}
+          label={t("chat.selfManagedModel")}
+          action={t("chat.configureModel")}
+          onClick={onConfigureModel}
+        />
+        <SetupChecklistAction
+          complete={openConnectorConfigured}
+          completeLabel={t("chat.setupComplete")}
+          icon={<Server className="size-4" />}
+          label={t("chat.selfManagedOpenConnector")}
+          action={t("chat.configureOpenConnector")}
+          onClick={onConfigureOpenConnector}
+        />
+      </div>
+    </section>
+  )
+}
+
+function SetupChecklistAction({
+  action,
+  complete,
+  completeLabel,
+  icon,
+  label,
+  onClick,
+}: {
+  action: string
+  complete: boolean
+  completeLabel: string
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={complete}
+      className="flex min-w-0 items-center gap-2.5 rounded-lg border bg-background/70 px-3 py-2 text-left transition-colors hover:bg-muted/70 disabled:opacity-70"
+      onClick={onClick}
+    >
+      <span className={cn("text-muted-foreground", complete && "text-emerald-600")}>
+        {complete ? <Check className="size-4" /> : <Circle className="size-4" />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-medium">{label}</span>
+        <span className="block text-[0.6875rem] text-muted-foreground">{complete ? completeLabel : action}</span>
+      </span>
+      {!complete ? icon : null}
+    </button>
   )
 }

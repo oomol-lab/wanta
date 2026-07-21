@@ -1,5 +1,6 @@
 import type { NotificationCapability, NotificationTestResult } from "../../../electron/attention/common.ts"
 import type { AuthAccountSummary } from "../../../electron/auth/common.ts"
+import type { CustomModelSummary } from "../../../electron/models/common.ts"
 import type { CompletionNotificationCondition } from "../../../electron/settings/common.ts"
 import type { UpdateChannel } from "../../../electron/update/common.ts"
 import type { ThemePreference } from "@/components/theme-context"
@@ -10,6 +11,7 @@ import type { UserFacingError } from "@/lib/user-facing-error"
 
 import {
   BellRingIcon,
+  BrainCircuitIcon,
   CheckIcon,
   CopyIcon,
   DownloadIcon,
@@ -19,6 +21,8 @@ import {
   LogInIcon,
   MonitorIcon,
   MoonIcon,
+  PencilIcon,
+  PlusIcon,
   RefreshCwIcon,
   RotateCcwIcon,
   ServerIcon,
@@ -31,6 +35,7 @@ import { branding } from "../../../electron/branding.ts"
 import { notificationPresentation } from "./notification-presentation.ts"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { ErrorNotice } from "@/components/ErrorNotice"
+import { OpenConnectorEndpointFields } from "@/components/OpenConnectorEndpointFields"
 import { PageRouteShell } from "@/components/PageRouteShell"
 import { SectionHeading } from "@/components/SectionHeading"
 import { useTheme } from "@/components/theme-context"
@@ -43,8 +48,15 @@ import { useAppSettings } from "@/hooks/useAppSettings"
 import { useAttention } from "@/hooks/useAttention"
 import { useAuth } from "@/hooks/useAuth"
 import { useI18n } from "@/i18n/i18n"
+import {
+  hasCompleteOpenConnectorEndpoints,
+  inferOpenConnectorDeploymentMode,
+  resolveOpenConnectorConsoleUrl,
+} from "@/lib/openconnector-deployment"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
+import { AddCustomModelDialog } from "@/routes/Chat/AddCustomModelDialog"
+import { useModelCatalog } from "@/routes/Chat/useModelCatalog"
 
 const themeOptions = [
   { value: "light", labelKey: "settings.themeLight", icon: SunIcon },
@@ -86,6 +98,7 @@ export function SettingsRoute({
   const auth = useAuth()
   const appSettings = useAppSettings()
   const attention = useAttention()
+  const models = useModelCatalog()
 
   return (
     <PageRouteShell
@@ -97,7 +110,12 @@ export function SettingsRoute({
       <h1 className="oo-text-page-title">{t("settings.title")}</h1>
 
       <div className="grid gap-5">
-        <SettingsSection title={t("settings.groupLinkRuntime")}>
+        <SettingsSection title={t("settings.groupRuntime")}>
+          <RuntimeProfileSummary
+            authenticated={auth.state?.status === "authenticated"}
+            mode={appSettings.settings.operatingMode}
+          />
+          <ModelSettings connectorsEnabled={auth.state?.status === "authenticated"} models={models} />
           <LinkRuntimeSettings runtime={linkRuntime} />
         </SettingsSection>
 
@@ -149,10 +167,208 @@ export function SettingsRoute({
   )
 }
 
+function RuntimeProfileSummary({
+  authenticated,
+  mode,
+}: {
+  authenticated: boolean
+  mode: "oomol" | "self-managed" | null
+}) {
+  const { t } = useI18n()
+  const resolvedMode = authenticated ? "oomol" : mode
+  return (
+    <SettingsItem
+      title={t("settings.runtimeProfile")}
+      description={t(
+        resolvedMode === "oomol" ? "settings.runtimeProfileOomolDescription" : "settings.runtimeProfileSelfDescription",
+      )}
+    >
+      <span className="oo-text-caption rounded-full border bg-background px-2.5 py-1 font-medium text-foreground">
+        {resolvedMode === "oomol" ? "OOMOL" : t("settings.runtimeProfileSelfManaged")}
+      </span>
+    </SettingsItem>
+  )
+}
+
+function ModelSettings({
+  connectorsEnabled,
+  models,
+}: {
+  connectorsEnabled: boolean
+  models: ReturnType<typeof useModelCatalog>
+}) {
+  const { t } = useI18n()
+  const [editingModel, setEditingModel] = React.useState<CustomModelSummary | undefined>()
+  const catalog = models.catalog
+  const selectedCustomId = catalog?.selected.kind === "custom" ? catalog.selected.id : null
+  const selectedBuiltinId = catalog?.selected.kind === "builtin" ? catalog.selected.id : null
+  const selectedModel =
+    catalog?.selected.kind === "custom"
+      ? catalog.customModels.find((item) => item.id === catalog.selected.id)?.displayName
+      : connectorsEnabled
+        ? catalog?.builtins.find((item) => item.id === catalog.selected.id)?.displayName
+        : undefined
+
+  const openAdd = () => {
+    setEditingModel(undefined)
+    models.openDialog()
+  }
+  const openEdit = (model: CustomModelSummary) => {
+    setEditingModel(model)
+    models.openDialog()
+  }
+  const closeDialog = () => {
+    setEditingModel(undefined)
+    models.closeDialog()
+  }
+
+  return (
+    <section className="grid gap-4 border-b border-[var(--oo-divider)] px-3 py-4 last:border-b-0">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
+            <BrainCircuitIcon className="size-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="oo-text-label text-foreground">{t("settings.modelsTitle")}</h3>
+              <span className="oo-text-caption rounded-full border px-2 py-0.5">{t("settings.required")}</span>
+            </div>
+            <p className="oo-text-caption mt-0.5">
+              {selectedModel
+                ? t("settings.modelsCurrent", { model: selectedModel })
+                : t("settings.modelsNotConfigured")}
+            </p>
+          </div>
+        </div>
+        <Button type="button" size="sm" onClick={openAdd}>
+          <PlusIcon className="size-4" />
+          {t("settings.modelsAdd")}
+        </Button>
+      </div>
+
+      {catalog ? (
+        <div className="grid gap-2">
+          {connectorsEnabled && catalog.builtins.length > 0 ? (
+            <div className="grid gap-1.5">
+              <p className="oo-text-caption-compact font-medium text-muted-foreground">{t("settings.modelsOomol")}</p>
+              {catalog.builtins.map((model) => (
+                <ModelRow
+                  key={model.id}
+                  active={selectedBuiltinId === model.id}
+                  description={model.providerName}
+                  name={model.displayName}
+                  onSelect={() => models.selectModel({ kind: "builtin", id: model.id })}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          <div className="grid gap-1.5">
+            <p className="oo-text-caption-compact font-medium text-muted-foreground">{t("settings.modelsCustom")}</p>
+            {catalog.customModels.length > 0 ? (
+              catalog.customModels.map((model) => (
+                <ModelRow
+                  key={model.id}
+                  active={selectedCustomId === model.id}
+                  description={`${model.providerName} · ${model.modelName}`}
+                  name={model.displayName}
+                  onEdit={() => openEdit(model)}
+                  onDelete={() => {
+                    if (globalThis.confirm(t("settings.modelsDeleteConfirm", { model: model.displayName }))) {
+                      models.deleteModel(model.id)
+                    }
+                  }}
+                  onSelect={() => models.selectModel({ kind: "custom", id: model.id })}
+                />
+              ))
+            ) : (
+              <div className="rounded-lg border border-dashed px-3 py-4 text-center">
+                <p className="oo-text-caption">{t("settings.modelsEmpty")}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {models.catalogError ? <ErrorNotice error={models.catalogError} compact /> : null}
+      {models.selectionError ? <ErrorNotice error={models.selectionError} compact /> : null}
+      <AddCustomModelDialog
+        connectorsEnabled={connectorsEnabled}
+        model={editingModel}
+        open={models.dialogOpen}
+        providers={catalog?.providers ?? []}
+        error={models.dialogError}
+        onClose={closeDialog}
+        onSave={models.saveModel}
+      />
+    </section>
+  )
+}
+
+function ModelRow({
+  active,
+  description,
+  name,
+  onDelete,
+  onEdit,
+  onSelect,
+}: {
+  active: boolean
+  description: string
+  name: string
+  onDelete?: () => void
+  onEdit?: () => void
+  onSelect: () => void
+}) {
+  const { t } = useI18n()
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2",
+        active && "border-primary/40 bg-primary/[0.035]",
+      )}
+    >
+      <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
+        <span className="flex items-center gap-2">
+          <span className={cn("size-2 rounded-full border", active && "border-primary bg-primary")} />
+          <span className="oo-text-label truncate">{name}</span>
+        </span>
+        <span className="oo-text-caption ml-4 block truncate">{description}</span>
+      </button>
+      {onEdit ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          title={t("settings.modelsEdit")}
+          onClick={onEdit}
+        >
+          <PencilIcon className="size-4" />
+        </Button>
+      ) : null}
+      {onDelete ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          title={t("settings.modelsDelete")}
+          onClick={onDelete}
+        >
+          <Trash2Icon className="size-4" />
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
 function LinkRuntimeSettings({ runtime }: { runtime: UseLinkRuntime }) {
   const { t } = useI18n()
   const [baseUrl, setBaseUrl] = React.useState("")
   const [consoleUrl, setConsoleUrl] = React.useState("")
+  const [deploymentMode, setDeploymentMode] = React.useState(() => inferOpenConnectorDeploymentMode(undefined))
   const [runtimeToken, setRuntimeToken] = React.useState("")
   const state = runtime.state
   const saved = state?.openConnector
@@ -160,7 +376,14 @@ function LinkRuntimeSettings({ runtime }: { runtime: UseLinkRuntime }) {
   React.useEffect(() => {
     setBaseUrl(saved?.baseUrl ?? "")
     setConsoleUrl(saved?.consoleUrl ?? "")
+    setDeploymentMode(inferOpenConnectorDeploymentMode(saved))
   }, [saved?.baseUrl, saved?.consoleUrl])
+
+  const endpointConfigurationComplete = hasCompleteOpenConnectorEndpoints(deploymentMode, baseUrl, consoleUrl)
+  const changeDeploymentMode = (nextMode: typeof deploymentMode) => {
+    setDeploymentMode(nextMode)
+    if (nextMode === "local" && consoleUrl.trim() === baseUrl.trim()) setConsoleUrl("")
+  }
 
   const reportFailure = React.useCallback(
     (cause: unknown) => {
@@ -169,15 +392,12 @@ function LinkRuntimeSettings({ runtime }: { runtime: UseLinkRuntime }) {
     },
     [t],
   )
-  const select = (kind: "oomol" | "openconnector") => {
-    void runtime.selectRuntime(kind).catch(reportFailure)
-  }
   const save = () => {
     const token = runtimeToken.trim()
     void runtime
       .saveOpenConnector({
         baseUrl,
-        ...(consoleUrl.trim() ? { consoleUrl } : {}),
+        consoleUrl: resolveOpenConnectorConsoleUrl(deploymentMode, baseUrl, consoleUrl),
         ...(token ? { runtimeToken: token } : {}),
       })
       .then(() => {
@@ -201,39 +421,14 @@ function LinkRuntimeSettings({ runtime }: { runtime: UseLinkRuntime }) {
 
   return (
     <>
-      <SettingsItem title={t("settings.linkRuntimeActive")} description={t("settings.linkRuntimeDescription")}>
-        <div className="grid justify-items-end gap-2 max-[760px]:justify-items-start">
-          <span className="oo-text-caption">
-            {t("settings.linkRuntimeResolved", {
-              runtime:
-                state?.active === "oomol"
-                  ? "OOMOL"
-                  : state?.active === "openconnector"
-                    ? "OpenConnector"
-                    : t("settings.linkRuntimeNone"),
-            })}
-          </span>
-          <div className="flex flex-wrap justify-end gap-2 max-[760px]:justify-start">
-            <Button
-              type="button"
-              size="sm"
-              variant={state?.selected === "oomol" ? "default" : "outline"}
-              disabled={runtime.busy || runtime.loading}
-              onClick={() => select("oomol")}
-            >
-              OOMOL
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={state?.selected === "openconnector" ? "default" : "outline"}
-              disabled={runtime.busy || runtime.loading}
-              onClick={() => select("openconnector")}
-            >
-              OpenConnector
-            </Button>
-          </div>
-        </div>
+      <SettingsItem title={t("settings.connectionsTitle")} description={t("settings.connectionsDescription")}>
+        <span className="oo-text-caption rounded-full border px-2.5 py-1">
+          {state?.active === "oomol"
+            ? "OOMOL"
+            : state?.active === "openconnector"
+              ? "OpenConnector"
+              : t("settings.connectionsModelOnly")}
+        </span>
       </SettingsItem>
 
       <section className="grid gap-4 border-b border-[var(--oo-divider)] px-3 py-4 last:border-b-0">
@@ -241,7 +436,12 @@ function LinkRuntimeSettings({ runtime }: { runtime: UseLinkRuntime }) {
           <div className="flex items-center gap-2">
             <ServerIcon className="size-4 text-muted-foreground" />
             <div>
-              <h3 className="oo-text-label text-foreground">{t("settings.openConnectorTitle")}</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="oo-text-label text-foreground">{t("settings.openConnectorTitle")}</h3>
+                <span className="oo-text-caption-compact rounded-full border px-2 py-0.5">
+                  {t("settings.optional")}
+                </span>
+              </div>
               <p className="oo-text-caption">
                 {t(
                   runtime.loading || runtime.busy
@@ -252,34 +452,25 @@ function LinkRuntimeSettings({ runtime }: { runtime: UseLinkRuntime }) {
             </div>
           </div>
           <span className="oo-text-caption rounded-full border px-2 py-0.5">
-            {state?.active === "openconnector"
-              ? t("settings.linkRuntimeInUse")
-              : state?.selected === "openconnector"
-                ? t("settings.linkRuntimeUnavailable")
-                : t("settings.linkRuntimeNotSelected")}
+            {!saved
+              ? t("settings.openConnectorNotConfigured")
+              : state?.active === "openconnector"
+                ? t("settings.linkRuntimeInUse")
+                : state?.selected === "openconnector"
+                  ? t("settings.linkRuntimeUnavailable")
+                  : t("settings.linkRuntimeNotSelected")}
           </span>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="grid gap-1.5">
-            <span className="oo-text-label">{t("settings.openConnectorBaseUrl")}</span>
-            <Input
-              value={baseUrl}
-              placeholder="http://127.0.0.1:3000"
-              disabled={runtime.busy}
-              onChange={(event) => setBaseUrl(event.target.value)}
-            />
-          </label>
-          <label className="grid gap-1.5">
-            <span className="oo-text-label">{t("settings.openConnectorConsoleUrl")}</span>
-            <Input
-              value={consoleUrl}
-              placeholder={baseUrl || "http://127.0.0.1:5173"}
-              disabled={runtime.busy}
-              onChange={(event) => setConsoleUrl(event.target.value)}
-            />
-          </label>
-        </div>
+        <OpenConnectorEndpointFields
+          baseUrl={baseUrl}
+          consoleUrl={consoleUrl}
+          disabled={runtime.busy}
+          mode={deploymentMode}
+          onBaseUrlChange={setBaseUrl}
+          onConsoleUrlChange={setConsoleUrl}
+          onModeChange={changeDeploymentMode}
+        />
 
         <label className="grid gap-1.5">
           <span className="oo-text-label flex items-center gap-1.5">
@@ -304,7 +495,13 @@ function LinkRuntimeSettings({ runtime }: { runtime: UseLinkRuntime }) {
           <Button type="button" size="sm" disabled={runtime.busy || !baseUrl.trim()} onClick={test}>
             {t("settings.openConnectorTest")}
           </Button>
-          <Button type="button" size="sm" variant="outline" disabled={runtime.busy || !baseUrl.trim()} onClick={save}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={runtime.busy || !endpointConfigurationComplete}
+            onClick={save}
+          >
             {t("common.save")}
           </Button>
           <Button

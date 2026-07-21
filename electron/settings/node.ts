@@ -1,5 +1,11 @@
 import type { WindowsTitleBarTheme } from "../window/title-bar-overlay.ts"
-import type { AppSettings, CompletionNotificationCondition, SettingsService, ThemeSource } from "./common.ts"
+import type {
+  AppSettings,
+  CompletionNotificationCondition,
+  OperatingMode,
+  SettingsService,
+  ThemeSource,
+} from "./common.ts"
 import type { SettingsStore } from "./store.ts"
 import type { IConnectionService } from "@oomol/connection"
 
@@ -59,6 +65,14 @@ export class SettingsServiceImpl
         persisted.notificationSoundEnabled,
         DEFAULT_APP_SETTINGS.notificationSoundEnabled,
       ),
+      operatingMode:
+        persisted.operatingMode === "oomol" || persisted.operatingMode === "self-managed"
+          ? persisted.operatingMode
+          : DEFAULT_APP_SETTINGS.operatingMode,
+      selfManagedSetupDismissed: booleanSetting(
+        persisted.selfManagedSetupDismissed,
+        DEFAULT_APP_SETTINGS.selfManagedSetupDismissed,
+      ),
       themeSource,
       unreadBadgeEnabled: booleanSetting(persisted.unreadBadgeEnabled, DEFAULT_APP_SETTINGS.unreadBadgeEnabled),
     }
@@ -100,6 +114,21 @@ export class SettingsServiceImpl
 
   public setNotificationSoundEnabled(enabled: boolean): Promise<void> {
     this.deps.store.write({ ...this.deps.store.read(), notificationSoundEnabled: enabled })
+    this.settingsChanged()
+    return Promise.resolve()
+  }
+
+  public setOperatingMode(mode: OperatingMode): Promise<void> {
+    if (mode !== "oomol" && mode !== "self-managed") {
+      return Promise.reject(new Error("Unsupported operating mode."))
+    }
+    this.deps.store.write({ ...this.deps.store.read(), operatingMode: mode })
+    this.settingsChanged()
+    return Promise.resolve()
+  }
+
+  public setSelfManagedSetupDismissed(dismissed: boolean): Promise<void> {
+    this.deps.store.write({ ...this.deps.store.read(), selfManagedSetupDismissed: dismissed })
     this.settingsChanged()
     return Promise.resolve()
   }

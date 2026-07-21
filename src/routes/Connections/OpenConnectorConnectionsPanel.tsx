@@ -2,13 +2,19 @@ import type { OpenConnectorAppSummary } from "../../../electron/link-runtime/com
 import type { UseLinkRuntime } from "@/hooks/useLinkRuntime"
 import type { MessageKey } from "@/i18n/i18n"
 
-import { ExternalLinkIcon, RefreshCwIcon, ServerIcon } from "lucide-react"
+import { ExternalLinkIcon, RefreshCwIcon, ServerIcon, SettingsIcon } from "lucide-react"
 import * as React from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useAppI18n } from "@/i18n"
 
-export function OpenConnectorConnectionsPanel({ runtime }: { runtime: UseLinkRuntime }) {
+export function OpenConnectorConnectionsPanel({
+  onOpenSettings,
+  runtime,
+}: {
+  onOpenSettings: () => void
+  runtime: UseLinkRuntime
+}) {
   const { t } = useAppI18n()
   const [apps, setApps] = React.useState<OpenConnectorAppSummary[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -55,6 +61,10 @@ export function OpenConnectorConnectionsPanel({ runtime }: { runtime: UseLinkRun
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={onOpenSettings}>
+                <SettingsIcon className="size-4" />
+                {t("connections.selfHosted.openSettings")}
+              </Button>
               <Button type="button" size="sm" variant="outline" disabled={loading} onClick={() => void refresh()}>
                 <RefreshCwIcon className={loading ? "size-4 animate-spin" : "size-4"} />
                 {t("connections.openConnector.refresh")}

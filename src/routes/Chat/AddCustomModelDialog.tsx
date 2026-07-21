@@ -2,6 +2,7 @@ import type { WantaReasoningVariant } from "../../../electron/agent/reasoning.ts
 import type {
   CustomModelApiPlan,
   CustomModelProvider,
+  CustomModelSummary,
   SaveCustomModelRequest,
 } from "../../../electron/models/common.ts"
 import type { UserFacingError } from "@/lib/user-facing-error"
@@ -138,6 +139,7 @@ const modelDialogControlClass = "h-[var(--oo-control-height)] w-full px-2.5 text
 
 export function AddCustomModelDialog({
   connectorsEnabled = true,
+  model,
   open,
   providers,
   error,
@@ -145,6 +147,7 @@ export function AddCustomModelDialog({
   onSave,
 }: {
   connectorsEnabled?: boolean
+  model?: CustomModelSummary
   open: boolean
   providers: CustomModelProvider[]
   error: UserFacingError | null
@@ -187,22 +190,22 @@ export function AddCustomModelDialog({
       return
     }
 
-    const initial = providers[0]
-    setProviderId(initial?.id ?? "custom")
-    setBaseUrl(providerBaseUrl(initial))
-    const initialModelName = providerDefaultModelName(initial)
+    const initial = model ? providers.find((item) => item.id === model.providerId) : providers[0]
+    setProviderId(model?.providerId ?? initial?.id ?? "custom")
+    setBaseUrl(model?.baseUrl ?? providerBaseUrl(initial))
+    const initialModelName = model?.modelName ?? providerDefaultModelName(initial)
     setModelName(initialModelName)
     setApiPlanId(providerDefaultApiPlanId(initial))
     setApiRegionId(endpointDefaultApiRegionId(providerEndpoint(initial)))
-    setSupportsImages(providerDefaultSupportsImages(initial, initialModelName))
-    setSupportsToolCalls(providerDefaultSupportsToolCalls(initial, initialModelName))
-    setContextWindow(providerDefaultContextWindow(initial, initialModelName))
-    setInputTokenLimit(providerDefaultInputTokenLimit(initial, initialModelName))
-    setMaxOutputTokens(providerDefaultMaxOutputTokens(initial, initialModelName))
-    setReasoningVariants(providerDefaultReasoningVariants(initial, initialModelName))
+    setSupportsImages(model?.supportsImages ?? providerDefaultSupportsImages(initial, initialModelName))
+    setSupportsToolCalls(model?.supportsToolCalls ?? providerDefaultSupportsToolCalls(initial, initialModelName))
+    setContextWindow(String(model?.contextWindow ?? providerDefaultContextWindow(initial, initialModelName)))
+    setInputTokenLimit(String(model?.inputTokenLimit ?? providerDefaultInputTokenLimit(initial, initialModelName)))
+    setMaxOutputTokens(String(model?.maxOutputTokens ?? providerDefaultMaxOutputTokens(initial, initialModelName)))
+    setReasoningVariants([...(model?.reasoningVariants ?? providerDefaultReasoningVariants(initial, initialModelName))])
     setApiKey("")
     setSaving(false)
-  }, [open, providers])
+  }, [model, open, providers])
 
   const handleProviderChange = (nextId: string): void => {
     const next = providers.find((item) => item.id === nextId)
@@ -255,7 +258,10 @@ export function AddCustomModelDialog({
   }
 
   const canSave = Boolean(
-    providerId && apiKey.trim() && modelName.trim() && (!(provider?.requiresBaseUrl ?? true) || baseUrl.trim()),
+    providerId &&
+    (apiKey.trim() || model?.apiKeyConfigured) &&
+    modelName.trim() &&
+    (!(provider?.requiresBaseUrl ?? true) || baseUrl.trim()),
   )
   const toggleReasoningVariant = (variant: WantaReasoningVariant, checked: boolean): void => {
     setReasoningVariants((current) =>
@@ -267,8 +273,8 @@ export function AddCustomModelDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title={t("chat.modelAddTitle")}
-      description={t("chat.modelAddDescription")}
+      title={t(model ? "chat.modelEditTitle" : "chat.modelAddTitle")}
+      description={t(model ? "chat.modelEditDescription" : "chat.modelAddDescription")}
       closeLabel={t("common.cancel")}
       footer={
         <>
@@ -281,6 +287,7 @@ export function AddCustomModelDialog({
             onClick={() => {
               setSaving(true)
               void onSave({
+                ...(model ? { id: model.id } : {}),
                 providerId,
                 providerName: providerDisplayName(provider, t),
                 baseUrl,
@@ -391,7 +398,7 @@ export function AddCustomModelDialog({
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
             type="password"
-            placeholder="sk-..."
+            placeholder={model?.apiKeyConfigured ? t("chat.modelApiKeyConfigured") : "sk-..."}
             autoComplete="off"
             className={modelDialogControlClass}
           />

@@ -81,6 +81,11 @@ interface ChatAreaProps {
   teamSkillPendingInstallCount?: number
   teamSkillShowcaseItems?: TeamSkillShowcaseItem[]
   teamSkills?: ChatTeamSkillContext[]
+  selfManagedSetup?: {
+    openConnectorConfigured: boolean
+    onConfigureOpenConnector: () => void
+    onDismiss: () => void
+  }
   onSend: (request: ChatSendRequest) => Promise<ChatSendResult>
   onPermissionModeChange: (mode: AgentPermissionMode) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
@@ -102,7 +107,6 @@ interface ChatAreaProps {
   onOpenConnections?: (filter?: ConnectionCatalogFilter) => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onOpenKnowledgeLibrary?: () => void
-  onLogin?: () => void
   onOpenTeams?: () => void
   onViewBilling?: () => void
   onSelectKnowledgeBase: (id: string) => void
@@ -123,7 +127,6 @@ function EmptyStateActions({
   teamSkillShowcaseItems = [],
   onOpenConnections,
   onOpenTeams,
-  onLogin,
 }: {
   teamSkillEntryVisible?: boolean
   teamSkillPendingInstallCount?: number
@@ -132,23 +135,9 @@ function EmptyStateActions({
   connectionSummary?: EmptyStateConnectionSummary | null
   onOpenConnections?: (filter?: ConnectionCatalogFilter) => void
   onOpenTeams?: () => void
-  onLogin?: () => void
 }) {
   const t = useT()
-  if (!onOpenConnections) {
-    return onLogin ? (
-      <div className="w-full pl-2 text-muted-foreground">
-        <EmptyCapabilityAction
-          icon={<PlugZap className="size-4" />}
-          title={t("chat.emptyCloudTitle")}
-          meta={t("chat.emptyCloudMeta")}
-          actionLabel={t("chat.emptyCloudAction")}
-          ariaLabel={t("chat.emptyCloudAria")}
-          onClick={onLogin}
-        />
-      </div>
-    ) : null
-  }
+  if (!onOpenConnections) return null
   const currentTools = resolveCurrentToolsPresentation(connectionSummary)
   const pendingTeamSkillCount = teamSkillPendingInstallCount ?? teamSkillShowcaseItems.length
   const teamSkillMeta =
@@ -299,6 +288,7 @@ export const ChatArea = React.memo(function ChatArea({
   contextBar,
   pinnedContextBar,
   teamSkills,
+  selfManagedSetup,
   onComposerStateChange,
   onSend,
   onPermissionModeChange,
@@ -320,7 +310,6 @@ export const ChatArea = React.memo(function ChatArea({
   onOpenConnections,
   onOpenConnectionProvider,
   onOpenKnowledgeLibrary,
-  onLogin,
   onOpenTeams,
   onViewBilling,
   onSelectKnowledgeBase,
@@ -388,6 +377,7 @@ export const ChatArea = React.memo(function ChatArea({
       onPermissionModeFullAccess={requestFullAccess}
       onOpenConnectionProvider={onOpenConnectionProvider}
       onOpenKnowledgeLibrary={onOpenKnowledgeLibrary}
+      selfManagedSetup={selfManagedSetup}
       onSelectKnowledgeBase={onSelectKnowledgeBase}
       onStop={onStop}
       onViewBilling={onViewBilling}
@@ -434,7 +424,6 @@ export const ChatArea = React.memo(function ChatArea({
             teamSkillShowcaseItems={teamSkillShowcaseItems}
             onOpenConnections={onOpenConnections}
             onOpenTeams={onOpenTeams}
-            onLogin={onLogin}
           />
         </div>
       </div>

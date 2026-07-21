@@ -15,6 +15,20 @@ test("SettingsStore round-trips persisted settings", () => {
   assert.equal(store.read().themeSource, "light")
 })
 
+test("SettingsStore round-trips the selected operating mode", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-settings-"))
+  const store = new SettingsStore(dir)
+  store.write({ operatingMode: "self-managed" })
+  assert.equal(store.read().operatingMode, "self-managed")
+})
+
+test("SettingsStore persists dismissal of the optional self-managed setup reminder", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-settings-"))
+  const store = new SettingsStore(dir)
+  store.write({ operatingMode: "self-managed", selfManagedSetupDismissed: true })
+  assert.deepEqual(store.read(), { operatingMode: "self-managed", selfManagedSetupDismissed: true })
+})
+
 test("SettingsStore round-trips update channel and Beta features without leaving a tmp file", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wanta-settings-"))
   const store = new SettingsStore(dir)

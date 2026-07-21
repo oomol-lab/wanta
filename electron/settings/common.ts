@@ -4,12 +4,15 @@ import { serviceName } from "../branding.ts"
 
 export type ThemeSource = "system" | "light" | "dark"
 export type CompletionNotificationCondition = "never" | "background" | "always"
+export type OperatingMode = "oomol" | "self-managed"
 
 export interface AppSettings {
   completionNotificationCondition: CompletionNotificationCondition
   themeSource: ThemeSource
   knowledgeBaseBetaEnabled: boolean
   notificationSoundEnabled: boolean
+  operatingMode: OperatingMode | null
+  selfManagedSetupDismissed: boolean
   unreadBadgeEnabled: boolean
 }
 
@@ -18,6 +21,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   completionNotificationCondition: "background",
   knowledgeBaseBetaEnabled: false,
   notificationSoundEnabled: true,
+  operatingMode: null,
+  selfManagedSetupDismissed: false,
   themeSource: "system",
   unreadBadgeEnabled: true,
 }
@@ -34,6 +39,8 @@ export const SettingsService = serviceName("settings-service") as ServiceName<{
     setKnowledgeBaseBetaEnabled(enabled: boolean): Promise<void>
     setCompletionNotificationCondition(condition: CompletionNotificationCondition): Promise<void>
     setNotificationSoundEnabled(enabled: boolean): Promise<void>
+    setOperatingMode(mode: OperatingMode): Promise<void>
+    setSelfManagedSetupDismissed(dismissed: boolean): Promise<void>
     setUnreadBadgeEnabled(enabled: boolean): Promise<void>
   }
 }>

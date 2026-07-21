@@ -1,4 +1,4 @@
-import type { AppSettings, CompletionNotificationCondition } from "../../electron/settings/common.ts"
+import type { AppSettings, CompletionNotificationCondition, OperatingMode } from "../../electron/settings/common.ts"
 
 import * as React from "react"
 import { DEFAULT_APP_SETTINGS } from "../../electron/settings/common.ts"
@@ -11,6 +11,8 @@ export function useAppSettings(): {
   setCompletionNotificationCondition: (condition: CompletionNotificationCondition) => Promise<void>
   setKnowledgeBaseBetaEnabled: (enabled: boolean) => Promise<void>
   setNotificationSoundEnabled: (enabled: boolean) => Promise<void>
+  setOperatingMode: (mode: OperatingMode) => Promise<void>
+  setSelfManagedSetupDismissed: (dismissed: boolean) => Promise<void>
   setUnreadBadgeEnabled: (enabled: boolean) => Promise<void>
 } {
   const service = useSettingsService()
@@ -71,12 +73,30 @@ export function useAppSettings(): {
     [service],
   )
 
+  const setOperatingMode = React.useCallback(
+    async (mode: OperatingMode) => {
+      await service.invoke("setOperatingMode", mode)
+      setSettings((current) => ({ ...current, operatingMode: mode }))
+    },
+    [service],
+  )
+
+  const setSelfManagedSetupDismissed = React.useCallback(
+    async (dismissed: boolean) => {
+      await service.invoke("setSelfManagedSetupDismissed", dismissed)
+      setSettings((current) => ({ ...current, selfManagedSetupDismissed: dismissed }))
+    },
+    [service],
+  )
+
   return {
     settings,
     loading,
     setCompletionNotificationCondition,
     setKnowledgeBaseBetaEnabled,
     setNotificationSoundEnabled,
+    setOperatingMode,
+    setSelfManagedSetupDismissed,
     setUnreadBadgeEnabled,
   }
 }

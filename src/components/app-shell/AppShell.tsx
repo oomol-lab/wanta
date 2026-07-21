@@ -1858,7 +1858,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             <React.Suspense fallback={<RouteLoadingFallback />}>
               {route === "connections" ? (
                 linkRuntime.state?.active === "openconnector" ? (
-                  <OpenConnectorConnectionsPanel runtime={linkRuntime} />
+                  <OpenConnectorConnectionsPanel runtime={linkRuntime} onOpenSettings={handleOpenSettingsCommand} />
                 ) : oomolLinkActive ? (
                   <div className="h-full min-h-0 p-0">
                     <ConnectionsPanel
@@ -1939,6 +1939,24 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       teamSkillShowcaseItems={oomolEnabled ? teamSkillShowcaseItems : []}
                       teamSkillPendingInstallCount={oomolEnabled ? recommendedSkillPendingInstallCount : 0}
                       teamSkills={oomolEnabled ? teamSkills.chatContextSkills : []}
+                      selfManagedSetup={
+                        appSettings.settings.operatingMode === "self-managed" &&
+                        !appSettings.settings.selfManagedSetupDismissed
+                          ? {
+                              openConnectorConfigured: Boolean(linkRuntime.state?.openConnector),
+                              onConfigureOpenConnector: handleOpenSettingsCommand,
+                              onDismiss: () => {
+                                void appSettings.setSelfManagedSetupDismissed(true).catch((error: unknown) => {
+                                  reportRendererHandledError(
+                                    "settings",
+                                    "dismiss self-managed setup reminder failed",
+                                    error,
+                                  )
+                                })
+                              },
+                            }
+                          : undefined
+                      }
                       providers={oomolLinkActive ? activeProviders : []}
                       queueHeld={activeQueueHeld}
                       queuedMessages={activeQueuedMessages}
@@ -1954,7 +1972,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                               : t("chat.agentStarting")
                       }
                       onComposerStateChange={handleComposerStateChange}
-                      onLogin={!authenticated ? () => void auth.login() : undefined}
                       onSend={handleSend}
                       onAnswerQuestion={handleAnswerQuestion}
                       onAnswerPermission={handleAnswerPermission}

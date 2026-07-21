@@ -155,6 +155,108 @@ function WorkspaceMenuContent({
   )
 }
 
+function AccountMenuContent({
+  authenticated,
+  avatarUrl,
+  cloudEnabled,
+  displayName,
+  loggingIn,
+  loggingOut,
+  onClose,
+  onLogin,
+  onLogout,
+  onNavigate,
+}: {
+  authenticated: boolean
+  avatarUrl?: string
+  cloudEnabled: boolean
+  displayName: string
+  loggingIn: boolean
+  loggingOut: boolean
+  onClose: () => void
+  onLogin: () => void
+  onLogout: () => void
+  onNavigate: (route: AppShellRoute) => void
+}) {
+  const t = useT()
+  return (
+    <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-56">
+      <DropdownMenuLabel>
+        <div className="flex min-w-0 items-center gap-2">
+          <AccountAvatar name={displayName} avatarUrl={avatarUrl} />
+          <span className="truncate">{displayName}</span>
+        </div>
+      </DropdownMenuLabel>
+      <DropdownMenuSeparator />
+      {cloudEnabled ? (
+        <DropdownMenuItem
+          onSelect={() => {
+            onClose()
+            onNavigate("connections")
+          }}
+        >
+          <Plug className="size-4" />
+          {t("connections.title")}
+        </DropdownMenuItem>
+      ) : null}
+      {cloudEnabled ? (
+        <DropdownMenuItem
+          onSelect={() => {
+            onClose()
+            onNavigate("skills")
+          }}
+        >
+          <Package className="size-4" />
+          {t("skills.title")}
+        </DropdownMenuItem>
+      ) : null}
+      <DropdownMenuItem
+        onSelect={() => {
+          onClose()
+          onNavigate("archived")
+        }}
+      >
+        <Archive className="size-4" />
+        {t("archived.navTitle")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onSelect={() => {
+          onClose()
+          onNavigate("settings")
+        }}
+      >
+        <Settings className="size-4" />
+        {t("settings.title")}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      {authenticated ? (
+        <DropdownMenuItem
+          disabled={loggingOut}
+          variant="destructive"
+          onSelect={() => {
+            onClose()
+            onLogout()
+          }}
+        >
+          <LogOut className="size-4" />
+          {t("settings.logout")}
+        </DropdownMenuItem>
+      ) : (
+        <DropdownMenuItem
+          disabled={loggingIn}
+          onSelect={() => {
+            onClose()
+            onLogin()
+          }}
+        >
+          <LogIn className="size-4" />
+          {loggingIn ? t("login.waiting") : t("login.button")}
+        </DropdownMenuItem>
+      )}
+    </DropdownMenuContent>
+  )
+}
+
 export function SidebarFooterControls({
   accountName,
   authenticated,
@@ -217,159 +319,114 @@ export function SidebarFooterControls({
     },
     [workspace],
   )
+  const handleAccountMenuOpenChange = React.useCallback((open: boolean) => {
+    setAccountMenuOpen(open)
+    if (open) setWorkspaceMenuOpen(false)
+  }, [])
+  const accountMenuContent = (
+    <AccountMenuContent
+      authenticated={authenticated}
+      avatarUrl={avatarUrl}
+      cloudEnabled={cloudEnabled}
+      displayName={displayName}
+      loggingIn={loggingIn}
+      loggingOut={loggingOut}
+      onClose={closeMenus}
+      onLogin={onLogin}
+      onLogout={onLogout}
+      onNavigate={onNavigate}
+    />
+  )
 
   return (
     <div className="oo-sidebar-account relative -mx-3 flex h-12 shrink-0 items-center gap-1 px-3 [-webkit-app-region:no-drag]">
       {cloudEnabled ? (
-        <DropdownMenu open={workspaceMenuOpen} onOpenChange={handleWorkspaceMenuOpenChange}>
+        <>
+          <DropdownMenu open={workspaceMenuOpen} onOpenChange={handleWorkspaceMenuOpenChange}>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left disabled:cursor-default disabled:opacity-80"
+                aria-busy={workspaceSwitching}
+                aria-label={workspaceSwitching ? t("sidebar.switchingAccount") : t("teams.workspaceSwitcher")}
+                aria-expanded={workspaceMenuOpen}
+                disabled={workspaceSwitching}
+                title={workspaceButtonTitle}
+              >
+                <WorkspaceAvatar className="size-7" workspace={workspace.activeWorkspace} />
+                <div className="oo-sidebar-nav-label min-w-0 flex-1">
+                  <div className="oo-text-body truncate text-sidebar-foreground" title={activeWorkspaceLabel}>
+                    {activeWorkspaceLabel}
+                  </div>
+                </div>
+                {workspaceSwitching ? (
+                  <LoaderCircle className="oo-sidebar-nav-label size-4 shrink-0 animate-spin text-muted-foreground" />
+                ) : (
+                  <ChevronsUpDown className="oo-sidebar-nav-label size-4 shrink-0 text-muted-foreground" />
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <WorkspaceMenuContent
+              error={workspace.error}
+              getTeamCanManage={workspace.getTeamCanManage}
+              getTeamRole={workspace.getTeamRole}
+              hasLoaded={workspace.hasLoaded}
+              loading={workspace.loading}
+              teams={workspace.teams}
+              workspace={workspace.activeWorkspace}
+              onManageTeams={() => {
+                closeMenus()
+                onNavigate("teams")
+              }}
+              onRefresh={() => void workspace.refresh({ forceRefresh: true })}
+              onSelectTeam={(teamId) => {
+                closeMenus()
+                onWorkspaceSwitchStart(`team:${teamId}`)
+                workspace.selectTeam(teamId)
+              }}
+            />
+          </DropdownMenu>
+
+          <DropdownMenu open={accountMenuOpen} onOpenChange={handleAccountMenuOpenChange}>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "oo-sidebar-nav-item flex size-10 shrink-0 items-center justify-center rounded-md",
+                  (accountMenuOpen || activeRoute === "settings" || activeRoute === "archived") &&
+                    "bg-sidebar-accent text-sidebar-accent-foreground",
+                )}
+                aria-label={t("sidebar.accountMenu")}
+                title={t("settings.title")}
+              >
+                <Settings className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            {accountMenuContent}
+          </DropdownMenu>
+        </>
+      ) : (
+        <DropdownMenu open={accountMenuOpen} onOpenChange={handleAccountMenuOpenChange}>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left disabled:cursor-default disabled:opacity-80"
-              aria-busy={workspaceSwitching}
-              aria-label={workspaceSwitching ? t("sidebar.switchingAccount") : t("teams.workspaceSwitcher")}
-              aria-expanded={workspaceMenuOpen}
-              disabled={workspaceSwitching}
-              title={workspaceButtonTitle}
+              className="oo-sidebar-local-menu-trigger oo-sidebar-nav-item mx-1 mb-1 flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left"
+              aria-label={t("sidebar.localWorkspaceMenu")}
+              aria-expanded={accountMenuOpen}
+              title={t("sidebar.localWorkspaceMenu")}
             >
               <WorkspaceAvatar className="size-7" workspace={workspace.activeWorkspace} />
-              <div className="oo-sidebar-nav-label min-w-0 flex-1">
-                <div className="oo-text-body truncate text-sidebar-foreground" title={activeWorkspaceLabel}>
-                  {activeWorkspaceLabel}
-                </div>
-              </div>
-              {workspaceSwitching ? (
-                <LoaderCircle className="oo-sidebar-nav-label size-4 shrink-0 animate-spin text-muted-foreground" />
-              ) : (
-                <ChevronsUpDown className="oo-sidebar-nav-label size-4 shrink-0 text-muted-foreground" />
-              )}
+              <span className="oo-sidebar-nav-label oo-text-body min-w-0 flex-1 truncate text-sidebar-foreground">
+                {activeWorkspaceLabel}
+              </span>
+              <span className="oo-sidebar-local-menu-indicator oo-sidebar-nav-label grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground">
+                <Settings className="size-4" aria-hidden="true" />
+              </span>
             </button>
           </DropdownMenuTrigger>
-          <WorkspaceMenuContent
-            error={workspace.error}
-            getTeamCanManage={workspace.getTeamCanManage}
-            getTeamRole={workspace.getTeamRole}
-            hasLoaded={workspace.hasLoaded}
-            loading={workspace.loading}
-            teams={workspace.teams}
-            workspace={workspace.activeWorkspace}
-            onManageTeams={() => {
-              closeMenus()
-              onNavigate("teams")
-            }}
-            onRefresh={() => void workspace.refresh({ forceRefresh: true })}
-            onSelectTeam={(teamId) => {
-              closeMenus()
-              onWorkspaceSwitchStart(`team:${teamId}`)
-              workspace.selectTeam(teamId)
-            }}
-          />
+          {accountMenuContent}
         </DropdownMenu>
-      ) : (
-        <div className="flex h-10 min-w-0 flex-1 items-center gap-2 px-1.5">
-          <WorkspaceAvatar className="size-7" workspace={workspace.activeWorkspace} />
-          <span className="oo-sidebar-nav-label oo-text-body truncate text-sidebar-foreground">
-            {activeWorkspaceLabel}
-          </span>
-        </div>
       )}
-
-      <DropdownMenu
-        open={accountMenuOpen}
-        onOpenChange={(open) => {
-          setAccountMenuOpen(open)
-          if (open) setWorkspaceMenuOpen(false)
-        }}
-      >
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              "oo-sidebar-nav-item flex size-10 shrink-0 items-center justify-center rounded-md",
-              (activeRoute === "settings" || activeRoute === "archived") &&
-                "bg-sidebar-accent text-sidebar-accent-foreground",
-            )}
-            aria-label={t("sidebar.accountMenu")}
-            title={t("settings.title")}
-          >
-            <Settings className="size-4" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-56">
-          <DropdownMenuLabel>
-            <div className="flex min-w-0 items-center gap-2">
-              <AccountAvatar name={displayName} avatarUrl={avatarUrl} />
-              <span className="truncate">{displayName}</span>
-            </div>
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {cloudEnabled ? (
-            <DropdownMenuItem
-              onSelect={() => {
-                closeMenus()
-                onNavigate("connections")
-              }}
-            >
-              <Plug className="size-4" />
-              {t("connections.title")}
-            </DropdownMenuItem>
-          ) : null}
-          {cloudEnabled ? (
-            <DropdownMenuItem
-              onSelect={() => {
-                closeMenus()
-                onNavigate("skills")
-              }}
-            >
-              <Package className="size-4" />
-              {t("skills.title")}
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuItem
-            onSelect={() => {
-              closeMenus()
-              onNavigate("archived")
-            }}
-          >
-            <Archive className="size-4" />
-            {t("archived.navTitle")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() => {
-              closeMenus()
-              onNavigate("settings")
-            }}
-          >
-            <Settings className="size-4" />
-            {t("settings.title")}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {authenticated ? (
-            <DropdownMenuItem
-              disabled={loggingOut}
-              variant="destructive"
-              onSelect={() => {
-                closeMenus()
-                onLogout()
-              }}
-            >
-              <LogOut className="size-4" />
-              {t("settings.logout")}
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem
-              disabled={loggingIn}
-              onSelect={() => {
-                closeMenus()
-                onLogin()
-              }}
-            >
-              <LogIn className="size-4" />
-              {loggingIn ? t("login.waiting") : t("login.button")}
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
   )
 }

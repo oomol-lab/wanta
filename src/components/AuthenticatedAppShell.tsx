@@ -3,7 +3,13 @@ import type { UseAuth } from "@/hooks/useAuth"
 import * as React from "react"
 import { AppShell } from "@/components/app-shell/AppShell"
 import { AppDataProvider } from "@/components/AppDataProvider"
-import { legacyOperatingMode, operatingModeGateLoading, operatingProfileTarget } from "@/components/operating-profile"
+import {
+  initialSetupRequired,
+  legacyOperatingMode,
+  operatingModeAfterSignOut,
+  operatingModeGateLoading,
+  operatingProfileTarget,
+} from "@/components/operating-profile"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAppSettings } from "@/hooks/useAppSettings"
@@ -30,6 +36,7 @@ function OperatingModeGate({ auth }: { auth: UseAuth }) {
   const [completing, setCompleting] = React.useState(false)
   const migrationStarted = React.useRef(false)
   const profileSyncStarted = React.useRef(false)
+  const signedOutProfileResetStarted = React.useRef(false)
   const authenticated = auth.state?.status === "authenticated"
   const operatingMode = settings.settings.operatingMode
   const hasCustomModel = Boolean(models.catalog?.customModels.length)
@@ -48,6 +55,21 @@ function OperatingModeGate({ auth }: { auth: UseAuth }) {
       reportRendererHandledError("settings", "operating mode migration failed", error)
     })
   }, [authenticated, hasCustomModel, linkRuntime.loading, linkRuntime.state, models.catalog, operatingMode, settings])
+
+  React.useEffect(() => {
+    const signedOutMode = operatingModeAfterSignOut(operatingMode)
+    if (settings.loading || authenticated || signedOutMode === null || signedOutMode === operatingMode) {
+      signedOutProfileResetStarted.current = false
+      return
+    }
+    if (signedOutProfileResetStarted.current) return
+
+    signedOutProfileResetStarted.current = true
+    void settings.setOperatingMode(signedOutMode).catch((error: unknown) => {
+      signedOutProfileResetStarted.current = false
+      reportRendererHandledError("settings", "signed-out operating profile reset failed", error)
+    })
+  }, [authenticated, operatingMode, settings])
 
   React.useEffect(() => {
     const target = operatingProfileTarget(authenticated, operatingMode)
@@ -96,7 +118,7 @@ function OperatingModeGate({ auth }: { auth: UseAuth }) {
     return <div className="h-full bg-background" />
   }
 
-  if (!operatingMode) {
+  if (initialSetupRequired(authenticated, operatingMode)) {
     return (
       <InitialSetupRoute
         auth={auth}

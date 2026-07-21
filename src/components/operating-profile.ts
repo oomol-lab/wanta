@@ -25,17 +25,25 @@ export function operatingModeGateLoading({
     settingsLoading ||
     linkRuntimeLoading ||
     (!modelCatalogAvailable && !modelCatalogFailed) ||
-    (authenticated && !operatingMode)
+    (authenticated && (operatingMode === null || operatingMode === "unselected"))
   )
+}
+
+export function initialSetupRequired(authenticated: boolean, operatingMode: OperatingMode | null): boolean {
+  return !authenticated && operatingMode !== "self-managed"
+}
+
+export function operatingModeAfterSignOut(operatingMode: OperatingMode | null): OperatingMode | null {
+  return operatingMode === "oomol" ? "unselected" : operatingMode
 }
 
 export function operatingProfileTarget(
   authenticated: boolean,
   operatingMode: OperatingMode | null,
 ): OperatingProfileTarget | null {
-  const mode = authenticated ? "oomol" : operatingMode
-  if (!mode) return null
-  return { linkRuntime: mode === "oomol" ? "oomol" : "openconnector", mode }
+  if (authenticated) return { linkRuntime: "oomol", mode: "oomol" }
+  if (operatingMode !== "self-managed") return null
+  return { linkRuntime: "openconnector", mode: "self-managed" }
 }
 
 export function legacyOperatingMode({

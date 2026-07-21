@@ -1943,7 +1943,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                         appSettings.settings.operatingMode === "self-managed" &&
                         !appSettings.settings.selfManagedSetupDismissed
                           ? {
-                              openConnectorConfigured: Boolean(linkRuntime.state?.openConnector),
                               onConfigureOpenConnector: handleOpenSettingsCommand,
                               onDismiss: () => {
                                 void appSettings.setSelfManagedSetupDismissed(true).catch((error: unknown) => {

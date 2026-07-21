@@ -4,7 +4,7 @@ import { serviceName } from "../branding.ts"
 
 export type ThemeSource = "system" | "light" | "dark"
 export type CompletionNotificationCondition = "never" | "background" | "always"
-export type OperatingMode = "oomol" | "self-managed"
+export type OperatingMode = "oomol" | "self-managed" | "unselected"
 
 export interface AppSettings {
   completionNotificationCondition: CompletionNotificationCondition

@@ -11,4 +11,8 @@ describe("DEFAULT_APP_SETTINGS", () => {
       unreadBadgeEnabled: true,
     })
   })
+
+  it("keeps first-run migration distinct from an explicit unselected profile", () => {
+    expect(DEFAULT_APP_SETTINGS.operatingMode).toBeNull()
+  })
 })

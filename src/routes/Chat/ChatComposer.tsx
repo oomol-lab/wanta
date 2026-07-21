@@ -15,7 +15,7 @@ import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { BrainCircuit, Bug, Check, Circle, Server, X } from "lucide-react"
+import { ArrowRight, BrainCircuit, Bug, Server, X } from "lucide-react"
 import * as React from "react"
 import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
 import { AttachmentList } from "./ChatAttachments.tsx"
@@ -105,7 +105,6 @@ interface ChatComposerProps {
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onOpenKnowledgeLibrary?: () => void
   selfManagedSetup?: {
-    openConnectorConfigured: boolean
     onConfigureOpenConnector: () => void
     onDismiss: () => void
   }
@@ -778,9 +777,6 @@ export function ChatComposer({
       </div>
       {selfManagedSetup && !customModelConfigured ? (
         <SelfManagedSetupChecklist
-          modelConfigured={customModelConfigured}
-          openConnectorConfigured={selfManagedSetup.openConnectorConfigured}
-          onConfigureModel={modelCatalogState.openDialog}
           onConfigureOpenConnector={selfManagedSetup.onConfigureOpenConnector}
           onDismiss={selfManagedSetup.onDismiss}
         />
@@ -791,17 +787,11 @@ export function ChatComposer({
 }
 
 function SelfManagedSetupChecklist({
-  modelConfigured,
-  onConfigureModel,
   onConfigureOpenConnector,
   onDismiss,
-  openConnectorConfigured,
 }: {
-  modelConfigured: boolean
-  onConfigureModel: () => void
   onConfigureOpenConnector: () => void
   onDismiss: () => void
-  openConnectorConfigured: boolean
 }) {
   const t = useT()
   return (
@@ -821,58 +811,20 @@ function SelfManagedSetupChecklist({
           <X className="size-4" />
         </button>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <SetupChecklistAction
-          complete={modelConfigured}
-          completeLabel={t("chat.setupComplete")}
-          icon={<BrainCircuit className="size-4" />}
-          label={t("chat.selfManagedModel")}
-          action={t("chat.configureModel")}
-          onClick={onConfigureModel}
-        />
-        <SetupChecklistAction
-          complete={openConnectorConfigured}
-          completeLabel={t("chat.setupComplete")}
-          icon={<Server className="size-4" />}
-          label={t("chat.selfManagedOpenConnector")}
-          action={t("chat.configureOpenConnector")}
-          onClick={onConfigureOpenConnector}
-        />
-      </div>
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-3 rounded-lg bg-muted/55 px-3 py-2.5 text-left transition-colors hover:bg-muted"
+        onClick={onConfigureOpenConnector}
+      >
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-background/70 text-muted-foreground">
+          <BrainCircuit className="size-4" />
+        </span>
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-background/70 text-muted-foreground">
+          <Server className="size-4" />
+        </span>
+        <span className="min-w-0 flex-1 text-sm font-medium">{t("chat.configureModelAndOpenConnector")}</span>
+        <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+      </button>
     </section>
-  )
-}
-
-function SetupChecklistAction({
-  action,
-  complete,
-  completeLabel,
-  icon,
-  label,
-  onClick,
-}: {
-  action: string
-  complete: boolean
-  completeLabel: string
-  icon: React.ReactNode
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      disabled={complete}
-      className="flex min-w-0 items-center gap-2.5 rounded-lg border bg-background/70 px-3 py-2 text-left transition-colors hover:bg-muted/70 disabled:opacity-70"
-      onClick={onClick}
-    >
-      <span className={cn("text-muted-foreground", complete && "text-emerald-600")}>
-        {complete ? <Check className="size-4" /> : <Circle className="size-4" />}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-medium">{label}</span>
-        <span className="block text-[0.6875rem] text-muted-foreground">{complete ? completeLabel : action}</span>
-      </span>
-      {!complete ? icon : null}
-    </button>
   )
 }

@@ -15,7 +15,7 @@ permission controls, connected services, artifacts, and a polished cross-platfor
 [Documentation](docs/project-overview.md) · [Development Guide](docs/development.md)
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
-![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933)
+![Node.js 22.22.2+](https://img.shields.io/badge/Node.js-22.22.2%2B-339933)
 ![Electron 42](https://img.shields.io/badge/Electron-42-47848F?logo=electron)
 ![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 

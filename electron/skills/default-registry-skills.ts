@@ -5,7 +5,7 @@ export interface DefaultRegistrySkillSpec {
   skillId: string
 }
 
-export const defaultRegistrySkillSetVersion = 2
+export const defaultRegistrySkillSetVersion = 3
 
 // 默认安装清单：登录后后台补装，必须使用 registry 中稳定的 packageName + skillId。
 export const defaultRegistrySkills: readonly DefaultRegistrySkillSpec[] = [
@@ -24,7 +24,7 @@ export const defaultRegistrySkills: readonly DefaultRegistrySkillSpec[] = [
   {
     category: "other",
     enabled: true,
-    packageName: "@alwaysmavs/tikhub-social-research",
-    skillId: "tikhub-social-research",
+    packageName: "@alwaysmavs/public-social-research",
+    skillId: "public-social-research",
   },
 ]

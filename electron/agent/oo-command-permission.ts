@@ -18,7 +18,6 @@ function isOoExecutable(word: string): boolean {
   return word === "oo" || word === "$WANTA_OO_BIN" || word === "${WANTA_OO_BIN}"
 }
 
-const ooCommandPrefix = /^(?:oo|"?\$WANTA_OO_BIN"?|"?\$\{WANTA_OO_BIN\}"?)(?:\s|$)/u
 const credentialEnvironmentReference = /\b(?:OO_CONNECTOR_TOKEN|OO_API_KEY)\b/u
 const environmentDumpCommand = /^(?:env|printenv|set|export|declare\s+-x|typeset\s+-x)(?:\s|$)/u
 const linkEnvironmentAssignment = /\b(?:OO_CONNECTOR_URL|OO_ENDPOINT|OO_CONFIG_DIR|OO_DATA_DIR)\s*=/u
@@ -26,6 +25,8 @@ const ooCommandSegment = /(?:^|[;&|]{1,2}\s*)(?:oo|"?\$WANTA_OO_BIN"?|"?\$\{WANT
 const forbiddenOoMutation =
   /(?:^|[;&|]{1,2}\s*)(?:oo|"?\$WANTA_OO_BIN"?|"?\$\{WANTA_OO_BIN\}"?)\s+(?:(?:auth|login|logout|config)(?:\s|[;&|]|$)|connector\s+(?:login|logout)(?:\s|[;&|]|$))/u
 const forbiddenOoOption = /(?:^|\s)--(?:endpoint|config-dir|data-dir|connector-url|connector-token)(?:=|\s|$)/u
+const shellCommandOption = /^-[A-Za-z]*c[A-Za-z]*$/u
+const shellExecutable = /(?:^|\/)(?:bash|sh|zsh)$/u
 
 function hasUnsafeShellSyntax(command: string): boolean {
   let singleQuoted = false
@@ -127,6 +128,13 @@ function isEnvironmentDump(command: string): boolean {
   return words.slice(1).some((word) => ["env", "printenv", "set", "export"].includes(word))
 }
 
+function shellWrapperCommand(command: string): string | null {
+  const words = shellWords(command)
+  if (!words || !shellExecutable.test(words[0] ?? "")) return null
+  const optionIndex = words.findIndex((word, index) => index > 0 && shellCommandOption.test(word))
+  return optionIndex === -1 ? null : (words[optionIndex + 1] ?? null)
+}
+
 export function isPureOoCliCommand(command: string): boolean {
   const trimmed = command.trim()
   if (!trimmed || hasUnsafeShellSyntax(trimmed)) {
@@ -143,7 +151,10 @@ export function isPureOoCliCommand(command: string): boolean {
 }
 
 export function isOoCliCommand(command: string): boolean {
-  return ooCommandPrefix.test(command.trim())
+  const trimmed = command.trim()
+  if (ooCommandSegment.test(trimmed)) return true
+  const wrappedCommand = shellWrapperCommand(trimmed)
+  return wrappedCommand !== null && isOoCliCommand(wrappedCommand)
 }
 
 export function openConnectorCommandPolicy(command: string): "deny" | "prompt" | null {
@@ -157,7 +168,7 @@ export function openConnectorCommandPolicy(command: string): "deny" | "prompt" |
   ) {
     return "deny"
   }
-  if (!isOoCliCommand(trimmed)) return null
-  if (hasUnsafeShellSyntax(trimmed)) return "prompt"
-  return "prompt"
+  const wrappedCommand = shellWrapperCommand(trimmed)
+  if (wrappedCommand !== null) return openConnectorCommandPolicy(wrappedCommand)
+  return isOoCliCommand(trimmed) ? "prompt" : null
 }

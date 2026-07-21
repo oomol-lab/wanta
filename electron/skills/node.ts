@@ -204,7 +204,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     options: Omit<Parameters<typeof runOoCommand>[1], "env"> = {},
   ): Promise<OoCommandResult> {
     const authToken = await this.readSkillAuthToken()
-    const storeDir = path.join(app.getPath("userData"), "agent", "oo-store")
+    const storeDir = this.getWantaOoStoreRoot()
 
     return runOoCommand(args, {
       ...options,

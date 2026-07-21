@@ -6,9 +6,10 @@
 ## 1. Product Positioning
 
 Wanta is an Electron desktop AI Agent chat client. The user states a need in natural language; the Agent
-interprets it and orchestrates the OOMOL connector cloud service (~600 SaaS providers, 6000+ actions),
-local tools, and any WikiGraph knowledge bases the session references, streaming results back into the
-chat area. Local capabilities are now enabled (bash / file read-write / writing and executing scripts);
+interprets it and orchestrates the selected Link runtime (OOMOL Connector, with ~600 SaaS providers and
+6000+ actions, or a user-configured OpenConnector), local tools, and any WikiGraph knowledge bases the
+session references, streaming results back into the chat area. Local capabilities are now enabled
+(bash / file read-write / writing and executing scripts);
 the typical pattern is "pull data from several connector actions → write a small script to
 join / aggregate / format".
 

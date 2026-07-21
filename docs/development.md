@@ -102,10 +102,10 @@ Wanta consumes an already-running OpenConnector; it does not supervise the sibli
 Start the two projects separately:
 
 ```bash
-cd /Users/su/oomol-lab/connect
+cd /path/to/connect
 npm run dev
 
-cd /Users/su/oomol-lab/wanta
+cd /path/to/wanta
 npm run dev
 ```
 

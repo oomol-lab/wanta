@@ -174,19 +174,20 @@ function LinkRuntimeSettings({ runtime }: { runtime: UseLinkRuntime }) {
   }
   const save = () => {
     const token = runtimeToken.trim()
-    setRuntimeToken("")
     void runtime
       .saveOpenConnector({
         baseUrl,
         ...(consoleUrl.trim() ? { consoleUrl } : {}),
         ...(token ? { runtimeToken: token } : {}),
       })
-      .then(() => toast.success(t("settings.linkRuntimeSaved")))
+      .then(() => {
+        setRuntimeToken("")
+        toast.success(t("settings.linkRuntimeSaved"))
+      })
       .catch(reportFailure)
   }
   const test = () => {
     const token = runtimeToken.trim()
-    setRuntimeToken("")
     void runtime
       .testOpenConnector({ baseUrl, ...(token ? { runtimeToken: token } : {}) })
       .then((result) => {

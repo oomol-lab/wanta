@@ -1,6 +1,6 @@
 # OpenConnector Support Plan
 
-> Status: implemented and verified
+> Status: implemented; see §5 for verification coverage and remaining gaps
 >
 > Plan date: 2026-07-21
 >
@@ -254,7 +254,7 @@ remains model_required and advertises no executable Link tools.
 - Record the current four quality-gate results.
 - Run Wanta once and verify the current OOMOL, local custom-model, and
   Connections behavior.
-- Start /Users/su/oomol-lab/connect and verify both /health and /v1/health.
+- Start the local OpenConnector repository and verify both /health and /v1/health.
 - Verify oo 1.5.1 schema-cache isolation before implementation:
   - run mock connector endpoints A and B from the same temporary OO_DATA_DIR;
   - return different schemas for the same service and action from each
@@ -274,10 +274,10 @@ remains model_required and advertises no executable Link tools.
 ### Verification
 
 ```bash
-rtk npm run ts-check
-rtk npm run lint
-rtk npm run format
-rtk npm test
+npm run ts-check
+npm run lint
+npm run format
+npm test
 ```
 
 ### Exit criteria
@@ -1361,15 +1361,15 @@ Renderer:
 Start OpenConnector:
 
 ```bash
-cd /Users/su/oomol-lab/connect
-rtk npm run dev
+cd /path/to/connect
+npm run dev
 ```
 
 Start Wanta:
 
 ```bash
-cd /Users/su/oomol-lab/wanta
-rtk npm run dev
+cd /path/to/wanta
+npm run dev
 ```
 
 Before feature smoke, repeat the Phase 0 same-OO_DATA_DIR mock A -> mock B ->
@@ -1439,11 +1439,11 @@ Scenario E, Link available but model missing:
 ### 13.4 Final quality gates
 
 ```bash
-rtk npm run ts-check
-rtk npm run lint
-rtk npm run format
-rtk npm test
-rtk npm run build
+npm run ts-check
+npm run lint
+npm run format
+npm test
+npm run build
 ```
 
 Because this changes UI and runtime behavior, a successful live npm run dev

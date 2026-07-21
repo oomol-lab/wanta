@@ -90,7 +90,7 @@ export function buildAgentLinkEnv({
   return env
 }
 
-/** R3：维护 skill store 时使用的 oo 环境变量；config/data/log 目录由调用方显式给定。 */
+/** R3: Build the oo environment used to maintain the Skill store with caller-owned directories. */
 export function buildOomolMaintenanceEnv({
   authToken,
   configDir,
@@ -100,7 +100,7 @@ export function buildOomolMaintenanceEnv({
 }: OoMaintenanceEnvOptions): Record<string, string> {
   return {
     ...buildOoBaseEnv({ configDir, dataDir, logDir, ooBinPath }),
-    // 环境变量名固定为 OO_API_KEY（oo-cli 契约）；值是会话 token。
+    // OO_API_KEY is fixed by the oo CLI contract; its value is the session token.
     OO_API_KEY: authToken,
     OO_ENDPOINT: ooEndpoint,
     // Custom tools read these connector endpoints, all derived centrally in domain.ts.

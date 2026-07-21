@@ -31,6 +31,16 @@ describe("resolveRuntimeCapabilities", () => {
     })
   })
 
+  it("disables connectors when the Link runtime is unavailable", () => {
+    expect(
+      resolveRuntimeCapabilities({ mode: "local", localAgentAvailable: true, linkRuntimeAvailable: false }),
+    ).toMatchObject({
+      localAgent: true,
+      localTools: true,
+      connectors: false,
+    })
+  })
+
   it("enables OOMOL-hosted capabilities without carrying credentials", () => {
     const capabilities = resolveRuntimeCapabilities({
       mode: "oomol",

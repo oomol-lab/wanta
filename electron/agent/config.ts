@@ -105,7 +105,7 @@ export interface OpencodeConfigOptions {
   modelAccess: ModelAccess
 }
 
-/** 构建 OpenCode 配置；OOMOL token 与自定义模型 Key 只进入 sidecar 内存环境，不落 OpenCode 文件。 */
+/** Build the OpenCode config without persisting the OOMOL token or custom model keys. */
 export function buildOpencodeConfig({
   customModels = [],
   defaultModel,

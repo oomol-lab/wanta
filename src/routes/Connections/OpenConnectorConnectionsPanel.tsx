@@ -15,7 +15,10 @@ export function OpenConnectorConnectionsPanel({ runtime }: { runtime: UseLinkRun
   const [error, setError] = React.useState(false)
   const config = runtime.state?.openConnector
   const runtimeRef = React.useRef(runtime)
-  runtimeRef.current = runtime
+
+  React.useEffect(() => {
+    runtimeRef.current = runtime
+  }, [runtime])
 
   const refresh = React.useCallback(async () => {
     setLoading(true)

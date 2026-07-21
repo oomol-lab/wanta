@@ -38,14 +38,22 @@ test("local access policy allows pure oo commands without a renderer prompt", ()
   )
 })
 
-test("local access policy prompts for direct oo commands under OpenConnector", () => {
-  assert.deepEqual(
-    evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector apps --json" } }), {
-      linkRuntime: "openconnector",
-      permissionMode: "full_access",
-    }),
-    { type: "prompt", kind: "command", highRisk: false },
-  )
+test("local access policy prompts for direct and wrapped oo commands under OpenConnector", () => {
+  for (const command of [
+    "oo connector apps --json",
+    "bash -c 'oo connector apps --json'",
+    "sh -lc 'oo connector apps --json'",
+    "zsh -c 'cd /tmp && oo connector apps --json'",
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        linkRuntime: "openconnector",
+        permissionMode: "full_access",
+      }),
+      { type: "prompt", kind: "command", highRisk: false },
+      command,
+    )
+  }
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector run gmail list --json" } }), {
       linkRuntime: "openconnector",
@@ -63,6 +71,9 @@ test("local access policy rejects OpenConnector credential and configuration com
     "oo connector apps --endpoint https://other.example.test",
     "oo connector apps --endpoint=https://other.example.test",
     "oo connector apps && oo connector logout",
+    "bash -c 'oo connector login https://connector.example.test'",
+    "sh -lc 'oo config set endpoint https://other.example.test'",
+    "zsh -c 'cd /tmp && oo connector apps --connector-token secret'",
     "OO_CONNECTOR_URL=https://other.example.test oo connector apps",
     "printenv",
     "bash -lc 'env'",
@@ -81,6 +92,13 @@ test("local access policy rejects OpenConnector credential and configuration com
 
   assert.equal(
     evaluateLocalAccessRequest(permission({ metadata: { command: "some-tool --data-dir /tmp/output" } }), {
+      linkRuntime: "openconnector",
+      permissionMode: "full_access",
+    }).type,
+    "allow",
+  )
+  assert.equal(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "bash -c 'printf ok'" } }), {
       linkRuntime: "openconnector",
       permissionMode: "full_access",
     }).type,

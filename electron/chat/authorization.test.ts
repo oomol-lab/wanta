@@ -5,7 +5,7 @@ import { mkdtemp } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
-import { parseAuthorizationSignal } from "./authorization-signal.ts"
+import { parseAuthorizationSignal, parseSearchAuthorizationSignal } from "./authorization-signal.ts"
 import { applyAuthorizationOverlays, AuthorizationOverlayStore, recordAuthorizationOverlay } from "./authorization.ts"
 
 function assistantMessage(): ChatMessage {
@@ -48,6 +48,137 @@ test("parseAuthorizationSignal accepts in-app authorization results", () => {
   )
   assert.equal(parseAuthorizationSignal(JSON.stringify({ status: "ok" })), null)
   assert.equal(parseAuthorizationSignal("not json"), null)
+})
+
+test("parseSearchAuthorizationSignal accepts one unauthenticated provider", () => {
+  assert.deepEqual(
+    parseSearchAuthorizationSignal(
+      JSON.stringify([
+        {
+          service: "supabase",
+          name: "list_projects",
+          description: "List projects",
+          authenticated: false,
+        },
+        {
+          service: "supabase",
+          name: "run_read_only_query",
+          description: "Run SQL",
+          authenticated: false,
+        },
+      ]),
+    ),
+    {
+      service: "supabase",
+      displayName: "Supabase",
+      errorCode: "connection_required",
+    },
+  )
+})
+
+test("parseSearchAuthorizationSignal rejects ambiguous search results", () => {
+  assert.equal(
+    parseSearchAuthorizationSignal(
+      JSON.stringify([
+        { service: "gmail", name: "list_messages", authenticated: false },
+        { service: "slack", name: "send_message", authenticated: false },
+      ]),
+    ),
+    null,
+  )
+  assert.equal(parseSearchAuthorizationSignal(JSON.stringify([{ service: "gmail", authenticated: true }])), null)
+  assert.equal(parseSearchAuthorizationSignal(JSON.stringify({ status: "error" })), null)
+})
+
+test("parseSearchAuthorizationSignal ignores search results with unreliable authentication", () => {
+  assert.equal(
+    parseSearchAuthorizationSignal(
+      JSON.stringify([
+        {
+          service: "supabase",
+          name: "list_projects",
+          authenticated: false,
+          authenticatedReliable: false,
+        },
+      ]),
+    ),
+    null,
+  )
+})
+
+test("parseSearchAuthorizationSignal prefers the provider named by the search input", () => {
+  const output = JSON.stringify([
+    { service: "supabase", name: "list_projects", authenticated: false },
+    { service: "supabase", name: "run_read_only_query", authenticated: false },
+    { service: "neon", name: "get_database", authenticated: false },
+  ])
+
+  assert.deepEqual(
+    parseSearchAuthorizationSignal(output, { keywords: "supabase", query: "Supabase database connection" }),
+    {
+      service: "supabase",
+      displayName: "Supabase",
+      errorCode: "connection_required",
+    },
+  )
+  assert.equal(parseSearchAuthorizationSignal(output), null)
+})
+
+test("parseSearchAuthorizationSignal suppresses a single unrelated provider when context names another provider", () => {
+  assert.equal(
+    parseSearchAuthorizationSignal(JSON.stringify([{ service: "launchdarkly", authenticated: false }]), {
+      query: "PostHog feature flags",
+      userText: "PostHog 功能介绍",
+    }),
+    null,
+  )
+  assert.deepEqual(
+    parseSearchAuthorizationSignal(JSON.stringify([{ service: "launchdarkly", authenticated: false }]), {
+      query: "feature flags",
+    }),
+    {
+      service: "launchdarkly",
+      displayName: "Launchdarkly",
+      errorCode: "connection_required",
+    },
+  )
+})
+
+test("parseSearchAuthorizationSignal detects explicit provider aliases without CamelCase", () => {
+  assert.equal(
+    parseSearchAuthorizationSignal(JSON.stringify([{ service: "launchdarkly", authenticated: false }]), {
+      query: "PostHog feature flags",
+      userText: "posthog 功能介绍",
+    }),
+    null,
+  )
+  assert.equal(
+    parseSearchAuthorizationSignal(JSON.stringify([{ service: "github", authenticated: false }]), {
+      query: "Notion project docs",
+      userText: "Notion project docs",
+    }),
+    null,
+  )
+  assert.deepEqual(
+    parseSearchAuthorizationSignal(JSON.stringify([{ service: "slack", authenticated: false }]), {
+      query: "Slack messages",
+      userText: "Slack messages",
+    }),
+    {
+      service: "slack",
+      displayName: "Slack",
+      errorCode: "connection_required",
+    },
+  )
+})
+
+test("parseSearchAuthorizationSignal does not match provider names as arbitrary substrings", () => {
+  const output = JSON.stringify([
+    { service: "box", name: "upload_file", authenticated: false },
+    { service: "notion", name: "search_pages", authenticated: false },
+  ])
+
+  assert.equal(parseSearchAuthorizationSignal(output, { query: "search inbox annotations" }), null)
 })
 
 test("applyAuthorizationOverlays restores authorization onto tool parts", () => {

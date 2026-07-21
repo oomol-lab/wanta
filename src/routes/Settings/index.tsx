@@ -33,6 +33,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import { branding } from "../../../electron/branding.ts"
 import { notificationPresentation } from "./notification-presentation.ts"
+import { shouldShowSelfManagedRuntimeSettings } from "./settings-presentation.ts"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { OpenConnectorEndpointFields } from "@/components/OpenConnectorEndpointFields"
@@ -98,7 +99,7 @@ export function SettingsRoute({
   const auth = useAuth()
   const appSettings = useAppSettings()
   const attention = useAttention()
-  const models = useModelCatalog()
+  const showSelfManagedRuntimeSettings = shouldShowSelfManagedRuntimeSettings(auth.state?.status)
 
   return (
     <PageRouteShell
@@ -110,14 +111,9 @@ export function SettingsRoute({
       <h1 className="oo-text-page-title">{t("settings.title")}</h1>
 
       <div className="grid gap-5">
-        <SettingsSection title={t("settings.groupRuntime")}>
-          <RuntimeProfileSummary
-            authenticated={auth.state?.status === "authenticated"}
-            mode={appSettings.settings.operatingMode}
-          />
-          <ModelSettings connectorsEnabled={auth.state?.status === "authenticated"} models={models} />
-          <LinkRuntimeSettings runtime={linkRuntime} />
-        </SettingsSection>
+        {showSelfManagedRuntimeSettings ? (
+          <SelfManagedRuntimeSettings mode={appSettings.settings.operatingMode} runtime={linkRuntime} />
+        ) : null}
 
         <SettingsSection title={t("settings.groupAccount")}>
           <AccountSettings
@@ -167,21 +163,27 @@ export function SettingsRoute({
   )
 }
 
-function RuntimeProfileSummary({ authenticated, mode }: { authenticated: boolean; mode: OperatingMode | null }) {
+function SelfManagedRuntimeSettings({ mode, runtime }: { mode: OperatingMode | null; runtime: UseLinkRuntime }) {
   const { t } = useI18n()
-  const resolvedMode = authenticated ? "oomol" : mode
+  const models = useModelCatalog()
+
+  return (
+    <SettingsSection title={t("settings.groupRuntime")}>
+      <RuntimeProfileSummary mode={mode} />
+      <ModelSettings connectorsEnabled={false} models={models} />
+      <LinkRuntimeSettings runtime={runtime} />
+    </SettingsSection>
+  )
+}
+
+function RuntimeProfileSummary({ mode }: { mode: OperatingMode | null }) {
+  const { t } = useI18n()
   const description =
-    resolvedMode === "oomol"
-      ? t("settings.runtimeProfileOomolDescription")
-      : resolvedMode === "self-managed"
-        ? t("settings.runtimeProfileSelfDescription")
-        : t("settings.runtimeProfileUnselectedDescription")
+    mode === "self-managed"
+      ? t("settings.runtimeProfileSelfDescription")
+      : t("settings.runtimeProfileUnselectedDescription")
   const label =
-    resolvedMode === "oomol"
-      ? "Wanta"
-      : resolvedMode === "self-managed"
-        ? t("settings.runtimeProfileSelfManaged")
-        : t("settings.runtimeProfileUnselected")
+    mode === "self-managed" ? t("settings.runtimeProfileSelfManaged") : t("settings.runtimeProfileUnselected")
   return (
     <SettingsItem title={t("settings.runtimeProfile")} description={description}>
       <span className="oo-text-caption rounded-full border bg-background px-2.5 py-1 font-medium text-foreground">

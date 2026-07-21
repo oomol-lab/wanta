@@ -57,7 +57,6 @@ export function OpenConnectorEndpointFields({
             disabled={disabled}
             onChange={(event) => onBaseUrlChange(event.target.value)}
           />
-          <span className="oo-text-caption-compact">{t("openConnector.runtimeUrlDescription")}</span>
         </label>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">

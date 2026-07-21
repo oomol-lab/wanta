@@ -1,5 +1,7 @@
 <div align="center">
 
+**English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Español](README.es.md) · [한국어](README.ko.md)
+
 <img src="resources/branding/logo.png" width="112" alt="Wanta logo" />
 
 # Wanta

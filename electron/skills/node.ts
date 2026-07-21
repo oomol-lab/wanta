@@ -54,6 +54,7 @@ import {
 } from "./default-install-store.ts"
 import {
   isRuntimeSkillInstalled,
+  normalizeDefaultRegistryReplacementSkillIds,
   normalizeDefaultRegistrySkillRequest,
   runtimeErrorMessage,
 } from "./default-registry-install.ts"
@@ -606,6 +607,26 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       await store.write(installStore)
     }
 
+    for (const spec of enabledSpecs) {
+      const request = normalizeDefaultRegistrySkillRequest(spec)
+      if (!isRuntimeSkillInstalled(inventory, request.skillId)) {
+        continue
+      }
+      const result = await this.retireReplacedDefaultRegistrySkills(spec, inventory)
+      inventory = result.inventory
+      if (result.skillIds.length === 0) {
+        continue
+      }
+      const retiredSkillIds = new Set(result.skillIds)
+      installStore = {
+        ...installStore,
+        records: installStore.records.filter(
+          (record) => record.packageName !== request.packageName || !retiredSkillIds.has(record.skillId),
+        ),
+      }
+      await store.write(installStore)
+    }
+
     const syncedExternalRuntimeSkills = await this.syncExternalAgentSkillsToRuntimeRoot(removedStore)
     if (syncedExternalRuntimeSkills) {
       this.notifyRuntimeSkillsChanged("sync-external-agent-skills")
@@ -626,6 +647,44 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       () => undefined,
     )
     return result
+  }
+
+  private async retireReplacedDefaultRegistrySkills(
+    spec: DefaultRegistrySkillSpec,
+    inventory: SkillInventory,
+  ): Promise<{ inventory: SkillInventory; skillIds: string[] }> {
+    const packageName = spec.packageName.trim()
+    const retiredSkillIds: string[] = []
+
+    for (const skillId of normalizeDefaultRegistryReplacementSkillIds(spec)) {
+      const group = inventory.groups.find((item) => item.id === skillId)
+      const belongsToPackage =
+        group?.packageName?.trim() === packageName ||
+        group?.hosts.some((host) => host.packageName?.trim() === packageName)
+      if (!group || !belongsToPackage) {
+        continue
+      }
+      const plan = buildLocalMachineSkillDeletePlan({
+        agentSkillRoots: this.readDeletableSkillRoots(),
+        globalRegistrySkillRoot: this.getGlobalRegistrySkillRoot(),
+        // Older Wanta registry caches may lack .oo-metadata.json. Package ownership was verified
+        // from the scanned inventory above, so directory removal can rely on the exact Skill id.
+        group: { ...group, kind: "registry", packageName: undefined },
+        wantaRegistrySkillRoot: this.getWantaRegistrySkillRoot(),
+      })
+      const uninstallErrors = await this.uninstallRegistrySkillFromStores(plan.storeTargets)
+      const removedTargets = await this.deleteSkillPlanTargets(plan)
+      const uninstalledFromStore = plan.storeTargets.length > uninstallErrors.length
+      if (removedTargets > 0 || uninstalledFromStore) {
+        retiredSkillIds.push(skillId)
+      }
+    }
+
+    if (retiredSkillIds.length === 0) {
+      return { inventory, skillIds: retiredSkillIds }
+    }
+    this.notifyRuntimeSkillsChanged("retire-replaced-default-registry-skills")
+    return { inventory: await this.readAndPublishSkillInventory(), skillIds: retiredSkillIds }
   }
 
   private enqueueSkillMutation<T>(operation: () => Promise<T>): Promise<T> {

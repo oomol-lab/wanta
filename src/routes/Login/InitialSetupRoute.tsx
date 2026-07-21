@@ -45,7 +45,7 @@ export function InitialSetupRoute({
       <header className="absolute inset-x-0 top-0 z-10 h-[var(--app-titlebar-height)] [-webkit-app-region:drag]" />
       <main className="oo-login-main min-h-0 flex-1">
         {view === "choice" ? (
-          <div className="mx-auto grid h-full max-w-[1480px] grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)] gap-4 md:gap-6 lg:gap-8 xl:grid-cols-[minmax(24rem,0.78fr)_minmax(30rem,1.22fr)]">
+          <div className="mx-auto grid h-full max-w-[1480px] grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)] gap-4 md:gap-6 lg:gap-8 xl:grid-cols-[minmax(36rem,0.96fr)_minmax(30rem,1.04fr)]">
             <section className="flex min-h-0 items-center">
               <SetupChoice auth={auth} onSelfManaged={() => setView("self-managed")} />
             </section>
@@ -69,7 +69,7 @@ export function InitialSetupRoute({
 function SetupChoice({ auth, onSelfManaged }: { auth: UseAuth; onSelfManaged: () => void }) {
   const t = useT()
   return (
-    <div className="w-full max-w-[32rem] px-2 py-8 md:px-6 lg:-translate-y-5 lg:px-10 xl:px-12">
+    <div className="w-full max-w-[40rem] px-2 py-8 md:px-6 lg:-translate-y-5 lg:px-10 xl:px-12">
       <div className="flex items-center">
         <BrandIcon className="size-14" />
       </div>
@@ -84,7 +84,7 @@ function SetupChoice({ auth, onSelfManaged }: { auth: UseAuth; onSelfManaged: ()
         </h2>
       </div>
 
-      <div className="mt-16 flex max-w-[27rem] flex-wrap items-center gap-3">
+      <div className="mt-16 flex flex-wrap items-center gap-3 xl:flex-nowrap">
         <Button
           className="px-6 [-webkit-app-region:no-drag] has-[>svg]:px-5"
           disabled={auth.loggingIn}

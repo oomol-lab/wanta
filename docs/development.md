@@ -83,7 +83,8 @@ npm run dev:no-electron
   the Electron copy with the `wanta-local` scheme (the menu bar shows the dev identity) — required
   for the browser-login round trip to hit the dev instance.
 - dev userData lives at `~/Library/Application Support/wanta` (macOS); agent data under its
-  `agent/` (workspace / isolation / oo-store).
+  `agent/` (workspace / isolation / oo-store). Link runtime selection and encrypted OpenConnector
+  token metadata live in `link-runtime.json` at the userData root.
 - Code changes must go through a temporary branch + PR: first align local `main` with
   `origin/main`, then cut a one-off branch from `main` (e.g. `codex/<task>`, `ci/<task>`,
   `fix/<task>`). Once the change is done and passes the quality gate, push the temporary branch
@@ -94,6 +95,27 @@ npm run dev:no-electron
   PR reviews/comments, tags/release notes.
 - Quality gate after any change, all four green:
   `npm run ts-check && npm run lint && npm run format && npm test`.
+
+### Local OpenConnector development
+
+Wanta consumes an already-running OpenConnector; it does not supervise the sibling repository.
+Start the two projects separately:
+
+```bash
+cd /Users/su/oomol-lab/connect
+npm run dev
+
+cd /Users/su/oomol-lab/wanta
+npm run dev
+```
+
+The source development defaults are API `http://localhost:3000` and Console
+`http://localhost:5173`. Verify both `GET /health` and the standard-envelope `GET /v1/health`, then
+open Settings → Link Runtime, enter the two origins and any runtime token, test, save, and select
+OpenConnector. A token is optional when OpenConnector authentication is disabled. Use the
+Connections route for the sanitized inventory and the external Console for provider credentials.
+Do not set `OO_CONNECTOR_URL` or run `oo connector login` inside Wanta; the app owns an isolated,
+non-persisting sidecar environment.
 
 ## 4. Testing
 

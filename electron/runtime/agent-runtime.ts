@@ -1,8 +1,14 @@
-import type { MainProcessCloudRuntime } from "../agent/manager.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { RuntimeCustomModel } from "../models/store.ts"
 
+import { createHash } from "node:crypto"
 import { defaultModelChoice } from "../models/store.ts"
+
+export type ModelAccess = { kind: "local" } | { kind: "oomol"; sessionToken: string }
+
+export type LinkRuntime =
+  | { kind: "oomol"; sessionToken: string; teamName?: string }
+  | { kind: "openconnector"; baseUrl: string; consoleUrl: string; runtimeToken?: string }
 
 export interface RuntimeAccountInput {
   id: string
@@ -10,9 +16,9 @@ export interface RuntimeAccountInput {
 }
 
 export interface AgentRuntimeResolution {
-  cloudRuntime: MainProcessCloudRuntime
   defaultModel: ModelChoice
   key: string
+  modelAccess: ModelAccess
   mode: "local" | "oomol"
 }
 
@@ -31,9 +37,9 @@ export function resolveAgentRuntime(
         ? defaultModelChoice()
         : selected
     return {
-      cloudRuntime: { kind: "oomol", sessionToken },
       defaultModel,
-      key: `oomol:${account.id}:${sessionToken}`,
+      key: `oomol:${account.id}:${credentialRevision(sessionToken)}`,
+      modelAccess: { kind: "oomol", sessionToken },
       mode: "oomol",
     }
   }
@@ -42,9 +48,13 @@ export function resolveAgentRuntime(
   const customModel = selectedCustom ?? availableCustomModels[0]
   if (!customModel) return null
   return {
-    cloudRuntime: { kind: "local" },
     defaultModel: { kind: "custom", id: customModel.id },
     key: `local:${customModel.id}`,
+    modelAccess: { kind: "local" },
     mode: "local",
   }
+}
+
+function credentialRevision(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 16)
 }

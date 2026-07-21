@@ -7,8 +7,8 @@
 ## What this is
 
 Wanta is OOMOL's open-source Electron desktop AI-agent chat client: users describe what they
-want in natural language, and the agent does the work through OOMOL connector cloud services
-(~600 SaaS providers, 6000+ actions, credentials hosted in the cloud) and local tools
+want in natural language, and the agent does the work through either OOMOL connector cloud services
+or a user-configured OpenConnector runtime (~600 SaaS providers, 6000+ actions) and local tools
 (bash / files / code). Connector calls go through the bundled `oo` CLI binary (a black-box
 subprocess controlled only via environment variables); the agent kernel is a local OpenCode
 sidecar (`opencode serve`, driven from the main process via `@opencode-ai/sdk` over HTTP+SSE).
@@ -129,7 +129,7 @@ vendored-UI rules, ...) live in [docs/conventions.md](docs/conventions.md).
 | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
 | [docs/project-overview.md](docs/project-overview.md)               | You want to know what Wanta is, who it serves, and how it relates to OOMOL cloud / oo CLI / oo-desktop; original plan vs shipped        |
 | [docs/architecture.md](docs/architecture.md)                       | Before touching any main/renderer code: process split, agent kernel, IPC patterns, chat streaming, auth & connections flows, module map |
-| [docs/key-decisions.md](docs/key-decisions.md)                     | You want to know "why is it like this": 11 major decisions as context → decision → rationale → consequences (incl. rejected paths)      |
+| [docs/key-decisions.md](docs/key-decisions.md)                     | You want to know "why is it like this": 12 major decisions as context → decision → rationale → consequences (incl. rejected paths)      |
 | [docs/development.md](docs/development.md)                         | Environment setup, .env, dev loop, tests, lint/format, packaging/signing/release, CI, roles of the special directories                  |
 | [docs/conventions.md](docs/conventions.md)                         | Before writing code: naming/layout/security/error-handling/UI & i18n conventions, the R1–R8 numbering, verification discipline          |
 | [docs/network-request-caching.md](docs/network-request-caching.md) | Before changing renderer read paths: cache boundaries, TTLs, in-flight merging, targeted invalidation after mutations                   |
@@ -159,11 +159,16 @@ reference docs above win: [docs/open-source-plan.md](docs/open-source-plan.md),
   cookie, short-lived; the gateway accepts cookie/token/api-key alike, so chat, connectors,
   teams, skills, and billing all use it). `userData/auth.json` stores the account profile
   only — **no credentials** — and no long-lived api-key is ever fetched. A dead token means
-  signed-out everywhere (`AuthManager.currentState` gates it).
+  signed-out from OOMOL capabilities (`AuthManager.currentState` gates them). A signed-out user can
+  still run the Agent with a configured custom model and can independently select OpenConnector as
+  the Link runtime.
 - Connector tools: `list_apps` lists connected apps of the current workspace;
   `search_actions` → `inspect_action` → `call_action` for discovery/invocation; plus
   `query_knowledge` for knowledge bases. Sources are embedded in
-  `electron/agent/tool-sources.ts` and run in OpenCode's Bun — outside this repo's lint/tsc.
+  `electron/agent/tool-sources.ts` and run in OpenCode's Bun — outside this repo's lint/tsc. Exactly
+  one Link runtime is active: OOMOL keeps team-scoped identity and the in-app connection drawer;
+  OpenConnector uses its configured API/Console origins, no OOMOL organization identity, and
+  external provider management.
 - IPC: each service domain = `common.ts` contract + `node.ts` implementation; ServiceName
   looks like `wanta/chat-service`; `registerService()` must precede `server.start()`.
 - Tests are vitest unit tests colocated as `*.test.ts` across `electron/` `src/` `scripts/`.

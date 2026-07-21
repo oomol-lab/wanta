@@ -1,6 +1,7 @@
 import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentEventConnectionStatus, AgentManager } from "../agent/manager.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
+import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
 import type { RuntimeCapabilities } from "../runtime/common.ts"
 import type { SessionProjectStore } from "../session/project-store.ts"
 import type { ArtifactBundleStore, ArtifactBundles } from "./artifact-bundles.ts"
@@ -288,7 +289,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private runtimeCapabilities: RuntimeCapabilities = resolveRuntimeCapabilities({
     mode: "local",
     localAgentAvailable: false,
+    linkRuntimeAvailable: false,
   })
+  private activeLinkRuntime: ActiveLinkRuntime = "none"
   private readonly outputPersistence: OutputPersistence
   private scopeMutationQueue: Promise<void> = Promise.resolve()
   private desiredWorkspaceTeamName: string | undefined
@@ -379,6 +382,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       console.warn("[wanta] failed to emit runtime capabilities:", error)
       logDiagnostic("chat-service", "failed to emit runtime capabilities", { error, mode: capabilities.mode }, "warn")
     })
+  }
+
+  public setLinkRuntime(runtime: ActiveLinkRuntime): void {
+    this.activeLinkRuntime = runtime
   }
 
   public hasActiveGeneration(): boolean {
@@ -782,11 +789,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const projectRoot = this.trustedAccess.projectRoot(request.sessionId)
     const decision = evaluateLocalAccessRequest(request, {
       activeGenerationId: this.generations.get(request.sessionId)?.id,
+      linkRuntime: this.activeLinkRuntime,
       permissionMode: this.sessionPermissionMode(request.sessionId),
       sessionGrants: this.permissions.sessionGrants(request.sessionId),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
     })
-    if (!this.agent || decision.type !== "allow") {
+    if (!this.agent || decision.type === "prompt") {
       return false
     }
     const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
@@ -796,9 +804,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return true
     }
     void this.agent
-      .answerPermission(request.sessionId, request.id, "once")
+      .answerPermission(request.sessionId, request.id, decision.type === "deny" ? "reject" : "once")
       .then(() => {
-        this.rememberTrustedPermissionResources(request.sessionId, request)
+        if (decision.type === "allow") this.rememberTrustedPermissionResources(request.sessionId, request)
         this.sendBestEffort(
           emit,
           "permissionReplied",
@@ -814,7 +822,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         logDiagnostic(
           "chat-service",
           "failed to approve local access permission",
-          { action: request.action, error, reason: decision.reason, sessionId: request.sessionId },
+          {
+            action: request.action,
+            error,
+            reason: decision.type === "allow" ? decision.reason : "openconnector_denied",
+            sessionId: request.sessionId,
+          },
           "warn",
         )
         this.rememberPendingPermissionRequest(displayRequest)

@@ -6,6 +6,7 @@ import { AuthService } from "../electron/auth/common.ts"
 import { ChatService } from "../electron/chat/common.ts"
 import { GitService } from "../electron/git/common.ts"
 import { KnowledgeService } from "../electron/knowledge/common.ts"
+import { LinkRuntimeService } from "../electron/link-runtime/common.ts"
 import { ModelsService } from "../electron/models/common.ts"
 import { SessionService } from "../electron/session/common.ts"
 import { SettingsService } from "../electron/settings/common.ts"
@@ -40,6 +41,7 @@ if (!hasElectronConnectionBridge()) {
   const attentionService = client.use(AttentionService)
   const gitService = client.use(GitService)
   const knowledgeService = client.use(KnowledgeService)
+  const linkRuntimeService = client.use(LinkRuntimeService)
   const sessionService = client.use(SessionService)
   const skillService = client.use(SkillService)
   const modelsService = client.use(ModelsService)
@@ -54,6 +56,7 @@ if (!hasElectronConnectionBridge()) {
         chatService,
         gitService,
         knowledgeService,
+        linkRuntimeService,
         sessionService,
         skillService,
         modelsService,

@@ -28,6 +28,7 @@ import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
 import {
   activeProjectIdForComposer,
+  authorizationHandlingForLinkRuntime,
   buildSessionTitleInput,
   chatSendAccepted,
   connectionWorkspaceSwitchKey,
@@ -81,6 +82,7 @@ import { useAttention } from "@/hooks/useAttention"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useKnowledgeBases } from "@/hooks/useKnowledgeBases"
+import { useLinkRuntime } from "@/hooks/useLinkRuntime"
 import { useProjectGit } from "@/hooks/useProjectGit"
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities"
 import { useSessions } from "@/hooks/useSessions"
@@ -111,6 +113,11 @@ const BillingRoute = React.lazy(() => import("@/routes/Billing").then((module) =
 const ChatArea = React.lazy(() => import("@/routes/Chat").then((module) => ({ default: module.ChatArea })))
 const ConnectionsPanel = React.lazy(() =>
   import("@/routes/Connections").then((module) => ({ default: module.ConnectionsPanel })),
+)
+const OpenConnectorConnectionsPanel = React.lazy(() =>
+  import("@/routes/Connections/OpenConnectorConnectionsPanel.tsx").then((module) => ({
+    default: module.OpenConnectorConnectionsPanel,
+  })),
 )
 const SelfHostedConnectionsPlaceholder = React.lazy(() =>
   import("@/routes/Connections/SelfHostedConnectionsPlaceholder.tsx").then((module) => ({
@@ -151,8 +158,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const appUpdate = useAppUpdate()
   const appSettings = useAppSettings()
   const runtimeCapabilities = useRuntimeCapabilities().capabilities
+  const linkRuntime = useLinkRuntime()
   const authenticated = auth.state?.status === "authenticated"
-  const cloudEnabled = authenticated && runtimeCapabilities?.mode === "oomol"
+  const oomolEnabled = authenticated && runtimeCapabilities?.mode === "oomol"
+  const linksEnabled = runtimeCapabilities?.connectors === true
+  const oomolLinkActive = oomolEnabled && linkRuntime.state?.active === "oomol"
   React.useEffect(() => {
     if (auth.error?.kind === "auth_required") {
       toast.info(userFacingErrorDescription(auth.error, t), { id: "auth-session-expired" })
@@ -161,13 +171,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const [ready, setReady] = React.useState(false)
   const [billingInitialTarget, setBillingInitialTarget] = React.useState<BillingDetailsTarget | null>(null)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
-  const accountId = cloudEnabled ? auth.state?.account?.id : undefined
+  const accountId = oomolEnabled ? auth.state?.account?.id : undefined
   const teamWorkspace = useTeamWorkspace(accountId)
   const teamSkills = useTeamSkills(teamWorkspace.activeWorkspace, accountId)
   const skillInventory = useSkillInventoryResource()
   const knowledgeBaseBetaEnabled = appSettings.settings.knowledgeBaseBetaEnabled
   const knowledgeLibrary = useKnowledgeBases(knowledgeBaseBetaEnabled)
-  const connections = useConnections(cloudEnabled ? teamWorkspace.connectionWorkspace : null)
+  const connections = useConnections(oomolLinkActive ? teamWorkspace.connectionWorkspace : null)
   const sessionScope = React.useMemo(
     () => sessionScopeFromWorkspace(teamWorkspace.activeWorkspace),
     [teamWorkspace.activeWorkspace],
@@ -218,9 +228,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       agentScopeSyncError: connections.scopeSyncError,
       agentScopeWorkspaceKey: connections.agentScopeWorkspaceKey,
       connectionSettledWorkspaceKey: connections.summaryWorkspaceKey,
+      connectionWorkspaceRequired: oomolLinkActive,
       connectionWorkspaceKey: currentConnectionWorkspaceKey,
       connectionsRefreshing: connections.busy === "refresh",
-      cloudWorkspaceRequired: cloudEnabled,
+      cloudWorkspaceRequired: oomolEnabled,
       currentScopeKey,
       loadedSessionScopeKey: sessionsLoadedScopeKey,
       teamSkillsSettled,
@@ -250,10 +261,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   )
   const [route, setRoute] = React.useState<Route>(initialRoute)
   React.useEffect(() => {
-    if (!routeAvailableForRuntime(route, cloudEnabled)) {
+    if (!routeAvailableForRuntime(route, oomolEnabled)) {
       setRoute("chat")
     }
-  }, [cloudEnabled, route])
+  }, [oomolEnabled, route])
   const [selectedSessionId, setSelectedSessionId] = React.useState<string | null>(null)
   const [pendingAttentionSession, setPendingAttentionSession] = React.useState<{
     teamRefreshAttempted: boolean
@@ -801,6 +812,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       !sessionsSettledForCurrentScope ||
       needsDefaultSessionSelection ||
       Boolean(activeChatSessionId && !messagesLoaded && !activePendingChatTransition))
+  const chatSubmitDisabled = !ready || chatBootstrapping || workspaceActivationBlocked || !sessionScope
   const showChatEmptyState =
     (ready || modelRequired) &&
     sessionsSettledForCurrentScope &&
@@ -1333,7 +1345,26 @@ export function AppShell({ auth }: { auth: UseAuth }) {
 
   const handleAuthorize = React.useCallback(
     (auth: AuthorizationInfo, source?: ChatTurnRetrySource): void => {
-      // R5 闭环：打开聊天内连接抽屉并定位该 provider；记录原 action，待用户完成授权后自动重试。
+      const handling = authorizationHandlingForLinkRuntime(linkRuntime.state?.active ?? "none")
+      if (handling === "external") {
+        if (auth.authUrl) {
+          void chatService.invoke("openExternalUrl", { url: auth.authUrl }).catch((error: unknown) => {
+            reportRendererHandledError("connections", "open OpenConnector authorization URL failed", error)
+            toast.error(t("connections.openConnector.openFailed"))
+          })
+        } else {
+          setRoute("connections")
+        }
+        toast.info(t("connections.openConnector.completeAndRetry"))
+        return
+      }
+      if (handling === "connections") {
+        setRoute("connections")
+        toast.info(t("connections.linkRuntimeUnavailable"))
+        return
+      }
+
+      // Keep OOMOL authorization in the in-app drawer and retry after the connection is ready.
       const createdAt = Date.now()
       const authIntent: ConnectionAuthIntent = {
         action: auth.action,
@@ -1383,10 +1414,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       activeComposerDraftKey,
       activeProjectContext,
       activeChatSessionId,
+      chatService,
       displayedPermissionMode,
+      linkRuntime.state?.active,
       teamSkills.chatContextSkills,
       prepareRetry,
       sessionScope,
+      t,
     ],
   )
   const handleChatConnectionReady = React.useCallback(
@@ -1496,12 +1530,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     }
   }, [activeChatSessionId, stop])
   const handleOpenConnectionsCommand = React.useCallback((): void => {
-    if (cloudEnabled) {
+    if (oomolLinkActive) {
       handleOpenConnections()
       return
     }
     setRoute("connections")
-  }, [cloudEnabled, handleOpenConnections])
+  }, [handleOpenConnections, oomolLinkActive])
   const handleOpenSettingsCommand = React.useCallback((): void => {
     setSearchOpen(false)
     setRoute("settings")
@@ -1671,6 +1705,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       <>
         <React.Suspense fallback={<RouteLoadingFallback />}>
           <SettingsRoute
+            linkRuntime={linkRuntime}
             update={appUpdate}
             titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}
             onBack={() => setRoute("chat")}
@@ -1681,7 +1716,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     )
   }
 
-  if (route === "billing" && cloudEnabled) {
+  if (route === "billing" && oomolEnabled) {
     return (
       <>
         <React.Suspense fallback={<RouteLoadingFallback />}>
@@ -1743,7 +1778,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         activeRoute={route}
         selectedSessionId={selectedSessionId}
         avatarUrl={auth.state?.account?.avatarUrl}
-        cloudEnabled={cloudEnabled}
+        cloudEnabled={oomolEnabled}
         collapsed={sidebarCollapsed}
         collapsedProjectIds={collapsedProjectIds}
         hasUnreadSession={hasUnreadSession}
@@ -1816,13 +1851,15 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             onOpenSearch={handleOpenSearch}
             onRenameSession={sessionActions.handleRename}
             onToggleSidebar={handleToggleSidebar}
-            onViewBilling={cloudEnabled ? handleViewBilling : undefined}
+            onViewBilling={oomolEnabled ? handleViewBilling : undefined}
           />
 
           <main className="oo-content-surface min-h-0 min-w-0 overflow-hidden">
             <React.Suspense fallback={<RouteLoadingFallback />}>
               {route === "connections" ? (
-                cloudEnabled ? (
+                linkRuntime.state?.active === "openconnector" ? (
+                  <OpenConnectorConnectionsPanel runtime={linkRuntime} />
+                ) : oomolLinkActive ? (
                   <div className="h-full min-h-0 p-0">
                     <ConnectionsPanel
                       canManageConnections={canManageWorkspaceConnections}
@@ -1832,11 +1869,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                     />
                   </div>
                 ) : (
-                  <SelfHostedConnectionsPlaceholder />
+                  <SelfHostedConnectionsPlaceholder onOpenSettings={() => setRoute("settings")} />
                 )
               ) : route === "skills" ? (
                 <SkillsRoute
-                  cloudEnabled={cloudEnabled}
+                  cloudEnabled={oomolEnabled}
                   connectedProvidersLoading={activeProvidersLoading}
                   teamSkills={teamSkills}
                   providerSkillRecommendationsState={providerSkillRecommendations}
@@ -1844,7 +1881,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                 />
               ) : route === "knowledge" && knowledgeBaseBetaEnabled ? (
                 <KnowledgeRoute knowledge={knowledgeLibrary} onStartChat={handleStartKnowledgeChat} />
-              ) : route === "teams" && cloudEnabled ? (
+              ) : route === "teams" && oomolEnabled ? (
                 <TeamManagementRoute
                   connectedProvidersLoading={activeProvidersLoading}
                   teamSkills={teamSkills}
@@ -1888,7 +1925,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       emptyTitle={chatEmptyTitle}
                       generatedArtifacts={latestArtifactSelection}
                       historyScope={billingCacheScope}
-                      submitDisabled={!ready || chatBootstrapping || workspaceActivationBlocked || !sessionScope}
+                      submitDisabled={chatSubmitDisabled}
                       willQueueMessage={Boolean(
                         activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isSendInFlight()),
                       )}
@@ -1896,13 +1933,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       initialSendPending={initialSendPending}
                       composerFocusRequest={composerFocusRequest}
                       cloudModelsEnabled={runtimeCapabilities?.oomolCloudModels === true}
-                      canManageWorkspaceConnections={cloudEnabled && canManageWorkspaceConnections}
-                      emptyStateConnectionSummary={cloudEnabled ? emptyStateConnectionSummary : null}
-                      teamSkillEntryVisible={cloudEnabled && teamSkillEntryVisible}
-                      teamSkillShowcaseItems={cloudEnabled ? teamSkillShowcaseItems : []}
-                      teamSkillPendingInstallCount={cloudEnabled ? recommendedSkillPendingInstallCount : 0}
-                      teamSkills={cloudEnabled ? teamSkills.chatContextSkills : []}
-                      providers={cloudEnabled ? activeProviders : []}
+                      canManageWorkspaceConnections={oomolLinkActive && canManageWorkspaceConnections}
+                      emptyStateConnectionSummary={oomolLinkActive ? emptyStateConnectionSummary : null}
+                      teamSkillEntryVisible={oomolEnabled && teamSkillEntryVisible}
+                      teamSkillShowcaseItems={oomolEnabled ? teamSkillShowcaseItems : []}
+                      teamSkillPendingInstallCount={oomolEnabled ? recommendedSkillPendingInstallCount : 0}
+                      teamSkills={oomolEnabled ? teamSkills.chatContextSkills : []}
+                      providers={oomolLinkActive ? activeProviders : []}
                       queueHeld={activeQueueHeld}
                       queuedMessages={activeQueuedMessages}
                       contextBar={composerProjectContext}
@@ -1913,7 +1950,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                           : modelRequired
                             ? t("chat.modelRequiredPlaceholder")
                             : ready
-                              ? t(cloudEnabled ? "chat.inputPlaceholder" : "chat.inputPlaceholderLocal")
+                              ? t(linksEnabled ? "chat.inputPlaceholder" : "chat.inputPlaceholderLocal")
                               : t("chat.agentStarting")
                       }
                       onComposerStateChange={handleComposerStateChange}
@@ -1935,21 +1972,21 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       onArtifactsAvailable={handleArtifactsAvailable}
                       onTurnOutputOpen={handleTurnOutputOpen}
                       onTurnOutputAvailable={handleTurnOutputAvailable}
-                      onOpenConnections={cloudEnabled ? handleOpenConnections : undefined}
-                      onOpenConnectionProvider={cloudEnabled ? handleOpenChatConnectionProvider : undefined}
+                      onOpenConnections={linksEnabled ? handleOpenConnectionsCommand : undefined}
+                      onOpenConnectionProvider={oomolLinkActive ? handleOpenChatConnectionProvider : undefined}
                       onOpenKnowledgeLibrary={handleOpenKnowledgeLibrary}
-                      onOpenTeams={cloudEnabled ? handleOpenTeams : undefined}
+                      onOpenTeams={oomolEnabled ? handleOpenTeams : undefined}
                       onSelectKnowledgeBase={handleAddKnowledgeBaseReference}
-                      onViewBilling={cloudEnabled ? handleViewBilling : undefined}
+                      onViewBilling={oomolEnabled ? handleViewBilling : undefined}
                     />
                   </div>
                   <AppShellConnectionDrawer
                     authIntent={chatConnectionAuthIntent}
-                    canManageConnections={cloudEnabled && canManageWorkspaceConnections}
+                    canManageConnections={oomolLinkActive && canManageWorkspaceConnections}
                     connections={connections}
                     onConnectionReady={handleChatConnectionReady}
                     selectedService={chatConnectionSelectedService}
-                    visible={cloudEnabled && chatConnectionDrawerVisible}
+                    visible={oomolLinkActive && chatConnectionDrawerVisible}
                     onClose={handleCloseChatConnectionDrawer}
                   />
                 </div>

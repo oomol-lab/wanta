@@ -18,6 +18,15 @@ function isOoExecutable(word: string): boolean {
   return word === "oo" || word === "$WANTA_OO_BIN" || word === "${WANTA_OO_BIN}"
 }
 
+const ooCommandPrefix = /^(?:oo|"?\$WANTA_OO_BIN"?|"?\$\{WANTA_OO_BIN\}"?)(?:\s|$)/u
+const credentialEnvironmentReference = /\b(?:OO_CONNECTOR_TOKEN|OO_API_KEY)\b/u
+const environmentDumpCommand = /^(?:env|printenv|set|export|declare\s+-x|typeset\s+-x)(?:\s|$)/u
+const linkEnvironmentAssignment = /\b(?:OO_CONNECTOR_URL|OO_ENDPOINT|OO_CONFIG_DIR|OO_DATA_DIR)\s*=/u
+const ooCommandSegment = /(?:^|[;&|]{1,2}\s*)(?:oo|"?\$WANTA_OO_BIN"?|"?\$\{WANTA_OO_BIN\}"?)(?:\s|$)/u
+const forbiddenOoMutation =
+  /(?:^|[;&|]{1,2}\s*)(?:oo|"?\$WANTA_OO_BIN"?|"?\$\{WANTA_OO_BIN\}"?)\s+(?:(?:auth|login|logout|config)(?:\s|[;&|]|$)|connector\s+(?:login|logout)(?:\s|[;&|]|$))/u
+const forbiddenOoOption = /(?:^|\s)--(?:endpoint|config-dir|data-dir|connector-url|connector-token)(?:=|\s|$)/u
+
 function hasUnsafeShellSyntax(command: string): boolean {
   let singleQuoted = false
   let doubleQuoted = false
@@ -111,6 +120,13 @@ function shellWords(command: string): string[] | null {
   return words
 }
 
+function isEnvironmentDump(command: string): boolean {
+  if (environmentDumpCommand.test(command)) return true
+  const words = shellWords(command)
+  if (!words || !["bash", "sh", "zsh"].includes(words[0] ?? "")) return false
+  return words.slice(1).some((word) => ["env", "printenv", "set", "export"].includes(word))
+}
+
 export function isPureOoCliCommand(command: string): boolean {
   const trimmed = command.trim()
   if (!trimmed || hasUnsafeShellSyntax(trimmed)) {
@@ -124,4 +140,24 @@ export function isPureOoCliCommand(command: string): boolean {
 
   // 不自动放行前置 env 赋值，避免 PATH / endpoint / 二进制路径被这一条命令改写。
   return isOoExecutable(words[0] ?? "")
+}
+
+export function isOoCliCommand(command: string): boolean {
+  return ooCommandPrefix.test(command.trim())
+}
+
+export function openConnectorCommandPolicy(command: string): "deny" | "prompt" | null {
+  const trimmed = command.trim()
+  if (
+    credentialEnvironmentReference.test(trimmed) ||
+    isEnvironmentDump(trimmed) ||
+    linkEnvironmentAssignment.test(trimmed) ||
+    forbiddenOoMutation.test(trimmed) ||
+    (ooCommandSegment.test(trimmed) && forbiddenOoOption.test(trimmed))
+  ) {
+    return "deny"
+  }
+  if (!isOoCliCommand(trimmed)) return null
+  if (hasUnsafeShellSyntax(trimmed)) return "prompt"
+  return "prompt"
 }

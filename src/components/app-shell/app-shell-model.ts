@@ -10,6 +10,7 @@ import type {
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { GitRepositoryState } from "../../../electron/git/common.ts"
+import type { ActiveLinkRuntime } from "../../../electron/link-runtime/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
@@ -283,6 +284,17 @@ export function routeAvailableForRuntime(route: Route, cloudEnabled: boolean): b
   return cloudEnabled || (route !== "billing" && route !== "teams")
 }
 
+export function authorizationHandlingForLinkRuntime(runtime: ActiveLinkRuntime): "connections" | "drawer" | "external" {
+  switch (runtime) {
+    case "oomol":
+      return "drawer"
+    case "openconnector":
+      return "external"
+    case "none":
+      return "connections"
+  }
+}
+
 export function projectContextControlsDisabled(activeSessionId: string | null, activeSessionRunning: boolean): boolean {
   return Boolean(activeSessionId && activeSessionRunning)
 }
@@ -374,6 +386,7 @@ export interface WorkspaceActivationInput {
   agentScopeSyncError: UserFacingError | null
   agentScopeWorkspaceKey: string | null
   connectionSettledWorkspaceKey: string | null
+  connectionWorkspaceRequired: boolean
   connectionWorkspaceKey: string | null
   connectionsRefreshing: boolean
   cloudWorkspaceRequired: boolean
@@ -425,7 +438,7 @@ export function resolveWorkspaceActivationState(input: WorkspaceActivationInput)
       targetScopeKey: input.targetScopeKey,
     }
   }
-  if (input.agentScopeSyncError) {
+  if (input.connectionWorkspaceRequired && input.agentScopeSyncError) {
     return {
       error: input.agentScopeSyncError,
       reason: "agent_scope",
@@ -445,11 +458,13 @@ export function resolveWorkspaceActivationState(input: WorkspaceActivationInput)
   if (!input.connectionWorkspaceKey) {
     return { phase: "workspace_metadata", status: "activating", targetScopeKey: input.targetScopeKey }
   }
-  if (input.agentScopeWorkspaceKey !== input.connectionWorkspaceKey) {
-    return { phase: "agent_scope", status: "activating", targetScopeKey: input.targetScopeKey }
-  }
-  if (input.connectionsRefreshing || input.connectionSettledWorkspaceKey !== input.connectionWorkspaceKey) {
-    return { phase: "connections", status: "activating", targetScopeKey: input.targetScopeKey }
+  if (input.connectionWorkspaceRequired) {
+    if (input.agentScopeWorkspaceKey !== input.connectionWorkspaceKey) {
+      return { phase: "agent_scope", status: "activating", targetScopeKey: input.targetScopeKey }
+    }
+    if (input.connectionsRefreshing || input.connectionSettledWorkspaceKey !== input.connectionWorkspaceKey) {
+      return { phase: "connections", status: "activating", targetScopeKey: input.targetScopeKey }
+    }
   }
   if (!input.teamSkillsSettled) {
     return { phase: "team_skills", status: "activating", targetScopeKey: input.targetScopeKey }

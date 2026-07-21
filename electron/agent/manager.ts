@@ -9,6 +9,7 @@ import type {
 } from "../chat/common.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { RuntimeCustomModel } from "../models/store.ts"
+import type { LinkRuntime, ModelAccess } from "../runtime/agent-runtime.ts"
 import type { GenerateSessionTitleRequest, SessionInfo } from "../session/common.ts"
 import type { GeneratedSessionTitle } from "./session-title-generator.ts"
 import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@opencode-ai/sdk/v2/client"
@@ -30,7 +31,7 @@ import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_I
 import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
 import { writeOoIdentitySettings } from "./oo-identity.ts"
-import { buildOoEnv } from "./oo.ts"
+import { buildAgentLinkEnv } from "./oo.ts"
 import { managedPythonEnvironmentPath, managedPythonExecutable } from "./python-environment.ts"
 import { opencodeReasoningVariant } from "./reasoning.ts"
 import { generateSessionTitle as generateTitle } from "./session-title-generator.ts"
@@ -39,19 +40,18 @@ import { ensureAgentWorkspace } from "./workspace.ts"
 
 export type { GeneratedSessionTitle } from "./session-title-generator.ts"
 
-/** 主进程私有的云能力上下文；OOMOL token 不得跨 IPC/RPC 边界。 */
-export type MainProcessCloudRuntime = { kind: "local" } | { kind: "oomol"; sessionToken: string; teamName?: string }
-
 export interface AgentManagerOptions {
-  cloudRuntime: MainProcessCloudRuntime
+  linkRuntime: LinkRuntime | null
+  modelAccess: ModelAccess
   /** opencode 二进制绝对路径。 */
   opencodeBinPath: string
-  /** oo 二进制只供 OOMOL runtime 使用；本地 runtime 不解析也不注入。 */
+  /** The oo binary is resolved and injected only when a Link runtime is configured. */
   ooBinPath?: string
   /** WikiGraph CLI 的 Node 入口与执行器；仅供 Wanta 只读知识查询工具使用。 */
   wikiGraphCliPath?: string
   wikiGraphExecutablePath?: string
   knowledgeRegistryPath?: string
+  listOpenConnectorAuthorizedServices?: (signal?: AbortSignal) => Promise<string[]>
   /** 内置 oo skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
   /** 构建期合并的自定义工具 runtime；启动时拷进 .opencode/runtime/tool.js。 */
@@ -72,7 +72,7 @@ function normalizeTeamName(teamName: string | undefined): string | undefined {
 }
 
 function requireOoBinPath(ooBinPath: string | undefined): string {
-  if (!ooBinPath) throw new Error("The OOMOL Agent runtime requires the oo binary path.")
+  if (!ooBinPath) throw new Error("The Link runtime requires the oo binary path.")
   return ooBinPath
 }
 
@@ -235,7 +235,7 @@ export class AgentManager {
 
   public constructor(options: AgentManagerOptions) {
     this.options = options
-    this.teamName = options.cloudRuntime.kind === "oomol" ? normalizeTeamName(options.cloudRuntime.teamName) : undefined
+    this.teamName = options.linkRuntime?.kind === "oomol" ? normalizeTeamName(options.linkRuntime.teamName) : undefined
   }
 
   public get client(): OpencodeClient {
@@ -370,14 +370,18 @@ export class AgentManager {
     const workspaceDir = path.join(rootDir, "workspace")
     const teamScopePath = path.join(rootDir, "team-scope.json")
 
-    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, this.options.cloudRuntime.kind)
+    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, {
+      bundledOoSkills: this.options.linkRuntime?.kind === "oomol",
+      connectors: this.options.linkRuntime !== null,
+    })
     this.teamScopePath = teamScopePath
     await this.writeTeamState(this.teamName)
   }
 
   private async startSidecar(): Promise<void> {
     const {
-      cloudRuntime,
+      linkRuntime,
+      modelAccess,
       opencodeBinPath,
       ooBinPath,
       rootDir,
@@ -393,19 +397,18 @@ export class AgentManager {
     const storeDir = path.join(rootDir, "oo-store")
     const teamScopePath = this.teamScopePath ?? path.join(rootDir, "team-scope.json")
 
-    const config = buildOpencodeConfig({ cloudRuntime, customModels, defaultModel })
-    const ooEnv =
-      cloudRuntime.kind === "oomol"
-        ? buildOoEnv({
-            authToken: cloudRuntime.sessionToken,
-            teamName: this.teamName,
-            teamScopePath,
-            storeDir,
-            ooBinPath: requireOoBinPath(ooBinPath),
-          })
-        : {}
+    const config = buildOpencodeConfig({ customModels, defaultModel, linkRuntime, modelAccess })
+    const ooEnv = linkRuntime
+      ? buildAgentLinkEnv({
+          linkRuntime,
+          teamName: this.teamName,
+          teamScopePath,
+          storeDir,
+          ooBinPath: requireOoBinPath(ooBinPath),
+        })
+      : { WANTA_TEAM_SCOPE_PATH: teamScopePath }
     const commandPath = await resolveUserCommandPath({
-      preferredDirectories: cloudRuntime.kind === "oomol" && ooBinPath ? [path.dirname(ooBinPath)] : [],
+      preferredDirectories: linkRuntime && ooBinPath ? [path.dirname(ooBinPath)] : [],
     })
     const env: Record<string, string> = {
       ...ooEnv,
@@ -715,13 +718,13 @@ export class AgentManager {
     modelID: string
   } {
     const effectiveChoice = choice ?? this.options.defaultModel
-    if (this.options.cloudRuntime.kind !== "oomol") {
+    if (this.options.modelAccess.kind !== "oomol") {
       const customModel = this.resolveLocalCustomModel(effectiveChoice)
       return { apiKey: customModel.apiKey, baseUrl: customModel.baseUrl, modelID: customModel.modelName }
     }
     const resolved = this.resolveModel(effectiveChoice)
     if (effectiveChoice?.kind !== "custom") {
-      return { apiKey: this.options.cloudRuntime.sessionToken, baseUrl: llmBaseUrl, modelID: resolved.modelID }
+      return { apiKey: this.options.modelAccess.sessionToken, baseUrl: llmBaseUrl, modelID: resolved.modelID }
     }
     const customModel = this.options.customModels?.find((item) => item.id === effectiveChoice.id)
     if (!customModel) {
@@ -817,7 +820,7 @@ export class AgentManager {
       return
     }
     const tail = mergeSystemPrompts(
-      this.options.cloudRuntime.kind === "oomol" ? buildWorkspaceIdentitySystem(options.teamName) : undefined,
+      this.options.linkRuntime?.kind === "oomol" ? buildWorkspaceIdentitySystem(options.teamName) : undefined,
       await this.buildAuthorizedSystem(options.teamName, options.signal),
       options.system,
       buildArtifactSystem(options.artifactDir, options.outputProjectRoot),
@@ -861,7 +864,7 @@ export class AgentManager {
 
   /** R4：构建注入系统提示末尾的已授权 Link 可用性提示（无已授权则 undefined）。 */
   public async buildAuthorizedSystem(teamName?: string, signal?: AbortSignal): Promise<string | undefined> {
-    if (this.options.cloudRuntime.kind !== "oomol") return undefined
+    if (!this.options.linkRuntime) return undefined
     const services = await this.authorizedServicesForPrompt(teamName, signal)
     if (services.length === 0) {
       return undefined
@@ -876,7 +879,10 @@ export class AgentManager {
 
   /** 提示词关键路径只等待很短预算；过期值可立即复用，刷新在后台完成。 */
   private async authorizedServicesForPrompt(teamName?: string, signal?: AbortSignal): Promise<string[]> {
-    const cacheKey = normalizeTeamName(teamName) ?? ""
+    const cacheKey =
+      this.options.linkRuntime?.kind === "openconnector"
+        ? `openconnector:${this.options.linkRuntime.baseUrl}`
+        : `oomol:${connectorBaseUrl}:team:${normalizeTeamName(teamName) ?? ""}`
     const cached = this.authorizedServicesCache.get(cacheKey)
     if (cached && Date.now() - cached.loadedAt < authorizedServicesCacheTtlMs) {
       return cached.services
@@ -908,15 +914,18 @@ export class AgentManager {
 
   /** 直查 connector /v1/apps，返回已授权（active）service 名清单（R4 动态系统提示用）。 */
   public async listAuthorizedServices(teamName?: string, signal?: AbortSignal): Promise<string[]> {
-    if (!this.started || this.options.cloudRuntime.kind !== "oomol") {
+    if (!this.started || !this.options.linkRuntime) {
       return []
+    }
+    if (this.options.linkRuntime.kind === "openconnector") {
+      return this.options.listOpenConnectorAuthorizedServices?.(signal) ?? []
     }
     const normalizedTeamName = normalizeTeamName(teamName)
     const requestSignal = signalWithTimeout(signal, 15_000)
     try {
       const response = await fetch(`${connectorBaseUrl}/v1/apps`, {
         headers: {
-          Authorization: `Bearer ${this.options.cloudRuntime.sessionToken}`,
+          Authorization: `Bearer ${this.options.linkRuntime.sessionToken}`,
           ...(normalizedTeamName ? { "x-oo-organization-name": normalizedTeamName } : {}),
         },
         signal: requestSignal.signal,
@@ -1081,7 +1090,7 @@ export class AgentManager {
 
   private resolveModel(choice: ModelChoice | undefined): { providerID: string; modelID: string } {
     const effectiveChoice = choice ?? this.options.defaultModel
-    if (this.options.cloudRuntime.kind !== "oomol") {
+    if (this.options.modelAccess.kind !== "oomol") {
       const customModel = this.resolveLocalCustomModel(effectiveChoice)
       return { providerID: customProviderId(customModel.id), modelID: customModel.modelName }
     }
@@ -1106,7 +1115,7 @@ export class AgentManager {
       return undefined
     }
     const effectiveChoice = choice ?? this.options.defaultModel
-    if (this.options.cloudRuntime.kind !== "oomol") {
+    if (this.options.modelAccess.kind !== "oomol") {
       const model = this.resolveLocalCustomModel(effectiveChoice)
       return model.reasoningVariants?.includes(variant) ? variant : undefined
     }
@@ -1122,7 +1131,7 @@ export class AgentManager {
 
   private resolveAttachmentCapabilities(choice: ModelChoice | undefined): { images: boolean; pdf: boolean } {
     const effectiveChoice = choice ?? this.options.defaultModel
-    if (this.options.cloudRuntime.kind !== "oomol") {
+    if (this.options.modelAccess.kind !== "oomol") {
       const model = this.resolveLocalCustomModel(effectiveChoice)
       return { images: model.supportsImages === true, pdf: false }
     }

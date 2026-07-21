@@ -4,6 +4,7 @@ import type { CompletionNotificationCondition } from "../../../electron/settings
 import type { UpdateChannel } from "../../../electron/update/common.ts"
 import type { ThemePreference } from "@/components/theme-context"
 import type { UseAppUpdate } from "@/hooks/useAppUpdate"
+import type { UseLinkRuntime } from "@/hooks/useLinkRuntime"
 import type { Locale, MessageKey } from "@/i18n/i18n"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
@@ -12,13 +13,17 @@ import {
   CheckIcon,
   CopyIcon,
   DownloadIcon,
+  ExternalLinkIcon,
+  KeyRoundIcon,
   LogOutIcon,
   LogInIcon,
   MonitorIcon,
   MoonIcon,
   RefreshCwIcon,
   RotateCcwIcon,
+  ServerIcon,
   SunIcon,
+  Trash2Icon,
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
@@ -30,6 +35,7 @@ import { PageRouteShell } from "@/components/PageRouteShell"
 import { SectionHeading } from "@/components/SectionHeading"
 import { useTheme } from "@/components/theme-context"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -65,11 +71,13 @@ const completionNotificationOptions = [
 const copyFeedbackMs = 3000
 
 export function SettingsRoute({
+  linkRuntime,
   onBack,
   titlebarActions,
   update,
 }: {
   onBack: () => void
+  linkRuntime: UseLinkRuntime
   titlebarActions: React.ReactNode
   update: UseAppUpdate
 }) {
@@ -89,6 +97,10 @@ export function SettingsRoute({
       <h1 className="oo-text-page-title">{t("settings.title")}</h1>
 
       <div className="grid gap-5">
+        <SettingsSection title={t("settings.groupLinkRuntime")}>
+          <LinkRuntimeSettings runtime={linkRuntime} />
+        </SettingsSection>
+
         <SettingsSection title={t("settings.groupAccount")}>
           <AccountSettings
             account={auth.state?.account}
@@ -135,6 +147,222 @@ export function SettingsRoute({
       </div>
     </PageRouteShell>
   )
+}
+
+function LinkRuntimeSettings({ runtime }: { runtime: UseLinkRuntime }) {
+  const { t } = useI18n()
+  const [baseUrl, setBaseUrl] = React.useState("")
+  const [consoleUrl, setConsoleUrl] = React.useState("")
+  const [runtimeToken, setRuntimeToken] = React.useState("")
+  const state = runtime.state
+  const saved = state?.openConnector
+
+  React.useEffect(() => {
+    setBaseUrl(saved?.baseUrl ?? "")
+    setConsoleUrl(saved?.consoleUrl ?? "")
+  }, [saved?.baseUrl, saved?.consoleUrl])
+
+  const reportFailure = React.useCallback(
+    (cause: unknown) => {
+      toast.error(t("settings.linkRuntimeActionFailed"))
+      console.error("[wanta] Link runtime action failed", cause)
+    },
+    [t],
+  )
+  const select = (kind: "oomol" | "openconnector") => {
+    void runtime.selectRuntime(kind).catch(reportFailure)
+  }
+  const save = () => {
+    const token = runtimeToken.trim()
+    setRuntimeToken("")
+    void runtime
+      .saveOpenConnector({
+        baseUrl,
+        ...(consoleUrl.trim() ? { consoleUrl } : {}),
+        ...(token ? { runtimeToken: token } : {}),
+      })
+      .then(() => toast.success(t("settings.linkRuntimeSaved")))
+      .catch(reportFailure)
+  }
+  const test = () => {
+    const token = runtimeToken.trim()
+    setRuntimeToken("")
+    void runtime
+      .testOpenConnector({ baseUrl, ...(token ? { runtimeToken: token } : {}) })
+      .then((result) => {
+        if (result.kind === "online") toast.success(t("settings.linkRuntimeTestOnline"))
+        else if (result.kind === "unauthorized") toast.error(t("settings.linkRuntimeTestUnauthorized"))
+        else if (result.kind === "offline") toast.error(t("settings.linkRuntimeTestOffline"))
+        else toast.error(t("settings.linkRuntimeTestIncompatible"))
+      })
+      .catch(reportFailure)
+  }
+
+  return (
+    <>
+      <SettingsItem title={t("settings.linkRuntimeActive")} description={t("settings.linkRuntimeDescription")}>
+        <div className="grid justify-items-end gap-2 max-[760px]:justify-items-start">
+          <span className="oo-text-caption">
+            {t("settings.linkRuntimeResolved", {
+              runtime:
+                state?.active === "oomol"
+                  ? "OOMOL"
+                  : state?.active === "openconnector"
+                    ? "OpenConnector"
+                    : t("settings.linkRuntimeNone"),
+            })}
+          </span>
+          <div className="flex flex-wrap justify-end gap-2 max-[760px]:justify-start">
+            <Button
+              type="button"
+              size="sm"
+              variant={state?.selected === "oomol" ? "default" : "outline"}
+              disabled={runtime.busy || runtime.loading}
+              onClick={() => select("oomol")}
+            >
+              OOMOL
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={state?.selected === "openconnector" ? "default" : "outline"}
+              disabled={runtime.busy || runtime.loading}
+              onClick={() => select("openconnector")}
+            >
+              OpenConnector
+            </Button>
+          </div>
+        </div>
+      </SettingsItem>
+
+      <section className="grid gap-4 border-b border-[var(--oo-divider)] px-3 py-4 last:border-b-0">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <ServerIcon className="size-4 text-muted-foreground" />
+            <div>
+              <h3 className="oo-text-label text-foreground">{t("settings.openConnectorTitle")}</h3>
+              <p className="oo-text-caption">
+                {t(
+                  runtime.loading || runtime.busy
+                    ? "settings.linkRuntimeStatusChecking"
+                    : linkRuntimeStatusKey(runtime.status.kind),
+                )}
+              </p>
+            </div>
+          </div>
+          <span className="oo-text-caption rounded-full border px-2 py-0.5">
+            {state?.active === "openconnector"
+              ? t("settings.linkRuntimeInUse")
+              : state?.selected === "openconnector"
+                ? t("settings.linkRuntimeUnavailable")
+                : t("settings.linkRuntimeNotSelected")}
+          </span>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="grid gap-1.5">
+            <span className="oo-text-label">{t("settings.openConnectorBaseUrl")}</span>
+            <Input
+              value={baseUrl}
+              placeholder="http://127.0.0.1:3000"
+              disabled={runtime.busy}
+              onChange={(event) => setBaseUrl(event.target.value)}
+            />
+          </label>
+          <label className="grid gap-1.5">
+            <span className="oo-text-label">{t("settings.openConnectorConsoleUrl")}</span>
+            <Input
+              value={consoleUrl}
+              placeholder={baseUrl || "http://127.0.0.1:5173"}
+              disabled={runtime.busy}
+              onChange={(event) => setConsoleUrl(event.target.value)}
+            />
+          </label>
+        </div>
+
+        <label className="grid gap-1.5">
+          <span className="oo-text-label flex items-center gap-1.5">
+            <KeyRoundIcon className="size-3.5" />
+            {t("settings.openConnectorRuntimeToken")}
+          </span>
+          <Input
+            type="password"
+            autoComplete="off"
+            value={runtimeToken}
+            placeholder={
+              saved?.tokenConfigured
+                ? t("settings.openConnectorTokenConfigured")
+                : t("settings.openConnectorTokenOptional")
+            }
+            disabled={runtime.busy}
+            onChange={(event) => setRuntimeToken(event.target.value)}
+          />
+        </label>
+
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" disabled={runtime.busy || !baseUrl.trim()} onClick={test}>
+            {t("settings.openConnectorTest")}
+          </Button>
+          <Button type="button" size="sm" variant="outline" disabled={runtime.busy || !baseUrl.trim()} onClick={save}>
+            {t("common.save")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={runtime.busy || !saved?.consoleUrl}
+            onClick={() => {
+              if (saved?.consoleUrl) window.open(saved.consoleUrl, "_blank", "noopener,noreferrer")
+            }}
+          >
+            <ExternalLinkIcon className="size-4" />
+            {t("settings.openConnectorOpenConsole")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={runtime.busy || !saved?.tokenConfigured}
+            onClick={() => {
+              if (!globalThis.confirm(t("settings.openConnectorClearTokenConfirm"))) return
+              setRuntimeToken("")
+              void runtime.clearOpenConnectorToken().catch(reportFailure)
+            }}
+          >
+            {t("settings.openConnectorClearToken")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={runtime.busy || !saved}
+            onClick={() => {
+              if (!globalThis.confirm(t("settings.openConnectorRemoveConfirm"))) return
+              void runtime.removeOpenConnector().catch(reportFailure)
+            }}
+          >
+            <Trash2Icon className="size-4" />
+            {t("settings.openConnectorRemove")}
+          </Button>
+        </div>
+      </section>
+    </>
+  )
+}
+
+function linkRuntimeStatusKey(kind: UseLinkRuntime["status"]["kind"]): MessageKey {
+  switch (kind) {
+    case "online":
+      return "settings.linkRuntimeStatusOnline"
+    case "offline":
+      return "settings.linkRuntimeStatusOffline"
+    case "unauthorized":
+      return "settings.linkRuntimeStatusUnauthorized"
+    case "incompatible":
+      return "settings.linkRuntimeStatusIncompatible"
+    case "unknown":
+      return "settings.linkRuntimeStatusUnknown"
+  }
 }
 
 function NotificationSettings({

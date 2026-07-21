@@ -35,10 +35,14 @@ afterEach(() => {
 test("runtime capabilities remain credential-free across the chat service boundary", async () => {
   const service = new ChatServiceImpl()
   expect(await service.getRuntimeCapabilities()).toEqual(
-    resolveRuntimeCapabilities({ mode: "local", localAgentAvailable: false }),
+    resolveRuntimeCapabilities({ mode: "local", localAgentAvailable: false, linkRuntimeAvailable: false }),
   )
 
-  const capabilities = resolveRuntimeCapabilities({ mode: "oomol", localAgentAvailable: true })
+  const capabilities = resolveRuntimeCapabilities({
+    mode: "oomol",
+    localAgentAvailable: true,
+    linkRuntimeAvailable: true,
+  })
   service.setRuntimeCapabilities(capabilities)
 
   expect(await service.getRuntimeCapabilities()).toEqual(capabilities)
@@ -1479,7 +1483,9 @@ test("only OOMOL runtime chat 401 expires the global session", async () => {
   const oomolBridge = createBridgeAgent()
   const oomolExpiry = vi.fn(async () => undefined)
   const oomolService = new ChatServiceImpl(oomolBridge.agent, { onOomolAuthRequired: oomolExpiry })
-  oomolService.setRuntimeCapabilities(resolveRuntimeCapabilities({ mode: "oomol", localAgentAvailable: true }))
+  oomolService.setRuntimeCapabilities(
+    resolveRuntimeCapabilities({ mode: "oomol", localAgentAvailable: true, linkRuntimeAvailable: true }),
+  )
   const oomolEvents = captureServiceEvents(oomolService)
   oomolService.startEventBridge()
   await oomolService.sendMessage({ scope: testTeamScope, sessionId: "oomol-session", text: "hello" })
@@ -2997,6 +3003,7 @@ test("automatic permission replies are deduplicated across pending reload and ev
 test("pure oo permissions are approved in the main process", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)
+  service.setLinkRuntime("oomol")
   const events = captureServiceEvents(service)
   service.startEventBridge()
 
@@ -3013,6 +3020,54 @@ test("pure oo permissions are approved in the main process", async () => {
   await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
 
   assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  assert.equal(
+    events.some((event) => event.event === "permissionAsked"),
+    false,
+  )
+})
+
+test("OpenConnector direct oo commands require explicit permission", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  service.setLinkRuntime("openconnector")
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ["oo connector apps --json"],
+    },
+  })
+
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+  assert.equal(bridge.answerPermission.mock.calls.length, 0)
+})
+
+test("OpenConnector credential commands are rejected even in full-access mode", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  service.setLinkRuntime("openconnector")
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access" })
+
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ["echo $OO_CONNECTOR_TOKEN"],
+      metadata: { command: "echo $OO_CONNECTOR_TOKEN" },
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "reject"]])
   assert.equal(
     events.some((event) => event.event === "permissionAsked"),
     false,

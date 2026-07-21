@@ -11,7 +11,7 @@ import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_I
 import { AgentManager, buildManagedSkillRuntimeEnv, persistTeamScopeUpdate } from "./manager.ts"
 import { WANTA_BUILD_AGENT_NAME, WANTA_GENERAL_SUBAGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
 import { OO_CLI_BASH_PERMISSION } from "./oo-command-permission.ts"
-import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
+import { AUTH_BLOCKING_ERROR_CODES, buildAgentLinkEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
 import {
   WANTA_LOCAL_PLAN_SYSTEM_PROMPT,
   WANTA_LOCAL_SYSTEM_PROMPT,
@@ -50,7 +50,10 @@ function assertPositiveLimit(model: unknown, label: string): void {
 }
 
 test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => {
-  const config = buildOpencodeConfig({ cloudRuntime: { kind: "oomol", sessionToken: "api-test" } })
+  const config = buildOpencodeConfig({
+    linkRuntime: { kind: "oomol", sessionToken: "api-test" },
+    modelAccess: { kind: "oomol", sessionToken: "api-test" },
+  })
   assert.equal(config.model, `${WANTA_PROVIDER_ID}/${WANTA_MODEL_ID}`)
   assert.equal(config.model, "oomol/oopilot")
   const provider = config.provider?.[WANTA_PROVIDER_ID]
@@ -70,7 +73,8 @@ test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => 
 
 test("buildOpencodeConfig creates a token-free local runtime with only custom providers", () => {
   const config = buildOpencodeConfig({
-    cloudRuntime: { kind: "local" },
+    linkRuntime: null,
+    modelAccess: { kind: "local" },
     customModels: [
       {
         id: "local-model",
@@ -92,11 +96,17 @@ test("buildOpencodeConfig creates a token-free local runtime with only custom pr
 })
 
 test("buildOpencodeConfig refuses to create a local runtime without a custom model", () => {
-  assert.throws(() => buildOpencodeConfig({ cloudRuntime: { kind: "local" } }), /custom model is required/)
+  assert.throws(
+    () => buildOpencodeConfig({ linkRuntime: null, modelAccess: { kind: "local" } }),
+    /custom model is required/,
+  )
 })
 
 test("buildOpencodeConfig wires the oomol openai-compatible provider", () => {
-  const config = buildOpencodeConfig({ cloudRuntime: { kind: "oomol", sessionToken: "api-test" } })
+  const config = buildOpencodeConfig({
+    linkRuntime: { kind: "oomol", sessionToken: "api-test" },
+    modelAccess: { kind: "oomol", sessionToken: "api-test" },
+  })
   const auto = resolveBuiltinModel("oopilot")
   const provider = config.provider?.[auto.runtime.providerID]
   assert.ok(provider)
@@ -112,7 +122,10 @@ test("buildOpencodeConfig wires the oomol openai-compatible provider", () => {
 })
 
 test("buildOpencodeConfig covers every registered built-in model runtime", () => {
-  const config = buildOpencodeConfig({ cloudRuntime: { kind: "oomol", sessionToken: "api-test" } })
+  const config = buildOpencodeConfig({
+    linkRuntime: { kind: "oomol", sessionToken: "api-test" },
+    modelAccess: { kind: "oomol", sessionToken: "api-test" },
+  })
 
   for (const providerDefinition of BUILTIN_PROVIDER_DEFINITIONS) {
     const provider = config.provider?.[providerDefinition.id]
@@ -147,7 +160,10 @@ test("buildOpencodeConfig covers every registered built-in model runtime", () =>
 test("GPT 5.5 resolves through the OpenAI provider for Responses API semantics", () => {
   const gpt55 = resolveBuiltinModel("gpt-5.5")
   assert.deepEqual(gpt55.runtime, { providerID: "openai", modelID: "gpt-5.5" })
-  const config = buildOpencodeConfig({ cloudRuntime: { kind: "oomol", sessionToken: "api-test" } })
+  const config = buildOpencodeConfig({
+    linkRuntime: { kind: "oomol", sessionToken: "api-test" },
+    modelAccess: { kind: "oomol", sessionToken: "api-test" },
+  })
   const provider = config.provider?.[gpt55.runtime.providerID]
   const model = provider?.models?.[gpt55.runtime.modelID]
   assert.ok(provider)
@@ -165,7 +181,8 @@ test("GPT 5.5 resolves through the OpenAI provider for Responses API semantics",
 
 test("buildOpencodeConfig wires text-only custom openai-compatible providers without changing the default model", () => {
   const config = buildOpencodeConfig({
-    cloudRuntime: { kind: "oomol", sessionToken: "api-test" },
+    linkRuntime: { kind: "oomol", sessionToken: "api-test" },
+    modelAccess: { kind: "oomol", sessionToken: "api-test" },
     customModels: [
       {
         id: "custom-1",
@@ -196,7 +213,8 @@ test("buildOpencodeConfig wires text-only custom openai-compatible providers wit
 
 test("buildOpencodeConfig completes partial model limits with the default output limit", () => {
   const config = buildOpencodeConfig({
-    cloudRuntime: { kind: "oomol", sessionToken: "api-test" },
+    linkRuntime: { kind: "oomol", sessionToken: "api-test" },
+    modelAccess: { kind: "oomol", sessionToken: "api-test" },
     customModels: [
       {
         id: "custom-context-only",
@@ -230,7 +248,8 @@ test("buildOpencodeConfig completes partial model limits with the default output
 
 test("buildOpencodeConfig maps Qwen custom reasoning variants to enable_thinking", () => {
   const config = buildOpencodeConfig({
-    cloudRuntime: { kind: "oomol", sessionToken: "api-test" },
+    linkRuntime: { kind: "oomol", sessionToken: "api-test" },
+    modelAccess: { kind: "oomol", sessionToken: "api-test" },
     customModels: [
       {
         id: "custom-qwen",
@@ -254,7 +273,8 @@ test("buildOpencodeConfig maps Qwen custom reasoning variants to enable_thinking
 
 test("buildOpencodeConfig marks custom providers as image-capable only when requested", () => {
   const config = buildOpencodeConfig({
-    cloudRuntime: { kind: "oomol", sessionToken: "api-test" },
+    linkRuntime: { kind: "oomol", sessionToken: "api-test" },
+    modelAccess: { kind: "oomol", sessionToken: "api-test" },
     customModels: [
       {
         id: "custom-vision",
@@ -274,7 +294,10 @@ test("buildOpencodeConfig marks custom providers as image-capable only when requ
 })
 
 test("build and plan agents enable Wanta prompt through OpenCode native modes", () => {
-  const config = buildOpencodeConfig({ cloudRuntime: { kind: "oomol", sessionToken: "k" } })
+  const config = buildOpencodeConfig({
+    linkRuntime: { kind: "oomol", sessionToken: "k" },
+    modelAccess: { kind: "oomol", sessionToken: "k" },
+  })
   const buildAgent = config.agent?.[WANTA_BUILD_AGENT_NAME]
   const planAgent = config.agent?.[WANTA_PLAN_AGENT_NAME]
   assert.ok(buildAgent)
@@ -306,7 +329,10 @@ test("build and plan agents enable Wanta prompt through OpenCode native modes", 
 })
 
 test("general subagent preserves the delegated task language", () => {
-  const config = buildOpencodeConfig({ cloudRuntime: { kind: "oomol", sessionToken: "k" } })
+  const config = buildOpencodeConfig({
+    linkRuntime: { kind: "oomol", sessionToken: "k" },
+    modelAccess: { kind: "oomol", sessionToken: "k" },
+  })
   const generalAgent = config.agent?.[WANTA_GENERAL_SUBAGENT_NAME]
   const permission = generalAgent?.permission as unknown as Record<string, unknown> | undefined
 
@@ -320,7 +346,8 @@ test("general subagent preserves the delegated task language", () => {
 
 test("local runtime config omits Connector guidance and oo command permission shortcuts", () => {
   const config = buildOpencodeConfig({
-    cloudRuntime: { kind: "local" },
+    linkRuntime: null,
+    modelAccess: { kind: "local" },
     customModels: [
       {
         id: "local-model",
@@ -346,6 +373,26 @@ test("local runtime config omits Connector guidance and oo command permission sh
   assert.match(WANTA_LOCAL_SYSTEM_PROMPT, /local web tools/)
   assert.doesNotMatch(WANTA_LOCAL_SYSTEM_PROMPT, /## Link work|list_apps|search_actions|inspect_action|call_action/)
   assert.doesNotMatch(WANTA_LOCAL_SYSTEM_PROMPT, /OOMOL|oo CLI|connected SaaS|Link side effects/)
+})
+
+test("OpenConnector enables typed Link guidance without the OOMOL oo command shortcut", () => {
+  const config = buildOpencodeConfig({
+    linkRuntime: {
+      baseUrl: "http://127.0.0.1:3000",
+      consoleUrl: "http://127.0.0.1:5173",
+      kind: "openconnector",
+    },
+    modelAccess: { kind: "oomol", sessionToken: "model-token" },
+  })
+  const buildAgent = config.agent?.[WANTA_BUILD_AGENT_NAME]
+  const planAgent = config.agent?.[WANTA_PLAN_AGENT_NAME]
+  const rootPermission = config.permission as unknown as Record<string, unknown> | undefined
+
+  assert.equal(buildAgent?.prompt, WANTA_SYSTEM_PROMPT)
+  assert.equal(planAgent?.prompt, WANTA_PLAN_SYSTEM_PROMPT)
+  assert.equal((buildAgent?.permission as unknown as Record<string, unknown>)?.bash, "ask")
+  assert.equal((planAgent?.permission as unknown as Record<string, unknown>)?.bash, "ask")
+  assert.equal(rootPermission?.bash, "ask")
 })
 
 test("system prompt treats Link as a contextual capability, not the default path", () => {
@@ -414,9 +461,9 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /Do not expose managed archive paths or raw CLI commands/)
 })
 
-test("buildOoEnv injects the required OO_* control vars (R3)", () => {
-  const env = buildOoEnv({
-    authToken: "api-x",
+test("buildAgentLinkEnv injects the required OOMOL OO_* control vars (R3)", () => {
+  const env = buildAgentLinkEnv({
+    linkRuntime: { kind: "oomol", sessionToken: "api-x" },
     teamName: "acme-corp",
     teamScopePath: "/tmp/scope.json",
     storeDir: "/tmp/store",
@@ -434,6 +481,30 @@ test("buildOoEnv injects the required OO_* control vars (R3)", () => {
   assert.equal(env.WANTA_CONSOLE_URL, `https://console.${ooEndpoint}`)
   assert.equal(env.WANTA_OO_BIN, "/usr/bin/oo")
   assert.equal(env.WANTA_TEAM_NAME, "acme-corp")
+  assert.equal(env.WANTA_TEAM_SCOPE_PATH, "/tmp/scope.json")
+})
+
+test("buildAgentLinkEnv keeps OpenConnector credentials out of OOMOL variables", () => {
+  const env = buildAgentLinkEnv({
+    linkRuntime: {
+      kind: "openconnector",
+      baseUrl: "http://127.0.0.1:3000",
+      consoleUrl: "http://127.0.0.1:5173",
+      runtimeToken: "runtime-token",
+    },
+    teamScopePath: "/tmp/scope.json",
+    storeDir: "/tmp/store",
+    ooBinPath: "/usr/bin/oo",
+  })
+
+  assert.equal(env.OO_CONNECTOR_URL, "http://127.0.0.1:3000")
+  assert.equal(env.OO_CONNECTOR_TOKEN, "runtime-token")
+  assert.equal(env.OO_API_KEY, undefined)
+  assert.equal(env.OO_ENDPOINT, undefined)
+  assert.equal(env.WANTA_CONNECTOR_URL, "http://127.0.0.1:3000")
+  assert.equal(env.WANTA_CONSOLE_URL, "http://127.0.0.1:5173")
+  assert.equal(env.WANTA_LINK_RUNTIME, "openconnector")
+  assert.equal(env.WANTA_TEAM_NAME, undefined)
   assert.equal(env.WANTA_TEAM_SCOPE_PATH, "/tmp/scope.json")
 })
 
@@ -516,7 +587,7 @@ test("agent tool sources are present and shaped", () => {
   assert.ok(!AGENT_TOOL_FILES["search_actions.ts"]?.includes("--personal"))
   assert.match(AGENT_TOOL_FILES["search_actions.ts"] ?? "", /currentTeamName\(sessionID\)/)
   assert.doesNotMatch(AGENT_TOOL_FILES["search_actions.ts"] ?? "", /--keywords|args\.keywords|keywords: tool\.schema/)
-  assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes("List connected OOMOL Link provider apps"))
+  assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes("List connected Link provider apps"))
   assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes('connector", "apps'))
   assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes("--organization"))
   assert.ok(!AGENT_TOOL_FILES["list_apps.ts"]?.includes("--personal"))
@@ -528,6 +599,7 @@ test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("authUrl"))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("config_missing"))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("/app-connections?provider="))
+  assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes('"/providers/"'))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("Structured outcomes are authoritative"))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("other errors describe action or runtime failures"))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("connectionName: tool.schema.string().optional()"))
@@ -545,7 +617,8 @@ test("agent tool sources are present and shaped", () => {
 test("createArtifactDir creates an isolated per-session turn directory", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-agent-artifacts-"))
   const manager = new AgentManager({
-    cloudRuntime: { kind: "oomol", sessionToken: "api-test" },
+    linkRuntime: { kind: "oomol", sessionToken: "api-test" },
+    modelAccess: { kind: "oomol", sessionToken: "api-test" },
     opencodeBinPath: "/bin/opencode",
     ooBinPath: "/bin/oo",
     rootDir,

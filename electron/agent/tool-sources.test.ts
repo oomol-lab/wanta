@@ -1,11 +1,11 @@
 import { dirname, resolve } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { AGENT_TOOL_FILES, agentToolFilesForRuntime } from "./tool-sources.ts"
+import { AGENT_TOOL_FILES, agentToolFiles } from "./tool-sources.ts"
 
 describe("runtime tool assembly", () => {
-  it("keeps Connector tools OOMOL-only while preserving local knowledge", () => {
-    expect(Object.keys(agentToolFilesForRuntime("oomol"))).toEqual(Object.keys(AGENT_TOOL_FILES))
-    expect(Object.keys(agentToolFilesForRuntime("local"))).toEqual(["query_knowledge.ts"])
+  it("adds Connector tools only when a Link runtime is available", () => {
+    expect(Object.keys(agentToolFiles(true))).toEqual(Object.keys(AGENT_TOOL_FILES))
+    expect(Object.keys(agentToolFiles(false))).toEqual(["query_knowledge.ts"])
   })
 })
 
@@ -131,6 +131,8 @@ function loadCallActionTool(execFile: (...args: unknown[]) => Promise<unknown>):
 
 afterEach(() => {
   delete process.env.WANTA_CONSOLE_URL
+  delete process.env.WANTA_CONNECTOR_URL
+  delete process.env.WANTA_LINK_RUNTIME
   delete process.env.WANTA_KNOWLEDGE_REGISTRY
   delete process.env.WANTA_TEAM_NAME
   delete process.env.WANTA_TEAM_SCOPE_PATH
@@ -138,6 +140,8 @@ afterEach(() => {
   delete process.env.WANTA_ORGANIZATION_SCOPE_PATH
   delete process.env.WANTA_WIKIGRAPH_CLI
   delete process.env.WANTA_WIKIGRAPH_EXECUTABLE
+  delete process.env.OO_API_KEY
+  delete process.env.OO_CONNECTOR_TOKEN
 })
 
 beforeEach(() => {
@@ -234,6 +238,25 @@ describe("query_knowledge embedded runtime", () => {
 })
 
 describe("list_apps embedded runtime", () => {
+  it("uses endpoint identity without organization arguments for OpenConnector", async () => {
+    process.env.WANTA_LINK_RUNTIME = "openconnector"
+    process.env.WANTA_CONNECTOR_URL = "http://127.0.0.1:3000"
+    delete process.env.WANTA_TEAM_NAME
+    const commands: string[][] = []
+    const runtime = loadListAppsTool(
+      async (...args) => {
+        commands.push(args[1] as string[])
+        return { stdout: "[]" }
+      },
+      async () => {
+        throw new Error("OpenConnector must not read team scope")
+      },
+    )
+
+    await expect(runtime.execute({}, { sessionID: "session-1" })).resolves.toBe("[]")
+    expect(commands).toEqual([["connector", "apps", "--json"]])
+  })
+
   it("reads legacy organization environment variables during migration", async () => {
     delete process.env.WANTA_TEAM_NAME
     process.env.WANTA_ORGANIZATION_NAME = "legacy-team"
@@ -301,6 +324,49 @@ describe("list_apps embedded runtime", () => {
 })
 
 describe("call_action embedded runtime", () => {
+  it("builds OpenConnector authorization URLs from the configured Console origin", async () => {
+    process.env.WANTA_LINK_RUNTIME = "openconnector"
+    process.env.WANTA_CONNECTOR_URL = "http://127.0.0.1:3000"
+    process.env.WANTA_CONSOLE_URL = "http://127.0.0.1:5173"
+    const runtime = loadCallActionTool(async () => {
+      const error = new Error("connector failed") as Error & { stderr: string }
+      error.stderr = "Request failed (errorCode: connection_not_found): connection not found"
+      throw error
+    })
+
+    const output = JSON.parse(
+      await runtime.execute({ service: "google mail", action: "fetch_emails" }, { sessionID: "session-1" }),
+    ) as { authUrl?: string; status?: string }
+
+    expect(output).toMatchObject({
+      authUrl: "http://127.0.0.1:5173/providers/google%20mail",
+      status: "authorization_required",
+    })
+  })
+
+  it("accepts OpenConnector aliases as connection names without organization arguments", async () => {
+    process.env.WANTA_LINK_RUNTIME = "openconnector"
+    process.env.WANTA_CONNECTOR_URL = "http://127.0.0.1:3000"
+    const commands: string[][] = []
+    const runtime = loadCallActionTool(async (...args) => {
+      const argv = args[1] as string[]
+      commands.push(argv)
+      return commands.length === 1
+        ? { stdout: JSON.stringify([{ alias: "work", service: "gmail", status: "active" }]) }
+        : { stdout: JSON.stringify({ data: { ok: true } }) }
+    })
+
+    await runtime.execute(
+      { service: "gmail", action: "fetch_emails", connectionName: "work" },
+      { sessionID: "session-1" },
+    )
+
+    expect(commands).toHaveLength(2)
+    expect(commands[0]).toEqual(["connector", "apps", "gmail", "--json"])
+    expect(commands[1]).toContain("--connection-name")
+    expect(commands[1]).not.toContain("--organization")
+  })
+
   it("runs one canary and skips matching queued calls after an authorization block", async () => {
     process.env.WANTA_CONSOLE_URL = "https://console.example.test"
     let calls = 0

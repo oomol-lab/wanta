@@ -31,9 +31,60 @@ test("local access policy allows ordinary commands in default mode", () => {
 test("local access policy allows pure oo commands without a renderer prompt", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: 'oo search "gmail" --json' } }), {
+      linkRuntime: "oomol",
       permissionMode: "default",
     }),
     { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
+  )
+})
+
+test("local access policy prompts for direct oo commands under OpenConnector", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector apps --json" } }), {
+      linkRuntime: "openconnector",
+      permissionMode: "full_access",
+    }),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector run gmail list --json" } }), {
+      linkRuntime: "openconnector",
+      permissionMode: "default",
+    }),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+})
+
+test("local access policy rejects OpenConnector credential and configuration commands", () => {
+  for (const command of [
+    "oo connector login https://connector.example.test",
+    "oo connector logout",
+    "oo config set endpoint https://other.example.test",
+    "oo connector apps --endpoint https://other.example.test",
+    "oo connector apps --endpoint=https://other.example.test",
+    "oo connector apps && oo connector logout",
+    "OO_CONNECTOR_URL=https://other.example.test oo connector apps",
+    "printenv",
+    "bash -lc 'env'",
+    "echo $OO_CONNECTOR_TOKEN",
+    "echo ${OO_API_KEY}",
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        linkRuntime: "openconnector",
+        permissionMode: "full_access",
+      }),
+      { type: "deny", kind: "command", highRisk: false },
+      command,
+    )
+  }
+
+  assert.equal(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "some-tool --data-dir /tmp/output" } }), {
+      linkRuntime: "openconnector",
+      permissionMode: "full_access",
+    }).type,
+    "allow",
   )
 })
 

@@ -14,8 +14,16 @@ function deferred<T>() {
   return { promise, reject, resolve }
 }
 
-const localCapabilities = resolveRuntimeCapabilities({ mode: "local", localAgentAvailable: false })
-const oomolCapabilities = resolveRuntimeCapabilities({ mode: "oomol", localAgentAvailable: true })
+const localCapabilities = resolveRuntimeCapabilities({
+  mode: "local",
+  localAgentAvailable: false,
+  linkRuntimeAvailable: false,
+})
+const oomolCapabilities = resolveRuntimeCapabilities({
+  mode: "oomol",
+  localAgentAvailable: true,
+  linkRuntimeAvailable: true,
+})
 
 describe("observeRuntimeCapabilities", () => {
   it("does not let the initial snapshot overwrite a newer runtime event", async () => {

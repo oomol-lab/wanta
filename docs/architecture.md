@@ -179,9 +179,8 @@ Beyond the CLI, `search_actions` also fetches `${WANTA_CONNECTOR_URL}/v1/provide
 attach an `authenticatedReliable` and `noAuthReady` field to each search result (a no_auth-only
 provider counts as ready). OOMOL uses `OO_API_KEY` plus the organization header; OpenConnector uses
 an optional `OO_CONNECTOR_TOKEN` and no organization. Both caches include backend and endpoint
-identity. Search connection fields are advisory discovery metadata and never create a blocking
-authorization prompt, even when reliable; only `call_action`'s structured `authorization_required`
-or matching `connection_blocked` result establishes that execution is blocked pending access.
+identity. When the list is unavailable, `authenticatedReliable=false` and `call_action` remains the
+authorization authority.
 
 The sidecar self-recovers from crashes: on an unexpected sidecar exit `AgentManager` rebuilds the
 workspace and restarts (up to 5 times, exponential backoff 1s→10s, pushing `runtime_restarting` /

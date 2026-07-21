@@ -148,6 +148,34 @@ export function AssistantMessageActions({ text, cancelled }: { text: string; can
   )
 }
 
+export function ConnectionSuggestionAction({
+  authorization,
+  provider,
+  onAuthorize,
+}: {
+  authorization: AuthorizationInfo
+  provider?: ConnectionProvider
+  onAuthorize: (auth: AuthorizationInfo) => void
+}) {
+  const t = useT()
+  if (provider?.status === "connected" && provider.appStatus === "active") {
+    return null
+  }
+  const displayName = provider?.displayName ?? authorization.displayName
+  return (
+    <div className="not-prose mt-3 flex flex-wrap items-center gap-2">
+      <span className="oo-text-caption text-muted-foreground">{t("chat.authNeeded", { name: displayName })}</span>
+      {authorization.message ? (
+        <span className="oo-text-caption text-muted-foreground">{authorization.message}</span>
+      ) : null}
+      <Button size="sm" variant="outline" className="h-8 gap-1.5 px-2.5" onClick={() => onAuthorize(authorization)}>
+        <PlugZap className="size-3.5" />
+        {t("chat.authorizeConnection")}
+      </Button>
+    </div>
+  )
+}
+
 export function ConnectionAuthorizationIssueAction({
   issue,
   provider,

@@ -71,10 +71,6 @@
   connection target succeeded earlier in the turn and later returns an authorization error, the
   product semantics are "the connection became unavailable or connector state is inconsistent" —
   do not assert the user never authorized.
-- **Authorization evidence addendum**: `search_actions.authenticated` is advisory catalog metadata,
-  not execution evidence. A false value must not create a blocking authorization prompt or be
-  described as "connect to continue"; only `call_action`'s structured `authorization_required` or a
-  matching `connection_blocked` result establishes that the selected execution path is blocked.
 - **Later evolution (bundled tool runtime)**: the custom tool sources now import
   `"../runtime/tool.js"` instead of depending on `@opencode-ai/plugin` directly — postinstall's
   `scripts/build-agent-tool-runtime.ts` uses rolldown to bundle the tool helper + Zod into

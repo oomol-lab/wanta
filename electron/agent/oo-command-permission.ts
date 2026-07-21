@@ -26,7 +26,11 @@ const forbiddenOoMutation =
   /(?:^|[;&|]{1,2}\s*)(?:oo|"?\$WANTA_OO_BIN"?|"?\$\{WANTA_OO_BIN\}"?)\s+(?:(?:auth|login|logout|config)(?:\s|[;&|]|$)|connector\s+(?:login|logout)(?:\s|[;&|]|$))/u
 const forbiddenOoOption = /(?:^|\s)--(?:endpoint|config-dir|data-dir|connector-url|connector-token)(?:=|\s|$)/u
 const shellCommandOption = /^-[A-Za-z]*c[A-Za-z]*$/u
-const shellExecutable = /(?:^|\/)(?:bash|sh|zsh)$/u
+const posixShellExecutable = /(?:^|\/)(?:bash|dash|fish|ksh|sh|zsh)$/u
+const cmdExecutable = /(?:^|[\\/])cmd(?:\.exe)?$/iu
+const cmdCommandOption = /^\/[ck]$/iu
+const powershellExecutable = /(?:^|[\\/])(?:powershell|pwsh)(?:\.exe)?$/iu
+const powershellCommandOption = /^-(?:c|command)$/iu
 
 function hasUnsafeShellSyntax(command: string): boolean {
   let singleQuoted = false
@@ -130,8 +134,15 @@ function isEnvironmentDump(command: string): boolean {
 
 function shellWrapperCommand(command: string): string | null {
   const words = shellWords(command)
-  if (!words || !shellExecutable.test(words[0] ?? "")) return null
-  const optionIndex = words.findIndex((word, index) => index > 0 && shellCommandOption.test(word))
+  if (!words) return null
+  const executable = words[0] ?? ""
+  const optionIndex = words.findIndex(
+    (word, index) =>
+      index > 0 &&
+      ((posixShellExecutable.test(executable) && shellCommandOption.test(word)) ||
+        (cmdExecutable.test(executable) && cmdCommandOption.test(word)) ||
+        (powershellExecutable.test(executable) && powershellCommandOption.test(word))),
+  )
   return optionIndex === -1 ? null : (words[optionIndex + 1] ?? null)
 }
 

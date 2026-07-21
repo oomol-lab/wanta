@@ -42,8 +42,11 @@ test("local access policy prompts for direct and wrapped oo commands under OpenC
   for (const command of [
     "oo connector apps --json",
     "bash -c 'oo connector apps --json'",
+    "/bin/bash -c 'oo connector apps --json'",
     "sh -lc 'oo connector apps --json'",
     "zsh -c 'cd /tmp && oo connector apps --json'",
+    'cmd.exe /c "oo connector apps --json"',
+    'pwsh -Command "oo connector apps --json"',
   ]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), {
@@ -74,6 +77,8 @@ test("local access policy rejects OpenConnector credential and configuration com
     "bash -c 'oo connector login https://connector.example.test'",
     "sh -lc 'oo config set endpoint https://other.example.test'",
     "zsh -c 'cd /tmp && oo connector apps --connector-token secret'",
+    'cmd /c "oo connector logout"',
+    'powershell.exe -Command "oo config set endpoint https://other.example.test"',
     "OO_CONNECTOR_URL=https://other.example.test oo connector apps",
     "printenv",
     "bash -lc 'env'",

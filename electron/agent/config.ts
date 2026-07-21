@@ -13,9 +13,13 @@ import {
 } from "../models/builtin.ts"
 import { effectiveMaxOutputTokens } from "../models/limits.ts"
 import { customModelDisplayName } from "../models/store.ts"
-import { WANTA_BUILD_AGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
+import { WANTA_BUILD_AGENT_NAME, WANTA_GENERAL_SUBAGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
 import { OO_CLI_BASH_PERMISSION } from "./oo-command-permission.ts"
-import { buildWantaPlanSystemPrompt, buildWantaSystemPrompt } from "./system-prompt.ts"
+import {
+  buildWantaPlanSystemPrompt,
+  buildWantaSystemPrompt,
+  WANTA_GENERAL_SUBAGENT_SYSTEM_PROMPT,
+} from "./system-prompt.ts"
 
 type OpencodeModelConfig = NonNullable<NonNullable<Config["provider"]>[string]["models"]>[string] & {
   limit?: {
@@ -130,6 +134,12 @@ export function buildOpencodeConfig({ cloudRuntime, customModels = [], defaultMo
         mode: "primary",
         prompt: planSystemPrompt,
         permission: planPermission,
+      },
+      [WANTA_GENERAL_SUBAGENT_NAME]: {
+        description: "General-purpose subagent for delegated analysis and local work",
+        mode: "subagent",
+        prompt: WANTA_GENERAL_SUBAGENT_SYSTEM_PROMPT,
+        permission: { ...(permission as Record<string, unknown>), task: "deny" } as OpencodePermissionConfig,
       },
     },
     permission,

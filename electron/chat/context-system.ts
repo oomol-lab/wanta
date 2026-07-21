@@ -146,7 +146,7 @@ export function buildResponseLanguageSystem(
         ? "- If neither the latest request nor the conversation establishes a language, use the application interface language: Simplified Chinese."
         : "- If neither the latest request nor the conversation establishes a language, use the language that best fits the user's available context."
   const detection = detectedLanguage
-    ? `- Wanta has classified the latest user instruction as ${detectedLanguage}. Respond in ${detectedLanguage} unless the user explicitly requests a different response language. This classification takes priority over the application interface language.`
+    ? `- Wanta has classified the latest user instruction as ${detectedLanguage}. Respond in ${detectedLanguage} unless the user explicitly requests a different response language. This classification takes priority over the application interface language. When delegating work through the task tool, explicitly require ${detectedLanguage} in the task prompt. Never present a subagent result in a different language; translate or rewrite it into ${detectedLanguage} before showing it to the user.`
     : "- Wanta could not classify the latest instruction with high confidence. Infer its language from the instruction itself and the rules below."
   return [
     "Response language policy for this turn:",

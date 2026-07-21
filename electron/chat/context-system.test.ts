@@ -45,6 +45,8 @@ test("buildResponseLanguageSystem follows a detected request language before the
   assert.match(prompt, /classified the latest user instruction as English/)
   assert.match(prompt, /Respond in English/)
   assert.match(prompt, /takes priority over the application interface language/)
+  assert.match(prompt, /explicitly require English in the task prompt/)
+  assert.match(prompt, /translate or rewrite it into English/)
   assert.match(prompt, /primary language of the user's latest substantive request/)
   assert.match(prompt, /progress updates, tool-call commentary, structured questions/)
   assert.match(prompt, /explicitly requests a response or deliverable language/)

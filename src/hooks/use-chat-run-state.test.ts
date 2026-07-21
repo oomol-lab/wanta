@@ -13,7 +13,7 @@ function activeRun(overrides: Partial<ChatActiveRun> = {}): ChatActiveRun {
     startedAt: 1_000,
     phase: "thinking",
     updatedAt: 1_000,
-    workspace: { teamId: "team-1", teamName: "team" },
+    workspace: { kind: "team", teamId: "team-1", teamName: "team" },
     ...overrides,
   }
 }

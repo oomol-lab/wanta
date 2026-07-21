@@ -50,6 +50,7 @@ describe("sidebar persistence", () => {
   test("scopes collapsed project groups by account and workspace", () => {
     expect(
       projectSidebarCollapsedStorageKey(undefined, {
+        kind: "team",
         teamId: "team-id",
         teamName: "team-name",
       }),
@@ -57,16 +58,25 @@ describe("sidebar persistence", () => {
     expect(projectSidebarCollapsedStorageKey("account-a", null)).toBeNull()
     expect(
       projectSidebarCollapsedStorageKey("account-a", {
+        kind: "team",
         teamId: "team-id",
         teamName: "team-name",
       }),
     ).toBe("wanta.projectSidebarCollapsed:account-a:team:team-id")
     expect(
       projectSidebarCollapsedStorageKey("account-a", {
+        kind: "team",
         teamId: "team-a",
         teamName: "Team A",
       }),
     ).toBe("wanta.projectSidebarCollapsed:account-a:team:team-a")
+    expect(
+      projectSidebarCollapsedStorageKey(undefined, {
+        kind: "local",
+        workspaceId: "local",
+        workspaceName: "Local",
+      }),
+    ).toBe("wanta.projectSidebarCollapsed:local:local:local")
   })
 
   test("reads, writes, removes, and prunes collapsed project ids", () => {

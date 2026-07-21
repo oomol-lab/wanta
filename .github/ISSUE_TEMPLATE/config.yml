@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/oomol-lab/wanta/security/advisories/new
+    about: Report vulnerabilities privately; do not open a public issue.

@@ -8,11 +8,6 @@ export const skillsMessages = {
     "skills.tab.installed": "本机 Skills",
     "skills.tab.recommended": "推荐安装",
     "skills.tab.team": "团队 Skills",
-    "skills.scopeDescription.discover": "技能市场不随当前团队切换；Skill 是否可用仍取决于安装状态。",
-    "skills.scopeDescription.installed": "安装在当前设备，可用于不同团队；实际数据访问取决于当前团队的连接与权限。",
-    "skills.scopeDescription.team":
-      "当前团队：{{name}}。这里的 Skill 会作为该团队工作区的默认指导；切换团队后内容会变化。",
-    "skills.scopeDescription.teamUnknown": "当前团队",
     "teams.title": "团队",
     "teams.teamCount": "共 {{count}} 个团队",
     "teams.selectTeam": "选择团队",
@@ -326,6 +321,7 @@ export const skillsMessages = {
     "skills.registryResults": "可安装",
     "skills.registryInstall": "安装",
     "skills.registryInstalling": "安装中",
+    "skills.signInToInstall": "登录后安装",
     "skills.registryInstallDone": "已安装 {{name}}。",
     "skills.registryInstallFailed": "安装失败：{{error}}",
     "skills.remoteNameConflict": "需处理",
@@ -428,13 +424,6 @@ export const skillsMessages = {
     "skills.tab.installed": "Local Skills",
     "skills.tab.recommended": "Recommended installs",
     "skills.tab.team": "Team Skills",
-    "skills.scopeDescription.discover":
-      "The Skill Store does not change when you switch teams; availability still depends on installation status.",
-    "skills.scopeDescription.installed":
-      "Installed on this device and available across teams; data access still depends on the current team's connections and permissions.",
-    "skills.scopeDescription.team":
-      "Current team: {{name}}. These Skills are default guidance for this workspace; this list changes when you switch teams.",
-    "skills.scopeDescription.teamUnknown": "Current team",
     "teams.title": "Teams",
     "teams.teamCount": "Teams: {{count}}",
     "teams.selectTeam": "Select team",
@@ -773,6 +762,7 @@ export const skillsMessages = {
     "skills.registryResults": "Available",
     "skills.registryInstall": "Install",
     "skills.registryInstalling": "Installing",
+    "skills.signInToInstall": "Sign in to install",
     "skills.registryInstallDone": "{{name}} installed.",
     "skills.registryInstallFailed": "Install failed: {{error}}",
     "skills.remoteNameConflict": "Needs action",

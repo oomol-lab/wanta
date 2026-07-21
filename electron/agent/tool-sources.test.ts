@@ -1,6 +1,13 @@
 import { dirname, resolve } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { AGENT_TOOL_FILES } from "./tool-sources.ts"
+import { AGENT_TOOL_FILES, agentToolFilesForRuntime } from "./tool-sources.ts"
+
+describe("runtime tool assembly", () => {
+  it("keeps Connector tools OOMOL-only while preserving local knowledge", () => {
+    expect(Object.keys(agentToolFilesForRuntime("oomol"))).toEqual(Object.keys(AGENT_TOOL_FILES))
+    expect(Object.keys(agentToolFilesForRuntime("local"))).toEqual(["query_knowledge.ts"])
+  })
+})
 
 describe("query_knowledge guidance", () => {
   it("keeps relationship diagrams evidence-first without exposing archive paths", () => {

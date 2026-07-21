@@ -32,15 +32,19 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   accountName,
   activeRoute,
   avatarUrl,
+  authenticated,
+  cloudEnabled,
   collapsed,
   collapsedProjectIds,
   hasUnreadSession,
   isSessionRunning,
   loggingOut,
+  loggingIn,
   newChatLabel,
   onArchiveProjectRequest,
   onArchiveSessionRequest,
   onLogout,
+  onLogin,
   onNavigate,
   onNewSession,
   onOpenConnections,
@@ -79,15 +83,19 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   accountName?: string
   activeRoute: Route
   avatarUrl?: string
+  authenticated: boolean
+  cloudEnabled: boolean
   collapsed: boolean
   collapsedProjectIds: ReadonlySet<string>
   hasUnreadSession: (sessionId: string) => boolean
   isSessionRunning: (sessionId: string) => boolean
   loggingOut: boolean
+  loggingIn: boolean
   newChatLabel: string
   onArchiveProjectRequest: (project: SessionProject) => void
   onArchiveSessionRequest: (session: SessionInfo) => void
   onLogout: () => void
+  onLogin: () => void
   onNavigate: (route: Route) => void
   onNewSession: () => void
   onOpenConnections: () => void
@@ -246,17 +254,19 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
               <span className="oo-sidebar-nav-label truncate">{t("knowledge.title")}</span>
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() => onNavigate("teams")}
-            className={cn(
-              "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-              activeRoute === "teams" && "bg-sidebar-accent text-sidebar-accent-foreground",
-            )}
-          >
-            <Building2 className="size-4 shrink-0" />
-            <span className="oo-sidebar-nav-label truncate">{t("teams.title")}</span>
-          </button>
+          {cloudEnabled ? (
+            <button
+              type="button"
+              onClick={() => onNavigate("teams")}
+              className={cn(
+                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+                activeRoute === "teams" && "bg-sidebar-accent text-sidebar-accent-foreground",
+              )}
+            >
+              <Building2 className="size-4 shrink-0" />
+              <span className="oo-sidebar-nav-label truncate">{t("teams.title")}</span>
+            </button>
+          ) : null}
         </nav>
 
         <nav className="flex min-h-0 flex-1 flex-col px-3 [-webkit-app-region:no-drag]">
@@ -339,13 +349,17 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
 
           <SidebarFooterControls
             accountName={accountName}
+            authenticated={authenticated}
             avatarUrl={avatarUrl}
+            cloudEnabled={cloudEnabled}
             activeRoute={activeRoute}
             loggingOut={loggingOut}
+            loggingIn={loggingIn}
             workspace={workspace}
             workspaceSwitching={workspaceSwitching}
             onNavigate={onNavigate}
             onLogout={onLogout}
+            onLogin={onLogin}
             onWorkspaceSwitchStart={onWorkspaceSwitchStart}
           />
         </nav>

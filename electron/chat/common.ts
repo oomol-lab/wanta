@@ -1,6 +1,7 @@
 import type { WantaAgentMode } from "../agent/mode.ts"
 import type { WantaReasoningLevel } from "../agent/reasoning.ts"
 import type { ModelChoice } from "../models/common.ts"
+import type { RuntimeCapabilities } from "../runtime/common.ts"
 import type { SessionScope } from "../session/common.ts"
 import type { ChatErrorKind } from "./error.ts"
 import type { ServiceName } from "@oomol/connection"
@@ -239,10 +240,7 @@ export type ChatRunPhase =
   | "awaiting_permission"
   | "awaiting_question"
 
-export interface ChatRunWorkspace {
-  teamId: string
-  teamName: string
-}
+export type ChatRunWorkspace = SessionScope
 
 export interface ChatActiveRun {
   activeAssistantMessageId?: string
@@ -277,13 +275,17 @@ export interface AgentErrorEvent {
   message: string
 }
 export type AgentRuntimeStatus =
-  | { status: "signed_out" }
+  | { status: "model_required" }
   | { status: "starting" }
   | { status: "ready" }
   | { status: "error"; message: string }
 
 export interface AgentStatusChangedEvent {
   status: AgentRuntimeStatus
+}
+
+export interface RuntimeCapabilitiesChangedEvent {
+  capabilities: RuntimeCapabilities
 }
 
 // ── 规范化消息（切换会话时加载历史用）──
@@ -840,6 +842,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     agentConnectionChanged: AgentConnectionChangedEvent
     agentError: AgentErrorEvent
     agentStatusChanged: AgentStatusChangedEvent
+    runtimeCapabilitiesChanged: RuntimeCapabilitiesChangedEvent
   }
   ClientInvokes: {
     sendMessage(req: SendMessageRequest): Promise<void>
@@ -870,7 +873,8 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     answerPermission(req: AnswerPermissionRequest): Promise<void>
     setPermissionMode(req: SetChatPermissionModeRequest): Promise<void>
     getAgentStatus(): Promise<AgentRuntimeStatus>
-    /** Agent sidecar 是否就绪（未配置 OO_API_KEY 时为 false）。 */
+    getRuntimeCapabilities(): Promise<RuntimeCapabilities>
+    /** Agent sidecar 是否就绪；本地模式缺少 custom model 时为 false。 */
     isReady(): Promise<boolean>
   }
 }>

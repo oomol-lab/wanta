@@ -38,6 +38,19 @@ function withSelectedModel(catalog: ModelCatalog | null, choice: ModelChoice): M
   return { ...catalog, selected: choice }
 }
 
+export function modelCatalogForRuntime(catalog: ModelCatalog | null, cloudModelsEnabled: boolean): ModelCatalog | null {
+  if (!catalog || cloudModelsEnabled) return catalog
+  const selectedCustom = catalog.customModels.find((model) =>
+    catalog.selected.kind === "custom" ? model.id === catalog.selected.id : false,
+  )
+  const fallback = selectedCustom ?? catalog.customModels[0]
+  return {
+    ...catalog,
+    builtins: [],
+    ...(fallback ? { selected: { kind: "custom" as const, id: fallback.id } } : {}),
+  }
+}
+
 export function useModelCatalog(): UseModelCatalog {
   const modelsService = useModelsService()
   const [catalog, setCatalog] = React.useState<ModelCatalog | null>(null)

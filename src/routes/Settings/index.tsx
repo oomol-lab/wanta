@@ -13,6 +13,7 @@ import {
   CopyIcon,
   DownloadIcon,
   LogOutIcon,
+  LogInIcon,
   MonitorIcon,
   MoonIcon,
   RefreshCwIcon,
@@ -92,7 +93,9 @@ export function SettingsRoute({
           <AccountSettings
             account={auth.state?.account}
             error={auth.error}
+            loggingIn={auth.loggingIn}
             loggingOut={auth.loggingOut}
+            onLogin={() => void auth.login()}
             onLogout={() => void auth.logout()}
           />
           <SettingsItem title={t("settings.appearance")}>
@@ -377,12 +380,16 @@ function SettingsItem({
 function AccountSettings({
   account,
   error,
+  loggingIn,
   loggingOut,
+  onLogin,
   onLogout,
 }: {
   account?: AuthAccountSummary
   error?: UserFacingError | null
+  loggingIn: boolean
   loggingOut: boolean
+  onLogin: () => void
   onLogout: () => void
 }) {
   const { t } = useI18n()
@@ -413,10 +420,17 @@ function AccountSettings({
               {accountCopy.copied ? t("settings.copied") : t("settings.copyAccountInfo")}
             </Button>
           ) : null}
-          <Button type="button" variant="outline" size="sm" disabled={loggingOut || !account} onClick={onLogout}>
-            <LogOutIcon className="size-4" />
-            {t("settings.logout")}
-          </Button>
+          {account ? (
+            <Button type="button" variant="outline" size="sm" disabled={loggingOut} onClick={onLogout}>
+              <LogOutIcon className="size-4" />
+              {t("settings.logout")}
+            </Button>
+          ) : (
+            <Button type="button" size="sm" disabled={loggingIn} onClick={onLogin}>
+              <LogInIcon className="size-4" />
+              {loggingIn ? t("login.waiting") : t("login.button")}
+            </Button>
+          )}
         </div>
       </section>
 

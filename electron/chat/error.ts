@@ -5,6 +5,7 @@ export type ChatErrorKind =
   | "connection_interrupted"
   | "rate_limited"
   | "auth_required"
+  | "model_auth_required"
   | "permission_denied"
   | "provider_unavailable"
   | "unknown"
@@ -15,6 +16,10 @@ export interface ChatErrorClassification {
   retryable: boolean
   diagnostics: string
   displayMessage?: string
+}
+
+export interface NormalizeChatErrorOptions {
+  runtimeMode?: "local" | "oomol"
 }
 
 const errorCodePrefix = /^([A-Za-z][A-Za-z0-9_]*):\s*(.*)$/
@@ -111,7 +116,10 @@ function resolveContentFiltered(message: string, code?: string): boolean {
   ])
 }
 
-export function normalizeChatError(rawMessage: string): ChatErrorClassification {
+export function normalizeChatError(
+  rawMessage: string,
+  options: NormalizeChatErrorOptions = {},
+): ChatErrorClassification {
   const diagnostics = rawMessage.trim()
   const { code, message } = stripKnownCodePrefix(diagnostics)
   const effectiveMessage = message || diagnostics
@@ -177,7 +185,8 @@ export function normalizeChatError(rawMessage: string): ChatErrorClassification 
     includesAny(diagnostics, ["unauthorized", "sign in", "login required", "code 401", "http 401"])
   ) {
     return {
-      kind: "auth_required",
+      // local runtime 的 401 来自用户自带 provider，不代表 OOMOL session 失效。
+      kind: options.runtimeMode === "local" ? "model_auth_required" : "auth_required",
       code: effectiveCode,
       retryable: false,
       diagnostics,

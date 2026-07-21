@@ -7,6 +7,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promi
 import os from "node:os"
 import path from "node:path"
 import { afterEach, expect, test, vi } from "vitest"
+import { resolveRuntimeCapabilities } from "../runtime/common.ts"
 import { ExpiringTrustedPathRegistry } from "../trusted-path-registry.ts"
 import {
   ArtifactBundleStore,
@@ -21,6 +22,7 @@ import { TurnOutputStore } from "./turn-outputs.ts"
 import { UserAttachmentStore } from "./user-attachments.ts"
 
 const testTeamScope = {
+  kind: "team" as const,
   teamId: "team-id",
   teamName: "team-name",
 }
@@ -28,6 +30,19 @@ const testTeamScope = {
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
+})
+
+test("runtime capabilities remain credential-free across the chat service boundary", async () => {
+  const service = new ChatServiceImpl()
+  expect(await service.getRuntimeCapabilities()).toEqual(
+    resolveRuntimeCapabilities({ mode: "local", localAgentAvailable: false }),
+  )
+
+  const capabilities = resolveRuntimeCapabilities({ mode: "oomol", localAgentAvailable: true })
+  service.setRuntimeCapabilities(capabilities)
+
+  expect(await service.getRuntimeCapabilities()).toEqual(capabilities)
+  expect(await service.getRuntimeCapabilities()).not.toHaveProperty("sessionToken")
 })
 
 function createBridgeAgent(): {
@@ -257,7 +272,7 @@ test("sendMessage waits for the request team scope before prompting", async () =
   const service = new ChatServiceImpl(bridge.agent)
 
   const request = service.sendMessage({
-    scope: { teamId: "team-id", teamName: " acme-corp " },
+    scope: { kind: "team", teamId: "team-id", teamName: " acme-corp " },
     sessionId: "session-1",
     text: "hello",
   })
@@ -397,7 +412,7 @@ test("sendMessage exposes active run snapshots with the request workspace", asyn
   const events = captureServiceEvents(service)
 
   await service.sendMessage({
-    scope: { teamId: "team-id", teamName: " acme-corp " },
+    scope: { kind: "team", teamId: "team-id", teamName: " acme-corp " },
     sessionId: "session-1",
     text: "hello",
   })
@@ -405,8 +420,26 @@ test("sendMessage exposes active run snapshots with the request workspace", asyn
   const run = await service.getActiveRun("session-1")
   assert.equal(run?.sessionId, "session-1")
   assert.equal(run?.phase, "submitted")
-  assert.deepEqual(run?.workspace, { teamId: "team-id", teamName: "acme-corp" })
+  assert.deepEqual(run?.workspace, { kind: "team", teamId: "team-id", teamName: "acme-corp" })
   assert.ok(events.some((event) => event.event === "activeRunUpdated"))
+})
+
+test("sendMessage accepts a local workspace without assigning a team", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+
+  await service.sendMessage({
+    scope: { kind: "local", workspaceId: "local", workspaceName: "Local" },
+    sessionId: "local-session",
+    text: "hello locally",
+  })
+
+  assert.deepEqual((await service.getActiveRun("local-session"))?.workspace, {
+    kind: "local",
+    workspaceId: "local",
+    workspaceName: "Local",
+  })
+  assert.deepEqual(bridge.setSessionTeamName.mock.calls, [["local-session", undefined]])
 })
 
 test("getSessionSnapshot returns messages, pending asks, and active run together", async () => {
@@ -506,14 +539,14 @@ test("sendMessage allows concurrent generations in different team scopes", async
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { teamId: "team-a", teamName: "team-a" },
+    scope: { kind: "team", teamId: "team-a", teamName: "team-a" },
     sessionId: "session-1",
     text: "first",
   })
   let secondCompleted = false
   const second = service
     .sendMessage({
-      scope: { teamId: "team-b", teamName: "team-b" },
+      scope: { kind: "team", teamId: "team-b", teamName: "team-b" },
       sessionId: "session-2",
       text: "second",
     })
@@ -539,14 +572,14 @@ test("sendMessage allows concurrent generations in the same team scope", async (
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { teamId: "team-a", teamName: "team-a" },
+    scope: { kind: "team", teamId: "team-a", teamName: "team-a" },
     sessionId: "session-1",
     text: "first",
   })
   let secondCompleted = false
   const second = service
     .sendMessage({
-      scope: { teamId: "team-a", teamName: "team-a" },
+      scope: { kind: "team", teamId: "team-a", teamName: "team-a" },
       sessionId: "session-2",
       text: "second",
     })
@@ -576,7 +609,7 @@ test("setAgentTeam applies only the latest queued workspace scope", async () => 
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { teamId: "team-a", teamName: "team-a" },
+    scope: { kind: "team", teamId: "team-a", teamName: "team-a" },
     sessionId: "session-1",
     text: "first",
   })
@@ -610,7 +643,7 @@ test("setAgentTeam is not superseded by per-turn team scopes", async () => {
   await waitForCondition(() => Boolean(releaseFirstScope))
   const secondSync = service.setAgentTeam({ teamName: "team-b" })
   await service.sendMessage({
-    scope: { teamId: "team-c", teamName: "team-c" },
+    scope: { kind: "team", teamId: "team-c", teamName: "team-c" },
     sessionId: "session-1",
     text: "turn scoped to team-c",
   })
@@ -632,7 +665,7 @@ test("setAgentTeam does not interrupt active generations from other team scopes"
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { teamId: "team-a", teamName: "team-a" },
+    scope: { kind: "team", teamId: "team-a", teamName: "team-a" },
     sessionId: "session-1",
     text: "first",
   })
@@ -656,7 +689,7 @@ test("setAgentTeam does not wait on active generations for the requested team sc
   service.startEventBridge()
 
   await service.sendMessage({
-    scope: { teamId: "team-a", teamName: "team-a" },
+    scope: { kind: "team", teamId: "team-a", teamName: "team-a" },
     sessionId: "session-1",
     text: "first",
   })
@@ -1421,6 +1454,51 @@ test("agent errors from multiple opencode channels produce one message error per
   assert.equal(events.filter((event) => event.event === "messageError").length, 2)
 })
 
+test("only OOMOL runtime chat 401 expires the global session", async () => {
+  const localBridge = createBridgeAgent()
+  const localExpiry = vi.fn(async () => undefined)
+  const localService = new ChatServiceImpl(localBridge.agent, { onOomolAuthRequired: localExpiry })
+  const localEvents = captureServiceEvents(localService)
+  localService.startEventBridge()
+  await localService.sendMessage({ scope: testTeamScope, sessionId: "local-session", text: "hello" })
+  localBridge.emit({
+    type: "session.error",
+    properties: {
+      sessionID: "local-session",
+      error: { name: "APIError", data: { message: '{"status":401,"message":"invalid api key"}' } },
+    },
+  })
+  await waitForMessageErrorCount(localEvents, 1)
+
+  const localError = localEvents.find((event) => event.event === "messageError") as
+    | { data: { errorKind?: string } }
+    | undefined
+  assert.equal(localError?.data.errorKind, "model_auth_required")
+  assert.equal(localExpiry.mock.calls.length, 0)
+
+  const oomolBridge = createBridgeAgent()
+  const oomolExpiry = vi.fn(async () => undefined)
+  const oomolService = new ChatServiceImpl(oomolBridge.agent, { onOomolAuthRequired: oomolExpiry })
+  oomolService.setRuntimeCapabilities(resolveRuntimeCapabilities({ mode: "oomol", localAgentAvailable: true }))
+  const oomolEvents = captureServiceEvents(oomolService)
+  oomolService.startEventBridge()
+  await oomolService.sendMessage({ scope: testTeamScope, sessionId: "oomol-session", text: "hello" })
+  oomolBridge.emit({
+    type: "session.error",
+    properties: {
+      sessionID: "oomol-session",
+      error: { name: "APIError", data: { message: '{"status":401,"message":"session expired"}' } },
+    },
+  })
+  await waitForMessageErrorCount(oomolEvents, 1)
+  await vi.waitFor(() => expect(oomolExpiry).toHaveBeenCalledOnce())
+
+  const oomolError = oomolEvents.find((event) => event.event === "messageError") as
+    | { data: { errorKind?: string } }
+    | undefined
+  assert.equal(oomolError?.data.errorKind, "auth_required")
+})
+
 test("hasActiveGeneration tracks pending and completed assistant turns", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)
@@ -1915,6 +1993,7 @@ test("rejectQuestion resolves the waiting question without stopping the generati
   assert.equal(waitingRun?.phase, "awaiting_question")
   assert.equal(waitingRun?.sessionId, "session-1")
   assert.deepEqual(waitingRun?.workspace, {
+    kind: "team",
     teamId: "team-id",
     teamName: "team-name",
   })
@@ -2049,7 +2128,7 @@ test("sendMessage turns /bug-report into a Markdown artifact-only turn", async (
       mode: "plan",
       model: { id: "oopilot", kind: "builtin" },
       permissionMode: "default",
-      scope: { teamId: "team-id", teamName: "team-name" },
+      scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
       sessionId: "session-1",
       text: "/bug-report Focus on the authorization state mismatch.",
     })

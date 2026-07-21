@@ -1,16 +1,30 @@
 import assert from "node:assert/strict"
-import { mkdtempSync, readdirSync, statSync } from "node:fs"
+import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { test } from "vitest"
 import { externalModelProviderBaseUrls } from "../domain.ts"
+import { ModelCredentialStore } from "./credential-store.ts"
 import { defaultModelChoice, ModelsStore, sanitizeBaseUrl } from "./store.ts"
 
 const providerBaseUrls = externalModelProviderBaseUrls
 
+function createStore(dir: string): { credentials: ModelCredentialStore; store: ModelsStore } {
+  const credentials = new ModelCredentialStore(
+    dir,
+    {
+      decryptString: (encrypted) => encrypted.toString("utf8").replace(/^encrypted:/, ""),
+      encryptString: (plainText) => Buffer.from(`encrypted:${plainText}`, "utf8"),
+      isEncryptionAvailable: () => true,
+    },
+    "darwin",
+  )
+  return { credentials, store: new ModelsStore(dir, credentials) }
+}
+
 test("ModelsStore returns default catalog on missing file", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
-  const store = new ModelsStore(dir)
+  const { store } = createStore(dir)
   const catalog = await store.catalog()
   assert.deepEqual(catalog.selected, defaultModelChoice())
   assert.deepEqual(
@@ -23,7 +37,7 @@ test("ModelsStore returns default catalog on missing file", async () => {
 
 test("ModelsStore exposes provider default URLs and model options", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
-  const store = new ModelsStore(dir)
+  const { store } = createStore(dir)
   const catalog = await store.catalog()
   const providers = new Map(catalog.providers.map((provider) => [provider.id, provider]))
 
@@ -183,21 +197,23 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
   assert.equal(providers.has("ollama"), false)
 })
 
-test("ModelsStore persists custom models but public catalog redacts apiKey", async () => {
+test("ModelsStore persists credential metadata while public catalog and models.json redact apiKey", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
-  const store = new ModelsStore(dir)
+  const { credentials, store } = createStore(dir)
+  await credentials.set("m1", "sk-secret")
+  const modelWithRuntimeSecret = {
+    id: "m1",
+    providerId: "deepseek",
+    providerName: "DeepSeek",
+    baseUrl: `${providerBaseUrls.deepseek}/v1`,
+    apiKeyConfigured: true,
+    // 即使调用方误把 runtime 对象传给元数据写入，store 也必须按字段白名单剥离凭证。
+    apiKey: "must-never-be-written",
+    modelName: "deepseek-chat",
+  }
   await store.write({
     selected: { kind: "custom", id: "m1" },
-    customModels: [
-      {
-        id: "m1",
-        providerId: "deepseek",
-        providerName: "DeepSeek",
-        baseUrl: `${providerBaseUrls.deepseek}/v1`,
-        apiKey: "sk-secret",
-        modelName: "deepseek-chat",
-      },
-    ],
+    customModels: [modelWithRuntimeSecret],
   })
   const catalog = await store.catalog()
   assert.deepEqual(catalog.selected, { kind: "custom", id: "m1" })
@@ -213,12 +229,17 @@ test("ModelsStore persists custom models but public catalog redacts apiKey", asy
     supportsToolCalls: true,
   })
   assert.equal(statSync(path.join(dir, "models.json")).mode & 0o777, 0o600)
-  assert.deepEqual(readdirSync(dir), ["models.json"])
+  assert.equal(statSync(path.join(dir, "model-credentials.json")).mode & 0o777, 0o600)
+  assert.equal(readFileSync(path.join(dir, "models.json"), "utf8").includes("sk-secret"), false)
+  assert.equal(readFileSync(path.join(dir, "models.json"), "utf8").includes("must-never-be-written"), false)
+  assert.equal(readFileSync(path.join(dir, "model-credentials.json"), "utf8").includes("sk-secret"), false)
+  assert.deepEqual(readdirSync(dir).sort(), ["model-credentials.json", "models.json"])
 })
 
 test("ModelsStore exposes custom model image support", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
-  const store = new ModelsStore(dir)
+  const { credentials, store } = createStore(dir)
+  await credentials.set("m1", "sk-secret")
   await store.write({
     selected: { kind: "custom", id: "m1" },
     customModels: [
@@ -227,7 +248,7 @@ test("ModelsStore exposes custom model image support", async () => {
         providerId: "openrouter",
         providerName: "OpenRouter",
         baseUrl: providerBaseUrls.openrouter,
-        apiKey: "sk-secret",
+        apiKeyConfigured: true,
         modelName: "vision-model",
         supportsImages: true,
         inputTokenLimit: 128_000,
@@ -239,6 +260,159 @@ test("ModelsStore exposes custom model image support", async () => {
 
   assert.equal(catalog.customModels[0]?.supportsImages, true)
   assert.equal(catalog.customModels[0]?.inputTokenLimit, 128_000)
+})
+
+test("ModelsStore excludes incomplete custom models from runtime configuration", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
+  const { store } = createStore(dir)
+  await store.write({
+    selected: { kind: "custom", id: "missing-key" },
+    customModels: [
+      {
+        id: "missing-key",
+        providerId: "custom",
+        providerName: "Custom",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        apiKeyConfigured: false,
+        modelName: "local-model",
+      },
+    ],
+  })
+
+  assert.deepEqual((await store.runtimeModels()).customModels, [])
+  assert.deepEqual(await store.runtimeCustomModels(), [])
+})
+
+test("ModelsStore migrates legacy plaintext API keys before rewriting metadata", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
+  writeFileSync(
+    path.join(dir, "models.json"),
+    JSON.stringify({
+      selected: { kind: "custom", id: "legacy" },
+      customModels: [
+        {
+          id: "legacy",
+          providerId: "openrouter",
+          providerName: "OpenRouter",
+          baseUrl: providerBaseUrls.openrouter,
+          apiKey: "legacy-secret",
+          modelName: "legacy-model",
+        },
+      ],
+    }),
+  )
+  const { credentials, store } = createStore(dir)
+
+  const models = await store.read()
+
+  assert.equal(models.customModels?.[0]?.apiKeyConfigured, true)
+  assert.equal(readFileSync(path.join(dir, "models.json"), "utf8").includes("legacy-secret"), false)
+  assert.equal(await credentials.get("legacy"), "legacy-secret")
+  assert.equal((await store.runtimeModels()).customModels[0]?.apiKey, "legacy-secret")
+})
+
+test("legacy migration keeps the plaintext source when secure credential writing fails", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
+  const modelsFile = path.join(dir, "models.json")
+  writeFileSync(
+    modelsFile,
+    JSON.stringify({
+      customModels: [
+        {
+          id: "legacy",
+          providerId: "custom",
+          providerName: "Custom",
+          baseUrl: "https://models.example.test/v1",
+          apiKey: "only-copy",
+          modelName: "legacy-model",
+        },
+      ],
+    }),
+  )
+  const credentials = new ModelCredentialStore(
+    dir,
+    {
+      decryptString: () => "",
+      encryptString: () => {
+        throw new Error("keychain write failed")
+      },
+      isEncryptionAvailable: () => true,
+    },
+    "darwin",
+  )
+  const store = new ModelsStore(dir, credentials)
+
+  const catalog = await store.catalog()
+
+  assert.ok(catalog.builtins.length > 0)
+  assert.equal(readFileSync(modelsFile, "utf8").includes("only-copy"), true)
+})
+
+test("legacy migration retains both copies when metadata cleanup fails after secure storage succeeds", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
+  const modelsFile = path.join(dir, "models.json")
+  writeFileSync(
+    modelsFile,
+    JSON.stringify({
+      customModels: [
+        {
+          id: "legacy",
+          providerId: "custom",
+          providerName: "Custom",
+          baseUrl: "https://models.example.test/v1",
+          apiKey: "migration-secret",
+          modelName: "legacy-model",
+        },
+      ],
+    }),
+  )
+  const { credentials } = createStore(dir)
+  const store = new ModelsStore(dir, credentials, {
+    writeText: async () => {
+      throw new Error("metadata cleanup failed")
+    },
+  })
+
+  const catalog = await store.catalog()
+
+  assert.ok(catalog.builtins.length > 0)
+  assert.equal(readFileSync(modelsFile, "utf8").includes("migration-secret"), true)
+  assert.equal(await credentials.get("legacy"), "migration-secret")
+})
+
+test("credential lookup failures preserve builtin catalog and omit unavailable custom runtimes", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
+  const credentials = new ModelCredentialStore(
+    dir,
+    {
+      decryptString: () => "",
+      encryptString: () => Buffer.from(""),
+      isEncryptionAvailable: () => false,
+    },
+    "darwin",
+  )
+  const store = new ModelsStore(dir, credentials)
+  await store.write({
+    selected: { kind: "custom", id: "locked-model" },
+    customModels: [
+      {
+        id: "locked-model",
+        providerId: "custom",
+        providerName: "Locked",
+        baseUrl: "https://models.example.test/v1",
+        apiKeyConfigured: true,
+        modelName: "locked-model",
+      },
+    ],
+  })
+
+  const catalog = await store.catalog()
+  const runtime = await store.runtimeModels()
+
+  assert.ok(catalog.builtins.length > 0)
+  assert.equal(catalog.customModels[0]?.id, "locked-model")
+  assert.deepEqual(runtime.customModels, [])
+  assert.deepEqual(runtime.selected, { kind: "custom", id: "locked-model" })
 })
 
 test("sanitizeBaseUrl trims trailing slash and rejects invalid protocols", () => {

@@ -24,7 +24,7 @@ import { ConnectionService } from "@oomol/connection"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import { logDiagnostic } from "../diagnostics-log.ts"
-import { SessionService as SessionServiceName } from "./common.ts"
+import { normalizeSessionScopeValue, sessionScopesEqual, SessionService as SessionServiceName } from "./common.ts"
 import { normalizeKnowledgeBaseIds } from "./metadata-store.ts"
 
 interface SessionServiceDeps {
@@ -37,40 +37,29 @@ interface SessionServiceDeps {
 }
 
 const invalidSessionScope: SessionScope = {
+  kind: "team",
   teamId: "__invalid__",
   teamName: "__invalid__",
 }
 
 function normalizeSessionScope(scope: SessionScope | undefined): SessionScope {
-  if (scope) {
-    const teamId = scope.teamId.trim()
-    const teamName = scope.teamName.trim()
-    if (!teamId || !teamName) {
-      return invalidSessionScope
-    }
-    return {
-      teamId,
-      teamName,
-    }
-  }
-  return invalidSessionScope
+  return normalizeSessionScopeValue(scope) ?? invalidSessionScope
 }
 
 function normalizeRequestedSessionScope(scope: SessionScope | undefined): SessionScope {
   if (!scope) {
-    throw new Error("Team scope is required")
+    throw new Error("Workspace scope is required")
   }
-  const teamId = scope.teamId.trim()
-  const teamName = scope.teamName.trim()
-  if (!teamId || !teamName) {
-    throw new Error("Team scope is invalid")
+  const normalized = normalizeSessionScopeValue(scope)
+  if (!normalized) {
+    throw new Error("Workspace scope is invalid")
   }
-  return { teamId, teamName }
+  return normalized
 }
 
 function sessionScopeMatches(sessionScope: SessionScope | undefined, requestedScope: SessionScope): boolean {
   const normalizedSessionScope = normalizeSessionScope(sessionScope)
-  return normalizedSessionScope.teamId === requestedScope.teamId
+  return sessionScopesEqual(normalizedSessionScope, requestedScope)
 }
 
 function normalizeSessionPlacement(placement: SessionPlacement | undefined): SessionPlacement {

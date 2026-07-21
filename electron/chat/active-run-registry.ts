@@ -1,6 +1,8 @@
 import type { ChatEmit } from "../agent/event-translator.ts"
 import type { ChatActiveRun, ChatRunPhase, ChatRunWorkspace } from "./common.ts"
 
+import { sessionScopesEqual } from "../session/common.ts"
+
 type ActiveRunUpdate = {
   ended?: { endedAt: number; endedRunId: string }
   run: ChatActiveRun | null
@@ -197,8 +199,7 @@ function sameActiveRun(left: ChatActiveRun, right: ChatActiveRun): boolean {
     left.runId === right.runId &&
     left.sessionId === right.sessionId &&
     left.startedAt === right.startedAt &&
-    left.workspace.teamId === right.workspace.teamId &&
-    left.workspace.teamName === right.workspace.teamName &&
+    sessionScopesEqual(left.workspace, right.workspace) &&
     sameStringArray(left.activeToolPartIds, right.activeToolPartIds) &&
     sameStringArray(left.blockingRequestIds, right.blockingRequestIds)
   )

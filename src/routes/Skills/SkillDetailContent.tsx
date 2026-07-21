@@ -152,6 +152,7 @@ export interface SkillDetailContentProps {
   requestRemoveSkill: (skill: ManagedSkillGroup) => void
   requestTeamLink: (skill: ManagedSkillGroup) => void
   showPublishAction?: boolean
+  showRegistryActions?: boolean
   showTeamLinkAction: boolean
   selectedPlanError: unknown
   selectedSkill: ManagedSkillGroup | undefined
@@ -172,6 +173,7 @@ export function SkillDetailContent({
   requestRemoveSkill,
   requestTeamLink,
   showPublishAction = true,
+  showRegistryActions = true,
   selectedPlanError,
   selectedSkill,
   selectedStatus,
@@ -202,6 +204,7 @@ export function SkillDetailContent({
         selectedStatus={selectedStatus}
         showTeamLinkAction={showTeamLinkAction}
         showPublishAction={showPublishAction}
+        showRegistryActions={showRegistryActions}
         selectedVersionCheck={selectedVersionCheck}
         updateRegistrySkill={updateRegistrySkill}
         updatingRegistrySkillId={updatingRegistrySkillId}
@@ -226,6 +229,7 @@ interface SkillPeekProps {
   selectedStatus: ReturnType<typeof getGroupStatus>
   showTeamLinkAction: boolean
   showPublishAction: boolean
+  showRegistryActions: boolean
   selectedVersionCheck?: SkillVersionReport["skills"][number]
   updateRegistrySkill: (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => void
   updatingRegistrySkillId: string | null
@@ -245,6 +249,7 @@ function SkillPeek({
   selectedStatus,
   showTeamLinkAction,
   showPublishAction,
+  showRegistryActions,
   selectedVersionCheck,
   updateRegistrySkill,
   updatingRegistrySkillId,
@@ -256,7 +261,8 @@ function SkillPeek({
   const skillDocumentRootPath = getSkillDocumentRootPath(selectedSkill)
   const hasPublishedUpdate = hasSkillUpdateAvailable(selectedVersionCheck)
   const canUpdatePublishedSkill = hasPublishedUpdate && shouldUpdatePublishedSkill(selectedSkill)
-  const canRestoreRegistrySkill = selectedSkill.kind === "registry" && Boolean(selectedSkill.packageName?.trim())
+  const canRestoreRegistrySkill =
+    showRegistryActions && selectedSkill.kind === "registry" && Boolean(selectedSkill.packageName?.trim())
   const isUpdatingRegistrySkill = updatingRegistrySkillId === selectedSkill.id
   const localPublishPath = getLocalSkillPublishPath(selectedSkill)
   const canPublishLocalSkill = showPublishAction && Boolean(localPublishPath)
@@ -362,7 +368,7 @@ function SkillPeek({
                 {t("skills.publishable")}
               </Badge>
             ) : null}
-            {hasPublishedUpdate && canUpdatePublishedSkill ? (
+            {showRegistryActions && hasPublishedUpdate && canUpdatePublishedSkill ? (
               <SkillUpdateActionBadge
                 ariaLabel={t("skills.updateRegistryToVersion", {
                   current: selectedVersionCheck?.currentVersion ?? selectedSkill.version ?? "",
@@ -566,7 +572,7 @@ function SkillPeek({
         </div>
       </InspectorInsetCard>
 
-      {hasPublishedUpdate && canUpdatePublishedSkill ? (
+      {showRegistryActions && hasPublishedUpdate && canUpdatePublishedSkill ? (
         <InspectorInsetCard className="shrink-0 gap-2 border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
           <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
             <ObjectStatusIcon tone="attention" />

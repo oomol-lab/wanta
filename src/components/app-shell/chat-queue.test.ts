@@ -122,11 +122,11 @@ describe("chat queue", () => {
       "default",
       [{ id: "skill-1", name: "Skill" }],
       { id: "project-1", name: "Project", path: "/tmp/project" },
-      { teamId: "team-1", teamName: "acme" },
+      { kind: "team", teamId: "team-1", teamName: "acme" },
     )
 
     assert.deepEqual(queued.teamSkills, [{ id: "skill-1", name: "Skill" }])
     assert.deepEqual(queued.projectContext, { id: "project-1", name: "Project", path: "/tmp/project" })
-    assert.deepEqual(queued.sessionScope, { teamId: "team-1", teamName: "acme" })
+    assert.deepEqual(queued.sessionScope, { kind: "team", teamId: "team-1", teamName: "acme" })
   })
 })

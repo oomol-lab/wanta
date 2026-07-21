@@ -8,7 +8,7 @@ import type {
   ReasoningLevel,
 } from "../chat/common.ts"
 import type { ModelChoice } from "../models/common.ts"
-import type { PersistedCustomModel } from "../models/store.ts"
+import type { RuntimeCustomModel } from "../models/store.ts"
 import type { GenerateSessionTitleRequest, SessionInfo } from "../session/common.ts"
 import type { GeneratedSessionTitle } from "./session-title-generator.ts"
 import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@opencode-ai/sdk/v2/client"
@@ -39,13 +39,15 @@ import { ensureAgentWorkspace } from "./workspace.ts"
 
 export type { GeneratedSessionTitle } from "./session-title-generator.ts"
 
+/** 主进程私有的云能力上下文；OOMOL token 不得跨 IPC/RPC 边界。 */
+export type MainProcessCloudRuntime = { kind: "local" } | { kind: "oomol"; sessionToken: string; teamName?: string }
+
 export interface AgentManagerOptions {
-  /** 网关鉴权凭证：现为会话 token（网关层接受 cookie/token/api-key）。LLM 网关 / connector / oo-cli 共用。 */
-  authToken: string
+  cloudRuntime: MainProcessCloudRuntime
   /** opencode 二进制绝对路径。 */
   opencodeBinPath: string
-  /** oo 二进制绝对路径。 */
-  ooBinPath: string
+  /** oo 二进制只供 OOMOL runtime 使用；本地 runtime 不解析也不注入。 */
+  ooBinPath?: string
   /** WikiGraph CLI 的 Node 入口与执行器；仅供 Wanta 只读知识查询工具使用。 */
   wikiGraphCliPath?: string
   wikiGraphExecutablePath?: string
@@ -54,12 +56,12 @@ export interface AgentManagerOptions {
   bundledSkillsDir?: string
   /** 构建期合并的自定义工具 runtime；启动时拷进 .opencode/runtime/tool.js。 */
   bundledToolRuntimePath?: string
-  /** 当前团队工作区名称；未设置表示团队身份尚未解析。 */
-  teamName?: string
   /** App 私有根目录（userData 下）：workspace / oo-store / isolation 都在其下。 */
   rootDir: string
   /** 自定义 OpenAI-compatible 模型配置。apiKey 只进入 sidecar env config，不落到 OpenCode 文件。 */
-  customModels?: PersistedCustomModel[]
+  customModels?: RuntimeCustomModel[]
+  /** sidecar 启动默认模型；本地 runtime 必须解析为 custom model。 */
+  defaultModel?: ModelChoice
   /** 关闭 sidecar Basic Auth（默认开，随机口令）。 */
   disableServerAuth?: boolean
 }
@@ -67,6 +69,11 @@ export interface AgentManagerOptions {
 function normalizeTeamName(teamName: string | undefined): string | undefined {
   const normalized = teamName?.trim()
   return normalized ? normalized : undefined
+}
+
+function requireOoBinPath(ooBinPath: string | undefined): string {
+  if (!ooBinPath) throw new Error("The OOMOL Agent runtime requires the oo binary path.")
+  return ooBinPath
 }
 
 function normalizeKnowledgeBaseIds(ids: readonly string[]): string[] {
@@ -228,7 +235,7 @@ export class AgentManager {
 
   public constructor(options: AgentManagerOptions) {
     this.options = options
-    this.teamName = normalizeTeamName(options.teamName)
+    this.teamName = options.cloudRuntime.kind === "oomol" ? normalizeTeamName(options.cloudRuntime.teamName) : undefined
   }
 
   public get client(): OpencodeClient {
@@ -363,19 +370,20 @@ export class AgentManager {
     const workspaceDir = path.join(rootDir, "workspace")
     const teamScopePath = path.join(rootDir, "team-scope.json")
 
-    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath)
+    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, this.options.cloudRuntime.kind)
     this.teamScopePath = teamScopePath
     await this.writeTeamState(this.teamName)
   }
 
   private async startSidecar(): Promise<void> {
     const {
-      authToken,
+      cloudRuntime,
       opencodeBinPath,
       ooBinPath,
       rootDir,
       disableServerAuth,
       customModels,
+      defaultModel,
       wikiGraphCliPath,
       wikiGraphExecutablePath,
       knowledgeRegistryPath,
@@ -385,16 +393,20 @@ export class AgentManager {
     const storeDir = path.join(rootDir, "oo-store")
     const teamScopePath = this.teamScopePath ?? path.join(rootDir, "team-scope.json")
 
-    const config = buildOpencodeConfig({ authToken, customModels })
-    const ooEnv = buildOoEnv({
-      authToken,
-      teamName: this.teamName,
-      teamScopePath,
-      storeDir,
-      ooBinPath,
+    const config = buildOpencodeConfig({ cloudRuntime, customModels, defaultModel })
+    const ooEnv =
+      cloudRuntime.kind === "oomol"
+        ? buildOoEnv({
+            authToken: cloudRuntime.sessionToken,
+            teamName: this.teamName,
+            teamScopePath,
+            storeDir,
+            ooBinPath: requireOoBinPath(ooBinPath),
+          })
+        : {}
+    const commandPath = await resolveUserCommandPath({
+      preferredDirectories: cloudRuntime.kind === "oomol" && ooBinPath ? [path.dirname(ooBinPath)] : [],
     })
-    const ooDir = path.dirname(ooBinPath)
-    const commandPath = await resolveUserCommandPath({ preferredDirectories: [ooDir] })
     const env: Record<string, string> = {
       ...ooEnv,
       // 托管 Skill 可复用 Wanta 自身的 Node runtime；生产的 process.execPath 是 Electron，调用方同时设置
@@ -702,11 +714,16 @@ export class AgentManager {
     baseUrl: string
     modelID: string
   } {
-    const resolved = this.resolveModel(choice)
-    if (choice?.kind !== "custom") {
-      return { apiKey: this.options.authToken, baseUrl: llmBaseUrl, modelID: resolved.modelID }
+    const effectiveChoice = choice ?? this.options.defaultModel
+    if (this.options.cloudRuntime.kind !== "oomol") {
+      const customModel = this.resolveLocalCustomModel(effectiveChoice)
+      return { apiKey: customModel.apiKey, baseUrl: customModel.baseUrl, modelID: customModel.modelName }
     }
-    const customModel = this.options.customModels?.find((item) => item.id === choice.id)
+    const resolved = this.resolveModel(effectiveChoice)
+    if (effectiveChoice?.kind !== "custom") {
+      return { apiKey: this.options.cloudRuntime.sessionToken, baseUrl: llmBaseUrl, modelID: resolved.modelID }
+    }
+    const customModel = this.options.customModels?.find((item) => item.id === effectiveChoice.id)
     if (!customModel) {
       throw new Error("Selected custom model is no longer available.")
     }
@@ -800,7 +817,7 @@ export class AgentManager {
       return
     }
     const tail = mergeSystemPrompts(
-      buildWorkspaceIdentitySystem(options.teamName),
+      this.options.cloudRuntime.kind === "oomol" ? buildWorkspaceIdentitySystem(options.teamName) : undefined,
       await this.buildAuthorizedSystem(options.teamName, options.signal),
       options.system,
       buildArtifactSystem(options.artifactDir, options.outputProjectRoot),
@@ -844,6 +861,7 @@ export class AgentManager {
 
   /** R4：构建注入系统提示末尾的已授权 Link 可用性提示（无已授权则 undefined）。 */
   public async buildAuthorizedSystem(teamName?: string, signal?: AbortSignal): Promise<string | undefined> {
+    if (this.options.cloudRuntime.kind !== "oomol") return undefined
     const services = await this.authorizedServicesForPrompt(teamName, signal)
     if (services.length === 0) {
       return undefined
@@ -890,7 +908,7 @@ export class AgentManager {
 
   /** 直查 connector /v1/apps，返回已授权（active）service 名清单（R4 动态系统提示用）。 */
   public async listAuthorizedServices(teamName?: string, signal?: AbortSignal): Promise<string[]> {
-    if (!this.started) {
+    if (!this.started || this.options.cloudRuntime.kind !== "oomol") {
       return []
     }
     const normalizedTeamName = normalizeTeamName(teamName)
@@ -898,7 +916,7 @@ export class AgentManager {
     try {
       const response = await fetch(`${connectorBaseUrl}/v1/apps`, {
         headers: {
-          Authorization: `Bearer ${this.options.authToken}`,
+          Authorization: `Bearer ${this.options.cloudRuntime.sessionToken}`,
           ...(normalizedTeamName ? { "x-oo-organization-name": normalizedTeamName } : {}),
         },
         signal: requestSignal.signal,
@@ -1062,11 +1080,17 @@ export class AgentManager {
   }
 
   private resolveModel(choice: ModelChoice | undefined): { providerID: string; modelID: string } {
-    if (!choice || choice.kind === "builtin") {
-      const modelID = choice && isBuiltinModelId(choice.id) ? choice.id : DEFAULT_BUILTIN_MODEL_ID
+    const effectiveChoice = choice ?? this.options.defaultModel
+    if (this.options.cloudRuntime.kind !== "oomol") {
+      const customModel = this.resolveLocalCustomModel(effectiveChoice)
+      return { providerID: customProviderId(customModel.id), modelID: customModel.modelName }
+    }
+    if (!effectiveChoice || effectiveChoice.kind === "builtin") {
+      const modelID =
+        effectiveChoice && isBuiltinModelId(effectiveChoice.id) ? effectiveChoice.id : DEFAULT_BUILTIN_MODEL_ID
       return resolveBuiltinModel(modelID).runtime
     }
-    const model = this.options.customModels?.find((item) => item.id === choice.id)
+    const model = this.options.customModels?.find((item) => item.id === effectiveChoice.id)
     if (!model) {
       throw new Error("Selected custom model is no longer available.")
     }
@@ -1081,23 +1105,47 @@ export class AgentManager {
     if (!variant) {
       return undefined
     }
-    if (choice?.kind === "custom") {
-      const model = this.options.customModels?.find((item) => item.id === choice.id)
+    const effectiveChoice = choice ?? this.options.defaultModel
+    if (this.options.cloudRuntime.kind !== "oomol") {
+      const model = this.resolveLocalCustomModel(effectiveChoice)
+      return model.reasoningVariants?.includes(variant) ? variant : undefined
+    }
+    if (effectiveChoice?.kind === "custom") {
+      const model = this.options.customModels?.find((item) => item.id === effectiveChoice.id)
       return model?.reasoningVariants?.includes(variant) ? variant : undefined
     }
-    const modelID = choice && isBuiltinModelId(choice.id) ? choice.id : DEFAULT_BUILTIN_MODEL_ID
+    const modelID =
+      effectiveChoice && isBuiltinModelId(effectiveChoice.id) ? effectiveChoice.id : DEFAULT_BUILTIN_MODEL_ID
     const model = resolveBuiltinModel(modelID)
     return model.capabilities.reasoningVariants?.includes(variant) ? variant : undefined
   }
 
   private resolveAttachmentCapabilities(choice: ModelChoice | undefined): { images: boolean; pdf: boolean } {
-    if (choice?.kind === "custom") {
-      const model = this.options.customModels?.find((item) => item.id === choice.id)
+    const effectiveChoice = choice ?? this.options.defaultModel
+    if (this.options.cloudRuntime.kind !== "oomol") {
+      const model = this.resolveLocalCustomModel(effectiveChoice)
+      return { images: model.supportsImages === true, pdf: false }
+    }
+    if (effectiveChoice?.kind === "custom") {
+      const model = this.options.customModels?.find((item) => item.id === effectiveChoice.id)
       return { images: model?.supportsImages === true, pdf: false }
     }
-    const modelID = choice && isBuiltinModelId(choice.id) ? choice.id : DEFAULT_BUILTIN_MODEL_ID
+    const modelID =
+      effectiveChoice && isBuiltinModelId(effectiveChoice.id) ? effectiveChoice.id : DEFAULT_BUILTIN_MODEL_ID
     const capabilities = resolveBuiltinModel(modelID).capabilities
     return { images: capabilities.supportsImages, pdf: capabilities.supportsPdf }
+  }
+
+  private resolveLocalCustomModel(choice: ModelChoice | undefined): RuntimeCustomModel {
+    const modelId = choice?.kind === "custom" ? choice.id : this.options.defaultModel?.id
+    const model = this.options.customModels?.find((item) => item.id === modelId)
+    if (model) {
+      return model
+    }
+    if (choice?.kind === "custom") {
+      throw new Error("Selected custom model is no longer available.")
+    }
+    throw new Error("A custom model is required for the local Agent runtime.")
   }
 }
 

@@ -1,6 +1,7 @@
 import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentEventConnectionStatus, AgentManager } from "../agent/manager.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
+import type { RuntimeCapabilities } from "../runtime/common.ts"
 import type { SessionProjectStore } from "../session/project-store.ts"
 import type { ArtifactBundleStore, ArtifactBundles } from "./artifact-bundles.ts"
 import type { AuthorizationOverlayStore } from "./authorization.ts"
@@ -66,7 +67,9 @@ import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { createOpencodeMessageId } from "../agent/opencode-id.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
+import { resolveRuntimeCapabilities } from "../runtime/common.ts"
 import { ServiceEvent } from "../service-events.ts"
+import { normalizeSessionScopeValue } from "../session/common.ts"
 import { ActiveRunRegistry } from "./active-run-registry.ts"
 import { captureArtifactSessionBaseline } from "./artifact-bundles.ts"
 import { normalizeLocalPathCandidate } from "./artifacts.ts"
@@ -171,8 +174,13 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   })
 }
 
-function createMessageErrorPayload(sessionId: string, message: string, messageId?: string): MessageErrorEvent {
-  const normalized = normalizeChatError(message)
+function createMessageErrorPayload(
+  sessionId: string,
+  message: string,
+  runtimeMode: RuntimeCapabilities["mode"],
+  messageId?: string,
+): MessageErrorEvent {
+  const normalized = normalizeChatError(message, { runtimeMode })
   return {
     sessionId,
     ...(messageId ? { messageId } : {}),
@@ -184,17 +192,14 @@ function createMessageErrorPayload(sessionId: string, message: string, messageId
 }
 
 function teamNameFromRequest(req: SendMessageRequest): string | undefined {
-  const teamName = req.scope?.teamName.trim()
+  const teamName = req.scope.kind === "team" ? req.scope.teamName.trim() : ""
   return teamName ? teamName : undefined
 }
 
 function runWorkspaceFromRequest(req: SendMessageRequest): ChatRunWorkspace {
-  const teamId = req.scope?.teamId.trim() ?? ""
-  const teamName = req.scope?.teamName.trim() ?? ""
-  if (!teamId || !teamName) {
-    throw new Error("Team scope is invalid")
-  }
-  return { teamId, teamName }
+  const scope = normalizeSessionScopeValue(req.scope)
+  if (!scope) throw new Error("Workspace scope is invalid")
+  return scope
 }
 
 function messageErrorSignature(message: string): string {
@@ -240,6 +245,8 @@ interface ChatServiceDeps {
   }
   /** 渲染层切换团队 workspace 时，同步 agent 的团队作用域（main 持有 agent 与 activeAgentTeamName）。 */
   onSetAgentTeam?: (teamName: string | undefined) => Promise<void> | void
+  /** OOMOL runtime 的模型/工具请求收到 401 时使全局 session 失效；local provider 401 不调用。 */
+  onOomolAuthRequired?: () => Promise<void> | void
   /** 权限模式由 ChatService 统一提交，避免 renderer 分别写运行态与会话元数据。 */
   onPermissionModeChanged?: (sessionId: string, permissionMode: AgentPermissionMode) => Promise<void> | void
   /** 正常完成且产物已收尾后通知主进程 attention 域；停止和错误路径不触发。 */
@@ -275,7 +282,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private readonly subagentSessions: SubagentSessions
   private readonly permissions = new PermissionState()
   private readonly deps: ChatServiceDeps
-  private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
+  private agentStatus: AgentRuntimeStatus = { status: "model_required" }
+  private runtimeCapabilities: RuntimeCapabilities = resolveRuntimeCapabilities({
+    mode: "local",
+    localAgentAvailable: false,
+  })
   private readonly outputPersistence: OutputPersistence
   private scopeMutationQueue: Promise<void> = Promise.resolve()
   private desiredWorkspaceTeamName: string | undefined
@@ -357,6 +368,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     void this.send("agentStatusChanged", { status }).catch((error: unknown) => {
       console.warn("[wanta] failed to emit agent status:", error)
       logDiagnostic("chat-service", "failed to emit agent status", { error, status: status.status }, "warn")
+    })
+  }
+
+  public setRuntimeCapabilities(capabilities: RuntimeCapabilities): void {
+    this.runtimeCapabilities = capabilities
+    void this.send("runtimeCapabilitiesChanged", { capabilities }).catch((error: unknown) => {
+      console.warn("[wanta] failed to emit runtime capabilities:", error)
+      logDiagnostic("chat-service", "failed to emit runtime capabilities", { error, mode: capabilities.mode }, "warn")
     })
   }
 
@@ -650,7 +669,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.rememberMessageError(sessionId, message)) {
       return
     }
-    this.sendBestEffort(emit, "messageError", createMessageErrorPayload(sessionId, message, messageId), {
+    const payload = createMessageErrorPayload(sessionId, message, this.runtimeCapabilities.mode, messageId)
+    if (payload.errorKind === "auth_required") {
+      void Promise.resolve(this.deps.onOomolAuthRequired?.()).catch((error: unknown) => {
+        console.warn("[wanta] failed to expire OOMOL session after chat 401:", error)
+        logDiagnostic("chat-service", "failed to expire OOMOL session after chat 401", { error }, "warn")
+      })
+    }
+    this.sendBestEffort(emit, "messageError", payload, {
       messageId,
       sessionId,
     })
@@ -949,7 +975,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.activeRuns.delete(sessionId, generation.id)
       this.emitSessionActivity(sessionId)
       this.sendBestEffort(emit, "messageCompleted", { sessionId }, { sessionId })
-      if (completedRun) {
+      if (completedRun?.workspace.kind === "team") {
         void Promise.resolve(
           this.deps.onSessionCompleted?.({
             teamId: completedRun.workspace.teamId,
@@ -1264,6 +1290,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async getAgentStatus(): Promise<AgentRuntimeStatus> {
     return this.agentStatus
+  }
+
+  public async getRuntimeCapabilities(): Promise<RuntimeCapabilities> {
+    return this.runtimeCapabilities
   }
 
   public async getActiveRuns(): Promise<ChatActiveRun[]> {

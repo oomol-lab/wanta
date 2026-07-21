@@ -63,7 +63,7 @@ function serializeProjects(projects: Map<string, SessionProject>): PersistedSess
       record[id] = normalized
     }
   }
-  return { version: 1, projects: record }
+  return { version: 2, projects: record }
 }
 
 /** 本地项目列表：只保存用户选择的目录和展示状态，不触碰 OpenCode 会话本体。 */

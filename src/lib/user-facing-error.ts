@@ -27,6 +27,7 @@ export type UserFacingErrorKind =
   | "permission_denied"
   | "rate_limited"
   | "server_unavailable"
+  | "secure_storage_unavailable"
   | "timeout"
   | "validation_error"
 
@@ -142,6 +143,27 @@ export function resolveUserFacingError(
       "error.cancelled.description",
       diagnostics,
       preserveMessage,
+      message,
+    )
+  }
+
+  if (
+    includesAny(normalized, [
+      "secure model credential storage",
+      "operating system keychain",
+      "gnome keyring",
+      "kwallet",
+      "plaintext fallback is disabled",
+    ])
+  ) {
+    return buildError(
+      area,
+      "secure_storage_unavailable",
+      "warning",
+      "error.secureStorageUnavailable.title",
+      "error.secureStorageUnavailable.description",
+      diagnostics,
+      false,
       message,
     )
   }

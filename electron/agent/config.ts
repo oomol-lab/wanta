@@ -1,4 +1,5 @@
 import type { BuiltinModelDefinition } from "../models/builtin.ts"
+import type { ModelChoice } from "../models/common.ts"
 import type { WantaReasoningVariant } from "./reasoning.ts"
 import type { Config } from "@opencode-ai/sdk/v2/client"
 
@@ -7,13 +8,14 @@ import {
   BUILTIN_MODEL_DEFINITIONS,
   BUILTIN_PROVIDER_DEFINITIONS,
   DEFAULT_BUILTIN_MODEL_ID,
+  isBuiltinModelId,
   resolveBuiltinModel,
 } from "../models/builtin.ts"
 import { effectiveMaxOutputTokens } from "../models/limits.ts"
 import { customModelDisplayName } from "../models/store.ts"
 import { WANTA_BUILD_AGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
 import { OO_CLI_BASH_PERMISSION } from "./oo-command-permission.ts"
-import { WANTA_PLAN_SYSTEM_PROMPT, WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
+import { buildWantaPlanSystemPrompt, buildWantaSystemPrompt } from "./system-prompt.ts"
 
 type OpencodeModelConfig = NonNullable<NonNullable<Config["provider"]>[string]["models"]>[string] & {
   limit?: {
@@ -50,23 +52,27 @@ export interface OpencodeCustomModel {
 // 的路径访问经 permission ask 进入 ChatService 本地访问策略。默认访问会自动批准普通 bash/文件操作，
 // 并可对当前项目内、标准包管理器的依赖操作授予一次任务级窄权限；其余基础安全边界推给 UI。连接器自定义工具不受内置工具 permission 影响。
 // 保留直接 oo CLI 的 OpenCode 快速路径：oo 由 WANTA_OO_BIN/PATH 指向 Wanta 内置二进制。
-const WANTA_PERMISSION = {
-  edit: "ask",
-  bash: OO_CLI_BASH_PERMISSION,
-  webfetch: "allow",
-  external_directory: "ask",
-} as const
+function wantaPermission(cloudRuntime: OpencodeConfigOptions["cloudRuntime"]): OpencodePermissionConfig {
+  return {
+    edit: "ask",
+    bash: cloudRuntime.kind === "oomol" ? OO_CLI_BASH_PERMISSION : "ask",
+    webfetch: "allow",
+    external_directory: "ask",
+  } as OpencodePermissionConfig
+}
 
 // 覆盖 OpenCode 原生 plan agent 时保留其“不写用户文件”的语义；是否允许本地 shell 仍交给 ChatService 访问策略。
-const WANTA_PLAN_PERMISSION = {
-  bash: OO_CLI_BASH_PERMISSION,
-  webfetch: "allow",
-  external_directory: "ask",
-  edit: {
-    "*": "deny",
-    ".opencode/plans/*.md": "allow",
-  },
-} as unknown as OpencodePermissionConfig
+function wantaPlanPermission(cloudRuntime: OpencodeConfigOptions["cloudRuntime"]): OpencodePermissionConfig {
+  return {
+    bash: cloudRuntime.kind === "oomol" ? OO_CLI_BASH_PERMISSION : "ask",
+    webfetch: "allow",
+    external_directory: "ask",
+    edit: {
+      "*": "deny",
+      ".opencode/plans/*.md": "allow",
+    },
+  } as unknown as OpencodePermissionConfig
+}
 
 const OOMOL_REASONING_VARIANTS = {
   low: { reasoningEffort: "low" },
@@ -88,37 +94,67 @@ const QWEN_REASONING_VARIANTS = {
 } as const satisfies Partial<Record<WantaReasoningVariant, OpencodeReasoningVariantConfig>>
 
 export interface OpencodeConfigOptions {
-  /** 网关鉴权凭证：现为会话 token（网关层接受 cookie/token/api-key）。仅入内存 env，不落盘。 */
-  authToken: string
+  cloudRuntime: { kind: "local" } | { kind: "oomol"; sessionToken: string }
   customModels?: OpencodeCustomModel[]
+  defaultModel?: ModelChoice
 }
 
-/** 构建 OpenCode 配置（经 OPENCODE_CONFIG_CONTENT 内联注入；authToken 仅入内存 env，不落盘）。 */
-export function buildOpencodeConfig({ authToken, customModels = [] }: OpencodeConfigOptions): Config {
+/** 构建 OpenCode 配置；OOMOL token 与自定义模型 Key 只进入 sidecar 内存环境，不落 OpenCode 文件。 */
+export function buildOpencodeConfig({ cloudRuntime, customModels = [], defaultModel }: OpencodeConfigOptions): Config {
+  const model = resolveDefaultConfigModel(cloudRuntime, customModels, defaultModel)
+  const permission = wantaPermission(cloudRuntime)
+  const planPermission = wantaPlanPermission(cloudRuntime)
+  const promptCapabilities = { connectors: cloudRuntime.kind === "oomol" }
+  const systemPrompt = buildWantaSystemPrompt(promptCapabilities)
+  const planSystemPrompt = buildWantaPlanSystemPrompt(promptCapabilities)
   return {
     $schema: "https://opencode.ai/config.json",
-    model: `${WANTA_PROVIDER_ID}/${WANTA_MODEL_ID}`,
+    model,
     provider: {
-      ...builtinProviderConfigs(authToken),
+      ...(cloudRuntime.kind === "oomol" ? builtinProviderConfigs(cloudRuntime.sessionToken) : {}),
       ...Object.fromEntries(customModels.map((model) => [customProviderId(model.id), customProviderConfig(model)])),
     },
     agent: {
       [WANTA_BUILD_AGENT_NAME]: {
-        description: "OOMOL connector + local knowledge and coding assistant",
+        description:
+          cloudRuntime.kind === "oomol"
+            ? "OOMOL connector + local knowledge and coding assistant"
+            : "Local knowledge and coding assistant",
         mode: "primary",
-        prompt: WANTA_SYSTEM_PROMPT,
+        prompt: systemPrompt,
         // 不再下发 tools 禁用表：所有内置工具默认启用。
-        permission: WANTA_PERMISSION,
+        permission,
       },
       [WANTA_PLAN_AGENT_NAME]: {
         description: "Plan mode. Disallows edit tools and produces an implementation plan.",
         mode: "primary",
-        prompt: WANTA_PLAN_SYSTEM_PROMPT,
-        permission: WANTA_PLAN_PERMISSION,
+        prompt: planSystemPrompt,
+        permission: planPermission,
       },
     },
-    permission: WANTA_PERMISSION,
+    permission,
   }
+}
+
+function resolveDefaultConfigModel(
+  cloudRuntime: OpencodeConfigOptions["cloudRuntime"],
+  customModels: OpencodeCustomModel[],
+  defaultModel: ModelChoice | undefined,
+): string {
+  if (defaultModel?.kind === "custom") {
+    const customModel = customModels.find((model) => model.id === defaultModel.id)
+    if (customModel) return `${customProviderId(customModel.id)}/${customModel.modelName}`
+  }
+  if (cloudRuntime.kind === "local") {
+    const customModel = customModels[0]
+    if (!customModel) throw new Error("A custom model is required for the local Agent runtime.")
+    return `${customProviderId(customModel.id)}/${customModel.modelName}`
+  }
+  if (defaultModel?.kind === "builtin" && isBuiltinModelId(defaultModel.id)) {
+    const runtime = resolveBuiltinModel(defaultModel.id).runtime
+    return `${runtime.providerID}/${runtime.modelID}`
+  }
+  return `${WANTA_PROVIDER_ID}/${WANTA_MODEL_ID}`
 }
 
 export function customProviderId(id: string): string {

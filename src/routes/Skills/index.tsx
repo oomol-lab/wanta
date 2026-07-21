@@ -84,12 +84,14 @@ function visibleSkillOperationError(
 }
 
 export function SkillsRoute({
+  cloudEnabled,
   connectedProvidersLoading = false,
   focusRequest,
   teamSkills,
   providerSkillRecommendationsState,
   workspace,
 }: {
+  cloudEnabled: boolean
   connectedProvidersLoading?: boolean
   focusRequest?: { nonce: number; tab: SkillPageTab } | null
   teamSkills: UseTeamSkills
@@ -221,6 +223,10 @@ export function SkillsRoute({
   }, [teamSkills.skills, selectedSkill?.packageName])
   const showSelectedSkillTeamLinkAction = Boolean(selectedSkill?.packageName?.trim() && managedTeamOptions.length > 0)
   React.useEffect(() => {
+    if (!cloudEnabled) {
+      requestedVersionCheckRef.current = false
+      return
+    }
     if (requestedVersionCheckRef.current) {
       return
     }
@@ -229,7 +235,7 @@ export function SkillsRoute({
     void versionResource
       .refresh({ silent: true })
       .catch((error: unknown) => reportRendererHandledError("skills", "silent skill version refresh failed", error))
-  }, [versionResource])
+  }, [cloudEnabled, versionResource])
 
   React.useEffect(() => {
     if (versionResource.data?.cli?.status !== "update-available") {
@@ -241,14 +247,24 @@ export function SkillsRoute({
     if (!focusRequest) {
       return
     }
-    setActiveTab(focusRequest.tab === "team" && !workspace.activeWorkspace.teamId ? "discover" : focusRequest.tab)
-  }, [focusRequest, workspace.activeWorkspace.teamId])
+    setActiveTab(
+      focusRequest.tab === "team" && (!cloudEnabled || !workspace.activeWorkspace.teamId)
+        ? "discover"
+        : focusRequest.tab,
+    )
+  }, [cloudEnabled, focusRequest, workspace.activeWorkspace.teamId])
 
   React.useEffect(() => {
-    if (activeTab === "team" && !workspace.activeWorkspace.teamId) {
+    if (activeTab === "team" && (!cloudEnabled || !workspace.activeWorkspace.teamId)) {
       setActiveTab("discover")
     }
-  }, [activeTab, workspace.activeWorkspace.teamId])
+    if (!cloudEnabled && discoveryFilter === "mine") {
+      setDiscoveryFilter("all")
+    }
+    if (!cloudEnabled && installedFilter === "updates") {
+      setInstalledFilter("all")
+    }
+  }, [activeTab, cloudEnabled, discoveryFilter, installedFilter, workspace.activeWorkspace.teamId])
 
   React.useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -463,6 +479,10 @@ export function SkillsRoute({
 
   const installPublicSkill = React.useCallback(
     async (pkg: PublicSkillPackage, skillName?: string) => {
+      if (!cloudEnabled) {
+        toast.info(t("skills.signInToInstall"))
+        return
+      }
       if (skillMutationInFlightRef.current) {
         toast.info(t("skills.operationInProgress"))
         return
@@ -514,7 +534,7 @@ export function SkillsRoute({
         setInstallingRegistryResultId(null)
       }
     },
-    [installedSkillGroupById, inventoryResource, skillService, t, versionResource],
+    [cloudEnabled, installedSkillGroupById, inventoryResource, skillService, t, versionResource],
   )
 
   const {
@@ -675,8 +695,10 @@ export function SkillsRoute({
     selectedPlanError: visibleSkillOperationError(planError, selectedSkill?.id),
     selectedSkill,
     selectedStatus,
-    showTeamLinkAction: showSelectedSkillTeamLinkAction,
-    selectedVersionCheck,
+    showPublishAction: cloudEnabled,
+    showRegistryActions: cloudEnabled,
+    showTeamLinkAction: cloudEnabled && showSelectedSkillTeamLinkAction,
+    selectedVersionCheck: cloudEnabled ? selectedVersionCheck : undefined,
     updateRegistrySkill,
     updatingRegistrySkillId,
   }
@@ -699,9 +721,10 @@ export function SkillsRoute({
           installedFilter={installedFilter}
           installedQuery={query}
           teamFilter={teamFilter}
-          teamName={workspace.activeWorkspace.team?.name}
           teamQuery={teamQuery}
-          teamTabAvailable={Boolean(workspace.activeWorkspace.teamId)}
+          teamTabAvailable={cloudEnabled && Boolean(workspace.activeWorkspace.teamId)}
+          publishedFilterAvailable={cloudEnabled}
+          registryUpdatesAvailable={cloudEnabled}
           teamAction={teamInstallMissingAction}
           onDiscoveryFilterChange={setDiscoveryFilter}
           onDiscoveryQueryChange={setDiscoveryQuery}
@@ -729,17 +752,18 @@ export function SkillsRoute({
           />
         ) : activeTab === "discover" ? (
           <DiscoverSkillsPane
+            canInstall={cloudEnabled}
             error={activePackageCatalog.error}
             filter={discoveryFilter}
             groupById={installedSkillGroupById}
             installingKey={installingRegistryResultId}
             isLoading={isPublicPackageReplacing}
             isLoadingMore={isPublicPackageLoadingMore}
-            isSignedIn={authResource.data?.status === "authenticated"}
+            isSignedIn={cloudEnabled}
             locale={locale}
             next={activePackageCatalog.next}
             packages={filteredPublicPackages}
-            providerRecommendations={installableProviderSkillRecommendations}
+            providerRecommendations={cloudEnabled ? installableProviderSkillRecommendations : []}
             selectedPackage={selectedPublicPackage}
             onClosePackage={() => activePackageDispatcher({ id: null, type: "select" })}
             onInstall={installPublicSkill}
@@ -751,7 +775,7 @@ export function SkillsRoute({
                   : loadPublicSkillPackages({ next: activePackageCatalog.next }))
             }
             onOpenManagedSkill={openManagedPublicSkill}
-            onOpenTeamRecommendations={() => setActiveTab("team")}
+            onOpenTeamRecommendations={cloudEnabled ? () => setActiveTab("team") : undefined}
             onRetry={() => {
               if (discoveryFilter === "mine") {
                 if (authResource.data?.status === "authenticated") {
@@ -767,13 +791,13 @@ export function SkillsRoute({
           />
         ) : (
           <InstalledSkillsPane
-            cliUpdateError={cliUpdateError}
-            cliVersionCheck={versionResource.data?.cli}
+            cliUpdateError={cloudEnabled ? cliUpdateError : null}
+            cliVersionCheck={cloudEnabled ? versionResource.data?.cli : undefined}
             groups={filteredInstalledGroups}
             isExecutingCliUpdate={isExecutingCliUpdate}
             updateRegistrySkill={updateRegistrySkill}
             updatingRegistrySkillId={updatingRegistrySkillId}
-            versionCheckByKey={versionCheckByKey}
+            versionCheckByKey={cloudEnabled ? versionCheckByKey : new Map()}
             selectedSkill={
               selectedSkill && filteredInstalledGroups.some((group) => group.id === selectedSkill.id)
                 ? selectedSkill

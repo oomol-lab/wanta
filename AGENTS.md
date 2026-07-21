@@ -85,6 +85,12 @@ tags/release notes) is English. Details: [docs/development.md](docs/development.
    (`currentSessionToken` / `activeRuntimeAccount`) is deliberately NOT registered — only the
    thin `AuthServiceImpl` facade is. `auth.json` is 0600 + atomic writes and stores
    **profile only, never credentials**; deep-link logs must be redacted (query carries authID).
+   Custom model API keys are one-way: accepted only from new user input via `saveCustomModel`
+   in the Renderer form; any read/event returns only `apiKeyConfigured`. `models.json` must
+   never contain a key; `ModelCredentialStore` writes each key to a separate 0600 ciphertext
+   file using Electron `safeStorage` — decrypted only at agent-runtime assembly in the main
+   process. On Linux, weak/unknown storage backends must be explicitly rejected; silent
+   plaintext fallback is prohibited.
 5. **Versions are pinned, never floating**: `opencode-ai` / `@opencode-ai/sdk` /
    `@opencode-ai/plugin` share one exact version (upstream has no API-stability promise);
    the oo CLI version is locked solely by `OO_CLI_VERSION` in `scripts/oo-cli.ts`.

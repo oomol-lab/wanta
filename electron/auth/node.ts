@@ -133,17 +133,25 @@ export class AuthManager {
 
   /** 会话 token 被服务端判定失效：清 cookie、停 agent、广播未登录；不删除本地 profile。 */
   public async expireSession(): Promise<AuthState> {
+    if (this.sessionInvalidated) {
+      return this.currentState()
+    }
     this.authEpoch += 1
     this.sessionInvalidated = true
     this.rejectPending(new Error("Sign-in was cancelled."))
+    // 先撤掉 Renderer 云能力，避免 Cookie 清理和 sidecar 回收期间继续发起已鉴权请求。
+    const state = await this.currentState()
+    this.stateChanged.emit(state)
+    await this.emitState(state)
     await this.runtime.clearCookies().catch((error: unknown) => {
       console.warn("[wanta] failed to clear expired session cookies:", error)
       logDiagnostic("auth", "failed to clear expired session cookies", { error }, "warn")
     })
-    await this.deps.applyAccount(null)
-    const state = await this.currentState()
-    this.stateChanged.emit(state)
-    await this.emitState(state)
+    // 会话事实已经失效，runtime 回退失败不能阻止未登录状态广播；主进程会把 runtime 错误显示在聊天区。
+    await this.deps.applyAccount(null).catch((error: unknown) => {
+      console.error("[wanta] failed to apply local runtime after session expiry:", error)
+      logDiagnostic("auth", "failed to apply local runtime after session expiry", { error }, "error")
+    })
     return state
   }
 
@@ -172,15 +180,21 @@ export class AuthManager {
     const account = this.activeAccount()
     if (account) {
       this.deps.store.write(removeAccount(this.deps.store.read(), account))
-      await this.deps.applyAccount(null)
     }
+    // 先撤掉 Renderer 云能力，避免 Cookie 清理和 sidecar 回收期间继续发起已鉴权请求。
+    const state = await this.currentState()
+    this.stateChanged.emit(state)
+    await this.emitState(state)
+    // 先撤销 Cookie，再停止携带 token 的 runtime；即使 runtime 回退失败，旧会话也不能继续被读取。
     await this.runtime.clearCookies().catch((error: unknown) => {
       console.warn("[wanta] failed to clear session cookies:", error)
       logDiagnostic("auth", "failed to clear session cookies", { error }, "warn")
     })
-    const state = await this.currentState()
-    this.stateChanged.emit(state)
-    await this.emitState(state)
+    // 无 profile 时也必须执行：磁盘状态可能已被外部清理，但内存中仍可能存在旧 sidecar。
+    await this.deps.applyAccount(null).catch((error: unknown) => {
+      console.error("[wanta] failed to apply local runtime after sign-out:", error)
+      logDiagnostic("auth", "failed to apply local runtime after sign-out", { error }, "error")
+    })
     return state
   }
 
@@ -241,7 +255,7 @@ export class AuthManager {
 
   /**
    * 鉴权状态。唯一凭证是会话 token：profile 仍在但 cookie 已过期/被驱逐时一律判为未登录
-   * （一致生命周期 —— 渲染层据此落到登录页，聊天/连接器/用量随之全部不可用）。
+   * （一致生命周期 —— 渲染层据此切回 local workspace，云模型/连接器/用量随之全部不可用）。
    */
   private async currentState(): Promise<AuthState> {
     const account = this.activeAccount()
@@ -260,10 +274,17 @@ export class AuthManager {
     }
   }
 
-  /** 落盘 profile + 持久化会话 cookie + 广播 + 后台装配 agent（启动较慢，渲染层用既有 isReady 轮询显示"Agent 启动中"）。 */
+  /**
+   * 安全切换账号：先让渲染层退出旧云作用域，再替换 Cookie、重建 runtime，最后广播新账号。
+   * 这样账号切换窗口内不会出现“旧 UI scope + 新 Cookie”或“新 UI scope + 旧 sidecar”的混合状态。
+   */
   private async adoptAccount(account: AuthRuntimeAccount): Promise<AuthState> {
     const previousAuth = this.deps.store.read()
     const previousToken = await this.runtime.readCookie()
+    this.sessionInvalidated = true
+    const transitionState = await this.currentState()
+    this.stateChanged.emit(transitionState)
+    await this.emitState(transitionState)
     this.deps.store.write(upsertAccount(previousAuth, account))
     try {
       await this.runtime.persistCookie(account.sessionToken)
@@ -273,18 +294,25 @@ export class AuthManager {
         if (previousToken) await this.runtime.persistCookie(previousToken)
         else await this.runtime.clearCookies()
       } catch (rollbackError) {
+        const failedState = await this.currentState()
+        this.stateChanged.emit(failedState)
+        await this.emitState(failedState)
         throw new AggregateError([error, rollbackError], "Failed to persist and roll back the signed-in account")
       }
+      this.sessionInvalidated = false
+      const restoredState = await this.currentState()
+      this.stateChanged.emit(restoredState)
+      await this.emitState(restoredState)
       throw error
     }
     this.sessionInvalidated = false
-    const state = await this.currentState()
-    this.stateChanged.emit(state)
-    await this.emitState(state)
-    void this.deps.applyAccount(account).catch((error: unknown) => {
+    await this.deps.applyAccount(account).catch((error: unknown) => {
       console.error("[wanta] failed to start agent after sign-in:", error)
       logDiagnostic("auth", "failed to start agent after sign-in", { error }, "error")
     })
+    const state = await this.currentState()
+    this.stateChanged.emit(state)
+    await this.emitState(state)
     return state
   }
 

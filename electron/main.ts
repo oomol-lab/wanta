@@ -5,7 +5,18 @@ import type { AppUpdateState } from "./update/common.ts"
 
 import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, shell } from "electron"
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  nativeImage,
+  nativeTheme,
+  Notification,
+  safeStorage,
+  session,
+  shell,
+} from "electron"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { AgentRefreshScheduler } from "./agent-refresh-scheduler.ts"
@@ -50,12 +61,15 @@ import { GitServiceImpl } from "./git/node.ts"
 import { KnowledgeServiceImpl } from "./knowledge/node.ts"
 import { KnowledgeStore } from "./knowledge/store.ts"
 import { isAudioOnlyMediaRequest, isTrustedRendererUrl } from "./media-permission-policy.ts"
+import { ModelCredentialStore } from "./models/credential-store.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
 import { installOomolCorsShim } from "./net/oomol-cors.ts"
 // Teams 请求已整体搬到渲染层（src/lib/teams-client.ts），不再有对应主进程 service。
 import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstanceLock } from "./protocol.ts"
 import { normalizeRendererErrorReport } from "./renderer-error-report.ts"
+import { resolveAgentRuntime } from "./runtime/agent-runtime.ts"
+import { resolveRuntimeCapabilities } from "./runtime/common.ts"
 import { SessionActivityStore } from "./session/activity-store.ts"
 import { SessionMetadataStore } from "./session/metadata-store.ts"
 import { SessionServiceImpl } from "./session/node.ts"
@@ -119,7 +133,8 @@ const server = new ConnectionServer(new ElectronServerAdapter())
 
 const settingsStore = new SettingsStore(app.getPath("userData"))
 const attentionStore = new AttentionStore(app.getPath("userData"))
-const modelsStore = new ModelsStore(app.getPath("userData"))
+const modelCredentialStore = new ModelCredentialStore(app.getPath("userData"), safeStorage)
+const modelsStore = new ModelsStore(app.getPath("userData"), modelCredentialStore)
 const knowledgeStore = new KnowledgeStore(app.getPath("userData"))
 const wikiGraphCliPath = path.join(app.getAppPath(), "node_modules", "wiki-graph", "dist", "cli.js")
 // 二进制解析：生产从打包 Resources/bin（extraResources），dev 从 node_modules（opencode）与 .oo-bin（oo）。
@@ -145,6 +160,7 @@ let agent: AgentManager | null = null
 let applyChain: Promise<void> = Promise.resolve()
 let agentRuntimeVersion = 0
 let appliedAgentRuntimeVersion = -1
+let runtimeInitialized = false
 
 const authStore = new AuthStore(app.getPath("userData"))
 const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
@@ -185,6 +201,7 @@ const chatService = new ChatServiceImpl(null, {
   userAttachmentStore,
   onPermissionModeChanged: (sessionId, permissionMode) =>
     sessionService.setPermissionMode({ id: sessionId, permissionMode }),
+  onOomolAuthRequired: () => authManager.expireSession().then(() => undefined),
   onSetAgentTeam: handleAgentTeamChanged,
   onSessionCompleted: (input) => attentionService.completeSession(input),
 })
@@ -229,7 +246,7 @@ const authManager = new AuthManager({
   applyAccount: applyAuthAccount,
 })
 const agentRefreshScheduler = new AgentRefreshScheduler({
-  canRefresh: () => Boolean(authManager.activeAccount() && agent?.isReady()),
+  canRefresh: () => runtimeInitialized,
   isBusy: () => chatService.hasActiveGeneration(),
   isQuitting: () => isQuitting,
   refresh: refreshAgentRuntime,
@@ -343,14 +360,7 @@ if (isLocked) {
       void authManager
         .activeRuntimeAccount()
         .then((account) => {
-          if (account) {
-            return applyAuthAccount(account)
-          }
-          void attentionService.clearAll().catch((error: unknown) => {
-            console.warn("[wanta] failed to clear signed-out task attention:", error)
-          })
-          console.log("[wanta] not signed in (or session expired) — login page will be shown")
-          return undefined
+          return applyAuthAccount(account)
         })
         .catch((error: unknown) => {
           console.error("[wanta] agent sidecar failed to start:", error)
@@ -530,6 +540,7 @@ function applyAuthAccount(account: AuthRuntimeAccount | null): Promise<void> {
 
 /** 最近一次成功装配的账号：同凭证重复 apply 时短路，避免无谓的 sidecar 重启。 */
 let appliedAccount: AuthRuntimeAccount | null = null
+let appliedRuntimeKey: string | null = null
 // agent 的当前团队作用域：由渲染层切 workspace 时经 setAgentTeam IPC 更新；agent 重建时据此设初值。
 let activeAgentTeamName: string | undefined
 
@@ -537,26 +548,34 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   if (isQuitting) {
     return
   }
+  runtimeInitialized = true
   const runtimeVersionAtStart = agentRuntimeVersion
-  // account 恒带会话 token（来自 activeRuntimeAccount / adoptAccount）；token 缺失即为 null = 登出态。
-  // 幂等短路：冷启动 deep-link 与 whenReady 双路径会用同一账号 apply 两次。
+  const runtimeModels = await modelsStore.runtimeModels()
+  const runtime = resolveAgentRuntime(account, runtimeModels.selected, runtimeModels.customModels)
+  // 冷启动 deep-link、模型事件与 auth 广播可能重复触发；运行时身份和配置版本均未变化时短路。
   if (
-    account &&
-    appliedAccount &&
+    runtime &&
+    appliedRuntimeKey === runtime.key &&
     agent?.isReady() &&
     appliedAgentRuntimeVersion === agentRuntimeVersion &&
-    account.id === appliedAccount.id &&
-    account.sessionToken === appliedAccount.sessionToken
+    account?.id === appliedAccount?.id
   ) {
     return
   }
   const previousAccountId = appliedAccount?.id
   appliedAccount = null
+  appliedRuntimeKey = null
   // 旧 sidecar 必须在新 sidecar 启动前完成回收，避免共享 workspace/isolation 的两个运行时短暂并存。
   const previousAgent = agent
   agent = null
   chatService.setAgent(null)
-  chatService.setAgentStatus(account ? { status: "starting" } : { status: "signed_out" })
+  chatService.setRuntimeCapabilities(
+    resolveRuntimeCapabilities({
+      mode: account ? "oomol" : "local",
+      localAgentAvailable: Boolean(runtime),
+    }),
+  )
+  chatService.setAgentStatus(runtime ? { status: "starting" } : { status: "model_required" })
   sessionService.setAgent(null)
 
   if (previousAgent) {
@@ -574,26 +593,31 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     }
   }
 
-  if (!account || isQuitting) {
+  if (!runtime || isQuitting) {
     activeAgentTeamName = undefined
     await attentionService.clearAll().catch((error: unknown) => {
       console.warn("[wanta] failed to clear attention state during sign-out:", error)
     })
+    if (!account) console.log("[wanta] local Agent requires a configured custom model")
     return
   }
-  if (previousAccountId && previousAccountId !== account.id) {
+  if (previousAccountId && previousAccountId !== account?.id) {
     activeAgentTeamName = undefined
     await attentionService.clearAll().catch((error: unknown) => {
       console.warn("[wanta] failed to clear attention state during account switch:", error)
     })
   }
 
-  const customModels = await modelsStore.runtimeCustomModels()
   if (isQuitting) {
     return
   }
+  const cloudRuntime =
+    runtime.cloudRuntime.kind === "oomol"
+      ? { ...runtime.cloudRuntime, teamName: activeAgentTeamName }
+      : runtime.cloudRuntime
   const nextAgent = new AgentManager({
-    authToken: account.sessionToken,
+    cloudRuntime,
+    defaultModel: runtime.defaultModel,
     opencodeBinPath,
     ooBinPath,
     wikiGraphCliPath,
@@ -601,9 +625,8 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     knowledgeRegistryPath: knowledgeStore.registryPath(),
     bundledSkillsDir,
     bundledToolRuntimePath,
-    teamName: activeAgentTeamName,
     rootDir: path.join(app.getPath("userData"), "agent"),
-    customModels,
+    customModels: runtimeModels.customModels,
   })
   agent = nextAgent
   chatService.setAgent(nextAgent)
@@ -629,6 +652,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     return
   }
   appliedAccount = account
+  appliedRuntimeKey = runtime.key
   appliedAgentRuntimeVersion = runtimeVersionAtStart
   chatService.startEventBridge()
   chatService.setAgentStatus({ status: "ready" })
@@ -636,9 +660,11 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   if (agentRuntimeVersion !== runtimeVersionAtStart) {
     agentRefreshScheduler.schedule("runtime configuration changed during agent startup", 0)
   }
-  void skillService[ensureDefaultRegistrySkillsInstalled]().catch((error: unknown) => {
-    console.warn("[wanta] default registry skill installation failed:", error)
-  })
+  if (runtime.mode === "oomol") {
+    void skillService[ensureDefaultRegistrySkillsInstalled]().catch((error: unknown) => {
+      console.warn("[wanta] default registry skill installation failed:", error)
+    })
+  }
 }
 
 async function handleAgentTeamChanged(teamName: string | undefined): Promise<void> {
@@ -658,15 +684,14 @@ function restartAgentForModelConfig(): void {
   if (isQuitting) {
     return
   }
-  if (agent?.isReady()) agentRefreshScheduler.schedule("model configuration changed", 0)
-  else agentRuntimeVersion += 1
+  agentRefreshScheduler.schedule("model configuration changed", 0)
 }
 
 async function refreshAgentRuntime(_reason: string): Promise<void> {
   agentRuntimeVersion += 1
   const account = await authManager.activeRuntimeAccount()
   await applyAuthAccount(account)
-  // 会话中途过期：装配登出态后主动广播"未登录"，渲染层据此落回登录页（一致生命周期）。
+  // 会话中途过期：装配登出态后主动广播“未登录”，渲染层据此切回本地 workspace。
   if (!account) await authManager.broadcastAuthState()
 }
 function resolveOoBin(): string {

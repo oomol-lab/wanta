@@ -20,6 +20,16 @@ export interface ComposerSubmitState {
   visualStatus?: ChatStatus
 }
 
+export function composerModeControlsDisabled({
+  composerDisabled,
+  modelRequired,
+}: {
+  composerDisabled: boolean
+  modelRequired: boolean
+}): boolean {
+  return composerDisabled && !modelRequired
+}
+
 export function composerVoiceControlMode({
   voiceActive,
   voiceStarting,

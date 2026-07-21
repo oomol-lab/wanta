@@ -3,13 +3,13 @@ import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
 import { useAuthService } from "../components/AppContext.ts"
-import { oomolAuthRequiredEventName } from "../lib/oomol-http.ts"
+import { authRequiredMessage, oomolAuthRequiredEventName } from "../lib/oomol-http.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 import { observeAuthState } from "./auth-state-observer.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 export interface UseAuth {
-  /** null = 初始状态尚未加载（避免登录页闪烁）。 */
+  /** null = 初始状态尚未加载（避免应用入口闪烁）。 */
   state: AuthState | null
   loggingIn: boolean
   loggingOut: boolean
@@ -70,6 +70,7 @@ function useAuthController(): UseAuth {
         .then(
           (next) => {
             setState(next)
+            setError(resolveUserFacingError(authRequiredMessage, { area: "auth" }))
           },
           (err) => {
             reportRendererHandledError("auth", "session expiry handling failed", err)

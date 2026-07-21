@@ -22,9 +22,10 @@ interface SkillPageHeaderProps {
   installedFilter: InstalledSkillFilter
   installedQuery: string
   teamFilter: TeamSkillFilter
-  teamName?: string
   teamQuery: string
   teamTabAvailable: boolean
+  publishedFilterAvailable: boolean
+  registryUpdatesAvailable: boolean
   teamAction?: ReactNode
   onDiscoveryFilterChange: (filter: DiscoverSkillFilter) => void
   onDiscoveryQueryChange: (value: string) => void
@@ -42,9 +43,10 @@ export function SkillPageHeader({
   installedFilter,
   installedQuery,
   teamFilter,
-  teamName,
   teamQuery,
   teamTabAvailable,
+  publishedFilterAvailable,
+  registryUpdatesAvailable,
   teamAction,
   onDiscoveryFilterChange,
   onDiscoveryQueryChange,
@@ -64,15 +66,10 @@ export function SkillPageHeader({
       ? "skills.teamSearch"
       : "skills.installedSearch"
   const filterValue = isDiscoverTab ? discoveryFilter : isTeamTab ? teamFilter : installedFilter
-  const scopeDescription = isDiscoverTab
-    ? t("skills.scopeDescription.discover")
-    : isTeamTab
-      ? t("skills.scopeDescription.team", { name: teamName?.trim() || t("skills.scopeDescription.teamUnknown") })
-      : t("skills.scopeDescription.installed")
   const filterOptions = isDiscoverTab
     ? [
         { label: t("skills.discoverFilter.all"), value: "all" },
-        { label: t("skills.discoverFilter.mine"), value: "mine" },
+        ...(publishedFilterAvailable ? [{ label: t("skills.discoverFilter.mine"), value: "mine" }] : []),
       ]
     : isTeamTab
       ? [
@@ -85,13 +82,13 @@ export function SkillPageHeader({
           { label: t("skills.installedFilter.wanta"), value: "wanta" },
           { label: t("skills.installedFilter.codex"), value: "codex" },
           { label: t("skills.installedFilter.claudeCode"), value: "claude-code" },
-          { label: t("skills.installedFilter.updates"), value: "updates" },
+          ...(registryUpdatesAvailable ? [{ label: t("skills.installedFilter.updates"), value: "updates" }] : []),
           { label: t("skills.installedFilter.local"), value: "local" },
         ]
 
   return (
-    <header className="oo-border-divider grid min-h-12 gap-1.5 border-b px-3 py-2">
-      <div className="flex min-w-0 items-center gap-2">
+    <header className="oo-border-divider flex min-h-12 items-center border-b px-3 py-2">
+      <div className="flex w-full min-w-0 items-center gap-2">
         <SkillTabList activeTab={activeTab} teamTabAvailable={teamTabAvailable} onTabChange={onTabChange} />
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <SearchField
@@ -134,9 +131,6 @@ export function SkillPageHeader({
           {isTeamTab && teamAction ? <div className="shrink-0">{teamAction}</div> : null}
         </div>
       </div>
-      <p className="oo-text-caption min-w-0 truncate text-muted-foreground" title={scopeDescription}>
-        {scopeDescription}
-      </p>
     </header>
   )
 }

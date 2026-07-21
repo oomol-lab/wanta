@@ -19,6 +19,7 @@ import { Bug, X } from "lucide-react"
 import * as React from "react"
 import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
 import { AttachmentList } from "./ChatAttachments.tsx"
+import { composerModeControlsDisabled } from "./composer-controls.ts"
 import {
   appendStoredComposerHistory,
   buildComposerHistory,
@@ -52,9 +53,7 @@ import { normalizeServiceSlug } from "./tool-display.ts"
 import { stripDraftAttachment, useComposerAttachments } from "./useComposerAttachments.ts"
 import { useComposerPalette } from "./useComposerPalette.ts"
 import { useComposerPreferences } from "./useComposerPreferences.ts"
-import { useModelCatalog } from "./useModelCatalog.ts"
-import { useVoiceComposerInput } from "./useVoiceComposerInput.ts"
-import { getVoiceErrorNotice } from "./voice-error-display.ts"
+import { modelCatalogForRuntime, useModelCatalog } from "./useModelCatalog.ts"
 import {
   PromptInput,
   PromptInputAttachments,
@@ -71,6 +70,7 @@ import { authTypeLabel } from "@/routes/Connections/shared"
 
 interface ChatComposerProps {
   error: string | null
+  cloudModelsEnabled?: boolean
   focusRequest: number
   generatedArtifacts?: ArtifactSelection | null
   hasMessages: boolean
@@ -82,6 +82,7 @@ interface ChatComposerProps {
   knowledgeError: string | null
   knowledgeItems: KnowledgeBaseSummary[]
   knowledgeLoading: boolean
+  modelRequired?: boolean
   permissionMode: AgentPermissionMode
   pendingQuestions: ChatQuestionRequest[]
   placeholder: string
@@ -168,6 +169,7 @@ function paletteLabels({
 }
 
 export function ChatComposer({
+  cloudModelsEnabled = true,
   error,
   focusRequest,
   generatedArtifacts = null,
@@ -180,6 +182,7 @@ export function ChatComposer({
   knowledgeError,
   knowledgeItems,
   knowledgeLoading,
+  modelRequired = false,
   permissionMode,
   pendingQuestions = [],
   placeholder,
@@ -229,11 +232,6 @@ export function ChatComposer({
   )
   const { agentMode, reasoningLevel, setAgentMode, setReasoningLevel } = useComposerPreferences()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
-  const appendVoiceTranscription = React.useCallback((text: string) => {
-    dispatchComposer({ type: "insert-transcription", text })
-    window.requestAnimationFrame(() => textareaRef.current?.focus())
-  }, [])
-  const voiceInput = useVoiceComposerInput(appendVoiceTranscription)
   const paletteId = React.useId()
   const { attachments, command, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
   React.useEffect(() => {
@@ -257,9 +255,12 @@ export function ChatComposer({
   const composerWillQueueMessage = activePendingQuestion ? false : willQueueMessage
   const initialSendPending = turnState.status === "submitting" && turnState.initialSendPending
   const submitBlocked = submitDisabled || initialSendPending
-  const composerDisabled =
-    submitDisabled || voiceInput.busy || initialSendPending || answeringQuestion || composerQuestionBlocked
-  const modelCatalog = modelCatalogState.catalog
+  const composerDisabled = submitDisabled || initialSendPending || answeringQuestion || composerQuestionBlocked
+  const composerControlsDisabled = composerModeControlsDisabled({ composerDisabled, modelRequired })
+  const modelCatalog = React.useMemo(
+    () => modelCatalogForRuntime(modelCatalogState.catalog, cloudModelsEnabled),
+    [cloudModelsEnabled, modelCatalogState.catalog],
+  )
   const modelError = modelCatalogState.selectionError ?? modelCatalogState.catalogError
   const composerAttachments = useComposerAttachments({
     attachments,
@@ -565,24 +566,8 @@ export function ChatComposer({
     if (modelError) {
       return { error: modelError, showDiagnosticsCopy: true }
     }
-    const voiceNotice = getVoiceErrorNotice({
-      recorderError: voiceInput.recorderError,
-      transcriptionError: voiceInput.error,
-      transcriptionErrorKind: voiceInput.errorKind,
-    })
-    if (voiceNotice) {
-      return { ...voiceNotice, onDismiss: voiceInput.dismissError }
-    }
     return null
-  }, [
-    error,
-    inputError,
-    modelError,
-    voiceInput.dismissError,
-    voiceInput.error,
-    voiceInput.errorKind,
-    voiceInput.recorderError,
-  ])
+  }, [error, inputError, modelError])
   const errorBanner = visibleError ? (
     <ErrorNotice
       error={visibleError.error}
@@ -699,34 +684,23 @@ export function ChatComposer({
         />
         <ComposerTrailingControls
           canSubmit={canSubmit}
-          composerDisabled={composerDisabled}
+          composerDisabled={composerControlsDisabled}
           contextUsage={contextUsage}
           turnState={composerTurnState}
           modelCatalog={modelCatalog}
+          modelRequired={modelRequired}
           agentMode={agentMode}
           permissionMode={permissionMode}
           reasoningLevel={reasoningLevel}
-          voiceActive={voiceInput.active}
-          voiceBars={voiceInput.bars}
-          voiceDurationMs={voiceInput.durationMs}
-          voiceError={voiceInput.error}
-          voiceRecorderError={voiceInput.recorderError}
-          voiceRetryBlob={voiceInput.retryBlob}
-          voiceStarting={voiceInput.starting}
-          voiceTranscribing={voiceInput.transcribing}
           willQueueMessage={composerWillQueueMessage}
           onAddModel={modelCatalogState.openDialog}
-          onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}
-          onRetryVoice={voiceInput.retry}
           onSelectAgentMode={setAgentMode}
           onSelectDefaultPermissionMode={onPermissionModeDefault}
           onRequestFullAccessPermissionMode={onPermissionModeFullAccess}
           onSelectReasoningLevel={setReasoningLevel}
           onSelectModel={modelCatalogState.selectModel}
-          onStartVoice={voiceInput.start}
           onStop={onStop}
-          onStopVoice={() => void voiceInput.stop()}
         />
       </PromptInputToolbar>
     </PromptInput>
@@ -734,6 +708,7 @@ export function ChatComposer({
 
   const modelDialog = (
     <AddCustomModelDialog
+      connectorsEnabled={cloudModelsEnabled}
       open={modelCatalogState.dialogOpen}
       providers={modelCatalog?.providers ?? []}
       error={modelCatalogState.dialogError}

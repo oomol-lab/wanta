@@ -34,6 +34,7 @@ interface DiscoverSkillsPaneProps {
   isLoading: boolean
   isLoadingMore: boolean
   isSignedIn: boolean
+  canInstall: boolean
   locale: string
   next: string | null
   onClosePackage: () => void
@@ -86,6 +87,7 @@ export function DiscoverSkillsPane({
   isLoading,
   isLoadingMore,
   isSignedIn,
+  canInstall,
   locale,
   next,
   onClosePackage,
@@ -159,6 +161,7 @@ export function DiscoverSkillsPane({
               <PublicSkillPackageRow
                 key={pkg.id}
                 groupById={groupById}
+                canInstall={canInstall}
                 installingKey={installingKey}
                 pkg={pkg}
                 selected={selectedPackage?.id === pkg.id}
@@ -188,6 +191,7 @@ export function DiscoverSkillsPane({
       {selectedPackage ? (
         <PublicSkillPackageSheet
           installingKey={installingKey}
+          canInstall={canInstall}
           groupById={groupById}
           locale={locale}
           pkg={selectedPackage}
@@ -228,6 +232,7 @@ function PublicSkillListSkeleton() {
 }
 
 interface PublicSkillPackageRowProps {
+  canInstall: boolean
   groupById: ManagedSkillGroupById
   installingKey: string | null
   onInstall: (skillName?: string) => void
@@ -238,6 +243,7 @@ interface PublicSkillPackageRowProps {
 }
 
 function PublicSkillPackageRow({
+  canInstall,
   groupById,
   installingKey,
   onInstall,
@@ -283,9 +289,19 @@ function PublicSkillPackageRow({
             {t("skills.installedManage")}
           </Button>
         ) : canInstallPublicSkill(state) ? (
-          <Button type="button" variant="outline" size="sm" disabled={isInstalling} onClick={() => onInstall()}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!canInstall || isInstalling}
+            onClick={() => onInstall()}
+          >
             {isInstalling ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.installPackage />}
-            {isInstalling ? t("skills.registryInstalling") : getPublicSkillInstallActionLabel(state, t)}
+            {!canInstall
+              ? t("skills.signInToInstall")
+              : isInstalling
+                ? t("skills.registryInstalling")
+                : getPublicSkillInstallActionLabel(state, t)}
           </Button>
         ) : null
       }

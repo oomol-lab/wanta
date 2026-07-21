@@ -37,6 +37,22 @@ export default {
   // workspace 的 .opencode/skill/，使 Wanta agent 直接读到。
   extraResources: [
     {
+      from: "LICENSE",
+      to: "licenses/Wanta-LICENSE",
+    },
+    {
+      from: "NOTICE",
+      to: "NOTICE",
+    },
+    {
+      from: "THIRD_PARTY_NOTICES.md",
+      to: "THIRD_PARTY_NOTICES.md",
+    },
+    {
+      from: "TRADEMARKS.md",
+      to: "TRADEMARKS.md",
+    },
+    {
       from: "resources/branding/icon.png",
       to: "icon.png",
     },

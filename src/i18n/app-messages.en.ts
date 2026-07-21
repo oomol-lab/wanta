@@ -21,6 +21,9 @@ export const enMessages = {
     "The sign-in flow was not completed. Start sign-in again or finish authorization in the browser.",
   "error.authRequired.title": "Sign in again",
   "error.authRequired.description": "Your current sign-in has expired. Sign in again to continue.",
+  "error.secureStorageUnavailable.title": "Secure storage unavailable",
+  "error.secureStorageUnavailable.description":
+    "Unlock your operating system keychain and try again. On Linux, install and enable GNOME Keyring or KWallet; Wanta will not save model keys as plaintext.",
   "error.permissionDenied.title": "Access denied",
   "error.permissionDenied.description":
     "This account cannot perform this operation. You can switch accounts and try again.",
@@ -272,6 +275,18 @@ export const enMessages = {
   "chat.sendNotAccepted": "This message was not accepted yet. Try again shortly.",
   "chat.stopFailed": "Failed to stop generation.",
   "chat.agentStarting": "Agent starting…",
+  "chat.modelRequiredTitle": "Configure a model to start chatting",
+  "chat.modelRequiredDescription":
+    "Use your own API to run locally, or sign in to OOMOL for cloud models and connectors.",
+  "chat.modelRequiredPlaceholder": "Configure a model before sending a message",
+  "chat.inputPlaceholderLocal":
+    "What can I help you do today? Use @ for files or knowledge, / for commands, and $ for Skills",
+  "chat.configureModel": "Configure model",
+  "chat.loginForCloud": "Sign in to OOMOL",
+  "chat.emptyCloudTitle": "Cloud models and connectors",
+  "chat.emptyCloudMeta": "Optional OOMOL capabilities",
+  "chat.emptyCloudAction": "Sign in",
+  "chat.emptyCloudAria": "Sign in to use OOMOL cloud models and connectors",
   "chat.thinking": "Thinking",
   "chat.activityThinking": "Analyzing the request…",
   "chat.activityFinalizing": "Preparing the result…",
@@ -359,6 +374,7 @@ export const enMessages = {
   "chat.contextUsagePanelTokensUnknown": "{used} tokens used",
   "chat.modelReasoningPicker": "Switch model and reasoning",
   "chat.modelSection": "Model",
+  "chat.modelSelectOrConfigure": "Select or configure model",
   "chat.modelCustom": "Custom models",
   "chat.modelAdd": "Configure custom model",
   "chat.modelDelete": "Delete custom model",
@@ -396,6 +412,8 @@ export const enMessages = {
   "chat.modelSupportsToolCalls": "Supports tool calls",
   "chat.modelSupportsToolCallsDescription":
     "Keep this on for connectors and local tools. Turn it off if the API rejects the tools parameter.",
+  "chat.modelSupportsToolCallsLocalDescription":
+    "Keep this enabled to use local tools; turn it off if the API rejects the tools parameter.",
   "chat.modelTokenLimits": "Token limits",
   "chat.modelTokenLimitsDescription":
     "All optional. OpenCode prefers the input limit for auto-compaction, then falls back to the context window.",
@@ -507,6 +525,9 @@ export const enMessages = {
   "chatError.authRequired.title": "Sign in required",
   "chatError.authRequired.description": "Sign in to continue using Wanta.",
   "chatError.authRequired.primaryAction": "Sign in",
+  "chatError.modelAuthRequired.title": "Model API key rejected",
+  "chatError.modelAuthRequired.description":
+    "Check the API key and endpoint for this custom model, then update the model configuration.",
   "chatError.permissionDenied.title": "Access denied",
   "chatError.permissionDenied.description": "This account cannot use this feature or resource.",
   "chatError.permissionDenied.primaryAction": "Switch account",
@@ -1002,6 +1023,16 @@ export const enMessages = {
   "artifacts.infoPath": "Path",
   "artifacts.infoFolder": "Folder",
   "connections.title": "Connections",
+  "connections.selfHosted.title": "Connect a self-hosted OpenConnector",
+  "connections.selfHosted.todo": "Coming soon",
+  "connections.selfHosted.description":
+    "This page will connect to your own OpenConnector through a custom Base URL and load its connection console.",
+  "connections.selfHosted.requirementsTitle": "Planned configuration",
+  "connections.selfHosted.baseUrl": "OpenConnector Base URL",
+  "connections.selfHosted.runtimeToken": "Optional Runtime Token",
+  "connections.selfHosted.connectionCheck": "Connectivity and compatibility checks",
+  "connections.selfHosted.console": "Load the self-hosted connection console",
+  "connections.selfHosted.hostedHint": "Signing in to OOMOL still opens the existing hosted connection manager.",
   "connections.search": "Search 1000+ connectors…",
   "connections.connect": "Connect",
   "connections.disconnect": "Disconnect",
@@ -1289,6 +1320,7 @@ export const enMessages = {
   "settings.signedOut": "Signed out",
   "settings.userId": "User ID",
   "settings.logout": "Sign out",
+  "workspace.local": "Local workspace",
   "settings.about": "About",
   "settings.appVersion": "App version",
   "settings.appCommit": "App commit",

@@ -88,9 +88,12 @@
   everything — there is no method allowlist); only the contract facade is registered. **Long-lived
   api-keys are no longer fetched or persisted** — the gateway layer uniformly accepts
   cookie/token/api-key, so the session token is used throughout. User-entered third-party custom
-  model API keys (DeepSeek / Gemini / OpenRouter, etc.) are the exception: they are persisted in
-  plaintext in `userData/models.json` (0600 + atomic write) and are never returned to the renderer
-  (only an `apiKeyConfigured` boolean is exposed).
+  model API keys (DeepSeek / Gemini / OpenRouter, etc.) are the exception: they are stored as
+  ciphertext entries in the single 0600 `model-credentials.json` file by `ModelCredentialStore`
+  using Electron `safeStorage`, and are never returned to the renderer (only an
+  `apiKeyConfigured` boolean is exposed).
+  `models.json` must not contain any key. On Linux, weak/unknown `safeStorage` backends must be
+  explicitly rejected; silent plaintext fallback is prohibited.
 - `auth.json`: 0600 permissions, tmp+rename atomic write; **stores only the account profile, never
   any credential**. The session token lives only in the Electron session cookie and runtime memory;
   `AuthStore.purgeLegacy()` at startup wipes any legacy persisted api-key remnants.

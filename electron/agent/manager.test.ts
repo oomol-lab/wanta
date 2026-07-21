@@ -29,7 +29,7 @@ describe("AgentManager", () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {
       const manager = new AgentManager({
-        authToken: "test",
+        cloudRuntime: { kind: "oomol", sessionToken: "test" },
         opencodeBinPath: "/tmp/opencode",
         ooBinPath: "/tmp/oo",
         rootDir,
@@ -51,9 +51,62 @@ describe("AgentManager", () => {
     }
   })
 
+  it("never injects Connector authorization guidance into a local runtime", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
+    try {
+      const manager = new AgentManager({
+        cloudRuntime: { kind: "local" },
+        customModels: [
+          {
+            id: "local-model",
+            providerId: "custom",
+            providerName: "Local",
+            baseUrl: "http://127.0.0.1:11434/v1",
+            apiKey: "local-key",
+            apiKeyConfigured: true,
+            modelName: "local-model",
+          },
+        ],
+        opencodeBinPath: "/tmp/opencode",
+        rootDir,
+      })
+      manager.listAuthorizedServices = async () => ["gmail"]
+
+      await expect(manager.buildAuthorizedSystem()).resolves.toBeUndefined()
+    } finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("never queries Connector authorization in the local runtime", async () => {
+    const manager = new AgentManager({
+      cloudRuntime: { kind: "local" },
+      customModels: [
+        {
+          id: "local",
+          providerId: "custom",
+          providerName: "Local",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          apiKey: "local-key",
+          apiKeyConfigured: true,
+          modelName: "local-model",
+        },
+      ],
+      defaultModel: { kind: "custom", id: "local" },
+      opencodeBinPath: "/tmp/opencode",
+      rootDir: "/tmp/wanta-agent",
+    })
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    ;(manager as unknown as { started: boolean }).started = true
+
+    await expect(manager.listAuthorizedServices("acme")).resolves.toEqual([])
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it("reuses authorized provider awareness within the prompt cache window", async () => {
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -69,7 +122,7 @@ describe("AgentManager", () => {
 
   it("keeps a shared authorized provider lookup alive when its first caller is cancelled", async () => {
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -101,7 +154,7 @@ describe("AgentManager", () => {
 
   it("aborts authorized provider lookups and prevents cache refill after dispose", async () => {
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -139,7 +192,7 @@ describe("AgentManager", () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {
       const manager = new AgentManager({
-        authToken: "test",
+        cloudRuntime: { kind: "oomol", sessionToken: "test" },
         opencodeBinPath: "/tmp/opencode",
         ooBinPath: "/tmp/oo",
         rootDir,
@@ -162,7 +215,7 @@ describe("AgentManager", () => {
     const projectRoot = await mkdtemp(path.join(tmpdir(), "wanta-project-"))
     try {
       const manager = new AgentManager({
-        authToken: "test",
+        cloudRuntime: { kind: "oomol", sessionToken: "test" },
         opencodeBinPath: "/tmp/opencode",
         ooBinPath: "/tmp/oo",
         rootDir,
@@ -191,7 +244,7 @@ describe("AgentManager", () => {
     const outsideRoot = await mkdtemp(path.join(tmpdir(), "wanta-outside-"))
     try {
       const manager = new AgentManager({
-        authToken: "test",
+        cloudRuntime: { kind: "oomol", sessionToken: "test" },
         opencodeBinPath: "/tmp/opencode",
         ooBinPath: "/tmp/oo",
         rootDir,
@@ -216,7 +269,7 @@ describe("AgentManager", () => {
     const linkedProjectRoot = path.join(tmpdir(), `wanta-project-link-${Date.now()}`)
     try {
       const manager = new AgentManager({
-        authToken: "test",
+        cloudRuntime: { kind: "oomol", sessionToken: "test" },
         opencodeBinPath: "/tmp/opencode",
         ooBinPath: "/tmp/oo",
         rootDir,
@@ -259,7 +312,7 @@ describe("AgentManager", () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {
       const manager = new AgentManager({
-        authToken: "test",
+        cloudRuntime: { kind: "oomol", sessionToken: "test" },
         opencodeBinPath: "/tmp/opencode",
         ooBinPath: "/tmp/oo",
         rootDir,
@@ -280,7 +333,7 @@ describe("AgentManager", () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {
       const manager = new AgentManager({
-        authToken: "test",
+        cloudRuntime: { kind: "oomol", sessionToken: "test" },
         opencodeBinPath: "/tmp/opencode",
         ooBinPath: "/tmp/oo",
         rootDir,
@@ -326,7 +379,7 @@ describe("AgentManager", () => {
 
   it("restores the default identity when scope persistence fails", async () => {
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -356,7 +409,7 @@ describe("AgentManager", () => {
 
   it("preserves the scope write failure when identity rollback also fails", async () => {
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -388,7 +441,7 @@ describe("AgentManager", () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {
       const manager = new AgentManager({
-        authToken: "test",
+        cloudRuntime: { kind: "oomol", sessionToken: "test" },
         opencodeBinPath: "/tmp/opencode",
         ooBinPath: "/tmp/oo",
         rootDir,
@@ -417,7 +470,7 @@ describe("AgentManager", () => {
   it("passes OpenCode agent names and reasoning variants to promptAsync", async () => {
     const promptAsync = vi.fn(async () => ({ data: true }))
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -452,7 +505,7 @@ describe("AgentManager", () => {
     await writeFile(workbookPath, "test workbook")
     const promptAsync = vi.fn(async () => ({ data: true }))
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -502,7 +555,7 @@ describe("AgentManager", () => {
     await Promise.all([writeFile(jsonPath, "{}"), writeFile(imagePath, "test image")])
     const promptAsync = vi.fn(async () => ({ data: true }))
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -550,6 +603,57 @@ describe("AgentManager", () => {
     }
   })
 
+  it("uses the local default custom model for stale builtin prompt choices and capability checks", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-local-model-manager-"))
+    const imagePath = path.join(directory, "photo.png")
+    await writeFile(imagePath, "test image")
+    const promptAsync = vi.fn(async (_parameters: unknown) => ({ data: true }))
+    const manager = new AgentManager({
+      cloudRuntime: { kind: "local" },
+      customModels: [
+        {
+          apiKey: "local-secret",
+          apiKeyConfigured: true,
+          baseUrl: "http://127.0.0.1:11434/v1",
+          id: "local-default",
+          modelName: "local-model",
+          providerId: "custom",
+          providerName: "Local",
+          reasoningVariants: ["low"],
+          supportsImages: false,
+        },
+      ],
+      defaultModel: { kind: "custom", id: "local-default" },
+      opencodeBinPath: "/tmp/opencode",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { session: { promptAsync } } }
+
+    try {
+      await manager.promptStreaming("session-1", "analyze", {
+        attachments: [{ id: "image-1", mime: "image/png", name: "photo.png", path: imagePath, size: 100 }],
+        model: { kind: "builtin", id: "oopilot" },
+        reasoningLevel: "high",
+      })
+
+      const call = promptAsync.mock.calls[0]?.[0] as
+        | {
+            model?: { modelID: string; providerID: string }
+            parts?: Array<{ text?: string; type: string }>
+            variant?: string
+          }
+        | undefined
+      expect(call?.model).toEqual({ modelID: "local-model", providerID: "wanta-custom-local-default" })
+      expect(call).not.toHaveProperty("variant")
+      expect(call?.parts?.[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("does not support image input"),
+      })
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("restarts the OpenCode event stream after an unexpected disconnect", async () => {
     vi.useFakeTimers()
     const subscribe = vi
@@ -561,7 +665,7 @@ describe("AgentManager", () => {
         })(),
       })
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -597,7 +701,7 @@ describe("AgentManager", () => {
     vi.useFakeTimers()
     const subscribe = vi.fn().mockRejectedValue(new Error("stream disconnected"))
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -653,7 +757,7 @@ describe("AgentManager", () => {
     const reply = vi.fn(async () => ({ data: true }))
     const reject = vi.fn(async () => ({ data: true }))
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -685,7 +789,7 @@ describe("AgentManager", () => {
   it("turns OpenCode SDK error results into rejected operations", async () => {
     const failure = async () => ({ error: { message: "runtime unavailable" } })
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -739,7 +843,7 @@ describe("AgentManager", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
@@ -767,10 +871,11 @@ describe("AgentManager", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     const manager = new AgentManager({
-      authToken: "test",
+      cloudRuntime: { kind: "oomol", sessionToken: "test" },
       customModels: [
         {
           apiKey: "custom-secret",
+          apiKeyConfigured: true,
           baseUrl: "https://models.example.test/v1/",
           id: "custom-1",
           modelName: "custom-model",
@@ -794,5 +899,43 @@ describe("AgentManager", () => {
     expect(String(url)).toBe("https://models.example.test/v1/chat/completions")
     expect(request?.headers).toMatchObject({ Authorization: "Bearer custom-secret" })
     expect(JSON.parse(String(request?.body))).toMatchObject({ model: "custom-model" })
+  })
+
+  it("uses the local default custom model for a stale builtin title choice", async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"本地模型标题"}' } }] }), {
+        status: 200,
+      })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const manager = new AgentManager({
+      cloudRuntime: { kind: "local" },
+      customModels: [
+        {
+          apiKey: "local-secret",
+          apiKeyConfigured: true,
+          baseUrl: "http://127.0.0.1:11434/v1/",
+          id: "local-default",
+          modelName: "local-model",
+          providerId: "custom",
+          providerName: "Local",
+        },
+      ],
+      defaultModel: { kind: "custom", id: "local-default" },
+      opencodeBinPath: "/tmp/opencode",
+      rootDir: "/tmp/wanta-agent",
+    })
+
+    const title = await manager.generateSessionTitle({
+      model: { kind: "builtin", id: "oopilot" },
+      text: "生成标题",
+    })
+
+    expect(title).toEqual({ generated: true, title: "本地模型标题" })
+    const [url, request] = fetchMock.mock.calls[0] ?? []
+    expect(String(url)).toBe("http://127.0.0.1:11434/v1/chat/completions")
+    expect(request?.headers).toMatchObject({ Authorization: "Bearer local-secret" })
+    expect(JSON.parse(String(request?.body))).toMatchObject({ model: "local-model" })
   })
 })

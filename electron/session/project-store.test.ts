@@ -8,7 +8,7 @@ import { SessionProjectStore } from "./project-store.ts"
 test("SessionProjectStore persists local projects", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-session-projects-"))
   const store = new SessionProjectStore(dir)
-  const projects = new Map([
+  const projects = new Map<string, SessionProject>([
     [
       "project-a",
       {
@@ -17,7 +17,7 @@ test("SessionProjectStore persists local projects", async () => {
         path: "/Users/example/code/wanta",
         createdAt: 1_000,
         updatedAt: 2_000,
-        scope: { teamId: "team-id", teamName: "team-name" },
+        scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
         pinnedAt: 3_000,
       },
     ],
@@ -86,5 +86,23 @@ test("SessionProjectStore migrates legacy organization scope fields", async () =
   )
 
   const project = (await new SessionProjectStore(dir).read()).get("legacy")
-  assert.deepEqual(project?.scope, { teamId: "team-id", teamName: "team-name" })
+  assert.deepEqual(project?.scope, { kind: "team", teamId: "team-id", teamName: "team-name" })
 })
+
+test("SessionProjectStore persists an explicit local workspace scope", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-session-projects-"))
+  const store = new SessionProjectStore(dir)
+  const project: SessionProject = {
+    id: "local-project",
+    name: "Local project",
+    path: "/tmp/local-project",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    scope: { kind: "local", workspaceId: "local", workspaceName: "Local" },
+  }
+
+  await store.write(new Map([[project.id, project]]))
+
+  assert.deepEqual(await store.read(), new Map([[project.id, project]]))
+})
+import type { SessionProject } from "./common.ts"

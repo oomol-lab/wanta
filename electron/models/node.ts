@@ -45,6 +45,7 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
       const models = await this.deps.store.read()
       const selected = isKnownModelChoice(models, choice) ? choice : defaultModelChoice()
       await this.deps.store.write({ ...models, selected })
+      this.deps.onCustomModelsChanged?.()
       return this.emitCatalog()
     })
   }
@@ -59,7 +60,11 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
       const baseUrl = sanitizeBaseUrl(req.baseUrl ?? provider?.baseUrl ?? existing?.baseUrl ?? "")
       const modelName = req.modelName.trim()
       if (!modelName) throw new Error("Model name is required.")
-      const apiKey = req.apiKey?.trim() || existing?.apiKey || ""
+      const id = existing?.id ?? randomUUID()
+      const credentialStore = this.deps.store.credentialStore()
+      const existingApiKey = existing ? await credentialStore.get(id) : undefined
+      const requestedApiKey = req.apiKey?.trim()
+      const apiKey = requestedApiKey || existingApiKey || ""
       if (!apiKey) throw new Error("API Key is required.")
       const contextWindow = resolveOptionalTokenLimit(
         req,
@@ -83,11 +88,11 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
         "Input token limit",
       )
       const next: PersistedCustomModel = {
-        id: existing?.id ?? randomUUID(),
+        id,
         providerId: req.providerId,
         providerName,
         baseUrl,
-        apiKey,
+        apiKeyConfigured: true,
         modelName,
         displayName: req.displayName?.trim() || undefined,
         supportsImages:
@@ -107,11 +112,24 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
       const customModels = existing
         ? current.map((model) => (model.id === existing.id ? next : model))
         : [...current, next]
-      await this.deps.store.write({
-        ...models,
-        customModels,
-        selected: { kind: "custom", id: next.id },
-      })
+      const credentialChanged = Boolean(requestedApiKey && requestedApiKey !== existingApiKey)
+      if (credentialChanged) await credentialStore.set(id, apiKey)
+      try {
+        await this.deps.store.write({
+          ...models,
+          customModels,
+          selected: { kind: "custom", id: next.id },
+        })
+      } catch (error) {
+        if (!credentialChanged) throw error
+        try {
+          if (existingApiKey) await credentialStore.set(id, existingApiKey)
+          else await credentialStore.delete(id)
+        } catch (rollbackError) {
+          throw new AggregateError([error, rollbackError], "Failed to save and roll back the custom model")
+        }
+        throw error
+      }
       this.deps.onCustomModelsChanged?.()
       return this.emitCatalog()
     })
@@ -120,10 +138,26 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
   public deleteCustomModel(id: string): Promise<ModelCatalog> {
     return this.enqueueMutation(async () => {
       const models = await this.deps.store.read()
+      const existing = (models.customModels ?? []).find((model) => model.id === id)
+      if (!existing) return this.emitCatalog()
+      const credentialStore = this.deps.store.credentialStore()
+      const existingApiKey = await credentialStore.get(id)
       const customModels = (models.customModels ?? []).filter((model) => model.id !== id)
       const selected =
         models.selected?.kind === "custom" && models.selected.id === id ? defaultModelChoice() : models.selected
-      await this.deps.store.write({ ...models, customModels, selected })
+      await credentialStore.delete(id)
+      try {
+        await this.deps.store.write({ ...models, customModels, selected })
+      } catch (error) {
+        if (existingApiKey) {
+          try {
+            await credentialStore.set(id, existingApiKey)
+          } catch (rollbackError) {
+            throw new AggregateError([error, rollbackError], "Failed to delete and roll back the custom model")
+          }
+        }
+        throw error
+      }
       this.deps.onCustomModelsChanged?.()
       return this.emitCatalog()
     })

@@ -170,15 +170,22 @@ export function SettingsRoute({
 function RuntimeProfileSummary({ authenticated, mode }: { authenticated: boolean; mode: OperatingMode | null }) {
   const { t } = useI18n()
   const resolvedMode = authenticated ? "oomol" : mode
+  const description =
+    resolvedMode === "oomol"
+      ? t("settings.runtimeProfileOomolDescription")
+      : resolvedMode === "self-managed"
+        ? t("settings.runtimeProfileSelfDescription")
+        : t("settings.runtimeProfileUnselectedDescription")
+  const label =
+    resolvedMode === "oomol"
+      ? "Wanta"
+      : resolvedMode === "self-managed"
+        ? t("settings.runtimeProfileSelfManaged")
+        : t("settings.runtimeProfileUnselected")
   return (
-    <SettingsItem
-      title={t("settings.runtimeProfile")}
-      description={t(
-        resolvedMode === "oomol" ? "settings.runtimeProfileOomolDescription" : "settings.runtimeProfileSelfDescription",
-      )}
-    >
+    <SettingsItem title={t("settings.runtimeProfile")} description={description}>
       <span className="oo-text-caption rounded-full border bg-background px-2.5 py-1 font-medium text-foreground">
-        {resolvedMode === "oomol" ? "OOMOL" : t("settings.runtimeProfileSelfManaged")}
+        {label}
       </span>
     </SettingsItem>
   )
@@ -418,7 +425,7 @@ function LinkRuntimeSettings({ runtime }: { runtime: UseLinkRuntime }) {
       <SettingsItem title={t("settings.connectionsTitle")} description={t("settings.connectionsDescription")}>
         <span className="oo-text-caption rounded-full border px-2.5 py-1">
           {state?.active === "oomol"
-            ? "OOMOL"
+            ? "Wanta"
             : state?.active === "openconnector"
               ? "OpenConnector"
               : t("settings.connectionsModelOnly")}

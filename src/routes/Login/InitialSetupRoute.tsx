@@ -133,6 +133,7 @@ function SelfManagedSetup({
   const [runtimeToken, setRuntimeToken] = React.useState("")
   const [actionError, setActionError] = React.useState<UserFacingError | null>(null)
   const [connectorExpanded, setConnectorExpanded] = React.useState(false)
+  const connectorSectionId = React.useId()
   const hasModel = Boolean(models.catalog?.customModels.length)
   const connectorOnline = linkRuntime.status.kind === "online"
 
@@ -236,6 +237,7 @@ function SelfManagedSetup({
               variant="outline"
               size="sm"
               aria-expanded={connectorExpanded}
+              aria-controls={connectorSectionId}
               onClick={() => setConnectorExpanded((expanded) => !expanded)}
             >
               {connectorExpanded ? t("setup.hideOpenConnector") : t("setup.configureOpenConnector")}
@@ -244,7 +246,7 @@ function SelfManagedSetup({
           </div>
 
           {connectorExpanded ? (
-            <div className="mt-5 border-t pt-5">
+            <div id={connectorSectionId} className="mt-5 border-t pt-5">
               <div className="grid gap-2">
                 <OpenConnectorEndpointFields
                   baseUrl={baseUrl}

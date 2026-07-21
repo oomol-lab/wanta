@@ -46,6 +46,7 @@ test("local access policy prompts for direct and wrapped oo commands under OpenC
     "sh -lc 'oo connector apps --json'",
     "zsh -c 'cd /tmp && oo connector apps --json'",
     'cmd.exe /c "oo connector apps --json"',
+    "cmd /c oo connector apps --json",
     'pwsh -Command "oo connector apps --json"',
   ]) {
     assert.deepEqual(
@@ -66,6 +67,27 @@ test("local access policy prompts for direct and wrapped oo commands under OpenC
   )
 })
 
+test("local access policy prompts when shell wrapper syntax is not fully modeled", () => {
+  for (const command of [
+    "bash -c'oo auth login'",
+    "bash -c $'oo auth login'",
+    `bash -c "$(printf 'oo auth login')"`,
+    "bash -c '$SHELL_COMMAND'",
+    "bash -ec 'oo auth login'",
+    "bash script.sh",
+    "cmd /c %SHELL_COMMAND%",
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        linkRuntime: "openconnector",
+        permissionMode: "full_access",
+      }),
+      { type: "prompt", kind: "command", highRisk: false },
+      command,
+    )
+  }
+})
+
 test("local access policy rejects OpenConnector credential and configuration commands", () => {
   for (const command of [
     "oo connector login https://connector.example.test",
@@ -75,10 +97,15 @@ test("local access policy rejects OpenConnector credential and configuration com
     "oo connector apps --endpoint=https://other.example.test",
     "oo connector apps && oo connector logout",
     "bash -c 'oo connector login https://connector.example.test'",
+    "bash -c '$WANTA_OO_BIN config set endpoint https://other.example.test'",
     "sh -lc 'oo config set endpoint https://other.example.test'",
     "zsh -c 'cd /tmp && oo connector apps --connector-token secret'",
     'cmd /c "oo connector logout"',
+    "cmd /c oo auth login",
+    "cmd.exe /k oo connector logout",
     'powershell.exe -Command "oo config set endpoint https://other.example.test"',
+    "powershell -Command oo config set endpoint https://other.example.test",
+    "pwsh -c oo connector apps --connector-token secret",
     "OO_CONNECTOR_URL=https://other.example.test oo connector apps",
     "printenv",
     "bash -lc 'env'",
@@ -104,6 +131,13 @@ test("local access policy rejects OpenConnector credential and configuration com
   )
   assert.equal(
     evaluateLocalAccessRequest(permission({ metadata: { command: "bash -c 'printf ok'" } }), {
+      linkRuntime: "openconnector",
+      permissionMode: "full_access",
+    }).type,
+    "allow",
+  )
+  assert.equal(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "cmd /c echo ok" } }), {
       linkRuntime: "openconnector",
       permissionMode: "full_access",
     }).type,

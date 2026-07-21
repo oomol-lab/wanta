@@ -25,12 +25,14 @@ const ooCommandSegment = /(?:^|[;&|]{1,2}\s*)(?:oo|"?\$WANTA_OO_BIN"?|"?\$\{WANT
 const forbiddenOoMutation =
   /(?:^|[;&|]{1,2}\s*)(?:oo|"?\$WANTA_OO_BIN"?|"?\$\{WANTA_OO_BIN\}"?)\s+(?:(?:auth|login|logout|config)(?:\s|[;&|]|$)|connector\s+(?:login|logout)(?:\s|[;&|]|$))/u
 const forbiddenOoOption = /(?:^|\s)--(?:endpoint|config-dir|data-dir|connector-url|connector-token)(?:=|\s|$)/u
-const shellCommandOption = /^-[A-Za-z]*c[A-Za-z]*$/u
-const posixShellExecutable = /(?:^|\/)(?:bash|dash|fish|ksh|sh|zsh)$/u
-const cmdExecutable = /(?:^|[\\/])cmd(?:\.exe)?$/iu
+const maxShellWrapperDepth = 8
+const posixCommandOption = /^-(?:c|lc)$/u
 const cmdCommandOption = /^\/[ck]$/iu
-const powershellExecutable = /(?:^|[\\/])(?:powershell|pwsh)(?:\.exe)?$/iu
 const powershellCommandOption = /^-(?:c|command)$/iu
+const unsupportedWrapperSyntax = /(?:`|\$(?!(?:WANTA_OO_BIN\b|\{WANTA_OO_BIN\}))|%[^%\s]+%|![^!\s]+!)/u
+
+type ShellExecutable = "cmd" | "posix" | "powershell"
+type ShellWrapper = { kind: "command"; command: string } | { kind: "not_wrapper" } | { kind: "unsupported" }
 
 function hasUnsafeShellSyntax(command: string): boolean {
   let singleQuoted = false
@@ -132,18 +134,37 @@ function isEnvironmentDump(command: string): boolean {
   return words.slice(1).some((word) => ["env", "printenv", "set", "export"].includes(word))
 }
 
-function shellWrapperCommand(command: string): string | null {
-  const words = shellWords(command)
-  if (!words) return null
-  const executable = words[0] ?? ""
+function shellExecutable(command: string): { arguments: string; kind: ShellExecutable } | null {
+  const match = /^(?:"([^"]+)"|(\S+))/u.exec(command)
+  if (!match) return null
+  const executable = (match[1] ?? match[2] ?? "").split(/[\\/]/u).at(-1)?.toLowerCase()
+  const kind =
+    executable && ["bash", "dash", "fish", "ksh", "sh", "zsh"].includes(executable)
+      ? "posix"
+      : executable === "cmd" || executable === "cmd.exe"
+        ? "cmd"
+        : executable && ["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(executable)
+          ? "powershell"
+          : null
+  return kind ? { arguments: command.slice(match[0].length).trimStart(), kind } : null
+}
+
+function shellWrapperCommand(command: string): ShellWrapper {
+  const shell = shellExecutable(command)
+  if (!shell) return { kind: "not_wrapper" }
+  if (unsupportedWrapperSyntax.test(shell.arguments)) return { kind: "unsupported" }
+  const words = shellWords(shell.arguments)
+  if (!words) return { kind: "unsupported" }
+  const commandOption =
+    shell.kind === "posix" ? posixCommandOption : shell.kind === "cmd" ? cmdCommandOption : powershellCommandOption
   const optionIndex = words.findIndex(
     (word, index) =>
-      index > 0 &&
-      ((posixShellExecutable.test(executable) && shellCommandOption.test(word)) ||
-        (cmdExecutable.test(executable) && cmdCommandOption.test(word)) ||
-        (powershellExecutable.test(executable) && powershellCommandOption.test(word))),
+      commandOption.test(word) &&
+      words.slice(0, index).every((prefix) => prefix.startsWith(shell.kind === "cmd" ? "/" : "-")),
   )
-  return optionIndex === -1 ? null : (words[optionIndex + 1] ?? null)
+  if (optionIndex === -1 || !words[optionIndex + 1]) return { kind: "unsupported" }
+  const wrappedCommand = shell.kind === "posix" ? words[optionIndex + 1] : words.slice(optionIndex + 1).join(" ")
+  return { kind: "command", command: wrappedCommand }
 }
 
 export function isPureOoCliCommand(command: string): boolean {
@@ -162,24 +183,32 @@ export function isPureOoCliCommand(command: string): boolean {
 }
 
 export function isOoCliCommand(command: string): boolean {
-  const trimmed = command.trim()
-  if (ooCommandSegment.test(trimmed)) return true
-  const wrappedCommand = shellWrapperCommand(trimmed)
-  return wrappedCommand !== null && isOoCliCommand(wrappedCommand)
+  let current = command.trim()
+  for (let depth = 0; depth < maxShellWrapperDepth; depth += 1) {
+    if (ooCommandSegment.test(current)) return true
+    const wrapper = shellWrapperCommand(current)
+    if (wrapper.kind !== "command") return false
+    current = wrapper.command
+  }
+  return false
 }
 
 export function openConnectorCommandPolicy(command: string): "deny" | "prompt" | null {
-  const trimmed = command.trim()
-  if (
-    credentialEnvironmentReference.test(trimmed) ||
-    isEnvironmentDump(trimmed) ||
-    linkEnvironmentAssignment.test(trimmed) ||
-    forbiddenOoMutation.test(trimmed) ||
-    (ooCommandSegment.test(trimmed) && forbiddenOoOption.test(trimmed))
-  ) {
-    return "deny"
+  let current = command.trim()
+  for (let depth = 0; depth < maxShellWrapperDepth; depth += 1) {
+    if (
+      credentialEnvironmentReference.test(current) ||
+      isEnvironmentDump(current) ||
+      linkEnvironmentAssignment.test(current) ||
+      forbiddenOoMutation.test(current) ||
+      (ooCommandSegment.test(current) && forbiddenOoOption.test(current))
+    ) {
+      return "deny"
+    }
+    const wrapper = shellWrapperCommand(current)
+    if (wrapper.kind === "unsupported") return "prompt"
+    if (wrapper.kind === "not_wrapper") return ooCommandSegment.test(current) ? "prompt" : null
+    current = wrapper.command
   }
-  const wrappedCommand = shellWrapperCommand(trimmed)
-  if (wrappedCommand !== null) return openConnectorCommandPolicy(wrappedCommand)
-  return isOoCliCommand(trimmed) ? "prompt" : null
+  return "prompt"
 }

@@ -28,6 +28,10 @@ const dayMs = 24 * 60 * 60 * 1000
 const billingRequestTimeoutMs = 12_000
 const billingOptionalRequestSoftTimeoutMs = 3_000
 const billingCreditUsagesMaxPages = 100
+// Insight's V2 team stats route rejects daily windows wider than 30 days (HTTP 400); clamp here so a
+// caller passing a raw number (getBillingOverview takes number, the BillingPeriodDays union does not
+// bind it) can never send an out-of-contract window. See BillingPeriodDays in electron/chat/common.ts.
+const statsMaxWindowDays = 30
 export const teamSubscriptionPlans: readonly TeamSubscriptionPlan[] = ["team_plus", "team_pro"]
 
 export interface BillingRequestScope {
@@ -313,7 +317,7 @@ function checkoutReturnUrl(): string {
 }
 
 function statsRange(days: number): { endTime: number; startTime: number } {
-  const normalizedDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30
+  const normalizedDays = Number.isFinite(days) && days > 0 ? Math.min(Math.floor(days), statsMaxWindowDays) : 30
   const endTime = Date.now()
   return { endTime, startTime: endTime - normalizedDays * dayMs }
 }

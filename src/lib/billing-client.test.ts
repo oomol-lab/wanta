@@ -521,9 +521,10 @@ describe("billing-client", () => {
     expect(statsRequests.some((request) => request.hasOrgHeader)).toBe(false)
   })
 
-  it("keeps the widest usage window within the V2 team route's 30-day daily cap", async () => {
+  it("clamps an over-limit usage window to the V2 team route's 30-day daily cap", async () => {
     // Regression guard: the V2 team route (/v2/stats/team/:teamId/*) rejects daily windows wider than
-    // 30 days with HTTP 400, so the largest BillingPeriodDays must not exceed a 30 daily-bucket span.
+    // 30 days with HTTP 400. getBillingOverview takes a raw number, so a caller passing 90 (outside the
+    // BillingPeriodDays union) must still be clamped to a 30-day span rather than sending an invalid query.
     const windows: number[] = []
     vi.stubGlobal("fetch", async (input: string | URL | Request) => {
       const url = urlOf(input)
@@ -538,10 +539,10 @@ describe("billing-client", () => {
       return Response.json({ data: { items: [], sourceTotals: {}, total: { totalCredit: "0", eventCount: 0 } } })
     })
 
-    await getBillingOverview(30, teamScope)
+    await getBillingOverview(90, teamScope)
 
     expect(windows).toHaveLength(2)
-    expect(windows.every((days) => days <= 30)).toBe(true)
+    expect(windows.every((days) => days === 30)).toBe(true)
   })
 
   it("rejects parent cancellation even after a core billing request succeeds", async () => {

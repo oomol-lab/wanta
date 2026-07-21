@@ -175,7 +175,7 @@ OpenCode パッケージは MIT ライセンスで、[THIRD_PARTY_NOTICES.md](TH
 ## 仕組み
 
 ```mermaid
-flowchart LR
+flowchart TB
   User["ユーザーの依頼"] --> UI["Wanta デスクトップ体験"]
   UI --> Agent["OpenCode エージェントランタイム"]
   Agent --> Local["ローカルファイル、シェル、スクリプト、Web"]

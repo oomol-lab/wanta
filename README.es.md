@@ -177,7 +177,7 @@ y las [convenciones de código](docs/conventions.md) antes de cambiar estos lím
 ## Cómo funciona
 
 ```mermaid
-flowchart LR
+flowchart TB
   User["Solicitud del usuario"] --> UI["Experiencia de escritorio Wanta"]
   UI --> Agent["Runtime del agente OpenCode"]
   Agent --> Local["Archivos locales, shell, scripts y web"]

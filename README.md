@@ -170,7 +170,7 @@ aligned. Read the [architecture guide](docs/architecture.md) and
 ## How It Works
 
 ```mermaid
-flowchart LR
+flowchart TB
   User["User request"] --> UI["Wanta desktop experience"]
   UI --> Agent["OpenCode Agent runtime"]
   Agent --> Local["Local files, shell, scripts, and web"]

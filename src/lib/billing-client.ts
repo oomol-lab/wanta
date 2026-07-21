@@ -28,6 +28,10 @@ const dayMs = 24 * 60 * 60 * 1000
 const billingRequestTimeoutMs = 12_000
 const billingOptionalRequestSoftTimeoutMs = 3_000
 const billingCreditUsagesMaxPages = 100
+// Insight's V2 team stats route rejects daily windows wider than 30 days (HTTP 400); clamp here so a
+// caller passing a raw number (getBillingOverview takes number, the BillingPeriodDays union does not
+// bind it) can never send an out-of-contract window. See BillingPeriodDays in electron/chat/common.ts.
+const statsMaxWindowDays = 30
 export const teamSubscriptionPlans: readonly TeamSubscriptionPlan[] = ["team_plus", "team_pro"]
 
 export interface BillingRequestScope {
@@ -313,7 +317,7 @@ function checkoutReturnUrl(): string {
 }
 
 function statsRange(days: number): { endTime: number; startTime: number } {
-  const normalizedDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30
+  const normalizedDays = Number.isFinite(days) && days > 0 ? Math.min(Math.floor(days), statsMaxWindowDays) : 30
   const endTime = Date.now()
   return { endTime, startTime: endTime - normalizedDays * dayMs }
 }
@@ -334,6 +338,41 @@ function unwrapApiData<T>(payload: unknown): T {
     return (payload as { data: T }).data
   }
   return payload as T
+}
+
+// Subset of insight's /v2/stats/team/:teamId/{billing,metering} response we consume. V2 dropped the
+// per-bucket `subject` from the time series (it now lives only in subjectTotals), so a series item
+// carries just time/source plus the mode-dependent totalCredit | totalUsage | eventCount.
+interface TeamStatsV2Response {
+  items?: {
+    time?: number
+    source?: string
+    totalCredit?: string
+    totalUsage?: string
+    eventCount?: number
+  }[]
+  sourceTotals?: Record<string, { totalCredit?: string; totalUsage?: string; eventCount?: number }>
+  total?: { totalCredit?: string; totalUsage?: string; eventCount?: number }
+}
+
+// Adapt the breaking V2 stats payload into the internal BillingSpendStats DTO the usage view reads.
+// Series items lose `subject` (set to "" so usageCategory falls back to source-based classification,
+// which is exact for the real SERVICE_* sources); total/sourceTotals map through unchanged.
+function adaptTeamStatsResponse(payload: unknown): BillingSpendStats {
+  const data = unwrapApiData<TeamStatsV2Response>(payload)
+  const items = Array.isArray(data.items) ? data.items : []
+  return {
+    items: items.map((item) => ({
+      source: item.source ?? "",
+      subject: "",
+      time: item.time ?? 0,
+      totalCredit: item.totalCredit,
+      totalUsage: item.totalUsage,
+      eventCount: item.eventCount,
+    })),
+    sourceTotals: data.sourceTotals ?? {},
+    total: data.total ?? {},
+  }
 }
 
 function logSettledFailure(label: string, result: PromiseSettledResult<unknown>): void {
@@ -397,17 +436,22 @@ async function getAllCreditUsages(signal?: AbortSignal): Promise<CreditUsages> {
   return { ...firstPage, items, nextToken: undefined }
 }
 
+// Team usage stats moved to insight's V2 team route: the team is addressed by a URL path segment
+// (/v2/stats/team/:teamId/*), not the legacy x-oo-organization-name header — so these calls send no
+// team header and rely on the gateway/policy-server to authorize the caller against the path teamId.
+// utcOffset is omitted (server default 0 = UTC), matching the previous V1 default and the UTC day
+// bucketing in the usage view. Request auth is the same session cookie used by every other call (R4).
 async function getCreditSpendStats(
   days: number,
   scope: BillingRequestScope,
   signal?: AbortSignal,
 ): Promise<BillingSpendStats> {
   const { endTime, startTime } = statsRange(days)
-  const url = new URL("/v1/stats/billing", insightBaseUrl)
+  const url = new URL(`/v2/stats/team/${encodeURIComponent(scope.teamId)}/billing`, insightBaseUrl)
   url.searchParams.set("granularity", "daily")
   url.searchParams.set("startTime", String(startTime))
   url.searchParams.set("endTime", String(endTime))
-  return unwrapApiData<BillingSpendStats>(await fetchAuthenticatedJson(url, scope, signal))
+  return adaptTeamStatsResponse(await fetchAuthenticatedJson(url, undefined, signal))
 }
 
 async function getCreditMeteringStats(
@@ -416,11 +460,11 @@ async function getCreditMeteringStats(
   signal?: AbortSignal,
 ): Promise<BillingSpendStats> {
   const { endTime, startTime } = statsRange(days)
-  const url = new URL("/v1/stats/metering", insightBaseUrl)
+  const url = new URL(`/v2/stats/team/${encodeURIComponent(scope.teamId)}/metering`, insightBaseUrl)
   url.searchParams.set("granularity", "daily")
   url.searchParams.set("startTime", String(startTime))
   url.searchParams.set("endTime", String(endTime))
-  return unwrapApiData<BillingSpendStats>(await fetchAuthenticatedJson(url, scope, signal))
+  return adaptTeamStatsResponse(await fetchAuthenticatedJson(url, undefined, signal))
 }
 
 async function getSubscriptionStatus(

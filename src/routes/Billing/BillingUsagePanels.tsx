@@ -33,7 +33,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
-const periods: BillingPeriodDays[] = [7, 30, 90]
+// Only windows the V2 team stats route can serve (daily cap = 30 days); see BillingPeriodDays.
+const periods: BillingPeriodDays[] = [7, 30]
 
 export function UsageDetailsDisclosure({
   balanceLots,

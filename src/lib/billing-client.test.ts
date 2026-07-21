@@ -93,7 +93,9 @@ describe("billing-client", () => {
       if (url.pathname === "/v1/balance/available") {
         expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
       } else if (url.hostname === "insight.oomol.com") {
-        expect(new Headers(init?.headers).get("x-oo-organization-name")).toBe("acme")
+        // Team usage now scopes via the /v2/stats/team/:teamId/* path, not the legacy org-name header.
+        expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
+        expect(url.pathname).toMatch(/^\/v2\/stats\/team\/team-1\/(billing|metering)$/)
       }
       if (url.pathname === "/v1/balance/available") {
         return Response.json({
@@ -104,7 +106,7 @@ describe("billing-client", () => {
           },
         })
       }
-      if (url.pathname === "/v1/stats/billing" || url.pathname === "/v1/stats/metering") {
+      if (url.pathname === "/v2/stats/team/team-1/billing" || url.pathname === "/v2/stats/team/team-1/metering") {
         return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
       }
       if (url.pathname === "/api/org/team-1/subscriptions") {
@@ -423,11 +425,11 @@ describe("billing-client", () => {
           },
         })
       }
-      if (url.pathname === "/v1/stats/billing") {
-        return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "2" } } })
+      if (url.pathname === "/v2/stats/team/team-1/billing") {
+        return Response.json({ data: { items: [], sourceTotals: {}, total: { totalCredit: "2" } } })
       }
-      if (url.pathname === "/v1/stats/metering") {
-        return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 4, totalCredit: "0" } } })
+      if (url.pathname === "/v2/stats/team/team-1/metering") {
+        return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 4 } } })
       }
       return new Promise<Response>(() => undefined)
     })
@@ -445,6 +447,102 @@ describe("billing-client", () => {
     expect(overview.usageSubscription).toBeNull()
     expect(overview.usageSubscriptionAvailable).toBe(false)
     expect(overview.teamPendingPaymentAvailable).toBe(false)
+  })
+
+  it("adapts the V2 team stats series (no subject) into the usage DTO", async () => {
+    const statsRequests: { path: string; granularity: string | null; hasOrgHeader: boolean }[] = []
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      const url = urlOf(input)
+      if (url.pathname === "/v1/balance/available") {
+        return Response.json({ data: { deficit: "0", items: [], total: { currentCredit: "0", originalCredit: "0" } } })
+      }
+      if (url.hostname === "insight.oomol.com") {
+        statsRequests.push({
+          path: url.pathname,
+          granularity: url.searchParams.get("granularity"),
+          hasOrgHeader: new Headers(init?.headers).get("x-oo-organization-name") !== null,
+        })
+      }
+      if (url.pathname === "/v2/stats/team/team-1/billing") {
+        return Response.json({
+          data: {
+            granularity: "daily",
+            items: [{ source: "SERVICE_LLM", time: 1_700_000_000_000, totalCredit: "1.5" }],
+            sourceTotals: { SERVICE_LLM: { totalCredit: "1.5" } },
+            total: { totalCredit: "1.5" },
+          },
+        })
+      }
+      if (url.pathname === "/v2/stats/team/team-1/metering") {
+        return Response.json({
+          data: {
+            granularity: "daily",
+            items: [{ source: "SERVICE_OOMOL_CONNECTOR", time: 1_700_000_000_000, eventCount: 7 }],
+            sourceTotals: { SERVICE_OOMOL_CONNECTOR: { eventCount: 7 } },
+            total: { eventCount: 7 },
+          },
+        })
+      }
+      return new Promise<Response>(() => undefined)
+    })
+
+    const overview = await getBillingOverview(30, teamScope)
+
+    // V2 series drops per-bucket subject; the adapter fills subject:"" and preserves time/source/values.
+    expect(overview.spend?.items).toEqual([
+      {
+        source: "SERVICE_LLM",
+        subject: "",
+        time: 1_700_000_000_000,
+        totalCredit: "1.5",
+        totalUsage: undefined,
+        eventCount: undefined,
+      },
+    ])
+    expect(overview.spend?.total.totalCredit).toBe("1.5")
+    expect(overview.metering?.items).toEqual([
+      {
+        source: "SERVICE_OOMOL_CONNECTOR",
+        subject: "",
+        time: 1_700_000_000_000,
+        totalCredit: undefined,
+        totalUsage: undefined,
+        eventCount: 7,
+      },
+    ])
+    expect(overview.metering?.total.eventCount).toBe(7)
+
+    // Both team stats calls hit the path-scoped V2 route with daily granularity and no org-name header.
+    expect(statsRequests.map((request) => request.path).sort()).toEqual([
+      "/v2/stats/team/team-1/billing",
+      "/v2/stats/team/team-1/metering",
+    ])
+    expect(statsRequests.every((request) => request.granularity === "daily")).toBe(true)
+    expect(statsRequests.some((request) => request.hasOrgHeader)).toBe(false)
+  })
+
+  it("clamps an over-limit usage window to the V2 team route's 30-day daily cap", async () => {
+    // Regression guard: the V2 team route (/v2/stats/team/:teamId/*) rejects daily windows wider than
+    // 30 days with HTTP 400. getBillingOverview takes a raw number, so a caller passing 90 (outside the
+    // BillingPeriodDays union) must still be clamped to a 30-day span rather than sending an invalid query.
+    const windows: number[] = []
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = urlOf(input)
+      if (url.hostname === "insight.oomol.com" && url.pathname.startsWith("/v2/stats/team/")) {
+        const startTime = Number(url.searchParams.get("startTime"))
+        const endTime = Number(url.searchParams.get("endTime"))
+        windows.push((endTime - startTime) / (24 * 60 * 60 * 1000))
+      }
+      if (url.pathname === "/v1/balance/available") {
+        return Response.json({ data: { deficit: "0", items: [], total: { currentCredit: "0", originalCredit: "0" } } })
+      }
+      return Response.json({ data: { items: [], sourceTotals: {}, total: { totalCredit: "0", eventCount: 0 } } })
+    })
+
+    await getBillingOverview(90, teamScope)
+
+    expect(windows).toHaveLength(2)
+    expect(windows.every((days) => days === 30)).toBe(true)
   })
 
   it("rejects parent cancellation even after a core billing request succeeds", async () => {

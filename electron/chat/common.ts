@@ -691,7 +691,9 @@ export interface SetAgentTeamRequest {
 }
 
 export type RechargePrice = "5_USD" | "20_USD" | "100_USD"
-export type BillingPeriodDays = 7 | 30 | 90
+// Capped at 30: insight's V2 team stats route (/v2/stats/team/:teamId/*) rejects daily windows
+// wider than STATS_V2_USER_DAILY_MAX_DAYS (30) with HTTP 400 — do not add a value above 30 here.
+export type BillingPeriodDays = 7 | 30
 export type SubscriptionPlanTag = "ai_pro" | "ai_max"
 export type TeamSubscriptionPlan = "team_plus" | "team_pro"
 

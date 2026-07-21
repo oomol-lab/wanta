@@ -82,7 +82,6 @@ interface ChatAreaProps {
   teamSkillShowcaseItems?: TeamSkillShowcaseItem[]
   teamSkills?: ChatTeamSkillContext[]
   selfManagedSetup?: {
-    openConnectorConfigured: boolean
     onConfigureOpenConnector: () => void
     onDismiss: () => void
   }

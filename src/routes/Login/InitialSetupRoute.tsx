@@ -3,7 +3,7 @@ import type { UseLinkRuntime } from "@/hooks/useLinkRuntime"
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { UseModelCatalog } from "@/routes/Chat/useModelCatalog"
 
-import { ArrowLeft, BrainCircuit, Check, ChevronRight, Cloud, Server, Settings2 } from "lucide-react"
+import { ArrowLeft, ArrowRight, BrainCircuit, Check, ChevronDown, LogIn, Server, Settings2 } from "lucide-react"
 import * as React from "react"
 import { LoginBrandPanel } from "./LoginBrandPanel.tsx"
 import { Loader } from "@/components/ai-elements/loader"
@@ -45,8 +45,8 @@ export function InitialSetupRoute({
       <header className="absolute inset-x-0 top-0 z-10 h-[var(--app-titlebar-height)] [-webkit-app-region:drag]" />
       <main className="oo-login-main min-h-0 flex-1">
         {view === "choice" ? (
-          <div className="mx-auto grid h-full max-w-[1480px] grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)] gap-5 md:gap-7 lg:gap-9">
-            <section className="flex min-h-0 items-center overflow-y-auto">
+          <div className="mx-auto grid h-full max-w-[1480px] grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)] gap-4 md:gap-6 lg:gap-8 xl:grid-cols-[minmax(24rem,0.78fr)_minmax(30rem,1.22fr)]">
+            <section className="flex min-h-0 items-center">
               <SetupChoice auth={auth} onSelfManaged={() => setView("self-managed")} />
             </section>
             <LoginBrandPanel t={t} />
@@ -69,92 +69,44 @@ export function InitialSetupRoute({
 function SetupChoice({ auth, onSelfManaged }: { auth: UseAuth; onSelfManaged: () => void }) {
   const t = useT()
   return (
-    <div className="w-full max-w-[40rem] px-2 py-8 md:px-6 lg:px-9 xl:px-11">
-      <BrandIcon className="size-14" />
-      <div className="mt-7 space-y-3">
-        <h1 className="max-w-[34rem] text-[1.8rem] leading-[1.15] font-semibold tracking-normal md:text-[2rem]">
-          {t("setup.title")}
-        </h1>
-        <p className="max-w-[34rem] text-sm leading-6 text-muted-foreground">{t("setup.description")}</p>
+    <div className="w-full max-w-[32rem] px-2 py-8 md:px-6 lg:-translate-y-5 lg:px-10 xl:px-12">
+      <div className="flex items-center">
+        <BrandIcon className="size-14" />
       </div>
 
-      <div className="mt-7 grid gap-3">
-        <SetupOption
-          actionLabel={auth.loggingIn ? t("login.waiting") : t("setup.oomolAction")}
-          disabled={auth.loggingIn}
-          icon={<Cloud className="size-5" />}
-          loading={auth.loggingIn}
-          onClick={() => void auth.login()}
-          primary
-          title={t("setup.oomolTitle")}
-          description={t("setup.oomolDescription")}
-          recommended={t("setup.recommended")}
-        />
+      <div className="mt-10 space-y-6">
+        <h1 className="text-[1.8rem] leading-[1.15] font-semibold tracking-normal text-foreground md:text-[2rem] lg:whitespace-nowrap">
+          {t("login.title")}
+        </h1>
+        <p className="text-sm leading-6 font-medium text-muted-foreground">{t("login.tagline")}</p>
+        <h2 className="max-w-[27rem] text-sm leading-6 font-medium text-muted-foreground">
+          {t("login.featureSummary")}
+        </h2>
+      </div>
 
-        <SetupOption
-          actionLabel={t("setup.selfManagedAction")}
-          icon={<Settings2 className="size-5" />}
+      <div className="mt-16 flex max-w-[27rem] flex-wrap items-center gap-3">
+        <Button
+          className="px-6 [-webkit-app-region:no-drag] has-[>svg]:px-5"
+          disabled={auth.loggingIn}
+          size="lg"
+          onClick={() => void auth.login()}
+        >
+          {auth.loggingIn ? <Loader /> : <LogIn />}
+          {auth.loggingIn ? t("login.waiting") : t("login.button")}
+        </Button>
+        <Button
+          className="[-webkit-app-region:no-drag]"
+          disabled={auth.loggingIn}
+          size="lg"
+          variant="outline"
           onClick={onSelfManaged}
-          title={t("setup.selfManagedTitle")}
-          description={t("setup.selfManagedDescription")}
-        />
+        >
+          <Settings2 />
+          {t("setup.selfManagedAction")}
+        </Button>
       </div>
       {auth.error ? <ErrorNotice error={auth.error} compact className="mt-3" /> : null}
     </div>
-  )
-}
-
-function SetupOption({
-  actionLabel,
-  description,
-  disabled = false,
-  icon,
-  loading = false,
-  onClick,
-  primary = false,
-  recommended,
-  title,
-}: {
-  actionLabel: string
-  description: string
-  disabled?: boolean
-  icon: React.ReactNode
-  loading?: boolean
-  onClick: () => void
-  primary?: boolean
-  recommended?: string
-  title: string
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      className={cn(
-        "group w-full rounded-xl border bg-card/80 p-4 text-left shadow-xs transition-[border-color,box-shadow,transform] hover:-translate-y-px hover:border-foreground/20 hover:shadow-sm disabled:pointer-events-none disabled:opacity-60",
-        primary && "border-foreground/16 bg-foreground/[0.025]",
-      )}
-      onClick={onClick}
-    >
-      <div className="flex items-start gap-3">
-        <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-foreground">{icon}</div>
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold">{title}</h2>
-            {recommended ? (
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[0.6875rem] font-medium text-primary">
-                {recommended}
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 max-w-[31rem] text-xs leading-5 text-muted-foreground">{description}</p>
-          <span className={cn("mt-2.5 inline-flex items-center gap-1 text-xs font-medium", primary && "text-primary")}>
-            {loading ? <Loader /> : null}
-            {actionLabel}
-            {!loading ? <ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /> : null}
-          </span>
-        </div>
-      </div>
-    </button>
   )
 }
 
@@ -180,6 +132,7 @@ function SelfManagedSetup({
   const [deploymentMode, setDeploymentMode] = React.useState(() => inferOpenConnectorDeploymentMode(saved))
   const [runtimeToken, setRuntimeToken] = React.useState("")
   const [actionError, setActionError] = React.useState<UserFacingError | null>(null)
+  const [connectorExpanded, setConnectorExpanded] = React.useState(false)
   const hasModel = Boolean(models.catalog?.customModels.length)
   const connectorOnline = linkRuntime.status.kind === "online"
 
@@ -222,7 +175,7 @@ function SelfManagedSetup({
   }
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-[72rem] flex-col overflow-y-auto px-5 py-8 sm:px-8 lg:px-12">
+    <div className="mx-auto flex h-full w-full max-w-[64rem] flex-col overflow-y-auto px-5 py-8 sm:px-8 lg:px-12">
       <button
         type="button"
         className="mb-5 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
@@ -231,12 +184,12 @@ function SelfManagedSetup({
         <ArrowLeft className="size-3.5" />
         {t("setup.back")}
       </button>
-      <div className="max-w-[48rem]">
+      <div className="max-w-[44rem]">
         <h1 className="text-2xl font-semibold md:text-[1.75rem]">{t("setup.selfManagedSetupTitle")}</h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("setup.selfManagedSetupDescription")}</p>
       </div>
 
-      <div className="mt-7 grid items-stretch gap-4 lg:grid-cols-2">
+      <div className="mt-7 grid gap-4">
         <SetupStep
           complete={hasModel}
           icon={<BrainCircuit className="size-4" />}
@@ -255,52 +208,93 @@ function SelfManagedSetup({
           </Button>
         </SetupStep>
 
-        <SetupStep
-          complete={connectorOnline}
-          icon={<Server className="size-4" />}
-          optional
-          title={t("setup.openConnectorStepTitle")}
-          description={connectorOnline ? t("setup.openConnectorReady") : t("setup.openConnectorStepDescription")}
-        >
-          <div className="grid gap-2">
-            <OpenConnectorEndpointFields
-              baseUrl={baseUrl}
-              consoleUrl={consoleUrl}
-              disabled={linkRuntime.busy}
-              mode={deploymentMode}
-              onBaseUrlChange={setBaseUrl}
-              onConsoleUrlChange={setConsoleUrl}
-              onModeChange={changeDeploymentMode}
-            />
-            <Input
-              type="password"
-              autoComplete="off"
-              value={runtimeToken}
-              placeholder={saved?.tokenConfigured ? t("setup.openConnectorTokenSaved") : t("setup.openConnectorToken")}
-              disabled={linkRuntime.busy}
-              onChange={(event) => setRuntimeToken(event.target.value)}
-            />
+        <section className={cn("rounded-xl border bg-card/80 p-4", connectorOnline && "border-emerald-500/35")}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-1 gap-3">
+              <div
+                className={cn(
+                  "grid size-8 shrink-0 place-items-center rounded-lg bg-muted",
+                  connectorOnline && "bg-emerald-500/10 text-emerald-600",
+                )}
+              >
+                {connectorOnline ? <Check className="size-4" /> : <Server className="size-4" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-semibold">{t("setup.openConnectorStepTitle")}</h2>
+                  <span className="rounded-full border px-2 py-0.5 text-[0.6875rem] text-muted-foreground">
+                    {t("settings.optional")}
+                  </span>
+                </div>
+                <p className="mt-1 max-w-[38rem] text-xs leading-5 text-muted-foreground">
+                  {connectorOnline ? t("setup.openConnectorReady") : t("setup.openConnectorStepDescription")}
+                </p>
+              </div>
+            </div>
             <Button
+              className="shrink-0 sm:self-center"
               variant="outline"
               size="sm"
-              disabled={linkRuntime.busy || !endpointConfigurationComplete}
-              onClick={() => void saveAndTest()}
+              aria-expanded={connectorExpanded}
+              onClick={() => setConnectorExpanded((expanded) => !expanded)}
             >
-              {linkRuntime.busy ? <Loader /> : null}
-              {t("setup.saveAndTest")}
+              {connectorExpanded ? t("setup.hideOpenConnector") : t("setup.configureOpenConnector")}
+              <ChevronDown className={cn("transition-transform", connectorExpanded && "rotate-180")} />
             </Button>
           </div>
-        </SetupStep>
+
+          {connectorExpanded ? (
+            <div className="mt-5 border-t pt-5">
+              <div className="grid gap-2">
+                <OpenConnectorEndpointFields
+                  baseUrl={baseUrl}
+                  consoleUrl={consoleUrl}
+                  disabled={linkRuntime.busy}
+                  mode={deploymentMode}
+                  onBaseUrlChange={setBaseUrl}
+                  onConsoleUrlChange={setConsoleUrl}
+                  onModeChange={changeDeploymentMode}
+                />
+                <Input
+                  type="password"
+                  autoComplete="off"
+                  value={runtimeToken}
+                  placeholder={
+                    saved?.tokenConfigured ? t("setup.openConnectorTokenSaved") : t("setup.openConnectorToken")
+                  }
+                  disabled={linkRuntime.busy}
+                  onChange={(event) => setRuntimeToken(event.target.value)}
+                />
+                <Button
+                  className="justify-self-start"
+                  variant="outline"
+                  size="lg"
+                  disabled={linkRuntime.busy || !endpointConfigurationComplete}
+                  onClick={() => void saveAndTest()}
+                >
+                  {linkRuntime.busy ? <Loader /> : null}
+                  {t("setup.saveAndTest")}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </section>
       </div>
 
       {models.catalogError ? <ErrorNotice error={models.catalogError} compact className="mt-3" /> : null}
       {actionError ? <ErrorNotice error={actionError} compact className="mt-3" /> : null}
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t pt-5">
+      <div className="mt-6 flex flex-wrap items-start justify-between gap-4 border-t pt-5">
         <div>
-          <Button variant="ghost" disabled={completing || linkRuntime.busy} onClick={() => runActivation(onSkip)}>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 py-1 text-sm font-medium text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+            disabled={completing || linkRuntime.busy}
+            onClick={() => runActivation(onSkip)}
+          >
             {t("setup.skip")}
-          </Button>
+            <ArrowRight className="size-3.5" />
+          </button>
           <p className="mt-1 text-xs text-muted-foreground">{t("setup.skipDescription")}</p>
         </div>
         <Button
@@ -308,7 +302,7 @@ function SelfManagedSetup({
           disabled={!hasModel || completing || linkRuntime.busy}
           onClick={() => runActivation(onComplete)}
         >
-          {completing ? <Loader /> : <Check />}
+          {completing ? <Loader /> : <ArrowRight />}
           {t("setup.completeSelfManaged")}
         </Button>
       </div>
@@ -330,40 +324,32 @@ function SetupStep({
   complete,
   description,
   icon,
-  optional = false,
   title,
 }: {
   children: React.ReactNode
   complete: boolean
   description: string
   icon: React.ReactNode
-  optional?: boolean
   title: string
 }) {
-  const t = useT()
   return (
     <section className={cn("rounded-xl border bg-card/80 p-4", complete && "border-emerald-500/35")}>
-      <div className="flex gap-3">
-        <div
-          className={cn(
-            "grid size-8 shrink-0 place-items-center rounded-lg bg-muted",
-            complete && "bg-emerald-500/10 text-emerald-600",
-          )}
-        >
-          {complete ? <Check className="size-4" /> : icon}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold">{title}</h2>
-            {optional ? (
-              <span className="rounded-full border px-2 py-0.5 text-[0.6875rem] text-muted-foreground">
-                {t("settings.optional")}
-              </span>
-            ) : null}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 gap-3">
+          <div
+            className={cn(
+              "grid size-8 shrink-0 place-items-center rounded-lg bg-muted",
+              complete && "bg-emerald-500/10 text-emerald-600",
+            )}
+          >
+            {complete ? <Check className="size-4" /> : icon}
           </div>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
-          <div className="mt-3">{children}</div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold">{title}</h2>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+          </div>
         </div>
+        <div className="shrink-0 sm:self-center">{children}</div>
       </div>
     </section>
   )

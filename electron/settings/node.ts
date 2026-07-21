@@ -66,7 +66,9 @@ export class SettingsServiceImpl
         DEFAULT_APP_SETTINGS.notificationSoundEnabled,
       ),
       operatingMode:
-        persisted.operatingMode === "oomol" || persisted.operatingMode === "self-managed"
+        persisted.operatingMode === "oomol" ||
+        persisted.operatingMode === "self-managed" ||
+        persisted.operatingMode === "unselected"
           ? persisted.operatingMode
           : DEFAULT_APP_SETTINGS.operatingMode,
       selfManagedSetupDismissed: booleanSetting(
@@ -119,7 +121,7 @@ export class SettingsServiceImpl
   }
 
   public setOperatingMode(mode: OperatingMode): Promise<void> {
-    if (mode !== "oomol" && mode !== "self-managed") {
+    if (mode !== "oomol" && mode !== "self-managed" && mode !== "unselected") {
       return Promise.reject(new Error("Unsupported operating mode."))
     }
     this.deps.store.write({ ...this.deps.store.read(), operatingMode: mode })

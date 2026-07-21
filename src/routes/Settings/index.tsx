@@ -1,7 +1,7 @@
 import type { NotificationCapability, NotificationTestResult } from "../../../electron/attention/common.ts"
 import type { AuthAccountSummary } from "../../../electron/auth/common.ts"
 import type { CustomModelSummary } from "../../../electron/models/common.ts"
-import type { CompletionNotificationCondition } from "../../../electron/settings/common.ts"
+import type { CompletionNotificationCondition, OperatingMode } from "../../../electron/settings/common.ts"
 import type { UpdateChannel } from "../../../electron/update/common.ts"
 import type { ThemePreference } from "@/components/theme-context"
 import type { UseAppUpdate } from "@/hooks/useAppUpdate"
@@ -167,13 +167,7 @@ export function SettingsRoute({
   )
 }
 
-function RuntimeProfileSummary({
-  authenticated,
-  mode,
-}: {
-  authenticated: boolean
-  mode: "oomol" | "self-managed" | null
-}) {
+function RuntimeProfileSummary({ authenticated, mode }: { authenticated: boolean; mode: OperatingMode | null }) {
   const { t } = useI18n()
   const resolvedMode = authenticated ? "oomol" : mode
   return (

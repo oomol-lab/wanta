@@ -192,6 +192,28 @@
     color: var(--sidebar-accent-foreground);
   }
 
+  .oo-sidebar-local-menu-trigger:hover {
+    background: color-mix(in oklab, var(--sidebar-accent) 45%, var(--sidebar));
+    color: var(--sidebar-accent-foreground);
+  }
+
+  .oo-sidebar-local-menu-trigger:focus-visible,
+  .oo-sidebar-local-menu-trigger[data-state="open"],
+  .oo-sidebar-nav-item.oo-sidebar-local-menu-trigger:active {
+    background: transparent;
+    color: var(--sidebar-foreground);
+    box-shadow: none;
+  }
+
+  .oo-sidebar-local-menu-trigger[data-state="open"] .oo-sidebar-local-menu-indicator {
+    background: var(--sidebar-accent);
+    color: var(--sidebar-accent-foreground);
+  }
+
+  .oo-sidebar-local-menu-trigger:focus-visible:hover {
+    background: color-mix(in oklab, var(--sidebar-accent) 45%, var(--sidebar));
+  }
+
   .oo-sidebar-nav-item:active {
     background: var(--sidebar-accent);
     color: var(--sidebar-accent-foreground);

@@ -12,7 +12,7 @@ export interface PersistedSettings {
   unreadBadgeEnabled?: boolean
   /** 知识库仍为 Beta 功能；缺失或非 true 时默认关闭。 */
   knowledgeBaseBetaEnabled?: boolean
-  /** Active end-to-end runtime profile; absent until initial setup is complete. */
+  /** Active runtime profile; "unselected" records an intentional return to the welcome chooser. */
   operatingMode?: string
   /** Whether the optional self-managed setup reminder was dismissed. */
   selfManagedSetupDismissed?: boolean

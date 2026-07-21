@@ -193,10 +193,12 @@
   - Prompt layering (R4): the stable persona/tools/contracts live in agent.prompt to benefit from
     prompt caching; the per-turn-changing authorized-existence hint goes through dynamic
     `body.system` injection, with no specific provider names by default. That same `body.system`
-    channel now also carries per-turn team-skill injection (`buildTeamSkillsSystem`); bundled
-    skills are distributed via postinstall (`scripts/download-skills.ts`) → exported to
-    `resources/skills/` by prepare-binaries → rebuilt into the workspace's `.opencode/skill/` by
-    `syncBundledSkills`.
+    channel now also carries per-turn team-skill injection (`buildTeamSkillsSystem`) and the response
+    language policy (`buildResponseLanguageSystem`). The language policy follows the latest
+    substantive user request for every user-facing agent message and uses the application locale only
+    as a fallback. Bundled skills are distributed via postinstall (`scripts/download-skills.ts`) →
+    exported to `resources/skills/` by prepare-binaries → rebuilt into the workspace's
+    `.opencode/skill/` by `syncBundledSkills`.
   - Markdown via react-markdown@10 + remark-gfm (no rehype-raw, keeping HTML escaping to prevent
     XSS); the main process also gained external-link handling (`setWindowOpenHandler` +
     `will-navigate` sharing `openExternalUrl`, whitelist http/https/mailto/tel — mailto/tel were

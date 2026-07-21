@@ -1,5 +1,6 @@
 import type { WantaAgentMode } from "../agent/mode.ts"
 import type { WantaReasoningLevel } from "../agent/reasoning.ts"
+import type { AppLocale } from "../app-locale.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { RuntimeCapabilities } from "../runtime/common.ts"
 import type { SessionScope } from "../session/common.ts"
@@ -350,6 +351,7 @@ export interface ChatTokenUsage {
 export interface SendMessageRequest {
   sessionId: string
   text: string
+  appLocale?: AppLocale
   attachments?: ChatAttachment[]
   contextMentions?: ChatContextMention[]
   teamSkills?: ChatTeamSkillContext[]

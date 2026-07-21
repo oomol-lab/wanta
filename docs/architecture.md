@@ -246,7 +246,7 @@ short-TTL cache, and only waits a bounded budget on the prompt critical path) an
 src/routes/Chat (PromptInput)
   → useChat.send → chatService.invoke("sendMessage", {sessionId, text, …})
   → ChatServiceImpl.sendMessage → AgentManager.promptStreaming
-      (body.system merges five per-turn segments incl. the authorized-Link availability hint,
+      (body.system merges six per-turn segments incl. the authorized-Link availability hint,
        which never lists provider names, R4)
   → OpenCode sidecar runs the agent loop (LLM ↔ tools)
   → global SSE: AgentManager.subscribe → event-translator.translateOpencodeEvent
@@ -255,11 +255,14 @@ src/routes/Chat (PromptInput)
 ```
 
 Although the flow diagram shows `{sessionId, text}`, `SendMessageRequest` actually carries
-`attachments` / `contextMentions` / `teamSkills` / `projectContext` / `scope` / `model` /
-`permissionMode` / `reasoningLevel` / `mode`. Before `promptStreaming`, `ChatServiceImpl.sendMessage`
-merges several per-turn system prompts of its own (`mergeSystemPrompts` over `buildTeamSkillsSystem`,
-`buildContextMentionsSystemPrompt`, `buildProjectContextSystem`, `buildPermissionModeSystem`, and the
-bug-report system) — the R4 Link-availability injection in the diagram is only the `AgentManager`
+`appLocale` / `attachments` / `contextMentions` / `teamSkills` / `projectContext` / `scope` /
+`model` / `permissionMode` / `permissionModeVersion` / `reasoningLevel` / `mode`. Before `promptStreaming`,
+`ChatServiceImpl.sendMessage` merges several per-turn system prompts of its own (`mergeSystemPrompts`
+over `buildTeamSkillsSystem`, `buildContextMentionsSystemPrompt`, `buildProjectContextSystem`,
+`buildPermissionModeSystem`, the bug-report system, and `buildResponseLanguageSystem`). The response
+language follows the latest substantive user request across progress, questions, errors, and the
+final response; the application locale is only the fallback when neither the request nor conversation
+establishes a language. The R4 Link-availability injection in the diagram is only the `AgentManager`
 side.
 
 ServerEvents (`electron/chat/common.ts`) now span roughly two dozen events; grouped by family:

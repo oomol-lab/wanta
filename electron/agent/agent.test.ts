@@ -9,13 +9,14 @@ import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltin
 import { DEFAULT_MAX_OUTPUT_TOKENS } from "../models/limits.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { AgentManager, buildManagedSkillRuntimeEnv, persistTeamScopeUpdate } from "./manager.ts"
-import { WANTA_BUILD_AGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
+import { WANTA_BUILD_AGENT_NAME, WANTA_GENERAL_SUBAGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
 import { OO_CLI_BASH_PERMISSION } from "./oo-command-permission.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
 import {
   WANTA_LOCAL_PLAN_SYSTEM_PROMPT,
   WANTA_LOCAL_SYSTEM_PROMPT,
   WANTA_PLAN_SYSTEM_PROMPT,
+  WANTA_GENERAL_SUBAGENT_SYSTEM_PROMPT,
   WANTA_SYSTEM_PROMPT,
 } from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
@@ -304,6 +305,19 @@ test("build and plan agents enable Wanta prompt through OpenCode native modes", 
   assert.equal(rootPermission?.external_directory, "ask")
 })
 
+test("general subagent preserves the delegated task language", () => {
+  const config = buildOpencodeConfig({ cloudRuntime: { kind: "oomol", sessionToken: "k" } })
+  const generalAgent = config.agent?.[WANTA_GENERAL_SUBAGENT_NAME]
+  const permission = generalAgent?.permission as unknown as Record<string, unknown> | undefined
+
+  assert.ok(generalAgent)
+  assert.equal(generalAgent.mode, "subagent")
+  assert.equal(generalAgent.prompt, WANTA_GENERAL_SUBAGENT_SYSTEM_PROMPT)
+  assert.match(generalAgent.prompt, /use its primary language for the entire result/)
+  assert.match(generalAgent.prompt, /application locale, source documents, emails/)
+  assert.equal(permission?.task, "deny")
+})
+
 test("local runtime config omits Connector guidance and oo command permission shortcuts", () => {
   const config = buildOpencodeConfig({
     cloudRuntime: { kind: "local" },
@@ -352,6 +366,9 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /Use focused validation when feasible/)
   assert.match(WANTA_SYSTEM_PROMPT, /update its final state before writing the final response/)
   assert.match(WANTA_SYSTEM_PROMPT, /Do not put the complete user-facing deliverable in a progress update/)
+  assert.match(WANTA_SYSTEM_PROMPT, /primary language of the user's latest substantive request/)
+  assert.match(WANTA_SYSTEM_PROMPT, /every user-facing assistant message, including progress updates/)
+  assert.match(WANTA_SYSTEM_PROMPT, /more specific per-turn response language policy/)
   assert.match(
     WANTA_SYSTEM_PROMPT,
     /Complete all required tool calls, validation, artifact writes, and todo\/task updates/,

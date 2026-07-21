@@ -414,6 +414,17 @@ export function chatTurnProcessStatus(
   return "completed"
 }
 
+export function settlingToolPartId(
+  process: Pick<ChatTurnProcess, "hasActiveTool" | "tools">,
+  status: ChatTurnProcessStatus,
+): string | undefined {
+  if (status !== "running" || process.hasActiveTool) {
+    return undefined
+  }
+  const latestTool = process.tools.at(-1)
+  return latestTool?.status === "completed" ? latestTool.partId : undefined
+}
+
 export function summarizeTurnProcess(
   turn: ChatTurn,
   activity: AssistantActivityEvent | null,

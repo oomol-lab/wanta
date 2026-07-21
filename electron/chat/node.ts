@@ -83,9 +83,10 @@ import {
 import { ChatService as ChatServiceName } from "./common.ts"
 import {
   buildContextMentionsSystem as buildContextMentionsSystemPrompt,
-  buildTeamSkillsSystem,
   buildPermissionModeSystem,
   buildProjectContextSystem,
+  buildResponseLanguageSystem,
+  buildTeamSkillsSystem,
   mergeSystemPrompts,
 } from "./context-system.ts"
 import { normalizeChatError } from "./error.ts"
@@ -95,6 +96,7 @@ import { directoryArtifacts, fileArtifact, localArtifactItem, readArtifactPack }
 import { OutputPersistence } from "./output-persistence.ts"
 import { PermissionState } from "./permission-state.ts"
 import { attachmentPreview, localArtifactPreview } from "./previews.ts"
+import { detectResponseLanguage } from "./response-language.ts"
 import { applyStoppedGenerations } from "./stopped-generations.ts"
 import { ChatStreamEventBuffer } from "./stream-event-buffer.ts"
 import { SubagentSessions } from "./subagent-sessions.ts"
@@ -1473,6 +1475,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             buildProjectContextSystem(req.projectContext),
             buildPermissionModeSystem(req.permissionMode),
             bugReportSystem,
+            buildResponseLanguageSystem(req.appLocale, detectResponseLanguage(req.text)),
           ),
         })
         .then(() => {

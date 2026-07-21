@@ -15,7 +15,7 @@ import type { TranslateFn } from "@/i18n/i18n"
 import { ChevronRight } from "lucide-react"
 import * as React from "react"
 import { assistantBlockClassName } from "./assistant-turn-renderer-model.ts"
-import { chatTurnProcessStatus, isLiveTurnProcess, summarizeTurnProcess } from "./chat-turns.ts"
+import { chatTurnProcessStatus, isLiveTurnProcess, settlingToolPartId, summarizeTurnProcess } from "./chat-turns.ts"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { processOpenAfterStatusChange, processShouldOpenAutomatically } from "./process-activity-open.ts"
@@ -123,11 +123,7 @@ export function TurnProcessActivity({
   const renderBlocks = blocks.map((item) => item.block)
   const showLiveStatus = renderBlocks.length === 0 && shouldShowLiveStatus(process, status)
   const titleText = processStatusText(t, status)
-  const activeTool = latestActiveTool(process)
-  const settlingToolPartId =
-    !activeTool && status === "running" && process.activity && process.tools.length > 0
-      ? process.tools.at(-1)?.partId
-      : undefined
+  const settlingPartId = settlingToolPartId(process, status)
   const openPreferenceRef = React.useRef<ProcessOpenPreference>("auto")
 
   React.useEffect(() => {
@@ -180,7 +176,7 @@ export function TurnProcessActivity({
               billingCacheScope={billingCacheScope}
               smoothText={false}
               providerByService={providerByService}
-              settlingToolPartId={settlingToolPartId}
+              settlingToolPartId={settlingPartId}
               liveTools={live}
               showAuthorizationPrompt={false}
               onAuthorize={onAuthorize}

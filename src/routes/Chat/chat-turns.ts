@@ -6,7 +6,6 @@ import type {
   ChatMessagePart,
 } from "../../../electron/chat/common.ts"
 
-import { parseSearchAuthorizationSignal } from "../../../electron/chat/authorization-signal.ts"
 import { normalizeServiceSlug, parseToolAuthorization } from "./tool-display.ts"
 import { hasBlockingToolError, hasStoppedTool, isActiveToolPart } from "./tool-state.ts"
 
@@ -51,9 +50,7 @@ export interface ChatTurnProcess {
   hasBlockingError: boolean
   hasStoppedTool: boolean
   hasAuthorization: boolean
-  hasSuccessfulConnectorCall: boolean
   authorizationIssues: ConnectorAuthorizationIssue[]
-  suggestedAuthorization?: AuthorizationInfo
   activity: AssistantActivityEvent | null
   startedAt?: number
   endedAt?: number
@@ -304,14 +301,6 @@ function successfulCallActionTargets(tools: ChatMessagePart[]): Set<string> {
   return targets
 }
 
-function successfulCallActionServices(tools: ChatMessagePart[]): Set<string> {
-  const services = new Set<string>()
-  for (const target of successfulCallActionTargets(tools)) {
-    services.add(target.split("\0", 1)[0] ?? "")
-  }
-  return services
-}
-
 function connectorAuthorizationIssues(tools: ChatMessagePart[]): ConnectorAuthorizationIssue[] {
   const successfulTargets = successfulCallActionTargets(tools)
   const issues = new Map<string, ConnectorAuthorizationIssue>()
@@ -339,41 +328,6 @@ function connectorAuthorizationIssues(tools: ChatMessagePart[]): ConnectorAuthor
     })
   }
   return [...issues.values()]
-}
-
-function suggestedAuthorizationFromTools(tools: ChatMessagePart[]): AuthorizationInfo | undefined {
-  const successfulServices = successfulCallActionServices(tools)
-  if (successfulServices.size > 0) {
-    return undefined
-  }
-  for (const part of tools) {
-    if (part.tool !== "search_actions" || part.status !== "completed") {
-      continue
-    }
-    const authorization = parseSearchAuthorizationSignal(part.output, part.input)
-    if (authorization) {
-      return authorization
-    }
-  }
-  return undefined
-}
-
-function searchAuthorizationContext(
-  input: Record<string, unknown> | undefined,
-  userText: string,
-): { keywords?: unknown; query?: unknown; userText?: string } {
-  return {
-    keywords: input?.keywords,
-    query: input?.query,
-    ...(userText ? { userText } : {}),
-  }
-}
-
-export function shouldShowSuggestedAuthorization(
-  process: Pick<ChatTurnProcess, "activity" | "hasActiveTool" | "suggestedAuthorization">,
-  turnIsActive: boolean,
-): boolean {
-  return Boolean(process.suggestedAuthorization && !turnIsActive && !process.hasActiveTool && !process.activity)
 }
 
 export function isLiveTurnProcess(
@@ -471,8 +425,6 @@ export function summarizeTurnProcess(
   const hasToolError = hasBlockingToolError(tools)
   const authorizationIssues = connectorAuthorizationIssues(tools)
   const hasAuthorization = authorizationIssues.length > 0
-  const hasSuccessfulConnectorCall = successfulCallActionServices(tools).size > 0
-  const userText = turn.user ? userMessageText(turn.user) : ""
 
   return {
     tools,
@@ -483,19 +435,7 @@ export function summarizeTurnProcess(
     hasBlockingError: errors.length > 0 || (hasToolError && !hasVisibleOutcome),
     hasStoppedTool: hasStoppedTool(tools),
     hasAuthorization,
-    hasSuccessfulConnectorCall,
     authorizationIssues,
-    ...(hasAuthorization
-      ? {}
-      : {
-          suggestedAuthorization: suggestedAuthorizationFromTools(
-            tools.map((part) =>
-              part.tool === "search_actions"
-                ? { ...part, input: searchAuthorizationContext(part.input, userText) }
-                : part,
-            ),
-          ),
-        }),
     activity: activeTurnActivity,
     startedAt,
     endedAt,

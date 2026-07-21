@@ -27,23 +27,17 @@ import {
   textFromTimelineBlocks,
   timelineHasVisibleOutcome,
 } from "./assistant-timeline.ts"
-import { shouldRenderConnectionSuggestion } from "./assistant-turn-renderer-model.ts"
 import { TurnProcessActivity } from "./AssistantTurnRenderer.tsx"
 import {
   activityForChatTurn,
   latestAssistantMessage,
   retrySourceFromTurn,
   shouldShowPlainTurnActivity,
-  shouldShowSuggestedAuthorization,
   shouldShowTurnProcess,
   summarizeTurnProcess,
   updateChatTurnGrouping,
 } from "./chat-turns.ts"
-import {
-  AssistantMessageActions,
-  ConnectionAuthorizationIssueAction,
-  ConnectionSuggestionAction,
-} from "./ChatMessageActions.tsx"
+import { AssistantMessageActions, ConnectionAuthorizationIssueAction } from "./ChatMessageActions.tsx"
 import { AssistantTimelineMessage, MessageBubble, PlainAssistantActivity } from "./ChatMessageBubble.tsx"
 import { assistantResponseActionTextByMessageId } from "./message-text.ts"
 import { PermissionRequiredCard } from "./PermissionRequiredCard.tsx"
@@ -196,11 +190,6 @@ const ChatTurnView = React.memo(function ChatTurnView({
   const responseActionsText =
     lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseBlocks) || null
   const processActionsText = responseActionsText ?? assistantActionsText
-  const showSuggestedAuthorization = shouldShowSuggestedAuthorization(process, turnIsActive)
-  const suggestedAuthorization = shouldRenderConnectionSuggestion(
-    showSuggestedAuthorization ? process.suggestedAuthorization : undefined,
-    providerByService,
-  )
   const retrySource = React.useMemo(() => retrySourceFromTurn(turn), [turn])
   const handleAuthorize = React.useCallback(
     (auth: AuthorizationInfo) => {
@@ -292,7 +281,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
               </Message>
             )
           })}
-          {!turnIsActive && (process.authorizationIssues.length > 0 || suggestedAuthorization) ? (
+          {!turnIsActive && process.authorizationIssues.length > 0 ? (
             <Message from="assistant">
               <MessageContent className="w-full">
                 {process.authorizationIssues.map((issue) => (
@@ -303,13 +292,6 @@ const ChatTurnView = React.memo(function ChatTurnView({
                     onAuthorize={handleAuthorize}
                   />
                 ))}
-                {suggestedAuthorization ? (
-                  <ConnectionSuggestionAction
-                    authorization={suggestedAuthorization}
-                    provider={providerByService.get(normalizeServiceSlug(suggestedAuthorization.service))}
-                    onAuthorize={handleAuthorize}
-                  />
-                ) : null}
               </MessageContent>
             </Message>
           ) : null}
@@ -330,7 +312,6 @@ const ChatTurnView = React.memo(function ChatTurnView({
               onAuthorize={handleAuthorize}
               onRecover={retrySource ? handleRecover : undefined}
               onRetryFresh={retrySource ? handleRetryFresh : undefined}
-              suggestedAuthorization={message.id === lastAssistant?.id ? process.suggestedAuthorization : undefined}
             />
           ))}
         </>

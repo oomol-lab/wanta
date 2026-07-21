@@ -13,7 +13,6 @@ import {
   retrySourceFromTurn,
   reuseStableChatTurns,
   shouldShowPlainTurnActivity,
-  shouldShowSuggestedAuthorization,
   shouldShowTurnProcess,
   settlingToolPartId,
   summarizeTurnProcess,
@@ -383,161 +382,25 @@ describe("summarizeTurnProcess", () => {
     expect(chatTurnProcessStatus(process, true)).toBe("completed")
   })
 
-  it("suggests connecting a single unauthenticated provider from search results", () => {
+  it("does not treat unauthenticated search results as an authorization blocker", () => {
     const turn = groupChatTurns([
-      message("u1", "user", [text("u1-text", "有没有 Supabase 的连接可以用")]),
+      message("u1", "user", [text("u1-text", "分析一下 TikHub 的公开内容")]),
       message("a1", "assistant", [
         tool("tool-1", {
           tool: "search_actions",
-          output: JSON.stringify([
-            { service: "supabase", name: "list_projects", authenticated: false },
-            { service: "supabase", name: "run_read_only_query", authenticated: false },
-          ]),
+          input: { query: "TikHub public social research" },
+          output: JSON.stringify([{ service: "tikhub", name: "search_posts", authenticated: false }]),
         }),
       ]),
-      message("a2", "assistant", [text("a2-text", "有 Supabase 的连接器可用。")]),
+      message("a2", "assistant", [text("a2-text", "已完成公开内容分析。")]),
     ])[0]
 
     expect(turn).toBeDefined()
     const process = summarizeTurnProcess(turn!, null)
 
     expect(process.hasAuthorization).toBe(false)
-    expect(process.suggestedAuthorization).toMatchObject({
-      service: "supabase",
-      displayName: "Supabase",
-      errorCode: "connection_required",
-    })
-  })
-
-  it("suggests the requested provider when search results include other unauthenticated providers", () => {
-    const turn = groupChatTurns([
-      message("u1", "user", [text("u1-text", "有没有 Supabase 的连接可以用")]),
-      message("a1", "assistant", [
-        tool("tool-1", {
-          tool: "search_actions",
-          input: { keywords: "supabase", query: "Supabase database connection" },
-          output: JSON.stringify([
-            { service: "supabase", name: "list_projects", authenticated: false },
-            { service: "supabase", name: "run_read_only_query", authenticated: false },
-            { service: "neon", name: "get_database", authenticated: false },
-          ]),
-        }),
-      ]),
-      message("a2", "assistant", [text("a2-text", "有 Supabase 的连接器可用。")]),
-    ])[0]
-
-    expect(turn).toBeDefined()
-    const process = summarizeTurnProcess(turn!, null)
-
-    expect(process.suggestedAuthorization).toMatchObject({
-      service: "supabase",
-      displayName: "Supabase",
-      errorCode: "connection_required",
-    })
-  })
-
-  it("does not suggest an unrelated provider when the user explicitly named another provider", () => {
-    const turn = groupChatTurns([
-      message("u1", "user", [text("u1-text", "PostHog 功能介绍")]),
-      message("a1", "assistant", [
-        tool("tool-1", {
-          tool: "search_actions",
-          input: { query: "PostHog feature flags" },
-          output: JSON.stringify([{ service: "launchdarkly", name: "list_feature_flags", authenticated: false }]),
-        }),
-      ]),
-      message("a2", "assistant", [text("a2-text", "PostHog 支持功能开关、数据洞察和事件分析。")]),
-    ])[0]
-
-    expect(turn).toBeDefined()
-    const process = summarizeTurnProcess(turn!, null)
-
-    expect(process.suggestedAuthorization).toBeUndefined()
-  })
-
-  it("does not suggest connecting a provider after a successful call action for it", () => {
-    const turn = groupChatTurns([
-      message("u1", "user", [text("u1-text", "看一下 PostHog 数据")]),
-      message("a1", "assistant", [
-        tool("tool-1", {
-          tool: "search_actions",
-          input: { keywords: "posthog", query: "PostHog query events" },
-          output: JSON.stringify([
-            { service: "posthog", name: "run_query", authenticated: false },
-            { service: "mixpanel", name: "query_top_events", authenticated: false },
-          ]),
-        }),
-      ]),
-      message("a2", "assistant", [
-        tool("tool-2", {
-          tool: "call_action",
-          input: { service: "posthog", action: "run_query" },
-          output: JSON.stringify({ data: { results: [["console.oomol.com", 21]] } }),
-        }),
-      ]),
-      message("a3", "assistant", [text("a3-text", "PostHog 数据出来了。")]),
-    ])[0]
-
-    expect(turn).toBeDefined()
-    const process = summarizeTurnProcess(turn!, null)
-
-    expect(process.suggestedAuthorization).toBeUndefined()
-  })
-
-  it("does not suggest connecting an unrelated unauthenticated provider after a connector call succeeds", () => {
-    const turn = groupChatTurns([
-      message("u1", "user", [text("u1-text", "帮我看一下近三天的 Gmail 邮件")]),
-      message("a1", "assistant", [
-        tool("tool-1", {
-          tool: "search_actions",
-          input: { keywords: "gmail", query: "recent emails" },
-          output: JSON.stringify([
-            { service: "gmail", name: "fetch_emails", authenticated: true },
-            { service: "mailtrap", name: "list_emails", authenticated: false },
-          ]),
-        }),
-      ]),
-      message("a2", "assistant", [
-        tool("tool-2", {
-          tool: "call_action",
-          input: { service: "gmail", action: "fetch_emails" },
-          output: JSON.stringify({ data: { emails: [{ subject: "Hello" }] } }),
-        }),
-      ]),
-      message("a3", "assistant", [text("a3-text", "Gmail 邮件已经整理好了。")]),
-    ])[0]
-
-    expect(turn).toBeDefined()
-    const process = summarizeTurnProcess(turn!, null)
-
-    expect(process.hasSuccessfulConnectorCall).toBe(true)
-    expect(process.suggestedAuthorization).toBeUndefined()
-  })
-
-  it("normalizes service slugs when suppressing suggestions after successful calls", () => {
-    const turn = groupChatTurns([
-      message("u1", "user", [text("u1-text", "看一下 PostHog 数据")]),
-      message("a1", "assistant", [
-        tool("tool-1", {
-          tool: "search_actions",
-          input: { keywords: "posthog", query: "PostHog query events" },
-          output: JSON.stringify([{ service: "oo-posthog", name: "run_query", authenticated: false }]),
-        }),
-      ]),
-      message("a2", "assistant", [
-        tool("tool-2", {
-          tool: "call_action",
-          input: { service: "posthog", action: "run_query" },
-          output: JSON.stringify({ data: { results: [["console.oomol.com", 21]] } }),
-        }),
-      ]),
-      message("a3", "assistant", [text("a3-text", "PostHog 数据出来了。")]),
-    ])[0]
-
-    expect(turn).toBeDefined()
-    const process = summarizeTurnProcess(turn!, null)
-
-    expect(process.suggestedAuthorization).toBeUndefined()
+    expect(process.authorizationIssues).toEqual([])
+    expect(chatTurnProcessStatus(process)).toBe("completed")
   })
 
   it("uses activity without message id for the current turn", () => {
@@ -548,35 +411,6 @@ describe("summarizeTurnProcess", () => {
 
     expect(process.activity?.phase).toBe("thinking")
     expect(process.hasVisibleOutcome).toBe(false)
-  })
-
-  it("shows search-based authorization suggestions only after the turn is no longer active", () => {
-    const turn = groupChatTurns([
-      message("u1", "user", [text("u1-text", "有没有 Supabase 的连接可以用")]),
-      message("a1", "assistant", [
-        tool("tool-1", {
-          tool: "search_actions",
-          output: JSON.stringify([{ service: "supabase", name: "list_projects", authenticated: false }]),
-        }),
-      ]),
-      message("a2", "assistant", [text("a2-text", "有 Supabase 的连接器可用。")]),
-    ])[0]
-
-    expect(turn).toBeDefined()
-    const process = summarizeTurnProcess(turn!, null)
-
-    expect(process.suggestedAuthorization).toBeDefined()
-    expect(shouldShowSuggestedAuthorization(process, true)).toBe(false)
-    expect(shouldShowSuggestedAuthorization(process, false)).toBe(true)
-    expect(
-      shouldShowSuggestedAuthorization(
-        {
-          ...process,
-          activity: { sessionId: "s1", phase: "thinking" },
-        },
-        false,
-      ),
-    ).toBe(false)
   })
 
   it("keeps reasoning out of assistant answer text parts", () => {

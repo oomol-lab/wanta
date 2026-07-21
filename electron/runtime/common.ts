@@ -18,6 +18,7 @@ export interface RuntimeCapabilityOptions {
   mode: RuntimeMode
   /** 当前构建与运行状态是否已经具备本地 Agent；免登录 runtime 落地前保持 false。 */
   localAgentAvailable: boolean
+  linkRuntimeAvailable: boolean
 }
 
 /**
@@ -27,6 +28,7 @@ export interface RuntimeCapabilityOptions {
 export function resolveRuntimeCapabilities({
   mode,
   localAgentAvailable,
+  linkRuntimeAvailable,
 }: RuntimeCapabilityOptions): RuntimeCapabilities {
   const oomol = mode === "oomol"
   return {
@@ -35,7 +37,7 @@ export function resolveRuntimeCapabilities({
     localTools: localAgentAvailable,
     customModels: true,
     oomolCloudModels: oomol,
-    connectors: oomol,
+    connectors: localAgentAvailable && linkRuntimeAvailable,
     teams: oomol,
     billing: oomol,
     cloudSkills: oomol,

@@ -7,13 +7,15 @@
 - **Main process** `electron/main.ts`: the assembly root. It creates
   `ConnectionServer(new ElectronServerAdapter())`; constructs the disk-backed stores under
   `app.getPath("userData")` — `SettingsStore` / `AuthStore` / `KnowledgeStore` / `AttentionStore`
-  (`settings.json` / `auth.json` / `knowledge-bases/` / `attention.json`), plus `ModelsStore`
+  (`settings.json` / `auth.json` / `knowledge-bases/` / `attention.json`), plus the private
+  `LinkRuntimeManager` (`link-runtime.json`) and `ModelsStore`
   (`models.json`, which backs the `models` service, feeds `AgentManager` custom models, and
   restarts the agent on change — exactly parallel to the four named stores) and the
   session/chat store family (`SessionActivityStore`, `SessionMetadataStore`, `SessionProjectStore`,
   `ArtifactBundleStore`, `AuthorizationOverlayStore`, `StoppedGenerationStore`, `TurnOutputStore`,
-  `UserAttachmentStore`); then instantiates and registers the **ten services** (`chat` / `attention`
-  / `session` / `skill` / `models` / `settings` / `auth` / `update` / `git` / `knowledge`) with
+  `UserAttachmentStore`); then instantiates and registers the **eleven services** (`chat` / `attention`
+  / `session` / `skill` / `models` / `settings` / `auth` / `update` / `git` / `knowledge` /
+  `link-runtime`) with
   `server.registerService(...)` (**must run before `server.start()`**). `attention` records unread
   tasks only on a clean completion after the turn output has settled, persists them asynchronously,
   and drives system notifications plus the app-icon badge (macOS / a supporting Linux launcher
@@ -38,9 +40,11 @@
   `wanta-resource` artifact protocol is wired in two steps: `registerArtifactResourceScheme()` runs
   at module top level before app ready, and `installArtifactResourceProtocol(artifactResourceLeaseStore)`
   runs in `whenReady`; ChatService then hands the renderer leased `wanta-resource` URLs to stream
-  local artifact files, and the lease store is cleared on shutdown. On successful login,
-  `applyAuthAccount(account)` dynamically brings up the `AgentManager` (rootDir = `userData/agent`)
-  and injects it into the chat/session services; on logout it is set to null. The agent lifecycle is
+  local artifact files, and the lease store is cleared on shutdown. `applyAuthAccount(account)`
+  independently resolves model access and the selected Link runtime, then brings up `AgentManager`
+  whenever an OOMOL model or a configured custom model is available (rootDir = `userData/agent`).
+  Signing out removes OOMOL model/Link access but does not stop a signed-out custom-model Agent or
+  rewrite an explicit OpenConnector selection. The agent lifecycle is
   also owned here: an `AgentRetirementPool` serializes teardown of the old sidecar before a new one
   starts (and drives shutdown reaping across the before-quit / signal / update-install paths,
   memoized so it runs once), and an `AgentRefreshScheduler` restarts the agent runtime when custom
@@ -67,7 +71,7 @@ version }` (from the vite defines `__APP_COMMIT__` / `__APP_VERSION__`), the `Wa
   locale, and app commands). It **exposes no network/credential surface** — renderer-direct requests
   authenticate automatically via the session cookie and never pass through preload (see §4).
 - **Renderer process** `src/main.tsx`: `ConnectionClient(new ElectronClientAdapter())` →
-  `client.use()` the ten service contracts → `AppContext.Provider`. The renderer syncs the currently
+  `client.use()` the eleven service contracts → `AppContext.Provider`. The renderer syncs the currently
   visible session through the attention service, consumes the persisted unread set, and switches back
   to the matching task when a system notification is clicked. The renderer **directly imports** the
   contract types from `electron/*/common.ts` (cross-directory shared types, never copied); since the
@@ -92,6 +96,29 @@ is enforced strictly by the OpenCode `sessionID`, task sub-sessions temporarily 
 allowlist and clear it on exit, and a stale ID from earlier prompt history cannot be used to query a
 knowledge base whose pin has been cancelled.
 
+### Link runtime boundary
+
+Model access and Link access are separate runtime axes. `electron/runtime/agent-runtime.ts` resolves
+`ModelAccess` (`local` or `oomol`) and the model choice; `electron/link-runtime/node.ts` resolves one
+active `LinkRuntime` (`oomol`, `openconnector`, or none). `RuntimeCapabilities.connectors` becomes
+true only when an Agent can run and the selected Link runtime is available. An offline saved
+OpenConnector remains selected and available; reachability is a separate status value.
+
+`LinkRuntimeManager` is deliberately not registered. The renderer receives only the thin
+`LinkRuntimeServiceImpl` facade and redacted state: selected/active runtime, endpoint origins,
+availability, status, sanitized app inventory, and `tokenConfigured`. A newly entered runtime token
+crosses IPC once, is encrypted in the versioned origin-bound `link-runtime.json` payload with
+Electron `safeStorage`, and is decrypted only for same-origin health/inventory calls and sidecar
+assembly. Linux weak or unknown storage backends are rejected. Health and inventory requests use
+manual redirects and never forward a token across origins.
+
+The Agent workspace mounts the four typed Link tools for either Link backend. OOMOL adds team
+identity (`--organization`) and the bundled oo Skills; OpenConnector adds neither. OOMOL direct `oo`
+commands keep the existing fast permission path. Under OpenConnector, direct `oo` commands require
+approval, while credential expansion, environment dumps, login/logout, and endpoint/store mutation
+are rejected even in Full Access. OOMOL Skill registry maintenance remains tied to the OOMOL account
+and does not follow the selected Link runtime.
+
 Vite (`vite-plugin-electron/simple` in `vite.config.ts`) bundles `electron/main.ts` and
 `electron/preload.ts` into `dist-electron/main.js` + `preload.js`; the main-process build has a
 **third** rollup input, `electron/chat/spreadsheet-preview-worker.ts` → `dist-electron/spreadsheet-preview-worker.js`,
@@ -114,15 +141,26 @@ devDependencies.
 
 | Module                | Responsibility                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `manager.ts`          | `AgentManager`: orchestrates the sidecar. `promptStreaming()` (`session.promptAsync`, non-blocking; the agent runs OpenCode's native `build` / `plan` — Build by default, Planning passes `agent:"plan"`; a non-`default` `reasoningLevel` supported by the current model is forwarded as OpenCode `body.variant`; model defaults to Auto, i.e. `{providerID:"oomol", modelID:"oopilot"}`, and GPT 5.5 passes `{providerID:"openai", modelID:"gpt-5.5"}`). `body.system` is a five-segment merge (`mergeSystemPrompts`): ① a mandatory per-turn workspace-identity line (team name + raw `oo` selector — if the team is unresolved `promptStreaming` throws and the turn cannot start); ② the authorized-Link availability hint (fixed text, **never** lists provider names, so the availability context cannot become tool bait); ③ the caller's context system; ④ the per-turn artifact output contract (`buildArtifactSystem`, incl. the project-publish rules); ⑤ the process intermediate-file contract (`buildProcessSystem`, incl. the `.wanta-python` venv instructions). It also has `sendMessage()` (blocking, for headless use); `subscribe()` (the OpenCode global SSE event loop, with independent reconnect); session CRUD; the interactive-question APIs (`getPendingQuestions` / `getPendingQuestionsForSessions` / `answerQuestion` / `rejectQuestion`); custom-model resolution (`resolveModel` / `resolveReasoningVariant` / `resolveAttachmentCapabilities` handle the custom branch); and `listAuthorizedServices()`, which queries `${connectorBaseUrl}/v1/apps` directly.                                                                                                                                                                                                                                                                                                                                                                                          |
+| `manager.ts`          | `AgentManager`: orchestrates the sidecar. `promptStreaming()` (`session.promptAsync`, non-blocking; the agent runs OpenCode's native `build` / `plan` — Build by default, Planning passes `agent:"plan"`; a non-`default` `reasoningLevel` supported by the current model is forwarded as OpenCode `body.variant`; model defaults to Auto, i.e. `{providerID:"oomol", modelID:"oopilot"}`, and GPT 5.5 passes `{providerID:"openai", modelID:"gpt-5.5"}`). `body.system` is a runtime-dependent merge of up to five segments (`mergeSystemPrompts`): ① for the OOMOL Link runtime, a mandatory per-turn workspace-identity line (team name + raw `oo` selector — if the team is unresolved `promptStreaming` throws and the turn cannot start); OpenConnector does not add this segment; ② the authorized-Link availability hint (fixed text, **never** lists provider names, so the availability context cannot become tool bait); ③ the caller's context system; ④ the per-turn artifact output contract (`buildArtifactSystem`, incl. the project-publish rules); ⑤ the process intermediate-file contract (`buildProcessSystem`, incl. the `.wanta-python` venv instructions). It also has `sendMessage()` (blocking, for headless use); `subscribe()` (the OpenCode global SSE event loop, with independent reconnect); session CRUD; the interactive-question APIs (`getPendingQuestions` / `getPendingQuestionsForSessions` / `answerQuestion` / `rejectQuestion`); custom-model resolution (`resolveModel` / `resolveReasoningVariant` / `resolveAttachmentCapabilities` handle the custom branch); and `listAuthorizedServices()`, which queries `${connectorBaseUrl}/v1/apps` directly.                                                                                                                                                                                                                                                                                         |
 | `sidecar.ts`          | `OpencodeSidecar`: spawns `opencode serve --hostname=127.0.0.1 --port=0` and parses the "listening on URL" line from stdout for the address. **Never add `--pure`** (it skips custom plugins, silently disabling the `.opencode/tools` connector tools). Config is injected inline via the `OPENCODE_CONFIG_CONTENT` env var (credential = the session token; the provider `options.apiKey` field name is kept but the value is the token; env only, never persisted to disk); `OPENCODE_CONFIG_DIR` / `XDG_CONFIG_HOME` / `XDG_DATA_HOME` point at `userData/agent/isolation` (isolating the global `~/.config/opencode`; the directory must be pre-created asynchronously before launch or startup 500s); `OPENCODE_DISABLE_EXTERNAL_SKILLS=1` so the sidecar does not scan global roots like `~/.agents` / `~/.claude` directly — external agent skills are scanned by `SkillServiceImpl` and synced into Wanta's private workspace, so a same-named stale copy cannot pre-empt them; `PATH` is merged per-platform by `command-path.ts` (macOS/Linux read the login-shell PATH; Windows reads the freshest Path from the current-user and system registries), keeping Wanta's bundled bin, the inherited Electron PATH, and platform-specific common command dirs on both ends — it imports PATH only, not other shell/registry env vars; a random `OPENCODE_SERVER_PASSWORD` provides Basic Auth. `dispose()` is a two-tier process-tree reap: first `POST /global/dispose` so opencode authoritatively reaps the tool subprocesses it spawned (each `setsid`-escaped, so a single SIGTERM cannot reach them), then an OS process-tree fallback (unix: snapshot the tree with `ps`, then SIGTERM by process group and per-pid, a ~2s grace poll, then SIGKILL; win32: `taskkill /PID /T /F`) — a lone SIGTERM has not been the actual behavior for some time.                                                                                                                        |
 | `config.ts`           | `buildOpencodeConfig()`: provider `oomol` (default Auto/`oopilot`, npm `@ai-sdk/openai-compatible`, baseURL=`llmBaseUrl`, also carrying the other OpenAI-compatible built-in models) + provider `openai` (GPT 5.5, OpenAI Responses runtime). Note: the gateway `/v1/models` **does not list** `oopilot` — it is a gateway-side alias routed to the real model by chat/completions, so do not "correct" the Auto model name from the models list. It overrides OpenCode's native `build` / `plan` agents: Build uses `WANTA_SYSTEM_PROMPT`, Plan uses `WANTA_PLAN_SYSTEM_PROMPT`. `external_directory`, `edit`, and any local `bash` other than a direct `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}` all go through ask first, then the ChatService main-process local-access policy (Default Access / Full Access; Default Access auto-approves ordinary bash, scripts, project checks, data processing, simple output filtering, ordinary file read/write and specific non-sensitive paths, pausing only at basic safety boundaries — credential/secret paths, broad home/system roots, destructive deletes, dependency installs, privilege escalation, pushes, publish/deploy, infrastructure changes; Python third-party deps get only a task-level narrow grant inside the turn's private `.wanta-python` venv under the process dir, never overriding system/user Python or another install source; Full Access = session-level local YOLO, auto-approving local asks for that session). A direct `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}` command keeps OpenCode's fast allow, for the connector CLI's own calls. Plan's `edit` is limited to `.opencode/plans/*.md`. The root-level `WANTA_PERMISSION` mirrors the Build permission; no tools disable table is emitted (all built-in tools stay enabled). Each custom OpenAI-compatible model additionally gets its own provider `wanta-custom-<id>` (npm `@ai-sdk/openai-compatible`, the user's own baseURL/apiKey, env-only). |
 | `system-prompt.ts`    | `WANTA_SYSTEM_PROMPT` (English): a Worker / task-first stance — first decide the work result the user wants, then pick the shortest reliable path among a direct answer, Local tools, and Link tools; use Local tools when local context is needed (bash, files, scripts, specific URLs; cwd is a private scratch, use absolute paths or `~` for real files); use `list_apps` for the current workspace's connection list, but never as a health check before an ordinary SaaS action; go to Link tools (the search→inspect→call flow) only when the task genuinely needs a connected account / SaaS data or action. A bare `oo` CLI inside a provider skill is preferred as a capability reference; when a Link tool cannot do it and the task genuinely needs it, it may still run, but must use the current turn's selector. It keeps the inspect-before-call, authorization-required blocking, minimal-access/payload, and side-effect-confirmation contracts, plus an "Asking the user" structured-question contract (header spec, no re-asking after a rejection, etc.).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `tool-sources.ts`     | The **String.raw inline source** of five custom tools (`list_apps.ts` / `search_actions.ts` / `inspect_action.ts` / `call_action.ts` / `query_knowledge.ts`), exported as `AGENT_TOOL_FILES`. The tools import the build-time-merged tool helper + Zod from the workspace-private `../runtime/tool.js`, so tool loading does not depend on OpenCode implicitly installing npm packages on the user's machine. They run in OpenCode's Bun and take no part in this project's tsc/oxlint. The four Link tools (`list_apps` / `search_actions` / `inspect_action` / `call_action`) call `oo` via `execFile` (path from `process.env.WANTA_OO_BIN`, falling back to `"oo"` — note that a packaged / Finder-launched GUI process **does not inherit the shell PATH** (PATH is empty), so binaries always use an absolute path (`WANTA_OO_BIN` env / `resolveBundledBin`) and the `"oo"` string fallback is a dev-only crutch, unusable in production). `query_knowledge` calls no `oo` at all: it `execFile`s the WikiGraph CLI (`WANTA_WIKIGRAPH_EXECUTABLE` runs Electron with `ELECTRON_RUN_AS_NODE=1` + the `WANTA_WIKIGRAPH_CLI` entry, registry path from `WANTA_KNOWLEDGE_REGISTRY`; all three injected by `manager.startSidecar`). Only `list_apps` and `call_action` pass `--organization` on the main `oo` call; `search_actions`' own `oo connector search` carries no workspace selector (catalog search is identity-independent) — the team identity applies only to its internal `connector apps` list call (which overrides the active-workspace `authenticated` field) and its `/v1/providers` request. `call_action` translates a stderr `errorCode: <code>` that hits the AUTH_BLOCKING set into `{status:"authorization_required", authUrl: <console>/app-connections?provider=...}` (the authUrl base is taken only from the `WANTA_CONSOLE_URL` env; when missing it returns a structured `config_missing` error rather than hardcoding an endpoint).                     |
 | `workspace.ts`        | `ensureAgentWorkspace(rootDir, bundledSkillsDir?, bundledToolRuntimePath?)`: on every startup it idempotently overwrites `<userData>/agent/workspace/.opencode/tools/*.ts` (using `node:fs/promises`; the directory name is the **plural `tools`**, verified against 1.17.13 — upstream docs disagree, do not change to singular), syncs the build-time-merged `.opencode/runtime/tool.js`, and rebuilds `.opencode/skill/<name>/` from the bundled built-in skills as source of truth (source = `resources/skills`, the four oo skills exported by `scripts/skills.ts` via `oo skills install --out-dir`; OpenCode scans the cwd's `.opencode/{skill,skills}/**/SKILL.md`, so Wanta's own agent reads those four skills directly — it **no longer releases skills into other AI agents' home dirs**). `.opencode/skills/` is the private target dir for Wanta registry/runtime skills, written by `SkillServiceImpl` and not wiped by the bundled-skill sync; the Wanta registry cache and external agent skills (Claude Code / Codex / Universal, etc.) are all synced here first, then handed to the sidecar to load. The workspace is the sidecar's cwd and is **immutable** (the custom tools depend on the `.opencode/tools/` beneath it).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `oo.ts`               | `buildOoEnv()` (R3): `OO_API_KEY` (name kept, value = session token) / `OO_ENDPOINT` / `OO_CONFIG_DIR`, `DATA_DIR`, `LOG_DIR` (under `userData/agent/oo-store`) / `OO_SKILLS_SYNC_DISABLED=1` / `OO_NO_SELF_UPDATE=1` / `OO_TELEMETRY_DISABLED=1` / `OO_LOG_LEVEL=warn` + `WANTA_ENDPOINT` / `WANTA_CONSOLE_URL` / `WANTA_CONNECTOR_URL` / `WANTA_OO_BIN`, plus `WANTA_TEAM_SCOPE_PATH` (points at `userData/agent/team-scope.json`; the Link tools resolve the team per session from it — this is the carrier of the "per current session team" mechanism) and `WANTA_TEAM_NAME` (fallback). It also exports `buildOoMaintenanceEnv()` (for skill-store maintenance; the config/data/log dirs are supplied by the caller), `isAuthBlocking()`, `AUTH_BLOCKING_ERROR_CODES` (`connection_required` and four others), and `parseConnectorErrorCode()` (kept in sync with the tool-sources inline implementation).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `oo.ts`               | `buildAgentLinkEnv()` (R3) builds the complete isolated oo environment for one Link runtime. OOMOL receives `OO_API_KEY`, the build-time endpoint, Console/Connector URLs, and team scope; OpenConnector receives `OO_CONNECTOR_URL`, optional `OO_CONNECTOR_TOKEN`, and its configured Console URL. Both receive private config/data/log dirs plus disabled skill sync, self-update, and telemetry. `buildOomolMaintenanceEnv()` is separate and is used only for OOMOL account-owned Skill registry operations. The module also owns the shared authorization-blocking error codes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `binaries.ts`         | Binary resolution: in dev, opencode = `node_modules/opencode-ai/bin/opencode.exe` (this fixed filename on every platform — upstream's postinstall already picked the local variant), oo = `.oo-bin/oo[.exe]`; in production, `resolveBundledBin(process.resourcesPath, name)` = `Resources/bin`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `event-translator.ts` | Statelessly translates OpenCode SSE (`message.updated` / `message.part.updated` / `session.error` / `permission.asked` / `permission.v2.asked` / `question.asked` / `question.v2.asked` / `question.replied` / `question.rejected`, etc.) → ChatService ServerEvents (0..n emits per event); `parseAuthorization()` recognizes the call_action authorization-signal JSON; permission events first enter the ChatService main-process local-access policy — auto-approvable requests continue straight through the OpenCode permission reply API, and only requests still needing a human decision are mapped to an in-chat permission state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+
+Runtime-specific qualifications to the table above: `AgentManager` receives independent
+`ModelAccess` and `LinkRuntime` values. The workspace identity prompt, team-scope requirement, and
+`--organization` arguments apply only to the OOMOL Link runtime. OpenConnector uses endpoint-only
+identity and endpoint-qualified caches. `buildAgentLinkEnv()` assembles either the OOMOL variables
+(`OO_API_KEY`, endpoint, team scope) or OpenConnector variables (`OO_CONNECTOR_URL`, optional
+`OO_CONNECTOR_TOKEN`) on top of the same isolated `OO_CONFIG_DIR` / `OO_DATA_DIR` / `OO_LOG_DIR` and
+sync/update/telemetry restrictions; `buildOomolMaintenanceEnv()` remains dedicated to account-owned
+Skill registry work. `ensureAgentWorkspace()` receives separate `connectors` and `bundledOoSkills`
+inputs, so OpenConnector gets typed Link tools without the OOMOL-specific bundled Skills. Direct oo
+fast-allow in `config.ts` is likewise OOMOL-only.
 
 Link batch reliability is guaranteed by Wanta's custom `call_action` tool, not left to the model or
 OpenCode to converge on its own: within one chat session, a same workspace/service/connection/action
@@ -137,10 +175,12 @@ tool audit record but aggregates them into a single CTA by that turn's connectio
 when the same target succeeds first and is blocked later in the same turn, it shows an
 inconsistent-connection-state semantic.
 
-Beyond the CLI, `search_actions` also fetches `${WANTA_CONNECTOR_URL}/v1/providers` directly (Bearer
-`OO_API_KEY` + `x-oo-organization-name` header, 30s cache) to attach an `authenticatedReliable` and
-`noAuthReady` field to each search result (a no_auth-only provider counts as ready); when the list is
-unavailable, `authenticatedReliable=false` and `call_action` remains the authorization authority.
+Beyond the CLI, `search_actions` also fetches `${WANTA_CONNECTOR_URL}/v1/providers` directly to
+attach an `authenticatedReliable` and `noAuthReady` field to each search result (a no_auth-only
+provider counts as ready). OOMOL uses `OO_API_KEY` plus the organization header; OpenConnector uses
+an optional `OO_CONNECTOR_TOKEN` and no organization. Both caches include backend and endpoint
+identity. When the list is unavailable, `authenticatedReliable=false` and `call_action` remains the
+authorization authority.
 
 The sidecar self-recovers from crashes: on an unexpected sidecar exit `AgentManager` rebuilds the
 workspace and restarts (up to 5 times, exponential backoff 1s→10s, pushing `runtime_restarting` /
@@ -152,7 +192,8 @@ Team / knowledge-base scoping is persisted rather than baked into the sidecar: t
 atomically writes `teamName`, `sessionTeams` (the team per OpenCode session), and
 `sessionKnowledgeBaseIds` to `userData/agent/team-scope.json` (the tools read it by `sessionID` via
 `WANTA_TEAM_SCOPE_PATH`, which is how the team can switch without a sidecar restart), and via
-`oo-identity.ts` mirrors the team name into `oo-store/config/settings.toml`'s `[identity]
+`oo-identity.ts` mirrors the team name for the OOMOL Link runtime into
+`oo-store/config/settings.toml`'s `[identity]
 organization` (with rollback on failure). This is the implementation basis for the tool-sources
 "per current session team" behavior.
 
@@ -165,19 +206,20 @@ after `client.use(XService)`, use `service.invoke("method", args)` / `service.se
 cb)`. The actual ServiceName string looks like `wanta/chat-service` (prefix from
 `branding.servicePrefix`).
 
-Ten services: `chat` / `attention` / `session` / `skill` / `models` / `settings` / `auth` / `update`
-/ `git` / `knowledge` (connector and teams each once had a service; after their requests moved to the
+Eleven services: `chat` / `attention` / `session` / `skill` / `models` / `settings` / `auth` / `update`
+/ `git` / `knowledge` / `link-runtime` (connector and teams each once had a service; after their requests moved to the
 renderer the **whole service was deleted**, see §4). When adding a service, do not guess the
 `@oomol/connection` API from memory (it is a private package) — copy the smallest live example
 (e.g. `electron/settings/common.ts` + `node.ts`). **Security note**: `@oomol/connection` dispatches
 dynamically by method name with no allowlist — every public method of a registered object is
 invocable from the renderer, so sensitive logic must live on an unregistered object (see
-`AuthManager`). A service with local side effects (e.g. `git`) must validate on the main side that
+`AuthManager` and `LinkRuntimeManager`). A service with local side effects (e.g. `git`) must validate on the main side that
 the target comes from a registered user project, never trusting a path passed from the renderer.
 
 IPC only carries what "must be done in the main process" (the agent kernel, deep-link auth, fs,
-`shell.openExternal`, cookies); **network requests driven purely by renderer business always go
-renderer-direct** (see §4) rather than back through IPC for the main process to relay.
+`shell.openExternal`, cookies, and OpenConnector calls requiring its stored runtime token);
+**network requests driven purely by renderer business otherwise go renderer-direct** (see §4)
+rather than back through IPC for the main process to relay.
 
 ## 4. Renderer-direct oomol requests (cookie auth + a main-process CORS shim)
 
@@ -407,7 +449,7 @@ archive / docx / pdf / text, etc.), with XLSX parsing running in the main-proces
 
 ## 6. Login and credential flow
 
-**The sole credential across the whole app is the session token `oomol-token`** (an Electron session
+**The sole OOMOL credential across the app is the session token `oomol-token`** (an Electron session
 cookie, persistent but short-lived and expiring). The gateway authenticates uniformly — a cookie, a
 token, or an api-key are all accepted — so chat / connector / team / skills / billing all use this
 one token. It **no longer fetches or persists a long-lived default-api-key** (persisting a long-lived
@@ -448,15 +490,16 @@ only guard against a second deep-link silently swapping the account inside the p
 (login-CSRF); the pending has a 10-minute timeout. The pure part is in `electron/auth/browser-login.ts`
 (with unit tests).
 
-The renderer's `src/App.tsx`: an AuthGate — unknown state renders an empty background → signed-out
-renders `LoginRoute` → signed-in renders the lazily-loaded `<AuthenticatedAppShell key={account?.id}/>`
-(React.lazy + Suspense move the heavy chat dependencies out of the first frame, with an ErrorBoundary
-catching a chunk-load failure); the `key={account.id}` still remounts the whole tree on an account
-switch.
+The renderer's `src/App.tsx` keeps authentication and Agent readiness separate. A signed-out user can
+enter the normal application shell when a custom model is configured, configure OpenConnector, and
+use Link tools without an OOMOL account. Without OOMOL model access or a custom model, Chat remains
+`model_required`; Settings and Connections still expose the independent Link configuration and
+status.
 
 ## 7. Connections panel flow
 
-Connector requests **moved wholesale to the renderer** (`src/lib/connections-client.ts`, see §4) —
+OOMOL connector-management requests **moved wholesale to the renderer**
+(`src/lib/connections-client.ts`, see §4) —
 this was the poster child for "the main process does too much": during OAuth the summary's multi-way
 fan-out was triggered at high frequency by the 2s poll. The client uses `oomolFetch` (session cookie
 auto-auth, **no `Authorization: Bearer` anymore**); the Apps, usage, and detail team resources attach
@@ -492,6 +535,15 @@ auth-state change / Provider unmount (`AppDataProvider`) — there is **no cross
 `authorization` (`AuthorizationInfo`) field → renders a "go authorize" button → opens the in-chat
 connection drawer to that provider and records the auth intent so the original action auto-retries
 once authorization completes.
+
+OpenConnector does not reuse that renderer client because doing so would expose the runtime token
+and mix different management contracts. Its Connections route calls the main-process Link runtime
+facade, which reads `/v1/apps`, validates the standard envelope, maps `alias` to `connectionName`,
+and returns only redacted fields. Provider management remains in the external Console.
+OpenConnector authorization opens the structured
+`<consoleUrl>/providers/<encoded-service>` destination in the system browser; the original turn
+remains retryable, but Wanta does not poll or auto-retry the external flow. OOMOL keeps the existing
+in-app drawer and automatic retry.
 
 OAuth pending is persisted and recoverable: the pending op is written to `sessionStorage` under a
 branding `storageKey` (5-minute TTL), so on panel remount / a workspace switch-back it auto-resumes
@@ -530,6 +582,7 @@ electron/
   chat/    common,node + ~45 modules  by far the largest main-process domain: SSE event bridge; per-turn lifecycle & outputs (turn-lifecycle, turn-outputs); structured artifact registration/persistence (artifact-bundles, artifacts) + previews (spreadsheet-preview-worker[-client]); permission / local-access policy (permission-state, project-permission); project-* commands; attachments; stream buffering (stream-event-buffer, context-system). Also thin main-process facades openExternalUrl (shell external open) / setAgentTeam (agent team scope) for the renderer request layer (§4, §5)
   git/     common,node,status,turn-diff(+test)  GitService (serviceName("git-service")): project git status + per-turn diff review
   knowledge/ common,node,store,runner,uri,thumbnail(+test)  WikiGraph knowledge-base import, registration, query runtime & RPC service
+  link-runtime/ common,node(+test)  selected Link runtime, origin-bound OpenConnector token, health/inventory facade
   teams/   common       types only, no node.ts — team requests moved renderer-side (src/lib/teams-client.ts, §4)
   connections/ common,summary,usage,executions,federated,domain,summary-model(+test)  **pure functions + types, no node.ts** — connector requests moved renderer-side (src/lib/connections-client.ts, §4/§7); electron-free, imported straight into the renderer bundle
   skills/  common,node,actions,scan,inventory,…  skill service (install/scan/inventory); browse GET moved renderer-side (src/lib/skills-catalog-client.ts); actions.ts normalize* reused by the renderer (§4)
@@ -553,7 +606,7 @@ src/
   components/ui/              shadcn primitives (button badge dialog select popover tooltip … 25 files)
   components/ (top level)     shared data layer AppDataProvider/AppDataContext/AppDataHooks; ThemeProvider/theme-context; ErrorBoundary; PageRouteShell; InspectorPanel; SkillIcon/skill-icon-source; AgentIcon; … (~30 components)
   routes/  Archived/ Billing/ Chat/ Connections/ Knowledge/ Login/ Settings/ Skills/   (Chat/voice-asr.ts renderer-side speech-to-text, §4)
-  hooks/   useChat useSessions useConnections useAuth useAppUpdate useBillingOverview useTeamWorkspace useAttention useKnowledgeBases useProjectGit useTeamSkills useAppSettings … (~20 hooks)
+  hooks/   useChat useSessions useConnections useLinkRuntime useAuth useAppUpdate useBillingOverview useTeamWorkspace useAttention useKnowledgeBases useProjectGit useTeamSkills useAppSettings … (~20 hooks)
   i18n/    in-house lightweight i18n (zh-CN baseline + en, localStorage key wanta.locale)
   index.css                  import hub for src/styles/*.css (theme base platform login app-shell ui markdown turn-diff — 8 files); Tailwind v4 theme (CSS variables); @source streamdown + @streamdown/mermaid live in src/styles/theme.css
   styles/                    the eight imported stylesheets above

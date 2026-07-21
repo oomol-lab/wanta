@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
 import {
+  authorizationHandlingForLinkRuntime,
   existingSessionComposerDraftKey,
   chatSendAccepted,
   getUnlinkedProviderSkillRecommendations,
@@ -88,6 +89,14 @@ describe("local workspace", () => {
   })
 })
 
+describe("connection authorization routing", () => {
+  test("keeps OOMOL in-app and routes OpenConnector to the external flow", () => {
+    expect(authorizationHandlingForLinkRuntime("oomol")).toBe("drawer")
+    expect(authorizationHandlingForLinkRuntime("openconnector")).toBe("external")
+    expect(authorizationHandlingForLinkRuntime("none")).toBe("connections")
+  })
+})
+
 describe("notification team resolution", () => {
   const input = {
     activeTeamId: "team-current",
@@ -149,6 +158,7 @@ const readyInput = {
   agentScopeSyncError: null,
   agentScopeWorkspaceKey: "team:acme",
   connectionSettledWorkspaceKey: "team:acme",
+  connectionWorkspaceRequired: true,
   connectionWorkspaceKey: "team:acme",
   connectionsRefreshing: false,
   cloudWorkspaceRequired: true,
@@ -215,6 +225,30 @@ describe("workspace switch pending state", () => {
 
   test("waits for team skills when the target needs them", () => {
     expect(isWorkspaceSwitchPending({ ...readyInput, teamSkillsSettled: false })).toBe(true)
+  })
+
+  test("does not wait for OOMOL connection state when another Link runtime is active", () => {
+    expect(
+      isWorkspaceSwitchPending({
+        ...readyInput,
+        agentScopeSyncError: activationError,
+        agentScopeWorkspaceKey: null,
+        connectionSettledWorkspaceKey: null,
+        connectionWorkspaceRequired: false,
+      }),
+    ).toBe(false)
+  })
+
+  test("still waits for team skills when another Link runtime is active", () => {
+    expect(
+      isWorkspaceSwitchPending({
+        ...readyInput,
+        agentScopeWorkspaceKey: null,
+        connectionSettledWorkspaceKey: null,
+        connectionWorkspaceRequired: false,
+        teamSkillsSettled: false,
+      }),
+    ).toBe(true)
   })
 
   test("settles when all target-scoped requests are done", () => {

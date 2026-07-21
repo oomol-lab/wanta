@@ -349,3 +349,27 @@
   stable auto-bump must filter beta tags (bash arithmetic explodes on `-beta`, now locked in as a
   release-version.ts regression case); `electron-builder`/`electron-updater` are pinned exactly
   because channel behavior is version-sensitive.
+
+## 12. OpenConnector is a separate Link runtime, not a sign-in or model runtime
+
+- **Background**: Wanta originally derived connector capability, OOMOL model access, account state,
+  team identity, Skills, billing, and Connections UI from one `cloudRuntime` branch. OpenConnector
+  implements the compatible connector runtime API and oo CLI contract, but supplies neither an LLM
+  nor an OOMOL account. Adding it to that union would make valid combinations such as an OOMOL model
+  with OpenConnector impossible and would leak OOMOL team behavior into a self-hosted endpoint.
+- **Decision**: resolve three independent axes: account/cloud capabilities, model access/choice, and
+  one selected Link runtime. The Link runtime is OOMOL, a user-configured OpenConnector, or none;
+  catalogs are not merged and there is no fallback between them. OpenConnector configuration lives
+  behind an unregistered main-process manager. Its optional runtime token is `safeStorage`-encrypted,
+  bound to the normalized API origin, and never returned to the renderer. The existing bundled oo
+  binary remains the only Agent connector transport.
+- **Rationale**: this preserves signed-out custom-model + OpenConnector use, keeps provider and admin
+  credentials in OpenConnector, and avoids duplicating hundreds of connector contracts or moving a
+  bearer token into the renderer. One active backend also keeps action identity, authorization
+  routing, connection aliases, cache keys, and idempotency unambiguous.
+- **Consequences**: tools, prompts, permissions, workspace contents, capability reporting, inventory,
+  and authorization UX must switch together. OOMOL retains team-scoped `--organization`, bundled oo
+  Skills, the in-app connection drawer, and automatic authorization retry. OpenConnector removes
+  team identity and bundled oo Skills, uses an external provider page, and never automatically
+  allows direct oo shell commands; credential expansion and configuration mutation are denied.
+  OOMOL Skill registry maintenance remains account-owned even while OpenConnector is selected.

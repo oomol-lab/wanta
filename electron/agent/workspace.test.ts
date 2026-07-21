@@ -114,7 +114,10 @@ test("ensureAgentWorkspace limits a local runtime to local tools and removes bun
     await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath)
     assert.ok(await exists(path.join(workspaceDir, ".opencode", "skill", "oo", "SKILL.md")))
 
-    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, "local")
+    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, {
+      bundledOoSkills: false,
+      connectors: false,
+    })
 
     assert.ok(await exists(path.join(workspaceDir, ".opencode", "tools", "query_knowledge.ts")))
     for (const toolName of ["list_apps.ts", "search_actions.ts", "inspect_action.ts", "call_action.ts"]) {
@@ -122,6 +125,28 @@ test("ensureAgentWorkspace limits a local runtime to local tools and removes bun
     }
     assert.equal(await exists(path.join(workspaceDir, ".opencode", "skill")), false)
     assert.ok(await exists(path.join(workspaceDir, ".opencode", "skills")))
+  } finally {
+    await rm(base, { force: true, recursive: true })
+  }
+})
+
+test("ensureAgentWorkspace gives OpenConnector typed tools without bundled oo skills", async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "wanta-workspace-"))
+  try {
+    const workspaceDir = path.join(base, "workspace")
+    const bundledSkillsDir = path.join(base, "bundled-skills")
+    const bundledToolRuntimePath = await writeToolRuntime(base)
+    await writeSkill(bundledSkillsDir, "oo")
+
+    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, {
+      bundledOoSkills: false,
+      connectors: true,
+    })
+
+    for (const toolName of Object.keys(AGENT_TOOL_FILES)) {
+      assert.ok(await exists(path.join(workspaceDir, ".opencode", "tools", toolName)))
+    }
+    assert.equal(await exists(path.join(workspaceDir, ".opencode", "skill")), false)
   } finally {
     await rm(base, { force: true, recursive: true })
   }

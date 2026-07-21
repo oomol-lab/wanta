@@ -34,11 +34,16 @@ async function currentTeamName(sessionID) {
 }
 
 async function currentIdentity(sessionID) {
+  const runtime = process.env.WANTA_LINK_RUNTIME === "openconnector" ? "openconnector" : "oomol"
+  const endpoint = String(process.env.WANTA_CONNECTOR_URL || "").replace(/\/+$/, "")
+  if (runtime === "openconnector") {
+    return { cacheKey: runtime + ":" + endpoint, runtime: runtime, teamName: "" }
+  }
   const teamName = (await currentTeamName(sessionID)).trim()
   if (!teamName) {
     throw new Error("workspace identity is unavailable")
   }
-  return { cacheKey: "team:" + teamName, teamName: teamName }
+  return { cacheKey: runtime + ":" + endpoint + ":team:" + teamName, runtime: runtime, teamName: teamName }
 }
 
 async function appendIdentityArgs(argv, identity, sessionID) {
@@ -47,7 +52,7 @@ async function appendIdentityArgs(argv, identity, sessionID) {
 }
 
 function linkWorkspaceArgs(identity) {
-  return ["--organization", identity.teamName]
+  return identity.runtime === "oomol" ? ["--organization", identity.teamName] : []
 }
 
 function connectionInventoryError(identity, message) {
@@ -56,10 +61,20 @@ function connectionInventoryError(identity, message) {
     errorCode: "connection_inventory_unavailable",
     operation: "list_connected_apps",
     workspace: {
-      teamName: identity.teamName,
+      runtime: identity.runtime,
+      ...(identity.teamName ? { teamName: identity.teamName } : {}),
     },
     message: message,
   }
+}
+
+function authorizationUrl(service) {
+  const consoleUrl = String(process.env.WANTA_CONSOLE_URL || "").trim()
+  if (!consoleUrl) return null
+  const base = consoleUrl.replace(/\/+$/, "")
+  return process.env.WANTA_LINK_RUNTIME === "openconnector"
+    ? base + "/providers/" + encodeURIComponent(service)
+    : base + "/app-connections?provider=" + encodeURIComponent(service)
 }
 `
 
@@ -156,8 +171,8 @@ function isNoAuthOnly(authTypes) {
 
 async function providerAuthTypes(sessionID) {
   const connectorUrl = String(process.env.WANTA_CONNECTOR_URL || "").replace(/\/+$/, "")
-  const token = String(process.env.OO_API_KEY || "")
-  if (!connectorUrl || !token) {
+  const token = String(process.env.OO_CONNECTOR_TOKEN || process.env.OO_API_KEY || "")
+  if (!connectorUrl) {
     return null
   }
   const now = Date.now()
@@ -168,7 +183,10 @@ async function providerAuthTypes(sessionID) {
     return cached.authTypesByService
   }
   try {
-    const headers = { authorization: "Bearer " + token }
+    const headers = {}
+    if (token) {
+      headers.authorization = "Bearer " + token
+    }
     if (identity.teamName) {
       headers["x-oo-organization-name"] = identity.teamName
     }
@@ -176,7 +194,16 @@ async function providerAuthTypes(sessionID) {
     const timer = setTimeout(() => controller.abort(), 10 * 1000)
     let response
     try {
-      response = await fetch(connectorUrl + "/v1/providers", { headers: headers, signal: controller.signal })
+      let url = new URL(connectorUrl + "/v1/providers")
+      for (let redirects = 0; redirects <= 3; redirects += 1) {
+        response = await fetch(url, { headers: headers, redirect: "manual", signal: controller.signal })
+        if (![301, 302, 303, 307, 308].includes(response.status)) break
+        const location = response.headers.get("location")
+        if (!location || redirects === 3) return null
+        const redirected = new URL(location, url)
+        if (redirected.origin !== url.origin) return null
+        url = redirected
+      }
     } finally {
       clearTimeout(timer)
     }
@@ -225,6 +252,9 @@ async function normalizeSearchOutput(stdout, sessionID) {
           authenticated: noAuthReady || authorization.services.has(service),
           authenticatedReliable: true,
           noAuthReady: noAuthReady,
+          ...(!noAuthReady && !authorization.services.has(service)
+            ? { authUrl: authorizationUrl(service) }
+            : {}),
         }
       }),
     )
@@ -235,7 +265,7 @@ async function normalizeSearchOutput(stdout, sessionID) {
 
 export default tool({
   description:
-    "Search the OOMOL connector catalog for Link actions matching a natural-language query. Use this only after deciding the task needs private/account-specific SaaS data or actions and the exact service + action is unknown; use list_apps instead when the user asks what is connected. Do NOT use it for direct answers, local files, concrete URLs, webpage fetching/crawling/scraping, or general web browsing. On success, returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the current workspace has already connected that service). authenticatedReliable is true only when Wanta confirmed active-workspace authorization; if authenticatedReliable is false, call_action is the authority for authorization_required. On failure, returns a JSON object with status 'error' and message. If the clearly relevant provider is returned with authenticated false and authenticatedReliable is not false, Wanta can render an inline Connect button from this result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. The search result does NOT include input parameters — after selecting an action, call inspect_action to read its inputSchema before call_action.",
+    "Search the active Link runtime catalog for actions matching a natural-language query. Use this only after deciding the task needs private/account-specific SaaS data or actions and the exact service + action is unknown; use list_apps instead when the user asks what is connected. Do NOT use it for direct answers, local files, concrete URLs, webpage fetching/crawling/scraping, or general web browsing. On success, returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the active runtime has already connected that service). authenticatedReliable is true only when Wanta confirmed active-runtime authorization; if authenticatedReliable is false, call_action is the authority for authorization_required. On failure, returns a JSON object with status 'error' and message. If the clearly relevant provider is returned with authenticated false and authenticatedReliable is not false, Wanta can render an inline Connect button from this result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. The search result does NOT include input parameters — after selecting an action, call inspect_action to read its inputSchema before call_action.",
   args: {
     query: tool.schema.string().describe("Natural-language description of the desired action, e.g. 'list hacker news top stories'"),
   },
@@ -264,7 +294,7 @@ import { promisify } from "node:util"
 
 export default tool({
   description:
-    "List connected OOMOL Link provider apps/accounts in the active workspace. Use only for connection inventory or explicit account validation, not as a health check before normal reads or actions. For runnable actions, use search_actions.",
+    "List connected Link provider apps/accounts in the active runtime. Use only for connection inventory or explicit account validation, not as a health check before normal reads or actions. For runnable actions, use search_actions.",
   args: {
     service: tool.schema.string().optional().describe("Optional service slug to filter, e.g. 'gmail'. Omit to list every connected provider app in the active workspace."),
   },
@@ -311,7 +341,7 @@ const OO_EXEC_OPTIONS = { maxBuffer: 16 * 1024 * 1024, timeout: 10 * 1000 }
 
 export default tool({
   description:
-    "Fetch the contract for one or more selected OOMOL Link actions. Pass an 'actions' array of '<service>.<action>' ids: one id returns a single JSON object, two or more ids return a JSON ARRAY of contracts in the same order you requested. Each contract has description, inputSchema (a JSON Schema describing the EXACT input field names, types, required fields, and constraints), and outputSchema. ALWAYS inspect an action before call_action, so the call_action params use the real declared field names instead of guesses; when a workflow needs several contracts (for example an async submit/result pair, or a read step feeding a write step) inspect them all in one call. Inspecting a schema does not mean you must execute the action; if a schema does not fit the task, choose another path or explain the limitation. The schema is identity-independent and read-only; calling it never sends or changes anything.",
+    "Fetch the contract for one or more selected Link actions. Pass an 'actions' array of '<service>.<action>' ids: one id returns a single JSON object, two or more ids return a JSON ARRAY of contracts in the same order you requested. Each contract has description, inputSchema (a JSON Schema describing the EXACT input field names, types, required fields, and constraints), and outputSchema. ALWAYS inspect an action before call_action, so the call_action params use the real declared field names instead of guesses; when a workflow needs several contracts (for example an async submit/result pair, or a read step feeding a write step) inspect them all in one call. Inspecting a schema does not mean you must execute the action; if a schema does not fit the task, choose another path or explain the limitation. The schema is identity-independent and read-only; calling it never sends or changes anything.",
   args: {
     actions: tool.schema
       .array(tool.schema.string())
@@ -344,14 +374,6 @@ import { promisify } from "node:util"
   LINK_TOOL_RUNTIME_SHARED_TS +
   String.raw`
 
-function authorizationUrl(service) {
-  const consoleUrl = String(process.env.WANTA_CONSOLE_URL || "").trim()
-  if (!consoleUrl) {
-    return null
-  }
-  return consoleUrl.replace(/\/+$/, "") + "/app-connections?provider=" + encodeURIComponent(service)
-}
-
 // 授权阻断码（上游 connector 透传）。命中即返回结构化 authorization_required。
 const AUTH_BLOCKING = new Set([
   "connection_required",
@@ -359,6 +381,10 @@ const AUTH_BLOCKING = new Set([
   "app_not_ready",
   "credential_expired",
   "scope_missing",
+  "connection_not_found",
+  "oauth_token_expired",
+  "oauth_refresh_unavailable",
+  "authorization_failed",
 ])
 
 const CONNECTION_NAME_CACHE_MS = 5 * 1000
@@ -398,9 +424,9 @@ function parseApps(stdout) {
 }
 
 function appConnectionName(app) {
-  return app && typeof app === "object" && typeof app.connectionName === "string"
-    ? app.connectionName.trim()
-    : ""
+  if (!app || typeof app !== "object") return ""
+  if (typeof app.connectionName === "string") return app.connectionName.trim()
+  return typeof app.alias === "string" ? app.alias.trim() : ""
 }
 
 async function knownConnectionNames(service, identity) {
@@ -544,7 +570,7 @@ async function runCoordinatedAction(sessionID, identity, connectionName, args, c
 
 export default tool({
   description:
-    "Execute one selected OOMOL Link action using the inspected contract. params is the action input JSON described by inspect_action. For an explicitly selected account, connectionName is the exact active-workspace value returned by list_apps; omit it to use the default connection. The runtime validates account identity, probes repeated same-target calls, and limits their concurrency. Structured outcomes are authoritative: authorization_required means the target is blocked pending access; skipped with reason connection_blocked belongs to that same incident; other errors describe action or runtime failures. Wanta groups matching authorization outcomes into one inline connection prompt.",
+    "Execute one selected Link action using the inspected contract. params is the action input JSON described by inspect_action. For an explicitly selected account, connectionName is the exact active-runtime value returned by list_apps; omit it to use the default connection. The runtime validates account identity, probes repeated same-target calls, and limits their concurrency. Structured outcomes are authoritative: authorization_required means the target is blocked pending access; skipped with reason connection_blocked belongs to that same incident; other errors describe action or runtime failures. Wanta groups matching authorization outcomes into one inline connection prompt.",
   args: {
     service: tool.schema.string().describe("Service slug, e.g. 'hackernews'"),
     action: tool.schema.string().describe("Action name, e.g. 'get_top_stories'"),
@@ -797,8 +823,8 @@ export const AGENT_TOOL_FILES: Readonly<Record<string, string>> = {
   "query_knowledge.ts": QUERY_KNOWLEDGE_TOOL_TS,
 }
 
-/** 按云能力装配 workspace 自定义工具；本地运行态不暴露任何 Connector 入口。 */
-export function agentToolFilesForRuntime(runtime: "local" | "oomol"): Readonly<Record<string, string>> {
-  if (runtime === "oomol") return AGENT_TOOL_FILES
+/** Assemble workspace tools according to Link runtime availability. */
+export function agentToolFiles(connectors: boolean): Readonly<Record<string, string>> {
+  if (connectors) return AGENT_TOOL_FILES
   return { "query_knowledge.ts": QUERY_KNOWLEDGE_TOOL_TS }
 }

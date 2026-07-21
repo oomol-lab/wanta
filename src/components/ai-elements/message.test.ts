@@ -41,6 +41,7 @@ const appContext = {
   connectionsService: mockService,
   gitService: mockService,
   knowledgeService: mockService,
+  linkRuntimeService: mockService,
   modelsService: mockService,
   sessionService: mockService,
   settingsService: mockService,

@@ -10,8 +10,8 @@
   external protocol contracts and do not change with branding.
 - **R2** Endpoint single source of truth: `electron/domain.ts` derives every domain; scattered
   hardcoding is forbidden (now a build-time constant; dynamic switching has been removed).
-- **R3** oo is controlled only through environment variables: `buildOoEnv` in `electron/agent/oo.ts`
-  is the complete set.
+- **R3** oo is controlled only through environment variables: `buildAgentLinkEnv` and
+  `buildOomolMaintenanceEnv` in `electron/agent/oo.ts` are the complete runtime-specific sets.
 - **R4** Dynamic system prompt: the stable persona lives in agent.prompt (prompt-cache friendly);
   the per-turn presence hint for authorized Link providers (sourced from `/v1/apps`) is injected at
   the end via `body.system` (verified in practice to append, not override); by default do not list
@@ -48,8 +48,8 @@
 - Service domains registered as main-process RPC services co-locate in one directory:
   `common.ts` (contract + pure types, imported by both main and renderer) / `node.ts` (main-process
   implementation) / `store.ts` (persistence) / `*.test.ts`. This applies to the RPC-registered
-  domains (currently attention / auth / chat / git / knowledge / models / session / settings /
-  skills / update — see the source tree); `connections` and `teams` keep only `common.ts` contracts
+  domains (currently attention / auth / chat / git / knowledge / link-runtime / models / session /
+  settings / skills / update — see the source tree); `connections` and `teams` keep only `common.ts` contracts
   and pure functions under `electron/`, with their request logic living in the renderer at
   `src/lib/*-client.ts`.
 - Unit-testable logic is split into pure-function files: `auth/browser-login.ts`,
@@ -94,6 +94,12 @@
   `apiKeyConfigured` boolean is exposed).
   `models.json` must not contain any key. On Linux, weak/unknown `safeStorage` backends must be
   explicitly rejected; silent plaintext fallback is prohibited.
+- An optional OpenConnector runtime token follows the same one-way boundary: renderer input only,
+  origin-bound ciphertext in 0600 `link-runtime.json`, and only `tokenConfigured` returned. The
+  unregistered `LinkRuntimeManager` owns decryption; the registered service is a redacted facade.
+  Never send the saved token to a changed origin or through a cross-origin redirect. Provider
+  credentials, admin tokens, and OAuth client secrets remain owned by OpenConnector and must not be
+  copied into Wanta.
 - `auth.json`: 0600 permissions, tmp+rename atomic write; **stores only the account profile, never
   any credential**. The session token lives only in the Electron session cookie and runtime memory;
   `AuthStore.purgeLegacy()` at startup wipes any legacy persisted api-key remnants.
@@ -284,8 +290,8 @@
 
 - Every change's DoD must be verified by a real run (log/screenshot evidence), never assumed;
   commit after each completed phase.
-- For UI/runtime changes, compiling is not enough: verify live with `npm run dev` (requires login +
-  the agent sidecar).
+- For UI/runtime changes, compiling is not enough: verify live with `npm run dev`. OOMOL scenarios
+  require login; signed-out custom-model and independent Link-runtime status scenarios do not.
 - Changes to the vite build config must preserve the invariants: build output defaults to
   oomol.com, is unaffected by `.env.local`, and only an explicit `WANTA_ENDPOINT` can override it
   (verification: run build with `.env.local=oomol.dev`, then grep the output).

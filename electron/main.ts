@@ -60,6 +60,7 @@ import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./d
 import { GitServiceImpl } from "./git/node.ts"
 import { KnowledgeServiceImpl } from "./knowledge/node.ts"
 import { KnowledgeStore } from "./knowledge/store.ts"
+import { LinkRuntimeManager, LinkRuntimeServiceImpl } from "./link-runtime/node.ts"
 import { isAudioOnlyMediaRequest, isTrustedRendererUrl } from "./media-permission-policy.ts"
 import { ModelCredentialStore } from "./models/credential-store.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
@@ -251,6 +252,13 @@ const agentRefreshScheduler = new AgentRefreshScheduler({
   isQuitting: () => isQuitting,
   refresh: refreshAgentRuntime,
 })
+const linkRuntimeManager = new LinkRuntimeManager({
+  dir: app.getPath("userData"),
+  encryption: safeStorage,
+  getOomolAvailable: async () => Boolean(await authManager.currentSessionToken()),
+  onRuntimeChanged: () => agentRefreshScheduler.schedule("Link runtime changed", 0),
+})
+const linkRuntimeService = new LinkRuntimeServiceImpl(linkRuntimeManager)
 const authService = new AuthServiceImpl(authManager)
 const skillService = new SkillServiceImpl(authManager, {
   onRuntimeSkillsChanged: (reason) => agentRefreshScheduler.schedule(reason),
@@ -315,6 +323,7 @@ server.registerService(authService)
 server.registerService(updateService)
 server.registerService(gitService)
 server.registerService(knowledgeService)
+server.registerService(linkRuntimeService)
 settingsService.applyStartupTheme()
 registerAttachmentDialogHandlers(trustedAttachmentPaths, {
   createSpreadsheetPreview: (filePath, mime, size) => spreadsheetPreviewWorker.preview(filePath, mime, size),
@@ -531,7 +540,13 @@ function applyAuthAccount(account: AuthRuntimeAccount | null): Promise<void> {
   if (isQuitting) {
     return Promise.resolve()
   }
-  const next = applyChain.then(() => applyAuthAccountNow(account))
+  const next = applyChain.then(async () => {
+    try {
+      await applyAuthAccountNow(account)
+    } finally {
+      await linkRuntimeManager.oomolAvailabilityChanged()
+    }
+  })
   applyChain = next.catch((error: unknown) => {
     logMainError("auth account application failed", error)
   })
@@ -552,6 +567,13 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   const runtimeVersionAtStart = agentRuntimeVersion
   const runtimeModels = await modelsStore.runtimeModels()
   const runtime = resolveAgentRuntime(account, runtimeModels.selected, runtimeModels.customModels)
+  const linkRuntime =
+    (await linkRuntimeManager.selectedRuntime()) === "oomol"
+      ? account
+        ? { kind: "oomol" as const, sessionToken: account.sessionToken, teamName: activeAgentTeamName }
+        : null
+      : await linkRuntimeManager.openConnectorRuntime()
+  chatService.setLinkRuntime(linkRuntime?.kind ?? "none")
   // 冷启动 deep-link、模型事件与 auth 广播可能重复触发；运行时身份和配置版本均未变化时短路。
   if (
     runtime &&
@@ -573,6 +595,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     resolveRuntimeCapabilities({
       mode: account ? "oomol" : "local",
       localAgentAvailable: Boolean(runtime),
+      linkRuntimeAvailable: Boolean(linkRuntime),
     }),
   )
   chatService.setAgentStatus(runtime ? { status: "starting" } : { status: "model_required" })
@@ -611,18 +634,19 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   if (isQuitting) {
     return
   }
-  const cloudRuntime =
-    runtime.cloudRuntime.kind === "oomol"
-      ? { ...runtime.cloudRuntime, teamName: activeAgentTeamName }
-      : runtime.cloudRuntime
   const nextAgent = new AgentManager({
-    cloudRuntime,
     defaultModel: runtime.defaultModel,
+    linkRuntime,
+    modelAccess: runtime.modelAccess,
     opencodeBinPath,
     ooBinPath,
     wikiGraphCliPath,
     wikiGraphExecutablePath: process.execPath,
     knowledgeRegistryPath: knowledgeStore.registryPath(),
+    listOpenConnectorAuthorizedServices: async (signal) =>
+      (await linkRuntimeManager.listOpenConnectorApps(signal))
+        .filter((item) => item.status === "active")
+        .map((item) => item.service),
     bundledSkillsDir,
     bundledToolRuntimePath,
     rootDir: path.join(app.getPath("userData"), "agent"),

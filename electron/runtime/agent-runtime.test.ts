@@ -45,9 +45,9 @@ describe("resolveAgentRuntime", () => {
 
   test("uses the selected custom model for a signed-out local runtime", () => {
     expect(resolveAgentRuntime(null, { kind: "custom", id: "custom-b" }, customModels)).toMatchObject({
-      cloudRuntime: { kind: "local" },
       defaultModel: { kind: "custom", id: "custom-b" },
       key: "local:custom-b",
+      modelAccess: { kind: "local" },
       mode: "local",
     })
   })
@@ -66,9 +66,10 @@ describe("resolveAgentRuntime", () => {
       customModels,
     )
     expect(resolution).toMatchObject({
-      cloudRuntime: { kind: "oomol", sessionToken: "session-secret" },
       defaultModel: { kind: "builtin", id: "oopilot" },
+      modelAccess: { kind: "oomol", sessionToken: "session-secret" },
       mode: "oomol",
     })
+    expect(resolution?.key).not.toContain("session-secret")
   })
 })

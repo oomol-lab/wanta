@@ -25,7 +25,7 @@ import { ConnectionService } from "@oomol/connection"
 import { app, shell } from "electron"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
-import { buildOoEnv, buildOoMaintenanceEnv } from "../agent/oo.ts"
+import { buildOomolMaintenanceEnv } from "../agent/oo.ts"
 import { resolveAgentSkillRoot, supportedAgents } from "../agents/catalog.ts"
 import { logDiagnostic, logDiagnosticOnChange } from "../diagnostics-log.ts"
 import { ooEndpoint } from "../domain.ts"
@@ -204,12 +204,15 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     options: Omit<Parameters<typeof runOoCommand>[1], "env"> = {},
   ): Promise<OoCommandResult> {
     const authToken = await this.readSkillAuthToken()
+    const storeDir = this.getWantaOoStoreRoot()
 
     return runOoCommand(args, {
       ...options,
-      env: buildOoEnv({
+      env: buildOomolMaintenanceEnv({
         authToken,
-        storeDir: path.join(app.getPath("userData"), "agent", "oo-store"),
+        configDir: path.join(storeDir, "config"),
+        dataDir: path.join(storeDir, "data"),
+        logDir: path.join(storeDir, "log"),
         ooBinPath: process.env["OO_CLI_PATH"],
       }),
     })
@@ -714,16 +717,18 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     const globalStoreRoot = this.getGlobalOoStoreRoot()
     const env =
       target.kind === "global"
-        ? buildOoMaintenanceEnv({
+        ? buildOomolMaintenanceEnv({
             authToken,
             configDir: globalStoreRoot,
             dataDir: path.join(globalStoreRoot, "data"),
             logDir: path.join(globalStoreRoot, "log"),
             ooBinPath: process.env["OO_CLI_PATH"],
           })
-        : buildOoEnv({
+        : buildOomolMaintenanceEnv({
             authToken,
-            storeDir: this.getWantaOoStoreRoot(),
+            configDir: path.join(this.getWantaOoStoreRoot(), "config"),
+            dataDir: path.join(this.getWantaOoStoreRoot(), "data"),
+            logDir: path.join(this.getWantaOoStoreRoot(), "log"),
             ooBinPath: process.env["OO_CLI_PATH"],
           })
 

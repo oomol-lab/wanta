@@ -66,6 +66,7 @@
     "docx-preview": "0.3.7",
     "electron": "42.4.0",
     "electron-builder": "26.15.2",
+    "franc-min": "6.2.0",
     "js-yaml": "4.2.0",
     "jszip": "3.10.1",
     "lucide-react": "1.17.0",

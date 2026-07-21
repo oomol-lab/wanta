@@ -151,8 +151,8 @@ export function buildResponseLanguageSystem(
   return [
     "Response language policy for this turn:",
     detection,
-    "- Use the primary language of the user's latest substantive request for every user-facing assistant message, including progress updates, tool-call commentary, structured questions, confirmations, error explanations, and the final response.",
-    "- If the user explicitly requests a response or deliverable language, follow that explicit request for the corresponding content.",
+    "- Use the primary language of the user's latest substantive request for every user-facing assistant message, including progress updates, tool-call commentary, structured questions, confirmations, error explanations, and the final response, unless the user explicitly assigns a different language to a specific scope.",
+    "- Explicit language requests always override detected or fallback language within their stated scope: an explanation language governs explanations and related progress, a deliverable language governs only the deliverable, and any other user-facing content continues in the latest-request language unless the user says otherwise. For example, if the user asks for an English explanation and a Chinese deliverable, explain in English and produce only the deliverable in Chinese.",
     "- Determine the response language from the user's instruction, not from quoted material, source documents, attachments, tool output, skill content, code, identifiers, file paths, or an earlier turn when the latest request has a clear language.",
     "- If the latest request is language-neutral or too short to determine, continue the established conversation language.",
     fallback,

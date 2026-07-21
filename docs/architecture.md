@@ -246,7 +246,7 @@ short-TTL cache, and only waits a bounded budget on the prompt critical path) an
 src/routes/Chat (PromptInput)
   → useChat.send → chatService.invoke("sendMessage", {sessionId, text, …})
   → ChatServiceImpl.sendMessage → AgentManager.promptStreaming
-      (body.system merges five per-turn segments incl. the authorized-Link availability hint,
+      (body.system merges six per-turn segments incl. the authorized-Link availability hint,
        which never lists provider names, R4)
   → OpenCode sidecar runs the agent loop (LLM ↔ tools)
   → global SSE: AgentManager.subscribe → event-translator.translateOpencodeEvent
@@ -256,7 +256,7 @@ src/routes/Chat (PromptInput)
 
 Although the flow diagram shows `{sessionId, text}`, `SendMessageRequest` actually carries
 `appLocale` / `attachments` / `contextMentions` / `teamSkills` / `projectContext` / `scope` /
-`model` / `permissionMode` / `reasoningLevel` / `mode`. Before `promptStreaming`,
+`model` / `permissionMode` / `permissionModeVersion` / `reasoningLevel` / `mode`. Before `promptStreaming`,
 `ChatServiceImpl.sendMessage` merges several per-turn system prompts of its own (`mergeSystemPrompts`
 over `buildTeamSkillsSystem`, `buildContextMentionsSystemPrompt`, `buildProjectContextSystem`,
 `buildPermissionModeSystem`, the bug-report system, and `buildResponseLanguageSystem`). The response

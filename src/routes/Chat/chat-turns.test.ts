@@ -344,6 +344,7 @@ describe("summarizeTurnProcess", () => {
     expect(chatTurnProcessStatus(process, true)).toBe("running")
     expect(chatTurnProcessStatus(process, false)).toBe("completed")
     expect(settlingToolPartId(process, chatTurnProcessStatus(process, true))).toBe("tool-1")
+    expect(settlingToolPartId(process, chatTurnProcessStatus(process, false))).toBeUndefined()
   })
 
   it("keeps the loading shimmer on the active tool instead of a previous completed tool", () => {

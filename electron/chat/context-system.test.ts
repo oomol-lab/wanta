@@ -39,21 +39,25 @@ test("buildPermissionModeSystem describes full access", () => {
   assert.match(prompt, /non-local business workflow explicitly requires user approval/)
 })
 
-test("buildResponseLanguageSystem follows the latest request and uses English only as a fallback", () => {
-  const prompt = buildResponseLanguageSystem("en")
+test("buildResponseLanguageSystem follows a detected request language before the interface locale", () => {
+  const prompt = buildResponseLanguageSystem("zh-CN", "English")
 
+  assert.match(prompt, /classified the latest user instruction as English/)
+  assert.match(prompt, /Respond in English/)
+  assert.match(prompt, /takes priority over the application interface language/)
   assert.match(prompt, /primary language of the user's latest substantive request/)
   assert.match(prompt, /progress updates, tool-call commentary, structured questions/)
   assert.match(prompt, /explicitly requests a response or deliverable language/)
   assert.match(prompt, /not from quoted material, source documents, attachments, tool output, skill content/)
   assert.match(prompt, /continue the established conversation language/)
-  assert.match(prompt, /application interface language: English/)
+  assert.match(prompt, /application interface language: Simplified Chinese/)
 })
 
 test("buildResponseLanguageSystem uses Chinese only as a fallback", () => {
   const prompt = buildResponseLanguageSystem("zh-CN")
 
   assert.match(prompt, /primary language of the user's latest substantive request/)
+  assert.match(prompt, /could not classify the latest instruction with high confidence/)
   assert.match(prompt, /application interface language: Simplified Chinese/)
   assert.doesNotMatch(prompt, /application interface language: English/)
 })

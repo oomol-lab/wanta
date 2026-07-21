@@ -1,5 +1,6 @@
 import type { AppLocale } from "../app-locale.ts"
 import type { AgentPermissionMode, ChatContextMention, ChatTeamSkillContext, ChatProjectContext } from "./common.ts"
+import type { DetectedResponseLanguage } from "./response-language.ts"
 
 function quoted(value: string): string {
   return JSON.stringify(value)
@@ -134,15 +135,22 @@ export function buildPermissionModeSystem(mode: AgentPermissionMode | undefined)
   ].join("\n")
 }
 
-export function buildResponseLanguageSystem(appLocale: AppLocale | undefined): string {
+export function buildResponseLanguageSystem(
+  appLocale: AppLocale | undefined,
+  detectedLanguage?: DetectedResponseLanguage,
+): string {
   const fallback =
     appLocale === "en"
       ? "- If neither the latest request nor the conversation establishes a language, use the application interface language: English."
       : appLocale === "zh-CN"
         ? "- If neither the latest request nor the conversation establishes a language, use the application interface language: Simplified Chinese."
         : "- If neither the latest request nor the conversation establishes a language, use the language that best fits the user's available context."
+  const detection = detectedLanguage
+    ? `- Wanta has classified the latest user instruction as ${detectedLanguage}. Respond in ${detectedLanguage} unless the user explicitly requests a different response language. This classification takes priority over the application interface language.`
+    : "- Wanta could not classify the latest instruction with high confidence. Infer its language from the instruction itself and the rules below."
   return [
     "Response language policy for this turn:",
+    detection,
     "- Use the primary language of the user's latest substantive request for every user-facing assistant message, including progress updates, tool-call commentary, structured questions, confirmations, error explanations, and the final response.",
     "- If the user explicitly requests a response or deliverable language, follow that explicit request for the corresponding content.",
     "- Determine the response language from the user's instruction, not from quoted material, source documents, attachments, tool output, skill content, code, identifiers, file paths, or an earlier turn when the latest request has a clear language.",

@@ -9,18 +9,12 @@ import { assistantBlockClassName } from "./assistant-turn-renderer-model.ts"
 import { AssistantBlock } from "./AssistantTurnRenderer.tsx"
 import { attachmentWithPreview } from "./chat-attachment-utils.ts"
 import { AttachmentList } from "./ChatAttachments.tsx"
-import {
-  AssistantMessageActions,
-  ConnectionSuggestionAction,
-  CopyMessageAction,
-  MessageTimestamp,
-} from "./ChatMessageActions.tsx"
+import { AssistantMessageActions, CopyMessageAction, MessageTimestamp } from "./ChatMessageActions.tsx"
 import { ContextMentionChips } from "./ContextMentionChips.tsx"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { visibleUserContextMentions } from "./message-context.ts"
 import { copyableMessageText, shouldCollapseUserMessageText, visibleUserText } from "./message-text.ts"
 import { renderBlocks } from "./render-blocks.ts"
-import { normalizeServiceSlug } from "./tool-display.ts"
 import { hasStoppedTool } from "./tool-state.ts"
 import { Message, MessageActions, MessageContent } from "@/components/ai-elements/message"
 import { useT } from "@/i18n/i18n"
@@ -36,7 +30,6 @@ export function MessageBubble({
   onAuthorize,
   onRecover,
   onRetryFresh,
-  suggestedAuthorization,
   liveTools = false,
 }: {
   billingCacheScope: string
@@ -48,7 +41,6 @@ export function MessageBubble({
   onAuthorize: (auth: AuthorizationInfo) => void
   onRecover?: (kind: ChatErrorKind) => Promise<void> | void
   onRetryFresh?: () => Promise<void> | void
-  suggestedAuthorization?: AuthorizationInfo
   liveTools?: boolean
 }) {
   const copyText = copyableMessageText(message)
@@ -142,13 +134,6 @@ export function MessageBubble({
             onViewBilling={onViewBilling}
           />
         ))}
-        {suggestedAuthorization ? (
-          <ConnectionSuggestionAction
-            authorization={suggestedAuthorization}
-            provider={providerByService.get(normalizeServiceSlug(suggestedAuthorization.service))}
-            onAuthorize={onAuthorize}
-          />
-        ) : null}
       </MessageContent>
       {assistantActionsText || assistantCancelled ? (
         <AssistantMessageActions text={assistantActionsText ?? ""} cancelled={assistantCancelled} />
@@ -168,7 +153,6 @@ export function AssistantTimelineMessage({
   onAuthorize,
   onRecover,
   onRetryFresh,
-  suggestedAuthorization,
   onViewBilling,
 }: {
   blocks: AssistantTimelineBlock[]
@@ -181,7 +165,6 @@ export function AssistantTimelineMessage({
   onAuthorize: (auth: AuthorizationInfo) => void
   onRecover?: (kind: ChatErrorKind) => Promise<void> | void
   onRetryFresh?: () => Promise<void> | void
-  suggestedAuthorization?: AuthorizationInfo
   onViewBilling?: () => void
 }) {
   const renderBlocks = blocks.map((item) => item.block)
@@ -208,13 +191,6 @@ export function AssistantTimelineMessage({
             onViewBilling={onViewBilling}
           />
         ))}
-        {suggestedAuthorization ? (
-          <ConnectionSuggestionAction
-            authorization={suggestedAuthorization}
-            provider={providerByService.get(normalizeServiceSlug(suggestedAuthorization.service))}
-            onAuthorize={onAuthorize}
-          />
-        ) : null}
       </MessageContent>
       {assistantActionsText || assistantCancelled ? (
         <AssistantMessageActions text={assistantActionsText ?? ""} cancelled={assistantCancelled} />

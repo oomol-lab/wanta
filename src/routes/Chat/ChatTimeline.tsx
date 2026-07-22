@@ -528,6 +528,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
       <ConversationContent
         data-selectable="true"
         className={cn("mx-auto min-h-full w-full gap-4 px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
+        scrollClassName="oo-scrollbar-gutter-auto"
       >
         {turns.map((turn, index) => {
           const turnArtifactGroups = artifactGroupsByTurnId.get(turn.id) ?? EMPTY_ARTIFACT_GROUPS

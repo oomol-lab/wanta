@@ -320,6 +320,15 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          # This self-hosted runner cannot authenticate to the GitHub Actions
+          # cache service, so setup-node@v5's default package-manager cache
+          # (package-manager-cache: true) hangs ~10 min on a failed restore
+          # ("Server failed to authenticate the request") before giving up —
+          # setup-node took 20 min while the actual `npm ci` took 34 s (run
+          # 29923188224). The runner's disk already persists npm's cache dir
+          # across runs, so the GitHub-side cache is pure overhead here.
+          # Disable it. Hosted runners (release-mac, pr.yml) keep it enabled.
+          package-manager-cache: false
       - name: Set env + version
         shell: bash
         run: |

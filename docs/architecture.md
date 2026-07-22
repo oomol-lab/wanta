@@ -400,10 +400,12 @@ multiple files browse only that turn's set, and the whole session's history is n
 merged into one card; the top result entry follows the most recent turn that has results. The copy
 button copies message text only and takes no part in the artifact lifecycle. If a reply already
 shows a generated image but the turn ends with no reopenable local file, it registers
-`failed/generated_preview_not_persisted`; if only some images landed it registers `partial`. The UI
-states "artifact save failed" or "some artifacts not saved" explicitly and must not vanish silently
-or pass a remote URL off as a saved artifact. The in-body image preview and artifact persistence are
-independent, but for a final generated image both must produce output. At turn end the main process
+`failed/generated_preview_not_persisted`, and the UI states "artifact save failed" rather than
+silently hiding the failure or passing a remote URL off as a saved artifact. When at least one saved
+output exists but preview sources cannot all be attributed to saved files, the bundle records
+`partial/generated_preview_persistence_unverified` for diagnostics without presenting the mismatch
+as confirmed user data loss. The in-body image preview and artifact persistence are independent, but
+for a final generated image both must produce output. At turn end the main process
 materializes the assistant's local image attachments, Markdown data images, and public HTTPS image
 previews into the turn's managed directory before building the bundle, so a preview source need not
 be a native local file. Remote materialization is allowed only for a public HTTPS address carrying no

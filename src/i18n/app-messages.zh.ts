@@ -883,8 +883,6 @@ export const zhCNMessages = {
   "artifacts.emptyDescription": "当前对话还没有可查看的成果。Markdown、图片、视频、音频等文件会显示在这里。",
   "artifacts.persistenceFailedTitle": "制成品保存失败",
   "artifacts.persistenceFailedDescription": "生成结果已显示在回复中，但没有保存为可重新打开的本地文件。",
-  "artifacts.persistencePartialTitle": "部分制成品未保存",
-  "artifacts.persistencePartialDescription": "部分生成结果没有保存为本地文件；下方仅列出已成功保存的内容。",
   "artifacts.projectPublishFailedTitle": "制成品未保存到项目",
   "artifacts.projectPublishFailedDescription": "制成品仍可在 Wanta 中查看，但未能复制到项目文件夹。",
   "artifacts.projectPublishPartialTitle": "部分制成品未保存到项目",

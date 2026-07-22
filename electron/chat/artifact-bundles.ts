@@ -106,6 +106,7 @@ function validBundle(value: unknown): value is ArtifactBundle {
     typeof bundle.truncated === "boolean" &&
     (bundle.failure === undefined ||
       bundle.failure === "generated_preview_not_persisted" ||
+      bundle.failure === "generated_preview_persistence_unverified" ||
       bundle.failure === "project_output_publish_failed" ||
       bundle.failure === "project_output_publish_partial") &&
     Array.isArray(bundle.items) &&
@@ -750,7 +751,7 @@ export function buildArtifactBundleFromGroup(input: {
     truncated: group.truncated,
     createdAt,
     completedAt,
-    ...(isPartial ? { failure: "generated_preview_not_persisted" as const } : {}),
+    ...(isPartial ? { failure: "generated_preview_persistence_unverified" as const } : {}),
   }
 }
 

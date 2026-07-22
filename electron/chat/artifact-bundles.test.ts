@@ -266,7 +266,7 @@ test("generatedImagePreviewCount includes assistant image attachments without do
   )
 })
 
-test("buildArtifactBundle marks an incompletely persisted image set as partial", async () => {
+test("buildArtifactBundle marks incomplete preview attribution as unverified", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-bundle-partial-"))
   try {
     await writeFile(path.join(root, "001.png"), "one")
@@ -281,7 +281,7 @@ test("buildArtifactBundle marks an incompletely persisted image set as partial",
     })
 
     assert.equal(bundle?.status, "partial")
-    assert.equal(bundle?.failure, "generated_preview_not_persisted")
+    assert.equal(bundle?.failure, "generated_preview_persistence_unverified")
     assert.deepEqual(
       bundle?.items.map((item) => item.name),
       ["001.png"],
@@ -306,7 +306,7 @@ test("buildArtifactBundle does not let an unrelated image mask a failed generate
     })
 
     assert.equal(bundle?.status, "partial")
-    assert.equal(bundle?.failure, "generated_preview_not_persisted")
+    assert.equal(bundle?.failure, "generated_preview_persistence_unverified")
   } finally {
     await rm(root, { recursive: true, force: true })
   }

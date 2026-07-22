@@ -192,6 +192,15 @@
     color: var(--sidebar-accent-foreground);
   }
 
+  .oo-sidebar-account-trigger:focus-visible {
+    box-shadow: none;
+  }
+
+  .oo-sidebar-account-trigger:focus-visible:not(:hover):not([data-state="open"]):not([data-active="true"]) {
+    background: transparent;
+    color: var(--sidebar-foreground);
+  }
+
   .oo-sidebar-local-menu-trigger:hover {
     background: color-mix(in oklab, var(--sidebar-accent) 45%, var(--sidebar));
     color: var(--sidebar-accent-foreground);

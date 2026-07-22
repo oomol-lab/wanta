@@ -3,7 +3,8 @@ import type { ComponentProps, HTMLAttributes, ReactNode } from "react"
 import type { CustomRenderer, CustomRendererProps, StreamdownProps } from "streamdown"
 
 import { CheckIcon, CopyIcon } from "lucide-react"
-import { isValidElement, lazy, memo, Suspense, useEffect, useRef, useState } from "react"
+import { isValidElement, lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react"
+import { toast } from "sonner"
 import { extractLocalImagePaths, normalizeLocalImageMarkdown } from "../../../electron/chat/markdown-images.ts"
 import {
   CodeBlock,
@@ -13,7 +14,7 @@ import {
   CodeBlockHeader,
   CodeBlockTitle,
 } from "./code-block.tsx"
-import { normalizeMermaidMarkdown } from "./mermaid-policy.ts"
+import { incompleteMermaidLanguage, normalizeMermaidMarkdown } from "./mermaid-policy.ts"
 import { MarkdownImage } from "./message-image.tsx"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -280,7 +281,7 @@ function MarkdownCodeRenderer({ code, language }: CustomRendererProps) {
           <CodeBlockFilename>{normalizedLanguage}</CodeBlockFilename>
         </CodeBlockTitle>
         <CodeBlockActions>
-          <CodeBlockCopyButton aria-label={t("chat.copyCode")} />
+          <CodeBlockCopyButton aria-label={t("chat.copyCode")} onError={() => toast.error(t("error.copyFailed"))} />
         </CodeBlockActions>
       </CodeBlockHeader>
     </CodeBlock>
@@ -291,7 +292,7 @@ const messageResponseComponents = {
   img: MarkdownImage,
 } satisfies MessageResponseProps["components"]
 
-// Mermaid 由 Streamdown 的专用渲染器处理；其它常见代码语言继续复用 Wanta 的代码块。
+// Mermaid uses its dedicated renderer; ordinary fenced content uses Wanta's AI Elements code block.
 export const markdownCodeRendererLanguages = [
   "bash",
   "c",
@@ -335,12 +336,47 @@ export const markdownCodeRendererLanguages = [
   "yml",
 ] as const
 
-const messageResponseRenderers = [
-  {
-    language: [...markdownCodeRendererLanguages],
-    component: MarkdownCodeRenderer,
-  },
-] satisfies CustomRenderer[]
+function fencedCodeLanguages(markdown: string): string[] {
+  const languages = new Set<string>()
+  const lines = markdown.split(/\r?\n/)
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const opening = lines[index]?.match(/^[ \t]{0,3}(`{3,}|~{3,})[ \t]*([^\s]*)/)
+    if (!opening) {
+      continue
+    }
+
+    const openingFence = opening[1]
+    const language = opening[2]
+    if (language && language.toLowerCase() !== "mermaid" && language !== incompleteMermaidLanguage) {
+      languages.add(language)
+    }
+
+    let closingIndex = -1
+    for (let candidateIndex = index + 1; candidateIndex < lines.length; candidateIndex += 1) {
+      const closing = lines[candidateIndex]?.match(/^[ \t]{0,3}(`+|~+)[ \t]*$/)
+      if (closing && closing[1]?.[0] === openingFence?.[0] && closing[1].length >= openingFence.length) {
+        closingIndex = candidateIndex
+        break
+      }
+    }
+    if (closingIndex < 0) {
+      break
+    }
+    index = closingIndex
+  }
+
+  return [...languages]
+}
+
+export function messageResponseRenderers(markdown: string): CustomRenderer[] {
+  return [
+    {
+      language: [...new Set([...markdownCodeRendererLanguages, ...fencedCodeLanguages(markdown)])],
+      component: MarkdownCodeRenderer,
+    },
+  ]
+}
 
 interface LocalImagePreview {
   path: string
@@ -391,8 +427,8 @@ export function normalizeSingleLocalPathCodeFences(markdown: string): string {
 }
 
 /**
- * Streamdown 的自定义 renderer 不匹配空语言名；为无标签 fenced block 补上 text，
- * 使其继续使用 AI Elements 代码块，同时不拦截 Mermaid 专用 renderer。
+ * Streamdown does not match custom renderers against an empty language. Label both complete and
+ * incomplete bare fences as text so they consistently use the AI Elements code block.
  */
 export function normalizeUnlabeledCodeFences(markdown: string): string {
   const parts = markdown.split(/(\r?\n)/)
@@ -411,10 +447,10 @@ export function normalizeUnlabeledCodeFences(markdown: string): string {
       }
     }
 
-    if (closingIndex < 0) continue
     if (opening[3].trim().length === 0) {
       parts[index] = `${opening[1]}${openingFence}text`
     }
+    if (closingIndex < 0) break
     index = closingIndex
   }
 
@@ -538,6 +574,10 @@ export const MessageResponse = memo(
           )
         : sourceChildren
     const localImagePreviews = typeof responseChildren === "string" ? extractLocalImagePreviews(responseChildren) : []
+    const defaultRenderers = useMemo(
+      () => messageResponseRenderers(typeof responseChildren === "string" ? responseChildren : ""),
+      [responseChildren],
+    )
     return (
       // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。
       <Suspense fallback={<div className={cn("size-full whitespace-pre-wrap", className)}>{responseChildren}</div>}>
@@ -550,7 +590,7 @@ export const MessageResponse = memo(
               ...components,
             }}
             controls={messageResponseControls(controls)}
-            defaultRenderers={messageResponseRenderers}
+            defaultRenderers={defaultRenderers}
             lineNumbers={lineNumbers ?? false}
             plugins={plugins}
             {...props}

@@ -9,6 +9,7 @@ import type { TranslateFn } from "@/i18n/i18n"
 
 import { Code2, Copy, ExternalLink, File, FolderOpen, Info, Music, Package } from "lucide-react"
 import * as React from "react"
+import { toast } from "sonner"
 import { htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 import {
   artifactMetaLabel,
@@ -284,7 +285,10 @@ function ArtifactSourcePreview({
             <CodeBlockFilename>{item.name}</CodeBlockFilename>
           </CodeBlockTitle>
           <CodeBlockActions>
-            <CodeBlockCopyButton aria-label={t("chat.copyMessage")} />
+            <CodeBlockCopyButton
+              aria-label={t("chat.copyMessage")}
+              onError={() => toast.error(t("error.copyFailed"))}
+            />
           </CodeBlockActions>
         </CodeBlockHeader>
       </CodeBlock>

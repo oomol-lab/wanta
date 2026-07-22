@@ -5,6 +5,7 @@ import { CheckIcon, CopyIcon } from "lucide-react"
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { writeClipboardText } from "@/lib/clipboard"
 import { cn } from "@/lib/utils"
 
 const isItalic = (fontStyle: number | undefined) => fontStyle !== undefined && (fontStyle & 1) !== 0
@@ -538,14 +539,11 @@ export const CodeBlockCopyButton = ({
   const { code } = useContext(CodeBlockContext)
 
   const copyToClipboard = useCallback(async () => {
-    if (typeof window === "undefined" || !navigator?.clipboard?.writeText) {
-      onError?.(new Error("Clipboard API not available"))
-      return
-    }
-
     try {
       if (!isCopied) {
-        await navigator.clipboard.writeText(code)
+        if (!(await writeClipboardText(code))) {
+          throw new Error("Failed to copy code to the clipboard")
+        }
         setIsCopied(true)
         onCopy?.()
         if (timeoutRef.current !== null) {

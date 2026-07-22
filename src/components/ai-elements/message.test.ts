@@ -14,11 +14,13 @@ import {
   panImageViewerState,
   zoomImageViewerState,
 } from "./message-image.tsx"
+import { MessageStreamdown } from "./message-streamdown.tsx"
 import {
   compactLocalPath,
   markdownCodeLanguage,
   markdownCodeRendererLanguages,
   markdownCodeText,
+  messageResponseRenderers,
   messageClassName,
   messageResponseControls,
   nextSmoothedText,
@@ -27,6 +29,7 @@ import {
   smoothedTextRevealStep,
 } from "./message.tsx"
 import { AppContext } from "@/components/AppContext"
+import { ThemeContext } from "@/components/theme-context"
 import { I18nContext, translate } from "@/i18n/i18n"
 
 const mockService = {
@@ -85,6 +88,56 @@ describe("normalizeUnlabeledCodeFences", () => {
     const markdown = ["```mermaid", "flowchart LR", "A --> B", "```", "", "```ts", "const value = 1", "```"].join("\n")
 
     expect(normalizeUnlabeledCodeFences(markdown)).toBe(markdown)
+  })
+
+  it("labels an incomplete bare fence so streaming content uses the AI Elements renderer", () => {
+    expect(normalizeUnlabeledCodeFences(["```", "unfinished content"].join("\n"))).toBe(
+      ["```text", "unfinished content"].join("\n"),
+    )
+  })
+})
+
+describe("messageResponseRenderers", () => {
+  it("registers unknown fenced languages with the AI Elements renderer", () => {
+    const [renderer] = messageResponseRenderers(["```report", "content", "```"].join("\n"))
+
+    expect(renderer?.language).toContain("report")
+  })
+
+  it("registers incomplete fenced languages but leaves Mermaid to its dedicated renderer", () => {
+    const [renderer] = messageResponseRenderers(
+      ["```mermaid", "flowchart LR", "A --> B", "```", "", "```custom-log", "unfinished"].join("\n"),
+    )
+
+    expect(renderer?.language).toContain("custom-log")
+    expect(renderer?.language).not.toContain("mermaid")
+  })
+
+  it.each([
+    ["unknown language", ["```report", "content", "```"].join("\n"), "report"],
+    ["incomplete bare fence", normalizeUnlabeledCodeFences(["```", "content"].join("\n")), "text"],
+  ])("renders %s with the AI Elements code block", (_case, markdown, language) => {
+    const html = renderToStaticMarkup(
+      React.createElement(
+        ThemeContext.Provider,
+        { value: { effectiveTheme: "light", preference: "light", setPreference: () => undefined } },
+        React.createElement(
+          I18nContext.Provider,
+          {
+            value: {
+              locale: "zh-CN",
+              setLocale: () => undefined,
+              t: (key, vars) => translate("zh-CN", key, vars),
+            },
+          },
+          React.createElement(MessageStreamdown, { defaultRenderers: messageResponseRenderers(markdown) }, markdown),
+        ),
+      ),
+    )
+
+    expect(html).toContain(`data-language="${language}"`)
+    expect(html).toContain('aria-label="复制代码"')
+    expect(html).not.toContain('data-streamdown="code-block"')
   })
 })
 

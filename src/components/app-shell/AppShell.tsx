@@ -70,11 +70,11 @@ import { useProjectSidebarCollapseState } from "./use-project-sidebar-collapse-s
 import { useSessionActions } from "./use-session-actions.ts"
 import { useSessionTitleGeneration } from "./use-session-title-generation.ts"
 import { useSidebarChromeState } from "./use-sidebar-chrome-state.ts"
+import { useUpdateReadyToast } from "./use-update-ready-toast.ts"
 import { useWorkspaceActivation } from "./use-workspace-activation.ts"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useAttentionService, useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
-import { AppUpdateReadyDialog } from "@/components/AppUpdateReadyDialog"
 import { AppUpdateTitlebarEntry } from "@/components/AppUpdateTitlebarEntry"
 import { useAppSettings } from "@/hooks/useAppSettings"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
@@ -770,6 +770,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [activeChatSessionId, activeChatTurnState, getSessionStatus],
   )
   const hasRunningSession = visibleSessions.some((session) => isSessionRunning(session.id))
+  useUpdateReadyToast(appUpdate, !sessionsSettledForCurrentScope || hasRunningSession)
   const {
     pinnedProjectGroups: projectPinnedGroups,
     pinnedProjectSessions: projectPinnedSessions,
@@ -1711,7 +1712,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             onBack={() => setRoute("chat")}
           />
         </React.Suspense>
-        <AppUpdateReadyDialog busy={hasRunningSession} update={appUpdate} />
       </>
     )
   }
@@ -1729,7 +1729,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             onBack={() => setRoute("chat")}
           />
         </React.Suspense>
-        <AppUpdateReadyDialog busy={hasRunningSession} update={appUpdate} />
       </>
     )
   }
@@ -1755,7 +1754,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             unarchiveSession={unarchive}
           />
         </React.Suspense>
-        <AppUpdateReadyDialog busy={hasRunningSession} update={appUpdate} />
       </>
     )
   }
@@ -2052,7 +2050,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         onRenameSession={sessionActions.handleRename}
         onSearchSelect={handleSearchSelect}
       />
-      <AppUpdateReadyDialog busy={hasRunningSession} update={appUpdate} />
     </div>
   )
 }

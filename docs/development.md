@@ -203,9 +203,9 @@ npm run build:mac     # = build:app + prepare:binaries + electron-builder --mac 
   with more than 30 minutes since the last successful check, a catch-up check runs after a random
   10–30 s / 3–10 s delay respectively. Once an update is found it downloads in the background;
   when the download completes with the window in the background, a native notification is sent
-  and Windows gets a "Restart and update" tray item; with the window in the foreground and the
-  Agent idle, the update dialog shows; no dialog while a task is running, and the user can
-  postpone for 4 hours. A normal quit still installs a downloaded update. `autoDownload=false` —
+  and Windows gets a "Restart and update" tray item; with the window in the foreground, a single
+  non-blocking toast appears once the Agent is idle. The persistent title-bar action remains
+  available until restart. A normal quit still installs a downloaded update. `autoDownload=false` —
   the Wanta state machine controls the download explicitly, and `autoInstallOnAppQuit=true` is
   armed only after a download starts. **Dual channel**: stable pulls `latest*.yml`, beta pulls
   `beta*.yml`; the channel is passed via the `channel` field of `setFeedURL` (**never the

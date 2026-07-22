@@ -109,9 +109,11 @@ tags/release notes) is English. Details: [docs/development.md](docs/development.
    `node --experimental-strip-types`, so TS parameter properties
    (`constructor(private x)`) are not allowed.
 10. **English everywhere**: code comments, identifiers, logs, system prompts, docs, and all
-    human-readable Git text. Legacy Chinese comments are being migrated separately — write
-    new/edited comments in English, and do not mass-translate unrelated comments in feature
-    PRs. Main-process logs use the `[wanta]` prefix.
+    human-readable Git text. The localized root READMEs (`README.<locale>.md`) are the only
+    documentation-language exception and must remain faithful translations of `README.md`.
+    Legacy Chinese comments are being migrated separately — write new/edited comments in English,
+    and do not mass-translate unrelated comments in feature PRs. Main-process logs use the
+    `[wanta]` prefix.
 11. **The Univer spreadsheet preview is an explicit product requirement — never remove,
     downgrade, or replace it.** `ArtifactUniverSpreadsheetPreview.tsx`,
     `artifact-univer-snapshot.ts`, and `@univerjs/core` / `@univerjs/preset-sheets-core` /

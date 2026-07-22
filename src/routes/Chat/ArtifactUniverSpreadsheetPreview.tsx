@@ -12,8 +12,6 @@ import { useTheme } from "@/components/theme-context"
 import { useI18n } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
-import "@univerjs/preset-sheets-core/lib/index.css"
-
 // 产品铁律：Univer 表格预览是明确的业务需求，用于保持完整工作簿交互与一致渲染。
 // 禁止以“只读”“包体积”或“原生 table 可替代”为由删除、降级或替换；任何调整必须先获得产品方明确同意。
 // 性能优化必须保留本组件、快照转换层、Univer 依赖以及现有工作簿渲染能力。

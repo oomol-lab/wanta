@@ -119,12 +119,7 @@ export const enMessages = {
   "nav.updateReady": "Version {version} is ready",
   "nav.restartToUpdate": "Restart to update",
   "nav.updateUpToDate": "Wanta is up to date (v{version})",
-  "updateReadyDialog.title": "Wanta {version} is ready",
-  "updateReadyDialog.description": "The update finished downloading in the background.",
-  "updateReadyDialog.body":
-    "Restart to use the new version. Wanta waits for running tasks to finish before reminding you.",
-  "updateReadyDialog.later": "Remind me in four hours",
-  "updateReadyDialog.restart": "Restart and update now",
+  "updateReadyToast.description": "Restart when convenient, or let Wanta install the update when you quit.",
   "sidebar.newSession": "New chat",
   "sidebar.notificationTeamUnavailable": "The team for this task is no longer available",
   "sidebar.segmentTasks": "Tasks",

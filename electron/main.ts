@@ -1013,7 +1013,7 @@ function handleAppUpdateStateChanged(state: AppUpdateState): void {
 
   const window = mainWindow
   if (window?.isVisible() === true && window.isFocused()) {
-    // 前台由渲染层在 Agent 空闲时显示应用内对话框，避免原生通知与对话框重复。
+    // The foreground renderer owns the one-time non-blocking reminder, avoiding duplicate native delivery.
     return
   }
   lastNotifiedUpdateVersion = readyVersion

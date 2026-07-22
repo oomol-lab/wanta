@@ -66,7 +66,8 @@
 ## 4. Language and logging
 
 - Comments: English. Code identifiers / system prompts / log text: English.
-- Docs (docs/ and the root guide): English.
+- Docs (docs/ and the root guide): English. Localized root READMEs (`README.<locale>.md`) are the
+  explicit exception and must remain faithful translations of `README.md`.
 - All human-readable text in Git operations must be English, including but not limited to commit
   messages, branch names, PR titles, PR descriptions, PR reviews/comments, tags/release notes; do
   not use Chinese Git copy for Codex/agent commits either.

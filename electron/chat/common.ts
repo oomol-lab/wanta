@@ -543,6 +543,7 @@ export type ArtifactBundleDisplay = LocalArtifactDisplayMode
 export type ArtifactBundleStatus = "ready" | "partial" | "failed"
 export type ArtifactBundleFailure =
   | "generated_preview_not_persisted"
+  | "generated_preview_persistence_unverified"
   | "project_output_publish_failed"
   | "project_output_publish_partial"
 export type ArtifactItemStatus = "ready"

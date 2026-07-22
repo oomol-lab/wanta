@@ -209,7 +209,7 @@ describe("GeneratedArtifactsShelf", () => {
     expect(html).toContain("没有保存为可重新打开的本地文件")
   })
 
-  it("keeps persisted items visible while warning about a partial image set", () => {
+  it("does not alarm users when a saved image only has incomplete preview attribution", () => {
     const image = artifactItem("001.png", "image/png")
     const html = renderArtifactShelf([
       {
@@ -220,7 +220,24 @@ describe("GeneratedArtifactsShelf", () => {
       },
     ])
 
-    expect(html).toContain("部分制成品未保存")
+    expect(html).not.toContain("部分制成品未保存")
+    expect(html).not.toContain("制成品保存失败")
+    expect(html).toContain("001")
+  })
+
+  it("does not alarm users for newly recorded unverified preview attribution", () => {
+    const image = artifactItem("001.png", "image/png")
+    const html = renderArtifactShelf([
+      {
+        messageId: "assistant-1",
+        group: { root: artifactFolder("generated-images"), items: [image], totalItems: 1, truncated: false },
+        status: "partial",
+        failure: "generated_preview_persistence_unverified",
+      },
+    ])
+
+    expect(html).not.toContain("部分制成品未保存")
+    expect(html).not.toContain("制成品保存失败")
     expect(html).toContain("001")
   })
 

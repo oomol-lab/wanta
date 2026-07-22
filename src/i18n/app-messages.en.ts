@@ -926,9 +926,6 @@ export const enMessages = {
   "artifacts.persistenceFailedTitle": "Artifact not saved",
   "artifacts.persistenceFailedDescription":
     "The generated result was shown in the response but was not saved as a local file that can be reopened.",
-  "artifacts.persistencePartialTitle": "Some artifacts were not saved",
-  "artifacts.persistencePartialDescription":
-    "Some generated results were not saved as local files. Only successfully saved items are listed below.",
   "artifacts.projectPublishFailedTitle": "Output not saved to the project",
   "artifacts.projectPublishFailedDescription":
     "The output remains available in Wanta, but it could not be copied into the project folder.",

@@ -134,13 +134,7 @@ function selectionWithContext(
   return { messageId, group, groups, ...(pack ? { pack } : {}), selectedPath }
 }
 
-function ArtifactPersistenceWarning({
-  failure,
-  partial = false,
-}: {
-  failure?: ArtifactBundleFailure
-  partial?: boolean
-}) {
+function ArtifactPersistenceWarning({ failure }: { failure?: ArtifactBundleFailure }) {
   const t = useT()
   const projectPublishFailure = failure === "project_output_publish_failed"
   const projectPublishPartial = failure === "project_output_publish_partial"
@@ -148,16 +142,12 @@ function ArtifactPersistenceWarning({
     ? "artifacts.projectPublishFailedTitle"
     : projectPublishPartial
       ? "artifacts.projectPublishPartialTitle"
-      : partial
-        ? "artifacts.persistencePartialTitle"
-        : "artifacts.persistenceFailedTitle"
+      : "artifacts.persistenceFailedTitle"
   const descriptionKey = projectPublishFailure
     ? "artifacts.projectPublishFailedDescription"
     : projectPublishPartial
       ? "artifacts.projectPublishPartialDescription"
-      : partial
-        ? "artifacts.persistencePartialDescription"
-        : "artifacts.persistenceFailedDescription"
+      : "artifacts.persistenceFailedDescription"
   return (
     <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2.5">
       <div className="flex min-w-0 items-start gap-2.5">
@@ -243,8 +233,10 @@ export function GeneratedArtifactsShelf({
     <section className="not-prose mt-0 grid gap-1.5">
       {newest?.status === "failed" ? (
         <ArtifactPersistenceWarning failure={newest.failure} />
-      ) : primary.status === "partial" ? (
-        <ArtifactPersistenceWarning failure={primary.failure} partial />
+      ) : primary.status === "partial" &&
+        (primary.failure === "project_output_publish_failed" ||
+          primary.failure === "project_output_publish_partial") ? (
+        <ArtifactPersistenceWarning failure={primary.failure} />
       ) : null}
       <OutputShelfCard
         title={title}

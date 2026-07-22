@@ -238,11 +238,14 @@
   Markdown image nodes, but must not guess paths from ordinary copy; remote materialization must
   restrict protocol, private-network addresses, redirects, MIME, size, and timeout. Failing to
   persist, or to publish to the project, must yield an explicit failure state — never dodge failure
-  by hiding the preview or the managed copy. At the start of each turn, record a file baseline of
-  the current session's older artifact directories under this turn's actual storage location; if an
-  old script mistakenly writes into an old directory, recover at turn end only the regular files
-  added or changed after the baseline into the current turn — never rewrite old bundles, scan across
-  sessions, or follow symlinks, and never recover when the baseline is incomplete.
+  by hiding the preview or the managed copy. A preview-count mismatch beside a reopenable saved
+  output is only incomplete source attribution, not proof that a distinct user deliverable was lost;
+  keep that diagnostic state without showing a data-loss warning. At the start of each turn, record
+  a file baseline of the current session's older artifact directories under this turn's actual
+  storage location; if an old script mistakenly writes into an old directory, recover at turn end
+  only the regular files added or changed after the baseline into the current turn — never rewrite
+  old bundles, scan across sessions, or follow symlinks, and never recover when the baseline is
+  incomplete.
 - **User attachments are separated from model representations**: when an ordinary file is selected
   it is first copied into a Wanta-private 0400 read-only snapshot; preview, parsing, and agent
   tools read only the snapshot — never modify the user's source path or the attachment snapshot.

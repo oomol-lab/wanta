@@ -17,14 +17,14 @@ artefactos y una interfaz de escritorio multiplataforma cuidada.
 
 [![Licencia: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 ![Node.js 22.22.2+](https://img.shields.io/badge/Node.js-22.22.2%2B-339933)
-![Electron 42](https://img.shields.io/badge/Electron-42-47848F?logo=electron)
-![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 
 </div>
 
-> **TODO: Añadir aquí un vídeo o GIF del producto de 20–30 segundos.** Debe mostrar a una persona
-> pidiendo a Wanta que complete una tarea, al agente usando una herramienta local o conectada, un paso
-> de permisos o actividad de herramientas y el archivo resultante abierto en el panel de artefactos.
+<p align="center">
+  <img src="docs/assets/wanta-gmail-analysis.png" alt="Wanta analizando Gmail con herramientas conectadas y mostrando el artefacto de hoja de cálculo resultante" />
+</p>
+
+<p align="center"><em>De una tarea en un servicio conectado a un artefacto interactivo y reutilizable, dentro del mismo espacio de trabajo.</em></p>
 
 Wanta ha sido creado por [OOMOL](https://oomol.com/) para quienes desean desarrollar agentes de
 escritorio útiles sin reconstruir toda la infraestructura de producto que rodea el ciclo del agente.
@@ -70,49 +70,23 @@ empresarial, una herramienta interna u otro producto de escritorio vertical.
 
 ## Wanta en acción
 
-### Trabaja con herramientas locales y servicios conectados
-
 Wanta puede razonar, inspeccionar proyectos y archivos, ejecutar comandos y scripts, acceder a la web
 y usar acciones SaaS autenticadas cuando una tarea necesita datos privados de una cuenta. La ejecución
 de herramientas se muestra en streaming dentro de la conversación para que la persona vea qué hace el agente.
-
-> **TODO: Añadir una captura panorámica de la vista principal de chat.** Debe incluir una tarea realista
-> de varios pasos, actividad visible de herramientas, la barra lateral y el panel de artefactos.
-
-### Mantén el control en manos de la persona
 
 Las acciones locales de alto riesgo pasan por un flujo de permisos explícito. El agente también puede
 detenerse para solicitar información mediante preguntas estructuradas. Los modos Build y Plan ofrecen
 contratos de ejecución distintos, y se puede elegir el modelo, nivel de razonamiento, proyecto y modo
 de acceso para cada tarea.
 
-> **TODO: Añadir una captura de una tarjeta de permiso de acceso local o una pregunta estructurada.**
-
-### Convierte el trabajo en artefactos reutilizables
-
 Los archivos generados permanecen vinculados a la tarea en vez de perderse en la conversación. Wanta
 puede abrir y revisar código, texto, imágenes, PDF, documentos de Word y libros de cálculo interactivos
 completos en el panel de artefactos.
 
-> **TODO: Añadir una captura del panel de artefactos con un resultado visualmente atractivo.** Un libro
-> de cálculo o un PDF generado demuestra más que un archivo de texto sin formato.
-
-### Conecta cuentas sin entregar credenciales al agente
-
-La experiencia de conexión alojada admite OAuth2, claves de API, credenciales personalizadas,
-credenciales federadas y Providers sin autenticación. Un espacio de trabajo puede contener varias
-cuentas del mismo Provider, mientras el agente identifica y usa la conexión seleccionada mediante
-herramientas estructuradas.
-
-> **TODO: Añadir una captura del catálogo de conexiones y del detalle de un Provider con varias cuentas.**
-
-### Organiza el trabajo con un equipo
-
-Al iniciar sesión en Wanta, los equipos pueden gestionar espacios de trabajo, miembros, conexiones
-compartidas, acceso a Providers por miembro, Skills del equipo, uso, suscripciones y puestos. La opción
-alojada es para quienes no quieren operar infraestructura de identidad, credenciales OAuth y gobernanza.
-
-> **TODO: Añadir una captura de Gestión de equipos con miembros y controles de acceso a Providers.**
+La experiencia alojada opcional añade conexiones de cuentas administradas y espacios de trabajo de
+equipo sin entregar al agente las credenciales almacenadas de los Providers. Los equipos pueden
+compartir conexiones y Skills, controlar el acceso a Providers y gestionar el uso sin operar su propia
+infraestructura de identidad, credenciales OAuth y gobernanza.
 
 ## Elige tu opción
 

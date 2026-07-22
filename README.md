@@ -16,14 +16,14 @@ permission controls, connected services, artifacts, and a polished cross-platfor
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 ![Node.js 22.22.2+](https://img.shields.io/badge/Node.js-22.22.2%2B-339933)
-![Electron 42](https://img.shields.io/badge/Electron-42-47848F?logo=electron)
-![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 
 </div>
 
-> **TODO: Add a 20–30 second product video or GIF here.** Show a user asking Wanta to complete a
-> task, the Agent using a local or connected tool, a permission/tool activity step, and the resulting
-> file opening in the Artifacts panel.
+<p align="center">
+  <img src="docs/assets/wanta-gmail-analysis.png" alt="Wanta analyzing Gmail with connected tools and previewing the resulting spreadsheet artifact" />
+</p>
+
+<p align="center"><em>From a connected-service task to a reusable, interactive artifact in one workspace.</em></p>
 
 Wanta is built by [OOMOL](https://oomol.com/) for developers who want to create useful desktop Agents
 without rebuilding the product infrastructure around the Agent loop. Fork it, replace the model,
@@ -66,47 +66,21 @@ tool, or another vertical desktop product.
 
 ## See Wanta in Action
 
-### Work across local tools and connected services
-
 Wanta can reason directly, inspect projects and files, run commands and scripts, access the web, and
 use authenticated SaaS Actions when a task needs private account data. Tool execution streams into the
 conversation so the user can see what the Agent is doing.
-
-> **TODO: Add a wide screenshot of the main Chat view here.** Include a realistic multi-step task with
-> visible tool activity and both the sidebar and Artifacts panel.
-
-### Keep the user in control
 
 High-risk local actions pass through an explicit permission flow. The Agent can also pause for missing
 task information using structured question prompts. Build and Plan modes provide separate execution
 contracts, and users can select the model, reasoning level, project, and access mode for the task.
 
-> **TODO: Add a screenshot showing a local-access permission card or structured question prompt.**
-
-### Turn work into reusable artifacts
-
 Generated files remain attached to the task instead of disappearing into the conversation. Wanta can
 open and review code, text, images, PDFs, Word documents, and full interactive spreadsheet workbooks in
 the Artifacts panel.
 
-> **TODO: Add a screenshot of the Artifacts panel previewing a visually strong output.** A spreadsheet
-> workbook or a generated PDF would demonstrate more than a plain text file.
-
-### Connect accounts without giving credentials to the Agent
-
-The hosted connection experience supports OAuth2, API keys, custom credentials, federated credentials,
-and providers that require no authentication. A workspace can hold multiple accounts for the same
-Provider, while the Agent identifies and uses the selected connection through structured tooling.
-
-> **TODO: Add a screenshot of the Connections catalog and a Provider detail view with multiple accounts.**
-
-### Organize work with a team
-
-When signed in to Wanta, teams can manage workspaces, members, shared connections, per-member Provider
-access, team Skills, usage, subscriptions, and seats. The hosted path is for developers and teams that
-want these capabilities without operating identity, OAuth credential, and governance infrastructure.
-
-> **TODO: Add a screenshot of Team Management showing members and Provider access controls.**
+The optional hosted experience adds managed account connections and team workspaces without putting
+stored Provider credentials into the Agent. Teams can share connections and Skills, control Provider
+access, and manage usage without operating identity, OAuth credential, and governance infrastructure.
 
 ## Choose Your Path
 

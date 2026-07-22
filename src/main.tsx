@@ -17,6 +17,7 @@ import { AppContext } from "@/components/AppContext"
 import { detectInitialLocale, translate } from "@/i18n/i18n"
 import { reportRendererIssue } from "@/lib/renderer-diagnostics"
 
+import "@univerjs/preset-sheets-core/lib/index.css"
 import "./index.css"
 
 const electronConnectionBridgeName = "oomol-connection-electron-bridge"

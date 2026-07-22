@@ -346,7 +346,7 @@ export function SidebarFooterControls({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left disabled:cursor-default disabled:opacity-80"
+                className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left disabled:cursor-default disabled:opacity-80"
                 aria-busy={workspaceSwitching}
                 aria-label={workspaceSwitching ? t("sidebar.switchingAccount") : t("teams.workspaceSwitcher")}
                 aria-expanded={workspaceMenuOpen}
@@ -392,10 +392,11 @@ export function SidebarFooterControls({
               <button
                 type="button"
                 className={cn(
-                  "oo-sidebar-nav-item flex size-10 shrink-0 items-center justify-center rounded-md",
+                  "oo-sidebar-account-trigger oo-sidebar-nav-item flex size-9 shrink-0 items-center justify-center rounded-md",
                   (accountMenuOpen || activeRoute === "settings" || activeRoute === "archived") &&
                     "bg-sidebar-accent text-sidebar-accent-foreground",
                 )}
+                data-active={activeRoute === "settings" || activeRoute === "archived" ? "true" : undefined}
                 aria-label={t("sidebar.accountMenu")}
                 title={t("settings.title")}
               >

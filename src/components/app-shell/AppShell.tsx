@@ -770,7 +770,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [activeChatSessionId, activeChatTurnState, getSessionStatus],
   )
   const hasRunningSession = visibleSessions.some((session) => isSessionRunning(session.id))
-  useUpdateReadyToast(appUpdate, hasRunningSession)
+  useUpdateReadyToast(appUpdate, !sessionsSettledForCurrentScope || hasRunningSession)
   const {
     pinnedProjectGroups: projectPinnedGroups,
     pinnedProjectSessions: projectPinnedSessions,

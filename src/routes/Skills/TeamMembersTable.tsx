@@ -25,6 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useClipboardCopy } from "@/hooks/useClipboardCopy"
@@ -235,10 +236,8 @@ export function MembersTable({
           const grant = grantsByUserId.get(member.user_id) ?? null
           const canRemove = canManage && member.role !== "creator"
           const canManageProviderAccess = showProviderAccess && member.role === "member"
-          const nextRole: EditableTeamMemberRole | null =
-            member.role === "member" ? "admin" : member.role === "admin" ? "member" : null
           const canUpdateRole =
-            nextRole !== null &&
+            member.role !== "creator" &&
             canChangeTeamMemberRole({
               actorCanManage: canManage,
               actorRole,
@@ -270,13 +269,13 @@ export function MembersTable({
               <TeamUserAvatar avatar={member.avatar} fallback={member.fallback} />
               <div className="min-w-0 self-center">
                 <CompactMemberIdentity member={member}>
-                  {teamRoleHasDefaultConnectionAccess(member.role) && showProviderAccess ? (
-                    <Badge variant="secondary">
-                      {t("teams.roleDefaultAccessCompact", { role: t(teamRoleLabelKey(member.role)) })}
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary">{t(teamRoleLabelKey(member.role))}</Badge>
-                  )}
+                  <MemberRoleControl
+                    canUpdate={canUpdateRole}
+                    disabled={bulkBusy || roleUpdateBusy}
+                    member={member}
+                    showDefaultAccess={showProviderAccess}
+                    onChange={(role) => setRoleChangeTarget({ member, role })}
+                  />
                   {showStatusColumn ? <MemberStatusBadge member={member} /> : null}
                   {canManageProviderAccess ? (
                     <ProviderAccessSummary
@@ -310,19 +309,8 @@ export function MembersTable({
                     editProviderAccessDisabled={accessEditDisabled || busyAction === "saveProviderAccess" || revokeBusy}
                     removeDisabled={bulkBusy || removeBusy}
                     revokeProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
-                    roleChangeDisabled={bulkBusy || roleUpdateBusy}
-                    roleChangeLabel={
-                      nextRole === "admin"
-                        ? t("teams.promoteToAdmin")
-                        : nextRole === "member"
-                          ? t("teams.demoteToMember")
-                          : undefined
-                    }
                     onEditProviderAccess={
                       grant && canManageProviderAccess ? () => onEditProviderAccess(grant) : undefined
-                    }
-                    onRoleChange={
-                      canUpdateRole && nextRole ? () => setRoleChangeTarget({ member, role: nextRole }) : undefined
                     }
                     onRemove={() => setRemoveTarget(member)}
                     onRevokeProviderAccess={grant && canManageProviderAccess ? () => setRevokeTarget(grant) : undefined}
@@ -339,6 +327,55 @@ export function MembersTable({
     </>
   )
 }
+
+function MemberRoleControl({
+  canUpdate,
+  disabled,
+  member,
+  onChange,
+  showDefaultAccess,
+}: {
+  canUpdate: boolean
+  disabled: boolean
+  member: MemberView
+  onChange: (role: EditableTeamMemberRole) => void
+  showDefaultAccess: boolean
+}) {
+  const { t } = useAppI18n()
+  const label =
+    teamRoleHasDefaultConnectionAccess(member.role) && showDefaultAccess
+      ? t("teams.roleDefaultAccessCompact", { role: t(teamRoleLabelKey(member.role)) })
+      : t(teamRoleLabelKey(member.role))
+
+  if (!canUpdate || member.role === "creator") {
+    return <Badge variant="secondary">{label}</Badge>
+  }
+
+  return (
+    <Select
+      value={member.role}
+      onValueChange={(value) => {
+        if ((value === "member" || value === "admin") && value !== member.role) {
+          onChange(value)
+        }
+      }}
+    >
+      <SelectTrigger
+        size="sm"
+        className="h-6 min-w-[6.5rem] rounded-full border-0 bg-secondary px-2.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80"
+        disabled={disabled}
+        aria-label={t("teams.changeMemberRole", { name: member.displayName })}
+      >
+        <SelectValue>{label}</SelectValue>
+      </SelectTrigger>
+      <SelectContent align="start">
+        <SelectItem value="member">{t("teams.roleMember")}</SelectItem>
+        <SelectItem value="admin">{t("teams.roleAdmin")}</SelectItem>
+      </SelectContent>
+    </Select>
+  )
+}
+
 function CompactMemberIdentity({ children, member }: { children: React.ReactNode; member: MemberView }) {
   const { t } = useAppI18n()
 
@@ -536,27 +573,19 @@ function MemberActionsMenu({
   onEditProviderAccess,
   onRemove,
   onRevokeProviderAccess,
-  onRoleChange,
   removeDisabled = false,
   revokeProviderAccessDisabled = false,
-  roleChangeDisabled = false,
-  roleChangeLabel,
 }: {
   editProviderAccessDisabled?: boolean
   onEditProviderAccess?: () => void
   onRemove?: () => void
   onRevokeProviderAccess?: () => void
-  onRoleChange?: () => void
   removeDisabled?: boolean
   revokeProviderAccessDisabled?: boolean
-  roleChangeDisabled?: boolean
-  roleChangeLabel?: string
 }) {
   const { t } = useAppI18n()
   const hasProviderActions = Boolean(onEditProviderAccess || onRevokeProviderAccess)
-  const hasMemberActions = Boolean(onRoleChange || hasProviderActions)
   const disabled =
-    (!onRoleChange || roleChangeDisabled) &&
     (!onEditProviderAccess || editProviderAccessDisabled) &&
     (!onRevokeProviderAccess || revokeProviderAccessDisabled) &&
     (!onRemove || removeDisabled)
@@ -576,13 +605,6 @@ function MemberActionsMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={6} className="w-44">
-        {onRoleChange && roleChangeLabel ? (
-          <DropdownMenuItem disabled={roleChangeDisabled} onSelect={onRoleChange}>
-            <UserCheckIcon className="size-4" />
-            {roleChangeLabel}
-          </DropdownMenuItem>
-        ) : null}
-        {onRoleChange && hasProviderActions ? <DropdownMenuSeparator /> : null}
         {onEditProviderAccess ? (
           <DropdownMenuItem disabled={editProviderAccessDisabled} onSelect={onEditProviderAccess}>
             <PencilIcon className="size-4" />
@@ -599,7 +621,7 @@ function MemberActionsMenu({
             {t("teams.revokeProviderAccess")}
           </DropdownMenuItem>
         ) : null}
-        {hasMemberActions && onRemove ? <DropdownMenuSeparator /> : null}
+        {hasProviderActions && onRemove ? <DropdownMenuSeparator /> : null}
         {onRemove ? (
           <DropdownMenuItem variant="destructive" disabled={removeDisabled} onSelect={onRemove}>
             <Trash2Icon className="size-4" />

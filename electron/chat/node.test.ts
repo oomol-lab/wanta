@@ -3129,7 +3129,7 @@ test("always permission reply stores a main-process session grant", async () => 
   assert.equal(bridge.getPendingPermissions.mock.calls.length, 0)
 })
 
-test("managed Python dependency task approval reuses only the active turn environment", async () => {
+test("curated managed Python dependencies are approved automatically in the active turn environment", async () => {
   const bridge = createBridgeAgent()
   const processRoot = path.join(os.tmpdir(), "wanta-python-task-1")
   bridge.createProcessDir.mockResolvedValue(processRoot)
@@ -3138,7 +3138,77 @@ test("managed Python dependency task approval reuses only the active turn enviro
   service.startEventBridge()
   await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "Create a spreadsheet" })
 
-  const command = `${processRoot}/.wanta-python/bin/python -m pip install openpyxl fpdf2`
+  const command = `${processRoot}/.wanta-python/bin/python -m pip install --upgrade 'pandas>=2' openpyxl`
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: [command],
+      metadata: { command },
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
+})
+
+test("curated task dependencies inherit the parent process boundary in task subagents", async () => {
+  const bridge = createBridgeAgent()
+  const processRoot = path.join(os.tmpdir(), "wanta-python-parent-task")
+  bridge.createProcessDir.mockResolvedValue(processRoot)
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "parent-session", text: "Delegate the PDF work" })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "task-1",
+        sessionID: "parent-session",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "task",
+        state: {
+          status: "running",
+          input: {},
+          metadata: { parentSessionId: "parent-session", sessionId: "child-session" },
+        },
+      },
+    },
+  })
+
+  const command = `${processRoot}/.wanta-python/bin/python -m pip install pypdf reportlab`
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "child-session",
+      action: "bash",
+      resources: [command],
+      metadata: { command },
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["child-session", "permission-1", "once"]])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
+})
+
+test("unlisted managed Python dependency task approval reuses only the active turn environment", async () => {
+  const bridge = createBridgeAgent()
+  const processRoot = path.join(os.tmpdir(), "wanta-python-task-1")
+  bridge.createProcessDir.mockResolvedValue(processRoot)
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "Create a spreadsheet" })
+
+  const command = `${processRoot}/.wanta-python/bin/python -m pip install pendulum`
   bridge.emit({
     type: "permission.v2.asked",
     properties: {
@@ -3158,8 +3228,8 @@ test("managed Python dependency task approval reuses only the active turn enviro
       id: "permission-2",
       sessionID: "session-1",
       action: "bash",
-      resources: [`${processRoot}/.wanta-python/bin/python -m pip install openpyxl`],
-      metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install openpyxl` },
+      resources: [`${processRoot}/.wanta-python/bin/python -m pip install pendulum`],
+      metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install pendulum` },
     },
   })
 
@@ -3238,6 +3308,46 @@ test("default command approvals still prompt unsafe package mutations", async ()
   ])
 })
 
+test("curated Node dependencies are approved automatically in the selected project", async () => {
+  const bridge = createBridgeAgent()
+  const projectPath = "/Users/example/code/customer-project"
+  const service = new ChatServiceImpl(bridge.agent, {
+    projectStore: projectStore([
+      {
+        id: "project-1",
+        name: "customer-project",
+        path: projectPath,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+  })
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({
+    scope: testTeamScope,
+    projectContext: { id: "project-1", name: "customer-project", path: projectPath },
+    sessionId: "session-1",
+    text: "Create a PDF report",
+  })
+
+  const command = `cd ${projectPath} && pnpm add pdf-lib zod`
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: [command],
+      metadata: { command },
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
+})
+
 test("project dependency task approval avoids repeated prompts during the active generation", async () => {
   const bridge = createBridgeAgent()
   const projectPath = "/Users/example/code/wanta"
@@ -3275,7 +3385,7 @@ test("project dependency task approval avoids repeated prompts during the active
   await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
 
   await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "always" })
-  const addDependency = `cd ${projectPath} && pnpm add zod`
+  const addDependency = `cd ${projectPath} && pnpm add left-pad`
   bridge.emit({
     type: "permission.v2.asked",
     properties: {

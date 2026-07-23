@@ -786,18 +786,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     emit: (event: string, data: unknown) => Promise<void>,
     request: ChatPermissionRequest,
   ): boolean {
+    const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
     const projectRoot = this.trustedAccess.projectRoot(request.sessionId)
+    const activeGenerationId = this.generations.get(displaySessionId)?.id
+    const taskProcessRoot = activeGenerationId ? this.turnOutputs.get(activeGenerationId)?.processRoot : undefined
     const decision = evaluateLocalAccessRequest(request, {
-      activeGenerationId: this.generations.get(request.sessionId)?.id,
+      activeGenerationId,
       linkRuntime: this.activeLinkRuntime,
       permissionMode: this.sessionPermissionMode(request.sessionId),
       sessionGrants: this.permissions.sessionGrants(request.sessionId),
+      ...(taskProcessRoot ? { taskProcessRoot } : {}),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
     })
     if (!this.agent || decision.type === "prompt") {
       return false
     }
-    const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
     const displayRequest =
       displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId }
     if (!this.permissions.beginAutomaticReply(request.sessionId, request.id)) {

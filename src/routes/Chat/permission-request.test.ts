@@ -125,9 +125,38 @@ test("managed Python dependency installs are narrow enough for a task approval",
 
   assert.deepEqual(managedPythonDependencyInstall(request), { packages: ["openpyxl", "fpdf2"] })
   assert.deepEqual(managedPythonDependencyInstall(request, processRoot), { packages: ["openpyxl", "fpdf2"] })
+  assert.deepEqual(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: {
+          command: `${processRoot}/.wanta-python/bin/python -m pip install --upgrade 'pandas>=2,<3' 'markitdown[pdf,docx,pptx,xlsx]'`,
+        },
+      }),
+      processRoot,
+    ),
+    { packages: ["pandas", "markitdown"] },
+  )
   assert.equal(
     managedPythonDependencyInstall(
       permission({ metadata: { command: "pip3 install --user openpyxl fpdf2" } }),
+      processRoot,
+    ),
+    null,
+  )
+  assert.equal(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install -r requirements.txt` },
+      }),
+      processRoot,
+    ),
+    null,
+  )
+  assert.equal(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install git+https://x.test/a` },
+      }),
       processRoot,
     ),
     null,

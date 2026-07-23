@@ -210,6 +210,78 @@ test("local access policy prompts high-risk commands in default mode", () => {
   )
 })
 
+test("default access auto-approves curated Python dependencies only in the active task environment", () => {
+  const processRoot = "/tmp/wanta-process/task-1"
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: {
+          command: `${processRoot}/.wanta-python/bin/python -m pip install --upgrade 'pandas>=2' 'markitdown[pdf,docx,pptx,xlsx]'`,
+        },
+      }),
+      { permissionMode: "default", taskProcessRoot: processRoot },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install fitz` },
+      }),
+      { permissionMode: "default", taskProcessRoot: processRoot },
+    ),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: { command: "/tmp/other/.wanta-python/bin/python -m pip install pandas" },
+      }),
+      { permissionMode: "default", taskProcessRoot: processRoot },
+    ),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+})
+
+test("default access auto-approves curated Node dependencies in bounded task or project roots", () => {
+  const processRoot = "/tmp/wanta-process/task-1"
+  const projectRoot = "/Users/example/code/customer-project"
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `cd ${processRoot} && npm install exceljs pdf-lib` } }),
+      {
+        permissionMode: "default",
+        taskProcessRoot: processRoot,
+      },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: `pnpm --dir ${projectRoot} add zod sharp` } }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${processRoot} && npm install xlsx` } }), {
+      permissionMode: "default",
+      taskProcessRoot: processRoot,
+    }),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `cd ${processRoot} && npm install exceljs --registry https://example.test` } }),
+      {
+        permissionMode: "default",
+        taskProcessRoot: processRoot,
+      },
+    ),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+})
+
 test("task-scoped managed Python grants only cover the approved packages in the task environment", () => {
   const processRoot = "/tmp/wanta-process/task-1"
   const grant = localAccessGrantForRequest(
@@ -263,7 +335,7 @@ test("task-scoped project dependency grants cover only the active project task",
     projectRoot: root,
   })
   assert.deepEqual(
-    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${root} && pnpm add zod` } }), {
+    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${root} && pnpm add left-pad` } }), {
       activeGenerationId: "turn-1",
       permissionMode: "default",
       sessionGrants: grant ? [grant] : [],
@@ -272,7 +344,7 @@ test("task-scoped project dependency grants cover only the active project task",
     { type: "allow", reason: "session_grant", kind: "command", highRisk: true },
   )
   assert.deepEqual(
-    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${root} && pnpm add zod` } }), {
+    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${root} && pnpm add left-pad` } }), {
       activeGenerationId: "turn-2",
       permissionMode: "default",
       sessionGrants: grant ? [grant] : [],
@@ -282,7 +354,7 @@ test("task-scoped project dependency grants cover only the active project task",
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(
-      permission({ metadata: { command: `cd ${root} && pnpm add zod --registry https://example.test` } }),
+      permission({ metadata: { command: `cd ${root} && pnpm add left-pad --registry https://example.test` } }),
       {
         activeGenerationId: "turn-1",
         permissionMode: "default",

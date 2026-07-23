@@ -1,6 +1,7 @@
 import type { ChatPermissionRequest } from "./common.ts"
 import type { SessionPermissionGrant } from "./permission-request.ts"
 
+import { isCommonNodeDependencyName } from "./common-dependency.ts"
 import { permissionCommand, permissionRequestKind } from "./permission-request.ts"
 import {
   commandName,
@@ -17,6 +18,7 @@ const projectDependencyInstallGrantPattern = "project_dependency_install"
 const projectDevCommandGrantPattern = "project_dev_command"
 const packageManagers = new Set(["bun", "npm", "pnpm", "yarn"])
 const packageDependencyVerbs = new Set(["add", "ci", "i", "install", "remove", "rm", "uninstall", "update", "upgrade"])
+const nodeDependencyInstallVerbs = new Set(["add", "i", "install"])
 const packageManagerOptionsWithValue = new Set([
   "-C",
   "-w",
@@ -40,6 +42,36 @@ const deniedDevCommandArguments = new Set([
   "--write",
 ])
 const deniedProjectDependencyOptions = new Set(["-g", "--global", "--global-folder", "--registry", "--userconfig"])
+const safeNodeInstallFlags = new Set([
+  "-D",
+  "-E",
+  "-O",
+  "-P",
+  "--dev",
+  "--exact",
+  "--frozen-lockfile",
+  "--ignore-scripts",
+  "--legacy-peer-deps",
+  "--lockfile-only",
+  "--no-audit",
+  "--no-fund",
+  "--no-optional",
+  "--no-save",
+  "--offline",
+  "--optional",
+  "--package-lock-only",
+  "--prefer-offline",
+  "--prod",
+  "--save-dev",
+  "--save-exact",
+  "--save-optional",
+  "--save-prod",
+  "--silent",
+  "--strict-peer-dependencies",
+  "--verbose",
+])
+const projectTargetOptions = new Set(["-C", "--cwd", "--dir", "--prefix"])
+const nodePackageSpecPattern = /^[A-Za-z0-9*+.!<>=~^_-]+$/u
 
 function hasDeniedProjectDependencyOption(words: readonly string[]): boolean {
   for (let index = 1; index < words.length; index += 1) {
@@ -218,6 +250,69 @@ function packageDependencyInstallAllowed(words: readonly string[]): boolean {
   return !hasDeniedProjectDependencyOption(words)
 }
 
+function canonicalNodePackageName(specifier: string): string | undefined {
+  const match = specifier.startsWith("@")
+    ? /^(@[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*)(?:@(.+))?$/u.exec(specifier)
+    : /^([A-Za-z0-9][A-Za-z0-9._-]*)(?:@(.+))?$/u.exec(specifier)
+  const name = match?.[1]
+  const version = match?.[2]
+  if (!name || (version !== undefined && !nodePackageSpecPattern.test(version))) {
+    return undefined
+  }
+  return name.toLowerCase()
+}
+
+function commonNodeDependencyPackages(words: readonly string[]): string[] | null {
+  const manager = commandName(words[0])
+  if (!manager || !packageManagers.has(manager)) {
+    return null
+  }
+  const command = nextCommandWord(words, 1)
+  if (!command || !nodeDependencyInstallVerbs.has(command.value.toLowerCase())) {
+    return null
+  }
+  for (let index = 1; index < command.index; index += 1) {
+    const word = words[index]
+    const option = optionName(word)
+    if (projectTargetOptions.has(option)) {
+      if (!word.includes("=")) {
+        index += 1
+      }
+      continue
+    }
+    if (!word.startsWith("-") || !safeNodeInstallFlags.has(word)) {
+      return null
+    }
+  }
+  const packages: string[] = []
+  for (let index = command.index + 1; index < words.length; index += 1) {
+    const word = words[index]
+    const option = optionName(word)
+    if (word === "--") {
+      continue
+    }
+    if (projectTargetOptions.has(option)) {
+      if (!word.includes("=")) {
+        index += 1
+      }
+      continue
+    }
+    if (word.startsWith("-")) {
+      if (!safeNodeInstallFlags.has(word)) {
+        return null
+      }
+      continue
+    }
+    const packageName = canonicalNodePackageName(word)
+    if (!packageName) {
+      return null
+    }
+    packages.push(packageName)
+  }
+  const uniquePackages = [...new Set(packages)]
+  return uniquePackages.length > 0 && uniquePackages.every(isCommonNodeDependencyName) ? uniquePackages : null
+}
+
 function commandExplicitlyTargetsProject(command: string, projectRoot: string): boolean {
   const split = splitLeadingAnd(command)
   if (split) {
@@ -341,6 +436,25 @@ export function isProjectDependencyInstallRequest(request: ChatPermissionRequest
   const words = command ? parsedProjectDevCommandWords(command, projectRoot) : null
   return Boolean(
     command && words && commandExplicitlyTargetsProject(command, projectRoot) && packageDependencyInstallAllowed(words),
+  )
+}
+
+/**
+ * Recognizes an explicit install of curated npm-registry packages inside one bounded target.
+ * Global installs, custom sources, lifecycle runners, and unlisted direct packages still prompt.
+ */
+export function isCommonNodeDependencyInstallRequest(request: ChatPermissionRequest, targetRoot: string): boolean {
+  if (permissionRequestKind(request) !== "command") {
+    return false
+  }
+  const command = permissionCommand(request)
+  const words = command ? parsedProjectDevCommandWords(command, targetRoot) : null
+  return Boolean(
+    command &&
+    words &&
+    commandExplicitlyTargetsProject(command, targetRoot) &&
+    !hasDeniedProjectDependencyOption(words) &&
+    commonNodeDependencyPackages(words),
   )
 }
 

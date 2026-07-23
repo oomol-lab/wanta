@@ -6,6 +6,7 @@ import { test } from "vitest"
 import {
   createProjectDependencyInstallTaskGrant,
   createProjectDevCommandSessionGrant,
+  isCommonNodeDependencyInstallRequest,
   isLikelyProjectDependencyInstallRequest,
   isLikelyProjectDevCommandRequest,
   isProjectDependencyInstallRequest,
@@ -96,6 +97,44 @@ test("project dependency installs require an explicit, bounded project target", 
   assert.equal(isProjectDependencyInstallRequest(permission("cd /tmp && npm install"), root), false)
   assert.equal(isLikelyProjectDependencyInstallRequest(permission(`cd ${root} && yarn add vite`)), true)
   assert.equal(isLikelyProjectDependencyInstallRequest(permission("npm install")), false)
+})
+
+test("common Node dependency installs allow only curated registry packages in an explicit target", () => {
+  assert.equal(
+    isCommonNodeDependencyInstallRequest(permission(`cd ${root} && npm install exceljs pdf-lib@latest -D`), root),
+    true,
+  )
+  assert.equal(
+    isCommonNodeDependencyInstallRequest(permission(`pnpm --dir=${root} add 'zod@^4' sharp --save-dev`), root),
+    true,
+  )
+  assert.equal(isCommonNodeDependencyInstallRequest(permission(`yarn --cwd ${root} add pptxgenjs --exact`), root), true)
+  assert.equal(isCommonNodeDependencyInstallRequest(permission(`cd ${root} && npm install xlsx`), root), false)
+  assert.equal(
+    isCommonNodeDependencyInstallRequest(permission(`cd ${root} && npm install exceljs unknown-package`), root),
+    false,
+  )
+  assert.equal(isCommonNodeDependencyInstallRequest(permission(`cd ${root} && npm install`), root), false)
+  assert.equal(
+    isCommonNodeDependencyInstallRequest(
+      permission(`cd ${root} && npm install exceljs --registry https://example.test`),
+      root,
+    ),
+    false,
+  )
+  assert.equal(
+    isCommonNodeDependencyInstallRequest(permission(`cd ${root} && npm install github:vendor/exceljs`), root),
+    false,
+  )
+  assert.equal(
+    isCommonNodeDependencyInstallRequest(permission(`cd ${root} && npm install exceljs --unknown-option`), root),
+    false,
+  )
+  assert.equal(
+    isCommonNodeDependencyInstallRequest(permission(`npm --unknown-option --prefix ${root} install exceljs`), root),
+    false,
+  )
+  assert.equal(isCommonNodeDependencyInstallRequest(permission("npm install exceljs"), root), false)
 })
 
 test("project dependency grants expire with the current task generation", () => {

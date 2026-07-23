@@ -409,6 +409,7 @@ interface OpencodePart {
   type: string
   text?: string
   synthetic?: boolean
+  metadata?: Record<string, unknown>
   mime?: string
   filename?: string
   url?: string
@@ -439,6 +440,10 @@ interface OpencodePart {
   time?: {
     created?: number
   }
+}
+
+function isInternalUserTextPart(part: OpencodePart): boolean {
+  return part.synthetic === true || part.metadata?.wantaVisibility === "internal"
 }
 
 function toolContext(state: NonNullable<OpencodePart["state"]>) {
@@ -490,13 +495,14 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
     ]
   }
   if (part.type === "text") {
+    const internal = isInternalUserTextPart(part)
     const data: MessageDeltaEvent = {
       sessionId: part.sessionID,
       messageId: part.messageID,
       partId: part.id,
       text: part.text ?? "",
       ...(delta === undefined ? {} : { delta }),
-      ...(part.synthetic ? { synthetic: true } : {}),
+      ...(internal ? { synthetic: true } : {}),
     }
     return [
       {
@@ -656,7 +662,7 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
   const parts: ChatMessagePart[] = []
   for (const part of rawParts) {
     if (part.type === "text") {
-      if (info.role === "user" && part.synthetic === true) {
+      if (info.role === "user" && isInternalUserTextPart(part)) {
         continue
       }
       const text = part.text ?? ""

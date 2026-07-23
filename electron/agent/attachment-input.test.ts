@@ -74,8 +74,12 @@ describe("planAttachmentInputs", () => {
   ])("turns unsupported binary %s into a safe path reference", async (name, mime) => {
     const [input] = await plan([attachment(name, mime)], mediaCapable)
 
-    expect(input).toMatchObject({ kind: "text", text: expect.stringContaining(`/tmp/${name}`) })
-    expect(input).toMatchObject({ kind: "text", text: expect.stringContaining("not safe to pass through") })
+    expect(input).toMatchObject({
+      kind: "internal-text",
+      purpose: "attachment-reference",
+      text: expect.stringContaining(`/tmp/${name}`),
+    })
+    expect(input).toMatchObject({ kind: "internal-text", text: expect.stringContaining("not safe to pass through") })
   })
 
   it("passes normalized image formats only to image-capable models", async () => {
@@ -83,7 +87,7 @@ describe("planAttachmentInputs", () => {
       { kind: "file", mime: "image/png", name: "photo.png", path: "/tmp/photo.png" },
     ])
     expect((await plan([attachment("photo.png", "image/png")], textOnly))[0]).toMatchObject({
-      kind: "text",
+      kind: "internal-text",
       text: expect.stringContaining("does not support image input"),
     })
   })
@@ -91,7 +95,7 @@ describe("planAttachmentInputs", () => {
   it("does not pass SVG and BMP through as model images", async () => {
     for (const item of [attachment("vector.svg", "image/svg+xml"), attachment("scan.bmp", "image/bmp")]) {
       expect((await plan([item], mediaCapable))[0]).toMatchObject({
-        kind: "text",
+        kind: "internal-text",
         text: expect.stringContaining("not in the normalized image allowlist"),
       })
     }
@@ -102,7 +106,7 @@ describe("planAttachmentInputs", () => {
       { kind: "file", mime: "application/pdf", name: "report.pdf", path: "/tmp/report.pdf" },
     ])
     expect((await plan([attachment("report.pdf", "application/pdf")], textOnly))[0]).toMatchObject({
-      kind: "text",
+      kind: "internal-text",
       text: expect.stringContaining("does not support direct PDF input"),
     })
   })
@@ -119,14 +123,17 @@ describe("planAttachmentInputs", () => {
     const item = attachment("grown.txt", "text/plain", 100)
     const [input] = await plan([item], mediaCapable, new Map([[item.path, maxDirectAttachmentBytes + 1]]))
 
-    expect(input).toMatchObject({ kind: "text", text: expect.stringContaining("size budget") })
+    expect(input).toMatchObject({ kind: "internal-text", text: expect.stringContaining("size budget") })
   })
 
   it("uses a path reference when the current file size cannot be verified", async () => {
     const item = attachment("missing.txt", "text/plain")
     const inputs = await planAttachmentInputs([item], mediaCapable, { fileSize: async () => null })
 
-    expect(inputs[0]).toMatchObject({ kind: "text", text: expect.stringContaining("could not be verified") })
+    expect(inputs[0]).toMatchObject({
+      kind: "internal-text",
+      text: expect.stringContaining("could not be verified"),
+    })
   })
 
   it("stops embedding files after the aggregate direct-size budget", async () => {
@@ -142,7 +149,7 @@ describe("planAttachmentInputs", () => {
     )
 
     expect(inputs.slice(0, 3).every((input) => input.kind === "file")).toBe(true)
-    expect(inputs[3]).toMatchObject({ kind: "text", text: expect.stringContaining("size budget") })
+    expect(inputs[3]).toMatchObject({ kind: "internal-text", text: expect.stringContaining("size budget") })
   })
 
   it("limits the number of attachments represented in one turn", async () => {
@@ -152,6 +159,10 @@ describe("planAttachmentInputs", () => {
     const inputs = await plan(attachments, textOnly)
 
     expect(inputs).toHaveLength(maxAttachmentsPerTurn + 1)
-    expect(inputs.at(-1)).toMatchObject({ kind: "text", text: expect.stringContaining("2 additional attachments") })
+    expect(inputs.at(-1)).toMatchObject({
+      kind: "internal-text",
+      purpose: "attachment-limit",
+      text: expect.stringContaining("2 additional attachments"),
+    })
   })
 })

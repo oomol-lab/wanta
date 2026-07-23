@@ -116,6 +116,34 @@ test("text part.updated preserves the synthetic marker for visibility filtering"
   ])
 })
 
+test("text part.updated treats Wanta internal metadata as synthetic", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "p1",
+        messageID: "m1",
+        metadata: { wantaVisibility: "internal" },
+        sessionID: "s1",
+        text: "internal attachment reference",
+        type: "text",
+      },
+    },
+  })
+  assert.deepEqual(out, [
+    {
+      event: "messageDelta",
+      data: {
+        messageId: "m1",
+        partId: "p1",
+        sessionId: "s1",
+        synthetic: true,
+        text: "internal attachment reference",
+      },
+    },
+  ])
+})
+
 test("reasoning part.updated → messageReasoningDelta", () => {
   const out = translateOpencodeEvent({
     type: "message.part.updated",
@@ -385,6 +413,29 @@ test("normalizeMessage hides synthetic OpenCode file expansion from user text", 
       createdAt: 1,
       id: "m1",
       parts: [{ kind: "text", partId: "user-1", text: "Analyze this workbook" }],
+      role: "user",
+    },
+  )
+})
+
+test("normalizeMessage hides Wanta internal attachment context from user history", () => {
+  assert.deepEqual(
+    normalizeMessage({
+      info: { id: "m1", role: "user", time: { created: 1 } },
+      parts: [
+        {
+          id: "internal-1",
+          metadata: { wantaVisibility: "internal" },
+          text: "Attached local file: photo.png",
+          type: "text",
+        },
+        { id: "user-1", type: "text", text: "Analyze this image" },
+      ],
+    }),
+    {
+      createdAt: 1,
+      id: "m1",
+      parts: [{ kind: "text", partId: "user-1", text: "Analyze this image" }],
       role: "user",
     },
   )

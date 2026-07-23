@@ -11,6 +11,7 @@ export interface StoredUserAttachmentRecord {
   internalPaths: string[]
   messageId: string
   sessionId: string
+  userText?: string
 }
 
 interface PersistedUserAttachmentRecords {
@@ -57,7 +58,13 @@ function publicAttachment(attachment: ChatAttachment): ChatAttachment {
 function normalizeRecords(value: unknown): UserAttachmentRecords {
   const persisted = value && typeof value === "object" ? (value as PersistedUserAttachmentRecords) : undefined
   const records: UserAttachmentRecords = new Map()
-  if (persisted?.version !== 1 || !persisted.sessions || typeof persisted.sessions !== "object") return records
+  if (
+    (persisted?.version !== 1 && persisted?.version !== 2) ||
+    !persisted.sessions ||
+    typeof persisted.sessions !== "object"
+  ) {
+    return records
+  }
   for (const [sessionId, messages] of Object.entries(persisted.sessions)) {
     if (!validText(sessionId) || !messages || typeof messages !== "object") continue
     const sessionRecords = new Map<string, StoredUserAttachmentRecord>()
@@ -71,7 +78,8 @@ function normalizeRecords(value: unknown): UserAttachmentRecords {
         !Array.isArray(candidate.attachments) ||
         !candidate.attachments.every(validAttachment) ||
         !Array.isArray(candidate.internalPaths) ||
-        !candidate.internalPaths.every(validText)
+        !candidate.internalPaths.every(validText) ||
+        (candidate.userText !== undefined && typeof candidate.userText !== "string")
       ) {
         continue
       }
@@ -80,6 +88,7 @@ function normalizeRecords(value: unknown): UserAttachmentRecords {
         internalPaths: [...candidate.internalPaths],
         messageId,
         sessionId,
+        ...(typeof candidate.userText === "string" ? { userText: candidate.userText } : {}),
       })
     }
     if (sessionRecords.size > 0) records.set(sessionId, sessionRecords)
@@ -94,7 +103,7 @@ function serializeRecords(records: UserAttachmentRecords): PersistedUserAttachme
     for (const [messageId, record] of messages) serialized[messageId] = record
     if (Object.keys(serialized).length > 0) sessions[sessionId] = serialized
   }
-  return { version: 1, sessions }
+  return { version: 2, sessions }
 }
 
 function cloneRecords(records: UserAttachmentRecords): UserAttachmentRecords {
@@ -124,14 +133,78 @@ export function applyUserAttachmentRecords(
     if (message.role !== "user") return message
     const record = records.get(message.id)
     if (!record) return message
-    const nonAttachments = message.parts.filter((part) => part.kind !== "attachment")
     const attachments: ChatMessagePart[] = record.attachments.map((attachment) => ({
       attachment,
       kind: "attachment",
       partId: `wanta-attachment-${attachment.id}`,
     }))
-    return { ...message, parts: [...attachments, ...nonAttachments] }
+    if (record.userText !== undefined) {
+      const existingUserTextPart = message.parts.find((part) => part.kind === "text" && part.text === record.userText)
+      const userTextPart: ChatMessagePart[] = record.userText
+        ? [
+            existingUserTextPart ?? {
+              kind: "text",
+              partId: `wanta-user-text-${message.id}`,
+              text: record.userText,
+            },
+          ]
+        : []
+      const otherParts = message.parts.filter((part) => part.kind !== "attachment" && part.kind !== "text")
+      return { ...message, parts: [...attachments, ...userTextPart, ...otherParts] }
+    }
+    const legacyPublicParts = message.parts.filter(
+      (part) =>
+        part.kind !== "attachment" &&
+        !(part.kind === "text" && isLegacyInternalAttachmentText(part.text ?? "", record)),
+    )
+    return { ...message, parts: [...attachments, ...legacyPublicParts] }
   })
+}
+
+const legacyAttachmentLimit = 20
+
+function legacySizeLabel(size: number): string {
+  if (!Number.isFinite(size) || size <= 0) return "unknown size"
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+function isLegacyAttachmentReferenceText(text: string, record: StoredUserAttachmentRecord): boolean {
+  const lines = text.split("\n")
+  if (lines.length !== 5) return false
+  const attachment = record.attachments.find(
+    (candidate) =>
+      lines[0] === `Attached local file: ${candidate.name}` &&
+      lines[1] === `Path: ${candidate.path}` &&
+      lines[2] ===
+        `Media type: ${candidate.mime || "application/octet-stream"}; size: ${legacySizeLabel(candidate.size)}`,
+  )
+  if (
+    !attachment ||
+    !lines[3]?.startsWith("The file was not embedded in the model request because ") ||
+    !lines[3].endsWith(".")
+  ) {
+    return false
+  }
+  const directPathInstruction =
+    "Use an appropriate local tool or script against the exact path when the task requires its contents. Do not use the Read tool on an unsupported binary file."
+  if (lines[4] === directPathInstruction) return true
+  return record.internalPaths.some(
+    (internalPath) =>
+      lines[4] ===
+      `A prepared copy exists at ${internalPath}, but it was not embedded. Use local tools against the original or prepared path as appropriate.`,
+  )
+}
+
+function isLegacyInternalAttachmentText(text: string, record: StoredUserAttachmentRecord): boolean {
+  if (isLegacyAttachmentReferenceText(text, record)) return true
+  const omitted = record.attachments.length - legacyAttachmentLimit
+  return (
+    omitted > 0 &&
+    text ===
+      `${omitted} additional attachment${omitted === 1 ? " was" : "s were"} not embedded because the per-turn limit is ${legacyAttachmentLimit}. Ask the user to split the files across multiple turns if they are required.`
+  )
 }
 
 export class UserAttachmentStore {
@@ -154,7 +227,12 @@ export class UserAttachmentStore {
     return cloneRecords(await this.loadRecords())
   }
 
-  public async record(sessionId: string, messageId: string, attachments: readonly ChatAttachment[]): Promise<void> {
+  public async record(
+    sessionId: string,
+    messageId: string,
+    attachments: readonly ChatAttachment[],
+    userText?: string,
+  ): Promise<void> {
     if (attachments.length === 0) return
     await this.enqueueMutation(async () => {
       const records = cloneRecords(await this.loadRecords())
@@ -166,6 +244,7 @@ export class UserAttachmentStore {
           .filter((value): value is string => Boolean(value)),
         messageId,
         sessionId,
+        ...(userText === undefined ? {} : { userText }),
       })
       records.set(sessionId, sessionRecords)
       await this.persist(records)

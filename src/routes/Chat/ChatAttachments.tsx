@@ -101,7 +101,7 @@ function AttachmentImageCard({
     <div className="group relative size-20 shrink-0">
       <button
         type="button"
-        title={attachment.path}
+        title={attachment.name}
         className="size-full overflow-hidden rounded-xl border border-border/60 bg-background text-left shadow-xs hover:border-border hover:bg-accent/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
         onClick={() => onOpen(attachment, previewUrl)}
       >
@@ -233,7 +233,7 @@ export function AttachmentList({
             <div key={attachment.id} className="relative max-w-full min-w-0">
               <button
                 type="button"
-                title={attachment.path}
+                title={attachment.name}
                 className={cn(
                   "oo-border-divider flex h-14 max-w-full min-w-0 items-center gap-3 rounded-lg border bg-background/70 py-2 pl-2 text-left shadow-xs hover:border-border hover:bg-accent/60 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
                   onRemove ? "pr-8" : "pr-2",

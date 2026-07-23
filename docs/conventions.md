@@ -252,10 +252,12 @@
   When the user asks for modifications, first copy into the current turn's artifact directory and
   make the copy the new output. Public message attachments are persisted by `UserAttachmentStore`
   keyed by user message ID and are the source of truth for chat history; `agentPath`
-  representations (XLSX text extraction, optimized image copies, OCR, etc.) are internal only —
-  they must not replace the attachment card, enter copied text, or impersonate the user's original
-  during history restore. OpenCode's synthetic file expansions must be filtered by structured
-  markers — never guessed from Read copy or free text. Directory attachments are local references
+  representations (XLSX text extraction, optimized image copies, OCR, fallback path instructions,
+  etc.) are internal only — they must not replace the attachment card, enter copied text, or
+  impersonate the user's original during history restore. Persist the exact user-authored text with
+  the public attachment record and use it as the display/copy/retry source of truth. OpenCode's and
+  Wanta's synthetic attachment context must be filtered by structured markers — never guessed from
+  Read copy or free text. Directory attachments are local references
   and do not get recursive snapshots.
 
 ## 8. Renderer / UI

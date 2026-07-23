@@ -6,7 +6,9 @@ import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill
 
 import {
   Building2Icon,
+  CheckIcon,
   ChevronsUpDownIcon,
+  CopyIcon,
   LockKeyholeIcon,
   PlusIcon,
   SettingsIcon,
@@ -17,7 +19,6 @@ import * as React from "react"
 import { planProviderSkillRecommendationBulkLinks } from "./team-management-model.ts"
 import { TeamAvatar, TeamMemberAccessButton } from "./TeamMembersPanel.tsx"
 import { TeamSkillManageDialog, TeamSkillManageLoadingSkeleton } from "./TeamSkillManageDialog.tsx"
-import { CopyIconButton } from "@/components/CopyIconButton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -29,6 +30,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useClipboardCopy } from "@/hooks/useClipboardCopy"
 import { useAppI18n } from "@/i18n"
 import { teamRoleLabelKey } from "@/lib/team-permissions"
 import { cn } from "@/lib/utils"
@@ -169,38 +171,37 @@ function TeamSwitcherMenu({
         const role = getTeamRole(team)
         const selected = team.id === selectedTeamId
         return (
-          <DropdownMenuItem
-            key={team.id}
-            className={cn(
-              "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
-              selected && "bg-accent",
-            )}
-            onSelect={() => onSelect(team.id)}
-          >
-            <TeamAvatar
-              team={team}
-              previewUrl={avatarPreviewUrls[team.id]}
-              className="size-10 rounded-md text-sm"
-              onRemoteAvatarLoad={onRemoteAvatarLoad}
-            />
-            <span className="grid min-h-10 min-w-0 content-center">
-              <span className="flex min-h-5 min-w-0 items-center gap-2">
-                <span className="oo-text-label truncate">{team.name}</span>
-                {selected ? (
-                  <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
-                ) : null}
-              </span>
-              <span className="group/team-id flex min-w-0 items-center gap-1.5">
+          <div key={team.id} role="group" className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-stretch">
+            <DropdownMenuItem
+              className={cn(
+                "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
+                selected && "rounded-r-none bg-accent",
+              )}
+              onSelect={() => onSelect(team.id)}
+            >
+              <TeamAvatar
+                team={team}
+                previewUrl={avatarPreviewUrls[team.id]}
+                className="size-10 rounded-md text-sm"
+                onRemoteAvatarLoad={onRemoteAvatarLoad}
+              />
+              <span className="grid min-h-10 min-w-0 content-center">
+                <span className="flex min-h-5 min-w-0 items-center gap-2">
+                  <span className="oo-text-label truncate">{team.name}</span>
+                  {selected ? (
+                    <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
+                  ) : null}
+                </span>
                 <span className="oo-text-caption-compact min-w-0 truncate font-mono text-muted-foreground">
                   {team.id}
                 </span>
-                {selected ? <TeamIdCopyButton teamId={team.id} /> : null}
               </span>
-            </span>
-            <Badge variant="secondary" className="justify-self-end">
-              {t(teamRoleLabelKey(role))}
-            </Badge>
-          </DropdownMenuItem>
+              <Badge variant="secondary" className="justify-self-end">
+                {t(teamRoleLabelKey(role))}
+              </Badge>
+            </DropdownMenuItem>
+            {selected ? <TeamIdCopyMenuItem teamId={team.id} /> : null}
+          </div>
         )
       })}
       <DropdownMenuSeparator />
@@ -212,18 +213,24 @@ function TeamSwitcherMenu({
   )
 }
 
-function TeamIdCopyButton({ teamId }: { teamId: string }) {
+function TeamIdCopyMenuItem({ teamId }: { teamId: string }) {
   const { t } = useAppI18n()
+  const { copied, copyText } = useClipboardCopy({ failureMessage: t("teams.memberCopyFailed") })
+  const Icon = copied ? CheckIcon : CopyIcon
+  const label = copied ? t("teams.teamIdCopied") : t("teams.copyTeamId")
 
   return (
-    <CopyIconButton
-      ariaLabel={t("teams.copyTeamId")}
-      className="opacity-70 group-hover/team-id:opacity-100 focus-visible:opacity-100 data-[copied=true]:opacity-100"
-      copiedLabel={t("teams.teamIdCopied")}
-      failureMessage={t("teams.memberCopyFailed")}
-      tooltipClassName="max-w-80 font-mono break-all"
-      value={teamId}
-    />
+    <DropdownMenuItem
+      aria-label={label}
+      className="rounded-l-none bg-accent px-2"
+      data-copied={copied ? "true" : "false"}
+      onSelect={(event) => {
+        event.preventDefault()
+        void copyText(teamId)
+      }}
+    >
+      <Icon className="size-3.5" aria-hidden="true" />
+    </DropdownMenuItem>
   )
 }
 

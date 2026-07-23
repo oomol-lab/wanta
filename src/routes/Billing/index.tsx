@@ -8,12 +8,10 @@ import {
   BillingManagePermissionNotice,
   PlanComparison,
   PlanSeatOverviewPanel,
-  UsageSubscriptionPanel,
   TeamSubscriptionPreviewDialog,
 } from "./BillingSubscriptionPanels.tsx"
 import { BalanceOverview, UsageDetailsDisclosure } from "./BillingUsagePanels.tsx"
 import { CreditPurchaseModal } from "./CreditPurchaseModal.tsx"
-import { getCurrentUsageSubscription } from "./plans.ts"
 import {
   buildTeamSubscriptionOverview,
   isTeamSubscriptionActionDisabled,
@@ -59,7 +57,7 @@ export function BillingRoute({
   workspace,
 }: BillingRouteProps) {
   const t = useT()
-  const { login, state: authState } = useAuth()
+  const { login } = useAuth()
   const chatService = useChatService()
   const [period, setPeriod] = React.useState<BillingPeriodDays>(30)
   const [purchaseOpen, setPurchaseOpen] = React.useState(false)
@@ -127,10 +125,6 @@ export function BillingRoute({
     [data?.teamPendingPayment, teamOverview.additionalSeats, teamOverview.currentPlan],
   )
   const pendingTeamPaymentUrl = pendingTeamPaymentTargets.paymentUrl
-  const currentUsageSubscription = React.useMemo(
-    () => getCurrentUsageSubscription(data?.usageSubscription ?? null),
-    [data?.usageSubscription],
-  )
   const teamId = canManageTeamSubscriptionForWorkspace(workspace) ? workspace.teamId : null
   const showTeamPlans = canReadTeamSubscriptionForWorkspace(workspace)
   const teamDetailsAvailable = data?.subscriptionAvailable === true && data.teamPendingPaymentAvailable === true
@@ -281,15 +275,6 @@ export function BillingRoute({
         ) : (
           balanceOverview
         )}
-
-        {canManageFunding ? (
-          <UsageSubscriptionPanel
-            currentPlan={currentUsageSubscription}
-            disabled={isSessionExpired || loading || data?.usageSubscriptionAvailable !== true}
-            openExternalCheckout={openExternalCheckout}
-            userId={authState?.account?.id}
-          />
-        ) : null}
 
         <UsageDetailsDisclosure
           balanceLots={data?.balance?.items ?? []}

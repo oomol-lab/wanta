@@ -5,7 +5,6 @@ import type {
   CreditItem,
   CreditUsages,
   RechargePrice,
-  SubscriptionPlanTag,
   SubscriptionStatus,
   TeamSubscriptionChangePayload,
   TeamSubscriptionPreviewResult,
@@ -479,17 +478,6 @@ async function getSubscriptionStatus(
   return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url, undefined, signal))
 }
 
-async function getUsageSubscriptionStatus(
-  scope: BillingRequestScope,
-  signal?: AbortSignal,
-): Promise<SubscriptionStatus | null> {
-  if (!scope.canManageFunding) {
-    return null
-  }
-  const url = new URL("/api/user/subscriptions", consoleServerBaseUrl)
-  return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url, undefined, signal))
-}
-
 async function getTeamPendingPayment(
   scope: BillingRequestScope,
   signal?: AbortSignal,
@@ -549,21 +537,13 @@ export async function getBillingOverview(
   const meteringPromise = getCreditMeteringStats(days, scope, signal)
   const detailsRequest = optionalBillingSignal(signal)
   const subscriptionPromise = settleOnAbort(getSubscriptionStatus(scope, detailsRequest.signal), detailsRequest.signal)
-  const usageSubscriptionPromise = settleOnAbort(
-    getUsageSubscriptionStatus(scope, detailsRequest.signal),
-    detailsRequest.signal,
-  )
   const teamPendingPaymentPromise = settleOnAbort(
     getTeamPendingPayment(scope, detailsRequest.signal),
     detailsRequest.signal,
   )
 
   const [balance, spend, metering] = await Promise.allSettled([balancePromise, spendPromise, meteringPromise])
-  const [subscription, usageSubscription, teamPendingPayment] = await Promise.allSettled([
-    subscriptionPromise,
-    usageSubscriptionPromise,
-    teamPendingPaymentPromise,
-  ])
+  const [subscription, teamPendingPayment] = await Promise.allSettled([subscriptionPromise, teamPendingPaymentPromise])
   detailsRequest.cleanup()
   if (signal?.aborted) {
     throw signal.reason
@@ -572,7 +552,6 @@ export async function getBillingOverview(
   logSettledFailure("spend", spend)
   logSettledFailure("metering", metering)
   logSettledFailure("subscription", subscription)
-  logSettledFailure("usage subscription", usageSubscription)
   logSettledFailure("team pending payment", teamPendingPayment)
   const criticalResults: PromiseSettledResult<unknown>[] = scope.canManageFunding
     ? [balance, spend, metering]
@@ -591,38 +570,11 @@ export async function getBillingOverview(
     balance: balance.status === "fulfilled" && balance.value ? filterGeneralCreditUsages(balance.value) : null,
     spend: spend.status === "fulfilled" ? spend.value : null,
     metering: metering.status === "fulfilled" ? metering.value : null,
-    usageSubscription: usageSubscription.status === "fulfilled" ? usageSubscription.value : null,
-    usageSubscriptionAvailable: usageSubscription.status === "fulfilled",
     subscription: subscription.status === "fulfilled" ? subscription.value : null,
     subscriptionAvailable: subscription.status === "fulfilled",
     teamPendingPayment: teamPendingPayment.status === "fulfilled" ? teamPendingPayment.value : null,
     teamPendingPaymentAvailable: teamPendingPayment.status === "fulfilled",
   }
-}
-
-/** 个人用量折扣订阅结账页；与团队 Team 计划的订阅接口相互独立。 */
-export function subscriptionCheckoutUrl(plan: SubscriptionPlanTag, userId?: string): string {
-  const url = new URL("/api/user/subscriptions/page", consoleServerBaseUrl)
-  url.searchParams.set("payment_type", "subscription")
-  url.searchParams.set("redirect", checkoutReturnUrl())
-  url.searchParams.set("source_page", checkoutReturnUrl())
-  url.searchParams.set("client_platform", "chat-web")
-  url.searchParams.set("plan", plan)
-  if (userId) {
-    url.searchParams.set("user_id", userId)
-  }
-  return ensureHttpUrl(url.toString())
-}
-
-/** 已有个人用量订阅时，通过 Stripe portal 管理升级、降级或取消。 */
-export async function subscriptionPortalUrl(): Promise<string> {
-  const url = new URL("/api/stripe/portal", consoleServerBaseUrl)
-  url.searchParams.set("product", "ai")
-  const portalUrl = unwrapConsoleData<string>(await fetchAuthenticatedJson(url))
-  if (!portalUrl) {
-    throw new Error("Subscription portal URL response is invalid.")
-  }
-  return ensureHttpUrl(portalUrl)
 }
 
 export async function updateTeamSubscription(

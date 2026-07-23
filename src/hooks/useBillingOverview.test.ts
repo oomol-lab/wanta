@@ -22,8 +22,6 @@ function emptyBillingOverview(): BillingOverviewResult {
     spend: null,
     subscription: null,
     subscriptionAvailable: true,
-    usageSubscription: null,
-    usageSubscriptionAvailable: true,
     teamPendingPayment: null,
     teamPendingPaymentAvailable: true,
   }
@@ -68,7 +66,7 @@ test("forced billing refresh supersedes an older in-flight snapshot", async () =
   let resolveStale!: (value: BillingOverviewResult) => void
   let resolveFresh!: (value: BillingOverviewResult) => void
   const staleData = emptyBillingOverview()
-  const freshData = { ...emptyBillingOverview(), usageSubscriptionAvailable: false }
+  const freshData = { ...emptyBillingOverview(), subscriptionAvailable: false }
   const stale = new Promise<BillingOverviewResult>((resolve) => {
     resolveStale = resolve
   })

@@ -4,8 +4,6 @@ import {
   getBillingOverview,
   getCreditBalance,
   previewTeamSubscription,
-  subscriptionCheckoutUrl,
-  subscriptionPortalUrl,
   topUpCheckoutUrl,
   updateTeamSubscription,
 } from "./billing-client.ts"
@@ -88,9 +86,11 @@ describe("billing-client", () => {
     expect((await rejection(() => getBillingOverview(30, teamScope))).message).toBe(billingAuthRequiredMessage)
   })
 
-  it("scopes team billing reads and includes pending Team payment", async () => {
+  it("scopes team billing reads, skips retired usage subscriptions, and includes pending Team payment", async () => {
+    const paths: string[] = []
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = urlOf(input)
+      paths.push(url.pathname)
       if (url.pathname === "/v1/balance/available") {
         expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
       } else if (url.hostname === "insight.oomol.com") {
@@ -118,18 +118,6 @@ describe("billing-client", () => {
             plans: [],
             platforms: {},
             team: { additionalSeats: 0, cached: false, updatedAt: null },
-          },
-          success: true,
-        })
-      }
-      if (url.pathname === "/api/user/subscriptions") {
-        expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
-        return Response.json({
-          data: {
-            features: [],
-            plan: "ai_pro",
-            plans: ["ai_pro"],
-            platforms: { stripe: ["ai_pro"] },
           },
           success: true,
         })
@@ -169,8 +157,7 @@ describe("billing-client", () => {
     expect(summary.teamPendingPayment?.additionalSeats).toBe(2)
     expect(summary.subscription?.plan).toBe("team_plus")
     expect(summary.subscriptionAvailable).toBe(true)
-    expect(summary.usageSubscription?.plan).toBe("ai_pro")
-    expect(summary.usageSubscriptionAvailable).toBe(true)
+    expect(paths).not.toContain("/api/user/subscriptions")
   })
 
   it("does not request team subscriptions for members without billing permission", async () => {
@@ -196,8 +183,6 @@ describe("billing-client", () => {
     expect(paths).not.toContain("/v1/balance/available")
     expect(paths).not.toContain("/api/user/subscriptions")
     expect(summary.balance).toBeNull()
-    expect(summary.usageSubscription).toBeNull()
-    expect(summary.usageSubscriptionAvailable).toBe(true)
     expect(summary.subscription).toBeNull()
     expect(summary.teamPendingPayment).toBeNull()
     expect(summary.subscriptionAvailable).toBe(true)
@@ -232,7 +217,6 @@ describe("billing-client", () => {
     expect(paths).not.toContain("/api/user/subscriptions")
     expect(summary.subscription?.plan).toBe("team_plus")
     expect(summary.balance).toBeNull()
-    expect(summary.usageSubscription).toBeNull()
   })
 
   it("surfaces member session expiry from team usage without reading a personal balance", async () => {
@@ -265,27 +249,6 @@ describe("billing-client", () => {
     })
 
     expect(await topUpCheckoutUrl("20_USD")).toBe("https://console.example.com/checkout")
-  })
-
-  it("builds the personal usage subscription checkout URL", () => {
-    const url = new URL(subscriptionCheckoutUrl("ai_pro", "user-1"))
-
-    expect(url.pathname).toBe("/api/user/subscriptions/page")
-    expect(url.searchParams.get("payment_type")).toBe("subscription")
-    expect(url.searchParams.get("plan")).toBe("ai_pro")
-    expect(url.searchParams.get("user_id")).toBe("user-1")
-    expect(url.searchParams.get("client_platform")).toBe("chat-web")
-  })
-
-  it("resolves the personal usage subscription portal URL", async () => {
-    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-      const url = urlOf(input)
-      expect(url.pathname).toBe("/api/stripe/portal")
-      expect(url.searchParams.get("product")).toBe("ai")
-      return Response.json({ data: "https://billing.stripe.com/session", success: true })
-    })
-
-    expect(await subscriptionPortalUrl()).toBe("https://billing.stripe.com/session")
   })
 
   it("reads wrapped balance payloads for payment-required recovery", async () => {
@@ -481,8 +444,6 @@ describe("billing-client", () => {
     expect(overview.metering?.total.eventCount).toBe(4)
     expect(overview.subscription).toBeNull()
     expect(overview.subscriptionAvailable).toBe(false)
-    expect(overview.usageSubscription).toBeNull()
-    expect(overview.usageSubscriptionAvailable).toBe(false)
     expect(overview.teamPendingPaymentAvailable).toBe(false)
   })
 

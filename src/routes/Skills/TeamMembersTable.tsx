@@ -176,6 +176,7 @@ export function MembersTable({
         {members.map((member) => {
           const grant = grantsByUserId.get(member.user_id) ?? null
           const canRemove = canManage && member.role !== "creator"
+          const canManageProviderAccess = showProviderAccess && member.role === "member"
           const selectable = isBulkEditableMember(member)
           const accessDisabled = appAccessLoading || bulkBusy || Boolean(providerAccessMutationError)
           const accessEditDisabled = accessDisabled || providerOptionsLoading || Boolean(providerOptionsError)
@@ -208,7 +209,7 @@ export function MembersTable({
                     <Badge variant="secondary">{t(teamRoleLabelKey(member.role))}</Badge>
                   )}
                   {showStatusColumn ? <MemberStatusBadge member={member} /> : null}
-                  {showProviderAccess && member.role === "member" ? (
+                  {canManageProviderAccess ? (
                     <ProviderAccessSummary
                       allProvidersLabel={t("teams.allProviders")}
                       grant={grant}
@@ -222,7 +223,7 @@ export function MembersTable({
               </div>
 
               <div className="flex min-w-0 items-center justify-end gap-2">
-                {canRemove && member.role === "member" && showProviderAccess && !grant && !appAccessLoading ? (
+                {canRemove && canManageProviderAccess && !grant && !appAccessLoading ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -240,9 +241,11 @@ export function MembersTable({
                     editProviderAccessDisabled={accessEditDisabled || busyAction === "saveProviderAccess" || revokeBusy}
                     removeDisabled={bulkBusy || removeBusy}
                     revokeProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
-                    onEditProviderAccess={grant && showProviderAccess ? () => onEditProviderAccess(grant) : undefined}
+                    onEditProviderAccess={
+                      grant && canManageProviderAccess ? () => onEditProviderAccess(grant) : undefined
+                    }
                     onRemove={() => setRemoveTarget(member)}
-                    onRevokeProviderAccess={grant && showProviderAccess ? () => setRevokeTarget(grant) : undefined}
+                    onRevokeProviderAccess={grant && canManageProviderAccess ? () => setRevokeTarget(grant) : undefined}
                   />
                 ) : null}
               </div>

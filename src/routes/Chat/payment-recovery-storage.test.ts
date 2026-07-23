@@ -68,6 +68,22 @@ describe("payment recovery storage", () => {
         }),
       ),
     )
+    expect(key).not.toBe(
+      paymentRecoveryPendingStorageKey(
+        "user-1:team:team-1",
+        teamScope({
+          canManageTeamSubscription: false,
+        }),
+      ),
+    )
+    expect(key).not.toBe(
+      paymentRecoveryPendingStorageKey(
+        "user-1:team:team-1",
+        teamScope({
+          canReadTeamSubscription: false,
+        }),
+      ),
+    )
   })
 
   it("keeps markers isolated between billing scopes", () => {

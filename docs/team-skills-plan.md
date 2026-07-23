@@ -354,13 +354,13 @@ previous team's configuration state so the wrong team's Skills are never shown, 
 ### 5.4 UI structure
 
 The team area lives inside the existing Skills page — no new top-level route. The team tab and the
-creator management flow are implemented (see `src/routes/Skills/index.tsx` and
+team management flow are implemented (see `src/routes/Skills/index.tsx` and
 `src/routes/Skills/team-skill-manage-helpers.ts`):
 
 - The current team name shows at the top.
 - In team state, a `Team Skills` section is shown.
 - Configured Skills list: icon, displayName, packageName@version, enabled state, update time.
-- Creator-visible operations: Add and Remove today; Enable/Disable, Update version, and Reorder
+- Team-manager-visible operations: Add and Remove today; Enable/Disable, Update version, and Reorder
   are blocked on the §4 per-Skill model and must not be offered until it ships.
 - Members are read-only; the action area explains that a team manager controls the configuration.
 
@@ -562,7 +562,7 @@ Pure functions / unit tests:
 
 - Team skill API normalization.
 - Cache key isolation after a team switch.
-- Creator / member permission UI model.
+- Team manager / member permission UI model.
 - Team skill + installed skill palette merge and dedup (covered by
   `src/routes/Chat/composer-palette-items.test.ts`).
 - System prompt construction: no forced use, no leakage of unrelated data, explicit mentions win.
@@ -573,7 +573,7 @@ Integration / manual verification:
 - No team Skill configuration shown while the team identity is unresolved.
 - After switching team A → B, the list, composer, and agent scope all change in sync.
 - Team members are read-only.
-- After the creator adds a private Skill, members can see it and use it in the team workspace.
+- After a team manager adds a private Skill, members can see it and use it in the team workspace.
 - Modifying team Skills during an active generation does not interrupt the current reply.
 - After logout, the team Skill cache does not leak into the next account.
 

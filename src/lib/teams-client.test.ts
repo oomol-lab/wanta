@@ -13,6 +13,7 @@ import {
   listTeamMembers,
   listTeamProviderOptions,
   listUserSummaries,
+  removeTeamMember,
   TeamRequestError,
   searchUsers,
   updateTeamAppAccess,
@@ -168,6 +169,17 @@ describe("teams-client", () => {
     expect(new URL(String(fetchMock.mock.calls[2]?.[0])).pathname).toBe("/v1/teams/team%2F1/members")
   })
 
+  it("removes team members through the encoded team endpoint", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await removeTeamMember({ teamId: "team/1", userId: "user/1" })
+
+    const [url, init] = fetchMock.mock.calls[0] ?? []
+    expect(new URL(String(url)).pathname).toBe("/v1/teams/team%2F1/members/user%2F1")
+    expect(init?.method).toBe("DELETE")
+  })
+
   it("keeps member disabled status from team member lists", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({
@@ -213,11 +225,13 @@ describe("teams-client", () => {
       .mockResolvedValueOnce(Response.json(access))
     vi.stubGlobal("fetch", fetchMock)
 
-    const snapshot = await getTeamAppAccessSnapshot("team-1")
-    await updateTeamAppAccess("team-1", snapshot.access, { etag: snapshot.etag })
+    const snapshot = await getTeamAppAccessSnapshot("team/1")
+    await updateTeamAppAccess("team/1", snapshot.access, { etag: snapshot.etag })
 
     const updateHeaders = new Headers(fetchMock.mock.calls[1]?.[1]?.headers)
     expect(snapshot.etag).toBe('"revision-1"')
+    expect(new URL(String(fetchMock.mock.calls[0]?.[0])).pathname).toBe("/v1/teams/team%2F1/app-access")
+    expect(new URL(String(fetchMock.mock.calls[1]?.[0])).pathname).toBe("/v1/teams/team%2F1/app-access")
     expect(updateHeaders.get("if-match")).toBe('"revision-1"')
   })
 

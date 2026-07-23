@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { applyTeamPatchesToOverview, resolveTeamSelection, upsertOverviewTeam } from "./team-overview.ts"
+import {
+  applyTeamPatchesToOverview,
+  mergeWorkspaceTeams,
+  resolveTeamSelection,
+  upsertOverviewTeam,
+} from "./team-overview.ts"
 
 describe("team overview patching", () => {
   it("updates existing teams while preserving local role metadata", () => {
@@ -139,6 +144,57 @@ describe("team overview patching", () => {
 
     expect(next.created[0]).toMatchObject({ avatar: "new.png", name: "new" })
   })
+
+  it("merges duplicate workspace teams and preserves metadata from both lists", () => {
+    const teams = mergeWorkspaceTeams({
+      accountId: "user-1",
+      created: [
+        {
+          avatar: "",
+          creator_user_id: "user-1",
+          id: "team-1",
+          name: "Acme",
+          system_created: true,
+        },
+      ],
+      joined: [
+        {
+          avatar: "updated.png",
+          creator_user_id: "user-1",
+          id: "team-1",
+          name: "Acme",
+          role: "creator",
+          writable: true,
+        },
+      ],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    })
+
+    expect(teams).toEqual([
+      expect.objectContaining({
+        avatar: "updated.png",
+        id: "team-1",
+        role: "creator",
+        system_created: true,
+        writable: true,
+      }),
+    ])
+  })
+
+  it("places the system-created workspace first without changing other team order", () => {
+    const teams = mergeWorkspaceTeams({
+      accountId: "user-1",
+      created: [
+        { avatar: "", creator_user_id: "user-1", id: "first", name: "First" },
+        { avatar: "", creator_user_id: "user-1", id: "system", name: "System", system_created: true },
+        { avatar: "", creator_user_id: "user-1", id: "third", name: "Third" },
+      ],
+      joined: [],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    })
+
+    expect(teams.map((team) => team.id)).toEqual(["system", "first", "third"])
+  })
 })
 
 describe("team workspace selection", () => {
@@ -151,12 +207,18 @@ describe("team workspace selection", () => {
     expect(resolveTeamSelection("second", teams)).toBe("second")
   })
 
-  it("falls back to the first team when no team is selected", () => {
-    expect(resolveTeamSelection(null, teams)).toBe("first")
+  it("falls back to the system-created team when no team is selected", () => {
+    expect(resolveTeamSelection(null, [...teams, { ...teams[1], id: "system", system_created: true }])).toBe("system")
   })
 
-  it("falls back to the first team when the stored team is unavailable", () => {
-    expect(resolveTeamSelection("missing", teams)).toBe("first")
+  it("falls back to the system-created team when the stored team is unavailable", () => {
+    expect(resolveTeamSelection("missing", [...teams, { ...teams[1], id: "system", system_created: true }])).toBe(
+      "system",
+    )
+  })
+
+  it("falls back to the first team when no system-created team is available", () => {
+    expect(resolveTeamSelection(null, teams)).toBe("first")
   })
 
   it("keeps the empty result when no teams are available", () => {

@@ -40,14 +40,14 @@ team-level Skill configuration.
 
 Directly reusable parts:
 
-| Scope                      | Console location                     | Reusable point                                                                                           |
-| -------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| My published Skills list   | `src/api/skills.ts`                  | `GET search.<endpoint>/v1/packages/-/my-skills?size=100&lang=...`                                        |
-| Skill Markdown preview     | `src/api/skills.ts`                  | `GET package-assets.../packages/{packageName}/{version}/files/package/skills/{skill}/SKILL.md`           |
-| Private Skill temp sharing | `src/api/skills.ts`                  | `POST registry.<endpoint>/-/oomol/package-shares/share/{packageName}`, temp sharing only                 |
-| Team workspace selection   | `src/stores/team-workspace/store.ts` | UI stores the team id, resolves the team name when requesting connectors                                 |
-| Team permission schema     | `electron/teams/common.ts`           | `Team` returns `role?: "creator" \| "admin" \| "member"` and `writable?: boolean`; prefer backend fields |
-| Connector team scope       | `src/api/connections.ts`             | Connector requests switch teams via the `x-oo-organization-name` header                                  |
+| Scope                      | Console location           | Reusable point                                                                                           |
+| -------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------- |
+| My published Skills list   | `src/api/skills.ts`        | `GET search.<endpoint>/v1/packages/-/my-skills?size=100&lang=...`                                        |
+| Skill Markdown preview     | `src/api/skills.ts`        | `GET package-assets.../packages/{packageName}/{version}/files/package/skills/{skill}/SKILL.md`           |
+| Private Skill temp sharing | `src/api/skills.ts`        | `POST registry.<endpoint>/-/oomol/package-shares/share/{packageName}`, temp sharing only                 |
+| Team workspace selection   | `src/stores/team-scope/`   | UI restores a valid stored team and otherwise prefers the `system_created` team                          |
+| Team permission schema     | `electron/teams/common.ts` | `Team` returns `role?: "creator" \| "admin" \| "member"` and `writable?: boolean`; prefer backend fields |
+| Connector team scope       | `src/api/connections.ts`   | Connector requests switch teams via the `x-oo-organization-name` header                                  |
 
 Parts that must not be copied wholesale:
 
@@ -467,6 +467,11 @@ Put the remote sync logic in a new module, e.g. `electron/team-skills/`; do not 
 `SkillServiceImpl` into a giant class.
 
 ## 7. Team switch flow
+
+Wanta restores a valid team id stored for the account. If that selection is missing or no longer
+available, it selects the `system_created` team, falling back to the first team only for legacy
+responses that do not expose that field. Duplicate entries from the created and joined team lists
+are merged so role, writability, and system-team metadata all survive.
 
 After a team switch the following happens (step 7 is stage two, future work):
 

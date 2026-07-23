@@ -7,6 +7,7 @@ export interface Team {
   avatar: string
   creator_user_id: string
   role?: TeamRole
+  system_created?: boolean
   writable?: boolean
 }
 

@@ -170,6 +170,33 @@ describe("teams-client", () => {
     expect(new URL(String(fetchMock.mock.calls[2]?.[0])).pathname).toBe("/v1/teams/team%2F1/members")
   })
 
+  it("preserves system-created metadata and sorts the default team first", async () => {
+    const regularTeam = {
+      avatar: "",
+      creator_user_id: "creator-1",
+      id: "team-1",
+      name: "regular",
+      role: "creator",
+      system_created: false,
+    }
+    const systemTeam = {
+      avatar: "",
+      creator_user_id: "creator-1",
+      id: "team-system",
+      name: "system",
+      role: "creator",
+      system_created: true,
+    }
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ teams: [regularTeam, systemTeam] }))
+      .mockResolvedValueOnce(Response.json({ teams: [regularTeam, systemTeam] }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(listCreatedTeams()).resolves.toEqual([systemTeam, regularTeam])
+    await expect(listMyTeams()).resolves.toEqual([systemTeam, regularTeam])
+  })
+
   it("removes team members through the encoded team endpoint", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }))
     vi.stubGlobal("fetch", fetchMock)

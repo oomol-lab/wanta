@@ -6,7 +6,12 @@ import * as React from "react"
 import { branding } from "../../electron/branding.ts"
 import { dropCachedAvatarImage } from "../lib/avatar-image-cache.ts"
 import { reportRendererHandledError } from "../lib/renderer-diagnostics.ts"
-import { applyTeamPatchesToOverview, resolveTeamSelection, upsertOverviewTeam } from "../lib/team-overview.ts"
+import {
+  applyTeamPatchesToOverview,
+  mergeWorkspaceTeams,
+  resolveTeamSelection,
+  upsertOverviewTeam,
+} from "../lib/team-overview.ts"
 import { teamCanManage, teamRole } from "../lib/team-permissions.ts"
 import { getTeamOverview } from "../lib/teams-client.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
@@ -128,20 +133,6 @@ function writeStoredWorkspace(accountId: string | undefined, teamId: string | nu
   } catch {
     // 本地记忆只是体验优化，失败不影响本次切换。
   }
-}
-
-function uniqueTeams(overview: TeamOverview | null): Team[] {
-  if (!overview) {
-    return []
-  }
-  const seen = new Set<string>()
-  return [...overview.created, ...overview.joined].filter((team) => {
-    if (seen.has(team.id)) {
-      return false
-    }
-    seen.add(team.id)
-    return true
-  })
 }
 
 function rememberWorkspaceTeamPatch(accountId: string, team: Team): void {
@@ -270,7 +261,7 @@ export function useTeamWorkspace(accountId: string | undefined): UseTeamWorkspac
         overviewRef.current = next
         setOverview(next)
         setError(null)
-        const teams = uniqueTeams(next)
+        const teams = mergeWorkspaceTeams(next)
         setSelectedTeamId((current) => resolveTeamSelection(current, teams))
       } catch (err) {
         if (requestIdRef.current === requestId) {
@@ -300,7 +291,7 @@ export function useTeamWorkspace(accountId: string | undefined): UseTeamWorkspac
       setOverview(next)
       setError(null)
       setLoading(false)
-      const teams = uniqueTeams(next)
+      const teams = mergeWorkspaceTeams(next)
       setSelectedTeamId((current) => resolveTeamSelection(current, teams))
     },
     [accountId],
@@ -366,7 +357,7 @@ export function useTeamWorkspace(accountId: string | undefined): UseTeamWorkspac
     void refresh()
   }, [refresh])
 
-  const teams = React.useMemo(() => uniqueTeams(overview), [overview])
+  const teams = React.useMemo(() => mergeWorkspaceTeams(overview), [overview])
   const selectedTeam = selectedTeamId ? (teams.find((team) => team.id === selectedTeamId) ?? null) : null
   const activeWorkspace = React.useMemo<WorkspaceSelection>(() => {
     if (!accountId) {

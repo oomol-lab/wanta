@@ -18,6 +18,7 @@ import type {
 import { getConnectionApps, getConnectionProviders } from "@/lib/connections-client"
 import { apiBaseUrl, teamControlBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
+import { sortSystemCreatedTeamFirst } from "@/lib/team-overview"
 
 // 团队面板/管理 UI 的全部网络读写在渲染层直接发起：原先这些是渲染业务驱动、却由主进程
 // TeamsServiceImpl 代发的请求（且其鉴权本就是读会话 cookie）。凭证经 httpOnly 会话 cookie
@@ -115,6 +116,7 @@ function normalizeTeam(value: unknown): Team | undefined {
   const name = asString(value["name"])
   const creatorUserId = asString(value["creator_user_id"])
   const role = value["role"]
+  const systemCreated = value["system_created"]
   const writable = value["writable"]
   if (!id || !name || !creatorUserId) {
     return undefined
@@ -125,6 +127,7 @@ function normalizeTeam(value: unknown): Team | undefined {
     avatar: normalizeAvatarUrl(value["avatar"]),
     creator_user_id: creatorUserId,
     ...(role === "creator" || role === "admin" || role === "member" ? { role } : {}),
+    ...(typeof systemCreated === "boolean" ? { system_created: systemCreated } : {}),
     ...(typeof writable === "boolean" ? { writable } : {}),
   }
 }
@@ -340,12 +343,12 @@ function requestTeamControlJson(path: string, options: RequestOptions = {}): Pro
 
 export async function listCreatedTeams(): Promise<Team[]> {
   const result = (await requestTeamControlJson("/v1/teams")) as TeamsEnvelope
-  return normalizeTeamList(result.teams, "Created teams")
+  return sortSystemCreatedTeamFirst(normalizeTeamList(result.teams, "Created teams"))
 }
 
 export async function listMyTeams(): Promise<Team[]> {
   const result = (await requestTeamControlJson("/v1/me/teams")) as TeamsEnvelope
-  return normalizeTeamList(result.teams, "Joined teams")
+  return sortSystemCreatedTeamFirst(normalizeTeamList(result.teams, "Joined teams"))
 }
 
 export async function getTeamOverview(accountId: string): Promise<TeamOverview> {

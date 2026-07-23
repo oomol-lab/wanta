@@ -35,7 +35,11 @@ import { useAuth } from "@/hooks/useAuth"
 import { useBillableSeats } from "@/hooks/useBillableSeats"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
-import { billingRequestScopeForWorkspace, canManageTeamBilling } from "@/lib/billing-scope"
+import {
+  billingRequestScopeForWorkspace,
+  canManageTeamSubscriptionForWorkspace,
+  canReadTeamSubscriptionForWorkspace,
+} from "@/lib/billing-scope"
 
 interface BillingRouteProps {
   cacheScope: string
@@ -61,6 +65,7 @@ export function BillingRoute({
   const [purchaseOpen, setPurchaseOpen] = React.useState(false)
   const billingRequestScope = React.useMemo(() => billingRequestScopeForWorkspace(workspace), [workspace])
   const canManageFunding = billingRequestScope?.canManageFunding === true
+  const canManageTeamSubscription = billingRequestScope?.canManageTeamSubscription === true
   const { data, error, loading, refresh } = useBillingOverview(period, {
     cacheScope,
     requestScope: billingRequestScope,
@@ -85,8 +90,15 @@ export function BillingRoute({
   const originalCredit = toNumber(data?.balance?.total.originalCredit)
   const modelSpend = getSummary(summaries, "model").credit
   const billingContext = React.useMemo(
-    () => buildBillingWorkspaceContext(workspace, seatState.count, sharedConnectorCount, t("billing.teamWorkspace")),
-    [seatState.count, sharedConnectorCount, t, workspace],
+    () =>
+      buildBillingWorkspaceContext(
+        workspace,
+        canManageTeamSubscription,
+        seatState.count,
+        sharedConnectorCount,
+        t("billing.teamWorkspace"),
+      ),
+    [canManageTeamSubscription, seatState.count, sharedConnectorCount, t, workspace],
   )
   const teamOverview = React.useMemo(
     () =>
@@ -119,8 +131,8 @@ export function BillingRoute({
     () => getCurrentUsageSubscription(data?.usageSubscription ?? null),
     [data?.usageSubscription],
   )
-  const teamId = canManageTeamBilling(workspace) ? workspace.teamId : null
-  const showTeamPlans = teamId !== null
+  const teamId = canManageTeamSubscriptionForWorkspace(workspace) ? workspace.teamId : null
+  const showTeamPlans = canReadTeamSubscriptionForWorkspace(workspace)
   const teamDetailsAvailable = data?.subscriptionAvailable === true && data.teamPendingPaymentAvailable === true
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
@@ -322,13 +334,14 @@ interface BillingWorkspaceContext {
 
 function buildBillingWorkspaceContext(
   workspace: WorkspaceSelection,
+  canManageTeamSubscription: boolean,
   memberCount: number | null,
   connectedProviderCount?: number,
   teamWorkspaceLabel = "Team",
 ): BillingWorkspaceContext {
   const teamName = workspace.team?.name ?? ""
   return {
-    canManage: workspace.canManage,
+    canManage: canManageTeamSubscription,
     connectedProviderCount,
     memberCount: memberCount === null ? null : Math.max(1, memberCount),
     teamId: workspace.teamId,

@@ -19,7 +19,7 @@ import { useAuth } from "@/hooks/useAuth"
 import { useBillableSeats } from "@/hooks/useBillableSeats"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
-import { billingRequestScopeForWorkspace, canManageTeamBilling } from "@/lib/billing-scope"
+import { billingRequestScopeForWorkspace, canReadTeamSubscriptionForWorkspace } from "@/lib/billing-scope"
 import { cn } from "@/lib/utils"
 import { teamPlanLabel } from "@/routes/Billing/team-plan-label"
 import { buildTeamSubscriptionOverview } from "@/routes/Billing/team-subscription-model"
@@ -50,6 +50,7 @@ export function BillingUsagePopover({
   const seatState = useBillableSeats(workspace, open)
   const billingRequestScope = React.useMemo(() => billingRequestScopeForWorkspace(workspace), [workspace])
   const canManageFunding = billingRequestScope?.canManageFunding === true
+  const canManageTeamSubscription = billingRequestScope?.canManageTeamSubscription === true
   const { data, error, loading, refresh } = useBillingOverview(usagePeriodDays, {
     cacheScope,
     enabled: open,
@@ -87,19 +88,19 @@ export function BillingUsagePopover({
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const modelSpend = getSummary(summaries, "model").credit
   const connectorSpend = getSummary(summaries, "link").credit
-  const showTeamPlanSection = canManageTeamBilling(workspace)
+  const showTeamPlanSection = canReadTeamSubscriptionForWorkspace(workspace)
   const seatCountAvailable = seatState.count !== null && !seatState.error
   const teamDetailsAvailable = data?.subscriptionAvailable === true && data.teamPendingPaymentAvailable === true
   const teamOverview = React.useMemo(
     () =>
       buildTeamSubscriptionOverview({
-        canManage: workspace.canManage,
+        canManage: canManageTeamSubscription,
         memberCount: seatState.count,
         pendingPayment: data?.teamPendingPayment ?? null,
         sharedConnectorCount,
         subscription: data?.subscription ?? null,
       }),
-    [data?.subscription, data?.teamPendingPayment, seatState.count, sharedConnectorCount, workspace],
+    [canManageTeamSubscription, data?.subscription, data?.teamPendingPayment, seatState.count, sharedConnectorCount],
   )
   const showPlanPrompt = Boolean(
     showTeamPlanSection &&

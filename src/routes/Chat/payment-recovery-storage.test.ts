@@ -29,8 +29,9 @@ function legacyPaymentKey(cacheScope: string, scope: BillingRequestScope): strin
 
 function teamScope(overrides: Partial<BillingRequestScope> = {}): BillingRequestScope {
   return {
-    canManageBilling: true,
     canManageFunding: true,
+    canManageTeamSubscription: true,
+    canReadTeamSubscription: true,
     teamId: "team-1",
     teamName: "acme",
     ...overrides,
@@ -86,8 +87,9 @@ describe("payment recovery storage", () => {
     const storage = createStorage()
     const scope = teamScope()
     const secondaryScope = {
-      canManageBilling: true,
       canManageFunding: true,
+      canManageTeamSubscription: true,
+      canReadTeamSubscription: true,
       teamId: "team-id",
       teamName: "team-name",
     } as const

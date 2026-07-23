@@ -3,6 +3,7 @@ import type {
   TeamAppAccess,
   TeamMember,
   TeamProviderOption,
+  TeamRole,
   TeamUserSearchResult,
   TeamUserSummary,
 } from "../../../electron/teams/common.ts"
@@ -11,7 +12,6 @@ import type { RuntimeSkillRemoveTarget } from "./skill-route-model.ts"
 export { teamCanManage, teamRole } from "../../lib/team-permissions.ts"
 import { parseProviderGrants } from "./team-provider-access.ts"
 
-export type TeamRole = "creator" | "member"
 export type BusyAction =
   | "add"
   | "addSkillBatch"

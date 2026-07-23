@@ -9,6 +9,7 @@ import {
   getTeamAppAccessSnapshot,
   isTeamMemberLimitError,
   listCreatedTeams,
+  listMyTeams,
   listTeamMembers,
   listTeamProviderOptions,
   listUserSummaries,
@@ -127,8 +128,44 @@ describe("teams-client", () => {
     expect(isTeamMemberLimitError(error)).toBe(true)
 
     const [url, init] = fetchMock.mock.calls[0] ?? []
-    expect(String(url)).toContain("/v1/organizations/team-1/members")
+    expect(String(url)).toContain("/v1/teams/team-1/members")
     expect(init?.method).toBe("POST")
+  })
+
+  it("uses team endpoints and preserves admin roles in team and member lists", async () => {
+    const adminTeam = {
+      avatar: "",
+      creator_user_id: "creator-1",
+      id: "team-1",
+      name: "acme",
+      role: "admin",
+    }
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ teams: [adminTeam] }))
+      .mockResolvedValueOnce(Response.json({ teams: [adminTeam] }))
+      .mockResolvedValueOnce(
+        Response.json({
+          members: [
+            { disable: false, role: "creator", user_id: "creator-1" },
+            { disable: false, role: "admin", user_id: "admin-1" },
+            { disable: true, role: "member", user_id: "member-1" },
+          ],
+        }),
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(listCreatedTeams()).resolves.toEqual([adminTeam])
+    await expect(listMyTeams()).resolves.toEqual([adminTeam])
+    await expect(listTeamMembers("team/1")).resolves.toEqual([
+      { disable: false, role: "creator", user_id: "creator-1" },
+      { disable: false, role: "admin", user_id: "admin-1" },
+      { disable: true, role: "member", user_id: "member-1" },
+    ])
+
+    expect(new URL(String(fetchMock.mock.calls[0]?.[0])).pathname).toBe("/v1/teams")
+    expect(new URL(String(fetchMock.mock.calls[1]?.[0])).pathname).toBe("/v1/me/teams")
+    expect(new URL(String(fetchMock.mock.calls[2]?.[0])).pathname).toBe("/v1/teams/team%2F1/members")
   })
 
   it("keeps member disabled status from team member lists", async () => {
@@ -153,7 +190,7 @@ describe("teams-client", () => {
   it("rejects malformed team and member collection responses instead of treating them as empty", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ organizations: null }))
+      .mockResolvedValueOnce(Response.json({ teams: null }))
       .mockResolvedValueOnce(Response.json({ members: [{ role: "member" }] }))
     vi.stubGlobal("fetch", fetchMock)
 
@@ -224,12 +261,12 @@ describe("teams-client", () => {
     await enableTeamMembers({ teamId: "team-1", userIds: ["member-2"] })
 
     const [disableUrl, disableInit] = fetchMock.mock.calls[0] ?? []
-    expect(String(disableUrl)).toContain("/v1/organizations/team-1/members/disable")
+    expect(String(disableUrl)).toContain("/v1/teams/team-1/members/disable")
     expect(disableInit?.method).toBe("PUT")
     expect(JSON.parse(String(disableInit?.body))).toEqual({ user_ids: ["member-1"] })
 
     const [enableUrl, enableInit] = fetchMock.mock.calls[1] ?? []
-    expect(String(enableUrl)).toContain("/v1/organizations/team-1/members/enable")
+    expect(String(enableUrl)).toContain("/v1/teams/team-1/members/enable")
     expect(enableInit?.method).toBe("PUT")
     expect(JSON.parse(String(enableInit?.body))).toEqual({ user_ids: ["member-2"] })
   })

@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { teamAvatarStyle, teamInitials } from "@/hooks/useTeamWorkspace"
 import { useT } from "@/i18n/i18n"
+import { teamRoleLabelKey } from "@/lib/team-permissions"
 import { cn } from "@/lib/utils"
 
 function accountInitial(name?: string): string {
@@ -138,7 +139,7 @@ function WorkspaceMenuContent({
             <WorkspaceAvatar workspace={{ canManage, team, teamId: team.id, role }} />
             <span className="min-w-0 flex-1 truncate">{team.name}</span>
             <Badge variant="outline" className="flex w-full justify-end px-0 text-right font-normal">
-              {role === "creator" ? t("teams.roleCreator") : t("teams.roleMember")}
+              {t(teamRoleLabelKey(role))}
             </Badge>
           </DropdownMenuItem>
         )

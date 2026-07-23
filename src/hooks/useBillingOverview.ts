@@ -55,13 +55,14 @@ export function useBillingOverview(
 ): UseBillingOverview {
   // 顶部浮层、购买弹窗和账单详情页复用同一份聚合资源。资源内部的团队计划/用量与创建者个人余额
   // 作用域不同；缓存边界仍须包含账号和工作区，避免付款权限或团队统计跨边界复用。
-  const requestCanManageBilling = requestScope?.canManageBilling ?? false
   const requestCanManageFunding = requestScope?.canManageFunding ?? false
+  const requestCanManageTeamSubscription = requestScope?.canManageTeamSubscription ?? false
+  const requestCanReadTeamSubscription = requestScope?.canReadTeamSubscription ?? false
   const requestTeamId = requestScope?.teamId ?? ""
   const requestTeamName = requestScope?.teamName ?? ""
   const requestScopeReady = requestScope !== null
   const requestScopeKey = requestScope
-    ? `team:${requestTeamId}:${requestTeamName}:${requestCanManageBilling}:${requestCanManageFunding}`
+    ? `team:${requestTeamId}:${requestTeamName}:${requestCanReadTeamSubscription}:${requestCanManageTeamSubscription}:${requestCanManageFunding}`
     : "blocked"
   const cacheScopeKey = `${cacheScope}\u0000${requestScopeKey}`
   const [data, setData] = React.useState<BillingOverviewResult | null>(() => cachedData(cacheScopeKey, days))
@@ -117,8 +118,9 @@ export function useBillingOverview(
 
       // 普通刷新复用已在途请求；充值、订阅或登录后的强制刷新必须越过旧请求，避免旧快照回填。
       const scope: BillingRequestScope = {
-        canManageBilling: requestCanManageBilling,
         canManageFunding: requestCanManageFunding,
+        canManageTeamSubscription: requestCanManageTeamSubscription,
+        canReadTeamSubscription: requestCanReadTeamSubscription,
         teamId: requestTeamId,
         teamName: requestTeamName,
       }
@@ -157,8 +159,9 @@ export function useBillingOverview(
     [
       cacheScopeKey,
       days,
-      requestCanManageBilling,
       requestCanManageFunding,
+      requestCanManageTeamSubscription,
+      requestCanReadTeamSubscription,
       requestTeamId,
       requestTeamName,
       requestScopeReady,

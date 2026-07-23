@@ -16,14 +16,36 @@ describe("billingRequestScopeForWorkspace", () => {
       role: "creator" as const,
     }
     expect(billingRequestScopeForWorkspace(workspace)).toEqual({
-      canManageBilling: true,
       canManageFunding: true,
+      canManageTeamSubscription: true,
+      canReadTeamSubscription: true,
       teamId: "team-1",
       teamName: "acme",
     })
   })
 
-  it("keeps writable members away from the creator's personal funding account", () => {
+  it("lets admins read team subscriptions without funding or changing them", () => {
+    const workspace = {
+      canManage: true,
+      team: {
+        avatar: "",
+        creator_user_id: "user-1",
+        id: "team-1",
+        name: "acme",
+        role: "admin" as const,
+      },
+      teamId: "team-1",
+      role: "admin" as const,
+    }
+
+    expect(billingRequestScopeForWorkspace(workspace)).toMatchObject({
+      canManageFunding: false,
+      canManageTeamSubscription: false,
+      canReadTeamSubscription: true,
+    })
+  })
+
+  it("keeps writable members away from creator-only billing details and mutations", () => {
     const workspace = {
       canManage: true,
       team: {
@@ -38,8 +60,9 @@ describe("billingRequestScopeForWorkspace", () => {
     }
 
     expect(billingRequestScopeForWorkspace(workspace)).toMatchObject({
-      canManageBilling: true,
       canManageFunding: false,
+      canManageTeamSubscription: false,
+      canReadTeamSubscription: false,
     })
   })
 

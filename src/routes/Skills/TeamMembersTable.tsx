@@ -29,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useClipboardCopy } from "@/hooks/useClipboardCopy"
 import { useAppI18n } from "@/i18n"
+import { teamRoleHasDefaultConnectionAccess, teamRoleLabelKey } from "@/lib/team-permissions"
 import { cn } from "@/lib/utils"
 
 export function MembersTable({
@@ -199,15 +200,15 @@ export function MembersTable({
               <TeamUserAvatar avatar={member.avatar} fallback={member.fallback} />
               <div className="min-w-0 self-center">
                 <CompactMemberIdentity member={member}>
-                  {member.role === "creator" && showProviderAccess ? (
-                    <Badge variant="secondary">{t("teams.creatorDefaultAccessCompact")}</Badge>
-                  ) : (
+                  {teamRoleHasDefaultConnectionAccess(member.role) && showProviderAccess ? (
                     <Badge variant="secondary">
-                      {member.role === "creator" ? t("teams.roleCreator") : t("teams.roleMember")}
+                      {t("teams.roleDefaultAccessCompact", { role: t(teamRoleLabelKey(member.role)) })}
                     </Badge>
+                  ) : (
+                    <Badge variant="secondary">{t(teamRoleLabelKey(member.role))}</Badge>
                   )}
                   {showStatusColumn ? <MemberStatusBadge member={member} /> : null}
-                  {showProviderAccess && member.role !== "creator" ? (
+                  {showProviderAccess && member.role === "member" ? (
                     <ProviderAccessSummary
                       allProvidersLabel={t("teams.allProviders")}
                       grant={grant}
@@ -221,7 +222,7 @@ export function MembersTable({
               </div>
 
               <div className="flex min-w-0 items-center justify-end gap-2">
-                {canRemove && showProviderAccess && !grant && !appAccessLoading ? (
+                {canRemove && member.role === "member" && showProviderAccess && !grant && !appAccessLoading ? (
                   <Button
                     type="button"
                     variant="outline"

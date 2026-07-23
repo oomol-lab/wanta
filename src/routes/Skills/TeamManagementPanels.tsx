@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppI18n } from "@/i18n"
+import { teamRoleLabelKey } from "@/lib/team-permissions"
 import { cn } from "@/lib/utils"
 
 export function TeamSwitcherPanel({
@@ -167,7 +168,7 @@ export function TeamSwitcherPanel({
                         </span>
                       </span>
                       <Badge variant="secondary" className="justify-self-end">
-                        {role === "creator" ? t("teams.roleCreator") : t("teams.roleMember")}
+                        {t(teamRoleLabelKey(role))}
                       </Badge>
                     </DropdownMenuItem>
                   )

@@ -21,6 +21,7 @@ import {
   refreshAfterCommittedTeamMutation,
 } from "./team-management-model.ts"
 import { scopedBusyOperationIsCurrent } from "./use-scoped-busy-action.ts"
+import { isTeamManagerRole, teamRoleHasDefaultConnectionAccess, teamRoleLabelKey } from "@/lib/team-permissions"
 
 test("teamNameValidation accepts the product naming rules", () => {
   assert.equal(teamNameValidation(""), "empty")
@@ -64,7 +65,7 @@ test("teamRole prefers the role returned by the team schema", () => {
     joined: [
       {
         ...team("managed", "other"),
-        role: "creator",
+        role: "admin",
       },
       {
         ...team("owned", "account-a"),
@@ -73,7 +74,7 @@ test("teamRole prefers the role returned by the team schema", () => {
     ],
   })
 
-  assert.equal(teamRole(overview, overview.joined[0] ?? null), "creator")
+  assert.equal(teamRole(overview, overview.joined[0] ?? null), "admin")
   assert.equal(teamRole(overview, overview.joined[1] ?? null), "member")
 })
 
@@ -97,6 +98,15 @@ test("teamCanManage prefers writable and falls back to role", () => {
         ...team("schema-creator", "other"),
         role: "creator",
       },
+      {
+        ...team("schema-admin", "other"),
+        role: "admin",
+      },
+      {
+        ...team("readonly-admin", "other"),
+        role: "admin",
+        writable: false,
+      },
       team("legacy-owned", "account-a"),
       created,
     ],
@@ -106,7 +116,20 @@ test("teamCanManage prefers writable and falls back to role", () => {
   assert.equal(teamCanManage(overview, overview.joined[1] ?? null), false)
   assert.equal(teamCanManage(overview, overview.joined[2] ?? null), true)
   assert.equal(teamCanManage(overview, overview.joined[3] ?? null), true)
-  assert.equal(teamCanManage(overview, overview.joined[4] ?? null), true)
+  assert.equal(teamCanManage(overview, overview.joined[4] ?? null), false)
+  assert.equal(teamCanManage(overview, overview.joined[5] ?? null), true)
+  assert.equal(teamCanManage(overview, overview.joined[6] ?? null), true)
+})
+
+test("team role helpers classify managers, labels, and default connection access", () => {
+  assert.equal(isTeamManagerRole("creator"), true)
+  assert.equal(isTeamManagerRole("admin"), true)
+  assert.equal(isTeamManagerRole("member"), false)
+  assert.equal(teamRoleHasDefaultConnectionAccess("admin"), true)
+  assert.equal(teamRoleHasDefaultConnectionAccess("member"), false)
+  assert.equal(teamRoleLabelKey("creator"), "teams.roleCreator")
+  assert.equal(teamRoleLabelKey("admin"), "teams.roleAdmin")
+  assert.equal(teamRoleLabelKey("member"), "teams.roleMember")
 })
 
 test("buildMemberViews and buildGrantViews decorate users, status, and provider labels", () => {
@@ -149,7 +172,7 @@ test("buildMemberViews and buildGrantViews decorate users, status, and provider 
   })
 })
 
-test("buildTeamMemberViews falls back to creator and current account", () => {
+test("buildTeamMemberViews falls back to creator and preserves the current admin role", () => {
   const selectedTeam = {
     ...team("team-a", "creator-a"),
     role: "member",
@@ -160,7 +183,7 @@ test("buildTeamMemberViews falls back to creator and current account", () => {
       id: "account-a",
       name: "Current User",
     },
-    accountRole: "member",
+    accountRole: "admin",
     members: [],
     team: selectedTeam,
     summaries: {},
@@ -170,7 +193,7 @@ test("buildTeamMemberViews falls back to creator and current account", () => {
     members.map((member) => ({ displayName: member.displayName, role: member.role, user_id: member.user_id })),
     [
       { displayName: "creator-a", role: "creator", user_id: "creator-a" },
-      { displayName: "Current User", role: "member", user_id: "account-a" },
+      { displayName: "Current User", role: "admin", user_id: "account-a" },
     ],
   )
   assert.equal(members[1]?.avatar, "https://avatar.example/me.png")

@@ -1,18 +1,25 @@
 import type { WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 import type { BillingRequestScope } from "@/lib/billing-client"
 
-export function canManageTeamBilling(workspace: WorkspaceSelection): boolean {
-  return workspace.canManage && Boolean(workspace.team?.name.trim())
+import { isTeamManagerRole } from "@/lib/team-permissions"
+
+export function canReadTeamSubscriptionForWorkspace(workspace: WorkspaceSelection): boolean {
+  return isTeamManagerRole(workspace.role) && Boolean(workspace.team?.name.trim())
 }
 
-/** 团队计划/用量跟随工作区；个人余额仅由团队创建者读取和充值。 */
+export function canManageTeamSubscriptionForWorkspace(workspace: WorkspaceSelection): boolean {
+  return workspace.role === "creator" && Boolean(workspace.team?.name.trim())
+}
+
+/** Team plans and usage follow the workspace; only the creator can read or fund the personal wallet. */
 export function billingRequestScopeForWorkspace(workspace: WorkspaceSelection): BillingRequestScope | null {
   if (!workspace.team?.name.trim()) {
     return null
   }
   return {
-    canManageBilling: workspace.canManage,
+    canManageTeamSubscription: canManageTeamSubscriptionForWorkspace(workspace),
     canManageFunding: workspace.role === "creator",
+    canReadTeamSubscription: canReadTeamSubscriptionForWorkspace(workspace),
     teamId: workspace.teamId,
     teamName: workspace.team.name,
   }

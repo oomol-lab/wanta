@@ -25,6 +25,8 @@ test("only explicit high-cost Node runtimes require package confirmation", () =>
   }
 
   assert.equal(dependencyCommandRequiresConfirmation("npx --yes playwright --version"), true)
+  assert.equal(dependencyCommandRequiresConfirmation("npm x playwright --version"), true)
+  assert.equal(dependencyCommandRequiresConfirmation("bun x playwright --version"), true)
   assert.equal(dependencyCommandRequiresConfirmation("pnpm dlx puppeteer --help"), true)
   assert.equal(dependencyCommandRequiresConfirmation("npm exec --package=@playwright/test playwright test"), true)
   assert.equal(dependencyCommandRequiresConfirmation("npx --package=playwright node -e 'console.log(1)'"), true)
@@ -47,9 +49,11 @@ test("package runner arguments are not mistaken for alternate package sources", 
   for (const runner of [
     "npx md-to-pdf",
     "npm exec md-to-pdf --",
+    "npm x md-to-pdf --",
     "pnpm dlx md-to-pdf",
     "yarn dlx md-to-pdf",
     "bunx md-to-pdf",
+    "bun x md-to-pdf",
   ]) {
     const command = `cd "/Users/test/Library/Application Support/wanta/agent/process/task" && ${runner} ${fileArguments} 2>&1`
     assert.equal(dependencyCommandRequiresConfirmation(command), false, runner)
@@ -57,9 +61,11 @@ test("package runner arguments are not mistaken for alternate package sources", 
   for (const command of [
     "npx ./local-tool input.md --output output.pdf",
     "npm exec https://example.test/tool.tgz -- input.md",
+    "npm x https://example.test/tool.tgz -- input.md",
     "pnpm dlx github:vendor/tool input.md",
     "yarn dlx ../local-tool input.md",
     "bunx file:../local-tool input.md",
+    "bun x file:../local-tool input.md",
     "npx -p https://example.test/tool.tgz tool ./input.md",
   ]) {
     assert.equal(dependencyCommandRequiresConfirmation(command), true, command)
@@ -120,4 +126,5 @@ test("command composition and environment prefixes do not hide dependency bounda
   assert.equal(isDependencyMutationCommand("zsh -c 'python3 -m pip install weasyprint'"), true)
   assert.equal(dependencyCommandRequiresConfirmation("node -e 'console.log(\"npm publish\")'"), false)
   assert.equal(dependencyCommandRequiresConfirmation("npm exec echo -- publish"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("bun exec 'echo playwright'"), false)
 })

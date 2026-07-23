@@ -35,10 +35,10 @@ Node.js installs qualify when all of these conditions hold:
   aliases, and unknown flags do not enter the automatic direct-install path. A no-argument install in
   a selected project can still receive a task-scoped approval.
 
-Package runners such as `npx`, `npm exec`, `pnpm dlx`, `yarn dlx`, and `bunx` are ordinary local
-execution under Default Access. Wanta does not maintain per-runner exceptions for `--version`,
-`--help`, conversion, or formatting arguments. They still stop when the command crosses an
-independent protected boundary. The classifier separates the runner's own options and selected
+Package runners such as `npx`, `npm exec` / `npm x`, `pnpm dlx`, `yarn dlx`, and `bunx` / `bun x`
+are ordinary local execution under Default Access. Wanta does not maintain per-runner exceptions for
+`--version`, `--help`, conversion, or formatting arguments. They still stop when the command crosses
+an independent protected boundary. The classifier separates the runner's own options and selected
 package from the arguments passed to the resulting executable. A Markdown input path, stylesheet,
 PDF output path, or an executable-specific `--registry` argument therefore cannot be mistaken for a
 local package source or package-manager registry override.

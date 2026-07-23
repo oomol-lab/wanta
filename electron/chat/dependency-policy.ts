@@ -157,10 +157,17 @@ function packageRunnerStart(words: readonly string[]): number | undefined {
     return 1
   }
   const command = nodeManagerCommand(words)
-  if (name === "npm" && command?.value.toLowerCase() === "exec") {
+  if (!command) {
+    return undefined
+  }
+  const verb = command.value.toLowerCase()
+  if (name === "npm" && (verb === "exec" || verb === "x")) {
     return command.index + 1
   }
-  if ((name === "pnpm" || name === "yarn") && command?.value.toLowerCase() === "dlx") {
+  if (name === "bun" && verb === "x") {
+    return command.index + 1
+  }
+  if ((name === "pnpm" || name === "yarn") && verb === "dlx") {
     return command.index + 1
   }
   return undefined

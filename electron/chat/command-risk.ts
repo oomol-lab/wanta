@@ -2,6 +2,7 @@ import { effectiveShellCommandWords, shellCommandName, shellWords, topLevelShell
 
 const wrapperCommands = new Set(["builtin", "command", "exec", "nohup", "time"])
 const shellCommands = new Set(["bash", "sh", "zsh"])
+const scriptInterpreterCommands = new Set(["bun", "deno", "lua", "node", "perl", "php", "python", "python3", "ruby"])
 const gitOptionsWithValue = new Set(["-C", "-c", "--config-env", "--git-dir", "--namespace", "--work-tree"])
 const containerOptionsWithValue = new Set(["--config", "--context", "--host", "-H"])
 const clusterOptionsWithValue = new Set([
@@ -242,6 +243,11 @@ export function commandRequiresConfirmation(command: string, depth = 0): boolean
     }
     const source = shellCommandName(words[0])
     const target = shellCommandName(commands[index + 1]?.[0])
-    return Boolean(source && target && ["curl", "wget"].includes(source) && shellCommands.has(target))
+    return Boolean(
+      source &&
+      target &&
+      ["curl", "wget"].includes(source) &&
+      (shellCommands.has(target) || scriptInterpreterCommands.has(target)),
+    )
   })
 }

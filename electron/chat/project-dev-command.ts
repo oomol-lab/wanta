@@ -372,7 +372,7 @@ function commandExplicitlyTargetsProject(command: string, projectRoot: string): 
   for (let index = 1; index < words.length; index += 1) {
     const word = words[index]
     const option = optionName(word)
-    if (!["-C", "--cwd", "--dir", "--prefix"].includes(option)) {
+    if (!projectTargetOptions.has(option)) {
       continue
     }
     const directory = word.includes("=") ? optionValue(word) : words[index + 1]
@@ -387,7 +387,7 @@ function commandLikelyTargetsAProject(command: string): boolean {
     return Boolean(explicitCdDirectory(split.left))
   }
   const words = shellWords(command)
-  return Boolean(words?.some((word) => ["-C", "--cwd", "--dir", "--prefix"].includes(optionName(word))))
+  return Boolean(words?.some((word) => projectTargetOptions.has(optionName(word))))
 }
 
 function directDevCommandAllowed(words: readonly string[]): boolean {

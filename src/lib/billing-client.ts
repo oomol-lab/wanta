@@ -568,8 +568,11 @@ export async function getBillingOverview(
   }
   return {
     balance: balance.status === "fulfilled" && balance.value ? filterGeneralCreditUsages(balance.value) : null,
+    balanceAvailable: balance.status === "fulfilled",
     spend: spend.status === "fulfilled" ? spend.value : null,
+    spendAvailable: spend.status === "fulfilled",
     metering: metering.status === "fulfilled" ? metering.value : null,
+    meteringAvailable: metering.status === "fulfilled",
     subscription: subscription.status === "fulfilled" ? subscription.value : null,
     subscriptionAvailable: subscription.status === "fulfilled",
     teamPendingPayment: teamPendingPayment.status === "fulfilled" ? teamPendingPayment.value : null,

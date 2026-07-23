@@ -18,8 +18,11 @@ afterEach(() => {
 function emptyBillingOverview(): BillingOverviewResult {
   return {
     balance: null,
+    balanceAvailable: true,
     metering: null,
+    meteringAvailable: true,
     spend: null,
+    spendAvailable: true,
     subscription: null,
     subscriptionAvailable: true,
     teamPendingPayment: null,

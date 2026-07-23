@@ -444,6 +444,30 @@ describe("billing-client", () => {
     expect(overview.teamPendingPaymentAvailable).toBe(false)
   })
 
+  it("distinguishes unavailable spend data from confirmed zero usage", async () => {
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = urlOf(input)
+      if (url.pathname === "/v1/balance/available") {
+        return Response.json({ data: { items: [], total: { currentCredit: "5", originalCredit: "5" } } })
+      }
+      if (url.pathname === "/v2/stats/billing") {
+        return new Response("unavailable", { status: 503 })
+      }
+      if (url.pathname === "/v2/stats/metering") {
+        return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0 } } })
+      }
+      return Response.json({ data: null, success: true })
+    })
+
+    const overview = await getBillingOverview(30, teamScope)
+
+    expect(overview.balanceAvailable).toBe(true)
+    expect(overview.spendAvailable).toBe(false)
+    expect(overview.spend).toBeNull()
+    expect(overview.meteringAvailable).toBe(true)
+    expect(overview.metering?.total.eventCount).toBe(0)
+  })
+
   it("adapts the V2 team stats series (no subject) into the usage DTO", async () => {
     const statsRequests: { path: string; granularity: string | null; hasOrgHeader: boolean }[] = []
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {

@@ -809,8 +809,11 @@ export interface TeamPendingPaymentResult {
 
 export interface BillingOverviewResult {
   balance: CreditUsages | null
+  balanceAvailable: boolean
   spend: BillingSpendStats | null
+  spendAvailable: boolean
   metering: BillingSpendStats | null
+  meteringAvailable: boolean
   subscription: SubscriptionStatus | null
   subscriptionAvailable: boolean
   teamPendingPayment: TeamPendingPaymentResult | null

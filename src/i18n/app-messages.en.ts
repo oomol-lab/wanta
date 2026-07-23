@@ -558,6 +558,9 @@ export const enMessages = {
   "billing.popover.loadFailed": "Unable to read usage right now",
   "billing.popover.coverageDays": "About {days} days left",
   "billing.popover.periodSpend": "Last 30 days spent {amount}",
+  "billing.popover.noUsageTitle": "No spend in the last 30 days",
+  "billing.popover.noUsageDescription":
+    "No model, built-in API, or connector charges yet. Usage will appear here after you get started.",
   "billing.popover.creditSources": "{count} balance source(s)",
   "billing.popover.availableSources": "{count} available",
   "billing.popover.planSeats": "Member capacity {count}/{limit}",
@@ -591,6 +594,7 @@ export const enMessages = {
   "billing.coverageStable": "Low recent spend",
   "billing.periodSpend": "Period spend",
   "billing.averageDaily": "Daily avg {amount}",
+  "billing.usageUnavailable": "Usage unavailable",
   "billing.modelSpend": "Model spend",
   "billing.callCount": "Calls",
   "billing.categoryTitle": "Usage categories",

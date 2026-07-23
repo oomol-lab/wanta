@@ -86,6 +86,10 @@ export function BillingRoute({
   const totalEvents = categoryEventTotal > 0 ? categoryEventTotal : statsTotalEvents(data?.metering)
   const currentCredit = toNumber(data?.balance?.total.currentCredit)
   const originalCredit = toNumber(data?.balance?.total.originalCredit)
+  const balanceAvailable = data?.balanceAvailable === true
+  const spendAvailable = data?.spendAvailable === true
+  const meteringAvailable = data?.meteringAvailable === true
+  const hasNoUsage = spendAvailable && totalSpend === 0
   const modelSpend = getSummary(summaries, "model").credit
   const billingContext = React.useMemo(
     () =>
@@ -196,12 +200,16 @@ export function BillingRoute({
   const balanceOverview = (
     <BalanceOverview
       averageDailySpend={averageDailySpend}
+      balanceAvailable={balanceAvailable}
       modelSpend={modelSpend}
       coverageDays={coverageDays}
       showCoverageDays={showCoverageDays}
       currentCredit={currentCredit}
       canManageFunding={canManageFunding}
+      hasNoUsage={hasNoUsage}
       loading={(loading && !data) || isSessionExpired}
+      meteringAvailable={meteringAvailable}
+      spendAvailable={spendAvailable}
       totalEvents={totalEvents}
       totalSpend={totalSpend}
       availableShare={availableShare}

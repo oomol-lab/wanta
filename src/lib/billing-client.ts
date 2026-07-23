@@ -27,9 +27,7 @@ const dayMs = 24 * 60 * 60 * 1000
 const billingRequestTimeoutMs = 12_000
 const billingOptionalRequestSoftTimeoutMs = 3_000
 const billingCreditUsagesMaxPages = 100
-// Insight's V2 team stats route rejects daily windows wider than 30 days (HTTP 400); clamp here so a
-// caller passing a raw number (getBillingOverview takes number, the BillingPeriodDays union does not
-// bind it) can never send an out-of-contract window. See BillingPeriodDays in electron/chat/common.ts.
+// Keep usage windows bounded even when a caller passes a raw number outside BillingPeriodDays.
 const statsMaxWindowDays = 30
 export const teamSubscriptionPlans: readonly TeamSubscriptionPlan[] = ["team_plus", "team_pro"]
 
@@ -398,9 +396,6 @@ function fetchAuthenticatedJson(url: URL, scope?: BillingRequestScope, signal?: 
 }
 
 export async function getCreditBalance(scope: BillingRequestScope, signal?: AbortSignal): Promise<CreditBalanceResult> {
-  if (!scope.canManageFunding) {
-    throw new Error("The team funding account is managed by its creator.")
-  }
   const url = new URL("/v1/balance/available", insightBaseUrl)
   return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url, undefined, signal)))
 }
@@ -436,18 +431,24 @@ async function getAllCreditUsages(signal?: AbortSignal): Promise<CreditUsages> {
   return { ...firstPage, items, nextToken: undefined }
 }
 
-// Team usage stats moved to insight's V2 team route: the team is addressed by a URL path segment
-// (/v2/stats/team/:teamId/*), not the legacy x-oo-organization-name header — so these calls send no
-// team header and rely on the gateway/policy-server to authorize the caller against the path teamId.
-// utcOffset is omitted (server default 0 = UTC), matching the previous V1 default and the UTC day
-// bucketing in the usage view. Request auth is the same session cookie used by every other call (R4).
+const meteringExcludeSubjects = [
+  "SERVICE_OOMOL_CONNECTOR:service-fusion-api-free",
+  "SERVICE_OOMOL_CONNECTOR:service-fusion-api",
+  "SERVICE_OOMOL_CONNECTOR:fusion-api",
+  "SERVICE_AUTH_LINK:service-fusion-api-free",
+  "SERVICE_AUTH_LINK:service-fusion-api",
+  "SERVICE_AUTH_LINK:fusion-api",
+].join(",")
+
+// Insight V2 billing data is personal account data. Team identity deliberately does not participate:
+// team plans/seats are workspace-scoped, while balance and charged usage belong to the signed-in user.
 async function getCreditSpendStats(
   days: number,
-  scope: BillingRequestScope,
+  _scope: BillingRequestScope,
   signal?: AbortSignal,
 ): Promise<BillingSpendStats> {
   const { endTime, startTime } = statsRange(days)
-  const url = new URL(`/v2/stats/team/${encodeURIComponent(scope.teamId)}/billing`, insightBaseUrl)
+  const url = new URL("/v2/stats/billing", insightBaseUrl)
   url.searchParams.set("granularity", "daily")
   url.searchParams.set("startTime", String(startTime))
   url.searchParams.set("endTime", String(endTime))
@@ -456,14 +457,15 @@ async function getCreditSpendStats(
 
 async function getCreditMeteringStats(
   days: number,
-  scope: BillingRequestScope,
+  _scope: BillingRequestScope,
   signal?: AbortSignal,
 ): Promise<BillingSpendStats> {
   const { endTime, startTime } = statsRange(days)
-  const url = new URL(`/v2/stats/team/${encodeURIComponent(scope.teamId)}/metering`, insightBaseUrl)
+  const url = new URL("/v2/stats/metering", insightBaseUrl)
   url.searchParams.set("granularity", "daily")
   url.searchParams.set("startTime", String(startTime))
   url.searchParams.set("endTime", String(endTime))
+  url.searchParams.set("excludeSubjects", meteringExcludeSubjects)
   return adaptTeamStatsResponse(await fetchAuthenticatedJson(url, undefined, signal))
 }
 
@@ -530,9 +532,9 @@ export async function getBillingOverview(
   scope: BillingRequestScope,
   signal?: AbortSignal,
 ): Promise<BillingOverviewResult> {
-  // Team 计划和统计按团队读取；现有用量钱包属于团队创建者个人，不能带团队 header 查询不存在的团队余额。
-  // 普通成员也不能退化为查询自己的个人余额，否则会把错误的付款账户展示成团队可用额度。
-  const balancePromise = scope.canManageFunding ? getAllCreditUsages(signal) : Promise.resolve(null)
+  // Team plan details follow the workspace. Balance, spend, and metering are always the signed-in
+  // user's personal account, matching Console and the identity used by Wanta's built-in model calls.
+  const balancePromise = getAllCreditUsages(signal)
   const spendPromise = getCreditSpendStats(days, scope, signal)
   const meteringPromise = getCreditMeteringStats(days, scope, signal)
   const detailsRequest = optionalBillingSignal(signal)
@@ -553,9 +555,7 @@ export async function getBillingOverview(
   logSettledFailure("metering", metering)
   logSettledFailure("subscription", subscription)
   logSettledFailure("team pending payment", teamPendingPayment)
-  const criticalResults: PromiseSettledResult<unknown>[] = scope.canManageFunding
-    ? [balance, spend, metering]
-    : [spend, metering]
+  const criticalResults: PromiseSettledResult<unknown>[] = [balance, spend, metering]
   const authFailure = criticalResults.find(
     (result) => result.status === "rejected" && isBillingAuthRequiredReason(result.reason),
   )

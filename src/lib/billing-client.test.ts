@@ -96,7 +96,7 @@ describe("billing-client", () => {
       } else if (url.hostname === "insight.oomol.com") {
         // Team usage now scopes via the /v2/stats/team/:teamId/* path, not the legacy org-name header.
         expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
-        expect(url.pathname).toMatch(/^\/v2\/stats\/team\/team-1\/(billing|metering)$/)
+        expect(url.pathname).toMatch(/^\/v2\/stats\/(billing|metering)$/)
       }
       if (url.pathname === "/v1/balance/available") {
         return Response.json({
@@ -107,7 +107,7 @@ describe("billing-client", () => {
           },
         })
       }
-      if (url.pathname === "/v2/stats/team/team-1/billing" || url.pathname === "/v2/stats/team/team-1/metering") {
+      if (url.pathname === "/v2/stats/billing" || url.pathname === "/v2/stats/metering") {
         return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
       }
       if (url.pathname === "/api/org/team-1/subscriptions") {
@@ -180,9 +180,9 @@ describe("billing-client", () => {
     })
 
     expect(paths.some((path) => path.startsWith("/api/org/"))).toBe(false)
-    expect(paths).not.toContain("/v1/balance/available")
+    expect(paths).toContain("/v1/balance/available")
     expect(paths).not.toContain("/api/user/subscriptions")
-    expect(summary.balance).toBeNull()
+    expect(summary.balance).not.toBeNull()
     expect(summary.subscription).toBeNull()
     expect(summary.teamPendingPayment).toBeNull()
     expect(summary.subscriptionAvailable).toBe(true)
@@ -213,10 +213,10 @@ describe("billing-client", () => {
 
     expect(paths).toContain("/api/org/team-1/subscriptions")
     expect(paths).toContain("/api/team/team-1/subscriptions/team/pending_payment")
-    expect(paths).not.toContain("/v1/balance/available")
+    expect(paths).toContain("/v1/balance/available")
     expect(paths).not.toContain("/api/user/subscriptions")
     expect(summary.subscription?.plan).toBe("team_plus")
-    expect(summary.balance).toBeNull()
+    expect(summary.balance).not.toBeNull()
   })
 
   it("surfaces member session expiry from team usage without reading a personal balance", async () => {
@@ -238,7 +238,7 @@ describe("billing-client", () => {
     )
 
     expect(error.message).toBe(billingAuthRequiredMessage)
-    expect(paths).not.toContain("/v1/balance/available")
+    expect(paths).toContain("/v1/balance/available")
   })
 
   it("resolves the console top-up checkout URL", async () => {
@@ -276,22 +276,19 @@ describe("billing-client", () => {
     expect(result).toEqual({ balance: "$7.5", hasCredits: true })
   })
 
-  it("does not expose the signed-in member's personal balance as team funding", async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal("fetch", fetchMock)
-
-    const error = await rejection(() =>
+  it("lets a signed-in member read their own personal balance", async () => {
+    vi.stubGlobal("fetch", async () =>
+      Response.json({ data: { items: [], total: { currentCredit: "4", originalCredit: "5" } } }),
+    )
+    await expect(
       getCreditBalance({
-        canManageFunding: false,
+        canManageFunding: true,
         canManageTeamSubscription: false,
         canReadTeamSubscription: false,
         teamId: "team-1",
         teamName: "acme",
       }),
-    )
-
-    expect(error.message).toContain("managed by its creator")
-    expect(fetchMock).not.toHaveBeenCalled()
+    ).resolves.toEqual({ balance: "$4", hasCredits: true })
   })
 
   it("posts complete Team plan changes", async () => {
@@ -425,10 +422,10 @@ describe("billing-client", () => {
           },
         })
       }
-      if (url.pathname === "/v2/stats/team/team-1/billing") {
+      if (url.pathname === "/v2/stats/billing") {
         return Response.json({ data: { items: [], sourceTotals: {}, total: { totalCredit: "2" } } })
       }
-      if (url.pathname === "/v2/stats/team/team-1/metering") {
+      if (url.pathname === "/v2/stats/metering") {
         return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 4 } } })
       }
       return new Promise<Response>(() => undefined)
@@ -461,7 +458,7 @@ describe("billing-client", () => {
           hasOrgHeader: new Headers(init?.headers).get("x-oo-organization-name") !== null,
         })
       }
-      if (url.pathname === "/v2/stats/team/team-1/billing") {
+      if (url.pathname === "/v2/stats/billing") {
         return Response.json({
           data: {
             granularity: "daily",
@@ -471,7 +468,7 @@ describe("billing-client", () => {
           },
         })
       }
-      if (url.pathname === "/v2/stats/team/team-1/metering") {
+      if (url.pathname === "/v2/stats/metering") {
         return Response.json({
           data: {
             granularity: "daily",
@@ -511,10 +508,7 @@ describe("billing-client", () => {
     expect(overview.metering?.total.eventCount).toBe(7)
 
     // Both team stats calls hit the path-scoped V2 route with daily granularity and no org-name header.
-    expect(statsRequests.map((request) => request.path).sort()).toEqual([
-      "/v2/stats/team/team-1/billing",
-      "/v2/stats/team/team-1/metering",
-    ])
+    expect(statsRequests.map((request) => request.path).sort()).toEqual(["/v2/stats/billing", "/v2/stats/metering"])
     expect(statsRequests.every((request) => request.granularity === "daily")).toBe(true)
     expect(statsRequests.some((request) => request.hasOrgHeader)).toBe(false)
   })
@@ -526,7 +520,7 @@ describe("billing-client", () => {
     const windows: number[] = []
     vi.stubGlobal("fetch", async (input: string | URL | Request) => {
       const url = urlOf(input)
-      if (url.hostname === "insight.oomol.com" && url.pathname.startsWith("/v2/stats/team/")) {
+      if (url.hostname === "insight.oomol.com" && url.pathname.startsWith("/v2/stats/")) {
         const startTime = Number(url.searchParams.get("startTime"))
         const endTime = Number(url.searchParams.get("endTime"))
         windows.push((endTime - startTime) / (24 * 60 * 60 * 1000))

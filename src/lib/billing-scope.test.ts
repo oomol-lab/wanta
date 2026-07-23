@@ -39,7 +39,7 @@ describe("billingRequestScopeForWorkspace", () => {
     }
 
     expect(billingRequestScopeForWorkspace(workspace)).toMatchObject({
-      canManageFunding: false,
+      canManageFunding: true,
       canManageTeamSubscription: false,
       canReadTeamSubscription: true,
     })
@@ -60,7 +60,7 @@ describe("billingRequestScopeForWorkspace", () => {
     }
 
     expect(billingRequestScopeForWorkspace(workspace)).toMatchObject({
-      canManageFunding: false,
+      canManageFunding: true,
       canManageTeamSubscription: false,
       canReadTeamSubscription: false,
     })

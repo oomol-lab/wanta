@@ -87,6 +87,7 @@ export function BillingUsagePopover({
   const averageDailySpend = totalSpend / usagePeriodDays
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const modelSpend = getSummary(summaries, "model").credit
+  const apiSpend = getSummary(summaries, "api").credit
   const connectorSpend = getSummary(summaries, "link").credit
   const showTeamPlanSection = canReadTeamSubscriptionForWorkspace(workspace)
   const seatCountAvailable = seatState.count !== null && !seatState.error
@@ -325,8 +326,9 @@ export function BillingUsagePopover({
                   </div>
                 </section>
 
-                <section className="grid grid-cols-2 gap-3">
+                <section className="grid grid-cols-3 gap-2">
                   <UsageMiniMetric label={t("billing.modelSpend")} value={formatCredit(modelSpend)} />
+                  <UsageMiniMetric label={t("billing.category.api")} value={formatCredit(apiSpend)} />
                   <UsageMiniMetric label={t("billing.category.link")} value={formatCredit(connectorSpend)} />
                 </section>
               </>

@@ -5,8 +5,26 @@ export function mergeTeamUpdate(current: Team, updated: Team): Team {
     ...current,
     ...updated,
     role: updated.role ?? current.role,
+    system_created: updated.system_created ?? current.system_created,
     writable: updated.writable ?? current.writable,
   }
+}
+
+export function sortSystemCreatedTeamFirst(teams: readonly Team[]): Team[] {
+  return [...teams].sort((left, right) => Number(Boolean(right.system_created)) - Number(Boolean(left.system_created)))
+}
+
+export function mergeWorkspaceTeams(overview: TeamOverview | null): Team[] {
+  if (!overview) {
+    return []
+  }
+
+  const merged = new Map<string, Team>()
+  for (const team of [...overview.created, ...overview.joined]) {
+    const existing = merged.get(team.id)
+    merged.set(team.id, existing ? mergeTeamUpdate(existing, team) : team)
+  }
+  return sortSystemCreatedTeamFirst([...merged.values()])
 }
 
 export function upsertOverviewTeam(overview: TeamOverview | null, team: Team): TeamOverview | null {
@@ -48,5 +66,5 @@ export function resolveTeamSelection(selectedTeamId: string | null, teams: reado
   if (selectedTeamId && teams.some((team) => team.id === selectedTeamId)) {
     return selectedTeamId
   }
-  return teams[0]?.id ?? null
+  return teams.find((team) => team.system_created)?.id ?? teams[0]?.id ?? null
 }

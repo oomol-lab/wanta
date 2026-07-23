@@ -206,7 +206,12 @@ export function ArtifactPreview({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div
+        className={cn(
+          "min-h-0 flex-1",
+          activeMode === "preview" && preview?.kind === "pdf" ? "overflow-hidden" : "overflow-auto",
+        )}
+      >
         {activeMode === "info" ? (
           <ArtifactInfo item={item} group={group} />
         ) : loading ? (

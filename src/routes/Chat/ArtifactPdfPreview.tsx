@@ -1,38 +1,32 @@
-import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs-dist"
+import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist"
 
 import { ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react"
 import * as pdfjs from "pdfjs-dist"
-import { EventBus, LinkTarget, SimpleLinkService } from "pdfjs-dist/web/pdf_viewer.mjs"
+import { EventBus, LinkTarget, PDFLinkService, PDFViewer, ScrollMode } from "pdfjs-dist/web/pdf_viewer.mjs"
 import * as React from "react"
+import {
+  adjacentPdfPage,
+  pdfMaxScale,
+  pdfMinScale,
+  pdfScaleStep,
+  steppedPdfScale,
+} from "./artifact-pdf-preview-model.ts"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import "pdfjs-dist/web/pdf_viewer.css"
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString()
 
-const minScale = 0.5
-const maxScale = 2
-const scaleStep = 0.1
-const defaultPageAspectRatio = 1.414
-const maxDevicePixelRatio = 2
-const resizeRenderDelayMs = 140
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
-}
-
-function pageWidthForContainer(containerWidth: number, scale: number): number {
-  return Math.round(Math.max(320, Math.min(920, containerWidth - 32)) * scale)
-}
-
 function isCancellation(error: unknown): boolean {
   return error instanceof Error && (error.name === "RenderingCancelledException" || error.name === "AbortException")
 }
 
-interface RenderedPageMetrics {
-  height: number
+interface PageChangingEvent {
   pageNumber: number
-  width: number
+}
+
+interface ScaleChangingEvent {
+  scale: number
 }
 
 export default function ArtifactPdfPreview({
@@ -45,301 +39,160 @@ export default function ArtifactPdfPreview({
   onResourceError?: () => void
 }) {
   const t = useT()
-  const containerRef = React.useRef<HTMLDivElement | null>(null)
-  const canvasRefs = React.useRef<[HTMLCanvasElement | null, HTMLCanvasElement | null]>([null, null])
-  const textLayerRefs = React.useRef<[HTMLDivElement | null, HTMLDivElement | null]>([null, null])
-  const annotationLayerRefs = React.useRef<[HTMLDivElement | null, HTMLDivElement | null]>([null, null])
-  const activeBufferRef = React.useRef<0 | 1>(0)
-  const documentTaskRef = React.useRef<PDFDocumentLoadingTask | null>(null)
-  const renderTaskRef = React.useRef<RenderTask | null>(null)
-  const linkServiceRef = React.useRef<SimpleLinkService | null>(null)
-  const renderGenerationRef = React.useRef(0)
-  const renderedPageWidthRef = React.useRef<number | null>(null)
-  const resizeRenderTimerRef = React.useRef<number | null>(null)
-  const measuredContainerRef = React.useRef(false)
-  const containerWidthRef = React.useRef<number | null>(null)
-  const scaleRef = React.useRef(1)
-  const [activeBuffer, setActiveBuffer] = React.useState<0 | 1>(0)
+  const scrollContainerRef = React.useRef<HTMLDivElement | null>(null)
+  const pagesContainerRef = React.useRef<HTMLDivElement | null>(null)
+  const viewerRef = React.useRef<PDFViewer | null>(null)
+  const fitToWidthRef = React.useRef(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
+  const [loading, setLoading] = React.useState(true)
   const [numPages, setNumPages] = React.useState(0)
   const [pageNumber, setPageNumber] = React.useState(1)
   const [scale, setScale] = React.useState(1)
-  const [containerWidth, setContainerWidth] = React.useState<number | null>(null)
-  const [document, setDocument] = React.useState<PDFDocumentProxy | null>(null)
-  const [renderedPage, setRenderedPage] = React.useState<RenderedPageMetrics | null>(null)
-  const [renderedPageWidth, setRenderedPageWidth] = React.useState<number | null>(null)
-  const [pageAspectRatio, setPageAspectRatio] = React.useState(defaultPageAspectRatio)
-  const currentRenderedPage = renderedPage?.pageNumber === pageNumber ? renderedPage : null
-  const pageWidth = containerWidth === null ? null : pageWidthForContainer(containerWidth, scale)
-  const pageHeight = pageWidth === null ? 0 : Math.round(pageWidth * pageAspectRatio)
-  const visualScale =
-    pageWidth !== null && currentRenderedPage !== null && currentRenderedPage.width > 0
-      ? pageWidth / currentRenderedPage.width
-      : 1
-  const pageReady = pageWidth !== null && renderedPageWidth !== null
-  const loading = !loadFailed && (!document || !currentRenderedPage)
-
-  const clearPendingRenderedWidth = React.useCallback(() => {
-    if (resizeRenderTimerRef.current !== null) {
-      window.clearTimeout(resizeRenderTimerRef.current)
-      resizeRenderTimerRef.current = null
-    }
-  }, [])
-
-  const commitRenderedWidth = React.useCallback(
-    (nextWidth: number, delayMs: number) => {
-      if (!Number.isFinite(nextWidth) || nextWidth <= 0) {
-        return
-      }
-      const roundedWidth = Math.round(nextWidth)
-      if (renderedPageWidthRef.current === roundedWidth && resizeRenderTimerRef.current === null) {
-        clearPendingRenderedWidth()
-        return
-      }
-      clearPendingRenderedWidth()
-      if (delayMs <= 0) {
-        renderedPageWidthRef.current = roundedWidth
-        setRenderedPageWidth(roundedWidth)
-        return
-      }
-      resizeRenderTimerRef.current = window.setTimeout(() => {
-        renderedPageWidthRef.current = roundedWidth
-        setRenderedPageWidth(roundedWidth)
-        resizeRenderTimerRef.current = null
-      }, delayMs)
-    },
-    [clearPendingRenderedWidth],
-  )
 
   React.useEffect(() => {
-    const container = containerRef.current
-    if (!container) {
+    const scrollContainer = scrollContainerRef.current
+    const pagesContainer = pagesContainerRef.current
+    if (!scrollContainer || !pagesContainer) {
       return
     }
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width
-      if (width && Number.isFinite(width)) {
-        const roundedWidth = Math.round(width)
-        containerWidthRef.current = roundedWidth
-        setContainerWidth((current) => (current === roundedWidth ? current : roundedWidth))
-        commitRenderedWidth(
-          pageWidthForContainer(roundedWidth, scaleRef.current),
-          measuredContainerRef.current ? resizeRenderDelayMs : 0,
-        )
-        measuredContainerRef.current = true
-      }
+
+    let cancelled = false
+    let pagesInitialized = false
+    let resizeFrame: number | null = null
+    const abortController = new AbortController()
+    const eventBus = new EventBus()
+    const linkService = new PDFLinkService({
+      eventBus,
+      externalLinkRel: "noopener noreferrer nofollow",
+      externalLinkTarget: LinkTarget.BLANK,
     })
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [commitRenderedWidth])
-
-  React.useEffect(() => {
-    scaleRef.current = scale
-  }, [scale])
-
-  React.useEffect(() => clearPendingRenderedWidth, [clearPendingRenderedWidth])
-
-  React.useEffect(() => {
-    const generation = ++renderGenerationRef.current
-    renderTaskRef.current?.cancel()
-    documentTaskRef.current?.destroy()
-    clearPendingRenderedWidth()
-    setActiveBuffer(0)
-    activeBufferRef.current = 0
-    setDocument(null)
-    linkServiceRef.current = null
+    const viewerOptions = {
+      abortSignal: abortController.signal,
+      container: scrollContainer,
+      eventBus,
+      linkService,
+      viewer: pagesContainer,
+    }
+    const viewer = new PDFViewer(viewerOptions)
+    viewer.scrollMode = ScrollMode.VERTICAL
+    linkService.setViewer(viewer)
+    viewerRef.current = viewer
+    fitToWidthRef.current = true
     setLoadFailed(false)
+    setLoading(true)
     setNumPages(0)
     setPageNumber(1)
-    setRenderedPage(null)
     setScale(1)
-    scaleRef.current = 1
-    setPageAspectRatio(defaultPageAspectRatio)
-    const measuredWidth = containerWidthRef.current
-    const nextWidth = measuredWidth === null ? null : pageWidthForContainer(measuredWidth, 1)
-    renderedPageWidthRef.current = nextWidth
-    setRenderedPageWidth(nextWidth)
 
-    const task = pdfjs.getDocument(source)
-    documentTaskRef.current = task
+    const handlePagesInit = (): void => {
+      if (cancelled) {
+        return
+      }
+      pagesInitialized = true
+      viewer.currentScaleValue = "page-width"
+    }
+    const handlePagesLoaded = ({ pagesCount }: { pagesCount: number }): void => {
+      if (!cancelled) {
+        setNumPages(pagesCount)
+      }
+    }
+    const handlePageChanging = ({ pageNumber: nextPageNumber }: PageChangingEvent): void => {
+      if (!cancelled) {
+        setPageNumber(nextPageNumber)
+      }
+    }
+    const handleScaleChanging = ({ scale: nextScale }: ScaleChangingEvent): void => {
+      if (!cancelled && Number.isFinite(nextScale)) {
+        setScale(nextScale)
+      }
+    }
+    const handlePageRendered = (): void => {
+      if (!cancelled) {
+        setLoading(false)
+      }
+    }
+
+    eventBus.on("pagesinit", handlePagesInit)
+    eventBus.on("pagesloaded", handlePagesLoaded)
+    eventBus.on("pagechanging", handlePageChanging)
+    eventBus.on("scalechanging", handleScaleChanging)
+    eventBus.on("pagerendered", handlePageRendered)
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (!pagesInitialized || !fitToWidthRef.current || scrollContainer.clientWidth <= 0) {
+        return
+      }
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame)
+      }
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null
+        if (!cancelled && fitToWidthRef.current) {
+          viewer.currentScaleValue = "page-width"
+        }
+      })
+    })
+    resizeObserver.observe(scrollContainer)
+
+    const task: PDFDocumentLoadingTask = pdfjs.getDocument(source)
     void task.promise
-      .then((nextDocument) => {
-        if (renderGenerationRef.current !== generation) {
-          void nextDocument.destroy()
+      .then((document: PDFDocumentProxy) => {
+        if (cancelled) {
+          void document.destroy()
           return
         }
-        const linkService = new SimpleLinkService({
-          eventBus: new EventBus(),
-          externalLinkRel: "noopener noreferrer nofollow",
-          externalLinkTarget: LinkTarget.BLANK,
-        })
-        linkService.setDocument(nextDocument)
-        linkServiceRef.current = linkService
-        setDocument(nextDocument)
-        setNumPages(nextDocument.numPages)
+        setNumPages(document.numPages)
+        linkService.setDocument(document)
+        viewer.setDocument(document)
       })
       .catch((error: unknown) => {
-        if (renderGenerationRef.current === generation && !isCancellation(error)) {
+        if (!cancelled && !isCancellation(error)) {
           setLoadFailed(true)
+          setLoading(false)
           onResourceError?.()
         }
       })
 
     return () => {
-      if (documentTaskRef.current === task) {
-        documentTaskRef.current = null
+      cancelled = true
+      resizeObserver.disconnect()
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame)
+      }
+      eventBus.off("pagesinit", handlePagesInit)
+      eventBus.off("pagesloaded", handlePagesLoaded)
+      eventBus.off("pagechanging", handlePageChanging)
+      eventBus.off("scalechanging", handleScaleChanging)
+      eventBus.off("pagerendered", handlePageRendered)
+      abortController.abort()
+      viewer.setDocument(null as unknown as PDFDocumentProxy)
+      linkService.setDocument(null)
+      if (viewerRef.current === viewer) {
+        viewerRef.current = null
       }
       void task.destroy()
     }
-  }, [clearPendingRenderedWidth, onResourceError, source])
+  }, [onResourceError, source])
 
-  React.useEffect(() => {
-    if (!document || renderedPageWidth === null) {
+  const changePage = React.useCallback((delta: number) => {
+    const viewer = viewerRef.current
+    if (!viewer || viewer.pagesCount === 0) {
       return
     }
+    viewer.currentPageNumber = adjacentPdfPage(viewer.currentPageNumber, viewer.pagesCount, delta)
+  }, [])
 
-    const generation = ++renderGenerationRef.current
-    renderTaskRef.current?.cancel()
-    renderTaskRef.current = null
-    let renderTask: RenderTask | null = null
-    let textLayerRender: InstanceType<typeof pdfjs.TextLayer> | null = null
-    let cancelled = false
-
-    void document
-      .getPage(pageNumber)
-      .then((page) => {
-        if (cancelled || renderGenerationRef.current !== generation) {
-          return
-        }
-
-        const baseViewport = page.getViewport({ scale: 1 })
-        if (baseViewport.width <= 0 || baseViewport.height <= 0) {
-          setLoadFailed(true)
-          return
-        }
-
-        const ratio = baseViewport.height / baseViewport.width
-        setPageAspectRatio(ratio)
-
-        const cssWidth = Math.round(renderedPageWidth)
-        const cssHeight = Math.round(cssWidth * ratio)
-        const pixelRatio = Math.min(window.devicePixelRatio || 1, maxDevicePixelRatio)
-        const viewport = page.getViewport({ scale: (cssWidth / baseViewport.width) * pixelRatio })
-        const buffer = activeBufferRef.current === 0 ? 1 : 0
-        const canvas = canvasRefs.current[buffer]
-        const textLayer = textLayerRefs.current[buffer]
-        const annotationLayer = annotationLayerRefs.current[buffer]
-        const linkService = linkServiceRef.current
-        const context = canvas?.getContext("2d", { alpha: false })
-        if (!canvas || !context || !textLayer || !annotationLayer || !linkService) {
-          setLoadFailed(true)
-          return
-        }
-
-        textLayer.replaceChildren()
-        annotationLayer.replaceChildren()
-        canvas.width = Math.max(1, Math.round(viewport.width))
-        canvas.height = Math.max(1, Math.round(viewport.height))
-        canvas.style.width = `${cssWidth}px`
-        canvas.style.height = `${cssHeight}px`
-        context.fillStyle = "#ffffff"
-        context.fillRect(0, 0, canvas.width, canvas.height)
-
-        renderTask = page.render({
-          canvas,
-          viewport,
-          annotationMode: pdfjs.AnnotationMode.DISABLE,
-          background: "#ffffff",
-        })
-        renderTaskRef.current = renderTask
-
-        return renderTask.promise.then(async () => {
-          if (cancelled || renderGenerationRef.current !== generation) {
-            return
-          }
-
-          textLayerRender = new pdfjs.TextLayer({
-            container: textLayer,
-            textContentSource: page.streamTextContent({
-              disableNormalization: true,
-              includeMarkedContent: true,
-            }),
-            viewport,
-          })
-          await textLayerRender.render()
-          if (cancelled || renderGenerationRef.current !== generation) {
-            return
-          }
-
-          const endOfContent = window.document.createElement("div")
-          endOfContent.className = "endOfContent"
-          textLayer.append(endOfContent)
-
-          const annotations = await page.getAnnotations({ intent: "display" })
-          if (cancelled || renderGenerationRef.current !== generation) {
-            return
-          }
-
-          const annotationLayerRender = new pdfjs.AnnotationLayer({
-            accessibilityManager: undefined,
-            annotationCanvasMap: undefined,
-            annotationEditorUIManager: undefined,
-            annotationStorage: document.annotationStorage,
-            commentManager: undefined,
-            div: annotationLayer,
-            linkService,
-            page,
-            structTreeLayer: undefined,
-            viewport,
-          })
-          await annotationLayerRender.render({
-            annotationStorage: document.annotationStorage,
-            annotations,
-            div: annotationLayer,
-            linkService,
-            page,
-            renderForms: true,
-            viewport,
-          })
-          if (cancelled || renderGenerationRef.current !== generation) {
-            return
-          }
-          activeBufferRef.current = buffer
-          setActiveBuffer(buffer)
-          setRenderedPage({ height: cssHeight, pageNumber, width: cssWidth })
-          setLoadFailed(false)
-        })
-      })
-      .catch((error: unknown) => {
-        if (!cancelled && renderGenerationRef.current === generation && !isCancellation(error)) {
-          setLoadFailed(true)
-        }
-      })
-
-    return () => {
-      cancelled = true
-      textLayerRender?.cancel()
-      renderTask?.cancel()
+  const applyScaleDelta = React.useCallback((delta: number) => {
+    const viewer = viewerRef.current
+    if (!viewer || viewer.pagesCount === 0 || !Number.isFinite(viewer.currentScale)) {
+      return
     }
-  }, [document, pageNumber, renderedPageWidth])
-
-  const applyScaleDelta = React.useCallback(
-    (delta: number) => {
-      setScale((current) => {
-        const nextScale = clamp(current + delta, minScale, maxScale)
-        scaleRef.current = nextScale
-        const measuredWidth = containerWidthRef.current
-        if (measuredWidth !== null) {
-          commitRenderedWidth(pageWidthForContainer(measuredWidth, nextScale), 0)
-        }
-        return nextScale
-      })
-    },
-    [commitRenderedWidth],
-  )
+    fitToWidthRef.current = false
+    viewer.currentScale = steppedPdfScale(viewer.currentScale, delta)
+  }, [])
 
   return (
-    <div ref={containerRef} className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">
+    <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">
       <div className="oo-border-divider flex h-10 shrink-0 items-center justify-between gap-2 border-b bg-background px-3">
         <div className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">
           <span className="font-medium text-foreground">{name}</span>
@@ -353,7 +206,7 @@ export default function ArtifactPdfPreview({
             className="size-7"
             aria-label={t("artifacts.pdfPrevious")}
             disabled={pageNumber <= 1}
-            onClick={() => setPageNumber((current) => Math.max(1, current - 1))}
+            onClick={() => changePage(-1)}
           >
             <ChevronLeft className="size-3.5" />
           </Button>
@@ -364,7 +217,7 @@ export default function ArtifactPdfPreview({
             className="size-7"
             aria-label={t("artifacts.pdfNext")}
             disabled={numPages === 0 || pageNumber >= numPages}
-            onClick={() => setPageNumber((current) => Math.min(numPages || current, current + 1))}
+            onClick={() => changePage(1)}
           >
             <ChevronRight className="size-3.5" />
           </Button>
@@ -374,8 +227,8 @@ export default function ArtifactPdfPreview({
             size="icon"
             className="size-7"
             aria-label={t("artifacts.pdfZoomOut")}
-            disabled={scale <= minScale}
-            onClick={() => applyScaleDelta(-scaleStep)}
+            disabled={scale <= pdfMinScale}
+            onClick={() => applyScaleDelta(-pdfScaleStep)}
           >
             <Minus className="size-3.5" />
           </Button>
@@ -385,82 +238,24 @@ export default function ArtifactPdfPreview({
             size="icon"
             className="size-7"
             aria-label={t("artifacts.pdfZoomIn")}
-            disabled={scale >= maxScale}
-            onClick={() => applyScaleDelta(scaleStep)}
+            disabled={scale >= pdfMaxScale}
+            onClick={() => applyScaleDelta(pdfScaleStep)}
           >
             <Plus className="size-3.5" />
           </Button>
         </div>
       </div>
-      <div className="relative min-h-0 flex-1 overflow-auto p-4">
-        {pageReady ? (
-          <div
-            className={
-              currentRenderedPage
-                ? "flex justify-center"
-                : "pointer-events-none absolute h-0 w-0 overflow-hidden opacity-0"
-            }
-          >
-            <div
-              className="relative overflow-hidden bg-white shadow-sm"
-              style={{
-                height: pageHeight,
-                width: pageWidth,
-              }}
-            >
-              <div
-                className="absolute top-0 left-0 will-change-transform"
-                style={{
-                  height: currentRenderedPage?.height ?? pageHeight,
-                  transform: `scale(${visualScale})`,
-                  transformOrigin: "top left",
-                  width: currentRenderedPage?.width ?? renderedPageWidth,
-                }}
-              >
-                <canvas
-                  ref={(canvas) => {
-                    canvasRefs.current[0] = canvas
-                  }}
-                  aria-label={name}
-                  className={activeBuffer === 0 && currentRenderedPage ? "block" : "hidden"}
-                />
-                <canvas
-                  ref={(canvas) => {
-                    canvasRefs.current[1] = canvas
-                  }}
-                  aria-label={name}
-                  className={activeBuffer === 1 && currentRenderedPage ? "block" : "hidden"}
-                />
-                <div
-                  ref={(layer) => {
-                    textLayerRefs.current[0] = layer
-                  }}
-                  className={activeBuffer === 0 && currentRenderedPage ? "textLayer" : "textLayer hidden"}
-                />
-                <div
-                  ref={(layer) => {
-                    textLayerRefs.current[1] = layer
-                  }}
-                  className={activeBuffer === 1 && currentRenderedPage ? "textLayer" : "textLayer hidden"}
-                />
-                <div
-                  ref={(layer) => {
-                    annotationLayerRefs.current[0] = layer
-                  }}
-                  className={activeBuffer === 0 && currentRenderedPage ? "annotationLayer" : "annotationLayer hidden"}
-                />
-                <div
-                  ref={(layer) => {
-                    annotationLayerRefs.current[1] = layer
-                  }}
-                  className={activeBuffer === 1 && currentRenderedPage ? "annotationLayer" : "annotationLayer hidden"}
-                />
-              </div>
-            </div>
-          </div>
-        ) : null}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrollContainerRef}
+          className="oo-pdf-scroll-container absolute inset-0 overflow-auto"
+          aria-label={name}
+          tabIndex={0}
+        >
+          <div ref={pagesContainerRef} className="pdfViewer oo-pdf-viewer" />
+        </div>
         {loading || loadFailed ? (
-          <div className="oo-text-body py-8 text-center text-muted-foreground">
+          <div className="oo-text-body pointer-events-none absolute inset-0 flex items-center justify-center px-4 py-8 text-center text-muted-foreground">
             {loadFailed ? t("artifacts.previewReadFailed") : t("artifacts.previewLoading")}
           </div>
         ) : null}

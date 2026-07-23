@@ -1,4 +1,10 @@
-import type { Team, TeamAppAccess, TeamMember } from "../../../electron/teams/common.ts"
+import type {
+  EditableTeamMemberRole,
+  Team,
+  TeamAppAccess,
+  TeamMember,
+  TeamRole,
+} from "../../../electron/teams/common.ts"
 import type { BusyAction, MemberSearchState, ProviderAccessForm, ProviderGrantView } from "./team-management-model.ts"
 
 import * as React from "react"
@@ -8,6 +14,7 @@ import { errorMessage, initialProviderAccessForm, uniqueStrings } from "./team-m
 import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./team-provider-access.ts"
 import { useAppI18n } from "@/i18n"
 import { invalidateTeamDetailsResource } from "@/lib/team-details-resource"
+import { canChangeTeamMemberRole } from "@/lib/team-permissions"
 import {
   addTeamMember,
   disableTeamMembers,
@@ -16,10 +23,12 @@ import {
   isTeamMemberLimitError,
   removeTeamMember,
   updateTeamAppAccess,
+  updateTeamMemberRole,
 } from "@/lib/teams-client"
 
 interface TeamMemberActionsOptions {
   activeAccountId: string | undefined
+  actorRole: TeamRole | null
   busyAction: BusyAction | null
   canManage: boolean
   memberInput: string
@@ -45,6 +54,7 @@ interface MemberActionOperation {
 
 export function useTeamMemberActions({
   activeAccountId,
+  actorRole,
   busyAction,
   canManage,
   memberInput,
@@ -169,6 +179,46 @@ export function useTeamMemberActions({
       }
     },
     [activeAccountId, beginOperation, canManage, finishOperation, operationIsCurrent, reloadDetails, selectedTeam, t],
+  )
+
+  const updateMemberRole = React.useCallback(
+    async (member: TeamMember, role: EditableTeamMemberRole) => {
+      if (
+        !selectedTeam ||
+        member.role === role ||
+        !canChangeTeamMemberRole({
+          actorCanManage: canManage,
+          actorRole,
+          actorUserId: activeAccountId,
+          member,
+        })
+      ) {
+        return
+      }
+      const operation = beginOperation(`updateMemberRole:${member.user_id}`)
+      try {
+        await updateTeamMemberRole({ role, teamId: selectedTeam.id, userId: member.user_id })
+        invalidateTeamDetailsResource(activeAccountId, selectedTeam.id)
+        if (!operationIsCurrent(operation)) return
+        toast.success(t("teams.updateMemberRoleSuccess"))
+        await reloadDetails()
+      } catch (error) {
+        if (operationIsCurrent(operation)) toast.error(teamErrorMessage(error, t))
+      } finally {
+        finishOperation(operation)
+      }
+    },
+    [
+      activeAccountId,
+      actorRole,
+      beginOperation,
+      canManage,
+      finishOperation,
+      operationIsCurrent,
+      reloadDetails,
+      selectedTeam,
+      t,
+    ],
   )
 
   const updateMembersStatus = React.useCallback(
@@ -334,5 +384,6 @@ export function useTeamMemberActions({
     removeMember,
     revokeProviderAccess,
     saveProviderAccess,
+    updateMemberRole,
   }
 }

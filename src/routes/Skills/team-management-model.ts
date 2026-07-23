@@ -26,6 +26,7 @@ export type BusyAction =
   | `remove:${string}`
   | `removeSkill:${string}`
   | `revokeProviderAccess:${string}`
+  | `updateMemberRole:${string}`
 export type LoadStatus = "idle" | "loading" | "ready" | "error"
 export type ProviderAccessMode = "create" | "edit"
 

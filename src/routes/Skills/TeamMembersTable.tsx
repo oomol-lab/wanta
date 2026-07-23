@@ -1,4 +1,4 @@
-import type { TeamMember } from "../../../electron/teams/common.ts"
+import type { EditableTeamMemberRole, TeamMember, TeamRole } from "../../../electron/teams/common.ts"
 import type { BusyAction, MemberView, ProviderGrantView } from "./team-management-model.ts"
 
 import { MoreHorizontalIcon, PencilIcon, ShieldCheckIcon, Trash2Icon, UserCheckIcon, UserXIcon } from "lucide-react"
@@ -29,11 +29,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useClipboardCopy } from "@/hooks/useClipboardCopy"
 import { useAppI18n } from "@/i18n"
-import { teamRoleHasDefaultConnectionAccess, teamRoleLabelKey } from "@/lib/team-permissions"
+import { canChangeTeamMemberRole, teamRoleHasDefaultConnectionAccess, teamRoleLabelKey } from "@/lib/team-permissions"
 import { cn } from "@/lib/utils"
 
 export function MembersTable({
   appAccessLoading,
+  actorRole,
+  actorUserId,
   busyAction,
   canManage,
   grantsByUserId,
@@ -44,12 +46,15 @@ export function MembersTable({
   onGrantProviderAccess,
   onRemoveMember,
   onRevokeProviderAccess,
+  onUpdateMemberRole,
   providerAccessMutationError,
   providerOptionsError,
   providerOptionsLoading,
   showProviderAccess,
 }: {
   appAccessLoading: boolean
+  actorRole: TeamRole | null
+  actorUserId: string | undefined
   busyAction: BusyAction | null
   canManage: boolean
   grantsByUserId: Map<string, ProviderGrantView>
@@ -60,6 +65,7 @@ export function MembersTable({
   onGrantProviderAccess: (userId: string) => void
   onRemoveMember: (member: TeamMember) => Promise<void>
   onRevokeProviderAccess: (grant: ProviderGrantView) => Promise<void>
+  onUpdateMemberRole: (member: TeamMember, role: EditableTeamMemberRole) => Promise<void>
   providerAccessMutationError: string | null
   providerOptionsError: string | null
   providerOptionsLoading: boolean
@@ -68,8 +74,15 @@ export function MembersTable({
   const { t } = useAppI18n()
   const [removeTarget, setRemoveTarget] = React.useState<MemberView | null>(null)
   const [revokeTarget, setRevokeTarget] = React.useState<ProviderGrantView | null>(null)
+  const [roleChangeTarget, setRoleChangeTarget] = React.useState<{
+    member: MemberView
+    role: EditableTeamMemberRole
+  } | null>(null)
   const removeTargetBusy = removeTarget ? busyAction === `remove:${removeTarget.user_id}` : false
   const revokeTargetBusy = revokeTarget ? busyAction === `revokeProviderAccess:${revokeTarget.userId}` : false
+  const roleChangeTargetBusy = roleChangeTarget
+    ? busyAction === `updateMemberRole:${roleChangeTarget.member.user_id}`
+    : false
   const {
     allSelected,
     bulkBusy,
@@ -153,6 +166,51 @@ export function MembersTable({
     </ConfirmDialog>
   )
 
+  const roleChangeConfirmDialog = (
+    <ConfirmDialog
+      open={Boolean(roleChangeTarget)}
+      onOpenChange={(open) => {
+        if (!open && !roleChangeTargetBusy) {
+          setRoleChangeTarget(null)
+        }
+      }}
+    >
+      <ConfirmDialogContent>
+        <ConfirmDialogHeader>
+          <ConfirmDialogTitle>
+            {t(roleChangeTarget?.role === "admin" ? "teams.promoteAdminConfirmTitle" : "teams.demoteAdminConfirmTitle")}
+          </ConfirmDialogTitle>
+          <ConfirmDialogDescription>
+            {roleChangeTarget
+              ? t(
+                  roleChangeTarget.role === "admin"
+                    ? "teams.promoteAdminConfirmDescription"
+                    : "teams.demoteAdminConfirmDescription",
+                  { name: roleChangeTarget.member.displayName },
+                )
+              : null}
+          </ConfirmDialogDescription>
+        </ConfirmDialogHeader>
+        <ConfirmDialogFooter>
+          <ConfirmDialogCancel disabled={roleChangeTargetBusy}>{t("common.cancel")}</ConfirmDialogCancel>
+          <ConfirmDialogAction
+            disabled={roleChangeTargetBusy || !roleChangeTarget}
+            onClick={(event) => {
+              if (roleChangeTarget) {
+                event.preventDefault()
+                void onUpdateMemberRole(roleChangeTarget.member, roleChangeTarget.role).finally(() =>
+                  setRoleChangeTarget(null),
+                )
+              }
+            }}
+          >
+            {t(roleChangeTarget?.role === "admin" ? "teams.promoteToAdmin" : "teams.demoteToMember")}
+          </ConfirmDialogAction>
+        </ConfirmDialogFooter>
+      </ConfirmDialogContent>
+    </ConfirmDialog>
+  )
+
   return (
     <>
       {canBulkManage ? (
@@ -177,11 +235,22 @@ export function MembersTable({
           const grant = grantsByUserId.get(member.user_id) ?? null
           const canRemove = canManage && member.role !== "creator"
           const canManageProviderAccess = showProviderAccess && member.role === "member"
+          const nextRole: EditableTeamMemberRole | null =
+            member.role === "member" ? "admin" : member.role === "admin" ? "member" : null
+          const canUpdateRole =
+            nextRole !== null &&
+            canChangeTeamMemberRole({
+              actorCanManage: canManage,
+              actorRole,
+              actorUserId,
+              member,
+            })
           const selectable = isBulkEditableMember(member)
           const accessDisabled = appAccessLoading || bulkBusy || Boolean(providerAccessMutationError)
           const accessEditDisabled = accessDisabled || providerOptionsLoading || Boolean(providerOptionsError)
           const removeBusy = busyAction === `remove:${member.user_id}`
           const revokeBusy = grant ? busyAction === `revokeProviderAccess:${grant.userId}` : false
+          const roleUpdateBusy = busyAction === `updateMemberRole:${member.user_id}`
           return (
             <div
               key={member.user_id}
@@ -241,8 +310,19 @@ export function MembersTable({
                     editProviderAccessDisabled={accessEditDisabled || busyAction === "saveProviderAccess" || revokeBusy}
                     removeDisabled={bulkBusy || removeBusy}
                     revokeProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
+                    roleChangeDisabled={bulkBusy || roleUpdateBusy}
+                    roleChangeLabel={
+                      nextRole === "admin"
+                        ? t("teams.promoteToAdmin")
+                        : nextRole === "member"
+                          ? t("teams.demoteToMember")
+                          : undefined
+                    }
                     onEditProviderAccess={
                       grant && canManageProviderAccess ? () => onEditProviderAccess(grant) : undefined
+                    }
+                    onRoleChange={
+                      canUpdateRole && nextRole ? () => setRoleChangeTarget({ member, role: nextRole }) : undefined
                     }
                     onRemove={() => setRemoveTarget(member)}
                     onRevokeProviderAccess={grant && canManageProviderAccess ? () => setRevokeTarget(grant) : undefined}
@@ -255,6 +335,7 @@ export function MembersTable({
       </div>
       {removeConfirmDialog}
       {revokeConfirmDialog}
+      {roleChangeConfirmDialog}
     </>
   )
 }
@@ -455,19 +536,27 @@ function MemberActionsMenu({
   onEditProviderAccess,
   onRemove,
   onRevokeProviderAccess,
+  onRoleChange,
   removeDisabled = false,
   revokeProviderAccessDisabled = false,
+  roleChangeDisabled = false,
+  roleChangeLabel,
 }: {
   editProviderAccessDisabled?: boolean
   onEditProviderAccess?: () => void
   onRemove?: () => void
   onRevokeProviderAccess?: () => void
+  onRoleChange?: () => void
   removeDisabled?: boolean
   revokeProviderAccessDisabled?: boolean
+  roleChangeDisabled?: boolean
+  roleChangeLabel?: string
 }) {
   const { t } = useAppI18n()
   const hasProviderActions = Boolean(onEditProviderAccess || onRevokeProviderAccess)
+  const hasMemberActions = Boolean(onRoleChange || hasProviderActions)
   const disabled =
+    (!onRoleChange || roleChangeDisabled) &&
     (!onEditProviderAccess || editProviderAccessDisabled) &&
     (!onRevokeProviderAccess || revokeProviderAccessDisabled) &&
     (!onRemove || removeDisabled)
@@ -487,6 +576,13 @@ function MemberActionsMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={6} className="w-44">
+        {onRoleChange && roleChangeLabel ? (
+          <DropdownMenuItem disabled={roleChangeDisabled} onSelect={onRoleChange}>
+            <UserCheckIcon className="size-4" />
+            {roleChangeLabel}
+          </DropdownMenuItem>
+        ) : null}
+        {onRoleChange && hasProviderActions ? <DropdownMenuSeparator /> : null}
         {onEditProviderAccess ? (
           <DropdownMenuItem disabled={editProviderAccessDisabled} onSelect={onEditProviderAccess}>
             <PencilIcon className="size-4" />
@@ -503,7 +599,7 @@ function MemberActionsMenu({
             {t("teams.revokeProviderAccess")}
           </DropdownMenuItem>
         ) : null}
-        {hasProviderActions && onRemove ? <DropdownMenuSeparator /> : null}
+        {hasMemberActions && onRemove ? <DropdownMenuSeparator /> : null}
         {onRemove ? (
           <DropdownMenuItem variant="destructive" disabled={removeDisabled} onSelect={onRemove}>
             <Trash2Icon className="size-4" />

@@ -35,13 +35,13 @@ import {
 import {
   AddMemberDialog,
   CreateTeamDialog,
-  EditTeamDialog,
   ErrorBlock,
   TeamDetailPanel,
   Panel,
   ProviderAccessDialog,
+  TeamProfileSettingsPanel,
 } from "./TeamMembersPanel.tsx"
-import { TeamMembersSheet } from "./TeamMembersSheet.tsx"
+import { TeamSettingsSheet } from "./TeamSettingsSheet.tsx"
 import { useSkillService } from "@/components/AppContext"
 import { useAuthStateResource, useSkillInventoryResource } from "@/components/AppDataHooks"
 import { useSkillVersionReportResource } from "@/components/AppDataHooks"
@@ -88,7 +88,7 @@ export function TeamManagementRoute({
   const [busyAction, setBusyAction] = React.useState<BusyAction | null>(null)
   const [addMemberOpen, setAddMemberOpen] = React.useState(false)
   const [addMemberError, setAddMemberError] = React.useState<string | null>(null)
-  const [membersPanelOpen, setMembersPanelOpen] = React.useState(false)
+  const [teamSettingsOpen, setTeamSettingsOpen] = React.useState(false)
   const [managedSkillId, setManagedSkillId] = React.useState<string | null>(null)
   const [selectedPackage, setSelectedPackage] = React.useState<PublicSkillPackage | null>(null)
   const [managedSkillError, setManagedSkillError] = React.useState<{ cause: unknown; skillId: string } | null>(null)
@@ -228,7 +228,7 @@ export function TeamManagementRoute({
     setBusyAction(null)
     setAddMemberOpen(false)
     setAddMemberError(null)
-    setMembersPanelOpen(false)
+    setTeamSettingsOpen(false)
     setManagedSkillId(null)
     setManagedSkillError(null)
     setProviderAccessForm(initialProviderAccessForm)
@@ -254,6 +254,13 @@ export function TeamManagementRoute({
     setBusyAction,
     upsertTeam: upsertWorkspaceTeam,
   })
+  const closeTeamSettings = React.useCallback(() => {
+    if (busyAction === "updateTeam") {
+      return
+    }
+    teamForms.edit.close()
+    setTeamSettingsOpen(false)
+  }, [busyAction, teamForms.edit])
 
   const handleSelectTeamWorkspace = React.useCallback(
     (teamId: string) => {
@@ -311,9 +318,8 @@ export function TeamManagementRoute({
                   selectedTeam={selectedTeam}
                   selectedTeamId={selectedTeamId}
                   onCreate={teamForms.create.openDialog}
-                  onEdit={teamForms.edit.openDialog}
                   onAddMember={() => setAddMemberOpen(true)}
-                  onOpenMembers={() => setMembersPanelOpen(true)}
+                  onOpenSettings={() => setTeamSettingsOpen(true)}
                   onRemoteAvatarLoad={clearTeamAvatarPreview}
                   onSelect={handleSelectTeamWorkspace}
                 />
@@ -348,35 +354,58 @@ export function TeamManagementRoute({
                   </div>
                 ) : null}
                 {selectedTeam ? (
-                  <TeamMembersSheet open={membersPanelOpen} onClose={() => setMembersPanelOpen(false)}>
-                    <TeamDetailPanel
-                      appAccessLoading={appAccessState.status === "loading"}
-                      actorRole={activeWorkspace.role}
-                      actorUserId={activeAccountId}
-                      busyAction={busyAction}
-                      canManage={canManage}
-                      grantsByUserId={grantsByUserId}
-                      members={memberViews}
-                      membersComplete={membersComplete}
-                      membersError={membersError}
-                      membersForbidden={membersForbidden}
-                      membersLoading={membersState.status === "loading"}
-                      team={selectedTeam}
-                      providerAccessError={providerAccessError}
-                      providerAccessMutationError={providerAccessMutationError}
-                      providerOptionsError={providerOptionsError}
-                      providerOptionsLoading={providerOptionsState.status === "loading"}
-                      onAddMember={() => setAddMemberOpen(true)}
-                      onDisableMembers={memberActions.disableMembers}
-                      onEditProviderAccess={memberActions.openEditProviderAccess}
-                      onEnableMembers={memberActions.enableMembers}
-                      onGrantProviderAccess={memberActions.openGrantProviderAccess}
-                      onRemoveMember={memberActions.removeMember}
-                      onRetryMembers={() => void reload()}
-                      onRevokeProviderAccess={memberActions.revokeProviderAccess}
-                      onUpdateMemberRole={memberActions.updateMemberRole}
-                    />
-                  </TeamMembersSheet>
+                  <TeamSettingsSheet
+                    open={teamSettingsOpen}
+                    title={t(canManage ? "teams.teamSettings" : "teams.viewMembers")}
+                    onClose={closeTeamSettings}
+                  >
+                    <div className="grid min-w-0 gap-3">
+                      {canManage ? (
+                        <TeamProfileSettingsPanel
+                          avatar={teamForms.edit.avatar}
+                          avatarFile={teamForms.edit.avatarFile}
+                          busy={busyAction === "updateTeam"}
+                          editing={teamForms.edit.open}
+                          name={teamForms.edit.name}
+                          nameError={teamForms.edit.nameError}
+                          team={selectedTeam}
+                          onAvatarChange={teamForms.edit.setAvatar}
+                          onAvatarFileChange={teamForms.edit.changeAvatarFile}
+                          onClose={teamForms.edit.close}
+                          onEdit={() => teamForms.edit.openDialog(selectedTeam)}
+                          onNameChange={teamForms.edit.setName}
+                          onSubmit={teamForms.edit.submit}
+                        />
+                      ) : null}
+                      <TeamDetailPanel
+                        appAccessLoading={appAccessState.status === "loading"}
+                        actorRole={activeWorkspace.role}
+                        actorUserId={activeAccountId}
+                        busyAction={busyAction}
+                        canManage={canManage}
+                        grantsByUserId={grantsByUserId}
+                        members={memberViews}
+                        membersComplete={membersComplete}
+                        membersError={membersError}
+                        membersForbidden={membersForbidden}
+                        membersLoading={membersState.status === "loading"}
+                        team={selectedTeam}
+                        providerAccessError={providerAccessError}
+                        providerAccessMutationError={providerAccessMutationError}
+                        providerOptionsError={providerOptionsError}
+                        providerOptionsLoading={providerOptionsState.status === "loading"}
+                        onAddMember={() => setAddMemberOpen(true)}
+                        onDisableMembers={memberActions.disableMembers}
+                        onEditProviderAccess={memberActions.openEditProviderAccess}
+                        onEnableMembers={memberActions.enableMembers}
+                        onGrantProviderAccess={memberActions.openGrantProviderAccess}
+                        onRemoveMember={memberActions.removeMember}
+                        onRetryMembers={() => void reload()}
+                        onRevokeProviderAccess={memberActions.revokeProviderAccess}
+                        onUpdateMemberRole={memberActions.updateMemberRole}
+                      />
+                    </div>
+                  </TeamSettingsSheet>
                 ) : null}
               </>
             )}
@@ -474,20 +503,6 @@ export function TeamManagementRoute({
         onClose={teamForms.create.close}
         onNameChange={teamForms.create.setName}
         onSubmit={teamForms.create.submit}
-      />
-      <EditTeamDialog
-        avatar={teamForms.edit.avatar}
-        avatarFile={teamForms.edit.avatarFile}
-        busy={busyAction === "updateTeam"}
-        name={teamForms.edit.name}
-        nameError={teamForms.edit.nameError}
-        open={teamForms.edit.open}
-        team={teamForms.edit.team}
-        onAvatarChange={teamForms.edit.setAvatar}
-        onAvatarFileChange={teamForms.edit.changeAvatarFile}
-        onClose={teamForms.edit.close}
-        onNameChange={teamForms.edit.setName}
-        onSubmit={teamForms.edit.submit}
       />
       <AddMemberDialog
         activeUserId={activeSearchUserId}

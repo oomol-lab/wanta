@@ -22,14 +22,16 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
   })
 }
 
-export function TeamMembersSheet({
+export function TeamSettingsSheet({
   children,
   onClose,
   open,
+  title,
 }: {
   children: React.ReactNode
   onClose: () => void
   open: boolean
+  title: string
 }) {
   const { t } = useAppI18n()
   const sheetRef = React.useRef<HTMLElement | null>(null)
@@ -70,7 +72,7 @@ export function TeamMembersSheet({
         ref={sheetRef}
         role="dialog"
         aria-modal="true"
-        aria-label={t("teams.memberManagement")}
+        aria-label={title}
         tabIndex={-1}
         className="absolute top-0 right-0 grid h-full w-[min(42rem,calc(100vw-2rem))] grid-rows-[auto_minmax(0,1fr)] border-l bg-background shadow-xl outline-none [-webkit-app-region:no-drag]"
         onKeyDown={(event) => {
@@ -113,8 +115,8 @@ export function TeamMembersSheet({
         }}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="oo-border-divider flex min-w-0 items-center justify-between gap-3 border-b px-3 py-2">
-          <div className="oo-text-label min-w-0 truncate">{t("teams.memberManagement")}</div>
+        <div className="oo-border-divider flex min-w-0 items-center justify-between gap-2 border-b px-3 py-2">
+          <div className="oo-text-label min-w-0 truncate">{title}</div>
           <Button type="button" variant="ghost" size="icon" aria-label={t("common.close")} onClick={onClose}>
             <XIcon className="size-4" />
           </Button>

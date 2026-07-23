@@ -30,6 +30,16 @@ test("skill page tabs distinguish market, device, and team scopes", () => {
   assert.equal(translate("zh-CN", "skills.tab.team"), "团队 Skills")
 })
 
+test("team management copy separates context switching from current-team settings", () => {
+  assert.equal(translate("zh-CN", "teams.createNewTeam"), "创建新团队")
+  assert.equal(translate("zh-CN", "teams.editTeam"), "编辑团队资料")
+  assert.equal(translate("zh-CN", "teams.teamProfile"), "团队资料")
+  assert.equal(translate("zh-CN", "teams.teamSettings"), "团队设置")
+  assert.equal(translate("zh-CN", "teams.membersAndPermissions"), "成员与权限")
+  assert.equal(translate("en", "teams.createNewTeam"), "Create new team")
+  assert.equal(translate("en", "teams.teamSettings"), "Team settings")
+})
+
 test("full access permission mode is localized without implementation labels", () => {
   assert.equal(translate("zh-CN", "chat.permissionModeFullAccess"), "完全访问")
   assert.equal(translate("en", "chat.permissionModeFullAccess"), "Full access")

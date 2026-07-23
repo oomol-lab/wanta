@@ -1,7 +1,7 @@
 import type { EditableTeamMemberRole, Team, TeamMember, TeamRole } from "../../../electron/teams/common.ts"
 import type { BusyAction, MemberView, ProviderGrantView } from "./team-management-model.ts"
 
-import { CrownIcon, PlusIcon, RefreshCwIcon, UsersIcon } from "lucide-react"
+import { PlusIcon, RefreshCwIcon, UsersIcon } from "lucide-react"
 import * as React from "react"
 import { MembersTable } from "./TeamMembersTable.tsx"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
@@ -11,21 +11,24 @@ import { teamAvatarStyle, teamInitials } from "@/hooks/useTeamWorkspace"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 
-export { AddMemberDialog, CreateTeamDialog, EditTeamDialog, ProviderAccessDialog } from "./TeamMemberDialogs.tsx"
+export {
+  AddMemberDialog,
+  CreateTeamDialog,
+  ProviderAccessDialog,
+  TeamProfileSettingsPanel,
+} from "./TeamMemberDialogs.tsx"
 
 export function TeamMemberAccessButton({
   canManage,
   members,
   membersComplete,
   membersLoading,
-  onAddMember,
   onOpen,
 }: {
   canManage: boolean
   members: MemberView[]
   membersComplete: boolean
   membersLoading: boolean
-  onAddMember?: () => void
   onOpen: () => void
 }) {
   const { t } = useAppI18n()
@@ -35,48 +38,25 @@ export function TeamMemberAccessButton({
     : membersComplete
       ? t("teams.memberCountCompact", { count: members.length })
       : t("teams.memberVisibleCountCompact", { count: members.length })
-  const onlyCreatorVisible =
-    canManage &&
-    membersComplete &&
-    !membersLoading &&
-    members.length <= 1 &&
-    members.every((member) => member.role === "creator")
-  const summaryLabel = onlyCreatorVisible ? t("teams.noOtherMembers") : label
 
   return (
-    <div className="-ml-1 flex min-w-0 flex-wrap items-center gap-2">
-      <button
-        type="button"
-        className="group flex w-fit max-w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-accent focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-        aria-label={t("teams.memberAccessAriaLabel", { count: countLabel, label })}
-        onClick={onOpen}
-      >
-        {membersLoading ? (
-          <MemberAvatarStackSkeleton />
-        ) : members.length > 0 ? (
-          <MemberAvatarStack members={members} />
-        ) : (
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-            <UsersIcon className="size-3.5" />
-          </span>
-        )}
-        <span className="flex min-w-0 items-center gap-1.5">
-          {canManage ? (
-            <CrownIcon className="size-3.5 shrink-0 text-[var(--oo-warning-foreground)]" aria-hidden="true" />
-          ) : null}
-          <span className="oo-text-caption-compact shrink-0 font-medium text-foreground">{summaryLabel}</span>
-          {onlyCreatorVisible ? null : (
-            <span className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">{countLabel}</span>
-          )}
+    <button
+      type="button"
+      className="-ml-1 flex w-fit max-w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-accent focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+      aria-label={t("teams.memberAccessAriaLabel", { count: countLabel, label })}
+      onClick={onOpen}
+    >
+      {membersLoading ? (
+        <MemberAvatarStackSkeleton />
+      ) : members.length > 0 ? (
+        <MemberAvatarStack members={members} />
+      ) : (
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <UsersIcon className="size-3.5" />
         </span>
-      </button>
-      {canManage && onAddMember ? (
-        <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={onAddMember}>
-          <PlusIcon className="size-3.5" />
-          {t("teams.addMember")}
-        </Button>
-      ) : null}
-    </div>
+      )}
+      <span className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">{countLabel}</span>
+    </button>
   )
 }
 function MemberAvatarStack({ members }: { members: MemberView[] }) {

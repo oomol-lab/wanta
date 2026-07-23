@@ -1,7 +1,7 @@
 import type { Team, TeamProviderOption } from "../../../electron/teams/common.ts"
 import type { MemberSearchState, MemberView, ProviderAccessForm } from "./team-management-model.ts"
 
-import { CheckIcon, LoaderCircleIcon, PlusIcon, SearchIcon, UploadIcon, XIcon } from "lucide-react"
+import { CheckIcon, LoaderCircleIcon, PencilIcon, PlusIcon, SearchIcon, UploadIcon, XIcon } from "lucide-react"
 import * as React from "react"
 import {
   filterTeamProviderOptions,
@@ -95,88 +95,135 @@ export function CreateTeamDialog({
   )
 }
 
-export function EditTeamDialog({
+export function TeamProfileSettingsPanel({
   avatar,
   avatarFile,
   busy,
+  editing,
   name,
   nameError,
   onAvatarChange,
   onAvatarFileChange,
   onClose,
+  onEdit,
   onNameChange,
   onSubmit,
-  open,
   team,
 }: {
   avatar: string
   avatarFile: File | null
   busy: boolean
+  editing: boolean
   name: string
   nameError: string | null
   onAvatarChange: (value: string) => void
   onAvatarFileChange: (file: File | null) => void
   onClose: () => void
+  onEdit: () => void
   onNameChange: (value: string) => void
   onSubmit: (event: React.FormEvent) => void
-  open: boolean
-  team: Team | null
+  team: Team
 }) {
   const { t } = useAppI18n()
   const disabled = teamNameValidation(name.trim()) !== "valid" || Boolean(nameError) || busy
   const avatarPreviewUrl = useObjectUrl(avatarFile)
 
+  if (!editing) {
+    return (
+      <section className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-[var(--oo-divider)] bg-background p-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <TeamProfileLogo team={team} />
+          <div className="min-w-0">
+            <h2 className="oo-text-title truncate text-foreground">{t("teams.teamProfile")}</h2>
+            <p className="oo-text-caption mt-0.5 truncate text-muted-foreground">{team.name}</p>
+          </div>
+        </div>
+        <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={onEdit}>
+          <PencilIcon className="size-3.5" />
+          {t("teams.editTeam")}
+        </Button>
+      </section>
+    )
+  }
+
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={t("teams.editTeam")}
-      description={t("teams.editTeamDescription")}
-      footer={
-        <>
+    <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+      <div className="border-b border-[var(--oo-divider)] px-3 py-2.5">
+        <h2 className="oo-text-title text-foreground">{t("teams.teamProfile")}</h2>
+        <p className="oo-text-caption mt-0.5 text-muted-foreground">{t("teams.editTeamDescription")}</p>
+      </div>
+      <form onSubmit={onSubmit}>
+        <div className="grid gap-4 p-3">
+          <TeamAvatarField
+            avatar={avatar}
+            file={avatarFile}
+            name={name || team.name}
+            previewUrl={avatarPreviewUrl}
+            seed={team.id || team.name || name}
+            title={t("teams.teamAvatar")}
+            uploading={busy}
+            onAvatarClear={() => {
+              onAvatarChange("")
+              onAvatarFileChange(null)
+            }}
+            onFileChange={onAvatarFileChange}
+          />
+          <div className="grid gap-2">
+            <Label htmlFor="edit-team-name">{t("teams.teamName")}</Label>
+            <Input
+              id="edit-team-name"
+              value={name}
+              maxLength={maxTeamNameLength}
+              aria-invalid={Boolean(nameError)}
+              autoFocus
+              onChange={(event) => onNameChange(event.currentTarget.value)}
+            />
+            {nameError ? (
+              <p className="oo-text-caption-compact text-destructive">{nameError}</p>
+            ) : (
+              <p className="oo-text-caption-compact text-muted-foreground">{t("teams.teamNameDescription")}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-[var(--oo-divider)] px-3 py-2.5">
           <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
             {t("common.cancel")}
           </Button>
-          <Button type="submit" form="edit-team-form" disabled={disabled}>
+          <Button type="submit" disabled={disabled}>
             {busy ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : null}
             {busy ? t("teams.savingTeam") : t("common.save")}
           </Button>
-        </>
-      }
-    >
-      <form id="edit-team-form" className="grid gap-4" onSubmit={onSubmit}>
-        <TeamAvatarField
-          avatar={avatar}
-          file={avatarFile}
-          name={name || team?.name || ""}
-          previewUrl={avatarPreviewUrl}
-          seed={team?.id || team?.name || name}
-          title={t("teams.teamAvatar")}
-          uploading={busy}
-          onAvatarClear={() => {
-            onAvatarChange("")
-            onAvatarFileChange(null)
-          }}
-          onFileChange={onAvatarFileChange}
-        />
-        <div className="grid gap-2">
-          <Label htmlFor="edit-team-name">{t("teams.teamName")}</Label>
-          <Input
-            id="edit-team-name"
-            value={name}
-            maxLength={maxTeamNameLength}
-            aria-invalid={Boolean(nameError)}
-            autoFocus
-            onChange={(event) => onNameChange(event.currentTarget.value)}
-          />
-          {nameError ? (
-            <p className="oo-text-caption-compact text-destructive">{nameError}</p>
-          ) : (
-            <p className="oo-text-caption-compact text-muted-foreground">{t("teams.teamNameDescription")}</p>
-          )}
         </div>
       </form>
-    </Dialog>
+    </section>
+  )
+}
+
+function TeamProfileLogo({ team }: { team: Team }) {
+  const avatar = team.avatar.trim()
+  const [loadedAvatar, setLoadedAvatar] = React.useState<string | null>(null)
+  const showImage = Boolean(avatar && loadedAvatar === avatar)
+
+  return (
+    <span
+      className={cn(
+        "relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md text-sm font-medium",
+        showImage ? "bg-transparent text-transparent" : "border border-[var(--oo-frame-border)] text-foreground",
+      )}
+      style={showImage ? undefined : teamAvatarStyle(team.id || team.name)}
+      aria-hidden="true"
+    >
+      {showImage ? null : <span>{teamInitials(team.name)}</span>}
+      {avatar ? (
+        <CachedAvatarImage
+          src={avatar}
+          alt=""
+          className="absolute inset-0 size-full object-contain"
+          onLoad={() => setLoadedAvatar(avatar)}
+          onError={() => setLoadedAvatar((current) => (current === avatar ? null : current))}
+        />
+      ) : null}
+    </span>
   )
 }
 

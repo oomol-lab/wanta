@@ -4,7 +4,15 @@ import type { BusyAction, MemberView } from "./team-management-model.ts"
 import type { UseTeamSkills } from "@/hooks/useTeamSkills"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations.ts"
 
-import { Building2Icon, ChevronsUpDownIcon, LockKeyholeIcon, PencilIcon, PlusIcon } from "lucide-react"
+import {
+  Building2Icon,
+  ChevronsUpDownIcon,
+  LockKeyholeIcon,
+  PlusIcon,
+  SettingsIcon,
+  UserPlusIcon,
+  UsersIcon,
+} from "lucide-react"
 import * as React from "react"
 import { planProviderSkillRecommendationBulkLinks } from "./team-management-model.ts"
 import { TeamAvatar, TeamMemberAccessButton } from "./TeamMembersPanel.tsx"
@@ -33,9 +41,8 @@ export function TeamSwitcherPanel({
   membersLoading,
   getTeamRole,
   onCreate,
-  onEdit,
   onAddMember,
-  onOpenMembers,
+  onOpenSettings,
   onRemoteAvatarLoad,
   onSelect,
   teams,
@@ -49,9 +56,8 @@ export function TeamSwitcherPanel({
   membersLoading: boolean
   getTeamRole: (team: Team) => TeamRole
   onCreate: () => void
-  onEdit: (team: Team) => void
   onAddMember: () => void
-  onOpenMembers: () => void
+  onOpenSettings: () => void
   onRemoteAvatarLoad: (teamId: string, file: File | null) => void
   onSelect: (teamId: string) => void
   teams: Team[]
@@ -59,11 +65,10 @@ export function TeamSwitcherPanel({
   selectedTeamId: string | null
 }) {
   const { t } = useAppI18n()
-  const countLabel = t("teams.teamCount", { count: teams.length })
 
   return (
     <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="flex min-w-0 flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="grid min-w-0 gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
         <div className="flex min-w-0 items-center gap-3">
           <div className="shrink-0">
             {selectedTeam ? (
@@ -80,134 +85,145 @@ export function TeamSwitcherPanel({
             )}
           </div>
 
-          <div className="grid min-h-16 min-w-0 content-center gap-1.5">
-            <div className="flex min-w-0 items-baseline gap-3">
-              {selectedTeam ? (
-                <>
-                  <span className="oo-text-dialog-title min-w-0 truncate text-foreground">{selectedTeam.name}</span>
-                  <TeamIdLabel teamId={selectedTeam.id} />
-                </>
-              ) : (
-                <span className="oo-text-body min-w-0 truncate text-muted-foreground">{t("teams.selectTeam")}</span>
-              )}
-            </div>
-
+          <div className="grid min-h-16 min-w-0 flex-1 content-center gap-1">
             {selectedTeam ? (
-              <TeamMemberAccessButton
-                canManage={canManage}
-                members={members}
-                membersComplete={membersComplete}
-                membersLoading={membersLoading}
-                onAddMember={onAddMember}
-                onOpen={onOpenMembers}
-              />
+              <>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="-ml-2 h-auto w-fit max-w-full justify-start px-2 py-1"
+                    >
+                      <span className="oo-text-dialog-title min-w-0 truncate text-foreground">{selectedTeam.name}</span>
+                      <ChevronsUpDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <TeamSwitcherMenu
+                    avatarPreviewUrls={avatarPreviewUrls}
+                    getTeamRole={getTeamRole}
+                    onCreate={onCreate}
+                    onRemoteAvatarLoad={onRemoteAvatarLoad}
+                    onSelect={onSelect}
+                    selectedTeamId={selectedTeamId}
+                    teams={teams}
+                  />
+                </DropdownMenu>
+                <TeamMemberAccessButton
+                  canManage={canManage}
+                  members={members}
+                  membersComplete={membersComplete}
+                  membersLoading={membersLoading}
+                  onOpen={onOpenSettings}
+                />
+              </>
             ) : (
               <div className="oo-text-caption min-w-0 truncate text-muted-foreground">{t("teams.selectTeam")}</div>
             )}
           </div>
         </div>
 
-        <div className="grid min-w-0 gap-2 sm:min-w-fit sm:shrink-0 sm:justify-items-end">
-          <div className="flex min-w-0 flex-wrap justify-end gap-2">
-            {selectedTeam && canManage ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-full sm:w-auto"
-                onClick={() => onEdit(selectedTeam)}
-              >
-                <PencilIcon className="size-3.5" />
-                {t("teams.editTeam")}
-              </Button>
-            ) : null}
-            <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onCreate}>
-              <PlusIcon className="size-3.5" />
-              {t("teams.createTeam")}
+        <div className="flex min-w-0 flex-wrap gap-2 sm:justify-end">
+          {selectedTeam && canManage ? (
+            <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onAddMember}>
+              <UserPlusIcon className="size-3.5" />
+              {t("teams.addMember")}
             </Button>
-          </div>
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 sm:justify-end">
-            <span className="oo-text-body shrink-0 text-muted-foreground">{countLabel}</span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="ghost" size="sm" className="px-2">
-                  {t("teams.switchTeam")}
-                  <ChevronsUpDownIcon className="size-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" sideOffset={6} className="w-[min(36rem,calc(100vw-2rem))]">
-                <DropdownMenuLabel>{t("teams.selectWorkspace")}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {teams.map((team) => {
-                  const role = getTeamRole(team)
-                  const selected = team.id === selectedTeamId
-                  return (
-                    <DropdownMenuItem
-                      key={team.id}
-                      className={cn(
-                        "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
-                        selected && "bg-accent",
-                      )}
-                      onSelect={() => onSelect(team.id)}
-                    >
-                      <TeamAvatar
-                        team={team}
-                        previewUrl={avatarPreviewUrls[team.id]}
-                        className="size-10 rounded-md text-sm"
-                        onRemoteAvatarLoad={onRemoteAvatarLoad}
-                      />
-                      <span className="grid min-h-10 min-w-0 content-center">
-                        <span className="flex min-h-5 min-w-0 items-center gap-2">
-                          <span className="oo-text-label truncate">{team.name}</span>
-                          {selected ? (
-                            <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
-                          ) : null}
-                        </span>
-                        <span className="oo-text-caption-compact block truncate font-mono text-muted-foreground">
-                          {team.id}
-                        </span>
-                      </span>
-                      <Badge variant="secondary" className="justify-self-end">
-                        {t(teamRoleLabelKey(role))}
-                      </Badge>
-                    </DropdownMenuItem>
-                  )
-                })}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem className="gap-2 py-2" onSelect={onCreate}>
-                  <PlusIcon className="size-4" />
-                  <span>{t("teams.createTeam")}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          ) : null}
+          {selectedTeam ? (
+            <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onOpenSettings}>
+              {canManage ? <SettingsIcon className="size-3.5" /> : <UsersIcon className="size-3.5" />}
+              {t(canManage ? "teams.teamSettings" : "teams.viewMembers")}
+            </Button>
+          ) : null}
         </div>
       </div>
     </section>
   )
 }
 
-function TeamIdLabel({ teamId }: { teamId: string }) {
+function TeamSwitcherMenu({
+  avatarPreviewUrls,
+  getTeamRole,
+  onCreate,
+  onRemoteAvatarLoad,
+  onSelect,
+  selectedTeamId,
+  teams,
+}: {
+  avatarPreviewUrls: Record<string, string>
+  getTeamRole: (team: Team) => TeamRole
+  onCreate: () => void
+  onRemoteAvatarLoad: (teamId: string, file: File | null) => void
+  onSelect: (teamId: string) => void
+  selectedTeamId: string | null
+  teams: Team[]
+}) {
   const { t } = useAppI18n()
 
   return (
-    <span className="group/team-id inline-flex min-w-0 items-center gap-1.5 align-baseline">
-      <span
-        data-selectable="true"
-        className="oo-text-caption-compact min-w-0 cursor-text truncate font-mono text-muted-foreground select-text"
-        title={teamId}
-      >
-        {teamId}
-      </span>
-      <CopyIconButton
-        ariaLabel={t("teams.copyTeamId")}
-        className="opacity-70 group-hover/team-id:opacity-100 focus-visible:opacity-100 data-[copied=true]:opacity-100"
-        copiedLabel={t("teams.teamIdCopied")}
-        failureMessage={t("teams.memberCopyFailed")}
-        tooltipClassName="max-w-80 font-mono break-all"
-        value={teamId}
-      />
-    </span>
+    <DropdownMenuContent align="start" sideOffset={6} className="w-[min(36rem,calc(100vw-2rem))]">
+      <DropdownMenuLabel>{t("teams.selectTeam")}</DropdownMenuLabel>
+      <DropdownMenuSeparator />
+      {teams.map((team) => {
+        const role = getTeamRole(team)
+        const selected = team.id === selectedTeamId
+        return (
+          <DropdownMenuItem
+            key={team.id}
+            className={cn(
+              "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
+              selected && "bg-accent",
+            )}
+            onSelect={() => onSelect(team.id)}
+          >
+            <TeamAvatar
+              team={team}
+              previewUrl={avatarPreviewUrls[team.id]}
+              className="size-10 rounded-md text-sm"
+              onRemoteAvatarLoad={onRemoteAvatarLoad}
+            />
+            <span className="grid min-h-10 min-w-0 content-center">
+              <span className="flex min-h-5 min-w-0 items-center gap-2">
+                <span className="oo-text-label truncate">{team.name}</span>
+                {selected ? (
+                  <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
+                ) : null}
+              </span>
+              <span className="group/team-id flex min-w-0 items-center gap-1.5">
+                <span className="oo-text-caption-compact min-w-0 truncate font-mono text-muted-foreground">
+                  {team.id}
+                </span>
+                {selected ? <TeamIdCopyButton teamId={team.id} /> : null}
+              </span>
+            </span>
+            <Badge variant="secondary" className="justify-self-end">
+              {t(teamRoleLabelKey(role))}
+            </Badge>
+          </DropdownMenuItem>
+        )
+      })}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem className="gap-2 py-2" onSelect={onCreate}>
+        <PlusIcon className="size-4" />
+        <span>{t("teams.createNewTeam")}</span>
+      </DropdownMenuItem>
+    </DropdownMenuContent>
+  )
+}
+
+function TeamIdCopyButton({ teamId }: { teamId: string }) {
+  const { t } = useAppI18n()
+
+  return (
+    <CopyIconButton
+      ariaLabel={t("teams.copyTeamId")}
+      className="opacity-70 group-hover/team-id:opacity-100 focus-visible:opacity-100 data-[copied=true]:opacity-100"
+      copiedLabel={t("teams.teamIdCopied")}
+      failureMessage={t("teams.memberCopyFailed")}
+      tooltipClassName="max-w-80 font-mono break-all"
+      value={teamId}
+    />
   )
 }
 
@@ -332,26 +348,20 @@ export function TeamManagementSkeleton() {
   return (
     <>
       <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-        <div className="flex min-w-0 flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="grid min-w-0 gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
           <div className="flex min-w-0 items-center gap-3">
             <Skeleton className="size-16 shrink-0 rounded-md" />
-            <div className="grid min-h-16 min-w-0 content-center gap-1.5">
-              <div className="flex min-w-0 items-baseline gap-3">
-                <Skeleton className="h-5 w-28 rounded-md" />
-                <Skeleton className="h-4 w-64 max-w-[48%] rounded-md" />
-              </div>
+            <div className="grid min-h-16 min-w-0 flex-1 content-center gap-1.5">
+              <Skeleton className="h-7 w-32 rounded-md" />
               <div className="flex min-w-0 items-center gap-2">
-                <Skeleton className="h-4 w-20 rounded-md" />
                 <Skeleton className="h-6 w-16 rounded-full" />
+                <Skeleton className="h-4 w-20 rounded-md" />
               </div>
             </div>
           </div>
-          <div className="grid min-w-0 gap-2 sm:h-16 sm:min-w-fit sm:shrink-0 sm:content-between sm:justify-items-end sm:gap-0">
-            <Skeleton className="h-[var(--oo-control-height-compact)] w-full rounded-md sm:w-32" />
-            <div className="flex min-w-0 items-center justify-between gap-2 sm:justify-end">
-              <Skeleton className="h-5 w-24 rounded-md" />
-              <Skeleton className="h-[var(--oo-control-height-compact)] w-16 rounded-md" />
-            </div>
+          <div className="flex min-w-0 flex-wrap gap-2 sm:justify-end">
+            <Skeleton className="h-[var(--oo-control-height-compact)] w-full rounded-md sm:w-24" />
+            <Skeleton className="h-[var(--oo-control-height-compact)] w-full rounded-md sm:w-28" />
           </div>
         </div>
       </section>

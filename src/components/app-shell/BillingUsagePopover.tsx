@@ -82,11 +82,16 @@ export function BillingUsagePopover({
   )
   const categorySpendTotal = summaries.reduce((sum, item) => sum + item.credit, 0)
   const totalSpend = categorySpendTotal > 0 ? categorySpendTotal : statsTotalCredit(data?.spend)
+  const balanceAvailable = data?.balanceAvailable === true
+  const spendAvailable = data?.spendAvailable === true
+  const hasNoUsage = spendAvailable && totalSpend === 0
   const currentCredit = toNumber(data?.balance?.total.currentCredit)
   const originalCredit = toNumber(data?.balance?.total.originalCredit)
   const averageDailySpend = totalSpend / usagePeriodDays
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
+  const showCoverageDays = totalSpend >= 0.01 && coverageDays > 0 && coverageDays <= 999
   const modelSpend = getSummary(summaries, "model").credit
+  const apiSpend = getSummary(summaries, "api").credit
   const connectorSpend = getSummary(summaries, "link").credit
   const showTeamPlanSection = canReadTeamSubscriptionForWorkspace(workspace)
   const seatCountAvailable = seatState.count !== null && !seatState.error
@@ -141,7 +146,7 @@ export function BillingUsagePopover({
         ? 100
         : 0
   // 仅在真正拿到余额（无错误）且为 0 时才提示耗尽；会话过期/读取失败一律不显示破坏性"余额耗尽"。
-  const hasNoCredits = Boolean(canManageFunding && data?.balance && currentCredit <= 0 && !error)
+  const hasNoCredits = Boolean(canManageFunding && balanceAvailable && data?.balance && currentCredit <= 0 && !error)
 
   React.useEffect(() => {
     if (!open) {
@@ -300,12 +305,18 @@ export function BillingUsagePopover({
                       <>
                         <div>
                           <div className="oo-text-label text-muted-foreground">{t("billing.availableCredits")}</div>
-                          <div className="oo-text-metric-large mt-1 text-foreground">{formatCredit(currentCredit)}</div>
+                          <div className="oo-text-metric-large mt-1 text-foreground">
+                            {balanceAvailable ? formatCredit(currentCredit) : "—"}
+                          </div>
                         </div>
                         <div className="oo-text-body pt-5 text-right text-muted-foreground">
-                          {averageDailySpend > 0
-                            ? t("billing.popover.coverageDays", { days: coverageDays })
-                            : t("billing.coverageStable")}
+                          {!spendAvailable
+                            ? t("billing.usageUnavailable")
+                            : hasNoUsage
+                              ? t("billing.popover.noUsageTitle")
+                              : showCoverageDays
+                                ? t("billing.popover.coverageDays", { days: coverageDays })
+                                : t("billing.coverageStable")}
                         </div>
                       </>
                     ) : (
@@ -317,18 +328,36 @@ export function BillingUsagePopover({
                     )}
                   </div>
                   <div className="grid gap-2">
-                    {canManageFunding ? <Progress value={availableShare} className="h-1.5 bg-muted" /> : null}
-                    <div className="oo-text-caption-compact flex items-center justify-between gap-3 text-muted-foreground">
-                      <span>{t("billing.popover.periodSpend", { amount: formatCredit(totalSpend) })}</span>
-                      <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
-                    </div>
+                    {canManageFunding && balanceAvailable ? (
+                      <Progress value={availableShare} className="h-1.5 bg-muted" />
+                    ) : null}
+                    {spendAvailable && !hasNoUsage ? (
+                      <div className="oo-text-caption-compact flex items-center justify-between gap-3 text-muted-foreground">
+                        <span>{t("billing.popover.periodSpend", { amount: formatCredit(totalSpend) })}</span>
+                        <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
+                      </div>
+                    ) : hasNoUsage ? (
+                      <p className="oo-text-caption text-muted-foreground">{t("billing.popover.noUsageDescription")}</p>
+                    ) : null}
                   </div>
                 </section>
 
-                <section className="grid grid-cols-2 gap-3">
-                  <UsageMiniMetric label={t("billing.modelSpend")} value={formatCredit(modelSpend)} />
-                  <UsageMiniMetric label={t("billing.category.link")} value={formatCredit(connectorSpend)} />
-                </section>
+                {!hasNoUsage ? (
+                  <section className="grid grid-cols-3 gap-2">
+                    <UsageMiniMetric
+                      label={t("billing.modelSpend")}
+                      value={spendAvailable ? formatCredit(modelSpend) : "—"}
+                    />
+                    <UsageMiniMetric
+                      label={t("billing.category.api")}
+                      value={spendAvailable ? formatCredit(apiSpend) : "—"}
+                    />
+                    <UsageMiniMetric
+                      label={t("billing.category.link")}
+                      value={spendAvailable ? formatCredit(connectorSpend) : "—"}
+                    />
+                  </section>
+                ) : null}
               </>
             )}
           </div>

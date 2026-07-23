@@ -8,12 +8,10 @@ import {
   BillingManagePermissionNotice,
   PlanComparison,
   PlanSeatOverviewPanel,
-  UsageSubscriptionPanel,
   TeamSubscriptionPreviewDialog,
 } from "./BillingSubscriptionPanels.tsx"
 import { BalanceOverview, UsageDetailsDisclosure } from "./BillingUsagePanels.tsx"
 import { CreditPurchaseModal } from "./CreditPurchaseModal.tsx"
-import { getCurrentUsageSubscription } from "./plans.ts"
 import {
   buildTeamSubscriptionOverview,
   isTeamSubscriptionActionDisabled,
@@ -59,7 +57,7 @@ export function BillingRoute({
   workspace,
 }: BillingRouteProps) {
   const t = useT()
-  const { login, state: authState } = useAuth()
+  const { login } = useAuth()
   const chatService = useChatService()
   const [period, setPeriod] = React.useState<BillingPeriodDays>(30)
   const [purchaseOpen, setPurchaseOpen] = React.useState(false)
@@ -88,6 +86,10 @@ export function BillingRoute({
   const totalEvents = categoryEventTotal > 0 ? categoryEventTotal : statsTotalEvents(data?.metering)
   const currentCredit = toNumber(data?.balance?.total.currentCredit)
   const originalCredit = toNumber(data?.balance?.total.originalCredit)
+  const balanceAvailable = data?.balanceAvailable === true
+  const spendAvailable = data?.spendAvailable === true
+  const meteringAvailable = data?.meteringAvailable === true
+  const hasNoUsage = spendAvailable && totalSpend === 0
   const modelSpend = getSummary(summaries, "model").credit
   const billingContext = React.useMemo(
     () =>
@@ -127,15 +129,12 @@ export function BillingRoute({
     [data?.teamPendingPayment, teamOverview.additionalSeats, teamOverview.currentPlan],
   )
   const pendingTeamPaymentUrl = pendingTeamPaymentTargets.paymentUrl
-  const currentUsageSubscription = React.useMemo(
-    () => getCurrentUsageSubscription(data?.usageSubscription ?? null),
-    [data?.usageSubscription],
-  )
   const teamId = canManageTeamSubscriptionForWorkspace(workspace) ? workspace.teamId : null
   const showTeamPlans = canReadTeamSubscriptionForWorkspace(workspace)
   const teamDetailsAvailable = data?.subscriptionAvailable === true && data.teamPendingPaymentAvailable === true
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
+  const showCoverageDays = totalSpend >= 0.01 && coverageDays > 0 && coverageDays <= 999
   const availableShare =
     originalCredit > 0
       ? Math.max(0, Math.min(100, (currentCredit / originalCredit) * 100))
@@ -201,11 +200,16 @@ export function BillingRoute({
   const balanceOverview = (
     <BalanceOverview
       averageDailySpend={averageDailySpend}
+      balanceAvailable={balanceAvailable}
       modelSpend={modelSpend}
       coverageDays={coverageDays}
+      showCoverageDays={showCoverageDays}
       currentCredit={currentCredit}
       canManageFunding={canManageFunding}
+      hasNoUsage={hasNoUsage}
       loading={(loading && !data) || isSessionExpired}
+      meteringAvailable={meteringAvailable}
+      spendAvailable={spendAvailable}
       totalEvents={totalEvents}
       totalSpend={totalSpend}
       availableShare={availableShare}
@@ -281,15 +285,6 @@ export function BillingRoute({
         ) : (
           balanceOverview
         )}
-
-        {canManageFunding ? (
-          <UsageSubscriptionPanel
-            currentPlan={currentUsageSubscription}
-            disabled={isSessionExpired || loading || data?.usageSubscriptionAvailable !== true}
-            openExternalCheckout={openExternalCheckout}
-            userId={authState?.account?.id}
-          />
-        ) : null}
 
         <UsageDetailsDisclosure
           balanceLots={data?.balance?.items ?? []}

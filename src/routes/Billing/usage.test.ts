@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { buildDailySpendBuckets, usageCategory } from "./usage.ts"
+import { buildDailySpendBuckets, formatCredit, usageCategory } from "./usage.ts"
 
 describe("billing usage helpers", () => {
-  it("spreads total spend across daily buckets when the stats response has no daily items", () => {
+  it("does not invent daily spend when the stats response has no daily items", () => {
     const buckets = buildDailySpendBuckets([], 30, 19.47)
 
     expect(buckets).toHaveLength(30)
-    expect(buckets.every((bucket) => bucket.credit > 0)).toBe(true)
-    expect(buckets.every((bucket) => bucket.estimated)).toBe(true)
-    expect(sumCredits(buckets)).toBeCloseTo(19.47)
+    expect(buckets.every((bucket) => bucket.credit === 0)).toBe(true)
+    expect(buckets.every((bucket) => !bucket.estimated)).toBe(true)
   })
 
   it("uses bucketed daily values instead of the fallback total when dated items exist", () => {
@@ -58,6 +57,12 @@ describe("billing usage helpers", () => {
     expect(usageCategory("SERVICE_OTHER", "auth_link")).toBe("link")
     expect(usageCategory("SERVICE_OTHER", "shared_link.create")).toBe("link")
     expect(usageCategory("SERVICE_OTHER", "oauth_token")).toBe("link")
+  })
+
+  it("preserves non-zero sub-cent spend", () => {
+    expect(formatCredit(0)).toBe("$0")
+    expect(formatCredit(0.003)).toBe("<$0.01")
+    expect(formatCredit(0.0372)).toBe("$0.04")
   })
 })
 

@@ -4,8 +4,6 @@ import {
   getBillingOverview,
   getCreditBalance,
   previewTeamSubscription,
-  subscriptionCheckoutUrl,
-  subscriptionPortalUrl,
   topUpCheckoutUrl,
   updateTeamSubscription,
 } from "./billing-client.ts"
@@ -88,15 +86,17 @@ describe("billing-client", () => {
     expect((await rejection(() => getBillingOverview(30, teamScope))).message).toBe(billingAuthRequiredMessage)
   })
 
-  it("scopes team billing reads and includes pending Team payment", async () => {
+  it("scopes team billing reads, skips retired usage subscriptions, and includes pending Team payment", async () => {
+    const paths: string[] = []
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = urlOf(input)
+      paths.push(url.pathname)
       if (url.pathname === "/v1/balance/available") {
         expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
       } else if (url.hostname === "insight.oomol.com") {
         // Team usage now scopes via the /v2/stats/team/:teamId/* path, not the legacy org-name header.
         expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
-        expect(url.pathname).toMatch(/^\/v2\/stats\/team\/team-1\/(billing|metering)$/)
+        expect(url.pathname).toMatch(/^\/v2\/stats\/(billing|metering)$/)
       }
       if (url.pathname === "/v1/balance/available") {
         return Response.json({
@@ -107,7 +107,7 @@ describe("billing-client", () => {
           },
         })
       }
-      if (url.pathname === "/v2/stats/team/team-1/billing" || url.pathname === "/v2/stats/team/team-1/metering") {
+      if (url.pathname === "/v2/stats/billing" || url.pathname === "/v2/stats/metering") {
         return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
       }
       if (url.pathname === "/api/org/team-1/subscriptions") {
@@ -118,18 +118,6 @@ describe("billing-client", () => {
             plans: [],
             platforms: {},
             team: { additionalSeats: 0, cached: false, updatedAt: null },
-          },
-          success: true,
-        })
-      }
-      if (url.pathname === "/api/user/subscriptions") {
-        expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
-        return Response.json({
-          data: {
-            features: [],
-            plan: "ai_pro",
-            plans: ["ai_pro"],
-            platforms: { stripe: ["ai_pro"] },
           },
           success: true,
         })
@@ -169,8 +157,7 @@ describe("billing-client", () => {
     expect(summary.teamPendingPayment?.additionalSeats).toBe(2)
     expect(summary.subscription?.plan).toBe("team_plus")
     expect(summary.subscriptionAvailable).toBe(true)
-    expect(summary.usageSubscription?.plan).toBe("ai_pro")
-    expect(summary.usageSubscriptionAvailable).toBe(true)
+    expect(paths).not.toContain("/api/user/subscriptions")
   })
 
   it("does not request team subscriptions for members without billing permission", async () => {
@@ -193,11 +180,9 @@ describe("billing-client", () => {
     })
 
     expect(paths.some((path) => path.startsWith("/api/org/"))).toBe(false)
-    expect(paths).not.toContain("/v1/balance/available")
+    expect(paths).toContain("/v1/balance/available")
     expect(paths).not.toContain("/api/user/subscriptions")
-    expect(summary.balance).toBeNull()
-    expect(summary.usageSubscription).toBeNull()
-    expect(summary.usageSubscriptionAvailable).toBe(true)
+    expect(summary.balance).not.toBeNull()
     expect(summary.subscription).toBeNull()
     expect(summary.teamPendingPayment).toBeNull()
     expect(summary.subscriptionAvailable).toBe(true)
@@ -228,11 +213,10 @@ describe("billing-client", () => {
 
     expect(paths).toContain("/api/org/team-1/subscriptions")
     expect(paths).toContain("/api/team/team-1/subscriptions/team/pending_payment")
-    expect(paths).not.toContain("/v1/balance/available")
+    expect(paths).toContain("/v1/balance/available")
     expect(paths).not.toContain("/api/user/subscriptions")
     expect(summary.subscription?.plan).toBe("team_plus")
-    expect(summary.balance).toBeNull()
-    expect(summary.usageSubscription).toBeNull()
+    expect(summary.balance).not.toBeNull()
   })
 
   it("surfaces member session expiry from team usage without reading a personal balance", async () => {
@@ -254,7 +238,7 @@ describe("billing-client", () => {
     )
 
     expect(error.message).toBe(billingAuthRequiredMessage)
-    expect(paths).not.toContain("/v1/balance/available")
+    expect(paths).toContain("/v1/balance/available")
   })
 
   it("resolves the console top-up checkout URL", async () => {
@@ -265,27 +249,6 @@ describe("billing-client", () => {
     })
 
     expect(await topUpCheckoutUrl("20_USD")).toBe("https://console.example.com/checkout")
-  })
-
-  it("builds the personal usage subscription checkout URL", () => {
-    const url = new URL(subscriptionCheckoutUrl("ai_pro", "user-1"))
-
-    expect(url.pathname).toBe("/api/user/subscriptions/page")
-    expect(url.searchParams.get("payment_type")).toBe("subscription")
-    expect(url.searchParams.get("plan")).toBe("ai_pro")
-    expect(url.searchParams.get("user_id")).toBe("user-1")
-    expect(url.searchParams.get("client_platform")).toBe("chat-web")
-  })
-
-  it("resolves the personal usage subscription portal URL", async () => {
-    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-      const url = urlOf(input)
-      expect(url.pathname).toBe("/api/stripe/portal")
-      expect(url.searchParams.get("product")).toBe("ai")
-      return Response.json({ data: "https://billing.stripe.com/session", success: true })
-    })
-
-    expect(await subscriptionPortalUrl()).toBe("https://billing.stripe.com/session")
   })
 
   it("reads wrapped balance payloads for payment-required recovery", async () => {
@@ -313,22 +276,19 @@ describe("billing-client", () => {
     expect(result).toEqual({ balance: "$7.5", hasCredits: true })
   })
 
-  it("does not expose the signed-in member's personal balance as team funding", async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal("fetch", fetchMock)
-
-    const error = await rejection(() =>
+  it("lets a signed-in member read their own personal balance", async () => {
+    vi.stubGlobal("fetch", async () =>
+      Response.json({ data: { items: [], total: { currentCredit: "4", originalCredit: "5" } } }),
+    )
+    await expect(
       getCreditBalance({
-        canManageFunding: false,
+        canManageFunding: true,
         canManageTeamSubscription: false,
         canReadTeamSubscription: false,
         teamId: "team-1",
         teamName: "acme",
       }),
-    )
-
-    expect(error.message).toContain("managed by its creator")
-    expect(fetchMock).not.toHaveBeenCalled()
+    ).resolves.toEqual({ balance: "$4", hasCredits: true })
   })
 
   it("posts complete Team plan changes", async () => {
@@ -462,10 +422,10 @@ describe("billing-client", () => {
           },
         })
       }
-      if (url.pathname === "/v2/stats/team/team-1/billing") {
+      if (url.pathname === "/v2/stats/billing") {
         return Response.json({ data: { items: [], sourceTotals: {}, total: { totalCredit: "2" } } })
       }
-      if (url.pathname === "/v2/stats/team/team-1/metering") {
+      if (url.pathname === "/v2/stats/metering") {
         return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 4 } } })
       }
       return new Promise<Response>(() => undefined)
@@ -481,9 +441,31 @@ describe("billing-client", () => {
     expect(overview.metering?.total.eventCount).toBe(4)
     expect(overview.subscription).toBeNull()
     expect(overview.subscriptionAvailable).toBe(false)
-    expect(overview.usageSubscription).toBeNull()
-    expect(overview.usageSubscriptionAvailable).toBe(false)
     expect(overview.teamPendingPaymentAvailable).toBe(false)
+  })
+
+  it("distinguishes unavailable spend data from confirmed zero usage", async () => {
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = urlOf(input)
+      if (url.pathname === "/v1/balance/available") {
+        return Response.json({ data: { items: [], total: { currentCredit: "5", originalCredit: "5" } } })
+      }
+      if (url.pathname === "/v2/stats/billing") {
+        return new Response("unavailable", { status: 503 })
+      }
+      if (url.pathname === "/v2/stats/metering") {
+        return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0 } } })
+      }
+      return Response.json({ data: null, success: true })
+    })
+
+    const overview = await getBillingOverview(30, teamScope)
+
+    expect(overview.balanceAvailable).toBe(true)
+    expect(overview.spendAvailable).toBe(false)
+    expect(overview.spend).toBeNull()
+    expect(overview.meteringAvailable).toBe(true)
+    expect(overview.metering?.total.eventCount).toBe(0)
   })
 
   it("adapts the V2 team stats series (no subject) into the usage DTO", async () => {
@@ -500,7 +482,7 @@ describe("billing-client", () => {
           hasOrgHeader: new Headers(init?.headers).get("x-oo-organization-name") !== null,
         })
       }
-      if (url.pathname === "/v2/stats/team/team-1/billing") {
+      if (url.pathname === "/v2/stats/billing") {
         return Response.json({
           data: {
             granularity: "daily",
@@ -510,7 +492,7 @@ describe("billing-client", () => {
           },
         })
       }
-      if (url.pathname === "/v2/stats/team/team-1/metering") {
+      if (url.pathname === "/v2/stats/metering") {
         return Response.json({
           data: {
             granularity: "daily",
@@ -550,10 +532,7 @@ describe("billing-client", () => {
     expect(overview.metering?.total.eventCount).toBe(7)
 
     // Both team stats calls hit the path-scoped V2 route with daily granularity and no org-name header.
-    expect(statsRequests.map((request) => request.path).sort()).toEqual([
-      "/v2/stats/team/team-1/billing",
-      "/v2/stats/team/team-1/metering",
-    ])
+    expect(statsRequests.map((request) => request.path).sort()).toEqual(["/v2/stats/billing", "/v2/stats/metering"])
     expect(statsRequests.every((request) => request.granularity === "daily")).toBe(true)
     expect(statsRequests.some((request) => request.hasOrgHeader)).toBe(false)
   })
@@ -565,7 +544,7 @@ describe("billing-client", () => {
     const windows: number[] = []
     vi.stubGlobal("fetch", async (input: string | URL | Request) => {
       const url = urlOf(input)
-      if (url.hostname === "insight.oomol.com" && url.pathname.startsWith("/v2/stats/team/")) {
+      if (url.hostname === "insight.oomol.com" && url.pathname.startsWith("/v2/stats/")) {
         const startTime = Number(url.searchParams.get("startTime"))
         const endTime = Number(url.searchParams.get("endTime"))
         windows.push((endTime - startTime) / (24 * 60 * 60 * 1000))

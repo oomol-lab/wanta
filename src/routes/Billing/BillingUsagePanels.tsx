@@ -137,12 +137,17 @@ function PeriodToggle({
 export function BalanceOverview({
   averageDailySpend,
   availableShare,
+  balanceAvailable,
   modelSpend,
   coverageDays,
+  showCoverageDays,
   currentCredit,
   canManageFunding,
+  hasNoUsage,
   loading,
+  meteringAvailable,
   period,
+  spendAvailable,
   topUpDisabled,
   onPeriodChange,
   onRefresh,
@@ -152,12 +157,17 @@ export function BalanceOverview({
 }: {
   averageDailySpend: number
   availableShare: number
+  balanceAvailable: boolean
   modelSpend: number
   coverageDays: number
+  showCoverageDays: boolean
   currentCredit: number
   canManageFunding: boolean
+  hasNoUsage: boolean
   loading: boolean
+  meteringAvailable: boolean
   period: BillingPeriodDays
+  spendAvailable: boolean
   topUpDisabled: boolean
   onPeriodChange: (period: BillingPeriodDays) => void
   onRefresh: () => void
@@ -187,7 +197,7 @@ export function BalanceOverview({
               <PiggyBankIcon className="oo-icon-muted size-4 shrink-0" />
               {canManageFunding ? (
                 <div className="oo-text-metric-large mt-2 text-foreground">
-                  {loading ? "..." : formatCredit(currentCredit)}
+                  {loading ? "..." : balanceAvailable ? formatCredit(currentCredit) : "—"}
                 </div>
               ) : (
                 <div className="mt-2 grid gap-1">
@@ -205,34 +215,48 @@ export function BalanceOverview({
 
           {canManageFunding ? (
             <div className="grid gap-2">
-              <Progress value={availableShare} className="h-1.5 bg-muted" />
+              {balanceAvailable ? <Progress value={availableShare} className="h-1.5 bg-muted" /> : null}
               <div className="oo-text-caption flex flex-wrap items-center justify-between gap-2">
                 <span>
-                  {totalSpend > 0 ? t("billing.coverage", { days: coverageDays }) : t("billing.coverageStable")}
+                  {!spendAvailable
+                    ? t("billing.usageUnavailable")
+                    : hasNoUsage
+                      ? t("billing.popover.noUsageTitle")
+                      : showCoverageDays
+                        ? t("billing.coverage", { days: coverageDays })
+                        : t("billing.coverageStable")}
                 </span>
-                <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
+                {spendAvailable && !hasNoUsage ? (
+                  <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
+                ) : null}
               </div>
             </div>
           ) : null}
         </div>
 
-        <div className="grid min-w-0 grid-cols-3 gap-2 max-[760px]:grid-cols-1">
-          <MiniStat
-            icon={<SparklesIcon className="size-4" />}
-            label={t("billing.periodSpend")}
-            value={loading ? "..." : formatCredit(totalSpend)}
-          />
-          <MiniStat
-            icon={<MessageCircleIcon className="size-4" />}
-            label={t("billing.modelSpend")}
-            value={loading ? "..." : formatCredit(modelSpend)}
-          />
-          <MiniStat
-            icon={<ListIcon className="size-4" />}
-            label={t("billing.callCount")}
-            value={loading ? "..." : Intl.NumberFormat().format(totalEvents)}
-          />
-        </div>
+        {hasNoUsage ? (
+          <div className="oo-text-caption flex min-h-24 items-center rounded-md border border-dashed border-border px-4 text-muted-foreground">
+            {t("billing.popover.noUsageDescription")}
+          </div>
+        ) : (
+          <div className="grid min-w-0 grid-cols-3 gap-2 max-[760px]:grid-cols-1">
+            <MiniStat
+              icon={<SparklesIcon className="size-4" />}
+              label={t("billing.periodSpend")}
+              value={loading ? "..." : spendAvailable ? formatCredit(totalSpend) : "—"}
+            />
+            <MiniStat
+              icon={<MessageCircleIcon className="size-4" />}
+              label={t("billing.modelSpend")}
+              value={loading ? "..." : spendAvailable ? formatCredit(modelSpend) : "—"}
+            />
+            <MiniStat
+              icon={<ListIcon className="size-4" />}
+              label={t("billing.callCount")}
+              value={loading ? "..." : meteringAvailable ? Intl.NumberFormat().format(totalEvents) : "—"}
+            />
+          </div>
+        )}
       </div>
     </section>
   )

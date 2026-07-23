@@ -1,4 +1,4 @@
-import type { SubscriptionPlanTag, SubscriptionStatus, TeamSubscriptionPlan } from "../../../electron/chat/common.ts"
+import type { SubscriptionStatus, TeamSubscriptionPlan } from "../../../electron/chat/common.ts"
 
 export interface TeamPlanLimits {
   accountsPerApp: number
@@ -42,17 +42,6 @@ export function getCurrentTeamPlan(status: SubscriptionStatus | null): TeamSubsc
     return status.plan
   }
   return getSubscriptionMarkers(status).find(isTeamSubscriptionPlan) ?? null
-}
-
-export function isUsageSubscriptionPlan(plan: string): plan is SubscriptionPlanTag {
-  return plan === "ai_pro" || plan === "ai_max"
-}
-
-export function getCurrentUsageSubscription(status: SubscriptionStatus | null): SubscriptionPlanTag | null {
-  if (status?.plan && isUsageSubscriptionPlan(status.plan)) {
-    return status.plan
-  }
-  return getSubscriptionMarkers(status).find(isUsageSubscriptionPlan) ?? null
 }
 
 export function teamPlanCapacity(plan: TeamSubscriptionPlan): TeamPlanLimits {

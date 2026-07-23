@@ -11,14 +11,14 @@ export function canManageTeamSubscriptionForWorkspace(workspace: WorkspaceSelect
   return workspace.role === "creator" && Boolean(workspace.team?.name.trim())
 }
 
-/** Team plans and usage follow the workspace; only the creator can read or fund the personal wallet. */
+/** Team plans follow the workspace; the signed-in user always owns and can fund their personal usage account. */
 export function billingRequestScopeForWorkspace(workspace: WorkspaceSelection): BillingRequestScope | null {
   if (!workspace.team?.name.trim()) {
     return null
   }
   return {
     canManageTeamSubscription: canManageTeamSubscriptionForWorkspace(workspace),
-    canManageFunding: workspace.role === "creator",
+    canManageFunding: true,
     canReadTeamSubscription: canReadTeamSubscriptionForWorkspace(workspace),
     teamId: workspace.teamId,
     teamName: workspace.team.name,

@@ -36,6 +36,12 @@ export function buildCategorySummaries(
     }
   }
   if (spendItems.length === 0) {
+    for (const [source, total] of Object.entries(spend?.sourceTotals ?? {})) {
+      const summary = summaries.get(usageCategory(source, ""))
+      if (summary) summary.credit += toNumber(total.totalCredit)
+    }
+  }
+  if (spendItems.length === 0 && summariesTotal(summaries, "credit") === 0) {
     const fallbackSpend = statsTotalCredit(spend)
     if (fallbackSpend > 0) {
       const summary = summaries.get("api")
@@ -51,6 +57,12 @@ export function buildCategorySummaries(
     }
   }
   if (meteringItems.length === 0) {
+    for (const [source, total] of Object.entries(metering?.sourceTotals ?? {})) {
+      const summary = summaries.get(usageCategory(source, ""))
+      if (summary) summary.eventCount += toNumber(total.eventCount)
+    }
+  }
+  if (meteringItems.length === 0 && summariesTotal(summaries, "eventCount") === 0) {
     const fallbackEvents = statsTotalEvents(metering)
     if (fallbackEvents > 0) {
       const summary = summaries.get("api")
@@ -87,14 +99,7 @@ export function buildDailySpendBuckets(
       bucket.credit += billingCredit(item)
     }
   }
-  const bucketedTotal = buckets.reduce((sum, bucket) => sum + bucket.credit, 0)
-  if (bucketedTotal <= 0 && fallbackTotalCredit > 0 && buckets.length > 0) {
-    const averageCredit = fallbackTotalCredit / buckets.length
-    for (const bucket of buckets) {
-      bucket.credit = averageCredit
-      bucket.estimated = true
-    }
-  }
+  void fallbackTotalCredit
   return buckets
 }
 
@@ -153,7 +158,12 @@ export function normalizeTimestamp(timestamp: number): number {
 
 export function formatCredit(value: number | string | undefined): string {
   const amount = toNumber(value)
+  if (amount > 0 && amount < 0.01) return "<$0.01"
   return `$${new Intl.NumberFormat(undefined, { maximumFractionDigits: amount >= 100 ? 0 : 2 }).format(amount)}`
+}
+
+function summariesTotal(summaries: Map<UsageCategory, CategorySummary>, field: "credit" | "eventCount"): number {
+  return [...summaries.values()].reduce((sum, summary) => sum + summary[field], 0)
 }
 
 export function formatPercent(value: number): string {

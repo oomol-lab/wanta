@@ -1,6 +1,7 @@
 import type { ChatPermissionRequest } from "./common.ts"
 import type { SessionPermissionGrant } from "./permission-request.ts"
 
+import { canonicalRegistryNodePackageName, nodePackageRequiresConfirmation } from "./dependency-policy.ts"
 import { permissionCommand, permissionRequestKind } from "./permission-request.ts"
 import {
   commandName,
@@ -17,6 +18,7 @@ const projectDependencyInstallGrantPattern = "project_dependency_install"
 const projectDevCommandGrantPattern = "project_dev_command"
 const packageManagers = new Set(["bun", "npm", "pnpm", "yarn"])
 const packageDependencyVerbs = new Set(["add", "ci", "i", "install", "remove", "rm", "uninstall", "update", "upgrade"])
+const nodeDependencyInstallVerbs = new Set(["add", "i", "install"])
 const packageManagerOptionsWithValue = new Set([
   "-C",
   "-w",
@@ -40,6 +42,35 @@ const deniedDevCommandArguments = new Set([
   "--write",
 ])
 const deniedProjectDependencyOptions = new Set(["-g", "--global", "--global-folder", "--registry", "--userconfig"])
+const safeNodeInstallFlags = new Set([
+  "-D",
+  "-E",
+  "-O",
+  "-P",
+  "--dev",
+  "--exact",
+  "--frozen-lockfile",
+  "--ignore-scripts",
+  "--legacy-peer-deps",
+  "--lockfile-only",
+  "--no-audit",
+  "--no-fund",
+  "--no-optional",
+  "--no-save",
+  "--offline",
+  "--optional",
+  "--package-lock-only",
+  "--prefer-offline",
+  "--prod",
+  "--save-dev",
+  "--save-exact",
+  "--save-optional",
+  "--save-prod",
+  "--silent",
+  "--strict-peer-dependencies",
+  "--verbose",
+])
+const projectTargetOptions = new Set(["-C", "--cwd", "--dir", "--prefix"])
 
 function hasDeniedProjectDependencyOption(words: readonly string[]): boolean {
   for (let index = 1; index < words.length; index += 1) {
@@ -105,14 +136,46 @@ function cdPath(words: readonly string[]): string | undefined {
   return args.length === 1 ? args[0] : undefined
 }
 
+function explicitCdDirectory(commandPrefix: string): string | undefined {
+  const directWords = shellWords(commandPrefix)
+  const directDirectory = directWords ? cdPath(directWords) : undefined
+  if (directDirectory) {
+    return directDirectory
+  }
+
+  const lines = commandPrefix
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length !== 2) {
+    return undefined
+  }
+  const assignmentWords = shellWords(lines[0] ?? "")
+  const cdWords = shellWords(lines[1] ?? "")
+  if (!assignmentWords || assignmentWords.length !== 1 || !cdWords) {
+    return undefined
+  }
+  const assignment = assignmentWords[0] ?? ""
+  const separator = assignment.indexOf("=")
+  const variableName = separator > 0 ? assignment.slice(0, separator) : ""
+  const directory = separator > 0 ? assignment.slice(separator + 1) : ""
+  const cdDirectory = cdPath(cdWords)
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(variableName) || !directory || !cdDirectory) {
+    return undefined
+  }
+  if (cdDirectory !== `$${variableName}` && cdDirectory !== `\${${variableName}}`) {
+    return undefined
+  }
+  return directory
+}
+
 function commandBodyAfterProjectCd(command: string, projectRoot: string): string | undefined {
   const split = splitLeadingAnd(command)
   if (!split) {
     return command
   }
-  const leftWords = shellWords(split.left)
-  const projectDirectory = leftWords ? cdPath(leftWords) : undefined
-  // 只有 cd 目标明确落在可信项目内，右侧开发命令才能继承项目授权。
+  const projectDirectory = explicitCdDirectory(split.left)
+  // Only an explicit directory inside the trusted root may carry permission to the command.
   if (!projectDirectory || !projectPathAllowed(projectDirectory, projectRoot) || !split.right) {
     return undefined
   }
@@ -124,8 +187,13 @@ function commandBodyAfterLikelyCd(command: string): string {
   if (!split) {
     return command
   }
-  const leftWords = shellWords(split.left)
-  return leftWords && cdPath(leftWords) && split.right ? split.right : command
+  return explicitCdDirectory(split.left) && split.right ? split.right : command
+}
+
+function commandWithoutSafeOutputFilter(command: string): string {
+  return command
+    .replace(/\s+(?:2>&1\s+)?\|\s*(?:head|tail)\s+(?:-[1-9][0-9]{0,2}|-n\s+[1-9][0-9]{0,2})\s*$/u, "")
+    .trim()
 }
 
 function optionName(word: string): string {
@@ -218,11 +286,83 @@ function packageDependencyInstallAllowed(words: readonly string[]): boolean {
   return !hasDeniedProjectDependencyOption(words)
 }
 
+function registryNodeDependencyPackages(
+  words: readonly string[],
+  options: { allowConfirmationPackages: boolean; allowEmpty: boolean },
+): string[] | null {
+  const manager = commandName(words[0])
+  if (!manager || !packageManagers.has(manager)) {
+    return null
+  }
+  const command = nextCommandWord(words, 1)
+  if (!command || !nodeDependencyInstallVerbs.has(command.value.toLowerCase())) {
+    return null
+  }
+  for (let index = 1; index < command.index; index += 1) {
+    const word = words[index]
+    const option = optionName(word)
+    if (projectTargetOptions.has(option)) {
+      if (!word.includes("=")) {
+        index += 1
+      }
+      continue
+    }
+    if (!word.startsWith("-") || !safeNodeInstallFlags.has(word)) {
+      return null
+    }
+  }
+  const packages: string[] = []
+  for (let index = command.index + 1; index < words.length; index += 1) {
+    const word = words[index]
+    const option = optionName(word)
+    if (word === "--") {
+      continue
+    }
+    if (projectTargetOptions.has(option)) {
+      if (!word.includes("=")) {
+        index += 1
+      }
+      continue
+    }
+    if (word.startsWith("-")) {
+      if (!safeNodeInstallFlags.has(word)) {
+        return null
+      }
+      continue
+    }
+    const packageName = canonicalRegistryNodePackageName(word)
+    if (!packageName) {
+      return null
+    }
+    packages.push(packageName)
+  }
+  const uniquePackages = [...new Set(packages)]
+  if (!options.allowEmpty && uniquePackages.length === 0) {
+    return null
+  }
+  if (!options.allowConfirmationPackages && uniquePackages.some(nodePackageRequiresConfirmation)) {
+    return null
+  }
+  return uniquePackages
+}
+
+function directInstallArgumentsUseStandardRegistry(words: readonly string[]): boolean {
+  const command = nextCommandWord(words, 1)
+  if (!command || !nodeDependencyInstallVerbs.has(command.value.toLowerCase())) {
+    return true
+  }
+  return Boolean(
+    registryNodeDependencyPackages(words, {
+      allowConfirmationPackages: true,
+      allowEmpty: command.value.toLowerCase() !== "add",
+    }),
+  )
+}
+
 function commandExplicitlyTargetsProject(command: string, projectRoot: string): boolean {
   const split = splitLeadingAnd(command)
   if (split) {
-    const words = shellWords(split.left)
-    const directory = words ? cdPath(words) : undefined
+    const directory = explicitCdDirectory(split.left)
     return Boolean(directory && projectPathAllowed(directory, projectRoot))
   }
   const words = shellWords(command)
@@ -232,7 +372,7 @@ function commandExplicitlyTargetsProject(command: string, projectRoot: string): 
   for (let index = 1; index < words.length; index += 1) {
     const word = words[index]
     const option = optionName(word)
-    if (!["-C", "--cwd", "--dir", "--prefix"].includes(option)) {
+    if (!projectTargetOptions.has(option)) {
       continue
     }
     const directory = word.includes("=") ? optionValue(word) : words[index + 1]
@@ -244,11 +384,10 @@ function commandExplicitlyTargetsProject(command: string, projectRoot: string): 
 function commandLikelyTargetsAProject(command: string): boolean {
   const split = splitLeadingAnd(command)
   if (split) {
-    const words = shellWords(split.left)
-    return Boolean(words && cdPath(words))
+    return Boolean(explicitCdDirectory(split.left))
   }
   const words = shellWords(command)
-  return Boolean(words?.some((word) => ["-C", "--cwd", "--dir", "--prefix"].includes(optionName(word))))
+  return Boolean(words?.some((word) => projectTargetOptions.has(optionName(word))))
 }
 
 function directDevCommandAllowed(words: readonly string[]): boolean {
@@ -287,7 +426,8 @@ function commandArgumentsSafeForProject(words: readonly string[], projectRoot: s
 }
 
 function parsedProjectDevCommandWords(command: string, projectRoot: string): string[] | null {
-  const body = commandBodyAfterProjectCd(command.trim(), projectRoot)
+  const rawBody = commandBodyAfterProjectCd(command.trim(), projectRoot)
+  const body = rawBody ? commandWithoutSafeOutputFilter(rawBody) : undefined
   if (!body || hasUnsafeShellSyntax(body)) {
     return null
   }
@@ -299,7 +439,7 @@ function parsedProjectDevCommandWords(command: string, projectRoot: string): str
 }
 
 function parsedLikelyProjectDevCommandWords(command: string): string[] | null {
-  const body = commandBodyAfterLikelyCd(command.trim())
+  const body = commandWithoutSafeOutputFilter(commandBodyAfterLikelyCd(command.trim()))
   if (!body || hasUnsafeShellSyntax(body)) {
     return null
   }
@@ -340,7 +480,34 @@ export function isProjectDependencyInstallRequest(request: ChatPermissionRequest
   const command = permissionCommand(request)
   const words = command ? parsedProjectDevCommandWords(command, projectRoot) : null
   return Boolean(
-    command && words && commandExplicitlyTargetsProject(command, projectRoot) && packageDependencyInstallAllowed(words),
+    command &&
+    words &&
+    commandExplicitlyTargetsProject(command, projectRoot) &&
+    packageDependencyInstallAllowed(words) &&
+    directInstallArgumentsUseStandardRegistry(words),
+  )
+}
+
+/**
+ * Recognizes a direct standard-registry install inside one bounded target.
+ * Package popularity is irrelevant; global installs, alternate sources, and explicitly costly
+ * runtimes remain confirmation boundaries.
+ */
+export function isStandardRegistryNodeDependencyInstallRequest(
+  request: ChatPermissionRequest,
+  targetRoot: string,
+): boolean {
+  if (permissionRequestKind(request) !== "command") {
+    return false
+  }
+  const command = permissionCommand(request)
+  const words = command ? parsedProjectDevCommandWords(command, targetRoot) : null
+  return Boolean(
+    command &&
+    words &&
+    commandExplicitlyTargetsProject(command, targetRoot) &&
+    !hasDeniedProjectDependencyOption(words) &&
+    registryNodeDependencyPackages(words, { allowConfirmationPackages: false, allowEmpty: false }),
   )
 }
 

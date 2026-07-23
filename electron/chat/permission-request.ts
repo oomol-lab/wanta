@@ -2,6 +2,8 @@ import type { ChatPermissionRequest } from "./common.ts"
 
 import { isPureOoCliCommand } from "../agent/oo-command-permission.ts"
 import { isManagedPythonExecutable, managedPythonExecutable } from "../agent/python-environment.ts"
+import { commandRequiresConfirmation } from "./command-risk.ts"
+import { dependencyCommandRequiresConfirmation, isDependencyMutationCommand } from "./dependency-policy.ts"
 import { hasUnsafeShellSyntax, shellWords } from "./shell-syntax.ts"
 
 export type PermissionRequestKind = "command" | "edit" | "path" | "network" | "local"
@@ -60,34 +62,6 @@ export function permissionCommand(request: ChatPermissionRequest): string | unde
 function commandText(request: ChatPermissionRequest): string {
   return (permissionCommand(request) ?? request.resources.join(" ")).trim()
 }
-
-const HIGH_RISK_COMMAND_PATTERNS: readonly RegExp[] = [
-  /\bsudo\b/i,
-  /\brm\s+[^;&|]*-[^\s;&|]*r[^\s;&|]*f/i,
-  /\brm\s+[^;&|]*-[^\s;&|]*f[^\s;&|]*r/i,
-  /\brm\s+[^;&|]*-[^\s;&|]*r\b/i,
-  /\bfind\b[^;&|]*\s-delete\b/i,
-  /\bfind\b[^;&|]*\s-(?:exec|execdir|ok|okdir)\b/i,
-  /\bchmod\s+(?:-[^\s]+\s+)*777\b/i,
-  /\bchmod\s+(?:-[^\s]+\s+)*-R\b/i,
-  /\bchown\s+(?:-[^\s]+\s+)*(?:root|[^;&|]*\/(?:etc|bin|sbin|usr|system|library))/i,
-  /\b(?:curl|wget)\b[^|;&]*\|\s*(?:sh|bash|zsh)\b/i,
-  /\b(?:npx|bunx)\b/i,
-  /\b(?:pnpm|yarn)\s+dlx\b/i,
-  /\b(?:npm|pnpm|yarn|bun)\b[^;&|]*\b(?:add|ci|install|i|link|publish|remove|rm|uninstall|update|upgrade)\b/i,
-  /\b(?:pip|pip3|uv|poetry)\b[^;&|]*\b(?:install|add|publish|remove)\b/i,
-  /\bbrew\b[^;&|]*\b(?:install|uninstall|upgrade|remove)\b/i,
-  /\bgit\b[^;&|]*\bpush\b/i,
-  /\bgit\b[^;&|]*\breset\s+--hard\b/i,
-  /\bgit\b[^;&|]*\b(?:checkout|restore)\s+[^;&|]*--\s+/i,
-  /\bgit\b[^;&|]*\bclean\s+-[^\s;&|]*f/i,
-  /\b(?:kubectl|helm)\b[^;&|]*\b(?:delete|apply|patch|replace|upgrade|rollback)\b/i,
-  /\bdocker\b[^;&|]*\b(?:rm|rmi|system\s+prune|volume\s+rm)\b/i,
-  /\b(?:npm|pnpm|yarn)\s+publish\b/i,
-  /\b(?:vercel|wrangler|firebase|netlify|sst|serverless)\s+(?:deploy|publish)\b/i,
-  /\bsecurity\s+find-(?:generic|internet)-password\b/i,
-  /\b(?:launchctl|systemctl)\s+(?:bootstrap|bootout|disable|enable|load|reload|restart|start|stop|unload)\b/i,
-]
 
 const HIGH_RISK_COMMAND_PATH_PATTERNS: readonly RegExp[] = [
   /(^|[\s"'=])(?:~|\$HOME)\/(?:\.ssh|\.aws|\.gnupg|\.config\/gh)(?:\/|[\s"';&|<>]|$)/i,
@@ -148,7 +122,8 @@ export function isHighRiskPermissionRequest(request: ChatPermissionRequest): boo
     return false
   }
   return (
-    HIGH_RISK_COMMAND_PATTERNS.some((pattern) => pattern.test(command)) ||
+    dependencyCommandRequiresConfirmation(command) ||
+    commandRequiresConfirmation(command) ||
     HIGH_RISK_COMMAND_PATH_PATTERNS.some((pattern) => pattern.test(command))
   )
 }
@@ -157,15 +132,47 @@ export function isOoCliPermissionRequest(request: ChatPermissionRequest): boolea
   return permissionRequestKind(request) === "command" && isPureOoCliCommand(commandText(request))
 }
 
-const pythonPackageNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u
+const pythonPackageRequirementPattern =
+  /^([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)(?:\[[A-Za-z0-9._-]+(?:,[A-Za-z0-9._-]+)*\])?(?:(?:===|==|~=|!=|<=|>=|<|>)[A-Za-z0-9*+.!_-]+(?:,(?:===|==|~=|!=|<=|>=|<|>)[A-Za-z0-9*+.!_-]+)*)?$/u
+const safePipInstallFlags = new Set([
+  "-U",
+  "-q",
+  "-qq",
+  "-qqq",
+  "--disable-pip-version-check",
+  "--no-cache-dir",
+  "--no-input",
+  "--prefer-binary",
+  "--quiet",
+  "--upgrade",
+])
 
 function canonicalPythonPackageName(value: string): string {
   return value.toLowerCase().replace(/[._-]+/gu, "-")
 }
 
+function managedPythonPackageNames(words: readonly string[]): string[] | null {
+  const packages: string[] = []
+  for (const word of words) {
+    if (word.startsWith("-")) {
+      if (!safePipInstallFlags.has(word)) {
+        return null
+      }
+      continue
+    }
+    const match = pythonPackageRequirementPattern.exec(word)
+    const packageName = match?.[1]
+    if (!packageName) {
+      return null
+    }
+    packages.push(canonicalPythonPackageName(packageName))
+  }
+  return packages.length > 0 ? [...new Set(packages)] : null
+}
+
 /**
- * 仅识别 Wanta 单次任务私有 venv 中、无额外参数的 PyPI 包名安装。
- * 这是展示“允许本次任务安装依赖”入口的前提，不把任意 pip 命令扩展成会话授权。
+ * Recognizes direct PyPI requirements installed through Wanta's private per-task environment.
+ * Source overrides, requirements files, editable installs, paths, URLs, and unknown flags do not qualify.
  */
 export function managedPythonDependencyInstall(
   request: ChatPermissionRequest,
@@ -189,11 +196,15 @@ export function managedPythonDependencyInstall(
   if (words[1] !== "-m" || words[2] !== "pip" || words[3] !== "install") {
     return null
   }
-  const packages = words.slice(4)
-  if (packages.length === 0 || !packages.every((item) => pythonPackageNamePattern.test(item))) {
-    return null
-  }
-  return { packages: [...new Set(packages.map(canonicalPythonPackageName))] }
+  const packages = managedPythonPackageNames(words.slice(4))
+  return packages ? { packages } : null
+}
+
+export function isTaskScopedPythonDependencyInstallRequest(
+  request: ChatPermissionRequest,
+  processRoot: string,
+): boolean {
+  return Boolean(managedPythonDependencyInstall(request, processRoot))
 }
 
 function normalizeResourceText(resource: string): string {
@@ -330,7 +341,8 @@ export function permissionRequestNeedsDefaultPrompt(request: ChatPermissionReque
     return false
   }
   if (kind === "command") {
-    return permissionRequestHasBroadResource(request)
+    const command = commandText(request)
+    return isDependencyMutationCommand(command) || permissionRequestHasBroadResource(request)
   }
   return permissionRequestHasBroadResource(request)
 }

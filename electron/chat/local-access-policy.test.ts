@@ -197,13 +197,154 @@ test("local access policy allows ordinary file requests and protects sensitive p
   )
 })
 
-test("local access policy prompts high-risk commands in default mode", () => {
+test("local access policy separates dependency confirmation from genuinely high-risk commands", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "npm install" } }), { permissionMode: "default" }),
-    { type: "prompt", kind: "command", highRisk: true },
+    { type: "prompt", kind: "command", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "cat ~/.ssh/id_rsa" } }), {
+      permissionMode: "default",
+    }),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+})
+
+test("default access auto-approves direct PyPI requirements only in the active task environment", () => {
+  const processRoot = "/tmp/wanta-process/task-1"
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: {
+          command: `${processRoot}/.wanta-python/bin/python -m pip install --upgrade 'pandas>=2' 'markitdown[pdf,docx,pptx,xlsx]'`,
+        },
+      }),
+      { permissionMode: "default", taskProcessRoot: processRoot },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install fitz` },
+      }),
+      { permissionMode: "default", taskProcessRoot: processRoot },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: { command: "/tmp/other/.wanta-python/bin/python -m pip install pandas" },
+      }),
+      { permissionMode: "default", taskProcessRoot: processRoot },
+    ),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+})
+
+test("default access auto-approves standard registry Node dependencies in bounded task or project roots", () => {
+  const processRoot = "/tmp/wanta-process/task-1"
+  const projectRoot = "/Users/example/code/customer-project"
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `cd ${processRoot} && npm install exceljs pdf-lib` } }),
+      {
+        permissionMode: "default",
+        taskProcessRoot: processRoot,
+      },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: `pnpm --dir ${projectRoot} add zod sharp` } }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${processRoot} && npm install xlsx` } }), {
+      permissionMode: "default",
+      taskProcessRoot: processRoot,
+    }),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: {
+          command: `SCRIPT_DIR="${processRoot}"\ncd "$SCRIPT_DIR" && npm install marked 2>&1 | tail -5`,
+        },
+      }),
+      {
+        permissionMode: "default",
+        taskProcessRoot: processRoot,
+      },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `cd ${processRoot} && npm install any-standard-registry-package` } }),
+      {
+        permissionMode: "default",
+        taskProcessRoot: processRoot,
+      },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `cd ${processRoot} && npm install exceljs --registry https://example.test` } }),
+      {
+        permissionMode: "default",
+        taskProcessRoot: processRoot,
+      },
+    ),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+  for (const packageName of ["playwright", "playwright-core", "puppeteer", "puppeteer-core"]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(
+        permission({ metadata: { command: `cd ${processRoot} && npm install ${packageName}` } }),
+        {
+          permissionMode: "default",
+          taskProcessRoot: processRoot,
+        },
+      ),
+      { type: "prompt", kind: "command", highRisk: true },
+      packageName,
+    )
+  }
+})
+
+test("default access allows package runners unless they cross an explicit confirmation boundary", () => {
+  const prettierProbe =
+    'which pandoc 2>/dev/null; which wkhtmltopdf 2>/dev/null; which weasyprint 2>/dev/null; which prince 2>/dev/null; echo "---"; npm list -g @marp-team/marp-cli 2>/dev/null; npx --yes prettier 2>/dev/null; echo "---"; python3 -c "import markdown; print(\'markdown ok\')" 2>/dev/null; python3 -c "import weasyprint; print(\'weasyprint ok\')" 2>/dev/null; echo "---"; brew list pandoc 2>/dev/null | head -3'
+  const markdownPdfProbe =
+    'which pandoc 2>/dev/null; which wkhtmltopdf 2>/dev/null; which weasyprint 2>/dev/null; which pdfkit 2>/dev/null; npx --yes markdown-pdf --version 2>/dev/null; echo "---"; brew list pandoc 2>/dev/null; pip3 list 2>/dev/null | grep -i -E "weasy|pdf|markdown"'
+  for (const command of [
+    prettierProbe,
+    markdownPdfProbe,
+    "npx --yes unknown-package",
+    "npx --yes prettier --write .",
+    "pnpm dlx markdown-pdf --version",
+    'cd "/Users/test/Library/Application Support/wanta/agent/process/task" && npx md-to-pdf ' +
+      '"/Users/test/Library/Application Support/wanta/agent/artifacts/report.md" ' +
+      '--stylesheet "/Users/test/Library/Application Support/wanta/agent/process/task/pdf-style.css" ' +
+      '--output "/Users/test/Library/Application Support/wanta/agent/artifacts/report.pdf" 2>&1',
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+      }),
+      { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+      command,
+    )
+  }
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "npx --yes playwright --version" } }), {
       permissionMode: "default",
     }),
     { type: "prompt", kind: "command", highRisk: true },
@@ -230,21 +371,21 @@ test("task-scoped managed Python grants only cover the approved packages in the 
       permission({ metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install openpyxl` } }),
       { permissionMode: "default", sessionGrants: [grant] },
     ),
-    { type: "allow", reason: "session_grant", kind: "command", highRisk: true },
+    { type: "allow", reason: "session_grant", kind: "command", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({ metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install requests` } }),
       { permissionMode: "default", sessionGrants: [grant] },
     ),
-    { type: "prompt", kind: "command", highRisk: true },
+    { type: "prompt", kind: "command", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({ metadata: { command: `pip3 install --break-system-packages --user openpyxl` } }),
       { permissionMode: "default", sessionGrants: [grant] },
     ),
-    { type: "prompt", kind: "command", highRisk: true },
+    { type: "prompt", kind: "command", highRisk: false },
   )
 })
 
@@ -263,26 +404,26 @@ test("task-scoped project dependency grants cover only the active project task",
     projectRoot: root,
   })
   assert.deepEqual(
-    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${root} && pnpm add zod` } }), {
+    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${root} && pnpm install` } }), {
       activeGenerationId: "turn-1",
       permissionMode: "default",
       sessionGrants: grant ? [grant] : [],
       trustedProjectRoot: root,
     }),
-    { type: "allow", reason: "session_grant", kind: "command", highRisk: true },
+    { type: "allow", reason: "session_grant", kind: "command", highRisk: false },
   )
   assert.deepEqual(
-    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${root} && pnpm add zod` } }), {
+    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${root} && pnpm install` } }), {
       activeGenerationId: "turn-2",
       permissionMode: "default",
       sessionGrants: grant ? [grant] : [],
       trustedProjectRoot: root,
     }),
-    { type: "prompt", kind: "command", highRisk: true },
+    { type: "prompt", kind: "command", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(
-      permission({ metadata: { command: `cd ${root} && pnpm add zod --registry https://example.test` } }),
+      permission({ metadata: { command: `cd ${root} && pnpm add left-pad --registry https://example.test` } }),
       {
         activeGenerationId: "turn-1",
         permissionMode: "default",
@@ -391,7 +532,7 @@ test("local access policy keeps project dev grants compatible but prompts unsafe
       sessionGrants: [grant],
       trustedProjectRoot: root,
     }),
-    { type: "prompt", kind: "command", highRisk: true },
+    { type: "prompt", kind: "command", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "pnpm lint" } }), {

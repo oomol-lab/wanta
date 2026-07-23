@@ -136,6 +136,7 @@ vendored-UI rules, ...) live in [docs/conventions.md](docs/conventions.md).
 | [docs/conventions.md](docs/conventions.md)                         | Before writing code: naming/layout/security/error-handling/UI & i18n conventions, the R1–R8 numbering, verification discipline          |
 | [docs/network-request-caching.md](docs/network-request-caching.md) | Before changing renderer read paths: cache boundaries, TTLs, in-flight merging, targeted invalidation after mutations                   |
 | [docs/skill-catalog-caching.md](docs/skill-catalog-caching.md)     | Before touching Skill catalog/registry reads: catalog cache keys, TTLs, and generation-based invalidation                               |
+| [docs/task-dependency-policy.md](docs/task-dependency-policy.md)   | Before changing dependency auto-approval: task/private-project boundaries, standard sources, and explicit confirmation cases            |
 
 Working documents — point-in-time plans, analyses, and ledgers; on conflict, the code and the
 reference docs above win: [docs/open-source-plan.md](docs/open-source-plan.md),

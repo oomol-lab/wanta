@@ -91,13 +91,22 @@ test("renderer permission helpers recognize likely project dev commands without 
 
 test("high risk command detection marks destructive commands for default access prompts", () => {
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm test" } })), false)
-  assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm install" } })), true)
+  assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm install" } })), false)
   assert.equal(
     isHighRiskPermissionRequest(permission({ metadata: { command: "python3 -m pip install openpyxl" } })),
-    true,
+    false,
   )
   assert.equal(
     isHighRiskPermissionRequest(permission({ metadata: { command: "npm --prefix /tmp/app install" } })),
+    false,
+  )
+  assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm --global install eslint" } })), true)
+  assert.equal(
+    isHighRiskPermissionRequest(permission({ metadata: { command: "npx --yes markdown-pdf --version" } })),
+    false,
+  )
+  assert.equal(
+    isHighRiskPermissionRequest(permission({ metadata: { command: "npx --yes playwright --version" } })),
     true,
   )
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "rm -rf /tmp/wanta-test" } })), true)
@@ -108,6 +117,17 @@ test("high risk command detection marks destructive commands for default access 
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "git push origin main" } })), true)
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "git -C /tmp/repo push" } })), true)
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "cat ~/.ssh/id_rsa" } })), true)
+  assert.equal(
+    isHighRiskPermissionRequest(
+      permission({
+        metadata: {
+          command:
+            'npx md-to-pdf "/tmp/npm publish report.md" --output "/tmp/git push summary.pdf" --stylesheet "/tmp/sudo.css"',
+        },
+      }),
+    ),
+    false,
+  )
   assert.equal(
     isHighRiskPermissionRequest(permission({ metadata: { command: "find ~/Documents -exec cat {} \\;" } })),
     true,
@@ -125,9 +145,38 @@ test("managed Python dependency installs are narrow enough for a task approval",
 
   assert.deepEqual(managedPythonDependencyInstall(request), { packages: ["openpyxl", "fpdf2"] })
   assert.deepEqual(managedPythonDependencyInstall(request, processRoot), { packages: ["openpyxl", "fpdf2"] })
+  assert.deepEqual(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: {
+          command: `${processRoot}/.wanta-python/bin/python -m pip install --upgrade 'pandas>=2,<3' 'markitdown[pdf,docx,pptx,xlsx]'`,
+        },
+      }),
+      processRoot,
+    ),
+    { packages: ["pandas", "markitdown"] },
+  )
   assert.equal(
     managedPythonDependencyInstall(
       permission({ metadata: { command: "pip3 install --user openpyxl fpdf2" } }),
+      processRoot,
+    ),
+    null,
+  )
+  assert.equal(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install -r requirements.txt` },
+      }),
+      processRoot,
+    ),
+    null,
+  )
+  assert.equal(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install git+https://x.test/a` },
+      }),
       processRoot,
     ),
     null,

@@ -7,6 +7,7 @@ import {
   createSessionPermissionGrant,
   isHighRiskPermissionRequest,
   isOoCliPermissionRequest,
+  isTaskScopedPythonDependencyInstallRequest,
   permissionRequestHasSensitiveResource,
   permissionCommand,
   permissionRequestNeedsDefaultPrompt,
@@ -17,6 +18,7 @@ import {
 import {
   createProjectDependencyInstallTaskGrant,
   createProjectDevCommandSessionGrant,
+  isStandardRegistryNodeDependencyInstallRequest,
   requestMatchesProjectDependencyInstallTaskGrant,
   requestMatchesProjectDevCommandSessionGrant,
 } from "./project-dev-command.ts"
@@ -30,6 +32,7 @@ export type LocalAccessAllowReason =
   | "oo_cli"
   | "project_read_command"
   | "session_grant"
+  | "trusted_dependency"
   | "trusted_project"
 
 export type LocalAccessDecision =
@@ -55,6 +58,7 @@ export interface LocalAccessPolicyContext {
   linkRuntime?: ActiveLinkRuntime
   permissionMode: AgentPermissionMode
   sessionGrants?: readonly SessionPermissionGrant[]
+  taskProcessRoot?: string
   trustedProjectRoot?: string
 }
 
@@ -114,6 +118,14 @@ export function evaluateLocalAccessRequest(
   // 通用目录 grant 不得越过凭证、私密应用数据等敏感读取边界；只有完全访问才会跳过这层保护。
   if (permissionRequestHasSensitiveResource(request)) {
     return { type: "prompt", kind, highRisk }
+  }
+  if (
+    (context.taskProcessRoot &&
+      (isTaskScopedPythonDependencyInstallRequest(request, context.taskProcessRoot) ||
+        isStandardRegistryNodeDependencyInstallRequest(request, context.taskProcessRoot))) ||
+    (context.trustedProjectRoot && isStandardRegistryNodeDependencyInstallRequest(request, context.trustedProjectRoot))
+  ) {
+    return { type: "allow", reason: "trusted_dependency", kind, highRisk }
   }
   if (
     hasMatchingNarrowSessionGrant(

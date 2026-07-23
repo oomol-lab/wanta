@@ -25,6 +25,31 @@ function renderPermissionCard(request: ChatPermissionRequest): string {
 }
 
 describe("PermissionRequiredCard", () => {
+  it("does not label an ordinary dependency confirmation as high risk", () => {
+    const html = renderPermissionCard({
+      action: "bash",
+      id: "permission-1",
+      metadata: { command: "npm install" },
+      resources: ["npm install"],
+      sessionId: "session-1",
+    })
+
+    expect(html).toContain("需要运行本地命令")
+    expect(html).not.toContain("需要确认高风险命令")
+  })
+
+  it("keeps global package installation in the high-risk presentation", () => {
+    const html = renderPermissionCard({
+      action: "bash",
+      id: "permission-1",
+      metadata: { command: "npm --global install eslint" },
+      resources: ["npm --global install eslint"],
+      sessionId: "session-1",
+    })
+
+    expect(html).toContain("需要确认高风险命令")
+  })
+
   it("does not offer task-scoped Python approval when the request also accesses sensitive data", () => {
     const html = renderPermissionCard({
       action: "bash",

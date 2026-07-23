@@ -250,7 +250,7 @@
   auto-approving ordinary shell commands, scripts, project checks, data processing, simple output
   filtering, ordinary file reads/writes, and specific non-sensitive paths; only fundamental
   security boundaries are pushed to the renderer for confirmation — credential/key paths, broad or
-  recursive home/system scans, destructive deletion, dependency installation, privilege
+  recursive home/system scans, destructive deletion, global/system or alternate-source dependency changes, privilege
   escalation, `git push/reset/clean`, publish/deploy, infrastructure changes, and the like.
   Sensitive-resource checks take precedence over generic directory session grants; a generic grant
   can never green-light a high-risk request. Full Access can still take over the session's
@@ -269,18 +269,24 @@
   flow smoothly, pausing only at real risk boundaries". Users need not approve `oo ... | head`,
   `npm test`, `rg`, data-processing scripts, or ordinary Desktop/Downloads files one by one;
   specific non-sensitive file reads stay smooth, and only broad scans of the whole home/system
-  root prompt. `npm install`, reading credentials/keys, browser login state,
+  root prompt. Unscoped, global/system, or alternate-source dependency changes, reading credentials/keys, browser login state,
   mail/messages/contacts/calendar data, deletion, privilege escalation, push, deploy, etc. still
   require confirmation; such sensitive reads take precedence over generic directory session grants
   and cannot be silently waved through because the user once allowed a parent folder. To keep
-  coding tasks from drowning in back-to-back approvals for dependency handling, the user can issue
-  a task-level grant for standard npm/pnpm/yarn/bun dependency operations explicitly targeted at
-  the currently selected project directory; it is valid only within the current generation and
-  does not cover global installs, custom registries, user config, or commands outside the project.
-  Python still gets a narrower pure-PyPI-package-name grant inside the turn's process-directory
-  private `.wanta-python` venv; `--user`, `--break-system-packages`, extra indexes,
-  URL/local-path/requirements files, and any system-Python installs remain per-request
-  confirmations. If sensitive paths (browser profiles, mail databases, more credential
+  coding and document tasks from drowning in back-to-back approvals, dependency approval follows
+  execution scope and package source rather than a reviewed popularity list: direct Python
+  requirements only through the turn-private `.wanta-python` interpreter, and direct
+  standard-registry Node.js packages only through npm/pnpm/yarn/bun commands explicitly targeted at
+  the turn process directory or selected project. Normal extras and version constraints are
+  accepted without Wanta pinning a version. Package runners are ordinary local execution rather
+  than a separate high-risk class. The user can still issue a task-level grant for no-argument or
+  other standard Node.js dependency operations explicitly targeted at the selected project; those
+  grants do not outlive their intended task/session scope. Global installs, custom registries,
+  alternative indexes, user config, Git/URL/local sources, requirements files, `--user`,
+  `--break-system-packages`, system Python, and explicitly high-cost runtimes remain protected.
+  Default Access is a risk policy rather than an OS sandbox; package-name matching cannot provide
+  process isolation once ordinary Python, Node.js, and shell execution is available. If sensitive
+  paths (browser profiles, mail databases, more credential
   directories) or external side-effect classification are refined further in the future,
   `config.ts`, the ChatService local access policy, the access-mode UI, the event tests, and
   [conventions.md §7](conventions.md) must be updated in sync. If permissions are ever

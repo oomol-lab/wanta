@@ -27,6 +27,15 @@ function legacyPaymentKey(cacheScope: string, scope: BillingRequestScope): strin
   return `team-payment-recovery-pending:${encodeURIComponent(JSON.stringify({ cacheScope, requestScopeKey }))}`
 }
 
+function previousTeamPaymentKey(cacheScope: string, scope: BillingRequestScope): string {
+  const requestScopeKey = {
+    canManageFunding: scope.canManageFunding,
+    teamId: scope.teamId,
+    teamName: scope.teamName,
+  }
+  return `team-payment-recovery-pending:${encodeURIComponent(JSON.stringify({ cacheScope, requestScopeKey }))}`
+}
+
 function teamScope(overrides: Partial<BillingRequestScope> = {}): BillingRequestScope {
   return {
     canManageFunding: true,
@@ -131,6 +140,38 @@ describe("payment recovery storage", () => {
     expect(hasPaymentRecoveryPending("user-1:team:team-1", scope, storage, 1_000)).toBe(true)
     expect(values.has(legacyKey)).toBe(false)
     expect(values.has(paymentRecoveryPendingStorageKey("user-1:team:team-1", scope))).toBe(true)
+  })
+
+  it("migrates markers from the previous team-scoped key", () => {
+    const values = new Map<string, string>()
+    const storage: PaymentRecoveryStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      removeItem: (key) => void values.delete(key),
+      setItem: (key, value) => void values.set(key, value),
+    }
+    const scope = teamScope()
+    const previousKey = previousTeamPaymentKey("user-1:team:team-1", scope)
+    values.set(previousKey, JSON.stringify({ expiresAt: 2_000 }))
+
+    expect(hasPaymentRecoveryPending("user-1:team:team-1", scope, storage, 1_000)).toBe(true)
+    expect(values.has(previousKey)).toBe(false)
+    expect(values.has(paymentRecoveryPendingStorageKey("user-1:team:team-1", scope))).toBe(true)
+  })
+
+  it("clears markers from the previous team-scoped key", () => {
+    const values = new Map<string, string>()
+    const storage: PaymentRecoveryStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      removeItem: (key) => void values.delete(key),
+      setItem: (key, value) => void values.set(key, value),
+    }
+    const scope = teamScope()
+    const previousKey = previousTeamPaymentKey("user-1:team:team-1", scope)
+    values.set(previousKey, JSON.stringify({ expiresAt: 2_000 }))
+
+    clearPaymentRecoveryPending("user-1:team:team-1", scope, storage)
+
+    expect(values.has(previousKey)).toBe(false)
   })
 
   it.each([

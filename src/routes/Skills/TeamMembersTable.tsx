@@ -1,4 +1,4 @@
-import type { TeamMember } from "../../../electron/teams/common.ts"
+import type { EditableTeamMemberRole, TeamMember, TeamRole } from "../../../electron/teams/common.ts"
 import type { BusyAction, MemberView, ProviderGrantView } from "./team-management-model.ts"
 
 import { MoreHorizontalIcon, PencilIcon, ShieldCheckIcon, Trash2Icon, UserCheckIcon, UserXIcon } from "lucide-react"
@@ -25,15 +25,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useClipboardCopy } from "@/hooks/useClipboardCopy"
 import { useAppI18n } from "@/i18n"
-import { teamRoleHasDefaultConnectionAccess, teamRoleLabelKey } from "@/lib/team-permissions"
+import { canChangeTeamMemberRole, teamRoleHasDefaultConnectionAccess, teamRoleLabelKey } from "@/lib/team-permissions"
 import { cn } from "@/lib/utils"
 
 export function MembersTable({
   appAccessLoading,
+  actorRole,
+  actorUserId,
   busyAction,
   canManage,
   grantsByUserId,
@@ -44,12 +47,15 @@ export function MembersTable({
   onGrantProviderAccess,
   onRemoveMember,
   onRevokeProviderAccess,
+  onUpdateMemberRole,
   providerAccessMutationError,
   providerOptionsError,
   providerOptionsLoading,
   showProviderAccess,
 }: {
   appAccessLoading: boolean
+  actorRole: TeamRole | null
+  actorUserId: string | undefined
   busyAction: BusyAction | null
   canManage: boolean
   grantsByUserId: Map<string, ProviderGrantView>
@@ -60,6 +66,7 @@ export function MembersTable({
   onGrantProviderAccess: (userId: string) => void
   onRemoveMember: (member: TeamMember) => Promise<void>
   onRevokeProviderAccess: (grant: ProviderGrantView) => Promise<void>
+  onUpdateMemberRole: (member: TeamMember, role: EditableTeamMemberRole) => Promise<void>
   providerAccessMutationError: string | null
   providerOptionsError: string | null
   providerOptionsLoading: boolean
@@ -68,8 +75,15 @@ export function MembersTable({
   const { t } = useAppI18n()
   const [removeTarget, setRemoveTarget] = React.useState<MemberView | null>(null)
   const [revokeTarget, setRevokeTarget] = React.useState<ProviderGrantView | null>(null)
+  const [roleChangeTarget, setRoleChangeTarget] = React.useState<{
+    member: MemberView
+    role: EditableTeamMemberRole
+  } | null>(null)
   const removeTargetBusy = removeTarget ? busyAction === `remove:${removeTarget.user_id}` : false
   const revokeTargetBusy = revokeTarget ? busyAction === `revokeProviderAccess:${revokeTarget.userId}` : false
+  const roleChangeTargetBusy = roleChangeTarget
+    ? busyAction === `updateMemberRole:${roleChangeTarget.member.user_id}`
+    : false
   const {
     allSelected,
     bulkBusy,
@@ -153,6 +167,51 @@ export function MembersTable({
     </ConfirmDialog>
   )
 
+  const roleChangeConfirmDialog = (
+    <ConfirmDialog
+      open={Boolean(roleChangeTarget)}
+      onOpenChange={(open) => {
+        if (!open && !roleChangeTargetBusy) {
+          setRoleChangeTarget(null)
+        }
+      }}
+    >
+      <ConfirmDialogContent>
+        <ConfirmDialogHeader>
+          <ConfirmDialogTitle>
+            {t(roleChangeTarget?.role === "admin" ? "teams.promoteAdminConfirmTitle" : "teams.demoteAdminConfirmTitle")}
+          </ConfirmDialogTitle>
+          <ConfirmDialogDescription>
+            {roleChangeTarget
+              ? t(
+                  roleChangeTarget.role === "admin"
+                    ? "teams.promoteAdminConfirmDescription"
+                    : "teams.demoteAdminConfirmDescription",
+                  { name: roleChangeTarget.member.displayName },
+                )
+              : null}
+          </ConfirmDialogDescription>
+        </ConfirmDialogHeader>
+        <ConfirmDialogFooter>
+          <ConfirmDialogCancel disabled={roleChangeTargetBusy}>{t("common.cancel")}</ConfirmDialogCancel>
+          <ConfirmDialogAction
+            disabled={roleChangeTargetBusy || !roleChangeTarget}
+            onClick={(event) => {
+              if (roleChangeTarget) {
+                event.preventDefault()
+                void onUpdateMemberRole(roleChangeTarget.member, roleChangeTarget.role).finally(() =>
+                  setRoleChangeTarget(null),
+                )
+              }
+            }}
+          >
+            {t(roleChangeTarget?.role === "admin" ? "teams.promoteToAdmin" : "teams.demoteToMember")}
+          </ConfirmDialogAction>
+        </ConfirmDialogFooter>
+      </ConfirmDialogContent>
+    </ConfirmDialog>
+  )
+
   return (
     <>
       {canBulkManage ? (
@@ -177,11 +236,20 @@ export function MembersTable({
           const grant = grantsByUserId.get(member.user_id) ?? null
           const canRemove = canManage && member.role !== "creator"
           const canManageProviderAccess = showProviderAccess && member.role === "member"
+          const canUpdateRole =
+            member.role !== "creator" &&
+            canChangeTeamMemberRole({
+              actorCanManage: canManage,
+              actorRole,
+              actorUserId,
+              member,
+            })
           const selectable = isBulkEditableMember(member)
           const accessDisabled = appAccessLoading || bulkBusy || Boolean(providerAccessMutationError)
           const accessEditDisabled = accessDisabled || providerOptionsLoading || Boolean(providerOptionsError)
           const removeBusy = busyAction === `remove:${member.user_id}`
           const revokeBusy = grant ? busyAction === `revokeProviderAccess:${grant.userId}` : false
+          const roleUpdateBusy = busyAction === `updateMemberRole:${member.user_id}`
           return (
             <div
               key={member.user_id}
@@ -201,13 +269,13 @@ export function MembersTable({
               <TeamUserAvatar avatar={member.avatar} fallback={member.fallback} />
               <div className="min-w-0 self-center">
                 <CompactMemberIdentity member={member}>
-                  {teamRoleHasDefaultConnectionAccess(member.role) && showProviderAccess ? (
-                    <Badge variant="secondary">
-                      {t("teams.roleDefaultAccessCompact", { role: t(teamRoleLabelKey(member.role)) })}
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary">{t(teamRoleLabelKey(member.role))}</Badge>
-                  )}
+                  <MemberRoleControl
+                    canUpdate={canUpdateRole}
+                    disabled={bulkBusy || roleUpdateBusy}
+                    member={member}
+                    showDefaultAccess={showProviderAccess}
+                    onChange={(role) => setRoleChangeTarget({ member, role })}
+                  />
                   {showStatusColumn ? <MemberStatusBadge member={member} /> : null}
                   {canManageProviderAccess ? (
                     <ProviderAccessSummary
@@ -255,9 +323,59 @@ export function MembersTable({
       </div>
       {removeConfirmDialog}
       {revokeConfirmDialog}
+      {roleChangeConfirmDialog}
     </>
   )
 }
+
+function MemberRoleControl({
+  canUpdate,
+  disabled,
+  member,
+  onChange,
+  showDefaultAccess,
+}: {
+  canUpdate: boolean
+  disabled: boolean
+  member: MemberView
+  onChange: (role: EditableTeamMemberRole) => void
+  showDefaultAccess: boolean
+}) {
+  const { t } = useAppI18n()
+  const label =
+    teamRoleHasDefaultConnectionAccess(member.role) && showDefaultAccess
+      ? t("teams.roleDefaultAccessCompact", { role: t(teamRoleLabelKey(member.role)) })
+      : t(teamRoleLabelKey(member.role))
+
+  if (!canUpdate || member.role === "creator") {
+    return <Badge variant="secondary">{label}</Badge>
+  }
+
+  return (
+    <Select
+      value={member.role}
+      onValueChange={(value) => {
+        if ((value === "member" || value === "admin") && value !== member.role) {
+          onChange(value)
+        }
+      }}
+    >
+      <SelectTrigger
+        size="sm"
+        className="h-6 min-w-[6.5rem] rounded-full border-0 bg-secondary px-2.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80"
+        disabled={disabled}
+        aria-label={t("teams.changeMemberRole", { name: member.displayName })}
+      >
+        <SelectValue>{label}</SelectValue>
+      </SelectTrigger>
+      <SelectContent align="start">
+        <SelectItem value="member">{t("teams.roleMember")}</SelectItem>
+        <SelectItem value="admin">{t("teams.roleAdmin")}</SelectItem>
+      </SelectContent>
+    </Select>
+  )
+}
+
 function CompactMemberIdentity({ children, member }: { children: React.ReactNode; member: MemberView }) {
   const { t } = useAppI18n()
 

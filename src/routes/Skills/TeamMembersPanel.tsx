@@ -1,4 +1,4 @@
-import type { Team, TeamMember } from "../../../electron/teams/common.ts"
+import type { EditableTeamMemberRole, Team, TeamMember, TeamRole } from "../../../electron/teams/common.ts"
 import type { BusyAction, MemberView, ProviderGrantView } from "./team-management-model.ts"
 
 import { CrownIcon, PlusIcon, RefreshCwIcon, UsersIcon } from "lucide-react"
@@ -117,6 +117,8 @@ function MemberAvatarStackSkeleton() {
 
 export function TeamDetailPanel({
   appAccessLoading,
+  actorRole,
+  actorUserId,
   busyAction,
   canManage,
   grantsByUserId,
@@ -133,6 +135,7 @@ export function TeamDetailPanel({
   onRemoveMember,
   onRetryMembers,
   onRevokeProviderAccess,
+  onUpdateMemberRole,
   team,
   providerAccessError,
   providerAccessMutationError,
@@ -140,6 +143,8 @@ export function TeamDetailPanel({
   providerOptionsLoading,
 }: {
   appAccessLoading: boolean
+  actorRole: TeamRole | null
+  actorUserId: string | undefined
   busyAction: BusyAction | null
   canManage: boolean
   grantsByUserId: Map<string, ProviderGrantView>
@@ -156,6 +161,7 @@ export function TeamDetailPanel({
   onRemoveMember: (member: TeamMember) => Promise<void>
   onRetryMembers: () => void
   onRevokeProviderAccess: (grant: ProviderGrantView) => Promise<void>
+  onUpdateMemberRole: (member: TeamMember, role: EditableTeamMemberRole) => Promise<void>
   team: Team | null
   providerAccessError: string | null
   providerAccessMutationError: string | null
@@ -211,6 +217,8 @@ export function TeamDetailPanel({
               {membersForbidden ? <MemberAccessWarning onRetry={onRetryMembers} /> : null}
               <MembersTable
                 appAccessLoading={appAccessLoading}
+                actorRole={actorRole}
+                actorUserId={actorUserId}
                 busyAction={busyAction}
                 canManage={canManage}
                 grantsByUserId={grantsByUserId}
@@ -225,6 +233,7 @@ export function TeamDetailPanel({
                 onGrantProviderAccess={onGrantProviderAccess}
                 onRemoveMember={onRemoveMember}
                 onRevokeProviderAccess={onRevokeProviderAccess}
+                onUpdateMemberRole={onUpdateMemberRole}
               />
             </>
           )}

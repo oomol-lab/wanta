@@ -1,4 +1,5 @@
 export type TeamRole = "creator" | "admin" | "member"
+export type EditableTeamMemberRole = Exclude<TeamRole, "creator">
 
 export interface Team {
   id: string
@@ -66,4 +67,10 @@ export interface TeamMemberRequest {
 export interface UpdateTeamMembersStatusRequest {
   teamId: string
   userIds: string[]
+}
+
+export interface UpdateTeamMemberRoleRequest {
+  role: EditableTeamMemberRole
+  teamId: string
+  userId: string
 }

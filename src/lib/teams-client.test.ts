@@ -17,6 +17,7 @@ import {
   TeamRequestError,
   searchUsers,
   updateTeamAppAccess,
+  updateTeamMemberRole,
   updateTeam,
   uploadTeamAvatar,
 } from "./teams-client.ts"
@@ -178,6 +179,34 @@ describe("teams-client", () => {
     const [url, init] = fetchMock.mock.calls[0] ?? []
     expect(new URL(String(url)).pathname).toBe("/v1/teams/team%2F1/members/user%2F1")
     expect(init?.method).toBe("DELETE")
+  })
+
+  it.each(["admin", "member"] as const)(
+    "updates team member roles to %s through the encoded team endpoint",
+    async (role) => {
+      const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ disable: false, role, user_id: "user/1" }))
+      vi.stubGlobal("fetch", fetchMock)
+
+      await expect(updateTeamMemberRole({ role, teamId: "team/1", userId: "user/1" })).resolves.toEqual({
+        disable: false,
+        role,
+        user_id: "user/1",
+      })
+
+      const [url, init] = fetchMock.mock.calls[0] ?? []
+      expect(new URL(String(url)).pathname).toBe("/v1/teams/team%2F1/members/user%2F1")
+      expect(init?.method).toBe("PUT")
+      expect(JSON.parse(String(init?.body))).toEqual({ role })
+    },
+  )
+
+  it("rejects malformed team member role update responses", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ role: "owner", user_id: "user-1" }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(updateTeamMemberRole({ role: "member", teamId: "team-1", userId: "user-1" })).rejects.toThrow(
+      "Team member role response is invalid",
+    )
   })
 
   it("keeps member disabled status from team member lists", async () => {

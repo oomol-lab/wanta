@@ -264,6 +264,7 @@ export function TeamManagementRoute({
 
   const memberActions = useTeamMemberActions({
     activeAccountId,
+    actorRole: activeWorkspace.role,
     busyAction,
     canManage,
     memberInput,
@@ -350,6 +351,8 @@ export function TeamManagementRoute({
                   <TeamMembersSheet open={membersPanelOpen} onClose={() => setMembersPanelOpen(false)}>
                     <TeamDetailPanel
                       appAccessLoading={appAccessState.status === "loading"}
+                      actorRole={activeWorkspace.role}
+                      actorUserId={activeAccountId}
                       busyAction={busyAction}
                       canManage={canManage}
                       grantsByUserId={grantsByUserId}
@@ -371,6 +374,7 @@ export function TeamManagementRoute({
                       onRemoveMember={memberActions.removeMember}
                       onRetryMembers={() => void reload()}
                       onRevokeProviderAccess={memberActions.revokeProviderAccess}
+                      onUpdateMemberRole={memberActions.updateMemberRole}
                     />
                   </TeamMembersSheet>
                 ) : null}

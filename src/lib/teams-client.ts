@@ -1,5 +1,6 @@
 import type {
   CreateTeamRequest,
+  EditableTeamMemberRole,
   Team,
   TeamAppAccess,
   TeamMember,
@@ -9,6 +10,7 @@ import type {
   TeamUserSearchResult,
   TeamUserSummary,
   UpdateTeamMembersStatusRequest,
+  UpdateTeamMemberRoleRequest,
   UpdateTeamRequest,
   UploadTeamAvatarResponse,
 } from "../../electron/teams/common.ts"
@@ -476,6 +478,22 @@ export async function removeTeamMember(req: TeamMemberRequest): Promise<void> {
     method: "DELETE",
     noResult: true,
   })
+}
+
+export async function updateTeamMemberRole(req: UpdateTeamMemberRoleRequest): Promise<TeamMember> {
+  const teamId = requireIdentifier(req.teamId, "Team id")
+  const userId = requireIdentifier(req.userId, "User id")
+  const role: EditableTeamMemberRole = req.role
+  const member = normalizeTeamMember(
+    await requestTeamControlJson(`/v1/teams/${encodePath(teamId)}/members/${encodePath(userId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ role }),
+    }),
+  )
+  if (!member) {
+    throw new Error("Team member role response is invalid.")
+  }
+  return member
 }
 
 function normalizedMemberStatusUserIds(userIds: string[]): string[] {

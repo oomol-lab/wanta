@@ -496,6 +496,9 @@ If a team id is selected but the team name is not yet resolved:
   `writable` field, and fall back to creator/admin role inference only when the field is absent.
 - The team role is for displaying creator/admin/member; prefer the backend `role` when returned, and
   only fall back to `creator_user_id` plus the created list for older responses.
+- Team creators and admins may change any non-creator member between member and admin through the
+  team member role endpoint. An admin cannot change their own role, and the creator role is not
+  editable.
 - Private package permissions must be validated by the backend; never accept a client-supplied
   share id as a bypass.
 - The renderer never touches the session token.

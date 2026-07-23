@@ -12,6 +12,7 @@ import type { TranslateFn } from "@/i18n/i18n"
 
 import { Copy, KeyRound, Save } from "lucide-react"
 import * as React from "react"
+import { connectionDescriptionSegments } from "./connection-description-links.ts"
 import {
   buildCredentialSummaryDisplayValues,
   buildFederatedCredentialDisplayValues,
@@ -40,29 +41,27 @@ import { upsertOAuthClientConfig } from "@/lib/connections-client"
 import { resolveConnectionError } from "@/lib/connections-error"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
 
-const URL_RE = /(https?:\/\/[^\s）)]+)/g
-const IS_URL = /^https?:\/\//
 const PRIMARY_KEY = "__primary__"
 
 type CredentialMode = "api_key" | "custom_credential" | "federated"
 type DialogAuthMode = CredentialMode | "oauth2"
 
 function LinkifiedText({ text, onOpenUrl }: { text: string; onOpenUrl: (url: string) => void }) {
-  const parts = text.split(URL_RE)
+  const segments = connectionDescriptionSegments(text)
   return (
     <>
-      {parts.map((part, i) =>
-        IS_URL.test(part) ? (
+      {segments.map((segment, index) =>
+        segment.kind === "url" ? (
           <button
-            key={`${i}-${part}`}
+            key={`${index}-${segment.value}`}
             type="button"
-            onClick={() => onOpenUrl(part)}
+            onClick={() => onOpenUrl(segment.value)}
             className="oo-text-accent underline underline-offset-2"
           >
-            {part}
+            {segment.value}
           </button>
         ) : (
-          <React.Fragment key={`${i}-text`}>{part}</React.Fragment>
+          <React.Fragment key={`${index}-text`}>{segment.value}</React.Fragment>
         ),
       )}
     </>

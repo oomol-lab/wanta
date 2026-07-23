@@ -410,6 +410,22 @@
     color: var(--oo-attachment-pdf-foreground);
   }
 
+  .oo-pdf-scroll-container {
+    scrollbar-gutter: stable;
+  }
+
+  .oo-pdf-viewer {
+    --page-border: 0;
+    --page-margin: 16px auto 0;
+    --pdfViewer-padding-bottom: 16px;
+  }
+
+  .oo-pdf-viewer .page {
+    box-shadow:
+      0 1px 3px rgb(0 0 0 / 16%),
+      0 8px 24px rgb(0 0 0 / 8%);
+  }
+
   .oo-attachment-tile-image {
     background: var(--oo-attachment-image-surface);
     color: var(--oo-attachment-image-foreground);

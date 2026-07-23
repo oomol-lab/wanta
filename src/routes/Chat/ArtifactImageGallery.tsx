@@ -120,7 +120,12 @@ export function ImageGalleryPreview({
         onContextMenu(item, event.clientX, event.clientY)
       }}
     >
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div
+        className={cn(
+          "min-h-0 flex-1",
+          mode === "preview" && preview?.kind === "pdf" ? "overflow-hidden" : "overflow-auto",
+        )}
+      >
         {mode === "info" ? (
           <ArtifactInfo item={item} group={group} />
         ) : loading ? (

@@ -9,7 +9,11 @@ export interface AttachmentModelCapabilities {
 
 export type PlannedAttachmentInput =
   | { kind: "file"; mime: string; name: string; path: string }
-  | { kind: "text"; text: string }
+  | {
+      kind: "internal-text"
+      purpose: "attachment-limit" | "attachment-reference"
+      text: string
+    }
 
 export interface AttachmentInputDependencies {
   fileSize: (path: string) => Promise<number | null>
@@ -147,7 +151,8 @@ function pathReference(
   reason: string,
 ): PlannedAttachmentInput {
   return {
-    kind: "text",
+    kind: "internal-text",
+    purpose: "attachment-reference",
     text: [
       `Attached local file: ${attachment.name}`,
       `Path: ${attachment.path}`,
@@ -237,7 +242,8 @@ export async function planAttachmentInputs(
   const omitted = (attachments?.length ?? 0) - accepted.length
   if (omitted > 0) {
     inputs.push({
-      kind: "text",
+      kind: "internal-text",
+      purpose: "attachment-limit",
       text: `${omitted} additional attachment${omitted === 1 ? " was" : "s were"} not embedded because the per-turn limit is ${maxAttachmentsPerTurn}. Ask the user to split the files across multiple turns if they are required.`,
     })
   }

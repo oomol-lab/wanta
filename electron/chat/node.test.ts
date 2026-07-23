@@ -336,6 +336,7 @@ test("sendMessage persists original attachments and hides internal spreadsheet p
     path: originalPath,
     size: 100,
   })
+  assert.equal((await store.read()).get("session-1")?.get(messageId ?? "")?.userText, "Analyze this workbook")
 
   bridge.emit({
     type: "message.updated",
@@ -395,6 +396,17 @@ test("sendMessage persists original attachments and hides internal spreadsheet p
           kind: "attachment",
           partId: "internal-file",
         },
+        {
+          kind: "text",
+          partId: "internal-attachment-reference",
+          text: [
+            `Attached local file: ${attachment.name}`,
+            `Path: ${attachment.path}`,
+            `Media type: ${attachment.mime}; size: 100 B`,
+            "The file was not embedded in the model request because its media type is not safe to pass through.",
+            `A prepared copy exists at ${attachment.agentPath}, but it was not embedded. Use local tools against the original or prepared path as appropriate.`,
+          ].join("\n"),
+        },
         { kind: "text", partId: "user-text", text: "Analyze this workbook" },
       ],
       role: "user",
@@ -406,6 +418,11 @@ test("sendMessage persists original attachments and hides internal spreadsheet p
     messages[0]?.parts.some((part) => part.attachment?.name === "inventory-extracted.txt"),
     false,
   )
+  assert.equal(
+    messages[0]?.parts.some((part) => part.text?.includes("Attached local file:")),
+    false,
+  )
+  assert.equal(messages[0]?.parts.find((part) => part.kind === "text")?.text, "Analyze this workbook")
 
   await rm(directory, { force: true, recursive: true })
 })

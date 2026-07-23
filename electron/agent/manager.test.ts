@@ -578,7 +578,17 @@ describe("AgentManager", () => {
       })
 
       const calls = promptAsync.mock.calls as unknown as Array<
-        [{ parts: Array<{ mime?: string; text?: string; type: string }> }]
+        [
+          {
+            parts: Array<{
+              metadata?: Record<string, unknown>
+              mime?: string
+              synthetic?: boolean
+              text?: string
+              type: string
+            }>
+          },
+        ]
       >
       const call = calls[0]?.[0]
       expect(call).toBeDefined()
@@ -590,6 +600,8 @@ describe("AgentManager", () => {
         }),
       )
       expect(call.parts[0]).toMatchObject({
+        metadata: { wantaPurpose: "attachment-reference", wantaVisibility: "internal" },
+        synthetic: true,
         type: "text",
         text: expect.stringContaining("not safe to pass through"),
       })
@@ -641,10 +653,22 @@ describe("AgentManager", () => {
       })
 
       const calls = promptAsync.mock.calls as unknown as Array<
-        [{ parts: Array<{ mime?: string; text?: string; type: string }> }]
+        [
+          {
+            parts: Array<{
+              metadata?: Record<string, unknown>
+              mime?: string
+              synthetic?: boolean
+              text?: string
+              type: string
+            }>
+          },
+        ]
       >
       expect(calls[0]?.[0].parts[0]).toMatchObject({ mime: "text/plain", type: "file" })
       expect(calls[0]?.[0].parts[1]).toMatchObject({
+        metadata: { wantaPurpose: "attachment-reference", wantaVisibility: "internal" },
+        synthetic: true,
         type: "text",
         text: expect.stringContaining("does not support image input"),
       })
@@ -691,13 +715,20 @@ describe("AgentManager", () => {
       const call = promptAsync.mock.calls[0]?.[0] as
         | {
             model?: { modelID: string; providerID: string }
-            parts?: Array<{ text?: string; type: string }>
+            parts?: Array<{
+              metadata?: Record<string, unknown>
+              synthetic?: boolean
+              text?: string
+              type: string
+            }>
             variant?: string
           }
         | undefined
       expect(call?.model).toEqual({ modelID: "local-model", providerID: "wanta-custom-local-default" })
       expect(call).not.toHaveProperty("variant")
       expect(call?.parts?.[0]).toMatchObject({
+        metadata: { wantaPurpose: "attachment-reference", wantaVisibility: "internal" },
+        synthetic: true,
         type: "text",
         text: expect.stringContaining("does not support image input"),
       })

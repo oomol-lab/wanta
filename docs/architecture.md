@@ -359,11 +359,12 @@ Ordinary file attachments are frozen at selection time into a 0400 read-only pri
 depending on the user's source file. The model-compatibility representation (currently including
 XLSX-extracted text and optimized images) is kept strictly separate from the public attachment
 identity: before sending, `UserAttachmentStore` atomically persists the original attachment manifest
-to `userData/user-attachments.json` keyed by the OpenCode user message ID, with `agentPath` as
-internal input only. OpenCode's expanded synthetic Read text and internal file parts are not
+and user-authored text to `userData/user-attachments.json` keyed by the OpenCode user message ID,
+with `agentPath` as internal input only. OpenCode's expanded synthetic Read text, Wanta's model-only
+attachment compatibility text, and internal file parts are not
 broadcast to the renderer; history loading likewise overrides OpenCode's model representation with
 the Wanta attachment manifest, so mid-send, on refresh, and after restart it always shows the file
-name, MIME, and snapshot path the user chose. If the user asks to modify an attachment, the agent
+name, MIME, snapshot path, and exact text the user chose. If the user asks to modify an attachment, the agent
 must first copy it into the turn's artifact directory and treat the copy as a new output; a directory
 attachment stays an explicit local reference and is not snapshotted recursively.
 

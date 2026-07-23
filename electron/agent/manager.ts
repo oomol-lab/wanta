@@ -1173,10 +1173,15 @@ async function buildPromptParts(
 ): Promise<Array<TextPartInput | FilePartInput>> {
   const parts: Array<TextPartInput | FilePartInput> = []
   for (const input of await planAttachmentInputs(attachments, capabilities)) {
-    if (input.kind === "text") {
+    if (input.kind === "internal-text") {
       parts.push({
         type: "text",
         text: input.text,
+        synthetic: true,
+        metadata: {
+          wantaPurpose: input.purpose,
+          wantaVisibility: "internal",
+        },
       })
       continue
     }

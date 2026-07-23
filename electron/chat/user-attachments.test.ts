@@ -33,7 +33,7 @@ describe("UserAttachmentStore", () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-user-attachments-"))
     temporaryDirectories.push(directory)
     const store = new UserAttachmentStore(directory)
-    await store.record("session-1", "message-1", [workbook()])
+    await store.record("session-1", "message-1", [workbook()], "Analyze this workbook")
 
     const restarted = new UserAttachmentStore(directory)
     const record = (await restarted.read()).get("session-1")?.get("message-1")
@@ -48,9 +48,44 @@ describe("UserAttachmentStore", () => {
       },
     ])
     expect(record?.internalPaths).toEqual(["/managed/internal/inventory-extracted.txt"])
-    expect((await readFile(path.join(directory, "user-attachments.json"), "utf8")).toString()).not.toContain(
-      "agentName",
+    expect(record?.userText).toBe("Analyze this workbook")
+    const persisted = (await readFile(path.join(directory, "user-attachments.json"), "utf8")).toString()
+    expect(persisted).toContain('"version": 2')
+    expect(persisted).not.toContain("agentName")
+  })
+
+  it("loads version 1 records without public user text", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-user-attachments-v1-"))
+    temporaryDirectories.push(directory)
+    await writeFile(
+      path.join(directory, "user-attachments.json"),
+      JSON.stringify({
+        sessions: {
+          "session-1": {
+            "message-1": {
+              attachments: [
+                {
+                  id: "attachment-1",
+                  kind: "file",
+                  mime: "image/png",
+                  name: "photo.png",
+                  path: "/managed/original/photo.png",
+                  size: 100,
+                },
+              ],
+              internalPaths: [],
+              messageId: "message-1",
+              sessionId: "session-1",
+            },
+          },
+        },
+        version: 1,
+      }),
     )
+
+    const record = (await new UserAttachmentStore(directory).read()).get("session-1")?.get("message-1")
+    expect(record?.attachments[0]?.name).toBe("photo.png")
+    expect(record?.userText).toBeUndefined()
   })
 
   it("removes unreferenced managed snapshots with their session record", async () => {
@@ -231,6 +266,151 @@ describe("applyUserAttachmentRecords", () => {
         partId: "wanta-attachment-attachment-1",
       },
       { kind: "text", partId: "user-text", text: "Analyze this workbook" },
+    ])
+  })
+
+  it("reconstructs public user text without model-only attachment context", () => {
+    const message: ChatMessage = {
+      createdAt: 1,
+      id: "message-1",
+      parts: [
+        {
+          kind: "text",
+          partId: "internal-reference",
+          text: [
+            "Attached local file: photo.png",
+            "Path: /managed/original/photo.png",
+            "Media type: image/png; size: 100 B",
+            "The file was not embedded in the model request because the selected model does not support image input.",
+            "Use an appropriate local tool or script against the exact path when the task requires its contents. Do not use the Read tool on an unsupported binary file.",
+          ].join("\n"),
+        },
+        { kind: "text", partId: "user-text", text: "/bug-report Check the image failure" },
+      ],
+      role: "user",
+    }
+    const record = {
+      attachments: [
+        {
+          id: "attachment-1",
+          kind: "file" as const,
+          mime: "image/png",
+          name: "photo.png",
+          path: "/managed/original/photo.png",
+          size: 100,
+        },
+      ],
+      internalPaths: [],
+      messageId: "message-1",
+      sessionId: "session-1",
+      userText: "/bug-report Check the image failure",
+    }
+
+    expect(applyUserAttachmentRecords([message], new Map([["message-1", record]]))[0]?.parts).toEqual([
+      {
+        attachment: record.attachments[0],
+        kind: "attachment",
+        partId: "wanta-attachment-attachment-1",
+      },
+      { kind: "text", partId: "user-text", text: "/bug-report Check the image failure" },
+    ])
+  })
+
+  it("removes exact legacy attachment references while preserving user-authored text", () => {
+    const record = {
+      attachments: [
+        {
+          id: "attachment-1",
+          kind: "file" as const,
+          mime: "image/png",
+          name: "photo.png",
+          path: "/managed/original/photo.png",
+          size: 100,
+        },
+      ],
+      internalPaths: [],
+      messageId: "message-1",
+      sessionId: "session-1",
+    }
+    const legacyReference = [
+      "Attached local file: photo.png",
+      "Path: /managed/original/photo.png",
+      "Media type: image/png; size: 100 B",
+      "The file was not embedded in the model request because the selected model does not support image input.",
+      "Use an appropriate local tool or script against the exact path when the task requires its contents. Do not use the Read tool on an unsupported binary file.",
+    ].join("\n")
+    const message: ChatMessage = {
+      createdAt: 1,
+      id: "message-1",
+      parts: [
+        { kind: "text", partId: "legacy-reference", text: legacyReference },
+        { kind: "text", partId: "user-text", text: "Analyze this image" },
+        { kind: "text", partId: "similar-user-text", text: `${legacyReference}\nUser-authored detail` },
+      ],
+      role: "user",
+    }
+
+    expect(applyUserAttachmentRecords([message], new Map([["message-1", record]]))[0]?.parts).toEqual([
+      {
+        attachment: record.attachments[0],
+        kind: "attachment",
+        partId: "wanta-attachment-attachment-1",
+      },
+      { kind: "text", partId: "user-text", text: "Analyze this image" },
+      { kind: "text", partId: "similar-user-text", text: `${legacyReference}\nUser-authored detail` },
+    ])
+  })
+
+  it("removes legacy prepared-copy and attachment-limit context", () => {
+    const prepared = workbook()
+    const attachments = [
+      {
+        id: prepared.id,
+        kind: prepared.kind,
+        mime: prepared.mime,
+        name: prepared.name,
+        path: prepared.path,
+        size: prepared.size,
+      },
+      ...Array.from({ length: 21 }, (_, index) => ({
+        id: `attachment-${index + 2}`,
+        kind: "file" as const,
+        mime: "text/plain",
+        name: `note-${index + 2}.txt`,
+        path: `/managed/original/note-${index + 2}.txt`,
+        size: 10,
+      })),
+    ]
+    const record = {
+      attachments,
+      internalPaths: [prepared.agentPath!],
+      messageId: "message-1",
+      sessionId: "session-1",
+    }
+    const preparedReference = [
+      `Attached local file: ${prepared.name}`,
+      `Path: ${prepared.path}`,
+      `Media type: ${prepared.mime}; size: 100 B`,
+      "The file was not embedded in the model request because it exceeds the safe direct-attachment size budget.",
+      `A prepared copy exists at ${prepared.agentPath}, but it was not embedded. Use local tools against the original or prepared path as appropriate.`,
+    ].join("\n")
+    const omittedReference =
+      "2 additional attachments were not embedded because the per-turn limit is 20. Ask the user to split the files across multiple turns if they are required."
+    const message: ChatMessage = {
+      createdAt: 1,
+      id: "message-1",
+      parts: [
+        { kind: "text", partId: "legacy-prepared", text: preparedReference },
+        { kind: "text", partId: "legacy-limit", text: omittedReference },
+        { kind: "text", partId: "user-text", text: "Analyze the attachments" },
+      ],
+      role: "user",
+    }
+
+    const parts = applyUserAttachmentRecords([message], new Map([["message-1", record]]))[0]?.parts ?? []
+    expect(parts.filter((part) => part.kind === "attachment")).toHaveLength(22)
+    expect(parts.filter((part) => part.kind === "text")).toEqual([
+      { kind: "text", partId: "user-text", text: "Analyze the attachments" },
     ])
   })
 })

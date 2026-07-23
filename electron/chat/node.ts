@@ -1357,7 +1357,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     let submitted = false
     try {
       if (req.attachments?.length) {
-        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments)
+        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments, req.text)
         attachmentsRecorded = true
         this.managedUserMessageIds.add(userMessageId)
         const sessionMessageIds = this.managedUserMessageIdsBySession.get(req.sessionId) ?? new Set<string>()

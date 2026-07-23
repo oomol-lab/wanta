@@ -86,6 +86,7 @@ export function BillingUsagePopover({
   const originalCredit = toNumber(data?.balance?.total.originalCredit)
   const averageDailySpend = totalSpend / usagePeriodDays
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
+  const showCoverageDays = totalSpend >= 0.01 && coverageDays > 0 && coverageDays <= 999
   const modelSpend = getSummary(summaries, "model").credit
   const apiSpend = getSummary(summaries, "api").credit
   const connectorSpend = getSummary(summaries, "link").credit
@@ -304,7 +305,7 @@ export function BillingUsagePopover({
                           <div className="oo-text-metric-large mt-1 text-foreground">{formatCredit(currentCredit)}</div>
                         </div>
                         <div className="oo-text-body pt-5 text-right text-muted-foreground">
-                          {averageDailySpend > 0
+                          {showCoverageDays
                             ? t("billing.popover.coverageDays", { days: coverageDays })
                             : t("billing.coverageStable")}
                         </div>

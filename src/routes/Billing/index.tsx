@@ -130,6 +130,7 @@ export function BillingRoute({
   const teamDetailsAvailable = data?.subscriptionAvailable === true && data.teamPendingPaymentAvailable === true
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
+  const showCoverageDays = totalSpend >= 0.01 && coverageDays > 0 && coverageDays <= 999
   const availableShare =
     originalCredit > 0
       ? Math.max(0, Math.min(100, (currentCredit / originalCredit) * 100))
@@ -197,6 +198,7 @@ export function BillingRoute({
       averageDailySpend={averageDailySpend}
       modelSpend={modelSpend}
       coverageDays={coverageDays}
+      showCoverageDays={showCoverageDays}
       currentCredit={currentCredit}
       canManageFunding={canManageFunding}
       loading={(loading && !data) || isSessionExpired}

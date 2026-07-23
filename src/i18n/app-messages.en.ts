@@ -588,7 +588,7 @@ export const enMessages = {
     "This is the signed-in account's balance and spend, not the current team's balance.",
   "billing.topUpBalance": "Top up balance",
   "billing.coverage": "About {days} days available at current daily use",
-  "billing.coverageStable": "No ongoing spend",
+  "billing.coverageStable": "Low recent spend",
   "billing.periodSpend": "Period spend",
   "billing.averageDaily": "Daily avg {amount}",
   "billing.modelSpend": "Model spend",

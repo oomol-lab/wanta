@@ -557,7 +557,7 @@ export const zhCNMessages = {
   "billing.fundingMemberDescription": "这是当前登录账号的余额和消费，不代表当前团队余额。",
   "billing.topUpBalance": "充值余额",
   "billing.coverage": "按当前日均可用 {days} 天",
-  "billing.coverageStable": "暂无持续消耗",
+  "billing.coverageStable": "近期消耗较少",
   "billing.periodSpend": "周期消耗",
   "billing.averageDaily": "日均 {amount}",
   "billing.modelSpend": "模型消耗",

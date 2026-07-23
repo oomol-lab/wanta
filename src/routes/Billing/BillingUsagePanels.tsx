@@ -139,6 +139,7 @@ export function BalanceOverview({
   availableShare,
   modelSpend,
   coverageDays,
+  showCoverageDays,
   currentCredit,
   canManageFunding,
   loading,
@@ -154,6 +155,7 @@ export function BalanceOverview({
   availableShare: number
   modelSpend: number
   coverageDays: number
+  showCoverageDays: boolean
   currentCredit: number
   canManageFunding: boolean
   loading: boolean
@@ -208,7 +210,7 @@ export function BalanceOverview({
               <Progress value={availableShare} className="h-1.5 bg-muted" />
               <div className="oo-text-caption flex flex-wrap items-center justify-between gap-2">
                 <span>
-                  {totalSpend > 0 ? t("billing.coverage", { days: coverageDays }) : t("billing.coverageStable")}
+                  {showCoverageDays ? t("billing.coverage", { days: coverageDays }) : t("billing.coverageStable")}
                 </span>
                 <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
               </div>

@@ -99,14 +99,7 @@ export function buildDailySpendBuckets(
       bucket.credit += billingCredit(item)
     }
   }
-  const bucketedTotal = buckets.reduce((sum, bucket) => sum + bucket.credit, 0)
-  if (bucketedTotal <= 0 && fallbackTotalCredit > 0 && buckets.length > 0) {
-    const averageCredit = fallbackTotalCredit / buckets.length
-    for (const bucket of buckets) {
-      bucket.credit = averageCredit
-      bucket.estimated = true
-    }
-  }
+  void fallbackTotalCredit
   return buckets
 }
 

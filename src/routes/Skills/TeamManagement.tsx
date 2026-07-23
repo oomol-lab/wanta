@@ -518,7 +518,7 @@ export function TeamManagementRoute({
       <ProviderAccessDialog
         busy={busyAction === "saveProviderAccess"}
         form={providerAccessForm}
-        memberOptions={memberViews.filter((member) => member.role !== "creator")}
+        memberOptions={memberViews.filter((member) => member.role === "member")}
         providerOptions={providerOptionsWithSelected(providerOptionsState.data, providerAccessForm.providers)}
         onClose={memberActions.closeProviderAccess}
         onFormChange={setProviderAccessForm}

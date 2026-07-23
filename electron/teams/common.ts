@@ -1,4 +1,4 @@
-export type TeamRole = "creator" | "member"
+export type TeamRole = "creator" | "admin" | "member"
 
 export interface Team {
   id: string

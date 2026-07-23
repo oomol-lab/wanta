@@ -4,7 +4,7 @@ export function teamRole(overview: TeamOverview | null, team: Team | null): Team
   if (!overview || !team) {
     return null
   }
-  if (team.role === "creator" || team.role === "member") {
+  if (team.role === "creator" || team.role === "admin" || team.role === "member") {
     return team.role
   }
   return team.creator_user_id === overview.accountId || overview.created.some((created) => created.id === team.id)
@@ -19,5 +19,23 @@ export function teamCanManage(overview: TeamOverview | null, team: Team | null):
   if (typeof team.writable === "boolean") {
     return team.writable
   }
-  return teamRole(overview, team) === "creator"
+  return isTeamManagerRole(teamRole(overview, team))
+}
+
+export function isTeamManagerRole(role: TeamRole | null): role is "creator" | "admin" {
+  return role === "creator" || role === "admin"
+}
+
+export function teamRoleLabelKey(role: TeamRole): "teams.roleAdmin" | "teams.roleCreator" | "teams.roleMember" {
+  if (role === "creator") {
+    return "teams.roleCreator"
+  }
+  if (role === "admin") {
+    return "teams.roleAdmin"
+  }
+  return "teams.roleMember"
+}
+
+export function teamRoleHasDefaultConnectionAccess(role: TeamRole): boolean {
+  return isTeamManagerRole(role)
 }

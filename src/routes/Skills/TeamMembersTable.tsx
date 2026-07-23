@@ -29,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useClipboardCopy } from "@/hooks/useClipboardCopy"
 import { useAppI18n } from "@/i18n"
+import { teamRoleHasDefaultConnectionAccess, teamRoleLabelKey } from "@/lib/team-permissions"
 import { cn } from "@/lib/utils"
 
 export function MembersTable({
@@ -175,6 +176,7 @@ export function MembersTable({
         {members.map((member) => {
           const grant = grantsByUserId.get(member.user_id) ?? null
           const canRemove = canManage && member.role !== "creator"
+          const canManageProviderAccess = showProviderAccess && member.role === "member"
           const selectable = isBulkEditableMember(member)
           const accessDisabled = appAccessLoading || bulkBusy || Boolean(providerAccessMutationError)
           const accessEditDisabled = accessDisabled || providerOptionsLoading || Boolean(providerOptionsError)
@@ -199,15 +201,15 @@ export function MembersTable({
               <TeamUserAvatar avatar={member.avatar} fallback={member.fallback} />
               <div className="min-w-0 self-center">
                 <CompactMemberIdentity member={member}>
-                  {member.role === "creator" && showProviderAccess ? (
-                    <Badge variant="secondary">{t("teams.creatorDefaultAccessCompact")}</Badge>
-                  ) : (
+                  {teamRoleHasDefaultConnectionAccess(member.role) && showProviderAccess ? (
                     <Badge variant="secondary">
-                      {member.role === "creator" ? t("teams.roleCreator") : t("teams.roleMember")}
+                      {t("teams.roleDefaultAccessCompact", { role: t(teamRoleLabelKey(member.role)) })}
                     </Badge>
+                  ) : (
+                    <Badge variant="secondary">{t(teamRoleLabelKey(member.role))}</Badge>
                   )}
                   {showStatusColumn ? <MemberStatusBadge member={member} /> : null}
-                  {showProviderAccess && member.role !== "creator" ? (
+                  {canManageProviderAccess ? (
                     <ProviderAccessSummary
                       allProvidersLabel={t("teams.allProviders")}
                       grant={grant}
@@ -221,7 +223,7 @@ export function MembersTable({
               </div>
 
               <div className="flex min-w-0 items-center justify-end gap-2">
-                {canRemove && showProviderAccess && !grant && !appAccessLoading ? (
+                {canRemove && canManageProviderAccess && !grant && !appAccessLoading ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -239,9 +241,11 @@ export function MembersTable({
                     editProviderAccessDisabled={accessEditDisabled || busyAction === "saveProviderAccess" || revokeBusy}
                     removeDisabled={bulkBusy || removeBusy}
                     revokeProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
-                    onEditProviderAccess={grant && showProviderAccess ? () => onEditProviderAccess(grant) : undefined}
+                    onEditProviderAccess={
+                      grant && canManageProviderAccess ? () => onEditProviderAccess(grant) : undefined
+                    }
                     onRemove={() => setRemoveTarget(member)}
-                    onRevokeProviderAccess={grant && showProviderAccess ? () => setRevokeTarget(grant) : undefined}
+                    onRevokeProviderAccess={grant && canManageProviderAccess ? () => setRevokeTarget(grant) : undefined}
                   />
                 ) : null}
               </div>

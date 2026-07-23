@@ -30,7 +30,7 @@ export function upsertOverviewTeam(overview: TeamOverview | null, team: Team): T
   if (!found) {
     if (team.role === "creator" || (team.role === undefined && team.creator_user_id === overview.accountId)) {
       created = [...created, team]
-    } else if (team.role === "member") {
+    } else if (team.role === "admin" || team.role === "member") {
       joined = [...joined, team]
     } else {
       return overview

@@ -75,6 +75,26 @@ describe("team overview patching", () => {
     expect(next?.joined).toHaveLength(1)
   })
 
+  it("adds explicit admin teams to the joined list", () => {
+    const overview = {
+      accountId: "user-1",
+      created: [],
+      joined: [],
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }
+
+    const next = upsertOverviewTeam(overview, {
+      avatar: "",
+      creator_user_id: "creator-1",
+      id: "team-1",
+      name: "acme",
+      role: "admin",
+    })
+
+    expect(next?.created).toHaveLength(0)
+    expect(next?.joined).toEqual([expect.objectContaining({ id: "team-1", role: "admin" })])
+  })
+
   it("does not add unrelated optimistic patches to another account overview", () => {
     const overview = {
       accountId: "user-2",

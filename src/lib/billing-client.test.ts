@@ -30,8 +30,9 @@ function urlOf(input: string | URL | Request): URL {
 }
 
 const teamScope = {
-  canManageBilling: true,
   canManageFunding: true,
+  canManageTeamSubscription: true,
+  canReadTeamSubscription: true,
   teamId: "team-1",
   teamName: "acme",
 } as const
@@ -157,8 +158,9 @@ describe("billing-client", () => {
     })
 
     const summary = await getBillingOverview(30, {
-      canManageBilling: true,
       canManageFunding: true,
+      canManageTeamSubscription: true,
+      canReadTeamSubscription: true,
       teamId: "team-1",
       teamName: "acme",
     })
@@ -183,8 +185,9 @@ describe("billing-client", () => {
     })
 
     const summary = await getBillingOverview(30, {
-      canManageBilling: false,
       canManageFunding: false,
+      canManageTeamSubscription: false,
+      canReadTeamSubscription: false,
       teamId: "team-1",
       teamName: "acme",
     })
@@ -201,6 +204,37 @@ describe("billing-client", () => {
     expect(summary.teamPendingPaymentAvailable).toBe(true)
   })
 
+  it("lets admins read team subscription state without accessing creator funding", async () => {
+    const paths: string[] = []
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = urlOf(input)
+      paths.push(url.pathname)
+      if (url.pathname === "/api/org/team-1/subscriptions") {
+        return Response.json({ data: { features: [], plan: "team_plus", plans: [], platforms: {} }, success: true })
+      }
+      if (url.pathname === "/api/team/team-1/subscriptions/team/pending_payment") {
+        return Response.json({ data: null, success: true })
+      }
+      return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
+    })
+
+    const summary = await getBillingOverview(30, {
+      canManageFunding: false,
+      canManageTeamSubscription: false,
+      canReadTeamSubscription: true,
+      teamId: "team-1",
+      teamName: "acme",
+    })
+
+    expect(paths).toContain("/api/org/team-1/subscriptions")
+    expect(paths).toContain("/api/team/team-1/subscriptions/team/pending_payment")
+    expect(paths).not.toContain("/v1/balance/available")
+    expect(paths).not.toContain("/api/user/subscriptions")
+    expect(summary.subscription?.plan).toBe("team_plus")
+    expect(summary.balance).toBeNull()
+    expect(summary.usageSubscription).toBeNull()
+  })
+
   it("surfaces member session expiry from team usage without reading a personal balance", async () => {
     const paths: string[] = []
     vi.stubGlobal("fetch", async (input: string | URL | Request) => {
@@ -211,8 +245,9 @@ describe("billing-client", () => {
 
     const error = await rejection(() =>
       getBillingOverview(30, {
-        canManageBilling: false,
         canManageFunding: false,
+        canManageTeamSubscription: false,
+        canReadTeamSubscription: false,
         teamId: "team-1",
         teamName: "acme",
       }),
@@ -268,8 +303,9 @@ describe("billing-client", () => {
     })
 
     const result = await getCreditBalance({
-      canManageBilling: true,
       canManageFunding: true,
+      canManageTeamSubscription: true,
+      canReadTeamSubscription: true,
       teamId: "team-1",
       teamName: "acme",
     })
@@ -283,8 +319,9 @@ describe("billing-client", () => {
 
     const error = await rejection(() =>
       getCreditBalance({
-        canManageBilling: false,
         canManageFunding: false,
+        canManageTeamSubscription: false,
+        canReadTeamSubscription: false,
         teamId: "team-1",
         teamName: "acme",
       }),

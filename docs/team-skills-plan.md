@@ -28,7 +28,7 @@ The feature must satisfy:
 - A team owns its own Skill configuration, effective together with the current team's runtime
   Skills.
 - When the user switches teams, the connector scope and the team Skill scope change in sync.
-- Members can view team Skills; the team creator can manage them.
+- Members can view team Skills; team creators and admins can manage them.
 - The configuration must enter the Agent's effective path — not merely show up in the UI.
 - The backend API takes Console's existing Skill / team / connection design as reference, but the
   Wanta frontend integrates it into the current three-pane layout and Skills Route structure.
@@ -40,14 +40,14 @@ team-level Skill configuration.
 
 Directly reusable parts:
 
-| Scope                      | Console location                     | Reusable point                                                                                 |
-| -------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| My published Skills list   | `src/api/skills.ts`                  | `GET search.<endpoint>/v1/packages/-/my-skills?size=100&lang=...`                              |
-| Skill Markdown preview     | `src/api/skills.ts`                  | `GET package-assets.../packages/{packageName}/{version}/files/package/skills/{skill}/SKILL.md` |
-| Private Skill temp sharing | `src/api/skills.ts`                  | `POST registry.<endpoint>/-/oomol/package-shares/share/{packageName}`, temp sharing only       |
-| Team workspace selection   | `src/stores/team-workspace/store.ts` | UI stores the team id, resolves the team name when requesting connectors                       |
-| Team permission schema     | `src/api/teams.ts`                   | `Team` returns `role?: "creator" \| "member"` and `writable?: boolean`; prefer backend fields  |
-| Connector team scope       | `src/api/connections.ts`             | Connector requests switch teams via the `x-oo-organization-name` header                        |
+| Scope                      | Console location                     | Reusable point                                                                                           |
+| -------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| My published Skills list   | `src/api/skills.ts`                  | `GET search.<endpoint>/v1/packages/-/my-skills?size=100&lang=...`                                        |
+| Skill Markdown preview     | `src/api/skills.ts`                  | `GET package-assets.../packages/{packageName}/{version}/files/package/skills/{skill}/SKILL.md`           |
+| Private Skill temp sharing | `src/api/skills.ts`                  | `POST registry.<endpoint>/-/oomol/package-shares/share/{packageName}`, temp sharing only                 |
+| Team workspace selection   | `src/stores/team-workspace/store.ts` | UI stores the team id, resolves the team name when requesting connectors                                 |
+| Team permission schema     | `electron/teams/common.ts`           | `Team` returns `role?: "creator" \| "admin" \| "member"` and `writable?: boolean`; prefer backend fields |
+| Connector team scope       | `src/api/connections.ts`             | Connector requests switch teams via the `x-oo-organization-name` header                                  |
 
 Parts that must not be copied wholesale:
 
@@ -154,7 +154,7 @@ Response:
 
 Permissions:
 
-- Both team creator and member can read.
+- Team creators, admins, and members can read.
 - A user outside the team gets 403.
 
 ### 4.3 Add configuration
@@ -179,7 +179,7 @@ Request:
 
 Permissions:
 
-- Only the team creator can write.
+- Team creators and admins can write.
 - The backend validates that the package exists, the skill belongs to that package, and a private
   package is visible to the team or the operator.
 
@@ -354,15 +354,15 @@ previous team's configuration state so the wrong team's Skills are never shown, 
 ### 5.4 UI structure
 
 The team area lives inside the existing Skills page — no new top-level route. The team tab and the
-creator management flow are implemented (see `src/routes/Skills/index.tsx` and
+team management flow are implemented (see `src/routes/Skills/index.tsx` and
 `src/routes/Skills/team-skill-manage-helpers.ts`):
 
 - The current team name shows at the top.
 - In team state, a `Team Skills` section is shown.
 - Configured Skills list: icon, displayName, packageName@version, enabled state, update time.
-- Creator-visible operations: Add and Remove today; Enable/Disable, Update version, and Reorder
+- Team-manager-visible operations: Add and Remove today; Enable/Disable, Update version, and Reorder
   are blocked on the §4 per-Skill model and must not be offered until it ships.
-- Members are read-only; the action area shows "Managed by team creator".
+- Members are read-only; the action area explains that a team manager controls the configuration.
 
 Add Skill panel (design intent; verify against the source for current coverage):
 
@@ -493,8 +493,8 @@ If a team id is selected but the team name is not yet resolved:
 ## 8. Permissions and security
 
 - Team Skills are manageable only by users who can manage the team; prefer the team schema's
-  `writable` field, and fall back to creator inference only when the field is absent.
-- The team role is for displaying creator/member; prefer the backend `role` when returned, and
+  `writable` field, and fall back to creator/admin role inference only when the field is absent.
+- The team role is for displaying creator/admin/member; prefer the backend `role` when returned, and
   only fall back to `creator_user_id` plus the created list for older responses.
 - Private package permissions must be validated by the backend; never accept a client-supplied
   share id as a bypass.
@@ -562,7 +562,7 @@ Pure functions / unit tests:
 
 - Team skill API normalization.
 - Cache key isolation after a team switch.
-- Creator / member permission UI model.
+- Team manager / member permission UI model.
 - Team skill + installed skill palette merge and dedup (covered by
   `src/routes/Chat/composer-palette-items.test.ts`).
 - System prompt construction: no forced use, no leakage of unrelated data, explicit mentions win.
@@ -573,7 +573,7 @@ Integration / manual verification:
 - No team Skill configuration shown while the team identity is unresolved.
 - After switching team A → B, the list, composer, and agent scope all change in sync.
 - Team members are read-only.
-- After the creator adds a private Skill, members can see it and use it in the team workspace.
+- After a team manager adds a private Skill, members can see it and use it in the team workspace.
 - Modifying team Skills during an active generation does not interrupt the current reply.
 - After logout, the team Skill cache does not leak into the next account.
 

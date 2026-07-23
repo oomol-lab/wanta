@@ -22,7 +22,7 @@ import { oomolFetch } from "@/lib/oomol-http"
 // 自动附带（oomolFetch 内 credentials:"include"），token 不进渲染层（守 R4）；域名从 @/lib/domain 派生（守 R2）。
 
 interface TeamsEnvelope {
-  organizations?: unknown
+  teams?: unknown
 }
 
 interface TeamMembersEnvelope {
@@ -122,7 +122,7 @@ function normalizeTeam(value: unknown): Team | undefined {
     name,
     avatar: normalizeAvatarUrl(value["avatar"]),
     creator_user_id: creatorUserId,
-    ...(role === "creator" || role === "member" ? { role } : {}),
+    ...(role === "creator" || role === "admin" || role === "member" ? { role } : {}),
     ...(typeof writable === "boolean" ? { writable } : {}),
   }
 }
@@ -144,7 +144,7 @@ function normalizeTeamMember(value: unknown): TeamMember | undefined {
   }
   const userId = asString(value["user_id"])
   const role = value["role"]
-  if (!userId || (role !== "creator" && role !== "member")) {
+  if (!userId || (role !== "creator" && role !== "admin" && role !== "member")) {
     return undefined
   }
   return {
@@ -337,13 +337,13 @@ function requestTeamControlJson(path: string, options: RequestOptions = {}): Pro
 }
 
 export async function listCreatedTeams(): Promise<Team[]> {
-  const result = (await requestTeamControlJson("/v1/organizations")) as TeamsEnvelope
-  return normalizeTeamList(result.organizations, "Created teams")
+  const result = (await requestTeamControlJson("/v1/teams")) as TeamsEnvelope
+  return normalizeTeamList(result.teams, "Created teams")
 }
 
 export async function listMyTeams(): Promise<Team[]> {
-  const result = (await requestTeamControlJson("/v1/me/organizations")) as TeamsEnvelope
-  return normalizeTeamList(result.organizations, "Joined teams")
+  const result = (await requestTeamControlJson("/v1/me/teams")) as TeamsEnvelope
+  return normalizeTeamList(result.teams, "Joined teams")
 }
 
 export async function getTeamOverview(accountId: string): Promise<TeamOverview> {
@@ -404,7 +404,7 @@ export async function uploadTeamAvatar(teamId: string, file: File): Promise<Uplo
 
 export async function listTeamMembers(teamId: string): Promise<TeamMember[]> {
   const id = requireIdentifier(teamId, "Team id")
-  const result = (await requestTeamControlJson(`/v1/organizations/${encodePath(id)}/members`)) as TeamMembersEnvelope
+  const result = (await requestTeamControlJson(`/v1/teams/${encodePath(id)}/members`)) as TeamMembersEnvelope
   return normalizeTeamMembers(result.members)
 }
 
@@ -462,7 +462,7 @@ export async function searchUsers(
 export async function addTeamMember(req: TeamMemberRequest): Promise<void> {
   const teamId = requireIdentifier(req.teamId, "Team id")
   const userId = requireIdentifier(req.userId, "User id")
-  await requestTeamControlJson(`/v1/organizations/${encodePath(teamId)}/members`, {
+  await requestTeamControlJson(`/v1/teams/${encodePath(teamId)}/members`, {
     method: "POST",
     body: JSON.stringify({ user_id: userId, role: "member" }),
     noResult: true,
@@ -472,7 +472,7 @@ export async function addTeamMember(req: TeamMemberRequest): Promise<void> {
 export async function removeTeamMember(req: TeamMemberRequest): Promise<void> {
   const teamId = requireIdentifier(req.teamId, "Team id")
   const userId = requireIdentifier(req.userId, "User id")
-  await requestTeamControlJson(`/v1/organizations/${encodePath(teamId)}/members/${encodePath(userId)}`, {
+  await requestTeamControlJson(`/v1/teams/${encodePath(teamId)}/members/${encodePath(userId)}`, {
     method: "DELETE",
     noResult: true,
   })
@@ -488,7 +488,7 @@ async function updateTeamMembersStatus(req: UpdateTeamMembersStatusRequest, path
   if (userIds.length === 0) {
     throw new Error("Member user ids are required.")
   }
-  await requestTeamControlJson(`/v1/organizations/${encodePath(teamId)}/members/${path}`, {
+  await requestTeamControlJson(`/v1/teams/${encodePath(teamId)}/members/${path}`, {
     method: "PUT",
     body: JSON.stringify({ user_ids: userIds }),
     noResult: true,
@@ -516,7 +516,7 @@ export async function getTeamAppAccessSnapshot(teamId: string): Promise<TeamAppA
   const id = requireIdentifier(teamId, "Team id")
   let etag: string | undefined
   const access = normalizeAppAccess(
-    await requestTeamControlJson(`/v1/organizations/${encodePath(id)}/app-access`, {
+    await requestTeamControlJson(`/v1/teams/${encodePath(id)}/app-access`, {
       onResponse: (response) => {
         etag = response.headers.get("etag") ?? undefined
       },
@@ -532,7 +532,7 @@ export async function updateTeamAppAccess(
 ): Promise<TeamAppAccess> {
   const id = requireIdentifier(teamId, "Team id")
   const updated = normalizeAppAccess(
-    await requestTeamControlJson(`/v1/organizations/${encodePath(id)}/app-access`, {
+    await requestTeamControlJson(`/v1/teams/${encodePath(id)}/app-access`, {
       method: "PUT",
       body: JSON.stringify(access),
       ...(options.etag ? { headers: { "if-match": options.etag } } : {}),

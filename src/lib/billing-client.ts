@@ -35,8 +35,9 @@ const statsMaxWindowDays = 30
 export const teamSubscriptionPlans: readonly TeamSubscriptionPlan[] = ["team_plus", "team_pro"]
 
 export interface BillingRequestScope {
-  canManageBilling: boolean
   canManageFunding: boolean
+  canManageTeamSubscription: boolean
+  canReadTeamSubscription: boolean
   teamId: string
   teamName: string
 }
@@ -471,7 +472,7 @@ async function getSubscriptionStatus(
   scope: BillingRequestScope,
   signal?: AbortSignal,
 ): Promise<SubscriptionStatus | null> {
-  if (!scope.canManageBilling) {
+  if (!scope.canReadTeamSubscription) {
     return null
   }
   const url = new URL(`/api/org/${encodeURIComponent(scope.teamId)}/subscriptions`, consoleServerBaseUrl)
@@ -493,7 +494,7 @@ async function getTeamPendingPayment(
   scope: BillingRequestScope,
   signal?: AbortSignal,
 ): Promise<TeamPendingPaymentResult | null> {
-  if (!scope.canManageBilling) {
+  if (!scope.canReadTeamSubscription) {
     return null
   }
   const url = new URL(

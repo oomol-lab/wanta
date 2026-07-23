@@ -3129,7 +3129,7 @@ test("always permission reply stores a main-process session grant", async () => 
   assert.equal(bridge.getPendingPermissions.mock.calls.length, 0)
 })
 
-test("curated managed Python dependencies are approved automatically in the active turn environment", async () => {
+test("direct managed Python dependencies are approved automatically in the active turn environment", async () => {
   const bridge = createBridgeAgent()
   const processRoot = path.join(os.tmpdir(), "wanta-python-task-1")
   bridge.createProcessDir.mockResolvedValue(processRoot)
@@ -3155,7 +3155,7 @@ test("curated managed Python dependencies are approved automatically in the acti
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
 })
 
-test("curated task dependencies inherit the parent process boundary in task subagents", async () => {
+test("task-scoped dependencies inherit the parent process boundary in task subagents", async () => {
   const bridge = createBridgeAgent()
   const processRoot = path.join(os.tmpdir(), "wanta-python-parent-task")
   bridge.createProcessDir.mockResolvedValue(processRoot)
@@ -3199,7 +3199,7 @@ test("curated task dependencies inherit the parent process boundary in task suba
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
 })
 
-test("unlisted managed Python dependency task approval reuses only the active turn environment", async () => {
+test("managed Python dependency approval does not depend on package popularity", async () => {
   const bridge = createBridgeAgent()
   const processRoot = path.join(os.tmpdir(), "wanta-python-task-1")
   bridge.createProcessDir.mockResolvedValue(processRoot)
@@ -3219,26 +3219,10 @@ test("unlisted managed Python dependency task approval reuses only the active tu
       metadata: { command },
     },
   })
-  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
 
-  await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "always" })
-  bridge.emit({
-    type: "permission.v2.asked",
-    properties: {
-      id: "permission-2",
-      sessionID: "session-1",
-      action: "bash",
-      resources: [`${processRoot}/.wanta-python/bin/python -m pip install pendulum`],
-      metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install pendulum` },
-    },
-  })
-
-  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
-  assert.deepEqual(bridge.answerPermission.mock.calls, [
-    ["session-1", "permission-1", "once"],
-    ["session-1", "permission-2", "once"],
-  ])
-  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 1)
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
 })
 
 test("default command approvals still prompt unsafe package mutations", async () => {
@@ -3308,7 +3292,7 @@ test("default command approvals still prompt unsafe package mutations", async ()
   ])
 })
 
-test("curated Node dependencies are approved automatically in the selected project", async () => {
+test("standard registry Node dependencies are approved automatically in the selected project", async () => {
   const bridge = createBridgeAgent()
   const projectPath = "/Users/example/code/customer-project"
   const service = new ChatServiceImpl(bridge.agent, {
@@ -3331,7 +3315,7 @@ test("curated Node dependencies are approved automatically in the selected proje
     text: "Create a PDF report",
   })
 
-  const command = `cd ${projectPath} && pnpm add pdf-lib zod`
+  const command = `cd ${projectPath} && pnpm add pdf-lib unreviewed-agent-package`
   bridge.emit({
     type: "permission.v2.asked",
     properties: {
@@ -3345,6 +3329,41 @@ test("curated Node dependencies are approved automatically in the selected proje
 
   await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
   assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
+})
+
+test("package runner probes and document commands are approved from structure rather than argument text", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "Convert Markdown to PDF" })
+
+  const commands = [
+    'which pandoc 2>/dev/null; which wkhtmltopdf 2>/dev/null; which weasyprint 2>/dev/null; which pdfkit 2>/dev/null; npx --yes markdown-pdf --version 2>/dev/null; echo "---"; brew list pandoc 2>/dev/null; pip3 list 2>/dev/null | grep -i -E "weasy|pdf|markdown"',
+    'cd "/Users/test/Library/Application Support/wanta/agent/process/task" && npx md-to-pdf ' +
+      '"/Users/test/Library/Application Support/wanta/agent/artifacts/npm publish report.md" ' +
+      '--stylesheet "/Users/test/Library/Application Support/wanta/agent/process/task/sudo.css" ' +
+      '--output "/Users/test/Library/Application Support/wanta/agent/artifacts/git push summary.pdf" 2>&1',
+  ]
+  for (const [index, command] of commands.entries()) {
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: {
+        id: `permission-${index + 1}`,
+        sessionID: "session-1",
+        action: "bash",
+        resources: [command],
+        metadata: { command },
+      },
+    })
+  }
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [
+    ["session-1", "permission-1", "once"],
+    ["session-1", "permission-2", "once"],
+  ])
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
 })
 
@@ -3385,7 +3404,7 @@ test("project dependency task approval avoids repeated prompts during the active
   await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
 
   await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "always" })
-  const addDependency = `cd ${projectPath} && pnpm add left-pad`
+  const addDependency = `cd ${projectPath} && pnpm install`
   bridge.emit({
     type: "permission.v2.asked",
     properties: {

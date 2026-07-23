@@ -6,11 +6,11 @@ import { test } from "vitest"
 import {
   createProjectDependencyInstallTaskGrant,
   createProjectDevCommandSessionGrant,
-  isCommonNodeDependencyInstallRequest,
   isLikelyProjectDependencyInstallRequest,
   isLikelyProjectDevCommandRequest,
   isProjectDependencyInstallRequest,
   isProjectDevCommandRequest,
+  isStandardRegistryNodeDependencyInstallRequest,
   requestMatchesProjectDependencyInstallTaskGrant,
   requestMatchesProjectDevCommandSessionGrant,
 } from "./project-dev-command.ts"
@@ -94,47 +94,105 @@ test("project dependency installs require an explicit, bounded project target", 
     isProjectDependencyInstallRequest(permission(`cd ${root} && npm install --registry https://example.test`), root),
     false,
   )
+  assert.equal(
+    isProjectDependencyInstallRequest(permission(`cd ${root} && npm install github:vendor/tool`), root),
+    false,
+  )
+  assert.equal(
+    isProjectDependencyInstallRequest(permission(`cd ${root} && npm install unfamiliar-registry-package`), root),
+    true,
+  )
   assert.equal(isProjectDependencyInstallRequest(permission("cd /tmp && npm install"), root), false)
   assert.equal(isLikelyProjectDependencyInstallRequest(permission(`cd ${root} && yarn add vite`)), true)
   assert.equal(isLikelyProjectDependencyInstallRequest(permission("npm install")), false)
 })
 
-test("common Node dependency installs allow only curated registry packages in an explicit target", () => {
+test("standard registry Node dependency installs use scope and source instead of package popularity", () => {
   assert.equal(
-    isCommonNodeDependencyInstallRequest(permission(`cd ${root} && npm install exceljs pdf-lib@latest -D`), root),
+    isStandardRegistryNodeDependencyInstallRequest(
+      permission(`cd ${root} && npm install exceljs pdf-lib@latest -D`),
+      root,
+    ),
     true,
   )
   assert.equal(
-    isCommonNodeDependencyInstallRequest(permission(`pnpm --dir=${root} add 'zod@^4' sharp --save-dev`), root),
+    isStandardRegistryNodeDependencyInstallRequest(
+      permission(`pnpm --dir=${root} add 'zod@^4' sharp --save-dev`),
+      root,
+    ),
     true,
   )
-  assert.equal(isCommonNodeDependencyInstallRequest(permission(`yarn --cwd ${root} add pptxgenjs --exact`), root), true)
-  assert.equal(isCommonNodeDependencyInstallRequest(permission(`cd ${root} && npm install xlsx`), root), false)
   assert.equal(
-    isCommonNodeDependencyInstallRequest(permission(`cd ${root} && npm install exceljs unknown-package`), root),
+    isStandardRegistryNodeDependencyInstallRequest(permission(`yarn --cwd ${root} add pptxgenjs --exact`), root),
+    true,
+  )
+  assert.equal(isStandardRegistryNodeDependencyInstallRequest(permission(`cd ${root} && npm install xlsx`), root), true)
+  assert.equal(
+    isStandardRegistryNodeDependencyInstallRequest(
+      permission(`cd ${root} && npm install unreviewed-agent-package`),
+      root,
+    ),
+    true,
+  )
+  assert.equal(
+    isStandardRegistryNodeDependencyInstallRequest(
+      permission(`SCRIPT_DIR="${root}"\ncd "$SCRIPT_DIR" && npm install marked 2>&1 | tail -5`),
+      root,
+    ),
+    true,
+  )
+  assert.equal(
+    isStandardRegistryNodeDependencyInstallRequest(
+      permission(`SCRIPT_DIR="${root}"\ncd "$OTHER_DIR" && npm install marked 2>&1 | tail -5`),
+      root,
+    ),
     false,
   )
-  assert.equal(isCommonNodeDependencyInstallRequest(permission(`cd ${root} && npm install`), root), false)
   assert.equal(
-    isCommonNodeDependencyInstallRequest(
+    isStandardRegistryNodeDependencyInstallRequest(
+      permission(`SCRIPT_DIR="/tmp/outside"\ncd "$SCRIPT_DIR" && npm install marked 2>&1 | tail -5`),
+      root,
+    ),
+    false,
+  )
+  assert.equal(
+    isStandardRegistryNodeDependencyInstallRequest(permission(`cd ${root} && npm install marked | sh`), root),
+    false,
+  )
+  assert.equal(isStandardRegistryNodeDependencyInstallRequest(permission(`cd ${root} && npm install`), root), false)
+  assert.equal(
+    isStandardRegistryNodeDependencyInstallRequest(
       permission(`cd ${root} && npm install exceljs --registry https://example.test`),
       root,
     ),
     false,
   )
   assert.equal(
-    isCommonNodeDependencyInstallRequest(permission(`cd ${root} && npm install github:vendor/exceljs`), root),
+    isStandardRegistryNodeDependencyInstallRequest(permission(`cd ${root} && npm install github:vendor/exceljs`), root),
     false,
   )
   assert.equal(
-    isCommonNodeDependencyInstallRequest(permission(`cd ${root} && npm install exceljs --unknown-option`), root),
+    isStandardRegistryNodeDependencyInstallRequest(
+      permission(`cd ${root} && npm install exceljs --unknown-option`),
+      root,
+    ),
     false,
   )
   assert.equal(
-    isCommonNodeDependencyInstallRequest(permission(`npm --unknown-option --prefix ${root} install exceljs`), root),
+    isStandardRegistryNodeDependencyInstallRequest(
+      permission(`npm --unknown-option --prefix ${root} install exceljs`),
+      root,
+    ),
     false,
   )
-  assert.equal(isCommonNodeDependencyInstallRequest(permission("npm install exceljs"), root), false)
+  assert.equal(isStandardRegistryNodeDependencyInstallRequest(permission("npm install exceljs"), root), false)
+  for (const packageName of ["playwright", "playwright-core", "puppeteer", "puppeteer-core", "canvas"]) {
+    assert.equal(
+      isStandardRegistryNodeDependencyInstallRequest(permission(`cd ${root} && npm install ${packageName}`), root),
+      false,
+      packageName,
+    )
+  }
 })
 
 test("project dependency grants expire with the current task generation", () => {

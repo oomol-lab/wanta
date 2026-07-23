@@ -91,13 +91,22 @@ test("renderer permission helpers recognize likely project dev commands without 
 
 test("high risk command detection marks destructive commands for default access prompts", () => {
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm test" } })), false)
-  assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm install" } })), true)
+  assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm install" } })), false)
   assert.equal(
     isHighRiskPermissionRequest(permission({ metadata: { command: "python3 -m pip install openpyxl" } })),
-    true,
+    false,
   )
   assert.equal(
     isHighRiskPermissionRequest(permission({ metadata: { command: "npm --prefix /tmp/app install" } })),
+    false,
+  )
+  assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm --global install eslint" } })), true)
+  assert.equal(
+    isHighRiskPermissionRequest(permission({ metadata: { command: "npx --yes markdown-pdf --version" } })),
+    false,
+  )
+  assert.equal(
+    isHighRiskPermissionRequest(permission({ metadata: { command: "npx --yes playwright --version" } })),
     true,
   )
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "rm -rf /tmp/wanta-test" } })), true)
@@ -108,6 +117,17 @@ test("high risk command detection marks destructive commands for default access 
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "git push origin main" } })), true)
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "git -C /tmp/repo push" } })), true)
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "cat ~/.ssh/id_rsa" } })), true)
+  assert.equal(
+    isHighRiskPermissionRequest(
+      permission({
+        metadata: {
+          command:
+            'npx md-to-pdf "/tmp/npm publish report.md" --output "/tmp/git push summary.pdf" --stylesheet "/tmp/sudo.css"',
+        },
+      }),
+    ),
+    false,
+  )
   assert.equal(
     isHighRiskPermissionRequest(permission({ metadata: { command: "find ~/Documents -exec cat {} \\;" } })),
     true,

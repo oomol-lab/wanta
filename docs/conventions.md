@@ -148,16 +148,16 @@
   secrets, browser login state, and private app data such as mail/messages/contacts/calendar must be
   evaluated before any generic directory grant — an ordinary folder grant never covers these
   sensitive sub-paths. Third-party Python dependencies must go into the private `.wanta-python` venv
-  under each turn's process directory. Direct requirements from the curated common-package list are
-  auto-approved there, including ordinary extras and version constraints; unlisted direct packages
-  can earn the narrow "these Python deps are allowed for this task" grant. Neither path covers
+  under each turn's process directory. Direct PyPI requirements are auto-approved there regardless
+  of package popularity, including ordinary extras and version constraints. This does not cover
   `--user`, `--break-system-packages`, extra indexes, URL/local-path/requirements files, or system
-  Python. Curated common direct Node.js packages are auto-approved only when a npm/pnpm/yarn/bun
-  install explicitly targets the turn process directory or the currently selected project. Other
-  standard dependency operations in the selected project can earn a task-level grant valid only for
-  the current generation. Global installs, package runners, custom registries, user config,
-  Git/URL/local package sources, mixed curated-and-unlisted requests, and out-of-scope commands never
-  qualify for automatic approval. Session
+  Python. Direct standard-registry Node.js packages are auto-approved only when an
+  npm/pnpm/yarn/bun install explicitly targets the turn process directory or the currently selected
+  project. Package runners are ordinary local execution rather than a package-specific risk class.
+  No-argument or other project dependency operations can earn a task-level grant valid only for the
+  current generation. Global installs, custom registries, user config, Git/URL/local package
+  sources, explicitly high-cost runtimes, and out-of-scope commands never qualify for automatic
+  approval. Session
   grants may still cover non-sensitive requests the user has explicitly allowed; Full Access =
   session-level local YOLO — once confirmed, the main process auto-replies local permissions for the
   session and stops doing per-request local risk judgment.

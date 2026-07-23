@@ -5,9 +5,9 @@ import type { PermissionRequestKind, SessionPermissionGrant } from "./permission
 import { openConnectorCommandPolicy } from "../agent/oo-command-permission.ts"
 import {
   createSessionPermissionGrant,
-  isCommonManagedPythonDependencyInstallRequest,
   isHighRiskPermissionRequest,
   isOoCliPermissionRequest,
+  isTaskScopedPythonDependencyInstallRequest,
   permissionRequestHasSensitiveResource,
   permissionCommand,
   permissionRequestNeedsDefaultPrompt,
@@ -18,7 +18,7 @@ import {
 import {
   createProjectDependencyInstallTaskGrant,
   createProjectDevCommandSessionGrant,
-  isCommonNodeDependencyInstallRequest,
+  isStandardRegistryNodeDependencyInstallRequest,
   requestMatchesProjectDependencyInstallTaskGrant,
   requestMatchesProjectDevCommandSessionGrant,
 } from "./project-dev-command.ts"
@@ -121,9 +121,9 @@ export function evaluateLocalAccessRequest(
   }
   if (
     (context.taskProcessRoot &&
-      (isCommonManagedPythonDependencyInstallRequest(request, context.taskProcessRoot) ||
-        isCommonNodeDependencyInstallRequest(request, context.taskProcessRoot))) ||
-    (context.trustedProjectRoot && isCommonNodeDependencyInstallRequest(request, context.trustedProjectRoot))
+      (isTaskScopedPythonDependencyInstallRequest(request, context.taskProcessRoot) ||
+        isStandardRegistryNodeDependencyInstallRequest(request, context.taskProcessRoot))) ||
+    (context.trustedProjectRoot && isStandardRegistryNodeDependencyInstallRequest(request, context.trustedProjectRoot))
   ) {
     return { type: "allow", reason: "trusted_dependency", kind, highRisk }
   }

@@ -440,6 +440,8 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /connection_blocked outcomes as one blocked provider target/)
   assert.match(WANTA_SYSTEM_PROMPT, /use bash normally/)
   assert.match(WANTA_SYSTEM_PROMPT, /basic safety boundaries/)
+  assert.match(WANTA_SYSTEM_PROMPT, /regardless of package popularity/)
+  assert.match(WANTA_SYSTEM_PROMPT, /package runners are ordinary local execution/)
   assert.match(WANTA_SYSTEM_PROMPT, /Ask the user a narrow follow-up question only when/)
   assert.match(WANTA_SYSTEM_PROMPT, /Question prompts are runtime interruptions/)
   assert.match(WANTA_SYSTEM_PROMPT, /one question entry per field/)

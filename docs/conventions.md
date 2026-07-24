@@ -151,12 +151,15 @@
   interpreter under the turn process directory or an exact `.venv` / `venv` interpreter inside the
   selected project; `uv pip --python` qualifies when it names one of those interpreters. Direct
   requirements are auto-approved in those bounded environments regardless of package popularity,
-  including ordinary extras, version constraints, and unfamiliar ordinary flags. This does not
-  cover `--user`, `--break-system-packages`, extra indexes, URL/local-path/requirements files, bare
-  pip, or system Python. Direct Node.js packages with no explicit source override are auto-approved
-  only when an npm/pnpm/yarn/bun install explicitly targets the turn process directory or the
-  currently selected project. Node.js and Python package runners are ordinary local execution
-  rather than a package-specific risk class.
+  including ordinary extras, version constraints, and unfamiliar ordinary flags. Creating the
+  exact task/project virtual environment and immediately installing through its exact interpreter
+  stays ordinary whether expressed as separate commands or one bounded `&&` chain; harmless
+  file-descriptor duplication such as `2>&1` does not change that result. This does not cover
+  `--user`, `--break-system-packages`, extra indexes, URL/local-path/requirements files, bare pip,
+  or system Python. Direct Node.js packages with no explicit source override are auto-approved only
+  when an npm/pnpm/yarn/bun install explicitly targets the turn process directory or the currently
+  selected project. Node.js and Python package runners are ordinary local execution rather than a
+  package-specific risk class.
   No-argument or other project dependency operations can earn a task-level grant valid only for the
   current generation. Package names, package size, browser tooling, and unfamiliar ordinary flags
   are not confirmation boundaries. Global installs, custom registries, user config, Git/URL/local

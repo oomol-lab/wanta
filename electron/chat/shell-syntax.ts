@@ -129,6 +129,34 @@ export function commandWithoutSafeOutputFilter(command: string): string {
 }
 
 /**
+ * Removes final file-descriptor duplication without treating it as a filesystem write.
+ * Redirections to named files remain visible to the normal permission policy.
+ */
+export function commandWithoutSafeDescriptorDuplication(command: string): string {
+  return command.replace(/(?:\s+(?:[0-9]+)?[<>]&[0-9]+)+\s*$/u, "").trim()
+}
+
+/**
+ * Removes shell redirection syntax from parsed command operands while leaving source and
+ * destination paths available in the original command for scope and sensitivity checks.
+ */
+export function shellWordsWithoutRedirections(words: readonly string[]): readonly string[] {
+  const result: string[] = []
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index] ?? ""
+    const redirection = /^(?:(?:[0-9]+|&)?(?:>>?|<<?))(.*)$/u.exec(word)
+    if (!redirection) {
+      result.push(word)
+      continue
+    }
+    if (!redirection[1]) {
+      index += 1
+    }
+  }
+  return result
+}
+
+/**
  * Removes leading shell assignments and the standard `env` wrapper so policy classifiers
  * inspect the executable rather than mistaking setup words for command semantics.
  */

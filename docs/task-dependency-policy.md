@@ -20,6 +20,8 @@ Python installs qualify when all of these conditions hold:
   a conventional `.venv` / `venv` environment inside the user-selected project.
 - The command uses that interpreter with `python -m pip install`, or uses `uv pip install --python`
   with that exact interpreter.
+- Creating the exact task/project virtual environment and immediately installing through its exact
+  interpreter may be expressed as separate commands or as one bounded `&&` chain.
 - Ordinary package names, extras, version constraints, and ordinary unfamiliar flags are accepted.
 - Package popularity is irrelevant, and Wanta does not add or pin a version.
 - Requirements files, editable installs, system/user Python, alternative indexes, URLs, Git sources,
@@ -95,6 +97,11 @@ The equivalent bounded Python forms remain ordinary as well:
 
 ```bash
 cd <project-directory> && .venv/bin/python -m pip install weasyprint 2>&1 | tail -5
+```
+
+```bash
+python3 -m venv <task-directory>/.wanta-python &&
+  <task-directory>/.wanta-python/bin/python -m pip install python-docx 2>&1
 ```
 
 ```bash

@@ -128,6 +128,12 @@ test("dependency mutations are classified independently from shell composition",
   assert.equal(isDependencyMutationCommand("cd /tmp && pnpm add unknown-package | tail -5"), true)
   assert.equal(isDependencyMutationCommand("python3 -m pip install weasyprint"), true)
   assert.equal(isDependencyMutationCommand("uv pip install markdown"), true)
+  assert.equal(dependencyCommandRequiresConfirmation("python3 -m pip install weasyprint > /tmp/install.log"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm install xlsx 2> /tmp/install.log"), false)
+  assert.equal(
+    dependencyCommandRequiresConfirmation("python3 -m pip install /tmp/local-package > /tmp/install.log"),
+    true,
+  )
   assert.equal(isDependencyMutationCommand("npm test"), false)
   assert.equal(isDependencyMutationCommand("npx --yes markdown-pdf --version"), false)
   assert.equal(dependencyCommandRequiresConfirmation("npm --global install eslint"), true)

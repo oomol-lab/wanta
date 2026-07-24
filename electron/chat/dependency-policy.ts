@@ -1,4 +1,10 @@
-import { effectiveShellCommandWords, shellCommandName, shellWords, topLevelShellSegments } from "./shell-syntax.ts"
+import {
+  effectiveShellCommandWords,
+  shellCommandName,
+  shellWords,
+  shellWordsWithoutRedirections,
+  topLevelShellSegments,
+} from "./shell-syntax.ts"
 
 const nodePackageSpecPattern = /^[A-Za-z0-9*+.!<>=~^_-]+$/u
 const nodePackageManagers = new Set(["bun", "npm", "pnpm", "yarn"])
@@ -493,7 +499,7 @@ function parsedCommandSegments(command: string, depth = 0): readonly (readonly s
   const direct = topLevelShellSegments(command)
     .map(({ text }) => shellWords(text))
     .filter((words): words is string[] => Boolean(words?.length))
-    .map(effectiveShellCommandWords)
+    .map((words) => shellWordsWithoutRedirections(effectiveShellCommandWords(words)))
     .filter((words) => words.length > 0)
   if (depth >= 2) {
     return direct

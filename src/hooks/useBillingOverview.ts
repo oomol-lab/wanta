@@ -124,7 +124,14 @@ export function useBillingOverview(
         teamId: requestTeamId,
         teamName: requestTeamName,
       }
-      const promise = loadBillingOverviewEntry(entry, (signal) => getBillingOverview(days, scope, signal), { force })
+      const promise = loadBillingOverviewEntry(
+        entry,
+        async (signal) => {
+          const nextData = await getBillingOverview(days, scope, signal)
+          return retainCachedTeamBillingDetails(nextData, cacheScopeKey, entry)
+        },
+        { force },
+      )
 
       try {
         const nextData = await promise
@@ -209,6 +216,54 @@ export function clearBillingOverviewCache(): void {
 function cachedData(cacheScope: string, days: BillingPeriodDays): BillingOverviewResult | null {
   const entry = overviewCache.get(cacheScope)?.get(days)
   return entry?.data ?? null
+}
+
+/**
+ * Team subscription details do not depend on the selected usage window. Keep the latest
+ * successful values when a 7-day or 30-day refresh hits the optional-request timeout, while
+ * still accepting a successful null response as the authoritative "no plan/payment" state.
+ */
+export function retainAvailableTeamBillingDetails(
+  next: BillingOverviewResult,
+  previous: BillingOverviewResult | null,
+): BillingOverviewResult {
+  if (!previous) {
+    return next
+  }
+  const retainSubscription = !next.subscriptionAvailable && previous.subscriptionAvailable
+  const retainPendingPayment = !next.teamPendingPaymentAvailable && previous.teamPendingPaymentAvailable
+  if (!retainSubscription && !retainPendingPayment) {
+    return next
+  }
+  return {
+    ...next,
+    ...(retainSubscription
+      ? {
+          subscription: previous.subscription,
+          subscriptionAvailable: true,
+        }
+      : {}),
+    ...(retainPendingPayment
+      ? {
+          teamPendingPayment: previous.teamPendingPayment,
+          teamPendingPaymentAvailable: true,
+        }
+      : {}),
+  }
+}
+
+function retainCachedTeamBillingDetails(
+  next: BillingOverviewResult,
+  cacheScope: string,
+  currentEntry: BillingOverviewCacheEntry,
+): BillingOverviewResult {
+  let retained = retainAvailableTeamBillingDetails(next, currentEntry.data)
+  for (const entry of overviewCache.get(cacheScope)?.values() ?? []) {
+    if (entry !== currentEntry) {
+      retained = retainAvailableTeamBillingDetails(retained, entry.data)
+    }
+  }
+  return retained
 }
 
 function isFresh(

@@ -7,6 +7,7 @@ import {
   clearBillingOverviewCache,
   getBillingOverviewCacheEntry,
   loadBillingOverviewEntry,
+  retainAvailableTeamBillingDetails,
   startBillingOverviewRequest,
 } from "./useBillingOverview.ts"
 
@@ -116,4 +117,63 @@ test("clearing billing cache detaches old account data and in-flight writes", as
   resolveStale(staleData)
   assert.match(String(await staleResult), /cache was cleared/)
   assert.equal(nextEntry.data, null)
+})
+
+test("an unavailable period refresh retains period-independent team billing details", () => {
+  const previous = {
+    ...emptyBillingOverview(),
+    subscription: {
+      features: [],
+      plan: "team_plus",
+      plans: [],
+      platforms: {},
+      team: { additionalSeats: 2, cached: false, updatedAt: null },
+    },
+    teamPendingPayment: {
+      additionalSeats: 1,
+      amountRemaining: 600,
+      currency: "usd",
+      currentPeriodEnd: null,
+      invoiceStatus: "open",
+      latestInvoiceID: "invoice-1",
+      paymentRequired: true,
+      paymentURL: "https://console.example.com/pay",
+      pendingUpdate: true,
+      pendingUpdateExpiresAt: null,
+      plan: "team_plus" as const,
+      status: "past_due",
+      subscriptionID: "subscription-1",
+    },
+  }
+  const next = {
+    ...emptyBillingOverview(),
+    subscriptionAvailable: false,
+    teamPendingPaymentAvailable: false,
+  }
+
+  const retained = retainAvailableTeamBillingDetails(next, previous)
+
+  assert.equal(retained.subscription, previous.subscription)
+  assert.equal(retained.subscriptionAvailable, true)
+  assert.equal(retained.teamPendingPayment, previous.teamPendingPayment)
+  assert.equal(retained.teamPendingPaymentAvailable, true)
+})
+
+test("a successful empty team billing response replaces retained values", () => {
+  const previous = {
+    ...emptyBillingOverview(),
+    subscription: {
+      features: [],
+      plan: "team_plus",
+      plans: [],
+      platforms: {},
+    },
+  }
+  const next = emptyBillingOverview()
+
+  const retained = retainAvailableTeamBillingDetails(next, previous)
+
+  assert.equal(retained, next)
+  assert.equal(retained.subscription, null)
+  assert.equal(retained.teamPendingPayment, null)
 })

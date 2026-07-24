@@ -148,10 +148,10 @@ test("ModelsServiceImpl serializes concurrent model mutations", async () => {
   ])
 })
 
-test("ModelsServiceImpl requests runtime refresh for save, selection, and deletion", async () => {
+test("ModelsServiceImpl refreshes runtime only when model definitions change", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
-  const onCustomModelsChanged = vi.fn()
-  const service = new ModelsServiceImpl({ store: createStore(dir), onCustomModelsChanged })
+  const onModelDefinitionsChanged = vi.fn()
+  const service = new ModelsServiceImpl({ store: createStore(dir), onModelDefinitionsChanged })
 
   const catalog = await service.saveCustomModel({
     providerId: "openrouter",
@@ -161,10 +161,14 @@ test("ModelsServiceImpl requests runtime refresh for save, selection, and deleti
   })
   const customModel = catalog.customModels[0]
   assert.ok(customModel)
-  await service.setSelectedModel({ kind: "custom", id: customModel.id })
+  assert.equal(onModelDefinitionsChanged.mock.calls.length, 1)
+
+  await service.setSelectedModel({ kind: "builtin", id: "oopilot" })
+  assert.equal(onModelDefinitionsChanged.mock.calls.length, 1)
+
   await service.deleteCustomModel(customModel.id)
 
-  assert.equal(onCustomModelsChanged.mock.calls.length, 3)
+  assert.equal(onModelDefinitionsChanged.mock.calls.length, 2)
 })
 
 test("ModelsServiceImpl removes a newly stored credential when metadata save fails", async () => {

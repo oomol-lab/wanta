@@ -157,26 +157,44 @@ test("buildOpencodeConfig covers every registered built-in model runtime", () =>
   }
 })
 
-test("GPT 5.5 resolves through the OpenAI provider for Responses API semantics", () => {
-  const gpt55 = resolveBuiltinModel("gpt-5.5")
-  assert.deepEqual(gpt55.runtime, { providerID: "openai", modelID: "gpt-5.5" })
+test("GPT models resolve through the OpenAI provider for Responses API semantics", () => {
   const config = buildOpencodeConfig({
     linkRuntime: { kind: "oomol", sessionToken: "api-test" },
     modelAccess: { kind: "oomol", sessionToken: "api-test" },
   })
-  const provider = config.provider?.[gpt55.runtime.providerID]
-  const model = provider?.models?.[gpt55.runtime.modelID]
+
+  const expectedModels = [
+    { id: "gpt-5.6-sol", displayName: "GPT 5.6 Sol" },
+    { id: "gpt-5.6-terra", displayName: "GPT 5.6 Terra" },
+    { id: "gpt-5.6-luna", displayName: "GPT 5.6 Luna" },
+    { id: "gpt-5.5", displayName: "GPT 5.5" },
+  ] as const
+
+  const provider = config.provider?.openai
   assert.ok(provider)
   assert.equal(provider.npm, undefined)
   assert.equal(provider.options?.baseURL, `https://llm.${ooEndpoint}/v1`)
   assert.equal(provider.options?.apiKey, "api-test")
-  assert.ok(model)
-  assert.equal(model.name, "GPT 5.5")
-  assert.deepEqual(modelLimit(model), { context: 400_000, input: 258_400, output: 128_000 })
-  assert.equal(model.reasoning, true)
-  assert.equal(modelVariantReasoningEffort(model, "max"), "xhigh")
-  assert.equal(model.attachment, true)
-  assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
+
+  for (const expected of expectedModels) {
+    const definition = resolveBuiltinModel(expected.id)
+    assert.deepEqual(definition.runtime, { providerID: "openai", modelID: expected.id })
+    const configuredModel:
+      | {
+          name?: string
+          reasoning?: boolean
+          attachment?: boolean
+          modalities?: unknown
+        }
+      | undefined = provider.models?.[expected.id]
+    assert.ok(configuredModel)
+    assert.equal(configuredModel.name, expected.displayName)
+    assert.deepEqual(modelLimit(configuredModel), { context: 400_000, input: 258_400, output: 128_000 })
+    assert.equal(configuredModel.reasoning, true)
+    assert.equal(modelVariantReasoningEffort(configuredModel, "max"), "xhigh")
+    assert.equal(configuredModel.attachment, true)
+    assert.deepEqual(configuredModel.modalities, { input: ["text", "image"], output: ["text"] })
+  }
 })
 
 test("buildOpencodeConfig wires text-only custom openai-compatible providers without changing the default model", () => {

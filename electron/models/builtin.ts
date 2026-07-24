@@ -38,15 +38,18 @@ export interface BuiltinModelDefinition {
 
 // UI 展示用的内置模型上下文窗口；网关别名实际窗口调整时只改这里。
 const autoContextWindow = 200_000
-const gpt55ContextWindow = 400_000
-const gpt55InputTokenLimit = 258_400
-const gpt55MaxOutputTokens = 128_000
+const gptContextWindow = 400_000
+const gptInputTokenLimit = 258_400
+const gptMaxOutputTokens = 128_000
 const millionTokenContextWindow = 1_000_000
 const deepSeekV4ReasoningVariants = ["low", "high", "max"] as const satisfies readonly WantaReasoningVariant[]
 const qwen37ReasoningVariants = ["low", "high"] as const satisfies readonly WantaReasoningVariant[]
 
 export const BUILTIN_MODEL_IDS = [
   "oopilot",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
   "gpt-5.5",
   "deepseek-v4-flash",
   "deepseek-v4-pro",
@@ -91,6 +94,60 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
     maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   },
   {
+    id: "gpt-5.6-sol",
+    displayName: "GPT 5.6 Sol",
+    providerName: "OpenAI",
+    runtime: {
+      providerID: "openai",
+      modelID: "gpt-5.6-sol",
+    },
+    capabilities: {
+      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
+      supportsImages: true,
+      supportsPdf: true,
+      toolCall: true,
+    },
+    contextWindow: gptContextWindow,
+    inputTokenLimit: gptInputTokenLimit,
+    maxOutputTokens: gptMaxOutputTokens,
+  },
+  {
+    id: "gpt-5.6-terra",
+    displayName: "GPT 5.6 Terra",
+    providerName: "OpenAI",
+    runtime: {
+      providerID: "openai",
+      modelID: "gpt-5.6-terra",
+    },
+    capabilities: {
+      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
+      supportsImages: true,
+      supportsPdf: true,
+      toolCall: true,
+    },
+    contextWindow: gptContextWindow,
+    inputTokenLimit: gptInputTokenLimit,
+    maxOutputTokens: gptMaxOutputTokens,
+  },
+  {
+    id: "gpt-5.6-luna",
+    displayName: "GPT 5.6 Luna",
+    providerName: "OpenAI",
+    runtime: {
+      providerID: "openai",
+      modelID: "gpt-5.6-luna",
+    },
+    capabilities: {
+      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
+      supportsImages: true,
+      supportsPdf: true,
+      toolCall: true,
+    },
+    contextWindow: gptContextWindow,
+    inputTokenLimit: gptInputTokenLimit,
+    maxOutputTokens: gptMaxOutputTokens,
+  },
+  {
     id: "gpt-5.5",
     displayName: "GPT 5.5",
     providerName: "OpenAI",
@@ -104,9 +161,9 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       supportsPdf: true,
       toolCall: true,
     },
-    contextWindow: gpt55ContextWindow,
-    inputTokenLimit: gpt55InputTokenLimit,
-    maxOutputTokens: gpt55MaxOutputTokens,
+    contextWindow: gptContextWindow,
+    inputTokenLimit: gptInputTokenLimit,
+    maxOutputTokens: gptMaxOutputTokens,
   },
   {
     id: "deepseek-v4-flash",

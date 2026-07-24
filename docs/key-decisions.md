@@ -238,12 +238,14 @@
   write scripts to combine multiple actions' JSON results.
 - **Decision (the current permission model)**: lift the "three-layer lockdown" (each layer
   necessary) — ① delete the `DENIED_BUILTIN_TOOLS` table (all built-in tools enabled by default);
-  ② the Build agent, the Plan agent, and root-level `WANTA_PERMISSION` gate local shell through
-  the shared `OO_CLI_BASH_PERMISSION` pattern table rather than a flat `ask`: default
-  `"*": "ask"`, but pure oo CLI invocations (`oo`, `oo *`, `$WANTA_OO_BIN` and their quoted
-  variants) are `allow` — a deliberate fast path that preserves OpenCode's fast path for direct
-  oo CLI calls. Only `external_directory` (and `edit` in Build) is unconditionally `ask`; `edit`
-  in Plan allows only `.opencode/plans/*.md`; both levels also carry `webfetch: "allow"`;
+  ② when OOMOL is the Link runtime, the Build agent, the Plan agent, and root-level permission gate
+  local shell through the shared `OO_CLI_BASH_PERMISSION` pattern table rather than a flat `ask`:
+  default `"*": "ask"`, but pure oo CLI invocations (`oo`, `oo *`, `$WANTA_OO_BIN` and their
+  quoted variants) are `allow` — a deliberate fast path for the bundled CLI. OpenConnector keeps
+  shell at `ask` so ChatService can protect credentials and injected runtime configuration while
+  automatically approving ordinary built-in oo business operations. Only `external_directory`
+  (and `edit` in Build) is unconditionally `ask`; `edit` in Plan allows only
+  `.opencode/plans/*.md`; both levels also carry `webfetch: "allow"`;
   ③ `event-translator.ts` translates the `permission.asked` / `permission.v2.asked` and replied
   events; ChatService exposes pending-permission queries and reply; ④ ChatService in the main
   process holds the local access policy: Default Access treats bash as a normal working channel,
@@ -270,9 +272,11 @@
   `npm test`, `rg`, data-processing scripts, or ordinary Desktop/Downloads files one by one;
   specific non-sensitive file reads stay smooth, and only broad scans of the whole home/system
   root prompt. Unscoped, global/system, or alternate-source dependency changes, reading credentials/keys, browser login state,
-  mail/messages/contacts/calendar data, deletion, privilege escalation, push, deploy, etc. still
-  require confirmation; such sensitive reads take precedence over generic directory session grants
-  and cannot be silently waved through because the user once allowed a parent folder. To keep
+  mail/messages/contacts/calendar data, recursive or destructive deletion, storage overwrite,
+  privilege escalation, push, deploy, remote repository deletion, and infrastructure or recursive
+  cloud-storage destruction still require confirmation; such sensitive reads take precedence over
+  generic directory session grants and cannot be silently waved through because the user once
+  allowed a parent folder. To keep
   coding and document tasks from drowning in back-to-back approvals, dependency approval follows
   execution scope and package source rather than a reviewed popularity list: direct Python
   requirements only through the turn-private `.wanta-python` interpreter, and direct
@@ -376,6 +380,8 @@
 - **Consequences**: tools, prompts, permissions, workspace contents, capability reporting, inventory,
   and authorization UX must switch together. OOMOL retains team-scoped `--organization`, bundled oo
   Skills, the in-app connection drawer, and automatic authorization retry. OpenConnector removes
-  team identity and bundled oo Skills, uses an external provider page, and never automatically
-  allows direct oo shell commands; credential expansion and configuration mutation are denied.
-  OOMOL Skill registry maintenance remains account-owned even while OpenConnector is selected.
+  team identity and bundled oo Skills and uses an external provider page. Its direct bundled oo
+  business commands are automatically approved by ChatService, while credential expansion,
+  environment dumps, authentication/configuration mutation, and injected runtime overrides are
+  denied. OOMOL Skill registry maintenance remains account-owned even while OpenConnector is
+  selected.

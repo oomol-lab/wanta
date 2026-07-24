@@ -819,7 +819,9 @@ export const zhCNMessages = {
   "chat.questionFallbackLabel": "问题 {index}",
   "chat.permissionModePicker": "访问模式",
   "chat.permissionModeDefault": "默认访问",
+  "chat.permissionModeDefaultDescription": "普通操作自动执行，仅在敏感或高风险边界确认",
   "chat.permissionModeFullAccess": "完全访问",
+  "chat.permissionModeFullAccessDescription": "跳过本地操作确认，包括高风险命令和项目外路径",
   "chat.fullAccessDialogTitle": "确认开启完全访问？",
   "chat.fullAccessDialogBody":
     "开启后，Wanta 会在当前会话中自动批准本地访问请求，包括本地命令、文件读写/删除，以及所选项目之外的路径访问。\n当前会话内不会再逐次询问本地操作权限。\n仅建议在你信任当前任务时使用。",

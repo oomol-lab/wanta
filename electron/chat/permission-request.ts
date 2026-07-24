@@ -291,13 +291,23 @@ function isBroadResource(resource: string): boolean {
   if (
     normalized === "/users" ||
     /^\/users\/[^/]+$/iu.test(normalized) ||
+    normalized === "/home" ||
+    /^\/home\/[^/]+$/iu.test(normalized) ||
+    normalized === "/root" ||
     normalized === "/applications" ||
     normalized === "/library" ||
     normalized === "/system" ||
     normalized === "/etc" ||
     normalized === "/bin" ||
     normalized === "/sbin" ||
-    normalized === "/usr"
+    normalized === "/usr" ||
+    normalized === "/var" ||
+    normalized === "/proc" ||
+    normalized === "/sys" ||
+    normalized === "/dev" ||
+    normalized === "/run" ||
+    /^[a-z]:\/users(?:\/[^/]+)?$/iu.test(normalized) ||
+    /^[a-z]:\/(?:windows|program files|program files \(x86\)|programdata)$/iu.test(normalized)
   ) {
     return true
   }

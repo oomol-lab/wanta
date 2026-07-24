@@ -38,13 +38,12 @@ test("local access policy allows pure oo commands without a renderer prompt", ()
   )
 })
 
-test("local access policy prompts for direct and wrapped oo commands under OpenConnector", () => {
+test("local access policy allows direct and standard wrapped oo commands under OpenConnector", () => {
   for (const command of [
     "oo connector apps --json",
     "bash -c 'oo connector apps --json'",
     "/bin/bash -c 'oo connector apps --json'",
     "sh -lc 'oo connector apps --json'",
-    "zsh -c 'cd /tmp && oo connector apps --json'",
     'cmd.exe /c "oo connector apps --json"',
     "cmd /c oo connector apps --json",
     'pwsh -Command "oo connector apps --json"',
@@ -54,7 +53,7 @@ test("local access policy prompts for direct and wrapped oo commands under OpenC
         linkRuntime: "openconnector",
         permissionMode: "full_access",
       }),
-      { type: "prompt", kind: "command", highRisk: false },
+      { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
       command,
     )
   }
@@ -63,8 +62,18 @@ test("local access policy prompts for direct and wrapped oo commands under OpenC
       linkRuntime: "openconnector",
       permissionMode: "default",
     }),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
   )
+  for (const command of ["zsh -c 'cd /tmp && oo connector apps --json'", "oo connector apps --json 2>&1 | head -80"]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        linkRuntime: "openconnector",
+        permissionMode: "default",
+      }),
+      { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+      command,
+    )
+  }
 })
 
 test("local access policy prompts when shell wrapper syntax is not fully modeled", () => {
@@ -507,6 +516,35 @@ test("local access policy prompts broad shell scans but keeps specific ordinary 
       permissionMode: "default",
     }),
     { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+  )
+})
+
+test("local access policy recognizes broad Unix and Windows account or system roots", () => {
+  for (const resource of [
+    "/home",
+    "/home/alice",
+    "/root",
+    "/var",
+    "C:\\Users",
+    "C:\\Users\\Alice",
+    "C:\\Windows",
+    "D:\\Program Files",
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ action: "external_directory", resources: [resource] }), {
+        permissionMode: "default",
+      }),
+      { type: "prompt", kind: "path", highRisk: false },
+      resource,
+    )
+  }
+
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ action: "external_directory", resources: ["C:\\Users\\Alice\\Documents"] }),
+      { permissionMode: "default" },
+    ),
+    { type: "allow", reason: "default_local", kind: "path", highRisk: false },
   )
 })
 

@@ -193,7 +193,7 @@ export function isOoCliCommand(command: string): boolean {
   return false
 }
 
-export function openConnectorCommandPolicy(command: string): "deny" | "prompt" | null {
+export function openConnectorCommandPolicy(command: string): "allow" | "deny" | "prompt" | null {
   let current = command.trim()
   for (let depth = 0; depth < maxShellWrapperDepth; depth += 1) {
     if (
@@ -205,9 +205,10 @@ export function openConnectorCommandPolicy(command: string): "deny" | "prompt" |
     ) {
       return "deny"
     }
+    if (isPureOoCliCommand(current)) return "allow"
     const wrapper = shellWrapperCommand(current)
     if (wrapper.kind === "unsupported") return "prompt"
-    if (wrapper.kind === "not_wrapper") return ooCommandSegment.test(current) ? "prompt" : null
+    if (wrapper.kind === "not_wrapper") return null
     current = wrapper.command
   }
   return "prompt"

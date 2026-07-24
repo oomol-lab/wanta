@@ -27,3 +27,30 @@ test("shell wrapper inspection is bounded", () => {
   assert.equal(isOoCliCommand(command), false)
   assert.equal(openConnectorCommandPolicy(command), "prompt")
 })
+
+test("OpenConnector policy allows built-in oo operations and standard shell wrappers", () => {
+  for (const command of [
+    "oo connector apps --json",
+    "oo connector run gmail list --json",
+    "bash -lc 'oo connector apps --json'",
+    'cmd.exe /c "oo connector apps --json"',
+    'pwsh -Command "oo connector apps --json"',
+  ]) {
+    assert.equal(openConnectorCommandPolicy(command), "allow", command)
+  }
+  assert.equal(openConnectorCommandPolicy("oo connector apps --json 2>&1 | head -80"), null)
+  assert.equal(openConnectorCommandPolicy("zsh -c 'cd /tmp && oo connector apps --json'"), null)
+})
+
+test("OpenConnector policy keeps credential and runtime boundary protections", () => {
+  for (const command of [
+    "echo $OO_CONNECTOR_TOKEN",
+    "printenv",
+    "OO_CONNECTOR_URL=https://other.example.test oo connector apps",
+    "oo connector login https://other.example.test",
+    "oo config set endpoint https://other.example.test",
+    "oo connector apps --connector-token secret",
+  ]) {
+    assert.equal(openConnectorCommandPolicy(command), "deny", command)
+  }
+})

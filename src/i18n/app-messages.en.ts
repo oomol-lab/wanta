@@ -858,7 +858,11 @@ export const enMessages = {
   "chat.questionFallbackLabel": "Question {index}",
   "chat.permissionModePicker": "Access mode",
   "chat.permissionModeDefault": "Default access",
+  "chat.permissionModeDefaultDescription":
+    "Runs ordinary actions automatically; asks only at sensitive or high-risk boundaries",
   "chat.permissionModeFullAccess": "Full access",
+  "chat.permissionModeFullAccessDescription":
+    "Skips local confirmations, including for high-risk commands and paths outside the project",
   "chat.fullAccessDialogTitle": "Confirm full access?",
   "chat.fullAccessDialogBody":
     "After this is enabled, Wanta will automatically approve local access requests in this chat, including local commands, file reads/writes/deletes, and paths outside the selected project.\nWanta will not ask again for local operation approval in this chat.\nUse it only when you trust the current task.",

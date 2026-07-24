@@ -160,7 +160,10 @@ identity and endpoint-qualified caches. `buildAgentLinkEnv()` assembles either t
 sync/update/telemetry restrictions; `buildOomolMaintenanceEnv()` remains dedicated to account-owned
 Skill registry work. `ensureAgentWorkspace()` receives separate `connectors` and `bundledOoSkills`
 inputs, so OpenConnector gets typed Link tools without the OOMOL-specific bundled Skills. Direct oo
-fast-allow in `config.ts` is likewise OOMOL-only.
+fast-allow in `config.ts` is likewise OOMOL-only. OpenConnector shell requests still reach
+ChatService, which automatically approves built-in oo business operations after rejecting
+credential reads, environment dumps, authentication/configuration mutations, and runtime
+overrides.
 
 Link batch reliability is guaranteed by Wanta's custom `call_action` tool, not left to the model or
 OpenCode to converge on its own: within one chat session, a same workspace/service/connection/action

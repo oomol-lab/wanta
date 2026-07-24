@@ -163,11 +163,13 @@
   session and stops doing per-request local risk judgment.
   New ask rules must be verified end to end: pending-permission queries, event push, auto-approve
   dedup, and reply.
-- **oo CLI fast path**: the OpenCode configuration still keeps the fast pass for commands whose
-  first token is `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}`; all other local bash /
-  external_directory asks fall through to the ChatService Default Access policy. Shell pipes/
-  redirection are not by themselves a reason to prompt — prompt only on a genuine baseline security
-  risk; `sudo`, piping into a shell, writes to sensitive paths, etc. still require confirmation.
+- **oo CLI fast path**: OOMOL keeps the OpenCode fast pass for commands whose first token is `oo` /
+  `$WANTA_OO_BIN` / `${WANTA_OO_BIN}`. OpenConnector keeps `bash: "ask"` so the main process can
+  reject credential reads and runtime configuration overrides, then automatically approves built-in
+  oo business operations. Safe shell wrappers are inspected; ordinary oo pipelines and output
+  filtering fall through to the normal Default Access policy. Pipes/redirection are not by
+  themselves a reason to prompt — prompt only on a genuine baseline security risk; `sudo`, piping
+  into a shell, writes to sensitive paths, etc. still require confirmation.
 - **Permission gates only built-in tools**: `bash: deny` and the like do not constrain `.opencode`
   custom tools (their permission gate lives inside each built-in tool's execute) — when
   re-tightening permissions, the connector meta-tools keep spawning oo unaffected.

@@ -4,6 +4,13 @@
 >
 > Plan date: 2026-07-21
 >
+> Permission update (2026-07-24): the original plan's requirement to prompt for every direct
+> OpenConnector oo invocation has been superseded. ChatService now automatically approves bundled oo
+> business operations while continuing to reject credential reads, environment dumps,
+> authentication/configuration mutation, and runtime overrides. See
+> [key-decisions.md §12](key-decisions.md#12-openconnector-is-a-separate-link-runtime-not-a-sign-in-or-model-runtime)
+> for the current decision.
+>
 > Scope: let Wanta use a user-configured OpenConnector runtime as its Link
 > runtime, including the signed-out custom-model path, without weakening the
 > existing OOMOL authentication, credential, team-scope, or Agent permission

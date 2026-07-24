@@ -108,8 +108,9 @@ export function evaluateLocalAccessRequest(
       ? openConnectorCommandPolicy(permissionCommand(request) ?? request.resources.join(" "))
       : null
   if (openConnectorPolicy === "deny") return { type: "deny", kind, highRisk }
+  if (openConnectorPolicy === "allow") return { type: "allow", reason: "oo_cli", kind, highRisk }
   if (openConnectorPolicy === "prompt") return { type: "prompt", kind, highRisk }
-  if (context.linkRuntime !== "oomol" && isOoCliPermissionRequest(request)) {
+  if (!context.linkRuntime && isOoCliPermissionRequest(request)) {
     return { type: "prompt", kind, highRisk }
   }
   if (context.permissionMode === "full_access") {
@@ -147,7 +148,7 @@ export function evaluateLocalAccessRequest(
   if (permissionRequestNeedsDefaultPrompt(request)) {
     return { type: "prompt", kind, highRisk }
   }
-  if (context.linkRuntime === "oomol" && isOoCliPermissionRequest(request)) {
+  if (context.linkRuntime && isOoCliPermissionRequest(request)) {
     return { type: "allow", reason: "oo_cli", kind, highRisk }
   }
   if (context.trustedProjectRoot && projectPermissionRequestInsideRoot(request, context.trustedProjectRoot)) {

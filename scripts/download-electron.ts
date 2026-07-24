@@ -5,7 +5,7 @@
 // 说明：dev 实际启动用的是 electron 包自身 postinstall 下载到
 // node_modules/electron/dist 的副本；.electron-dist 这份**专供 macOS dev
 // deep-link scheme 注册**（com.oomol.wanta-local）。因此本脚本对 stage-0 的
-// `dev` 启动不是必需，全程 best-effort：任何失败都只告警、不阻断 npm install。
+// `dev` 启动不是必需，全程 best-effort：任何失败都只告警、不阻断 pnpm install。
 //
 // extract 用 @electron-internal/extract-zip（本项目约定不直接依赖 extract-zip）。
 

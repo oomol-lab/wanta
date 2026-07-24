@@ -90,6 +90,18 @@ function shouldAutoStartElectron(command: string, mode: string): boolean {
   return mode !== "no-electron"
 }
 
+function resolveDevServerPort(): number {
+  const explicit = process.env.WANTA_DEV_SERVER_PORT?.trim()
+  if (!explicit) {
+    return 5273
+  }
+  const parsed = Number(explicit)
+  if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) {
+    return parsed
+  }
+  throw new Error(`WANTA_DEV_SERVER_PORT must be an integer from 1024 to 65535, got "${explicit}"`)
+}
+
 function skipElectronStartup(): void {
   console.log("[wanta] Electron auto-start disabled for this Vite dev session.")
 }
@@ -99,6 +111,7 @@ export default defineConfig(({ command, mode }) => {
   const ooEndpoint = resolveOoEndpoint(command, mode)
   const packageAssetsBaseUrl = resolvePackageAssetsBaseUrl(ooEndpoint)
   const autoStartElectron = shouldAutoStartElectron(command, mode)
+  const devServerPort = resolveDevServerPort()
   const buildDefines = {
     __APP_COMMIT__: JSON.stringify(appCommit),
     __APP_VERSION__: JSON.stringify(appVersion),
@@ -161,7 +174,7 @@ export default defineConfig(({ command, mode }) => {
       }),
     ],
     server: {
-      port: 5273,
+      port: devServerPort,
       strictPort: true,
     },
     // 重型依赖（含 lazy chunk 里才用到的 streamdown / motion）显式预打包：server 启动时

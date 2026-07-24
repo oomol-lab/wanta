@@ -16,7 +16,7 @@ if (!process.env.WANTA_OO_BIN) {
   if (!existsSync(ooBin)) {
     console.error(
       `[wanta] oo 二进制缺失：${ooBin}\n` +
-        "  运行 `npm run postinstall` 重新下载，或设 WANTA_OO_BIN 指向已有 oo（见 .env.example）。",
+        "  运行 `pnpm run postinstall` 重新下载，或设 WANTA_OO_BIN 指向已有 oo（见 .env.example）。",
     )
     process.exit(1)
   }
@@ -28,7 +28,7 @@ if (!process.env.WANTA_OO_BIN) {
       `[wanta] oo 二进制版本不匹配：${ooBin}\n` +
         `  expected: ${expectedMarker}\n` +
         `  actual:   ${actualMarker || "<missing>"}\n` +
-        "  运行 `npm run postinstall` 重新下载，或设 WANTA_OO_BIN 指向已有 oo（见 .env.example）。",
+        "  运行 `pnpm run postinstall` 重新下载，或设 WANTA_OO_BIN 指向已有 oo（见 .env.example）。",
     )
     process.exit(1)
   }
@@ -37,7 +37,7 @@ if (!process.env.WANTA_OO_BIN) {
 const rgBin = localRipgrepBinPath()
 if (!existsSync(rgBin)) {
   console.error(
-    `[wanta] ripgrep 二进制缺失：${rgBin}\n` + "  运行 `npm run postinstall` 重新下载；本地文件搜索工具需要 rg。",
+    `[wanta] ripgrep 二进制缺失：${rgBin}\n` + "  运行 `pnpm run postinstall` 重新下载；本地文件搜索工具需要 rg。",
   )
   process.exit(1)
 }

@@ -17,23 +17,30 @@
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
+    "bootstrap": "node --experimental-strip-types ./scripts/bootstrap.ts",
+    "auth:capture": "node --experimental-strip-types ./scripts/dev-auth-state.ts capture",
+    "auth:save": "node --experimental-strip-types ./scripts/dev-auth-state.ts save",
+    "auth:restore": "node --experimental-strip-types ./scripts/dev-auth-state.ts restore",
+    "auth:clean": "node --experimental-strip-types ./scripts/dev-auth-state.ts clean",
+    "auth:status": "node --experimental-strip-types ./scripts/dev-auth-state.ts status",
     "postinstall": "node --experimental-strip-types ./scripts/download-electron.ts && node --experimental-strip-types ./scripts/download-oo.ts && node --experimental-strip-types ./scripts/download-skills.ts && node --experimental-strip-types ./scripts/download-ripgrep.ts && node --experimental-strip-types ./scripts/build-agent-tool-runtime.ts",
     "predev": "node --experimental-strip-types ./scripts/check-oo.ts",
     "dev": "vite",
+    "dev:worktree": "node --experimental-strip-types ./scripts/dev-worktree.ts",
     "dev:no-electron": "vite --mode no-electron",
-    "build": "npm run build:app",
+    "build": "pnpm run build:app",
     "ts-check": "tsgo -p tsconfig.json --incremental false",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
     "format": "oxfmt --check .",
     "format:fix": "oxfmt .",
     "test": "vitest run",
-    "build:app": "npm run ts-check && vite build",
+    "build:app": "pnpm run ts-check && vite build",
     "prepare:binaries": "node --experimental-strip-types scripts/prepare-binaries.ts",
-    "build:electron": "npm run build:app && npm run prepare:binaries && electron-builder --publish never",
-    "build:mac": "npm run build:app && npm run prepare:binaries && electron-builder --mac --publish never",
-    "build:win": "npm run build:app && npm run prepare:binaries && electron-builder --win --publish never",
-    "build:linux": "npm run build:app && npm run prepare:binaries && electron-builder --linux --publish never"
+    "build:electron": "pnpm run build:app && pnpm run prepare:binaries && electron-builder --publish never",
+    "build:mac": "pnpm run build:app && pnpm run prepare:binaries && electron-builder --mac --publish never",
+    "build:win": "pnpm run build:app && pnpm run prepare:binaries && electron-builder --win --publish never",
+    "build:linux": "pnpm run build:app && pnpm run prepare:binaries && electron-builder --linux --publish never"
   },
   "dependencies": {
     "@opencode-ai/sdk": "1.17.13",
@@ -47,9 +54,12 @@
     "@electron/get": "5.0.0",
     "@iconify-icons/simple-icons": "1.2.74",
     "@iconify-icons/tabler": "1.2.95",
+    "@iconify/types": "2.0.0",
     "@oomol/connection": "0.2.28",
     "@oomol/connection-electron-adapter": "0.2.12",
     "@opencode-ai/plugin": "1.17.13",
+    "@shikijs/langs": "3.23.0",
+    "@shikijs/themes": "3.23.0",
     "@streamdown/mermaid": "1.0.2",
     "@tailwindcss/vite": "4.3.0",
     "@types/js-yaml": "4.0.9",
@@ -98,5 +108,5 @@
   "engines": {
     "node": ">=22.22.2"
   },
-  "packageManager": "npm@10.9.4"
+  "packageManager": "pnpm@9.14.4"
 }

@@ -185,13 +185,13 @@ For the complete process, trust-boundary, IPC, streaming, authentication, and st
 
 ## Run from Source
 
-Requirements: Node.js 22.22.2 or newer and npm.
+Requirements: Node.js 22.22.2 or newer and pnpm through Corepack.
 
 ```bash
 git clone https://github.com/oomol-lab/wanta.git
 cd wanta
-npm install
-npm run dev
+corepack pnpm install
+corepack pnpm run dev
 ```
 
 That is the short path for trying the repository. Environment configuration, test commands, runtime

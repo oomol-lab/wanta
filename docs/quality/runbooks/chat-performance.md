@@ -24,7 +24,7 @@ not count toward the summary.
 
 ### Scenario
 
-1. Run `npm run dev` and confirm the Agent sidecar is ready;
+1. Run `corepack pnpm run dev` and confirm the Agent sidecar is ready;
 2. Open a session with at least 200 messages and scroll to the newest message;
 3. Prepare a read-only request that reliably outputs at least 3000 Chinese characters or 6000 English
    characters and lasts at least 20 seconds;
@@ -62,7 +62,7 @@ the accumulated full-text part, the stable partId, Enter-to-send-only, or the ar
 
 ### Build and samples
 
-1. Run `npm run build` and use the production renderer bundle;
+1. Run `corepack pnpm run build` and use the production renderer bundle;
 2. Prepare fixed PDF, XLSX, and CSV samples; the workbook test must preserve Univer's full rendering
    and interaction;
 3. For each sample category, record file size and structural scale; do not use data containing private

@@ -6,7 +6,7 @@ import { describe, expect, test } from "vitest"
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
 const packageJsonPath = path.join(repoRoot, "package.json")
-const packageLockPath = path.join(repoRoot, "package-lock.json")
+const pnpmLockPath = path.join(repoRoot, "pnpm-lock.yaml")
 
 interface PackageManifest {
   bugs?: { url?: string }
@@ -21,7 +21,7 @@ interface PackageManifest {
 
 describe("open-source installation contract", () => {
   const manifest = JSON.parse(readFileSync(packageJsonPath, "utf8")) as PackageManifest
-  const lockfile = readFileSync(packageLockPath, "utf8")
+  const lockfile = readFileSync(pnpmLockPath, "utf8")
 
   test("declares public project and toolchain metadata", () => {
     expect(manifest.license).toBe("Apache-2.0")
@@ -32,15 +32,17 @@ describe("open-source installation contract", () => {
     expect(manifest.homepage).toBe("https://wanta.ai/")
     expect(manifest.bugs?.url).toBe("https://github.com/oomol-lab/wanta/issues")
     expect(manifest.engines?.node).toBe(">=22.22.2")
-    expect(manifest.packageManager).toBe("npm@10.9.4")
+    expect(manifest.packageManager).toBe("pnpm@9.14.4")
   })
 
   test("does not depend on a repository-local private npm registry", () => {
     expect(existsSync(path.join(repoRoot, ".npmrc"))).toBe(false)
+    expect(existsSync(path.join(repoRoot, "package-lock.json"))).toBe(false)
     expect(lockfile).not.toContain("npm.pkg.github.com")
     expect(lockfile).not.toContain("_authToken")
-    expect(lockfile).toContain("https://registry.npmjs.org/@oomol/connection/-/")
-    expect(lockfile).toContain("https://registry.npmjs.org/@oomol/connection-electron-adapter/-/")
+    expect(lockfile).toContain("@oomol/connection@0.2.28")
+    expect(lockfile).toContain("@oomol/connection-electron-adapter@0.2.12(@oomol/connection@0.2.28)")
+    expect(lockfile).toContain("resolution: {integrity:")
   })
 
   test("keeps oo in the default install and packaging paths", () => {
@@ -48,7 +50,7 @@ describe("open-source installation contract", () => {
     expect(manifest.scripts?.predev).toContain("scripts/check-oo.ts")
     expect(manifest.scripts?.["prepare:binaries"]).toContain("scripts/prepare-binaries.ts")
     for (const scriptName of ["build:electron", "build:mac", "build:win", "build:linux"]) {
-      expect(manifest.scripts?.[scriptName]).toContain("npm run prepare:binaries")
+      expect(manifest.scripts?.[scriptName]).toContain("pnpm run prepare:binaries")
     }
   })
 

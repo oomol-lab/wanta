@@ -1,6 +1,6 @@
 // postinstall：把当前平台的 ripgrep 二进制下载到 .oo-bin/（gitignore），供 OpenCode grep 工具使用。
 //
-// 全程 best-effort：任何失败只告警、不阻断 npm install；prepare-binaries 会在打包前再次 ensure。
+// 全程 best-effort：任何失败只告警、不阻断 pnpm install；prepare-binaries 会在打包前再次 ensure。
 
 import { downloadRipgrepBinary, RIPGREP_VERSION } from "./ripgrep.ts"
 

@@ -19,15 +19,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: npm ci
+        run: corepack pnpm install --frozen-lockfile
         env:
           # 跳过 Electron 二进制下载（download-electron postinstall 也据此短路）。
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
@@ -35,16 +38,16 @@ jobs:
           OO_SKIP_BINARY_DOWNLOAD: "1"
 
       - name: Run lint
-        run: npm run lint
+        run: corepack pnpm run lint
 
       - name: Run format
-        run: npm run format
+        run: corepack pnpm run format
 
       - name: Run ts-check
-        run: npm run ts-check
+        run: corepack pnpm run ts-check
 
       - name: Run tests
-        run: npm test
+        run: corepack pnpm test
         env:
           # 安装步骤用 ELECTRON_SKIP_BINARY_DOWNLOAD=1 跳过下载 Electron 二进制，
           # 因此 node_modules/electron/path.txt 不存在。现状 Wanta 的测试全是纯函数
@@ -58,4 +61,4 @@ jobs:
           ELECTRON_OVERRIDE_DIST_PATH: ${{ github.workspace }}/.electron-dist
 
       - name: Run build
-        run: npm run build
+        run: corepack pnpm run build

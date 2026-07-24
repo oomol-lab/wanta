@@ -306,7 +306,7 @@
 
 - Every change's DoD must be verified by a real run (log/screenshot evidence), never assumed;
   commit after each completed phase.
-- For UI/runtime changes, compiling is not enough: verify live with `npm run dev`. OOMOL scenarios
+- For UI/runtime changes, compiling is not enough: verify live with `corepack pnpm run dev`. OOMOL scenarios
   require login; signed-out custom-model and independent Link-runtime status scenarios do not.
 - Changes to the vite build config must preserve the invariants: build output defaults to
   oomol.com, is unaffected by `.env.local`, and only an explicit `WANTA_ENDPOINT` can override it

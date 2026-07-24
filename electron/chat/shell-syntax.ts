@@ -17,6 +17,110 @@ export function shellCommandName(value: string | undefined): string | undefined 
   return parts[parts.length - 1]?.toLowerCase()
 }
 
+export function splitLeadingAnd(command: string): { left: string; right: string } | undefined {
+  let singleQuoted = false
+  let doubleQuoted = false
+  let escaped = false
+
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index]
+    const next = command[index + 1]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (char === "\\" && !singleQuoted) {
+      escaped = true
+      continue
+    }
+    if (char === "'" && !doubleQuoted) {
+      singleQuoted = !singleQuoted
+      continue
+    }
+    if (char === '"' && !singleQuoted) {
+      doubleQuoted = !doubleQuoted
+      continue
+    }
+    if (!singleQuoted && !doubleQuoted && char === "&" && next === "&") {
+      return {
+        left: command.slice(0, index).trim(),
+        right: command.slice(index + 2).trim(),
+      }
+    }
+  }
+  return undefined
+}
+
+function cdPath(words: readonly string[]): string | undefined {
+  if (shellCommandName(words[0]) !== "cd") {
+    return undefined
+  }
+  const args = words.slice(1).filter((word) => word !== "--")
+  return args.length === 1 ? args[0] : undefined
+}
+
+export function explicitCdDirectory(commandPrefix: string): string | undefined {
+  const directWords = shellWords(commandPrefix)
+  const directDirectory = directWords ? cdPath(directWords) : undefined
+  if (directDirectory) {
+    return directDirectory
+  }
+
+  const lines = commandPrefix
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length !== 2) {
+    return undefined
+  }
+  const assignmentWords = shellWords(lines[0] ?? "")
+  const cdWords = shellWords(lines[1] ?? "")
+  if (!assignmentWords || assignmentWords.length !== 1 || !cdWords) {
+    return undefined
+  }
+  const assignment = assignmentWords[0] ?? ""
+  const separator = assignment.indexOf("=")
+  const variableName = separator > 0 ? assignment.slice(0, separator) : ""
+  const directory = separator > 0 ? assignment.slice(separator + 1) : ""
+  const cdDirectory = cdPath(cdWords)
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(variableName) || !directory || !cdDirectory) {
+    return undefined
+  }
+  if (cdDirectory !== `$${variableName}` && cdDirectory !== `\${${variableName}}`) {
+    return undefined
+  }
+  return directory
+}
+
+export function commandBodyAfterBoundedCd(
+  command: string,
+  directoryAllowed: (directory: string) => boolean,
+): { body: string; directory?: string } | undefined {
+  const split = splitLeadingAnd(command)
+  if (!split) {
+    return { body: command }
+  }
+  const directory = explicitCdDirectory(split.left)
+  if (!directory || !directoryAllowed(directory) || !split.right) {
+    return undefined
+  }
+  return { body: split.right, directory }
+}
+
+export function commandBodyAfterLikelyCd(command: string): string {
+  const split = splitLeadingAnd(command)
+  if (!split) {
+    return command
+  }
+  return explicitCdDirectory(split.left) && split.right ? split.right : command
+}
+
+export function commandWithoutSafeOutputFilter(command: string): string {
+  return command
+    .replace(/\s+(?:2>&1\s+)?\|\s*(?:head|tail)\s+(?:-[1-9][0-9]{0,2}|-n\s+[1-9][0-9]{0,2})\s*$/u, "")
+    .trim()
+}
+
 /**
  * Removes leading shell assignments and the standard `env` wrapper so policy classifiers
  * inspect the executable rather than mistaking setup words for command semantics.

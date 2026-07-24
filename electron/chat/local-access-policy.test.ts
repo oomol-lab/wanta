@@ -387,6 +387,8 @@ test("default access applies one scope-and-boundary policy across Node.js and Py
   for (const command of [
     `cd ${projectRoot} && npm install --unknown-option report-tool`,
     `${projectRoot}/.venv/bin/python -m pip install --compile report-tool`,
+    `cd ${projectRoot} && .venv/bin/python -m pip install report-tool 2>&1 | tail -5`,
+    `uv --no-progress pip install --python=${projectRoot}/.venv/bin/python report-tool 2>&1 | tail -5`,
   ]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
@@ -395,6 +397,13 @@ test("default access applies one scope-and-boundary policy across Node.js and Py
     )
   }
   for (const command of ["npm install report-tool", "pip install report-tool"]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
+      { type: "prompt", kind: "command", highRisk: false },
+      command,
+    )
+  }
+  for (const command of ["pipx install black", "uv tool install ruff"]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
       { type: "prompt", kind: "command", highRisk: false },
@@ -578,7 +587,7 @@ test("generic folder grants do not cover sensitive descendants", () => {
   )
 })
 
-test("generic folder grants do not cover high-risk shell commands", () => {
+test("generic folder grants distinguish read-only and destructive find execution", () => {
   const grant = localAccessGrantForRequest(
     permission({ action: "bash", metadata: { command: "find ~/Documents -type f" }, save: ["find *"] }),
   )
@@ -589,14 +598,35 @@ test("generic folder grants do not cover high-risk shell commands", () => {
       permissionMode: "default",
       sessionGrants: [grant],
     }),
+    { type: "allow", reason: "session_grant", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "find ~/Documents -exec rm -rf {} \\;" } }), {
+      permissionMode: "default",
+      sessionGrants: [grant],
+    }),
     { type: "prompt", kind: "command", highRisk: true },
   )
 })
 
 test("local access policy prompts broad shell scans but keeps specific ordinary reads smooth", () => {
+  for (const command of [
+    "find ~ -type f",
+    "find ~ | head -20",
+    "ls -R ~ | head -20",
+    'bash -lc "find ~ -maxdepth 2"',
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode: "default" }),
+      { type: "prompt", kind: "command", highRisk: false },
+      command,
+    )
+  }
   assert.deepEqual(
-    evaluateLocalAccessRequest(permission({ metadata: { command: "find ~ -type f" } }), { permissionMode: "default" }),
-    { type: "prompt", kind: "command", highRisk: false },
+    evaluateLocalAccessRequest(permission({ metadata: { command: "ls ~ | head -20" } }), {
+      permissionMode: "default",
+    }),
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "cat /Users/example/Documents/brief.md" } }), {

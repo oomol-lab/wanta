@@ -42,6 +42,7 @@ test("Python package runners are ordinary execution unless they override the pac
   for (const command of [
     "uvx ruff --version",
     "uvx tool --input https://example.test/document.json",
+    "uv tool run ruff --version",
     "pipx run black --version",
     "pipx run tool --index-url https://example.test/application-argument",
   ]) {
@@ -54,8 +55,25 @@ test("Python package runners are ordinary execution unless they override the pac
     "uvx git+https://example.test/vendor/tool.git --version",
     "pipx --index-url https://example.test/simple run black --version",
     "pipx run https://example.test/tool.whl --version",
+    "uv tool run --index-url https://example.test/simple ruff --version",
   ]) {
     assert.equal(dependencyCommandRequiresConfirmation(command), true, command)
+  }
+})
+
+test("persistent Python tool changes are dependency mutations, not package runners", () => {
+  for (const command of [
+    "pipx install black",
+    "pipx inject black plugin",
+    "pipx upgrade-all",
+    "uv tool install ruff",
+    "uv tool upgrade --all",
+    "uv tool uninstall ruff",
+  ]) {
+    assert.equal(isDependencyMutationCommand(command), true, command)
+  }
+  for (const command of ["pipx run black --version", "uvx ruff --version", "uv tool run ruff --version"]) {
+    assert.equal(isDependencyMutationCommand(command), false, command)
   }
 })
 

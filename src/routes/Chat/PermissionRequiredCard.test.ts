@@ -65,4 +65,17 @@ describe("PermissionRequiredCard", () => {
     expect(html).toContain("允许本次操作")
     expect(html).not.toContain("本次任务允许这些 Python 依赖")
   })
+
+  it("explains protected Python dependency operations as scope boundaries", () => {
+    const html = renderPermissionCard({
+      action: "bash",
+      id: "permission-1",
+      metadata: { command: "pipx install black" },
+      resources: ["pipx install black"],
+      sessionId: "session-1",
+    })
+
+    expect(html).toContain("需要安装 Python 依赖")
+    expect(html).toContain("目标范围或依赖来源超出了自动批准边界")
+  })
 })

@@ -41,7 +41,9 @@ Node.js installs qualify when all of these conditions hold:
   still receive a task-scoped approval.
 
 Package runners such as `npx`, `npm exec` / `npm x`, `pnpm dlx`, `yarn dlx`, `bunx` / `bun x`,
-`uvx`, and `pipx run` are ordinary local execution under Default Access. Wanta does not maintain
+`uvx`, `uv tool run`, and `pipx run` are ordinary local execution under Default Access. Persistent
+user-tool changes such as `uv tool install` and `pipx install` remain confirmation boundaries.
+Wanta does not maintain
 per-runner exceptions for `--version`, `--help`, conversion, or formatting arguments. They still
 stop when the command crosses an independent protected boundary. The classifier separates the
 runner's own options and selected package from the arguments passed to the resulting executable. A
@@ -87,6 +89,16 @@ cd <task-directory> && npm install marked
 ```bash
 SCRIPT_DIR="<task-directory>"
 cd "$SCRIPT_DIR" && npm install marked 2>&1 | tail -5
+```
+
+The equivalent bounded Python forms remain ordinary as well:
+
+```bash
+cd <project-directory> && .venv/bin/python -m pip install weasyprint 2>&1 | tail -5
+```
+
+```bash
+uv --no-progress pip install --python=<project-directory>/.venv/bin/python pypdf 2>&1 | tail -5
 ```
 
 An output pipeline into a shell, a mismatched variable target, an outside directory, or an alternate

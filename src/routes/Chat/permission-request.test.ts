@@ -6,6 +6,7 @@ import {
   createSessionPermissionGrant,
   isHighRiskPermissionRequest,
   isOoCliPermissionRequest,
+  isPythonDependencyPermissionRequest,
   isLikelyProjectDependencyInstallRequest,
   isLikelyProjectDevCommandRequest,
   isProjectScopedPythonDependencyInstallRequest,
@@ -131,6 +132,10 @@ test("high risk command detection marks destructive commands for default access 
   )
   assert.equal(
     isHighRiskPermissionRequest(permission({ metadata: { command: "find ~/Documents -exec cat {} \\;" } })),
+    false,
+  )
+  assert.equal(
+    isHighRiskPermissionRequest(permission({ metadata: { command: "find ~/Documents -exec rm -rf {} \\;" } })),
     true,
   )
   assert.equal(
@@ -162,6 +167,28 @@ test("managed Python dependency installs are narrow enough for a task approval",
       permission({
         metadata: {
           command: `uv pip install --python ${processRoot}/.wanta-python/bin/python3 --compile pypdf`,
+        },
+      }),
+      processRoot,
+    ),
+    { packages: ["pypdf"] },
+  )
+  assert.deepEqual(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: {
+          command: `cd ${processRoot} && .wanta-python/bin/python -m pip install weasyprint 2>&1 | tail -5`,
+        },
+      }),
+      processRoot,
+    ),
+    { packages: ["weasyprint"] },
+  )
+  assert.deepEqual(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: {
+          command: `uv --no-progress pip install --python=${processRoot}/.wanta-python/bin/python pypdf 2>&1 | tail -5`,
         },
       }),
       processRoot,
@@ -246,6 +273,28 @@ test("managed Python dependency installs are narrow enough for a task approval",
     ),
     false,
   )
+  assert.equal(
+    isProjectScopedPythonDependencyInstallRequest(
+      permission({
+        metadata: {
+          command: "cd /Users/example/code/customer-project && .venv/bin/python -m pip install pandas",
+        },
+      }),
+      "/Users/example/code/customer-project",
+    ),
+    true,
+  )
+  assert.equal(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: {
+          command: `cd ${processRoot} && .wanta-python/bin/python -m pip install pandas && rm -rf /tmp/x`,
+        },
+      }),
+      processRoot,
+    ),
+    null,
+  )
 
   const grant = createSessionPermissionGrant(request, { managedPythonProcessRoot: processRoot })
   assert.deepEqual(grant, {
@@ -279,10 +328,33 @@ test("default prompt detection only flags basic safety boundaries", () => {
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "find ~ -type f" } })), true)
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -la ~" } })), false)
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -R ~" } })), true)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "find ~ | head -20" } })), true)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -R ~ | head -20" } })), true)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls ~ | head -20" } })), false)
+  assert.equal(
+    permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: 'bash -lc "find ~ -maxdepth 2"' } })),
+    true,
+  )
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "pipx install black" } })), true)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "uv tool install ruff" } })), true)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "pipx run black" } })), false)
   assert.equal(
     permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "rg invoice /Users/me/Documents" } })),
     false,
   )
+  for (const resource of [
+    "~/.config/google-chrome/Default/Cookies",
+    "~/.config/chromium/Default/Login Data",
+    "~/.mozilla/firefox/profile/logins.json",
+    "C:\\Users\\me\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cookies",
+    "C:\\Users\\me\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles",
+  ]) {
+    assert.equal(
+      permissionRequestHasSensitiveResource(permission({ action: "external_directory", resources: [resource] })),
+      true,
+      resource,
+    )
+  }
   assert.equal(
     permissionRequestNeedsDefaultPrompt(permission({ action: "external_directory", resources: ["/Users/me/Desktop"] })),
     false,
@@ -294,6 +366,15 @@ test("default prompt detection only flags basic safety boundaries", () => {
   assert.equal(
     permissionRequestNeedsDefaultPrompt(permission({ action: "edit", resources: ["/Users/me/code/app/.env"] })),
     true,
+  )
+})
+
+test("Python dependency permission semantics cover protected and auto-approvable forms", () => {
+  assert.equal(isPythonDependencyPermissionRequest(permission({ metadata: { command: "pipx install black" } })), true)
+  assert.equal(isPythonDependencyPermissionRequest(permission({ metadata: { command: "uv tool install ruff" } })), true)
+  assert.equal(
+    isPythonDependencyPermissionRequest(permission({ metadata: { command: "pipx run black --version" } })),
+    false,
   )
 })
 

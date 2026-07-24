@@ -844,6 +844,8 @@ export const zhCNMessages = {
     "Wanta 想访问可能含有凭证或个人数据的资源：\n{resource}\n请确认这符合你的当前任务。",
   "chat.permissionPythonDependencyDescription":
     "Wanta 需要在本次任务的隔离 Python 环境中安装：\n{packages}\n不会修改系统 Python 或用户全局包。",
+  "chat.permissionPythonDependencyBoundaryDescription":
+    "Wanta 想执行 Python 依赖操作：\n{command}\n其目标范围或依赖来源超出了自动批准边界，需要确认。",
   "chat.permissionProjectDependencyDescription":
     "Wanta 想在当前项目中执行依赖操作：\n{command}\n允许后，本次任务内同一项目的标准依赖操作不再逐次确认。",
   "chat.permissionRequiredAllowOnce": "允许本次操作",

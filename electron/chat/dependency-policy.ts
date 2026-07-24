@@ -16,6 +16,18 @@ const nodeDependencyVerbs = new Set([
 ])
 const nodeInstallVerbs = new Set(["add", "i", "install", "link"])
 const pythonDependencyVerbs = new Set(["add", "install", "remove", "uninstall"])
+const pipxDependencyVerbs = new Set([
+  "inject",
+  "install",
+  "reinstall",
+  "reinstall-all",
+  "uninject",
+  "uninstall",
+  "uninstall-all",
+  "upgrade",
+  "upgrade-all",
+])
+const uvToolDependencyVerbs = new Set(["install", "uninstall", "upgrade"])
 
 const nodeSourceOptions = new Set(["--globalconfig", "--registry", "--userconfig"])
 const pythonSourceOptions = new Set([
@@ -258,6 +270,11 @@ function pythonDependencyOperation(words: readonly string[]): PythonDependencyOp
     const verb = command?.value.toLowerCase()
     return command && verb && pythonDependencyVerbs.has(verb) ? { verb, verbIndex: command.index } : null
   }
+  if (name === "pipx") {
+    const command = nextCliWord(words, 1, pythonOptionsWithValue)
+    const verb = command?.value.toLowerCase()
+    return command && verb && pipxDependencyVerbs.has(verb) ? { verb, verbIndex: command.index } : null
+  }
   if (name === "uv") {
     const command = nextCliWord(words, 1, pythonOptionsWithValue)
     if (!command) {
@@ -267,11 +284,11 @@ function pythonDependencyOperation(words: readonly string[]): PythonDependencyOp
     if (pythonDependencyVerbs.has(verb)) {
       return { verb, verbIndex: command.index }
     }
-    const nested = verb === "pip" ? nextCliWord(words, command.index + 1, pythonOptionsWithValue) : undefined
+    const nested =
+      verb === "pip" || verb === "tool" ? nextCliWord(words, command.index + 1, pythonOptionsWithValue) : undefined
     const nestedVerb = nested?.value.toLowerCase()
-    return nested && nestedVerb && pythonDependencyVerbs.has(nestedVerb)
-      ? { verb: nestedVerb, verbIndex: nested.index }
-      : null
+    const nestedVerbs = verb === "tool" ? uvToolDependencyVerbs : pythonDependencyVerbs
+    return nested && nestedVerb && nestedVerbs.has(nestedVerb) ? { verb: nestedVerb, verbIndex: nested.index } : null
   }
   if (name === "python" || name === "python3" || name === "py") {
     const moduleIndex = words.findIndex((word, index) => index > 0 && word === "-m")
@@ -411,8 +428,20 @@ function pythonRunnerSelectionUsesAlternateSource(
 function pythonRunnerUsesAlternatePackageSource(words: readonly string[]): boolean {
   const name = shellCommandName(words[0])
   const pipxCommand = name === "pipx" ? nextCliWord(words, 1, pythonOptionsWithValue) : undefined
+  const uvCommand = name === "uv" ? nextCliWord(words, 1, pythonOptionsWithValue) : undefined
+  const uvToolCommand =
+    uvCommand?.value.toLowerCase() === "tool"
+      ? nextCliWord(words, uvCommand.index + 1, pythonOptionsWithValue)
+      : undefined
   if (name === "uvx") {
     return pythonRunnerSelectionUsesAlternateSource(words, 1, false)
+  }
+  if (uvToolCommand?.value.toLowerCase() === "run") {
+    return pythonRunnerSelectionUsesAlternateSource(
+      words,
+      uvToolCommand.index + 1,
+      wordsUseSourceOption(words.slice(1, uvToolCommand.index), pythonSourceOptions),
+    )
   }
   return Boolean(
     pipxCommand?.value.toLowerCase() === "run" &&
@@ -498,4 +527,8 @@ export function isDependencyMutationCommand(command: string): boolean {
   return parsedCommandSegments(command).some(
     (words) => Boolean(nodeDependencyOperation(words)) || Boolean(pythonDependencyOperation(words)),
   )
+}
+
+export function isPythonDependencyMutationCommand(command: string): boolean {
+  return parsedCommandSegments(command).some((words) => Boolean(pythonDependencyOperation(words)))
 }

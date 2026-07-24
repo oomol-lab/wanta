@@ -78,11 +78,28 @@ function recursiveDelete(words: readonly string[]): boolean {
     .some((word) => word === "--recursive" || optionHasLetter(word, "r") || optionHasLetter(word, "R"))
 }
 
-function destructiveFind(words: readonly string[]): boolean {
-  return (
-    shellCommandName(words[0]) === "find" &&
-    words.slice(1).some((word) => ["-delete", "-exec", "-execdir", "-ok", "-okdir"].includes(word))
-  )
+function destructiveFind(words: readonly string[], depth: number): boolean {
+  if (shellCommandName(words[0]) !== "find") {
+    return false
+  }
+  for (let index = 1; index < words.length; index += 1) {
+    const word = words[index]
+    if (word === "-delete") {
+      return true
+    }
+    if (!["-exec", "-execdir", "-ok", "-okdir"].includes(word ?? "")) {
+      continue
+    }
+    const terminator = words.findIndex((candidate, candidateIndex) => candidateIndex > index && candidate === ";")
+    const nested = words.slice(index + 1, terminator >= 0 ? terminator : words.length)
+    if (riskySimpleCommand(nested, depth + 1)) {
+      return true
+    }
+    if (terminator >= 0) {
+      index = terminator
+    }
+  }
+  return false
 }
 
 function broadPermissionChange(words: readonly string[]): boolean {
@@ -266,7 +283,7 @@ function riskySimpleCommand(words: readonly string[], depth: number): boolean {
   }
   return (
     recursiveDelete(command) ||
-    destructiveFind(command) ||
+    destructiveFind(command, depth) ||
     broadPermissionChange(command) ||
     mutatesHomebrew(command) ||
     mutatesGitRemoteOrWorkingTree(command) ||

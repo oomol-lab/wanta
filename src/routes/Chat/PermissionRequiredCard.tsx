@@ -8,6 +8,7 @@ import {
   isHighRiskPermissionRequest,
   isLikelyProjectDependencyInstallRequest,
   isLikelyProjectDevCommandRequest,
+  isPythonDependencyPermissionRequest,
   managedPythonDependencyInstall,
   permissionCommand,
   permissionRequestHasSensitiveResource,
@@ -42,6 +43,7 @@ export function PermissionRequiredCard({
   const projectDevCommand = kind === "command" && isLikelyProjectDevCommandRequest(request)
   const projectDependencyInstall = isLikelyProjectDependencyInstallRequest(request)
   const pythonDependencyInstall = managedPythonDependencyInstall(request)
+  const pythonDependencyRequest = isPythonDependencyPermissionRequest(request)
   const sensitiveResource = permissionRequestHasSensitiveResource(request)
   const taskScopedDependencyInstall = Boolean(
     (pythonDependencyInstall || projectDependencyInstall) && !sensitiveResource,
@@ -112,7 +114,15 @@ export function PermissionRequiredCard({
               description: t("chat.permissionHighRiskDescription", { command: resource ?? request.action }),
               title: t("chat.permissionHighRiskTitle"),
             }
-          : copyByKind[kind]
+          : pythonDependencyRequest
+            ? {
+                ...copyByKind.command,
+                description: t("chat.permissionPythonDependencyBoundaryDescription", {
+                  command: resource ?? request.action,
+                }),
+                title: t("chat.permissionPythonDependencyTitle"),
+              }
+            : copyByKind[kind]
   React.useEffect(() => {
     setSubmitting(false)
   }, [request.id])

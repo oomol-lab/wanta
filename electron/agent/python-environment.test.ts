@@ -44,6 +44,7 @@ test("managed Python executable recognition requires the dedicated virtual envir
   assert.equal(isManagedPythonExecutable("/tmp/task/.wanta-python/bin/python"), true)
   assert.equal(isManagedPythonExecutable("/tmp/task/.wanta-python/bin/python3"), true)
   assert.equal(isManagedPythonExecutable("C:\\tmp\\task\\.wanta-python\\Scripts\\python.exe"), true)
+  assert.equal(isManagedPythonExecutable("c:\\TMP\\TASK\\.wanta-python\\SCRIPTS\\PYTHON.EXE"), true)
   assert.equal(isManagedPythonExecutable("/usr/bin/python3"), false)
   assert.equal(isManagedPythonExecutable("/tmp/task/.wanta-python/bin/pip"), false)
 })

@@ -5,13 +5,18 @@ import { canonicalRegistryNodePackageName } from "./dependency-policy.ts"
 import { permissionCommand, permissionRequestKind } from "./permission-request.ts"
 import {
   commandName,
+  commandBodyAfterBoundedCd,
+  commandBodyAfterLikelyCd,
   commandPathArguments,
+  commandWithoutSafeOutputFilter,
+  explicitCdDirectory,
   hasUnsafeShellSyntax,
   optionValue,
   projectPathAllowed,
   projectRelativePathAllowed,
   sensitivePath,
   shellWords,
+  splitLeadingAnd,
 } from "./shell-command.ts"
 
 const projectDependencyInstallGrantPattern = "project_dependency_install"
@@ -62,110 +67,8 @@ function hasDeniedProjectDependencyOption(words: readonly string[]): boolean {
   return false
 }
 
-function splitLeadingAnd(command: string): { left: string; right: string } | undefined {
-  let singleQuoted = false
-  let doubleQuoted = false
-  let escaped = false
-
-  for (let index = 0; index < command.length; index += 1) {
-    const char = command[index]
-    const next = command[index + 1]
-
-    if (escaped) {
-      escaped = false
-      continue
-    }
-    if (char === "\\" && !singleQuoted) {
-      escaped = true
-      continue
-    }
-    if (char === "'" && !doubleQuoted) {
-      singleQuoted = !singleQuoted
-      continue
-    }
-    if (char === '"' && !singleQuoted) {
-      doubleQuoted = !doubleQuoted
-      continue
-    }
-    // 只识别最前层的 "cd <project> && <command>"，避免把引号里的 && 当成命令连接符。
-    if (!singleQuoted && !doubleQuoted && char === "&" && next === "&") {
-      return {
-        left: command.slice(0, index).trim(),
-        right: command.slice(index + 2).trim(),
-      }
-    }
-  }
-
-  return undefined
-}
-
-function cdPath(words: readonly string[]): string | undefined {
-  if (commandName(words[0]) !== "cd") {
-    return undefined
-  }
-  const args = words.slice(1).filter((word) => word !== "--")
-  // cd 只接受单一目标目录；多参数或无目标都会回到普通权限确认。
-  return args.length === 1 ? args[0] : undefined
-}
-
-function explicitCdDirectory(commandPrefix: string): string | undefined {
-  const directWords = shellWords(commandPrefix)
-  const directDirectory = directWords ? cdPath(directWords) : undefined
-  if (directDirectory) {
-    return directDirectory
-  }
-
-  const lines = commandPrefix
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter(Boolean)
-  if (lines.length !== 2) {
-    return undefined
-  }
-  const assignmentWords = shellWords(lines[0] ?? "")
-  const cdWords = shellWords(lines[1] ?? "")
-  if (!assignmentWords || assignmentWords.length !== 1 || !cdWords) {
-    return undefined
-  }
-  const assignment = assignmentWords[0] ?? ""
-  const separator = assignment.indexOf("=")
-  const variableName = separator > 0 ? assignment.slice(0, separator) : ""
-  const directory = separator > 0 ? assignment.slice(separator + 1) : ""
-  const cdDirectory = cdPath(cdWords)
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(variableName) || !directory || !cdDirectory) {
-    return undefined
-  }
-  if (cdDirectory !== `$${variableName}` && cdDirectory !== `\${${variableName}}`) {
-    return undefined
-  }
-  return directory
-}
-
 function commandBodyAfterProjectCd(command: string, projectRoot: string): string | undefined {
-  const split = splitLeadingAnd(command)
-  if (!split) {
-    return command
-  }
-  const projectDirectory = explicitCdDirectory(split.left)
-  // Only an explicit directory inside the trusted root may carry permission to the command.
-  if (!projectDirectory || !projectPathAllowed(projectDirectory, projectRoot) || !split.right) {
-    return undefined
-  }
-  return split.right
-}
-
-function commandBodyAfterLikelyCd(command: string): string {
-  const split = splitLeadingAnd(command)
-  if (!split) {
-    return command
-  }
-  return explicitCdDirectory(split.left) && split.right ? split.right : command
-}
-
-function commandWithoutSafeOutputFilter(command: string): string {
-  return command
-    .replace(/\s+(?:2>&1\s+)?\|\s*(?:head|tail)\s+(?:-[1-9][0-9]{0,2}|-n\s+[1-9][0-9]{0,2})\s*$/u, "")
-    .trim()
+  return commandBodyAfterBoundedCd(command, (directory) => projectPathAllowed(directory, projectRoot))?.body
 }
 
 function optionName(word: string): string {
@@ -184,7 +87,7 @@ function nextCommandWord(words: readonly string[], startIndex: number): { index:
       continue
     }
     if (optionConsumesNextValue(word)) {
-      // 包管理器 cwd/registry 等选项会消费下一个值，不能误判为 script 名。
+      // Package-manager cwd and registry options consume the following value.
       index += 1
       continue
     }
@@ -201,7 +104,7 @@ function supportedScriptName(scriptName: string | undefined): boolean {
     return false
   }
   const normalized = scriptName.toLowerCase()
-  // 默认访问只覆盖检查型脚本，显式拒绝常见自动修改或 watch 类脚本。
+  // Default Access covers check-oriented scripts, not common auto-fix or watch scripts.
   if (normalized.includes("fix") || normalized.includes("watch") || normalized.includes("write")) {
     return false
   }
@@ -236,7 +139,7 @@ function packageManagerCommandAllowed(words: readonly string[]): boolean {
   if (manager === "bun" && verb === "test") {
     return true
   }
-  // npm/pnpm/yarn run 需要继续检查 script 名，避免 npm run fix 之类写入型脚本被放行。
+  // npm/pnpm/yarn run commands need their script name checked separately.
   if (verb === "run" || verb === "run-script") {
     return supportedScriptName(nextCommandWord(words, command.index + 1)?.value)
   }
@@ -366,7 +269,7 @@ function directDevCommandAllowed(words: readonly string[]): boolean {
   if (!name) {
     return false
   }
-  // 仅放行能明确归类为检查/测试的直接命令；不推断 npx 等会下载或解析包的入口。
+  // Only directly recognizable check/test commands qualify.
   if (name === "pytest") {
     return true
   }
@@ -389,7 +292,7 @@ function directDevCommandAllowed(words: readonly string[]): boolean {
 }
 
 function commandArgumentsSafeForProject(words: readonly string[], projectRoot: string): boolean {
-  // --fix/--watch 等参数会写文件或挂起会话；敏感路径也必须回到 UI 确认。
+  // Auto-fix/watch arguments and sensitive paths return to the normal permission flow.
   if (words.slice(1).some((word) => sensitivePath(word) || deniedDevCommandArguments.has(optionName(word)))) {
     return false
   }
@@ -461,8 +364,8 @@ export function isProjectDependencyInstallRequest(request: ChatPermissionRequest
 
 /**
  * Recognizes a direct standard-registry install inside one bounded target.
- * Package popularity is irrelevant; global installs, alternate sources, and explicitly costly
- * runtimes remain confirmation boundaries.
+ * Package popularity is irrelevant; global installs and alternate sources remain confirmation
+ * boundaries.
  */
 export function isStandardRegistryNodeDependencyInstallRequest(
   request: ChatPermissionRequest,

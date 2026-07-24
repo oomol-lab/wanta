@@ -39,10 +39,11 @@ export function projectPythonExecutables(projectDir: string, platform = process.
 }
 
 export function isManagedPythonExecutable(executable: string): boolean {
-  const normalized = executable.replace(/\\/g, "/").replace(/\/+$/u, "")
+  const slashNormalized = executable.replace(/\\/g, "/").replace(/\/+$/u, "")
+  const normalized = /^[A-Za-z]:\//u.test(slashNormalized) ? slashNormalized.toLowerCase() : slashNormalized
   return (
     normalized.endsWith(`/${WANTA_MANAGED_PYTHON_ENV_DIRNAME}/bin/python`) ||
     normalized.endsWith(`/${WANTA_MANAGED_PYTHON_ENV_DIRNAME}/bin/python3`) ||
-    normalized.endsWith(`/${WANTA_MANAGED_PYTHON_ENV_DIRNAME}/Scripts/python.exe`)
+    normalized.endsWith(`/${WANTA_MANAGED_PYTHON_ENV_DIRNAME}/scripts/python.exe`)
   )
 }

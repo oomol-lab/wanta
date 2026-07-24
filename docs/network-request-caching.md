@@ -74,10 +74,11 @@ before an OAuth authorization starts, only the active App baseline for the curre
 read — the full catalog is not re-fetched.
 
 A force refresh must not simply reuse an arbitrary old request, or a stale response may be
-accepted after a mutation; refreshes from the same UI carry the same `refreshGeneration` and merge
-in-flight requests, while a new mutation uses a new generation. App Detail uses the same 30-second
-short cache and in-flight merging as the catalog; execution logs are queried by App ID and remain
-force-refreshed to keep each connection's audit information fresh.
+accepted after a mutation. Each `useConnections.refresh()` invocation creates a new
+`refreshGeneration`; only requests started within that invocation can merge. Mutations also use a
+new generation. App Detail uses the same 30-second short cache and in-flight merging as the catalog;
+execution logs are queried by App ID and remain force-refreshed to keep each connection's audit
+information fresh.
 
 The Skill catalog likewise maintains a generation per cache key. Publish, explicit refresh, or
 targeted invalidation disqualifies in-flight requests of the old generation from writing to the

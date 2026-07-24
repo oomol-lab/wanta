@@ -50,7 +50,7 @@ export function preserveConnectionSummaryOnPartialRefresh(
     return next
   }
 
-  // Apps 读取失败时不能把已确认账号伪装成“全部未连接”。
+  // Do not make confirmed accounts appear disconnected when the Apps request fails.
   return !next.appsStatus || next.appsStatus === "ready"
     ? next
     : { ...current, appsStatus: next.appsStatus, updatedAt: next.updatedAt }

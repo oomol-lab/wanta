@@ -64,6 +64,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          # 本 job 只跑 node scripts/release-version.ts，从不安装依赖。
+          # setup-node@v5 默认 package-manager-cache: true 会自动探测
+          # pnpm-lock.yaml 并调用 pnpm 算缓存 key，但此处未装 pnpm，直接
+          # 报 "Unable to locate executable file: pnpm"。关掉即可（注意
+          # cache: "" 关不掉这个自动探测，必须用 package-manager-cache）。
+          package-manager-cache: false
       - name: Compute version
         id: version
         # 用户输入经 env 传递（不直接插值进脚本体，防 shell 注入/引号破碎）。
@@ -513,6 +519,10 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          # 同 compute-version：本 job 只跑 node scripts/release-size.ts 与 git/gh，
+          # 从不安装 pnpm 依赖。关掉自动 package-manager 缓存，否则 setup-node@v5
+          # 会因探测到 pnpm-lock.yaml 却找不到 pnpm 而报错。
+          package-manager-cache: false
 
       # 拉取各平台 build job 上传的全部 release-size-* 元数据（都是小 JSON，绝不在此
       # 重新下载大安装包）。render 在缺任一必需平台元数据时快速失败。

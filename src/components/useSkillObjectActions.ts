@@ -7,6 +7,7 @@ import { useAppI18n } from "../i18n/index.ts"
 import { resolveUserFacingError, userFacingErrorDescription } from "../lib/user-facing-error.ts"
 import { useSkillService } from "./AppContext.ts"
 import { useSkillInventoryResource, useSkillVersionReportResource } from "./AppDataHooks.ts"
+import { writeClipboardText } from "@/lib/clipboard"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 interface UseSkillObjectActionsOptions {
@@ -52,7 +53,9 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
   const copySkillPath = React.useCallback(
     async (pathname: string) => {
       try {
-        await navigator.clipboard.writeText(pathname)
+        if (!(await writeClipboardText(pathname))) {
+          throw new Error("Failed to copy the skill path")
+        }
         toast.success(t("skills.pathCopied"))
       } catch (cause) {
         reportRendererHandledError("skills", "copy skill path failed", cause)

@@ -141,7 +141,7 @@ export const skillsMessages = {
     "teams.revokeProviderAccessConfirmTitle": "撤销连接器权限？",
     "teams.revokeProviderAccessConfirmDescription": "撤销后，该成员将不能继续使用这些团队连接器。",
     "teams.skillGuideTitle": "团队 Skill",
-    "teams.skillGuideDescription": "本团队配置的 Skill，以及根据已连接服务生成的系统推荐。",
+    "teams.skillGuideDescription": "团队推荐是团队共享配置，系统推荐来自已连接服务；安装状态仅表示当前设备是否已安装。",
     "teams.skillGuideLoading": "加载中",
     "teams.skillGuideLoadFailed": "加载失败",
     "teams.skillGuideUnavailableBadge": "未启用",
@@ -153,7 +153,7 @@ export const skillsMessages = {
     "teams.skillGuideSystemLoading": "正在匹配系统推荐",
     "teams.skillGuideReadOnlyBadge": "仅可查看团队配置",
     "teams.skillGuideReadOnlyDescription":
-      "本团队配置的 Skill，以及根据已连接服务生成的系统推荐；你仍可安装和管理本机 Skill，只有团队管理员可以修改团队推荐。",
+      "团队推荐是团队共享配置，系统推荐来自已连接服务；安装状态仅表示当前设备是否已安装，只有团队管理员可以修改团队推荐。",
     "teams.skillGuideEmptyTitle": "暂无团队 Skill",
     "teams.skillGuideEmptyDescription": "团队创建者配置后，成员在这个团队工作区中会默认获得对应指导。",
     "teams.skillGuideEmptyCreatorDescription": "添加适合团队工作流的 Skill，让成员切换到这个团队后默认使用同一套指导。",
@@ -250,7 +250,7 @@ export const skillsMessages = {
     "skills.teamAddEmpty": "暂无可添加的 Skill 包。",
     "skills.teamAddSearchEmpty": "没有匹配的 Skill 包。",
     "skills.teamAddRowAction": "添加",
-    "skills.teamAdded": "已添加",
+    "skills.teamAdded": "团队推荐",
     "skills.teamAddValidation": "请输入 package 和 skill 名称。",
     "skills.teamPackageSkillCount": "{{count}} Skills",
     "skills.teamPrivate": "私有",
@@ -579,7 +579,7 @@ export const skillsMessages = {
       "After revocation, this member will no longer be able to use these team connections.",
     "teams.skillGuideTitle": "Team Skills",
     "teams.skillGuideDescription":
-      "Skills configured by this team, plus system recommendations based on connected services.",
+      "Team recommendations are shared team settings; system recommendations come from connected services; install status applies only to this device.",
     "teams.skillGuideLoading": "Loading",
     "teams.skillGuideLoadFailed": "Load failed",
     "teams.skillGuideUnavailableBadge": "Not enabled",
@@ -591,7 +591,7 @@ export const skillsMessages = {
     "teams.skillGuideSystemLoading": "Matching system recommendations",
     "teams.skillGuideReadOnlyBadge": "Team settings view only",
     "teams.skillGuideReadOnlyDescription":
-      "Skills configured by this team, plus system recommendations based on connected services; you can still install and manage local Skills, but only team admins can change team recommendations.",
+      "Team recommendations are shared team settings; system recommendations come from connected services; install status applies only to this device, and only team admins can change team recommendations.",
     "teams.skillGuideEmptyTitle": "No team Skills yet",
     "teams.skillGuideEmptyDescription":
       "After the team creator configures Skills, members will get the matching guidance in this workspace.",
@@ -700,7 +700,7 @@ export const skillsMessages = {
     "skills.teamAddEmpty": "No Skill packages are available.",
     "skills.teamAddSearchEmpty": "No matching Skill packages.",
     "skills.teamAddRowAction": "Add",
-    "skills.teamAdded": "Added",
+    "skills.teamAdded": "Team recommendation",
     "skills.teamAddValidation": "Enter both package and Skill name.",
     "skills.teamPackageSkillCount": "{{count}} Skills",
     "skills.teamPrivate": "Private",

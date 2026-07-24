@@ -46,22 +46,38 @@ function WorkspaceAvatar({ className = "size-7", workspace }: { className?: stri
       </span>
     )
   }
+
+  return <TeamWorkspaceAvatar className={className} workspace={workspace} />
+}
+
+function TeamWorkspaceAvatar({ className, workspace }: { className: string; workspace: WorkspaceSelection }) {
   const avatarUrl = workspace.avatarPreviewUrl ?? workspace.team?.avatar
   const fallback = teamInitials(workspace.team?.name ?? workspace.teamId)
   const fallbackStyle = teamAvatarStyle(workspace.teamId)
+  const [loadedAvatarUrl, setLoadedAvatarUrl] = React.useState<string | null>(null)
+  const avatarLoaded = Boolean(avatarUrl && loadedAvatarUrl === avatarUrl)
 
   return (
     <span
       className={cn(
-        "relative grid shrink-0 place-items-center overflow-hidden rounded-full border bg-background text-xs font-medium text-foreground",
+        "relative grid shrink-0 place-items-center overflow-hidden rounded-full text-xs font-medium",
+        avatarLoaded ? "bg-transparent text-transparent" : "border bg-background text-foreground",
         className,
       )}
-      style={fallbackStyle}
+      style={avatarLoaded ? undefined : fallbackStyle}
     >
-      <span aria-hidden="true" className="min-w-0">
-        {fallback}
-      </span>
-      <CachedAvatarImage src={avatarUrl} alt="" className="absolute inset-0 size-full object-cover" />
+      {avatarLoaded ? null : (
+        <span aria-hidden="true" className="min-w-0">
+          {fallback}
+        </span>
+      )}
+      <CachedAvatarImage
+        src={avatarUrl}
+        alt=""
+        className="absolute inset-0 size-full object-cover"
+        onLoad={() => setLoadedAvatarUrl(avatarUrl ?? null)}
+        onError={() => setLoadedAvatarUrl((current) => (current === avatarUrl ? null : current))}
+      />
     </span>
   )
 }

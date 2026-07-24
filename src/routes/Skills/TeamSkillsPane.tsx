@@ -24,7 +24,6 @@ import {
   teamRuntimeStatusTone,
   providerRecommendationSkillDescription,
   shouldOpenTeamSkillManagement,
-  shouldShowTeamRuntimeStatusOnCard,
 } from "./team-skill-manage-helpers.ts"
 import { TeamPackageRemoveConfirmDialog } from "./TeamSkillManageRows.tsx"
 import { useTeamSkillRemoval } from "./use-team-skill-removal.ts"
@@ -362,11 +361,9 @@ function TeamConfiguredSkillCard({
       badges={
         <>
           <Badge variant="secondary">{t("teams.skillManageConfigured")}</Badge>
-          {shouldShowTeamRuntimeStatusOnCard(runtimeStatus.state) ? (
-            <Badge className={cn("shrink-0", getSkillRowStatusBadgeClassName(runtimeTone))} variant="outline">
-              {teamRuntimeStatusLabel(runtimeStatus.state, t)}
-            </Badge>
-          ) : null}
+          <Badge className={cn("shrink-0", getSkillRowStatusBadgeClassName(runtimeTone))} variant="outline">
+            {teamRuntimeStatusLabel(runtimeStatus.state, t)}
+          </Badge>
         </>
       }
       meta={
@@ -438,9 +435,7 @@ function TeamRecommendedSkillCard({
       badges={
         <>
           <Badge variant="secondary">{t("teams.skillManageRecommended")}</Badge>
-          {recommendation.installState === "name-conflict" || recommendation.installState === "unavailable" ? (
-            <Badge variant="outline">{getPublicSkillInstallStateLabel(recommendation.installState, t)}</Badge>
-          ) : null}
+          <Badge variant="outline">{getPublicSkillInstallStateLabel(recommendation.installState, t)}</Badge>
         </>
       }
       meta={
@@ -565,11 +560,9 @@ function TeamConfiguredSkillDetail({
         <CardContent className="grid gap-2 px-3">
           <div className="flex min-w-0 flex-wrap items-center gap-1">
             <Badge variant="secondary">{t("teams.skillManageConfigured")}</Badge>
-            {shouldShowTeamRuntimeStatusOnCard(runtimeStatus.state) ? (
-              <Badge className={cn("shrink-0", getSkillRowStatusBadgeClassName(runtimeTone))} variant="outline">
-                {teamRuntimeStatusLabel(runtimeStatus.state, t)}
-              </Badge>
-            ) : null}
+            <Badge className={cn("shrink-0", getSkillRowStatusBadgeClassName(runtimeTone))} variant="outline">
+              {teamRuntimeStatusLabel(runtimeStatus.state, t)}
+            </Badge>
             {skill.version ? <Badge variant="outline">{skill.version}</Badge> : null}
           </div>
           {skill.description ? (
@@ -660,9 +653,7 @@ function TeamRecommendedSkillDetail({
         <CardContent className="grid gap-2 px-3">
           <div className="flex min-w-0 flex-wrap items-center gap-1">
             <Badge variant="secondary">{t("teams.skillManageRecommended")}</Badge>
-            {recommendation.installState === "name-conflict" || recommendation.installState === "unavailable" ? (
-              <Badge variant="outline">{getPublicSkillInstallStateLabel(recommendation.installState, t)}</Badge>
-            ) : null}
+            <Badge variant="outline">{getPublicSkillInstallStateLabel(recommendation.installState, t)}</Badge>
             <Badge variant="outline">{recommendation.package.version}</Badge>
           </div>
           {skillDescription ? (

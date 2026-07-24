@@ -119,7 +119,7 @@ non-persisting sidecar environment.
 
 ## 4. Testing
 
-- `pnpm test` = `vitest run`; `vitest.config.ts` includes `electron/**/*.test.ts`,
+- `corepack pnpm test` = `vitest run`; `vitest.config.ts` includes `electron/**/*.test.ts`,
   `src/**/*.test.ts`, `scripts/**/*.test.ts`, environment node, and injects `__OO_ENDPOINT__` and
   `__PACKAGE_ASSETS_BASE_URL__` via the same loadEnv mechanism as vite (test assertions derive
   from `ooEndpoint`; never hardcode a domain, so local and CI both pass deterministically).

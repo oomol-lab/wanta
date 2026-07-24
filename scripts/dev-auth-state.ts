@@ -307,6 +307,7 @@ async function readCookieState(userDataDir: string): Promise<CookieState> {
   }
 
   let expiresAtMs: number | undefined
+  let hasMarker = false
   for await (const filePath of walkFiles(userDataDir)) {
     if (!isCookieStorageFile(path.basename(filePath))) {
       continue
@@ -314,15 +315,15 @@ async function readCookieState(userDataDir: string): Promise<CookieState> {
     const cookieExpiresAtMs = readCookieExpiry(filePath)
     if (cookieExpiresAtMs !== undefined) {
       expiresAtMs = Math.max(expiresAtMs ?? 0, cookieExpiresAtMs)
-    }
-    if (expiresAtMs !== undefined || (await fileContains(filePath, oomolCookieName))) {
-      return {
-        expiresAtMs,
-        hasMarker: true,
-      }
+      hasMarker = true
+    } else if (await fileContains(filePath, oomolCookieName)) {
+      hasMarker = true
     }
   }
-  return { hasMarker: false }
+  return {
+    ...(expiresAtMs === undefined ? {} : { expiresAtMs }),
+    hasMarker,
+  }
 }
 
 function isCookieStorageFile(fileName: string): boolean {

@@ -11,7 +11,9 @@ describe("bootstrap helpers", () => {
     assert.equal(portA, portB)
     assert.ok(portA >= 5273)
     assert.ok(portA < 6273)
-    assert.notEqual(portA, portC)
+    assert.equal(portC, preferredWorktreePort("/tmp/worktree-b"))
+    assert.ok(portC >= 5273)
+    assert.ok(portC < 6273)
   })
 
   test("shellQuote escapes single quotes", () => {

@@ -14,19 +14,19 @@ Use this when the repo is opened in a fresh worktree and multiple agents may run
 
 ## Current shared resources
 
-- Raw `pnpm run dev` still uses the default Vite port and the platform default Electron user-data
+- Raw `corepack pnpm run dev` still uses the default Vite port and the platform default Electron user-data
   path.
-- Raw `pnpm run dev` may register the `wanta-local` protocol handler.
+- Raw `corepack pnpm run dev` may register the `wanta-local` protocol handler.
 - The machine-level login snapshot at `~/wanta-dev/login-state` is shared read-only input for
   worktrees; each worktree restores it into its own `.wanta-dev/user-data`.
 - Only one session per machine should enable protocol registration for login callback work.
 
 ## Current safe assumptions
 
-- One active `pnpm run dev` per machine is the default safe mode.
-- `pnpm run dev:worktree` is the safer default for parallel agent work.
-- `pnpm run auth:restore` replaces only the current worktree's generated user-data directory.
-- `pnpm run auth:clean` is the right starting point for login, logout, callback, and first-run
+- One active `corepack pnpm run dev` per machine is the default safe mode.
+- `corepack pnpm run dev:worktree` is the safer default for parallel agent work.
+- `corepack pnpm run auth:restore` replaces only the current worktree's generated user-data directory.
+- `corepack pnpm run auth:clean` is the right starting point for login, logout, callback, and first-run
   behavior.
 - `WANTA_ELECTRON_AUTO_START=0` is useful when you want the build/watch loop without auto-launch.
 - Branches should stay short-lived and isolated from `main`.

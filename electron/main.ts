@@ -553,6 +553,9 @@ function applyUserDataOverride(): void {
 }
 
 function shouldRegisterProtocolClient(): boolean {
+  if (app.isPackaged) {
+    return true
+  }
   const value = process.env["WANTA_SKIP_PROTOCOL_REGISTRATION"]?.trim().toLowerCase()
   return !value || !["1", "true", "yes", "on"].includes(value)
 }

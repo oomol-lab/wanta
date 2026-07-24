@@ -3183,6 +3183,34 @@ test("direct managed Python dependencies are approved automatically in the activ
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
 })
 
+test("task Python environment bootstrap and dependency install are approved as one bounded operation", async () => {
+  const bridge = createBridgeAgent()
+  const processRoot = path.join(os.tmpdir(), "wanta-python-bootstrap-task")
+  bridge.createProcessDir.mockResolvedValue(processRoot)
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "Create a Word document" })
+
+  const command =
+    `python3 -m venv "${processRoot}/.wanta-python" && ` +
+    `"${processRoot}/.wanta-python/bin/python" -m pip install python-docx 2>&1`
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: [command],
+      metadata: { command },
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
+})
+
 test("task-scoped dependencies inherit the parent process boundary in task subagents", async () => {
   const bridge = createBridgeAgent()
   const processRoot = path.join(os.tmpdir(), "wanta-python-parent-task")

@@ -245,6 +245,32 @@ test("default access auto-approves direct Python requirements in bounded task or
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({
+        metadata: {
+          command:
+            `python3 -m venv "${processRoot}/.wanta-python" 2>&1 && ` +
+            `"${processRoot}/.wanta-python/bin/python" -m pip install python-docx`,
+        },
+      }),
+      { permissionMode: "default", taskProcessRoot: processRoot },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: {
+          command:
+            `python3 -m venv "${processRoot}/.wanta-python" && ` +
+            `"${processRoot}/.wanta-python/bin/python" -m pip install python-docx 2>&1`,
+        },
+      }),
+      { permissionMode: "default", taskProcessRoot: processRoot },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
         metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install fitz` },
       }),
       { permissionMode: "default", taskProcessRoot: processRoot },
@@ -275,6 +301,18 @@ test("default access auto-approves direct Python requirements in bounded task or
       command,
     )
   }
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: {
+          command:
+            `cd "${projectRoot}" && python3 -m venv .venv && ` + `.venv/bin/python -m pip install python-docx 2>&1`,
+        },
+      }),
+      { permissionMode: "default", trustedProjectRoot: projectRoot },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
   for (const command of [
     "pip install pandas",
     "python3 -m pip install pandas",
@@ -296,6 +334,42 @@ test("default access auto-approves direct Python requirements in bounded task or
       command,
     )
   }
+})
+
+test("bounded Python bootstrap approval preserves the nearest protected boundaries", () => {
+  const processRoot = "/tmp/wanta-process/task-1"
+  const environment = `${processRoot}/.wanta-python`
+  const context = { permissionMode: "default" as const, taskProcessRoot: processRoot }
+  const promptCommands = [
+    `python3 -m venv "${processRoot}/other" && "${environment}/bin/python" -m pip install python-docx`,
+    `python3 -m venv "${environment}" && python3 -m pip install python-docx`,
+    `"${environment}/bin/python" -m pip install python-docx > /tmp/install.log`,
+  ]
+  for (const command of promptCommands) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
+      { type: "prompt", kind: "command", highRisk: false },
+      command,
+    )
+  }
+
+  const alternateSource =
+    `python3 -m venv "${environment}" && ` +
+    `"${environment}/bin/python" -m pip install python-docx --index-url https://example.test/simple`
+  assert.deepEqual(evaluateLocalAccessRequest(permission({ metadata: { command: alternateSource } }), context), {
+    type: "prompt",
+    kind: "command",
+    highRisk: true,
+  })
+
+  const destructiveSuffix =
+    `python3 -m venv "${environment}" && ` +
+    `"${environment}/bin/python" -m pip install python-docx && rm -rf /tmp/install-work`
+  assert.deepEqual(evaluateLocalAccessRequest(permission({ metadata: { command: destructiveSuffix } }), context), {
+    type: "prompt",
+    kind: "command",
+    highRisk: true,
+  })
 })
 
 test("default access auto-approves standard registry Node dependencies in bounded task or project roots", () => {

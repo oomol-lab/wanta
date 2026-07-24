@@ -195,6 +195,19 @@ test("managed Python dependency installs are narrow enough for a task approval",
     ),
     { packages: ["pypdf"] },
   )
+  assert.deepEqual(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: {
+          command:
+            `python3 -m venv "${processRoot}/.wanta-python" && ` +
+            `"${processRoot}/.wanta-python/bin/python" -m pip install python-docx 2>&1`,
+        },
+      }),
+      processRoot,
+    ),
+    { packages: ["python-docx"] },
+  )
   assert.equal(
     managedPythonDependencyInstall(
       permission({ metadata: { command: "pip3 install --user openpyxl fpdf2" } }),

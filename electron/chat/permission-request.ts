@@ -3,6 +3,7 @@ import type { ChatPermissionRequest } from "./common.ts"
 import { isPureOoCliCommand } from "../agent/oo-command-permission.ts"
 import {
   isManagedPythonExecutable,
+  managedPythonEnvironmentPath,
   managedPythonExecutables,
   projectPythonExecutables,
 } from "../agent/python-environment.ts"
@@ -13,12 +14,14 @@ import {
   isPythonDependencyMutationCommand,
 } from "./dependency-policy.ts"
 import {
-  commandBodyAfterBoundedCd,
+  commandWithoutSafeDescriptorDuplication,
   commandWithoutSafeOutputFilter,
   effectiveShellCommandWords,
+  explicitCdDirectory,
   hasUnsafeShellSyntax,
   shellCommandName,
   shellWords,
+  splitLeadingAnd,
   topLevelShellSegments,
 } from "./shell-syntax.ts"
 
@@ -259,6 +262,13 @@ function resolvedExecutable(executable: string, workingDirectory?: string): stri
   return `${drive ?? ""}${absolute ? "/" : ""}${segments.join("/")}`
 }
 
+function resolvedDirectory(directory: string, workingDirectory?: string): string {
+  if (!workingDirectory || directory.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(directory)) {
+    return directory
+  }
+  return resolvedExecutable(`./${directory}`, workingDirectory)
+}
+
 function pythonInstallArguments(
   words: readonly string[],
   executableAllowed: (executable: string, workingDirectory?: string) => boolean,
@@ -302,6 +312,74 @@ function pythonInstallArguments(
   return resolvedTarget && executableAllowed(resolvedTarget, workingDirectory) ? installWords : null
 }
 
+function pythonEnvironmentBootstrapTarget(command: string): string | undefined {
+  const parsed = shellWords(commandWithoutSafeDescriptorDuplication(command))
+  if (!parsed?.length) {
+    return undefined
+  }
+  const words = effectiveShellCommandWords(parsed)
+  const executable = shellCommandName(words[0])
+  if (!executable) {
+    return undefined
+  }
+  let moduleIndex = 1
+  if (executable === "py" && /^-3(?:\.[0-9]+)?$/u.test(words[moduleIndex] ?? "")) {
+    moduleIndex += 1
+  } else if (!/^python(?:3(?:\.[0-9]+)?)?$/u.test(executable)) {
+    return undefined
+  }
+  return words[moduleIndex] === "-m" && words[moduleIndex + 1] === "venv" && words.length === moduleIndex + 3
+    ? words[moduleIndex + 2]
+    : undefined
+}
+
+function environmentTargetMatchesAllowedExecutable(
+  environment: string,
+  executableAllowed: (executable: string, workingDirectory?: string) => boolean,
+  workingDirectory?: string,
+): boolean {
+  const resolvedEnvironment = resolvedDirectory(environment, workingDirectory).replace(/[\\/]+$/u, "")
+  return [
+    `${resolvedEnvironment}/bin/python`,
+    `${resolvedEnvironment}/bin/python3`,
+    `${resolvedEnvironment}/Scripts/python.exe`,
+  ].some((executable) => executableAllowed(executable, workingDirectory))
+}
+
+function boundedPythonInstallCommand(
+  command: string,
+  executableAllowed: (executable: string, workingDirectory?: string) => boolean,
+  directoryAllowed: (directory: string) => boolean,
+): { body: string; directory?: string } | undefined {
+  let body = command
+  let directory: string | undefined
+  const possibleCd = splitLeadingAnd(body)
+  if (possibleCd) {
+    const explicitDirectory = explicitCdDirectory(possibleCd.left)
+    if (explicitDirectory) {
+      if (!directoryAllowed(explicitDirectory) || !possibleCd.right) {
+        return undefined
+      }
+      directory = explicitDirectory
+      body = possibleCd.right
+    }
+  }
+
+  const possibleBootstrap = splitLeadingAnd(body)
+  if (possibleBootstrap) {
+    const environment = pythonEnvironmentBootstrapTarget(possibleBootstrap.left)
+    if (
+      !environment ||
+      !environmentTargetMatchesAllowedExecutable(environment, executableAllowed, directory) ||
+      !possibleBootstrap.right
+    ) {
+      return undefined
+    }
+    body = possibleBootstrap.right
+  }
+  return { body, ...(directory ? { directory } : {}) }
+}
+
 function scopedPythonDependencyInstall(
   request: ChatPermissionRequest,
   executableAllowed: (executable: string, workingDirectory?: string) => boolean,
@@ -314,11 +392,11 @@ function scopedPythonDependencyInstall(
   if (!command) {
     return null
   }
-  const boundedCommand = commandBodyAfterBoundedCd(command, directoryAllowed)
+  const boundedCommand = boundedPythonInstallCommand(command, executableAllowed, directoryAllowed)
   if (!boundedCommand) {
     return null
   }
-  const body = commandWithoutSafeOutputFilter(boundedCommand.body)
+  const body = commandWithoutSafeDescriptorDuplication(commandWithoutSafeOutputFilter(boundedCommand.body))
   if (hasUnsafeShellSyntax(body)) {
     return null
   }
@@ -349,7 +427,11 @@ export function managedPythonDependencyInstall(
       allowedExecutables
         ? allowedExecutables.has(normalizedExecutable(executable))
         : isManagedPythonExecutable(executable),
-    processRoot ? (directory) => normalizedExecutable(directory) === normalizedExecutable(processRoot) : undefined,
+    processRoot
+      ? (directory) =>
+          normalizedExecutable(directory) === normalizedExecutable(processRoot) ||
+          normalizedExecutable(directory) === normalizedExecutable(managedPythonEnvironmentPath(processRoot))
+      : undefined,
   )
 }
 

@@ -34,14 +34,14 @@ oo CLI 1.5.1 及其内置 Skills 由 MIT 授权覆盖，不再是发布阻塞。
 
 - 等级：Verified install path / Release blocker
 - 当前事实：`@oomol/connection@0.2.28` 和 `@oomol/connection-electron-adapter@0.2.12` 已发布到
-  `registry.npmjs.org`；仓库不再包含 `.npmrc`，`package-lock.json` 记录公共 npm 下载地址。
+  `registry.npmjs.org`；仓库不再包含 `.npmrc`，`pnpm-lock.yaml` 记录公共 npm 下载地址。
 - 2026-07-20 以未携带 PAT 的 `npm view --registry=https://registry.npmjs.org` 验证两个精确版本及其
   tarball 均可公开读取。
 - 发布阻塞项：两个 OOMOL 维护的包当前发布内容仍未声明 license，也未包含许可证文件。公共 npm 可下载性
   解决了匿名安装和源码构建问题，但本身不授予再分发权。正式发布可再分发的 Wanta 二进制前，必须补发带
   明确许可证的版本，或由 OOMOL 授权负责人记录当前精确版本的书面再分发许可。
 - 验收结果：2026-07-20 在隔离目录使用 Node 22.22.2/npm 10.9.4，在无用户级 `.npmrc`、无 PAT、无预存
-  `.oo-bin` 条件下完成 `npm ci`；新增自动化测试锁定 metadata、公共 registry 和默认 oo 分发链路。
+  `.oo-bin` 条件下完成 `pnpm install --frozen-lockfile`；新增自动化测试锁定 metadata、公共 registry 和默认 oo 分发链路。
 
 ### 2.3 oo CLI 和内置 Skills 已确认按 MIT 分发
 
@@ -57,7 +57,7 @@ oo CLI 1.5.1 及其内置 Skills 由 MIT 授权覆盖，不再是发布阻塞。
   发布阻塞项。
 - 工程方向：默认 `postinstall` 下载 oo，默认平台构建将其连同 Skills 打包；local runtime 不生成 oo 环境、
   不注册 Connector tools。OOMOL 或兼容自部署 OpenConnector runtime 才实际使用这条通道。
-- 验收结果：fresh clone 无需预装 oo 即可由 `npm install` 准备完整开发环境；`prepare:binaries` 已确认
+- 验收结果：fresh clone 无需预装 oo 即可由 `pnpm install` 准备完整开发环境；`prepare:binaries` 已确认
   默认打包包含可执行 oo 1.5.1；local runtime 不实际调用 oo；第三方声明已落盘。
 
 ### 2.4 OOMOL 登录门控已解除

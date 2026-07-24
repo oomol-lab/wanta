@@ -6,11 +6,11 @@
 
 <!-- List automated checks and real runtime/UI verification. -->
 
-- [ ] `npm run ts-check`
-- [ ] `npm run lint`
-- [ ] `npm run format`
-- [ ] `npm test`
-- [ ] `npm run build`
+- [ ] `pnpm run ts-check`
+- [ ] `pnpm run lint`
+- [ ] `pnpm run format`
+- [ ] `pnpm test`
+- [ ] `pnpm run build`
 - [ ] Runtime/UI verification completed or not applicable
 
 ## Safety and Compatibility

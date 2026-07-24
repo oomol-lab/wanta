@@ -7,9 +7,9 @@
 - **Node >= 22.22.2** (matches the minimum of the pinned OpenCode dependency chain; PR CI pins
   Node 24, release CI pins Node 22 in all four jobs that set up Node — compute-version,
   release-mac, release-win, create-release; the fifth job, refresh-cdn-cache, installs no Node at
-  all). npm + package-lock.json.
+  all). pnpm `9.14.4` through Corepack + `pnpm-lock.yaml`.
 - **All dependency sources are public**: `@oomol/connection` / `@oomol/connection-electron-adapter`
-  are published to the public registry (`registry.npmjs.org`); `npm install` **needs no token or
+  are published to the public registry (`registry.npmjs.org`); `corepack pnpm install` **needs no token or
   `.npmrc`** — since the repo went open source, a fresh clone and an external fork's CI both
   install directly (historically this went through the GitHub Packages private registry + a
   `read:packages` PAT; that auth chain was removed once the repo turned public and the packages
@@ -17,7 +17,7 @@
   `npm.pkg.github.com`, it overrides the default public registry — delete that line. Note: the
   postinstall binary/skill download scripts are best-effort (warn only), but dev cannot start
   without `@oomol/connection` — an install failure must not be ignored.
-- `npm install`'s postinstall chains the binary/skill download scripts and finally builds the
+- `pnpm install`'s postinstall chains the binary/skill download scripts and finally builds the
   custom tool runtime:
   - `scripts/download-electron.ts` → downloads the dev-only Electron copy into `.electron-dist/`
     and rewrites the macOS Info.plist to `com.oomol.wanta-local` / the `wanta-local` scheme (for
@@ -37,7 +37,7 @@
     `OO_SKIP_BINARY_DOWNLOAD=1` or `WANTA_SKIP_RIPGREP_DOWNLOAD=1` skips it.
   - `scripts/build-agent-tool-runtime.ts` → uses Rolldown to merge `@opencode-ai/plugin/tool` and
     Zod into `resources/agent-tool-runtime/tool.js`; both dev and the packaged artifact sync it
-    into the private workspace, so tool loading does not depend on an npm install succeeding at
+    into the private workspace, so tool loading does not depend on a package install succeeding at
     first launch.
 
 ## 2. .env Configuration
@@ -50,11 +50,11 @@ cp .env.example .env.local   # .env.local is gitignored
   the dev environment. **Read rules** (`resolveOoEndpoint` in `vite.config.ts`): dev and vitest
   read `.env(.local)` via `loadEnv`; **build deliberately reads no file** (keeps dev domains out of
   release artifacts); both modes honor an explicit environment variable — internal test builds use
-  `WANTA_ENDPOINT=oomol.dev npm run build`. Known trap: the `oomol.dev` LLM gateway once returned
+  `WANTA_ENDPOINT=oomol.dev corepack pnpm run build`. Known trap: the `oomol.dev` LLM gateway once returned
   403 "Model disabled" for Auto/`oopilot` (a backend restriction, not a code bug); the dev endpoint
   is mainly for connector integration — on a chat 403, suspect the gateway side first.
 - `WANTA_OO_BIN` (optional; a process environment variable, not read from .env files): overrides
-  the oo binary path, `WANTA_OO_BIN=/abs/path/to/oo npm run dev`. When set, it only skips the
+  the oo binary path, `WANTA_OO_BIN=/abs/path/to/oo corepack pnpm run dev`. When set, it only skips the
   oo-binary existence/version check in the predev guard; the guard still fails on a missing
   ripgrep binary and still auto-exports the bundled skills.
 - `WANTA_PACKAGE_ASSETS_BASE_URL` (optional): overrides the package-assets base URL, injected as
@@ -64,9 +64,9 @@ cp .env.example .env.local   # .env.local is gitignored
 ## 3. Day-to-Day Development
 
 ```bash
-npm run dev    # predev runs scripts/check-oo.ts first (three checks, see below)
+corepack pnpm run dev    # predev runs scripts/check-oo.ts first (three checks, see below)
                # vite dev server on port 5273; vite-plugin-electron starts the main process too
-npm run dev:no-electron
+corepack pnpm run dev:no-electron
                # only starts vite + the electron bundle watch, without auto-launching Electron;
                # for code-side debugging that needs no UI window
 ```
@@ -75,10 +75,10 @@ npm run dev:no-electron
   version marker matches `OO_CLI_VERSION`, ripgrep is present in `.oo-bin/` (both fatal — the
   guard exits with an error), and the bundled skills in `resources/skills/` are complete (auto
   re-export, non-fatal).
-- vite dev server is fixed at port `5273` with `strictPort=true`: if an existing `npm run dev`
+- vite dev server is fixed at port `5273` with `strictPort=true`: if an existing `pnpm run dev`
   holds the port, the new dev process fails outright instead of silently moving to `5274+` and
   launching a second Electron. To temporarily disable Electron auto-start, you can also use
-  `WANTA_ELECTRON_AUTO_START=0 npm run dev`.
+  `WANTA_ELECTRON_AUTO_START=0 corepack pnpm run dev`.
 - When `.electron-dist` exists, vite automatically sets `ELECTRON_OVERRIDE_DIST_PATH`, so dev uses
   the Electron copy with the `wanta-local` scheme (the menu bar shows the dev identity) — required
   for the browser-login round trip to hit the dev instance.
@@ -94,7 +94,7 @@ npm run dev:no-electron
   in Git operations must be English — commit messages, branch names, PR titles, PR descriptions,
   PR reviews/comments, tags/release notes.
 - Quality gate after any change, all four green:
-  `npm run ts-check && npm run lint && npm run format && npm test`.
+  `corepack pnpm run ts-check && corepack pnpm run lint && corepack pnpm run format && corepack pnpm test`.
 
 ### Local OpenConnector development
 
@@ -106,7 +106,7 @@ cd /path/to/connect
 npm run dev
 
 cd /path/to/wanta
-npm run dev
+corepack pnpm run dev
 ```
 
 The source development defaults are API `http://localhost:3000` and Console
@@ -119,7 +119,7 @@ non-persisting sidecar environment.
 
 ## 4. Testing
 
-- `npm test` = `vitest run`; `vitest.config.ts` includes `electron/**/*.test.ts`,
+- `pnpm test` = `vitest run`; `vitest.config.ts` includes `electron/**/*.test.ts`,
   `src/**/*.test.ts`, `scripts/**/*.test.ts`, environment node, and injects `__OO_ENDPOINT__` and
   `__PACKAGE_ASSETS_BASE_URL__` via the same loadEnv mechanism as vite (test assertions derive
   from `ooEndpoint`; never hardcode a domain, so local and CI both pass deterministically).
@@ -159,13 +159,13 @@ non-persisting sidecar environment.
 
 ## 5. Lint / Format / Type Check
 
-- `npm run lint` = `oxlint .` (`.oxlintrc.json`: correctness=error; `react/only-export-components`
+- `pnpm run lint` = `oxlint .` (`.oxlintrc.json`: correctness=error; `react/only-export-components`
   error, but overridden off for the two vendored dirs `src/components/ui/**` and
   `src/components/ai-elements/**`; ignorePatterns includes `.wanta-dev`).
-- `npm run format` = `oxfmt --check .` (`.oxfmtrc.json`: printWidth 120, **no semicolons**, double
+- `pnpm run format` = `oxfmt --check .` (`.oxfmtrc.json`: printWidth 120, **no semicolons**, double
   quotes, trailingComma all, sortImports with type imports first, sortTailwindcss recognizing
   cn/clsx/cva).
-- `npm run ts-check` = `tsgo -p tsconfig.json --incremental false` (TypeScript native preview,
+- `pnpm run ts-check` = `tsgo -p tsconfig.json --incremental false` (TypeScript native preview,
   `@typescript/native-preview`; the flag overrides tsconfig's `incremental: true`). tsconfig:
   strict, verbatimModuleSyntax, module Preserve, allowImportingTsExtensions, noEmit; include is
   src / electron / scripts / vite.config.ts / electron-builder.ts.
@@ -173,7 +173,7 @@ non-persisting sidecar environment.
 ## 6. Packaging / Signing / Notarization / Auto-Update
 
 ```bash
-npm run build:mac     # = build:app + prepare:binaries + electron-builder --mac (also build:win / build:linux / build:electron)
+corepack pnpm run build:mac     # = build:app + prepare:binaries + electron-builder --mac (also build:win / build:linux / build:electron)
 ```
 
 - `scripts/prepare-binaries.ts`: copies three binaries into `resources/bin/` and chmods 755 —
@@ -224,7 +224,7 @@ npm run build:mac     # = build:app + prepare:binaries + electron-builder --mac 
 
 ## 7. CI (.github/workflows/)
 
-- **pr.yml** (PR → main, ubuntu, Node 24): npm ci (no registry auth — @oomol packages come from
+- **pr.yml** (PR → main, ubuntu, Node 24): `pnpm install --frozen-lockfile` (no registry auth — @oomol packages come from
   public npm; sets `ELECTRON_SKIP_BINARY_DOWNLOAD=1` + `OO_SKIP_BINARY_DOWNLOAD=1` to skip binary
   downloads) → lint → format → ts-check → test → build. The test step sets
   `ELECTRON_OVERRIDE_DIST_PATH` as a defensive guard against the electron stub downloading a
@@ -233,7 +233,7 @@ npm run build:mac     # = build:app + prepare:binaries + electron-builder --mac 
   version_bump): `compute-version` (version math in `scripts/release-version.ts`, vitest-covered —
   stable auto-bump **filters out all beta tags**; beta baseline = max(latest stable's patch+1,
   highest existing beta baseline), N increments) → `release-mac` (macos-latest: import
-  certificates, sign + notarize, `npm version` rewrite, build:mac, channel-yml validation, rclone
+  certificates, sign + notarize, `pnpm version` rewrite, build:mac, channel-yml validation, rclone
   upload to Aliyun OSS `oomol-static-cn-prod/release/apps/wanta`, OIDC) + `release-win`
   (self-hosted Windows x64 runner + USB certificate; **do not rely on system tools like tar being
   present**) → `create-release` (tag + GitHub release, stable `--latest` / beta `--prerelease`) →
@@ -267,15 +267,15 @@ npm run build:mac     # = build:app + prepare:binaries + electron-builder --mac 
 | `resources/skills/`             | bundled oo skills export (→ extraResources; re-ensured by predev and prepare-binaries) | postinstall `scripts/download-skills.ts` (`scripts/skills.ts`)       |
 | `resources/agent-tool-runtime/` | self-contained runtime for custom tools (→ extraResources)                             | `scripts/build-agent-tool-runtime.ts`                                |
 | `.wanta-dev/`                   | manual smoke / experiment scripts, outside every toolchain                             | handwritten                                                          |
-| `dist/` `dist-electron/`        | vite build output (renderer / main+preload)                                            | `npm run build`                                                      |
-| `release/`                      | electron-builder output                                                                | `npm run build:*`                                                    |
+| `dist/` `dist-electron/`        | vite build output (renderer / main+preload)                                            | `pnpm run build`                                                     |
+| `release/`                      | electron-builder output                                                                | `pnpm run build:*`                                                   |
 
 ## 9. Upgrade Notes
 
 - Upgrading oo: change only `OO_CLI_VERSION` in `scripts/oo-cli.ts` (the `.version` marker
   triggers a re-download). The binary inside oo's upstream tarball has no +x bit; any path that
   uses that binary from node_modules directly must chmod it itself — do not fall back to the
-  npm-dependency approach.
+  package-dependency approach.
 - Upgrading ripgrep: change only `RIPGREP_VERSION` in `scripts/ripgrep.ts` (pinned, currently
   `14.1.1`); the download scripts pick it up in postinstall/predev. Remember `rg` ships in
   `resources/bin` and is inside the macOS signing/notarization scope.

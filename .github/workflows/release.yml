@@ -1,7 +1,7 @@
 name: Release Build
 
 # 签名/公证/上传全部依赖 CI secrets（单机无法完成）。secret/vars 名照搬 oo-desktop。
-# 韧性步骤（OIDC 重试、rclone 缓存、Windows npm ci 重试与自动更新产物校验、release-size
+# 韧性步骤（OIDC 重试、rclone 缓存、Windows pnpm install 重试与自动更新产物校验、release-size
 # 体积统计、富 Release notes、CDN 缓存刷新）与 oo-desktop 对齐；仅按 Wanta 适配：
 # 标准 GitHub runner（非 blacksmith 池）、产物名 Wanta-*、OSS 前缀 release/apps/wanta、
 # 安装期注入 OO_SKIP_BINARY_DOWNLOAD（oo 二进制由 build:* 内的 prepare:binaries 构建时下载）。
@@ -126,10 +126,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
       - name: Set env + version
         run: |
           echo "VERSION=${{ needs.compute-version.outputs.version }}" >> $GITHUB_ENV
-          npm version "${{ needs.compute-version.outputs.version }}" --no-git-tag-version --allow-same-version
+          corepack pnpm version "${{ needs.compute-version.outputs.version }}" --no-git-tag-version --allow-same-version
 
       - name: Import macOS signing certificate
         env:
@@ -150,7 +152,7 @@ jobs:
           rm -f "$CERT_PATH"
 
       - name: Install dependencies
-        run: npm ci
+        run: corepack pnpm install --frozen-lockfile
         env:
           npm_config_audit: "false"
           npm_config_fund: "false"
@@ -159,7 +161,7 @@ jobs:
           OO_SKIP_BINARY_DOWNLOAD: "1"
 
       - name: Build (sign + notarize)
-        run: npm run build:mac
+        run: corepack pnpm run build:mac
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "true"
           APPLE_ID: ${{ secrets.APPLEID }}
@@ -324,8 +326,8 @@ jobs:
           # cache service, so setup-node@v5's default package-manager cache
           # (package-manager-cache: true) hangs ~10 min on a failed restore
           # ("Server failed to authenticate the request") before giving up —
-          # setup-node took 20 min while the actual `npm ci` took 34 s (run
-          # 29923188224). The runner's disk already persists npm's cache dir
+          # setup-node took 20 min while the actual `pnpm install` took 34 s (run
+          # 29923188224). The runner's disk already persists pnpm's store
           # across runs, so the GitHub-side cache is pure overhead here.
           # Disable it. Hosted runners (release-mac, pr.yml) keep it enabled.
           package-manager-cache: false
@@ -333,9 +335,9 @@ jobs:
         shell: bash
         run: |
           echo "VERSION=${{ needs.compute-version.outputs.version }}" >> $GITHUB_ENV
-          npm version "${{ needs.compute-version.outputs.version }}" --no-git-tag-version --allow-same-version
+          corepack pnpm version "${{ needs.compute-version.outputs.version }}" --no-git-tag-version --allow-same-version
 
-      # 自托管 Windows runner 上 npm ci 偶发网络/锁文件抖动；重试 3 次、每次重试前
+      # 自托管 Windows runner 上 pnpm install 偶发网络/锁文件抖动；重试 3 次、每次重试前
       # 清掉 node_modules，避免半装状态污染下一次安装。
       - name: Install dependencies
         uses: nick-fields/retry@v4
@@ -343,7 +345,7 @@ jobs:
           max_attempts: 3
           timeout_minutes: 15
           shell: bash
-          command: npm ci
+          command: corepack pnpm install --frozen-lockfile
           on_retry_command: rm -rf node_modules
         env:
           npm_config_audit: "false"
@@ -353,7 +355,7 @@ jobs:
           OO_SKIP_BINARY_DOWNLOAD: "1"
 
       - name: Build (signtool via electron-builder certificateSha1)
-        run: npm run build:win
+        run: corepack pnpm run build:win
 
       # 硬防 electron-builder 未来行为漂移。NSIS 自动更新器消费 <channel>.yml + Setup.exe
       # + Setup.exe.blockmap；任一不变量回归即让 release 大声失败。

@@ -171,7 +171,7 @@ async function resolveTarballMeta(packageName: string): Promise<TarballMeta> {
 }
 
 /**
- * 用 registry 提供的 SRI（integrity）校验下载到的 tarball——等价于 npm install 对 dist.integrity 的校验，
+ * 用 registry 提供的 SRI（integrity）校验下载到的 tarball——等价于包管理器对 dist.integrity 的校验，
  * 拦截 CDN 截断/缓存损坏/中途篡改。SRI 形如 "sha512-<base64>"（可能空格分隔多算法，取 sha512）。
  */
 export function verifyTarballIntegrity(tgz: Buffer, integrity: string, source: string): void {

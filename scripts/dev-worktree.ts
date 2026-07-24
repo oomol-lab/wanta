@@ -15,14 +15,14 @@ await main()
 
 async function main(): Promise<void> {
   const config = await readBootstrapConfig()
-  await run(commandName("corepack"), ["npm", "run", "dev"], config.env ?? {})
+  await run(commandName("corepack"), ["pnpm", "run", "dev"], config.env ?? {})
 }
 
 async function readBootstrapConfig(): Promise<BootstrapConfig> {
   try {
     return JSON.parse(await readFile(bootstrapJsonPath, "utf-8")) as BootstrapConfig
   } catch (error) {
-    throw new Error(`bootstrap config missing or invalid; run \`corepack npm run bootstrap\` first: ${error}`)
+    throw new Error(`bootstrap config missing or invalid; run \`corepack pnpm run bootstrap\` first: ${error}`)
   }
 }
 

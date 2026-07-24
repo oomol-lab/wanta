@@ -5,9 +5,9 @@ screen sharing.
 
 ## Launch
 
-- `corepack npm run dev:worktree`
-- `VITE_WANTA_ROUTE=settings corepack npm run dev:worktree`
-- `VITE_WANTA_SMOKE="hello" corepack npm run dev:worktree`
+- `corepack pnpm run dev:worktree`
+- `VITE_WANTA_ROUTE=settings corepack pnpm run dev:worktree`
+- `VITE_WANTA_SMOKE="hello" corepack pnpm run dev:worktree`
 
 ## What to inspect
 

@@ -26,7 +26,6 @@ import {
   getConnectionExecutionLogs,
   getConnectionProviderDetail,
   getConnectionSummary,
-  getConnectionUsageSummary,
   startOAuthConnect,
   updateAlias as updateAliasRequest,
 } from "../lib/connections-client.ts"
@@ -164,14 +163,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   summaryRef.current = summary
 
   const setCurrentSummary = React.useCallback((next: ConnectionSummary): void => {
-    const current = summaryRef.current
-    const stable =
-      current &&
-      next.usageStatus === "unavailable" &&
-      connectionWorkspaceKey(current.workspace) === connectionWorkspaceKey(next.workspace)
-        ? { ...next, usage: current.usage }
-        : next
-    dispatch({ type: "summarySet", summary: stable })
+    dispatch({ type: "summarySet", summary: next })
   }, [])
 
   const isCurrentWorkspace = React.useCallback((generation: number, key: string): boolean => {
@@ -231,25 +223,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         dispatch({ type: "refreshStarted" })
       }
       try {
-        // 创建时立即吸收失败，避免目录读取失败或工作区切换后留下未处理 rejection。
-        const usageRequest = getConnectionUsageSummary(currentWorkspace, connectorReadOptions).then(
-          (usage) => ({ ok: true as const, usage }),
-          (error: unknown) => ({ error, ok: false as const }),
-        )
         const fetched = await getConnectionCatalogSummary(currentWorkspace, connectorReadOptions)
         const next = preserveConnectionSummaryOnPartialRefresh(summaryRef.current, fetched)
         if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
           dispatch({ type: "refreshSucceeded", summary: next })
-          void usageRequest.then((result) => {
-            if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
-              if (result.ok) {
-                dispatch({ type: "usageHydrated", usage: result.usage, workspaceKey: key })
-              } else {
-                reportRendererHandledError("connections", "background connection usage request failed", result.error)
-                dispatch({ type: "usageHydrationFailed", workspaceKey: key })
-              }
-            }
-          })
         }
         return next
       } catch (err) {

@@ -14,6 +14,7 @@ import {
   isConnectionAuthType,
   normalizeConnectionAliasInput,
 } from "./connection-route-model.ts"
+import { AccountExecutionLogsButton } from "./ConnectionExecutionLogs.tsx"
 import { authTypeLabel } from "./shared.ts"
 import { Loader } from "@/components/ai-elements/loader"
 import { Badge } from "@/components/ui/badge"
@@ -230,6 +231,7 @@ function ConnectionAccountItem({
         </div>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-2">
+        <AccountExecutionLogsButton appId={app.id} connections={connections} name={accountLabel} />
         {reconnectAuthType ? (
           <Button
             type="button"

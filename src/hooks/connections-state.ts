@@ -1,4 +1,4 @@
-import type { ConnectionSummary, ConnectionUsageSummary } from "../../electron/connections/common.ts"
+import type { ConnectionSummary } from "../../electron/connections/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import { connectionWorkspaceKey } from "../lib/connection-workspace.ts"
@@ -26,8 +26,6 @@ export type ConnectionsStateAction =
   | { type: "refreshStarted" }
   | { type: "refreshSucceeded"; summary: ConnectionSummary }
   | { type: "summarySet"; summary: ConnectionSummary }
-  | { type: "usageHydrationFailed"; workspaceKey: string }
-  | { type: "usageHydrated"; usage: ConnectionUsageSummary; workspaceKey: string }
   | { type: "workspacePending" }
   | { type: "workspaceScopeSyncFailed"; error: UserFacingError }
   | { type: "workspaceScopeSynced"; workspaceKey: string }
@@ -52,9 +50,10 @@ export function preserveConnectionSummaryOnPartialRefresh(
     return next
   }
 
-  // 刷新期间保留上一次用量；Apps 读取失败时也不能把已确认账号伪装成“全部未连接”。
-  const refreshed = !next.appsStatus || next.appsStatus === "ready" ? next : { ...current, appsStatus: next.appsStatus }
-  return { ...refreshed, updatedAt: next.updatedAt, usage: current.usage, usageStatus: "loading" }
+  // Do not make confirmed accounts appear disconnected when the Apps request fails.
+  return !next.appsStatus || next.appsStatus === "ready"
+    ? next
+    : { ...current, appsStatus: next.appsStatus, updatedAt: next.updatedAt }
 }
 
 export function connectionsStateReducer(state: ConnectionsState, action: ConnectionsStateAction): ConnectionsState {
@@ -85,22 +84,6 @@ export function connectionsStateReducer(state: ConnectionsState, action: Connect
         summary: action.summary,
         summaryError: null,
         summaryWorkspaceKey: connectionSummaryWorkspaceKey(action.summary),
-      }
-    case "usageHydrated":
-      if (!state.summary || state.summaryWorkspaceKey !== action.workspaceKey) {
-        return state
-      }
-      return {
-        ...state,
-        summary: { ...state.summary, usage: action.usage, usageStatus: "ready" },
-      }
-    case "usageHydrationFailed":
-      if (!state.summary || state.summaryWorkspaceKey !== action.workspaceKey) {
-        return state
-      }
-      return {
-        ...state,
-        summary: { ...state.summary, usageStatus: "unavailable" },
       }
     case "workspacePending":
       return initialConnectionsState

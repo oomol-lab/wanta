@@ -24,16 +24,6 @@ function summary(workspace: ConnectionWorkspace): ConnectionSummary {
     providerCount: 0,
     providers: [],
     updatedAt: "2026-01-01T00:00:00.000Z",
-    usage: {
-      calls: 0,
-      days: 0,
-      errors: 0,
-      points: [],
-      recent: null,
-      services: [],
-      success: 0,
-    },
-    usageStatus: "ready",
     workspace,
   }
 }
@@ -84,14 +74,12 @@ test("partial app refresh keeps confirmed connections for the same workspace", (
     ...summary({ teamName: "acme" }),
     appsStatus: "unavailable" as const,
     updatedAt: "2026-07-17T00:00:00.000Z",
-    usageStatus: "loading" as const,
   }
 
   assert.deepEqual(preserveConnectionSummaryOnPartialRefresh(current, next), {
     ...current,
     appsStatus: "unavailable",
     updatedAt: next.updatedAt,
-    usageStatus: "loading",
   })
 })
 
@@ -241,47 +229,4 @@ test("connectionsStateReducer derives summary workspace keys consistently", () =
   assert.equal(teamName.summaryError, null)
   assert.equal(team.summaryWorkspaceKey, "team:acme")
   assert.equal(team.summaryError, null)
-})
-
-test("connectionsStateReducer hydrates usage only for the active workspace", () => {
-  const currentSummary = summary({ teamName: "team-name" })
-  const loaded = connectionsStateReducer(initialConnectionsState, { summary: currentSummary, type: "summarySet" })
-  const usage = {
-    calls: 3,
-    days: 7,
-    errors: 1,
-    points: [{ calls: 3, date: "2026-07-10", errors: 1, success: 2 }],
-    recent: { calls: 3, date: "2026-07-10", errors: 1, success: 2 },
-    services: [],
-    success: 2,
-  }
-
-  const ignored = connectionsStateReducer(loaded, {
-    type: "usageHydrated",
-    usage,
-    workspaceKey: "team:other",
-  })
-  const hydrated = connectionsStateReducer(loaded, {
-    type: "usageHydrated",
-    usage,
-    workspaceKey: "team:team-name",
-  })
-
-  assert.equal(ignored, loaded)
-  assert.equal(hydrated.summary?.usage.calls, 3)
-  assert.equal(hydrated.summary?.usageStatus, "ready")
-})
-
-test("connectionsStateReducer clears usage loading when background hydration fails", () => {
-  const loaded = connectionsStateReducer(initialConnectionsState, {
-    summary: { ...summary({ teamName: "team-name" }), usageStatus: "loading" },
-    type: "summarySet",
-  })
-
-  const failed = connectionsStateReducer(loaded, {
-    type: "usageHydrationFailed",
-    workspaceKey: "team:team-name",
-  })
-
-  assert.equal(failed.summary?.usageStatus, "unavailable")
 })

@@ -508,17 +508,19 @@ OOMOL connector-management requests **moved wholesale to the renderer**
 (`src/lib/connections-client.ts`, see §4) —
 this was the poster child for "the main process does too much": during OAuth the summary's multi-way
 fan-out was triggered at high frequency by the 2s poll. The client uses `oomolFetch` (session cookie
-auto-auth, **no `Authorization: Bearer` anymore**); the Apps, usage, and detail team resources attach
+auto-auth, **no `Authorization: Bearer` anymore**); the Apps and detail team resources attach
 the `x-oo-organization-name` header per workspace, while the global `/v1/providers` public catalog
 attaches no team header. The two read kinds each keep an etag/`if-none-match` + 30s GET cache (saving
 a re-pull of the ~600-provider catalog on every poll), and a permission denial or transient failure
 on the team Apps does not clear the public Provider catalog; the pure functions
-`summary.ts` / `usage.ts` / `executions.ts` / `federated.ts` / `domain.ts` are imported directly by
+`summary.ts` / `executions.ts` / `federated.ts` / `domain.ts` are imported directly by
 the renderer (merging `/v1/apps` connected + `/v1/providers` catalog → `ConnectionSummary`).
 
-The summary read is now two-phase: catalog-first (apps + providers, `appsStatus`:
-ready/forbidden/unavailable) plus a background usage fill (`usageStatus`: loading/ready/unavailable);
-a usage failure keeps the previous usage rather than clearing it.
+The connection summary reads Apps and Providers only (`appsStatus`: ready/forbidden/unavailable).
+The Connections UI deliberately does not request or display aggregate call counts, because the
+available usage endpoints cannot attribute those totals to the accounts shown in the detail pane.
+Per-account execution logs use `/v1/apps/by-id/:appId/executions`, so switching accounts never
+reuses another connection's activity.
 
 `useConnections(workspace)` (the sole consumer, instantiated by AppShell) holds the summary state:
 `workspace` comes from `useTeamWorkspace`, where `null` means a team is selected but its name is not

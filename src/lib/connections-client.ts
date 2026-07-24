@@ -5,7 +5,6 @@ import type {
   ConnectionExecutionLogSummary,
   ConnectionProviderDetail,
   ConnectionSummary,
-  ConnectionUsageSummary,
   ConnectionUserOAuthClientConfigSummary,
   ConnectionWorkspace,
   UpsertConnectionOAuthClientConfigPayload,
@@ -17,10 +16,6 @@ import { createConnectorOAuthReturnUri, parseConnectorAuthorizationUrl } from ".
 import { normalizeConnectionExecutionLogs } from "../../electron/connections/executions.ts"
 import { createFederatedConnectBody } from "../../electron/connections/federated.ts"
 import {
-  connectionUsageSummaryDays,
-  createEmptyConnectionUsageSummary,
-} from "../../electron/connections/summary-model.ts"
-import {
   mergeConnectionSummary,
   normalizeConnectionAppDetail,
   normalizeApiKeyConfig,
@@ -29,7 +24,6 @@ import {
   normalizeOAuthClientConfig,
   normalizeProvider,
 } from "../../electron/connections/summary.ts"
-import { normalizeUsageSummary } from "../../electron/connections/usage.ts"
 import { connectionWorkspaceKey } from "@/lib/connection-workspace"
 import { connectorBaseUrl, consoleBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
@@ -371,11 +365,6 @@ async function fetchConnectorGet<T>(
   return result
 }
 
-function reportConnectionUsageFailure(operation: string, cause: unknown): void {
-  console.warn("[wanta] connection usage request failed", { error: cause, operation })
-  reportRendererHandledError("connections", operation, cause)
-}
-
 export async function getConnectionCatalogSummary(
   workspace: ConnectionWorkspace,
   options: ConnectorReadOptions = {},
@@ -410,11 +399,9 @@ export async function getConnectionCatalogSummary(
       apps: appsResult.status === "fulfilled" ? appsResult.value.data : [],
       meta: appsResult.status === "fulfilled" ? (appsResult.value.meta as RawAppListMeta | null) : null,
       providers: providersResult.value.data,
-      usage: createEmptyConnectionUsageSummary(),
       workspace,
     }),
     appsStatus,
-    usageStatus: "loading",
   }
 }
 
@@ -433,39 +420,11 @@ export function getConnectionProviders(
   return getConnector<RawProvider[]>("/v1/providers", null, options)
 }
 
-/**
- * 目录可交互后再补齐用量。统计失败向状态层抛出，不能伪装成真实的零调用。
- */
-export async function getConnectionUsageSummary(
-  workspace: ConnectionWorkspace,
-  options: ConnectorReadOptions = {},
-): Promise<ConnectionUsageSummary> {
-  try {
-    const [dailyResult, servicesResult] = await Promise.all([
-      getConnector<unknown>(`/v1/usage/daily?days=${connectionUsageSummaryDays}`, workspace, options),
-      getConnector<unknown>(`/v1/usage/services?days=${connectionUsageSummaryDays}`, workspace, options),
-    ])
-    return normalizeUsageSummary(dailyResult.data, servicesResult.data)
-  } catch (error) {
-    reportConnectionUsageFailure("Connection usage request failed", error)
-    throw error
-  }
-}
-
-/** 完整摘要保留给显式动作和详情读取；目录首屏使用 getConnectionCatalogSummary 后台补齐 usage。 */
 export async function getConnectionSummary(
   workspace: ConnectionWorkspace,
   options: ConnectorReadOptions = {},
 ): Promise<ConnectionSummary> {
-  const usageRequest = getConnectionUsageSummary(workspace, options).then(
-    (usage) => ({ ok: true as const, usage }),
-    () => ({ ok: false as const }),
-  )
-  const catalog = await getConnectionCatalogSummary(workspace, options)
-  const usageResult = await usageRequest
-  return usageResult.ok
-    ? { ...catalog, usage: usageResult.usage, usageStatus: "ready" }
-    : { ...catalog, usageStatus: "unavailable" }
+  return getConnectionCatalogSummary(workspace, options)
 }
 
 export async function getActiveConnectionAppIdsForService(
@@ -513,8 +472,8 @@ export async function getConnectionExecutionLogs(
   request: ConnectionExecutionLogRequest,
   workspace: ConnectionWorkspace,
 ): Promise<ConnectionExecutionLogSummary> {
-  const service = request.service.trim()
-  if (!service) {
+  const appId = request.appId.trim()
+  if (!appId) {
     return { items: [] }
   }
   const searchParams = new URLSearchParams({ limit: String(clampExecutionLogLimit(request.limit)) })
@@ -525,7 +484,7 @@ export async function getConnectionExecutionLogs(
     searchParams.set("status", request.status)
   }
   const result = await getConnector<unknown>(
-    `/v1/apps/${encodeURIComponent(service)}/executions?${searchParams.toString()}`,
+    `/v1/apps/by-id/${encodeURIComponent(appId)}/executions?${searchParams.toString()}`,
     workspace,
     { forceRefresh: true },
   )

@@ -527,7 +527,6 @@ export function TeamManagementRoute({
         }}
         onMoveActiveUser={moveActiveSearchUser}
         onSearchSelect={(user) => {
-          setMemberInput(user.username)
           setActiveSearchUserId(user.userId)
           setSelectedSearchUserId(user.userId)
           setAddMemberError(null)

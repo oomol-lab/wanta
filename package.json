@@ -18,6 +18,11 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "bootstrap": "node --experimental-strip-types ./scripts/bootstrap.ts",
+    "auth:capture": "node --experimental-strip-types ./scripts/dev-auth-state.ts capture",
+    "auth:save": "node --experimental-strip-types ./scripts/dev-auth-state.ts save",
+    "auth:restore": "node --experimental-strip-types ./scripts/dev-auth-state.ts restore",
+    "auth:clean": "node --experimental-strip-types ./scripts/dev-auth-state.ts clean",
+    "auth:status": "node --experimental-strip-types ./scripts/dev-auth-state.ts status",
     "postinstall": "node --experimental-strip-types ./scripts/download-electron.ts && node --experimental-strip-types ./scripts/download-oo.ts && node --experimental-strip-types ./scripts/download-skills.ts && node --experimental-strip-types ./scripts/download-ripgrep.ts && node --experimental-strip-types ./scripts/build-agent-tool-runtime.ts",
     "predev": "node --experimental-strip-types ./scripts/check-oo.ts",
     "dev": "vite",

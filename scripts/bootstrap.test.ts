@@ -21,10 +21,12 @@ describe("bootstrap helpers", () => {
   test("renderEnvScript emits shell exports", () => {
     const script = renderEnvScript({
       WANTA_DEV_SERVER_PORT: "6000",
+      WANTA_SKIP_PROTOCOL_REGISTRATION: "1",
       WANTA_USER_DATA_DIR: "/tmp/wanta",
     })
 
     assert.match(script, /export WANTA_DEV_SERVER_PORT='6000'/)
+    assert.match(script, /export WANTA_SKIP_PROTOCOL_REGISTRATION='1'/)
     assert.match(script, /export WANTA_USER_DATA_DIR='\/tmp\/wanta'/)
   })
 })

@@ -72,6 +72,7 @@ async function createBootstrapConfig(): Promise<BootstrapConfig> {
     devServerPort,
     env: {
       WANTA_DEV_SERVER_PORT: String(devServerPort),
+      WANTA_SKIP_PROTOCOL_REGISTRATION: "1",
       WANTA_USER_DATA_DIR: userDataDir,
     },
     generatedAt: new Date().toISOString(),

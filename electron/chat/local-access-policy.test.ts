@@ -313,7 +313,7 @@ test("default access auto-approves standard registry Node dependencies in bounde
     ),
     { type: "prompt", kind: "command", highRisk: true },
   )
-  for (const packageName of ["playwright", "playwright-core", "puppeteer", "puppeteer-core"]) {
+  for (const packageName of ["playwright", "puppeteer"]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(
         permission({ metadata: { command: `cd ${processRoot} && npm install ${packageName}` } }),
@@ -323,6 +323,19 @@ test("default access auto-approves standard registry Node dependencies in bounde
         },
       ),
       { type: "prompt", kind: "command", highRisk: true },
+      packageName,
+    )
+  }
+  for (const packageName of ["playwright-core", "puppeteer-core"]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(
+        permission({ metadata: { command: `cd ${processRoot} && npm install ${packageName} 2>&1 | tail -5` } }),
+        {
+          permissionMode: "default",
+          taskProcessRoot: processRoot,
+        },
+      ),
+      { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
       packageName,
     )
   }

@@ -51,16 +51,18 @@ The following continue through confirmation:
 - Custom registries, alternative Python indexes, user package-manager configuration, and
   Git/URL/local package sources.
 - Package publishing.
-- Explicitly high-cost Node runtimes: `playwright`, `playwright-core`, `@playwright/test`,
-  `playwright-chromium`, `playwright-firefox`, `playwright-webkit`, `puppeteer`,
-  `puppeteer-core`, and `canvas`.
+- Explicitly high-cost Node runtime installs: `playwright`, `@playwright/test`,
+  `playwright-chromium`, `playwright-firefox`, `playwright-webkit`, `puppeteer`, and `canvas`.
 - Any dependency command that also touches credentials, sensitive application data, broad
   home/system roots, privilege escalation, destructive deletion, deployment, or another protected
   boundary.
 
 This short confirmation set is based on material install/runtime effects, not a claim that every
 other package is reviewed or safe. High-cost packages can download browser payloads, invoke native
-toolchains, or consume substantial cache and disk space.
+toolchains, or consume substantial cache and disk space. Direct standard-registry installs of
+`playwright-core` and `puppeteer-core` in a bounded task or selected project are ordinary because
+the library packages do not install a browser payload. The `playwright-core` package-runner path
+remains protected because its CLI can explicitly install browsers.
 
 ## Shell composition
 

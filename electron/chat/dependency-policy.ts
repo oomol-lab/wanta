@@ -7,12 +7,11 @@ const nodePackagesRequiringConfirmation = new Set([
   "canvas",
   "playwright",
   "playwright-chromium",
-  "playwright-core",
   "playwright-firefox",
   "playwright-webkit",
   "puppeteer",
-  "puppeteer-core",
 ])
+const nodeRunnerPackagesRequiringConfirmation = new Set([...nodePackagesRequiringConfirmation, "playwright-core"])
 const nodeDependencyVerbs = new Set([
   "add",
   "ci",
@@ -309,7 +308,7 @@ function segmentRunsConfirmableNodePackage(words: readonly string[]): boolean {
   if (runner) {
     return runner.specifiers.some((specifier) => {
       const packageName = canonicalRegistryNodePackageName(specifier)
-      return packageName ? nodePackageRequiresConfirmation(packageName) : false
+      return packageName ? nodeRunnerPackagesRequiringConfirmation.has(packageName) : false
     })
   }
   const operation = nodeDependencyOperation(words)

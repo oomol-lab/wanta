@@ -186,10 +186,17 @@ test("standard registry Node dependency installs use scope and source instead of
     false,
   )
   assert.equal(isStandardRegistryNodeDependencyInstallRequest(permission("npm install exceljs"), root), false)
-  for (const packageName of ["playwright", "playwright-core", "puppeteer", "puppeteer-core", "canvas"]) {
+  for (const packageName of ["playwright", "puppeteer", "canvas"]) {
     assert.equal(
       isStandardRegistryNodeDependencyInstallRequest(permission(`cd ${root} && npm install ${packageName}`), root),
       false,
+      packageName,
+    )
+  }
+  for (const packageName of ["playwright-core", "puppeteer-core"]) {
+    assert.equal(
+      isStandardRegistryNodeDependencyInstallRequest(permission(`cd ${root} && npm install ${packageName}`), root),
+      true,
       packageName,
     )
   }

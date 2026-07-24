@@ -16,15 +16,23 @@ test("registry package parsing accepts names and versions but rejects alternate 
   assert.equal(canonicalRegistryNodePackageName("../local-tool"), undefined)
 })
 
-test("only explicit high-cost Node runtimes require package confirmation", () => {
-  for (const name of ["playwright", "playwright-core", "@playwright/test", "puppeteer", "puppeteer-core", "canvas"]) {
+test("only explicit high-cost Node runtime installs require package confirmation", () => {
+  for (const name of ["playwright", "@playwright/test", "puppeteer", "canvas"]) {
     assert.equal(nodePackageRequiresConfirmation(name), true, name)
   }
-  for (const name of ["xlsx", "marked", "markdown-pdf", "unreviewed-agent-package"]) {
+  for (const name of [
+    "playwright-core",
+    "puppeteer-core",
+    "xlsx",
+    "marked",
+    "markdown-pdf",
+    "unreviewed-agent-package",
+  ]) {
     assert.equal(nodePackageRequiresConfirmation(name), false, name)
   }
 
   assert.equal(dependencyCommandRequiresConfirmation("npx --yes playwright --version"), true)
+  assert.equal(dependencyCommandRequiresConfirmation("npx playwright-core install chromium"), true)
   assert.equal(dependencyCommandRequiresConfirmation("npm x playwright --version"), true)
   assert.equal(dependencyCommandRequiresConfirmation("bun x playwright --version"), true)
   assert.equal(dependencyCommandRequiresConfirmation("pnpm dlx puppeteer --help"), true)
@@ -32,6 +40,8 @@ test("only explicit high-cost Node runtimes require package confirmation", () =>
   assert.equal(dependencyCommandRequiresConfirmation("npx --package=playwright node -e 'console.log(1)'"), true)
   assert.equal(dependencyCommandRequiresConfirmation("npx md-to-pdf playwright --output report.pdf"), false)
   assert.equal(dependencyCommandRequiresConfirmation("npm list playwright"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm install puppeteer-core"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm install playwright-core"), false)
   assert.equal(dependencyCommandRequiresConfirmation("npx --yes markdown-pdf --version"), false)
   assert.equal(dependencyCommandRequiresConfirmation("yarn global add eslint"), true)
   assert.equal(dependencyCommandRequiresConfirmation("npx --registry https://example.test markdown-pdf"), true)

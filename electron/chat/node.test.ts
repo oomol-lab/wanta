@@ -3336,6 +3336,32 @@ test("standard registry Node dependencies are approved automatically in the sele
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
 })
 
+test("puppeteer-core is approved automatically in the active PDF task directory", async () => {
+  const bridge = createBridgeAgent()
+  const processRoot = path.join(os.tmpdir(), "Wanta PDF Task", "process-1")
+  bridge.createProcessDir.mockResolvedValue(processRoot)
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "Create a PDF report" })
+
+  const command = `cd "${processRoot}" && npm install puppeteer-core 2>&1 | tail -5`
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: [command],
+      metadata: { command },
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
+})
+
 test("package runner probes and document commands are approved from structure rather than argument text", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)

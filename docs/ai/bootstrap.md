@@ -12,10 +12,9 @@ machine-level prerequisites.
 
 ## Steps
 
-1. Run `corepack npm install`.
-2. Run `corepack npm run predev`.
-3. If the checkout is partially initialized, rerun `corepack npm install`; it is idempotent.
-4. Run the quality gate when needed:
+1. Run `corepack npm run bootstrap`.
+2. If the checkout is partially initialized, rerun the same command; it is idempotent.
+3. Run the quality gate when needed:
    - `corepack npm run ts-check`
    - `corepack npm run lint`
    - `corepack npm run format`
@@ -24,7 +23,8 @@ machine-level prerequisites.
 
 ## Dev launch
 
-- Default: `corepack npm run dev`
+- Worktree-aware default: `corepack npm run dev:worktree`
+- Raw dev server only: `corepack npm run dev`
 - Headless renderer startup only: `corepack npm run dev:no-electron`
 - Disable Electron auto-start when you want the Vite process without an app window:
   `WANTA_ELECTRON_AUTO_START=0 corepack npm run dev`
@@ -35,5 +35,12 @@ machine-level prerequisites.
 - `.oo-bin/`
 - `resources/skills/`
 - `resources/agent-tool-runtime/`
+- `.wanta-dev/bootstrap.json`
+- `.wanta-dev/env.sh`
 
-If any of these are missing after install, rerun the install step before debugging the app.
+The generated env isolates the dev session by setting:
+
+- `WANTA_DEV_SERVER_PORT`
+- `WANTA_USER_DATA_DIR`
+
+If any of these are missing after bootstrap, rerun `corepack npm run bootstrap` before debugging the app.

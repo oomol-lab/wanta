@@ -10,13 +10,14 @@ Use this when the repo is opened in a fresh worktree and multiple agents may run
 
 ## Current shared resources
 
-- Vite dev server port: `5273`
-- Electron dev user data: the platform default path under `app.getPath("userData")`
-- App protocol registration: the same `wanta-local` scheme in dev
+- Raw `npm run dev` Vite port: `5273`
+- Raw Electron dev user data: the platform default path under `app.getPath("userData")`
+- App protocol registration: raw `npm run dev` uses `wanta-local`
 
 ## Current safe assumptions
 
 - One active `npm run dev` per machine is the default safe mode.
+- `npm run dev:worktree` is the safer default for parallel agent work.
 - `WANTA_ELECTRON_AUTO_START=0` is useful when you want the build/watch loop without auto-launch.
 - Branches should stay short-lived and isolated from `main`.
 
@@ -30,5 +31,5 @@ Use this when the repo is opened in a fresh worktree and multiple agents may run
 
 ## Next step for real worktree safety
 
-Introduce a worktree-aware bootstrap that derives per-worktree app state and a collision-free dev
-port before launching Electron.
+Use `npm run bootstrap` to derive per-worktree app state and a collision-free dev port before
+launching Electron with `npm run dev:worktree`.

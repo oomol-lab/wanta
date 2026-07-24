@@ -96,6 +96,7 @@ declare const __APP_COMMIT__: string | undefined
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.join(dirname, "..")
 process.env.APP_ROOT = appRoot
+applyUserDataOverride()
 configureDiagnosticsLog(path.join(app.getPath("userData"), "logs", "diagnostics.jsonl"))
 installMainProcessErrorHandlers()
 registerArtifactResourceScheme()
@@ -305,7 +306,11 @@ chatService.sessionActivity.on(({ sessionId, usedAt }) => {
   })
 })
 
-registerProtocolClient(protocolScheme)
+if (shouldRegisterProtocolClient()) {
+  registerProtocolClient(protocolScheme)
+} else {
+  console.info(`[wanta] protocol registration skipped for ${protocolScheme}`)
+}
 const { initialUrl, isLocked } = requestProtocolSingleInstanceLock(protocolScheme, { enabled: app.isPackaged })
 
 if (!isLocked) {
@@ -533,6 +538,23 @@ function registerRendererErrorHandler(): void {
 
 function runtimeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function applyUserDataOverride(): void {
+  const override = process.env["WANTA_USER_DATA_DIR"]?.trim()
+  if (!override) {
+    return
+  }
+  if (app.isPackaged) {
+    console.warn("[wanta] ignoring WANTA_USER_DATA_DIR in packaged app")
+    return
+  }
+  app.setPath("userData", path.resolve(appRoot, override))
+}
+
+function shouldRegisterProtocolClient(): boolean {
+  const value = process.env["WANTA_SKIP_PROTOCOL_REGISTRATION"]?.trim().toLowerCase()
+  return !value || !["1", "true", "yes", "on"].includes(value)
 }
 
 /** 凭证 → 运行时装配：替换 agent（重启 sidecar）并同步 connector 凭证。经 applyChain 串行执行。 */

@@ -5,9 +5,9 @@ screen sharing.
 
 ## Launch
 
-- `corepack npm run dev`
-- `VITE_WANTA_ROUTE=settings corepack npm run dev`
-- `VITE_WANTA_SMOKE="hello" corepack npm run dev`
+- `corepack npm run dev:worktree`
+- `VITE_WANTA_ROUTE=settings corepack npm run dev:worktree`
+- `VITE_WANTA_SMOKE="hello" corepack npm run dev:worktree`
 
 ## What to inspect
 
@@ -20,13 +20,14 @@ screen sharing.
 
 - `osascript` for window/process state
 - `screencapture` for a full-screen or region capture
-- `lsof -iTCP:5273 -sTCP:LISTEN` for port conflicts
+- `cat .wanta-dev/bootstrap.json` for the active worktree port, protocol scheme, and user-data path
+- `lsof -iTCP:<port> -sTCP:LISTEN` for port conflicts
 
 ## Common failure modes
 
 - Electron window never appears
 - app stays on the login gate because no model or account is configured
-- port `5273` already taken
+- the worktree port is already taken
 - a stale Electron process is still alive after a stopped session
 
 ## Debugging rule

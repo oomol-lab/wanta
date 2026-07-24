@@ -109,10 +109,6 @@ export function evaluateLocalAccessRequest(
       : null
   if (openConnectorPolicy === "deny") return { type: "deny", kind, highRisk }
   if (openConnectorPolicy === "allow") return { type: "allow", reason: "oo_cli", kind, highRisk }
-  if (openConnectorPolicy === "prompt") return { type: "prompt", kind, highRisk }
-  if (!context.linkRuntime && isOoCliPermissionRequest(request)) {
-    return { type: "prompt", kind, highRisk }
-  }
   if (context.permissionMode === "full_access") {
     return { type: "allow", reason: "full_access", kind, highRisk }
   }

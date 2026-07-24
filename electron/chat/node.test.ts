@@ -3095,6 +3095,30 @@ test("OpenConnector credential commands are rejected even in full-access mode", 
   )
 })
 
+test("OpenConnector unmodeled local wrappers are approved in full-access mode", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  service.setLinkRuntime("openconnector")
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access" })
+
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ["bash render-pdf.sh"],
+      metadata: { command: "bash render-pdf.sh" },
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
+})
+
 test("always permission reply stores a main-process session grant", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)
@@ -3336,7 +3360,7 @@ test("standard registry Node dependencies are approved automatically in the sele
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
 })
 
-test("puppeteer-core is approved automatically in the active PDF task directory", async () => {
+test("browser libraries are approved automatically in the active PDF task directory", async () => {
   const bridge = createBridgeAgent()
   const processRoot = path.join(os.tmpdir(), "Wanta PDF Task", "process-1")
   bridge.createProcessDir.mockResolvedValue(processRoot)
@@ -3345,20 +3369,28 @@ test("puppeteer-core is approved automatically in the active PDF task directory"
   service.startEventBridge()
   await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "Create a PDF report" })
 
-  const command = `cd "${processRoot}" && npm install puppeteer-core 2>&1 | tail -5`
-  bridge.emit({
-    type: "permission.v2.asked",
-    properties: {
-      id: "permission-1",
-      sessionID: "session-1",
-      action: "bash",
-      resources: [command],
-      metadata: { command },
-    },
-  })
+  const commands = [
+    `cd "${processRoot}" && npm install puppeteer-core 2>&1 | tail -5`,
+    `cd "${processRoot}" && npm install playwright puppeteer canvas --unknown-option 2>&1 | tail -5`,
+  ]
+  for (const [index, command] of commands.entries()) {
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: {
+        id: `permission-${index + 1}`,
+        sessionID: "session-1",
+        action: "bash",
+        resources: [command],
+        metadata: { command },
+      },
+    })
+  }
 
-  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
-  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [
+    ["session-1", "permission-1", "once"],
+    ["session-1", "permission-2", "once"],
+  ])
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
 })
 

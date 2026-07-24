@@ -155,9 +155,9 @@
   npm/pnpm/yarn/bun install explicitly targets the turn process directory or the currently selected
   project. Package runners are ordinary local execution rather than a package-specific risk class.
   No-argument or other project dependency operations can earn a task-level grant valid only for the
-  current generation. Global installs, custom registries, user config, Git/URL/local package
-  sources, explicitly high-cost runtimes, and out-of-scope commands never qualify for automatic
-  approval. Session
+  current generation. Package names, package size, browser tooling, and unfamiliar ordinary flags
+  are not confirmation boundaries. Global installs, custom registries, user config, Git/URL/local
+  package sources, and out-of-scope commands never qualify for automatic approval. Session
   grants may still cover non-sensitive requests the user has explicitly allowed; Full Access =
   session-level local YOLO — once confirmed, the main process auto-replies local permissions for the
   session and stops doing per-request local risk judgment.
@@ -166,10 +166,12 @@
 - **oo CLI fast path**: OOMOL keeps the OpenCode fast pass for commands whose first token is `oo` /
   `$WANTA_OO_BIN` / `${WANTA_OO_BIN}`. OpenConnector keeps `bash: "ask"` so the main process can
   reject credential reads and runtime configuration overrides, then automatically approves built-in
-  oo business operations. Safe shell wrappers are inspected; ordinary oo pipelines and output
-  filtering fall through to the normal Default Access policy. Pipes/redirection are not by
-  themselves a reason to prompt — prompt only on a genuine baseline security risk; `sudo`, piping
-  into a shell, writes to sensitive paths, etc. still require confirmation.
+  oo business operations. Safe shell wrappers are inspected; unrecognized ordinary wrappers,
+  pipelines, and output filtering fall through to the normal Default Access policy instead of
+  creating a parser-only prompt. Pipes/redirection are not by themselves a reason to prompt —
+  prompt only on a genuine baseline security risk; `sudo`, piping into a shell, writes to sensitive
+  paths, etc. still require confirmation. Full Access bypasses every local prompt after the
+  OpenConnector credential and injected-runtime hard-deny checks.
 - **Permission gates only built-in tools**: `bash: deny` and the like do not constrain `.opencode`
   custom tools (their permission gate lives inside each built-in tool's execute) — when
   re-tightening permissions, the connector meta-tools keep spawning oo unaffected.

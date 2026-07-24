@@ -76,25 +76,33 @@ test("local access policy allows direct and standard wrapped oo commands under O
   }
 })
 
-test("local access policy prompts when shell wrapper syntax is not fully modeled", () => {
-  for (const command of [
-    "bash -c'oo auth login'",
-    "bash -c $'oo auth login'",
-    `bash -c "$(printf 'oo auth login')"`,
-    "bash -c '$SHELL_COMMAND'",
-    "bash -ec 'oo auth login'",
-    "bash script.sh",
-    "cmd /c %SHELL_COMMAND%",
-  ]) {
+test("local access policy does not prompt only because shell wrapper syntax is not fully modeled", () => {
+  for (const command of ["bash -c '$SHELL_COMMAND'", "bash script.sh", "cmd /c %SHELL_COMMAND%"]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), {
         linkRuntime: "openconnector",
         permissionMode: "full_access",
       }),
-      { type: "prompt", kind: "command", highRisk: false },
+      { type: "allow", reason: "full_access", kind: "command", highRisk: false },
       command,
     )
   }
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "bash script.sh" } }), {
+      linkRuntime: "openconnector",
+      permissionMode: "default",
+    }),
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+  )
+})
+
+test("full access auto-approves local oo commands even without an active Link runtime", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector apps --json" } }), {
+      permissionMode: "full_access",
+    }),
+    { type: "allow", reason: "full_access", kind: "command", highRisk: false },
+  )
 })
 
 test("local access policy rejects OpenConnector credential and configuration commands", () => {
@@ -106,6 +114,7 @@ test("local access policy rejects OpenConnector credential and configuration com
     "oo connector apps --endpoint=https://other.example.test",
     "oo connector apps && oo connector logout",
     "bash -c 'oo connector login https://connector.example.test'",
+    "bash -ec 'oo auth login'",
     "bash -c '$WANTA_OO_BIN config set endpoint https://other.example.test'",
     "sh -lc 'oo config set endpoint https://other.example.test'",
     "zsh -c 'cd /tmp && oo connector apps --connector-token secret'",
@@ -313,20 +322,14 @@ test("default access auto-approves standard registry Node dependencies in bounde
     ),
     { type: "prompt", kind: "command", highRisk: true },
   )
-  for (const packageName of ["playwright", "puppeteer"]) {
-    assert.deepEqual(
-      evaluateLocalAccessRequest(
-        permission({ metadata: { command: `cd ${processRoot} && npm install ${packageName}` } }),
-        {
-          permissionMode: "default",
-          taskProcessRoot: processRoot,
-        },
-      ),
-      { type: "prompt", kind: "command", highRisk: true },
-      packageName,
-    )
-  }
-  for (const packageName of ["playwright-core", "puppeteer-core"]) {
+  for (const packageName of [
+    "playwright",
+    "playwright-core",
+    "@playwright/test",
+    "puppeteer",
+    "puppeteer-core",
+    "canvas",
+  ]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(
         permission({ metadata: { command: `cd ${processRoot} && npm install ${packageName} 2>&1 | tail -5` } }),
@@ -369,7 +372,7 @@ test("default access allows package runners unless they cross an explicit confir
     evaluateLocalAccessRequest(permission({ metadata: { command: "npx --yes playwright --version" } }), {
       permissionMode: "default",
     }),
-    { type: "prompt", kind: "command", highRisk: true },
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })
 

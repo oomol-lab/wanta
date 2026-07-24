@@ -1,7 +1,7 @@
 import type { ChatPermissionRequest } from "./common.ts"
 import type { SessionPermissionGrant } from "./permission-request.ts"
 
-import { canonicalRegistryNodePackageName, nodePackageRequiresConfirmation } from "./dependency-policy.ts"
+import { canonicalRegistryNodePackageName } from "./dependency-policy.ts"
 import { permissionCommand, permissionRequestKind } from "./permission-request.ts"
 import {
   commandName,
@@ -42,34 +42,6 @@ const deniedDevCommandArguments = new Set([
   "--write",
 ])
 const deniedProjectDependencyOptions = new Set(["-g", "--global", "--global-folder", "--registry", "--userconfig"])
-const safeNodeInstallFlags = new Set([
-  "-D",
-  "-E",
-  "-O",
-  "-P",
-  "--dev",
-  "--exact",
-  "--frozen-lockfile",
-  "--ignore-scripts",
-  "--legacy-peer-deps",
-  "--lockfile-only",
-  "--no-audit",
-  "--no-fund",
-  "--no-optional",
-  "--no-save",
-  "--offline",
-  "--optional",
-  "--package-lock-only",
-  "--prefer-offline",
-  "--prod",
-  "--save-dev",
-  "--save-exact",
-  "--save-optional",
-  "--save-prod",
-  "--silent",
-  "--strict-peer-dependencies",
-  "--verbose",
-])
 const projectTargetOptions = new Set(["-C", "--cwd", "--dir", "--prefix"])
 
 function hasDeniedProjectDependencyOption(words: readonly string[]): boolean {
@@ -286,16 +258,16 @@ function packageDependencyInstallAllowed(words: readonly string[]): boolean {
   return !hasDeniedProjectDependencyOption(words)
 }
 
-function registryNodeDependencyPackages(
-  words: readonly string[],
-  options: { allowConfirmationPackages: boolean; allowEmpty: boolean },
-): string[] | null {
+function registryNodeDependencyPackages(words: readonly string[], options: { allowEmpty: boolean }): string[] | null {
   const manager = commandName(words[0])
   if (!manager || !packageManagers.has(manager)) {
     return null
   }
   const command = nextCommandWord(words, 1)
   if (!command || !nodeDependencyInstallVerbs.has(command.value.toLowerCase())) {
+    return null
+  }
+  if (hasDeniedProjectDependencyOption(words)) {
     return null
   }
   for (let index = 1; index < command.index; index += 1) {
@@ -307,8 +279,11 @@ function registryNodeDependencyPackages(
       }
       continue
     }
-    if (!word.startsWith("-") || !safeNodeInstallFlags.has(word)) {
+    if (!word.startsWith("-")) {
       return null
+    }
+    if (optionConsumesNextValue(word)) {
+      index += 1
     }
   }
   const packages: string[] = []
@@ -325,8 +300,8 @@ function registryNodeDependencyPackages(
       continue
     }
     if (word.startsWith("-")) {
-      if (!safeNodeInstallFlags.has(word)) {
-        return null
+      if (optionConsumesNextValue(word)) {
+        index += 1
       }
       continue
     }
@@ -340,9 +315,6 @@ function registryNodeDependencyPackages(
   if (!options.allowEmpty && uniquePackages.length === 0) {
     return null
   }
-  if (!options.allowConfirmationPackages && uniquePackages.some(nodePackageRequiresConfirmation)) {
-    return null
-  }
   return uniquePackages
 }
 
@@ -353,7 +325,6 @@ function directInstallArgumentsUseStandardRegistry(words: readonly string[]): bo
   }
   return Boolean(
     registryNodeDependencyPackages(words, {
-      allowConfirmationPackages: true,
       allowEmpty: command.value.toLowerCase() !== "add",
     }),
   )
@@ -507,7 +478,7 @@ export function isStandardRegistryNodeDependencyInstallRequest(
     words &&
     commandExplicitlyTargetsProject(command, targetRoot) &&
     !hasDeniedProjectDependencyOption(words) &&
-    registryNodeDependencyPackages(words, { allowConfirmationPackages: false, allowEmpty: false }),
+    registryNodeDependencyPackages(words, { allowEmpty: false }),
   )
 }
 

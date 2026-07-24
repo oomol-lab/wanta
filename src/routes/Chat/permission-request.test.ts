@@ -107,7 +107,7 @@ test("high risk command detection marks destructive commands for default access 
   )
   assert.equal(
     isHighRiskPermissionRequest(permission({ metadata: { command: "npx --yes playwright --version" } })),
-    true,
+    false,
   )
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "rm -rf /tmp/wanta-test" } })), true)
   assert.equal(

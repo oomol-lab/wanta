@@ -28,12 +28,13 @@ Node.js installs qualify when all of these conditions hold:
 - The command uses npm, pnpm, yarn, or bun and explicitly targets either the active turn process
   directory or the user-selected project.
 - The operation directly installs one or more standard-registry package specifiers.
-- Ordinary versions and safe save/lockfile flags are accepted. Wanta does not add or pin a version.
+- Ordinary versions and package-manager flags are accepted. Wanta does not add or pin a version.
 - Package popularity is irrelevant: an unfamiliar registry package follows the same rule as `xlsx`,
   `marked`, or `pdf-lib`.
 - No-argument installs, global installs, alternative registries, user config, Git/URL/local sources,
-  aliases, and unknown flags do not enter the automatic direct-install path. A no-argument install in
-  a selected project can still receive a task-scoped approval.
+  and aliases do not enter the automatic direct-install path. Unfamiliar flags are accepted unless
+  they express one of those protected boundaries. A no-argument install in a selected project can
+  still receive a task-scoped approval.
 
 Package runners such as `npx`, `npm exec` / `npm x`, `pnpm dlx`, `yarn dlx`, and `bunx` / `bun x`
 are ordinary local execution under Default Access. Wanta does not maintain per-runner exceptions for
@@ -51,26 +52,24 @@ The following continue through confirmation:
 - Custom registries, alternative Python indexes, user package-manager configuration, and
   Git/URL/local package sources.
 - Package publishing.
-- Explicitly high-cost Node runtime installs: `playwright`, `@playwright/test`,
-  `playwright-chromium`, `playwright-firefox`, `playwright-webkit`, `puppeteer`, and `canvas`.
 - Any dependency command that also touches credentials, sensitive application data, broad
   home/system roots, privilege escalation, destructive deletion, deployment, or another protected
   boundary.
 
-This short confirmation set is based on material install/runtime effects, not a claim that every
-other package is reviewed or safe. High-cost packages can download browser payloads, invoke native
-toolchains, or consume substantial cache and disk space. Direct standard-registry installs of
-`playwright-core` and `puppeteer-core` in a bounded task or selected project are ordinary because
-the library packages do not install a browser payload. The `playwright-core` package-runner path
-remains protected because its CLI can explicitly install browsers.
+This short confirmation set protects scope, source, credentials, and consequential side effects; it
+does not claim that packages outside the set are reviewed or safe. Package names, package size,
+browser payloads, native toolchains, and package-runner selection do not create a confirmation by
+themselves. Direct standard-registry installs explicitly scoped to a bounded task or selected
+project are ordinary, including `playwright`, `puppeteer`, `canvas`, and their related packages.
 
 ## Shell composition
 
 Variables, pipes, redirections, `head`, `tail`, and `grep` are not risk categories by themselves.
 The policy classifies dependency operations independently from command composition and verifies the
 bounded install target before automatic approval. Package-manager option values such as a cache,
-target, report, store, or project directory are also kept separate from package specifiers. For
-example, both of these are ordinary:
+target, report, store, or project directory are also kept separate from package specifiers.
+Unfamiliar non-sensitive flags do not create a confirmation only because the parser lacks an
+allowlist entry. For example, both of these are ordinary:
 
 ```bash
 cd <task-directory> && npm install marked

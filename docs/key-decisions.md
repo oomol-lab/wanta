@@ -285,11 +285,12 @@
   accepted without Wanta pinning a version. Package runners are ordinary local execution rather
   than a separate high-risk class. The user can still issue a task-level grant for no-argument or
   other standard Node.js dependency operations explicitly targeted at the selected project; those
-  grants do not outlive their intended task/session scope. Global installs, custom registries,
-  alternative indexes, user config, Git/URL/local sources, requirements files, `--user`,
-  `--break-system-packages`, system Python, and explicitly high-cost runtimes remain protected.
-  Default Access is a risk policy rather than an OS sandbox; package-name matching cannot provide
-  process isolation once ordinary Python, Node.js, and shell execution is available. If sensitive
+  grants do not outlive their intended task/session scope. Package names, package size, browser
+  tooling, and unfamiliar ordinary flags do not create confirmations. Global installs, custom
+  registries, alternative indexes, user config, Git/URL/local sources, requirements files, `--user`,
+  `--break-system-packages`, and system Python remain protected. Default Access is a risk policy
+  rather than an OS sandbox; package-name matching cannot provide process isolation once ordinary
+  Python, Node.js, and shell execution is available, so it is not used as a security boundary. If sensitive
   paths (browser profiles, mail databases, more credential
   directories) or external side-effect classification are refined further in the future,
   `config.ts`, the ChatService local access policy, the access-mode UI, the event tests, and

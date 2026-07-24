@@ -4,7 +4,6 @@ import {
   canonicalRegistryNodePackageName,
   dependencyCommandRequiresConfirmation,
   isDependencyMutationCommand,
-  nodePackageRequiresConfirmation,
 } from "./dependency-policy.ts"
 
 test("registry package parsing accepts names and versions but rejects alternate sources", () => {
@@ -16,31 +15,19 @@ test("registry package parsing accepts names and versions but rejects alternate 
   assert.equal(canonicalRegistryNodePackageName("../local-tool"), undefined)
 })
 
-test("only explicit high-cost Node runtime installs require package confirmation", () => {
-  for (const name of ["playwright", "@playwright/test", "puppeteer", "canvas"]) {
-    assert.equal(nodePackageRequiresConfirmation(name), true, name)
-  }
-  for (const name of [
-    "playwright-core",
-    "puppeteer-core",
-    "xlsx",
-    "marked",
-    "markdown-pdf",
-    "unreviewed-agent-package",
-  ]) {
-    assert.equal(nodePackageRequiresConfirmation(name), false, name)
-  }
-
-  assert.equal(dependencyCommandRequiresConfirmation("npx --yes playwright --version"), true)
-  assert.equal(dependencyCommandRequiresConfirmation("npx playwright-core install chromium"), true)
-  assert.equal(dependencyCommandRequiresConfirmation("npm x playwright --version"), true)
-  assert.equal(dependencyCommandRequiresConfirmation("bun x playwright --version"), true)
-  assert.equal(dependencyCommandRequiresConfirmation("pnpm dlx puppeteer --help"), true)
-  assert.equal(dependencyCommandRequiresConfirmation("npm exec --package=@playwright/test playwright test"), true)
-  assert.equal(dependencyCommandRequiresConfirmation("npx --package=playwright node -e 'console.log(1)'"), true)
+test("package names and package runners do not create confirmation boundaries", () => {
+  assert.equal(dependencyCommandRequiresConfirmation("npx --yes playwright --version"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npx playwright-core install chromium"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm x playwright --version"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("bun x playwright --version"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("pnpm dlx puppeteer --help"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm exec --package=@playwright/test playwright test"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npx --package=playwright node -e 'console.log(1)'"), false)
   assert.equal(dependencyCommandRequiresConfirmation("npx md-to-pdf playwright --output report.pdf"), false)
   assert.equal(dependencyCommandRequiresConfirmation("npm list playwright"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm install puppeteer"), false)
   assert.equal(dependencyCommandRequiresConfirmation("npm install puppeteer-core"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm install playwright"), false)
   assert.equal(dependencyCommandRequiresConfirmation("npm install playwright-core"), false)
   assert.equal(dependencyCommandRequiresConfirmation("npx --yes markdown-pdf --version"), false)
   assert.equal(dependencyCommandRequiresConfirmation("yarn global add eslint"), true)

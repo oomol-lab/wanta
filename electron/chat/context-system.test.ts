@@ -24,7 +24,7 @@ test("buildPermissionModeSystem describes default access", () => {
   assert.match(prompt, /Ordinary shell commands/)
   assert.match(prompt, /credential\/secret paths/)
   assert.match(prompt, /dependency changes/)
-  assert.match(prompt, /regardless of package popularity/)
+  assert.match(prompt, /regardless of package name, size, or runtime/)
   assert.match(prompt, /Package runners are ordinary local execution/)
   assert.doesNotMatch(prompt, /user has enabled Full Access/)
 })

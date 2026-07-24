@@ -25,7 +25,7 @@ test("shell wrapper inspection is bounded", () => {
   }
 
   assert.equal(isOoCliCommand(command), false)
-  assert.equal(openConnectorCommandPolicy(command), "prompt")
+  assert.equal(openConnectorCommandPolicy(command), null)
 })
 
 test("OpenConnector policy allows built-in oo operations and standard shell wrappers", () => {
@@ -40,6 +40,7 @@ test("OpenConnector policy allows built-in oo operations and standard shell wrap
   }
   assert.equal(openConnectorCommandPolicy("oo connector apps --json 2>&1 | head -80"), null)
   assert.equal(openConnectorCommandPolicy("zsh -c 'cd /tmp && oo connector apps --json'"), null)
+  assert.equal(openConnectorCommandPolicy("bash script.sh"), null)
 })
 
 test("OpenConnector policy keeps credential and runtime boundary protections", () => {

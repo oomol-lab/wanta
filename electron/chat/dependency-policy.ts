@@ -2,16 +2,6 @@ import { effectiveShellCommandWords, shellCommandName, shellWords, topLevelShell
 
 const nodePackageSpecPattern = /^[A-Za-z0-9*+.!<>=~^_-]+$/u
 const nodePackageManagers = new Set(["bun", "npm", "pnpm", "yarn"])
-const nodePackagesRequiringConfirmation = new Set([
-  "@playwright/test",
-  "canvas",
-  "playwright",
-  "playwright-chromium",
-  "playwright-firefox",
-  "playwright-webkit",
-  "puppeteer",
-])
-const nodeRunnerPackagesRequiringConfirmation = new Set([...nodePackagesRequiringConfirmation, "playwright-core"])
 const nodeDependencyVerbs = new Set([
   "add",
   "ci",
@@ -303,24 +293,6 @@ function packageSpecifiersAfter(
   return specifiers
 }
 
-function segmentRunsConfirmableNodePackage(words: readonly string[]): boolean {
-  const runner = packageRunnerInvocation(words)
-  if (runner) {
-    return runner.specifiers.some((specifier) => {
-      const packageName = canonicalRegistryNodePackageName(specifier)
-      return packageName ? nodeRunnerPackagesRequiringConfirmation.has(packageName) : false
-    })
-  }
-  const operation = nodeDependencyOperation(words)
-  if (!operation) {
-    return false
-  }
-  return packageSpecifiersAfter(words, operation.verbIndex + 1, nodeOptionsWithValue).some((specifier) => {
-    const packageName = canonicalRegistryNodePackageName(specifier)
-    return packageName ? nodePackageRequiresConfirmation(packageName) : false
-  })
-}
-
 function segmentIsGlobalNodeInstall(words: readonly string[]): boolean {
   const operation = nodeDependencyOperation(words)
   if (!operation || !nodeInstallVerbs.has(operation.verb)) {
@@ -446,17 +418,10 @@ export function canonicalRegistryNodePackageName(specifier: string): string | un
   return name.toLowerCase()
 }
 
-export function nodePackageRequiresConfirmation(name: string): boolean {
-  return nodePackagesRequiringConfirmation.has(name.toLowerCase())
-}
-
 export function dependencyCommandRequiresConfirmation(command: string): boolean {
   return parsedCommandSegments(command).some(
     (words) =>
-      segmentRunsConfirmableNodePackage(words) ||
-      segmentIsGlobalNodeInstall(words) ||
-      segmentPublishesPackage(words) ||
-      segmentUsesAlternatePackageSource(words),
+      segmentIsGlobalNodeInstall(words) || segmentPublishesPackage(words) || segmentUsesAlternatePackageSource(words),
   )
 }
 

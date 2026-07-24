@@ -64,7 +64,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
-          cache: ""
       - name: Compute version
         id: version
         # 用户输入经 env 传递（不直接插值进脚本体，防 shell 注入/引号破碎）。

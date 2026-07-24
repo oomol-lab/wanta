@@ -7,6 +7,7 @@ import {
   MessageStreamdown,
   mermaidRendererControls,
   messageStreamdownControls,
+  messageStreamdownLinkSafety,
   nativeMessageStreamdownControls,
   wrapMermaidPluginWithValidation,
 } from "./message-streamdown.tsx"
@@ -101,5 +102,25 @@ describe("messageStreamdownControls", () => {
 
     expect(html).toContain('data-mermaid-state="incomplete"')
     expect(html).not.toContain("oo-mermaid-error")
+  })
+})
+
+describe("messageStreamdownLinkSafety", () => {
+  it("installs the product-owned link safety modal renderer", () => {
+    const linkSafety = messageStreamdownLinkSafety()
+
+    expect(linkSafety.enabled).toBe(true)
+    expect(linkSafety.renderModal).toBeTypeOf("function")
+  })
+
+  it("preserves explicit link checks, disabling, and custom modals", () => {
+    const onLinkCheck = vi.fn(() => true)
+    const renderModal = vi.fn(() => null)
+
+    expect(messageStreamdownLinkSafety({ enabled: false, onLinkCheck, renderModal })).toEqual({
+      enabled: false,
+      onLinkCheck,
+      renderModal,
+    })
   })
 })

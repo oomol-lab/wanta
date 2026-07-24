@@ -19,6 +19,12 @@ function permissionModeLabel(mode: AgentPermissionMode, t: ReturnType<typeof use
   return mode === "full_access" ? t("chat.permissionModeFullAccess") : t("chat.permissionModeDefault")
 }
 
+function permissionModeDescription(mode: AgentPermissionMode, t: ReturnType<typeof useT>): string {
+  return mode === "full_access"
+    ? t("chat.permissionModeFullAccessDescription")
+    : t("chat.permissionModeDefaultDescription")
+}
+
 function PermissionModeIcon({ mode, active = false }: { mode: AgentPermissionMode; active?: boolean }) {
   return mode === "full_access" ? (
     <TriangleAlert className={cn("size-4 shrink-0", active ? "text-[var(--oo-warning-foreground)]" : undefined)} />
@@ -45,10 +51,10 @@ export function PermissionModePicker({
   const { closeMenu, handleTriggerKeyDown, menuRef, menuStyle, rootRef, toggleMenu, triggerRef } = useComposerMenu({
     align: "left",
     disabled,
-    minHeight: 112,
+    minHeight: 144,
     open,
     setOpen,
-    width: 220,
+    width: 300,
   })
   const selectedLabel = permissionModeLabel(value, t)
   const activeMode = permissionModeOptions[activeIndex]
@@ -126,6 +132,7 @@ export function PermissionModePicker({
             const active = value === mode
             const highlighted = index === activeIndex
             const label = permissionModeLabel(mode, t)
+            const description = permissionModeDescription(mode, t)
             return (
               <button
                 key={mode}
@@ -141,9 +148,9 @@ export function PermissionModePicker({
                 role="menuitemradio"
                 aria-checked={active}
                 tabIndex={-1}
-                title={label}
+                title={`${label} · ${description}`}
                 className={cn(
-                  "flex min-h-10 w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+                  "flex min-h-14 w-full min-w-0 items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground",
                   active && "font-medium",
                   highlighted && "bg-accent text-accent-foreground",
                 )}
@@ -155,9 +162,18 @@ export function PermissionModePicker({
                 }}
                 onClick={() => activateMode(mode)}
               >
-                <PermissionModeIcon mode={mode} active={active} />
-                <span className={cn("oo-text-label min-w-0 flex-1 truncate", active && "font-medium")}>{label}</span>
-                {active ? <Check className="size-4 shrink-0" /> : <span className="size-4 shrink-0" aria-hidden />}
+                <span className="mt-0.5">
+                  <PermissionModeIcon mode={mode} active={active} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className={cn("oo-text-label block truncate", active && "font-medium")}>{label}</span>
+                  <span className="oo-text-caption mt-0.5 block text-muted-foreground">{description}</span>
+                </span>
+                {active ? (
+                  <Check className="mt-0.5 size-4 shrink-0" />
+                ) : (
+                  <span className="size-4 shrink-0" aria-hidden />
+                )}
               </button>
             )
           })}

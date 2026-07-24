@@ -26,7 +26,7 @@ const forbiddenOoMutation =
   /(?:^|[;&|]{1,2}\s*)(?:oo|"?\$WANTA_OO_BIN"?|"?\$\{WANTA_OO_BIN\}"?)\s+(?:(?:auth|login|logout|config)(?:\s|[;&|]|$)|connector\s+(?:login|logout)(?:\s|[;&|]|$))/u
 const forbiddenOoOption = /(?:^|\s)--(?:endpoint|config-dir|data-dir|connector-url|connector-token)(?:=|\s|$)/u
 const maxShellWrapperDepth = 8
-const posixCommandOption = /^-(?:c|lc)$/u
+const posixCommandOption = /^-[A-Za-z]*c[A-Za-z]*$/u
 const cmdCommandOption = /^\/[ck]$/iu
 const powershellCommandOption = /^-(?:c|command)$/iu
 const unsupportedWrapperSyntax = /(?:`|\$(?!(?:WANTA_OO_BIN\b|\{WANTA_OO_BIN\}))|%[^%\s]+%|![^!\s]+!)/u
@@ -193,7 +193,7 @@ export function isOoCliCommand(command: string): boolean {
   return false
 }
 
-export function openConnectorCommandPolicy(command: string): "deny" | "prompt" | null {
+export function openConnectorCommandPolicy(command: string): "allow" | "deny" | null {
   let current = command.trim()
   for (let depth = 0; depth < maxShellWrapperDepth; depth += 1) {
     if (
@@ -205,10 +205,10 @@ export function openConnectorCommandPolicy(command: string): "deny" | "prompt" |
     ) {
       return "deny"
     }
+    if (isPureOoCliCommand(current)) return "allow"
     const wrapper = shellWrapperCommand(current)
-    if (wrapper.kind === "unsupported") return "prompt"
-    if (wrapper.kind === "not_wrapper") return ooCommandSegment.test(current) ? "prompt" : null
+    if (wrapper.kind === "unsupported" || wrapper.kind === "not_wrapper") return null
     current = wrapper.command
   }
-  return "prompt"
+  return null
 }

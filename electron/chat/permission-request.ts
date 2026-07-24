@@ -1,10 +1,26 @@
 import type { ChatPermissionRequest } from "./common.ts"
 
 import { isPureOoCliCommand } from "../agent/oo-command-permission.ts"
-import { isManagedPythonExecutable, managedPythonExecutable } from "../agent/python-environment.ts"
+import {
+  isManagedPythonExecutable,
+  managedPythonExecutables,
+  projectPythonExecutables,
+} from "../agent/python-environment.ts"
 import { commandRequiresConfirmation } from "./command-risk.ts"
-import { dependencyCommandRequiresConfirmation, isDependencyMutationCommand } from "./dependency-policy.ts"
-import { hasUnsafeShellSyntax, shellWords } from "./shell-syntax.ts"
+import {
+  dependencyCommandRequiresConfirmation,
+  isDependencyMutationCommand,
+  isPythonDependencyMutationCommand,
+} from "./dependency-policy.ts"
+import {
+  commandBodyAfterBoundedCd,
+  commandWithoutSafeOutputFilter,
+  effectiveShellCommandWords,
+  hasUnsafeShellSyntax,
+  shellCommandName,
+  shellWords,
+  topLevelShellSegments,
+} from "./shell-syntax.ts"
 
 export type PermissionRequestKind = "command" | "edit" | "path" | "network" | "local"
 export type SessionPermissionGrantKind =
@@ -94,19 +110,36 @@ function looksLikeLocalPath(value: string): boolean {
   )
 }
 
-function commandAccessResources(command: string): string[] {
-  if (hasUnsafeShellSyntax(command)) {
-    return []
+function nestedShellCommand(words: readonly string[]): string | undefined {
+  const name = shellCommandName(words[0])
+  if (name !== "bash" && name !== "sh" && name !== "zsh") {
+    return undefined
   }
-  const words = shellWords(command)
-  return words ? words.map(pathValue).filter(looksLikeLocalPath) : []
+  const commandIndex = words.findIndex(
+    (word, index) => index > 0 && (word === "-c" || (/^-[^-]/u.test(word) && word.slice(1).includes("c"))),
+  )
+  return commandIndex >= 0 ? words[commandIndex + 1] : undefined
+}
+
+function commandAccessResources(command: string, depth = 0): string[] {
+  return topLevelShellSegments(command).flatMap(({ text }) => {
+    const parsed = shellWords(text)
+    if (!parsed?.length) {
+      return []
+    }
+    const words = effectiveShellCommandWords(parsed)
+    const direct = words.map(pathValue).filter(looksLikeLocalPath)
+    const nested = depth < 2 ? nestedShellCommand(words) : undefined
+    return nested ? [...direct, ...commandAccessResources(nested, depth + 1)] : direct
+  })
 }
 
 function isShallowDirectoryListing(command: string): boolean {
-  if (hasUnsafeShellSyntax(command)) {
+  const body = commandWithoutSafeOutputFilter(command)
+  if (hasUnsafeShellSyntax(body)) {
     return false
   }
-  const words = shellWords(command)
+  const words = shellWords(body)
   if (!words || words[0] !== "ls") {
     return false
   }
@@ -134,28 +167,52 @@ export function isOoCliPermissionRequest(request: ChatPermissionRequest): boolea
 
 const pythonPackageRequirementPattern =
   /^([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)(?:\[[A-Za-z0-9._-]+(?:,[A-Za-z0-9._-]+)*\])?(?:(?:===|==|~=|!=|<=|>=|<|>)[A-Za-z0-9*+.!_-]+(?:,(?:===|==|~=|!=|<=|>=|<|>)[A-Za-z0-9*+.!_-]+)*)?$/u
-const safePipInstallFlags = new Set([
-  "-U",
-  "-q",
-  "-qq",
-  "-qqq",
-  "--disable-pip-version-check",
-  "--no-cache-dir",
-  "--no-input",
-  "--prefer-binary",
-  "--quiet",
-  "--upgrade",
+const protectedPipInstallOptions = new Set([
+  "-c",
+  "-e",
+  "-f",
+  "-i",
+  "-r",
+  "-t",
+  "--break-system-packages",
+  "--config-file",
+  "--constraint",
+  "--default-index",
+  "--editable",
+  "--extra-index-url",
+  "--find-links",
+  "--group",
+  "--index",
+  "--index-url",
+  "--prefix",
+  "--requirement",
+  "--root",
+  "--target",
+  "--trusted-host",
+  "--user",
 ])
 
 function canonicalPythonPackageName(value: string): string {
   return value.toLowerCase().replace(/[._-]+/gu, "-")
 }
 
+function pipOptionName(word: string): string {
+  if (!word.startsWith("--")) {
+    for (const shortOption of ["-c", "-e", "-f", "-i", "-r", "-t"]) {
+      if (word.startsWith(shortOption) && word !== shortOption) {
+        return shortOption
+      }
+    }
+  }
+  const separator = word.indexOf("=")
+  return separator >= 0 ? word.slice(0, separator) : word
+}
+
 function managedPythonPackageNames(words: readonly string[]): string[] | null {
   const packages: string[] = []
   for (const word of words) {
     if (word.startsWith("-")) {
-      if (!safePipInstallFlags.has(word)) {
+      if (protectedPipInstallOptions.has(pipOptionName(word))) {
         return null
       }
       continue
@@ -170,34 +227,130 @@ function managedPythonPackageNames(words: readonly string[]): string[] | null {
   return packages.length > 0 ? [...new Set(packages)] : null
 }
 
-/**
- * Recognizes direct PyPI requirements installed through Wanta's private per-task environment.
- * Source overrides, requirements files, editable installs, paths, URLs, and unknown flags do not qualify.
- */
-export function managedPythonDependencyInstall(
+function normalizedExecutable(executable: string): string {
+  const normalized = executable.replace(/\\/g, "/").replace(/\/+$/u, "")
+  return /^[A-Za-z]:\//u.test(normalized) ? normalized.toLowerCase() : normalized
+}
+
+function resolvedExecutable(executable: string, workingDirectory?: string): string {
+  if (
+    !workingDirectory ||
+    !/[\\/]/u.test(executable) ||
+    executable.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/u.test(executable)
+  ) {
+    return executable
+  }
+  const combined = `${workingDirectory.replace(/\\/g, "/").replace(/\/+$/u, "")}/${executable.replace(/\\/g, "/")}`
+  const drive = /^([A-Za-z]:)\//u.exec(combined)?.[1]
+  const absolute = combined.startsWith("/") || Boolean(drive)
+  const body = drive ? combined.slice(drive.length + 1) : combined.replace(/^\/+/u, "")
+  const segments: string[] = []
+  for (const segment of body.split("/")) {
+    if (!segment || segment === ".") {
+      continue
+    }
+    if (segment === "..") {
+      segments.pop()
+      continue
+    }
+    segments.push(segment)
+  }
+  return `${drive ?? ""}${absolute ? "/" : ""}${segments.join("/")}`
+}
+
+function pythonInstallArguments(
+  words: readonly string[],
+  executableAllowed: (executable: string, workingDirectory?: string) => boolean,
+  workingDirectory?: string,
+): readonly string[] | null {
+  const executable = words[0] ?? ""
+  if (
+    executableAllowed(resolvedExecutable(executable, workingDirectory), workingDirectory) &&
+    words[1] === "-m" &&
+    words[2] === "pip" &&
+    words[3] === "install"
+  ) {
+    return words.slice(4)
+  }
+  if (shellCommandName(executable) !== "uv") {
+    return null
+  }
+  let pipIndex = 1
+  while (words[pipIndex]?.startsWith("-")) {
+    pipIndex += 1
+  }
+  if (words[pipIndex] !== "pip" || words[pipIndex + 1] !== "install") {
+    return null
+  }
+  const installWords: string[] = []
+  let targetExecutable: string | undefined
+  for (let index = pipIndex + 2; index < words.length; index += 1) {
+    const word = words[index] ?? ""
+    if (word === "--python") {
+      targetExecutable = words[index + 1]
+      index += 1
+      continue
+    }
+    if (word.startsWith("--python=")) {
+      targetExecutable = word.slice("--python=".length)
+      continue
+    }
+    installWords.push(word)
+  }
+  const resolvedTarget = targetExecutable ? resolvedExecutable(targetExecutable, workingDirectory) : undefined
+  return resolvedTarget && executableAllowed(resolvedTarget, workingDirectory) ? installWords : null
+}
+
+function scopedPythonDependencyInstall(
   request: ChatPermissionRequest,
-  processRoot?: string,
+  executableAllowed: (executable: string, workingDirectory?: string) => boolean,
+  directoryAllowed: (directory: string) => boolean = () => true,
 ): ManagedPythonDependencyInstall | null {
   if (permissionRequestKind(request) !== "command") {
     return null
   }
   const command = permissionCommand(request)
-  if (!command || hasUnsafeShellSyntax(command)) {
+  if (!command) {
     return null
   }
-  const words = shellWords(command)
-  if (!words || words.length < 5) {
+  const boundedCommand = commandBodyAfterBoundedCd(command, directoryAllowed)
+  if (!boundedCommand) {
     return null
   }
-  const executable = words[0] ?? ""
-  if (processRoot ? executable !== managedPythonExecutable(processRoot) : !isManagedPythonExecutable(executable)) {
+  const body = commandWithoutSafeOutputFilter(boundedCommand.body)
+  if (hasUnsafeShellSyntax(body)) {
     return null
   }
-  if (words[1] !== "-m" || words[2] !== "pip" || words[3] !== "install") {
+  const words = shellWords(body)
+  if (!words) {
     return null
   }
-  const packages = managedPythonPackageNames(words.slice(4))
+  const installWords = pythonInstallArguments(words, executableAllowed, boundedCommand.directory)
+  const packages = installWords ? managedPythonPackageNames(installWords) : null
   return packages ? { packages } : null
+}
+
+/**
+ * Recognizes direct PyPI requirements installed through Wanta's private per-task environment.
+ * Source/scope overrides, requirements files, editable installs, paths, and URLs do not qualify.
+ * Unfamiliar ordinary flags are not confirmation boundaries.
+ */
+export function managedPythonDependencyInstall(
+  request: ChatPermissionRequest,
+  processRoot?: string,
+): ManagedPythonDependencyInstall | null {
+  const allowedExecutables = processRoot
+    ? new Set(managedPythonExecutables(processRoot).map(normalizedExecutable))
+    : undefined
+  return scopedPythonDependencyInstall(
+    request,
+    (executable) =>
+      allowedExecutables
+        ? allowedExecutables.has(normalizedExecutable(executable))
+        : isManagedPythonExecutable(executable),
+    processRoot ? (directory) => normalizedExecutable(directory) === normalizedExecutable(processRoot) : undefined,
+  )
 }
 
 export function isTaskScopedPythonDependencyInstallRequest(
@@ -205,6 +358,27 @@ export function isTaskScopedPythonDependencyInstallRequest(
   processRoot: string,
 ): boolean {
   return Boolean(managedPythonDependencyInstall(request, processRoot))
+}
+
+export function isProjectScopedPythonDependencyInstallRequest(
+  request: ChatPermissionRequest,
+  projectRoot: string,
+): boolean {
+  const allowedExecutables = new Set(projectPythonExecutables(projectRoot).map(normalizedExecutable))
+  return Boolean(
+    scopedPythonDependencyInstall(
+      request,
+      (executable) => allowedExecutables.has(normalizedExecutable(executable)),
+      (directory) => normalizedExecutable(directory) === normalizedExecutable(projectRoot),
+    ),
+  )
+}
+
+export function isPythonDependencyPermissionRequest(request: ChatPermissionRequest): boolean {
+  return (
+    permissionRequestKind(request) === "command" &&
+    Boolean(permissionCommand(request) && isPythonDependencyMutationCommand(permissionCommand(request) ?? ""))
+  )
 }
 
 function normalizeResourceText(resource: string): string {
@@ -265,6 +439,14 @@ function isSensitiveResource(resource: string): boolean {
     segments.includes(".gcloud") ||
     containsSegmentSequence(segments, [".config", "gh"]) ||
     containsSegmentSequence(segments, [".config", "gcloud"]) ||
+    containsSegmentSequence(segments, [".config", "google-chrome"]) ||
+    containsSegmentSequence(segments, [".config", "chromium"]) ||
+    containsSegmentSequence(segments, [".config", "bravesoftware", "brave-browser"]) ||
+    containsSegmentSequence(segments, [".mozilla", "firefox"]) ||
+    containsSegmentSequence(segments, ["appdata", "local", "google", "chrome", "user data"]) ||
+    containsSegmentSequence(segments, ["appdata", "local", "microsoft", "edge", "user data"]) ||
+    containsSegmentSequence(segments, ["appdata", "local", "bravesoftware", "brave-browser", "user data"]) ||
+    containsSegmentSequence(segments, ["appdata", "roaming", "mozilla", "firefox"]) ||
     containsSegmentSequence(segments, ["library", "keychains"]) ||
     containsSegmentSequence(segments, ["library", "mail"]) ||
     containsSegmentSequence(segments, ["library", "messages"]) ||
@@ -291,13 +473,23 @@ function isBroadResource(resource: string): boolean {
   if (
     normalized === "/users" ||
     /^\/users\/[^/]+$/iu.test(normalized) ||
+    normalized === "/home" ||
+    /^\/home\/[^/]+$/iu.test(normalized) ||
+    normalized === "/root" ||
     normalized === "/applications" ||
     normalized === "/library" ||
     normalized === "/system" ||
     normalized === "/etc" ||
     normalized === "/bin" ||
     normalized === "/sbin" ||
-    normalized === "/usr"
+    normalized === "/usr" ||
+    normalized === "/var" ||
+    normalized === "/proc" ||
+    normalized === "/sys" ||
+    normalized === "/dev" ||
+    normalized === "/run" ||
+    /^[a-z]:\/users(?:\/[^/]+)?$/iu.test(normalized) ||
+    /^[a-z]:\/(?:windows|program files|program files \(x86\)|programdata)$/iu.test(normalized)
   ) {
     return true
   }

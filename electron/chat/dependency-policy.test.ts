@@ -4,7 +4,6 @@ import {
   canonicalRegistryNodePackageName,
   dependencyCommandRequiresConfirmation,
   isDependencyMutationCommand,
-  nodePackageRequiresConfirmation,
 } from "./dependency-policy.ts"
 
 test("registry package parsing accepts names and versions but rejects alternate sources", () => {
@@ -16,22 +15,20 @@ test("registry package parsing accepts names and versions but rejects alternate 
   assert.equal(canonicalRegistryNodePackageName("../local-tool"), undefined)
 })
 
-test("only explicit high-cost Node runtimes require package confirmation", () => {
-  for (const name of ["playwright", "playwright-core", "@playwright/test", "puppeteer", "puppeteer-core", "canvas"]) {
-    assert.equal(nodePackageRequiresConfirmation(name), true, name)
-  }
-  for (const name of ["xlsx", "marked", "markdown-pdf", "unreviewed-agent-package"]) {
-    assert.equal(nodePackageRequiresConfirmation(name), false, name)
-  }
-
-  assert.equal(dependencyCommandRequiresConfirmation("npx --yes playwright --version"), true)
-  assert.equal(dependencyCommandRequiresConfirmation("npm x playwright --version"), true)
-  assert.equal(dependencyCommandRequiresConfirmation("bun x playwright --version"), true)
-  assert.equal(dependencyCommandRequiresConfirmation("pnpm dlx puppeteer --help"), true)
-  assert.equal(dependencyCommandRequiresConfirmation("npm exec --package=@playwright/test playwright test"), true)
-  assert.equal(dependencyCommandRequiresConfirmation("npx --package=playwright node -e 'console.log(1)'"), true)
+test("package names and package runners do not create confirmation boundaries", () => {
+  assert.equal(dependencyCommandRequiresConfirmation("npx --yes playwright --version"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npx playwright-core install chromium"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm x playwright --version"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("bun x playwright --version"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("pnpm dlx puppeteer --help"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm exec --package=@playwright/test playwright test"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npx --package=playwright node -e 'console.log(1)'"), false)
   assert.equal(dependencyCommandRequiresConfirmation("npx md-to-pdf playwright --output report.pdf"), false)
   assert.equal(dependencyCommandRequiresConfirmation("npm list playwright"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm install puppeteer"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm install puppeteer-core"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm install playwright"), false)
+  assert.equal(dependencyCommandRequiresConfirmation("npm install playwright-core"), false)
   assert.equal(dependencyCommandRequiresConfirmation("npx --yes markdown-pdf --version"), false)
   assert.equal(dependencyCommandRequiresConfirmation("yarn global add eslint"), true)
   assert.equal(dependencyCommandRequiresConfirmation("npx --registry https://example.test markdown-pdf"), true)
@@ -39,6 +36,45 @@ test("only explicit high-cost Node runtimes require package confirmation", () =>
   assert.equal(dependencyCommandRequiresConfirmation("npx --package=https://example.test/tool.tgz tool"), true)
   assert.equal(dependencyCommandRequiresConfirmation("npm --prefix /tmp/project publish"), true)
   assert.equal(dependencyCommandRequiresConfirmation("poetry --no-interaction publish"), true)
+})
+
+test("Python package runners are ordinary execution unless they override the package source", () => {
+  for (const command of [
+    "uvx ruff --version",
+    "uvx tool --input https://example.test/document.json",
+    "uv tool run ruff --version",
+    "pipx run black --version",
+    "pipx run tool --index-url https://example.test/application-argument",
+  ]) {
+    assert.equal(isDependencyMutationCommand(command), false, command)
+    assert.equal(dependencyCommandRequiresConfirmation(command), false, command)
+  }
+  for (const command of [
+    "uvx --index-url https://example.test/simple ruff --version",
+    "uvx -ihttps://example.test/simple ruff --version",
+    "uvx git+https://example.test/vendor/tool.git --version",
+    "pipx --index-url https://example.test/simple run black --version",
+    "pipx run https://example.test/tool.whl --version",
+    "uv tool run --index-url https://example.test/simple ruff --version",
+  ]) {
+    assert.equal(dependencyCommandRequiresConfirmation(command), true, command)
+  }
+})
+
+test("persistent Python tool changes are dependency mutations, not package runners", () => {
+  for (const command of [
+    "pipx install black",
+    "pipx inject black plugin",
+    "pipx upgrade-all",
+    "uv tool install ruff",
+    "uv tool upgrade --all",
+    "uv tool uninstall ruff",
+  ]) {
+    assert.equal(isDependencyMutationCommand(command), true, command)
+  }
+  for (const command of ["pipx run black --version", "uvx ruff --version", "uv tool run ruff --version"]) {
+    assert.equal(isDependencyMutationCommand(command), false, command)
+  }
 })
 
 test("package runner arguments are not mistaken for alternate package sources", () => {
@@ -115,6 +151,8 @@ test("dependency option values are not mistaken for package sources or costly pa
   assert.equal(dependencyCommandRequiresConfirmation("pnpm --dir /tmp/project add ../local-package"), true)
   assert.equal(dependencyCommandRequiresConfirmation("npm --registry https://example.test install xlsx"), true)
   assert.equal(dependencyCommandRequiresConfirmation("pip --index-url https://example.test/simple install xlsx"), true)
+  assert.equal(dependencyCommandRequiresConfirmation("pip install xlsx -ihttps://example.test/simple"), true)
+  assert.equal(dependencyCommandRequiresConfirmation("uv pip install xlsx --index=https://example.test/simple"), true)
 })
 
 test("command composition and environment prefixes do not hide dependency boundaries", () => {

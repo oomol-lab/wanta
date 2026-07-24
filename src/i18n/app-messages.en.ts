@@ -668,7 +668,7 @@ export const enMessages = {
   "billing.additionalSeats.meta": "$6/mo each, separate from plans",
   "billing.additionalSeats.cardTitle": "Additional seats",
   "billing.additionalSeats.description":
-    "Add seats when {workspace} needs more members using Wanta. Seats are added one at a time and managed separately from Plus or Pro.",
+    "Add seats when {workspace} needs more members using Wanta. Seats are managed separately from Plus or Pro.",
   "billing.additionalSeats.current": "Current additional seats",
   "billing.additionalSeats.unitPrice": "Unit price",
   "billing.additionalSeats.price": "$6/mo",
@@ -858,7 +858,11 @@ export const enMessages = {
   "chat.questionFallbackLabel": "Question {index}",
   "chat.permissionModePicker": "Access mode",
   "chat.permissionModeDefault": "Default access",
+  "chat.permissionModeDefaultDescription":
+    "Runs ordinary actions automatically; asks only at sensitive or high-risk boundaries",
   "chat.permissionModeFullAccess": "Full access",
+  "chat.permissionModeFullAccessDescription":
+    "Skips local confirmations, including for high-risk commands and paths outside the project",
   "chat.fullAccessDialogTitle": "Confirm full access?",
   "chat.fullAccessDialogBody":
     "After this is enabled, Wanta will automatically approve local access requests in this chat, including local commands, file reads/writes/deletes, and paths outside the selected project.\nWanta will not ask again for local operation approval in this chat.\nUse it only when you trust the current task.",
@@ -884,6 +888,8 @@ export const enMessages = {
     "Wanta wants to access a resource that may contain credentials or personal data:\n{resource}\nConfirm that it matches the current task.",
   "chat.permissionPythonDependencyDescription":
     "Wanta needs to install these packages in an isolated Python environment for this task:\n{packages}\nThis will not modify your system Python or user-wide packages.",
+  "chat.permissionPythonDependencyBoundaryDescription":
+    "Wanta wants to run a Python dependency operation:\n{command}\nIts target scope or package source is outside the automatic-approval boundary.",
   "chat.permissionProjectDependencyDescription":
     "Wanta wants to run a dependency operation in the current project:\n{command}\nAllowing it will avoid repeated confirmations for standard dependency operations in this project during this task.",
   "chat.permissionRequiredAllowOnce": "Allow this step",

@@ -1740,13 +1740,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           <ArchivedRoute
             listArchived={listArchived}
             onBack={() => setRoute("chat")}
-            onOpenSession={(session) => {
-              setSelectedSessionId(session.id)
-              setIsDraftSession(false)
-              setPendingChatTransition(null)
-              setRoute("chat")
-              setSidebarSegment(session.projectId ? "projects" : "tasks")
-            }}
             refreshSessions={refreshSessions}
             removeSession={removeSessionWithRuntimeCleanup}
             ready={ready}

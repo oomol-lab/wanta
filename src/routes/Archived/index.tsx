@@ -30,13 +30,7 @@ import {
   ConfirmDialogTitle,
   ConfirmDialogTrigger,
 } from "@/components/ui/confirm-dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useI18n } from "@/i18n/i18n"
@@ -47,7 +41,6 @@ import { cn } from "@/lib/utils"
 interface ArchivedRouteProps {
   listArchived: () => Promise<SessionInfo[]>
   onBack: () => void
-  onOpenSession: (session: SessionInfo) => void
   refreshSessions: () => Promise<void>
   removeSession: (id: string) => Promise<void>
   ready: boolean
@@ -68,7 +61,6 @@ const sortOptions = [
 export function ArchivedRoute({
   listArchived,
   onBack,
-  onOpenSession,
   refreshSessions,
   removeSession,
   ready,
@@ -148,6 +140,13 @@ export function ArchivedRoute({
     setPendingSessionId(session.id)
     try {
       const restored = await unarchiveSession(session.id)
+      if (!restored) {
+        const notice = resolveUserFacingError(new Error("Archived session restore returned no session."), {
+          area: "session",
+        })
+        toast.error(userFacingErrorDescription(notice, t))
+        return null
+      }
       await Promise.all([refreshArchived(), refreshSessions()])
       return restored
     } catch (cause) {
@@ -156,13 +155,6 @@ export function ArchivedRoute({
       return null
     } finally {
       setPendingSessionId(null)
-    }
-  }
-
-  const handleOpen = async (session: SessionInfo): Promise<void> => {
-    const restored = await restoreSession(session)
-    if (restored) {
-      onOpenSession(restored)
     }
   }
 
@@ -280,7 +272,6 @@ export function ArchivedRoute({
                 pending={pendingSessionId === session.id}
                 session={session}
                 onDelete={handleDelete}
-                onOpen={handleOpen}
                 onRestore={handleRestore}
               />
             ))}
@@ -298,14 +289,12 @@ function ArchivedSessionRow({
   pending,
   session,
   onDelete,
-  onOpen,
   onRestore,
 }: {
   locale: string
   pending: boolean
   session: SessionInfo
   onDelete: (session: SessionInfo) => Promise<void>
-  onOpen: (session: SessionInfo) => Promise<void>
   onRestore: (session: SessionInfo) => Promise<void>
 }) {
   const { t } = useI18n()
@@ -316,12 +305,7 @@ function ArchivedSessionRow({
     <article
       className={cn("grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-4", pending && "opacity-60")}
     >
-      <button
-        type="button"
-        className="grid min-w-0 gap-2 text-left"
-        disabled={pending}
-        onClick={() => void onOpen(session)}
-      >
+      <div className="grid min-w-0 gap-2">
         <div className="oo-text-caption flex min-w-0 items-center gap-2 text-muted-foreground">
           <FolderIcon className="size-4 shrink-0" />
           <span className="min-w-0 truncate">{t("archived.listMeta", { date: archivedAt })}</span>
@@ -330,31 +314,32 @@ function ArchivedSessionRow({
           {session.title}
         </div>
         <div className="oo-text-caption text-muted-foreground">{t("archived.updatedAt", { date: updatedAt })}</div>
-      </button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label={t("archived.rowActions")}
-            title={t("archived.rowActions")}
-            disabled={pending}
-          >
-            <MoreHorizontalIcon className="size-4" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => void onRestore(session)}>
-            <RotateCcwIcon className="size-4" />
-            {t("archived.restore")}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onSelect={() => void onDelete(session)}>
-            <Trash2Icon className="size-4" />
-            {t("archived.delete")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button type="button" variant="outline" disabled={pending} onClick={() => void onRestore(session)}>
+          <RotateCcwIcon className="size-4" />
+          {t("archived.restore")}
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label={t("archived.rowActions")}
+              title={t("archived.rowActions")}
+              disabled={pending}
+            >
+              <MoreHorizontalIcon className="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem variant="destructive" onSelect={() => void onDelete(session)}>
+              <Trash2Icon className="size-4" />
+              {t("archived.delete")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </article>
   )
 }

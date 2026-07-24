@@ -38,13 +38,12 @@ test("local access policy allows pure oo commands without a renderer prompt", ()
   )
 })
 
-test("local access policy prompts for direct and wrapped oo commands under OpenConnector", () => {
+test("local access policy allows direct and standard wrapped oo commands under OpenConnector", () => {
   for (const command of [
     "oo connector apps --json",
     "bash -c 'oo connector apps --json'",
     "/bin/bash -c 'oo connector apps --json'",
     "sh -lc 'oo connector apps --json'",
-    "zsh -c 'cd /tmp && oo connector apps --json'",
     'cmd.exe /c "oo connector apps --json"',
     "cmd /c oo connector apps --json",
     'pwsh -Command "oo connector apps --json"',
@@ -54,7 +53,7 @@ test("local access policy prompts for direct and wrapped oo commands under OpenC
         linkRuntime: "openconnector",
         permissionMode: "full_access",
       }),
-      { type: "prompt", kind: "command", highRisk: false },
+      { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
       command,
     )
   }
@@ -63,29 +62,47 @@ test("local access policy prompts for direct and wrapped oo commands under OpenC
       linkRuntime: "openconnector",
       permissionMode: "default",
     }),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
   )
+  for (const command of ["zsh -c 'cd /tmp && oo connector apps --json'", "oo connector apps --json 2>&1 | head -80"]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        linkRuntime: "openconnector",
+        permissionMode: "default",
+      }),
+      { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+      command,
+    )
+  }
 })
 
-test("local access policy prompts when shell wrapper syntax is not fully modeled", () => {
-  for (const command of [
-    "bash -c'oo auth login'",
-    "bash -c $'oo auth login'",
-    `bash -c "$(printf 'oo auth login')"`,
-    "bash -c '$SHELL_COMMAND'",
-    "bash -ec 'oo auth login'",
-    "bash script.sh",
-    "cmd /c %SHELL_COMMAND%",
-  ]) {
+test("local access policy does not prompt only because shell wrapper syntax is not fully modeled", () => {
+  for (const command of ["bash -c '$SHELL_COMMAND'", "bash script.sh", "cmd /c %SHELL_COMMAND%"]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), {
         linkRuntime: "openconnector",
         permissionMode: "full_access",
       }),
-      { type: "prompt", kind: "command", highRisk: false },
+      { type: "allow", reason: "full_access", kind: "command", highRisk: false },
       command,
     )
   }
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "bash script.sh" } }), {
+      linkRuntime: "openconnector",
+      permissionMode: "default",
+    }),
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+  )
+})
+
+test("full access auto-approves local oo commands even without an active Link runtime", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector apps --json" } }), {
+      permissionMode: "full_access",
+    }),
+    { type: "allow", reason: "full_access", kind: "command", highRisk: false },
+  )
 })
 
 test("local access policy rejects OpenConnector credential and configuration commands", () => {
@@ -97,6 +114,7 @@ test("local access policy rejects OpenConnector credential and configuration com
     "oo connector apps --endpoint=https://other.example.test",
     "oo connector apps && oo connector logout",
     "bash -c 'oo connector login https://connector.example.test'",
+    "bash -ec 'oo auth login'",
     "bash -c '$WANTA_OO_BIN config set endpoint https://other.example.test'",
     "sh -lc 'oo config set endpoint https://other.example.test'",
     "zsh -c 'cd /tmp && oo connector apps --connector-token secret'",
@@ -210,8 +228,9 @@ test("local access policy separates dependency confirmation from genuinely high-
   )
 })
 
-test("default access auto-approves direct PyPI requirements only in the active task environment", () => {
+test("default access auto-approves direct Python requirements in bounded task or project environments", () => {
   const processRoot = "/tmp/wanta-process/task-1"
+  const projectRoot = "/Users/example/code/customer-project"
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({
@@ -241,6 +260,42 @@ test("default access auto-approves direct PyPI requirements only in the active t
     ),
     { type: "prompt", kind: "command", highRisk: false },
   )
+  for (const command of [
+    `${projectRoot}/.venv/bin/python -m pip install --compile 'pandas>=2'`,
+    `${projectRoot}/venv/bin/python3 -m pip install --use-feature fast-deps weasyprint`,
+    `uv pip install --python ${projectRoot}/.venv/bin/python pypdf`,
+    `uv pip install --python=${projectRoot}/venv/bin/python3 reportlab`,
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+        trustedProjectRoot: projectRoot,
+      }),
+      { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+      command,
+    )
+  }
+  for (const command of [
+    "pip install pandas",
+    "python3 -m pip install pandas",
+    `${projectRoot}/.venv/bin/python -m pip install --user pandas`,
+    `${projectRoot}/.venv/bin/python -m pip install -r requirements.txt`,
+    `${projectRoot}/.venv/bin/python -m pip install git+https://example.test/package.git`,
+    `uv pip install --python /tmp/other/.venv/bin/python pandas`,
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+        trustedProjectRoot: projectRoot,
+      }),
+      {
+        type: "prompt",
+        kind: "command",
+        highRisk: command.includes("git+"),
+      },
+      command,
+    )
+  }
 })
 
 test("default access auto-approves standard registry Node dependencies in bounded task or project roots", () => {
@@ -304,17 +359,65 @@ test("default access auto-approves standard registry Node dependencies in bounde
     ),
     { type: "prompt", kind: "command", highRisk: true },
   )
-  for (const packageName of ["playwright", "playwright-core", "puppeteer", "puppeteer-core"]) {
+  for (const packageName of [
+    "playwright",
+    "playwright-core",
+    "@playwright/test",
+    "puppeteer",
+    "puppeteer-core",
+    "canvas",
+  ]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(
-        permission({ metadata: { command: `cd ${processRoot} && npm install ${packageName}` } }),
+        permission({ metadata: { command: `cd ${processRoot} && npm install ${packageName} 2>&1 | tail -5` } }),
         {
           permissionMode: "default",
           taskProcessRoot: processRoot,
         },
       ),
-      { type: "prompt", kind: "command", highRisk: true },
+      { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
       packageName,
+    )
+  }
+})
+
+test("default access applies one scope-and-boundary policy across Node.js and Python", () => {
+  const projectRoot = "/Users/example/code/customer-project"
+  const context = { permissionMode: "default" as const, trustedProjectRoot: projectRoot }
+  for (const command of [
+    `cd ${projectRoot} && npm install --unknown-option report-tool`,
+    `${projectRoot}/.venv/bin/python -m pip install --compile report-tool`,
+    `cd ${projectRoot} && .venv/bin/python -m pip install report-tool 2>&1 | tail -5`,
+    `uv --no-progress pip install --python=${projectRoot}/.venv/bin/python report-tool 2>&1 | tail -5`,
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
+      { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+      command,
+    )
+  }
+  for (const command of ["npm install report-tool", "pip install report-tool"]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
+      { type: "prompt", kind: "command", highRisk: false },
+      command,
+    )
+  }
+  for (const command of ["pipx install black", "uv tool install ruff"]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
+      { type: "prompt", kind: "command", highRisk: false },
+      command,
+    )
+  }
+  for (const command of [
+    `cd ${projectRoot} && npm install report-tool --registry https://example.test`,
+    `${projectRoot}/.venv/bin/python -m pip install report-tool --index-url https://example.test/simple`,
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
+      { type: "prompt", kind: "command", highRisk: true },
+      command,
     )
   }
 })
@@ -328,6 +431,8 @@ test("default access allows package runners unless they cross an explicit confir
     prettierProbe,
     markdownPdfProbe,
     "npx --yes unknown-package",
+    "uvx ruff --version",
+    "pipx run black --version",
     "npx --yes prettier --write .",
     "pnpm dlx markdown-pdf --version",
     'cd "/Users/test/Library/Application Support/wanta/agent/process/task" && npx md-to-pdf ' +
@@ -347,7 +452,7 @@ test("default access allows package runners unless they cross an explicit confir
     evaluateLocalAccessRequest(permission({ metadata: { command: "npx --yes playwright --version" } }), {
       permissionMode: "default",
     }),
-    { type: "prompt", kind: "command", highRisk: true },
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })
 
@@ -482,7 +587,7 @@ test("generic folder grants do not cover sensitive descendants", () => {
   )
 })
 
-test("generic folder grants do not cover high-risk shell commands", () => {
+test("generic folder grants distinguish read-only and destructive find execution", () => {
   const grant = localAccessGrantForRequest(
     permission({ action: "bash", metadata: { command: "find ~/Documents -type f" }, save: ["find *"] }),
   )
@@ -493,20 +598,70 @@ test("generic folder grants do not cover high-risk shell commands", () => {
       permissionMode: "default",
       sessionGrants: [grant],
     }),
+    { type: "allow", reason: "session_grant", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "find ~/Documents -exec rm -rf {} \\;" } }), {
+      permissionMode: "default",
+      sessionGrants: [grant],
+    }),
     { type: "prompt", kind: "command", highRisk: true },
   )
 })
 
 test("local access policy prompts broad shell scans but keeps specific ordinary reads smooth", () => {
+  for (const command of [
+    "find ~ -type f",
+    "find ~ | head -20",
+    "ls -R ~ | head -20",
+    'bash -lc "find ~ -maxdepth 2"',
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode: "default" }),
+      { type: "prompt", kind: "command", highRisk: false },
+      command,
+    )
+  }
   assert.deepEqual(
-    evaluateLocalAccessRequest(permission({ metadata: { command: "find ~ -type f" } }), { permissionMode: "default" }),
-    { type: "prompt", kind: "command", highRisk: false },
+    evaluateLocalAccessRequest(permission({ metadata: { command: "ls ~ | head -20" } }), {
+      permissionMode: "default",
+    }),
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "cat /Users/example/Documents/brief.md" } }), {
       permissionMode: "default",
     }),
     { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+  )
+})
+
+test("local access policy recognizes broad Unix and Windows account or system roots", () => {
+  for (const resource of [
+    "/home",
+    "/home/alice",
+    "/root",
+    "/var",
+    "C:\\Users",
+    "C:\\Users\\Alice",
+    "C:\\Windows",
+    "D:\\Program Files",
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ action: "external_directory", resources: [resource] }), {
+        permissionMode: "default",
+      }),
+      { type: "prompt", kind: "path", highRisk: false },
+      resource,
+    )
+  }
+
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ action: "external_directory", resources: ["C:\\Users\\Alice\\Documents"] }),
+      { permissionMode: "default" },
+    ),
+    { type: "allow", reason: "default_local", kind: "path", highRisk: false },
   )
 })
 

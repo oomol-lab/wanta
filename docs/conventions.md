@@ -147,27 +147,34 @@
   project files should not create prompts; only broad home/system root scans prompt. Credentials/
   secrets, browser login state, and private app data such as mail/messages/contacts/calendar must be
   evaluated before any generic directory grant — an ordinary folder grant never covers these
-  sensitive sub-paths. Third-party Python dependencies must go into the private `.wanta-python` venv
-  under each turn's process directory. Direct PyPI requirements are auto-approved there regardless
-  of package popularity, including ordinary extras and version constraints. This does not cover
-  `--user`, `--break-system-packages`, extra indexes, URL/local-path/requirements files, or system
-  Python. Direct standard-registry Node.js packages are auto-approved only when an
-  npm/pnpm/yarn/bun install explicitly targets the turn process directory or the currently selected
-  project. Package runners are ordinary local execution rather than a package-specific risk class.
+  sensitive sub-paths. Third-party Python dependencies must use the exact private `.wanta-python`
+  interpreter under the turn process directory or an exact `.venv` / `venv` interpreter inside the
+  selected project; `uv pip --python` qualifies when it names one of those interpreters. Direct
+  requirements are auto-approved in those bounded environments regardless of package popularity,
+  including ordinary extras, version constraints, and unfamiliar ordinary flags. This does not
+  cover `--user`, `--break-system-packages`, extra indexes, URL/local-path/requirements files, bare
+  pip, or system Python. Direct Node.js packages with no explicit source override are auto-approved
+  only when an npm/pnpm/yarn/bun install explicitly targets the turn process directory or the
+  currently selected project. Node.js and Python package runners are ordinary local execution
+  rather than a package-specific risk class.
   No-argument or other project dependency operations can earn a task-level grant valid only for the
-  current generation. Global installs, custom registries, user config, Git/URL/local package
-  sources, explicitly high-cost runtimes, and out-of-scope commands never qualify for automatic
-  approval. Session
+  current generation. Package names, package size, browser tooling, and unfamiliar ordinary flags
+  are not confirmation boundaries. Global installs, custom registries, user config, Git/URL/local
+  package sources, and out-of-scope commands never qualify for automatic approval. Session
   grants may still cover non-sensitive requests the user has explicitly allowed; Full Access =
   session-level local YOLO — once confirmed, the main process auto-replies local permissions for the
   session and stops doing per-request local risk judgment.
   New ask rules must be verified end to end: pending-permission queries, event push, auto-approve
   dedup, and reply.
-- **oo CLI fast path**: the OpenCode configuration still keeps the fast pass for commands whose
-  first token is `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}`; all other local bash /
-  external_directory asks fall through to the ChatService Default Access policy. Shell pipes/
-  redirection are not by themselves a reason to prompt — prompt only on a genuine baseline security
-  risk; `sudo`, piping into a shell, writes to sensitive paths, etc. still require confirmation.
+- **oo CLI fast path**: OOMOL keeps the OpenCode fast pass for commands whose first token is `oo` /
+  `$WANTA_OO_BIN` / `${WANTA_OO_BIN}`. OpenConnector keeps `bash: "ask"` so the main process can
+  reject credential reads and runtime configuration overrides, then automatically approves built-in
+  oo business operations. Safe shell wrappers are inspected; unrecognized ordinary wrappers,
+  pipelines, and output filtering fall through to the normal Default Access policy instead of
+  creating a parser-only prompt. Pipes/redirection are not by themselves a reason to prompt —
+  prompt only on a genuine baseline security risk; `sudo`, piping into a shell, writes to sensitive
+  paths, etc. still require confirmation. Full Access bypasses every local prompt after the
+  OpenConnector credential and injected-runtime hard-deny checks.
 - **Permission gates only built-in tools**: `bash: deny` and the like do not constrain `.opencode`
   custom tools (their permission gate lives inside each built-in tool's execute) — when
   re-tightening permissions, the connector meta-tools keep spawning oo unaffected.

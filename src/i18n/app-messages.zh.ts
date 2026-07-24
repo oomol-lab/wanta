@@ -634,7 +634,7 @@ export const zhCNMessages = {
   "billing.additionalSeats.meta": "每个 $6/月，和计划分开",
   "billing.additionalSeats.cardTitle": "额外席位",
   "billing.additionalSeats.description":
-    "{workspace} 需要更多成员使用 Wanta 时再加席位。席位一次加一个，和 Plus / Pro 计划分开管理。",
+    "{workspace} 需要更多成员使用 Wanta 时再加席位，席位和 Plus / Pro 计划分开管理。",
   "billing.additionalSeats.current": "当前额外席位",
   "billing.additionalSeats.unitPrice": "单价",
   "billing.additionalSeats.price": "$6/月",
@@ -819,7 +819,9 @@ export const zhCNMessages = {
   "chat.questionFallbackLabel": "问题 {index}",
   "chat.permissionModePicker": "访问模式",
   "chat.permissionModeDefault": "默认访问",
+  "chat.permissionModeDefaultDescription": "普通操作自动执行，仅在敏感或高风险边界确认",
   "chat.permissionModeFullAccess": "完全访问",
+  "chat.permissionModeFullAccessDescription": "跳过本地操作确认，包括高风险命令和项目外路径",
   "chat.fullAccessDialogTitle": "确认开启完全访问？",
   "chat.fullAccessDialogBody":
     "开启后，Wanta 会在当前会话中自动批准本地访问请求，包括本地命令、文件读写/删除，以及所选项目之外的路径访问。\n当前会话内不会再逐次询问本地操作权限。\n仅建议在你信任当前任务时使用。",
@@ -842,6 +844,8 @@ export const zhCNMessages = {
     "Wanta 想访问可能含有凭证或个人数据的资源：\n{resource}\n请确认这符合你的当前任务。",
   "chat.permissionPythonDependencyDescription":
     "Wanta 需要在本次任务的隔离 Python 环境中安装：\n{packages}\n不会修改系统 Python 或用户全局包。",
+  "chat.permissionPythonDependencyBoundaryDescription":
+    "Wanta 想执行 Python 依赖操作：\n{command}\n其目标范围或依赖来源超出了自动批准边界，需要确认。",
   "chat.permissionProjectDependencyDescription":
     "Wanta 想在当前项目中执行依赖操作：\n{command}\n允许后，本次任务内同一项目的标准依赖操作不再逐次确认。",
   "chat.permissionRequiredAllowOnce": "允许本次操作",

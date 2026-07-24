@@ -78,11 +78,28 @@ function recursiveDelete(words: readonly string[]): boolean {
     .some((word) => word === "--recursive" || optionHasLetter(word, "r") || optionHasLetter(word, "R"))
 }
 
-function destructiveFind(words: readonly string[]): boolean {
-  return (
-    shellCommandName(words[0]) === "find" &&
-    words.slice(1).some((word) => ["-delete", "-exec", "-execdir", "-ok", "-okdir"].includes(word))
-  )
+function destructiveFind(words: readonly string[], depth: number): boolean {
+  if (shellCommandName(words[0]) !== "find") {
+    return false
+  }
+  for (let index = 1; index < words.length; index += 1) {
+    const word = words[index]
+    if (word === "-delete") {
+      return true
+    }
+    if (!["-exec", "-execdir", "-ok", "-okdir"].includes(word ?? "")) {
+      continue
+    }
+    const terminator = words.findIndex((candidate, candidateIndex) => candidateIndex > index && candidate === ";")
+    const nested = words.slice(index + 1, terminator >= 0 ? terminator : words.length)
+    if (riskySimpleCommand(nested, depth + 1)) {
+      return true
+    }
+    if (terminator >= 0) {
+      index = terminator
+    }
+  }
+  return false
 }
 
 function broadPermissionChange(words: readonly string[]): boolean {
@@ -162,6 +179,56 @@ function mutatesDocker(words: readonly string[]): boolean {
   return (verb === "system" && nested === "prune") || (verb === "volume" && nested === "rm")
 }
 
+function destroysInfrastructure(words: readonly string[]): boolean {
+  const name = shellCommandName(words[0])
+  if (name === "terraform" || name === "tofu" || name === "pulumi") {
+    return words.slice(1).some((word) => word.toLowerCase() === "destroy")
+  }
+  return false
+}
+
+function deletesRemoteRepository(words: readonly string[]): boolean {
+  if (shellCommandName(words[0]) !== "gh") {
+    return false
+  }
+  const first = nextOperand(words, 1)
+  const second = first ? nextOperand(words, first.index + 1) : undefined
+  return first?.value.toLowerCase() === "repo" && second?.value.toLowerCase() === "delete"
+}
+
+function recursivelyDeletesCloudStorage(words: readonly string[]): boolean {
+  const name = shellCommandName(words[0])
+  const normalized = words.map((word) => word.toLowerCase())
+  if (name === "aws") {
+    return (
+      normalized.some((word, index) => word === "s3" && normalized[index + 1] === "rm") &&
+      normalized.includes("--recursive")
+    )
+  }
+  if (name === "gcloud") {
+    const storageRmIndex = normalized.findIndex((word, index) => word === "storage" && normalized[index + 1] === "rm")
+    return (
+      storageRmIndex >= 0 &&
+      normalized.slice(storageRmIndex + 2).some((word) => word === "--recursive" || word === "-r")
+    )
+  }
+  if (name === "gsutil") {
+    return normalized.includes("rm") && normalized.includes("-r")
+  }
+  return name === "rclone" && normalized[1] === "purge"
+}
+
+function destructivelyOverwritesStorage(words: readonly string[]): boolean {
+  const name = shellCommandName(words[0])
+  if (name === "truncate") {
+    return true
+  }
+  if (name === "dd") {
+    return words.slice(1).some((word) => /^of=/iu.test(word))
+  }
+  return Boolean(name && (/^mkfs(?:\.|$)/u.test(name) || /^newfs(?:_|$)/u.test(name)))
+}
+
 function deploysService(words: readonly string[]): boolean {
   const name = shellCommandName(words[0])
   if (!name || !["firebase", "netlify", "serverless", "sst", "vercel", "wrangler"].includes(name)) {
@@ -216,12 +283,16 @@ function riskySimpleCommand(words: readonly string[], depth: number): boolean {
   }
   return (
     recursiveDelete(command) ||
-    destructiveFind(command) ||
+    destructiveFind(command, depth) ||
     broadPermissionChange(command) ||
     mutatesHomebrew(command) ||
     mutatesGitRemoteOrWorkingTree(command) ||
     mutatesCluster(command) ||
     mutatesDocker(command) ||
+    destroysInfrastructure(command) ||
+    deletesRemoteRepository(command) ||
+    recursivelyDeletesCloudStorage(command) ||
+    destructivelyOverwritesStorage(command) ||
     deploysService(command) ||
     readsSystemPassword(command) ||
     mutatesSystemService(command)

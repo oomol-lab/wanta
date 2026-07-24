@@ -668,7 +668,7 @@ export const enMessages = {
   "billing.additionalSeats.meta": "$6/mo each, separate from plans",
   "billing.additionalSeats.cardTitle": "Additional seats",
   "billing.additionalSeats.description":
-    "Add seats when {workspace} needs more members using Wanta. Seats are added one at a time and managed separately from Plus or Pro.",
+    "Add seats when {workspace} needs more members using Wanta. Seats are managed separately from Plus or Pro.",
   "billing.additionalSeats.current": "Current additional seats",
   "billing.additionalSeats.unitPrice": "Unit price",
   "billing.additionalSeats.price": "$6/mo",

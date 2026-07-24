@@ -634,7 +634,7 @@ export const zhCNMessages = {
   "billing.additionalSeats.meta": "每个 $6/月，和计划分开",
   "billing.additionalSeats.cardTitle": "额外席位",
   "billing.additionalSeats.description":
-    "{workspace} 需要更多成员使用 Wanta 时再加席位。席位一次加一个，和 Plus / Pro 计划分开管理。",
+    "{workspace} 需要更多成员使用 Wanta 时再加席位，席位和 Plus / Pro 计划分开管理。",
   "billing.additionalSeats.current": "当前额外席位",
   "billing.additionalSeats.unitPrice": "单价",
   "billing.additionalSeats.price": "$6/月",

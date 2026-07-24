@@ -263,7 +263,12 @@ function resolvedExecutable(executable: string, workingDirectory?: string): stri
 }
 
 function resolvedDirectory(directory: string, workingDirectory?: string): string {
-  if (!workingDirectory || directory.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(directory)) {
+  if (
+    !workingDirectory ||
+    directory.startsWith("/") ||
+    directory.startsWith("\\") ||
+    /^[A-Za-z]:[\\/]/u.test(directory)
+  ) {
     return directory
   }
   return resolvedExecutable(`./${directory}`, workingDirectory)

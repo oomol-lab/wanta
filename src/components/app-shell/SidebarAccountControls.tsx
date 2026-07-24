@@ -50,13 +50,7 @@ function WorkspaceAvatar({ className = "size-7", workspace }: { className?: stri
   return <TeamWorkspaceAvatar className={className} workspace={workspace} />
 }
 
-function TeamWorkspaceAvatar({
-  className,
-  workspace,
-}: {
-  className: string
-  workspace: WorkspaceSelection
-}) {
+function TeamWorkspaceAvatar({ className, workspace }: { className: string; workspace: WorkspaceSelection }) {
   const avatarUrl = workspace.avatarPreviewUrl ?? workspace.team?.avatar
   const fallback = teamInitials(workspace.team?.name ?? workspace.teamId)
   const fallbackStyle = teamAvatarStyle(workspace.teamId)

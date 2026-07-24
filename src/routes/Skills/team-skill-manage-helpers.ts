@@ -170,10 +170,6 @@ export function teamRuntimeStatusTone(state: TeamSkillRuntimeState): "attention"
       : "attention"
 }
 
-export function shouldShowTeamRuntimeStatusOnCard(state: TeamSkillRuntimeState): boolean {
-  return state !== "installed-same" && state !== "missing" && state !== "external-only"
-}
-
 export function canOpenManagedTeamSkill(state: TeamSkillRuntimeState): boolean {
   return (
     state === "installed-same" ||

@@ -246,9 +246,10 @@ export function TeamSkillMarketRow({
       title={pkg.displayName}
       description={skillDescription}
       badges={
-        <Badge variant={linked ? "secondary" : "outline"}>
-          {linked ? t("skills.teamAdded") : getPublicSkillInstallStateLabel(installState, t)}
-        </Badge>
+        <>
+          {linked ? <Badge variant="secondary">{t("teams.skillManageConfigured")}</Badge> : null}
+          <Badge variant="outline">{getPublicSkillInstallStateLabel(installState, t)}</Badge>
+        </>
       }
       meta={
         <div className="min-w-0 truncate" title={skillLine}>
@@ -540,6 +541,9 @@ export function TeamSkillRecommendationRow({
         <>
           <Badge variant="secondary" className="shrink-0">
             {t("teams.skillManageRecommended")}
+          </Badge>
+          <Badge variant="outline" className="shrink-0">
+            {getPublicSkillInstallStateLabel(recommendation.installState, t)}
           </Badge>
         </>
       }

@@ -22,6 +22,11 @@ Do not ask the user to describe a logged-in screen before checking whether the c
 the intended auth mode. `auth:status` reports profile and cookie-marker presence without printing
 credentials.
 
+When login state is suspect, run `corepack pnpm run auth:status` first. It reports the machine
+snapshot and current worktree profile, cookie marker, and cookie expiry. If the snapshot is missing,
+expired, or close to expiry, run `corepack pnpm run auth:capture` on the prepared machine and then
+restore again with `corepack pnpm run auth:restore`.
+
 ## What to inspect
 
 - The Vite terminal output
@@ -35,14 +40,14 @@ credentials.
 - `osascript` for window/process state
 - `screencapture` for a full-screen or region capture
 - `cat .wanta-dev/bootstrap.json` for the active worktree port, protocol scheme, and user-data path
-- `corepack pnpm run auth:status` for the current worktree auth mode
+- `corepack pnpm run auth:status` for the current worktree auth mode and saved cookie expiry
 - `lsof -iTCP:<port> -sTCP:LISTEN` for port conflicts
 
 ## Common failure modes
 
 - Electron window never appears
-- app stays on the login gate because `auth:restore` was not run, the snapshot is expired, or the
-  task intentionally started from `auth:clean`
+- app stays on the login gate because `auth:restore` was not run, the machine snapshot is missing or
+  expired, or the task intentionally started from `auth:clean`
 - the worktree port is already taken
 - a stale Electron process is still alive after a stopped session
 - login callback does not return to the app because protocol registration is disabled in

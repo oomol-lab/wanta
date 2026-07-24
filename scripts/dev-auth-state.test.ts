@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { describe, test } from "vitest"
-import { inspectAuthState, resolveDevAuthPaths } from "./dev-auth-state.ts"
+import { chromiumTimeToUnixMs, formatExpiry, inspectAuthState, resolveDevAuthPaths } from "./dev-auth-state.ts"
 
 describe("dev auth state helpers", () => {
   test("resolveDevAuthPaths uses bootstrap userData and machine root", () => {
@@ -75,6 +75,18 @@ describe("dev auth state helpers", () => {
       hasProfile: false,
       isLoggedIn: false,
     })
+  })
+
+  test("chromiumTimeToUnixMs converts Chromium cookie timestamps", () => {
+    assert.equal(new Date(chromiumTimeToUnixMs("13430723115000000")).toISOString(), "2026-08-09T04:25:15.000Z")
+  })
+
+  test("formatExpiry shows expiry and remaining days", () => {
+    assert.equal(
+      formatExpiry(Date.UTC(2026, 7, 9, 4, 25, 15), Date.UTC(2026, 7, 8, 4, 25, 15)),
+      "2026-08-09T04:25:15.000Z (1.0 days remaining)",
+    )
+    assert.equal(formatExpiry(undefined), "unknown")
   })
 })
 

@@ -1,7 +1,7 @@
 import type { ChildProcess } from "node:child_process"
 import type { Dirent } from "node:fs"
 
-import { spawn } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { constants as fsConstants } from "node:fs"
 import { access, chmod, cp, mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises"
 import os from "node:os"
@@ -17,6 +17,7 @@ export interface AuthState {
   hasOomolCookie: boolean
   hasProfile: boolean
   isLoggedIn: boolean
+  oomolCookieExpiresAtMs?: number
 }
 
 export interface DevAuthPaths {
@@ -31,6 +32,7 @@ const repoRoot = path.join(dirname, "..")
 const bootstrapJsonPath = path.join(repoRoot, ".wanta-dev", "bootstrap.json")
 const authJsonName = "auth.json"
 const oomolCookieName = "oomol-token"
+const sqlite3Binary = process.platform === "darwin" ? "/usr/bin/sqlite3" : "sqlite3"
 
 export function isMainModule(): boolean {
   return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
@@ -85,15 +87,16 @@ export function resolveDevAuthPaths(config: BootstrapConfig, homeDir = os.homedi
 }
 
 export async function inspectAuthState(userDataDir: string): Promise<AuthState> {
-  const [hasProfile, hasOomolCookie] = await Promise.all([
+  const [hasProfile, cookieState] = await Promise.all([
     hasPersistedProfile(path.join(userDataDir, authJsonName)),
-    hasCookieMarker(userDataDir),
+    readCookieState(userDataDir),
   ])
 
   return {
-    hasOomolCookie,
+    hasOomolCookie: cookieState.hasMarker,
     hasProfile,
-    isLoggedIn: hasProfile && hasOomolCookie,
+    isLoggedIn: hasProfile && cookieState.hasMarker && !isExpired(cookieState.expiresAtMs),
+    ...(cookieState.expiresAtMs === undefined ? {} : { oomolCookieExpiresAtMs: cookieState.expiresAtMs }),
   }
 }
 
@@ -244,6 +247,7 @@ function printAuthState(label: string, dir: string, state: AuthState): void {
   console.log(`[wanta]   dir: ${dir}`)
   console.log(`[wanta]   profile: ${state.hasProfile ? "present" : "missing"}`)
   console.log(`[wanta]   oomol-token cookie marker: ${state.hasOomolCookie ? "present" : "missing"}`)
+  console.log(`[wanta]   oomol-token expires: ${formatExpiry(state.oomolCookieExpiresAtMs)}`)
 }
 
 function authStateFailureMessage(prefix: string, dir: string, state: AuthState): string {
@@ -292,24 +296,84 @@ async function hasPersistedProfile(authJsonPath: string): Promise<boolean> {
   }
 }
 
-async function hasCookieMarker(userDataDir: string): Promise<boolean> {
+interface CookieState {
+  expiresAtMs?: number
+  hasMarker: boolean
+}
+
+async function readCookieState(userDataDir: string): Promise<CookieState> {
   if (!(await pathExists(userDataDir))) {
-    return false
+    return { hasMarker: false }
   }
 
+  let expiresAtMs: number | undefined
   for await (const filePath of walkFiles(userDataDir)) {
     if (!isCookieStorageFile(path.basename(filePath))) {
       continue
     }
-    if (await fileContains(filePath, oomolCookieName)) {
-      return true
+    const cookieExpiresAtMs = readCookieExpiry(filePath)
+    if (cookieExpiresAtMs !== undefined) {
+      expiresAtMs = Math.max(expiresAtMs ?? 0, cookieExpiresAtMs)
+    }
+    if (expiresAtMs !== undefined || (await fileContains(filePath, oomolCookieName))) {
+      return {
+        expiresAtMs,
+        hasMarker: true,
+      }
     }
   }
-  return false
+  return { hasMarker: false }
 }
 
 function isCookieStorageFile(fileName: string): boolean {
   return fileName === "Cookies" || fileName.startsWith("Cookies-")
+}
+
+function readCookieExpiry(cookieDbPath: string): number | undefined {
+  if (path.basename(cookieDbPath) !== "Cookies") {
+    return undefined
+  }
+  const result = spawnSync(
+    sqlite3Binary,
+    [
+      "-readonly",
+      cookieDbPath,
+      `select expires_utc from cookies where name = '${oomolCookieName}' order by expires_utc desc limit 1;`,
+    ],
+    {
+      encoding: "utf-8",
+    },
+  )
+  if (result.status !== 0) {
+    return undefined
+  }
+  const raw = result.stdout.trim()
+  if (!raw) {
+    return undefined
+  }
+  const chromiumTime = BigInt(raw)
+  if (chromiumTime <= 0n) {
+    return undefined
+  }
+  return chromiumTimeToUnixMs(chromiumTime)
+}
+
+export function chromiumTimeToUnixMs(chromiumTime: bigint | number | string): number {
+  return Number((BigInt(chromiumTime) - 11_644_473_600_000_000n) / 1_000n)
+}
+
+function isExpired(expiresAtMs: number | undefined): boolean {
+  return expiresAtMs !== undefined && expiresAtMs <= Date.now()
+}
+
+export function formatExpiry(expiresAtMs: number | undefined, nowMs = Date.now()): string {
+  if (expiresAtMs === undefined) {
+    return "unknown"
+  }
+  const remainingDays = (expiresAtMs - nowMs) / 86_400_000
+  const remaining =
+    remainingDays >= 0 ? `${remainingDays.toFixed(1)} days remaining` : `${Math.abs(remainingDays).toFixed(1)} days ago`
+  return `${new Date(expiresAtMs).toISOString()} (${remaining})`
 }
 
 async function* walkFiles(dir: string): AsyncGenerator<string> {

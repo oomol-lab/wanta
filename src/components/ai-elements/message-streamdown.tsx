@@ -2,13 +2,16 @@ import type { MermaidRendererControls } from "./mermaid-renderer.tsx"
 import type {
   CustomRenderer,
   DiagramPlugin,
+  LinkSafetyConfig,
+  LinkSafetyModalProps,
   MermaidErrorComponentProps,
   StreamdownProps,
   StreamdownTranslations,
 } from "streamdown"
 
 import { createMermaidPlugin } from "@streamdown/mermaid"
-import { useMemo } from "react"
+import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Streamdown } from "streamdown"
 import {
   deferIncompleteMermaidMarkdown,
@@ -20,6 +23,7 @@ import {
 import { MermaidPendingRenderer, MermaidRenderer, MermaidRendererProvider } from "./mermaid-renderer.tsx"
 import { useTheme } from "@/components/theme-context"
 import { Button } from "@/components/ui/button"
+import { Dialog } from "@/components/ui/dialog"
 import { useT } from "@/i18n/i18n"
 
 const baseMermaidPlugin = createMermaidPlugin({
@@ -173,8 +177,95 @@ function useStreamdownTranslations(): Partial<StreamdownTranslations> {
     close: t("chat.diagramClose"),
     copied: t("chat.copiedMessage"),
     copyCode: t("chat.copyCode"),
+    copyLink: t("chat.copyLink"),
+    externalLinkWarning: t("chat.externalLinkWarning"),
     exitFullscreen: t("chat.diagramExitFullscreen"),
+    openExternalLink: t("chat.openExternalLink"),
+    openLink: t("chat.openLink"),
     viewFullscreen: t("chat.diagramFullscreen"),
+  }
+}
+
+function MessageLinkSafetyModal({ isOpen, onClose, onConfirm, url }: LinkSafetyModalProps) {
+  const t = useT()
+  const [copied, setCopied] = useState(false)
+  const copiedResetTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    setCopied(false)
+    if (copiedResetTimerRef.current !== null) {
+      window.clearTimeout(copiedResetTimerRef.current)
+      copiedResetTimerRef.current = null
+    }
+    return () => {
+      if (copiedResetTimerRef.current !== null) {
+        window.clearTimeout(copiedResetTimerRef.current)
+        copiedResetTimerRef.current = null
+      }
+    }
+  }, [url])
+
+  const copyLink = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      if (copiedResetTimerRef.current !== null) {
+        window.clearTimeout(copiedResetTimerRef.current)
+      }
+      copiedResetTimerRef.current = window.setTimeout(() => {
+        setCopied(false)
+        copiedResetTimerRef.current = null
+      }, 2000)
+    } catch {
+      // Clipboard failures leave the action available for retry.
+    }
+  }
+
+  const openLink = (): void => {
+    onConfirm()
+    onClose()
+  }
+
+  return (
+    <Dialog
+      open={isOpen}
+      onClose={onClose}
+      title={
+        <div className="oo-text-dialog-title flex items-center gap-2">
+          <ExternalLinkIcon className="size-5" />
+          <span>{t("chat.openExternalLink")}</span>
+        </div>
+      }
+      description={t("chat.externalLinkWarning")}
+      closeLabel={t("common.close")}
+      className="max-w-md"
+      footer={
+        <>
+          <Button type="button" variant="outline" className="flex-1" onClick={() => void copyLink()}>
+            {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
+            {copied ? t("chat.copiedMessage") : t("chat.copyLink")}
+          </Button>
+          <Button type="button" className="flex-1" onClick={openLink}>
+            <ExternalLinkIcon className="size-4" />
+            {t("chat.openLink")}
+          </Button>
+        </>
+      }
+    >
+      <div className="rounded-md bg-muted p-3 font-mono text-sm break-all">{url}</div>
+    </Dialog>
+  )
+}
+
+function renderMessageLinkSafetyModal(props: LinkSafetyModalProps) {
+  return <MessageLinkSafetyModal {...props} />
+}
+
+export function messageStreamdownLinkSafety(linkSafety?: LinkSafetyConfig): LinkSafetyConfig {
+  return {
+    enabled: true,
+    ...linkSafety,
+    renderModal: linkSafety?.renderModal ?? renderMessageLinkSafetyModal,
   }
 }
 
@@ -186,6 +277,7 @@ export function MessageStreamdown({
   children,
   controls,
   defaultRenderers,
+  linkSafety,
   mermaid,
   plugins,
   translations,
@@ -207,6 +299,7 @@ export function MessageStreamdown({
     [defaultMermaidOptions, mermaid],
   )
   const normalizedControls = messageStreamdownControls(controls)
+  const normalizedLinkSafety = useMemo(() => messageStreamdownLinkSafety(linkSafety), [linkSafety])
   const streamdownChildren = typeof children === "string" ? deferIncompleteMermaidMarkdown(children) : children
   const diagramPlugin = useMemo(
     () => (plugins?.mermaid ? wrapMermaidPluginWithValidation(plugins.mermaid) : safeMermaidPlugin),
@@ -241,6 +334,7 @@ export function MessageStreamdown({
       <Streamdown
         {...props}
         controls={nativeMessageStreamdownControls(normalizedControls)}
+        linkSafety={normalizedLinkSafety}
         mermaid={mermaidOptions}
         plugins={streamdownPlugins}
         translations={{ ...localizedTranslations, ...translations }}

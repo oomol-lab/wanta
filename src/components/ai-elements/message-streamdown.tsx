@@ -11,7 +11,7 @@ import type {
 
 import { createMermaidPlugin } from "@streamdown/mermaid"
 import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react"
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Streamdown } from "streamdown"
 import {
   deferIncompleteMermaidMarkdown,
@@ -189,13 +189,33 @@ function useStreamdownTranslations(): Partial<StreamdownTranslations> {
 function MessageLinkSafetyModal({ isOpen, onClose, onConfirm, url }: LinkSafetyModalProps) {
   const t = useT()
   const [copied, setCopied] = useState(false)
-  const openButtonRef = useRef<HTMLButtonElement>(null)
+  const copiedResetTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    setCopied(false)
+    if (copiedResetTimerRef.current !== null) {
+      window.clearTimeout(copiedResetTimerRef.current)
+      copiedResetTimerRef.current = null
+    }
+    return () => {
+      if (copiedResetTimerRef.current !== null) {
+        window.clearTimeout(copiedResetTimerRef.current)
+        copiedResetTimerRef.current = null
+      }
+    }
+  }, [url])
 
   const copyLink = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(url)
       setCopied(true)
-      window.setTimeout(() => setCopied(false), 2000)
+      if (copiedResetTimerRef.current !== null) {
+        window.clearTimeout(copiedResetTimerRef.current)
+      }
+      copiedResetTimerRef.current = window.setTimeout(() => {
+        setCopied(false)
+        copiedResetTimerRef.current = null
+      }, 2000)
     } catch {
       // Clipboard failures leave the action available for retry.
     }
@@ -219,14 +239,13 @@ function MessageLinkSafetyModal({ isOpen, onClose, onConfirm, url }: LinkSafetyM
       description={t("chat.externalLinkWarning")}
       closeLabel={t("common.close")}
       className="max-w-md"
-      initialFocus={() => openButtonRef.current}
       footer={
         <>
           <Button type="button" variant="outline" className="flex-1" onClick={() => void copyLink()}>
             {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
             {copied ? t("chat.copiedMessage") : t("chat.copyLink")}
           </Button>
-          <Button ref={openButtonRef} type="button" className="flex-1" onClick={openLink}>
+          <Button type="button" className="flex-1" onClick={openLink}>
             <ExternalLinkIcon className="size-4" />
             {t("chat.openLink")}
           </Button>

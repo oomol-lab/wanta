@@ -239,7 +239,7 @@ const sessionService = new SessionServiceImpl(null, {
 })
 const modelsService = new ModelsServiceImpl({
   store: modelsStore,
-  onCustomModelsChanged: restartAgentForModelConfig,
+  onModelDefinitionsChanged: restartAgentForModelConfig,
 })
 // 凭证逻辑在未注册的 AuthManager；注册给渲染层的 AuthServiceImpl 只是薄门面（防 RPC 凭证泄露）。
 const authManager = new AuthManager({

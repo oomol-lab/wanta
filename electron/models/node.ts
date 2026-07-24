@@ -22,7 +22,7 @@ import {
 
 export interface ModelsServiceDeps {
   store: ModelsStore
-  onCustomModelsChanged?: () => void
+  onModelDefinitionsChanged?: () => void
 }
 
 type OptionalTokenLimitField = "contextWindow" | "inputTokenLimit" | "maxOutputTokens"
@@ -45,7 +45,6 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
       const models = await this.deps.store.read()
       const selected = isKnownModelChoice(models, choice) ? choice : defaultModelChoice()
       await this.deps.store.write({ ...models, selected })
-      this.deps.onCustomModelsChanged?.()
       return this.emitCatalog()
     })
   }
@@ -130,7 +129,7 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
         }
         throw error
       }
-      this.deps.onCustomModelsChanged?.()
+      this.deps.onModelDefinitionsChanged?.()
       return this.emitCatalog()
     })
   }
@@ -158,7 +157,7 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
         }
         throw error
       }
-      this.deps.onCustomModelsChanged?.()
+      this.deps.onModelDefinitionsChanged?.()
       return this.emitCatalog()
     })
   }

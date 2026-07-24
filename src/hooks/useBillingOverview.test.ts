@@ -8,6 +8,7 @@ import {
   getBillingOverviewCacheEntry,
   loadBillingOverviewEntry,
   retainAvailableTeamBillingDetails,
+  retainCachedTeamBillingDetails,
   startBillingOverviewRequest,
 } from "./useBillingOverview.ts"
 
@@ -176,4 +177,32 @@ test("a successful empty team billing response replaces retained values", () => 
   assert.equal(retained, next)
   assert.equal(retained.subscription, null)
   assert.equal(retained.teamPendingPayment, null)
+})
+
+test("cross-period team billing retention ignores stale cache entries", () => {
+  const cacheScope = "account-team"
+  const currentEntry = getBillingOverviewCacheEntry(cacheScope, 7)
+  const otherEntry = getBillingOverviewCacheEntry(cacheScope, 30)
+  const subscription = {
+    features: [],
+    plan: "team_plus",
+    plans: [],
+    platforms: {},
+  }
+  otherEntry.data = {
+    ...emptyBillingOverview(),
+    subscription,
+  }
+  const next = {
+    ...emptyBillingOverview(),
+    subscriptionAvailable: false,
+  }
+
+  otherEntry.loadedAt = Date.now() - 2_000
+  assert.equal(retainCachedTeamBillingDetails(next, cacheScope, currentEntry, 1_000), next)
+
+  otherEntry.loadedAt = Date.now()
+  const retained = retainCachedTeamBillingDetails(next, cacheScope, currentEntry, 1_000)
+  assert.equal(retained.subscription, subscription)
+  assert.equal(retained.subscriptionAvailable, true)
 })

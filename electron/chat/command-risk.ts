@@ -226,7 +226,7 @@ function destructivelyOverwritesStorage(words: readonly string[]): boolean {
   if (name === "dd") {
     return words.slice(1).some((word) => /^of=/iu.test(word))
   }
-  return Boolean(name && (/^mkfs(?:\.|$)/u.test(name) || name === "newfs"))
+  return Boolean(name && (/^mkfs(?:\.|$)/u.test(name) || /^newfs(?:_|$)/u.test(name)))
 }
 
 function deploysService(words: readonly string[]): boolean {

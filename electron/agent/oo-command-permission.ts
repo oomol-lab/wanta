@@ -207,8 +207,7 @@ export function openConnectorCommandPolicy(command: string): "allow" | "deny" | 
     }
     if (isPureOoCliCommand(current)) return "allow"
     const wrapper = shellWrapperCommand(current)
-    if (wrapper.kind === "unsupported") return null
-    if (wrapper.kind === "not_wrapper") return null
+    if (wrapper.kind === "unsupported" || wrapper.kind === "not_wrapper") return null
     current = wrapper.command
   }
   return null

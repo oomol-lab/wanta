@@ -128,7 +128,7 @@ export function useBillingOverview(
         entry,
         async (signal) => {
           const nextData = await getBillingOverview(days, scope, signal)
-          return retainCachedTeamBillingDetails(nextData, cacheScopeKey, entry)
+          return retainCachedTeamBillingDetails(nextData, cacheScopeKey, entry, staleMs)
         },
         { force },
       )
@@ -252,14 +252,15 @@ export function retainAvailableTeamBillingDetails(
   }
 }
 
-function retainCachedTeamBillingDetails(
+export function retainCachedTeamBillingDetails(
   next: BillingOverviewResult,
   cacheScope: string,
   currentEntry: BillingOverviewCacheEntry,
+  staleMs: number,
 ): BillingOverviewResult {
   let retained = retainAvailableTeamBillingDetails(next, currentEntry.data)
   for (const entry of overviewCache.get(cacheScope)?.values() ?? []) {
-    if (entry !== currentEntry) {
+    if (entry !== currentEntry && isFresh(entry, staleMs)) {
       retained = retainAvailableTeamBillingDetails(retained, entry.data)
     }
   }

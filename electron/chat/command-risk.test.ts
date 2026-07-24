@@ -31,6 +31,8 @@ test("side-effect classification follows command structure rather than arbitrary
     "truncate -s 0 important.db",
     "dd if=/dev/zero of=/dev/disk4",
     "mkfs.ext4 /dev/sdb1",
+    "newfs_apfs /dev/disk3",
+    "newfs_hfs /dev/disk4",
   ]) {
     assert.equal(commandRequiresConfirmation(command), true, command)
   }

@@ -140,6 +140,13 @@ export function ArchivedRoute({
     setPendingSessionId(session.id)
     try {
       const restored = await unarchiveSession(session.id)
+      if (!restored) {
+        const notice = resolveUserFacingError(new Error("Archived session restore returned no session."), {
+          area: "session",
+        })
+        toast.error(userFacingErrorDescription(notice, t))
+        return null
+      }
       await Promise.all([refreshArchived(), refreshSessions()])
       return restored
     } catch (cause) {

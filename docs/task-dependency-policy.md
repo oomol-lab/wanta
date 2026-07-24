@@ -16,12 +16,16 @@ The executable sources of truth are
 
 Python installs qualify when all of these conditions hold:
 
-- The executable is the exact interpreter in the active turn's private `.wanta-python` environment.
-- The command uses `python -m pip install` with direct PyPI requirements.
-- Ordinary package names, extras, version constraints, and safe convenience flags are accepted.
+- The target is the exact interpreter in the active turn's private `.wanta-python` environment or
+  a conventional `.venv` / `venv` environment inside the user-selected project.
+- The command uses that interpreter with `python -m pip install`, or uses `uv pip install --python`
+  with that exact interpreter.
+- Ordinary package names, extras, version constraints, and ordinary unfamiliar flags are accepted.
 - Package popularity is irrelevant, and Wanta does not add or pin a version.
 - Requirements files, editable installs, system/user Python, alternative indexes, URLs, Git sources,
-  local paths, `--user`, `--break-system-packages`, and unknown flags do not qualify.
+  local paths, `--user`, and `--break-system-packages` do not qualify. Bare `pip`, `pip3`, and
+  system `python -m pip` do not qualify because their target environment cannot be proven from the
+  permission request.
 
 Node.js installs qualify when all of these conditions hold:
 
@@ -36,13 +40,13 @@ Node.js installs qualify when all of these conditions hold:
   they express one of those protected boundaries. A no-argument install in a selected project can
   still receive a task-scoped approval.
 
-Package runners such as `npx`, `npm exec` / `npm x`, `pnpm dlx`, `yarn dlx`, and `bunx` / `bun x`
-are ordinary local execution under Default Access. Wanta does not maintain per-runner exceptions for
-`--version`, `--help`, conversion, or formatting arguments. They still stop when the command crosses
-an independent protected boundary. The classifier separates the runner's own options and selected
-package from the arguments passed to the resulting executable. A Markdown input path, stylesheet,
-PDF output path, or an executable-specific `--registry` argument therefore cannot be mistaken for a
-local package source or package-manager registry override.
+Package runners such as `npx`, `npm exec` / `npm x`, `pnpm dlx`, `yarn dlx`, `bunx` / `bun x`,
+`uvx`, and `pipx run` are ordinary local execution under Default Access. Wanta does not maintain
+per-runner exceptions for `--version`, `--help`, conversion, or formatting arguments. They still
+stop when the command crosses an independent protected boundary. The classifier separates the
+runner's own options and selected package from the arguments passed to the resulting executable. A
+Markdown input path, stylesheet, PDF output path, or an executable-specific `--registry` argument
+therefore cannot be mistaken for a local package source or package-manager registry override.
 
 ## Explicit dependency confirmation boundaries
 
@@ -56,11 +60,16 @@ The following continue through confirmation:
   home/system roots, privilege escalation, destructive deletion, deployment, or another protected
   boundary.
 
-This short confirmation set protects scope, source, credentials, and consequential side effects; it
-does not claim that packages outside the set are reviewed or safe. Package names, package size,
-browser payloads, native toolchains, and package-runner selection do not create a confirmation by
-themselves. Direct standard-registry installs explicitly scoped to a bounded task or selected
-project are ordinary, including `playwright`, `puppeteer`, `canvas`, and their related packages.
+This short confirmation set protects scope, explicit source overrides, credentials, and
+consequential side effects; it does not claim that packages outside the set are reviewed or safe.
+Package names, package size, browser payloads, native toolchains, and package-runner selection do
+not create a confirmation by themselves. Direct installs with no explicit source override and an
+explicitly bounded task or selected-project target are ordinary, including `playwright`,
+`puppeteer`, `canvas`, and their related packages.
+
+"No explicit source override" describes what the command-level policy can prove. Package-manager
+configuration and environment variables can still redirect an effective source; Default Access is
+not a registry-verification or process-containment boundary.
 
 ## Shell composition
 
@@ -107,9 +116,8 @@ string-level permission layer.
 ## Maintenance
 
 Do not add package-specific automatic-approval entries to solve a new agent command spelling.
-Instead, determine whether the operation stays inside the task/private-project boundary and uses the
-standard package source. Add a package-specific confirmation only when it has a concrete,
-documented install/runtime cost that materially differs from ordinary packages.
+Instead, determine whether the operation stays inside the task/private-project boundary and avoids
+an explicit protected source or side-effect boundary.
 
 Changes to this policy require synchronized updates to the permission classifier, task/project
 parsers, prompt/process guidance, renderer copy, architecture/convention documents, and end-to-end

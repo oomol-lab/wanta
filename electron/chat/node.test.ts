@@ -3360,6 +3360,54 @@ test("standard registry Node dependencies are approved automatically in the sele
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
 })
 
+test("bounded Python dependencies are approved automatically in the selected project", async () => {
+  const bridge = createBridgeAgent()
+  const projectPath = "/Users/example/code/customer-project"
+  const service = new ChatServiceImpl(bridge.agent, {
+    projectStore: projectStore([
+      {
+        id: "project-1",
+        name: "customer-project",
+        path: projectPath,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+  })
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({
+    scope: testTeamScope,
+    projectContext: { id: "project-1", name: "customer-project", path: projectPath },
+    sessionId: "session-1",
+    text: "Create a PDF report",
+  })
+
+  const commands = [
+    `${projectPath}/.venv/bin/python -m pip install --compile --use-feature=fast-deps weasyprint`,
+    `uv pip install --python=${projectPath}/venv/bin/python3 pypdf`,
+  ]
+  for (const [index, command] of commands.entries()) {
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: {
+        id: `permission-${index + 1}`,
+        sessionID: "session-1",
+        action: "bash",
+        resources: [command],
+        metadata: { command },
+      },
+    })
+  }
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [
+    ["session-1", "permission-1", "once"],
+    ["session-1", "permission-2", "once"],
+  ])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
+})
+
 test("browser libraries are approved automatically in the active PDF task directory", async () => {
   const bridge = createBridgeAgent()
   const processRoot = path.join(os.tmpdir(), "Wanta PDF Task", "process-1")

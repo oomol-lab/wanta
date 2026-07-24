@@ -7,6 +7,7 @@ import {
   createSessionPermissionGrant,
   isHighRiskPermissionRequest,
   isOoCliPermissionRequest,
+  isProjectScopedPythonDependencyInstallRequest,
   isTaskScopedPythonDependencyInstallRequest,
   permissionRequestHasSensitiveResource,
   permissionCommand,
@@ -112,15 +113,21 @@ export function evaluateLocalAccessRequest(
   if (context.permissionMode === "full_access") {
     return { type: "allow", reason: "full_access", kind, highRisk }
   }
-  // 通用目录 grant 不得越过凭证、私密应用数据等敏感读取边界；只有完全访问才会跳过这层保护。
+  // A generic directory grant cannot cross credential or private application-data boundaries.
+  // Only Full Access bypasses this protection.
   if (permissionRequestHasSensitiveResource(request)) {
+    return { type: "prompt", kind, highRisk }
+  }
+  if (highRisk) {
     return { type: "prompt", kind, highRisk }
   }
   if (
     (context.taskProcessRoot &&
       (isTaskScopedPythonDependencyInstallRequest(request, context.taskProcessRoot) ||
         isStandardRegistryNodeDependencyInstallRequest(request, context.taskProcessRoot))) ||
-    (context.trustedProjectRoot && isStandardRegistryNodeDependencyInstallRequest(request, context.trustedProjectRoot))
+    (context.trustedProjectRoot &&
+      (isProjectScopedPythonDependencyInstallRequest(request, context.trustedProjectRoot) ||
+        isStandardRegistryNodeDependencyInstallRequest(request, context.trustedProjectRoot)))
   ) {
     return { type: "allow", reason: "trusted_dependency", kind, highRisk }
   }
@@ -133,10 +140,6 @@ export function evaluateLocalAccessRequest(
     )
   ) {
     return { type: "allow", reason: "session_grant", kind, highRisk }
-  }
-  // 通用目录 grant 只用于普通访问，不能把一次路径允许扩大成高风险 shell 操作。
-  if (highRisk) {
-    return { type: "prompt", kind, highRisk }
   }
   if (hasMatchingGenericSessionGrant(request, context.sessionGrants)) {
     return { type: "allow", reason: "session_grant", kind, highRisk }

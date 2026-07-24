@@ -38,6 +38,27 @@ test("package names and package runners do not create confirmation boundaries", 
   assert.equal(dependencyCommandRequiresConfirmation("poetry --no-interaction publish"), true)
 })
 
+test("Python package runners are ordinary execution unless they override the package source", () => {
+  for (const command of [
+    "uvx ruff --version",
+    "uvx tool --input https://example.test/document.json",
+    "pipx run black --version",
+    "pipx run tool --index-url https://example.test/application-argument",
+  ]) {
+    assert.equal(isDependencyMutationCommand(command), false, command)
+    assert.equal(dependencyCommandRequiresConfirmation(command), false, command)
+  }
+  for (const command of [
+    "uvx --index-url https://example.test/simple ruff --version",
+    "uvx -ihttps://example.test/simple ruff --version",
+    "uvx git+https://example.test/vendor/tool.git --version",
+    "pipx --index-url https://example.test/simple run black --version",
+    "pipx run https://example.test/tool.whl --version",
+  ]) {
+    assert.equal(dependencyCommandRequiresConfirmation(command), true, command)
+  }
+})
+
 test("package runner arguments are not mistaken for alternate package sources", () => {
   const fileArguments =
     '"/Users/test/Library/Application Support/wanta/agent/artifacts/report.md" ' +
@@ -112,6 +133,8 @@ test("dependency option values are not mistaken for package sources or costly pa
   assert.equal(dependencyCommandRequiresConfirmation("pnpm --dir /tmp/project add ../local-package"), true)
   assert.equal(dependencyCommandRequiresConfirmation("npm --registry https://example.test install xlsx"), true)
   assert.equal(dependencyCommandRequiresConfirmation("pip --index-url https://example.test/simple install xlsx"), true)
+  assert.equal(dependencyCommandRequiresConfirmation("pip install xlsx -ihttps://example.test/simple"), true)
+  assert.equal(dependencyCommandRequiresConfirmation("uv pip install xlsx --index=https://example.test/simple"), true)
 })
 
 test("command composition and environment prefixes do not hide dependency boundaries", () => {

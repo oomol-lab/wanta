@@ -8,6 +8,7 @@ import {
   isOoCliPermissionRequest,
   isLikelyProjectDependencyInstallRequest,
   isLikelyProjectDevCommandRequest,
+  isProjectScopedPythonDependencyInstallRequest,
   managedPythonDependencyInstall,
   permissionRequestHasBroadResource,
   permissionRequestHasSensitiveResource,
@@ -149,12 +150,23 @@ test("managed Python dependency installs are narrow enough for a task approval",
     managedPythonDependencyInstall(
       permission({
         metadata: {
-          command: `${processRoot}/.wanta-python/bin/python -m pip install --upgrade 'pandas>=2,<3' 'markitdown[pdf,docx,pptx,xlsx]'`,
+          command: `${processRoot}/.wanta-python/bin/python -m pip install --compile --use-feature=fast-deps --upgrade 'pandas>=2,<3' 'markitdown[pdf,docx,pptx,xlsx]'`,
         },
       }),
       processRoot,
     ),
     { packages: ["pandas", "markitdown"] },
+  )
+  assert.deepEqual(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: {
+          command: `uv pip install --python ${processRoot}/.wanta-python/bin/python3 --compile pypdf`,
+        },
+      }),
+      processRoot,
+    ),
+    { packages: ["pypdf"] },
   )
   assert.equal(
     managedPythonDependencyInstall(
@@ -188,9 +200,51 @@ test("managed Python dependency installs are narrow enough for a task approval",
     ),
     null,
   )
+  for (const protectedArguments of [
+    "--user",
+    "--break-system-packages",
+    "--target /tmp/python-target",
+    "--prefix=/tmp/python-prefix",
+    "--index=https://example.test/simple",
+    "-ihttps://example.test/simple",
+    "-cconstraints.txt",
+    "-rrequirements.txt",
+    "-e .",
+  ]) {
+    assert.equal(
+      managedPythonDependencyInstall(
+        permission({ metadata: { command: `${command} ${protectedArguments}` } }),
+        processRoot,
+      ),
+      null,
+      protectedArguments,
+    )
+  }
   assert.equal(
     managedPythonDependencyInstall(permission({ metadata: { command: `${command} && rm -rf /tmp/x` } }), processRoot),
     null,
+  )
+  assert.equal(
+    isProjectScopedPythonDependencyInstallRequest(
+      permission({
+        metadata: {
+          command: "/Users/example/code/customer-project/.venv/bin/python -m pip install --compile pandas",
+        },
+      }),
+      "/Users/example/code/customer-project",
+    ),
+    true,
+  )
+  assert.equal(
+    isProjectScopedPythonDependencyInstallRequest(
+      permission({
+        metadata: {
+          command: "/Users/example/code/other-project/.venv/bin/python -m pip install pandas",
+        },
+      }),
+      "/Users/example/code/customer-project",
+    ),
+    false,
   )
 
   const grant = createSessionPermissionGrant(request, { managedPythonProcessRoot: processRoot })

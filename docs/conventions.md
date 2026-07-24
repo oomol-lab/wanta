@@ -147,13 +147,16 @@
   project files should not create prompts; only broad home/system root scans prompt. Credentials/
   secrets, browser login state, and private app data such as mail/messages/contacts/calendar must be
   evaluated before any generic directory grant — an ordinary folder grant never covers these
-  sensitive sub-paths. Third-party Python dependencies must go into the private `.wanta-python` venv
-  under each turn's process directory. Direct PyPI requirements are auto-approved there regardless
-  of package popularity, including ordinary extras and version constraints. This does not cover
-  `--user`, `--break-system-packages`, extra indexes, URL/local-path/requirements files, or system
-  Python. Direct standard-registry Node.js packages are auto-approved only when an
-  npm/pnpm/yarn/bun install explicitly targets the turn process directory or the currently selected
-  project. Package runners are ordinary local execution rather than a package-specific risk class.
+  sensitive sub-paths. Third-party Python dependencies must use the exact private `.wanta-python`
+  interpreter under the turn process directory or an exact `.venv` / `venv` interpreter inside the
+  selected project; `uv pip --python` qualifies when it names one of those interpreters. Direct
+  requirements are auto-approved in those bounded environments regardless of package popularity,
+  including ordinary extras, version constraints, and unfamiliar ordinary flags. This does not
+  cover `--user`, `--break-system-packages`, extra indexes, URL/local-path/requirements files, bare
+  pip, or system Python. Direct Node.js packages with no explicit source override are auto-approved
+  only when an npm/pnpm/yarn/bun install explicitly targets the turn process directory or the
+  currently selected project. Node.js and Python package runners are ordinary local execution
+  rather than a package-specific risk class.
   No-argument or other project dependency operations can earn a task-level grant valid only for the
   current generation. Package names, package size, browser tooling, and unfamiliar ordinary flags
   are not confirmation boundaries. Global installs, custom registries, user config, Git/URL/local

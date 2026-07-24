@@ -18,7 +18,17 @@ const nodeInstallVerbs = new Set(["add", "i", "install", "link"])
 const pythonDependencyVerbs = new Set(["add", "install", "remove", "uninstall"])
 
 const nodeSourceOptions = new Set(["--globalconfig", "--registry", "--userconfig"])
-const pythonSourceOptions = new Set(["--extra-index-url", "--find-links", "--index-url", "--trusted-host"])
+const pythonSourceOptions = new Set([
+  "-f",
+  "-i",
+  "--config-file",
+  "--default-index",
+  "--extra-index-url",
+  "--find-links",
+  "--index",
+  "--index-url",
+  "--trusted-host",
+])
 const nodeOptionsWithValue = new Set([
   "-C",
   "-w",
@@ -59,14 +69,18 @@ const packageRunnerOptionsWithValue = new Set([
   "--shell",
 ])
 const pythonOptionsWithValue = new Set([
+  "-f",
+  "-i",
   "--cache-dir",
   "--config-file",
   "--config-settings",
   "--constraint",
+  "--default-index",
   "--editable",
   "--extra-index-url",
   "--find-links",
   "--group",
+  "--index",
   "--index-url",
   "--keyring-provider",
   "--log",
@@ -354,14 +368,69 @@ function alternatePackageSourceWord(word: string): boolean {
   )
 }
 
+function wordUsesSourceOption(word: string, options: ReadonlySet<string>): boolean {
+  if (options.has(optionName(word))) {
+    return true
+  }
+  return [...options].some(
+    (option) => option.startsWith("-") && !option.startsWith("--") && word.startsWith(option) && word !== option,
+  )
+}
+
 function wordsUseSourceOption(words: readonly string[], options: ReadonlySet<string>): boolean {
-  return words.some((word) => options.has(optionName(word)))
+  return words.some((word) => wordUsesSourceOption(word, options))
+}
+
+function pythonRunnerSelectionUsesAlternateSource(
+  words: readonly string[],
+  startIndex: number,
+  initialSourceOverride: boolean,
+): boolean {
+  let sourceOverride = initialSourceOverride
+  for (let index = startIndex; index < words.length; index += 1) {
+    const word = words[index] ?? ""
+    if (word === "--") {
+      const specifier = words[index + 1]
+      return sourceOverride || Boolean(specifier && alternatePackageSourceWord(specifier))
+    }
+    const option = optionName(word)
+    if (wordUsesSourceOption(word, pythonSourceOptions)) {
+      sourceOverride = true
+    }
+    if (word.startsWith("-")) {
+      if (pythonOptionsWithValue.has(option) && inlineOptionValue(word) === undefined) {
+        index += 1
+      }
+      continue
+    }
+    return sourceOverride || alternatePackageSourceWord(word)
+  }
+  return sourceOverride
+}
+
+function pythonRunnerUsesAlternatePackageSource(words: readonly string[]): boolean {
+  const name = shellCommandName(words[0])
+  const pipxCommand = name === "pipx" ? nextCliWord(words, 1, pythonOptionsWithValue) : undefined
+  if (name === "uvx") {
+    return pythonRunnerSelectionUsesAlternateSource(words, 1, false)
+  }
+  return Boolean(
+    pipxCommand?.value.toLowerCase() === "run" &&
+    pythonRunnerSelectionUsesAlternateSource(
+      words,
+      pipxCommand.index + 1,
+      wordsUseSourceOption(words.slice(1, pipxCommand.index), pythonSourceOptions),
+    ),
+  )
 }
 
 function segmentUsesAlternatePackageSource(words: readonly string[]): boolean {
   const runner = packageRunnerInvocation(words)
   if (runner) {
     return runner.sourceOverride || runner.specifiers.some(alternatePackageSourceWord)
+  }
+  if (pythonRunnerUsesAlternatePackageSource(words)) {
+    return true
   }
   const nodeOperation = nodeDependencyOperation(words)
   if (nodeOperation) {

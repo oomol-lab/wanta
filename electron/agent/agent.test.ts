@@ -443,8 +443,9 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /regardless of package popularity/)
   assert.match(
     WANTA_SYSTEM_PROMPT,
-    /standard-registry package installs are normally approved automatically only inside one of those bounded targets/,
+    /Direct packages with no explicit source override are normally approved automatically inside those bounded targets/,
   )
+  assert.match(WANTA_SYSTEM_PROMPT, /exact selected-project `.venv` \/ `venv` interpreter/)
   assert.match(WANTA_SYSTEM_PROMPT, /Package runners remain ordinary local execution/)
   assert.match(WANTA_SYSTEM_PROMPT, /Ask the user a narrow follow-up question only when/)
   assert.match(WANTA_SYSTEM_PROMPT, /Question prompts are runtime interruptions/)

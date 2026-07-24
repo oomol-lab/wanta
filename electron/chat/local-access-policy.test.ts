@@ -228,8 +228,9 @@ test("local access policy separates dependency confirmation from genuinely high-
   )
 })
 
-test("default access auto-approves direct PyPI requirements only in the active task environment", () => {
+test("default access auto-approves direct Python requirements in bounded task or project environments", () => {
   const processRoot = "/tmp/wanta-process/task-1"
+  const projectRoot = "/Users/example/code/customer-project"
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({
@@ -259,6 +260,42 @@ test("default access auto-approves direct PyPI requirements only in the active t
     ),
     { type: "prompt", kind: "command", highRisk: false },
   )
+  for (const command of [
+    `${projectRoot}/.venv/bin/python -m pip install --compile 'pandas>=2'`,
+    `${projectRoot}/venv/bin/python3 -m pip install --use-feature fast-deps weasyprint`,
+    `uv pip install --python ${projectRoot}/.venv/bin/python pypdf`,
+    `uv pip install --python=${projectRoot}/venv/bin/python3 reportlab`,
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+        trustedProjectRoot: projectRoot,
+      }),
+      { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+      command,
+    )
+  }
+  for (const command of [
+    "pip install pandas",
+    "python3 -m pip install pandas",
+    `${projectRoot}/.venv/bin/python -m pip install --user pandas`,
+    `${projectRoot}/.venv/bin/python -m pip install -r requirements.txt`,
+    `${projectRoot}/.venv/bin/python -m pip install git+https://example.test/package.git`,
+    `uv pip install --python /tmp/other/.venv/bin/python pandas`,
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+        trustedProjectRoot: projectRoot,
+      }),
+      {
+        type: "prompt",
+        kind: "command",
+        highRisk: command.includes("git+"),
+      },
+      command,
+    )
+  }
 })
 
 test("default access auto-approves standard registry Node dependencies in bounded task or project roots", () => {
@@ -344,6 +381,38 @@ test("default access auto-approves standard registry Node dependencies in bounde
   }
 })
 
+test("default access applies one scope-and-boundary policy across Node.js and Python", () => {
+  const projectRoot = "/Users/example/code/customer-project"
+  const context = { permissionMode: "default" as const, trustedProjectRoot: projectRoot }
+  for (const command of [
+    `cd ${projectRoot} && npm install --unknown-option report-tool`,
+    `${projectRoot}/.venv/bin/python -m pip install --compile report-tool`,
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
+      { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+      command,
+    )
+  }
+  for (const command of ["npm install report-tool", "pip install report-tool"]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
+      { type: "prompt", kind: "command", highRisk: false },
+      command,
+    )
+  }
+  for (const command of [
+    `cd ${projectRoot} && npm install report-tool --registry https://example.test`,
+    `${projectRoot}/.venv/bin/python -m pip install report-tool --index-url https://example.test/simple`,
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), context),
+      { type: "prompt", kind: "command", highRisk: true },
+      command,
+    )
+  }
+})
+
 test("default access allows package runners unless they cross an explicit confirmation boundary", () => {
   const prettierProbe =
     'which pandoc 2>/dev/null; which wkhtmltopdf 2>/dev/null; which weasyprint 2>/dev/null; which prince 2>/dev/null; echo "---"; npm list -g @marp-team/marp-cli 2>/dev/null; npx --yes prettier 2>/dev/null; echo "---"; python3 -c "import markdown; print(\'markdown ok\')" 2>/dev/null; python3 -c "import weasyprint; print(\'weasyprint ok\')" 2>/dev/null; echo "---"; brew list pandoc 2>/dev/null | head -3'
@@ -353,6 +422,8 @@ test("default access allows package runners unless they cross an explicit confir
     prettierProbe,
     markdownPdfProbe,
     "npx --yes unknown-package",
+    "uvx ruff --version",
+    "pipx run black --version",
     "npx --yes prettier --write .",
     "pnpm dlx markdown-pdf --version",
     'cd "/Users/test/Library/Application Support/wanta/agent/process/task" && npx md-to-pdf ' +

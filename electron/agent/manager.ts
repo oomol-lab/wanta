@@ -1317,10 +1317,10 @@ function buildProcessSystem(processDir: string | undefined): string | undefined 
     "- Do not put process files in the artifact directory unless the user explicitly asked for source code or scripts as the deliverable.",
     "- When a task needs third-party Python modules, create and use this task-private virtual environment instead of the system Python:",
     `  - Create it when needed: ${createPythonEnvironment}`,
-    `  - Install direct PyPI requirements only with: ${JSON.stringify(pythonExecutable)} -m pip install <package ...>`,
-    "  - Direct PyPI requirements are normally approved automatically regardless of package popularity. Ordinary extras and version constraints are accepted; do not add a version constraint unless the task needs one.",
+    `  - Install direct requirements for temporary work with: ${JSON.stringify(pythonExecutable)} -m pip install <package ...>`,
+    "  - Direct requirements with no explicit source override are normally approved automatically regardless of package popularity. Ordinary extras, version constraints, and convenience flags are accepted; do not add a version constraint unless the task needs one.",
     "  - Do not use pip or pip3 directly, --user, --break-system-packages, sudo, alternative indexes, local paths, URLs, or requirements files.",
-    "- When a task needs third-party Node.js modules only for temporary processing, install direct standard-registry packages in this process directory with an explicit target such as `cd <process-directory> && npm install <package ...>`. Package popularity does not affect approval, and package runners may be used when they are the shortest reliable path. Do not use global installation, custom registries, Git/URL/local sources, or user config.",
+    "- When a task needs third-party Node.js modules only for temporary processing, install direct packages with no explicit source override in this process directory using an explicit target such as `cd <process-directory> && npm install <package ...>`. Package popularity does not affect approval, and package runners may be used when they are the shortest reliable path. Do not use global installation, custom registries, Git/URL/local sources, or user config.",
     "- Prefer short, descriptive filenames such as create_presentation.js, transform_data.py, raw-input.json, or render-log.txt.",
     "- Do not mention process files in the final response unless the user asks for implementation details, debugging details, or source files.",
   ].join("\n")

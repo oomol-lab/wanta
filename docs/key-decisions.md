@@ -278,17 +278,18 @@
   generic directory session grants and cannot be silently waved through because the user once
   allowed a parent folder. To keep
   coding and document tasks from drowning in back-to-back approvals, dependency approval follows
-  execution scope and package source rather than a reviewed popularity list: direct Python
-  requirements only through the turn-private `.wanta-python` interpreter, and direct
-  standard-registry Node.js packages only through npm/pnpm/yarn/bun commands explicitly targeted at
-  the turn process directory or selected project. Normal extras and version constraints are
-  accepted without Wanta pinning a version. Package runners are ordinary local execution rather
-  than a separate high-risk class. The user can still issue a task-level grant for no-argument or
-  other standard Node.js dependency operations explicitly targeted at the selected project; those
-  grants do not outlive their intended task/session scope. Package names, package size, browser
-  tooling, and unfamiliar ordinary flags do not create confirmations. Global installs, custom
-  registries, alternative indexes, user config, Git/URL/local sources, requirements files, `--user`,
-  `--break-system-packages`, and system Python remain protected. Default Access is a risk policy
+  execution scope and explicit source overrides rather than a reviewed popularity list: direct
+  Python requirements use the exact turn-private `.wanta-python` interpreter or an exact selected
+  project's `.venv` / `venv` interpreter, directly or through `uv pip --python`; direct Node.js
+  packages use npm/pnpm/yarn/bun commands explicitly targeted at the turn process directory or
+  selected project. Normal extras, version constraints, and unfamiliar ordinary flags are accepted
+  without Wanta pinning a version. Node.js and Python package runners are ordinary local execution
+  rather than a separate high-risk class. The user can still issue a task-level grant for
+  no-argument or other Node.js dependency operations explicitly targeted at the selected project;
+  those grants do not outlive their intended task/session scope. Package names, package size, and
+  browser tooling do not create confirmations. Global installs, custom registries, alternative
+  indexes, user config, Git/URL/local sources, requirements files, `--user`,
+  `--break-system-packages`, bare pip, and system Python remain protected. Default Access is a risk policy
   rather than an OS sandbox; package-name matching cannot provide process isolation once ordinary
   Python, Node.js, and shell execution is available, so it is not used as a security boundary. If sensitive
   paths (browser profiles, mail databases, more credential

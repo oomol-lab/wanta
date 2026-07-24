@@ -1,10 +1,14 @@
 import type { ChatPermissionRequest } from "./common.ts"
 
 import { isPureOoCliCommand } from "../agent/oo-command-permission.ts"
-import { isManagedPythonExecutable, managedPythonExecutable } from "../agent/python-environment.ts"
+import {
+  isManagedPythonExecutable,
+  managedPythonExecutables,
+  projectPythonExecutables,
+} from "../agent/python-environment.ts"
 import { commandRequiresConfirmation } from "./command-risk.ts"
 import { dependencyCommandRequiresConfirmation, isDependencyMutationCommand } from "./dependency-policy.ts"
-import { hasUnsafeShellSyntax, shellWords } from "./shell-syntax.ts"
+import { hasUnsafeShellSyntax, shellCommandName, shellWords } from "./shell-syntax.ts"
 
 export type PermissionRequestKind = "command" | "edit" | "path" | "network" | "local"
 export type SessionPermissionGrantKind =
@@ -134,28 +138,52 @@ export function isOoCliPermissionRequest(request: ChatPermissionRequest): boolea
 
 const pythonPackageRequirementPattern =
   /^([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)(?:\[[A-Za-z0-9._-]+(?:,[A-Za-z0-9._-]+)*\])?(?:(?:===|==|~=|!=|<=|>=|<|>)[A-Za-z0-9*+.!_-]+(?:,(?:===|==|~=|!=|<=|>=|<|>)[A-Za-z0-9*+.!_-]+)*)?$/u
-const safePipInstallFlags = new Set([
-  "-U",
-  "-q",
-  "-qq",
-  "-qqq",
-  "--disable-pip-version-check",
-  "--no-cache-dir",
-  "--no-input",
-  "--prefer-binary",
-  "--quiet",
-  "--upgrade",
+const protectedPipInstallOptions = new Set([
+  "-c",
+  "-e",
+  "-f",
+  "-i",
+  "-r",
+  "-t",
+  "--break-system-packages",
+  "--config-file",
+  "--constraint",
+  "--default-index",
+  "--editable",
+  "--extra-index-url",
+  "--find-links",
+  "--group",
+  "--index",
+  "--index-url",
+  "--prefix",
+  "--requirement",
+  "--root",
+  "--target",
+  "--trusted-host",
+  "--user",
 ])
 
 function canonicalPythonPackageName(value: string): string {
   return value.toLowerCase().replace(/[._-]+/gu, "-")
 }
 
+function pipOptionName(word: string): string {
+  if (!word.startsWith("--")) {
+    for (const shortOption of ["-c", "-e", "-f", "-i", "-r", "-t"]) {
+      if (word.startsWith(shortOption) && word !== shortOption) {
+        return shortOption
+      }
+    }
+  }
+  const separator = word.indexOf("=")
+  return separator >= 0 ? word.slice(0, separator) : word
+}
+
 function managedPythonPackageNames(words: readonly string[]): string[] | null {
   const packages: string[] = []
   for (const word of words) {
     if (word.startsWith("-")) {
-      if (!safePipInstallFlags.has(word)) {
+      if (protectedPipInstallOptions.has(pipOptionName(word))) {
         return null
       }
       continue
@@ -170,13 +198,42 @@ function managedPythonPackageNames(words: readonly string[]): string[] | null {
   return packages.length > 0 ? [...new Set(packages)] : null
 }
 
-/**
- * Recognizes direct PyPI requirements installed through Wanta's private per-task environment.
- * Source overrides, requirements files, editable installs, paths, URLs, and unknown flags do not qualify.
- */
-export function managedPythonDependencyInstall(
+function normalizedExecutable(executable: string): string {
+  return executable.replace(/\\/g, "/").replace(/\/+$/u, "")
+}
+
+function pythonInstallArguments(
+  words: readonly string[],
+  executableAllowed: (executable: string) => boolean,
+): readonly string[] | null {
+  const executable = words[0] ?? ""
+  if (executableAllowed(executable) && words[1] === "-m" && words[2] === "pip" && words[3] === "install") {
+    return words.slice(4)
+  }
+  if (shellCommandName(executable) !== "uv" || words[1] !== "pip" || words[2] !== "install") {
+    return null
+  }
+  const installWords: string[] = []
+  let targetExecutable: string | undefined
+  for (let index = 3; index < words.length; index += 1) {
+    const word = words[index] ?? ""
+    if (word === "--python") {
+      targetExecutable = words[index + 1]
+      index += 1
+      continue
+    }
+    if (word.startsWith("--python=")) {
+      targetExecutable = word.slice("--python=".length)
+      continue
+    }
+    installWords.push(word)
+  }
+  return targetExecutable && executableAllowed(targetExecutable) ? installWords : null
+}
+
+function scopedPythonDependencyInstall(
   request: ChatPermissionRequest,
-  processRoot?: string,
+  executableAllowed: (executable: string) => boolean,
 ): ManagedPythonDependencyInstall | null {
   if (permissionRequestKind(request) !== "command") {
     return null
@@ -186,18 +243,31 @@ export function managedPythonDependencyInstall(
     return null
   }
   const words = shellWords(command)
-  if (!words || words.length < 5) {
+  if (!words) {
     return null
   }
-  const executable = words[0] ?? ""
-  if (processRoot ? executable !== managedPythonExecutable(processRoot) : !isManagedPythonExecutable(executable)) {
-    return null
-  }
-  if (words[1] !== "-m" || words[2] !== "pip" || words[3] !== "install") {
-    return null
-  }
-  const packages = managedPythonPackageNames(words.slice(4))
+  const installWords = pythonInstallArguments(words, executableAllowed)
+  const packages = installWords ? managedPythonPackageNames(installWords) : null
   return packages ? { packages } : null
+}
+
+/**
+ * Recognizes direct PyPI requirements installed through Wanta's private per-task environment.
+ * Source/scope overrides, requirements files, editable installs, paths, and URLs do not qualify.
+ * Unfamiliar ordinary flags are not confirmation boundaries.
+ */
+export function managedPythonDependencyInstall(
+  request: ChatPermissionRequest,
+  processRoot?: string,
+): ManagedPythonDependencyInstall | null {
+  const allowedExecutables = processRoot
+    ? new Set(managedPythonExecutables(processRoot).map(normalizedExecutable))
+    : undefined
+  return scopedPythonDependencyInstall(request, (executable) =>
+    allowedExecutables
+      ? allowedExecutables.has(normalizedExecutable(executable))
+      : isManagedPythonExecutable(executable),
+  )
 }
 
 export function isTaskScopedPythonDependencyInstallRequest(
@@ -205,6 +275,16 @@ export function isTaskScopedPythonDependencyInstallRequest(
   processRoot: string,
 ): boolean {
   return Boolean(managedPythonDependencyInstall(request, processRoot))
+}
+
+export function isProjectScopedPythonDependencyInstallRequest(
+  request: ChatPermissionRequest,
+  projectRoot: string,
+): boolean {
+  const allowedExecutables = new Set(projectPythonExecutables(projectRoot).map(normalizedExecutable))
+  return Boolean(
+    scopedPythonDependencyInstall(request, (executable) => allowedExecutables.has(normalizedExecutable(executable))),
+  )
 }
 
 function normalizeResourceText(resource: string): string {

@@ -7,6 +7,7 @@ export interface TopLevelShellSegment {
 
 const shellAssignmentPattern = /^[A-Za-z_][A-Za-z0-9_]*=/u
 const envOptionsWithValue = new Set(["-C", "-S", "-u", "--argv0", "--chdir", "--split-string", "--unset"])
+const shellExpansionCharacters = new Set(["`", "$", "*", "?", "[", "]", "{", "}", "|", "&", ";", "<", ">"])
 
 export function shellCommandName(value: string | undefined): string | undefined {
   const normalized = value?.trim().replace(/\\/gu, "/")
@@ -59,10 +60,16 @@ function cdPath(words: readonly string[]): string | undefined {
   return args.length === 1 ? args[0] : undefined
 }
 
+function literalDirectory(value: string): boolean {
+  return Boolean(
+    value && !value.startsWith("~") && ![...value].some((character) => shellExpansionCharacters.has(character)),
+  )
+}
+
 export function explicitCdDirectory(commandPrefix: string): string | undefined {
   const directWords = shellWords(commandPrefix)
   const directDirectory = directWords ? cdPath(directWords) : undefined
-  if (directDirectory) {
+  if (directDirectory && literalDirectory(directDirectory)) {
     return directDirectory
   }
 
@@ -83,7 +90,7 @@ export function explicitCdDirectory(commandPrefix: string): string | undefined {
   const variableName = separator > 0 ? assignment.slice(0, separator) : ""
   const directory = separator > 0 ? assignment.slice(separator + 1) : ""
   const cdDirectory = cdPath(cdWords)
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(variableName) || !directory || !cdDirectory) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(variableName) || !literalDirectory(directory) || !cdDirectory) {
     return undefined
   }
   if (cdDirectory !== `$${variableName}` && cdDirectory !== `\${${variableName}}`) {

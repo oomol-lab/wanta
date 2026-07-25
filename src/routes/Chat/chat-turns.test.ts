@@ -12,9 +12,11 @@ import {
   latestAssistantMessage,
   retrySourceFromTurn,
   reuseStableChatTurns,
+  shouldAppendTurnProcessActivity,
   shouldShowPlainTurnActivity,
   shouldShowSuggestedAuthorization,
   shouldShowTurnProcess,
+  shouldSurfaceProcessActivity,
   settlingToolPartId,
   summarizeTurnProcess,
   updateChatTurnGrouping,
@@ -691,6 +693,21 @@ describe("summarizeTurnProcess", () => {
   it("shows the process panel while compacting or resuming context", () => {
     expect(shouldShowTurnProcess({ activity: { sessionId: "s1", phase: "compacting" }, tools: [] })).toBe(true)
     expect(shouldShowTurnProcess({ activity: { sessionId: "s1", phase: "resuming" }, tools: [] })).toBe(true)
+  })
+
+  it("appends compaction activity after an existing response when no process segment exists", () => {
+    const compacting = { activity: { sessionId: "s1", phase: "compacting" } as const, tools: [] }
+    const resuming = { activity: { sessionId: "s1", phase: "resuming" } as const, tools: [] }
+
+    expect(shouldAppendTurnProcessActivity(shouldShowTurnProcess(compacting), false)).toBe(true)
+    expect(shouldAppendTurnProcessActivity(shouldShowTurnProcess(resuming), false)).toBe(true)
+    expect(shouldAppendTurnProcessActivity(shouldShowTurnProcess(compacting), true)).toBe(false)
+  })
+
+  it("surfaces compaction activity alongside existing process blocks", () => {
+    expect(shouldSurfaceProcessActivity({ sessionId: "s1", phase: "compacting" })).toBe(true)
+    expect(shouldSurfaceProcessActivity({ sessionId: "s1", phase: "resuming" })).toBe(true)
+    expect(shouldSurfaceProcessActivity({ sessionId: "s1", phase: "thinking" })).toBe(false)
   })
 
   it("shows the process panel when a tool part exists", () => {

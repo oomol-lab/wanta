@@ -1132,6 +1132,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (generationId && generation?.id !== generationId) {
       return
     }
+    this.clearInternalMessages(sessionId)
+    this.compactingSessions.delete(sessionId)
     if (generation) this.clearCompletionRetry(`${sessionId}\0${generation.id}`)
     this.generations.clear(sessionId, generationId)
     const childSessionIds = this.subagentSessions.childSessionIds(sessionId)

@@ -855,6 +855,44 @@ test("compaction shows lifecycle activity without exposing internal messages", a
   ])
 })
 
+test("stopping during compaction clears internal state before the next generation", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "first" })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: { id: "compact-part", sessionID: "session-1", messageID: "compact-user", type: "compaction" },
+    },
+  })
+  bridge.emit({
+    type: "message.updated",
+    properties: {
+      info: { id: "reused-message", sessionID: "session-1", role: "assistant", summary: true },
+    },
+  })
+
+  await service.stopGeneration("session-1")
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "second" })
+  const eventCount = events.length
+  bridge.emit({
+    type: "message.updated",
+    properties: {
+      info: { id: "reused-message", sessionID: "session-1", role: "user" },
+    },
+  })
+
+  assert.deepEqual(events.slice(eventCount), [
+    {
+      event: "messageStarted",
+      data: { sessionId: "session-1", messageId: "reused-message", role: "user" },
+    },
+  ])
+})
+
 test("a late idle from a stopped generation does not complete the retried generation", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)

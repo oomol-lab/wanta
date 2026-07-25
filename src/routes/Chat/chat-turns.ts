@@ -511,6 +511,14 @@ export function shouldShowTurnProcess(process: Pick<ChatTurnProcess, "activity" 
   )
 }
 
+export function shouldAppendTurnProcessActivity(showTurnProcess: boolean, hasProcessSegment: boolean): boolean {
+  return showTurnProcess && !hasProcessSegment
+}
+
+export function shouldSurfaceProcessActivity(activity: AssistantActivityEvent | null): boolean {
+  return activity?.phase === "compacting" || activity?.phase === "resuming"
+}
+
 export function shouldShowPlainTurnActivity(
   process: Pick<ChatTurnProcess, "activity" | "errors" | "hasVisibleOutcome" | "tools">,
 ): boolean {

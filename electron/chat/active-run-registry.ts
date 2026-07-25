@@ -154,7 +154,7 @@ export class ActiveRunRegistry {
     switch (event.event) {
       case "assistantActivity":
         this.update(sessionId, {
-          activeAssistantMessageId: event.data.messageId,
+          ...(event.data.messageId ? { activeAssistantMessageId: event.data.messageId } : {}),
           phase: event.data.phase === "retrying" ? "submitted" : "thinking",
         })
         break

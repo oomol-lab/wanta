@@ -503,7 +503,12 @@ export function summarizeTurnProcess(
 }
 
 export function shouldShowTurnProcess(process: Pick<ChatTurnProcess, "activity" | "tools">): boolean {
-  return process.tools.length > 0 || process.activity?.phase === "retrying"
+  return (
+    process.tools.length > 0 ||
+    process.activity?.phase === "retrying" ||
+    process.activity?.phase === "compacting" ||
+    process.activity?.phase === "resuming"
+  )
 }
 
 export function shouldShowPlainTurnActivity(

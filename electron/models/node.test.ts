@@ -82,7 +82,7 @@ test("ModelsServiceImpl defaults known provider image support but honors user ch
     providerName: "OpenRouter",
     baseUrl: providerBaseUrls.openrouter,
     apiKey: "sk-secret",
-    modelName: "openai/gpt-5.5",
+    modelName: "openai/gpt-5.6-sol",
     supportsImages: true,
   })
 

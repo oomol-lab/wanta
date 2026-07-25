@@ -688,6 +688,11 @@ describe("summarizeTurnProcess", () => {
     expect(shouldShowPlainTurnActivity(process)).toBe(false)
   })
 
+  it("shows the process panel while compacting or resuming context", () => {
+    expect(shouldShowTurnProcess({ activity: { sessionId: "s1", phase: "compacting" }, tools: [] })).toBe(true)
+    expect(shouldShowTurnProcess({ activity: { sessionId: "s1", phase: "resuming" }, tools: [] })).toBe(true)
+  })
+
   it("shows the process panel when a tool part exists", () => {
     const turn = groupChatTurns([
       message("u1", "user", [text("u1-text", "inspect")]),

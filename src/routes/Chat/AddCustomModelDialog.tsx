@@ -425,7 +425,7 @@ export function AddCustomModelDialog({
             <Input
               value={modelName}
               onChange={(event) => setModelName(event.target.value)}
-              placeholder="openai/gpt-5.5"
+              placeholder="openai/gpt-5.6-sol"
               className={modelDialogControlClass}
             />
           )}

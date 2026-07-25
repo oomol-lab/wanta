@@ -37,3 +37,14 @@ test("compactionThresholdTokens reserves output budget and clamps at zero", () =
   assert.equal(compactionThresholdTokens({ contextWindow: 10_000 }), 0)
   assert.equal(compactionThresholdTokens({ contextWindow: 10_000, maxOutputTokens: 0 }), 0)
 })
+
+test("the Qwen 3.7 pricing tier leaves a 20K compaction buffer", () => {
+  assert.equal(
+    compactionThresholdTokens({
+      contextWindow: 1_000_000,
+      inputTokenLimit: 256_000,
+      maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+    }),
+    236_000,
+  )
+})

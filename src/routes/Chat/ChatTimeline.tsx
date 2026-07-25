@@ -316,7 +316,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
         </>
       ) : (
         <>
-          {shouldShowPlainActivity ? <PlainAssistantActivity /> : null}
+          {shouldShowPlainActivity ? <PlainAssistantActivity activity={activity} /> : null}
           {turn.assistants.map((message) => (
             <MessageBubble
               key={message.clientId ?? message.id}

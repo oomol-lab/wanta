@@ -15,6 +15,31 @@ test("message.updated → messageStarted with role", () => {
   assert.deepEqual(out, [{ event: "messageStarted", data: { sessionId: "s1", messageId: "m1", role: "assistant" } }])
 })
 
+test("compaction lifecycle events become user-facing assistant activity", () => {
+  assert.deepEqual(
+    translateOpencodeEvent({
+      type: "message.part.updated",
+      properties: {
+        part: { id: "p1", sessionID: "s1", messageID: "m1", type: "compaction" },
+      },
+    }),
+    [{ event: "assistantActivity", data: { sessionId: "s1", phase: "compacting" } }],
+  )
+  assert.deepEqual(translateOpencodeEvent({ type: "session.compacted", properties: { sessionID: "s1" } }), [
+    { event: "assistantActivity", data: { sessionId: "s1", phase: "resuming" } },
+  ])
+})
+
+test("message.updated marks compaction summaries as internal", () => {
+  const out = translateOpencodeEvent({
+    type: "message.updated",
+    properties: { info: { id: "m1", sessionID: "s1", role: "assistant", summary: true } },
+  })
+  assert.deepEqual(out, [
+    { event: "messageStarted", data: { sessionId: "s1", messageId: "m1", role: "assistant", internal: true } },
+  ])
+})
+
 test("message.updated forwards assistant finish metadata", () => {
   const out = translateOpencodeEvent({
     type: "message.updated",
@@ -748,6 +773,30 @@ test("normalizeMessage preserves assistant token usage", () => {
     reasoning: 40,
     cache: { read: 800, write: 50 },
   })
+})
+
+test("normalizeMessage hides compaction checkpoints, summaries, and synthetic continuations", () => {
+  assert.equal(
+    normalizeMessage({
+      info: { id: "compact-user", role: "user", time: { created: 1 } },
+      parts: [{ id: "compact-part", type: "compaction" }],
+    }),
+    null,
+  )
+  assert.equal(
+    normalizeMessage({
+      info: { id: "compact-summary", role: "assistant", summary: true, time: { created: 2 } },
+      parts: [{ id: "summary-text", type: "text", text: "## Goal" }],
+    }),
+    null,
+  )
+  assert.equal(
+    normalizeMessage({
+      info: { id: "compact-continue", role: "user", time: { created: 3 } },
+      parts: [{ id: "continue-text", type: "text", text: "Continue", synthetic: true }],
+    }),
+    null,
+  )
 })
 
 test("normalizeMessage preserves assistant finish metadata", () => {

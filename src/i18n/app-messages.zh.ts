@@ -270,6 +270,8 @@ export const zhCNMessages = {
   "chat.thinking": "正在思考",
   "chat.activityThinking": "正在分析请求…",
   "chat.activityFinalizing": "正在整理结果…",
+  "chat.activityCompacting": "正在整理对话上下文…",
+  "chat.activityResuming": "上下文已整理，正在继续任务…",
   "chat.activityRetrying": "请求失败，正在重试…",
   "chat.activityRetryingWithAttempt": "请求失败，正在第 {attempt} 次重试…",
   "chat.connectionReconnecting": "正在重新连接…",

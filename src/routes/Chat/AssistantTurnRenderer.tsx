@@ -263,6 +263,10 @@ function activityText(t: TranslateFn, activity: AssistantActivityEvent | null): 
         : t("chat.activityRetrying")
     case "finalizing":
       return t("chat.activityFinalizing")
+    case "compacting":
+      return t("chat.activityCompacting")
+    case "resuming":
+      return t("chat.activityResuming")
     case "thinking":
     default:
       return t("chat.activityThinking")

@@ -286,6 +286,8 @@ export const enMessages = {
   "chat.thinking": "Thinking",
   "chat.activityThinking": "Analyzing the request…",
   "chat.activityFinalizing": "Preparing the result…",
+  "chat.activityCompacting": "Organizing the conversation context…",
+  "chat.activityResuming": "Context organized. Continuing the task…",
   "chat.activityRetrying": "Request failed. Retrying…",
   "chat.activityRetryingWithAttempt": "Request failed. Retrying attempt {attempt}…",
   "chat.connectionReconnecting": "Reconnecting...",

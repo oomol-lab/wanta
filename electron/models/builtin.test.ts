@@ -74,23 +74,13 @@ test("built-in model registry has unique ids and matching summaries", () => {
         maxOutputTokens: 128_000,
       },
       {
-        id: "gpt-5.5",
-        supportsImages: true,
-        supportsPdf: true,
-        toolCall: true,
-        runtimeKind: "openai-responses",
-        contextWindow: 400_000,
-        inputTokenLimit: 258_400,
-        maxOutputTokens: 128_000,
-      },
-      {
         id: "qwen3.7-plus",
         supportsImages: true,
         supportsPdf: false,
         toolCall: true,
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
-        inputTokenLimit: undefined,
+        inputTokenLimit: 256_000,
         maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
       },
       {
@@ -100,7 +90,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         toolCall: true,
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
-        inputTokenLimit: undefined,
+        inputTokenLimit: 256_000,
         maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
       },
     ],
@@ -146,7 +136,6 @@ test("GPT models use OpenAI Responses runtime routing", () => {
     { id: "gpt-5.6-sol", displayName: "GPT 5.6 Sol" },
     { id: "gpt-5.6-terra", displayName: "GPT 5.6 Terra" },
     { id: "gpt-5.6-luna", displayName: "GPT 5.6 Luna" },
-    { id: "gpt-5.5", displayName: "GPT 5.5" },
   ] as const
 
   for (const expected of expectedModels) {
@@ -161,10 +150,9 @@ test("isBuiltinModelId accepts only registered built-in ids", () => {
   assert.equal(isBuiltinModelId("gpt-5.6-sol"), true)
   assert.equal(isBuiltinModelId("gpt-5.6-terra"), true)
   assert.equal(isBuiltinModelId("gpt-5.6-luna"), true)
-  assert.equal(isBuiltinModelId("gpt-5.5"), true)
+  assert.equal(isBuiltinModelId("gpt-5.5"), false)
   assert.equal(isBuiltinModelId("qwen3.7-max"), true)
   assert.equal(isBuiltinModelId("deepseek-v4-flash"), false)
   assert.equal(isBuiltinModelId("deepseek-v4-pro"), false)
   assert.equal(isBuiltinModelId("kimi/kimi-k2.7-code"), false)
-  assert.equal(isBuiltinModelId("gpt-5.5-fast"), false)
 })

@@ -10,7 +10,7 @@ import {
 import { llmBaseUrl } from "@/lib/domain"
 
 const catalog: ModelCatalog = {
-  selected: { kind: "builtin", id: "gpt-5.5" },
+  selected: { kind: "builtin", id: "gpt-5.6-sol" },
   providers: [],
   builtins: [
     {
@@ -22,8 +22,8 @@ const catalog: ModelCatalog = {
       runtimeKind: "openai-compatible",
     },
     {
-      id: "gpt-5.5",
-      displayName: "GPT 5.5",
+      id: "gpt-5.6-sol",
+      displayName: "GPT 5.6 Sol",
       providerName: "OpenAI",
       supportsImages: true,
       toolCall: true,
@@ -47,7 +47,7 @@ const catalog: ModelCatalog = {
 
 describe("model control options", () => {
   it("summarizes the selected built-in model", () => {
-    expect(selectedModelSummary(catalog)).toEqual({ kind: "builtin", label: "GPT 5.5", supportsImages: true })
+    expect(selectedModelSummary(catalog)).toEqual({ kind: "builtin", label: "GPT 5.6 Sol", supportsImages: true })
   })
 
   it("falls back to Auto before the catalog loads", () => {
@@ -57,7 +57,7 @@ describe("model control options", () => {
   it("builds built-in, custom, and add rows in order", () => {
     expect(buildModelMenuItems(catalog, "Configure").map((item) => item.id)).toEqual([
       "builtin:oopilot",
-      "builtin:gpt-5.5",
+      "builtin:gpt-5.6-sol",
       "custom:custom-1",
       "action:add",
     ])
@@ -77,7 +77,7 @@ describe("model control options", () => {
   })
 
   it("combines model and reasoning labels for the compact trigger", () => {
-    expect(combinedModelReasoningLabel("GPT 5.5", "High")).toBe("GPT 5.5 · High")
+    expect(combinedModelReasoningLabel("GPT 5.6 Sol", "High")).toBe("GPT 5.6 Sol · High")
   })
 
   it("shows the configuration prompt instead of a fallback model when a model is required", () => {

@@ -797,6 +797,64 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
   assert.equal(events.at(-1)?.event, "messageStarted")
 })
 
+test("compaction shows lifecycle activity without exposing internal messages", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: { id: "compact-part", sessionID: "session-1", messageID: "compact-user", type: "compaction" },
+    },
+  })
+  bridge.emit({
+    type: "message.updated",
+    properties: {
+      info: { id: "compact-summary", sessionID: "session-1", role: "assistant", summary: true },
+    },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "summary-text",
+        sessionID: "session-1",
+        messageID: "compact-summary",
+        type: "text",
+        text: "## Goal\n- internal checkpoint",
+      },
+    },
+  })
+  bridge.emit({
+    type: "message.updated",
+    properties: {
+      info: { id: "compact-continue", sessionID: "session-1", role: "user" },
+    },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "continue-text",
+        sessionID: "session-1",
+        messageID: "compact-continue",
+        type: "text",
+        text: "Continue",
+        synthetic: true,
+      },
+    },
+  })
+  bridge.emit({ type: "session.compacted", properties: { sessionID: "session-1" } })
+
+  await waitForEventCount(events, 2)
+  assert.deepEqual(events, [
+    { event: "assistantActivity", data: { sessionId: "session-1", phase: "compacting" } },
+    { event: "assistantActivity", data: { sessionId: "session-1", phase: "resuming" } },
+  ])
+})
+
 test("a late idle from a stopped generation does not complete the retried generation", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)

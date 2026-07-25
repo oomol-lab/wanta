@@ -73,32 +73,6 @@ export interface ConnectionProviderSummary {
 
 export type ConnectionProvider = ConnectionProviderSummary
 
-export interface ConnectionUsageDailyPoint {
-  calls: number
-  date: string
-  errors: number
-  success: number
-}
-
-export interface ConnectionUsageServiceItem {
-  calls: number
-  errors: number
-  recent: ConnectionUsageDailyPoint | null
-  service: string
-  success: number
-  trend: ConnectionUsageDailyPoint[]
-}
-
-export interface ConnectionUsageSummary {
-  calls: number
-  days: number
-  errors: number
-  points: ConnectionUsageDailyPoint[]
-  recent: ConnectionUsageDailyPoint | null
-  services: ConnectionUsageServiceItem[]
-  success: number
-}
-
 export type ConnectionExecutionLogStatus = "success" | "error"
 
 export interface ConnectionExecutionLogItem {
@@ -118,9 +92,9 @@ export interface ConnectionExecutionLogSummary {
 }
 
 export interface ConnectionExecutionLogRequest {
+  appId: string
   cursor?: string
   limit?: number
-  service: string
   status?: ConnectionExecutionLogStatus
 }
 
@@ -222,9 +196,6 @@ export interface ConnectionSummary {
   connectedProviderCount: number
   providerCount: number
   providers: ConnectionProviderSummary[]
-  usage: ConnectionUsageSummary
-  /** 区分真实的零调用、后台加载中和统计服务不可用。 */
-  usageStatus: "loading" | "ready" | "unavailable"
   updatedAt: string
   workspace: ConnectionWorkspace
 }

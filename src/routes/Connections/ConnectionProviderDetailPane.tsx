@@ -25,7 +25,6 @@ import {
   isDirectlyAvailableProvider,
 } from "./connection-route-model.ts"
 import { AuthTypeToggleGroup, ConnectionAccountsList } from "./ConnectionAccountsList.tsx"
-import { ProviderUsagePanel } from "./ConnectionUsagePanel.tsx"
 import { ProviderIcon } from "./ProviderIcon.tsx"
 import { Loader } from "@/components/ai-elements/loader"
 import { ErrorNotice } from "@/components/ErrorNotice"
@@ -89,7 +88,6 @@ export function ProviderDetail({
   polling,
   provider,
   showCloseButton = false,
-  summary,
 }: {
   actionsBlocked?: boolean
   actionsPending?: boolean
@@ -111,11 +109,9 @@ export function ProviderDetail({
   polling: string | null
   provider: ConnectionProviderSummary
   showCloseButton?: boolean
-  summary: ConnectionSummary | null
 }) {
   const t = useT()
   const currentAuthType = getDefaultAuthType(provider)
-  const usage = summary?.usage.services.find((item) => item.service === provider.service)
   const accountValue = getProviderAccountValue(provider, t)
   const directlyAvailable = isDirectlyAvailableProvider(provider)
 
@@ -177,16 +173,6 @@ export function ProviderDetail({
           />
         )}
       </section>
-
-      {isConnected(provider) ? (
-        <ProviderUsagePanel
-          connections={connections}
-          provider={provider}
-          usage={usage}
-          usageDays={summary?.usage.days ?? 7}
-          usageStatus={summary?.usageStatus ?? "loading"}
-        />
-      ) : null}
 
       <section className="grid gap-1.5">
         <h3 className="oo-text-title px-0.5">{t("connections.providerDetails")}</h3>

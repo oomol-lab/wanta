@@ -15,7 +15,6 @@ import type {
   ConnectionProviderStatus,
   ConnectionProviderSummary,
   ConnectionSummary,
-  ConnectionUsageSummary,
   ConnectionWorkspace,
 } from "./common.ts"
 
@@ -606,13 +605,11 @@ export function mergeConnectionSummary({
   apps: rawApps,
   meta,
   providers: rawProviders,
-  usage,
   workspace,
 }: {
   apps: RawApp[]
   meta?: RawAppListMeta | null
   providers: RawProvider[]
-  usage: ConnectionUsageSummary
   workspace?: ConnectionWorkspace
 }): ConnectionSummary {
   const apps = rawApps.map(normalizeApp).filter((app): app is ConnectionAppSummary => Boolean(app))
@@ -653,7 +650,6 @@ export function mergeConnectionSummary({
     connectedProviderCount: Math.max(backendConnectedProviderCount, computedConnectedProviderCount),
     providerCount,
     providers,
-    usage,
     updatedAt: new Date().toISOString(),
   }
 }

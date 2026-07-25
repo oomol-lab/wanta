@@ -5,9 +5,9 @@ import {
   getActiveConnectionAppIdsForService,
   getConnectionAppDetail,
   getConnectionCatalogSummary,
+  getConnectionExecutionLogs,
   getConnectionProviderDetail,
   getConnectionSummary,
-  getConnectionUsageSummary,
   listOAuthClientConfigs,
   startOAuthConnect,
   upsertOAuthClientConfig,
@@ -78,7 +78,7 @@ describe("connections-client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it("returns the provider catalog before requesting background usage", async () => {
+  it("returns the provider catalog without requesting usage", async () => {
     const fetchMock = vi.fn<typeof fetch>(async (input) => {
       const url = String(input)
       if (url.includes("/v1/apps")) {
@@ -87,12 +87,6 @@ describe("connections-client", () => {
       if (url.includes("/v1/providers")) {
         return Response.json({ data: [{ authTypes: ["oauth2"], displayName: "Gmail", service: "gmail" }] })
       }
-      if (url.includes("/v1/usage/daily")) {
-        return Response.json({ data: [{ date: "2026-07-10", totalCount: 3 }] })
-      }
-      if (url.includes("/v1/usage/services")) {
-        return Response.json({ data: [{ service: "gmail", totalCount: 3 }] })
-      }
       throw new Error(`Unexpected URL: ${url}`)
     })
     vi.stubGlobal("fetch", fetchMock)
@@ -100,7 +94,6 @@ describe("connections-client", () => {
     const summary = await getConnectionCatalogSummary({ teamName: "team-name" })
 
     expect(summary.providers.map((provider) => provider.service)).toEqual(["gmail"])
-    expect(summary.usageStatus).toBe("loading")
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(
       expect.arrayContaining([expect.stringContaining("/v1/apps"), expect.stringContaining("/v1/providers")]),
     )
@@ -108,11 +101,32 @@ describe("connections-client", () => {
     const providerRequest = fetchMock.mock.calls.find(([url]) => String(url).includes("/v1/providers"))
     const providerHeaders = new Headers(providerRequest?.[1]?.headers)
     expect(providerHeaders.has("x-oo-organization-name")).toBe(false)
+  })
 
-    const usage = await getConnectionUsageSummary({ teamName: "team-name" })
+  it("loads execution logs for one connection through the by-id endpoint", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        data: {
+          data: [
+            {
+              action: "list_threads",
+              executionId: "exec-1",
+              finishedAt: "2026-07-24T10:00:01.000Z",
+              service: "gmail",
+              startedAt: "2026-07-24T10:00:00.000Z",
+              status: "success",
+            },
+          ],
+        },
+      }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
 
-    expect(usage.calls).toBe(3)
-    expect(usage.services).toMatchObject([{ calls: 3, service: "gmail" }])
+    await expect(
+      getConnectionExecutionLogs({ appId: "app-1", limit: 12 }, { teamName: "team-name" }),
+    ).resolves.toMatchObject({ items: [{ id: "exec-1", service: "gmail" }] })
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1/executions?limit=12")
   })
 
   it("loads provider detail without rereading apps or usage", async () => {
@@ -203,24 +217,6 @@ describe("connections-client", () => {
       path: "/v1/providers",
       status: 503,
     })
-  })
-
-  it("reports a failed usage request instead of presenting it as zero usage", async () => {
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    const fetchMock = vi.fn<typeof fetch>(async (input) => {
-      const url = String(input)
-      if (url.includes("/v1/usage/daily")) {
-        return new Response("unavailable", { status: 503, statusText: "Service Unavailable" })
-      }
-      if (url.includes("/v1/usage/services")) {
-        return Response.json({ data: [{ service: "gmail", totalCount: 3 }] })
-      }
-      throw new Error(`Unexpected URL: ${url}`)
-    })
-    vi.stubGlobal("fetch", fetchMock)
-
-    await expect(getConnectionUsageSummary({ teamName: "team-name" })).rejects.toMatchObject({ status: 503 })
-    expect(warning).toHaveBeenCalledOnce()
   })
 
   it("sends a dev app protocol in the OAuth return URI from the Vite renderer", async () => {
@@ -385,12 +381,6 @@ describe("connections-client", () => {
       if (url.includes("/v1/providers")) {
         return Response.json({ data: [{ authTypes: ["oauth2"], service: "gmail" }] })
       }
-      if (url.includes("/v1/usage/daily")) {
-        return Response.json({ data: [] })
-      }
-      if (url.includes("/v1/usage/services")) {
-        return Response.json({ data: [] })
-      }
       throw new Error(`Unexpected URL: ${url}`)
     })
     vi.stubGlobal("fetch", fetchMock)
@@ -401,7 +391,7 @@ describe("connections-client", () => {
       getConnectionSummary({ teamName: "team-name" }, request),
     ])
 
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it("shares OAuth client config reads and clears them after an update", async () => {

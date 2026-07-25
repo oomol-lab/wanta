@@ -447,7 +447,6 @@ export function ConnectionsPanel({
             onDisconnect={requestDisconnectTarget}
             polling={polling}
             provider={selectedProvider}
-            summary={summary}
             showCloseButton
           />
         ) : (
@@ -575,7 +574,6 @@ export function ConnectionsPanel({
               onDisconnect={requestDisconnectTarget}
               polling={polling}
               provider={selectedProvider}
-              summary={summary}
             />
           </SplitViewMobileDetailPane>
         ) : null}
@@ -605,7 +603,6 @@ export function ConnectionsPanel({
               onDisconnect={requestDisconnectTarget}
               polling={polling}
               provider={selectedProvider}
-              summary={summary}
             />
           </SplitViewDesktopDetailPane>
         ) : null}

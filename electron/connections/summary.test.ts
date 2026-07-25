@@ -8,21 +8,10 @@ const providers = [
   { service: "ably", displayName: "Ably", authTypes: ["api_key" as const] },
 ]
 
-const emptyUsage = {
-  calls: 0,
-  days: 7,
-  errors: 0,
-  points: [],
-  recent: null,
-  services: [],
-  success: 0,
-}
-
 test("merge marks connected providers and computes counts", () => {
   const summary = mergeConnectionSummary({
     apps: [{ id: "app-1", service: "gmail", status: "active", authType: "oauth2", updatedAt: 5 }],
     providers,
-    usage: emptyUsage,
   })
 
   assert.equal(summary.providerCount, 3)
@@ -38,7 +27,6 @@ test("connected providers sort before available ones", () => {
   const summary = mergeConnectionSummary({
     apps: [{ id: "app-1", service: "gmail", status: "active" }],
     providers,
-    usage: emptyUsage,
   })
 
   assert.equal(summary.providers[0].service, "gmail")
@@ -48,7 +36,6 @@ test("pure no_auth connected provider cannot be disconnected", () => {
   const summary = mergeConnectionSummary({
     apps: [{ id: "app-1", service: "quickchart", status: "active" }],
     providers,
-    usage: emptyUsage,
   })
   const quickchart = summary.providers.find((provider) => provider.service === "quickchart")
 
@@ -61,7 +48,6 @@ test("non-active app becomes needs_attention", () => {
   const summary = mergeConnectionSummary({
     apps: [{ id: "app-1", service: "ably", status: "reauth_required" }],
     providers,
-    usage: emptyUsage,
   })
   const ably = summary.providers.find((provider) => provider.service === "ably")
 
@@ -73,7 +59,6 @@ test("virtual no_auth app in error becomes needs_attention", () => {
   const summary = mergeConnectionSummary({
     apps: [{ id: "no_auth:quickchart", service: "quickchart", status: "error", authType: "no_auth" }],
     providers,
-    usage: emptyUsage,
   })
   const quickchart = summary.providers.find((provider) => provider.service === "quickchart")
 
@@ -86,7 +71,6 @@ test("virtual no_auth app in active status marks provider ready without a manage
   const summary = mergeConnectionSummary({
     apps: [{ id: "no_auth:quickchart", service: "quickchart", status: "active", authType: "no_auth" }],
     providers,
-    usage: emptyUsage,
   })
   const quickchart = summary.providers.find((provider) => provider.service === "quickchart")
 
@@ -108,7 +92,6 @@ test("mixed no_auth and API key providers remain directly available until the us
         authTypes: ["no_auth" as const, "api_key" as const],
       },
     ],
-    usage: emptyUsage,
   })
   const pubmed = summary.providers[0]
 
@@ -123,7 +106,6 @@ test("pure no_auth provider is ready even when the workspace has no app row", ()
     apps: [],
     meta: { summary: { connectedProviderCount: 0 } },
     providers: [{ service: "quickchart", displayName: "QuickChart", authTypes: ["no_auth" as const] }],
-    usage: emptyUsage,
   })
   const quickchart = summary.providers.find((provider) => provider.service === "quickchart")
 
@@ -140,7 +122,6 @@ test("connected provider count excludes no-auth providers from the backend total
     apps: [{ id: "app-1", service: "gmail", status: "active", authType: "oauth2", updatedAt: 5 }],
     meta: { summary: { connectedProviderCount: 2 } },
     providers,
-    usage: emptyUsage,
   })
 
   assert.equal(summary.connectedProviderCount, 1)
@@ -169,7 +150,6 @@ test("merge preserves multiple apps for one provider", () => {
       },
     ],
     providers,
-    usage: emptyUsage,
   })
 
   const gmail = summary.providers.find((provider) => provider.service === "gmail")
@@ -212,7 +192,6 @@ test("merge exposes connection account labels for UI distinction", () => {
       { service: "github", displayName: "GitHub", authTypes: ["oauth2" as const] },
       { service: "gmail", displayName: "Gmail", authTypes: ["oauth2" as const] },
     ],
-    usage: emptyUsage,
   })
 
   const github = summary.providers.find((provider) => provider.service === "github")
@@ -251,7 +230,6 @@ test("merge normalizes OAuth client config metadata for setup dialogs", () => {
         },
       },
     ],
-    usage: emptyUsage,
   })
 
   const twitter = summary.providers.find((provider) => provider.service === "twitter")

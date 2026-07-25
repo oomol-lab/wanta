@@ -49,9 +49,10 @@ The connector catalog treats the global `/v1/providers` (without a team header) 
 critical data; the team-scoped `/v1/apps` is read concurrently with the catalog, but a permission
 denial or transient failure must never clear the public provider grid. In that case the UI keeps a
 searchable, filterable read-only catalog and marks the team connection status as `forbidden` /
-`unavailable` — an empty array must never masquerade as "confirmed not connected". `/v1/usage/daily`
-and `/v1/usage/services` are filled in in the background and must not block the catalog skeleton
-from finishing.
+`unavailable` — an empty array must never masquerade as "confirmed not connected".
+The Connections UI does not request `/v1/usage/daily` or `/v1/usage/services`; aggregate call counts
+are intentionally omitted because they cannot be attributed to the individual connection accounts
+shown in the detail pane.
 
 When `/v1/apps` succeeds, the team connection summary is shown to current team members, decoupled
 from connection-management permission; only write operations — connect, reconnect, disconnect, and
@@ -70,13 +71,14 @@ remain isolated per workspace. On auth-state changes, `clearConnectorCache()` mu
 prevent team-workspace in-memory results from being reused across accounts. The OAuth Client
 Config is an account-level short-lived resource, invalidated immediately after saving the config;
 before an OAuth authorization starts, only the active App baseline for the current service is
-read — the full catalog and usage are not re-fetched.
+read — the full catalog is not re-fetched.
 
 A force refresh must not simply reuse an arbitrary old request, or a stale response may be
-accepted after a mutation; refreshes from the same UI carry the same `refreshGeneration` and merge
-in-flight requests, while a new mutation uses a new generation. App Detail uses the same 30-second
-short cache and in-flight merging as the catalog; execution logs remain force-refreshed to keep
-audit information fresh.
+accepted after a mutation. Each `useConnections.refresh()` invocation creates a new
+`refreshGeneration`; only requests started within that invocation can merge. Mutations also use a
+new generation. App Detail uses the same 30-second short cache and in-flight merging as the catalog;
+execution logs are queried by App ID and remain force-refreshed to keep each connection's audit
+information fresh.
 
 The Skill catalog likewise maintains a generation per cache key. Publish, explicit refresh, or
 targeted invalidation disqualifies in-flight requests of the old generation from writing to the

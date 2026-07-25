@@ -84,26 +84,6 @@ test("built-in model registry has unique ids and matching summaries", () => {
         maxOutputTokens: 128_000,
       },
       {
-        id: "deepseek-v4-flash",
-        supportsImages: false,
-        supportsPdf: false,
-        toolCall: true,
-        runtimeKind: "openai-compatible",
-        contextWindow: 1_000_000,
-        inputTokenLimit: undefined,
-        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
-      },
-      {
-        id: "deepseek-v4-pro",
-        supportsImages: false,
-        supportsPdf: false,
-        toolCall: true,
-        runtimeKind: "openai-compatible",
-        contextWindow: 1_000_000,
-        inputTokenLimit: undefined,
-        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
-      },
-      {
         id: "qwen3.7-plus",
         supportsImages: true,
         supportsPdf: false,
@@ -183,6 +163,8 @@ test("isBuiltinModelId accepts only registered built-in ids", () => {
   assert.equal(isBuiltinModelId("gpt-5.6-luna"), true)
   assert.equal(isBuiltinModelId("gpt-5.5"), true)
   assert.equal(isBuiltinModelId("qwen3.7-max"), true)
+  assert.equal(isBuiltinModelId("deepseek-v4-flash"), false)
+  assert.equal(isBuiltinModelId("deepseek-v4-pro"), false)
   assert.equal(isBuiltinModelId("kimi/kimi-k2.7-code"), false)
   assert.equal(isBuiltinModelId("gpt-5.5-fast"), false)
 })

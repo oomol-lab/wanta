@@ -1,16 +1,7 @@
 import { ImageIcon, Trash2 } from "lucide-react"
 import * as React from "react"
-import { providerInitial } from "./model-control-utils.ts"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-
-export function ProviderMark({ name }: { name: string }) {
-  return (
-    <span className="oo-text-micro flex size-5 shrink-0 items-center justify-center rounded-md bg-muted font-medium text-muted-foreground">
-      {providerInitial(name)}
-    </span>
-  )
-}
 
 interface ModelRowProps {
   active: boolean
@@ -45,21 +36,23 @@ export const ModelRow = React.forwardRef<HTMLButtonElement, ModelRowProps>(funct
   ref,
 ) {
   return (
-    <div className="group flex min-w-0 items-center gap-1">
+    <div
+      className={cn(
+        "group flex min-w-0 items-center gap-1 rounded-md focus-within:bg-accent focus-within:text-accent-foreground hover:bg-accent hover:text-accent-foreground",
+        active && "bg-accent font-medium text-accent-foreground",
+        highlighted && "bg-accent text-accent-foreground",
+      )}
+      onMouseEnter={onHighlight}
+    >
       <button
         ref={ref}
         id={id}
         type="button"
         role={role}
         aria-checked={role === "menuitemradio" ? active : undefined}
-        className={cn(
-          "flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
-          active && "bg-accent font-medium text-accent-foreground",
-          highlighted && "bg-accent text-accent-foreground",
-        )}
+        className="flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left"
         tabIndex={-1}
         title={title}
-        onMouseEnter={onHighlight}
         onClick={onSelect}
       >
         {icon}
@@ -84,7 +77,7 @@ export const ModelRow = React.forwardRef<HTMLButtonElement, ModelRowProps>(funct
         <button
           type="button"
           tabIndex={-1}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100"
+          className="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100"
           aria-label={deleteLabel}
           onClick={(event) => {
             event.stopPropagation()

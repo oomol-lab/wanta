@@ -322,9 +322,13 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
 ]
 
 export function customModelDisplayName(
-  model: Pick<PersistedCustomModel, "displayName" | "providerName" | "modelName">,
+  model: Pick<PersistedCustomModel, "displayName" | "modelName"> & { providerId?: string },
 ): string {
-  return model.displayName?.trim() || `${model.providerName}:${model.modelName}`
+  const explicitName = model.displayName?.trim()
+  if (explicitName) return explicitName
+  const provider = CUSTOM_MODEL_PROVIDERS.find((item) => item.id === model.providerId)
+  const option = provider?.modelOptions?.find((item) => item.id === model.modelName.trim())
+  return option?.displayName?.trim() || model.modelName.trim()
 }
 
 export function customProviderModelSupportsImages(

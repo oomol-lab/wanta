@@ -503,7 +503,20 @@ export function summarizeTurnProcess(
 }
 
 export function shouldShowTurnProcess(process: Pick<ChatTurnProcess, "activity" | "tools">): boolean {
-  return process.tools.length > 0 || process.activity?.phase === "retrying"
+  return (
+    process.tools.length > 0 ||
+    process.activity?.phase === "retrying" ||
+    process.activity?.phase === "compacting" ||
+    process.activity?.phase === "resuming"
+  )
+}
+
+export function shouldAppendTurnProcessActivity(showTurnProcess: boolean, hasProcessSegment: boolean): boolean {
+  return showTurnProcess && !hasProcessSegment
+}
+
+export function shouldSurfaceProcessActivity(activity: AssistantActivityEvent | null): boolean {
+  return activity?.phase === "compacting" || activity?.phase === "resuming"
 }
 
 export function shouldShowPlainTurnActivity(

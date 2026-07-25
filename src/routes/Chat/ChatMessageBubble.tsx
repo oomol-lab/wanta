@@ -1,4 +1,9 @@
-import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common.ts"
+import type {
+  AssistantActivityEvent,
+  AuthorizationInfo,
+  ChatAttachment,
+  ChatMessage,
+} from "../../../electron/chat/common.ts"
 import type { ChatErrorKind } from "../../../electron/chat/error.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
@@ -223,14 +228,22 @@ export function AssistantTimelineMessage({
   )
 }
 
-export function PlainAssistantActivity() {
+export function PlainAssistantActivity({ activity }: { activity: AssistantActivityEvent | null }) {
   const t = useT()
+  const text =
+    activity?.phase === "compacting"
+      ? t("chat.activityCompacting")
+      : activity?.phase === "resuming"
+        ? t("chat.activityResuming")
+        : activity?.phase === "finalizing"
+          ? t("chat.activityFinalizing")
+          : t("chat.activityThinking")
 
   return (
     <Message from="assistant">
       <MessageContent className="w-full">
         <div className="flex min-h-6 min-w-0 items-center text-muted-foreground">
-          <LoadingShimmerText className="min-w-0 truncate">{t("chat.thinking")}</LoadingShimmerText>
+          <LoadingShimmerText className="min-w-0 truncate">{text}</LoadingShimmerText>
         </div>
       </MessageContent>
     </Message>

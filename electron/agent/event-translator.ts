@@ -318,6 +318,7 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
             role?: ChatRole
             error?: unknown
             finish?: unknown
+            summary?: unknown
             time?: { completed?: unknown }
           }
         | undefined
@@ -333,6 +334,7 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
             sessionId: info.sessionID,
             messageId: info.id,
             role: info.role,
+            ...(info.summary === true ? { internal: true } : {}),
             ...(finishReason ? { finishReason } : {}),
             ...(completedAt === undefined ? {} : { completedAt }),
           },
@@ -382,6 +384,13 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
           },
         },
       ]
+    }
+    case "session.compacted": {
+      const sessionID = (props as { sessionID?: string }).sessionID
+      if (!sessionID) {
+        return []
+      }
+      return [{ event: "assistantActivity", data: { sessionId: sessionID, phase: "resuming" } }]
     }
     case "session.idle": {
       const sessionID = (props as { sessionID?: string }).sessionID
@@ -459,6 +468,14 @@ function toolContext(state: NonNullable<OpencodePart["state"]>) {
 }
 
 function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
+  if (part.type === "compaction") {
+    return [
+      {
+        event: "assistantActivity",
+        data: { sessionId: part.sessionID, phase: "compacting" },
+      },
+    ]
+  }
   if (part.type === "step-start") {
     return [
       {
@@ -653,12 +670,20 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
         time?: { created?: number; completed?: number }
         error?: unknown
         finish?: unknown
+        summary?: unknown
       }
     | undefined
   if (!info?.id || !info.role) {
     return null
   }
   const rawParts = Array.isArray(message.parts) ? (message.parts as OpencodePart[]) : []
+  if (
+    info.summary === true ||
+    rawParts.some((part) => part.type === "compaction") ||
+    (info.role === "user" && rawParts.length > 0 && rawParts.every((part) => isInternalUserTextPart(part)))
+  ) {
+    return null
+  }
   const parts: ChatMessagePart[] = []
   for (const part of rawParts) {
     if (part.type === "text") {

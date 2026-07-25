@@ -39,6 +39,8 @@ export interface MessageStartedEvent {
   sessionId: string
   messageId: string
   role: ChatRole
+  /** Internal OpenCode checkpoint messages must stay out of the user-visible timeline. */
+  internal?: boolean
   /** OpenCode assistant message 的终止原因；流式更新和历史加载共用。 */
   finishReason?: string
   completedAt?: number
@@ -76,7 +78,7 @@ export interface TurnOutputUpdatedEvent {
   sessionId: string
   messageId: string
 }
-export type AssistantActivityPhase = "thinking" | "finalizing" | "retrying"
+export type AssistantActivityPhase = "thinking" | "finalizing" | "retrying" | "compacting" | "resuming"
 
 export interface AssistantActivityEvent {
   sessionId: string

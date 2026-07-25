@@ -15,7 +15,13 @@ import type { TranslateFn } from "@/i18n/i18n"
 import { ChevronRight } from "lucide-react"
 import * as React from "react"
 import { assistantBlockClassName } from "./assistant-turn-renderer-model.ts"
-import { chatTurnProcessStatus, isLiveTurnProcess, settlingToolPartId, summarizeTurnProcess } from "./chat-turns.ts"
+import {
+  chatTurnProcessStatus,
+  isLiveTurnProcess,
+  settlingToolPartId,
+  shouldSurfaceProcessActivity,
+  summarizeTurnProcess,
+} from "./chat-turns.ts"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { processOpenAfterStatusChange, processShouldOpenAutomatically } from "./process-activity-open.ts"
@@ -121,7 +127,9 @@ export function TurnProcessActivity({
   const duration = formatProcessDuration(process, now, live)
   const title = processTitle(t, status, duration)
   const renderBlocks = blocks.map((item) => item.block)
-  const showLiveStatus = renderBlocks.length === 0 && shouldShowLiveStatus(process, status)
+  const showLiveStatus =
+    (renderBlocks.length === 0 || shouldSurfaceProcessActivity(process.activity)) &&
+    shouldShowLiveStatus(process, status)
   const titleText = processStatusText(t, status)
   const settlingPartId = settlingToolPartId(process, status)
   const openPreferenceRef = React.useRef<ProcessOpenPreference>("auto")
@@ -263,6 +271,10 @@ function activityText(t: TranslateFn, activity: AssistantActivityEvent | null): 
         : t("chat.activityRetrying")
     case "finalizing":
       return t("chat.activityFinalizing")
+    case "compacting":
+      return t("chat.activityCompacting")
+    case "resuming":
+      return t("chat.activityResuming")
     case "thinking":
     default:
       return t("chat.activityThinking")

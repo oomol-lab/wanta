@@ -42,6 +42,10 @@ const gptContextWindow = 400_000
 const gptInputTokenLimit = 258_400
 const gptMaxOutputTokens = 128_000
 const millionTokenContextWindow = 1_000_000
+// Keep routine Qwen 3.7 requests within the lower pricing tier. OpenCode
+// reserves 20K tokens and therefore compacts at 236K while retaining the
+// models' full 1M physical context-window metadata.
+const qwen37DefaultInputTokenLimit = 256_000
 const qwen37ReasoningVariants = ["low", "high"] as const satisfies readonly WantaReasoningVariant[]
 
 export const BUILTIN_MODEL_IDS = [
@@ -49,7 +53,6 @@ export const BUILTIN_MODEL_IDS = [
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
-  "gpt-5.5",
   "qwen3.7-plus",
   "qwen3.7-max",
 ] as const
@@ -145,24 +148,6 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
     maxOutputTokens: gptMaxOutputTokens,
   },
   {
-    id: "gpt-5.5",
-    displayName: "GPT 5.5",
-    providerName: "OpenAI",
-    runtime: {
-      providerID: "openai",
-      modelID: "gpt-5.5",
-    },
-    capabilities: {
-      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
-      supportsImages: true,
-      supportsPdf: true,
-      toolCall: true,
-    },
-    contextWindow: gptContextWindow,
-    inputTokenLimit: gptInputTokenLimit,
-    maxOutputTokens: gptMaxOutputTokens,
-  },
-  {
     id: "qwen3.7-plus",
     displayName: "Qwen 3.7 Plus",
     providerName: "Qwen",
@@ -177,6 +162,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
+    inputTokenLimit: qwen37DefaultInputTokenLimit,
     maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   },
   {
@@ -194,6 +180,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
+    inputTokenLimit: qwen37DefaultInputTokenLimit,
     maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   },
 ]

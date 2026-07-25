@@ -280,6 +280,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private readonly turnOutputs: TurnOutputRegistry
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
+  private internalMessageIds = new Set<string>()
+  private compactingSessions = new Set<string>()
   private connectionFailedSessions = new Set<string>()
   private readonly trustedAccess: TrustedLocalAccess
   private readonly subagentSessions: SubagentSessions
@@ -359,6 +361,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.outputPersistence.reset()
     this.desiredWorkspaceTeamName = undefined
     this.startedMessages.clear()
+    this.internalMessageIds.clear()
+    this.compactingSessions.clear()
     this.completionChecks.clear()
     this.clearAllCompletionRetries()
     this.managedUserMessageIds.clear()
@@ -402,6 +406,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.connectionFailedSessions.delete(sessionId)
     this.userStops.delete(sessionId)
     this.emittedMessageErrors.delete(sessionId)
+    this.clearInternalMessages(sessionId)
+    this.compactingSessions.delete(sessionId)
     this.permissions.deleteSession(sessionId)
     this.trustedAccess.deleteSession(sessionId)
     const messageIds = this.managedUserMessageIdsBySession.get(sessionId)
@@ -490,9 +496,31 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           this.generations.clearAcknowledgementWatchdog(activitySessionId)
         }
         if (translated.event === "messageStarted") {
+          if (translated.data.internal === true) {
+            this.rememberInternalMessage(translated.data.sessionId, translated.data.messageId)
+            continue
+          }
+          if (translated.data.role === "user" && this.compactingSessions.has(translated.data.sessionId)) {
+            this.rememberInternalMessage(translated.data.sessionId, translated.data.messageId)
+            continue
+          }
+          if (translated.data.role === "assistant") {
+            this.compactingSessions.delete(translated.data.sessionId)
+          }
           if (!this.rememberMessageStarted(translated)) {
             continue
           }
+        }
+        if (
+          ("messageId" in translated.data &&
+            typeof translated.data.messageId === "string" &&
+            this.isInternalMessage(translated.data.sessionId, translated.data.messageId)) ||
+          (translated.event === "messageDelta" && translated.data.synthetic === true)
+        ) {
+          continue
+        }
+        if (translated.event === "assistantActivity" && translated.data.phase === "compacting") {
+          this.compactingSessions.add(translated.data.sessionId)
         }
         if (translated.event === "permissionAsked" && this.answerLocalAccessPermission(emit, translated.data.request)) {
           if (generationSessionId) {
@@ -577,6 +605,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
         if (translated.event === "agentError" && translated.data.sessionId) {
           const sessionId = translated.data.sessionId
+          this.compactingSessions.delete(sessionId)
           this.generations.clearInactivityWatchdog(sessionId)
           void this.interruptSessionGeneration(emit, sessionId, "runtime_error", translated.data.message, {
             abortAgent: false,
@@ -585,6 +614,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
         if (translated.event === "messageCompleted") {
           const sessionId = translated.data.sessionId
+          this.clearInternalMessages(sessionId)
+          this.compactingSessions.delete(sessionId)
           const generation = this.generations.get(sessionId)
           if (generation) void this.completeSessionGeneration(emit, sessionId, generation)
           continue
@@ -730,6 +761,23 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     this.startedMessages.add(key)
     return true
+  }
+
+  private rememberInternalMessage(sessionId: string, messageId: string): void {
+    this.internalMessageIds.add(`${sessionId}\0${messageId}`)
+  }
+
+  private isInternalMessage(sessionId: string, messageId: string): boolean {
+    return this.internalMessageIds.has(`${sessionId}\0${messageId}`)
+  }
+
+  private clearInternalMessages(sessionId: string): void {
+    const prefix = `${sessionId}\0`
+    for (const key of this.internalMessageIds) {
+      if (key.startsWith(prefix)) {
+        this.internalMessageIds.delete(key)
+      }
+    }
   }
 
   private createActiveRun(req: SendMessageRequest, generation: SessionGeneration): void {
@@ -1084,6 +1132,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (generationId && generation?.id !== generationId) {
       return
     }
+    this.clearInternalMessages(sessionId)
+    this.compactingSessions.delete(sessionId)
     if (generation) this.clearCompletionRetry(`${sessionId}\0${generation.id}`)
     this.generations.clear(sessionId, generationId)
     const childSessionIds = this.subagentSessions.childSessionIds(sessionId)

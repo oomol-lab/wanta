@@ -167,7 +167,6 @@ test("GPT models resolve through the OpenAI provider for Responses API semantics
     { id: "gpt-5.6-sol", displayName: "GPT 5.6 Sol" },
     { id: "gpt-5.6-terra", displayName: "GPT 5.6 Terra" },
     { id: "gpt-5.6-luna", displayName: "GPT 5.6 Luna" },
-    { id: "gpt-5.5", displayName: "GPT 5.5" },
   ] as const
 
   const provider = config.provider?.openai
@@ -194,6 +193,23 @@ test("GPT models resolve through the OpenAI provider for Responses API semantics
     assert.equal(modelVariantReasoningEffort(configuredModel, "max"), "xhigh")
     assert.equal(configuredModel.attachment, true)
     assert.deepEqual(configuredModel.modalities, { input: ["text", "image"], output: ["text"] })
+  }
+})
+
+test("Qwen 3.7 models retain a 1M context window and compact within the 256K pricing tier", () => {
+  const config = buildOpencodeConfig({
+    linkRuntime: { kind: "oomol", sessionToken: "api-test" },
+    modelAccess: { kind: "oomol", sessionToken: "api-test" },
+  })
+
+  for (const modelID of ["qwen3.7-plus", "qwen3.7-max"] as const) {
+    const model = config.provider?.oomol?.models?.[modelID]
+    assert.ok(model)
+    assert.deepEqual(modelLimit(model), {
+      context: 1_000_000,
+      input: 256_000,
+      output: DEFAULT_MAX_OUTPUT_TOKENS,
+    })
   }
 })
 

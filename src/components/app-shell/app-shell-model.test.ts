@@ -558,7 +558,7 @@ describe("composer draft scope keys", () => {
 describe("session title generation keys", () => {
   test("separates requests that use different chat models", () => {
     const input = { text: "分析注册来源" }
-    expect(sessionTitleGenerationKey({ ...input, model: { kind: "builtin", id: "gpt-5.5" } }, true)).not.toBe(
+    expect(sessionTitleGenerationKey({ ...input, model: { kind: "builtin", id: "gpt-5.6-sol" } }, true)).not.toBe(
       sessionTitleGenerationKey({ ...input, model: { kind: "custom", id: "custom-1" } }, true),
     )
   })

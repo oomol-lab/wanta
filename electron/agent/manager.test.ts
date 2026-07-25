@@ -950,7 +950,7 @@ describe("AgentManager", () => {
     })
 
     const title = await manager.generateSessionTitle({
-      model: { kind: "builtin", id: "gpt-5.5" },
+      model: { kind: "builtin", id: "gpt-5.6-sol" },
       text: "你 PostHog 看一下近三天的数据，帮我看一下他们注册主要是来自于哪里？",
     })
 
@@ -958,7 +958,7 @@ describe("AgentManager", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const request = fetchMock.mock.calls[0]?.[1]
     expect(request).toBeDefined()
-    expect(JSON.parse(String(request?.body))).toMatchObject({ max_tokens: 512, model: "gpt-5.5" })
+    expect(JSON.parse(String(request?.body))).toMatchObject({ max_tokens: 512, model: "gpt-5.6-sol" })
     expect(request?.headers).toMatchObject({ Authorization: "Bearer test" })
   })
 

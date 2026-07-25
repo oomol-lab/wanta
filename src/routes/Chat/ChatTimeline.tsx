@@ -33,6 +33,7 @@ import {
   activityForChatTurn,
   latestAssistantMessage,
   retrySourceFromTurn,
+  shouldAppendTurnProcessActivity,
   shouldShowPlainTurnActivity,
   shouldShowSuggestedAuthorization,
   shouldShowTurnProcess,
@@ -179,10 +180,9 @@ const ChatTurnView = React.memo(function ChatTurnView({
   }
   const showTurnProcess = shouldShowProcess || (turnIsActive && processSeenRef.current)
   const hasProcessSegment = timelineSegments.some((segment) => segment.kind === "process")
-  const renderSegments =
-    showTurnProcess && !hasProcessSegment && timelineSegments.length === 0
-      ? [{ kind: "process" as const, key: `${turn.id}:process`, blocks: [] }]
-      : timelineSegments
+  const renderSegments = shouldAppendTurnProcessActivity(showTurnProcess, hasProcessSegment)
+    ? timelineSegments.concat([{ kind: "process" as const, key: `${turn.id}:process`, blocks: [] }])
+    : timelineSegments
   const lastProcessSegmentIndex = renderSegments.findLastIndex((segment) => segment.kind === "process")
   const lastResponseSegmentIndex = renderSegments.findLastIndex((segment) => segment.kind === "response")
   const lastSegmentIndex = renderSegments.length - 1
@@ -316,7 +316,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
         </>
       ) : (
         <>
-          {shouldShowPlainActivity ? <PlainAssistantActivity /> : null}
+          {shouldShowPlainActivity ? <PlainAssistantActivity activity={activity} /> : null}
           {turn.assistants.map((message) => (
             <MessageBubble
               key={message.clientId ?? message.id}

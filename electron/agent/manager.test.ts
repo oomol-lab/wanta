@@ -617,6 +617,18 @@ describe("AgentManager", () => {
     await Promise.all([writeFile(jsonPath, "{}"), writeFile(imagePath, "test image")])
     const promptAsync = vi.fn(async () => ({ data: true }))
     const manager = new AgentManager({
+      customModels: [
+        {
+          id: "deepseek-byok",
+          providerId: "deepseek",
+          providerName: "DeepSeek",
+          baseUrl: "https://api.deepseek.test/v1",
+          apiKey: "custom-key",
+          apiKeyConfigured: true,
+          modelName: "deepseek-v4-flash",
+          supportsImages: false,
+        },
+      ],
       linkRuntime: { kind: "oomol", sessionToken: "test" },
       modelAccess: { kind: "oomol", sessionToken: "test" },
       opencodeBinPath: "/tmp/opencode",
@@ -643,7 +655,7 @@ describe("AgentManager", () => {
     try {
       await manager.promptStreaming("session-1", "analyze", {
         attachments: [json, image],
-        model: { kind: "builtin", id: "deepseek-v4-flash" },
+        model: { kind: "custom", id: "deepseek-byok" },
         teamName: "acme",
       })
       await manager.promptStreaming("session-1", "analyze", {

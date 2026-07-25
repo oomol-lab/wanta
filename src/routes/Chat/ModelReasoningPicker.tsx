@@ -6,10 +6,11 @@ import { Brain, Check, ChevronDown, ChevronRight, Settings2 } from "lucide-react
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { buildModelMenuItems, modelReasoningTriggerLabel, selectedModelSummary } from "./model-control-options.ts"
-import { ModelRow, ProviderMark } from "./model-control-rows.tsx"
+import { ModelRow } from "./model-control-rows.tsx"
 import { clampNumber, modelMenuItemElementId, nextModelMenuIndex, reasoningLevelLabel } from "./model-control-utils.ts"
 import { selectedModelReasoningLevels } from "./model-reasoning-levels.ts"
 import { useComposerMenu } from "./useComposerMenu.ts"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -72,8 +73,15 @@ export function ModelReasoningPicker({
     modelRequiredLabel: modelLabel,
     reasoningLabel: selectedReasoningLabel,
   })
-  const triggerTitle =
-    !modelRequired && selected.supportsImages ? `${triggerLabel} · ${t("chat.modelVision")}` : triggerLabel
+  const triggerTitle = !modelRequired
+    ? [
+        triggerLabel,
+        selected.kind === "custom" ? t("chat.modelByokDescription") : null,
+        selected.supportsImages ? t("chat.modelVision") : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : triggerLabel
   const rootItems = React.useMemo<ModelReasoningRootItem[]>(
     () => [
       ...availableReasoningLevels.map(
@@ -102,6 +110,8 @@ export function ModelReasoningPicker({
   const activeModelItem = modelItems[activeModelIndex]
   const activeModelItemElementId = activeModelItem ? modelMenuItemElementId(activeModelItem.id) : undefined
   const modelRootIndex = rootItems.findIndex((item) => item.kind === "model")
+  const hasBuiltInModels = modelItems.some((item) => item.kind === "builtin")
+  const hasCustomModels = modelItems.some((item) => item.kind === "custom")
 
   const updateModelMenuPosition = React.useCallback(() => {
     const menu = rootMenuRef.current
@@ -374,9 +384,11 @@ export function ModelReasoningPicker({
             className="oo-border-divider fixed z-50 overflow-y-auto rounded-lg border bg-popover p-1.5 text-popover-foreground shadow-xl"
             onKeyDown={handleModelMenuKeyDown}
           >
-            <div className="oo-text-caption-compact px-2 py-1.5 font-medium text-muted-foreground">
-              {t("chat.modelSection")}
-            </div>
+            {hasBuiltInModels ? (
+              <div className="oo-text-caption-compact px-2 py-1.5 font-medium text-muted-foreground">
+                {t("chat.modelBuiltIn")}
+              </div>
+            ) : null}
             {modelItems.map((item, index) => {
               if (item.kind !== "builtin") {
                 return null
@@ -405,10 +417,17 @@ export function ModelReasoningPicker({
               )
             })}
 
-            {modelItems.some((item) => item.kind === "custom") ? (
-              <div className="oo-border-divider mt-1 border-t pt-1">
-                <div className="oo-text-caption-compact px-2 py-1.5 font-medium text-muted-foreground">
-                  {t("chat.modelCustom")}
+            {hasCustomModels ? (
+              <div className={cn(hasBuiltInModels && "oo-border-divider mt-1 border-t pt-1")}>
+                <div className="flex items-center justify-between gap-2 px-2 py-1.5 text-muted-foreground">
+                  <span className="oo-text-caption-compact font-medium">{t("chat.modelCustom")}</span>
+                  <Badge
+                    variant="outline"
+                    className="h-5 rounded-md px-1.5 py-0 text-[10px] font-medium"
+                    title={t("chat.modelByokDescription")}
+                  >
+                    {t("chat.modelByok")}
+                  </Badge>
                 </div>
                 {modelItems.map((item, index) => {
                   if (item.kind !== "custom") {
@@ -427,7 +446,7 @@ export function ModelReasoningPicker({
                       }}
                       active={item.active}
                       highlighted={index === activeModelIndex}
-                      icon={<ProviderMark name={item.providerName} />}
+                      icon={<Brain className="size-4 shrink-0 text-muted-foreground" />}
                       role="menuitemradio"
                       title={item.title}
                       supportsImages={item.supportsImages}

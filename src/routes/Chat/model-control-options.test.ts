@@ -47,11 +47,11 @@ const catalog: ModelCatalog = {
 
 describe("model control options", () => {
   it("summarizes the selected built-in model", () => {
-    expect(selectedModelSummary(catalog)).toEqual({ label: "GPT 5.5", supportsImages: true })
+    expect(selectedModelSummary(catalog)).toEqual({ kind: "builtin", label: "GPT 5.5", supportsImages: true })
   })
 
   it("falls back to Auto before the catalog loads", () => {
-    expect(selectedModelSummary(null)).toEqual({ label: "Auto", supportsImages: true })
+    expect(selectedModelSummary(null)).toEqual({ kind: "builtin", label: "Auto", supportsImages: true })
   })
 
   it("builds built-in, custom, and add rows in order", () => {
@@ -61,6 +61,19 @@ describe("model control options", () => {
       "custom:custom-1",
       "action:add",
     ])
+  })
+
+  it("preserves BYOK identity for custom model presentation", () => {
+    const customCatalog: ModelCatalog = { ...catalog, selected: { kind: "custom", id: "custom-1" } }
+    expect(selectedModelSummary(customCatalog)).toEqual({
+      kind: "custom",
+      label: "Custom Model",
+      supportsImages: false,
+    })
+    expect(buildModelMenuItems(customCatalog, "Configure").find((item) => item.kind === "custom")).toMatchObject({
+      kind: "custom",
+      title: "Custom Model",
+    })
   })
 
   it("combines model and reasoning labels for the compact trigger", () => {

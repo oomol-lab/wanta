@@ -5,7 +5,7 @@ import path from "node:path"
 import { test } from "vitest"
 import { externalModelProviderBaseUrls } from "../domain.ts"
 import { ModelCredentialStore } from "./credential-store.ts"
-import { defaultModelChoice, ModelsStore, sanitizeBaseUrl } from "./store.ts"
+import { customModelDisplayName, defaultModelChoice, ModelsStore, sanitizeBaseUrl } from "./store.ts"
 
 const providerBaseUrls = externalModelProviderBaseUrls
 
@@ -29,20 +29,24 @@ test("ModelsStore returns default catalog on missing file", async () => {
   assert.deepEqual(catalog.selected, defaultModelChoice())
   assert.deepEqual(
     catalog.builtins.map((model) => model.id),
-    [
-      "oopilot",
-      "gpt-5.6-sol",
-      "gpt-5.6-terra",
-      "gpt-5.6-luna",
-      "gpt-5.5",
-      "deepseek-v4-flash",
-      "deepseek-v4-pro",
-      "qwen3.7-plus",
-      "qwen3.7-max",
-    ],
+    ["oopilot", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "qwen3.7-plus", "qwen3.7-max"],
   )
   assert.equal(catalog.customModels.length, 0)
   assert.ok(catalog.providers.some((provider) => provider.id === "deepseek"))
+})
+
+test("ModelsStore falls back to Auto when a removed DeepSeek built-in was selected", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
+  writeFileSync(
+    path.join(dir, "models.json"),
+    JSON.stringify({
+      selected: { kind: "builtin", id: "deepseek-v4-flash" },
+      customModels: [],
+    }),
+  )
+  const { store } = createStore(dir)
+
+  assert.deepEqual((await store.catalog()).selected, defaultModelChoice())
 })
 
 test("ModelsStore exposes provider default URLs and model options", async () => {
@@ -207,6 +211,23 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
   assert.equal(providers.has("ollama"), false)
 })
 
+test("customModelDisplayName uses known model labels without provider prefixes", () => {
+  assert.equal(
+    customModelDisplayName({
+      providerId: "deepseek",
+      modelName: "deepseek-v4-flash",
+    }),
+    "DeepSeek V4 Flash",
+  )
+  assert.equal(
+    customModelDisplayName({
+      providerId: "custom",
+      modelName: "my-model",
+    }),
+    "my-model",
+  )
+})
+
 test("ModelsStore persists credential metadata while public catalog and models.json redact apiKey", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
   const { credentials, store } = createStore(dir)
@@ -233,7 +254,7 @@ test("ModelsStore persists credential metadata while public catalog and models.j
     providerName: "DeepSeek",
     baseUrl: `${providerBaseUrls.deepseek}/v1`,
     modelName: "deepseek-chat",
-    displayName: "DeepSeek:deepseek-chat",
+    displayName: "deepseek-chat",
     apiKeyConfigured: true,
     supportsImages: false,
     supportsToolCalls: true,

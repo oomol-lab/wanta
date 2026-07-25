@@ -3,6 +3,7 @@ import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.
 import { DEFAULT_BUILTIN_MODEL_ID, resolveBuiltinModel } from "../../../electron/models/builtin.ts"
 
 export interface SelectedModelSummary {
+  kind: "builtin" | "custom"
   label: string
   supportsImages: boolean
 }
@@ -22,7 +23,6 @@ export type ModelMenuItem =
       id: string
       kind: "custom"
       modelId: string
-      providerName: string
       supportsImages?: boolean
       title: string
     }
@@ -40,19 +40,27 @@ export function sameModelChoice(a: ModelChoice | undefined, b: ModelChoice | und
 export function selectedModelSummary(catalog: ModelCatalog | null): SelectedModelSummary {
   if (!catalog) {
     const fallback = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID)
-    return { label: fallback.displayName, supportsImages: fallback.capabilities.supportsImages }
+    return { kind: "builtin", label: fallback.displayName, supportsImages: fallback.capabilities.supportsImages }
   }
   const selected = catalog.selected
   if (selected.kind === "custom") {
     const custom = catalog.customModels.find((model) => model.id === selected.id)
     if (custom) {
-      return { label: custom.displayName, supportsImages: custom.supportsImages }
+      return {
+        kind: "custom",
+        label: custom.displayName,
+        supportsImages: custom.supportsImages,
+      }
     }
   }
   const builtin =
     (selected.kind === "builtin" ? catalog.builtins.find((model) => model.id === selected.id) : undefined) ??
     catalog.builtins[0]
-  return { label: builtin?.displayName ?? "Auto", supportsImages: builtin?.supportsImages ?? false }
+  return {
+    kind: "builtin",
+    label: builtin?.displayName ?? "Auto",
+    supportsImages: builtin?.supportsImages ?? false,
+  }
 }
 
 export function buildModelMenuItems(catalog: ModelCatalog | null, addTitle: string): ModelMenuItem[] {
@@ -91,7 +99,6 @@ export function buildModelMenuItems(catalog: ModelCatalog | null, addTitle: stri
         id: `custom:${model.id}`,
         kind: "custom",
         modelId: model.id,
-        providerName: model.providerName,
         supportsImages: model.supportsImages,
         title: model.displayName,
       }

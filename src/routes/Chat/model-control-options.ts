@@ -2,6 +2,8 @@ import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.
 
 import { DEFAULT_BUILTIN_MODEL_ID, resolveBuiltinModel } from "../../../electron/models/builtin.ts"
 
+export type ModelTier = "high" | "medium" | "low"
+
 export interface SelectedModelSummary {
   kind: "builtin" | "custom"
   label: string
@@ -14,6 +16,7 @@ export type ModelMenuItem =
       choice: ModelChoice
       id: string
       kind: "builtin"
+      tier?: ModelTier
       supportsImages?: boolean
       title: string
     }
@@ -87,6 +90,7 @@ export function buildModelMenuItems(catalog: ModelCatalog | null, addTitle: stri
         choice,
         id: `builtin:${model.id}`,
         kind: "builtin",
+        tier: builtinModelTier(model.id),
         supportsImages: model.supportsImages,
         title: model.displayName,
       }
@@ -105,6 +109,19 @@ export function buildModelMenuItems(catalog: ModelCatalog | null, addTitle: stri
     }),
     { active: false, id: "action:add", kind: "add", title: addTitle },
   ]
+}
+
+export function builtinModelTier(id: Extract<ModelChoice, { kind: "builtin" }>["id"]): ModelTier | undefined {
+  switch (id) {
+    case "gpt-5.6-sol":
+      return "high"
+    case "gpt-5.6-terra":
+      return "medium"
+    case "gpt-5.6-luna":
+      return "low"
+    default:
+      return undefined
+  }
 }
 
 export function combinedModelReasoningLabel(modelLabel: string, reasoningLabel: string): string {

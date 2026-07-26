@@ -237,7 +237,7 @@ export function PlainAssistantActivity({ activity }: { activity: AssistantActivi
         ? t("chat.activityResuming")
         : activity?.phase === "finalizing"
           ? t("chat.activityFinalizing")
-          : t("chat.activityThinking")
+          : t("chat.thinking")
 
   return (
     <Message from="assistant">

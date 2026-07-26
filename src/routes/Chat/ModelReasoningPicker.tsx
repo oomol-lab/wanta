@@ -1,6 +1,6 @@
 import type { ReasoningLevel } from "../../../electron/chat/common.ts"
 import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.ts"
-import type { ModelMenuItem } from "./model-control-options.ts"
+import type { ModelMenuItem, ModelTier } from "./model-control-options.ts"
 
 import { Brain, Check, ChevronDown, ChevronRight, Settings2 } from "lucide-react"
 import * as React from "react"
@@ -31,6 +31,17 @@ type ModelReasoningRootItem =
 
 function modelReasoningRootItemElementId(itemId: string): string {
   return `model-reasoning-root-item-${itemId}`
+}
+
+function modelTierCopy(tier: ModelTier, t: ReturnType<typeof useT>): { description: string; label: string } {
+  switch (tier) {
+    case "high":
+      return { description: t("chat.modelTierHighDescription"), label: t("chat.modelTierHigh") }
+    case "medium":
+      return { description: t("chat.modelTierMediumDescription"), label: t("chat.modelTierMedium") }
+    case "low":
+      return { description: t("chat.modelTierLowDescription"), label: t("chat.modelTierLow") }
+  }
 }
 
 export function ModelReasoningPicker({
@@ -121,7 +132,7 @@ export function ModelReasoningPicker({
     const rect = menu.getBoundingClientRect()
     const margin = 16
     const gap = 6
-    const width = Math.min(280, window.innerWidth - margin * 2)
+    const width = Math.min(232, window.innerWidth - margin * 2)
     const rightLeft = rect.right + gap
     const left =
       rightLeft + width <= window.innerWidth - margin
@@ -393,6 +404,7 @@ export function ModelReasoningPicker({
               if (item.kind !== "builtin") {
                 return null
               }
+              const tierCopy = item.tier ? modelTierCopy(item.tier, t) : undefined
               return (
                 <ModelRow
                   key={item.id}
@@ -410,7 +422,9 @@ export function ModelReasoningPicker({
                   role="menuitemradio"
                   title={item.title}
                   supportsImages={item.supportsImages}
-                  visionLabel={t("chat.modelVision")}
+                  tierDescription={tierCopy?.description}
+                  tierLabel={tierCopy?.label}
+                  visionLabel={t("chat.modelSupportsImages")}
                   onHighlight={() => setActiveModelIndex(index)}
                   onSelect={() => activateModelItem(item)}
                 />
@@ -450,7 +464,7 @@ export function ModelReasoningPicker({
                       role="menuitemradio"
                       title={item.title}
                       supportsImages={item.supportsImages}
-                      visionLabel={t("chat.modelVision")}
+                      visionLabel={t("chat.modelSupportsImages")}
                       deleteLabel={t("chat.modelDelete")}
                       onHighlight={() => setActiveModelIndex(index)}
                       onSelect={() => activateModelItem(item)}

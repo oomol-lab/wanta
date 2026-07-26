@@ -405,7 +405,7 @@ export const enMessages = {
   "chat.modelName": "Model name",
   "chat.modelVision": "Vision",
   "chat.modelTierHigh": "High",
-  "chat.modelTierMedium": "Mid",
+  "chat.modelTierMedium": "Balanced",
   "chat.modelTierLow": "Low",
   "chat.modelTierHighDescription": "High-capability model",
   "chat.modelTierMediumDescription": "Balanced-capability model",

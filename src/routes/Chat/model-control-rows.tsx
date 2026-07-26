@@ -76,6 +76,7 @@ export const ModelRow = React.forwardRef<HTMLButtonElement, ModelRowProps>(funct
           ) : null}
           {supportsImages ? (
             <span
+              role="img"
               className="flex size-5 items-center justify-center text-muted-foreground"
               title={visionLabel}
               aria-label={visionLabel}

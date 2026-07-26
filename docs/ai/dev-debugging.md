@@ -13,26 +13,25 @@ screen sharing.
 
 ## Auth state modes
 
-- Normal product work: `corepack pnpm run auth:restore`, then launch with `dev:worktree`.
+- Normal product work: launch with `dev:worktree`; an empty worktree `./wanta` initializes once from
+  the canonical repo's `./wanta` when available.
 - Login/auth work: `corepack pnpm run auth:clean`, then launch with `dev:worktree`.
-- Machine setup or expired snapshot: `corepack pnpm run auth:capture`, sign in, wait for the script
-  to save the snapshot, then check `corepack pnpm run auth:status`.
+- There is no machine-level `~/wanta-dev` auth snapshot. If no canonical `./wanta` exists or its
+  login has expired, sign in in the current checkout's own `./wanta` profile.
 
 Do not ask the user to describe a logged-in screen before checking whether the current worktree has
 the intended auth mode. `auth:status` reports profile and cookie-marker presence without printing
 credentials.
 
-When login state is suspect, run `corepack pnpm run auth:status` first. It reports the machine
-snapshot and current worktree profile, cookie marker, and cookie expiry. If the snapshot is missing,
-expired, or close to expiry, run `corepack pnpm run auth:capture` on the prepared machine and then
-restore again with `corepack pnpm run auth:restore`.
+When login state is suspect, run `corepack pnpm run auth:status` first. It reports the current
+checkout's `./wanta` profile, cookie marker, and cookie expiry without printing credentials.
 
 ## What to inspect
 
 - The Vite terminal output
 - Electron main-process logs
-- `.wanta-dev/user-data/logs/diagnostics.jsonl` when using `dev:worktree`
-- `~/Library/Application Support/wanta/logs/diagnostics.jsonl` only for raw dev or packaged app runs
+- `wanta/logs/diagnostics.jsonl` when using `dev` or `dev:worktree`
+- `~/Library/Application Support/wanta/logs/diagnostics.jsonl` only for packaged app runs
 - the live app window
 
 ## macOS inspection helpers
@@ -46,7 +45,7 @@ restore again with `corepack pnpm run auth:restore`.
 ## Common failure modes
 
 - Electron window never appears
-- app stays on the login gate because `auth:restore` was not run, the machine snapshot is missing or
+- app stays on the login gate because the canonical/current `./wanta` is missing, signed out, or
   expired, or the task intentionally started from `auth:clean`
 - the worktree port is already taken
 - a stale Electron process is still alive after a stopped session

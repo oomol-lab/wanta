@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { describe, test } from "vitest"
-import { preferredWorktreePort, renderEnvScript, shellQuote } from "./bootstrap.ts"
+import { createBootstrapConfig, preferredWorktreePort, renderEnvScript, shellQuote } from "./bootstrap.ts"
 
 describe("bootstrap helpers", () => {
   test("preferredWorktreePort is stable and bounded", () => {
@@ -30,5 +30,13 @@ describe("bootstrap helpers", () => {
     assert.match(script, /export WANTA_DEV_SERVER_PORT='6000'/)
     assert.match(script, /export WANTA_SKIP_PROTOCOL_REGISTRATION='1'/)
     assert.match(script, /export WANTA_USER_DATA_DIR='\/tmp\/wanta'/)
+  })
+
+  test("bootstrap config uses repo-local dev userData", async () => {
+    const config = await createBootstrapConfig()
+
+    assert.match(config.userDataDir, /\/wanta$/)
+    assert.equal(config.env["WANTA_USER_DATA_DIR"], config.userDataDir)
+    assert.doesNotMatch(config.userDataDir, /\.wanta-dev\/user-data$/)
   })
 })

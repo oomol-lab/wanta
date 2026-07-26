@@ -51,3 +51,6 @@ resources/agent-tool-runtime
 # Local dev scratch
 .wanta-dev/
 .playwright-mcp/
+
+# Local dev Electron userData
+wanta/

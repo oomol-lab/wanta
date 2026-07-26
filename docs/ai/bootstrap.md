@@ -13,13 +13,13 @@ machine-level prerequisites.
 ## Steps
 
 1. Run `corepack pnpm run bootstrap`.
-2. For ordinary product work, restore the machine-level signed-in snapshot:
-   `corepack pnpm run auth:restore`.
-3. For login, sign-in, sign-out, auth persistence, or first-run work, use a clean signed-out
-   worktree profile instead: `corepack pnpm run auth:clean`.
-4. If the checkout is partially initialized, rerun `corepack pnpm run bootstrap`; it is
-   idempotent. Re-run `auth:restore` or `auth:clean` after bootstrap if you need to reset the
-   current worktree profile.
+2. Run `corepack pnpm run dev:worktree` for worktree-aware development. If the current worktree's
+   `./wanta` userData is missing or empty, it is initialized once from the canonical repo's
+   `./wanta` when that source exists and is non-empty.
+3. For login, sign-in, sign-out, auth persistence, or first-run work, run
+   `corepack pnpm run auth:clean` to start with a clean signed-out dev profile. Delete `./wanta`
+   when you want `dev:worktree` to initialize from the canonical repo again.
+4. If the checkout is partially initialized, rerun `corepack pnpm run bootstrap`; it is idempotent.
 5. Run the quality gate when needed:
    - `corepack pnpm run ts-check`
    - `corepack pnpm run lint`
@@ -27,25 +27,24 @@ machine-level prerequisites.
    - `corepack pnpm test`
    - `corepack pnpm run build`
 
-## Machine-level login snapshot
+## Dev userData
 
-Use this only when `auth:restore` reports that the machine login snapshot is missing or incomplete.
-It is a machine setup step, not a normal worktree task.
+- Source `corepack pnpm run dev` uses `<repo>/wanta` as the complete Electron userData directory.
+- `corepack pnpm run dev:worktree` uses `<worktree>/wanta` as the complete Electron userData
+  directory, never the canonical repo's directory directly.
+- `dev:worktree` copies the canonical repo's `./wanta` only when the target `./wanta` is missing or
+  empty. Existing worktree state is never overwritten.
+- The old `~/wanta-dev/login-state` and `~/wanta-dev/login-user-data` auth snapshot flow is retired;
+  new development commands do not create, read, or depend on `~/wanta-dev`.
 
-1. Run `corepack pnpm run auth:capture`.
-2. Sign in through the Electron window.
-3. Wait for the script to detect the login, stop the dev app, and save the snapshot.
-4. Check it with `corepack pnpm run auth:status`.
-
-The snapshot is stored outside the repo at `~/wanta-dev/login-state`. The temporary capture profile
-is `~/wanta-dev/login-user-data`. These directories contain Electron session data and must not be
-committed, copied into a worktree, or printed in logs. The script only checks for the
-`oomol-token` cookie name marker; it never prints the token value.
+`corepack pnpm run auth:status` now reports only the current checkout's `./wanta`. `auth:clean`
+removes and recreates that directory with a small marker so `dev:worktree` preserves the intentionally
+signed-out profile. `auth:capture`, `auth:save`, and `auth:restore` are deprecated.
 
 ## Dev launch
 
 - Worktree-aware default: `corepack pnpm run dev:worktree`
-- Raw dev server only: `corepack pnpm run dev`
+- Source-checkout dev: `corepack pnpm run dev`
 - Headless renderer startup only: `corepack pnpm run dev:no-electron`
 - Disable Electron auto-start when you want the Vite process without an app window:
   `WANTA_ELECTRON_AUTO_START=0 corepack pnpm run dev`
@@ -61,9 +60,9 @@ committed, copied into a worktree, or printed in logs. The script only checks fo
 - `resources/agent-tool-runtime/`
 - `.wanta-dev/bootstrap.json`
 - `.wanta-dev/env.sh`
-- `.wanta-dev/user-data`
+- `wanta/`
 
-The generated env isolates the dev session by setting:
+The generated worktree env isolates the dev session by setting:
 
 - `WANTA_DEV_SERVER_PORT`
 - `WANTA_SKIP_PROTOCOL_REGISTRATION=1`

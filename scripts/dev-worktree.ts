@@ -1,9 +1,9 @@
 import type { BootstrapConfig } from "./bootstrap.ts"
 
 import { spawn } from "node:child_process"
-import { readFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat } from "node:fs/promises"
 import path from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { createBootstrapConfig, writeBootstrapFiles } from "./bootstrap.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -11,10 +11,17 @@ const repoRoot = path.join(dirname, "..")
 const bootstrapJsonPath = path.join(repoRoot, ".wanta-dev", "bootstrap.json")
 const requiredEnvKeys = ["WANTA_DEV_SERVER_PORT", "WANTA_SKIP_PROTOCOL_REGISTRATION", "WANTA_USER_DATA_DIR"]
 
-await main()
+export function isMainModule(): boolean {
+  return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+}
+
+if (isMainModule()) {
+  await main()
+}
 
 async function main(): Promise<void> {
   let config = await readBootstrapConfig()
+  await initializeWorktreeUserData(config)
   let result = await run(commandName("corepack"), ["pnpm", "run", "dev"], config.env)
   if (result.ok) {
     return
@@ -26,6 +33,7 @@ async function main(): Promise<void> {
   console.warn("[wanta] configured dev server port is already in use; selecting another worktree port")
   config = await createBootstrapConfig()
   await writeBootstrapFiles(config)
+  await initializeWorktreeUserData(config)
   result = await run(commandName("corepack"), ["pnpm", "run", "dev"], config.env)
   if (!result.ok) {
     throw new Error(result.message)
@@ -76,6 +84,114 @@ function parseBootstrapConfig(value: unknown): BootstrapConfig {
   }
 }
 
+export async function initializeWorktreeUserData(
+  config: BootstrapConfig,
+): Promise<"copied" | "empty-source" | "self" | "kept"> {
+  const target = path.resolve(config.userDataDir)
+  if (!(await isDirectoryMissingOrEmpty(target))) {
+    console.log(`[wanta] keeping existing worktree userData: ${target}`)
+    return "kept"
+  }
+
+  const source = await resolveCanonicalUserDataDir(repoRoot)
+  if (source === undefined) {
+    console.log("[wanta] canonical dev userData not found; starting with a clean worktree profile")
+    return "empty-source"
+  }
+  if (await isSamePath(source, target)) {
+    console.log(`[wanta] current checkout is the canonical dev userData source: ${target}`)
+    return "self"
+  }
+  if (await isDirectoryMissingOrEmpty(source)) {
+    console.log(`[wanta] canonical dev userData is empty: ${source}; starting with a clean worktree profile`)
+    return "empty-source"
+  }
+
+  await copyDirectoryOnce(source, target)
+  console.log(`[wanta] initialized worktree userData from canonical source: ${source} -> ${target}`)
+  return "copied"
+}
+
+export async function resolveCanonicalUserDataDir(currentRepoRoot: string): Promise<string | undefined> {
+  const configured = process.env["WANTA_DEV_AUTH_SOURCE_DIR"]?.trim()
+  if (configured) {
+    return path.resolve(configured)
+  }
+
+  const worktrees = await listGitWorktrees(currentRepoRoot)
+  const mainWorktree = worktrees.find((worktree) => worktree.branch === "refs/heads/main")
+  const canonicalRoot = mainWorktree?.path ?? worktrees[0]?.path
+  return canonicalRoot === undefined ? undefined : path.join(canonicalRoot, "wanta")
+}
+
+interface GitWorktreeInfo {
+  branch?: string
+  path: string
+}
+
+async function listGitWorktrees(cwd: string): Promise<GitWorktreeInfo[]> {
+  const result = await run(commandName("git"), ["worktree", "list", "--porcelain"], {}, cwd)
+  if (!result.ok) {
+    return []
+  }
+  const worktrees: GitWorktreeInfo[] = []
+  let current: Partial<GitWorktreeInfo> = {}
+  for (const line of result.output.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      if (current.path) worktrees.push(current as GitWorktreeInfo)
+      current = { path: line.slice("worktree ".length) }
+    } else if (line.startsWith("branch ")) {
+      current.branch = line.slice("branch ".length)
+    }
+  }
+  if (current.path) worktrees.push(current as GitWorktreeInfo)
+  return worktrees.filter((worktree) => path.isAbsolute(worktree.path))
+}
+
+async function isDirectoryMissingOrEmpty(target: string): Promise<boolean> {
+  try {
+    const info = await stat(target)
+    if (!info.isDirectory()) {
+      return false
+    }
+    return (await readdir(target)).length === 0
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return true
+    }
+    throw error
+  }
+}
+
+async function isSamePath(left: string, right: string): Promise<boolean> {
+  const [leftReal, rightReal] = await Promise.all([safeRealpath(left), safeRealpath(right)])
+  return (leftReal ?? path.resolve(left)) === (rightReal ?? path.resolve(right))
+}
+
+async function safeRealpath(target: string): Promise<string | undefined> {
+  try {
+    return await realpath(target)
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return undefined
+    }
+    throw error
+  }
+}
+
+async function copyDirectoryOnce(source: string, target: string): Promise<void> {
+  await mkdir(path.dirname(target), { recursive: true })
+  const temp = await mkdtemp(path.join(path.dirname(target), `.${path.basename(target)}.tmp-`))
+  try {
+    await cp(source, temp, { recursive: true })
+    await rm(target, { force: true, recursive: true })
+    await rename(temp, target)
+  } catch (error) {
+    await rm(temp, { force: true, recursive: true }).catch(() => undefined)
+    throw error
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -85,17 +201,21 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return Object.values(value).every((entry) => typeof entry === "string")
 }
 
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error
+}
+
 interface RunResult {
   message: string
   ok: boolean
   output: string
 }
 
-async function run(command: string, args: string[], env: Record<string, string>): Promise<RunResult> {
+async function run(command: string, args: string[], env: Record<string, string>, cwd = repoRoot): Promise<RunResult> {
   return await new Promise<RunResult>((resolve, reject) => {
     let output = ""
     const child = spawn(command, args, {
-      cwd: repoRoot,
+      cwd,
       env: { ...process.env, ...env },
       stdio: ["inherit", "pipe", "pipe"],
     })

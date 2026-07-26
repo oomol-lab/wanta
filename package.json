@@ -25,7 +25,7 @@
     "auth:status": "node --experimental-strip-types ./scripts/dev-auth-state.ts status",
     "postinstall": "node --experimental-strip-types ./scripts/download-electron.ts && node --experimental-strip-types ./scripts/download-oo.ts && node --experimental-strip-types ./scripts/download-skills.ts && node --experimental-strip-types ./scripts/download-ripgrep.ts && node --experimental-strip-types ./scripts/build-agent-tool-runtime.ts",
     "predev": "node --experimental-strip-types ./scripts/check-oo.ts",
-    "dev": "vite",
+    "dev": "node --experimental-strip-types ./scripts/dev.ts",
     "dev:worktree": "node --experimental-strip-types ./scripts/dev-worktree.ts",
     "dev:no-electron": "vite --mode no-electron",
     "build": "pnpm run build:app",

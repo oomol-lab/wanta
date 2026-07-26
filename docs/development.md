@@ -66,6 +66,7 @@ cp .env.example .env.local   # .env.local is gitignored
 ```bash
 corepack pnpm run dev    # predev runs scripts/check-oo.ts first (three checks, see below)
                # vite dev server on port 5273; vite-plugin-electron starts the main process too
+               # Electron userData is the repo-local ./wanta directory
 corepack pnpm run dev:no-electron
                # only starts vite + the electron bundle watch, without auto-launching Electron;
                # for code-side debugging that needs no UI window
@@ -82,9 +83,15 @@ corepack pnpm run dev:no-electron
 - When `.electron-dist` exists, vite automatically sets `ELECTRON_OVERRIDE_DIST_PATH`, so dev uses
   the Electron copy with the `wanta-local` scheme (the menu bar shows the dev identity) — required
   for the browser-login round trip to hit the dev instance.
-- dev userData lives at `~/Library/Application Support/wanta` (macOS); agent data under its
-  `agent/` (workspace / isolation / oo-store). Link runtime selection and encrypted OpenConnector
-  token metadata live in `link-runtime.json` at the userData root.
+- Dev userData lives at `./wanta` in the current checkout; agent data under its `agent/` (workspace /
+  isolation / oo-store). Link runtime selection and encrypted OpenConnector token metadata live in
+  `link-runtime.json` at the userData root. Packaged production builds keep Electron's default
+  platform userData path such as `~/Library/Application Support/wanta` on macOS.
+- `corepack pnpm run dev:worktree` keeps the same `./wanta` userData rule for each worktree while
+  adding per-worktree port and protocol-registration isolation. When the target `./wanta` is missing
+  or empty, it copies the canonical main repo's `./wanta` once as an initialization source; it never
+  shares or overwrites an existing worktree userData directory. `WANTA_DEV_AUTH_SOURCE_DIR=/abs/path`
+  can override that initialization source.
 - Code changes must go through a temporary branch + PR: first align local `main` with
   `origin/main`, then cut a one-off branch from `main` (e.g. `codex/<task>`, `ci/<task>`,
   `fix/<task>`). Once the change is done and passes the quality gate, push the temporary branch
@@ -267,6 +274,7 @@ corepack pnpm run build:mac     # = build:app + prepare:binaries + electron-buil
 | `resources/skills/`             | bundled oo skills export (→ extraResources; re-ensured by predev and prepare-binaries) | postinstall `scripts/download-skills.ts` (`scripts/skills.ts`)       |
 | `resources/agent-tool-runtime/` | self-contained runtime for custom tools (→ extraResources)                             | `scripts/build-agent-tool-runtime.ts`                                |
 | `.wanta-dev/`                   | manual smoke / experiment scripts, outside every toolchain                             | handwritten                                                          |
+| `wanta/`                        | dev Electron userData for this checkout                                                | `pnpm run dev` / `pnpm run dev:worktree`                             |
 | `dist/` `dist-electron/`        | vite build output (renderer / main+preload)                                            | `pnpm run build`                                                     |
 | `release/`                      | electron-builder output                                                                | `pnpm run build:*`                                                   |
 

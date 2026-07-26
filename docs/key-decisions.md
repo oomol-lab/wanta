@@ -185,11 +185,12 @@
     provided `oo connector apps --json --organization`, `list_apps` was added specifically to
     answer the current team's connected provider/app list, so catalog search stops being misused
     as a connection-status query. The custom toolset has since grown a fifth tool,
-    `query_knowledge`: read-only queries against WikiGraph knowledge bases pinned to the session
-    (operations: inspect/search/related/evidence/pack), with session-level access control via
-    `WANTA_KNOWLEDGE_REGISTRY` / `WANTA_TEAM_SCOPE_PATH` (a knowledge base not pinned to the
-    current session is refused); it relies on the `wiki-graph` package, with runtime paths
-    injected via `WANTA_WIKIGRAPH_EXECUTABLE` / `WANTA_WIKIGRAPH_CLI`.
+    `query_knowledge`: read-only queries against WikiGraph default-library archives pinned to the
+    session (operations: inspect/search/related/evidence/pack), with session-level access control
+    via `WANTA_TEAM_SCOPE_PATH` (a knowledge base not pinned to the current session is refused). It
+    calls the local WikiGraph 0.4 `wg` command from `WANTA_WIKIGRAPH_COMMAND` (fallback `wg`) with
+    `WIKIGRAPH_STATE_DIR` pointing at Wanta's private state, and it no longer reads a Wanta-owned
+    knowledge registry.
   - Prompt layering (R4): the stable persona/tools/contracts live in agent.prompt to benefit from
     prompt caching; the per-turn-changing authorized-existence hint goes through dynamic
     `body.system` injection, with no specific provider names by default. That same `body.system`

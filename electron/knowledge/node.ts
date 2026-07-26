@@ -1,6 +1,5 @@
 import type { KnowledgeBaseSummary, KnowledgeService } from "./common.ts"
-import type { WikiGraphInspect, WikiGraphMetadata, WikiGraphRuntime } from "./runner.ts"
-import type { KnowledgeBaseRecord, KnowledgeStore } from "./store.ts"
+import type { WikiGraphInspect, WikiGraphLibraryArchive, WikiGraphMetadata, WikiGraphRuntime } from "./runner.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
@@ -8,34 +7,64 @@ import { dialog, nativeImage, shell } from "electron"
 import path from "node:path"
 import { ServiceEvent } from "../service-events.ts"
 import { KnowledgeService as KnowledgeServiceName } from "./common.ts"
-import { inspectWikiGraph, readWikiGraphCover, readWikiGraphMetadata, wikiGraphCoverageReady } from "./runner.ts"
+import {
+  addWikiGraphLibraryArchive,
+  inspectWikiGraph,
+  listWikiGraphLibraryArchives,
+  readWikiGraphCover,
+  readWikiGraphIndex,
+  readWikiGraphMetadata,
+  removeWikiGraphLibraryArchive,
+  wikiGraphCoverageReady,
+} from "./runner.ts"
 import { isBoundedKnowledgeCoverDataUrl, knowledgeCoverDataUrl } from "./thumbnail.ts"
-import { knowledgeArchiveUri } from "./uri.ts"
 
 export interface KnowledgeServiceDeps {
   onRemoved?: (id: string) => Promise<void>
   runtime: WikiGraphRuntime
-  store: KnowledgeStore
   trustedImportPaths?: Iterable<string>
 }
 
+function archiveSourceFileName(archive: WikiGraphLibraryArchive): string {
+  const source = archive.relativePath || archive.path || `${archive.id}.wikg`
+  return path.basename(source)
+}
+
+function archiveImportedAt(archive: WikiGraphLibraryArchive): number {
+  const timestamp = Date.parse(archive.createdAt || archive.updatedAt || "")
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+function archiveSize(archive: WikiGraphLibraryArchive): number {
+  return typeof archive.lastSeenSize === "number" && Number.isFinite(archive.lastSeenSize) ? archive.lastSeenSize : 0
+}
+
 function summaryFromInspection(
-  base: Pick<KnowledgeBaseRecord, "id" | "fingerprint" | "filePath" | "importedAt" | "size" | "sourceFileName">,
+  archive: WikiGraphLibraryArchive,
   metadata: WikiGraphMetadata,
   inspect: WikiGraphInspect,
   cover: Buffer | null,
-): KnowledgeBaseRecord {
+): KnowledgeBaseSummary {
+  const sourceFileName = archiveSourceFileName(archive)
   const encodedCover = knowledgeCoverDataUrl(cover, (buffer) => nativeImage.createFromBuffer(buffer))
+  const titleValue = metadata.title
+  const title =
+    typeof titleValue === "string" && titleValue.trim()
+      ? titleValue.trim()
+      : path.basename(sourceFileName, path.extname(sourceFileName))
   return {
-    ...base,
-    title: metadata.title?.trim() || path.basename(base.sourceFileName, path.extname(base.sourceFileName)),
+    id: archive.id,
+    title,
     authors: (metadata.authors ?? []).flatMap((author) =>
       typeof author === "string" && author.trim() ? [author.trim()] : [],
     ),
     ...(metadata.publisher?.trim() ? { publisher: metadata.publisher.trim() } : {}),
     ...(metadata.publishedAt?.trim() ? { publishedAt: metadata.publishedAt.trim() } : {}),
     ...(metadata.language?.trim() ? { language: metadata.language.trim() } : {}),
-    ...(encodedCover ? { coverDataUrl: encodedCover } : {}),
+    sourceFileName,
+    size: archiveSize(archive),
+    importedAt: archiveImportedAt(archive),
+    ...(encodedCover && isBoundedKnowledgeCoverDataUrl(encodedCover) ? { coverDataUrl: encodedCover } : {}),
     capabilities: {
       fullTextSearch: inspect.index?.querySupport === true,
       knowledgeGraph: wikiGraphCoverageReady(inspect.coverage?.knowledgeGraph),
@@ -54,12 +83,6 @@ function summaryFromInspection(
   }
 }
 
-function publicSummary(record: KnowledgeBaseRecord): KnowledgeBaseSummary {
-  const { filePath: _filePath, fingerprint: _fingerprint, ...summary } = record
-  if (summary.coverDataUrl && !isBoundedKnowledgeCoverDataUrl(summary.coverDataUrl)) delete summary.coverDataUrl
-  return summary
-}
-
 export class KnowledgeServiceImpl
   extends ConnectionService<KnowledgeService>
   implements IConnectionService<KnowledgeService>
@@ -71,9 +94,9 @@ export class KnowledgeServiceImpl
   }
 
   public async list(): Promise<KnowledgeBaseSummary[]> {
-    return (await this.deps.store.listRecords())
-      .sort((left, right) => right.importedAt - left.importedAt)
-      .map(publicSummary)
+    const archives = await listWikiGraphLibraryArchives(this.deps.runtime)
+    const summaries = await Promise.all(archives.map((archive) => this.summary(archive)))
+    return summaries.sort((left, right) => right.importedAt - left.importedAt)
   }
 
   public async importKnowledgeBase(sourcePath?: string): Promise<KnowledgeBaseSummary | null> {
@@ -88,39 +111,10 @@ export class KnowledgeServiceImpl
     if (path.extname(selectedPath).toLowerCase() !== ".wikg") {
       throw new Error("Only .wikg knowledge bases are supported")
     }
-    const imported = await this.deps.store.copyForImport(selectedPath)
-    if (imported.duplicate) return publicSummary(imported.duplicate)
-    try {
-      const archiveUri = knowledgeArchiveUri(imported.managedPath)
-      const [metadata, inspect, cover] = await Promise.all([
-        readWikiGraphMetadata(this.deps.runtime, archiveUri),
-        inspectWikiGraph(this.deps.runtime, archiveUri),
-        readWikiGraphCover(this.deps.runtime, archiveUri),
-      ])
-      const record = summaryFromInspection(
-        {
-          id: imported.id,
-          filePath: imported.managedPath,
-          fingerprint: imported.fingerprint,
-          importedAt: Date.now(),
-          size: imported.size,
-          sourceFileName: path.basename(selectedPath),
-        },
-        metadata,
-        inspect,
-        cover,
-      )
-      const duplicate = await this.deps.store.commitImport(record)
-      if (duplicate) {
-        await this.deps.store.discardManagedFile(imported.managedPath)
-        return publicSummary(duplicate)
-      }
-      this.broadcastChanged("import knowledge base")
-      return publicSummary(record)
-    } catch (error) {
-      await this.deps.store.discardManagedFile(imported.managedPath)
-      throw error
-    }
+    const archive = await addWikiGraphLibraryArchive(this.deps.runtime, selectedPath)
+    const summary = await this.summary(archive)
+    this.broadcastChanged("import knowledge base")
+    return summary
   }
 
   private async selectKnowledgeBasePath(): Promise<string | undefined> {
@@ -132,36 +126,43 @@ export class KnowledgeServiceImpl
   }
 
   public async refresh(id: string): Promise<KnowledgeBaseSummary> {
-    const current = await this.requireRecord(id)
-    const archiveUri = knowledgeArchiveUri(current.filePath)
-    const [metadata, inspect, cover] = await Promise.all([
-      readWikiGraphMetadata(this.deps.runtime, archiveUri),
-      inspectWikiGraph(this.deps.runtime, archiveUri),
-      readWikiGraphCover(this.deps.runtime, archiveUri),
-    ])
-    const record = summaryFromInspection(current, metadata, inspect, cover)
-    if (!(await this.deps.store.update(record))) throw new Error("Knowledge base was removed while refreshing")
+    const archive = await this.requireArchive(id)
+    const summary = await this.summary(archive)
     this.broadcastChanged("refresh knowledge base")
-    return publicSummary(record)
+    return summary
   }
 
   public async remove(id: string): Promise<void> {
-    await this.deps.store.remove(id)
-    await this.deps.onRemoved?.(id).catch((error: unknown) => {
+    const normalizedId = id.trim()
+    if (!normalizedId) return
+    await removeWikiGraphLibraryArchive(this.deps.runtime, normalizedId)
+    await this.deps.onRemoved?.(normalizedId).catch((error: unknown) => {
       console.warn("[wanta] failed to clean removed knowledge base references:", error)
     })
     this.broadcastChanged("remove knowledge base")
   }
 
   public async reveal(id: string): Promise<void> {
-    const record = await this.requireRecord(id)
-    shell.showItemInFolder(record.filePath)
+    const archive = await this.requireArchive(id)
+    if (!archive.path) throw new Error("Knowledge base managed file path is unavailable")
+    shell.showItemInFolder(archive.path)
   }
 
-  private async requireRecord(id: string): Promise<KnowledgeBaseRecord> {
-    const record = await this.deps.store.record(id.trim())
-    if (!record) throw new Error("Knowledge base not found")
-    return record
+  private async requireArchive(id: string): Promise<WikiGraphLibraryArchive> {
+    const normalizedId = id.trim()
+    const archive = (await listWikiGraphLibraryArchives(this.deps.runtime)).find((item) => item.id === normalizedId)
+    if (!archive) throw new Error("Knowledge base not found")
+    return archive
+  }
+
+  private async summary(archive: WikiGraphLibraryArchive): Promise<KnowledgeBaseSummary> {
+    const [metadata, inspect, _index, cover] = await Promise.all([
+      readWikiGraphMetadata(this.deps.runtime, archive.id),
+      inspectWikiGraph(this.deps.runtime, archive.id),
+      readWikiGraphIndex(this.deps.runtime, archive.id).catch(() => ({})),
+      readWikiGraphCover(this.deps.runtime, archive.id),
+    ])
+    return summaryFromInspection(archive, metadata, inspect, cover)
   }
 
   private broadcastChanged(reason: string): void {

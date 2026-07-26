@@ -3,6 +3,7 @@ import { test } from "vitest"
 import {
   COMPACTION_RESERVED_BUFFER_TOKENS,
   DEFAULT_MAX_OUTPUT_TOKENS,
+  QWEN_37_MAX_OUTPUT_TOKENS,
   compactionThresholdTokens,
   contextLimitTokens,
   effectiveMaxOutputTokens,
@@ -28,7 +29,7 @@ test("contextLimitTokens prefers input limits over context windows", () => {
 
 test("compactionThresholdTokens reserves output budget and clamps at zero", () => {
   assert.equal(compactionThresholdTokens({}), undefined)
-  assert.equal(compactionThresholdTokens({ contextWindow: 200_000 }), 200_000 - COMPACTION_RESERVED_BUFFER_TOKENS)
+  assert.equal(compactionThresholdTokens({ contextWindow: 200_000 }), 200_000 - DEFAULT_MAX_OUTPUT_TOKENS)
   assert.equal(
     compactionThresholdTokens({ contextWindow: 200_000, inputTokenLimit: 128_000 }),
     128_000 - COMPACTION_RESERVED_BUFFER_TOKENS,
@@ -43,7 +44,7 @@ test("the Qwen 3.7 pricing tier leaves a 20K compaction buffer", () => {
     compactionThresholdTokens({
       contextWindow: 1_000_000,
       inputTokenLimit: 256_000,
-      maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+      maxOutputTokens: QWEN_37_MAX_OUTPUT_TOKENS,
     }),
     236_000,
   )

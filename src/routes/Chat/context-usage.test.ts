@@ -23,7 +23,8 @@ const catalog: ModelCatalog = {
       supportsImages: true,
       toolCall: true,
       runtimeKind: "openai-compatible",
-      contextWindow: 200_000,
+      contextWindow: 400_000,
+      inputTokenLimit: 256_000,
       maxOutputTokens: 32_000,
     },
   ],
@@ -57,11 +58,12 @@ describe("chat context usage", () => {
     expect(latestContextTokenUsage(messages)).toEqual(messages[2]?.tokenUsage)
     expect(buildContextUsageInfo(messages, catalog)).toEqual({
       usedTokens: 1525,
-      contextWindowTokens: 200_000,
-      limitTokens: 180_000,
+      contextWindowTokens: 400_000,
+      inputLimitTokens: 256_000,
+      limitTokens: 236_000,
       limitKind: "compaction",
       maxOutputTokens: 32_000,
-      compactionThresholdTokens: 180_000,
+      compactionThresholdTokens: 236_000,
       percent: 1,
     })
   })
@@ -154,14 +156,14 @@ describe("chat context usage", () => {
     expect(selectedModelContextBudget(customCatalog)).toEqual({
       contextLimitTokens: 100_000,
       contextWindowTokens: 100_000,
-      compactionThresholdTokens: 80_000,
+      compactionThresholdTokens: 68_000,
     })
     expect(buildContextUsageInfo(messages, customCatalog)).toEqual({
       usedTokens: 2000,
       contextWindowTokens: 100_000,
-      limitTokens: 80_000,
+      limitTokens: 68_000,
       limitKind: "compaction",
-      compactionThresholdTokens: 80_000,
+      compactionThresholdTokens: 68_000,
       percent: 3,
     })
   })

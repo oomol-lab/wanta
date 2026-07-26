@@ -89,9 +89,8 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
         model.maxOutputTokens,
       ]),
     [
-      ["gemini-3.5-flash", true, true, 1_114_112, 1_048_576, 65_536],
-      ["gemini-3.1-pro-preview", true, true, 1_114_112, 1_048_576, 65_536],
-      ["gemini-2.5-pro", true, true, 1_114_112, 1_048_576, 65_536],
+      ["gemini-3.5-flash", true, true, 1_114_112, 256_000, 65_536],
+      ["gemini-3.1-pro-preview", true, true, 1_114_112, 256_000, 65_536],
     ],
   )
   assert.equal(providers.get("zhipu")?.baseUrl, providerBaseUrls.zhipuCn)
@@ -118,15 +117,14 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
   assert.deepEqual(
     providers
       .get("zhipu")
-      ?.modelOptions?.map((model) => [model.id, model.contextWindow, model.maxOutputTokens, model.reasoningVariants]),
-    [
-      ["glm-5.2", 1_000_000, 128_000, ["high", "max"]],
-      ["glm-5.1", undefined, undefined, undefined],
-      ["glm-5-turbo", undefined, undefined, undefined],
-      ["glm-5", undefined, undefined, undefined],
-      ["glm-4.7", 204_800, 128_000, undefined],
-      ["glm-4.7-flash", 204_800, 128_000, undefined],
-    ],
+      ?.modelOptions?.map((model) => [
+        model.id,
+        model.contextWindow,
+        model.inputTokenLimit,
+        model.maxOutputTokens,
+        model.reasoningVariants,
+      ]),
+    [["glm-5.2", 1_000_000, 256_000, 128_000, ["high", "max"]]],
   )
   assert.equal(providers.get("kimi")?.baseUrl, providerBaseUrls.kimiCn)
   assert.deepEqual(providers.get("kimi")?.apiRegions, [
@@ -134,16 +132,17 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
     { id: "global", baseUrl: providerBaseUrls.kimiGlobal },
   ])
   assert.deepEqual(
-    providers.get("kimi")?.modelOptions?.map((model) => model.id),
-    ["kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6"],
-  )
-  assert.deepEqual(
-    providers.get("kimi")?.modelOptions?.map((model) => [model.supportsImages, model.contextWindow]),
-    [
-      [true, 262_144],
-      [true, 262_144],
-      [true, 262_144],
-    ],
+    providers
+      .get("kimi")
+      ?.modelOptions?.map((model) => [
+        model.id,
+        model.supportsImages,
+        model.contextWindow,
+        model.inputTokenLimit,
+        model.maxOutputTokens,
+        model.reasoningVariants,
+      ]),
+    [["kimi-k3", true, 1_000_000, 256_000, 128_000, ["low", "high", "max"]]],
   )
   assert.equal(providers.get("kimi")?.supportsToolCalls, true)
   assert.equal(providers.get("minimax")?.baseUrl, providerBaseUrls.minimaxCn)
@@ -154,17 +153,14 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
   assert.deepEqual(
     providers
       .get("minimax")
-      ?.modelOptions?.map((model) => [model.id, model.supportsImages, model.contextWindow, model.maxOutputTokens]),
-    [
-      ["MiniMax-M3", true, 1_000_000, undefined],
-      ["MiniMax-M2.7", false, 204_800, 128_000],
-      ["MiniMax-M2.7-highspeed", false, 204_800, 128_000],
-      ["MiniMax-M2.5", false, 204_800, 128_000],
-      ["MiniMax-M2.5-highspeed", false, 204_800, 128_000],
-      ["MiniMax-M2.1", false, 204_800, 128_000],
-      ["MiniMax-M2.1-highspeed", false, 204_800, 128_000],
-      ["MiniMax-M2", false, 204_800, 128_000],
-    ],
+      ?.modelOptions?.map((model) => [
+        model.id,
+        model.supportsImages,
+        model.contextWindow,
+        model.inputTokenLimit,
+        model.maxOutputTokens,
+      ]),
+    [["MiniMax-M3", true, 1_000_000, 256_000, undefined]],
   )
   assert.equal(providers.get("minimax")?.supportsToolCalls, true)
   assert.equal(providers.get("qwen")?.baseUrl, providerBaseUrls.qwenStandardCn)
@@ -192,10 +188,18 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
     },
   ])
   assert.deepEqual(
-    providers.get("qwen")?.modelOptions?.map((model) => [model.id, model.supportsImages]),
+    providers
+      .get("qwen")
+      ?.modelOptions?.map((model) => [
+        model.id,
+        model.supportsImages,
+        model.contextWindow,
+        model.inputTokenLimit,
+        model.maxOutputTokens,
+      ]),
     [
-      ["qwen3.7-plus", true],
-      ["qwen3.7-max", true],
+      ["qwen3.7-plus", true, 1_000_000, 256_000, 65_536],
+      ["qwen3.7-max", true, 1_000_000, 256_000, 65_536],
     ],
   )
   assert.equal(providers.get("xiaomi")?.baseUrl, providerBaseUrls.xiaomiStandard)
@@ -215,10 +219,12 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
     },
   ])
   assert.deepEqual(
-    providers.get("xiaomi")?.modelOptions?.map((model) => [model.id, model.supportsImages, model.contextWindow]),
+    providers
+      .get("xiaomi")
+      ?.modelOptions?.map((model) => [model.id, model.supportsImages, model.contextWindow, model.inputTokenLimit]),
     [
-      ["mimo-v2.5-pro", false, 1_000_000],
-      ["mimo-v2.5", true, 1_000_000],
+      ["mimo-v2.5-pro", false, 1_000_000, 256_000],
+      ["mimo-v2.5", true, 1_000_000, 256_000],
     ],
   )
   assert.equal(providers.get("xiaomi")?.supportsToolCalls, true)

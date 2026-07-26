@@ -9,7 +9,7 @@ import {
   isBuiltinModelId,
   resolveBuiltinModel,
 } from "./builtin.ts"
-import { DEFAULT_MAX_OUTPUT_TOKENS } from "./limits.ts"
+import { DEFAULT_MAX_OUTPUT_TOKENS, QWEN_37_MAX_OUTPUT_TOKENS, STANDARD_INPUT_TOKEN_LIMIT_TOKENS } from "./limits.ts"
 
 test("built-in model registry has unique ids and matching summaries", () => {
   assert.equal(new Set(BUILTIN_MODEL_IDS).size, BUILTIN_MODEL_IDS.length)
@@ -39,8 +39,8 @@ test("built-in model registry has unique ids and matching summaries", () => {
         supportsPdf: false,
         toolCall: true,
         runtimeKind: "openai-compatible",
-        contextWindow: 200_000,
-        inputTokenLimit: undefined,
+        contextWindow: 400_000,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
         maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
       },
       {
@@ -50,7 +50,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         toolCall: true,
         runtimeKind: "openai-responses",
         contextWindow: 400_000,
-        inputTokenLimit: 258_400,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
         maxOutputTokens: 128_000,
       },
       {
@@ -60,7 +60,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         toolCall: true,
         runtimeKind: "openai-responses",
         contextWindow: 400_000,
-        inputTokenLimit: 258_400,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
         maxOutputTokens: 128_000,
       },
       {
@@ -70,7 +70,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         toolCall: true,
         runtimeKind: "openai-responses",
         contextWindow: 400_000,
-        inputTokenLimit: 258_400,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
         maxOutputTokens: 128_000,
       },
       {
@@ -81,7 +81,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
         inputTokenLimit: 256_000,
-        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+        maxOutputTokens: QWEN_37_MAX_OUTPUT_TOKENS,
       },
       {
         id: "qwen3.7-max",
@@ -91,7 +91,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
         inputTokenLimit: 256_000,
-        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+        maxOutputTokens: QWEN_37_MAX_OUTPUT_TOKENS,
       },
     ],
   )
@@ -154,5 +154,5 @@ test("isBuiltinModelId accepts only registered built-in ids", () => {
   assert.equal(isBuiltinModelId("qwen3.7-max"), true)
   assert.equal(isBuiltinModelId("deepseek-v4-flash"), false)
   assert.equal(isBuiltinModelId("deepseek-v4-pro"), false)
-  assert.equal(isBuiltinModelId("kimi/kimi-k2.7-code"), false)
+  assert.equal(isBuiltinModelId("kimi-k3"), false)
 })

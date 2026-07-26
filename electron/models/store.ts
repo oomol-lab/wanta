@@ -8,10 +8,9 @@ import { atomicWriteText } from "../atomic-file.ts"
 import { externalModelProviderBaseUrls } from "../domain.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, builtinModelSummaries, isBuiltinModelId } from "./builtin.ts"
+import { QWEN_37_MAX_OUTPUT_TOKENS, STANDARD_INPUT_TOKEN_LIMIT_TOKENS } from "./limits.ts"
 
 const providerBaseUrls = externalModelProviderBaseUrls
-const context200K = 204_800
-const context256K = 262_144
 const millionTokenContextWindow = 1_000_000
 const gemini3InputTokenLimit = 1_048_576
 const gemini3MaxOutputTokens = 65_536
@@ -19,6 +18,7 @@ const gemini3ContextWindow = gemini3InputTokenLimit + gemini3MaxOutputTokens
 const maxOutput128K = 128_000
 const deepSeekV4ReasoningVariants = ["low", "high", "max"] as const satisfies readonly WantaReasoningVariant[]
 const glm52ReasoningVariants = ["high", "max"] as const satisfies readonly WantaReasoningVariant[]
+const kimiK3ReasoningVariants = ["low", "high", "max"] as const satisfies readonly WantaReasoningVariant[]
 
 export interface PersistedCustomModel {
   id: string
@@ -89,7 +89,7 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
         supportsImages: true,
         supportsToolCalls: true,
         contextWindow: gemini3ContextWindow,
-        inputTokenLimit: gemini3InputTokenLimit,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
         maxOutputTokens: gemini3MaxOutputTokens,
       },
       {
@@ -98,16 +98,7 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
         supportsImages: true,
         supportsToolCalls: true,
         contextWindow: gemini3ContextWindow,
-        inputTokenLimit: gemini3InputTokenLimit,
-        maxOutputTokens: gemini3MaxOutputTokens,
-      },
-      {
-        id: "gemini-2.5-pro",
-        displayName: "Gemini 2.5 Pro",
-        supportsImages: true,
-        supportsToolCalls: true,
-        contextWindow: gemini3ContextWindow,
-        inputTokenLimit: gemini3InputTokenLimit,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
         maxOutputTokens: gemini3MaxOutputTokens,
       },
     ],
@@ -142,18 +133,9 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
         id: "glm-5.2",
         displayName: "GLM-5.2",
         contextWindow: millionTokenContextWindow,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
         maxOutputTokens: maxOutput128K,
         reasoningVariants: glm52ReasoningVariants,
-      },
-      { id: "glm-5.1", displayName: "GLM-5.1" },
-      { id: "glm-5-turbo", displayName: "GLM-5-Turbo" },
-      { id: "glm-5", displayName: "GLM-5" },
-      { id: "glm-4.7", displayName: "GLM-4.7", contextWindow: context200K, maxOutputTokens: maxOutput128K },
-      {
-        id: "glm-4.7-flash",
-        displayName: "GLM-4.7 Flash",
-        contextWindow: context200K,
-        maxOutputTokens: maxOutput128K,
       },
     ],
     supportsImages: false,
@@ -169,14 +151,15 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
       { id: "global", baseUrl: providerBaseUrls.kimiGlobal },
     ],
     modelOptions: [
-      { id: "kimi-k2.7-code", displayName: "Kimi K2.7 Code", supportsImages: true, contextWindow: context256K },
       {
-        id: "kimi-k2.7-code-highspeed",
-        displayName: "Kimi K2.7 Code Highspeed",
+        id: "kimi-k3",
+        displayName: "Kimi K3",
         supportsImages: true,
-        contextWindow: context256K,
+        contextWindow: millionTokenContextWindow,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+        maxOutputTokens: maxOutput128K,
+        reasoningVariants: kimiK3ReasoningVariants,
       },
-      { id: "kimi-k2.6", displayName: "Kimi K2.6", supportsImages: true, contextWindow: context256K },
     ],
     supportsToolCalls: true,
     requiresBaseUrl: true,
@@ -190,55 +173,12 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
       { id: "global", baseUrl: providerBaseUrls.minimaxGlobal },
     ],
     modelOptions: [
-      { id: "MiniMax-M3", displayName: "MiniMax M3", supportsImages: true, contextWindow: millionTokenContextWindow },
       {
-        id: "MiniMax-M2.7",
-        displayName: "MiniMax M2.7",
-        supportsImages: false,
-        contextWindow: context200K,
-        maxOutputTokens: maxOutput128K,
-      },
-      {
-        id: "MiniMax-M2.7-highspeed",
-        displayName: "MiniMax M2.7 Highspeed",
-        supportsImages: false,
-        contextWindow: context200K,
-        maxOutputTokens: maxOutput128K,
-      },
-      {
-        id: "MiniMax-M2.5",
-        displayName: "MiniMax M2.5",
-        supportsImages: false,
-        contextWindow: context200K,
-        maxOutputTokens: maxOutput128K,
-      },
-      {
-        id: "MiniMax-M2.5-highspeed",
-        displayName: "MiniMax M2.5 Highspeed",
-        supportsImages: false,
-        contextWindow: context200K,
-        maxOutputTokens: maxOutput128K,
-      },
-      {
-        id: "MiniMax-M2.1",
-        displayName: "MiniMax M2.1",
-        supportsImages: false,
-        contextWindow: context200K,
-        maxOutputTokens: maxOutput128K,
-      },
-      {
-        id: "MiniMax-M2.1-highspeed",
-        displayName: "MiniMax M2.1 Highspeed",
-        supportsImages: false,
-        contextWindow: context200K,
-        maxOutputTokens: maxOutput128K,
-      },
-      {
-        id: "MiniMax-M2",
-        displayName: "MiniMax M2",
-        supportsImages: false,
-        contextWindow: context200K,
-        maxOutputTokens: maxOutput128K,
+        id: "MiniMax-M3",
+        displayName: "MiniMax M3",
+        supportsImages: true,
+        contextWindow: millionTokenContextWindow,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
       },
     ],
     supportsToolCalls: true,
@@ -276,8 +216,17 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
         displayName: "Qwen3.7 Plus",
         supportsImages: true,
         contextWindow: millionTokenContextWindow,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+        maxOutputTokens: QWEN_37_MAX_OUTPUT_TOKENS,
       },
-      { id: "qwen3.7-max", displayName: "Qwen3.7 Max", supportsImages: true, contextWindow: millionTokenContextWindow },
+      {
+        id: "qwen3.7-max",
+        displayName: "Qwen3.7 Max",
+        supportsImages: true,
+        contextWindow: millionTokenContextWindow,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+        maxOutputTokens: QWEN_37_MAX_OUTPUT_TOKENS,
+      },
     ],
     supportsToolCalls: true,
     requiresBaseUrl: true,
@@ -307,8 +256,15 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
         displayName: "MiMo V2.5 Pro",
         supportsImages: false,
         contextWindow: millionTokenContextWindow,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
       },
-      { id: "mimo-v2.5", displayName: "MiMo V2.5", supportsImages: true, contextWindow: millionTokenContextWindow },
+      {
+        id: "mimo-v2.5",
+        displayName: "MiMo V2.5",
+        supportsImages: true,
+        contextWindow: millionTokenContextWindow,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+      },
     ],
     supportsToolCalls: true,
     requiresBaseUrl: true,

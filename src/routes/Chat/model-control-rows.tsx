@@ -14,6 +14,8 @@ interface ModelRowProps {
   onSelect: () => void
   role: "menuitem" | "menuitemradio"
   supportsImages?: boolean
+  tierDescription?: string
+  tierLabel?: string
   title: string
   visionLabel: string
 }
@@ -27,6 +29,8 @@ export const ModelRow = React.forwardRef<HTMLButtonElement, ModelRowProps>(funct
     role,
     title,
     supportsImages,
+    tierDescription,
+    tierLabel,
     visionLabel,
     deleteLabel,
     onHighlight,
@@ -60,16 +64,25 @@ export const ModelRow = React.forwardRef<HTMLButtonElement, ModelRowProps>(funct
           <span className="oo-text-label block truncate">{title}</span>
         </span>
         <span className="flex shrink-0 items-center justify-end gap-1">
-          {supportsImages ? (
+          {tierLabel ? (
             <Badge
-              variant="outline"
-              className="h-5 rounded-md px-1.5 py-0 text-[10px] font-medium"
+              variant="secondary"
+              className="h-5 min-w-5 rounded-md px-1.5 py-0 text-[10px] font-medium"
+              title={tierDescription}
+              aria-label={tierDescription}
+            >
+              {tierLabel}
+            </Badge>
+          ) : null}
+          {supportsImages ? (
+            <span
+              role="img"
+              className="flex size-5 items-center justify-center text-muted-foreground"
               title={visionLabel}
               aria-label={visionLabel}
             >
-              <ImageIcon className="size-3" />
-              <span>{visionLabel}</span>
-            </Badge>
+              <ImageIcon className="size-3.5" aria-hidden="true" />
+            </span>
           ) : null}
         </span>
       </button>

@@ -63,6 +63,35 @@ describe("model control options", () => {
     ])
   })
 
+  it("labels the GPT 5.6 family by capability tier", () => {
+    const tierCatalog: ModelCatalog = {
+      ...catalog,
+      builtins: [
+        ...catalog.builtins,
+        {
+          ...catalog.builtins[1],
+          id: "gpt-5.6-terra",
+          displayName: "GPT 5.6 Terra",
+        },
+        {
+          ...catalog.builtins[1],
+          id: "gpt-5.6-luna",
+          displayName: "GPT 5.6 Luna",
+        },
+      ],
+    }
+    expect(
+      buildModelMenuItems(tierCatalog, "Configure")
+        .filter((item) => item.kind === "builtin")
+        .map((item) => [item.choice.id, item.tier]),
+    ).toEqual([
+      ["oopilot", undefined],
+      ["gpt-5.6-sol", "high"],
+      ["gpt-5.6-terra", "medium"],
+      ["gpt-5.6-luna", "low"],
+    ])
+  })
+
   it("preserves BYOK identity for custom model presentation", () => {
     const customCatalog: ModelCatalog = { ...catalog, selected: { kind: "custom", id: "custom-1" } }
     expect(selectedModelSummary(customCatalog)).toEqual({

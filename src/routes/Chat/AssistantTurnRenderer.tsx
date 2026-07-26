@@ -277,7 +277,7 @@ function activityText(t: TranslateFn, activity: AssistantActivityEvent | null): 
       return t("chat.activityResuming")
     case "thinking":
     default:
-      return t("chat.activityThinking")
+      return t("chat.thinking")
   }
 }
 

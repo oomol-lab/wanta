@@ -655,33 +655,31 @@ export default tool({
 const QUERY_KNOWLEDGE_TOOL_TS = String.raw`import { tool } from "../runtime/tool.js"
 import { execFile } from "node:child_process"
 import { readFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
-const EXECUTABLE = process.env.WANTA_WIKIGRAPH_EXECUTABLE || ""
-const CLI = process.env.WANTA_WIKIGRAPH_CLI || ""
-const REGISTRY = process.env.WANTA_KNOWLEDGE_REGISTRY || ""
+const WIKIGRAPH_COMMAND = process.env.WANTA_WIKIGRAPH_COMMAND || "wg"
 const SCOPE = process.env.WANTA_TEAM_SCOPE_PATH || process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
 const SCOPE_SYNC_ATTEMPTS = 5
 const SCOPE_SYNC_RETRY_MS = 20
 const OPTIONS = {
   encoding: "utf8",
-  env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", NO_COLOR: "1" },
+  env: { ...process.env, NO_COLOR: "1" },
   maxBuffer: 8 * 1024 * 1024,
   timeout: 60 * 1000,
 }
 
-function archiveUri(filePath) {
-  const normalized = String(filePath || "").replaceAll("\\", "/")
-  return "wikg://" + normalized
+function archiveUri(id) {
+  return "wikg://lib/arc/" + encodeURIComponent(String(id || ""))
 }
 
-function sanitizeErrorMessage(error, archivePath) {
+function sanitizeErrorMessage(error) {
   let message = String((error && (error.stderr || error.message)) || error || "Knowledge query failed").trim()
-  const pathVariants = [String(archivePath || ""), String(archivePath || "").replaceAll("\\", "/")].filter(Boolean)
-  for (const value of pathVariants) message = message.replaceAll(value, "[managed knowledge archive]")
-  message = message.replace(/wikg:\/\/[^\s"']+/gi, "[managed knowledge archive]")
+  const stateDir = String(process.env.WIKIGRAPH_STATE_DIR || "")
+  if (stateDir) message = message.replaceAll(stateDir, "[WikiGraph managed storage]")
+  message = message
+    .replace(/\/[^\s"']+\.wikg/gi, "[managed knowledge archive]")
+    .replace(/wikg:\/\/[^\s"']+/gi, "[managed knowledge archive]")
   return (message || "Knowledge query failed").slice(0, 500)
 }
 
@@ -716,60 +714,35 @@ async function allowedKnowledgeBaseIds(sessionID) {
   return []
 }
 
-async function recordFor(id, sessionID) {
-  if (!REGISTRY) throw new Error("knowledge registry is unavailable")
+async function allowedArchiveId(id, sessionID) {
   const allowedIds = await allowedKnowledgeBaseIds(sessionID)
   if (!allowedIds.includes(id)) throw new Error("knowledge base is not pinned to the current conversation")
-  let parsed
-  try {
-    parsed = JSON.parse(await readFile(REGISTRY, "utf8"))
-  } catch {
-    throw new Error("knowledge registry is unavailable")
-  }
-  if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.records)) {
-    throw new Error("knowledge registry is unavailable")
-  }
-  const records = parsed.records
-  const record = records.find((item) => item && item.id === id)
-  if (
-    !record ||
-    typeof record.filePath !== "string" ||
-    !record.filePath.trim() ||
-    typeof record.title !== "string"
-  ) {
-    throw new Error("knowledge base not found")
-  }
-  if (dirname(resolve(record.filePath)) !== resolve(dirname(REGISTRY), "files")) {
-    throw new Error("knowledge base has an invalid managed path")
-  }
-  return record
+  return id
 }
 
 async function run(args) {
-  if (!EXECUTABLE || !CLI) throw new Error("WikiGraph runtime is unavailable")
-  const result = await execFileAsync(EXECUTABLE, [CLI, ...args], OPTIONS)
+  if (!WIKIGRAPH_COMMAND) throw new Error("WikiGraph runtime is unavailable")
+  const result = await execFileAsync(WIKIGRAPH_COMMAND, args, OPTIONS)
   return String(result.stdout || "").trim() || "{}"
 }
 
 export default tool({
   description:
-    "Query a WikiGraph knowledge base pinned to the conversation. Supports read-only inspect, search, related, evidence, and pack operations. Prefer entity/triple search for relationship questions and retrieve evidence before stating a factual relationship. For relationship diagrams, resolve aliases from entity identifiers, use triple results as candidates, verify important edges with evidence, and use source search for identity-sensitive or context-ambiguous relationships. Evidence counts are passage counts, not confidence scores. Never invoke the WikiGraph CLI directly, expose managed archive paths, or modify an archive.",
+    "Query a WikiGraph default-library archive pinned to the conversation. Supports read-only inspect, search, related, evidence, and pack operations. Prefer entity/triple search for relationship questions and retrieve evidence before stating a factual relationship. For relationship diagrams, resolve aliases from entity identifiers, use triple results as candidates, verify important edges with evidence, and use chapter search for identity-sensitive or context-ambiguous relationships. Evidence counts are passage counts, not confidence scores. Never invoke the WikiGraph CLI directly, expose managed archive paths, use source --query, or modify an archive.",
   args: {
     knowledgeBaseId: tool.schema.string().describe("The exact knowledgeBaseId provided in the current conversation context."),
     operation: tool.schema.enum(["inspect", "search", "related", "evidence", "pack"]),
     query: tool.schema.string().optional().describe("Search text for search, related, or evidence."),
     objectUri: tool.schema.string().optional().describe("Archive-relative URI returned by a previous result, such as wikg://entity/Q11773777 or wikg://triple/Q11773777/uses/Q834090."),
-    scope: tool.schema.enum(["auto", "source", "entity", "triple"]).optional(),
+    scope: tool.schema.enum(["auto", "chapter", "entity", "triple"]).optional(),
     limit: tool.schema.number().optional().describe("Maximum result count from 1 to 20."),
     evidenceLimit: tool.schema.number().optional().describe("Evidence snippets per entity/triple from 0 to 5."),
     budget: tool.schema.number().optional().describe("Pack context budget from 500 to 12000."),
   },
   async execute(args, context) {
-    let archivePath = ""
     try {
-      const record = await recordFor(String(args.knowledgeBaseId || "").trim(), context.sessionID)
-      archivePath = record.filePath
-      const root = archiveUri(record.filePath)
+      const knowledgeBaseId = await allowedArchiveId(String(args.knowledgeBaseId || "").trim(), context.sessionID)
+      const root = archiveUri(knowledgeBaseId)
       const operation = String(args.operation || "")
       if (operation === "inspect") return await run([root, "inspect", "--json"])
       const query = String(args.query || "").trim()
@@ -778,16 +751,16 @@ export default tool({
       if (operation === "search") {
         if (!query) throw new Error("query is required for search")
         const scope = String(args.scope || "auto")
-        const scopes = scope === "auto" ? ["entity", "triple", "source"] : [scope]
+        const scopes = scope === "auto" ? ["entity", "triple", "chapter"] : [scope]
         const groups = {}
         for (const item of scopes) {
-          const target = item === "source" ? root : root + "/" + item
+          const target = root + "/" + item
           const argv = [target, "--query", query, "--limit", String(limit)]
           if (item === "entity" || item === "triple") argv.push("--evidence", String(evidence))
           argv.push("--json")
           groups[item] = JSON.parse(await run(argv))
         }
-        return JSON.stringify({ knowledgeBaseId: record.id, title: record.title, groups: groups })
+        return JSON.stringify({ knowledgeBaseId: knowledgeBaseId, groups: groups })
       }
       const object = root + "/" + relativeObject(args.objectUri)
       if (operation === "related") {
@@ -808,7 +781,7 @@ export default tool({
       }
       throw new Error("unsupported knowledge operation")
     } catch (error) {
-      return JSON.stringify({ status: "error", message: sanitizeErrorMessage(error, archivePath) })
+      return JSON.stringify({ status: "error", message: sanitizeErrorMessage(error) })
     }
   },
 })

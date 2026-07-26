@@ -59,7 +59,6 @@ import { parseConnectionOAuthCallback } from "./connections/domain.ts"
 import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./diagnostics-log.ts"
 import { GitServiceImpl } from "./git/node.ts"
 import { KnowledgeServiceImpl } from "./knowledge/node.ts"
-import { KnowledgeStore } from "./knowledge/store.ts"
 import { LinkRuntimeManager, LinkRuntimeServiceImpl } from "./link-runtime/node.ts"
 import { isAudioOnlyMediaRequest, isTrustedRendererUrl } from "./media-permission-policy.ts"
 import { ModelCredentialStore } from "./models/credential-store.ts"
@@ -137,8 +136,9 @@ const settingsStore = new SettingsStore(app.getPath("userData"))
 const attentionStore = new AttentionStore(app.getPath("userData"))
 const modelCredentialStore = new ModelCredentialStore(app.getPath("userData"), safeStorage)
 const modelsStore = new ModelsStore(app.getPath("userData"), modelCredentialStore)
-const knowledgeStore = new KnowledgeStore(app.getPath("userData"))
-const wikiGraphCliPath = path.join(app.getAppPath(), "node_modules", "wiki-graph", "dist", "cli.js")
+const wikiGraphStateDir = path.join(app.getPath("userData"), "wikigraph-state")
+const wikiGraphLibraryDir = path.join(wikiGraphStateDir, "library")
+const wikiGraphCommand = process.env["WANTA_WIKIGRAPH_COMMAND"]?.trim() || "wg"
 // 二进制解析：生产从打包 Resources/bin（extraResources），dev 从 node_modules（opencode）与 .oo-bin（oo）。
 const opencodeBinPath = app.isPackaged
   ? resolveBundledBin(process.resourcesPath, opencodeBinaryName())
@@ -294,8 +294,7 @@ const knowledgeService = new KnowledgeServiceImpl({
   onRemoved: async (id) => {
     await Promise.all([sessionService.removeKnowledgeBaseReferences(id), agent?.removeKnowledgeBaseAccess(id)])
   },
-  runtime: { executablePath: process.execPath, cliPath: wikiGraphCliPath },
-  store: knowledgeStore,
+  runtime: { command: wikiGraphCommand, managedLibraryDir: wikiGraphLibraryDir, stateDir: wikiGraphStateDir },
   trustedImportPaths: trustedAttachmentPaths,
 })
 
@@ -665,9 +664,8 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     modelAccess: runtime.modelAccess,
     opencodeBinPath,
     ooBinPath,
-    wikiGraphCliPath,
-    wikiGraphExecutablePath: process.execPath,
-    knowledgeRegistryPath: knowledgeStore.registryPath(),
+    wikiGraphCommand,
+    wikiGraphStateDir,
     listOpenConnectorAuthorizedServices: async (signal) =>
       (await linkRuntimeManager.listOpenConnectorApps(signal))
         .filter((item) => item.status === "active")

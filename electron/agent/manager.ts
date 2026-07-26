@@ -47,10 +47,9 @@ export interface AgentManagerOptions {
   opencodeBinPath: string
   /** The oo binary is resolved and injected only when a Link runtime is configured. */
   ooBinPath?: string
-  /** WikiGraph CLI 的 Node 入口与执行器；仅供 Wanta 只读知识查询工具使用。 */
-  wikiGraphCliPath?: string
-  wikiGraphExecutablePath?: string
-  knowledgeRegistryPath?: string
+  /** WikiGraph 0.4 command and Wanta-owned state directory; only used by the read-only knowledge tool. */
+  wikiGraphCommand?: string
+  wikiGraphStateDir?: string
   listOpenConnectorAuthorizedServices?: (signal?: AbortSignal) => Promise<string[]>
   /** 内置 oo skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
@@ -388,9 +387,8 @@ export class AgentManager {
       disableServerAuth,
       customModels,
       defaultModel,
-      wikiGraphCliPath,
-      wikiGraphExecutablePath,
-      knowledgeRegistryPath,
+      wikiGraphCommand,
+      wikiGraphStateDir,
     } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
     const isolationDir = path.join(rootDir, "isolation")
@@ -418,9 +416,8 @@ export class AgentManager {
       // WANTA 自带 oo/rg 目录保持最高优先级；其后合并用户登录 shell PATH，
       // 让 Finder/Dock 启动的 GUI 也能发现用户在终端中安装的 CLI。
       PATH: commandPath,
-      ...(wikiGraphCliPath ? { WANTA_WIKIGRAPH_CLI: wikiGraphCliPath } : {}),
-      ...(wikiGraphExecutablePath ? { WANTA_WIKIGRAPH_EXECUTABLE: wikiGraphExecutablePath } : {}),
-      ...(knowledgeRegistryPath ? { WANTA_KNOWLEDGE_REGISTRY: knowledgeRegistryPath } : {}),
+      ...(wikiGraphCommand ? { WANTA_WIKIGRAPH_COMMAND: wikiGraphCommand } : {}),
+      ...(wikiGraphStateDir ? { WIKIGRAPH_STATE_DIR: wikiGraphStateDir } : {}),
     }
 
     const sidecar = new OpencodeSidecar({

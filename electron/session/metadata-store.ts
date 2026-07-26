@@ -59,8 +59,9 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
     if (permissionMode) {
       next.permissionMode = permissionMode
     }
-    const knowledgeBaseIds = normalizeKnowledgeBaseIds(source.knowledgeBaseIds)
-    if (knowledgeBaseIds) next.knowledgeBaseIds = knowledgeBaseIds
+    // Do not restore legacy Wanta-owned knowledge registry references from disk. WikiGraph
+    // default-lib archive ids are applied only from the current runtime/session context after the
+    // user selects them again.
     if (validTimestamp(source.pinnedAt)) {
       next.pinnedAt = source.pinnedAt
     }

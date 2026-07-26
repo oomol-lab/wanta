@@ -1,4 +1,3 @@
-import { dirname, resolve } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AGENT_TOOL_FILES, agentToolFiles } from "./tool-sources.ts"
 
@@ -17,8 +16,8 @@ describe("query_knowledge guidance", () => {
     expect(source).toContain("Evidence counts are passage counts, not confidence scores")
     expect(source).toContain("Never invoke the WikiGraph CLI directly")
     expect(source).toContain("expose managed archive paths")
-    expect(source).toContain("sanitizeErrorMessage(error, archivePath)")
-    expect(source).toContain('replaceAll(value, "[managed knowledge archive]")')
+    expect(source).toContain("wikg://lib/arc/")
+    expect(source).toContain("use source --query")
     expect(source).toContain("sessionKnowledgeBaseIds")
     expect(source).toContain("context.sessionID")
     expect(source).toContain("knowledge base is not pinned to the current conversation")
@@ -60,15 +59,13 @@ function loadKnowledgeTool(
   const tool = Object.assign((value: unknown) => value, {
     schema: { enum: () => schema, number: () => schema, string: () => schema },
   })
-  const factory = new Function("tool", "execFile", "readFile", "dirname", "resolve", "promisify", source) as (
+  const factory = new Function("tool", "execFile", "readFile", "promisify", source) as (
     toolValue: typeof tool,
     execFileValue: typeof execFile,
     readFileValue: typeof readFile,
-    dirnameValue: typeof dirname,
-    resolveValue: typeof resolve,
     promisifyValue: (value: typeof execFile) => typeof execFile,
   ) => LoadedKnowledgeTool
-  return factory(tool, execFile, readFile, dirname, resolve, (value) => value)
+  return factory(tool, execFile, readFile, (value) => value)
 }
 
 function loadListAppsTool(
@@ -133,13 +130,12 @@ afterEach(() => {
   delete process.env.WANTA_CONSOLE_URL
   delete process.env.WANTA_CONNECTOR_URL
   delete process.env.WANTA_LINK_RUNTIME
-  delete process.env.WANTA_KNOWLEDGE_REGISTRY
   delete process.env.WANTA_TEAM_NAME
   delete process.env.WANTA_TEAM_SCOPE_PATH
   delete process.env.WANTA_ORGANIZATION_NAME
   delete process.env.WANTA_ORGANIZATION_SCOPE_PATH
-  delete process.env.WANTA_WIKIGRAPH_CLI
-  delete process.env.WANTA_WIKIGRAPH_EXECUTABLE
+  delete process.env.WANTA_WIKIGRAPH_COMMAND
+  delete process.env.WIKIGRAPH_STATE_DIR
   delete process.env.OO_API_KEY
   delete process.env.OO_CONNECTOR_TOKEN
 })
@@ -150,19 +146,14 @@ beforeEach(() => {
 
 describe("query_knowledge embedded runtime", () => {
   it("rejects IDs outside the current OpenCode session allowlist", async () => {
-    process.env.WANTA_KNOWLEDGE_REGISTRY = "/tmp/knowledge-registry.json"
     process.env.WANTA_TEAM_SCOPE_PATH = "/tmp/agent-scope.json"
-    process.env.WANTA_WIKIGRAPH_CLI = "/tmp/wiki-graph-cli.js"
-    process.env.WANTA_WIKIGRAPH_EXECUTABLE = "/tmp/node"
+    process.env.WANTA_WIKIGRAPH_COMMAND = "/tmp/wg"
     const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
     const readFile = vi.fn(async (filePath: string) => {
       if (filePath === "/tmp/agent-scope.json") {
         return JSON.stringify({ sessionKnowledgeBaseIds: { "session-1": ["allowed"] } })
       }
-      return JSON.stringify({
-        version: 1,
-        records: [{ filePath: "/tmp/files/allowed.wikg", id: "allowed", title: "Allowed" }],
-      })
+      throw new Error("query_knowledge must not read a Wanta registry")
     })
     const loaded = loadKnowledgeTool(execFile, readFile)
 
@@ -179,39 +170,55 @@ describe("query_knowledge embedded runtime", () => {
       loaded.execute({ knowledgeBaseId: "allowed", operation: "inspect" }, { sessionID: "session-1" }),
     ).resolves.toBe('{"ok":true}')
     expect(execFile).toHaveBeenCalledOnce()
+    expect(execFile).toHaveBeenCalledWith(
+      "/tmp/wg",
+      ["wikg://lib/arc/allowed", "inspect", "--json"],
+      expect.objectContaining({ env: expect.objectContaining({ WANTA_WIKIGRAPH_COMMAND: "/tmp/wg" }) }),
+    )
   })
 
-  it("fails closed without exposing private paths when the scope or registry cannot be read", async () => {
-    process.env.WANTA_KNOWLEDGE_REGISTRY = "/private/user-data/knowledge-bases/library.json"
+  it("fails closed without exposing private paths when the scope cannot be read", async () => {
     process.env.WANTA_TEAM_SCOPE_PATH = "/private/user-data/agent-scope.json"
-    process.env.WANTA_WIKIGRAPH_CLI = "/tmp/wiki-graph-cli.js"
-    process.env.WANTA_WIKIGRAPH_EXECUTABLE = "/tmp/node"
+    process.env.WANTA_WIKIGRAPH_COMMAND = "/tmp/wg"
+    process.env.WIKIGRAPH_STATE_DIR = "/private/user-data/wikigraph-state"
     const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
-    const readFile = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("ENOENT: /private/user-data/agent-scope.json"))
-      .mockResolvedValueOnce(JSON.stringify({ sessionKnowledgeBaseIds: { "session-1": ["allowed"] } }))
-      .mockResolvedValueOnce("{broken")
+    const readFile = vi.fn().mockRejectedValueOnce(new Error("ENOENT: /private/user-data/agent-scope.json"))
     const loaded = loadKnowledgeTool(execFile, readFile)
 
     const missingScope = JSON.parse(
       await loaded.execute({ knowledgeBaseId: "allowed", operation: "inspect" }, { sessionID: "session-1" }),
     ) as { message?: string; status?: string }
     expect(missingScope).toEqual({ message: "knowledge access scope is unavailable", status: "error" })
-
-    const corruptRegistry = JSON.parse(
-      await loaded.execute({ knowledgeBaseId: "allowed", operation: "inspect" }, { sessionID: "session-1" }),
-    ) as { message?: string; status?: string }
-    expect(corruptRegistry).toEqual({ message: "knowledge registry is unavailable", status: "error" })
-    expect(JSON.stringify([missingScope, corruptRegistry])).not.toContain("/private/user-data")
+    expect(JSON.stringify(missingScope)).not.toContain("/private/user-data")
     expect(execFile).not.toHaveBeenCalled()
   })
 
-  it("waits briefly for a task subagent allowlist to inherit from its parent session", async () => {
-    process.env.WANTA_KNOWLEDGE_REGISTRY = "/tmp/knowledge-registry.json"
+  it("redacts WikiGraph paths and URIs from query errors", async () => {
     process.env.WANTA_TEAM_SCOPE_PATH = "/tmp/agent-scope.json"
-    process.env.WANTA_WIKIGRAPH_CLI = "/tmp/wiki-graph-cli.js"
-    process.env.WANTA_WIKIGRAPH_EXECUTABLE = "/tmp/node"
+    process.env.WANTA_WIKIGRAPH_COMMAND = "/tmp/wg"
+    process.env.WIKIGRAPH_STATE_DIR = "/private/user-data/wikigraph-state"
+    const execFile = vi.fn(async () => {
+      const error = new Error(
+        "failed at /private/user-data/wikigraph-state/cache and /private/user-data/wikigraph-state/library/book.wikg for wikg://lib/arc/allowed",
+      )
+      throw error
+    })
+    const readFile = vi.fn(async () => JSON.stringify({ sessionKnowledgeBaseIds: { "session-1": ["allowed"] } }))
+    const loaded = loadKnowledgeTool(execFile, readFile)
+
+    const output = JSON.parse(
+      await loaded.execute({ knowledgeBaseId: "allowed", operation: "inspect" }, { sessionID: "session-1" }),
+    ) as { message?: string; status?: string }
+
+    expect(output.status).toBe("error")
+    expect(output.message).not.toContain("/private/user-data")
+    expect(output.message).not.toContain("wikg://lib/arc/allowed")
+    expect(output.message).toContain("[WikiGraph managed storage]")
+  })
+
+  it("waits briefly for a task subagent allowlist to inherit from its parent session", async () => {
+    process.env.WANTA_TEAM_SCOPE_PATH = "/tmp/agent-scope.json"
+    process.env.WANTA_WIKIGRAPH_COMMAND = "/tmp/wg"
     const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
     let scopeReads = 0
     const readFile = vi.fn(async (filePath: string) => {
@@ -222,10 +229,7 @@ describe("query_knowledge embedded runtime", () => {
             scopeReads === 1 ? { parent: ["allowed"] } : { child: ["allowed"], parent: ["allowed"] },
         })
       }
-      return JSON.stringify({
-        version: 1,
-        records: [{ filePath: "/tmp/files/allowed.wikg", id: "allowed", title: "Allowed" }],
-      })
+      throw new Error("query_knowledge must not read a Wanta registry")
     })
     const loaded = loadKnowledgeTool(execFile, readFile)
 

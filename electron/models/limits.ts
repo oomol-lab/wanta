@@ -1,5 +1,7 @@
 export const DEFAULT_MAX_OUTPUT_TOKENS = 32_000
+export const QWEN_37_MAX_OUTPUT_TOKENS = 65_536
 export const COMPACTION_RESERVED_BUFFER_TOKENS = 20_000
+export const STANDARD_INPUT_TOKEN_LIMIT_TOKENS = 256_000
 
 function positiveNumber(value: number | undefined): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined
@@ -28,10 +30,12 @@ export function compactionThresholdTokens({
   inputTokenLimit?: number
   maxOutputTokens?: number
 }): number | undefined {
-  const limit = contextLimitTokens({ contextWindow, inputTokenLimit })
+  const inputLimit = positiveNumber(inputTokenLimit)
+  const limit = inputLimit ?? positiveNumber(contextWindow)
   if (!limit) {
     return undefined
   }
-  const reserved = Math.min(COMPACTION_RESERVED_BUFFER_TOKENS, effectiveMaxOutputTokens(maxOutputTokens))
+  const outputLimit = effectiveMaxOutputTokens(maxOutputTokens)
+  const reserved = inputLimit ? Math.min(COMPACTION_RESERVED_BUFFER_TOKENS, outputLimit) : outputLimit
   return Math.max(0, limit - reserved)
 }

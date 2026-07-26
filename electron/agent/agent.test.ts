@@ -6,7 +6,7 @@ import { test } from "vitest"
 import { branding } from "../branding.ts"
 import { llmBaseUrl, ooEndpoint } from "../domain.ts"
 import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
-import { DEFAULT_MAX_OUTPUT_TOKENS } from "../models/limits.ts"
+import { DEFAULT_MAX_OUTPUT_TOKENS, QWEN_37_MAX_OUTPUT_TOKENS } from "../models/limits.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { AgentManager, buildManagedSkillRuntimeEnv, persistTeamScopeUpdate } from "./manager.ts"
 import { WANTA_BUILD_AGENT_NAME, WANTA_GENERAL_SUBAGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
@@ -66,7 +66,11 @@ test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => 
   assert.equal(model.reasoning, true)
   assert.deepEqual(modelVariantKeys(model), ["low", "medium", "high", "max"])
   assert.equal(modelVariantReasoningEffort(model, "max"), "max")
-  assert.deepEqual(modelLimit(model), { context: 200_000, output: DEFAULT_MAX_OUTPUT_TOKENS })
+  assert.deepEqual(modelLimit(model), {
+    context: 400_000,
+    input: 256_000,
+    output: DEFAULT_MAX_OUTPUT_TOKENS,
+  })
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })
@@ -188,7 +192,7 @@ test("GPT models resolve through the OpenAI provider for Responses API semantics
       | undefined = provider.models?.[expected.id]
     assert.ok(configuredModel)
     assert.equal(configuredModel.name, expected.displayName)
-    assert.deepEqual(modelLimit(configuredModel), { context: 400_000, input: 258_400, output: 128_000 })
+    assert.deepEqual(modelLimit(configuredModel), { context: 400_000, input: 256_000, output: 128_000 })
     assert.equal(configuredModel.reasoning, true)
     assert.equal(modelVariantReasoningEffort(configuredModel, "max"), "xhigh")
     assert.equal(configuredModel.attachment, true)
@@ -208,7 +212,7 @@ test("Qwen 3.7 models retain a 1M context window and compact within the 256K pri
     assert.deepEqual(modelLimit(model), {
       context: 1_000_000,
       input: 256_000,
-      output: DEFAULT_MAX_OUTPUT_TOKENS,
+      output: QWEN_37_MAX_OUTPUT_TOKENS,
     })
   }
 })

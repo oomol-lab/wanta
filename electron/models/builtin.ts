@@ -2,7 +2,7 @@ import type { WantaReasoningVariant } from "../agent/reasoning.ts"
 
 import { WANTA_REASONING_VARIANT_LEVELS } from "../agent/reasoning.ts"
 import { branding } from "../branding.ts"
-import { DEFAULT_MAX_OUTPUT_TOKENS } from "./limits.ts"
+import { DEFAULT_MAX_OUTPUT_TOKENS, QWEN_37_MAX_OUTPUT_TOKENS, STANDARD_INPUT_TOKEN_LIMIT_TOKENS } from "./limits.ts"
 
 export type BuiltinProviderKind = "openai-compatible" | "openai-responses"
 
@@ -37,15 +37,9 @@ export interface BuiltinModelDefinition {
 }
 
 // UI 展示用的内置模型上下文窗口；网关别名实际窗口调整时只改这里。
-const autoContextWindow = 200_000
 const gptContextWindow = 400_000
-const gptInputTokenLimit = 258_400
 const gptMaxOutputTokens = 128_000
 const millionTokenContextWindow = 1_000_000
-// Keep routine Qwen 3.7 requests within the lower pricing tier. OpenCode
-// reserves 20K tokens and therefore compacts at 236K while retaining the
-// models' full 1M physical context-window metadata.
-const qwen37DefaultInputTokenLimit = 256_000
 const qwen37ReasoningVariants = ["low", "high"] as const satisfies readonly WantaReasoningVariant[]
 
 export const BUILTIN_MODEL_IDS = [
@@ -90,7 +84,8 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       supportsPdf: false,
       toolCall: true,
     },
-    contextWindow: autoContextWindow,
+    contextWindow: gptContextWindow,
+    inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
     maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   },
   {
@@ -108,7 +103,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: gptContextWindow,
-    inputTokenLimit: gptInputTokenLimit,
+    inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
     maxOutputTokens: gptMaxOutputTokens,
   },
   {
@@ -126,7 +121,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: gptContextWindow,
-    inputTokenLimit: gptInputTokenLimit,
+    inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
     maxOutputTokens: gptMaxOutputTokens,
   },
   {
@@ -144,7 +139,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: gptContextWindow,
-    inputTokenLimit: gptInputTokenLimit,
+    inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
     maxOutputTokens: gptMaxOutputTokens,
   },
   {
@@ -162,8 +157,8 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
-    inputTokenLimit: qwen37DefaultInputTokenLimit,
-    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+    inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+    maxOutputTokens: QWEN_37_MAX_OUTPUT_TOKENS,
   },
   {
     id: "qwen3.7-max",
@@ -180,8 +175,8 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
-    inputTokenLimit: qwen37DefaultInputTokenLimit,
-    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+    inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+    maxOutputTokens: QWEN_37_MAX_OUTPUT_TOKENS,
   },
 ]
 

@@ -3,34 +3,25 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { describe, test } from "vitest"
-import { chromiumTimeToUnixMs, formatExpiry, inspectAuthState, resolveDevAuthPaths } from "./dev-auth-state.ts"
+import { chromiumTimeToUnixMs, formatExpiry, inspectAuthState, resolveDevUserDataDir } from "./dev-auth-state.ts"
 
 describe("dev auth state helpers", () => {
-  test("resolveDevAuthPaths uses bootstrap userData and machine root", () => {
-    const paths = resolveDevAuthPaths(
-      {
-        userDataDir: ".wanta-dev/user-data",
-      },
-      "/tmp/home",
-    )
+  test("resolveDevUserDataDir uses bootstrap userData", async () => {
+    const userDataDir = await resolveDevUserDataDir({
+      userDataDir: "/tmp/repo/wanta",
+    })
 
-    assert.equal(paths.machineRoot, "/tmp/home/wanta-dev")
-    assert.equal(paths.captureUserDataDir, "/tmp/home/wanta-dev/login-user-data")
-    assert.equal(paths.snapshotDir, "/tmp/home/wanta-dev/login-state")
-    assert.match(paths.worktreeUserDataDir, /\/\.wanta-dev\/user-data$/)
+    assert.equal(userDataDir, "/tmp/repo/wanta")
   })
 
-  test("resolveDevAuthPaths accepts env-only bootstrap config", () => {
-    const paths = resolveDevAuthPaths(
-      {
-        env: {
-          WANTA_USER_DATA_DIR: "/tmp/worktree-user-data",
-        },
+  test("resolveDevUserDataDir accepts env-only bootstrap config", async () => {
+    const userDataDir = await resolveDevUserDataDir({
+      env: {
+        WANTA_USER_DATA_DIR: "/tmp/worktree-user-data",
       },
-      "/tmp/home",
-    )
+    })
 
-    assert.equal(paths.worktreeUserDataDir, "/tmp/worktree-user-data")
+    assert.equal(userDataDir, "/tmp/worktree-user-data")
   })
 
   test("inspectAuthState requires both profile and oomol-token cookie marker", async () => {

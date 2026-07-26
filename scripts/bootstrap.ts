@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
 const stateDir = path.join(repoRoot, ".wanta-dev")
-const userDataDir = path.join(stateDir, "user-data")
+const userDataDir = path.join(repoRoot, "wanta")
 const bootstrapJsonPath = path.join(stateDir, "bootstrap.json")
 const envShPath = path.join(stateDir, "env.sh")
 const defaultPort = 5273
@@ -58,7 +58,7 @@ async function main(args: string[]): Promise<void> {
     await run(commandName("corepack"), ["pnpm", "install", "--frozen-lockfile"], {})
   }
   await run(commandName("corepack"), ["pnpm", "run", "predev"], config.env)
-  await assertBootstrapOutputs(config)
+  await assertBootstrapOutputs()
 
   console.log("[wanta] bootstrap complete")
   console.log(`[wanta] dev server port: ${config.devServerPort}`)
@@ -104,7 +104,6 @@ function canListenOnPort(port: number): Promise<boolean> {
 
 export async function writeBootstrapFiles(config: BootstrapConfig): Promise<void> {
   await mkdir(stateDir, { recursive: true })
-  await mkdir(config.userDataDir, { recursive: true })
   await writeFile(bootstrapJsonPath, `${JSON.stringify(config, null, 2)}\n`, "utf-8")
   await writeFile(envShPath, renderEnvScript(config.env), { encoding: "utf-8", mode: 0o600 })
 }
@@ -131,13 +130,12 @@ function commandName(command: string): string {
   return process.platform === "win32" ? `${command}.cmd` : command
 }
 
-async function assertBootstrapOutputs(config: BootstrapConfig): Promise<void> {
+async function assertBootstrapOutputs(): Promise<void> {
   await Promise.all([
     assertPath(path.join(repoRoot, ".oo-bin")),
     assertPath(path.join(repoRoot, ".electron-dist")),
     assertPath(path.join(repoRoot, "resources", "skills")),
     assertPath(path.join(repoRoot, "resources", "agent-tool-runtime", "tool.js")),
-    assertPath(config.userDataDir),
     assertPath(bootstrapJsonPath),
     assertPath(envShPath),
   ])

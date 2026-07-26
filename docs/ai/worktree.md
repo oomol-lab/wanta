@@ -38,7 +38,7 @@ Use this when the repo is opened in a fresh worktree and multiple agents may run
 - Port collisions
 - Shared user data
 - Shared protocol registration
-- Expired machine login snapshots
+- Missing, signed-out, or expired canonical/current `./wanta` profiles
 - Any background process that survives a stopped dev session
 
 ## Worktree-safe startup

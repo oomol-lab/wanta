@@ -119,8 +119,7 @@ export async function resolveCanonicalUserDataDir(currentRepoRoot: string): Prom
   }
 
   const worktrees = await listGitWorktrees(currentRepoRoot)
-  const mainWorktree = worktrees.find((worktree) => worktree.branch === "refs/heads/main")
-  const canonicalRoot = mainWorktree?.path ?? worktrees[0]?.path
+  const canonicalRoot = worktrees[0]?.path
   return canonicalRoot === undefined ? undefined : path.join(canonicalRoot, "wanta")
 }
 

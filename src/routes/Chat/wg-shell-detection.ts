@@ -1,67 +1,168 @@
+import type { Command, Redirect, Script, Word } from "unbash"
+
+import { parse } from "unbash"
+
 const shellRecursionLimit = 6
-
-interface ShellWordToken {
-  kind: "word"
-  value: string
-}
-
-interface ShellOperatorToken {
-  kind: "operator"
-  value: string
-}
-
-type ShellToken = ShellWordToken | ShellOperatorToken
 
 export function isWgKnowledgeShellCommand(command: string): boolean {
   return scanShell(command, 0)
 }
 
 function scanShell(command: string, depth: number): boolean {
-  const shell = stripHeredocBodies(command)
-  if (depth > shellRecursionLimit || shell.trim() === "") {
+  if (depth > shellRecursionLimit || command.trim() === "") {
     return false
   }
-  for (const substitution of executableSubstitutions(shell)) {
+
+  const script = parseShell(command)
+  if (script === null) {
+    return false
+  }
+
+  return scanAstValue(script, command, depth)
+}
+
+function parseShell(command: string): Script | null {
+  try {
+    const script = parse(command)
+    return script.errors?.length ? null : script
+  } catch {
+    return null
+  }
+}
+
+function scanAstValue(value: unknown, source: string, depth: number): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => scanAstValue(item, source, depth))
+  }
+  if (isWord(value)) {
+    return scanWord(value, source, depth)
+  }
+  if (isCommand(value)) {
+    return scanCommand(value, source, depth)
+  }
+  if (!isRecord(value)) {
+    return false
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "type" || key === "pos" || key === "end" || key === "text" || key === "value") {
+      continue
+    }
+    if (scanAstValue(child, source, depth)) {
+      return true
+    }
+  }
+  return false
+}
+
+function scanCommand(command: Command, source: string, depth: number): boolean {
+  const words = command.name ? [command.name, ...command.suffix] : [...command.suffix]
+  return scanCommandWords(words, command.redirects, source, depth)
+}
+
+function scanCommandWords(words: Word[], redirects: Redirect[], source: string, depth: number): boolean {
+  const commandIndex = firstCommandWordIndex(words, 0)
+  if (commandIndex >= words.length) {
+    return scanNestedWords(words, source, depth) || scanAstValue(redirects, source, depth)
+  }
+
+  const executable = executableName(wordValue(words[commandIndex]))
+  if (executable === "env") {
+    const envCommandIndex = skipEnvPrefix(words, commandIndex + 1)
+    if (envCommandIndex < words.length) {
+      return scanCommandWords(words.slice(envCommandIndex), redirects, source, depth)
+    }
+  }
+
+  const shellCommandIndex = shellCommandStringIndex(words, commandIndex)
+  if (shellCommandIndex !== null) {
+    const shellCommand = words[shellCommandIndex]
+    if (shellCommand && scanShell(wordValue(shellCommand), depth + 1)) {
+      return true
+    }
+  }
+
+  if (isWgExecutable(executable) && words.slice(commandIndex + 1).some((word) => wordContainsWikgUri(word))) {
+    return true
+  }
+
+  return scanNestedWords(words, source, depth) || scanAstValue(redirects, source, depth)
+}
+
+function scanNestedWords(words: Word[], source: string, depth: number): boolean {
+  return words.some((word) => scanWord(word, source, depth))
+}
+
+function scanWord(word: Word, source: string, depth: number): boolean {
+  // unbash exposes the command structure as AST, but its public package exports do not include the
+  // word-part helper that materializes command/process substitutions. Keep this small scanner bounded
+  // to unbash-provided Word nodes so the main detection path remains AST-based.
+  for (const substitution of executableSubstitutionsInWord(source.slice(word.pos, word.end))) {
     if (scanShell(substitution, depth + 1)) {
       return true
     }
   }
-  const tokens = tokenizeShell(shell)
-  let words: string[] = []
-  for (const token of tokens) {
-    if (token.kind === "operator") {
-      if (matchesSimpleCommand(words, depth)) {
-        return true
-      }
-      words = []
-      continue
-    }
-    words.push(token.value)
-  }
-  return matchesSimpleCommand(words, depth)
+  return false
 }
 
-function stripHeredocBodies(command: string): string {
-  const lines = command.split(/\r?\n/u)
-  const kept: string[] = []
-  let pendingDelimiter: string | null = null
-  for (const line of lines) {
-    if (pendingDelimiter !== null) {
-      if (line.trim() === pendingDelimiter) {
-        pendingDelimiter = null
-      }
-      continue
-    }
-    kept.push(line)
-    pendingDelimiter = heredocDelimiter(line)
+function firstCommandWordIndex(words: Word[], start: number): number {
+  let index = start
+  while (index < words.length && isAssignment(wordValue(words[index]))) {
+    index += 1
   }
-  return kept.join("\n")
+  return index
 }
 
-function heredocDelimiter(line: string): string | null {
+function skipEnvPrefix(words: Word[], start: number): number {
+  let index = start
+  while (index < words.length) {
+    const value = wordValue(words[index])
+    if (isAssignment(value)) {
+      index += 1
+      continue
+    }
+    if (value === "-" || value.startsWith("-i") || value.startsWith("--ignore-environment")) {
+      index += 1
+      continue
+    }
+    if ((value === "-u" || value === "--unset") && index + 1 < words.length) {
+      index += 2
+      continue
+    }
+    break
+  }
+  return index
+}
+
+function shellCommandStringIndex(words: Word[], commandIndex: number): number | null {
+  const executable = executableName(wordValue(words[commandIndex]))
+  if (executable !== "bash" && executable !== "sh" && executable !== "zsh") {
+    return null
+  }
+  for (let index = commandIndex + 1; index < words.length; index += 1) {
+    const word = wordValue(words[index])
+    if (word === "--") {
+      continue
+    }
+    if (word === "-c") {
+      return index + 1 < words.length ? index + 1 : null
+    }
+    if (/^-[A-Za-z]*c[A-Za-z]*$/u.test(word)) {
+      return index + 1 < words.length ? index + 1 : null
+    }
+    if (!word.startsWith("-")) {
+      return null
+    }
+  }
+  return null
+}
+
+function executableSubstitutionsInWord(word: string): string[] {
+  const substitutions: string[] = []
   let quote: "single" | "double" | null = null
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index]
+
+  for (let index = 0; index < word.length; index += 1) {
+    const char = word[index]
     if (quote === "single") {
       if (char === "'") {
         quote = null
@@ -80,78 +181,27 @@ function heredocDelimiter(line: string): string | null {
       quote = "single"
       continue
     }
-    if (quote !== null || char !== "<" || line[index + 1] !== "<") {
-      continue
-    }
-    let cursor = index + 2
-    if (line[cursor] === "-") {
-      cursor += 1
-    }
-    while (/\s/u.test(line[cursor] ?? "")) {
-      cursor += 1
-    }
-    const delimiter = readHeredocDelimiter(line, cursor)
-    if (delimiter) {
-      return delimiter
-    }
-  }
-  return null
-}
-
-function readHeredocDelimiter(line: string, start: number): string | null {
-  const quote = line[start]
-  if (quote === "'" || quote === '"') {
-    const end = line.indexOf(quote, start + 1)
-    return end > start + 1 ? line.slice(start + 1, end) : null
-  }
-  const match = /^[^\s;&|()<>]+/u.exec(line.slice(start))
-  return match?.[0] ?? null
-}
-
-function executableSubstitutions(command: string): string[] {
-  const substitutions: string[] = []
-  let quote: "single" | "double" | null = null
-  for (let i = 0; i < command.length; i += 1) {
-    const char = command[i]
-    if (quote === "single") {
-      if (char === "'") {
-        quote = null
-      }
-      continue
-    }
-    if (char === "\\") {
-      i += 1
-      continue
-    }
-    if (char === '"') {
-      quote = quote === "double" ? null : "double"
-      continue
-    }
-    if (char === "'") {
-      quote = "single"
-      continue
-    }
-    if (char === "$" && command[i + 1] === "(") {
-      const result = readBalanced(command, i + 1, "(", ")")
+    if (char === "$" && word[index + 1] === "(") {
+      const result = readBalanced(word, index + 1, "(", ")")
       if (result) {
         substitutions.push(result.content)
-        i = result.end
+        index = result.end
       }
       continue
     }
-    if (quote === null && char === "<" && command[i + 1] === "(") {
-      const result = readBalanced(command, i + 1, "(", ")")
+    if (quote === null && char === "<" && word[index + 1] === "(") {
+      const result = readBalanced(word, index + 1, "(", ")")
       if (result) {
         substitutions.push(result.content)
-        i = result.end
+        index = result.end
       }
       continue
     }
-    if (quote === null && char === "`") {
-      const end = readBacktick(command, i)
-      if (end > i) {
-        substitutions.push(command.slice(i + 1, end))
-        i = end
+    if (char === "`") {
+      const end = readBacktick(word, index)
+      if (end > index) {
+        substitutions.push(word.slice(index + 1, end))
+        index = end
       }
     }
   }
@@ -166,8 +216,8 @@ function readBalanced(
 ): { content: string; end: number } | null {
   let quote: "single" | "double" | null = null
   let depth = 0
-  for (let i = openIndex; i < input.length; i += 1) {
-    const char = input[i]
+  for (let index = openIndex; index < input.length; index += 1) {
+    const char = input[index]
     if (quote === "single") {
       if (char === "'") {
         quote = null
@@ -175,7 +225,7 @@ function readBalanced(
       continue
     }
     if (char === "\\") {
-      i += 1
+      index += 1
       continue
     }
     if (char === '"') {
@@ -193,7 +243,7 @@ function readBalanced(
     if (char === closeChar) {
       depth -= 1
       if (depth === 0) {
-        return { content: input.slice(openIndex + 1, i), end: i }
+        return { content: input.slice(openIndex + 1, index), end: index }
       }
     }
   }
@@ -201,180 +251,30 @@ function readBalanced(
 }
 
 function readBacktick(input: string, start: number): number {
-  for (let i = start + 1; i < input.length; i += 1) {
-    if (input[i] === "\\") {
-      i += 1
+  for (let index = start + 1; index < input.length; index += 1) {
+    if (input[index] === "\\") {
+      index += 1
       continue
     }
-    if (input[i] === "`") {
-      return i
+    if (input[index] === "`") {
+      return index
     }
   }
   return -1
 }
 
-function tokenizeShell(command: string): ShellToken[] {
-  const tokens: ShellToken[] = []
-  let word = ""
-  const flushWord = () => {
-    if (word !== "") {
-      tokens.push({ kind: "word", value: word })
-      word = ""
-    }
-  }
-
-  for (let i = 0; i < command.length; i += 1) {
-    const char = command[i]
-    if (/\s/.test(char)) {
-      flushWord()
-      if (char === "\n") {
-        tokens.push({ kind: "operator", value: ";" })
-      }
-      continue
-    }
-    if (char === "\\") {
-      if (i + 1 < command.length) {
-        word += command[i + 1]
-        i += 1
-      }
-      continue
-    }
-    if (char === "'" || char === '"') {
-      const result = readQuotedWord(command, i, char)
-      word += result.value
-      i = result.end
-      continue
-    }
-    if (char === "$" && command[i + 1] === "(") {
-      const result = readBalanced(command, i + 1, "(", ")")
-      if (result) {
-        word += command.slice(i, result.end + 1)
-        i = result.end
-        continue
-      }
-    }
-    if (char === "&" && command[i + 1] === "&") {
-      flushWord()
-      tokens.push({ kind: "operator", value: "&&" })
-      i += 1
-      continue
-    }
-    if (char === "|" && command[i + 1] === "|") {
-      flushWord()
-      tokens.push({ kind: "operator", value: "||" })
-      i += 1
-      continue
-    }
-    if (char === "|" || char === ";" || char === "(" || char === ")") {
-      flushWord()
-      tokens.push({ kind: "operator", value: char })
-      continue
-    }
-    word += char
-  }
-  flushWord()
-  return tokens
+function wordContainsWikgUri(word: Word): boolean {
+  return wordValue(word).includes("wikg://")
 }
 
-function readQuotedWord(input: string, start: number, quote: "'" | '"'): { value: string; end: number } {
-  let value = ""
-  for (let i = start + 1; i < input.length; i += 1) {
-    const char = input[i]
-    if (char === quote) {
-      return { value, end: i }
-    }
-    if (quote === '"' && char === "\\" && i + 1 < input.length) {
-      value += input[i + 1]
-      i += 1
-      continue
-    }
-    value += char
-  }
-  return { value, end: input.length - 1 }
-}
-
-function matchesSimpleCommand(words: string[], depth: number): boolean {
-  const commandWords = words.filter(Boolean)
-  let index = skipAssignmentPrefix(commandWords, 0)
-  if (index >= commandWords.length) {
-    return false
-  }
-  const executable = commandWords[index]
-  if (isEnvExecutable(executable)) {
-    index = skipEnvPrefix(commandWords, index + 1)
-    if (index >= commandWords.length) {
-      return false
-    }
-  }
-  const shellCommandIndex = shellCommandStringIndex(commandWords, index)
-  if (shellCommandIndex !== null) {
-    return scanShell(commandWords[shellCommandIndex] ?? "", depth + 1)
-  }
-  return (
-    isWgExecutable(executableName(commandWords[index] ?? "")) && commandWords.slice(index + 1).some(containsWikgUri)
-  )
-}
-
-function skipAssignmentPrefix(words: string[], start: number): number {
-  let index = start
-  while (index < words.length && isAssignment(words[index] ?? "")) {
-    index += 1
-  }
-  return index
-}
-
-function skipEnvPrefix(words: string[], start: number): number {
-  let index = start
-  while (index < words.length) {
-    const word = words[index] ?? ""
-    if (isAssignment(word)) {
-      index += 1
-      continue
-    }
-    if (word === "-" || word.startsWith("-i") || word.startsWith("--ignore-environment")) {
-      index += 1
-      continue
-    }
-    if ((word === "-u" || word === "--unset") && index + 1 < words.length) {
-      index += 2
-      continue
-    }
-    break
-  }
-  return index
-}
-
-function shellCommandStringIndex(words: string[], commandIndex: number): number | null {
-  const executable = executableName(words[commandIndex] ?? "")
-  if (executable !== "bash" && executable !== "sh" && executable !== "zsh") {
-    return null
-  }
-  for (let index = commandIndex + 1; index < words.length; index += 1) {
-    const word = words[index] ?? ""
-    if (word === "--") {
-      continue
-    }
-    if (word === "-c") {
-      return index + 1 < words.length ? index + 1 : null
-    }
-    if (/^-[A-Za-z]*c[A-Za-z]*$/.test(word)) {
-      return index + 1 < words.length ? index + 1 : null
-    }
-    if (!word.startsWith("-")) {
-      return null
-    }
-  }
-  return null
+function wordValue(word: Word | undefined): string {
+  return word?.value ?? word?.text ?? ""
 }
 
 function executableName(word: string): string {
-  const withoutTrailingSlash = word.replace(/\/+$/, "")
+  const withoutTrailingSlash = word.replace(/\/+$/u, "")
   const slash = withoutTrailingSlash.lastIndexOf("/")
   return (slash >= 0 ? withoutTrailingSlash.slice(slash + 1) : withoutTrailingSlash).toLowerCase()
-}
-
-function isEnvExecutable(word: string): boolean {
-  return executableName(word) === "env"
 }
 
 function isWgExecutable(name: string): boolean {
@@ -382,9 +282,19 @@ function isWgExecutable(name: string): boolean {
 }
 
 function isAssignment(word: string): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_]*=/.test(word)
+  return /^[A-Za-z_][A-Za-z0-9_]*=/u.test(word)
 }
 
-function containsWikgUri(word: string): boolean {
-  return word.includes("wikg://")
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function isCommand(value: unknown): value is Command {
+  return isRecord(value) && value.type === "Command"
+}
+
+function isWord(value: unknown): value is Word {
+  return (
+    isRecord(value) && typeof value.text === "string" && typeof value.pos === "number" && typeof value.end === "number"
+  )
 }

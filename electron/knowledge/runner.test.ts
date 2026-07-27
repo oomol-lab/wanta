@@ -227,7 +227,7 @@ describe("WikiGraph SDK adapter", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
     const rt = runtime(dir)
 
-    await prepareWikiGraphDefaultLibrary(rt)
+    await Promise.all([prepareWikiGraphDefaultLibrary(rt), prepareWikiGraphDefaultLibrary(rt)])
 
     expect(sdk.calls.runtimeStateDirs).toEqual([rt.stateDir])
     expect(sdk.calls.rebind).toEqual([
@@ -335,6 +335,13 @@ describe("WikiGraph SDK adapter", () => {
     sdk.failCover = true
 
     await expect(readWikiGraphCover(runtime(dir), "public-archive")).resolves.toBeNull()
+  })
+
+  it("propagates archive resolution failures when reading covers", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    sdk.failGetArchive = new Error("archive missing")
+
+    await expect(readWikiGraphCover(runtime(dir), "public-archive")).rejects.toThrow("archive missing")
   })
 
   it("redacts managed storage paths and archive handles from SDK errors", async () => {

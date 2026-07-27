@@ -17,6 +17,7 @@ import {
 } from "wiki-graph-core"
 
 const defaultLibraryUri = "wikg://lib"
+const defaultLibraryPreparationByStateDir = new Map<string, Promise<void>>()
 
 export interface WikiGraphRuntime {
   managedLibraryDir: string
@@ -142,14 +143,22 @@ async function withRuntime<T>(runtime: WikiGraphRuntime, fallback: string, opera
 }
 
 export async function prepareWikiGraphDefaultLibrary(runtime: WikiGraphRuntime): Promise<void> {
-  await mkdir(runtime.stateDir, { recursive: true })
-  await mkdir(runtime.managedLibraryDir, { recursive: true })
-  await withRuntime(runtime, "Failed to prepare WikiGraph library", async () => {
+  const cached = defaultLibraryPreparationByStateDir.get(runtime.stateDir)
+  if (cached) return await cached
+
+  const preparation = withRuntime(runtime, "Failed to prepare WikiGraph library", async () => {
+    await mkdir(runtime.stateDir, { recursive: true })
+    await mkdir(runtime.managedLibraryDir, { recursive: true })
     await rebindWikiGraphLibrary({
       folderPath: runtime.managedLibraryDir,
       target: requireLibraryTarget(defaultLibraryUri),
     })
+  }).catch((error: unknown) => {
+    defaultLibraryPreparationByStateDir.delete(runtime.stateDir)
+    throw error
   })
+  defaultLibraryPreparationByStateDir.set(runtime.stateDir, preparation)
+  return await preparation
 }
 
 export async function listWikiGraphLibraryArchives(runtime: WikiGraphRuntime): Promise<WikiGraphLibraryArchive[]> {
@@ -245,8 +254,8 @@ export async function readWikiGraphIndex(runtime: WikiGraphRuntime, id: string):
 }
 
 export async function readWikiGraphCover(runtime: WikiGraphRuntime, id: string): Promise<Buffer | null> {
+  const file = await archiveFile(runtime, id)
   try {
-    const file = await archiveFile(runtime, id)
     return await withRuntime(runtime, "Failed to read WikiGraph cover", async () => {
       return await file.read(async (archive) => {
         const cover = await archive.readCover()

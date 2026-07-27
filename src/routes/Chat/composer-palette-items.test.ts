@@ -47,6 +47,8 @@ const translations: Record<string, string> = {
   "chat.knowledgePaletteEmptyTitle": "Import knowledge base",
   "chat.knowledgePaletteFailedDescription": "Open knowledge management and try again",
   "chat.knowledgePaletteFailedTitle": "Knowledge bases are unavailable",
+  "chat.knowledgePaletteLibraryDescription": "Search across every imported WikiGraph knowledge base",
+  "chat.knowledgePaletteLibraryTitle": "Knowledge library",
   "chat.knowledgePaletteLoadingDescription": "Reading imported books",
   "chat.knowledgePaletteLoadingTitle": "Loading knowledge bases",
   "chat.knowledgePaletteSelected": "Referenced",
@@ -73,6 +75,8 @@ const knowledgePaletteCopy = {
   emptyTitle: translations["chat.knowledgePaletteEmptyTitle"] ?? "",
   failedDescription: translations["chat.knowledgePaletteFailedDescription"] ?? "",
   failedTitle: translations["chat.knowledgePaletteFailedTitle"] ?? "",
+  libraryDescription: translations["chat.knowledgePaletteLibraryDescription"] ?? "",
+  libraryTitle: translations["chat.knowledgePaletteLibraryTitle"] ?? "",
   loadingDescription: translations["chat.knowledgePaletteLoadingDescription"] ?? "",
   loadingTitle: translations["chat.knowledgePaletteLoadingTitle"] ?? "",
   selected: translations["chat.knowledgePaletteSelected"] ?? "",
@@ -392,6 +396,7 @@ describe("composer palette items", () => {
     })
 
     expect(items.map((item) => item.id)).toEqual([
+      "knowledge:wikg://lib",
       "knowledge:journey",
       "context:attach-file",
       "context:attach-folder",
@@ -413,11 +418,12 @@ describe("composer palette items", () => {
       { error: false, loading: false },
     )
 
-    expect(items.map((item) => item.id)).toEqual(["knowledge:journey", "knowledge:recent"])
-    expect(items[0]).toMatchObject({
+    expect(items.map((item) => item.id)).toEqual(["knowledge:wikg://lib", "knowledge:journey", "knowledge:recent"])
+    expect(items[1]).toMatchObject({
       description: "journey.wikg · Wu Cheng'en · People's Literature",
       kind: "knowledge",
       meta: "Referenced",
+      scope: "archive",
       selected: true,
     })
     expect(filterComposerPaletteItems(items, "cheng").map((item) => item.id)).toEqual(["knowledge:journey"])
@@ -434,26 +440,28 @@ describe("composer palette items", () => {
     const items = buildContextPaletteItems({ connectionItems: [], knowledgeItems, t })
 
     expect(items.map((item) => item.id)).toEqual([
+      "knowledge:wikg://lib",
       "knowledge:book-0",
       "knowledge:book-1",
       "knowledge:book-2",
-      "knowledge:book-3",
       "context:attach-file",
       "context:attach-folder",
+      "knowledge:book-3",
       "knowledge:book-4",
       "knowledge:book-5",
     ])
     expect(filterComposerPaletteItems(items, "Book 5").map((item) => item.id)).toEqual(["knowledge:book-5"])
   })
 
-  it("offers knowledge management when the library is empty or unavailable", () => {
+  it("offers global knowledge context when the library is empty, and management when unavailable", () => {
     const empty = buildKnowledgePaletteItems([], [], knowledgePaletteCopy, { error: false, loading: false })
     const loading = buildKnowledgePaletteItems([], [], knowledgePaletteCopy, { error: false, loading: true })
     const failed = buildKnowledgePaletteItems([], [], knowledgePaletteCopy, { error: true, loading: false })
 
     expect(empty[0]).toMatchObject({
-      kind: "knowledge-library",
-      title: "Import knowledge base",
+      kind: "knowledge",
+      scope: "library",
+      title: "Knowledge library",
     })
     expect(empty[0]).not.toHaveProperty("disabled")
     expect(loading[0]).toMatchObject({

@@ -2,6 +2,8 @@ import type { AppLocale } from "../app-locale.ts"
 import type { AgentPermissionMode, ChatContextMention, ChatTeamSkillContext, ChatProjectContext } from "./common.ts"
 import type { DetectedResponseLanguage } from "./response-language.ts"
 
+import { KNOWLEDGE_LIBRARY_CONTEXT_ID } from "../knowledge/common.ts"
+
 function quoted(value: string): string {
   return JSON.stringify(value)
 }
@@ -50,10 +52,12 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
   if (knowledgeBases.length > 0) {
     lines.push("Knowledge bases pinned to this conversation:")
     for (const knowledgeBase of knowledgeBases) {
-      lines.push(`- ${quoted(knowledgeBase.name)}; archive URI: ${quoted(`wikg://lib/arc/${knowledgeBase.id}`)}`)
+      const isLibrary = knowledgeBase.scope === "library" || knowledgeBase.id === KNOWLEDGE_LIBRARY_CONTEXT_ID
+      const uri = isLibrary ? "wikg://lib" : `wikg://lib/arc/${knowledgeBase.id}`
+      lines.push(`- ${quoted(knowledgeBase.name)}; ${isLibrary ? "library" : "archive"} URI: ${quoted(uri)}`)
     }
     lines.push(
-      "When the user's request depends on these knowledge bases, use the shell `wg` command with the listed archive URI. Wanta provides a managed `wg` on PATH; do not use a global WikiGraph install or managed storage paths. Prefer entity and triple search for relationship questions, retrieve evidence before presenting factual relationships, and cite chapter/source handles when available. For a requested relationship diagram, choose one specific question, keep the Mermaid graph focused on roughly 5-8 core entities, merge verified aliases, move secondary facts to prose, and use dotted edges for inference or uncertainty. Do not emit style directives or hard-coded colors. Never modify a knowledge base.",
+      "When the user's request depends on these knowledge bases, load and follow the `wikigraph-knowledge` Skill with the listed library/archive URI. Treat `wikg://lib` as the whole local WikiGraph library and `wikg://lib/arc/<id>` as a focused archive.",
     )
   }
   return lines.join("\n")

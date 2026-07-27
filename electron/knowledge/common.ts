@@ -2,6 +2,8 @@ import type { ServiceName } from "@oomol/connection"
 
 import { serviceName } from "../branding.ts"
 
+export const KNOWLEDGE_LIBRARY_CONTEXT_ID = "wikg://lib"
+
 export interface KnowledgeBaseSummary {
   id: string
   title: string

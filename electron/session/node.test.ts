@@ -7,6 +7,7 @@ import type { SessionProjectStore } from "./project-store.ts"
 
 import assert from "node:assert/strict"
 import { test, vi } from "vitest"
+import { KNOWLEDGE_LIBRARY_CONTEXT_ID } from "../knowledge/common.ts"
 import { SessionServiceImpl } from "./node.ts"
 
 const testTeamScope = {
@@ -229,9 +230,9 @@ test("setKnowledgeBases normalizes, persists, and clears session references", as
 test("removeKnowledgeBaseReferences cleans active and archived session metadata", async () => {
   const persistedMetadata = metadataStore(
     new Map([
-      ["active", { knowledgeBaseIds: ["keep", "remove"] }],
+      ["active", { knowledgeBaseIds: [KNOWLEDGE_LIBRARY_CONTEXT_ID, "keep", "remove"] }],
       ["archived", { archivedAt: 1, knowledgeBaseIds: ["remove"] }],
-      ["unrelated", { knowledgeBaseIds: ["keep"] }],
+      ["unrelated", { knowledgeBaseIds: [KNOWLEDGE_LIBRARY_CONTEXT_ID, "keep"] }],
     ]),
   )
   const service = new SessionServiceImpl(agentWithSessions([]), { metadataStore: persistedMetadata })
@@ -240,9 +241,9 @@ test("removeKnowledgeBaseReferences cleans active and archived session metadata"
   assert.deepEqual(
     await persistedMetadata.read(),
     new Map([
-      ["active", { knowledgeBaseIds: ["keep"] }],
+      ["active", { knowledgeBaseIds: [KNOWLEDGE_LIBRARY_CONTEXT_ID, "keep"] }],
       ["archived", { archivedAt: 1 }],
-      ["unrelated", { knowledgeBaseIds: ["keep"] }],
+      ["unrelated", { knowledgeBaseIds: [KNOWLEDGE_LIBRARY_CONTEXT_ID, "keep"] }],
     ]),
   )
 })

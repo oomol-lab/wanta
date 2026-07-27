@@ -329,6 +329,8 @@ export function ChatComposer({
               emptyTitle: t("chat.knowledgePaletteEmptyTitle"),
               failedDescription: t("chat.knowledgePaletteFailedDescription"),
               failedTitle: t("chat.knowledgePaletteFailedTitle"),
+              libraryDescription: t("chat.knowledgePaletteLibraryDescription"),
+              libraryTitle: t("chat.knowledgePaletteLibraryTitle"),
               loadingDescription: t("chat.knowledgePaletteLoadingDescription"),
               loadingTitle: t("chat.knowledgePaletteLoadingTitle"),
               selected: t("chat.knowledgePaletteSelected"),

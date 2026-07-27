@@ -407,6 +407,7 @@ export type ChatContextMention =
       id: string
       kind: "knowledge"
       name: string
+      scope?: "archive" | "library"
     }
 
 export interface ChatAttachment {

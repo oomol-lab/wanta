@@ -1,21 +1,23 @@
-import type { RunWikiGraphCLIInput } from "wiki-graph"
+import type { BookMeta, ReadonlyDocument, WikiGraphLibraryArchiveRecord } from "wiki-graph-core"
 
 import { mkdir, stat } from "node:fs/promises"
 import path from "node:path"
-import { Writable } from "node:stream"
-import { runWikiGraphCLI } from "wiki-graph"
+import {
+  addWikiGraphLibraryArchive as addWikiGraphLibraryArchiveWithSDK,
+  getWikiGraphLibraryArchive,
+  isArchiveSearchIndexCurrent,
+  listChapters,
+  listWikiGraphLibraryArchives as listWikiGraphLibraryArchivesWithSDK,
+  parseWikiGraphLibraryUri,
+  readArchiveIndexSettings,
+  rebindWikiGraphLibrary,
+  removeWikiGraphLibraryArchive as removeWikiGraphLibraryArchiveWithSDK,
+  WikiGraphArchiveFile,
+  withWikiGraphRuntimeStateDirectoryPath,
+} from "wiki-graph-core"
 
-const metadataTimeoutMs = 30_000
-const queryTimeoutMs = 60_000
-const maxJsonBytes = 8 * 1024 * 1024
-const maxCoverBytes = 4 * 1024 * 1024
 const defaultLibraryUri = "wikg://lib"
-const dangerousWikiGraphEnvNames = [
-  "WIKIGRAPH_DEV",
-  "WIKIGRAPH_ENV_POLICY",
-  "WIKIGRAPH_QUEUE_DISABLE_AUTOSTART",
-  "WIKIGRAPH_STATE_DIR",
-] as const
+const defaultLibraryPreparationByStateDir = new Map<string, Promise<void>>()
 
 export interface WikiGraphRuntime {
   managedLibraryDir: string
@@ -32,11 +34,6 @@ export interface WikiGraphLibraryArchive {
   exists?: boolean
   status?: string
   lastSeenSize?: number
-}
-
-interface WikiGraphArchiveTreeNode {
-  uri?: string
-  children?: unknown[]
 }
 
 export interface WikiGraphMetadata {
@@ -67,20 +64,12 @@ export interface WikiGraphIndexState {
   status?: string
 }
 
-export type WikiGraphCLIRunner = (input: RunWikiGraphCLIInput) => Promise<{ exitCode: number }>
-
-function runtimeEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" }
-  for (const name of dangerousWikiGraphEnvNames) env[name] = undefined
-  return env
-}
-
-function parseJson<T>(stdout: string, label: string): T {
-  try {
-    return JSON.parse(stdout) as T
-  } catch (error) {
-    throw new Error(`WikiGraph returned invalid ${label} JSON`, { cause: error })
-  }
+interface InspectChapter {
+  knowledgeGraphReady: boolean
+  readingGraphReady: boolean
+  stage: string
+  summaryReady: boolean
+  words: number
 }
 
 function redactWikiGraphRuntimePaths(runtime: WikiGraphRuntime, value: string): string {
@@ -101,46 +90,38 @@ function wikiGraphError(runtime: WikiGraphRuntime, fallback: string, error: unkn
 }
 
 function archiveUri(id: string): string {
-  return `${defaultLibraryUri}/arc/${id}`
+  return `${defaultLibraryUri}/arc/${encodeURIComponent(id)}`
 }
 
-function isArchive(value: unknown): value is WikiGraphLibraryArchive {
-  if (!value || typeof value !== "object") return false
-  const item = value as Partial<WikiGraphLibraryArchive>
-  return typeof item.id === "string" && item.id.trim() !== "" && typeof item.uri === "string" && item.uri.trim() !== ""
+function requireLibraryTarget(uri: string) {
+  const target = parseWikiGraphLibraryUri(uri)
+  if (!target) throw new Error(`Invalid WikiGraph library URI: ${uri}`)
+  return target
 }
 
-function archiveIdFromUri(uri: string): string | null {
-  const match = /^wikg:\/\/lib\/arc\/([^/]+)\/?$/u.exec(uri.trim())
-  return match ? decodeURIComponent(match[1]) : null
+function archiveFromRecord(record: WikiGraphLibraryArchiveRecord): WikiGraphLibraryArchive {
+  return {
+    id: record.publicId,
+    uri: record.uri,
+    path: record.path,
+    relativePath: record.relativePath,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    exists: record.exists,
+    status: record.status,
+    lastSeenSize: record.lastSeenSize,
+  }
 }
 
-function parseArchiveTreeIds(value: unknown): string[] {
-  const ids = new Set<string>()
-  const visit = (node: unknown): void => {
-    if (!node || typeof node !== "object") return
-    const item = node as WikiGraphArchiveTreeNode
-    if (typeof item.uri === "string") {
-      const id = archiveIdFromUri(item.uri)
-      if (id) ids.add(id)
-    }
-    if (Array.isArray(item.children)) {
-      for (const child of item.children) visit(child)
-    }
+function metadataFromBookMeta(meta: BookMeta | undefined): WikiGraphMetadata {
+  if (!meta) return {}
+  return {
+    ...(meta.title ? { title: meta.title } : {}),
+    authors: meta.authors,
+    ...(meta.publisher ? { publisher: meta.publisher } : {}),
+    ...(meta.publishedAt ? { publishedAt: meta.publishedAt } : {}),
+    ...(meta.language ? { language: meta.language } : {}),
   }
-
-  if (Array.isArray(value)) {
-    for (const item of value) visit(item)
-    return [...ids]
-  }
-
-  const items = value && typeof value === "object" ? (value as { items?: unknown }).items : undefined
-  if (Array.isArray(items)) {
-    for (const item of items) visit(item)
-  } else {
-    visit(value)
-  }
-  return [...ids]
 }
 
 function safeImportTarget(sourcePath: string): string {
@@ -153,77 +134,48 @@ function safeImportTarget(sourcePath: string): string {
   return `${base || "archive"}-${Date.now().toString(36)}.wikg`
 }
 
-export async function prepareWikiGraphDefaultLibrary(
-  runtime: WikiGraphRuntime,
-  runCLI: WikiGraphCLIRunner = runWikiGraphCLI,
-): Promise<void> {
-  await mkdir(runtime.stateDir, { recursive: true })
-  await mkdir(runtime.managedLibraryDir, { recursive: true })
-  await runWikiGraphJson<unknown>(
-    runtime,
-    ["wikg://lib/path", "set", runtime.managedLibraryDir, "--json"],
-    metadataTimeoutMs,
-    runCLI,
-  )
-}
-
-export async function runWikiGraphJson<T>(
-  runtime: WikiGraphRuntime,
-  args: string[],
-  timeout = queryTimeoutMs,
-  runCLI: WikiGraphCLIRunner = runWikiGraphCLI,
-): Promise<T> {
+async function withRuntime<T>(runtime: WikiGraphRuntime, fallback: string, operation: () => Promise<T>): Promise<T> {
   try {
-    const stdout = new LimitedBufferWritable(maxJsonBytes)
-    const stderr = new LimitedBufferWritable(maxJsonBytes)
-    const result = await runWithTimeout(timeout, (signal) => {
-      return runCLI({
-        argv: args,
-        env: runtimeEnv(),
-        signal,
-        stateDir: runtime.stateDir,
-        stderr,
-        stdout,
-      })
-    })
-    const stdoutText = stdout.text
-    const stderrText = stderr.text
-    if (result.exitCode !== 0) throw new Error(stderrText.trim() || stdoutText.trim() || "WikiGraph command failed")
-    return parseJson<T>(stdoutText, args.join(" "))
+    return await withWikiGraphRuntimeStateDirectoryPath(runtime.stateDir, operation)
   } catch (error) {
-    throw wikiGraphError(runtime, "WikiGraph command failed", error)
+    throw wikiGraphError(runtime, fallback, error)
   }
 }
 
-export async function listWikiGraphLibraryArchives(
-  runtime: WikiGraphRuntime,
-  runCLI: WikiGraphCLIRunner = runWikiGraphCLI,
-): Promise<WikiGraphLibraryArchive[]> {
-  await prepareWikiGraphDefaultLibrary(runtime, runCLI)
-  const tree = await runWikiGraphJson<unknown>(
-    runtime,
-    [`${defaultLibraryUri}/arc/tree`, "--json"],
-    metadataTimeoutMs,
-    runCLI,
-  )
-  const archives = await Promise.all(
-    parseArchiveTreeIds(tree).map((id) => {
-      return runWikiGraphJson<unknown>(runtime, [archiveUri(id), "--json"], metadataTimeoutMs, runCLI)
-    }),
-  )
-  return archives
-    .flatMap((item) => (isArchive(item) ? [item] : []))
-    .filter((item) => {
-      return item.exists !== false && item.status !== "missing"
+export async function prepareWikiGraphDefaultLibrary(runtime: WikiGraphRuntime): Promise<void> {
+  const cached = defaultLibraryPreparationByStateDir.get(runtime.stateDir)
+  if (cached) return await cached
+
+  const preparation = withRuntime(runtime, "Failed to prepare WikiGraph library", async () => {
+    await mkdir(runtime.stateDir, { recursive: true })
+    await mkdir(runtime.managedLibraryDir, { recursive: true })
+    await rebindWikiGraphLibrary({
+      folderPath: runtime.managedLibraryDir,
+      target: requireLibraryTarget(defaultLibraryUri),
     })
+  }).catch((error: unknown) => {
+    defaultLibraryPreparationByStateDir.delete(runtime.stateDir)
+    throw error
+  })
+  defaultLibraryPreparationByStateDir.set(runtime.stateDir, preparation)
+  return await preparation
+}
+
+export async function listWikiGraphLibraryArchives(runtime: WikiGraphRuntime): Promise<WikiGraphLibraryArchive[]> {
+  await prepareWikiGraphDefaultLibrary(runtime)
+  return await withRuntime(runtime, "Failed to list WikiGraph library archives", async () => {
+    const records = await listWikiGraphLibraryArchivesWithSDK(requireLibraryTarget(`${defaultLibraryUri}/arc`))
+    return records
+      .filter((item) => item.exists !== false && item.status !== "missing")
+      .map((item) => archiveFromRecord(item))
+  })
 }
 
 export async function addWikiGraphLibraryArchive(
   runtime: WikiGraphRuntime,
   sourcePath: string,
-  runCLI: WikiGraphCLIRunner = runWikiGraphCLI,
 ): Promise<WikiGraphLibraryArchive> {
-  await prepareWikiGraphDefaultLibrary(runtime, runCLI)
+  await prepareWikiGraphDefaultLibrary(runtime)
   let source
   try {
     source = await stat(sourcePath)
@@ -231,126 +183,122 @@ export async function addWikiGraphLibraryArchive(
     throw new Error("Knowledge base file is unavailable", { cause: error })
   }
   if (!source.isFile()) throw new Error("Knowledge base must be a regular file")
-  const imported = await runWikiGraphJson<unknown>(
-    runtime,
-    [`${defaultLibraryUri}/arc`, "add", "--input", sourcePath, "--to", safeImportTarget(sourcePath), "--json"],
-    metadataTimeoutMs,
-    runCLI,
-  )
-  if (!isArchive(imported)) throw new Error("WikiGraph did not return an imported archive")
-  return imported
+  return await withRuntime(runtime, "Failed to import WikiGraph archive", async () => {
+    const imported = await addWikiGraphLibraryArchiveWithSDK({
+      inputPath: sourcePath,
+      target: requireLibraryTarget(`${defaultLibraryUri}/arc`),
+      to: safeImportTarget(sourcePath),
+    })
+    return archiveFromRecord(imported)
+  })
 }
 
-export async function removeWikiGraphLibraryArchive(
-  runtime: WikiGraphRuntime,
-  id: string,
-  runCLI: WikiGraphCLIRunner = runWikiGraphCLI,
-): Promise<void> {
+export async function removeWikiGraphLibraryArchive(runtime: WikiGraphRuntime, id: string): Promise<void> {
   const normalizedId = id.trim()
   if (!normalizedId) return
-  await prepareWikiGraphDefaultLibrary(runtime, runCLI)
-  await runWikiGraphJson<unknown>(
-    runtime,
-    [archiveUri(normalizedId), "remove", "--confirm", "--json"],
-    metadataTimeoutMs,
-    runCLI,
-  )
+  await prepareWikiGraphDefaultLibrary(runtime)
+  await withRuntime(runtime, "Failed to remove WikiGraph archive", async () => {
+    await removeWikiGraphLibraryArchiveWithSDK({ target: requireLibraryTarget(archiveUri(normalizedId)) })
+  })
 }
 
-export async function readWikiGraphMetadata(
-  runtime: WikiGraphRuntime,
-  id: string,
-  runCLI: WikiGraphCLIRunner = runWikiGraphCLI,
-): Promise<WikiGraphMetadata> {
-  return runWikiGraphJson<WikiGraphMetadata>(runtime, [`${archiveUri(id)}/meta`, "--json"], metadataTimeoutMs, runCLI)
+export async function readWikiGraphMetadata(runtime: WikiGraphRuntime, id: string): Promise<WikiGraphMetadata> {
+  const file = await archiveFile(runtime, id)
+  return await withRuntime(runtime, "Failed to read WikiGraph metadata", async () => {
+    return await file.read(async (archive) => metadataFromBookMeta(await archive.readMeta()))
+  })
 }
 
-export async function inspectWikiGraph(
-  runtime: WikiGraphRuntime,
-  id: string,
-  runCLI: WikiGraphCLIRunner = runWikiGraphCLI,
-): Promise<WikiGraphInspect> {
-  return runWikiGraphJson<WikiGraphInspect>(runtime, [archiveUri(id), "inspect", "--json"], metadataTimeoutMs, runCLI)
+export async function inspectWikiGraph(runtime: WikiGraphRuntime, id: string): Promise<WikiGraphInspect> {
+  const file = await archiveFile(runtime, id)
+  return await withRuntime(runtime, "Failed to inspect WikiGraph archive", async () => {
+    return await file.readDocument(async (document) => {
+      const [chapters, ftsCurrent] = await Promise.all([
+        readInspectChapters(document),
+        isArchiveSearchIndexCurrent(document),
+      ])
+      const contentChapters = chapters.filter((chapter) => chapter.stage !== "planned")
+      const readingGraphCovered = contentChapters.filter((chapter) => chapter.readingGraphReady)
+      const knowledgeGraphCovered = contentChapters.filter((chapter) => chapter.knowledgeGraphReady)
+      const summaryCovered = contentChapters.filter((chapter) => chapter.summaryReady)
+      return {
+        content: {
+          chapters: { content: contentChapters.length, total: chapters.length },
+          sourceWords: sumWords(contentChapters),
+        },
+        index: { current: ftsCurrent, querySupport: ftsCurrent },
+        coverage: {
+          knowledgeGraph: inspectCoverage(knowledgeGraphCovered, contentChapters),
+          readingGraph: inspectCoverage(readingGraphCovered, contentChapters),
+          summary: inspectCoverage(summaryCovered, contentChapters),
+        },
+      }
+    })
+  })
 }
 
-export async function readWikiGraphIndex(
-  runtime: WikiGraphRuntime,
-  id: string,
-  runCLI: WikiGraphCLIRunner = runWikiGraphCLI,
-): Promise<WikiGraphIndexState> {
-  return runWikiGraphJson<WikiGraphIndexState>(
-    runtime,
-    [`${archiveUri(id)}/index`, "--json"],
-    metadataTimeoutMs,
-    runCLI,
-  )
+export async function readWikiGraphIndex(runtime: WikiGraphRuntime, id: string): Promise<WikiGraphIndexState> {
+  const file = await archiveFile(runtime, id)
+  return await withRuntime(runtime, "Failed to read WikiGraph index state", async () => {
+    return await file.readDocument(async (document) => {
+      await readArchiveIndexSettings(document)
+      const ftsCurrent = await isArchiveSearchIndexCurrent(document)
+      return {
+        current: ftsCurrent,
+        ftsCurrent,
+        querySupport: ftsCurrent,
+        status: ftsCurrent ? "current" : "missing-or-outdated",
+      }
+    })
+  })
 }
 
-export async function readWikiGraphCover(
-  runtime: WikiGraphRuntime,
-  id: string,
-  runCLI: WikiGraphCLIRunner = runWikiGraphCLI,
-): Promise<Buffer | null> {
+export async function readWikiGraphCover(runtime: WikiGraphRuntime, id: string): Promise<Buffer | null> {
+  const file = await archiveFile(runtime, id)
   try {
-    const stdout = new LimitedBufferWritable(maxCoverBytes)
-    const result = await runWithTimeout(metadataTimeoutMs, (signal) => {
-      return runCLI({
-        argv: [`${archiveUri(id)}/cover`],
-        env: runtimeEnv(),
-        signal,
-        stateDir: runtime.stateDir,
-        stdout,
+    return await withRuntime(runtime, "Failed to read WikiGraph cover", async () => {
+      return await file.read(async (archive) => {
+        const cover = await archive.readCover()
+        return cover ? Buffer.from(cover.data) : null
       })
     })
-    const buffer = stdout.buffer
-    return result.exitCode === 0 && buffer.length > 0 ? buffer : null
   } catch {
     return null
   }
 }
 
-async function runWithTimeout<T>(timeout: number, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(new Error("WikiGraph command timed out")), timeout)
-  try {
-    return await run(controller.signal)
-  } finally {
-    clearTimeout(timer)
-  }
+async function archiveFile(runtime: WikiGraphRuntime, id: string): Promise<WikiGraphArchiveFile> {
+  await prepareWikiGraphDefaultLibrary(runtime)
+  return await withRuntime(runtime, "Failed to resolve WikiGraph archive", async () => {
+    const archive = await getWikiGraphLibraryArchive(requireLibraryTarget(archiveUri(id.trim())))
+    return new WikiGraphArchiveFile(archive.path)
+  })
 }
 
-class LimitedBufferWritable extends Writable {
-  private readonly maxBytes: number
-  readonly #chunks: Buffer[] = []
-  #size = 0
+async function readInspectChapters(document: ReadonlyDocument): Promise<InspectChapter[]> {
+  return await Promise.all(
+    (await listChapters(document)).map(async (chapter) => {
+      const serial = await document.serials.getById(chapter.chapterId)
+      return {
+        knowledgeGraphReady: serial?.knowledgeGraphReady === true,
+        readingGraphReady: serial?.topologyReady === true,
+        stage: chapter.stage,
+        summaryReady: chapter.stage === "summarized",
+        words: chapter.words,
+      }
+    }),
+  )
+}
 
-  public constructor(maxBytes: number) {
-    super()
-    this.maxBytes = maxBytes
-  }
+function inspectCoverage(
+  covered: InspectChapter[],
+  total: InspectChapter[],
+): { coveredWords: number; totalWords: number } {
+  return { coveredWords: sumWords(covered), totalWords: sumWords(total) }
+}
 
-  public get buffer(): Buffer {
-    return Buffer.concat(this.#chunks, this.#size)
-  }
-
-  public get text(): string {
-    return this.buffer.toString("utf8")
-  }
-
-  public override _write(
-    chunk: Buffer | string,
-    encoding: BufferEncoding,
-    callback: (error?: Error | null) => void,
-  ): void {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding)
-    this.#size += buffer.length
-    if (this.#size > this.maxBytes) {
-      callback(new Error("WikiGraph output exceeded the buffer limit"))
-      return
-    }
-    this.#chunks.push(buffer)
-    callback()
-  }
+function sumWords(chapters: InspectChapter[]): number {
+  return chapters.reduce((sum, chapter) => sum + chapter.words, 0)
 }
 
 export function wikiGraphCoverageReady(coverage: { coveredWords?: number; totalWords?: number } | undefined): boolean {

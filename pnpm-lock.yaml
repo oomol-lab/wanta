@@ -20,6 +20,9 @@ importers:
       react-diff-view:
         specifier: 3.3.3
         version: 3.3.3(react@19.2.7)
+      unbash:
+        specifier: 4.0.4
+        version: 4.0.4
       wiki-graph:
         specifier: 0.4.0
         version: 0.4.0(wiki-graph-core@0.4.0)
@@ -4344,6 +4347,10 @@ packages:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
     hasBin: true
+
+  unbash@4.0.4:
+    resolution: {integrity: sha512-60m9IVGbavD6jholbxt0jVBXZkEB/HsMZq7Tyaghseve2/Sf0zQRAIfWsD34sde+DKP2tBxJS2wP88ZM0D1FhA==}
+    engines: {node: '>=14'}
 
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
@@ -9349,6 +9356,8 @@ snapshots:
     optional: true
 
   typescript@6.0.3: {}
+
+  unbash@4.0.4: {}
 
   undici-types@7.18.2: {}
 

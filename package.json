@@ -47,6 +47,7 @@
     "diff": "9.0.0",
     "electron-updater": "6.8.9",
     "react-diff-view": "3.3.3",
+    "unbash": "4.0.4",
     "wiki-graph": "0.4.0",
     "wiki-graph-core": "0.4.0"
   },

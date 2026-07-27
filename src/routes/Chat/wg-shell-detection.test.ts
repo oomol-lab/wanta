@@ -21,6 +21,7 @@ const positiveCases = [
 ]
 
 const negativeCases = [
+  'wg wikg://lib --query "唐僧',
   "echo '$(wg wikg://lib/entity --query 唐僧 --json)'",
   "echo wg wikg://lib/entity --query 唐僧",
   'curl "https://example.com/?u=wikg://lib&cmd=wg"',
@@ -33,12 +34,31 @@ const negativeCases = [
   "cat <<EOF\nwg wikg://lib --query 唐僧\nEOF",
 ]
 
+const unbashBoundaryCases = [
+  'env -i NO_COLOR=1 bash -lc "wg wikg://lib --query \\\"菩萨\\\" --json"',
+  'zsh -c "wikigraph wikg://lib inspect"',
+  'echo "`wg wikg://lib/entity --query 唐僧 --json`" | jq .',
+]
+
+const unbashBoundaryNegativeCases = [
+  'env -i node -e "console.log(\\\"wg wikg://lib\\\")"',
+  "printf '%s\n' 'wg wikg://lib/entity --query 唐僧'",
+]
+
 describe("WG shell detection", () => {
   it.each(positiveCases)("recognizes WG knowledge command: %s", (command) => {
     expect(isWgKnowledgeShellCommand(command)).toBe(true)
   })
 
   it.each(negativeCases)("does not recognize non-executed WG text: %s", (command) => {
+    expect(isWgKnowledgeShellCommand(command)).toBe(false)
+  })
+
+  it.each(unbashBoundaryCases)("keeps unbash boundary behavior positive: %s", (command) => {
+    expect(isWgKnowledgeShellCommand(command)).toBe(true)
+  })
+
+  it.each(unbashBoundaryNegativeCases)("keeps unbash boundary behavior negative: %s", (command) => {
     expect(isWgKnowledgeShellCommand(command)).toBe(false)
   })
 })

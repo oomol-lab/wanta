@@ -174,9 +174,20 @@ export function isWgKnowledgeBashPart(part: ChatMessagePart): boolean {
   return isWgKnowledgeShellCommand(str(part.input?.command))
 }
 
+export function isWikigraphKnowledgeSkillPart(part: ChatMessagePart): boolean {
+  return Boolean(part.title?.match(/^\s*Loaded\s+skill\s*:\s*wikigraph-knowledge\s*$/iu))
+}
+
+export function isWikigraphKnowledgeActivityPart(part: ChatMessagePart): boolean {
+  return isWgKnowledgeBashPart(part) || isWikigraphKnowledgeSkillPart(part)
+}
+
 export function toolDisplayLine(t: TranslateFn, part: ChatMessagePart): ToolDisplayLine {
   const input = part.input ?? {}
   const fallbackDetail = part.title || part.tool || "tool"
+  if (isWikigraphKnowledgeActivityPart(part)) {
+    return { title: t("chat.toolBashQueryKnowledge") }
+  }
   switch (part.tool) {
     case "list_apps": {
       const service = str(input.service)
@@ -215,9 +226,6 @@ export function toolDisplayLine(t: TranslateFn, part: ChatMessagePart): ToolDisp
     }
     case "bash": {
       const command = str(input.command).split("\n")[0]
-      if (isWgKnowledgeShellCommand(str(input.command))) {
-        return { title: t("chat.toolBashQueryKnowledge") }
-      }
       return {
         title: command ? bashActionSummary(t, command) : t("chat.toolRunGeneric"),
         ...(command ? { detail: compactToolDetail(command, 96), detailKind: "code" } : {}),
@@ -299,6 +307,9 @@ export function toolActionSummary(t: TranslateFn, part: ChatMessagePart): string
   const input = part.input ?? {}
   const target = connectorTarget(input)
   const fallbackDetail = part.title || part.tool || "tool"
+  if (isWikigraphKnowledgeActivityPart(part)) {
+    return t("chat.toolBashQueryKnowledge")
+  }
   switch (part.tool) {
     case "list_apps": {
       const service = str(input.service)
@@ -316,9 +327,6 @@ export function toolActionSummary(t: TranslateFn, part: ChatMessagePart): string
       return knowledgeOperationSummary(t, input)
     case "bash": {
       const command = str(input.command).split("\n")[0]
-      if (isWgKnowledgeShellCommand(str(input.command))) {
-        return t("chat.toolBashQueryKnowledge")
-      }
       return command ? bashActionSummary(t, command) : t("chat.toolRunGeneric")
     }
     case "read": {

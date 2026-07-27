@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   isWgKnowledgeBashPart,
+  isWikigraphKnowledgeActivityPart,
+  isWikigraphKnowledgeSkillPart,
   normalizeServiceSlug,
   parseToolAuthorization,
   toolActionSummary,
@@ -82,6 +84,36 @@ describe("tool display", () => {
     expect(isWgKnowledgeBashPart(part)).toBe(true)
     expect(toolDisplayLine(t, part)).toEqual({ title: "chat.toolBashQueryKnowledge:" })
     expect(toolActionSummary(t, part)).toBe("chat.toolBashQueryKnowledge:")
+  })
+
+  it("renders the wikigraph-knowledge skill load as a hidden knowledge activity", () => {
+    const t = (key: string, vars?: Record<string, string | number>) => `${key}:${vars?.detail ?? ""}`
+    const part = {
+      kind: "tool" as const,
+      partId: "p1",
+      tool: "skill",
+      status: "completed" as const,
+      title: "  Loaded  skill :  wikigraph-knowledge  ",
+      output: "# WikiGraph Knowledge",
+    }
+
+    expect(isWikigraphKnowledgeSkillPart(part)).toBe(true)
+    expect(isWikigraphKnowledgeActivityPart(part)).toBe(true)
+    expect(toolDisplayLine(t, part)).toEqual({ title: "chat.toolBashQueryKnowledge:" })
+    expect(toolActionSummary(t, part)).toBe("chat.toolBashQueryKnowledge:")
+  })
+
+  it("does not treat ordinary skill loads as wikigraph knowledge activity", () => {
+    const part = {
+      kind: "tool" as const,
+      partId: "p1",
+      tool: "skill",
+      status: "completed" as const,
+      title: "Loaded skill: pdf",
+    }
+
+    expect(isWikigraphKnowledgeSkillPart(part)).toBe(false)
+    expect(isWikigraphKnowledgeActivityPart(part)).toBe(false)
   })
 
   it("keeps ordinary Bash calls in the existing command display path", () => {

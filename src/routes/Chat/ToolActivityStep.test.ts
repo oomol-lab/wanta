@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { I18nContext, translate } from "../../i18n/i18n.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
+import { groupedToolActivityParts } from "./wikigraph-tool-grouping.ts"
 
 function renderToolActivityStep(
   part: ChatMessagePart,
@@ -98,9 +99,9 @@ describe("ToolActivityStep", () => {
     expect(html).not.toContain("lucide-chevron-right")
   })
 
-  it("renders consecutive WG Bash knowledge calls as compact knowledge rows", () => {
-    const html = [
-      renderToolActivityStep({
+  it("renders consecutive WG Bash knowledge calls as one compact knowledge row", () => {
+    const parts = groupedToolActivityParts([
+      {
         kind: "tool",
         partId: "tool-wg-1",
         callId: "call-wg-1",
@@ -108,8 +109,8 @@ describe("ToolActivityStep", () => {
         status: "completed",
         input: { command: 'wg wikg://lib/entity --query "唐僧" --json | jq .' },
         output: "{}",
-      }),
-      renderToolActivityStep({
+      },
+      {
         kind: "tool",
         partId: "tool-wg-2",
         callId: "call-wg-2",
@@ -117,13 +118,133 @@ describe("ToolActivityStep", () => {
         status: "completed",
         input: { command: 'wg wikg://lib/evidence --query "孙悟空" --json | jq .' },
         output: "{}",
-      }),
-    ].join("\n")
+      },
+    ])
+    const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
 
-    expect(html.match(/正在查询知识库\.\.\./g)).toHaveLength(2)
+    expect(parts).toHaveLength(1)
+    expect(html.match(/正在查询知识库\.\.\./g)).toHaveLength(1)
     expect(html).not.toContain("wg wikg://lib")
     expect(html).not.toContain("jq .")
     expect(html).not.toContain("lucide-chevron-right")
+  })
+
+  it("coalesces WikiGraph skill loads with WG Bash calls in both orders", () => {
+    const skillPart: ChatMessagePart = {
+      kind: "tool",
+      partId: "tool-skill",
+      callId: "call-skill",
+      tool: "skill",
+      status: "completed",
+      title: "Loaded skill: wikigraph-knowledge",
+      output: "# WikiGraph Knowledge",
+    }
+    const wgPart: ChatMessagePart = {
+      kind: "tool",
+      partId: "tool-wg",
+      callId: "call-wg",
+      tool: "bash",
+      status: "completed",
+      input: { command: 'wg wikg://lib/search --query "唐僧" --json' },
+      output: "{}",
+    }
+
+    for (const order of [
+      [skillPart, wgPart],
+      [wgPart, skillPart],
+      [skillPart, { ...skillPart, partId: "tool-skill-2", callId: "call-skill-2" }],
+    ]) {
+      const parts = groupedToolActivityParts(order)
+      const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
+
+      expect(parts).toHaveLength(1)
+      expect(html.match(/正在查询知识库\.\.\./g)).toHaveLength(1)
+      expect(html).not.toContain("wikigraph-knowledge")
+      expect(html).not.toContain("Loaded skill")
+      expect(html).not.toContain("wg wikg://lib")
+      expect(html).not.toContain("工具参数")
+      expect(html).not.toContain("工具结果")
+      expect(html).not.toContain("lucide-chevron-right")
+    }
+  })
+
+  it("keeps ordinary tools as boundaries between knowledge groups", () => {
+    const parts = groupedToolActivityParts([
+      {
+        kind: "tool",
+        partId: "tool-wg-1",
+        callId: "call-wg-1",
+        tool: "bash",
+        status: "completed",
+        input: { command: 'wg wikg://lib/search --query "唐僧" --json' },
+      },
+      {
+        kind: "tool",
+        partId: "tool-jq",
+        callId: "call-jq",
+        tool: "bash",
+        status: "completed",
+        input: { command: "jq . /tmp/result.json" },
+      },
+      {
+        kind: "tool",
+        partId: "tool-wg-2",
+        callId: "call-wg-2",
+        tool: "bash",
+        status: "completed",
+        input: { command: 'wg wikg://lib/evidence --query "孙悟空" --json' },
+      },
+    ])
+    const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
+
+    expect(parts).toHaveLength(3)
+    expect(html.match(/正在查询知识库\.\.\./g)).toHaveLength(2)
+    expect(html).toContain("jq . /tmp/result.json")
+  })
+
+  it("keeps the merged knowledge row in the failed state", () => {
+    const parts = groupedToolActivityParts([
+      {
+        kind: "tool",
+        partId: "tool-skill",
+        callId: "call-skill",
+        tool: "skill",
+        status: "completed",
+        title: "Loaded skill: wikigraph-knowledge",
+      },
+      {
+        kind: "tool",
+        partId: "tool-wg-failed",
+        callId: "call-wg-failed",
+        tool: "bash",
+        status: "error",
+        input: { command: 'wg wikg://lib/entity --query "猪八戒" --json' },
+        error: "exit code 1",
+      },
+    ])
+    const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
+
+    expect(parts).toHaveLength(1)
+    expect(html).toContain("正在查询知识库...")
+    expect(html).toContain("未完成")
+    expect(html).not.toContain("wg wikg://lib/entity")
+    expect(html).not.toContain("lucide-chevron-right")
+  })
+
+  it("keeps ordinary skill loads visible and expandable", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-skill",
+      callId: "call-skill",
+      tool: "skill",
+      status: "completed",
+      title: "Loaded skill: pdf",
+      output: "# PDF",
+    })
+
+    expect(html).not.toContain("正在查询知识库...")
+    expect(html).toContain("Loaded skill: pdf")
+    expect(html).toContain("lucide-chevron-right")
   })
 
   it("keeps the failed WG Bash status while hiding command details", () => {

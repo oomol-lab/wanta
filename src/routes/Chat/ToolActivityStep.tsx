@@ -30,7 +30,7 @@ import * as React from "react"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { shouldShowRunningNoOutput } from "./tool-activity.ts"
 import { shouldHideToolDetailsImmediately } from "./tool-details-visibility.ts"
-import { isWgKnowledgeBashPart, parseToolAuthorization, toolDisplayLine } from "./tool-display.ts"
+import { isWikigraphKnowledgeActivityPart, parseToolAuthorization, toolDisplayLine } from "./tool-display.ts"
 import { formatToolOutputPreview, toolOutputPreviewLimitChars } from "./tool-output-preview.ts"
 import { isActiveToolPart, isToolCancellation } from "./tool-state.ts"
 import { Button } from "@/components/ui/button"
@@ -182,6 +182,9 @@ function ToolStepIcon({
   provider?: ConnectionProvider
   stopped?: boolean
 }) {
+  if (isWikigraphKnowledgeActivityPart(part) && part.status !== "error" && !stopped) {
+    return <LibraryBig className="size-3.5 text-muted-foreground" />
+  }
   if (provider && part.status !== "error" && !stopped) {
     return <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
   }
@@ -255,7 +258,7 @@ export function ToolActivityStep({
   const activePart = isActiveToolPart(part)
   const stopped = isToolCancellation(part) || (!live && activePart)
   const answerSummary = questionAnswerSummary(part)
-  const hideDetails = isWgKnowledgeBashPart(part)
+  const hideDetails = isWikigraphKnowledgeActivityPart(part)
   const details = !hideDetails && hasToolDetails(part, auth, answerSummary, stopped)
   const [open, setOpen] = React.useState(false)
   const [detailsVisible, setDetailsVisible] = React.useState(false)

@@ -29,6 +29,7 @@ import { formatWholeSecondDuration } from "./tool-activity.ts"
 import { toolActionSummary, toolServiceSlug } from "./tool-display.ts"
 import { isActiveToolPart } from "./tool-state.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
+import { groupedToolActivityParts } from "./wikigraph-tool-grouping.ts"
 import { MessageResponse } from "@/components/ai-elements/message"
 import { MarkdownImage } from "@/components/ai-elements/message-image"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
@@ -361,7 +362,7 @@ export function AssistantBlock({
         ) : null
       ) : (
         <div className="space-y-0.5">
-          {block.parts.map((part) => {
+          {groupedToolActivityParts(block.parts).map((part) => {
             const service = toolServiceSlug(part)
             return (
               <ToolActivityStep

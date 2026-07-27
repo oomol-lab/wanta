@@ -12,12 +12,15 @@ import {
   readArchiveIndexSettings,
   rebindWikiGraphLibrary,
   removeWikiGraphLibraryArchive as removeWikiGraphLibraryArchiveWithSDK,
+  upgradeWikiGraphMaintenanceTarget,
   WikiGraphArchiveFile,
   withWikiGraphRuntimeStateDirectoryPath,
 } from "wiki-graph-core"
 
 const defaultLibraryUri = "wikg://lib"
 const defaultLibraryPreparationByStateDir = new Map<string, Promise<void>>()
+const unreadableImportMessage =
+  "WANTA_KNOWLEDGE_IMPORT_UNREADABLE: The selected WikiGraph file could not be imported because Wanta cannot make the managed copy readable with the current WikiGraph SDK. The original file was not modified."
 
 export interface WikiGraphRuntime {
   managedLibraryDir: string
@@ -214,7 +217,37 @@ export async function addWikiGraphLibraryArchive(
       target: requireLibraryTarget(`${defaultLibraryUri}/arc`),
       to: safeImportRelativePath(sourcePath, targetDirectory),
     })
+    try {
+      await prepareImportedArchiveForUse(imported)
+    } catch (error) {
+      await removeWikiGraphLibraryArchiveWithSDK({ target: requireLibraryTarget(imported.uri) }).catch(
+        (cleanupError: unknown) => {
+          console.warn("[wanta] failed to clean unreadable WikiGraph import:", cleanupError)
+        },
+      )
+      throw new Error(unreadableImportMessage, { cause: error })
+    }
     return archiveFromRecord(imported)
+  })
+}
+
+async function prepareImportedArchiveForUse(record: WikiGraphLibraryArchiveRecord): Promise<void> {
+  await upgradeWikiGraphMaintenanceTarget(record.path)
+  // wiki-graph-core@0.4.0 has no separate repair API for current-schema archives whose TOC is still
+  // structurally unreadable. Keep this validation boundary explicit so a future SDK repair call can
+  // be inserted before the checks without treating a copied file as a completed product import.
+  await validateImportedArchive(record.path)
+}
+
+async function validateImportedArchive(archivePath: string): Promise<void> {
+  const file = new WikiGraphArchiveFile(archivePath)
+  await file.read(async (archive) => {
+    await archive.readMeta()
+  })
+  await file.readDocument(async (document) => {
+    await listChapters(document)
+    await readArchiveIndexSettings(document)
+    await isArchiveSearchIndexCurrent(document)
   })
 }
 

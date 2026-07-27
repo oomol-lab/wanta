@@ -44,6 +44,17 @@ describe("resolveUserFacingError", () => {
     })
   })
 
+  it("maps unreadable WikiGraph imports to product copy without exposing SDK internals", () => {
+    expect(
+      resolveUserFacingError("WANTA_KNOWLEDGE_IMPORT_UNREADABLE: Missing chapter key in TOC", { area: "generic" }),
+    ).toMatchObject({
+      descriptionKey: "error.knowledgeImportUnreadable.description",
+      kind: "validation_error",
+      severity: "warning",
+      titleKey: "error.knowledgeImportUnreadable.title",
+    })
+  })
+
   it("keeps artifact file errors scoped to file operations", () => {
     expect(resolveUserFacingError("ENOENT: no such file or directory", { area: "artifact" })).toMatchObject({
       kind: "local_file_unavailable",

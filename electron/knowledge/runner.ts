@@ -34,6 +34,11 @@ export interface WikiGraphLibraryArchive {
   lastSeenSize?: number
 }
 
+interface WikiGraphArchiveTreeNode {
+  uri?: string
+  children?: unknown[]
+}
+
 export interface WikiGraphMetadata {
   title?: string
   authors?: string[]
@@ -99,19 +104,43 @@ function archiveUri(id: string): string {
   return `${defaultLibraryUri}/arc/${id}`
 }
 
-function parseArchiveList(value: unknown): WikiGraphLibraryArchive[] {
-  if (Array.isArray(value)) return value.flatMap((item) => (isArchive(item) ? [item] : []))
-  const items =
-    value && typeof value === "object" ? (value as { items?: unknown; archives?: unknown }).items : undefined
-  if (Array.isArray(items)) return items.flatMap((item) => (isArchive(item) ? [item] : []))
-  const archives = value && typeof value === "object" ? (value as { archives?: unknown }).archives : undefined
-  return Array.isArray(archives) ? archives.flatMap((item) => (isArchive(item) ? [item] : [])) : []
-}
-
 function isArchive(value: unknown): value is WikiGraphLibraryArchive {
   if (!value || typeof value !== "object") return false
   const item = value as Partial<WikiGraphLibraryArchive>
   return typeof item.id === "string" && item.id.trim() !== "" && typeof item.uri === "string" && item.uri.trim() !== ""
+}
+
+function archiveIdFromUri(uri: string): string | null {
+  const match = /^wikg:\/\/lib\/arc\/([^/]+)\/?$/u.exec(uri.trim())
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+function parseArchiveTreeIds(value: unknown): string[] {
+  const ids = new Set<string>()
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== "object") return
+    const item = node as WikiGraphArchiveTreeNode
+    if (typeof item.uri === "string") {
+      const id = archiveIdFromUri(item.uri)
+      if (id) ids.add(id)
+    }
+    if (Array.isArray(item.children)) {
+      for (const child of item.children) visit(child)
+    }
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) visit(item)
+    return [...ids]
+  }
+
+  const items = value && typeof value === "object" ? (value as { items?: unknown }).items : undefined
+  if (Array.isArray(items)) {
+    for (const item of items) visit(item)
+  } else {
+    visit(value)
+  }
+  return [...ids]
 }
 
 function safeImportTarget(sourcePath: string): string {
@@ -171,13 +200,22 @@ export async function listWikiGraphLibraryArchives(
   runCLI: WikiGraphCLIRunner = runWikiGraphCLI,
 ): Promise<WikiGraphLibraryArchive[]> {
   await prepareWikiGraphDefaultLibrary(runtime, runCLI)
-  const parsed = await runWikiGraphJson<unknown>(
+  const tree = await runWikiGraphJson<unknown>(
     runtime,
-    [`${defaultLibraryUri}/arc`, "scan", "--json"],
+    [`${defaultLibraryUri}/arc/tree`, "--json"],
     metadataTimeoutMs,
     runCLI,
   )
-  return parseArchiveList(parsed).filter((item) => item.exists !== false && item.status !== "missing")
+  const archives = await Promise.all(
+    parseArchiveTreeIds(tree).map((id) => {
+      return runWikiGraphJson<unknown>(runtime, [archiveUri(id), "--json"], metadataTimeoutMs, runCLI)
+    }),
+  )
+  return archives
+    .flatMap((item) => (isArchive(item) ? [item] : []))
+    .filter((item) => {
+      return item.exists !== false && item.status !== "missing"
+    })
 }
 
 export async function addWikiGraphLibraryArchive(

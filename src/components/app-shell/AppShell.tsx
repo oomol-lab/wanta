@@ -25,6 +25,7 @@ import { PanelRightClose, PanelRightOpen } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
+import { KNOWLEDGE_LIBRARY_CONTEXT_ID } from "../../../electron/knowledge/common.ts"
 import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
 import {
   activeProjectIdForComposer,
@@ -307,15 +308,35 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     () =>
       knowledgeBaseBetaEnabled
         ? activeKnowledgeBaseIds.flatMap((id) => {
+            if (id === KNOWLEDGE_LIBRARY_CONTEXT_ID) {
+              return [
+                {
+                  authors: [],
+                  capabilities: {
+                    fullTextSearch: true,
+                    knowledgeGraph: true,
+                    readingGraph: true,
+                    summary: true,
+                  },
+                  id: KNOWLEDGE_LIBRARY_CONTEXT_ID,
+                  importedAt: Number.MAX_SAFE_INTEGER,
+                  relativePath: KNOWLEDGE_LIBRARY_CONTEXT_ID,
+                  size: 0,
+                  sourceFileName: "",
+                  statistics: {},
+                  title: t("knowledge.libraryContextName"),
+                } satisfies KnowledgeBaseSummary,
+              ]
+            }
             const item = knowledgeLibrary.items.find((candidate) => candidate.id === id)
             return item ? [item] : []
           })
         : [],
-    [activeKnowledgeBaseIds, knowledgeBaseBetaEnabled, knowledgeLibrary.items],
+    [activeKnowledgeBaseIds, knowledgeBaseBetaEnabled, knowledgeLibrary.items, t],
   )
   React.useEffect(() => {
     if (!knowledgeBaseBetaEnabled || knowledgeLibrary.loading || knowledgeLibrary.error) return
-    const availableIds = new Set(knowledgeLibrary.items.map((item) => item.id))
+    const availableIds = new Set([KNOWLEDGE_LIBRARY_CONTEXT_ID, ...knowledgeLibrary.items.map((item) => item.id)])
     setDraftKnowledgeBaseIds((current) => {
       const next = current.filter((id) => availableIds.has(id))
       return next.length === current.length ? current : next
@@ -327,6 +348,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         id: item.id,
         kind: "knowledge" as const,
         name: item.title,
+        scope: item.id === KNOWLEDGE_LIBRARY_CONTEXT_ID ? ("library" as const) : ("archive" as const),
       })),
     [activeKnowledgeBases],
   )

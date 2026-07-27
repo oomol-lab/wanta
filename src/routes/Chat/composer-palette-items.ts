@@ -11,6 +11,7 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import { Bug, File, FileImage, Folder, LibraryBig, Package, Plug, SlidersHorizontal } from "lucide-react"
 import * as React from "react"
 import { connectionAppDisplayLabel as connectionAppUiDisplayLabel } from "../../../electron/connections/summary.ts"
+import { KNOWLEDGE_LIBRARY_CONTEXT_ID } from "../../../electron/knowledge/common.ts"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source"
 import { SkillIcon } from "@/components/SkillIcon"
 import { artifactGroupDisplayItem } from "@/routes/Chat/artifact-metadata"
@@ -83,6 +84,7 @@ export interface ArtifactPaletteItem extends ComposerPaletteItem {
 export interface KnowledgePaletteItem extends ComposerPaletteItem {
   kind: "knowledge"
   knowledgeBase: KnowledgeBaseSummary
+  scope: "archive" | "library"
   selected: boolean
 }
 
@@ -110,6 +112,8 @@ export interface KnowledgePaletteCopy {
   emptyTitle: string
   failedDescription: string
   failedTitle: string
+  libraryDescription: string
+  libraryTitle: string
   loadingDescription: string
   loadingTitle: string
   selected: string
@@ -493,6 +497,25 @@ function knowledgeIcon(item: KnowledgeBaseSummary): React.ReactNode {
   return React.createElement(LibraryBig, { className: "size-4" })
 }
 
+function knowledgeLibrarySummary(copy: KnowledgePaletteCopy): KnowledgeBaseSummary {
+  return {
+    authors: [],
+    capabilities: {
+      fullTextSearch: true,
+      knowledgeGraph: true,
+      readingGraph: true,
+      summary: true,
+    },
+    id: KNOWLEDGE_LIBRARY_CONTEXT_ID,
+    importedAt: Number.MAX_SAFE_INTEGER,
+    relativePath: KNOWLEDGE_LIBRARY_CONTEXT_ID,
+    size: 0,
+    sourceFileName: "",
+    statistics: {},
+    title: copy.libraryTitle,
+  }
+}
+
 export function buildKnowledgePaletteItems(
   items: KnowledgeBaseSummary[],
   selectedIds: readonly string[],
@@ -500,12 +523,10 @@ export function buildKnowledgePaletteItems(
   state: { error: boolean; loading: boolean },
 ): Array<KnowledgeLibraryPaletteItem | KnowledgePaletteItem> {
   const selected = new Set(selectedIds)
-  if (items.length === 0) {
+  if (state.loading || state.error) {
     const unavailable = state.loading
       ? { description: copy.loadingDescription, disabled: true, title: copy.loadingTitle }
-      : state.error
-        ? { description: copy.failedDescription, title: copy.failedTitle }
-        : { description: copy.emptyDescription, title: copy.emptyTitle }
+      : { description: copy.failedDescription, title: copy.failedTitle }
     return [
       {
         ...unavailable,
@@ -518,7 +539,21 @@ export function buildKnowledgePaletteItems(
     ]
   }
 
-  return items
+  const librarySelected = selected.has(KNOWLEDGE_LIBRARY_CONTEXT_ID)
+  const libraryItem: KnowledgePaletteItem = {
+    description: items.length > 0 ? copy.libraryDescription : copy.emptyDescription,
+    icon: React.createElement(LibraryBig, { className: "size-4" }),
+    id: `knowledge:${KNOWLEDGE_LIBRARY_CONTEXT_ID}`,
+    keywords: ["knowledge", "library", "book", "all", "global", "知识库", "全局", "全部", "书"],
+    kind: "knowledge",
+    knowledgeBase: knowledgeLibrarySummary(copy),
+    meta: librarySelected ? copy.selected : "knowledge",
+    scope: "library",
+    selected: librarySelected,
+    title: copy.libraryTitle,
+  }
+
+  const archiveItems = items
     .slice()
     .sort((left, right) => {
       const leftSelected = selected.has(left.id)
@@ -543,10 +578,13 @@ export function buildKnowledgePaletteItems(
         kind: "knowledge",
         knowledgeBase: item,
         meta: isSelected ? copy.selected : "knowledge",
+        scope: "archive",
         selected: isSelected,
         title: item.title,
       }
     })
+
+  return [libraryItem, ...archiveItems]
 }
 
 export function buildContextPaletteItems({

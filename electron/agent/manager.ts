@@ -47,9 +47,10 @@ export interface AgentManagerOptions {
   opencodeBinPath: string
   /** The oo binary is resolved and injected only when a Link runtime is configured. */
   ooBinPath?: string
-  /** WikiGraph 0.4 command and Wanta-owned state directory; only used by the read-only knowledge tool. */
+  /** Internal Node/Electron wrapper used by the read-only knowledge tool. */
   wikiGraphCommand?: string
   wikiGraphStateDir?: string
+  wikiGraphWrapperPath?: string
   listOpenConnectorAuthorizedServices?: (signal?: AbortSignal) => Promise<string[]>
   /** 内置 oo skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
@@ -88,6 +89,48 @@ export function buildManagedSkillRuntimeEnv(nodeBin: string = process.execPath):
   return {
     ELECTRON_RUN_AS_NODE: "1",
     WANTA_NODE_BIN: nodeBin,
+  }
+}
+
+export interface AgentSidecarEnvOptions {
+  commandPath: string
+  linkRuntime: LinkRuntime | null
+  ooBinPath?: string
+  storeDir: string
+  teamName?: string
+  teamScopePath: string
+  wikiGraphCommand?: string
+  wikiGraphStateDir?: string
+  wikiGraphWrapperPath?: string
+}
+
+export function buildAgentSidecarEnv({
+  commandPath,
+  linkRuntime,
+  ooBinPath,
+  storeDir,
+  teamName,
+  teamScopePath,
+  wikiGraphCommand,
+  wikiGraphStateDir,
+  wikiGraphWrapperPath,
+}: AgentSidecarEnvOptions): Record<string, string> {
+  const ooEnv = linkRuntime
+    ? buildAgentLinkEnv({
+        linkRuntime,
+        teamName,
+        teamScopePath,
+        storeDir,
+        ooBinPath: requireOoBinPath(ooBinPath),
+      })
+    : { WANTA_TEAM_SCOPE_PATH: teamScopePath }
+  return {
+    ...ooEnv,
+    ...buildManagedSkillRuntimeEnv(),
+    PATH: commandPath,
+    ...(wikiGraphCommand ? { WANTA_WIKIGRAPH_COMMAND: wikiGraphCommand } : {}),
+    ...(wikiGraphWrapperPath ? { WANTA_WIKIGRAPH_WRAPPER_PATH: wikiGraphWrapperPath } : {}),
+    ...(wikiGraphStateDir ? { WANTA_WIKIGRAPH_STATE_DIR: wikiGraphStateDir } : {}),
   }
 }
 
@@ -389,6 +432,7 @@ export class AgentManager {
       defaultModel,
       wikiGraphCommand,
       wikiGraphStateDir,
+      wikiGraphWrapperPath,
     } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
     const isolationDir = path.join(rootDir, "isolation")
@@ -396,29 +440,20 @@ export class AgentManager {
     const teamScopePath = this.teamScopePath ?? path.join(rootDir, "team-scope.json")
 
     const config = buildOpencodeConfig({ customModels, defaultModel, linkRuntime, modelAccess })
-    const ooEnv = linkRuntime
-      ? buildAgentLinkEnv({
-          linkRuntime,
-          teamName: this.teamName,
-          teamScopePath,
-          storeDir,
-          ooBinPath: requireOoBinPath(ooBinPath),
-        })
-      : { WANTA_TEAM_SCOPE_PATH: teamScopePath }
     const commandPath = await resolveUserCommandPath({
       preferredDirectories: linkRuntime && ooBinPath ? [path.dirname(ooBinPath)] : [],
     })
-    const env: Record<string, string> = {
-      ...ooEnv,
-      // 托管 Skill 可复用 Wanta 自身的 Node runtime；生产的 process.execPath 是 Electron，调用方同时设置
-      // ELECTRON_RUN_AS_NODE=1，避免依赖用户机器另装 Node。
-      ...buildManagedSkillRuntimeEnv(),
-      // WANTA 自带 oo/rg 目录保持最高优先级；其后合并用户登录 shell PATH，
-      // 让 Finder/Dock 启动的 GUI 也能发现用户在终端中安装的 CLI。
-      PATH: commandPath,
-      ...(wikiGraphCommand ? { WANTA_WIKIGRAPH_COMMAND: wikiGraphCommand } : {}),
-      ...(wikiGraphStateDir ? { WIKIGRAPH_STATE_DIR: wikiGraphStateDir } : {}),
-    }
+    const env = buildAgentSidecarEnv({
+      commandPath,
+      linkRuntime,
+      ooBinPath,
+      storeDir,
+      teamName: this.teamName,
+      teamScopePath,
+      wikiGraphCommand,
+      wikiGraphStateDir,
+      wikiGraphWrapperPath,
+    })
 
     const sidecar = new OpencodeSidecar({
       opencodeBinPath,

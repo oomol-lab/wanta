@@ -658,13 +658,21 @@ import { readFile } from "node:fs/promises"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
-const WIKIGRAPH_COMMAND = process.env.WANTA_WIKIGRAPH_COMMAND || "wg"
+const WIKIGRAPH_COMMAND = process.env.WANTA_WIKIGRAPH_COMMAND || ""
+const WIKIGRAPH_WRAPPER = process.env.WANTA_WIKIGRAPH_WRAPPER_PATH || ""
 const SCOPE = process.env.WANTA_TEAM_SCOPE_PATH || process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
 const SCOPE_SYNC_ATTEMPTS = 5
 const SCOPE_SYNC_RETRY_MS = 20
 const OPTIONS = {
   encoding: "utf8",
-  env: { ...process.env, NO_COLOR: "1" },
+  env: {
+    ...process.env,
+    NO_COLOR: "1",
+    WIKIGRAPH_DEV: undefined,
+    WIKIGRAPH_ENV_POLICY: undefined,
+    WIKIGRAPH_QUEUE_DISABLE_AUTOSTART: undefined,
+    WIKIGRAPH_STATE_DIR: undefined,
+  },
   maxBuffer: 8 * 1024 * 1024,
   timeout: 60 * 1000,
 }
@@ -675,7 +683,7 @@ function archiveUri(id) {
 
 function sanitizeErrorMessage(error) {
   let message = String((error && (error.stderr || error.message)) || error || "Knowledge query failed").trim()
-  const stateDir = String(process.env.WIKIGRAPH_STATE_DIR || "")
+  const stateDir = String(process.env.WANTA_WIKIGRAPH_STATE_DIR || process.env.WIKIGRAPH_STATE_DIR || "")
   if (stateDir) message = message.replaceAll(stateDir, "[WikiGraph managed storage]")
   message = message
     .replace(/\/[^\s"']+\.wikg/gi, "[managed knowledge archive]")
@@ -721,8 +729,8 @@ async function allowedArchiveId(id, sessionID) {
 }
 
 async function run(args) {
-  if (!WIKIGRAPH_COMMAND) throw new Error("WikiGraph runtime is unavailable")
-  const result = await execFileAsync(WIKIGRAPH_COMMAND, args, OPTIONS)
+  if (!WIKIGRAPH_COMMAND || !WIKIGRAPH_WRAPPER) throw new Error("WikiGraph runtime is unavailable")
+  const result = await execFileAsync(WIKIGRAPH_COMMAND, [WIKIGRAPH_WRAPPER].concat(args), OPTIONS)
   return String(result.stdout || "").trim() || "{}"
 }
 

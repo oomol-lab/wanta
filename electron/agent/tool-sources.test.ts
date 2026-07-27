@@ -135,6 +135,8 @@ afterEach(() => {
   delete process.env.WANTA_ORGANIZATION_NAME
   delete process.env.WANTA_ORGANIZATION_SCOPE_PATH
   delete process.env.WANTA_WIKIGRAPH_COMMAND
+  delete process.env.WANTA_WIKIGRAPH_STATE_DIR
+  delete process.env.WANTA_WIKIGRAPH_WRAPPER_PATH
   delete process.env.WIKIGRAPH_STATE_DIR
   delete process.env.OO_API_KEY
   delete process.env.OO_CONNECTOR_TOKEN
@@ -147,7 +149,8 @@ beforeEach(() => {
 describe("query_knowledge embedded runtime", () => {
   it("rejects IDs outside the current OpenCode session allowlist", async () => {
     process.env.WANTA_TEAM_SCOPE_PATH = "/tmp/agent-scope.json"
-    process.env.WANTA_WIKIGRAPH_COMMAND = "/tmp/wg"
+    process.env.WANTA_WIKIGRAPH_COMMAND = "/tmp/node"
+    process.env.WANTA_WIKIGRAPH_WRAPPER_PATH = "/tmp/wikigraph-wrapper.js"
     const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
     const readFile = vi.fn(async (filePath: string) => {
       if (filePath === "/tmp/agent-scope.json") {
@@ -171,16 +174,23 @@ describe("query_knowledge embedded runtime", () => {
     ).resolves.toBe('{"ok":true}')
     expect(execFile).toHaveBeenCalledOnce()
     expect(execFile).toHaveBeenCalledWith(
-      "/tmp/wg",
-      ["wikg://lib/arc/allowed", "inspect", "--json"],
-      expect.objectContaining({ env: expect.objectContaining({ WANTA_WIKIGRAPH_COMMAND: "/tmp/wg" }) }),
+      "/tmp/node",
+      ["/tmp/wikigraph-wrapper.js", "wikg://lib/arc/allowed", "inspect", "--json"],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          WANTA_WIKIGRAPH_COMMAND: "/tmp/node",
+          WANTA_WIKIGRAPH_WRAPPER_PATH: "/tmp/wikigraph-wrapper.js",
+          WIKIGRAPH_STATE_DIR: undefined,
+        }),
+      }),
     )
   })
 
   it("fails closed without exposing private paths when the scope cannot be read", async () => {
     process.env.WANTA_TEAM_SCOPE_PATH = "/private/user-data/agent-scope.json"
-    process.env.WANTA_WIKIGRAPH_COMMAND = "/tmp/wg"
-    process.env.WIKIGRAPH_STATE_DIR = "/private/user-data/wikigraph-state"
+    process.env.WANTA_WIKIGRAPH_COMMAND = "/tmp/node"
+    process.env.WANTA_WIKIGRAPH_WRAPPER_PATH = "/tmp/wikigraph-wrapper.js"
+    process.env.WANTA_WIKIGRAPH_STATE_DIR = "/private/user-data/wikigraph-state"
     const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
     const readFile = vi.fn().mockRejectedValueOnce(new Error("ENOENT: /private/user-data/agent-scope.json"))
     const loaded = loadKnowledgeTool(execFile, readFile)
@@ -195,8 +205,9 @@ describe("query_knowledge embedded runtime", () => {
 
   it("redacts WikiGraph paths and URIs from query errors", async () => {
     process.env.WANTA_TEAM_SCOPE_PATH = "/tmp/agent-scope.json"
-    process.env.WANTA_WIKIGRAPH_COMMAND = "/tmp/wg"
-    process.env.WIKIGRAPH_STATE_DIR = "/private/user-data/wikigraph-state"
+    process.env.WANTA_WIKIGRAPH_COMMAND = "/tmp/node"
+    process.env.WANTA_WIKIGRAPH_WRAPPER_PATH = "/tmp/wikigraph-wrapper.js"
+    process.env.WANTA_WIKIGRAPH_STATE_DIR = "/private/user-data/wikigraph-state"
     const execFile = vi.fn(async () => {
       const error = new Error(
         "failed at /private/user-data/wikigraph-state/cache and /private/user-data/wikigraph-state/library/book.wikg for wikg://lib/arc/allowed",
@@ -218,7 +229,8 @@ describe("query_knowledge embedded runtime", () => {
 
   it("waits briefly for a task subagent allowlist to inherit from its parent session", async () => {
     process.env.WANTA_TEAM_SCOPE_PATH = "/tmp/agent-scope.json"
-    process.env.WANTA_WIKIGRAPH_COMMAND = "/tmp/wg"
+    process.env.WANTA_WIKIGRAPH_COMMAND = "/tmp/node"
+    process.env.WANTA_WIKIGRAPH_WRAPPER_PATH = "/tmp/wikigraph-wrapper.js"
     const execFile = vi.fn(async () => ({ stdout: '{"ok":true}' }))
     let scopeReads = 0
     const readFile = vi.fn(async (filePath: string) => {

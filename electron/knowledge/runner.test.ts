@@ -1,4 +1,5 @@
-import type { WikiGraphRuntime } from "./runner.ts"
+import type { WikiGraphCLIRunner, WikiGraphRuntime } from "./runner.ts"
+import type { RunWikiGraphCLIInput } from "wiki-graph"
 
 import { mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
@@ -17,59 +18,73 @@ import {
 
 function runtime(dir: string): WikiGraphRuntime {
   return {
-    command: "/usr/local/bin/wg",
     managedLibraryDir: path.join(dir, "wikigraph-state", "library"),
     stateDir: path.join(dir, "wikigraph-state"),
   }
 }
 
-describe("WikiGraph default library command adapter", () => {
-  it("sets Wanta's dedicated WIKIGRAPH_STATE_DIR and binds the default lib folder", async () => {
+describe("WikiGraph SDK adapter", () => {
+  it("uses SDK stateDir and strips dangerous WikiGraph runtime env overrides", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
-    const calls: Array<{ args: string[]; command: string; env?: NodeJS.ProcessEnv }> = []
-    const exec = vi.fn(async (command, args, options) => {
-      calls.push({
-        args: args as string[],
-        command: command as string,
-        env: (options as { env?: NodeJS.ProcessEnv }).env,
-      })
-      return { stdout: '{"items":[]}' }
+    const previousStateDir = process.env.WIKIGRAPH_STATE_DIR
+    const previousDev = process.env.WIKIGRAPH_DEV
+    process.env.WIKIGRAPH_STATE_DIR = "/unsafe/state"
+    process.env.WIKIGRAPH_DEV = "/unsafe/dev"
+    const calls: RunWikiGraphCLIInput[] = []
+    const runCLI: WikiGraphCLIRunner = vi.fn(async (input) => {
+      calls.push(input)
+      input.stdout?.write('{"items":[]}')
+      return { exitCode: 0 }
     })
 
-    await runWikiGraphJson(
-      runtime(dir),
-      ["wikg://lib/path", "set", path.join(dir, "library"), "--json"],
-      1000,
-      exec as never,
-    )
+    try {
+      await runWikiGraphJson(
+        runtime(dir),
+        ["wikg://lib/path", "set", path.join(dir, "library"), "--json"],
+        1000,
+        runCLI,
+      )
+    } finally {
+      if (previousStateDir === undefined) delete process.env.WIKIGRAPH_STATE_DIR
+      else process.env.WIKIGRAPH_STATE_DIR = previousStateDir
+      if (previousDev === undefined) delete process.env.WIKIGRAPH_DEV
+      else process.env.WIKIGRAPH_DEV = previousDev
+    }
 
     expect(calls).toEqual([
-      {
-        args: ["wikg://lib/path", "set", path.join(dir, "library"), "--json"],
-        command: "/usr/local/bin/wg",
-        env: expect.objectContaining({ NO_COLOR: "1", WIKIGRAPH_STATE_DIR: path.join(dir, "wikigraph-state") }),
-      },
+      expect.objectContaining({
+        argv: ["wikg://lib/path", "set", path.join(dir, "library"), "--json"],
+        env: expect.objectContaining({
+          NO_COLOR: "1",
+          WIKIGRAPH_DEV: undefined,
+          WIKIGRAPH_ENV_POLICY: undefined,
+          WIKIGRAPH_QUEUE_DISABLE_AUTOSTART: undefined,
+          WIKIGRAPH_STATE_DIR: undefined,
+        }),
+        stateDir: path.join(dir, "wikigraph-state"),
+      }),
     ])
   })
 
   it("lists default lib archives and filters missing members", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
     const commands: string[][] = []
-    const exec = vi.fn(async (_command, args) => {
-      commands.push(args as string[])
-      return commands.length === 1
-        ? { stdout: '{"items":[]}' }
-        : {
-            stdout: JSON.stringify({
+    const runCLI: WikiGraphCLIRunner = vi.fn(async (input) => {
+      commands.push([...(input.argv ?? [])])
+      input.stdout?.write(
+        commands.length === 1
+          ? '{"items":[]}'
+          : JSON.stringify({
               items: [
                 { exists: true, id: "present", uri: "wikg://lib/arc/present" },
                 { exists: false, id: "missing", uri: "wikg://lib/arc/missing" },
               ],
             }),
-          }
+      )
+      return { exitCode: 0 }
     })
 
-    const archives = await listWikiGraphLibraryArchives(runtime(dir), exec as never)
+    const archives = await listWikiGraphLibraryArchives(runtime(dir), runCLI)
 
     expect(archives.map((item) => item.id)).toEqual(["present"])
     expect(commands).toContainEqual(["wikg://lib/arc", "--json"])
@@ -80,21 +95,22 @@ describe("WikiGraph default library command adapter", () => {
     const source = path.join(dir, "original.wikg")
     await writeFile(source, "archive")
     const commands: string[][] = []
-    const exec = vi.fn(async (_command, args) => {
-      commands.push(args as string[])
-      return commands.length === 1
-        ? { stdout: '{"items":[]}' }
-        : {
-            stdout: JSON.stringify({
+    const runCLI: WikiGraphCLIRunner = vi.fn(async (input) => {
+      commands.push([...(input.argv ?? [])])
+      input.stdout?.write(
+        commands.length === 1
+          ? '{"items":[]}'
+          : JSON.stringify({
               id: "imported",
               path: path.join(dir, "wikigraph-state", "library", "copy.wikg"),
               relativePath: "copy.wikg",
               uri: "wikg://lib/arc/imported",
             }),
-          }
+      )
+      return { exitCode: 0 }
     })
 
-    const imported = await addWikiGraphLibraryArchive(runtime(dir), source, exec as never)
+    const imported = await addWikiGraphLibraryArchive(runtime(dir), source, runCLI)
 
     expect(imported).toMatchObject({ id: "imported", relativePath: "copy.wikg", uri: "wikg://lib/arc/imported" })
     expect(imported.path).not.toBe(source)
@@ -109,31 +125,38 @@ describe("WikiGraph default library command adapter", () => {
     ])
   })
 
-  it("builds remove, inspect, index, query, and missing-cover command arguments", async () => {
+  it("builds remove, inspect, index, query, and cover SDK arguments", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
     const commands: string[][] = []
-    const exec = vi.fn(async (_command, args) => {
-      commands.push(args as string[])
-      return { stdout: "{}" }
+    const runCLIJson: WikiGraphCLIRunner = vi.fn(async (input) => {
+      commands.push([...(input.argv ?? [])])
+      input.stdout?.write("{}")
+      return { exitCode: 0 }
+    })
+    const runCLI: WikiGraphCLIRunner = vi.fn(async (input) => {
+      commands.push([...(input.argv ?? [])])
+      input.stdout?.write(Buffer.from([0, 159, 255, 10]))
+      return { exitCode: 0 }
     })
 
-    await runWikiGraphJson(runtime(dir), ["wikg://lib/arc/archive", "inspect", "--json"], 1000, exec as never)
-    await readWikiGraphMetadata(runtime(dir), "archive", exec as never)
-    await readWikiGraphIndex(runtime(dir), "archive", exec as never)
+    await runWikiGraphJson(runtime(dir), ["wikg://lib/arc/archive", "inspect", "--json"], 1000, runCLIJson)
+    await readWikiGraphMetadata(runtime(dir), "archive", runCLIJson)
+    await readWikiGraphIndex(runtime(dir), "archive", runCLIJson)
     await runWikiGraphJson(
       runtime(dir),
       ["wikg://lib/arc/archive/chapter", "--query", "term", "--json"],
       1000,
-      exec as never,
+      runCLIJson,
     )
-    await removeWikiGraphLibraryArchive(runtime(dir), "archive", exec as never)
-    const cover = await readWikiGraphCover(runtime(dir), "missing", exec as never)
+    await removeWikiGraphLibraryArchive(runtime(dir), "archive", runCLIJson)
+    const cover = await readWikiGraphCover(runtime(dir), "archive", runCLI)
 
     expect(commands).toContainEqual(["wikg://lib/arc/archive", "inspect", "--json"])
     expect(commands).toContainEqual(["wikg://lib/arc/archive/meta", "--json"])
     expect(commands).toContainEqual(["wikg://lib/arc/archive/chapter", "--query", "term", "--json"])
     expect(commands).toContainEqual(["wikg://lib/arc/archive", "remove", "--confirm", "--json"])
-    expect(cover).toBeNull()
+    expect(commands).toContainEqual(["wikg://lib/arc/archive/cover"])
+    expect(cover).toEqual(Buffer.from([0, 159, 255, 10]))
   })
 
   it("requires non-zero covered and total words", () => {
@@ -142,23 +165,39 @@ describe("WikiGraph default library command adapter", () => {
     expect(wikiGraphCoverageReady(undefined)).toBe(false)
   })
 
-  it("redacts managed storage paths and archive URIs from command errors", async () => {
+  it("redacts managed storage paths and archive URIs from SDK errors", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
-    const exec = vi.fn(async () => {
-      const error = new Error(
+    const runCLI: WikiGraphCLIRunner = vi.fn(async () => {
+      throw new Error(
         `failed at ${path.join(dir, "wikigraph-state", "cache")} and ${path.join(dir, "wikigraph-state", "library", "book.wikg")} for wikg://lib/arc/book`,
       )
-      throw error
     })
 
     await expect(
-      runWikiGraphJson(runtime(dir), ["wikg://lib/arc/book", "inspect", "--json"], 1000, exec as never),
+      runWikiGraphJson(runtime(dir), ["wikg://lib/arc/book", "inspect", "--json"], 1000, runCLI),
     ).rejects.toThrow("[WikiGraph managed storage]")
     await expect(
-      runWikiGraphJson(runtime(dir), ["wikg://lib/arc/book", "inspect", "--json"], 1000, exec as never),
+      runWikiGraphJson(runtime(dir), ["wikg://lib/arc/book", "inspect", "--json"], 1000, runCLI),
     ).rejects.not.toThrow(dir)
     await expect(
-      runWikiGraphJson(runtime(dir), ["wikg://lib/arc/book", "inspect", "--json"], 1000, exec as never),
+      runWikiGraphJson(runtime(dir), ["wikg://lib/arc/book", "inspect", "--json"], 1000, runCLI),
     ).rejects.not.toThrow("wikg://lib/arc/book")
+  })
+
+  it("rejects oversized JSON output while the SDK runner is still writing stdout", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const runCLI: WikiGraphCLIRunner = vi.fn(async (input) => {
+      await new Promise<void>((resolve, reject) => {
+        input.stdout?.write(Buffer.alloc(8 * 1024 * 1024 + 1, "{"), (error: Error | null | undefined) => {
+          if (error) reject(error)
+          else resolve()
+        })
+      })
+      return { exitCode: 0 }
+    })
+
+    await expect(
+      runWikiGraphJson(runtime(dir), ["wikg://lib/arc/book", "inspect", "--json"], 1000, runCLI),
+    ).rejects.toThrow("WikiGraph output exceeded the buffer limit")
   })
 })

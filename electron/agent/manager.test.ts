@@ -2,7 +2,13 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { AgentManager, buildArtifactSystem, buildWorkspaceIdentitySystem, isUserVisibleSession } from "./manager.ts"
+import {
+  AgentManager,
+  buildAgentSidecarEnv,
+  buildArtifactSystem,
+  buildWorkspaceIdentitySystem,
+  isUserVisibleSession,
+} from "./manager.ts"
 
 afterEach(() => {
   vi.useRealTimers()
@@ -138,6 +144,26 @@ describe("AgentManager", () => {
     await expect(manager.listAuthorizedServices()).resolves.toEqual(["slack"])
     await expect(manager.buildAuthorizedSystem()).resolves.toContain("Some Link providers are already authorized")
     expect(inventory).toHaveBeenCalledTimes(2)
+  })
+
+  it("passes only Wanta-owned WikiGraph wrapper state to the sidecar", () => {
+    const env = buildAgentSidecarEnv({
+      commandPath: "/usr/bin:/bin",
+      linkRuntime: null,
+      storeDir: "/tmp/wanta-agent/oo-store",
+      teamScopePath: "/tmp/wanta-agent/team-scope.json",
+      wikiGraphCommand: "/Applications/Wanta.app/Contents/MacOS/Wanta",
+      wikiGraphStateDir: "/tmp/wanta/wikigraph-state",
+      wikiGraphWrapperPath: "/tmp/wanta/dist-electron/wikigraph-wrapper.js",
+    })
+
+    expect(env).toMatchObject({
+      WANTA_TEAM_SCOPE_PATH: "/tmp/wanta-agent/team-scope.json",
+      WANTA_WIKIGRAPH_COMMAND: "/Applications/Wanta.app/Contents/MacOS/Wanta",
+      WANTA_WIKIGRAPH_STATE_DIR: "/tmp/wanta/wikigraph-state",
+      WANTA_WIKIGRAPH_WRAPPER_PATH: "/tmp/wanta/dist-electron/wikigraph-wrapper.js",
+    })
+    expect(env).not.toHaveProperty("WIKIGRAPH_STATE_DIR")
   })
 
   it("reuses authorized provider awareness within the prompt cache window", async () => {

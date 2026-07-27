@@ -138,7 +138,8 @@ const modelCredentialStore = new ModelCredentialStore(app.getPath("userData"), s
 const modelsStore = new ModelsStore(app.getPath("userData"), modelCredentialStore)
 const wikiGraphStateDir = path.join(app.getPath("userData"), "wikigraph-state")
 const wikiGraphLibraryDir = path.join(wikiGraphStateDir, "library")
-const wikiGraphCommand = process.env["WANTA_WIKIGRAPH_COMMAND"]?.trim() || "wg"
+const wikiGraphWrapperPath = path.join(dirname, "wikigraph-wrapper.js")
+const wikiGraphCommand = process.execPath
 // 二进制解析：生产从打包 Resources/bin（extraResources），dev 从 node_modules（opencode）与 .oo-bin（oo）。
 const opencodeBinPath = app.isPackaged
   ? resolveBundledBin(process.resourcesPath, opencodeBinaryName())
@@ -294,7 +295,7 @@ const knowledgeService = new KnowledgeServiceImpl({
   onRemoved: async (id) => {
     await Promise.all([sessionService.removeKnowledgeBaseReferences(id), agent?.removeKnowledgeBaseAccess(id)])
   },
-  runtime: { command: wikiGraphCommand, managedLibraryDir: wikiGraphLibraryDir, stateDir: wikiGraphStateDir },
+  runtime: { managedLibraryDir: wikiGraphLibraryDir, stateDir: wikiGraphStateDir },
   trustedImportPaths: trustedAttachmentPaths,
 })
 
@@ -665,6 +666,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     opencodeBinPath,
     ooBinPath,
     wikiGraphCommand,
+    wikiGraphWrapperPath,
     wikiGraphStateDir,
     listOpenConnectorAuthorizedServices: async (signal) =>
       (await linkRuntimeManager.listOpenConnectorApps(signal))

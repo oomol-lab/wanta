@@ -147,7 +147,7 @@ export default defineConfig(({ command, mode }) => {
                 input: {
                   main: path.join(dirname, "electron/main.ts"),
                   "spreadsheet-preview-worker": path.join(dirname, "electron/chat/spreadsheet-preview-worker.ts"),
-                  "wikigraph-wrapper": path.join(dirname, "electron/knowledge/wikigraph-wrapper.ts"),
+                  "wanta-wg": path.join(dirname, "electron/knowledge/wg.ts"),
                 },
                 // @opencode-ai/sdk 依赖 cross-spawn（CJS require("child_process")）、electron-updater 走
                 // CJS 动态 require，都不能打进 ESM 主进程包；外部化后由 Node 运行时解析（electron-builder

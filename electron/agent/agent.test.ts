@@ -407,7 +407,8 @@ test("local runtime config omits Connector guidance and oo command permission sh
   assert.equal(buildPermission?.bash, "ask")
   assert.equal(planPermission?.bash, "ask")
   assert.equal(rootPermission?.bash, "ask")
-  assert.match(WANTA_LOCAL_SYSTEM_PROMPT, /query_knowledge/)
+  assert.match(WANTA_LOCAL_SYSTEM_PROMPT, /managed `wg` command/)
+  assert.match(WANTA_LOCAL_SYSTEM_PROMPT, /do not rely on a global WikiGraph install/)
   assert.match(WANTA_LOCAL_SYSTEM_PROMPT, /local web tools/)
   assert.doesNotMatch(WANTA_LOCAL_SYSTEM_PROMPT, /## Link work|list_apps|search_actions|inspect_action|call_action/)
   assert.doesNotMatch(WANTA_LOCAL_SYSTEM_PROMPT, /OOMOL|oo CLI|connected SaaS|Link side effects/)
@@ -501,9 +502,10 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /5-8 core nodes and 5-12 core edges/)
   assert.match(WANTA_SYSTEM_PROMPT, /Chinese quotation marks such as “嫂嫂”/)
   assert.match(WANTA_SYSTEM_PROMPT, /style, classDef, linkStyle/)
-  assert.match(WANTA_SYSTEM_PROMPT, /Use query_knowledge rather than invoking the WikiGraph CLI directly/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Use the managed `wg` command from bash/)
+  assert.match(WANTA_SYSTEM_PROMPT, /only show raw CLI commands if the user explicitly asks/)
   assert.match(WANTA_SYSTEM_PROMPT, /Evidence counts are supporting passage counts, not confidence/)
-  assert.match(WANTA_SYSTEM_PROMPT, /Do not expose managed archive paths or raw CLI commands/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Do not expose managed storage paths/)
 })
 
 test("buildAgentLinkEnv injects the required OOMOL OO_* control vars (R3)", () => {

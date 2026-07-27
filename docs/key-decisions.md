@@ -184,13 +184,12 @@
     flow, and inputSchema is the single source of truth for parameters. After oo-cli 1.4.2
     provided `oo connector apps --json --organization`, `list_apps` was added specifically to
     answer the current team's connected provider/app list, so catalog search stops being misused
-    as a connection-status query. The custom toolset has since grown a fifth tool,
-    `query_knowledge`: read-only queries against WikiGraph default-library archives pinned to the
-    session (operations: inspect/search/related/evidence/pack), with session-level access control
-    via `WANTA_TEAM_SCOPE_PATH` (a knowledge base not pinned to the current session is refused). It
-    calls the local WikiGraph 0.4 `wg` command from `WANTA_WIKIGRAPH_COMMAND` (fallback `wg`) with
-    `WIKIGRAPH_STATE_DIR` pointing at Wanta's private state, and it no longer reads a Wanta-owned
-    knowledge registry.
+    as a connection-status query. WikiGraph access is intentionally not a custom OpenCode tool:
+    when a pinned archive is relevant, the agent uses bash to run `wg wikg://lib/arc/<id> ...`.
+    Wanta creates its own `wg` shim under the sidecar private bin directory, prepends that directory
+    to `PATH`, and calls WikiGraph's SDK runner with Wanta's private state dir. The shim forwards
+    stdin/stdout/stderr/exit code like a terminal command; Wanta does not wrap WikiGraph business
+    errors or expose `WANTA_WIKIGRAPH_*` / `WIKIGRAPH_STATE_DIR` as agent-controlled overrides.
   - Prompt layering (R4): the stable persona/tools/contracts live in agent.prompt to benefit from
     prompt caching; the per-turn-changing authorized-existence hint goes through dynamic
     `body.system` injection, with no specific provider names by default. That same `body.system`

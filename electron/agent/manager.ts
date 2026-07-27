@@ -36,6 +36,7 @@ import { managedPythonEnvironmentPath, managedPythonExecutable } from "./python-
 import { opencodeReasoningVariant } from "./reasoning.ts"
 import { generateSessionTitle as generateTitle } from "./session-title-generator.ts"
 import { OpencodeSidecar } from "./sidecar.ts"
+import { ensureWikiGraphCommandBin } from "./wikigraph-bin.ts"
 import { ensureAgentWorkspace } from "./workspace.ts"
 
 export type { GeneratedSessionTitle } from "./session-title-generator.ts"
@@ -47,10 +48,9 @@ export interface AgentManagerOptions {
   opencodeBinPath: string
   /** The oo binary is resolved and injected only when a Link runtime is configured. */
   ooBinPath?: string
-  /** Internal Node/Electron wrapper used by the read-only knowledge tool. */
-  wikiGraphCommand?: string
+  /** Wanta-owned WikiGraph CLI entrypoint used by the sidecar PATH `wg` shim. */
+  wikiGraphCliPath?: string
   wikiGraphStateDir?: string
-  wikiGraphWrapperPath?: string
   listOpenConnectorAuthorizedServices?: (signal?: AbortSignal) => Promise<string[]>
   /** 内置 oo skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
@@ -99,9 +99,6 @@ export interface AgentSidecarEnvOptions {
   storeDir: string
   teamName?: string
   teamScopePath: string
-  wikiGraphCommand?: string
-  wikiGraphStateDir?: string
-  wikiGraphWrapperPath?: string
 }
 
 export function buildAgentSidecarEnv({
@@ -111,9 +108,6 @@ export function buildAgentSidecarEnv({
   storeDir,
   teamName,
   teamScopePath,
-  wikiGraphCommand,
-  wikiGraphStateDir,
-  wikiGraphWrapperPath,
 }: AgentSidecarEnvOptions): Record<string, string> {
   const ooEnv = linkRuntime
     ? buildAgentLinkEnv({
@@ -128,9 +122,6 @@ export function buildAgentSidecarEnv({
     ...ooEnv,
     ...buildManagedSkillRuntimeEnv(),
     PATH: commandPath,
-    ...(wikiGraphCommand ? { WANTA_WIKIGRAPH_COMMAND: wikiGraphCommand } : {}),
-    ...(wikiGraphWrapperPath ? { WANTA_WIKIGRAPH_WRAPPER_PATH: wikiGraphWrapperPath } : {}),
-    ...(wikiGraphStateDir ? { WANTA_WIKIGRAPH_STATE_DIR: wikiGraphStateDir } : {}),
   }
 }
 
@@ -341,7 +332,7 @@ export class AgentManager {
     })
   }
 
-  /** 记录本轮允许 query_knowledge 访问的知识库；工具按 OpenCode sessionID 强制校验。 */
+  /** 记录本轮选中的知识库；提示词按 OpenCode sessionID 注入对应 archive URI。 */
   public async setSessionKnowledgeBaseIds(sessionId: string, knowledgeBaseIds: readonly string[]): Promise<void> {
     const normalizedSessionId = sessionId.trim()
     if (!normalizedSessionId) throw new Error("Session id is required")
@@ -363,7 +354,7 @@ export class AgentManager {
     })
   }
 
-  /** task 子会话使用独立 sessionID，必须显式继承父会话的知识库 allowlist。 */
+  /** task 子会话使用独立 sessionID，必须显式继承父会话选中的知识库。 */
   public async inheritSessionKnowledgeBaseIds(parentSessionId: string, childSessionId: string): Promise<void> {
     const normalizedParentId = parentSessionId.trim()
     const normalizedChildId = childSessionId.trim()
@@ -430,9 +421,8 @@ export class AgentManager {
       disableServerAuth,
       customModels,
       defaultModel,
-      wikiGraphCommand,
+      wikiGraphCliPath,
       wikiGraphStateDir,
-      wikiGraphWrapperPath,
     } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
     const isolationDir = path.join(rootDir, "isolation")
@@ -440,9 +430,19 @@ export class AgentManager {
     const teamScopePath = this.teamScopePath ?? path.join(rootDir, "team-scope.json")
 
     const config = buildOpencodeConfig({ customModels, defaultModel, linkRuntime, modelAccess })
-    const commandPath = await resolveUserCommandPath({
+    const baseCommandPath = await resolveUserCommandPath({
       preferredDirectories: linkRuntime && ooBinPath ? [path.dirname(ooBinPath)] : [],
     })
+    const wikiGraphBinDir =
+      wikiGraphCliPath && wikiGraphStateDir
+        ? await ensureWikiGraphCommandBin({
+            binDir: path.join(rootDir, "bin"),
+            nodeBin: process.execPath,
+            stateDir: wikiGraphStateDir,
+            wikiGraphCliPath,
+          })
+        : undefined
+    const commandPath = wikiGraphBinDir ? `${wikiGraphBinDir}${path.delimiter}${baseCommandPath}` : baseCommandPath
     const env = buildAgentSidecarEnv({
       commandPath,
       linkRuntime,
@@ -450,9 +450,6 @@ export class AgentManager {
       storeDir,
       teamName: this.teamName,
       teamScopePath,
-      wikiGraphCommand,
-      wikiGraphStateDir,
-      wikiGraphWrapperPath,
     })
 
     const sidecar = new OpencodeSidecar({

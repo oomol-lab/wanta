@@ -5,14 +5,15 @@ import { buildContextMentionsSystem, buildPermissionModeSystem, buildResponseLan
 test("buildContextMentionsSystem describes a pinned knowledge base without exposing a path", () => {
   const prompt = buildContextMentionsSystem([{ id: "kb-1", kind: "knowledge", name: "西游记" }]) ?? ""
 
-  assert.match(prompt, /query_knowledge/)
+  assert.match(prompt, /archive URI: "wikg:\/\/lib\/arc\/kb-1"/)
+  assert.match(prompt, /shell `wg` command/)
   assert.match(prompt, /kb-1/)
   assert.match(prompt, /西游记/)
   assert.match(prompt, /Never modify/)
   assert.match(prompt, /Mermaid graph focused/)
   assert.match(prompt, /5-8 core entities/)
   assert.match(prompt, /Do not emit style directives/)
-  assert.match(prompt, /Never invoke the WikiGraph CLI directly/)
+  assert.match(prompt, /Wanta provides a managed `wg` on PATH/)
   assert.doesNotMatch(prompt, /\/Users\//)
 })
 

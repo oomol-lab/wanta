@@ -173,7 +173,7 @@ export async function listWikiGraphLibraryArchives(
   await prepareWikiGraphDefaultLibrary(runtime, runCLI)
   const parsed = await runWikiGraphJson<unknown>(
     runtime,
-    [`${defaultLibraryUri}/arc`, "--json"],
+    [`${defaultLibraryUri}/arc`, "scan", "--json"],
     metadataTimeoutMs,
     runCLI,
   )

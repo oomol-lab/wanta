@@ -87,7 +87,7 @@ describe("WikiGraph SDK adapter", () => {
     const archives = await listWikiGraphLibraryArchives(runtime(dir), runCLI)
 
     expect(archives.map((item) => item.id)).toEqual(["present"])
-    expect(commands).toContainEqual(["wikg://lib/arc", "--json"])
+    expect(commands).toContainEqual(["wikg://lib/arc", "scan", "--json"])
   })
 
   it("copy-imports archives without saving the original source path as the source of truth", async () => {

@@ -248,6 +248,19 @@ export function resolveUserFacingError(
     )
   }
 
+  if (normalizedMessage.startsWith("wanta_knowledge_import_unreadable")) {
+    return buildError(
+      area,
+      "validation_error",
+      "warning",
+      "error.knowledgeImportUnreadable.title",
+      "error.knowledgeImportUnreadable.description",
+      diagnostics,
+      false,
+      message,
+    )
+  }
+
   if (status && status >= 500) {
     return buildError(
       area,

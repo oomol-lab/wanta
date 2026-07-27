@@ -101,6 +101,9 @@ export const enMessages = {
   "error.knowledgeList.description": "The knowledge base list cannot be loaded right now. Try again later.",
   "error.knowledgeAction.title": "Knowledge base action not completed",
   "error.knowledgeAction.description": "The change was not applied. Existing knowledge bases are unaffected.",
+  "error.knowledgeImportUnreadable.title": "Knowledge base import failed",
+  "error.knowledgeImportUnreadable.description":
+    "Wanta copied the WikiGraph file into managed storage, but the managed copy could not be upgraded into a readable knowledge base. The original file was not modified, and no incomplete import was kept.",
   "error.update.title": "Update failed",
   "error.update.description": "The update operation could not be completed right now. Try again later.",
   "app.loadFailed": "Failed to load the interface",

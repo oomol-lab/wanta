@@ -90,6 +90,9 @@ export const zhCNMessages = {
   "error.knowledgeList.description": "暂时无法读取知识库列表。请稍后重试。",
   "error.knowledgeAction.title": "知识库操作未完成",
   "error.knowledgeAction.description": "本次修改没有生效，现有知识库不会受影响。",
+  "error.knowledgeImportUnreadable.title": "知识库导入失败",
+  "error.knowledgeImportUnreadable.description":
+    "Wanta 已将 WikiGraph 文件复制到托管存储，但托管副本无法升级为可读取的知识库。原始文件没有被修改，也不会保留未完成的导入。",
   "error.update.title": "更新失败",
   "error.update.description": "暂时无法完成更新操作。请稍后重试。",
   "app.loadFailed": "界面加载失败",

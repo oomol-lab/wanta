@@ -28,11 +28,13 @@ const sdk = vi.hoisted(() => {
       rebind: [] as unknown[],
       remove: [] as unknown[],
       runtimeStateDirs: [] as (string | undefined)[],
+      upgrade: [] as string[],
     },
     chapters: [] as MockChapter[],
     cover: undefined as { data: Uint8Array; mediaType: string; path: string } | undefined,
     failCover: false,
     failGetArchive: undefined as Error | undefined,
+    failListChapters: undefined as Error | undefined,
     ftsCurrent: false,
     indexSettings: { ftsEmbedded: false },
     meta: undefined as MockBookMeta | undefined,
@@ -123,7 +125,10 @@ vi.mock("wiki-graph-core", () => {
       return record
     },
     isArchiveSearchIndexCurrent: async () => sdk.ftsCurrent,
-    listChapters: async () => sdk.chapters,
+    listChapters: async () => {
+      if (sdk.failListChapters) throw sdk.failListChapters
+      return sdk.chapters
+    },
     listWikiGraphLibraryArchives: async (target: unknown) => {
       sdk.calls.list.push(target)
       return sdk.archives
@@ -137,6 +142,16 @@ vi.mock("wiki-graph-core", () => {
     removeWikiGraphLibraryArchive: async (input: unknown) => {
       sdk.calls.remove.push(input)
       return sdk.archives[0]
+    },
+    upgradeWikiGraphMaintenanceTarget: async (target: string) => {
+      sdk.calls.upgrade.push(target)
+      return {
+        kind: "archive",
+        path: target,
+        schemaVersionAfter: 2,
+        schemaVersionBefore: 1,
+        status: "upgraded",
+      }
     },
     withWikiGraphRuntimeStateDirectoryPath: async <T>(
       stateDir: string | undefined,
@@ -211,11 +226,21 @@ beforeEach(() => {
     archiveRecord({ publicId: "public-archive", uri: "wikg://lib/arc/public-archive" }),
     archiveRecord({ exists: false, publicId: "missing", status: "missing", uri: "wikg://lib/arc/missing" }),
   ]
-  sdk.calls = { add: [], archiveFiles: [], getArchive: [], list: [], rebind: [], remove: [], runtimeStateDirs: [] }
+  sdk.calls = {
+    add: [],
+    archiveFiles: [],
+    getArchive: [],
+    list: [],
+    rebind: [],
+    remove: [],
+    runtimeStateDirs: [],
+    upgrade: [],
+  }
   sdk.chapters = []
   sdk.cover = undefined
   sdk.failCover = false
   sdk.failGetArchive = undefined
+  sdk.failListChapters = undefined
   sdk.ftsCurrent = false
   sdk.indexSettings = { ftsEmbedded: false }
   sdk.meta = undefined
@@ -273,6 +298,8 @@ describe("WikiGraph SDK adapter", () => {
       uri: "wikg://lib/arc/imported-public-id",
     })
     expect(imported.id).not.toBe("99")
+    expect(sdk.calls.upgrade).toEqual(["/managed/library/copy.wikg"])
+    expect(sdk.calls.archiveFiles).toEqual(["/managed/library/copy.wikg"])
     expect(sdk.calls.add).toEqual([
       {
         inputPath: source,
@@ -280,6 +307,40 @@ describe("WikiGraph SDK adapter", () => {
         to: expect.stringMatching(/^research\/Original-Book-.+\.wikg$/u),
       },
     ])
+  })
+
+  it("fails and removes the managed copy when post-upgrade validation cannot read chapters", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const source = path.join(dir, "Broken Book.wikg")
+    await writeFile(source, "archive")
+    sdk.addRecord = archiveRecord({
+      path: "/managed/library/broken-copy.wikg",
+      publicId: "broken-public-id",
+      uri: "wikg://lib/arc/broken-public-id",
+    })
+    sdk.failListChapters = new Error("Missing chapter key in TOC")
+
+    let importError: unknown
+    try {
+      await addWikiGraphLibraryArchive(runtime(dir), source)
+    } catch (error) {
+      importError = error
+    }
+
+    expect(importError).toBeInstanceOf(Error)
+    expect((importError as Error).message).toContain("WANTA_KNOWLEDGE_IMPORT_UNREADABLE")
+    expect((importError as Error).message).not.toContain("Missing chapter key in TOC")
+
+    expect(sdk.calls.add).toEqual([
+      expect.objectContaining({
+        inputPath: source,
+        target: { kind: "mock", uri: "wikg://lib/arc" },
+      }),
+    ])
+    expect(sdk.calls.upgrade).toEqual(["/managed/library/broken-copy.wikg"])
+    expect(sdk.calls.upgrade).not.toContain(source)
+    expect(sdk.calls.archiveFiles).toEqual(["/managed/library/broken-copy.wikg"])
+    expect(sdk.calls.remove).toEqual([{ target: { kind: "mock", uri: "wikg://lib/arc/broken-public-id" } }])
   })
 
   it("removes archives by the public archive URI", async () => {

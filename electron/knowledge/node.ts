@@ -1,4 +1,4 @@
-import type { KnowledgeBaseSummary, KnowledgeService } from "./common.ts"
+import type { ImportKnowledgeBaseRequest, KnowledgeBaseSummary, KnowledgeService } from "./common.ts"
 import type { WikiGraphInspect, WikiGraphLibraryArchive, WikiGraphMetadata, WikiGraphRuntime } from "./runner.ts"
 import type { IConnectionService } from "@oomol/connection"
 
@@ -25,9 +25,12 @@ export interface KnowledgeServiceDeps {
   trustedImportPaths?: Iterable<string>
 }
 
+function archiveRelativePath(archive: WikiGraphLibraryArchive): string {
+  return (archive.relativePath || archive.path || `${archive.id}.wikg`).replace(/\\+/gu, "/")
+}
+
 function archiveSourceFileName(archive: WikiGraphLibraryArchive): string {
-  const source = archive.relativePath || archive.path || `${archive.id}.wikg`
-  return path.basename(source)
+  return path.basename(archiveRelativePath(archive))
 }
 
 function archiveImportedAt(archive: WikiGraphLibraryArchive): number {
@@ -61,6 +64,7 @@ function summaryFromInspection(
     ...(metadata.publisher?.trim() ? { publisher: metadata.publisher.trim() } : {}),
     ...(metadata.publishedAt?.trim() ? { publishedAt: metadata.publishedAt.trim() } : {}),
     ...(metadata.language?.trim() ? { language: metadata.language.trim() } : {}),
+    relativePath: archiveRelativePath(archive),
     sourceFileName,
     size: archiveSize(archive),
     importedAt: archiveImportedAt(archive),
@@ -99,7 +103,11 @@ export class KnowledgeServiceImpl
     return summaries.sort((left, right) => right.importedAt - left.importedAt)
   }
 
-  public async importKnowledgeBase(sourcePath?: string): Promise<KnowledgeBaseSummary | null> {
+  public async importKnowledgeBase(
+    request?: ImportKnowledgeBaseRequest | string,
+  ): Promise<KnowledgeBaseSummary | null> {
+    const { sourcePath, targetDirectory } =
+      typeof request === "string" ? { sourcePath: request, targetDirectory: undefined } : (request ?? {})
     const selectedPath = sourcePath?.trim() || (await this.selectKnowledgeBasePath())
     if (!selectedPath) return null
     if (sourcePath && this.deps.trustedImportPaths) {
@@ -111,7 +119,7 @@ export class KnowledgeServiceImpl
     if (path.extname(selectedPath).toLowerCase() !== ".wikg") {
       throw new Error("Only .wikg knowledge bases are supported")
     }
-    const archive = await addWikiGraphLibraryArchive(this.deps.runtime, selectedPath)
+    const archive = await addWikiGraphLibraryArchive(this.deps.runtime, selectedPath, targetDirectory)
     const summary = await this.summary(archive)
     this.broadcastChanged("import knowledge base")
     return summary

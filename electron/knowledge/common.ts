@@ -9,6 +9,7 @@ export interface KnowledgeBaseSummary {
   publisher?: string
   publishedAt?: string
   language?: string
+  relativePath: string
   sourceFileName: string
   size: number
   importedAt: number
@@ -26,6 +27,11 @@ export interface KnowledgeBaseSummary {
   }
 }
 
+export interface ImportKnowledgeBaseRequest {
+  sourcePath?: string
+  targetDirectory?: string
+}
+
 export interface KnowledgeBasesChangedEvent {
   reason: string
 }
@@ -37,7 +43,7 @@ export const KnowledgeService = serviceName("knowledge-service") as ServiceName<
   }
   ClientInvokes: {
     list(): Promise<KnowledgeBaseSummary[]>
-    importKnowledgeBase(sourcePath?: string): Promise<KnowledgeBaseSummary | null>
+    importKnowledgeBase(request?: ImportKnowledgeBaseRequest | string): Promise<KnowledgeBaseSummary | null>
     remove(id: string): Promise<void>
     reveal(id: string): Promise<void>
     refresh(id: string): Promise<KnowledgeBaseSummary>

@@ -12,7 +12,7 @@ export interface UseKnowledgeBases {
   loading: boolean
   busy: "import" | "remove" | "refresh" | null
   error: UserFacingError | null
-  importKnowledgeBase: (sourcePath?: string) => Promise<KnowledgeBaseSummary | null>
+  importKnowledgeBase: (sourcePath?: string, targetDirectory?: string) => Promise<KnowledgeBaseSummary | null>
   refresh: (id: string) => Promise<void>
   remove: (id: string) => Promise<boolean>
   reveal: (id: string) => Promise<void>
@@ -59,10 +59,10 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
   }, [enabled, service])
 
   const importKnowledgeBase = React.useCallback(
-    async (sourcePath?: string) => {
+    async (sourcePath?: string, targetDirectory?: string) => {
       setBusy("import")
       try {
-        return await service.invoke("importKnowledgeBase", sourcePath)
+        return await service.invoke("importKnowledgeBase", { sourcePath, targetDirectory })
       } catch (cause) {
         console.error("[wanta] import knowledge base failed", cause)
         reportRendererHandledError("knowledge", "import knowledge base failed", cause)

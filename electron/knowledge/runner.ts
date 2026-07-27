@@ -134,6 +134,30 @@ function safeImportTarget(sourcePath: string): string {
   return `${base || "archive"}-${Date.now().toString(36)}.wikg`
 }
 
+function safeLibraryDirectory(targetDirectory: string | undefined): string {
+  const parts: string[] = []
+  for (const part of (targetDirectory ?? "").trim().replace(/\\+/gu, "/").split("/")) {
+    if (!part || part === ".") continue
+    if (part === "..") {
+      parts.pop()
+      continue
+    }
+    const sanitized = part
+      .normalize("NFKD")
+      .replace(/[^a-zA-Z0-9._ -]+/gu, "-")
+      .replace(/^[-. ]+|[-. ]+$/gu, "")
+      .slice(0, 80)
+    if (sanitized) parts.push(sanitized)
+  }
+  return parts.join("/")
+}
+
+function safeImportRelativePath(sourcePath: string, targetDirectory: string | undefined): string {
+  const fileName = safeImportTarget(sourcePath)
+  const directory = safeLibraryDirectory(targetDirectory)
+  return directory ? `${directory}/${fileName}` : fileName
+}
+
 async function withRuntime<T>(runtime: WikiGraphRuntime, fallback: string, operation: () => Promise<T>): Promise<T> {
   try {
     return await withWikiGraphRuntimeStateDirectoryPath(runtime.stateDir, operation)
@@ -174,6 +198,7 @@ export async function listWikiGraphLibraryArchives(runtime: WikiGraphRuntime): P
 export async function addWikiGraphLibraryArchive(
   runtime: WikiGraphRuntime,
   sourcePath: string,
+  targetDirectory?: string,
 ): Promise<WikiGraphLibraryArchive> {
   await prepareWikiGraphDefaultLibrary(runtime)
   let source
@@ -187,7 +212,7 @@ export async function addWikiGraphLibraryArchive(
     const imported = await addWikiGraphLibraryArchiveWithSDK({
       inputPath: sourcePath,
       target: requireLibraryTarget(`${defaultLibraryUri}/arc`),
-      to: safeImportTarget(sourcePath),
+      to: safeImportRelativePath(sourcePath, targetDirectory),
     })
     return archiveFromRecord(imported)
   })

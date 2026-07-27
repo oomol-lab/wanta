@@ -74,6 +74,7 @@ describe("KnowledgeServiceImpl", () => {
           id: "public-id",
           importedAt: Date.parse("2026-01-02T00:00:00.000Z"),
           language: "zh",
+          relativePath: "book.wikg",
           size: 123,
           sourceFileName: "book.wikg",
           statistics: {},

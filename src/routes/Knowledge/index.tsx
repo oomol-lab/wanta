@@ -5,7 +5,11 @@ import type { LucideIcon } from "lucide-react"
 import {
   ArrowLeft,
   Check,
+  ChevronRight,
+  FileText,
+  Folder,
   FolderOpen,
+  Home,
   LibraryBig,
   MessageSquarePlus,
   MoreHorizontal,
@@ -18,7 +22,13 @@ import {
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui"
 import * as React from "react"
 import { toast } from "sonner"
-import { isWikiGraphFileName, wikiGraphDropCandidates } from "./knowledge-route-model.ts"
+import {
+  buildKnowledgeLibraryView,
+  isWikiGraphFileName,
+  knowledgePathDirectory,
+  normalizeKnowledgePath,
+  wikiGraphDropCandidates,
+} from "./knowledge-route-model.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { SearchField } from "@/components/SearchField"
 import { Button } from "@/components/ui/button"
@@ -50,12 +60,6 @@ import {
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
-function knowledgeStatus(item: KnowledgeBaseSummary, t: ReturnType<typeof useT>): string {
-  if (item.capabilities.knowledgeGraph) return t("knowledge.statusGraph")
-  if (item.capabilities.fullTextSearch) return t("knowledge.statusSearch")
-  return t("knowledge.statusLimited")
-}
-
 type KnowledgeAction = {
   id: "start-chat" | "reveal" | "refresh" | "remove"
   label: string
@@ -65,6 +69,12 @@ type KnowledgeAction = {
   loading?: boolean
   separatorBefore?: boolean
   onSelect: () => void
+}
+
+function knowledgeStatus(item: KnowledgeBaseSummary, t: ReturnType<typeof useT>): string {
+  if (item.capabilities.knowledgeGraph) return t("knowledge.statusGraph")
+  if (item.capabilities.fullTextSearch) return t("knowledge.statusSearch")
+  return t("knowledge.statusLimited")
 }
 
 function knowledgeActions({
@@ -209,6 +219,128 @@ function KnowledgeCover({ item, className }: { item: KnowledgeBaseSummary; class
   )
 }
 
+function KnowledgeArchiveRow({
+  archive,
+  selected,
+  busy,
+  onRemove,
+  onReveal,
+  onSelect,
+  onStartChat,
+  onRefresh,
+  t,
+}: {
+  archive: KnowledgeBaseSummary
+  selected: boolean
+  busy: UseKnowledgeBases["busy"]
+  onRemove: (item: KnowledgeBaseSummary) => void
+  onRefresh: (id: string) => void
+  onReveal: (id: string) => void
+  onSelect: (item: KnowledgeBaseSummary) => void
+  onStartChat: (item: KnowledgeBaseSummary) => void
+  t: ReturnType<typeof useT>
+}) {
+  const actions = knowledgeActions({ busy, item: archive, onRefresh, onRemove, onReveal, onStartChat, t })
+  const parentPath = knowledgePathDirectory(archive.relativePath)
+  return (
+    <KnowledgeContextMenu actions={actions}>
+      <button
+        type="button"
+        aria-pressed={selected}
+        onClick={() => onSelect(archive)}
+        className={cn(
+          "grid w-full grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors outline-none hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40",
+          selected && "border-[var(--accent-ring)] bg-[var(--accent-soft)]",
+        )}
+      >
+        <KnowledgeCover item={archive} className="w-full" />
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-foreground">
+            <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="oo-text-control truncate font-medium">{archive.title}</span>
+          </div>
+          <div className="oo-text-caption mt-0.5 truncate">
+            {archive.authors.join("、") || knowledgeStatus(archive, t)}
+          </div>
+          <div className="oo-text-caption mt-0.5 truncate text-muted-foreground">
+            {parentPath ? `${parentPath} / ${archive.sourceFileName}` : archive.sourceFileName}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 text-muted-foreground">
+          {selected ? <Check className="size-4 text-emerald-600" /> : null}
+        </div>
+      </button>
+    </KnowledgeContextMenu>
+  )
+}
+
+function KnowledgeFolderRow({
+  folder,
+  onEnter,
+  t,
+}: {
+  folder: { archiveCount: number; name: string; path: string }
+  onEnter: (path: string) => void
+  t: ReturnType<typeof useT>
+}) {
+  return (
+    <button
+      type="button"
+      className="grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors outline-none hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40"
+      onClick={() => onEnter(folder.path)}
+    >
+      <div className="grid size-8 place-items-center rounded-md bg-muted/50 text-muted-foreground">
+        <Folder className="size-4" />
+      </div>
+      <div className="min-w-0">
+        <div className="oo-text-control truncate font-medium text-foreground">{folder.name}</div>
+        <div className="oo-text-caption truncate text-muted-foreground">
+          {t("knowledge.folderCount", { count: folder.archiveCount })}
+        </div>
+      </div>
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+    </button>
+  )
+}
+
+function KnowledgeBreadcrumbs({
+  breadcrumbs,
+  onNavigate,
+  t,
+}: {
+  breadcrumbs: Array<{ label: string; path: string }>
+  onNavigate: (path: string) => void
+  t: ReturnType<typeof useT>
+}) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1 text-sm text-muted-foreground">
+      {breadcrumbs.map((breadcrumb, index) => (
+        <React.Fragment key={`${breadcrumb.path}:${index}`}>
+          {index > 0 ? <ChevronRight className="size-3.5 shrink-0" /> : null}
+          <button
+            type="button"
+            className={cn(
+              "max-w-full truncate rounded px-1.5 py-0.5 text-left transition-colors hover:bg-muted/60 hover:text-foreground",
+              index === breadcrumbs.length - 1 && "font-medium text-foreground",
+            )}
+            title={breadcrumb.path || t("knowledge.rootDirectory")}
+            onClick={() => onNavigate(breadcrumb.path)}
+          >
+            {index === 0 && breadcrumb.path === "" ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Home className="size-3.5" />
+                {breadcrumb.label}
+              </span>
+            ) : (
+              breadcrumb.label
+            )}
+          </button>
+        </React.Fragment>
+      ))}
+    </div>
+  )
+}
+
 export function KnowledgeRoute({
   knowledge,
   onStartChat,
@@ -218,29 +350,28 @@ export function KnowledgeRoute({
 }) {
   const t = useT()
   const [query, setQuery] = React.useState("")
+  const [currentDirectory, setCurrentDirectory] = React.useState("")
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [removeTarget, setRemoveTarget] = React.useState<KnowledgeBaseSummary | null>(null)
   const [dragActive, setDragActive] = React.useState(false)
   const dragDepthRef = React.useRef(0)
   const deferredQuery = React.useDeferredValue(query)
-  const filteredItems = React.useMemo(() => {
-    const normalized = deferredQuery.trim().toLocaleLowerCase()
-    return normalized
-      ? knowledge.items.filter((item) =>
-          [item.title, item.authors.join(" "), item.publisher ?? ""].some((value) =>
-            value.toLocaleLowerCase().includes(normalized),
-          ),
-        )
-      : knowledge.items
-  }, [deferredQuery, knowledge.items])
+
+  const view = React.useMemo(
+    () => buildKnowledgeLibraryView(knowledge.items, currentDirectory, deferredQuery, t("knowledge.rootDirectory")),
+    [currentDirectory, deferredQuery, knowledge.items, t],
+  )
   const selected = knowledge.items.find((item) => item.id === selectedId) ?? null
   const narrowPane = selected ? "detail" : "list"
+  const activeLabel = view.searchMode
+    ? t("knowledge.searchResults")
+    : view.currentDirectory || t("knowledge.rootDirectory")
 
   React.useEffect(() => {
-    if (selectedId && !filteredItems.some((item) => item.id === selectedId)) {
+    if (selectedId && !knowledge.items.some((item) => item.id === selectedId)) {
       setSelectedId(null)
     }
-  }, [filteredItems, selectedId])
+  }, [knowledge.items, selectedId])
 
   React.useEffect(() => {
     if (!selectedId) return
@@ -251,9 +382,12 @@ export function KnowledgeRoute({
     return () => window.removeEventListener("keydown", closeOnEscape)
   }, [selectedId])
 
-  const handleImport = async (sourcePath?: string): Promise<KnowledgeBaseSummary | null> => {
-    const imported = await knowledge.importKnowledgeBase(sourcePath)
-    if (imported) setSelectedId(imported.id)
+  const handleImport = async (sourcePath?: string, targetDirectory?: string): Promise<KnowledgeBaseSummary | null> => {
+    const imported = await knowledge.importKnowledgeBase(sourcePath, targetDirectory ?? currentDirectory)
+    if (imported) {
+      setSelectedId(imported.id)
+      setCurrentDirectory(imported.relativePath ? knowledgePathDirectory(imported.relativePath) : currentDirectory)
+    }
     return imported
   }
 
@@ -275,7 +409,7 @@ export function KnowledgeRoute({
         continue
       }
       try {
-        lastImported = await handleImport(selectedPath.path)
+        lastImported = await handleImport(selectedPath.path, currentDirectory)
       } finally {
         await window.wanta
           .releaseAttachmentPaths([selectedPath.path, selectedPath.agentPath ?? ""])
@@ -291,6 +425,11 @@ export function KnowledgeRoute({
     const removed = await knowledge.remove(removedId)
     if (removed && selectedId === removedId) setSelectedId(null)
     setRemoveTarget(null)
+  }
+
+  const handleNavigate = (path: string): void => {
+    setCurrentDirectory(normalizeKnowledgePath(path))
+    setSelectedId(null)
   }
 
   return (
@@ -316,24 +455,44 @@ export function KnowledgeRoute({
     >
       <SplitViewRoot narrowPane={narrowPane}>
         <SplitViewHeader narrowPane={narrowPane} className="oo-border-divider border-b sm:grid-cols-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <SearchField
-              className="max-w-sm flex-1"
-              disabled={knowledge.items.length === 0}
-              placeholder={t("knowledge.search")}
-              value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
-            />
-            <Button
-              type="button"
-              size="sm"
-              className="ml-auto"
-              disabled={knowledge.busy !== null}
-              onClick={() => void handleImport()}
-            >
-              <Plus />
-              {knowledge.busy === "import" ? t("knowledge.importing") : t("knowledge.import")}
-            </Button>
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <SearchField
+                className="max-w-sm flex-1"
+                disabled={knowledge.items.length === 0}
+                placeholder={t("knowledge.search")}
+                value={query}
+                onChange={(event) => setQuery(event.currentTarget.value)}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={knowledge.busy !== null || view.searchMode || !view.currentDirectory}
+                onClick={() => {
+                  setSelectedId(null)
+                  setCurrentDirectory(knowledgePathDirectory(currentDirectory))
+                }}
+              >
+                <ArrowLeft />
+                {t("knowledge.goUp")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="ml-auto"
+                disabled={knowledge.busy !== null}
+                onClick={() => void handleImport()}
+              >
+                <Plus />
+                {knowledge.busy === "import"
+                  ? t("knowledge.importing")
+                  : view.currentDirectory
+                    ? t("knowledge.importToCurrent")
+                    : t("knowledge.import")}
+              </Button>
+            </div>
+            <KnowledgeBreadcrumbs breadcrumbs={view.breadcrumbs} onNavigate={handleNavigate} t={t} />
           </div>
         </SplitViewHeader>
 
@@ -343,18 +502,21 @@ export function KnowledgeRoute({
         >
           <SplitViewListPane narrowPane={narrowPane} className="pt-3">
             <KnowledgeLibraryContent
+              activeLabel={activeLabel}
               busy={knowledge.busy}
               error={knowledge.error}
-              items={filteredItems}
               loading={knowledge.loading}
-              query={deferredQuery}
-              selectedId={selectedId}
+              onEnterDirectory={handleNavigate}
               onImport={() => void handleImport()}
               onRefresh={(id) => void knowledge.refresh(id)}
               onRemove={setRemoveTarget}
               onReveal={(id) => void knowledge.reveal(id)}
-              onSelect={setSelectedId}
+              onSelectArchive={(item) => setSelectedId(item.id)}
               onStartChat={onStartChat}
+              query={deferredQuery}
+              selectedId={selectedId}
+              t={t}
+              view={view}
             />
           </SplitViewListPane>
 
@@ -365,13 +527,13 @@ export function KnowledgeRoute({
                 {t("knowledge.back")}
               </Button>
               <KnowledgeDetail
-                item={selected}
                 busy={knowledge.busy}
+                item={selected}
                 onClose={() => setSelectedId(null)}
-                onStartChat={onStartChat}
                 onRefresh={(id) => void knowledge.refresh(id)}
                 onRemove={setRemoveTarget}
                 onReveal={(id) => void knowledge.reveal(id)}
+                onStartChat={onStartChat}
               />
             </SplitViewMobileDetailPane>
           ) : null}
@@ -379,13 +541,13 @@ export function KnowledgeRoute({
           {selected ? (
             <SplitViewDesktopDetailPane className="animate-in pt-3 duration-150 fade-in-0 slide-in-from-right-2 motion-reduce:animate-none">
               <KnowledgeDetail
-                item={selected}
                 busy={knowledge.busy}
+                item={selected}
                 onClose={() => setSelectedId(null)}
-                onStartChat={onStartChat}
                 onRefresh={(id) => void knowledge.refresh(id)}
                 onRemove={setRemoveTarget}
                 onReveal={(id) => void knowledge.reveal(id)}
+                onStartChat={onStartChat}
               />
             </SplitViewDesktopDetailPane>
           ) : null}
@@ -430,37 +592,44 @@ export function KnowledgeRoute({
 }
 
 function KnowledgeLibraryContent({
+  activeLabel,
   busy,
   error,
-  items,
   loading,
-  query,
-  selectedId,
+  onEnterDirectory,
   onImport,
   onRefresh,
   onRemove,
   onReveal,
-  onSelect,
+  onSelectArchive,
   onStartChat,
+  query,
+  selectedId,
+  t,
+  view,
 }: {
+  activeLabel: string
   busy: UseKnowledgeBases["busy"]
   error: UseKnowledgeBases["error"]
-  items: KnowledgeBaseSummary[]
   loading: boolean
-  query: string
-  selectedId: string | null
+  onEnterDirectory: (path: string) => void
   onImport: () => void
   onRefresh: (id: string) => void
   onRemove: (item: KnowledgeBaseSummary) => void
   onReveal: (id: string) => void
-  onSelect: (id: string) => void
+  onSelectArchive: (item: KnowledgeBaseSummary) => void
   onStartChat: (item: KnowledgeBaseSummary) => void
+  query: string
+  selectedId: string | null
+  t: ReturnType<typeof useT>
+  view: ReturnType<typeof buildKnowledgeLibraryView>
 }) {
-  const t = useT()
   if (loading) {
     return <KnowledgeGridSkeleton />
   }
-  if (items.length === 0 && !query.trim()) {
+
+  const noItems = view.directories.length === 0 && view.archives.length === 0
+  if (noItems && !query.trim()) {
     return (
       <div className="flex min-h-72 items-center justify-center py-10">
         <div className="max-w-sm text-center">
@@ -478,61 +647,76 @@ function KnowledgeLibraryContent({
       </div>
     )
   }
-  if (items.length === 0) {
+
+  if (noItems && query.trim()) {
     return <div className="oo-text-control py-12 text-center text-muted-foreground">{t("knowledge.noResults")}</div>
   }
 
-  return (
-    <div>
-      <div className="grid grid-cols-[repeat(auto-fill,8rem)] justify-start gap-x-4 gap-y-5">
-        {items.map((item) => {
-          const actions = knowledgeActions({ busy, item, onRefresh, onRemove, onReveal, onStartChat, t })
-          const selected = selectedId === item.id
-          return (
-            <KnowledgeContextMenu key={item.id} actions={actions}>
-              <div className="group relative min-w-0 rounded-md">
-                <button
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => onSelect(item.id)}
-                  className={cn(
-                    "w-full min-w-0 rounded-md p-1.5 text-left transition-colors outline-none hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                    selected && "bg-[var(--accent-soft)] ring-1 ring-[var(--accent-ring)]",
-                  )}
-                >
-                  <KnowledgeCover
-                    item={item}
-                    className="w-full transition-colors group-hover:border-[var(--selection-ring)]"
-                  />
-                  <div className="mt-2 min-w-0 px-0.5">
-                    <div className="oo-text-control line-clamp-2 font-medium text-foreground">{item.title}</div>
-                    <div className="oo-text-caption mt-0.5 truncate">
-                      {item.authors.join("、") || knowledgeStatus(item, t)}
-                    </div>
-                  </div>
-                </button>
-                <KnowledgeActionsDropdown
-                  actions={actions}
-                  className="absolute top-2 right-2 border border-border/70 bg-background/90 opacity-0 shadow-xs backdrop-blur-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
-                />
-              </div>
-            </KnowledgeContextMenu>
-          )
-        })}
+  if (noItems) {
+    return (
+      <div className="py-12 text-center">
+        <div className="oo-text-title">{t("knowledge.emptyFolderTitle")}</div>
+        <div className="oo-text-caption mt-1.5">{t("knowledge.emptyFolderDescription", { label: activeLabel })}</div>
+        <Button type="button" variant="outline" size="sm" className="mt-4" onClick={onImport}>
+          <Plus />
+          {t("knowledge.importToCurrent")}
+        </Button>
+        {error ? <ErrorNotice error={error} compact className="mt-3 text-left" /> : null}
       </div>
-      {error ? <ErrorNotice error={error} compact className="mt-4" /> : null}
+    )
+  }
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex items-center justify-between gap-3 px-1 text-sm text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-2">
+          <FolderOpen className="size-4" />
+          <span className="truncate">{activeLabel}</span>
+        </div>
+        <div className="shrink-0">
+          {view.searchMode
+            ? t("knowledge.searchResultCount", { count: view.archives.length })
+            : t("knowledge.folderSummary", {
+                archives: view.archives.length,
+                folders: view.directories.length,
+              })}
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        {view.directories.map((folder) => (
+          <KnowledgeFolderRow key={folder.path} folder={folder} onEnter={onEnterDirectory} t={t} />
+        ))}
+        {view.archives.map((archive) => (
+          <KnowledgeArchiveRow
+            key={archive.item.id}
+            archive={archive.item}
+            busy={busy}
+            selected={selectedId === archive.item.id}
+            onRefresh={onRefresh}
+            onRemove={onRemove}
+            onReveal={onReveal}
+            onSelect={onSelectArchive}
+            onStartChat={onStartChat}
+            t={t}
+          />
+        ))}
+      </div>
+      {error ? <ErrorNotice error={error} compact className="mt-1" /> : null}
     </div>
   )
 }
 
 function KnowledgeGridSkeleton() {
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,8rem)] justify-start gap-x-4 gap-y-5" aria-hidden="true">
+    <div className="grid gap-2" aria-hidden="true">
       {Array.from({ length: 8 }, (_, index) => (
-        <div key={index} className="p-1.5">
-          <div className="aspect-[3/4] animate-pulse rounded-md bg-muted" />
-          <div className="mt-2 h-4 animate-pulse rounded-sm bg-muted" />
-          <div className="mt-1 h-3 w-3/4 animate-pulse rounded-sm bg-muted" />
+        <div key={index} className="grid grid-cols-[2rem_minmax(0,1fr)] items-center gap-3 rounded-lg px-2.5 py-2">
+          <div className="size-8 animate-pulse rounded-md bg-muted" />
+          <div className="grid gap-2">
+            <div className="h-4 w-48 animate-pulse rounded-sm bg-muted" />
+            <div className="h-3 w-72 animate-pulse rounded-sm bg-muted" />
+          </div>
         </div>
       ))}
     </div>
@@ -592,6 +776,9 @@ function KnowledgeDetail({
               <p className="oo-text-caption mt-1 truncate">{item.authors.join("、")}</p>
             ) : null}
             {item.publisher ? <p className="oo-text-caption truncate">{item.publisher}</p> : null}
+            <p className="oo-text-caption mt-1 truncate text-muted-foreground">
+              {item.relativePath || item.sourceFileName}
+            </p>
             <div className="oo-text-control mt-3 flex items-center gap-1.5 text-foreground">
               <Check className="size-3.5 text-emerald-600" />
               <span>{knowledgeStatus(item, t)}</span>

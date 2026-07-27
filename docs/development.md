@@ -192,7 +192,8 @@ corepack pnpm run build:mac     # = build:app + prepare:binaries + electron-buil
   output `release/${version}`; files only dist + dist-electron (excluding map/d.ts, **no electron/
   sources or tests**); extraResources include `resources/bin → bin`, `resources/skills → skills`,
   and `resources/agent-tool-runtime → agent-tool-runtime`; the `sqlite3` native module is unpacked
-  from asar (used by the exactly pinned `wiki-graph@0.3.0`); afterPack
+  from asar (used by the exactly pinned `wiki-graph@0.4.0` / `wiki-graph-core@0.4.0` runtime);
+  afterPack
   `scripts/electron-builder-after-pack.cjs` (deletes the ~20MB LICENSES.chromium.html; the hook is
   .cjs because electron-builder's require hook does not support .ts). mac dmg+zip arm64; win nsis
   x64 (signtool certificate fingerprint); linux AppImage.

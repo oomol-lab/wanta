@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  isWgKnowledgeBashPart,
   normalizeServiceSlug,
   parseToolAuthorization,
   toolActionSummary,
@@ -66,6 +67,39 @@ describe("tool display", () => {
       detailKind: "text",
     })
     expect(toolActionSummary(t, part)).toBe("chat.toolKnowledgeSearch:唐僧师徒关系")
+  })
+
+  it("renders WG Bash knowledge calls without exposing command details", () => {
+    const t = (key: string, vars?: Record<string, string | number>) => `${key}:${vars?.detail ?? ""}`
+    const part = {
+      kind: "tool" as const,
+      partId: "p1",
+      tool: "bash",
+      status: "completed" as const,
+      input: { command: 'printf "%s\\n" "唐僧" | wg wikg://lib/entity --query - --json | jq .' },
+    }
+
+    expect(isWgKnowledgeBashPart(part)).toBe(true)
+    expect(toolDisplayLine(t, part)).toEqual({ title: "chat.toolBashQueryKnowledge:" })
+    expect(toolActionSummary(t, part)).toBe("chat.toolBashQueryKnowledge:")
+  })
+
+  it("keeps ordinary Bash calls in the existing command display path", () => {
+    const t = (key: string, vars?: Record<string, string | number>) => `${key}:${vars?.detail ?? ""}`
+    const part = {
+      kind: "tool" as const,
+      partId: "p1",
+      tool: "bash",
+      status: "completed" as const,
+      input: { command: 'echo "wikg://lib"' },
+    }
+
+    expect(isWgKnowledgeBashPart(part)).toBe(false)
+    expect(toolDisplayLine(t, part)).toEqual({
+      title: "chat.toolRunGeneric:",
+      detail: 'echo "wikg://lib"',
+      detailKind: "code",
+    })
   })
 
   it("uses operation-specific knowledge query labels", () => {

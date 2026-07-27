@@ -79,6 +79,71 @@ describe("ToolActivityStep", () => {
     expect(html).toContain("w-full max-w-full min-w-0 overflow-hidden rounded-md")
   })
 
+  it("renders WG Bash knowledge calls without command details or an expand affordance", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-wg",
+      callId: "call-wg",
+      tool: "bash",
+      status: "completed",
+      input: { command: 'wg wikg://lib --query "唐僧" --json | jq .' },
+      output: "{}",
+    })
+
+    expect(html).toContain("正在查询知识库...")
+    expect(html).not.toContain("wg wikg://lib")
+    expect(html).not.toContain("jq .")
+    expect(html).not.toContain("工具参数")
+    expect(html).not.toContain("工具结果")
+    expect(html).not.toContain("lucide-chevron-right")
+  })
+
+  it("renders consecutive WG Bash knowledge calls as compact knowledge rows", () => {
+    const html = [
+      renderToolActivityStep({
+        kind: "tool",
+        partId: "tool-wg-1",
+        callId: "call-wg-1",
+        tool: "bash",
+        status: "completed",
+        input: { command: 'wg wikg://lib/entity --query "唐僧" --json | jq .' },
+        output: "{}",
+      }),
+      renderToolActivityStep({
+        kind: "tool",
+        partId: "tool-wg-2",
+        callId: "call-wg-2",
+        tool: "bash",
+        status: "completed",
+        input: { command: 'wg wikg://lib/evidence --query "孙悟空" --json | jq .' },
+        output: "{}",
+      }),
+    ].join("\n")
+
+    expect(html.match(/正在查询知识库\.\.\./g)).toHaveLength(2)
+    expect(html).not.toContain("wg wikg://lib")
+    expect(html).not.toContain("jq .")
+    expect(html).not.toContain("lucide-chevron-right")
+  })
+
+  it("keeps the failed WG Bash status while hiding command details", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-wg-failed",
+      callId: "call-wg-failed",
+      tool: "bash",
+      status: "error",
+      input: { command: 'wg wikg://lib/entity --query "唐僧" --json | jq .' },
+      error: "exit code 1",
+    })
+
+    expect(html).toContain("正在查询知识库...")
+    expect(html).toContain("未完成")
+    expect(html).not.toContain("wg wikg://lib")
+    expect(html).not.toContain("jq .")
+    expect(html).not.toContain("lucide-chevron-right")
+  })
+
   it("shimmers only the active web fetch title when the URL is shown inline", () => {
     const html = renderToolActivityStep({
       kind: "tool",

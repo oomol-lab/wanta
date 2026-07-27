@@ -723,6 +723,7 @@ export const zhCNMessages = {
   "chat.toolBashRunPythonScript": "运行 Python 脚本",
   "chat.toolBashReadContent": "读取文件内容",
   "chat.toolBashFindFiles": "查找文件",
+  "chat.toolBashQueryKnowledge": "正在查询知识库...",
   "chat.toolRead": "读取文件：{detail}",
   "chat.toolReadGeneric": "读取文件",
   "chat.toolWrite": "写入文件：{detail}",

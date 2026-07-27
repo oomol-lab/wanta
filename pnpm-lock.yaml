@@ -21,11 +21,11 @@ importers:
         specifier: 3.3.3
         version: 3.3.3(react@19.2.7)
       wiki-graph:
-        specifier: file:vendor/wiki-graph/wiki-graph-0.4.0.tgz
-        version: file:vendor/wiki-graph/wiki-graph-0.4.0.tgz(wiki-graph-core@file:vendor/wiki-graph/wiki-graph-core-0.4.0.tgz)
+        specifier: 0.4.0
+        version: 0.4.0(wiki-graph-core@0.4.0)
       wiki-graph-core:
-        specifier: file:vendor/wiki-graph/wiki-graph-core-0.4.0.tgz
-        version: file:vendor/wiki-graph/wiki-graph-core-0.4.0.tgz
+        specifier: 0.4.0
+        version: 0.4.0
     devDependencies:
       '@electron-internal/extract-zip':
         specifier: 1.0.2
@@ -4565,14 +4565,12 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
-  wiki-graph-core@file:vendor/wiki-graph/wiki-graph-core-0.4.0.tgz:
-    resolution: {integrity: sha512-rC/v/L8ELgnz47SaY0g30ibcrBJeg3KRy4Njyi5tFPUp5snKcLuWeqwsLZ0ze7Hjw/s0wAMb7t+1Ofh11c8GMw==, tarball: file:vendor/wiki-graph/wiki-graph-core-0.4.0.tgz}
-    version: 0.4.0
+  wiki-graph-core@0.4.0:
+    resolution: {integrity: sha512-Kfbrs53FjeKP8jlXsQTelM1MLIU/tKzMpzjBD6suZ9Tf7CWtHZrvAAcviIciYcE8hIylBaL+/IKF8rtfR8JTwA==}
     engines: {node: '>=22.12.0'}
 
-  wiki-graph@file:vendor/wiki-graph/wiki-graph-0.4.0.tgz:
-    resolution: {integrity: sha512-+GkDsdrMywSFbxycY8CzJfW0/6T3xEDUbmG4W0jbpikpHYPuKep4lAsaQs8GIogyG5VpRL+BoFLPJSJ9JuUzDg==, tarball: file:vendor/wiki-graph/wiki-graph-0.4.0.tgz}
-    version: 0.4.0
+  wiki-graph@0.4.0:
+    resolution: {integrity: sha512-LoApbkJI9Ge6eOie9E/AVmGB2+kSr/HvshcEfRJuXuy006ATwj4fqMGQ7UpGkc5y0DdYiI5PY0JsQDs5qoIeHQ==}
     engines: {node: '>=22.12.0'}
     hasBin: true
     peerDependencies:
@@ -9532,7 +9530,7 @@ snapshots:
       siginfo: 2.0.0
       stackback: 0.0.2
 
-  wiki-graph-core@file:vendor/wiki-graph/wiki-graph-core-0.4.0.tgz:
+  wiki-graph-core@0.4.0:
     dependencies:
       '@ai-sdk/anthropic': 3.0.103(zod@4.4.3)
       '@ai-sdk/google': 3.0.101(zod@4.4.3)
@@ -9553,7 +9551,7 @@ snapshots:
     transitivePeerDependencies:
       - chokidar
 
-  wiki-graph@file:vendor/wiki-graph/wiki-graph-0.4.0.tgz(wiki-graph-core@file:vendor/wiki-graph/wiki-graph-core-0.4.0.tgz):
+  wiki-graph@0.4.0(wiki-graph-core@0.4.0):
     dependencies:
       '@ai-sdk/anthropic': 3.0.103(zod@4.4.3)
       '@ai-sdk/google': 3.0.101(zod@4.4.3)
@@ -9572,7 +9570,7 @@ snapshots:
       yazl: 3.3.1
       zod: 4.4.3
     optionalDependencies:
-      wiki-graph-core: file:vendor/wiki-graph/wiki-graph-core-0.4.0.tgz
+      wiki-graph-core: 0.4.0
     transitivePeerDependencies:
       - chokidar
 

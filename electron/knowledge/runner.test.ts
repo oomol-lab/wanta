@@ -70,24 +70,42 @@ describe("WikiGraph SDK adapter", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
     const commands: string[][] = []
     const runCLI: WikiGraphCLIRunner = vi.fn(async (input) => {
-      commands.push([...(input.argv ?? [])])
-      input.stdout?.write(
-        commands.length === 1
-          ? '{"items":[]}'
-          : JSON.stringify({
-              items: [
-                { exists: true, id: "present", uri: "wikg://lib/arc/present" },
-                { exists: false, id: "missing", uri: "wikg://lib/arc/missing" },
-              ],
-            }),
-      )
+      const command = [...(input.argv ?? [])]
+      commands.push(command)
+      if (command[0] === "wikg://lib/path") {
+        input.stdout?.write('{"items":[]}')
+      } else if (command[0] === "wikg://lib/arc/tree") {
+        input.stdout?.write(
+          JSON.stringify({
+            items: [
+              { children: [], name: "present.wikg", path: "present.wikg", uri: "wikg://lib/arc/present" },
+              {
+                children: [
+                  { children: [], name: "missing.wikg", path: "old/missing.wikg", uri: "wikg://lib/arc/missing" },
+                ],
+                name: "old",
+                path: "old",
+              },
+            ],
+          }),
+        )
+      } else if (command[0] === "wikg://lib/arc/present") {
+        input.stdout?.write(JSON.stringify({ exists: true, id: "present", uri: "wikg://lib/arc/present" }))
+      } else if (command[0] === "wikg://lib/arc/missing") {
+        input.stdout?.write(JSON.stringify({ exists: false, id: "missing", uri: "wikg://lib/arc/missing" }))
+      } else {
+        input.stdout?.write("{}")
+      }
       return { exitCode: 0 }
     })
 
     const archives = await listWikiGraphLibraryArchives(runtime(dir), runCLI)
 
     expect(archives.map((item) => item.id)).toEqual(["present"])
-    expect(commands).toContainEqual(["wikg://lib/arc", "--json"])
+    expect(commands).toContainEqual(["wikg://lib/arc/tree", "--json"])
+    expect(commands).toContainEqual(["wikg://lib/arc/present", "--json"])
+    expect(commands).toContainEqual(["wikg://lib/arc/missing", "--json"])
+    expect(commands).not.toContainEqual(["wikg://lib/arc", "scan", "--json"])
   })
 
   it("copy-imports archives without saving the original source path as the source of truth", async () => {

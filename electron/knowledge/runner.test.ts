@@ -254,26 +254,30 @@ describe("WikiGraph SDK adapter", () => {
     expect(sdk.calls.list).toEqual([{ kind: "mock", uri: "wikg://lib/arc" }])
   })
 
-  it("copy-imports archives into the managed library and returns SDK publicId", async () => {
+  it("copy-imports archives into a requested managed library directory and returns SDK publicId", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
     const source = path.join(dir, "Original Book.wikg")
     await writeFile(source, "archive")
     sdk.addRecord = archiveRecord({
       id: 99,
       publicId: "imported-public-id",
-      relativePath: "Original-Book-copy.wikg",
+      relativePath: "research/Original-Book-copy.wikg",
       uri: "wikg://lib/arc/imported-public-id",
     })
 
-    const imported = await addWikiGraphLibraryArchive(runtime(dir), source)
+    const imported = await addWikiGraphLibraryArchive(runtime(dir), source, "research/../research")
 
-    expect(imported).toMatchObject({ id: "imported-public-id", uri: "wikg://lib/arc/imported-public-id" })
+    expect(imported).toMatchObject({
+      id: "imported-public-id",
+      relativePath: "research/Original-Book-copy.wikg",
+      uri: "wikg://lib/arc/imported-public-id",
+    })
     expect(imported.id).not.toBe("99")
     expect(sdk.calls.add).toEqual([
       {
         inputPath: source,
         target: { kind: "mock", uri: "wikg://lib/arc" },
-        to: expect.stringMatching(/^Original-Book-.+\.wikg$/u),
+        to: expect.stringMatching(/^research\/Original-Book-.+\.wikg$/u),
       },
     ])
   })

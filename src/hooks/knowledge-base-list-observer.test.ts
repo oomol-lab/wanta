@@ -19,6 +19,7 @@ function knowledgeBase(id: string): KnowledgeBaseSummary {
     capabilities: { fullTextSearch: true, knowledgeGraph: false, readingGraph: false, summary: false },
     id,
     importedAt: 1,
+    relativePath: `${id}.md`,
     size: 1,
     sourceFileName: `${id}.md`,
     statistics: {},

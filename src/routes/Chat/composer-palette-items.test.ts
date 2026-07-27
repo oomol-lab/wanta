@@ -96,6 +96,7 @@ function knowledgeBase(
     id,
     importedAt,
     ...(publisher ? { publisher } : {}),
+    relativePath: `${id}.wikg`,
     size: 1024,
     sourceFileName: `${id}.wikg`,
     statistics: {},
@@ -414,7 +415,7 @@ describe("composer palette items", () => {
 
     expect(items.map((item) => item.id)).toEqual(["knowledge:journey", "knowledge:recent"])
     expect(items[0]).toMatchObject({
-      description: "Wu Cheng'en · People's Literature",
+      description: "journey.wikg · Wu Cheng'en · People's Literature",
       kind: "knowledge",
       meta: "Referenced",
       selected: true,

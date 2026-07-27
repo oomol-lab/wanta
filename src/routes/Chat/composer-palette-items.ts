@@ -479,7 +479,7 @@ export function buildConnectionAccountPaletteItems(
 }
 
 function knowledgeDescription(item: KnowledgeBaseSummary): string {
-  return [...item.authors, item.publisher].filter(Boolean).join(" · ")
+  return [item.relativePath, ...item.authors, item.publisher].filter(Boolean).join(" · ")
 }
 
 function knowledgeIcon(item: KnowledgeBaseSummary): React.ReactNode {
@@ -532,9 +532,14 @@ export function buildKnowledgePaletteItems(
         description: knowledgeDescription(item),
         icon: knowledgeIcon(item),
         id: `knowledge:${item.id}`,
-        keywords: [item.title, ...item.authors, item.publisher, item.publishedAt, item.sourceFileName].filter(
-          (value): value is string => Boolean(value),
-        ),
+        keywords: [
+          item.title,
+          ...item.authors,
+          item.publisher,
+          item.publishedAt,
+          item.sourceFileName,
+          item.relativePath,
+        ].filter((value): value is string => Boolean(value)),
         kind: "knowledge",
         knowledgeBase: item,
         meta: isSelected ? copy.selected : "knowledge",

@@ -1,0 +1,44 @@
+import { describe, expect, it } from "vitest"
+import { isWgKnowledgeShellCommand } from "./wg-shell-detection.ts"
+
+const positiveCases = [
+  'wg wikg://lib --query "唐僧" --json',
+  'wg wikg://lib/arc/book-1/entity --query "孙悟空" --json',
+  "wikigraph wikg://lib inspect",
+  '/usr/local/bin/wg wikg://lib/chunk --query "取经"',
+  'NO_COLOR=1 WG_LOG=warn wg wikg://lib --query "佛教" --json',
+  'env NO_COLOR=1 PATH=/opt/bin:$PATH wg wikg://lib/entity --query "沙僧"',
+  'wg wikg://lib/entity --query "唐僧" --json | jq -r ".items[].title"',
+  'printf "%s\\n" "唐僧" | wg wikg://lib/entity --query - --json | jq .',
+  "cd /tmp && wg wikg://lib inspect",
+  'test -f cache.json || wg wikg://lib --query "缺失" --json',
+  '(wg wikg://lib --query "三藏" --json | jq .)',
+  'bash -lc "wg wikg://lib --query \\\"观音\\\" --json | jq ."',
+  'sh -c "NO_COLOR=1 wg wikg://lib inspect"',
+  "wg wikg://lib --query - <<'QUERY'\n唐僧 和 孙悟空\nQUERY",
+  "diff <(wg wikg://lib/entity --query 唐僧 --json) old.json",
+  'echo "$(wg wikg://lib/entity --query 唐僧 --json)" | jq .',
+]
+
+const negativeCases = [
+  "echo '$(wg wikg://lib/entity --query 唐僧 --json)'",
+  "echo wg wikg://lib/entity --query 唐僧",
+  'curl "https://example.com/?u=wikg://lib&cmd=wg"',
+  "wg --help",
+  "grep wg notes.txt",
+  'grep "wikg://lib" notes.txt',
+  'node -e "console.log(\\\"wg wikg://lib\\\")"',
+  "python -c \"print('wg wikg://lib')\"",
+  "cat <<'EOF'\nwg wikg://lib --query 唐僧\nEOF",
+  "cat <<EOF\nwg wikg://lib --query 唐僧\nEOF",
+]
+
+describe("WG shell detection", () => {
+  it.each(positiveCases)("recognizes WG knowledge command: %s", (command) => {
+    expect(isWgKnowledgeShellCommand(command)).toBe(true)
+  })
+
+  it.each(negativeCases)("does not recognize non-executed WG text: %s", (command) => {
+    expect(isWgKnowledgeShellCommand(command)).toBe(false)
+  })
+})

@@ -3,6 +3,7 @@ import type { TranslateFn } from "@/i18n/i18n"
 
 import { parseAuthorizationSignal } from "../../../electron/chat/authorization-signal.ts"
 import { compactPathDetail, compactToolDetail } from "./tool-activity.ts"
+import { isWgKnowledgeShellCommand } from "./wg-shell-detection.ts"
 
 export type ToolDisplayDetailKind = "code" | "text"
 
@@ -166,6 +167,13 @@ function knowledgeOperationSummary(t: TranslateFn, input: Record<string, unknown
   }
 }
 
+export function isWgKnowledgeBashPart(part: ChatMessagePart): boolean {
+  if (part.tool !== "bash") {
+    return false
+  }
+  return isWgKnowledgeShellCommand(str(part.input?.command))
+}
+
 export function toolDisplayLine(t: TranslateFn, part: ChatMessagePart): ToolDisplayLine {
   const input = part.input ?? {}
   const fallbackDetail = part.title || part.tool || "tool"
@@ -207,6 +215,9 @@ export function toolDisplayLine(t: TranslateFn, part: ChatMessagePart): ToolDisp
     }
     case "bash": {
       const command = str(input.command).split("\n")[0]
+      if (isWgKnowledgeShellCommand(str(input.command))) {
+        return { title: t("chat.toolBashQueryKnowledge") }
+      }
       return {
         title: command ? bashActionSummary(t, command) : t("chat.toolRunGeneric"),
         ...(command ? { detail: compactToolDetail(command, 96), detailKind: "code" } : {}),
@@ -305,6 +316,9 @@ export function toolActionSummary(t: TranslateFn, part: ChatMessagePart): string
       return knowledgeOperationSummary(t, input)
     case "bash": {
       const command = str(input.command).split("\n")[0]
+      if (isWgKnowledgeShellCommand(str(input.command))) {
+        return t("chat.toolBashQueryKnowledge")
+      }
       return command ? bashActionSummary(t, command) : t("chat.toolRunGeneric")
     }
     case "read": {

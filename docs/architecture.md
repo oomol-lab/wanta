@@ -87,15 +87,16 @@ missing or not exactly `true` counts as off. The renderer reads and subscribes t
 Settings service; when off it hides the knowledge-base navigation, loads no knowledge-base list,
 injects no existing knowledge-base references into chat, and bounces any direct navigation to a
 knowledge-base route back to chat. The flag is saved to the local `userData/settings.json` and
-survives restart. Knowledge bases use the local WikiGraph 0.4 `wg` command against Wanta's private
-`<userData>/wikigraph-state` default library; Wanta does not keep a parallel archive registry, and
-imports are always copied into that managed library folder. Cover imports are converged to a
-thumbnail with a longest edge of 320 px and at most 512 KiB encoded; oversized legacy Data URLs never cross IPC. Before each turn is sent, the main
-process writes that turn's selected knowledge-base IDs into the agent-scope session state, and the
-per-turn system prompt exposes only `wikg://lib/arc/<id>` archive URIs. Agent-side WikiGraph access is
-through a Wanta-owned `wg` command placed at the front of the sidecar `PATH`; it binds Wanta's private
-WikiGraph state internally and passes stdin/stdout/stderr/exit code through without wrapping
-WikiGraph business output.
+survives restart. App-side knowledge-base management uses the `wiki-graph-core` SDK against Wanta's
+private `<userData>/wikigraph-state` default library; Wanta does not keep a parallel archive
+registry, and imports are always copied into that managed library folder. Cover imports are converged
+to a thumbnail with a longest edge of 320 px and at most 512 KiB encoded; oversized legacy Data URLs
+never cross IPC. Before each turn is sent, the main process writes that turn's selected
+knowledge-base IDs into the agent-scope session state, and the per-turn system prompt exposes only
+`wikg://lib/arc/<id>` archive URIs. Agent-side WikiGraph access remains through a Wanta-owned `wg`
+command placed at the front of the sidecar `PATH`; it binds Wanta's private WikiGraph state
+internally and passes stdin/stdout/stderr/exit code through without wrapping WikiGraph business
+output.
 
 ### Link runtime boundary
 

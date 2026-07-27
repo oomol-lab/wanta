@@ -158,7 +158,10 @@ export class KnowledgeServiceImpl
   private async summary(archive: WikiGraphLibraryArchive): Promise<KnowledgeBaseSummary> {
     const [metadata, inspect, _index, cover] = await Promise.all([
       readWikiGraphMetadata(this.deps.runtime, archive.id),
-      inspectWikiGraph(this.deps.runtime, archive.id),
+      inspectWikiGraph(this.deps.runtime, archive.id).catch((error: unknown) => {
+        console.warn("[wanta] failed to inspect knowledge base:", error)
+        return {}
+      }),
       readWikiGraphIndex(this.deps.runtime, archive.id).catch(() => ({})),
       readWikiGraphCover(this.deps.runtime, archive.id),
     ])

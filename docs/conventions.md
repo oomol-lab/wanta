@@ -190,11 +190,11 @@
   or stopped/recoverable/dismissed states.
 - Embedded tool source (`tool-sources.ts`, String.raw) **must not contain backticks or `${}`**
   (they break the template string); that code runs in OpenCode's Bun and does not participate in
-  this project's tsc/oxlint. The embedded custom tools are the four connector tools plus
-  `query_knowledge` (knowledge-base archive queries, incl. pack/`--budget` operations), backed by
-  the full `electron/knowledge/` service domain registered as an RPC service. Tool descriptions are
-  themselves part of the prompt: keep the list/search/inspect/call responsibility boundaries and
-  cross-references, and keep `query_knowledge` scoped to knowledge-base retrieval.
+  this project's tsc/oxlint. The embedded custom tools are the four connector tools only. WikiGraph
+  knowledge access is intentionally not an OpenCode custom tool: the sidecar receives a Wanta-owned
+  `wg` shim at the front of `PATH`, and the shim forwards stdin/stdout/stderr/exit code to WikiGraph
+  without interpreting business output. Tool descriptions are themselves part of the prompt: keep
+  the list/search/inspect/call responsibility boundaries and cross-references.
 - The embedded tools do not rely on OpenCode implicitly installing npm packages on the user's
   machine: the tool helper and Zod schema are bundled at build time by
   `scripts/build-agent-tool-runtime.ts` (entry `scripts/agent-tool-runtime-entry.ts`) into a

@@ -652,160 +652,16 @@ export default tool({
 })
 `
 
-const QUERY_KNOWLEDGE_TOOL_TS = String.raw`import { tool } from "../runtime/tool.js"
-import { execFile } from "node:child_process"
-import { readFile } from "node:fs/promises"
-import { promisify } from "node:util"
-
-const execFileAsync = promisify(execFile)
-const WIKIGRAPH_COMMAND = process.env.WANTA_WIKIGRAPH_COMMAND || ""
-const WIKIGRAPH_WRAPPER = process.env.WANTA_WIKIGRAPH_WRAPPER_PATH || ""
-const SCOPE = process.env.WANTA_TEAM_SCOPE_PATH || process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
-const SCOPE_SYNC_ATTEMPTS = 5
-const SCOPE_SYNC_RETRY_MS = 20
-const OPTIONS = {
-  encoding: "utf8",
-  env: {
-    ...process.env,
-    NO_COLOR: "1",
-    WIKIGRAPH_DEV: undefined,
-    WIKIGRAPH_ENV_POLICY: undefined,
-    WIKIGRAPH_QUEUE_DISABLE_AUTOSTART: undefined,
-    WIKIGRAPH_STATE_DIR: undefined,
-  },
-  maxBuffer: 8 * 1024 * 1024,
-  timeout: 60 * 1000,
-}
-
-function archiveUri(id) {
-  return "wikg://lib/arc/" + encodeURIComponent(String(id || ""))
-}
-
-function sanitizeErrorMessage(error) {
-  let message = String((error && (error.stderr || error.message)) || error || "Knowledge query failed").trim()
-  const stateDir = String(process.env.WANTA_WIKIGRAPH_STATE_DIR || process.env.WIKIGRAPH_STATE_DIR || "")
-  if (stateDir) message = message.replaceAll(stateDir, "[WikiGraph managed storage]")
-  message = message
-    .replace(/\/[^\s"']+\.wikg/gi, "[managed knowledge archive]")
-    .replace(/wikg:\/\/[^\s"']+/gi, "[managed knowledge archive]")
-  return (message || "Knowledge query failed").slice(0, 500)
-}
-
-function relativeObject(value) {
-  const normalized = String(value || "").trim().replace(/^wikg:\/\//, "").replace(/^\/+|\/+$/g, "")
-  if (!normalized || normalized.includes("..") || !/^(chapter|entity|triple)(\/|$)/.test(normalized)) {
-    throw new Error("objectUri must be an archive-relative chapter, entity, or triple URI")
-  }
-  return normalized
-}
-
-async function allowedKnowledgeBaseIds(sessionID) {
-  if (!SCOPE || !sessionID) throw new Error("knowledge access scope is unavailable")
-  for (let attempt = 0; attempt < SCOPE_SYNC_ATTEMPTS; attempt += 1) {
-    let parsed
-    try {
-      parsed = JSON.parse(await readFile(SCOPE, "utf8"))
-    } catch {
-      throw new Error("knowledge access scope is unavailable")
-    }
-    const sessions = parsed && parsed.sessionKnowledgeBaseIds
-    const hasSession = sessions && typeof sessions === "object" && Object.hasOwn(sessions, sessionID)
-    if (hasSession) {
-      const ids = sessions[sessionID]
-      if (!Array.isArray(ids)) throw new Error("knowledge access scope is unavailable")
-      return ids.filter((id) => typeof id === "string")
-    }
-    if (attempt + 1 < SCOPE_SYNC_ATTEMPTS) {
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, SCOPE_SYNC_RETRY_MS))
-    }
-  }
-  return []
-}
-
-async function allowedArchiveId(id, sessionID) {
-  const allowedIds = await allowedKnowledgeBaseIds(sessionID)
-  if (!allowedIds.includes(id)) throw new Error("knowledge base is not pinned to the current conversation")
-  return id
-}
-
-async function run(args) {
-  if (!WIKIGRAPH_COMMAND || !WIKIGRAPH_WRAPPER) throw new Error("WikiGraph runtime is unavailable")
-  const result = await execFileAsync(WIKIGRAPH_COMMAND, [WIKIGRAPH_WRAPPER].concat(args), OPTIONS)
-  return String(result.stdout || "").trim() || "{}"
-}
-
-export default tool({
-  description:
-    "Query a WikiGraph default-library archive pinned to the conversation. Supports read-only inspect, search, related, evidence, and pack operations. Prefer entity/triple search for relationship questions and retrieve evidence before stating a factual relationship. For relationship diagrams, resolve aliases from entity identifiers, use triple results as candidates, verify important edges with evidence, and use chapter search for identity-sensitive or context-ambiguous relationships. Evidence counts are passage counts, not confidence scores. Never invoke the WikiGraph CLI directly, expose managed archive paths, use source --query, or modify an archive.",
-  args: {
-    knowledgeBaseId: tool.schema.string().describe("The exact knowledgeBaseId provided in the current conversation context."),
-    operation: tool.schema.enum(["inspect", "search", "related", "evidence", "pack"]),
-    query: tool.schema.string().optional().describe("Search text for search, related, or evidence."),
-    objectUri: tool.schema.string().optional().describe("Archive-relative URI returned by a previous result, such as wikg://entity/Q11773777 or wikg://triple/Q11773777/uses/Q834090."),
-    scope: tool.schema.enum(["auto", "chapter", "entity", "triple"]).optional(),
-    limit: tool.schema.number().optional().describe("Maximum result count from 1 to 20."),
-    evidenceLimit: tool.schema.number().optional().describe("Evidence snippets per entity/triple from 0 to 5."),
-    budget: tool.schema.number().optional().describe("Pack context budget from 500 to 12000."),
-  },
-  async execute(args, context) {
-    try {
-      const knowledgeBaseId = await allowedArchiveId(String(args.knowledgeBaseId || "").trim(), context.sessionID)
-      const root = archiveUri(knowledgeBaseId)
-      const operation = String(args.operation || "")
-      if (operation === "inspect") return await run([root, "inspect", "--json"])
-      const query = String(args.query || "").trim()
-      const limit = Math.min(20, Math.max(1, Number(args.limit) || 8))
-      const evidence = Math.min(5, Math.max(0, Number(args.evidenceLimit) || 2))
-      if (operation === "search") {
-        if (!query) throw new Error("query is required for search")
-        const scope = String(args.scope || "auto")
-        const scopes = scope === "auto" ? ["entity", "triple", "chapter"] : [scope]
-        const groups = {}
-        for (const item of scopes) {
-          const target = root + "/" + item
-          const argv = [target, "--query", query, "--limit", String(limit)]
-          if (item === "entity" || item === "triple") argv.push("--evidence", String(evidence))
-          argv.push("--json")
-          groups[item] = JSON.parse(await run(argv))
-        }
-        return JSON.stringify({ knowledgeBaseId: knowledgeBaseId, groups: groups })
-      }
-      const object = root + "/" + relativeObject(args.objectUri)
-      if (operation === "related") {
-        const argv = [object, "related", "--limit", String(limit), "--evidence", String(evidence)]
-        if (query) argv.push("--query", query)
-        argv.push("--json")
-        return await run(argv)
-      }
-      if (operation === "evidence") {
-        const argv = [object, "evidence", "--limit", String(limit)]
-        if (query) argv.push("--query", query)
-        argv.push("--json")
-        return await run(argv)
-      }
-      if (operation === "pack") {
-        const budget = Math.min(12000, Math.max(500, Number(args.budget) || 4000))
-        return await run([object, "pack", "--budget", String(budget), "--json"])
-      }
-      throw new Error("unsupported knowledge operation")
-    } catch (error) {
-      return JSON.stringify({ status: "error", message: sanitizeErrorMessage(error) })
-    }
-  },
-})
-`
-
 /** workspace 写入用：文件名 → 源码。 */
 export const AGENT_TOOL_FILES: Readonly<Record<string, string>> = {
   "search_actions.ts": SEARCH_ACTIONS_TOOL_TS,
   "list_apps.ts": LIST_APPS_TOOL_TS,
   "inspect_action.ts": INSPECT_ACTION_TOOL_TS,
   "call_action.ts": CALL_ACTION_TOOL_TS,
-  "query_knowledge.ts": QUERY_KNOWLEDGE_TOOL_TS,
 }
 
 /** Assemble workspace tools according to Link runtime availability. */
 export function agentToolFiles(connectors: boolean): Readonly<Record<string, string>> {
   if (connectors) return AGENT_TOOL_FILES
-  return { "query_knowledge.ts": QUERY_KNOWLEDGE_TOOL_TS }
+  return {}
 }

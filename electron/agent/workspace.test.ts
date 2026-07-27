@@ -119,8 +119,7 @@ test("ensureAgentWorkspace limits a local runtime to local tools and removes bun
       connectors: false,
     })
 
-    assert.ok(await exists(path.join(workspaceDir, ".opencode", "tools", "query_knowledge.ts")))
-    for (const toolName of ["list_apps.ts", "search_actions.ts", "inspect_action.ts", "call_action.ts"]) {
+    for (const toolName of Object.keys(AGENT_TOOL_FILES)) {
       assert.equal(await exists(path.join(workspaceDir, ".opencode", "tools", toolName)), false)
     }
     assert.equal(await exists(path.join(workspaceDir, ".opencode", "skill")), false)

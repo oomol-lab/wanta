@@ -138,8 +138,7 @@ const modelCredentialStore = new ModelCredentialStore(app.getPath("userData"), s
 const modelsStore = new ModelsStore(app.getPath("userData"), modelCredentialStore)
 const wikiGraphStateDir = path.join(app.getPath("userData"), "wikigraph-state")
 const wikiGraphLibraryDir = path.join(wikiGraphStateDir, "library")
-const wikiGraphWrapperPath = path.join(dirname, "wikigraph-wrapper.js")
-const wikiGraphCommand = process.execPath
+const wikiGraphCliPath = path.join(dirname, "wanta-wg.js")
 // 二进制解析：生产从打包 Resources/bin（extraResources），dev 从 node_modules（opencode）与 .oo-bin（oo）。
 const opencodeBinPath = app.isPackaged
   ? resolveBundledBin(process.resourcesPath, opencodeBinaryName())
@@ -665,8 +664,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     modelAccess: runtime.modelAccess,
     opencodeBinPath,
     ooBinPath,
-    wikiGraphCommand,
-    wikiGraphWrapperPath,
+    wikiGraphCliPath,
     wikiGraphStateDir,
     listOpenConnectorAuthorizedServices: async (signal) =>
       (await linkRuntimeManager.listOpenConnectorApps(signal))

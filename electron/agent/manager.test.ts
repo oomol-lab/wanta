@@ -146,23 +146,21 @@ describe("AgentManager", () => {
     expect(inventory).toHaveBeenCalledTimes(2)
   })
 
-  it("passes only Wanta-owned WikiGraph wrapper state to the sidecar", () => {
+  it("does not expose Wanta WikiGraph control variables to the sidecar", () => {
     const env = buildAgentSidecarEnv({
       commandPath: "/usr/bin:/bin",
       linkRuntime: null,
       storeDir: "/tmp/wanta-agent/oo-store",
       teamScopePath: "/tmp/wanta-agent/team-scope.json",
-      wikiGraphCommand: "/Applications/Wanta.app/Contents/MacOS/Wanta",
-      wikiGraphStateDir: "/tmp/wanta/wikigraph-state",
-      wikiGraphWrapperPath: "/tmp/wanta/dist-electron/wikigraph-wrapper.js",
     })
 
     expect(env).toMatchObject({
       WANTA_TEAM_SCOPE_PATH: "/tmp/wanta-agent/team-scope.json",
-      WANTA_WIKIGRAPH_COMMAND: "/Applications/Wanta.app/Contents/MacOS/Wanta",
-      WANTA_WIKIGRAPH_STATE_DIR: "/tmp/wanta/wikigraph-state",
-      WANTA_WIKIGRAPH_WRAPPER_PATH: "/tmp/wanta/dist-electron/wikigraph-wrapper.js",
+      PATH: "/usr/bin:/bin",
     })
+    expect(env).not.toHaveProperty("WANTA_WIKIGRAPH_COMMAND")
+    expect(env).not.toHaveProperty("WANTA_WIKIGRAPH_STATE_DIR")
+    expect(env).not.toHaveProperty("WANTA_WIKIGRAPH_WRAPPER_PATH")
     expect(env).not.toHaveProperty("WIKIGRAPH_STATE_DIR")
   })
 

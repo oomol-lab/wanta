@@ -2,6 +2,7 @@ import type { RunWikiGraphCLIInput } from "wiki-graph"
 
 import { runWikiGraphCLI } from "wiki-graph"
 
+const stateDirFlag = "--wanta-state-dir"
 const dangerousWikiGraphEnvNames = [
   "WIKIGRAPH_DEV",
   "WIKIGRAPH_ENV_POLICY",
@@ -15,16 +16,17 @@ function wikiGraphEnv(): NodeJS.ProcessEnv {
   return env
 }
 
-async function main(): Promise<void> {
-  const stateDir = process.env["WANTA_WIKIGRAPH_STATE_DIR"]?.trim()
-  if (!stateDir) {
-    process.stderr.write("Wanta WikiGraph state directory is unavailable\n")
-    process.exitCode = 1
-    return
+function parseInvocation(argv: string[]): { stateDir: string; wikiGraphArgv: string[] } {
+  if (argv[0] !== stateDirFlag || !argv[1]?.trim() || argv[2] !== "--") {
+    throw new Error("Wanta WikiGraph command is missing its managed state directory.")
   }
+  return { stateDir: argv[1], wikiGraphArgv: argv.slice(3) }
+}
 
+async function main(): Promise<void> {
+  const { stateDir, wikiGraphArgv } = parseInvocation(process.argv.slice(2))
   const input: RunWikiGraphCLIInput = {
-    argv: process.argv.slice(2),
+    argv: wikiGraphArgv,
     env: wikiGraphEnv(),
     stateDir,
     stderr: process.stderr,

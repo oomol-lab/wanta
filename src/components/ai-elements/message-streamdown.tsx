@@ -12,6 +12,7 @@ import type {
 import { createMermaidPlugin } from "@streamdown/mermaid"
 import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { toast } from "sonner"
 import { Streamdown } from "streamdown"
 import {
   deferIncompleteMermaidMarkdown,
@@ -21,10 +22,15 @@ import {
   validateMermaidSource,
 } from "./mermaid-policy.ts"
 import { MermaidPendingRenderer, MermaidRenderer, MermaidRendererProvider } from "./mermaid-renderer.tsx"
+import { useChatService } from "@/components/AppContext"
 import { useTheme } from "@/components/theme-context"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { useT } from "@/i18n/i18n"
+import { writeClipboardText } from "@/lib/clipboard"
+import { localFilePathFromMessageLink } from "@/lib/message-link-target"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
+import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 
 const baseMermaidPlugin = createMermaidPlugin({
   config: {
@@ -188,8 +194,12 @@ function useStreamdownTranslations(): Partial<StreamdownTranslations> {
 
 function MessageLinkSafetyModal({ isOpen, onClose, onConfirm, url }: LinkSafetyModalProps) {
   const t = useT()
+  const chatService = useChatService()
+  const localPath = localFilePathFromMessageLink(url)
   const [copied, setCopied] = useState(false)
+  const [isOpeningLocalPath, setIsOpeningLocalPath] = useState(false)
   const copiedResetTimerRef = useRef<number | null>(null)
+  const isOpeningLocalPathRef = useRef(false)
 
   useEffect(() => {
     setCopied(false)
@@ -207,7 +217,10 @@ function MessageLinkSafetyModal({ isOpen, onClose, onConfirm, url }: LinkSafetyM
 
   const copyLink = async (): Promise<void> => {
     try {
-      await navigator.clipboard.writeText(url)
+      if (!(await writeClipboardText(localPath ?? url))) {
+        toast.error(t("error.copyFailed"))
+        return
+      }
       setCopied(true)
       if (copiedResetTimerRef.current !== null) {
         window.clearTimeout(copiedResetTimerRef.current)
@@ -217,13 +230,29 @@ function MessageLinkSafetyModal({ isOpen, onClose, onConfirm, url }: LinkSafetyM
         copiedResetTimerRef.current = null
       }, 2000)
     } catch {
-      // Clipboard failures leave the action available for retry.
+      toast.error(t("error.copyFailed"))
     }
   }
 
-  const openLink = (): void => {
-    onConfirm()
-    onClose()
+  const openLink = async (): Promise<void> => {
+    if (!localPath) {
+      onConfirm()
+      onClose()
+      return
+    }
+    if (isOpeningLocalPathRef.current) return
+    isOpeningLocalPathRef.current = true
+    setIsOpeningLocalPath(true)
+    try {
+      await chatService.invoke("openLocalPath", { path: localPath })
+      onClose()
+    } catch (cause) {
+      reportRendererHandledError("messageLink.openLocalPath", "Failed to open local message link", cause)
+      toast.error(userFacingErrorDescription(resolveUserFacingError(cause, { area: "artifact" }), t))
+    } finally {
+      isOpeningLocalPathRef.current = false
+      setIsOpeningLocalPath(false)
+    }
   }
 
   return (
@@ -233,26 +262,31 @@ function MessageLinkSafetyModal({ isOpen, onClose, onConfirm, url }: LinkSafetyM
       title={
         <div className="oo-text-dialog-title flex items-center gap-2">
           <ExternalLinkIcon className="size-5" />
-          <span>{t("chat.openExternalLink")}</span>
+          <span>{t(localPath ? "chat.openLocalFile" : "chat.openExternalLink")}</span>
         </div>
       }
-      description={t("chat.externalLinkWarning")}
+      description={t(localPath ? "chat.localFileWarning" : "chat.externalLinkWarning")}
       closeLabel={t("common.close")}
       className="max-w-md"
       footer={
         <>
           <Button type="button" variant="outline" className="flex-1" onClick={() => void copyLink()}>
             {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
-            {copied ? t("chat.copiedMessage") : t("chat.copyLink")}
+            {copied ? t("chat.copiedMessage") : t(localPath ? "chat.copyFilePath" : "chat.copyLink")}
           </Button>
-          <Button type="button" className="flex-1" onClick={openLink}>
+          <Button
+            type="button"
+            className="flex-1"
+            disabled={Boolean(localPath) && isOpeningLocalPath}
+            onClick={() => void openLink()}
+          >
             <ExternalLinkIcon className="size-4" />
-            {t("chat.openLink")}
+            {t(localPath ? "chat.openFile" : "chat.openLink")}
           </Button>
         </>
       }
     >
-      <div className="rounded-md bg-muted p-3 font-mono text-sm break-all">{url}</div>
+      <div className="rounded-md bg-muted p-3 font-mono text-sm break-all">{localPath ?? url}</div>
     </Dialog>
   )
 }

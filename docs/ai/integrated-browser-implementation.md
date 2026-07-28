@@ -110,6 +110,11 @@ Stop and ask before adding any of the following:
   chase the renderer layout. Browser and artifact widths are now independent, the browser defaults
   to 480 px when the window permits it, window resize only clamps the visible width, and browser
   layout does not animate across the native-view boundary.
+- Renderer modal backdrops cannot composite above Electron's native `WebContentsView`. The browser
+  panel keeps a current viewport snapshot beneath the native page; while any renderer surface
+  reports `aria-modal="true"`, it hides only the native view so the backdrop dims that snapshot,
+  then restores the live page at its measured bounds after the modal closes. Dialogs and full-screen
+  viewers therefore cover the whole window without making the underlying page appear to vanish.
 - An Electron 42 probe verified that a sandboxed `WebContentsView` observes Wanta's
   `nativeTheme.themeSource` both at creation and after live light/dark changes. A second real-path
   probe against `hyrious.me` found that `playwright-core.connectOverCDP()` changes the attached page

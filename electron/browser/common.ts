@@ -49,6 +49,7 @@ export const BrowserService = serviceName("browser-service") as ServiceName<{
   }
   ClientInvokes: {
     clearData(): Promise<void>
+    capturePreview(sessionId: string): Promise<string | null>
     getState(sessionId: string): Promise<BrowserPageState | null>
     show(request: BrowserShowRequest): Promise<BrowserPageState>
     hide(sessionId: string): Promise<void>

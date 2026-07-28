@@ -1162,6 +1162,47 @@ test("message completion records intermediate code files left in artifact root",
   }
 })
 
+test("message completion treats a standalone HTML report as an artifact without requiring web keywords", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-html-artifact-"))
+  try {
+    const artifactDir = path.join(root, "artifacts")
+    const processDir = path.join(root, "process")
+    await mkdir(artifactDir, { recursive: true })
+    await mkdir(processDir, { recursive: true })
+
+    const bridge = createBridgeAgent()
+    bridge.createArtifactDir.mockResolvedValue(artifactDir)
+    bridge.createProcessDir.mockResolvedValue(processDir)
+    const artifactBundleStore = new ArtifactBundleStore(root)
+    const turnOutputStore = new TurnOutputStore(root)
+    const service = new ChatServiceImpl(bridge.agent, { artifactBundleStore, turnOutputStore })
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+
+    await service.sendMessage({
+      scope: testTeamScope,
+      sessionId: "session-1",
+      text: "你帮我生成一份分析报告，再带图，然后再带建议",
+    })
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    await writeFile(path.join(artifactDir, "analysis-report.html"), "<!doctype html><title>Report</title>", "utf8")
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await waitForCondition(() => events.some((event) => event.event === "artifactBundleUpdated"))
+
+    const bundle = (await artifactBundleStore.read()).get("session-1")?.get("assistant-1")
+    assert.equal(bundle?.kind, "web_page")
+    assert.equal(bundle?.display, "single")
+    assert.equal(bundle?.items[0]?.mime, "text/html")
+    assert.equal(bundle?.items[0]?.name, "analysis-report.html")
+    assert.equal((await turnOutputStore.read()).get("session-1")?.get("assistant-1"), undefined)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
 test("message completion publishes artifact-only outputs without turn output records", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-artifact-only-"))
   try {

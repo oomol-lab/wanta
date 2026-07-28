@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { AppContextValue } from "@/components/AppContext"
 import type { Root } from "react-dom/client"
 import type { DiagramPlugin } from "streamdown"
 
@@ -16,23 +17,31 @@ import {
   nativeMessageStreamdownControls,
   wrapMermaidPluginWithValidation,
 } from "./message-streamdown.tsx"
+import { AppContext } from "@/components/AppContext"
 import { ThemeContext } from "@/components/theme-context"
 import { I18nContext, translate } from "@/i18n/i18n"
 
-function withTestProviders(children: React.ReactNode): React.ReactElement {
+function withTestProviders(
+  children: React.ReactNode,
+  invoke: ReturnType<typeof vi.fn> = vi.fn(async () => undefined),
+): React.ReactElement {
   return React.createElement(
-    ThemeContext.Provider,
-    { value: { effectiveTheme: "light", preference: "light", setPreference: () => undefined } },
+    AppContext.Provider,
+    { value: { chatService: { invoke } } as unknown as AppContextValue },
     React.createElement(
-      I18nContext.Provider,
-      {
-        value: {
-          locale: "zh-CN",
-          setLocale: () => undefined,
-          t: (key, vars) => translate("zh-CN", key, vars),
+      ThemeContext.Provider,
+      { value: { effectiveTheme: "light", preference: "light", setPreference: () => undefined } },
+      React.createElement(
+        I18nContext.Provider,
+        {
+          value: {
+            locale: "zh-CN",
+            setLocale: () => undefined,
+            t: (key, vars) => translate("zh-CN", key, vars),
+          },
         },
-      },
-      children,
+        children,
+      ),
     ),
   )
 }
@@ -46,6 +55,7 @@ function renderMessageStreamdown(markdown: string): string {
 interface RenderedLinkSafetyModal {
   onClose: ReturnType<typeof vi.fn>
   onConfirm: ReturnType<typeof vi.fn>
+  invoke: ReturnType<typeof vi.fn>
   render: (url: string) => Promise<void>
   root: Root
 }
@@ -56,22 +66,24 @@ async function renderLinkSafetyModal(url = "https://example.com/first"): Promise
   const root = createRoot(host)
   const onClose = vi.fn()
   const onConfirm = vi.fn()
+  const invoke = vi.fn(async () => undefined)
   const renderModal = messageStreamdownLinkSafety().renderModal
   if (!renderModal) {
     throw new Error("Expected the product-owned link safety modal renderer")
   }
   const render = async (nextUrl: string): Promise<void> => {
     await act(async () => {
-      root.render(withTestProviders(renderModal({ isOpen: true, onClose, onConfirm, url: nextUrl })))
+      root.render(withTestProviders(renderModal({ isOpen: true, onClose, onConfirm, url: nextUrl }), invoke))
     })
   }
   await render(url)
-  return { onClose, onConfirm, render, root }
+  return { invoke, onClose, onConfirm, render, root }
 }
 
 afterEach(() => {
   document.body.replaceChildren()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
 })
 
@@ -207,11 +219,70 @@ describe("messageStreamdownLinkSafety", () => {
 
     act(() => openButton?.click())
     expect(modal.onConfirm).toHaveBeenCalledOnce()
+    expect(modal.invoke).not.toHaveBeenCalled()
     expect(modal.onClose).toHaveBeenCalledOnce()
 
     act(() => closeButton?.click())
     expect(modal.onClose).toHaveBeenCalledTimes(2)
 
+    act(() => modal.root.unmount())
+  })
+
+  it("opens encoded local paths through the trusted local-file service", async () => {
+    const nativeWriteText = vi.fn(async () => undefined)
+    vi.stubGlobal("wanta", { writeClipboardText: nativeWriteText })
+    const browserWriteText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: browserWriteText },
+    })
+    const modal = await renderLinkSafetyModal("/Users/me/Library/Application%20Support/wanta/report.html")
+    const copyButton = [...document.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("复制文件路径"),
+    )
+    const openButton = [...document.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("打开文件"),
+    )
+
+    expect(document.body.textContent).toContain("打开本地文件？")
+    expect(document.body.textContent).toContain("/Users/me/Library/Application Support/wanta/report.html")
+
+    await act(async () => copyButton?.click())
+    expect(nativeWriteText).toHaveBeenCalledWith("/Users/me/Library/Application Support/wanta/report.html")
+    expect(browserWriteText).not.toHaveBeenCalled()
+
+    await act(async () => openButton?.click())
+    expect(modal.invoke).toHaveBeenCalledWith("openLocalPath", {
+      path: "/Users/me/Library/Application Support/wanta/report.html",
+    })
+    expect(modal.onConfirm).not.toHaveBeenCalled()
+    expect(modal.onClose).toHaveBeenCalledOnce()
+
+    act(() => modal.root.unmount())
+  })
+
+  it("prevents duplicate local-file opens while the native request is pending", async () => {
+    let resolveOpen!: () => void
+    const pendingOpen = new Promise<void>((resolve) => {
+      resolveOpen = resolve
+    })
+    const modal = await renderLinkSafetyModal("/Users/me/report.html")
+    modal.invoke.mockImplementationOnce(() => pendingOpen)
+    const openButton = [...document.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("打开文件"),
+    )
+
+    await act(async () => {
+      openButton?.click()
+      openButton?.click()
+    })
+
+    expect(modal.invoke).toHaveBeenCalledTimes(1)
+    expect(openButton?.disabled).toBe(true)
+
+    await act(async () => resolveOpen())
+
+    expect(modal.onClose).toHaveBeenCalledOnce()
     act(() => modal.root.unmount())
   })
 })

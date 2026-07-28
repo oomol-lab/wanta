@@ -37,6 +37,8 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   collapsed,
   collapsedProjectIds,
   hasUnreadSession,
+  hasUnreadTeam,
+  hasUnreadTeams,
   isSessionRunning,
   loggingOut,
   loggingIn,
@@ -87,6 +89,8 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   collapsed: boolean
   collapsedProjectIds: ReadonlySet<string>
   hasUnreadSession: (sessionId: string) => boolean
+  hasUnreadTeam: (teamId: string) => boolean
+  hasUnreadTeams: boolean
   isSessionRunning: (sessionId: string) => boolean
   loggingOut: boolean
   loggingIn: boolean
@@ -350,6 +354,8 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
             account={account}
             authenticated={authenticated}
             cloudEnabled={cloudEnabled}
+            hasUnreadTeam={hasUnreadTeam}
+            hasUnreadTeams={hasUnreadTeams}
             activeRoute={activeRoute}
             loggingOut={loggingOut}
             loggingIn={loggingIn}

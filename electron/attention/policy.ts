@@ -1,4 +1,5 @@
 import type { CompletionNotificationCondition } from "../settings/common.ts"
+import type { UnreadAttentionEntry } from "./store.ts"
 
 export function shouldShowCompletionNotification(
   condition: CompletionNotificationCondition,
@@ -20,4 +21,10 @@ export function isSessionActivelyViewed(input: {
     input.visibleSessionId !== null &&
     input.visibleSessionId === input.sessionId
   )
+}
+
+export function unreadTeamIds(entries: Iterable<UnreadAttentionEntry>): string[] {
+  return [
+    ...new Set([...entries].map((entry) => entry.teamId?.trim()).filter((teamId): teamId is string => Boolean(teamId))),
+  ]
 }

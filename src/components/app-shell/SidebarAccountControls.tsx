@@ -87,6 +87,25 @@ function TeamWorkspaceAvatar({ className, workspace }: { className: string; work
   )
 }
 
+function AttentionWorkspaceAvatar({ unread, workspace }: { unread: boolean; workspace: WorkspaceSelection }) {
+  const t = useT()
+  return (
+    <span className="relative shrink-0">
+      <WorkspaceAvatar workspace={workspace} />
+      {unread ? (
+        <span
+          role="img"
+          title={t("aria.unreadTeam")}
+          aria-label={t("aria.unreadTeam")}
+          className="absolute -top-0.5 -right-0.5 grid size-3 place-items-center rounded-full bg-popover"
+        >
+          <span className="oo-unread-dot size-2 rounded-full" aria-hidden="true" />
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 function WorkspaceMenuContent({
   loading,
   onManageTeams,
@@ -95,6 +114,7 @@ function WorkspaceMenuContent({
   error,
   getTeamCanManage,
   getTeamRole,
+  hasUnreadTeam,
   hasLoaded,
   teams,
   workspace,
@@ -102,6 +122,7 @@ function WorkspaceMenuContent({
   error: UseTeamWorkspace["error"]
   getTeamCanManage: UseTeamWorkspace["getTeamCanManage"]
   getTeamRole: UseTeamWorkspace["getTeamRole"]
+  hasUnreadTeam: (teamId: string) => boolean
   hasLoaded: boolean
   loading: boolean
   onManageTeams: () => void
@@ -157,7 +178,10 @@ function WorkspaceMenuContent({
             data-active={selected}
             aria-current={selected ? "true" : undefined}
           >
-            <WorkspaceAvatar workspace={{ canManage, team, teamId: team.id, role }} />
+            <AttentionWorkspaceAvatar
+              unread={hasUnreadTeam(team.id)}
+              workspace={{ canManage, team, teamId: team.id, role }}
+            />
             <span className="min-w-0 flex-1 truncate">{team.name}</span>
             <Badge variant="outline" className="flex w-full justify-end px-0 text-right font-normal">
               {t(teamRoleLabelKey(role))}
@@ -313,6 +337,8 @@ export function SidebarFooterControls({
   account,
   authenticated,
   cloudEnabled,
+  hasUnreadTeam,
+  hasUnreadTeams,
   activeRoute,
   loggingOut,
   loggingIn,
@@ -326,6 +352,8 @@ export function SidebarFooterControls({
   account?: AuthAccountSummary
   authenticated: boolean
   cloudEnabled: boolean
+  hasUnreadTeam: (teamId: string) => boolean
+  hasUnreadTeams: boolean
   activeRoute: AppShellRoute
   loggingOut: boolean
   loggingIn: boolean
@@ -346,7 +374,6 @@ export function SidebarFooterControls({
       ? t("workspace.local")
       : (workspace.activeWorkspace.team?.name ?? t("teams.workspace"))
   const workspaceButtonTitle = workspaceSwitching ? t("sidebar.switchingAccount") : activeWorkspaceLabel
-
   React.useEffect(() => {
     if (workspaceSwitching) {
       setWorkspaceMenuOpen(false)
@@ -403,7 +430,7 @@ export function SidebarFooterControls({
                 disabled={workspaceSwitching}
                 title={workspaceButtonTitle}
               >
-                <WorkspaceAvatar className="size-7" workspace={workspace.activeWorkspace} />
+                <AttentionWorkspaceAvatar unread={hasUnreadTeams} workspace={workspace.activeWorkspace} />
                 <div className="oo-sidebar-nav-label min-w-0 flex-1">
                   <div className="oo-text-body truncate text-sidebar-foreground" title={activeWorkspaceLabel}>
                     {activeWorkspaceLabel}
@@ -420,6 +447,7 @@ export function SidebarFooterControls({
               error={workspace.error}
               getTeamCanManage={workspace.getTeamCanManage}
               getTeamRole={workspace.getTeamRole}
+              hasUnreadTeam={hasUnreadTeam}
               hasLoaded={workspace.hasLoaded}
               loading={workspace.loading}
               teams={workspace.teams}

@@ -23,7 +23,7 @@ import {
 } from "./notification-capability.ts"
 import { submitNotification } from "./notification-delivery.ts"
 import { waitForNotificationInHistory } from "./notification-history.ts"
-import { isSessionActivelyViewed, shouldShowCompletionNotification } from "./policy.ts"
+import { isSessionActivelyViewed, shouldShowCompletionNotification, unreadTeamIds } from "./policy.ts"
 
 interface AttentionServiceDeps {
   getLocale: () => AppLocale
@@ -113,9 +113,20 @@ export class AttentionServiceImpl
     return this.enqueueMutation(async () => {
       await this.ensureLoaded()
       this.closeSessionNotification(normalized)
-      if (!this.unreadSessions.delete(normalized)) return
-      await this.persistAndPublish()
+      const cleared = await this.clearUnreadSession(normalized)
+      if (!cleared) return
+      logDiagnostic("attention", "unread task cleared", {
+        reason: "viewed",
+        runId: cleared.runId,
+        sessionId: normalized,
+        teamId: cleared.teamId,
+      })
     })
+  }
+
+  public windowFocused(): Promise<void> {
+    if (!this.visibleSessionId || !this.rendererVisible) return Promise.resolve()
+    return this.markSessionViewed(this.visibleSessionId)
   }
 
   public completeSession(req: CompleteSessionRequest): Promise<void> {
@@ -130,8 +141,14 @@ export class AttentionServiceImpl
         windowFocused,
       })
       if (viewed) {
-        if (this.unreadSessions.delete(req.sessionId)) {
-          await this.persistAndPublish()
+        const cleared = await this.clearUnreadSession(req.sessionId)
+        if (cleared) {
+          logDiagnostic("attention", "unread task cleared", {
+            reason: "completed-while-viewed",
+            runId: cleared.runId,
+            sessionId: req.sessionId,
+            teamId: cleared.teamId,
+          })
         }
       } else {
         this.unreadSessions.set(req.sessionId, {
@@ -140,6 +157,14 @@ export class AttentionServiceImpl
           runId: req.runId,
         })
         await this.persistAndPublish()
+        logDiagnostic("attention", "unread task added", {
+          rendererVisible: this.rendererVisible,
+          runId: req.runId,
+          sessionId: req.sessionId,
+          teamId: req.teamId,
+          visibleSessionMatches: this.visibleSessionId === req.sessionId,
+          windowFocused,
+        })
       }
 
       const settings = this.deps.getSettings()
@@ -215,7 +240,23 @@ export class AttentionServiceImpl
   }
 
   private currentState(): AttentionState {
-    return { unreadSessionIds: [...this.unreadSessions.keys()] }
+    return {
+      unreadSessionIds: [...this.unreadSessions.keys()],
+      unreadTeamIds: unreadTeamIds(this.unreadSessions.values()),
+    }
+  }
+
+  private async clearUnreadSession(sessionId: string): Promise<UnreadAttentionEntry | null> {
+    const entry = this.unreadSessions.get(sessionId)
+    if (!entry) return null
+    this.unreadSessions.delete(sessionId)
+    try {
+      await this.persistAndPublish()
+      return entry
+    } catch (error) {
+      this.unreadSessions.set(sessionId, entry)
+      throw error
+    }
   }
 
   private async persistAndPublish(): Promise<void> {

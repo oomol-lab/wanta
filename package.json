@@ -35,6 +35,7 @@
     "format": "oxfmt --check .",
     "format:fix": "oxfmt .",
     "test": "vitest run",
+    "verify:command-sandbox": "pnpm run build:app && node --experimental-transform-types scripts/verify-command-sandbox.ts",
     "build:app": "pnpm run ts-check && vite build",
     "prepare:binaries": "node --experimental-strip-types scripts/prepare-binaries.ts",
     "build:electron": "pnpm run build:app && pnpm run prepare:binaries && electron-builder --publish never",
@@ -44,6 +45,8 @@
   },
   "dependencies": {
     "@opencode-ai/sdk": "1.17.13",
+    "@pondwader/socks5-server": "1.0.10",
+    "@vscode/sandbox-runtime": "0.0.1",
     "diff": "9.0.0",
     "electron-updater": "6.8.9",
     "playwright-core": "1.62.0",
@@ -112,5 +115,10 @@
   "engines": {
     "node": ">=22.22.2"
   },
-  "packageManager": "pnpm@9.14.4"
+  "packageManager": "pnpm@9.14.4",
+  "pnpm": {
+    "patchedDependencies": {
+      "@vscode/sandbox-runtime@0.0.1": "patches/@vscode__sandbox-runtime@0.0.1.patch"
+    }
+  }
 }

@@ -918,14 +918,12 @@ export const enMessages = {
   "chat.permissionModeDefault": "Default access",
   "chat.permissionModeDefaultDescription":
     "Runs ordinary actions automatically; asks only at sensitive or high-risk boundaries",
+  "chat.permissionModeDefaultSandboxDescription":
+    "Runs ordinary actions automatically; shell commands stay in the command sandbox",
   "chat.permissionModeFullAccess": "Full access",
-  "chat.permissionModeFullAccessDescription":
-    "Skips local confirmations, including for high-risk commands and paths outside the project",
-  "chat.fullAccessDialogTitle": "Confirm full access?",
-  "chat.fullAccessDialogBody":
-    "After this is enabled, Wanta will automatically approve local access requests in this chat, including local commands, file reads/writes/deletes, and paths outside the selected project.\nWanta will not ask again for local operation approval in this chat.\nUse it only when you trust the current task.",
-  "chat.fullAccessDialogAcknowledge": "I understand the risk and want to continue",
-  "chat.fullAccessDialogConfirm": "Enable",
+  "chat.permissionModeFullAccessDescription": "Does not ask for local access approval in this chat",
+  "chat.permissionModeFullAccessSandboxDescription":
+    "Runs shell commands directly and does not ask for local access approval in this chat",
   "chat.permissionRequiredTitle": "Permission needed to continue",
   "chat.permissionCommandTitle": "Run local command?",
   "chat.permissionPathTitle": "Access folder?",
@@ -1408,6 +1406,14 @@ export const enMessages = {
   "settings.groupBrowser": "Browser",
   "settings.groupApplication": "Application",
   "settings.groupBetaFeatures": "Beta features",
+  "settings.commandSandbox": "Command sandbox",
+  "settings.commandSandboxPreviewDescription":
+    "Protects unauthorized files outside the project from shell commands. Choose Full access in a chat to run directly.",
+  "settings.commandSandboxDirectDescription": "Unavailable on this platform.",
+  "settings.commandSandboxPreviewTooltip":
+    "In Default access, shell commands can use the current project, task output, public internet, and local services. Other unauthorized files stay protected. Choose Full access in a chat to run commands directly.",
+  "settings.commandSandboxDirectTooltip":
+    "Command Sandbox is unavailable on this platform. Shell commands run directly in both access modes; the modes only change whether Wanta asks for local access approval.",
   "settings.browserEnabled": "Browser",
   "settings.browserEnabledDescription": "Allow Wanta to use the integrated browser for web tasks.",
   "settings.browserUpdateFailed": "Couldn't update the Browser setting",
@@ -1609,6 +1615,7 @@ export const enMessages = {
   "aria.archiveRunningSession": "Task is running and cannot be archived yet",
   "aria.sessionRunning": "Task running",
   "aria.unreadSession": "Unread generated result",
+  "aria.unreadTeam": "Team has unread task results",
   "aria.expandSidebar": "Expand sidebar",
   "aria.collapseSidebar": "Collapse sidebar",
   "aria.resizeSidebar": "Resize sidebar",

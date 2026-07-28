@@ -20,6 +20,7 @@ Wanta is OOMOL's Electron desktop AI-agent chat client.
 - [docs/ai/worktree.md](docs/ai/worktree.md): worktree isolation and concurrent-agent behavior
 - [docs/ai/dev-debugging.md](docs/ai/dev-debugging.md): Electron dev startup, logs, screenshots, and local bug inspection
 - [docs/ai/integrated-browser-implementation.md](docs/ai/integrated-browser-implementation.md): current integrated-browser implementation state, verified probes, and remaining work
+- [docs/ai/command-sandbox-implementation.md](docs/ai/command-sandbox-implementation.md): command-sandbox decisions, verified probes, security gates, and remaining work
 - [docs/development.md](docs/development.md): human-facing development workflow and environment details
 - [docs/architecture.md](docs/architecture.md): process split, agent kernel, and IPC layout
 - [docs/conventions.md](docs/conventions.md): code conventions and security baseline

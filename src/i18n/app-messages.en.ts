@@ -593,6 +593,10 @@ export const enMessages = {
   "billing.popover.planMembers": "{count} members",
   "billing.popover.planSeatsLoading": "Reading member capacity",
   "billing.popover.planSeatsUnavailable": "Member count unavailable",
+  "billing.popover.planUnavailableMeta": "Plan and seat data unavailable",
+  "billing.popover.planUnavailableStatus": "Unavailable",
+  "billing.popover.planUnavailableDescription":
+    "The current Team plan or pending payment status could not be read. Refresh to try again.",
   "billing.popover.sharedLinks": "{count} shared connection(s)",
   "billing.popover.upgradeHint": "Upgrade suggested",
   "billing.popover.seatLimitHint": "Seat limit",

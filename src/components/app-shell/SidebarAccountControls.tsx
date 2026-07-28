@@ -204,6 +204,12 @@ function AccountMenuContent({
   const accountCopy = useClipboardCopy({ failureMessage: t("settings.copyFailed"), resetDelayMs: 2_000 })
   const AccountCopyIcon = accountCopy.copied ? Check : Copy
   const accountSecondaryLabel = account?.username || account?.email
+  const accountIdentityLabels = {
+    displayName: t("settings.displayName"),
+    email: t("settings.email"),
+    uid: t("settings.userId"),
+    username: t("settings.username"),
+  }
   return (
     <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-56">
       <DropdownMenuLabel className="py-2">
@@ -226,7 +232,7 @@ function AccountMenuContent({
               )}
               aria-label={accountCopy.copied ? t("settings.copied") : t("settings.copyUserInfo")}
               title={accountCopy.copied ? t("settings.copied") : t("settings.copyUserInfo")}
-              onClick={() => void accountCopy.copyText(formatUserIdentity(account))}
+              onClick={() => void accountCopy.copyText(formatUserIdentity(account, accountIdentityLabels))}
             >
               <AccountCopyIcon className="size-4" aria-hidden="true" />
             </button>

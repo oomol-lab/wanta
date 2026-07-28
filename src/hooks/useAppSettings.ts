@@ -8,6 +8,7 @@ import { reportRendererHandledError } from "../lib/renderer-diagnostics.ts"
 export function useAppSettings(): {
   settings: AppSettings
   loading: boolean
+  setBrowserEnabled: (enabled: boolean) => Promise<void>
   setCompletionNotificationCondition: (condition: CompletionNotificationCondition) => Promise<void>
   setKnowledgeBaseBetaEnabled: (enabled: boolean) => Promise<void>
   setNotificationSoundEnabled: (enabled: boolean) => Promise<void>
@@ -45,6 +46,14 @@ export function useAppSettings(): {
     async (enabled: boolean) => {
       await service.invoke("setKnowledgeBaseBetaEnabled", enabled)
       setSettings((current) => ({ ...current, knowledgeBaseBetaEnabled: enabled }))
+    },
+    [service],
+  )
+
+  const setBrowserEnabled = React.useCallback(
+    async (enabled: boolean) => {
+      await service.invoke("setBrowserEnabled", enabled)
+      setSettings((current) => ({ ...current, browserEnabled: enabled }))
     },
     [service],
   )
@@ -92,6 +101,7 @@ export function useAppSettings(): {
   return {
     settings,
     loading,
+    setBrowserEnabled,
     setCompletionNotificationCondition,
     setKnowledgeBaseBetaEnabled,
     setNotificationSoundEnabled,

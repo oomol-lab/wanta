@@ -1,6 +1,7 @@
 import type { AppCommand } from "./app-command.ts"
 import type { AppLocale } from "./app-locale.ts"
 import type { AuthRuntimeAccount } from "./auth/store.ts"
+import type { BrowserControlConnection } from "./browser/control-server.ts"
 import type { AppUpdateState } from "./update/common.ts"
 
 import { ConnectionServer } from "@oomol/connection"
@@ -47,6 +48,8 @@ import { AttentionStore } from "./attention/store.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
+import { BrowserControlServer } from "./browser/control-server.ts"
+import { BrowserManager, BrowserServiceImpl } from "./browser/node.ts"
 import { ArtifactBundleStore } from "./chat/artifact-bundles.ts"
 import { AuthorizationOverlayStore } from "./chat/authorization.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
@@ -146,7 +149,7 @@ const opencodeBinPath = app.isPackaged
   : resolveDevOpencodeBin(appRoot)
 const ooBinPath = app.isPackaged ? resolveBundledBin(process.resourcesPath, ooBinaryName()) : resolveOoBin()
 process.env.OO_CLI_PATH = ooBinPath
-// 内置 oo skill 源目录：生产从打包 Resources/skills，dev 从 resources/skills（postinstall 导出）。
+// 内置 skill 源目录：生产从打包 Resources/skills，dev 从 resources/skills（postinstall 导出）。
 // AgentManager 启动时拷进 OpenCode workspace 的 .opencode/skill/，使 agent 直接读到。
 const bundledSkillsDir = app.isPackaged
   ? resolveBundledSkillsDir(process.resourcesPath)
@@ -178,9 +181,17 @@ const trustedAttachmentPaths = new ExpiringTrustedPathRegistry()
 const trustedProjectPaths = new ExpiringTrustedPathRegistry()
 const artifactResourceLeaseStore = new ArtifactResourceLeaseStore()
 const spreadsheetPreviewWorker = new SpreadsheetPreviewWorkerClient()
+const browserManager = new BrowserManager({
+  downloadsDir: app.getPath("downloads"),
+  enabled: settingsStore.read().browserEnabled !== false,
+  screenshotDir: path.join(app.getPath("userData"), "agent", "browser-screenshots"),
+})
+const browserService = new BrowserServiceImpl(browserManager)
+const browserControlServer = new BrowserControlServer(browserManager)
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 团队作用域同步，
 // 经 ChatService.setAgentTeam → onSetAgentTeam 回调（渲染层切 workspace 时调用）。
 const chatService = new ChatServiceImpl(null, {
+  browserAvailable: () => settingsStore.read().browserEnabled !== false,
   bugReportRuntime: {
     appCommit: typeof __APP_COMMIT__ === "string" ? __APP_COMMIT__ : "unknown",
     appVersion: app.getVersion(),
@@ -213,6 +224,7 @@ const sessionService = new SessionServiceImpl(null, {
   metadataStore: sessionMetadataStore,
   onSessionArchived: (sessionId) => attentionService.removeSession(sessionId),
   onSessionRemoved: async (sessionId) => {
+    await browserManager.removeSession(sessionId)
     await chatService.forgetSession(sessionId).catch((error: unknown) => {
       console.warn("[wanta] failed to clear removed session chat state", error)
       logMainError("failed to clear removed session chat state", error, { sessionId })
@@ -266,7 +278,10 @@ const skillService = new SkillServiceImpl(authManager, {
   onRuntimeSkillsChanged: (reason) => agentRefreshScheduler.schedule(reason),
 })
 const settingsService = new SettingsServiceImpl({
-  onSettingsChanged: (settings) => attentionService.settingsChanged(settings),
+  onSettingsChanged: async (settings) => {
+    attentionService.settingsChanged(settings)
+    await browserManager.setEnabled(settings.browserEnabled)
+  },
   store: settingsStore,
 })
 const attentionService = new AttentionServiceImpl({
@@ -329,6 +344,7 @@ server.registerService(updateService)
 server.registerService(gitService)
 server.registerService(knowledgeService)
 server.registerService(linkRuntimeService)
+server.registerService(browserService)
 settingsService.applyStartupTheme()
 registerAttachmentDialogHandlers(trustedAttachmentPaths, {
   createSpreadsheetPreview: (filePath, mime, size) => spreadsheetPreviewWorker.preview(filePath, mime, size),
@@ -355,6 +371,7 @@ if (isLocked) {
   app
     .whenReady()
     .then(() => {
+      void browserControlConnection()
       installArtifactResourceProtocol(artifactResourceLeaseStore)
       // 放行渲染进程对 *.<endpoint> 的已鉴权直连请求（凭证经会话 cookie 自动附带，token 不进渲染层）。
       installOomolCorsShim(session.defaultSession)
@@ -434,6 +451,16 @@ if (isLocked) {
   })
 }
 
+async function browserControlConnection(): Promise<BrowserControlConnection | undefined> {
+  try {
+    return await browserControlServer.connection()
+  } catch (error) {
+    console.warn("[wanta] integrated browser control unavailable:", error)
+    logMainError("integrated browser control unavailable", error)
+    return undefined
+  }
+}
+
 /**
  * 退出前一次性回收：停掉待处理定时器/托盘，await agent（含 opencode 工具子进程树）连根回收，
  * 再 dispose 服务与刷日志。记忆化，确保多条退出路径只回收一次。
@@ -456,6 +483,8 @@ function reapAgentForShutdown(): Promise<void> {
     }
     await runBoundedShutdownStep("drain agent retirements", () => agentRetirementPool.drain())
     await runBoundedShutdownStep("dispose spreadsheet preview worker", () => spreadsheetPreviewWorker.dispose())
+    await runBoundedShutdownStep("dispose browser control server", () => browserControlServer.dispose())
+    await runBoundedShutdownStep("dispose integrated browser", () => browserManager.dispose())
     server.dispose()
     artifactResourceLeaseStore.clear()
     await runBoundedShutdownStep("flush diagnostics log", flushDiagnosticsLog)
@@ -589,6 +618,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   if (isQuitting) {
     return
   }
+  await browserManager.setProfileScope(account?.id)
   runtimeInitialized = true
   const runtimeVersionAtStart = agentRuntimeVersion
   const runtimeModels = await modelsStore.runtimeModels()
@@ -661,6 +691,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     return
   }
   const nextAgent = new AgentManager({
+    browserControl: browserControlConnection,
     defaultModel: runtime.defaultModel,
     linkRuntime,
     modelAccess: runtime.modelAccess,
@@ -886,6 +917,7 @@ function createMainWindow(): void {
       preload: preloadPath,
     },
   })
+  browserManager.setMainWindow(mainWindow)
 
   mainWindow.once("ready-to-show", () => mainWindow?.show())
   mainWindow.on("focus", () => updateService.handleWindowForegrounded())

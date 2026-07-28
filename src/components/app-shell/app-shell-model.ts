@@ -36,6 +36,8 @@ export const CHAT_CONNECTION_DRAWER_WIDTH = "min(31.5rem, 38vw)"
 export const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
 export const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
 export const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "wanta.artifactsPanelWidth"
+export const BROWSER_PANEL_DEFAULT_WIDTH_PX = 480
+export const BROWSER_PANEL_WIDTH_STORAGE_KEY = "wanta.browserPanelWidth"
 export const TURN_RETRY_OPTIONS_LIMIT = 48
 export const SESSION_TITLE_RETRY_DELAY_MS = 20_000
 export const WORKSPACE_SWITCH_TIMEOUT_MS = 20_000
@@ -340,6 +342,19 @@ export function readStoredArtifactsPanelWidth(): number {
     return Number.isFinite(width) ? clampArtifactsPanelWidth(width) : ARTIFACTS_PANEL_DEFAULT_WIDTH_PX
   } catch {
     return ARTIFACTS_PANEL_DEFAULT_WIDTH_PX
+  }
+}
+
+export function readStoredBrowserPanelWidth(): number {
+  try {
+    const stored = globalThis.localStorage?.getItem(BROWSER_PANEL_WIDTH_STORAGE_KEY)
+    if (!stored) {
+      return BROWSER_PANEL_DEFAULT_WIDTH_PX
+    }
+    const width = Number.parseInt(stored, 10)
+    return Number.isFinite(width) ? clampArtifactsPanelWidth(width) : BROWSER_PANEL_DEFAULT_WIDTH_PX
+  } catch {
+    return BROWSER_PANEL_DEFAULT_WIDTH_PX
   }
 }
 

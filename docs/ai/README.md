@@ -8,3 +8,4 @@ do not preload the whole directory.
 - [bootstrap.md](bootstrap.md): initialize a fresh checkout
 - [worktree.md](worktree.md): branch, worktree, and concurrent-agent rules
 - [dev-debugging.md](dev-debugging.md): start Electron dev, inspect logs, and verify UI state
+- [integrated-browser-implementation.md](integrated-browser-implementation.md): continue integrated-browser implementation without reconstructing decisions from Git history

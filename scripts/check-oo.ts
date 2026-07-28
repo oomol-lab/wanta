@@ -42,7 +42,7 @@ if (!existsSync(rgBin)) {
   process.exit(1)
 }
 
-// 内置 oo skill 缺失或不完整（如跳过 postinstall、上次导出中断）时自动导出，使 dev 下 agent 也能读到这 4 个 skill。
+// 内置 skill 缺失或不完整（如跳过 postinstall、上次导出中断）时自动导出，使 dev 下 agent 也能读到。
 // 完整性以每个 skill 的 SKILL.md 为准，避免「目录在但 skill 不全」被误判通过。
 // 非致命：导出失败仅告警，运行时 workspace 同步会优雅跳过。
 const bundledSkillsReady = bundledSkillIds.every((id) => existsSync(path.join(bundledSkillsDir, id, "SKILL.md")))

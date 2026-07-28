@@ -1,4 +1,4 @@
-import type { ChatTeamSkillContext } from "../../../electron/chat/common.ts"
+import type { ChatContextMention, ChatTeamSkillContext } from "../../../electron/chat/common.ts"
 import type { LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
 import type { ConnectionAppSummary } from "../../../electron/connections/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
@@ -19,7 +19,9 @@ import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 import { isEmojiIcon, isImageIcon } from "@/routes/Skills/skill-route-model"
 
 export const creatorSkillId = "oo-create-skill"
-const builtInSkillIds = new Set([creatorSkillId, "oo", "oo-find-skills", "oo-publish-skill"])
+export const browserSkillId = "browser"
+const browserSkillIcon = ":lucide:search:"
+const builtInSkillIds = new Set([browserSkillId, creatorSkillId, "oo", "oo-find-skills", "oo-publish-skill"])
 const knowledgeContextPreviewLimit = 4
 
 export type SlashCommandAction =
@@ -105,6 +107,22 @@ export type ChatComposerPaletteItem =
 export interface CreatorSkillPaletteCopy {
   description: string
   title: string
+}
+
+export interface BrowserSkillPaletteCopy {
+  description: string
+  title: string
+}
+
+export function skillPaletteContextMention(item: SkillPaletteItem): Extract<ChatContextMention, { kind: "skill" }> {
+  return {
+    description: item.descriptionText,
+    displayName: item.title,
+    icon: item.iconSource,
+    id: item.skillId,
+    kind: "skill",
+    name: item.skillName,
+  }
 }
 
 export interface KnowledgePaletteCopy {
@@ -265,14 +283,31 @@ function buildCreatorSkillPaletteItem(copy: CreatorSkillPaletteCopy, icon: strin
   }
 }
 
+function buildBrowserSkillPaletteItem(copy: BrowserSkillPaletteCopy): SkillPaletteItem {
+  return {
+    description: copy.description,
+    descriptionText: copy.description,
+    icon: skillPaletteIcon(browserSkillIcon),
+    iconSource: browserSkillIcon,
+    id: `skill:${browserSkillId}`,
+    kind: "skill",
+    meta: "built-in",
+    skillId: browserSkillId,
+    skillName: browserSkillId,
+    title: copy.title,
+  }
+}
+
 export function buildSkillPaletteItems(
   groups: ManagedSkillGroup[],
   fallbackDescription: string,
   creatorSkillCopy: CreatorSkillPaletteCopy,
+  browserSkillCopy: BrowserSkillPaletteCopy | null,
   teamSkills: ChatTeamSkillContext[] = [],
 ): SkillPaletteItem[] {
   const creatorSkillGroup = groups.find((group) => group.id === creatorSkillId)
   const creatorSkillItem = buildCreatorSkillPaletteItem(creatorSkillCopy, creatorSkillGroup?.icon)
+  const browserSkillItems = browserSkillCopy ? [buildBrowserSkillPaletteItem(browserSkillCopy)] : []
   const validatedTeamSkills = teamSkills.filter((skill) => skill.id.trim() && skill.name.trim())
   const teamSkillKeys = new Set(validatedTeamSkills.flatMap(teamSkillIdentityKeys))
   const teamSkillNames = new Set(validatedTeamSkills.map((skill) => normalizedSearchText(skill.name)))
@@ -295,7 +330,7 @@ export function buildSkillPaletteItems(
     )
   const inventoryItems = groups
     .filter((group) => installedSkillHostCount(group) > 0)
-    .filter((group) => group.id !== creatorSkillId)
+    .filter((group) => group.id !== creatorSkillId && group.id !== browserSkillId)
     .filter((group) => {
       if (managedSkillIdentityKeys(group).some((key) => teamSkillKeys.has(key))) {
         return false
@@ -319,7 +354,7 @@ export function buildSkillPaletteItems(
       }),
     )
 
-  return [creatorSkillItem, ...teamItems, ...inventoryItems]
+  return [creatorSkillItem, ...browserSkillItems, ...teamItems, ...inventoryItems]
 }
 
 export interface ConnectionPaletteCopy {

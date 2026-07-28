@@ -4,6 +4,8 @@ import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface PersistedSettings {
   themeSource?: string
+  /** 内置浏览器是否可用；缺失时默认开启。 */
+  browserEnabled?: boolean
   /** 完成通知显示条件；缺失时仅在应用后台显示。 */
   completionNotificationCondition?: string
   /** 原生完成通知是否允许播放系统声音；缺失时默认开启。 */

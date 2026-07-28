@@ -42,6 +42,7 @@ import { ensureAgentWorkspace } from "./workspace.ts"
 export type { GeneratedSessionTitle } from "./session-title-generator.ts"
 
 export interface AgentManagerOptions {
+  browserControl?: () => Promise<AgentBrowserControlConnection | undefined>
   linkRuntime: LinkRuntime | null
   modelAccess: ModelAccess
   /** opencode 二进制绝对路径。 */
@@ -52,7 +53,7 @@ export interface AgentManagerOptions {
   wikiGraphCliPath?: string
   wikiGraphStateDir?: string
   listOpenConnectorAuthorizedServices?: (signal?: AbortSignal) => Promise<string[]>
-  /** 内置 oo skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
+  /** 内置 skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
   /** 构建期合并的自定义工具 runtime；启动时拷进 .opencode/runtime/tool.js。 */
   bundledToolRuntimePath?: string
@@ -64,6 +65,11 @@ export interface AgentManagerOptions {
   defaultModel?: ModelChoice
   /** 关闭 sidecar Basic Auth（默认开，随机口令）。 */
   disableServerAuth?: boolean
+}
+
+export interface AgentBrowserControlConnection {
+  token: string
+  url: string
 }
 
 function normalizeTeamName(teamName: string | undefined): string | undefined {
@@ -93,6 +99,7 @@ export function buildManagedSkillRuntimeEnv(nodeBin: string = process.execPath):
 }
 
 export interface AgentSidecarEnvOptions {
+  browserControl?: AgentBrowserControlConnection
   commandPath: string
   linkRuntime: LinkRuntime | null
   ooBinPath?: string
@@ -102,6 +109,7 @@ export interface AgentSidecarEnvOptions {
 }
 
 export function buildAgentSidecarEnv({
+  browserControl,
   commandPath,
   linkRuntime,
   ooBinPath,
@@ -122,6 +130,8 @@ export function buildAgentSidecarEnv({
     ...ooEnv,
     ...buildManagedSkillRuntimeEnv(),
     PATH: commandPath,
+    WANTA_BROWSER_CONTROL_TOKEN: browserControl?.token ?? "",
+    WANTA_BROWSER_CONTROL_URL: browserControl?.url ?? "",
   }
 }
 
@@ -443,7 +453,9 @@ export class AgentManager {
           })
         : undefined
     const commandPath = wikiGraphBinDir ? `${wikiGraphBinDir}${path.delimiter}${baseCommandPath}` : baseCommandPath
+    const browserControl = await this.options.browserControl?.()
     const env = buildAgentSidecarEnv({
+      browserControl,
       commandPath,
       linkRuntime,
       ooBinPath,

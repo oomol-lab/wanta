@@ -275,7 +275,7 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    left: 0;
+    left: -8px;
     z-index: 30;
     width: 8px;
     cursor: ew-resize;
@@ -286,11 +286,10 @@
   .oo-artifacts-panel-resize-handle::after {
     content: "";
     position: absolute;
-    top: 0.75rem;
-    bottom: 0.75rem;
-    left: 0;
+    top: 0;
+    bottom: 0;
+    right: 0;
     width: 2px;
-    border-radius: 999px;
     background: transparent;
     transition: background-color 120ms ease-out;
   }

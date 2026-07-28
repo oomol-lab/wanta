@@ -13,7 +13,9 @@ import {
   buildKnowledgePaletteItems,
   buildSlashRootPaletteItems,
   buildSkillPaletteItems,
+  browserSkillId,
   filterComposerPaletteItems,
+  skillPaletteContextMention,
   creatorSkillId,
   slashCommandItems,
 } from "./composer-palette-items.ts"
@@ -34,6 +36,8 @@ const translations: Record<string, string> = {
   "chat.commandBugReportDescription": "Generate a Markdown report for Wanta developers from this task",
   "chat.commandConnections": "Connections",
   "chat.commandConnectionsDescription": "Choose connector context for this turn",
+  "chat.commandBrowserSkill": "Browser",
+  "chat.commandBrowserSkillDescription": "Use the visible integrated browser for this request",
   "chat.commandCreatorSkill": "Creator Skill",
   "chat.commandCreatorSkillDescription": "Create or adopt a reusable skill with ooCLI",
   "chat.commandSkills": "Skills",
@@ -59,6 +63,14 @@ const translations: Record<string, string> = {
 }
 
 const t = ((key: string) => translations[key] ?? key) as TranslateFn
+const browserSkillCopy = {
+  description: translations["chat.commandBrowserSkillDescription"] ?? "",
+  title: translations["chat.commandBrowserSkill"] ?? "",
+}
+const creatorSkillCopy = {
+  description: translations["chat.commandCreatorSkillDescription"] ?? "",
+  title: translations["chat.commandCreatorSkill"] ?? "",
+}
 const connectionPaletteCopy = {
   accountActiveHint: "Click right arrow to choose",
   accountCount: (count: number) => `${count} accounts`,
@@ -171,30 +183,54 @@ describe("composer palette items", () => {
     ])
   })
 
-  it("pins Creator Skill first in skill items and deduplicates inventory entries", () => {
+  it("pins built-in skills first and deduplicates inventory entries", () => {
     const items = buildSkillPaletteItems(
-      [runtimeSkillGroup("zeta"), runtimeSkillGroup(creatorSkillId), runtimeSkillGroup("team-skill")],
+      [
+        runtimeSkillGroup("zeta"),
+        runtimeSkillGroup(browserSkillId),
+        runtimeSkillGroup(creatorSkillId),
+        runtimeSkillGroup("team-skill"),
+      ],
       "Fallback",
-      {
-        description: translations["chat.commandCreatorSkillDescription"] ?? "",
-        title: translations["chat.commandCreatorSkill"] ?? "",
-      },
+      creatorSkillCopy,
+      browserSkillCopy,
       [{ id: "team:team-skill", name: "team-skill", packageName: "@acme/skills" }],
     )
 
-    expect(items.map((item) => item.skillId)).toEqual([creatorSkillId, "team:team-skill", "zeta"])
+    expect(items.map((item) => item.skillId)).toEqual([creatorSkillId, browserSkillId, "team:team-skill", "zeta"])
     expect(items[0]?.title).toBe("Creator Skill")
-    expect(items[1]?.meta).toBe("team")
+    expect(items[1]).toMatchObject({
+      description: "Use the visible integrated browser for this request",
+      iconSource: ":lucide:search:",
+      meta: "built-in",
+      title: "Browser",
+    })
+    expect(skillPaletteContextMention(items[1]!)).toMatchObject({
+      displayName: "Browser",
+      id: "browser",
+      kind: "skill",
+      name: "browser",
+    })
+    expect(items[2]?.meta).toBe("team")
+  })
+
+  it("hides the explicit browser skill when Browser is disabled", () => {
+    const items = buildSkillPaletteItems(
+      [runtimeSkillGroup(browserSkillId), runtimeSkillGroup("zeta")],
+      "Fallback",
+      creatorSkillCopy,
+      null,
+    )
+
+    expect(items.map((item) => item.skillId)).toEqual([creatorSkillId, "zeta"])
   })
 
   it("deduplicates team skills against matching runtime inventory skills", () => {
     const items = buildSkillPaletteItems(
       [runtimeSkillGroup("gpt-image-2", "registry", ":simple-icons:openai:", "@openai/gpt-image-2")],
       "Fallback",
-      {
-        description: translations["chat.commandCreatorSkillDescription"] ?? "",
-        title: translations["chat.commandCreatorSkill"] ?? "",
-      },
+      creatorSkillCopy,
+      browserSkillCopy,
       [
         {
           description: "Generate images",
@@ -206,8 +242,12 @@ describe("composer palette items", () => {
       ],
     )
 
-    expect(items.map((item) => item.skillId)).toEqual([creatorSkillId, "team:@openai/gpt-image-2:gpt-image-2"])
-    expect(items[1]).toMatchObject({
+    expect(items.map((item) => item.skillId)).toEqual([
+      creatorSkillId,
+      browserSkillId,
+      "team:@openai/gpt-image-2:gpt-image-2",
+    ])
+    expect(items[2]).toMatchObject({
       meta: "team",
       title: "GPT Image 2",
     })
@@ -222,14 +262,13 @@ describe("composer palette items", () => {
         runtimeSkillGroup("packaging-copy-proofreader", "local"),
       ],
       "Fallback",
-      {
-        description: translations["chat.commandCreatorSkillDescription"] ?? "",
-        title: translations["chat.commandCreatorSkill"] ?? "",
-      },
+      creatorSkillCopy,
+      browserSkillCopy,
     )
     const metaBySkillId = new Map(items.map((item) => [item.skillId, item.meta]))
 
     expect(metaBySkillId.get(creatorSkillId)).toBe("built-in")
+    expect(metaBySkillId.get(browserSkillId)).toBe("built-in")
     expect(metaBySkillId.get("oo")).toBe("built-in")
     expect(metaBySkillId.get("oo-find-skills")).toBe("built-in")
     expect(metaBySkillId.get("oo-publish-skill")).toBe("built-in")
@@ -240,10 +279,8 @@ describe("composer palette items", () => {
     const items = buildSkillPaletteItems(
       [runtimeSkillGroup("ecommerce-image-studio", "registry", ":lucide:shopping-bag:")],
       "Fallback",
-      {
-        description: translations["chat.commandCreatorSkillDescription"] ?? "",
-        title: translations["chat.commandCreatorSkill"] ?? "",
-      },
+      creatorSkillCopy,
+      browserSkillCopy,
     )
     const item = items.find((candidate) => candidate.skillId === "ecommerce-image-studio")
     const icon = item?.icon
@@ -262,10 +299,8 @@ describe("composer palette items", () => {
         runtimeSkillGroup("ai-elements", "local"),
       ],
       "Fallback",
-      {
-        description: translations["chat.commandCreatorSkillDescription"] ?? "",
-        title: translations["chat.commandCreatorSkill"] ?? "",
-      },
+      creatorSkillCopy,
+      browserSkillCopy,
     )
     const rootItems = buildSlashRootPaletteItems({ connectionItems: [], skillItems, slashItems })
 

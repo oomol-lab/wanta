@@ -391,6 +391,7 @@ export interface ChatTeamSkillContext {
 export type ChatContextMention =
   | {
       description?: string
+      displayName?: string
       icon?: string
       id: string
       kind: "skill"

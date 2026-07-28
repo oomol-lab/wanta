@@ -63,6 +63,7 @@ import {
 } from "@/components/ai-elements/prompt-input"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { ErrorNotice } from "@/components/ErrorNotice"
+import { useAppSettings } from "@/hooks/useAppSettings"
 import { useT } from "@/i18n/i18n"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
@@ -214,6 +215,7 @@ export function ChatComposer({
   onViewBilling,
 }: ChatComposerProps) {
   const t = useT()
+  const appSettings = useAppSettings()
   const skillInventory = useSkillInventoryResource()
   const modelCatalogState = useModelCatalog()
   const [composer, dispatchComposer] = React.useReducer(
@@ -298,9 +300,15 @@ export function ChatComposer({
           description: t("chat.commandCreatorSkillDescription"),
           title: t("chat.commandCreatorSkill"),
         },
+        !appSettings.loading && appSettings.settings.browserEnabled
+          ? {
+              description: t("chat.commandBrowserSkillDescription"),
+              title: t("chat.commandBrowserSkill"),
+            }
+          : null,
         teamSkills,
       ),
-    [teamSkills, skillInventory.data?.groups, t],
+    [appSettings.loading, appSettings.settings.browserEnabled, teamSkills, skillInventory.data?.groups, t],
   )
   const connectionItems = React.useMemo(
     () =>

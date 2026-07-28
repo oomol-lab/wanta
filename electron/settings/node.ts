@@ -56,6 +56,7 @@ export class SettingsServiceImpl
         ? persisted.completionNotificationCondition
         : DEFAULT_APP_SETTINGS.completionNotificationCondition
     return {
+      browserEnabled: booleanSetting(persisted.browserEnabled, DEFAULT_APP_SETTINGS.browserEnabled),
       completionNotificationCondition,
       knowledgeBaseBetaEnabled: booleanSetting(
         persisted.knowledgeBaseBetaEnabled,
@@ -95,6 +96,12 @@ export class SettingsServiceImpl
     nativeTheme.themeSource = source
     this.applyWindowsTitleBarOverlay()
     this.deps.store.write({ ...this.deps.store.read(), themeSource: source })
+    return Promise.resolve()
+  }
+
+  public setBrowserEnabled(enabled: boolean): Promise<void> {
+    this.deps.store.write({ ...this.deps.store.read(), browserEnabled: enabled })
+    this.settingsChanged()
     return Promise.resolve()
   }
 

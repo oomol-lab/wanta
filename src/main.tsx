@@ -3,6 +3,7 @@ import { ElectronClientAdapter } from "@oomol/connection-electron-adapter/client
 import { createRoot } from "react-dom/client"
 import { AttentionService } from "../electron/attention/common.ts"
 import { AuthService } from "../electron/auth/common.ts"
+import { BrowserService } from "../electron/browser/common.ts"
 import { ChatService } from "../electron/chat/common.ts"
 import { GitService } from "../electron/git/common.ts"
 import { KnowledgeService } from "../electron/knowledge/common.ts"
@@ -40,6 +41,7 @@ if (!hasElectronConnectionBridge()) {
 
   const chatService = client.use(ChatService)
   const attentionService = client.use(AttentionService)
+  const browserService = client.use(BrowserService)
   const gitService = client.use(GitService)
   const knowledgeService = client.use(KnowledgeService)
   const linkRuntimeService = client.use(LinkRuntimeService)
@@ -54,6 +56,7 @@ if (!hasElectronConnectionBridge()) {
     <AppContext.Provider
       value={{
         attentionService,
+        browserService,
         chatService,
         gitService,
         knowledgeService,

@@ -1,3 +1,4 @@
+import type { WindowsTitleBarTheme } from "../window/title-bar-overlay.ts"
 import type { BrowserPageState, BrowserViewBounds } from "./common.ts"
 import type {
   BrowserWindow as ElectronBrowserWindow,
@@ -13,6 +14,7 @@ import { PlaywrightWebContentsRelay } from "./playwright-relay.ts"
 import { isAllowedBrowserUrl, parseBrowserUrl } from "./policy.ts"
 
 const snapshotLimit = 60_000
+const browserThemeWorldId = 999
 
 export interface BrowserReadResult {
   dialog: BrowserDialogState | null
@@ -38,7 +40,9 @@ export class BrowserPage {
   public readonly sessionId: string
   private crashed = false
   private currentDialog: Dialog | null = null
+  private documentColorScheme: string | null = null
   private readonly mainWindow: ElectronBrowserWindow
+  private navigationSequence = 0
   private page: Page | null = null
   private relay: PlaywrightWebContentsRelay | null = null
   private readonly stateChanged: (state: BrowserPageState) => void
@@ -230,7 +234,15 @@ export class BrowserPage {
   private installWebContentsListeners(): void {
     const contents = this.view.webContents
     const emit = (): void => this.emitState()
-    contents.on("did-start-loading", emit)
+    contents.on("did-start-loading", () => {
+      this.navigationSequence += 1
+      this.documentColorScheme = null
+      this.applyTheme()
+      emit()
+    })
+    contents.on("did-finish-load", () => {
+      void this.updateDocumentColorScheme()
+    })
     contents.on("did-stop-loading", emit)
     contents.on("did-navigate", emit)
     contents.on("did-navigate-in-page", emit)
@@ -248,8 +260,27 @@ export class BrowserPage {
   }
 
   private readonly applyTheme = (): void => {
-    const theme = resolveWindowsTitleBarTheme(nativeTheme.shouldUseDarkColors)
+    const appTheme = resolveWindowsTitleBarTheme(nativeTheme.shouldUseDarkColors)
+    const theme = browserBackgroundTheme(this.documentColorScheme, appTheme)
     this.view.setBackgroundColor(windowBackgroundColorForTheme(theme))
+  }
+
+  private async updateDocumentColorScheme(): Promise<void> {
+    const sequence = this.navigationSequence
+    const colorScheme = await this.view.webContents
+      .executeJavaScriptInIsolatedWorld(browserThemeWorldId, [
+        { code: "getComputedStyle(document.documentElement).colorScheme" },
+      ])
+      .catch(() => null)
+    if (
+      sequence !== this.navigationSequence ||
+      typeof colorScheme !== "string" ||
+      this.view.webContents.isDestroyed()
+    ) {
+      return
+    }
+    this.documentColorScheme = colorScheme
+    this.applyTheme()
   }
 
   private emitState(): void {
@@ -270,4 +301,12 @@ export function browserLocatorSelector(target: string): string {
   const normalized = target.trim()
   if (!normalized) throw new Error("A browser target is required.")
   return /^(?:f\d+)?e\d+$/u.test(normalized) ? `aria-ref=${normalized}` : normalized
+}
+
+export function browserBackgroundTheme(
+  documentColorScheme: string | null,
+  appTheme: WindowsTitleBarTheme,
+): WindowsTitleBarTheme {
+  const schemes = new Set(documentColorScheme?.trim().toLowerCase().split(/\s+/) ?? [])
+  return schemes.has("light") && !schemes.has("dark") ? "light" : appTheme
 }

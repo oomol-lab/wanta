@@ -1,4 +1,4 @@
-import type { ChatTeamSkillContext } from "../../../electron/chat/common.ts"
+import type { ChatContextMention, ChatTeamSkillContext } from "../../../electron/chat/common.ts"
 import type { LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
 import type { ConnectionAppSummary } from "../../../electron/connections/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
@@ -112,6 +112,17 @@ export interface CreatorSkillPaletteCopy {
 export interface BrowserSkillPaletteCopy {
   description: string
   title: string
+}
+
+export function skillPaletteContextMention(item: SkillPaletteItem): Extract<ChatContextMention, { kind: "skill" }> {
+  return {
+    description: item.descriptionText,
+    displayName: item.title,
+    icon: item.iconSource,
+    id: item.skillId,
+    kind: "skill",
+    name: item.skillName,
+  }
 }
 
 export interface KnowledgePaletteCopy {

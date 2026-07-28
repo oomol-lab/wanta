@@ -61,7 +61,7 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
     <div
       ref={artifactsPanelShellRef}
       className={cn(
-        "oo-artifacts-panel-shell relative min-h-0 overflow-hidden",
+        "oo-artifacts-panel-shell relative min-h-0",
         artifactsPanelIsMaximized ? "min-w-0 flex-1 shrink" : "shrink-0",
         artifactsPanelIsMaximized && "oo-artifacts-panel-maximized",
         isArtifactsPanelResizing || browserPanelVisible
@@ -88,7 +88,7 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
           onKeyDown={handleArtifactsPanelResizeKeyDown}
         />
       ) : null}
-      <div ref={artifactsPanelContentRef} className="h-full w-full min-w-0">
+      <div ref={artifactsPanelContentRef} className="h-full w-full min-w-0 overflow-hidden">
         {browserPanelVisible && browserState ? (
           <BrowserPanel
             browserService={browserService}

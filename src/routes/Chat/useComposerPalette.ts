@@ -22,6 +22,7 @@ import {
   buildSlashRootPaletteItems,
   creatorSkillId,
   filterComposerPaletteItems,
+  skillPaletteContextMention,
 } from "./composer-palette-items.ts"
 import { resolveComposerPaletteKeyAction } from "./composer-palette-logic.ts"
 import {
@@ -243,6 +244,7 @@ export function useComposerPalette({
       if (item.action === "creator-skill") {
         onAddContextMention({
           description: item.description,
+          displayName: item.title,
           id: creatorSkillId,
           kind: "skill",
           name: item.title,
@@ -256,13 +258,7 @@ export function useComposerPalette({
 
   const applySkillItem = React.useCallback(
     (item: SkillPaletteItem, currentTrigger: ComposerTrigger) => {
-      onAddContextMention({
-        description: item.descriptionText,
-        ...(item.iconSource ? { icon: item.iconSource } : {}),
-        id: item.skillId,
-        kind: "skill",
-        name: item.skillName,
-      })
+      onAddContextMention(skillPaletteContextMention(item))
       dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
       focusDraftAt(currentTrigger.start)
     },

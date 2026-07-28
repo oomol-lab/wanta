@@ -60,7 +60,7 @@ export const AppShellMainTitlebar = React.memo(function AppShellMainTitlebar({
   workspace: WorkspaceSelection
 }) {
   return (
-    <header className="oo-titlebar oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] items-center border-b [-webkit-app-region:drag]">
+    <header className="oo-titlebar oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] min-w-0 items-center overflow-hidden border-b [-webkit-app-region:drag]">
       <div className="oo-titlebar-collapsed-controls shrink-0 items-center gap-3">
         <div className="oo-titlebar-control-spacer shrink-0" />
         <SidebarTitlebarActions
@@ -71,7 +71,7 @@ export const AppShellMainTitlebar = React.memo(function AppShellMainTitlebar({
       </div>
       <div
         className={cn(
-          "oo-main-titlebar-title flex w-full min-w-0 items-center gap-2",
+          "oo-main-titlebar-title flex min-w-0 flex-1 items-center gap-2 overflow-hidden",
           isSidebarRestoring && "is-restoring",
         )}
       >

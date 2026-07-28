@@ -154,10 +154,7 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
           <X className="size-4" />
         </button>
       </div>
-      <div className="flex min-h-0 flex-1">
-        <div className="w-2 shrink-0" />
-        <div ref={browserSlotRef} className="min-h-0 min-w-0 flex-1 bg-background" />
-      </div>
+      <div ref={browserSlotRef} className="min-h-0 min-w-0 flex-1 bg-background" />
     </section>
   )
 }

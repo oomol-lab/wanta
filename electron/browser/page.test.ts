@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { browserLocatorSelector } from "./page.ts"
+import { browserBackgroundTheme, browserLocatorSelector } from "./page.ts"
 
 describe("browser locator selector", () => {
   it("maps top-level and frame-prefixed AI snapshot refs to Playwright aria refs", () => {
@@ -15,5 +15,18 @@ describe("browser locator selector", () => {
 
   it("rejects an empty target", () => {
     expect(() => browserLocatorSelector("  ")).toThrow("A browser target is required.")
+  })
+})
+
+describe("browser background theme", () => {
+  it("uses a light backing surface for pages that explicitly support only light mode", () => {
+    expect(browserBackgroundTheme("light", "dark")).toBe("light")
+    expect(browserBackgroundTheme("only light", "dark")).toBe("light")
+  })
+
+  it("keeps the app theme for dark-capable and unspecified pages", () => {
+    expect(browserBackgroundTheme("light dark", "dark")).toBe("dark")
+    expect(browserBackgroundTheme("normal", "dark")).toBe("dark")
+    expect(browserBackgroundTheme(null, "light")).toBe("light")
   })
 })

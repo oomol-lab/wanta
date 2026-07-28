@@ -15,6 +15,7 @@ import {
   buildSkillPaletteItems,
   browserSkillId,
   filterComposerPaletteItems,
+  skillPaletteContextMention,
   creatorSkillId,
   slashCommandItems,
 } from "./composer-palette-items.ts"
@@ -203,6 +204,12 @@ describe("composer palette items", () => {
       iconSource: ":lucide:search:",
       meta: "built-in",
       title: "Browser",
+    })
+    expect(skillPaletteContextMention(items[1]!)).toMatchObject({
+      displayName: "Browser",
+      id: "browser",
+      kind: "skill",
+      name: "browser",
     })
     expect(items[2]?.meta).toBe("team")
   })

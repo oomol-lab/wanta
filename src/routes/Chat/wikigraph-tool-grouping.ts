@@ -1,7 +1,9 @@
 import type { ChatMessagePart, ToolStatus } from "../../../electron/chat/common.ts"
+import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 
 import { isWikigraphKnowledgeActivityPart } from "./tool-display.ts"
 import { isToolCancellation } from "./tool-state.ts"
+import { isWgShellCommand } from "./wg-shell-detection.ts"
 
 function str(value: unknown): string {
   return typeof value === "string" ? value : ""
@@ -36,6 +38,14 @@ function isWikigraphKnowledgeAuxiliaryPart(part: ChatMessagePart): boolean {
   return part.tool === "bash" && isWikigraphProbeCommand(str(part.input?.command))
 }
 
+function isBashPart(part: ChatMessagePart): boolean {
+  return part.tool === "bash"
+}
+
+function isSettledToolPart(part: ChatMessagePart): boolean {
+  return part.status === "completed" || part.status === "error"
+}
+
 function mergedStatus(parts: ChatMessagePart[]): ToolStatus | undefined {
   if (parts.some((part) => part.status === "error")) {
     return "error"
@@ -66,22 +76,26 @@ function mergedTiming(parts: ChatMessagePart[]): ChatMessagePart["timing"] {
   return start === undefined && end === undefined ? undefined : { start, end }
 }
 
-function mergeWikigraphKnowledgeParts(parts: ChatMessagePart[]): ChatMessagePart {
+function mergeWikigraphKnowledgeParts(
+  parts: ChatMessagePart[],
+  options: { forceRunning?: boolean } = {},
+): ChatMessagePart {
   const first = parts[0]
   const errorPart = parts.find((part) => part.status === "error" || part.error)
+  const cancelled = parts.some((part) => isToolCancellation(part))
   return {
     ...first,
     partId: first.partId,
     callId: first.callId ?? first.partId,
     title: "Loaded skill: wikigraph-knowledge",
-    status: mergedStatus(parts),
+    status: options.forceRunning && !errorPart && !cancelled ? "running" : mergedStatus(parts),
     error: errorPart?.error,
     output: undefined,
     input: {},
     metadata: undefined,
     attachmentsCount: undefined,
     authorization: undefined,
-    cancelled: parts.some((part) => isToolCancellation(part)) || undefined,
+    cancelled: cancelled || undefined,
     timing: mergedTiming(parts),
   }
 }
@@ -132,5 +146,103 @@ export function groupedToolActivityParts(parts: ChatMessagePart[]): ChatMessageP
     grouped.push(part)
   }
   flushKnowledge()
+  return grouped
+}
+
+export function groupedWikigraphToolActivityBlocks(
+  blocks: AssistantTimelineBlock[],
+  options: { live?: boolean } = {},
+): AssistantTimelineBlock[] {
+  const grouped: AssistantTimelineBlock[] = []
+  let pendingTools: AssistantTimelineBlock[] = []
+  const flushTools = (flushOptions: { trailing?: boolean } = {}) => {
+    if (pendingTools.length === 0) {
+      return
+    }
+    const first = pendingTools[0]
+    if (!first || first.block.kind !== "tools") {
+      pendingTools = []
+      return
+    }
+    const originalParts = pendingTools.flatMap((item) => (item.block.kind === "tools" ? item.block.parts : []))
+    const parts = groupedLockedWikigraphToolActivityParts(originalParts, {
+      forceTrailingKnowledgeRunning: options.live === true && flushOptions.trailing === true,
+    })
+    if (parts.length === originalParts.length && parts.every((part, index) => part === originalParts[index])) {
+      grouped.push(...pendingTools)
+      pendingTools = []
+      return
+    }
+    grouped.push({
+      message: first.message,
+      block: {
+        kind: "tools",
+        key: first.block.key,
+        parts,
+      },
+    })
+    pendingTools = []
+  }
+
+  for (const item of blocks) {
+    if (item.block.kind === "tools") {
+      pendingTools.push(item)
+      continue
+    }
+    flushTools()
+    grouped.push(item)
+  }
+  flushTools({ trailing: true })
+  return grouped
+}
+
+function groupedLockedWikigraphToolActivityParts(
+  parts: ChatMessagePart[],
+  options: { forceTrailingKnowledgeRunning?: boolean } = {},
+): ChatMessagePart[] {
+  const grouped: ChatMessagePart[] = []
+  let pendingKnowledge: ChatMessagePart[] = []
+  let knowledgeLocked = false
+  const flushKnowledge = (flushOptions: { trailing?: boolean } = {}) => {
+    if (pendingKnowledge.length === 0) {
+      return
+    }
+    grouped.push(
+      mergeWikigraphKnowledgeParts(pendingKnowledge, {
+        forceRunning: options.forceTrailingKnowledgeRunning === true && flushOptions.trailing === true,
+      }),
+    )
+    pendingKnowledge = []
+  }
+
+  for (const part of parts) {
+    if (isWikigraphKnowledgeActivityPart(part)) {
+      pendingKnowledge.push(part)
+      knowledgeLocked = true
+      continue
+    }
+    if (knowledgeLocked && isWikigraphKnowledgeAuxiliaryPart(part)) {
+      pendingKnowledge.push(part)
+      continue
+    }
+    if (knowledgeLocked && isBashPart(part)) {
+      const command = str(part.input?.command)
+      if (command && isWgShellCommand(command)) {
+        pendingKnowledge.push(part)
+        continue
+      }
+      if (!isSettledToolPart(part)) {
+        continue
+      }
+      flushKnowledge()
+      knowledgeLocked = false
+      grouped.push(part)
+      continue
+    }
+    flushKnowledge()
+    knowledgeLocked = false
+    grouped.push(part)
+  }
+  flushKnowledge({ trailing: true })
   return grouped
 }

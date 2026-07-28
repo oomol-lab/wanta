@@ -30,7 +30,7 @@ import { formatWholeSecondDuration } from "./tool-activity.ts"
 import { toolActionSummary, toolServiceSlug } from "./tool-display.ts"
 import { isActiveToolPart } from "./tool-state.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
-import { groupedToolActivityParts } from "./wikigraph-tool-grouping.ts"
+import { groupedToolActivityParts, groupedWikigraphToolActivityBlocks } from "./wikigraph-tool-grouping.ts"
 import { MessageResponse } from "@/components/ai-elements/message"
 import { MarkdownImage } from "@/components/ai-elements/message-image"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
@@ -132,7 +132,8 @@ export function TurnProcessActivity({
   const restoreScrollAnchorRef = React.useRef<(() => void) | null>(null)
   const duration = formatProcessDuration(process, now, live)
   const title = processTitle(t, status, duration)
-  const renderBlocks = blocks.map((item) => item.block)
+  const activityBlocks = React.useMemo(() => groupedWikigraphToolActivityBlocks(blocks, { live }), [blocks, live])
+  const renderBlocks = activityBlocks.map((item) => item.block)
   const showLiveStatus =
     (renderBlocks.length === 0 || shouldSurfaceProcessActivity(process.activity)) &&
     shouldShowLiveStatus(process, status)
@@ -192,7 +193,7 @@ export function TurnProcessActivity({
       </div>
       <TaskContent className="[&>div]:mt-0">
         <ProcessActivityViewport followKey={statusKey} label={title} live={isLiveTurnProcess(process, live)}>
-          {blocks.map(({ message, block }, index) => (
+          {activityBlocks.map(({ message, block }, index) => (
             <AssistantBlock
               key={`${message.id}:${block.kind === "tools" ? block.key : block.part.partId}`}
               block={block}

@@ -13,6 +13,7 @@ import * as React from "react"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/hooks/useAuth"
@@ -44,8 +45,6 @@ export function BillingUsagePopover({
 }: BillingUsagePopoverProps) {
   const t = useT()
   const { login } = useAuth()
-  const rootRef = React.useRef<HTMLDivElement | null>(null)
-  const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   const [open, setOpen] = React.useState(false)
   const seatState = useBillableSeats(workspace, open)
   const billingRequestScope = React.useMemo(() => billingRequestScopeForWorkspace(workspace), [workspace])
@@ -62,12 +61,6 @@ export function BillingUsagePopover({
   const handleSignIn = React.useCallback(() => {
     void login().then(() => refresh({ force: true }))
   }, [login, refresh])
-  const closeAndRestoreFocus = React.useCallback((): void => {
-    setOpen(false)
-    window.requestAnimationFrame(() => {
-      triggerRef.current?.focus()
-    })
-  }, [])
   const openDetails = React.useCallback(
     (target?: BillingDetailsTarget): void => {
       setOpen(false)
@@ -148,68 +141,47 @@ export function BillingUsagePopover({
   // 仅在真正拿到余额（无错误）且为 0 时才提示耗尽；会话过期/读取失败一律不显示破坏性"余额耗尽"。
   const hasNoCredits = Boolean(canManageFunding && balanceAvailable && data?.balance && currentCredit <= 0 && !error)
 
-  React.useEffect(() => {
-    if (!open) {
-      return
-    }
-    const handlePointerDown = (event: PointerEvent): void => {
-      const target = event.target
-      if (target instanceof Node && rootRef.current?.contains(target)) {
-        return
-      }
-      closeAndRestoreFocus()
-    }
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        closeAndRestoreFocus()
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown)
-    document.addEventListener("keydown", handleKeyDown)
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown)
-      document.removeEventListener("keydown", handleKeyDown)
-    }
-  }, [closeAndRestoreFocus, open])
-
   return (
-    <div ref={rootRef} className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        title={t("billing.popover.tooltip")}
-        aria-label={t("billing.popover.tooltip")}
-        aria-expanded={open}
-        className={cn(
-          "oo-toolbar-button relative flex size-8 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground",
-          open && "bg-accent text-foreground",
-        )}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <GaugeIcon className="size-4" />
-        {hasNoCredits ? (
-          <span className="absolute top-1 right-1 size-1.5 rounded-full bg-destructive" aria-hidden="true" />
-        ) : null}
-      </button>
-      {open ? (
-        <div
-          role="dialog"
-          aria-label={t("billing.popover.title")}
-          className="absolute top-full right-0 z-50 mt-2 w-[23rem] overflow-hidden rounded-md border bg-popover p-0 text-popover-foreground shadow-md"
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title={t("billing.popover.tooltip")}
+          aria-label={t("billing.popover.tooltip")}
+          className={cn(
+            "oo-toolbar-button relative flex size-8 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground",
+            open && "bg-accent text-foreground",
+          )}
         >
+          <GaugeIcon className="size-4" />
+          {hasNoCredits ? (
+            <span className="absolute top-1 right-1 size-1.5 rounded-full bg-destructive" aria-hidden="true" />
+          ) : null}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        sideOffset={8}
+        collisionPadding={8}
+        aria-label={t("billing.popover.title")}
+        className="w-[min(23rem,calc(100vw-1rem))] overflow-hidden p-0 [-webkit-app-region:no-drag]"
+      >
+        <div className="max-h-(--radix-popover-content-available-height) overflow-y-auto">
           <div className="flex items-center justify-between gap-3 px-4 py-3">
             <div className="oo-text-title flex items-center gap-2 text-foreground">
               <WalletCardsIcon className="size-4" />
               <span>{t("billing.popover.title")}</span>
             </div>
-            <button
-              type="button"
-              aria-label={t("billing.popover.close")}
-              className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-              onClick={closeAndRestoreFocus}
-            >
-              <XIcon className="size-4" />
-            </button>
+            <PopoverClose asChild>
+              <button
+                type="button"
+                aria-label={t("billing.popover.close")}
+                className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <XIcon className="size-4" />
+              </button>
+            </PopoverClose>
           </div>
 
           <div className="grid gap-4 px-4 pb-4">
@@ -393,8 +365,8 @@ export function BillingUsagePopover({
             </Button>
           </div>
         </div>
-      ) : null}
-    </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 

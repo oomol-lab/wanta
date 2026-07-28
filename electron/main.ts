@@ -143,7 +143,6 @@ const modelsStore = new ModelsStore(app.getPath("userData"), modelCredentialStor
 const wikiGraphStateDir = path.join(app.getPath("userData"), "wikigraph-state")
 const wikiGraphLibraryDir = path.join(wikiGraphStateDir, "library")
 const wikiGraphCliPath = path.join(dirname, "wanta-wg.js")
-const commandSandboxCliPath = path.join(dirname, "wanta-command-shell.js")
 // 二进制解析：生产从打包 Resources/bin（extraResources），dev 从 node_modules（opencode）与 .oo-bin（oo）。
 const opencodeBinPath = app.isPackaged
   ? resolveBundledBin(process.resourcesPath, opencodeBinaryName())
@@ -651,7 +650,6 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   chatService.setRuntimeCapabilities(
     resolveRuntimeCapabilities({
       mode: account ? "oomol" : "local",
-      commandSandboxAvailable: process.platform === "darwin",
       localAgentAvailable: Boolean(runtime),
       linkRuntimeAvailable: Boolean(linkRuntime),
     }),
@@ -694,7 +692,6 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   }
   const nextAgent = new AgentManager({
     browserControl: browserControlConnection,
-    commandSandboxCliPath,
     defaultModel: runtime.defaultModel,
     linkRuntime,
     modelAccess: runtime.modelAccess,

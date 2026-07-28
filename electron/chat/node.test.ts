@@ -68,7 +68,6 @@ function createBridgeAgent(): {
   rejectQuestion: ReturnType<typeof vi.fn>
   setSessionKnowledgeBaseIds: ReturnType<typeof vi.fn>
   setSessionTeamName: ReturnType<typeof vi.fn>
-  updateCommandSandboxPolicy: ReturnType<typeof vi.fn>
 } {
   let listener:
     | ((event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void)
@@ -119,7 +118,6 @@ function createBridgeAgent(): {
   const clearSessionKnowledgeBaseIds = vi.fn(async () => undefined)
   const setSessionKnowledgeBaseIds = vi.fn(async () => undefined)
   const setSessionTeamName = vi.fn(async () => undefined)
-  const updateCommandSandboxPolicy = vi.fn(async () => undefined)
   const agent = {
     isReady: () => true,
     subscribe: (
@@ -141,7 +139,6 @@ function createBridgeAgent(): {
     rejectQuestion,
     setSessionTeamName,
     setSessionKnowledgeBaseIds,
-    updateCommandSandboxPolicy,
     promptStreaming,
     getMessages,
     getPendingPermissions,
@@ -177,7 +174,6 @@ function createBridgeAgent(): {
     rejectQuestion,
     setSessionKnowledgeBaseIds,
     setSessionTeamName,
-    updateCommandSandboxPolicy,
   }
 }
 
@@ -3088,58 +3084,6 @@ test("permission mode updates use the persistence callback without emitting sess
   assert.equal(activities.length, 0)
 })
 
-test("permission mode updates switch the command sandbox policy for the current session", async () => {
-  const bridge = createBridgeAgent()
-  const service = new ChatServiceImpl(bridge.agent)
-
-  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access", version: 1 })
-  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "default", version: 2 })
-
-  assert.deepEqual(
-    bridge.updateCommandSandboxPolicy.mock.calls.map(([policy]) => ({
-      executionMode: policy.executionMode,
-      sessionId: policy.sessionId,
-    })),
-    [
-      { executionMode: "direct", sessionId: "session-1" },
-      { executionMode: "sandbox", sessionId: "session-1" },
-    ],
-  )
-})
-
-test("command sandbox update failures roll back the persisted permission mode", async () => {
-  const bridge = createBridgeAgent()
-  const persistedModes: string[] = []
-  bridge.updateCommandSandboxPolicy.mockRejectedValueOnce(new Error("policy unavailable"))
-  const service = new ChatServiceImpl(bridge.agent, {
-    onPermissionModeChanged: (_sessionId, permissionMode) => {
-      persistedModes.push(permissionMode)
-    },
-  })
-  const events = captureServiceEvents(service)
-  service.startEventBridge()
-
-  await assert.rejects(
-    service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access", version: 1 }),
-    /policy unavailable/,
-  )
-  bridge.emit({
-    type: "permission.v2.asked",
-    properties: {
-      id: "permission-1",
-      sessionID: "session-1",
-      action: "bash",
-      resources: ["npm install"],
-      metadata: { command: "npm install" },
-    },
-  })
-
-  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
-  assert.deepEqual(persistedModes, ["full_access", "default"])
-  assert.equal(bridge.updateCommandSandboxPolicy.mock.calls.at(-1)?.[0].executionMode, "sandbox")
-  assert.equal(bridge.answerPermission.mock.calls.length, 0)
-})
-
 test("permission mode persistence failures roll back the runtime mode", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent, {
@@ -3205,7 +3149,6 @@ test("automatic permission replies are deduplicated across pending reload and ev
   })
 
   assert.deepEqual(pending, [])
-  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
   assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
   resolveReply?.()
   await waitForCondition(() => events.some((event) => event.event === "permissionReplied"))

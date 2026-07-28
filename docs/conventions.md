@@ -165,9 +165,8 @@
   are not confirmation boundaries. Global installs, custom registries, user config, Git/URL/local
   package sources, and out-of-scope commands never qualify for automatic approval. Session
   grants may still cover non-sensitive requests the user has explicitly allowed; Full Access =
-  session-level local YOLO — once selected, the main process auto-replies local permissions for the
-  session, stops doing per-request local risk judgment, and runs Bash directly instead of through
-  the macOS command sandbox. Switching back to Default Access restores sandboxed Bash execution.
+  session-level local YOLO — once confirmed, the main process auto-replies local permissions for the
+  session and stops doing per-request local risk judgment.
   New ask rules must be verified end to end: pending-permission queries, event push, auto-approve
   dedup, and reply.
 - **oo CLI fast path**: OOMOL keeps the OpenCode fast pass for commands whose first token is `oo` /

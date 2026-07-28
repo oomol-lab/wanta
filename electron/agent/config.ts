@@ -103,8 +103,6 @@ export interface OpencodeConfigOptions {
   defaultModel?: ModelChoice
   linkRuntime: LinkRuntime | null
   modelAccess: ModelAccess
-  pluginUrls?: string[]
-  shellPath?: string
 }
 
 /** Build the OpenCode config without persisting the OOMOL token or custom model keys. */
@@ -113,8 +111,6 @@ export function buildOpencodeConfig({
   defaultModel,
   linkRuntime,
   modelAccess,
-  pluginUrls,
-  shellPath,
 }: OpencodeConfigOptions): Config {
   const model = resolveDefaultConfigModel(modelAccess, customModels, defaultModel)
   const permission = wantaPermission(linkRuntime)
@@ -125,8 +121,6 @@ export function buildOpencodeConfig({
   return {
     $schema: "https://opencode.ai/config.json",
     model,
-    ...(pluginUrls?.length ? { plugin: pluginUrls } : {}),
-    ...(shellPath ? { shell: shellPath } : {}),
     provider: {
       ...(modelAccess.kind === "oomol" ? builtinProviderConfigs(modelAccess.sessionToken) : {}),
       ...Object.fromEntries(customModels.map((model) => [customProviderId(model.id), customProviderConfig(model)])),

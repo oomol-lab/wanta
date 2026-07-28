@@ -57,7 +57,9 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
       lines.push(`- ${quoted(knowledgeBase.name)}; ${isLibrary ? "library" : "archive"} URI: ${quoted(uri)}`)
     }
     lines.push(
-      "When the user's request depends on these knowledge bases, load and follow the `wikigraph-knowledge` Skill with the listed library/archive URI. Treat `wikg://lib` as the whole local WikiGraph library and `wikg://lib/arc/<id>` as a focused archive.",
+      "For knowledge-base-related requests, load and follow the `wikigraph-knowledge` Skill with the listed library/archive URI before answering. This includes requests about knowledge, facts, people, events, relationships, causes/processes/results, summaries, citations, sources, quotations, or fact-checking; do not answer those requests from general model knowledge while this knowledge context is pinned.",
+      "Treat `wikg://lib` as the whole local WikiGraph library and `wikg://lib/arc/<id>` as a focused archive. Use `wikg://lib` directly for a selected knowledge library; never wrap the whole-library URI inside an archive URI.",
+      "If WikiGraph search fails, the index is unavailable, or no evidence is found, say that limitation explicitly instead of pretending the knowledge base was searched successfully.",
     )
   }
   return lines.join("\n")

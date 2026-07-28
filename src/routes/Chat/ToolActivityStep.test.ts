@@ -99,6 +99,40 @@ describe("ToolActivityStep", () => {
     expect(html).not.toContain("lucide-chevron-right")
   })
 
+  it("renders assignment-prefix WG Bash substitutions as knowledge activity", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-wg-assignment",
+      callId: "call-wg-assignment",
+      tool: "bash",
+      status: "completed",
+      input: { command: "env FOO=$(wg wikg://lib/entity --query 唐僧 --json) node -e 1" },
+      output: "{}",
+    })
+
+    expect(html).toContain("知识库")
+    expect(html).not.toContain("env FOO=")
+    expect(html).not.toContain("wg wikg://lib")
+    expect(html).not.toContain("lucide-chevron-right")
+  })
+
+  it("keeps quoted assignment WG Bash text visible as an ordinary command", () => {
+    const command = "env FOO='$(wg wikg://lib/entity --query 唐僧 --json)' node -e 1"
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-wg-quoted-assignment",
+      callId: "call-wg-quoted-assignment",
+      tool: "bash",
+      status: "completed",
+      input: { command },
+      output: "{}",
+    })
+
+    expect(html).not.toContain("正在查询知识库...")
+    expect(html).toContain("env FOO=&#x27;$(wg wikg://lib/entity --query 唐僧 --json)&#x27; node -e 1")
+    expect(html).toContain("lucide-chevron-right")
+  })
+
   it("renders consecutive WG Bash knowledge calls as one compact knowledge row", () => {
     const parts = groupedToolActivityParts([
       {

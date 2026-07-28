@@ -86,6 +86,40 @@ describe("tool display", () => {
     expect(toolActionSummary(t, part)).toBe("chat.toolBashQueryKnowledge:")
   })
 
+  it("renders assignment-prefix WG substitutions as hidden knowledge Bash calls", () => {
+    const t = (key: string, vars?: Record<string, string | number>) => `${key}:${vars?.detail ?? ""}`
+    const part = {
+      kind: "tool" as const,
+      partId: "p1",
+      tool: "bash",
+      status: "completed" as const,
+      input: { command: "OO=$(wg wikg://lib/entity --query 唐僧 --json) node -e 1" },
+    }
+
+    expect(isWgKnowledgeBashPart(part)).toBe(true)
+    expect(toolDisplayLine(t, part)).toEqual({ title: "chat.toolBashQueryKnowledge:" })
+    expect(toolActionSummary(t, part)).toBe("chat.toolBashQueryKnowledge:")
+  })
+
+  it("keeps quoted assignment WG text in the ordinary Bash display path", () => {
+    const t = (key: string, vars?: Record<string, string | number>) => `${key}:${vars?.detail ?? ""}`
+    const command = "env FOO='$(wg wikg://lib/entity --query 唐僧 --json)' node -e 1"
+    const part = {
+      kind: "tool" as const,
+      partId: "p1",
+      tool: "bash",
+      status: "completed" as const,
+      input: { command },
+    }
+
+    expect(isWgKnowledgeBashPart(part)).toBe(false)
+    expect(toolDisplayLine(t, part)).toEqual({
+      title: "chat.toolRunGeneric:",
+      detail: command,
+      detailKind: "code",
+    })
+  })
+
   it("renders the wikigraph-knowledge skill load as a hidden knowledge activity", () => {
     const t = (key: string, vars?: Record<string, string | number>) => `${key}:${vars?.detail ?? ""}`
     const part = {

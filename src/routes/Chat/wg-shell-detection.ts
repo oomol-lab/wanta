@@ -34,8 +34,11 @@ function scanAstValue(value: unknown, source: string, depth: number): boolean {
   if (Array.isArray(value)) {
     return value.some((item) => scanAstValue(item, source, depth))
   }
+  if (isAssignmentNode(value)) {
+    return scanWord(value.value, depth)
+  }
   if (isWord(value)) {
-    return scanWord(value, source, depth)
+    return scanWord(value, depth)
   }
   if (isCommand(value)) {
     return scanCommand(value, source, depth)
@@ -57,18 +60,21 @@ function scanAstValue(value: unknown, source: string, depth: number): boolean {
 
 function scanCommand(command: Command, source: string, depth: number): boolean {
   const words = command.name ? [command.name, ...command.suffix] : [...command.suffix]
-  return scanCommandWords(words, command.redirects, source, depth)
+  return scanAstValue(command.prefix, source, depth) || scanCommandWords(words, command.redirects, source, depth)
 }
 
 function scanCommandWords(words: Word[], redirects: Redirect[], source: string, depth: number): boolean {
   const commandIndex = firstCommandWordIndex(words, 0)
   if (commandIndex >= words.length) {
-    return scanNestedWords(words, source, depth) || scanAstValue(redirects, source, depth)
+    return scanNestedWords(words, depth) || scanAstValue(redirects, source, depth)
   }
 
   const executable = executableName(wordValue(words[commandIndex]))
   if (executable === "env") {
     const envCommandIndex = skipEnvPrefix(words, commandIndex + 1)
+    if (scanNestedWords(words.slice(commandIndex + 1, envCommandIndex), depth)) {
+      return true
+    }
     if (envCommandIndex < words.length) {
       return scanCommandWords(words.slice(envCommandIndex), redirects, source, depth)
     }
@@ -86,18 +92,18 @@ function scanCommandWords(words: Word[], redirects: Redirect[], source: string, 
     return true
   }
 
-  return scanNestedWords(words, source, depth) || scanAstValue(redirects, source, depth)
+  return scanNestedWords(words, depth) || scanAstValue(redirects, source, depth)
 }
 
-function scanNestedWords(words: Word[], source: string, depth: number): boolean {
-  return words.some((word) => scanWord(word, source, depth))
+function scanNestedWords(words: Word[], depth: number): boolean {
+  return words.some((word) => scanWord(word, depth))
 }
 
-function scanWord(word: Word, source: string, depth: number): boolean {
+function scanWord(word: Word, depth: number): boolean {
   // unbash exposes the command structure as AST, but its public package exports do not include the
   // word-part helper that materializes command/process substitutions. Keep this small scanner bounded
   // to unbash-provided Word nodes so the main detection path remains AST-based.
-  for (const substitution of executableSubstitutionsInWord(source.slice(word.pos, word.end))) {
+  for (const substitution of executableSubstitutionsInWord(word.text)) {
     if (scanShell(substitution, depth + 1)) {
       return true
     }
@@ -291,6 +297,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isCommand(value: unknown): value is Command {
   return isRecord(value) && value.type === "Command"
+}
+
+function isAssignmentNode(value: unknown): value is { type: "Assignment"; value: Word } {
+  return isRecord(value) && value.type === "Assignment" && isWord(value.value)
 }
 
 function isWord(value: unknown): value is Word {

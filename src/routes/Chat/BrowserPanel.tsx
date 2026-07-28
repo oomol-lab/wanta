@@ -26,6 +26,7 @@ function browserViewIsOccluded(root: ParentNode = document): boolean {
 export function BrowserPanel({ browserService, sessionId, state, onClose }: BrowserPanelProps) {
   const t = useT()
   const browserSlotRef = React.useRef<HTMLDivElement | null>(null)
+  const previewRequestRef = React.useRef(0)
   const [address, setAddress] = React.useState(state.navigation.url === "about:blank" ? "" : state.navigation.url)
   const [previewDataUrl, setPreviewDataUrl] = React.useState<string | null>(null)
 
@@ -34,15 +35,21 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
   }, [state.navigation.url])
 
   const refreshPreview = React.useCallback((): void => {
+    const request = ++previewRequestRef.current
     void browserService
       .invoke("capturePreview", sessionId)
       .then((preview) => {
-        if (preview) setPreviewDataUrl(preview)
+        if (request === previewRequestRef.current) setPreviewDataUrl(preview)
       })
       .catch((cause: unknown) => {
         reportRendererHandledError("browser", "capture browser modal backdrop preview failed", cause)
       })
   }, [browserService, sessionId])
+
+  React.useEffect(() => {
+    previewRequestRef.current += 1
+    setPreviewDataUrl(null)
+  }, [sessionId])
 
   React.useEffect(() => {
     if (!state.navigation.loading) refreshPreview()
@@ -53,7 +60,28 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
     if (!slot) return
 
     let frame: number | null = null
-    let hiddenForOverlay = false
+    let visibilityRevision = 0
+    let visibilityTransition = Promise.resolve()
+    const enqueueVisibility = (visible: boolean, bounds?: BrowserViewBounds): void => {
+      const revision = ++visibilityRevision
+      visibilityTransition = visibilityTransition
+        .then(async () => {
+          if (revision !== visibilityRevision) return
+          if (visible && bounds) {
+            await browserService.invoke("show", { bounds, sessionId })
+            if (revision === visibilityRevision) refreshPreview()
+            return
+          }
+          await browserService.invoke("hide", sessionId)
+        })
+        .catch((cause: unknown) => {
+          reportRendererHandledError(
+            "browser",
+            visible ? "show browser page failed" : "hide browser page behind renderer surface failed",
+            cause,
+          )
+        })
+    }
     const showBrowser = (): void => {
       frame = null
       if (browserViewIsOccluded()) return
@@ -65,12 +93,7 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
         x: rect.x,
         y: rect.y,
       }
-      void browserService
-        .invoke("show", { bounds, sessionId })
-        .then(refreshPreview)
-        .catch((cause: unknown) => {
-          reportRendererHandledError("browser", "show browser page failed", cause)
-        })
+      enqueueVisibility(true, bounds)
     }
     const scheduleShow = (): void => {
       if (browserViewIsOccluded()) {
@@ -78,15 +101,9 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
           window.cancelAnimationFrame(frame)
           frame = null
         }
-        if (!hiddenForOverlay) {
-          hiddenForOverlay = true
-          void browserService.invoke("hide", sessionId).catch((cause: unknown) => {
-            reportRendererHandledError("browser", "hide browser page behind modal failed", cause)
-          })
-        }
+        enqueueVisibility(false)
         return
       }
-      hiddenForOverlay = false
       if (frame !== null) window.cancelAnimationFrame(frame)
       frame = window.requestAnimationFrame(showBrowser)
     }
@@ -107,9 +124,7 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
       overlayObserver.disconnect()
       window.removeEventListener("resize", scheduleShow)
       if (frame !== null) window.cancelAnimationFrame(frame)
-      void browserService.invoke("hide", sessionId).catch((cause: unknown) => {
-        reportRendererHandledError("browser", "hide browser page on unmount failed", cause)
-      })
+      enqueueVisibility(false)
     }
   }, [browserService, refreshPreview, sessionId])
 

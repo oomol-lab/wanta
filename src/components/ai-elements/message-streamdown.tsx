@@ -197,7 +197,9 @@ function MessageLinkSafetyModal({ isOpen, onClose, onConfirm, url }: LinkSafetyM
   const chatService = useChatService()
   const localPath = localFilePathFromMessageLink(url)
   const [copied, setCopied] = useState(false)
+  const [isOpeningLocalPath, setIsOpeningLocalPath] = useState(false)
   const copiedResetTimerRef = useRef<number | null>(null)
+  const isOpeningLocalPathRef = useRef(false)
 
   useEffect(() => {
     setCopied(false)
@@ -238,12 +240,18 @@ function MessageLinkSafetyModal({ isOpen, onClose, onConfirm, url }: LinkSafetyM
       onClose()
       return
     }
+    if (isOpeningLocalPathRef.current) return
+    isOpeningLocalPathRef.current = true
+    setIsOpeningLocalPath(true)
     try {
       await chatService.invoke("openLocalPath", { path: localPath })
       onClose()
     } catch (cause) {
       reportRendererHandledError("messageLink.openLocalPath", "Failed to open local message link", cause)
       toast.error(userFacingErrorDescription(resolveUserFacingError(cause, { area: "artifact" }), t))
+    } finally {
+      isOpeningLocalPathRef.current = false
+      setIsOpeningLocalPath(false)
     }
   }
 
@@ -266,7 +274,12 @@ function MessageLinkSafetyModal({ isOpen, onClose, onConfirm, url }: LinkSafetyM
             {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
             {copied ? t("chat.copiedMessage") : t(localPath ? "chat.copyFilePath" : "chat.copyLink")}
           </Button>
-          <Button type="button" className="flex-1" onClick={() => void openLink()}>
+          <Button
+            type="button"
+            className="flex-1"
+            disabled={Boolean(localPath) && isOpeningLocalPath}
+            onClick={() => void openLink()}
+          >
             <ExternalLinkIcon className="size-4" />
             {t(localPath ? "chat.openFile" : "chat.openLink")}
           </Button>

@@ -260,4 +260,29 @@ describe("messageStreamdownLinkSafety", () => {
 
     act(() => modal.root.unmount())
   })
+
+  it("prevents duplicate local-file opens while the native request is pending", async () => {
+    let resolveOpen!: () => void
+    const pendingOpen = new Promise<void>((resolve) => {
+      resolveOpen = resolve
+    })
+    const modal = await renderLinkSafetyModal("/Users/me/report.html")
+    modal.invoke.mockImplementationOnce(() => pendingOpen)
+    const openButton = [...document.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("打开文件"),
+    )
+
+    await act(async () => {
+      openButton?.click()
+      openButton?.click()
+    })
+
+    expect(modal.invoke).toHaveBeenCalledTimes(1)
+    expect(openButton?.disabled).toBe(true)
+
+    await act(async () => resolveOpen())
+
+    expect(modal.onClose).toHaveBeenCalledOnce()
+    act(() => modal.root.unmount())
+  })
 })

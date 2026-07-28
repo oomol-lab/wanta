@@ -103,6 +103,97 @@ describe("BrowserPanel native view visibility", () => {
 
     act(() => root.unmount())
   })
+
+  it("hides after an in-flight show when a modal opens", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      bottom: 500,
+      height: 400,
+      left: 600,
+      right: 1100,
+      top: 100,
+      width: 500,
+      x: 600,
+      y: 100,
+      toJSON: () => undefined,
+    })
+    let resolveShow!: () => void
+    const pendingShow = new Promise<void>((resolve) => {
+      resolveShow = resolve
+    })
+    const invoke = vi.fn((action: string) => {
+      if (action === "show") return pendingShow
+      return Promise.resolve(null)
+    })
+    const root = await renderInteractivePanel(invoke)
+
+    await act(async () => {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+    })
+    expect(invoke).toHaveBeenCalledWith("show", {
+      bounds: { height: 400, width: 500, x: 600, y: 100 },
+      sessionId: "session-1",
+    })
+
+    const overlay = document.createElement("div")
+    overlay.setAttribute("aria-modal", "true")
+    await act(async () => {
+      document.body.append(overlay)
+      await Promise.resolve()
+    })
+
+    resolveShow()
+    await act(async () => {
+      await pendingShow
+      await Promise.resolve()
+    })
+
+    const visibilityActions = invoke.mock.calls
+      .map(([action]) => action)
+      .filter((action) => action === "show" || action === "hide")
+    expect(visibilityActions.at(-1)).toBe("hide")
+
+    act(() => root.unmount())
+  })
+
+  it("ignores a stale preview after a newer capture clears it", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      bottom: 500,
+      height: 400,
+      left: 600,
+      right: 1100,
+      top: 100,
+      width: 500,
+      x: 600,
+      y: 100,
+      toJSON: () => undefined,
+    })
+    let resolveFirstCapture!: (preview: string) => void
+    const firstCapture = new Promise<string>((resolve) => {
+      resolveFirstCapture = resolve
+    })
+    let captureCount = 0
+    const invoke = vi.fn((action: string) => {
+      if (action === "capturePreview") {
+        captureCount += 1
+        return captureCount === 1 ? firstCapture : Promise.resolve(null)
+      }
+      return Promise.resolve(undefined)
+    })
+    const root = await renderInteractivePanel(invoke)
+
+    await act(async () => {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      await Promise.resolve()
+    })
+    expect(captureCount).toBeGreaterThanOrEqual(2)
+
+    const stalePreview = "data:image/png;base64,c3RhbGU="
+    await act(async () => resolveFirstCapture(stalePreview))
+
+    expect(document.querySelector(`img[src="${stalePreview}"]`)).toBeNull()
+
+    act(() => root.unmount())
+  })
 })
 
 describe("BrowserPanel titlebar drag regions", () => {

@@ -83,6 +83,7 @@ async function renderLinkSafetyModal(url = "https://example.com/first"): Promise
 afterEach(() => {
   document.body.replaceChildren()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
 })
 
@@ -228,10 +229,12 @@ describe("messageStreamdownLinkSafety", () => {
   })
 
   it("opens encoded local paths through the trusted local-file service", async () => {
-    const writeText = vi.fn(async () => undefined)
+    const nativeWriteText = vi.fn(async () => undefined)
+    vi.stubGlobal("wanta", { writeClipboardText: nativeWriteText })
+    const browserWriteText = vi.fn(async () => undefined)
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
-      value: { writeText },
+      value: { writeText: browserWriteText },
     })
     const modal = await renderLinkSafetyModal("/Users/me/Library/Application%20Support/wanta/report.html")
     const copyButton = [...document.querySelectorAll("button")].find((button) =>
@@ -245,7 +248,8 @@ describe("messageStreamdownLinkSafety", () => {
     expect(document.body.textContent).toContain("/Users/me/Library/Application Support/wanta/report.html")
 
     await act(async () => copyButton?.click())
-    expect(writeText).toHaveBeenCalledWith("/Users/me/Library/Application Support/wanta/report.html")
+    expect(nativeWriteText).toHaveBeenCalledWith("/Users/me/Library/Application Support/wanta/report.html")
+    expect(browserWriteText).not.toHaveBeenCalled()
 
     await act(async () => openButton?.click())
     expect(modal.invoke).toHaveBeenCalledWith("openLocalPath", {

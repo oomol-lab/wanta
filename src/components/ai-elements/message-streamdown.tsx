@@ -27,6 +27,7 @@ import { useTheme } from "@/components/theme-context"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { useT } from "@/i18n/i18n"
+import { writeClipboardText } from "@/lib/clipboard"
 import { localFilePathFromMessageLink } from "@/lib/message-link-target"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
@@ -214,7 +215,10 @@ function MessageLinkSafetyModal({ isOpen, onClose, onConfirm, url }: LinkSafetyM
 
   const copyLink = async (): Promise<void> => {
     try {
-      await navigator.clipboard.writeText(localPath ?? url)
+      if (!(await writeClipboardText(localPath ?? url))) {
+        toast.error(t("error.copyFailed"))
+        return
+      }
       setCopied(true)
       if (copiedResetTimerRef.current !== null) {
         window.clearTimeout(copiedResetTimerRef.current)
@@ -224,7 +228,7 @@ function MessageLinkSafetyModal({ isOpen, onClose, onConfirm, url }: LinkSafetyM
         copiedResetTimerRef.current = null
       }, 2000)
     } catch {
-      // Clipboard failures leave the action available for retry.
+      toast.error(t("error.copyFailed"))
     }
   }
 

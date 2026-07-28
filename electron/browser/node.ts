@@ -112,6 +112,13 @@ export class BrowserManager {
     return Promise.resolve(this.pages.get(sessionId)?.page.state() ?? null)
   }
 
+  public async capturePreview(sessionId: string): Promise<string | null> {
+    const page = this.pages.get(sessionId)?.page
+    if (!page || page.isCrashed()) return null
+    const image = await page.screenshot(false)
+    return `data:image/png;base64,${image.toString("base64")}`
+  }
+
   public async clearData(): Promise<void> {
     const partitionSession = this.getPartitionSession()
     this.profileVersion += 1
@@ -413,6 +420,10 @@ export class BrowserServiceImpl
 
   public clearData(): Promise<void> {
     return this.browser.clearData()
+  }
+
+  public capturePreview(sessionId: string): Promise<string | null> {
+    return this.browser.capturePreview(sessionId)
   }
 
   public getState(sessionId: string): Promise<BrowserPageState | null> {

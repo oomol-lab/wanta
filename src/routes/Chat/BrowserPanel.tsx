@@ -17,24 +17,46 @@ interface BrowserPanelProps {
 }
 
 const toolbarButtonClass =
-  "oo-toolbar-button flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-40"
+  "oo-toolbar-button flex size-8 shrink-0 items-center justify-center rounded-md [-webkit-app-region:no-drag] hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-40"
+
+function browserViewIsOccluded(root: ParentNode = document): boolean {
+  return Boolean(root.querySelector('[aria-modal="true"]'))
+}
 
 export function BrowserPanel({ browserService, sessionId, state, onClose }: BrowserPanelProps) {
   const t = useT()
   const browserSlotRef = React.useRef<HTMLDivElement | null>(null)
   const [address, setAddress] = React.useState(state.navigation.url === "about:blank" ? "" : state.navigation.url)
+  const [previewDataUrl, setPreviewDataUrl] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     setAddress(state.navigation.url === "about:blank" ? "" : state.navigation.url)
   }, [state.navigation.url])
+
+  const refreshPreview = React.useCallback((): void => {
+    void browserService
+      .invoke("capturePreview", sessionId)
+      .then((preview) => {
+        if (preview) setPreviewDataUrl(preview)
+      })
+      .catch((cause: unknown) => {
+        reportRendererHandledError("browser", "capture browser modal backdrop preview failed", cause)
+      })
+  }, [browserService, sessionId])
+
+  React.useEffect(() => {
+    if (!state.navigation.loading) refreshPreview()
+  }, [refreshPreview, state.navigation.loading, state.navigation.url])
 
   React.useLayoutEffect(() => {
     const slot = browserSlotRef.current
     if (!slot) return
 
     let frame: number | null = null
+    let hiddenForOverlay = false
     const showBrowser = (): void => {
       frame = null
+      if (browserViewIsOccluded()) return
       const rect = slot.getBoundingClientRect()
       if (rect.width < 1 || rect.height < 1) return
       const bounds: BrowserViewBounds = {
@@ -43,28 +65,53 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
         x: rect.x,
         y: rect.y,
       }
-      void browserService.invoke("show", { bounds, sessionId }).catch((cause: unknown) => {
-        reportRendererHandledError("browser", "show browser page failed", cause)
-      })
+      void browserService
+        .invoke("show", { bounds, sessionId })
+        .then(refreshPreview)
+        .catch((cause: unknown) => {
+          reportRendererHandledError("browser", "show browser page failed", cause)
+        })
     }
     const scheduleShow = (): void => {
+      if (browserViewIsOccluded()) {
+        if (frame !== null) {
+          window.cancelAnimationFrame(frame)
+          frame = null
+        }
+        if (!hiddenForOverlay) {
+          hiddenForOverlay = true
+          void browserService.invoke("hide", sessionId).catch((cause: unknown) => {
+            reportRendererHandledError("browser", "hide browser page behind modal failed", cause)
+          })
+        }
+        return
+      }
+      hiddenForOverlay = false
       if (frame !== null) window.cancelAnimationFrame(frame)
       frame = window.requestAnimationFrame(showBrowser)
     }
 
     scheduleShow()
-    const observer = new ResizeObserver(scheduleShow)
-    observer.observe(slot)
+    const resizeObserver = new ResizeObserver(scheduleShow)
+    resizeObserver.observe(slot)
+    const overlayObserver = new MutationObserver(scheduleShow)
+    overlayObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["aria-modal"],
+      childList: true,
+      subtree: true,
+    })
     window.addEventListener("resize", scheduleShow)
     return () => {
-      observer.disconnect()
+      resizeObserver.disconnect()
+      overlayObserver.disconnect()
       window.removeEventListener("resize", scheduleShow)
       if (frame !== null) window.cancelAnimationFrame(frame)
       void browserService.invoke("hide", sessionId).catch((cause: unknown) => {
         reportRendererHandledError("browser", "hide browser page on unmount failed", cause)
       })
     }
-  }, [browserService, sessionId])
+  }, [browserService, refreshPreview, sessionId])
 
   const runNavigationAction = React.useCallback(
     (action: "goBack" | "goForward" | "reload"): void => {
@@ -96,7 +143,7 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
 
   return (
     <section className="flex h-full min-h-0 flex-col border-l border-border bg-background">
-      <div className="oo-toolbar flex h-[var(--app-titlebar-height)] shrink-0 items-center gap-1 border-b border-border px-2">
+      <div className="oo-titlebar oo-toolbar flex h-[var(--app-titlebar-height)] shrink-0 items-center gap-1 border-b border-border px-2 [-webkit-app-region:drag]">
         <button
           type="button"
           className={toolbarButtonClass}
@@ -127,7 +174,7 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
           <LoaderCircle className={cn("size-4 animate-spin", !state.navigation.loading && "hidden")} />
           <RotateCw className={cn("size-4", state.navigation.loading && "hidden")} />
         </button>
-        <form className="min-w-0 flex-1" onSubmit={navigate}>
+        <form className="min-w-0 flex-1 [-webkit-app-region:no-drag]" onSubmit={navigate}>
           <input
             value={address}
             aria-label={t("browser.address")}
@@ -156,7 +203,17 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
           <X className="size-4" />
         </button>
       </div>
-      <div ref={browserSlotRef} className="min-h-0 min-w-0 flex-1 bg-background" />
+      <div ref={browserSlotRef} className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
+        {previewDataUrl ? (
+          <img
+            src={previewDataUrl}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="pointer-events-none absolute inset-0 size-full select-none"
+          />
+        ) : null}
+      </div>
     </section>
   )
 }

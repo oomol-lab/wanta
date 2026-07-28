@@ -1,18 +1,22 @@
 import type { WikiGraphRuntime } from "./runner.ts"
 
-import { mkdtemp, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { describe, expect, it, vi, beforeEach } from "vitest"
 import {
   addWikiGraphLibraryArchive,
+  createWikiGraphLibraryFolder,
   inspectWikiGraph,
   listWikiGraphLibraryArchives,
+  listWikiGraphLibraryFolders,
+  moveWikiGraphLibraryArchive,
   prepareWikiGraphDefaultLibrary,
   readWikiGraphCover,
   readWikiGraphIndex,
   readWikiGraphMetadata,
   removeWikiGraphLibraryArchive,
+  removeWikiGraphLibraryFolder,
   wikiGraphCoverageReady,
 } from "./runner.ts"
 
@@ -25,6 +29,7 @@ const sdk = vi.hoisted(() => {
       archiveFiles: [] as string[],
       getArchive: [] as unknown[],
       list: [] as unknown[],
+      move: [] as unknown[],
       rebind: [] as unknown[],
       remove: [] as unknown[],
       runtimeStateDirs: [] as (string | undefined)[],
@@ -143,6 +148,10 @@ vi.mock("wiki-graph-core", () => {
       sdk.calls.remove.push(input)
       return sdk.archives[0]
     },
+    moveWikiGraphLibraryArchive: async (input: unknown) => {
+      sdk.calls.move.push(input)
+      return sdk.addRecord ?? sdk.archives[0]
+    },
     upgradeWikiGraphMaintenanceTarget: async (target: string) => {
       sdk.calls.upgrade.push(target)
       return {
@@ -231,6 +240,7 @@ beforeEach(() => {
     archiveFiles: [],
     getArchive: [],
     list: [],
+    move: [],
     rebind: [],
     remove: [],
     runtimeStateDirs: [],
@@ -290,7 +300,7 @@ describe("WikiGraph SDK adapter", () => {
       uri: "wikg://lib/arc/imported-public-id",
     })
 
-    const imported = await addWikiGraphLibraryArchive(runtime(dir), source, "research/../research")
+    const imported = await addWikiGraphLibraryArchive(runtime(dir), source, "research")
 
     expect(imported).toMatchObject({
       id: "imported-public-id",
@@ -341,6 +351,16 @@ describe("WikiGraph SDK adapter", () => {
     expect(sdk.calls.upgrade).not.toContain(source)
     expect(sdk.calls.archiveFiles).toEqual(["/managed/library/broken-copy.wikg"])
     expect(sdk.calls.remove).toEqual([{ target: { kind: "mock", uri: "wikg://lib/arc/broken-public-id" } }])
+  })
+
+  it("rejects unsafe import target directories", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const source = path.join(dir, "Original Book.wikg")
+    await writeFile(source, "archive")
+
+    await expect(addWikiGraphLibraryArchive(runtime(dir), source, "research//deep")).rejects.toThrow("stay inside")
+    await expect(addWikiGraphLibraryArchive(runtime(dir), source, "research/../deep")).rejects.toThrow("stay inside")
+    await expect(addWikiGraphLibraryArchive(runtime(dir), source, "research\\deep")).rejects.toThrow("/ separators")
   })
 
   it("removes archives by the public archive URI", async () => {
@@ -419,6 +439,92 @@ describe("WikiGraph SDK adapter", () => {
     await expect(readWikiGraphMetadata(rt, "book")).rejects.toThrow("[WikiGraph managed storage]")
     await expect(readWikiGraphMetadata(rt, "book")).rejects.not.toThrow(dir)
     await expect(readWikiGraphMetadata(rt, "book")).rejects.not.toThrow("wikg://lib/arc/book")
+  })
+
+  it("lists managed folders from the filesystem", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const rt = runtime(dir)
+    await mkdir(path.join(rt.managedLibraryDir, "science", "physics"), { recursive: true })
+
+    await expect(listWikiGraphLibraryFolders(rt)).resolves.toEqual(["science", "science/physics"])
+  })
+
+  it("moves archives to a new relative path without changing their public id", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const rt = runtime(dir)
+    sdk.archives = [
+      archiveRecord({
+        publicId: "public-archive",
+        relativePath: "source/book.wikg",
+        uri: "wikg://lib/arc/public-archive",
+      }),
+    ]
+    sdk.addRecord = archiveRecord({
+      publicId: "public-archive",
+      relativePath: "target/renamed.wikg",
+      uri: "wikg://lib/arc/public-archive",
+    })
+
+    const moved = await moveWikiGraphLibraryArchive(rt, "public-archive", "target", "renamed.wikg")
+
+    expect(moved.id).toBe("public-archive")
+    expect(moved.relativePath).toBe("target/renamed.wikg")
+    expect(sdk.calls.move).toEqual([
+      {
+        target: { kind: "mock", uri: "wikg://lib/arc/public-archive" },
+        to: "target/renamed.wikg",
+      },
+    ])
+  })
+
+  it("creates and removes empty managed folders", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const rt = runtime(dir)
+
+    await expect(createWikiGraphLibraryFolder(rt, "notes/archive")).resolves.toBe("notes/archive")
+    await expect(listWikiGraphLibraryFolders(rt)).resolves.toEqual(["notes", "notes/archive"])
+    await expect(removeWikiGraphLibraryFolder(rt, "notes/archive")).resolves.toBeUndefined()
+  })
+
+  it("rejects folder deletion when a knowledge file lives underneath", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const rt = runtime(dir)
+    sdk.archives = [
+      archiveRecord({
+        publicId: "public-archive",
+        relativePath: "notes/archive/book.wikg",
+        uri: "wikg://lib/arc/public-archive",
+      }),
+    ]
+    await mkdir(path.join(rt.managedLibraryDir, "notes", "archive"), { recursive: true })
+
+    await expect(removeWikiGraphLibraryFolder(rt, "notes/archive")).rejects.toThrow("not empty")
+  })
+
+  it("rejects moving archives into conflicting targets", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const rt = runtime(dir)
+    sdk.archives = [
+      archiveRecord({ publicId: "source", relativePath: "source/book.wikg", uri: "wikg://lib/arc/source" }),
+      archiveRecord({ publicId: "conflict", relativePath: "target/book.wikg", uri: "wikg://lib/arc/conflict" }),
+    ]
+
+    await expect(moveWikiGraphLibraryArchive(rt, "source", "target", "book.wikg")).rejects.toThrow("already exists")
+  })
+
+  it("rejects unsafe managed library paths for folder and archive operations", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const rt = runtime(dir)
+    sdk.archives = [
+      archiveRecord({ publicId: "source", relativePath: "source/book.wikg", uri: "wikg://lib/arc/source" }),
+    ]
+
+    await expect(createWikiGraphLibraryFolder(rt, "../outside")).rejects.toThrow("stay inside")
+    await expect(createWikiGraphLibraryFolder(rt, "/absolute/path")).rejects.toThrow("stay inside")
+    await expect(createWikiGraphLibraryFolder(rt, "bad//path")).rejects.toThrow("stay inside")
+    await expect(createWikiGraphLibraryFolder(rt, "bad\\path")).rejects.toThrow("/ separators")
+    await expect(removeWikiGraphLibraryFolder(rt, "folder/../outside")).rejects.toThrow("stay inside")
+    await expect(moveWikiGraphLibraryArchive(rt, "source", "target", "../bad.wikg")).rejects.toThrow("stay inside")
   })
 
   it("requires non-zero covered and total words", () => {

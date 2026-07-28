@@ -1,6 +1,6 @@
 import type { BookMeta, ReadonlyDocument, WikiGraphLibraryArchiveRecord } from "wiki-graph-core"
 
-import { mkdir, stat } from "node:fs/promises"
+import { mkdir, readdir, rmdir, stat } from "node:fs/promises"
 import path from "node:path"
 import {
   addWikiGraphLibraryArchive as addWikiGraphLibraryArchiveWithSDK,
@@ -12,6 +12,7 @@ import {
   readArchiveIndexSettings,
   rebindWikiGraphLibrary,
   removeWikiGraphLibraryArchive as removeWikiGraphLibraryArchiveWithSDK,
+  moveWikiGraphLibraryArchive as moveWikiGraphLibraryArchiveWithSDK,
   upgradeWikiGraphMaintenanceTarget,
   WikiGraphArchiveFile,
   withWikiGraphRuntimeStateDirectoryPath,
@@ -137,27 +138,61 @@ function safeImportTarget(sourcePath: string): string {
   return `${base || "archive"}-${Date.now().toString(36)}.wikg`
 }
 
-function safeLibraryDirectory(targetDirectory: string | undefined): string {
+function normalizeLibraryPathSegments(value: string, fallbackLabel: string): string {
+  const raw = value.trim()
+  if (!raw) throw new Error(fallbackLabel)
+  if (raw.includes("\\")) throw new Error("Knowledge library paths must use / separators")
+  if (path.isAbsolute(raw)) throw new Error("Knowledge library paths must stay inside the managed library")
+
   const parts: string[] = []
-  for (const part of (targetDirectory ?? "").trim().replace(/\\+/gu, "/").split("/")) {
-    if (!part || part === ".") continue
-    if (part === "..") {
-      parts.pop()
-      continue
+  for (const part of raw.split("/")) {
+    const segment = part.trim()
+    if (!segment || segment === "." || segment === "..") {
+      throw new Error("Knowledge library paths must stay inside the managed library")
     }
-    const sanitized = part
-      .normalize("NFKD")
-      .replace(/[^a-zA-Z0-9._ -]+/gu, "-")
-      .replace(/^[-. ]+|[-. ]+$/gu, "")
-      .slice(0, 80)
-    if (sanitized) parts.push(sanitized)
+    if (segment.includes(":")) throw new Error("Knowledge library paths contain invalid characters")
+    parts.push(segment)
   }
   return parts.join("/")
 }
 
+function normalizeKnowledgeFileName(fileName: string): string {
+  const normalized = normalizeLibraryPathSegments(fileName, "Knowledge library file name is required")
+  if (normalized.includes("/")) throw new Error("Knowledge library file names cannot include folders")
+  return normalized.toLowerCase().endsWith(".wikg") ? normalized : `${normalized}.wikg`
+}
+
+function normalizeKnowledgeDirectory(directory: string | undefined, fallbackLabel: string): string {
+  if (!directory) return ""
+  return normalizeLibraryPathSegments(directory, fallbackLabel)
+}
+
+function normalizeKnowledgeTargetPath(targetDirectory: string | undefined, fileName: string): string {
+  const directory = normalizeKnowledgeDirectory(targetDirectory, "Knowledge library target directory is invalid")
+  const baseName = normalizeKnowledgeFileName(fileName)
+  return directory ? `${directory}/${baseName}` : baseName
+}
+
+function ensureKnowledgePathWithinLibrary(runtime: WikiGraphRuntime, relativePath: string): void {
+  const target = path.resolve(runtime.managedLibraryDir, relativePath)
+  const managedRoot = path.resolve(runtime.managedLibraryDir)
+  const prefix = `${managedRoot}${path.sep}`
+  if (target !== managedRoot && !target.startsWith(prefix)) {
+    throw new Error("Knowledge library paths must stay inside the managed library")
+  }
+}
+
+function pathEquals(left: string, right: string): boolean {
+  return left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0
+}
+
+function pathMatchesPrefix(value: string, prefix: string): boolean {
+  return value === prefix || value.startsWith(`${prefix}/`)
+}
+
 function safeImportRelativePath(sourcePath: string, targetDirectory: string | undefined): string {
   const fileName = safeImportTarget(sourcePath)
-  const directory = safeLibraryDirectory(targetDirectory)
+  const directory = normalizeKnowledgeDirectory(targetDirectory, "Knowledge library target directory is invalid")
   return directory ? `${directory}/${fileName}` : fileName
 }
 
@@ -167,6 +202,73 @@ async function withRuntime<T>(runtime: WikiGraphRuntime, fallback: string, opera
   } catch (error) {
     throw wikiGraphError(runtime, fallback, error)
   }
+}
+
+async function listKnowledgeLibraryFolders(runtime: WikiGraphRuntime): Promise<string[]> {
+  await prepareWikiGraphDefaultLibrary(runtime)
+  const folders = new Set<string>()
+  const root = path.resolve(runtime.managedLibraryDir)
+
+  const walk = async (directory: string, relativeDirectory = ""): Promise<void> => {
+    let entries
+    try {
+      entries = await readdir(directory, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const childRelativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name
+      ensureKnowledgePathWithinLibrary(runtime, childRelativePath)
+      folders.add(childRelativePath)
+      await walk(path.join(directory, entry.name), childRelativePath)
+    }
+  }
+
+  await walk(root)
+  return Array.from(folders.values()).sort((left, right) => left.localeCompare(right))
+}
+
+async function archiveRelativePaths(runtime: WikiGraphRuntime): Promise<string[]> {
+  const archives = await listWikiGraphLibraryArchives(runtime)
+  return archives.map((archive) => archive.relativePath || archive.path || `${archive.id}.wikg`)
+}
+
+async function ensureFolderCreateable(runtime: WikiGraphRuntime, relativePath: string): Promise<void> {
+  ensureKnowledgePathWithinLibrary(runtime, relativePath)
+  const archives = await archiveRelativePaths(runtime)
+  const folders = await listKnowledgeLibraryFolders(runtime)
+  if (
+    archives.some((item) => pathEquals(item, relativePath) || pathMatchesPrefix(relativePath, item)) ||
+    folders.some((item) => pathEquals(item, relativePath) || pathMatchesPrefix(item, relativePath))
+  ) {
+    throw new Error("Knowledge library path already exists")
+  }
+  let current = ""
+  for (const segment of relativePath.split("/")) {
+    current = current ? `${current}/${segment}` : segment
+    ensureKnowledgePathWithinLibrary(runtime, current)
+  }
+  await mkdir(path.join(runtime.managedLibraryDir, relativePath), { recursive: true }).catch((error: unknown) => {
+    if ((error as { code?: string }).code === "EEXIST") throw new Error("Knowledge library path already exists")
+    throw error
+  })
+}
+
+async function ensureArchiveTargetAvailable(
+  runtime: WikiGraphRuntime,
+  relativePath: string,
+  excludeId?: string,
+): Promise<void> {
+  ensureKnowledgePathWithinLibrary(runtime, relativePath)
+  const archives = await listWikiGraphLibraryArchives(runtime)
+  const folders = await listKnowledgeLibraryFolders(runtime)
+  for (const archive of archives) {
+    if (excludeId && archive.id === excludeId) continue
+    const archivePath = archive.relativePath || archive.path || `${archive.id}.wikg`
+    if (pathEquals(archivePath, relativePath)) throw new Error("Knowledge library path already exists")
+  }
+  if (folders.some((item) => pathEquals(item, relativePath))) throw new Error("Knowledge library path already exists")
 }
 
 export async function prepareWikiGraphDefaultLibrary(runtime: WikiGraphRuntime): Promise<void> {
@@ -195,6 +297,12 @@ export async function listWikiGraphLibraryArchives(runtime: WikiGraphRuntime): P
     return records
       .filter((item) => item.exists !== false && item.status !== "missing")
       .map((item) => archiveFromRecord(item))
+  })
+}
+
+export async function listWikiGraphLibraryFolders(runtime: WikiGraphRuntime): Promise<string[]> {
+  return await withRuntime(runtime, "Failed to list WikiGraph library folders", async () => {
+    return await listKnowledgeLibraryFolders(runtime)
   })
 }
 
@@ -258,6 +366,61 @@ export async function removeWikiGraphLibraryArchive(runtime: WikiGraphRuntime, i
   await withRuntime(runtime, "Failed to remove WikiGraph archive", async () => {
     await removeWikiGraphLibraryArchiveWithSDK({ target: requireLibraryTarget(archiveUri(normalizedId)) })
   })
+}
+
+export async function moveWikiGraphLibraryArchive(
+  runtime: WikiGraphRuntime,
+  id: string,
+  targetDirectory?: string,
+  fileName?: string,
+): Promise<WikiGraphLibraryArchive> {
+  await prepareWikiGraphDefaultLibrary(runtime)
+  const normalizedId = id.trim()
+  const archive = await withRuntime(runtime, "Failed to resolve WikiGraph archive", async () => {
+    return await getWikiGraphLibraryArchive(requireLibraryTarget(archiveUri(normalizedId)))
+  })
+  const currentRelativePath = archive.relativePath || archive.path || `${archive.id}.wikg`
+  const nextRelativePath = normalizeKnowledgeTargetPath(targetDirectory, fileName ?? path.basename(currentRelativePath))
+  if (pathEquals(currentRelativePath, nextRelativePath)) {
+    return archiveFromRecord(archive)
+  }
+  await ensureArchiveTargetAvailable(runtime, nextRelativePath, normalizedId)
+  return await withRuntime(runtime, "Failed to move WikiGraph archive", async () => {
+    const moved = await moveWikiGraphLibraryArchiveWithSDK({
+      target: requireLibraryTarget(archiveUri(normalizedId)),
+      to: nextRelativePath,
+    })
+    return archiveFromRecord(moved)
+  })
+}
+
+export async function createWikiGraphLibraryFolder(runtime: WikiGraphRuntime, relativePath: string): Promise<string> {
+  const normalizedPath = normalizeKnowledgeDirectory(relativePath, "Knowledge library folder path is required")
+  if (!normalizedPath) throw new Error("Knowledge library folder path is required")
+  await prepareWikiGraphDefaultLibrary(runtime)
+  await withRuntime(runtime, "Failed to create WikiGraph folder", async () => {
+    await ensureFolderCreateable(runtime, normalizedPath)
+  })
+  return normalizedPath
+}
+
+export async function removeWikiGraphLibraryFolder(runtime: WikiGraphRuntime, relativePath: string): Promise<void> {
+  const normalizedPath = normalizeKnowledgeDirectory(relativePath, "Knowledge library folder path is required")
+  if (!normalizedPath) throw new Error("Knowledge library folder path is required")
+  await prepareWikiGraphDefaultLibrary(runtime)
+  ensureKnowledgePathWithinLibrary(runtime, normalizedPath)
+  const archives = await archiveRelativePaths(runtime)
+  if (archives.some((item) => pathMatchesPrefix(item, normalizedPath))) {
+    throw new Error("Knowledge library folder is not empty")
+  }
+  const folders = await listKnowledgeLibraryFolders(runtime)
+  if (!folders.some((item) => pathEquals(item, normalizedPath))) {
+    throw new Error("Knowledge library folder not found")
+  }
+  const target = path.join(runtime.managedLibraryDir, normalizedPath)
+  const entries = await readdir(target)
+  if (entries.length > 0) throw new Error("Knowledge library folder is not empty")
+  await rmdir(target)
 }
 
 export async function readWikiGraphMetadata(runtime: WikiGraphRuntime, id: string): Promise<WikiGraphMetadata> {

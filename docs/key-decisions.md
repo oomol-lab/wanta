@@ -255,8 +255,8 @@
   recursive home/system scans, destructive deletion, global/system or alternate-source dependency changes, privilege
   escalation, `git push/reset/clean`, publish/deploy, infrastructure changes, and the like.
   Sensitive-resource checks take precedence over generic directory session grants; a generic grant
-  can never green-light a high-risk request. Full Access can still take over the session's
-  permissions after a single confirmation. The renderer only displays the pending UI, syncs the
+  can never green-light a high-risk request. Selecting Full Access takes over the session's
+  permissions immediately. The renderer only displays the pending UI, syncs the
   access mode, and relays the user's choice; ⑤ the system prompt was fully rewritten as
   dual-capability (connector meta-tools + local tools) with dynamic additions per access mode —
   opening the tools without changing the prompt leaves the model refusing itself.

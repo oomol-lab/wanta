@@ -6,6 +6,7 @@ import { createPortal } from "react-dom"
 import { nextModelMenuIndex } from "./model-control-utils.ts"
 import { useComposerMenu } from "./useComposerMenu.ts"
 import { Button } from "@/components/ui/button"
+import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
@@ -19,9 +20,18 @@ function permissionModeLabel(mode: AgentPermissionMode, t: ReturnType<typeof use
   return mode === "full_access" ? t("chat.permissionModeFullAccess") : t("chat.permissionModeDefault")
 }
 
-function permissionModeDescription(mode: AgentPermissionMode, t: ReturnType<typeof useT>): string {
-  return mode === "full_access"
-    ? t("chat.permissionModeFullAccessDescription")
+function permissionModeDescription(
+  mode: AgentPermissionMode,
+  commandSandboxAvailable: boolean,
+  t: ReturnType<typeof useT>,
+): string {
+  if (mode === "full_access") {
+    return commandSandboxAvailable
+      ? t("chat.permissionModeFullAccessSandboxDescription")
+      : t("chat.permissionModeFullAccessDescription")
+  }
+  return commandSandboxAvailable
+    ? t("chat.permissionModeDefaultSandboxDescription")
     : t("chat.permissionModeDefaultDescription")
 }
 
@@ -45,6 +55,7 @@ export function PermissionModePicker({
   onFullAccess: () => void
 }) {
   const t = useT()
+  const commandSandboxAvailable = useRuntimeCapabilities().capabilities?.commandSandbox === "preview"
   const [open, setOpen] = React.useState(false)
   const [activeIndex, setActiveIndex] = React.useState(0)
   const itemRefs = React.useRef(new Map<AgentPermissionMode, HTMLButtonElement>())
@@ -132,7 +143,7 @@ export function PermissionModePicker({
             const active = value === mode
             const highlighted = index === activeIndex
             const label = permissionModeLabel(mode, t)
-            const description = permissionModeDescription(mode, t)
+            const description = permissionModeDescription(mode, commandSandboxAvailable, t)
             return (
               <button
                 key={mode}

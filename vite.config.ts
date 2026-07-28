@@ -147,6 +147,7 @@ export default defineConfig(({ command, mode }) => {
                 input: {
                   main: path.join(dirname, "electron/main.ts"),
                   "spreadsheet-preview-worker": path.join(dirname, "electron/chat/spreadsheet-preview-worker.ts"),
+                  "wanta-command-shell": path.join(dirname, "electron/agent/command-sandbox-shell.ts"),
                   "wanta-wg": path.join(dirname, "electron/knowledge/wg.ts"),
                 },
                 // @opencode-ai/sdk 依赖 cross-spawn（CJS require("child_process")）、electron-updater 走
@@ -156,6 +157,8 @@ export default defineConfig(({ command, mode }) => {
                 // 错误内联进主进程包。
                 external: [
                   /^@opencode-ai\/sdk(\/|$)/,
+                  /^@pondwader\/socks5-server(\/|$)/,
+                  /^@vscode\/sandbox-runtime(\/|$)/,
                   /^playwright-core(\/|$)/,
                   /^wiki-graph(\/|$)/,
                   /^wiki-graph-core(\/|$)/,

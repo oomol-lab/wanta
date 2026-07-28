@@ -82,6 +82,10 @@ describe("command sandbox policy", () => {
     await expect(
       store.write({ executionMode: "sandbox", sessionId: "session-1", readWritePaths: [root] }),
     ).rejects.toThrow("private control directory")
+    await store.initialize()
+    await expect(
+      store.write({ executionMode: "sandbox", sessionId: "session-1", readOnlyPaths: [store.policyDir] }),
+    ).rejects.toThrow("private control directory")
   })
 
   it("persists exact private-network grants separately from the signed command snapshot", async () => {

@@ -92,8 +92,8 @@ export class CommandSandboxPolicyStore {
       canonicalizePaths(input.runtimeReadPaths),
       realpath(this.controlDir),
     ])
-    const privateStateOverlap = [...readOnlyPaths, ...requestedReadWritePaths, ...runtimeReadPaths].find((root) =>
-      isPathWithin(root, canonicalControlDir),
+    const privateStateOverlap = [...readOnlyPaths, ...requestedReadWritePaths, ...runtimeReadPaths].find(
+      (root) => isPathWithin(root, canonicalControlDir) || isPathWithin(canonicalControlDir, root),
     )
     if (privateStateOverlap) {
       throw new Error("A command sandbox root cannot include Wanta's private control directory.")

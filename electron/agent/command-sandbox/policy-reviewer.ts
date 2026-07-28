@@ -74,12 +74,13 @@ export function validateReviewerResponse(
   content: string | undefined,
   input: PrivateNetworkReviewInput,
 ): PrivateNetworkReviewDecision {
-  if (!content || content.trim() !== content || content.startsWith("```")) {
+  const trimmed = content?.trim()
+  if (!trimmed || trimmed.startsWith("```")) {
     return { decision: "ask", evidence: null }
   }
   let parsed: unknown
   try {
-    parsed = JSON.parse(content)
+    parsed = JSON.parse(trimmed)
   } catch {
     return { decision: "ask", evidence: null }
   }

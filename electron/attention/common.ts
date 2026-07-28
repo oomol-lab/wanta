@@ -4,6 +4,7 @@ import { serviceName } from "../branding.ts"
 
 export interface AttentionState {
   unreadSessionIds: string[]
+  unreadTeamIds: string[]
 }
 
 export interface VisibleSessionRequest {

@@ -390,6 +390,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     retrySessionSnapshot,
   } = useChat(activeChatSessionId, activeWorkspaceKey)
   const hasUnreadSession = attention.hasUnreadSession
+  const hasUnreadTeam = attention.hasUnreadTeam
+  const hasUnreadTeams = attention.hasUnreadTeams
 
   React.useEffect(() => {
     const syncVisibleSession = (): void => {
@@ -978,7 +980,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     handleSelectComposerProject,
     handleSelectComposerProjectFolder,
     handleSelectProjectFolder,
-    handleSelectSession,
+    handleSelectSession: navigateToSession,
     requestComposerFocus,
   } = useComposerNavigation({
     activeChatSessionId,
@@ -1003,6 +1005,15 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setSidebarSegment,
     sidebarSegment,
   })
+  const handleSelectSession = React.useCallback(
+    (session: SessionInfo): void => {
+      navigateToSession(session)
+      void attentionService.invoke("markSessionViewed", session.id).catch((error: unknown) => {
+        reportRendererHandledError("attention", "mark selected session viewed failed", error)
+      })
+    },
+    [attentionService, navigateToSession],
+  )
   const handleNewSessionWithKnowledgeReset = React.useCallback((): void => {
     setDraftKnowledgeBaseIds([])
     handleNewSession()
@@ -1844,6 +1855,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         collapsed={sidebarCollapsed}
         collapsedProjectIds={collapsedProjectIds}
         hasUnreadSession={hasUnreadSession}
+        hasUnreadTeam={hasUnreadTeam}
+        hasUnreadTeams={hasUnreadTeams}
         isSessionRunning={isSessionRunning}
         loggingOut={auth.loggingOut}
         loggingIn={auth.loggingIn}

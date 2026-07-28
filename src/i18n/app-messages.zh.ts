@@ -1543,6 +1543,7 @@ export const zhCNMessages = {
   "aria.archiveRunningSession": "任务正在执行，暂不能归档",
   "aria.sessionRunning": "任务正在执行",
   "aria.unreadSession": "有未读生成结果",
+  "aria.unreadTeam": "团队中有未读任务结果",
   "aria.expandSidebar": "展开侧边栏",
   "aria.collapseSidebar": "折叠侧边栏",
   "aria.resizeSidebar": "调整侧边栏宽度",

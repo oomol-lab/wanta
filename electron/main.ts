@@ -923,7 +923,12 @@ function createMainWindow(): void {
   browserManager.setMainWindow(mainWindow)
 
   mainWindow.once("ready-to-show", () => mainWindow?.show())
-  mainWindow.on("focus", () => updateService.handleWindowForegrounded())
+  mainWindow.on("focus", () => {
+    updateService.handleWindowForegrounded()
+    void attentionService.windowFocused().catch((error: unknown) => {
+      console.warn("[wanta] failed to mark the focused task as viewed:", error)
+    })
+  })
   mainWindow.on("show", () => updateService.handleWindowForegrounded())
   mainWindow.on("hide", () => {
     void updateService.getAppUpdateState().then(handleAppUpdateStateChanged)

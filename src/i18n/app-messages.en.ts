@@ -1615,6 +1615,7 @@ export const enMessages = {
   "aria.archiveRunningSession": "Task is running and cannot be archived yet",
   "aria.sessionRunning": "Task running",
   "aria.unreadSession": "Unread generated result",
+  "aria.unreadTeam": "Team has unread task results",
   "aria.expandSidebar": "Expand sidebar",
   "aria.collapseSidebar": "Collapse sidebar",
   "aria.resizeSidebar": "Resize sidebar",

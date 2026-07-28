@@ -12,11 +12,13 @@ import {
   listWikiGraphLibraryFolders,
   moveWikiGraphLibraryArchive,
   prepareWikiGraphDefaultLibrary,
+  readWikiGraphChapterTree,
   readWikiGraphCover,
   readWikiGraphIndex,
   readWikiGraphMetadata,
   removeWikiGraphLibraryArchive,
   removeWikiGraphLibraryFolder,
+  updateWikiGraphMetadata,
   wikiGraphCoverageReady,
 } from "./runner.ts"
 
@@ -40,6 +42,7 @@ const sdk = vi.hoisted(() => {
     failCover: false,
     failGetArchive: undefined as Error | undefined,
     failListChapters: undefined as Error | undefined,
+    failUpgradeQueue: [] as Error[],
     ftsCurrent: false,
     indexSettings: { ftsEmbedded: false },
     meta: undefined as MockBookMeta | undefined,
@@ -116,6 +119,15 @@ vi.mock("wiki-graph-core", () => {
           },
         })
       }
+
+      public async write<T>(operation: (document: unknown) => Promise<T> | T): Promise<T> {
+        return await operation({
+          readBookMeta: async () => sdk.meta,
+          replaceBookMeta: async (meta: MockBookMeta) => {
+            sdk.meta = meta
+          },
+        })
+      }
     },
     addWikiGraphLibraryArchive: async (input: unknown) => {
       sdk.calls.add.push(input)
@@ -154,6 +166,10 @@ vi.mock("wiki-graph-core", () => {
     },
     upgradeWikiGraphMaintenanceTarget: async (target: string) => {
       sdk.calls.upgrade.push(target)
+      const error = sdk.failUpgradeQueue.shift()
+      if (error) {
+        throw error
+      }
       return {
         kind: "archive",
         path: target,
@@ -229,6 +245,15 @@ function chapter(chapterId: number, stage: MockChapter["stage"], words: number):
   }
 }
 
+function childChapter(chapterId: number, stage: MockChapter["stage"], words: number): MockChapter {
+  return {
+    ...chapter(chapterId, stage, words),
+    depth: 1,
+    path: `1/${chapterId}`,
+    tocPath: ["Chapter 1"],
+  }
+}
+
 beforeEach(() => {
   sdk.addRecord = archiveRecord()
   sdk.archives = [
@@ -251,6 +276,7 @@ beforeEach(() => {
   sdk.failCover = false
   sdk.failGetArchive = undefined
   sdk.failListChapters = undefined
+  sdk.failUpgradeQueue = []
   sdk.ftsCurrent = false
   sdk.indexSettings = { ftsEmbedded: false }
   sdk.meta = undefined
@@ -289,14 +315,14 @@ describe("WikiGraph SDK adapter", () => {
     expect(sdk.calls.list).toEqual([{ kind: "mock", uri: "wikg://lib/arc" }])
   })
 
-  it("copy-imports archives into a requested managed library directory and returns SDK publicId", async () => {
+  it("copy-imports archives into a requested managed library directory using the original file name", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
     const source = path.join(dir, "Original Book.wikg")
     await writeFile(source, "archive")
     sdk.addRecord = archiveRecord({
       id: 99,
       publicId: "imported-public-id",
-      relativePath: "research/Original-Book-copy.wikg",
+      relativePath: "research/Original Book.wikg",
       uri: "wikg://lib/arc/imported-public-id",
     })
 
@@ -304,7 +330,7 @@ describe("WikiGraph SDK adapter", () => {
 
     expect(imported).toMatchObject({
       id: "imported-public-id",
-      relativePath: "research/Original-Book-copy.wikg",
+      relativePath: "research/Original Book.wikg",
       uri: "wikg://lib/arc/imported-public-id",
     })
     expect(imported.id).not.toBe("99")
@@ -314,9 +340,87 @@ describe("WikiGraph SDK adapter", () => {
       {
         inputPath: source,
         target: { kind: "mock", uri: "wikg://lib/arc" },
-        to: expect.stringMatching(/^research\/Original-Book-.+\.wikg$/u),
+        to: "research/Original Book.wikg",
       },
     ])
+  })
+
+  it("deduplicates imported archive file names in the target directory", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const source = path.join(dir, "三国演义.wikg")
+    await writeFile(source, "archive")
+    sdk.archives = [
+      archiveRecord({ publicId: "first", relativePath: "books/三国演义.wikg", uri: "wikg://lib/arc/first" }),
+      archiveRecord({ publicId: "second", relativePath: "books/三国演义 2.wikg", uri: "wikg://lib/arc/second" }),
+    ]
+    sdk.addRecord = archiveRecord({
+      publicId: "third",
+      relativePath: "books/三国演义 3.wikg",
+      uri: "wikg://lib/arc/third",
+    })
+
+    const imported = await addWikiGraphLibraryArchive(runtime(dir), source, "books")
+
+    expect(imported.relativePath).toBe("books/三国演义 3.wikg")
+    expect(sdk.calls.add).toEqual([
+      {
+        inputPath: source,
+        target: { kind: "mock", uri: "wikg://lib/arc" },
+        to: "books/三国演义 3.wikg",
+      },
+    ])
+  })
+
+  it("deduplicates imports against unregistered physical archive files", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const rt = runtime(dir)
+    const source = path.join(dir, "三国演义.wikg")
+    await writeFile(source, "archive")
+    await mkdir(path.join(rt.managedLibraryDir, "books"), { recursive: true })
+    await writeFile(path.join(rt.managedLibraryDir, "books", "三国演义.wikg"), "orphan")
+    sdk.addRecord = archiveRecord({
+      publicId: "deduped",
+      relativePath: "books/三国演义 2.wikg",
+      uri: "wikg://lib/arc/deduped",
+    })
+
+    const imported = await addWikiGraphLibraryArchive(rt, source, "books")
+
+    expect(imported.relativePath).toBe("books/三国演义 2.wikg")
+    expect(sdk.calls.add).toEqual([
+      {
+        inputPath: source,
+        target: { kind: "mock", uri: "wikg://lib/arc" },
+        to: "books/三国演义 2.wikg",
+      },
+    ])
+  })
+
+  it("retries imports blocked by stale overlay state with an isolated upgraded copy", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const source = path.join(dir, "主义主义-哲学意识形态大全.wikg")
+    await writeFile(source, "archive")
+    sdk.addRecord = archiveRecord({
+      path: "/managed/library/主义主义-哲学意识形态大全.wikg",
+      publicId: "overlay-blocked",
+      relativePath: "主义主义-哲学意识形态大全.wikg",
+      uri: "wikg://lib/arc/overlay-blocked",
+    })
+    sdk.failUpgradeQueue = [
+      new Error("Cannot upgrade archive with non-derived overlay state: archive-key."),
+      new Error("Cannot upgrade archive with non-derived overlay state: archive-key."),
+    ]
+
+    await addWikiGraphLibraryArchive(runtime(dir), source)
+
+    expect(sdk.calls.add).toHaveLength(2)
+    expect(sdk.calls.add[0]).toMatchObject({ inputPath: source, to: "主义主义-哲学意识形态大全.wikg" })
+    expect(sdk.calls.add[1]).toMatchObject({ to: "主义主义-哲学意识形态大全.wikg" })
+    expect((sdk.calls.add[1] as { inputPath: string }).inputPath).not.toBe(source)
+    expect(sdk.calls.remove).toEqual([{ target: { kind: "mock", uri: "wikg://lib/arc/overlay-blocked" } }])
+    expect(sdk.calls.upgrade).toEqual(
+      expect.arrayContaining(["/managed/library/主义主义-哲学意识形态大全.wikg", "wikg://lib"]),
+    )
   })
 
   it("fails and removes the managed copy when post-upgrade validation cannot read chapters", async () => {
@@ -377,7 +481,7 @@ describe("WikiGraph SDK adapter", () => {
     sdk.cover = { data: Uint8Array.from([1, 2, 3]), mediaType: "image/png", path: "cover.png" }
     sdk.chapters = [
       chapter(1, "planned", 100),
-      chapter(2, "sourced", 10),
+      childChapter(2, "sourced", 10),
       chapter(3, "graphed", 20),
       chapter(4, "summarized", 30),
     ]
@@ -399,7 +503,10 @@ describe("WikiGraph SDK adapter", () => {
     })
     await expect(readWikiGraphCover(rt, "public-archive")).resolves.toEqual(Buffer.from([1, 2, 3]))
     await expect(inspectWikiGraph(rt, "public-archive")).resolves.toEqual({
-      content: { chapters: { content: 3, total: 4 }, sourceWords: 60 },
+      content: {
+        chapters: { content: 3, total: 4 },
+        sourceWords: 60,
+      },
       coverage: {
         knowledgeGraph: { coveredWords: 50, totalWords: 60 },
         readingGraph: { coveredWords: 40, totalWords: 60 },
@@ -414,6 +521,49 @@ describe("WikiGraph SDK adapter", () => {
       status: "current",
     })
     expect(sdk.calls.upgrade).toEqual(["/managed/library/copy.wikg"])
+  })
+
+  it("reads a chapter title tree on demand", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    sdk.chapters = [chapter(1, "planned", 100), childChapter(2, "sourced", 10), chapter(3, "graphed", 20)]
+
+    await expect(readWikiGraphChapterTree(runtime(dir), "public-archive")).resolves.toEqual([
+      { children: [{ title: "Chapter 2" }], title: "Chapter 1" },
+      { title: "Chapter 3" },
+    ])
+  })
+
+  it("updates archive title and authors while preserving the rest of book metadata", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    sdk.meta = bookMeta({
+      authors: ["Old Author"],
+      language: "zh-CN",
+      publishedAt: "1500",
+      publisher: "Old Publisher",
+      title: "Old Title",
+    })
+
+    await expect(
+      updateWikiGraphMetadata(runtime(dir), "public-archive", {
+        authors: ["New Author"],
+        title: "New Title",
+      }),
+    ).resolves.toEqual({
+      authors: ["New Author"],
+      language: "zh-CN",
+      publishedAt: "1500",
+      publisher: "Old Publisher",
+      title: "New Title",
+    })
+    expect(sdk.meta).toMatchObject({
+      authors: ["New Author"],
+      language: "zh-CN",
+      publishedAt: "1500",
+      publisher: "Old Publisher",
+      sourceFormat: "epub",
+      title: "New Title",
+      version: 1,
+    })
   })
 
   it("coalesces lazy upgrades for concurrent read-only document inspection", async () => {

@@ -221,6 +221,12 @@ function groupedLockedWikigraphToolActivityParts(
       knowledgeLocked = true
       continue
     }
+    if (!knowledgeLocked && isBashPart(part) && !isSettledToolPart(part)) {
+      const command = str(part.input?.command)
+      if (command && isWgShellCommand(command)) {
+        continue
+      }
+    }
     if (knowledgeLocked && isWikigraphKnowledgeAuxiliaryPart(part)) {
       pendingKnowledge.push(part)
       continue

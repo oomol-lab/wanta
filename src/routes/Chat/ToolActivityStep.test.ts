@@ -290,6 +290,35 @@ describe("ToolActivityStep", () => {
     expect(html).not.toContain("lucide-chevron-right")
   })
 
+  it("hides unsettled WG Bash commands before they can be classified as knowledge activity", () => {
+    const message = assistantMessage("assistant-1")
+    const blocks = groupedWikigraphToolActivityBlocks([
+      {
+        message,
+        block: {
+          kind: "tools",
+          key: "tool-wg-pending",
+          parts: [
+            {
+              kind: "tool",
+              partId: "tool-wg-pending",
+              callId: "call-wg-pending",
+              tool: "bash",
+              status: "running",
+              input: { command: "wg" },
+            },
+          ],
+        },
+      },
+    ])
+    const parts = blocks.flatMap(({ block }) => (block.kind === "tools" ? block.parts : []))
+    const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
+
+    expect(parts).toHaveLength(0)
+    expect(html).not.toContain("运行命令")
+    expect(html).not.toContain("wg")
+  })
+
   it("keeps the trailing WikiGraph activity running while the process is live", () => {
     const message = assistantMessage("assistant-1")
     const sourceBlocks = [

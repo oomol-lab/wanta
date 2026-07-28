@@ -1,3 +1,4 @@
+import type { AuthAccountSummary } from "../../../electron/auth/common.ts"
 import type { AppShellRoute } from "./app-shell-types.ts"
 import type { UseTeamWorkspace, WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 
@@ -5,7 +6,9 @@ import {
   AlertTriangle,
   Archive,
   Building2,
+  Check,
   ChevronsUpDown,
+  Copy,
   LoaderCircle,
   Laptop,
   LogIn,
@@ -16,6 +19,7 @@ import {
   Settings,
 } from "lucide-react"
 import * as React from "react"
+import { formatUserIdentity } from "./account-copy.ts"
 import { workspaceSelectionSwitchKey } from "./app-shell-model.ts"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { ErrorNotice } from "@/components/ErrorNotice"
@@ -28,6 +32,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useClipboardCopy } from "@/hooks/useClipboardCopy"
 import { teamAvatarStyle, teamInitials } from "@/hooks/useTeamWorkspace"
 import { useT } from "@/i18n/i18n"
 import { teamRoleLabelKey } from "@/lib/team-permissions"
@@ -173,8 +178,8 @@ function WorkspaceMenuContent({
 }
 
 function AccountMenuContent({
+  account,
   authenticated,
-  avatarUrl,
   cloudEnabled,
   displayName,
   loggingIn,
@@ -184,8 +189,8 @@ function AccountMenuContent({
   onLogout,
   onNavigate,
 }: {
+  account?: AuthAccountSummary
   authenticated: boolean
-  avatarUrl?: string
   cloudEnabled: boolean
   displayName: string
   loggingIn: boolean
@@ -196,12 +201,36 @@ function AccountMenuContent({
   onNavigate: (route: AppShellRoute) => void
 }) {
   const t = useT()
+  const accountCopy = useClipboardCopy({ failureMessage: t("settings.copyFailed"), resetDelayMs: 2_000 })
+  const AccountCopyIcon = accountCopy.copied ? Check : Copy
+  const accountSecondaryLabel = account?.username || account?.email
   return (
     <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-56">
-      <DropdownMenuLabel>
+      <DropdownMenuLabel className="py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <AccountAvatar name={displayName} avatarUrl={avatarUrl} />
-          <span className="truncate">{displayName}</span>
+          <AccountAvatar name={displayName} avatarUrl={account?.avatarUrl} />
+          <div className="min-w-0 flex-1">
+            <div className="truncate">{displayName}</div>
+            {accountSecondaryLabel ? (
+              <div className="oo-text-caption-compact truncate font-normal text-muted-foreground">
+                {accountSecondaryLabel}
+              </div>
+            ) : null}
+          </div>
+          {account ? (
+            <button
+              type="button"
+              className={cn(
+                "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                accountCopy.copied && "bg-accent text-foreground",
+              )}
+              aria-label={accountCopy.copied ? t("settings.copied") : t("settings.copyUserInfo")}
+              title={accountCopy.copied ? t("settings.copied") : t("settings.copyUserInfo")}
+              onClick={() => void accountCopy.copyText(formatUserIdentity(account))}
+            >
+              <AccountCopyIcon className="size-4" aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
       </DropdownMenuLabel>
       <DropdownMenuSeparator />
@@ -275,9 +304,8 @@ function AccountMenuContent({
 }
 
 export function SidebarFooterControls({
-  accountName,
+  account,
   authenticated,
-  avatarUrl,
   cloudEnabled,
   activeRoute,
   loggingOut,
@@ -289,9 +317,8 @@ export function SidebarFooterControls({
   workspace,
   workspaceSwitching,
 }: {
-  accountName?: string
+  account?: AuthAccountSummary
   authenticated: boolean
-  avatarUrl?: string
   cloudEnabled: boolean
   activeRoute: AppShellRoute
   loggingOut: boolean
@@ -306,7 +333,7 @@ export function SidebarFooterControls({
   const t = useT()
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = React.useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = React.useState(false)
-  const trimmedAccountName = accountName?.trim()
+  const trimmedAccountName = account?.name.trim()
   const displayName = trimmedAccountName || t("workspace.local")
   const activeWorkspaceLabel =
     workspace.activeWorkspace.kind === "local"
@@ -342,8 +369,8 @@ export function SidebarFooterControls({
   }, [])
   const accountMenuContent = (
     <AccountMenuContent
+      account={account}
       authenticated={authenticated}
-      avatarUrl={avatarUrl}
       cloudEnabled={cloudEnabled}
       displayName={displayName}
       loggingIn={loggingIn}

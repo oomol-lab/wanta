@@ -9,6 +9,8 @@ export interface AuthAccountSummary {
   id: string
   name: string
   avatarUrl?: string
+  email?: string
+  username?: string
 }
 
 export interface AuthState {

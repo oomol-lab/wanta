@@ -1,3 +1,4 @@
+import type { BrowserLoginProfile } from "./browser-login.ts"
 import type { AuthService, AuthState } from "./common.ts"
 import type { AuthAccount, AuthRuntimeAccount, AuthStore } from "./store.ts"
 import type { IConnectionService } from "@oomol/connection"
@@ -269,7 +270,13 @@ export class AuthManager {
     }
     return {
       status: "authenticated",
-      account: { id: account.id, name: account.name, ...(account.avatarUrl ? { avatarUrl: account.avatarUrl } : {}) },
+      account: {
+        id: account.id,
+        name: account.name,
+        ...(account.avatarUrl ? { avatarUrl: account.avatarUrl } : {}),
+        ...(account.email ? { email: account.email } : {}),
+        ...(account.username ? { username: account.username } : {}),
+      },
       updatedAt,
     }
   }
@@ -316,13 +323,13 @@ export class AuthManager {
     return state
   }
 
-  /** 兼容旧 auth.json：若账号缺头像，用当前会话 token 后台补拉 profile 并只广播渲染层展示状态。 */
+  /** Enrich older auth.json profiles with the current account identity fields in the background. */
   private async refreshActiveAccountProfile(): Promise<void> {
     if (this.sessionInvalidated) return
     const account = this.activeAccount()
     if (
       !account ||
-      account.avatarUrl ||
+      (account.avatarUrl && account.email && account.username) ||
       this.profileRefreshCompletedAccountId === account.id ||
       this.profileRefreshInFlightAccountId === account.id
     ) {
@@ -340,7 +347,12 @@ export class AuthManager {
         return
       }
       this.profileRefreshCompletedAccountId = account.id
-      if (!profile.avatarUrl && profile.name === currentAccount.name) {
+      if (
+        profile.name === currentAccount.name &&
+        profile.avatarUrl === currentAccount.avatarUrl &&
+        profile.email === currentAccount.email &&
+        profile.username === currentAccount.username
+      ) {
         return
       }
       this.deps.store.write(
@@ -348,6 +360,8 @@ export class AuthManager {
           ...currentAccount,
           name: profile.name,
           ...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
+          ...(profile.email ? { email: profile.email } : {}),
+          ...(profile.username ? { username: profile.username } : {}),
           sessionToken,
         }),
       )
@@ -452,6 +466,8 @@ async function exchangeLogin(authId: string): Promise<AuthRuntimeAccount> {
     id: profile.id,
     name: profile.name,
     ...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
+    ...(profile.email ? { email: profile.email } : {}),
+    ...(profile.username ? { username: profile.username } : {}),
     sessionToken: token,
   }
 }
@@ -488,10 +504,7 @@ async function requestSigninWithAuthId(api: string, authId: string): Promise<str
   return token
 }
 
-async function requestLoginProfile(
-  api: string,
-  token: string,
-): Promise<{ id: string; name: string; avatarUrl?: string }> {
+async function requestLoginProfile(api: string, token: string): Promise<BrowserLoginProfile> {
   const response = await fetch(`${api}/v1/users/profile`, {
     method: "GET",
     signal: authRequestSignal(),

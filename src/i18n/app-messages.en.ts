@@ -1417,6 +1417,7 @@ export const enMessages = {
   "settings.accountName": "Account name",
   "settings.accountDescription": "Signed in as {name}.",
   "settings.copyAccountInfo": "Copy account diagnostics",
+  "settings.copyUserInfo": "Copy user information",
   "settings.accountDiagnosticsTitle": "Wanta account diagnostics",
   "settings.copied": "Copied",
   "settings.copyFailed": "Copy failed",

@@ -1,3 +1,4 @@
+import type { AuthAccountSummary } from "../../../electron/auth/common.ts"
 import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { ProjectSidebarGroup } from "./app-sidebar-model.ts"
@@ -29,9 +30,8 @@ import { cn } from "@/lib/utils"
 const taskSessionPageSize = 50
 
 export const AppShellNavigationSidebar = React.memo(function AppShellNavigationSidebar({
-  accountName,
+  account,
   activeRoute,
-  avatarUrl,
   authenticated,
   cloudEnabled,
   collapsed,
@@ -80,9 +80,8 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   workspace,
   workspaceSwitching,
 }: {
-  accountName?: string
+  account?: AuthAccountSummary
   activeRoute: Route
-  avatarUrl?: string
   authenticated: boolean
   cloudEnabled: boolean
   collapsed: boolean
@@ -348,9 +347,8 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
           </div>
 
           <SidebarFooterControls
-            accountName={accountName}
+            account={account}
             authenticated={authenticated}
-            avatarUrl={avatarUrl}
             cloudEnabled={cloudEnabled}
             activeRoute={activeRoute}
             loggingOut={loggingOut}

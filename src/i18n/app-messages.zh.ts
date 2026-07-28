@@ -1351,6 +1351,7 @@ export const zhCNMessages = {
   "settings.accountName": "账号名称",
   "settings.accountDescription": "已登录为 {name}。",
   "settings.copyAccountInfo": "复制账号诊断信息",
+  "settings.copyUserInfo": "复制用户信息",
   "settings.accountDiagnosticsTitle": "Wanta 账号诊断信息",
   "settings.copied": "已复制",
   "settings.copyFailed": "复制失败",

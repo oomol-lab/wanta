@@ -45,17 +45,29 @@ test("normalizeLoginProfile prefers nickname and requires uid", () => {
       id: "u1",
       name: "Nick",
       avatarUrl: "https://example.com/avatar.png",
+      username: "user",
     },
   )
-  assert.deepEqual(normalizeLoginProfile({ uid: "u1", username: "user" }), { id: "u1", name: "user" })
+  assert.deepEqual(normalizeLoginProfile({ uid: "u1", username: "user" }), {
+    id: "u1",
+    name: "user",
+    username: "user",
+  })
   assert.deepEqual(normalizeLoginProfile({ uid: "u1", username: "user", avatar_url: "javascript:bad" }), {
     id: "u1",
     name: "user",
+    username: "user",
   })
   assert.deepEqual(normalizeLoginProfile({ uid: "u1", username: "user", url: "https://avatars.example.com/u1" }), {
     id: "u1",
     name: "user",
     avatarUrl: "https://avatars.example.com/u1",
+    username: "user",
+  })
+  assert.deepEqual(normalizeLoginProfile({ uid: "u1", email: "user@example.com" }), {
+    id: "u1",
+    name: "user@example.com",
+    email: "user@example.com",
   })
   assert.deepEqual(normalizeLoginProfile({ uid: "u1" }), { id: "u1", name: "u1" })
   assert.equal(normalizeLoginProfile({ nickname: "no-uid" }), undefined)

@@ -1,4 +1,5 @@
 import type { BillingPeriodDays } from "../../../electron/chat/common.ts"
+import type { ConnectionProviderSummary } from "../../../electron/connections/common.ts"
 import type { WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 
 import { LogInIcon } from "lucide-react"
@@ -20,6 +21,7 @@ import {
 import {
   buildCategorySummaries,
   buildDailySpendBuckets,
+  buildSubjectSummaries,
   getSummary,
   statsTotalCredit,
   statsTotalEvents,
@@ -41,6 +43,7 @@ import {
 
 interface BillingRouteProps {
   cacheScope: string
+  connectionProviders?: ConnectionProviderSummary[]
   initialTarget?: "credits" | "plans" | null
   onBack: () => void
   sharedConnectorCount?: number
@@ -50,6 +53,7 @@ interface BillingRouteProps {
 
 export function BillingRoute({
   cacheScope,
+  connectionProviders = [],
   initialTarget,
   onBack,
   sharedConnectorCount,
@@ -60,6 +64,7 @@ export function BillingRoute({
   const { login } = useAuth()
   const chatService = useChatService()
   const [period, setPeriod] = React.useState<BillingPeriodDays>(30)
+  const [usageDetailsOpen, setUsageDetailsOpen] = React.useState(false)
   const [purchaseOpen, setPurchaseOpen] = React.useState(false)
   const billingRequestScope = React.useMemo(() => billingRequestScopeForWorkspace(workspace), [workspace])
   const canManageFunding = billingRequestScope?.canManageFunding === true
@@ -80,6 +85,10 @@ export function BillingRoute({
     () => buildCategorySummaries(data?.spend, data?.metering),
     [data?.spend, data?.metering],
   )
+  const subjectSummaries = React.useMemo(
+    () => (usageDetailsOpen ? buildSubjectSummaries(data?.spend, data?.metering, connectionProviders) : []),
+    [connectionProviders, data?.metering, data?.spend, usageDetailsOpen],
+  )
   const categorySpendTotal = summaries.reduce((sum, item) => sum + item.credit, 0)
   const totalSpend = categorySpendTotal > 0 ? categorySpendTotal : statsTotalCredit(data?.spend)
   const categoryEventTotal = summaries.reduce((sum, item) => sum + item.eventCount, 0)
@@ -89,6 +98,12 @@ export function BillingRoute({
   const balanceAvailable = data?.balanceAvailable === true
   const spendAvailable = data?.spendAvailable === true
   const meteringAvailable = data?.meteringAvailable === true
+  const dataAsOf = React.useMemo(() => {
+    const timestamps = [data?.spend?.dataAsOf, data?.metering?.dataAsOf].filter(
+      (timestamp): timestamp is number => typeof timestamp === "number" && timestamp > 0,
+    )
+    return timestamps.length > 0 ? Math.max(...timestamps) : undefined
+  }, [data?.metering?.dataAsOf, data?.spend?.dataAsOf])
   const hasNoUsage = spendAvailable && totalSpend === 0
   const modelSpend = getSummary(summaries, "model").credit
   const billingContext = React.useMemo(
@@ -288,14 +303,20 @@ export function BillingRoute({
 
         <UsageDetailsDisclosure
           balanceLots={data?.balance?.items ?? []}
+          dataAsOf={dataAsOf}
           dailyBuckets={dailyBuckets}
           hasEstimatedTrend={hasEstimatedTrend}
           loading={loading && !data}
           maxDailySpend={maxDailySpend}
           period={period}
           summaries={summaries}
+          subjectSummaries={subjectSummaries}
           showBalanceLots={canManageFunding}
+          spendAvailable={spendAvailable}
+          meteringAvailable={meteringAvailable}
+          open={usageDetailsOpen}
           totalSpend={totalSpend}
+          onOpenChange={setUsageDetailsOpen}
         />
       </PageRouteShell>
       <TeamSubscriptionPreviewDialog

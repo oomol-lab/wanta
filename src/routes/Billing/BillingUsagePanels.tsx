@@ -1,10 +1,11 @@
 import type { BillingPeriodDays, CreditItem } from "../../../electron/chat/common.ts"
-import type { CategorySummary, UsageCategory } from "./usage.ts"
+import type { CategorySummary, SubjectSummary, UsageCategory } from "./usage.ts"
 
 import {
   ChevronDownIcon,
   CircleDollarSignIcon,
   CoinsIcon,
+  DownloadIcon,
   GiftIcon,
   ImageIcon,
   ListIcon,
@@ -21,10 +22,13 @@ import {
   categoryOrder,
   formatCredit,
   formatDate,
+  formatDateTime,
   formatPercent,
   getSummary,
+  normalizeTimestamp,
   toNumber,
 } from "./usage.ts"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Progress } from "@/components/ui/progress"
@@ -32,34 +36,49 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
+import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
-// Only windows the V2 team stats route can serve (daily cap = 30 days); see BillingPeriodDays.
-const periods: BillingPeriodDays[] = [7, 30]
+// Only windows the Insight V2 daily route can serve (daily cap = 30 days); see BillingPeriodDays.
+const periods: BillingPeriodDays[] = [7, 14, 30]
 
 export function UsageDetailsDisclosure({
   balanceLots,
+  dataAsOf,
   dailyBuckets,
   hasEstimatedTrend,
   loading,
   maxDailySpend,
   period,
+  meteringAvailable,
+  open,
   summaries,
   showBalanceLots,
+  spendAvailable,
+  subjectSummaries,
   totalSpend,
+  onOpenChange,
 }: {
   balanceLots: CreditItem[]
+  dataAsOf?: number
   dailyBuckets: ReturnType<typeof buildDailySpendBuckets>
   hasEstimatedTrend: boolean
   loading: boolean
   maxDailySpend: number
   period: BillingPeriodDays
+  meteringAvailable: boolean
+  open: boolean
   summaries: CategorySummary[]
   showBalanceLots: boolean
+  spendAvailable: boolean
+  subjectSummaries: SubjectSummary[]
   totalSpend: number
+  onOpenChange: (open: boolean) => void
 }) {
   const t = useT()
+  const connectorAggregate = getSummary(summaries, "link")
+  const canExport = subjectSummaries.length > 0 || connectorAggregate.credit > 0 || connectorAggregate.eventCount > 0
   return (
-    <Collapsible>
+    <Collapsible open={open} onOpenChange={onOpenChange}>
       <section className="overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
         <CollapsibleTrigger className="group flex w-full min-w-0 items-center justify-between gap-3 px-3 py-2 text-left">
           <div className="min-w-0">
@@ -81,9 +100,57 @@ export function UsageDetailsDisclosure({
                 <TrendChart buckets={dailyBuckets} maxDailySpend={maxDailySpend} />
               )}
             </BillingPanel>
+            <BillingPanel
+              title={t("billing.breakdown.title")}
+              meta={
+                dataAsOf
+                  ? t("billing.breakdown.metaAsOf", { date: formatDateTime(dataAsOf) })
+                  : t("billing.breakdown.meta")
+              }
+              bodyClassName="p-0"
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={loading || !canExport}
+                  onClick={() =>
+                    exportUsageCsv(subjectSummaries, connectorAggregate, period, dataAsOf, {
+                      metering: meteringAvailable,
+                      spend: spendAvailable,
+                    })
+                  }
+                >
+                  <DownloadIcon data-icon="inline-start" />
+                  {t("billing.breakdown.export")}
+                </Button>
+              }
+            >
+              {loading ? (
+                <LoadingRows count={4} />
+              ) : (
+                <SubjectBreakdown
+                  connectorAggregate={connectorAggregate}
+                  meteringAvailable={meteringAvailable}
+                  spendAvailable={spendAvailable}
+                  summaries={subjectSummaries}
+                  totalSpend={totalSpend}
+                />
+              )}
+            </BillingPanel>
             <section className={cn("grid gap-4", showBalanceLots && "xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]")}>
               <BillingPanel title={t("billing.categoryTitle")} meta={t("billing.categoryMeta")} bodyClassName="p-0">
-                {loading ? <LoadingRows count={3} /> : <CategorySpendList summaries={summaries} total={totalSpend} />}
+                {loading ? (
+                  <LoadingRows count={3} />
+                ) : (
+                  <CategorySpendList
+                    meteringAvailable={meteringAvailable}
+                    spendAvailable={spendAvailable}
+                    summaries={summaries}
+                    subjectSummaries={subjectSummaries}
+                    total={totalSpend}
+                  />
+                )}
               </BillingPanel>
               {showBalanceLots ? (
                 <BillingPanel
@@ -280,10 +347,11 @@ const BillingPanel = React.forwardRef<
     bodyClassName?: string
     children: React.ReactNode
     className?: string
+    action?: React.ReactNode
     meta?: string
     title: string
   }
->(function BillingPanel({ bodyClassName, children, className, meta, title }, ref) {
+>(function BillingPanel({ action, bodyClassName, children, className, meta, title }, ref) {
   return (
     <section
       ref={ref}
@@ -291,7 +359,10 @@ const BillingPanel = React.forwardRef<
     >
       <div className="flex min-h-10 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
         <h2 className="oo-text-title truncate text-foreground">{title}</h2>
-        {meta ? <span className="oo-text-caption shrink-0 truncate text-right">{meta}</span> : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {meta ? <span className="oo-text-caption truncate text-right">{meta}</span> : null}
+          {action}
+        </div>
       </div>
       <div className={cn("p-3", bodyClassName)}>{children}</div>
     </section>
@@ -308,8 +379,21 @@ function LoadingRows({ count }: { count: number }) {
   )
 }
 
-function CategorySpendList({ summaries, total }: { summaries: CategorySummary[]; total: number }) {
+function CategorySpendList({
+  meteringAvailable,
+  spendAvailable,
+  summaries,
+  subjectSummaries,
+  total,
+}: {
+  meteringAvailable: boolean
+  spendAvailable: boolean
+  summaries: CategorySummary[]
+  subjectSummaries: SubjectSummary[]
+  total: number
+}) {
   const t = useT()
+  const connectorAppCount = subjectSummaries.filter((summary) => summary.category === "link").length
   return (
     <div className="grid gap-0">
       {categoryOrder.map((category) => {
@@ -328,19 +412,176 @@ function CategorySpendList({ summaries, total }: { summaries: CategorySummary[];
                 <div className="min-w-0">
                   <div className="oo-text-title truncate text-foreground">{t(`billing.category.${category}`)}</div>
                   <div className="oo-text-caption truncate">
-                    {t("billing.categoryCalls", { count: Intl.NumberFormat().format(summary.eventCount) })}
+                    {category === "link" && connectorAppCount > 0
+                      ? t("billing.categoryConnectorApps", {
+                          apps: Intl.NumberFormat().format(connectorAppCount),
+                          count: meteringAvailable ? Intl.NumberFormat().format(summary.eventCount) : "—",
+                        })
+                      : category === "link" && (summary.eventCount > 0 || summary.credit > 0)
+                        ? t("billing.categoryConnectorAggregateOnly", {
+                            count: meteringAvailable ? Intl.NumberFormat().format(summary.eventCount) : "—",
+                          })
+                        : meteringAvailable
+                          ? t("billing.categoryCalls", { count: Intl.NumberFormat().format(summary.eventCount) })
+                          : t("billing.breakdown.unavailable")}
                   </div>
                 </div>
               </div>
               <Progress value={share} className="h-1.5 bg-muted" />
             </div>
             <div className="text-right">
-              <div className="oo-text-title text-foreground">{formatCredit(summary.credit)}</div>
-              <div className="oo-text-caption">{formatPercent(share)}</div>
+              <div className="oo-text-title text-foreground">{spendAvailable ? formatCredit(summary.credit) : "—"}</div>
+              <div className="oo-text-caption">{spendAvailable ? formatPercent(share) : "—"}</div>
             </div>
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function SubjectBreakdown({
+  connectorAggregate,
+  meteringAvailable,
+  spendAvailable,
+  summaries,
+  totalSpend,
+}: {
+  connectorAggregate: CategorySummary
+  meteringAvailable: boolean
+  spendAvailable: boolean
+  summaries: SubjectSummary[]
+  totalSpend: number
+}) {
+  const t = useT()
+  const hasConnectorUsage = connectorAggregate.credit > 0 || connectorAggregate.eventCount > 0
+  const [category, setCategory] = React.useState<UsageCategory | "all">(() => (hasConnectorUsage ? "link" : "all"))
+  const [expanded, setExpanded] = React.useState(false)
+  const filtered = summaries.filter((summary) => category === "all" || summary.category === category)
+  const visible = expanded ? filtered : filtered.slice(0, 12)
+  const hiddenCount = filtered.length - visible.length
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--oo-divider)] px-3 py-2">
+        <ToggleGroup
+          type="single"
+          value={category}
+          variant="outline"
+          size="sm"
+          onValueChange={(value) => {
+            if (value === "all" || categoryOrder.includes(value as UsageCategory)) {
+              setCategory(value as UsageCategory | "all")
+              setExpanded(false)
+            }
+          }}
+        >
+          <ToggleGroupItem value="all">{t("billing.breakdown.all")}</ToggleGroupItem>
+          {categoryOrder.map((value) => (
+            <ToggleGroupItem key={value} value={value}>
+              {t(`billing.category.${value}`)}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <span className="oo-text-caption">{t("billing.breakdown.items", { count: filtered.length })}</span>
+      </div>
+      {visible.length === 0 ? (
+        category === "link" && hasConnectorUsage ? (
+          <div className="grid gap-1 px-4 py-6">
+            <div className="oo-text-title text-foreground">{t("billing.breakdown.connectorAggregateOnlyTitle")}</div>
+            <p className="oo-text-body text-muted-foreground">
+              {t("billing.breakdown.connectorAggregateOnlyDescription", {
+                amount: spendAvailable ? formatCredit(connectorAggregate.credit) : "—",
+                count: meteringAvailable ? Intl.NumberFormat().format(connectorAggregate.eventCount) : "—",
+              })}
+            </p>
+          </div>
+        ) : (
+          <div className="oo-text-body px-4 py-8 text-center text-muted-foreground">{t("billing.breakdown.empty")}</div>
+        )
+      ) : (
+        <div>
+          <div className="oo-text-caption hidden grid-cols-[minmax(12rem,1fr)_8rem_8rem_8rem_5rem] gap-3 border-b border-[var(--oo-divider)] px-3 py-2 md:grid">
+            <span>{t("billing.breakdown.subject")}</span>
+            <span className="text-right">{t("billing.breakdown.calls")}</span>
+            <span className="text-right">{t("billing.breakdown.usage")}</span>
+            <span className="text-right">{t("billing.breakdown.spend")}</span>
+            <span className="text-right">{t("billing.breakdown.share")}</span>
+          </div>
+          {visible.map((summary) => {
+            const share = totalSpend > 0 ? (summary.credit * 100) / totalSpend : 0
+            return (
+              <div
+                key={`${summary.source}:${summary.subject}`}
+                className="grid min-h-14 gap-2 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0 md:grid-cols-[minmax(12rem,1fr)_8rem_8rem_8rem_5rem] md:items-center md:gap-3"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  {summary.category === "link" ? (
+                    <ProviderIcon iconUrl={summary.iconUrl} displayName={formatSubjectLabel(summary)} />
+                  ) : (
+                    <div className="grid size-8 shrink-0 place-items-center rounded-md bg-[var(--oo-inspector-surface)] text-muted-foreground">
+                      {categoryIcon(summary.category)}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="oo-text-title truncate text-foreground" title={summary.subjects.join(", ")}>
+                      {formatSubjectLabel(summary)}
+                    </div>
+                    {summary.category === "link" ? null : (
+                      <div className="oo-text-caption flex min-w-0 items-center gap-2">
+                        <Badge variant="outline">{t(`billing.category.${summary.category}`)}</Badge>
+                        <span className="truncate" title={summary.source}>
+                          {formatSourceLabel(summary.source, t)}
+                        </span>
+                        {summary.subjects.length > 1 ? (
+                          <span className="shrink-0">
+                            {t("billing.breakdown.subjectCount", { count: summary.subjects.length })}
+                          </span>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <BreakdownMetric
+                  label={t("billing.breakdown.calls")}
+                  value={meteringAvailable ? Intl.NumberFormat().format(summary.eventCount) : "—"}
+                />
+                <BreakdownMetric
+                  label={t("billing.breakdown.usage")}
+                  value={meteringAvailable ? formatUsage(summary.totalUsage) : "—"}
+                />
+                <BreakdownMetric
+                  label={t("billing.breakdown.spend")}
+                  value={spendAvailable ? formatCredit(summary.credit) : "—"}
+                />
+                <BreakdownMetric
+                  label={t("billing.breakdown.share")}
+                  value={spendAvailable ? formatPercent(share) : "—"}
+                />
+              </div>
+            )
+          })}
+          {filtered.length > 12 ? (
+            <div className="flex items-center justify-between gap-3 bg-muted/20 px-3 py-2.5">
+              <span className="oo-text-caption">
+                {expanded ? t("billing.breakdown.allShown") : t("billing.breakdown.hidden", { count: hiddenCount })}
+              </span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setExpanded((value) => !value)}>
+                {expanded ? t("billing.collapseBalanceLots") : t("billing.viewAllBalanceLots")}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BreakdownMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 md:block md:text-right">
+      <span className="oo-text-caption md:hidden">{label}</span>
+      <span className="oo-text-value truncate text-foreground tabular-nums">{value}</span>
     </div>
   )
 }
@@ -392,8 +633,11 @@ function BalanceLotRow({ lot }: { lot: CreditItem }) {
       <div className="grid min-w-0 gap-1.5">
         <div className="min-w-0">
           <div className="oo-text-title truncate text-foreground">{balanceSourceLabel(lot.sourceType, t)}</div>
-          <div className="oo-text-caption truncate">
-            {lot.expiresAt ? t("billing.expiresAt", { date: formatDate(lot.expiresAt) }) : t("billing.neverExpires")}
+          <div className="oo-text-caption flex min-w-0 items-center gap-2">
+            <Badge variant="outline">{balanceScopeLabel(lot.serviceScope, t)}</Badge>
+            <span className="truncate">
+              {lot.expiresAt ? t("billing.expiresAt", { date: formatDate(lot.expiresAt) }) : t("billing.neverExpires")}
+            </span>
           </div>
         </div>
         <Progress value={share} className="h-1.5 bg-muted" />
@@ -476,4 +720,100 @@ function balanceSourceIcon(sourceType: string): React.ReactNode {
     return <CircleDollarSignIcon className="size-5" />
   }
   return <GiftIcon className="size-5" />
+}
+
+function balanceScopeLabel(scope: string, t: ReturnType<typeof useT>): string {
+  if (scope === "GENERAL") return t("billing.balanceScope.general")
+  if (scope === "SERVICE_OOMOL_CONNECTOR") return t("billing.balanceScope.connector")
+  return t("billing.balanceScope.other")
+}
+
+function formatSourceLabel(source: string, t: ReturnType<typeof useT>): string {
+  if (source === "SERVICE_LLM") return t("billing.source.model")
+  if (source === "SERVICE_FUSION_API") return t("billing.source.api")
+  if (source === "SERVICE_OOMOL_CONNECTOR") return t("billing.source.connector")
+  return source
+}
+
+function formatSubjectLabel(summary: SubjectSummary): string {
+  return summary.displayName || summary.subject
+}
+
+function formatUsage(value: number): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value)
+}
+
+function exportUsageCsv(
+  summaries: SubjectSummary[],
+  connectorAggregate: CategorySummary,
+  period: BillingPeriodDays,
+  dataAsOf: number | undefined,
+  available: { metering: boolean; spend: boolean },
+): void {
+  const generatedAt = new Date().toISOString()
+  const appBreakdownAvailable = summaries.some((summary) => summary.category === "link")
+  const header = [
+    "generated_at",
+    "data_as_of",
+    "period_days",
+    "metering_available",
+    "billing_available",
+    "app_breakdown_available",
+    "source",
+    "category",
+    "app_id",
+    "display_name",
+    "subject",
+    "raw_subjects",
+    "event_count",
+    "total_usage",
+    "total_credit",
+  ]
+  const reportMeta: Array<string | number | boolean> = [
+    generatedAt,
+    dataAsOf ? new Date(normalizeTimestamp(dataAsOf)).toISOString() : "",
+    period,
+    available.metering,
+    available.spend,
+    appBreakdownAvailable,
+  ]
+  const rows: Array<Array<string | number | boolean>> = summaries.map((summary) => [
+    ...reportMeta,
+    summary.source,
+    summary.category,
+    summary.appId ?? "",
+    summary.displayName ?? "",
+    summary.subject,
+    summary.subjects.join("|"),
+    available.metering ? summary.eventCount : "",
+    available.metering ? summary.totalUsage : "",
+    available.spend ? summary.credit : "",
+  ])
+  if (rows.length === 0 && (connectorAggregate.credit > 0 || connectorAggregate.eventCount > 0)) {
+    rows.push([
+      ...reportMeta,
+      "SERVICE_OOMOL_CONNECTOR",
+      "link",
+      "",
+      "",
+      "connector-total",
+      "",
+      available.metering ? connectorAggregate.eventCount : "",
+      "",
+      available.spend ? connectorAggregate.credit : "",
+    ])
+  }
+  const csv = [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n")
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = `wanta-usage-${period}d-${new Date().toISOString().slice(0, 10)}.csv`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function csvCell(value: string | number | boolean): string {
+  const text = String(value)
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
 }

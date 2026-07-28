@@ -74,23 +74,22 @@ function isGeneralCreditItem(item: unknown): boolean {
     .trim()
     .toLowerCase()
     .replace(/[\s_-]+/g, "")
-  if (!normalized) {
-    return true
-  }
-  if (new Set(["all", "common", "default", "general", "global", "universal", "通用"]).has(normalized)) {
-    return true
-  }
-  return !/auth|authorization|authorisation|link|cloud|授权|链接|云任务/.test(normalized)
+  return !normalized || new Set(["all", "common", "default", "general", "global", "universal", "通用"]).has(normalized)
+}
+
+function isVisibleCreditItem(item: CreditItem): boolean {
+  return item.serviceScope !== "SERVICE_AUTH_LINK"
 }
 
 function filterGeneralCreditUsages(usages: CreditUsages): CreditUsages {
-  const items = usages.items.filter(isGeneralCreditItem)
+  const items = usages.items.filter(isVisibleCreditItem)
+  const generalItems = items.filter(isGeneralCreditItem)
   return {
     ...usages,
     items,
     total: {
-      originalCredit: String(sumCreditValues(items.map((item) => item.originalCredit))),
-      currentCredit: String(sumCreditValues(items.map((item) => item.currentCredit))),
+      originalCredit: String(sumCreditValues(generalItems.map((item) => item.originalCredit))),
+      currentCredit: String(sumCreditValues(generalItems.map((item) => item.currentCredit))),
     },
   }
 }
@@ -338,10 +337,16 @@ function unwrapApiData<T>(payload: unknown): T {
   return payload as T
 }
 
-// Subset of insight's /v2/stats/team/:teamId/{billing,metering} response we consume. V2 dropped the
+// Subset of Insight's /v2/stats/{billing,metering} response we consume. V2 dropped the
 // per-bucket `subject` from the time series (it now lives only in subjectTotals), so a series item
 // carries just time/source plus the mode-dependent totalCredit | totalUsage | eventCount.
 interface TeamStatsV2Response {
+  dataAsOf?: number
+  effectiveRange?: {
+    startTime?: number
+    endTime?: number
+  }
+  granularity?: "hourly" | "daily"
   items?: {
     time?: number
     source?: string
@@ -350,6 +355,7 @@ interface TeamStatsV2Response {
     eventCount?: number
   }[]
   sourceTotals?: Record<string, { totalCredit?: string; totalUsage?: string; eventCount?: number }>
+  subjectTotals?: Record<string, Record<string, { totalCredit?: string; totalUsage?: string; eventCount?: number }>>
   total?: { totalCredit?: string; totalUsage?: string; eventCount?: number }
 }
 
@@ -360,6 +366,18 @@ function adaptTeamStatsResponse(payload: unknown): BillingSpendStats {
   const data = unwrapApiData<TeamStatsV2Response>(payload)
   const items = Array.isArray(data.items) ? data.items : []
   return {
+    ...(typeof data.dataAsOf === "number" ? { dataAsOf: data.dataAsOf } : {}),
+    ...(data.effectiveRange &&
+    typeof data.effectiveRange.startTime === "number" &&
+    typeof data.effectiveRange.endTime === "number"
+      ? {
+          effectiveRange: {
+            startTime: data.effectiveRange.startTime,
+            endTime: data.effectiveRange.endTime,
+          },
+        }
+      : {}),
+    ...(data.granularity ? { granularity: data.granularity } : {}),
     items: items.map((item) => ({
       source: item.source ?? "",
       subject: "",
@@ -369,6 +387,7 @@ function adaptTeamStatsResponse(payload: unknown): BillingSpendStats {
       eventCount: item.eventCount,
     })),
     sourceTotals: data.sourceTotals ?? {},
+    subjectTotals: data.subjectTotals ?? {},
     total: data.total ?? {},
   }
 }
@@ -440,6 +459,22 @@ const meteringExcludeSubjects = [
   "SERVICE_AUTH_LINK:fusion-api",
 ].join(",")
 
+function insightUtcOffset(): number | undefined {
+  const offset = -(new Date().getTimezoneOffset() / 60)
+  return Number.isInteger(offset) && offset >= -12 && offset <= 14 ? offset : undefined
+}
+
+function appendStatsRange(url: URL, days: number): void {
+  const { endTime, startTime } = statsRange(days)
+  url.searchParams.set("granularity", "daily")
+  url.searchParams.set("startTime", String(startTime))
+  url.searchParams.set("endTime", String(endTime))
+  const utcOffset = insightUtcOffset()
+  if (utcOffset) {
+    url.searchParams.set("utcOffset", String(utcOffset))
+  }
+}
+
 // Insight V2 billing data is personal account data. Team identity deliberately does not participate:
 // team plans/seats are workspace-scoped, while balance and charged usage belong to the signed-in user.
 async function getCreditSpendStats(
@@ -447,11 +482,8 @@ async function getCreditSpendStats(
   _scope: BillingRequestScope,
   signal?: AbortSignal,
 ): Promise<BillingSpendStats> {
-  const { endTime, startTime } = statsRange(days)
   const url = new URL("/v2/stats/billing", insightBaseUrl)
-  url.searchParams.set("granularity", "daily")
-  url.searchParams.set("startTime", String(startTime))
-  url.searchParams.set("endTime", String(endTime))
+  appendStatsRange(url, days)
   return adaptTeamStatsResponse(await fetchAuthenticatedJson(url, undefined, signal))
 }
 
@@ -460,11 +492,8 @@ async function getCreditMeteringStats(
   _scope: BillingRequestScope,
   signal?: AbortSignal,
 ): Promise<BillingSpendStats> {
-  const { endTime, startTime } = statsRange(days)
   const url = new URL("/v2/stats/metering", insightBaseUrl)
-  url.searchParams.set("granularity", "daily")
-  url.searchParams.set("startTime", String(startTime))
-  url.searchParams.set("endTime", String(endTime))
+  appendStatsRange(url, days)
   url.searchParams.set("excludeSubjects", meteringExcludeSubjects)
   return adaptTeamStatsResponse(await fetchAuthenticatedJson(url, undefined, signal))
 }

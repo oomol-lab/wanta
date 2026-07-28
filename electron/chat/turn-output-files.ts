@@ -30,8 +30,6 @@ const intermediateCodeExtensions = new Set([
   ".go",
   ".h",
   ".hpp",
-  ".html",
-  ".htm",
   ".java",
   ".js",
   ".jsx",

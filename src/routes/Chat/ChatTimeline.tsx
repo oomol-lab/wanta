@@ -114,6 +114,7 @@ interface ChatTurnViewProps {
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
+  onBeforeDisclosure: (anchor: HTMLElement | null) => () => void
   onViewBilling?: () => void
 }
 
@@ -134,6 +135,7 @@ function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewP
     previous.onArtifactsAvailable === next.onArtifactsAvailable &&
     previous.onArtifactsOpen === next.onArtifactsOpen &&
     previous.onTurnOutputOpen === next.onTurnOutputOpen &&
+    previous.onBeforeDisclosure === next.onBeforeDisclosure &&
     previous.onViewBilling === next.onViewBilling
   )
 }
@@ -154,6 +156,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
   onArtifactsAvailable,
   onArtifactsOpen,
   onTurnOutputOpen,
+  onBeforeDisclosure,
   onViewBilling,
 }: ChatTurnViewProps) {
   const timelineSegments = segmentAssistantTimeline(turn.assistants)
@@ -284,6 +287,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
                     onRecover={retrySource ? handleRecover : undefined}
                     onRetryFresh={retrySource ? handleRetryFresh : undefined}
                     onViewBilling={onViewBilling}
+                    onBeforeDisclosure={onBeforeDisclosure}
                   />
                 </MessageContent>
                 {ownsTurnActions && (processActionsText || assistantCancelled) ? (
@@ -413,6 +417,21 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   const artifactGroupsByMessageIdRef = React.useRef<Map<string, ResolvedArtifactGroup[]>>(new Map())
   const artifactGroupsByTurnIdRef = React.useRef<Map<string, ResolvedArtifactGroup[]>>(new Map())
   const latestAssistant = React.useMemo(() => latestAssistantMessage(messages), [messages])
+  const handleBeforeDisclosure = React.useCallback((anchor: HTMLElement | null) => {
+    const conversation = conversationRef.current
+    const scrollElement = conversation?.scrollRef.current
+    conversation?.stopScroll()
+    if (!anchor || !scrollElement) {
+      return () => undefined
+    }
+    const anchorTop = anchor.getBoundingClientRect().top
+    return () => {
+      const offset = anchor.getBoundingClientRect().top - anchorTop
+      if (Math.abs(offset) > 0.5) {
+        scrollElement.scrollTop += offset
+      }
+    }
+  }, [])
   const turnGrouping = React.useMemo(() => updateChatTurnGrouping(turnGroupingRef.current, messages), [messages])
   React.useLayoutEffect(() => {
     turnGroupingRef.current = turnGrouping
@@ -559,6 +578,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
                 onArtifactsOpen={onArtifactsOpen}
                 onArtifactsAvailable={publishArtifactAvailability ? onArtifactsAvailable : noopArtifactsAvailable}
                 onTurnOutputOpen={onTurnOutputOpen}
+                onBeforeDisclosure={handleBeforeDisclosure}
                 onViewBilling={onViewBilling}
               />
             </div>

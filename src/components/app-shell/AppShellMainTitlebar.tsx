@@ -4,6 +4,7 @@ import type { UseAppUpdate } from "@/hooks/useAppUpdate"
 import type { WorkspaceSelection } from "@/hooks/useTeamWorkspace"
 import type { LucideIcon } from "lucide-react"
 
+import { Globe2 } from "lucide-react"
 import * as React from "react"
 import { EditableTitlebarTitle } from "./AppShellDialogs.tsx"
 import { SidebarTitlebarActions } from "./AppShellSidebar.tsx"
@@ -18,14 +19,18 @@ export const AppShellMainTitlebar = React.memo(function AppShellMainTitlebar({
   artifactsToggleIcon: ArtifactsToggleIcon,
   artifactsToggleLabel,
   billingCacheScope,
+  browserPanelOpen,
+  browserToggleLabel,
   isSidebarRestoring,
   sharedConnectorCount,
   onArtifactsToggle,
+  onBrowserToggle,
   onOpenSearch,
   onRenameSession,
   onToggleSidebar,
   onViewBilling,
   showArtifactsToggle,
+  showBrowserToggle,
   sidebarCollapsed,
   titlebarEditable,
   titlebarTitle,
@@ -37,14 +42,18 @@ export const AppShellMainTitlebar = React.memo(function AppShellMainTitlebar({
   artifactsToggleIcon: LucideIcon
   artifactsToggleLabel: string
   billingCacheScope: string
+  browserPanelOpen: boolean
+  browserToggleLabel: string
   isSidebarRestoring: boolean
   sharedConnectorCount?: number
   onArtifactsToggle: () => void
+  onBrowserToggle: () => void
   onOpenSearch: () => void
   onRenameSession: (sessionId: string, title: string) => void
   onToggleSidebar: () => void
   onViewBilling?: (target?: BillingDetailsTarget) => void
   showArtifactsToggle: boolean
+  showBrowserToggle: boolean
   sidebarCollapsed: boolean
   titlebarEditable: boolean
   titlebarTitle: string
@@ -85,6 +94,21 @@ export const AppShellMainTitlebar = React.memo(function AppShellMainTitlebar({
             workspace={workspace}
             onViewDetails={onViewBilling}
           />
+        ) : null}
+        {showBrowserToggle ? (
+          <button
+            type="button"
+            title={browserToggleLabel}
+            aria-label={browserToggleLabel}
+            aria-pressed={browserPanelOpen}
+            className={cn(
+              "oo-toolbar-button flex size-8 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground",
+              browserPanelOpen && "bg-accent text-foreground",
+            )}
+            onClick={onBrowserToggle}
+          >
+            <Globe2 className="size-4" />
+          </button>
         ) : null}
         {showArtifactsToggle ? (
           <button

@@ -791,6 +791,9 @@ environment and are not an OpenConnector contract. OpenConnector uses the four
 typed Link tools and Link-aware prompt instead; do not create a second router
 Skill in this feature.
 
+Product-owned, runtime-neutral Skills such as Browser may still be synchronized independently of
+`bundledOoSkills`; that flag controls the OOMOL-specific bundle.
+
 This workspace decision does not disable the app's OOMOL SkillService. Its UI
 and main-process install, update, and delete operations remain gated by OOMOL
 account capability and use buildOomolMaintenanceEnv regardless of active Link

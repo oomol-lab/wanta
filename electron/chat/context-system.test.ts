@@ -57,6 +57,9 @@ test("buildPermissionModeSystem describes default access", () => {
   assert.match(prompt, /regardless of package name, size, or runtime/)
   assert.match(prompt, /Node\.js\/Python package runners are not confirmation boundaries/)
   assert.match(prompt, /selected-project virtual-environment interpreter/)
+  assert.match(prompt, /visible integrated browser/)
+  assert.match(prompt, /sensitive or consequential browser action/)
+  assert.match(prompt, /Login, credentials, passkeys, and CAPTCHA are always manual/)
   assert.doesNotMatch(prompt, /user has enabled Full Access/)
 })
 
@@ -70,6 +73,8 @@ test("buildPermissionModeSystem describes full access", () => {
   assert.match(prompt, /Local permission requests are auto-approved/)
   assert.match(prompt, /Do not ask the user to switch modes or approve local tool calls/)
   assert.match(prompt, /non-local business workflow explicitly requires user approval/)
+  assert.match(prompt, /integrated browser is YOLO/)
+  assert.match(prompt, /Login, credentials, passkeys, and CAPTCHA remain manual/)
 })
 
 test("buildResponseLanguageSystem follows a detected request language before the interface locale", () => {

@@ -190,7 +190,8 @@
   or stopped/recoverable/dismissed states.
 - Embedded tool source (`tool-sources.ts`, String.raw) **must not contain backticks or `${}`**
   (they break the template string); that code runs in OpenCode's Bun and does not participate in
-  this project's tsc/oxlint. The embedded custom tools are the four connector tools only. WikiGraph
+  this project's tsc/oxlint. The embedded custom tools are four connector tools plus seven
+  integrated-browser tools. WikiGraph
   knowledge access is intentionally not an OpenCode custom tool: the sidecar receives a Wanta-owned
   `wg` shim at the front of `PATH`, and the shim forwards stdin/stdout/stderr/exit code to WikiGraph
   without interpreting business output. Tool descriptions are themselves part of the prompt: keep

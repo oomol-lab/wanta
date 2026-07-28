@@ -1,5 +1,5 @@
 // 静态内置 agent skill：构建期用 oo 二进制把 oo bundled skill 导出到 resources/skills/（gitignore），
-// 再补入 Wanta 自带的只读工作流 skill（resources/wanta-skills/）。
+// 再补入 Wanta 自带的只读工作流 skills（resources/wanta-skills/）。
 // 供 dev 与打包共用。运行时由 electron/agent/workspace.ts 拷进 OpenCode workspace 的 .opencode/skill/，
 // 使 Wanta 自己的 agent 直接读到这些 skill——不再像旧 oo-cli 那样把 skill 释放到其他 AI agent 家目录。
 //
@@ -20,15 +20,11 @@ const repoRoot = path.join(dirname, "..")
 export const bundledSkillsDir = path.join(repoRoot, "resources", "skills")
 export const wantaSkillsDir = path.join(repoRoot, "resources", "wanta-skills")
 
+const ooBundledSkillIds = ["oo", "oo-find-skills", "oo-create-skill", "oo-publish-skill"] as const
+export const wantaBundledSkillIds = ["browser", "wikigraph-knowledge"] as const
+
 // 需内置到 Wanta agent workspace 的 skill；用于导出后的完整性校验（数量/缺失）。
-export const bundledSkillIds = [
-  "oo",
-  "oo-find-skills",
-  "oo-create-skill",
-  "oo-publish-skill",
-  "wikigraph-knowledge",
-] as const
-const ooBundledSkillIds = bundledSkillIds.filter((id) => id !== "wikigraph-knowledge")
+export const bundledSkillIds = [...ooBundledSkillIds, ...wantaBundledSkillIds] as const
 
 interface SkillsInstallExport {
   status?: string
@@ -38,7 +34,7 @@ interface SkillsInstallExport {
 
 /**
  * 把 oo bundled skill 导出到 outDir（默认 resources/skills/）。幂等：先清空目录再导出，避免旧版本残留。
- * 返回导出目录绝对路径。导出失败或 4 个 skill 未全部导出则抛错。
+ * 返回导出目录绝对路径。导出失败或 oo skills 未全部导出则抛错。
  */
 export async function exportBundledSkills(outDir: string = bundledSkillsDir): Promise<string> {
   const ooBin = await downloadOoBinary()
@@ -69,9 +65,11 @@ export async function exportBundledSkills(outDir: string = bundledSkillsDir): Pr
   }
 
   assertSkillsExported(result.stdout, outDir)
-  await cp(path.join(wantaSkillsDir, "wikigraph-knowledge"), path.join(outDir, "wikigraph-knowledge"), {
-    recursive: true,
-  })
+  await Promise.all(
+    wantaBundledSkillIds.map((skillId) =>
+      cp(path.join(wantaSkillsDir, skillId), path.join(outDir, skillId), { recursive: true }),
+    ),
+  )
   return outDir
 }
 

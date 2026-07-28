@@ -34,6 +34,7 @@ import { toast } from "sonner"
 import { branding } from "../../../electron/branding.ts"
 import { notificationPresentation } from "./notification-presentation.ts"
 import { shouldShowSelfManagedRuntimeSettings } from "./settings-presentation.ts"
+import { useBrowserService } from "@/components/AppContext"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { OpenConnectorEndpointFields } from "@/components/OpenConnectorEndpointFields"
@@ -41,6 +42,16 @@ import { PageRouteShell } from "@/components/PageRouteShell"
 import { SectionHeading } from "@/components/SectionHeading"
 import { useTheme } from "@/components/theme-context"
 import { Button } from "@/components/ui/button"
+import {
+  ConfirmDialog,
+  ConfirmDialogAction,
+  ConfirmDialogCancel,
+  ConfirmDialogContent,
+  ConfirmDialogDescription,
+  ConfirmDialogFooter,
+  ConfirmDialogHeader,
+  ConfirmDialogTitle,
+} from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
@@ -132,6 +143,14 @@ export function SettingsRoute({
           </SettingsItem>
         </SettingsSection>
 
+        <SettingsSection title={t("settings.groupBrowser")}>
+          <BrowserSettings
+            enabled={appSettings.settings.browserEnabled}
+            loading={appSettings.loading}
+            onEnabledChange={appSettings.setBrowserEnabled}
+          />
+        </SettingsSection>
+
         <SettingsSection title={t("settings.groupApplication")}>
           <NotificationSettings
             capability={attention.notificationCapability}
@@ -160,6 +179,100 @@ export function SettingsRoute({
         </SettingsSection>
       </div>
     </PageRouteShell>
+  )
+}
+
+function BrowserSettings({
+  enabled,
+  loading,
+  onEnabledChange,
+}: {
+  enabled: boolean
+  loading: boolean
+  onEnabledChange: (enabled: boolean) => Promise<void>
+}) {
+  const { t } = useI18n()
+  const browserService = useBrowserService()
+  const [saving, setSaving] = React.useState(false)
+  const [clearDialogOpen, setClearDialogOpen] = React.useState(false)
+  const [clearing, setClearing] = React.useState(false)
+
+  return (
+    <>
+      <SettingsItem title={t("settings.browserEnabled")} description={t("settings.browserEnabledDescription")}>
+        <Switch
+          checked={enabled}
+          disabled={loading || saving}
+          aria-label={t("settings.browserEnabled")}
+          onCheckedChange={(next) => {
+            setSaving(true)
+            void onEnabledChange(next)
+              .catch((error: unknown) => {
+                toast.error(t("settings.browserUpdateFailed"))
+                console.error("[wanta] update browser setting failed", error)
+              })
+              .finally(() => setSaving(false))
+          }}
+        />
+      </SettingsItem>
+      <SettingsItem title={t("settings.browserData")} description={t("settings.browserDataDescription")}>
+        <Button type="button" variant="outline" size="sm" onClick={() => setClearDialogOpen(true)}>
+          {t("settings.browserClearData")}
+        </Button>
+      </SettingsItem>
+      <SettingsItem title={t("settings.browserDownloads")} description={t("settings.browserDownloadsDescription")}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void browserService.invoke("openDownloadsFolder").catch((error: unknown) => {
+              toast.error(t("settings.browserOpenDownloadsFailed"))
+              console.error("[wanta] open browser downloads folder failed", error)
+            })
+          }}
+        >
+          {t("settings.browserOpenDownloads")}
+        </Button>
+      </SettingsItem>
+      <ConfirmDialog
+        open={clearDialogOpen}
+        onOpenChange={(open) => {
+          if (!clearing) setClearDialogOpen(open)
+        }}
+      >
+        <ConfirmDialogContent>
+          <ConfirmDialogHeader>
+            <ConfirmDialogTitle>{t("settings.browserClearConfirmTitle")}</ConfirmDialogTitle>
+            <ConfirmDialogDescription>{t("settings.browserClearConfirmDescription")}</ConfirmDialogDescription>
+          </ConfirmDialogHeader>
+          <ConfirmDialogFooter>
+            <ConfirmDialogCancel disabled={clearing}>{t("settings.browserClearCancel")}</ConfirmDialogCancel>
+            <ConfirmDialogAction
+              disabled={clearing}
+              onClick={(event) => {
+                event.preventDefault()
+                setClearing(true)
+                void browserService
+                  .invoke("clearData")
+                  .then(() => {
+                    toast.success(t("settings.browserClearSuccess"))
+                    setClearDialogOpen(false)
+                  })
+                  .catch((error: unknown) => {
+                    toast.error(t("settings.browserClearFailed"))
+                    console.error("[wanta] clear browser data failed", error)
+                  })
+                  .finally(() => setClearing(false))
+              }}
+            >
+              {clearing ? <RefreshCwIcon className="size-4 animate-spin" /> : null}
+              {t("settings.browserClearConfirmAction")}
+            </ConfirmDialogAction>
+          </ConfirmDialogFooter>
+        </ConfirmDialogContent>
+      </ConfirmDialog>
+    </>
   )
 }
 

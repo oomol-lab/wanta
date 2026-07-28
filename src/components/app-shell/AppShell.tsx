@@ -49,10 +49,10 @@ import {
   workspaceActivationHasFailed,
   workspaceSelectionSwitchKey,
 } from "./app-shell-model.ts"
-import { AppShellArtifactsPanel } from "./AppShellArtifactsPanel.tsx"
 import { AppShellConnectionDrawer } from "./AppShellConnectionDrawer.tsx"
 import { AppShellMainTitlebar } from "./AppShellMainTitlebar.tsx"
 import { AppShellNavigationSidebar } from "./AppShellNavigationSidebar.tsx"
+import { AppShellRightPanel } from "./AppShellRightPanel.tsx"
 import { AppShellSessionProjectDialogs } from "./AppShellSessionProjectDialogs.tsx"
 import { KnowledgeContextBar } from "./KnowledgeContextBar.tsx"
 import { isPendingChatCaughtUp, pendingChatTransitionForActiveSession } from "./pending-chat.ts"
@@ -62,6 +62,8 @@ import { useAppShellCommands } from "./use-app-shell-commands.ts"
 import { useAppShellSidebarSessions } from "./use-app-shell-sidebar-sessions.ts"
 import { useAppShellSkillRecommendations } from "./use-app-shell-skill-recommendations.ts"
 import { useArtifactsPanelState } from "./use-artifacts-panel-state.ts"
+import { useBrowserDownloadNotifications } from "./use-browser-download-notifications.ts"
+import { useBrowserPanelState } from "./use-browser-panel-state.ts"
 import { useChatConnectionRetry } from "./use-chat-connection-retry.ts"
 import { useChatQueueState } from "./use-chat-queue-state.ts"
 import { useComposerNavigation } from "./use-composer-navigation.ts"
@@ -74,7 +76,7 @@ import { useSidebarChromeState } from "./use-sidebar-chrome-state.ts"
 import { useUpdateReadyToast } from "./use-update-ready-toast.ts"
 import { useWorkspaceActivation } from "./use-workspace-activation.ts"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
-import { useAttentionService, useChatService } from "@/components/AppContext"
+import { useAttentionService, useBrowserService, useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { AppUpdateTitlebarEntry } from "@/components/AppUpdateTitlebarEntry"
 import { useAppSettings } from "@/hooks/useAppSettings"
@@ -154,7 +156,9 @@ function RouteLoadingFallback({ className }: { className?: string }) {
 export function AppShell({ auth }: { auth: UseAuth }) {
   const t = useT()
   const attentionService = useAttentionService()
+  const browserService = useBrowserService()
   const chatService = useChatService()
+  useBrowserDownloadNotifications()
   const attention = useAttention()
   const appUpdate = useAppUpdate()
   const appSettings = useAppSettings()
@@ -579,6 +583,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const lastChatProjectId = React.useRef<string | null>(null)
   const workspaceResetKeyRef = React.useRef(activeWorkspaceKey)
   const previousActiveChatSessionIdRef = React.useRef<string | null>(null)
+  const { browserPanelOpen, browserPanelVisible, browserState, closeBrowserPanel, toggleBrowserPanel } =
+    useBrowserPanelState({
+      activeSessionId: activeChatSessionId,
+      route,
+    })
   const {
     artifactSelection,
     artifactsPanelContentRef,
@@ -597,19 +606,27 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     hasPanelSelection,
     isArtifactsPanelResizing,
     latestArtifactSelection,
+    rightPanelVisible,
     setArtifactsPanelOpen,
     setArtifactsPanelMaximizedState,
     turnOutputSelection,
-    visibleArtifactsPanelWidth,
+    visibleRightPanelWidth,
   } = useArtifactsPanelState({
     activeSessionId: activeChatSessionId,
     appChromeRef,
+    browserPanelVisible,
     route,
     setIsSidebarRestoring,
     setSidebarCollapsed,
     sidebarCollapsed,
     sidebarWidth,
   })
+
+  React.useEffect(() => {
+    if (!browserPanelVisible) return
+    setArtifactsPanelOpen(false)
+    setArtifactsPanelMaximizedState(false)
+  }, [browserPanelVisible, setArtifactsPanelMaximizedState, setArtifactsPanelOpen])
 
   React.useEffect(() => {
     let cancelled = false
@@ -1564,8 +1581,31 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setRoute("settings")
   }, [])
   const handleArtifactsToggle = React.useCallback((): void => {
-    setArtifactsPanelOpen((open) => !open)
-  }, [setArtifactsPanelOpen])
+    const next = !artifactsPanelOpen
+    if (next) closeBrowserPanel()
+    setArtifactsPanelOpen(next)
+  }, [artifactsPanelOpen, closeBrowserPanel, setArtifactsPanelOpen])
+  const handleBrowserToggle = React.useCallback((): void => {
+    if (!browserPanelOpen) {
+      setArtifactsPanelOpen(false)
+      setArtifactsPanelMaximizedState(false)
+    }
+    toggleBrowserPanel()
+  }, [browserPanelOpen, setArtifactsPanelMaximizedState, setArtifactsPanelOpen, toggleBrowserPanel])
+  const handleArtifactsOpenWithBrowserClose = React.useCallback(
+    (selection: Parameters<typeof handleArtifactsOpen>[0]): void => {
+      closeBrowserPanel()
+      handleArtifactsOpen(selection)
+    },
+    [closeBrowserPanel, handleArtifactsOpen],
+  )
+  const handleTurnOutputOpenWithBrowserClose = React.useCallback(
+    (selection: Parameters<typeof handleTurnOutputOpen>[0]): void => {
+      closeBrowserPanel()
+      handleTurnOutputOpen(selection)
+    },
+    [closeBrowserPanel, handleTurnOutputOpen],
+  )
   const handleOpenKnowledgeLibrary = React.useCallback((): void => {
     setRoute("knowledge")
   }, [])
@@ -1640,6 +1680,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
+  const showBrowserToggle = route === "chat" && browserState !== null
+  const browserToggleLabel = browserPanelVisible ? t("browser.close") : t("browser.expand")
   const billingWorkspaceCacheScope = teamWorkspace.activeWorkspace.teamId
     ? `team:${teamWorkspace.activeWorkspace.teamId}`
     : "workspace-loading"
@@ -1852,14 +1894,18 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             artifactsToggleIcon={ArtifactsToggleIcon}
             artifactsToggleLabel={artifactsToggleLabel}
             billingCacheScope={billingCacheScope}
+            browserPanelOpen={browserPanelVisible}
+            browserToggleLabel={browserToggleLabel}
             isSidebarRestoring={isSidebarRestoring}
             sharedConnectorCount={sharedConnectorCount}
             showArtifactsToggle={showArtifactsToggle}
+            showBrowserToggle={showBrowserToggle}
             sidebarCollapsed={sidebarCollapsed}
             titlebarEditable={titlebarEditable}
             titlebarTitle={titlebarTitle}
             workspace={teamWorkspace.activeWorkspace}
             onArtifactsToggle={handleArtifactsToggle}
+            onBrowserToggle={handleBrowserToggle}
             onOpenSearch={handleOpenSearch}
             onRenameSession={sessionActions.handleRename}
             onToggleSidebar={handleToggleSidebar}
@@ -1996,9 +2042,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       onAuthorize={handleAuthorize}
                       onRecover={handleChatErrorRecovery}
                       onRetryFresh={handleRetryFresh}
-                      onArtifactsOpen={handleArtifactsOpen}
+                      onArtifactsOpen={handleArtifactsOpenWithBrowserClose}
                       onArtifactsAvailable={handleArtifactsAvailable}
-                      onTurnOutputOpen={handleTurnOutputOpen}
+                      onTurnOutputOpen={handleTurnOutputOpenWithBrowserClose}
                       onTurnOutputAvailable={handleTurnOutputAvailable}
                       onOpenConnections={linksEnabled ? handleOpenConnectionsCommand : undefined}
                       onOpenConnectionProvider={oomolLinkActive ? handleOpenChatConnectionProvider : undefined}
@@ -2023,20 +2069,25 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           </main>
         </div>
 
-        <AppShellArtifactsPanel
+        <AppShellRightPanel
           artifactSelection={artifactSelection}
           artifactsPanelContentRef={artifactsPanelContentRef}
           artifactsPanelIsMaximized={artifactsPanelIsMaximized}
           artifactsPanelMaxWidthState={artifactsPanelMaxWidthState}
           artifactsPanelShellRef={artifactsPanelShellRef}
           artifactsPanelVisible={artifactsPanelVisible}
+          browserPanelVisible={browserPanelVisible}
+          browserService={browserService}
+          browserState={browserState}
           handleArtifactsPanelResizeKeyDown={handleArtifactsPanelResizeKeyDown}
           handleArtifactsPanelResizeStart={handleArtifactsPanelResizeStart}
           isArtifactsPanelResizing={isArtifactsPanelResizing}
+          onCloseBrowser={closeBrowserPanel}
+          rightPanelVisible={rightPanelVisible}
           setArtifactsPanelMaximizedState={setArtifactsPanelMaximizedState}
           setArtifactsPanelOpen={setArtifactsPanelOpen}
           turnOutputSelection={turnOutputSelection}
-          visibleArtifactsPanelWidth={visibleArtifactsPanelWidth}
+          visibleRightPanelWidth={visibleRightPanelWidth}
         />
       </div>
 

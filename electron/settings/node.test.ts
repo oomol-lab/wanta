@@ -32,3 +32,20 @@ describe("SettingsServiceImpl operating mode", () => {
     expect(write).toHaveBeenCalledWith({ ...persisted, operatingMode: "unselected" })
   })
 })
+
+describe("SettingsServiceImpl browser setting", () => {
+  it("enables the integrated browser by default", () => {
+    const { service } = settingsServiceWithPersisted({})
+    expect(service.current().browserEnabled).toBe(true)
+  })
+
+  it("preserves and persists an explicit disabled setting", async () => {
+    const persisted = { browserEnabled: false, themeSource: "dark" as const }
+    const { service, write } = settingsServiceWithPersisted(persisted)
+
+    expect(service.current().browserEnabled).toBe(false)
+    await service.setBrowserEnabled(true)
+
+    expect(write).toHaveBeenCalledWith({ ...persisted, browserEnabled: true })
+  })
+})

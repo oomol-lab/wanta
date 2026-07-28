@@ -2,6 +2,8 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "no
 import path from "node:path"
 import { agentToolFiles } from "./tool-sources.ts"
 
+const alwaysAvailableBundledSkillIds = new Set(["browser"])
+
 export interface AgentWorkspaceOptions {
   bundledOoSkills: boolean
   connectors: boolean
@@ -11,7 +13,7 @@ export interface AgentWorkspaceOptions {
  * 在 rootDir 下生成 OpenCode workspace 的自定义工具文件（.opencode/tools/*.ts）与内置 skill（.opencode/skill/*）。
  * 幂等：每次启动覆盖写入，保证与内嵌源码 / 打包内置 skill 一致。返回 workspace 根目录（用作 sidecar 的 cwd）。
  *
- * OpenCode 会扫描 cwd 下 .opencode/{skill,skills}/<name>/SKILL.md，故把 oo 自带的 4 个 skill 拷到这里，
+ * OpenCode 会扫描 cwd 下 .opencode/{skill,skills}/<name>/SKILL.md，故把产品内置 skill 拷到这里，
  * Wanta 自己的 agent 即可直接读到——不再依赖把 skill 释放到其他 AI agent 的家目录。
  */
 export async function ensureAgentWorkspace(
@@ -34,7 +36,7 @@ export async function ensureAgentWorkspace(
     ),
   )
   await syncToolRuntime(opencodeDir, bundledToolRuntimePath)
-  await syncBundledSkills(opencodeDir, options.bundledOoSkills ? bundledSkillsDir : undefined)
+  await syncBundledSkills(opencodeDir, bundledSkillsDir, options.bundledOoSkills)
   return rootDir
 }
 
@@ -57,7 +59,11 @@ async function syncToolRuntime(opencodeDir: string, bundledToolRuntimePath: stri
  * 以打包内置 skill 为准重建 .opencode/skill/：先读源目录、确认可用后再清空旧目录逐个拷入。
  * 先读后删，避免源不可读时误删上一份好副本（rm 不能先于 readdir）。
  */
-async function syncBundledSkills(opencodeDir: string, bundledSkillsDir: string | undefined): Promise<void> {
+async function syncBundledSkills(
+  opencodeDir: string,
+  bundledSkillsDir: string | undefined,
+  includeOomolSkills: boolean,
+): Promise<void> {
   const skillDir = path.join(opencodeDir, "skill")
 
   if (!bundledSkillsDir) {
@@ -77,7 +83,10 @@ async function syncBundledSkills(opencodeDir: string, bundledSkillsDir: string |
 
   await rm(skillDir, { force: true, recursive: true })
 
-  const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+  const skillNames = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => includeOomolSkills || alwaysAvailableBundledSkillIds.has(name))
   if (skillNames.length === 0) {
     return
   }

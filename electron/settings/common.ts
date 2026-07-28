@@ -7,6 +7,7 @@ export type CompletionNotificationCondition = "never" | "background" | "always"
 export type OperatingMode = "oomol" | "self-managed" | "unselected"
 
 export interface AppSettings {
+  browserEnabled: boolean
   completionNotificationCondition: CompletionNotificationCondition
   themeSource: ThemeSource
   knowledgeBaseBetaEnabled: boolean
@@ -18,6 +19,7 @@ export interface AppSettings {
 
 /** 对齐 Codex：仅后台完成通知，通知声音与应用图标未读红标默认开启。 */
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  browserEnabled: true,
   completionNotificationCondition: "background",
   knowledgeBaseBetaEnabled: false,
   notificationSoundEnabled: true,
@@ -36,6 +38,7 @@ export const SettingsService = serviceName("settings-service") as ServiceName<{
     getSettings(): Promise<AppSettings>
     /** 同步 Electron nativeTheme.themeSource。 */
     setThemeSource(source: ThemeSource): Promise<void>
+    setBrowserEnabled(enabled: boolean): Promise<void>
     setKnowledgeBaseBetaEnabled(enabled: boolean): Promise<void>
     setCompletionNotificationCondition(condition: CompletionNotificationCondition): Promise<void>
     setNotificationSoundEnabled(enabled: boolean): Promise<void>

@@ -8,8 +8,10 @@ import {
   artifactsPanelMaxWidth,
   ARTIFACTS_PANEL_MIN_WIDTH_PX,
   ARTIFACTS_PANEL_WIDTH_STORAGE_KEY,
+  BROWSER_PANEL_WIDTH_STORAGE_KEY,
   clampArtifactsPanelWidthForLayout,
   readStoredArtifactsPanelWidth,
+  readStoredBrowserPanelWidth,
 } from "./app-shell-model.ts"
 import {
   artifactPanelSelection,
@@ -23,6 +25,7 @@ import {
 interface UseArtifactsPanelStateOptions {
   activeSessionId: string | null
   appChromeRef: React.RefObject<HTMLDivElement | null>
+  browserPanelVisible: boolean
   route: Route
   setIsSidebarRestoring: React.Dispatch<React.SetStateAction<boolean>>
   setSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>
@@ -48,15 +51,17 @@ interface UseArtifactsPanelStateResult {
   hasPanelSelection: boolean
   isArtifactsPanelResizing: boolean
   latestArtifactSelection: ArtifactSelection | null
+  rightPanelVisible: boolean
   setArtifactsPanelOpen: React.Dispatch<React.SetStateAction<boolean>>
   setArtifactsPanelMaximizedState: (maximized: boolean) => void
   turnOutputSelection: TurnOutputSelection | null
-  visibleArtifactsPanelWidth: number
+  visibleRightPanelWidth: number
 }
 
 export function useArtifactsPanelState({
   activeSessionId,
   appChromeRef,
+  browserPanelVisible,
   route,
   setIsSidebarRestoring,
   setSidebarCollapsed,
@@ -69,12 +74,16 @@ export function useArtifactsPanelState({
   const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
   const [artifactsPanelMaximized, setArtifactsPanelMaximized] = React.useState(false)
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
+  const [browserPanelWidth, setBrowserPanelWidth] = React.useState(readStoredBrowserPanelWidth)
   const [artifactsPanelMaxWidthState, setArtifactsPanelMaxWidthState] = React.useState<number | null>(null)
   const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
-  const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
+  const artifactsPanelResizeStart = React.useRef<{
+    browser: boolean
+    pointerX: number
+    width: number
+  } | null>(null)
   const artifactsPanelResizeFrame = React.useRef<number | null>(null)
   const artifactsPanelPendingWidth = React.useRef<number | null>(null)
-  const artifactsPanelLayoutWidth = React.useRef<number | null>(null)
   const artifactsPanelSidebarRestore = React.useRef<boolean | null>(null)
   const sidebarCollapsedRef = React.useRef(sidebarCollapsed)
   const artifactsPanelShellRef = React.useRef<HTMLDivElement | null>(null)
@@ -83,9 +92,14 @@ export function useArtifactsPanelState({
   const artifactSelection = panelSelection.kind === "artifact" ? panelSelection.selection : null
   const turnOutputSelection = panelSelection.kind === "turnOutput" ? panelSelection.selection : null
   const hasPanelSelection = panelSelection.kind !== "empty"
-  const artifactsPanelVisible = route === "chat" && artifactsPanelOpen && hasPanelSelection
+  const artifactsPanelVisible = route === "chat" && artifactsPanelOpen && hasPanelSelection && !browserPanelVisible
+  const rightPanelVisible = browserPanelVisible || artifactsPanelVisible
   const artifactsPanelIsMaximized = artifactsPanelVisible && artifactsPanelMaximized
-  const visibleArtifactsPanelWidth = clampArtifactsPanelWidthForLayout(artifactsPanelWidth, artifactsPanelMaxWidthValue)
+  const preferredRightPanelWidth = browserPanelVisible ? browserPanelWidth : artifactsPanelWidth
+  const visibleRightPanelWidth = clampArtifactsPanelWidthForLayout(
+    preferredRightPanelWidth,
+    artifactsPanelMaxWidthValue,
+  )
 
   React.useEffect(() => {
     sidebarCollapsedRef.current = sidebarCollapsed
@@ -179,36 +193,16 @@ export function useArtifactsPanelState({
 
     const updateArtifactsPanelBounds = (): void => {
       const appWidth = element.clientWidth
-      const previousAppWidth = artifactsPanelLayoutWidth.current
-      artifactsPanelLayoutWidth.current = appWidth
       const maxWidth = artifactsPanelMaxWidth(appWidth, sidebarWidth, sidebarCollapsed)
-      const expandedBy = previousAppWidth === null ? 0 : Math.max(0, appWidth - previousAppWidth)
-      const shouldGrowPanel =
-        expandedBy > 0 &&
-        route === "chat" &&
-        artifactsPanelOpen &&
-        panelSelection.kind !== "empty" &&
-        !isArtifactsPanelResizing
 
       setArtifactsPanelMaxWidthState(maxWidth)
-      setArtifactsPanelWidth((width) =>
-        clampArtifactsPanelWidthForLayout(width + (shouldGrowPanel ? expandedBy : 0), maxWidth),
-      )
     }
 
     updateArtifactsPanelBounds()
     const observer = new ResizeObserver(updateArtifactsPanelBounds)
     observer.observe(element)
     return () => observer.disconnect()
-  }, [
-    appChromeRef,
-    artifactsPanelOpen,
-    isArtifactsPanelResizing,
-    panelSelection.kind,
-    route,
-    sidebarCollapsed,
-    sidebarWidth,
-  ])
+  }, [appChromeRef, sidebarCollapsed, sidebarWidth])
 
   React.useEffect(() => {
     try {
@@ -217,6 +211,14 @@ export function useArtifactsPanelState({
       // 本地存储不可用时仅保留本次会话宽度。
     }
   }, [artifactsPanelWidth])
+
+  React.useEffect(() => {
+    try {
+      globalThis.localStorage?.setItem(BROWSER_PANEL_WIDTH_STORAGE_KEY, String(browserPanelWidth))
+    } catch {
+      // Keep the width in memory when local storage is unavailable.
+    }
+  }, [browserPanelWidth])
 
   React.useEffect(() => {
     if (!isArtifactsPanelResizing) {
@@ -251,7 +253,11 @@ export function useArtifactsPanelState({
       artifactsPanelPendingWidth.current = null
       if (width !== null) {
         applyArtifactsPanelShellWidth(width)
-        setArtifactsPanelWidth(width)
+        if (artifactsPanelResizeStart.current?.browser) {
+          setBrowserPanelWidth(width)
+        } else {
+          setArtifactsPanelWidth(width)
+        }
       }
       clearArtifactsPanelContentWidth()
       artifactsPanelResizeStart.current = null
@@ -287,49 +293,57 @@ export function useArtifactsPanelState({
 
   const handleArtifactsPanelResizeStart = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>): void => {
-      if (!artifactsPanelVisible) {
+      if (!rightPanelVisible) {
         return
       }
       event.preventDefault()
       event.currentTarget.setPointerCapture(event.pointerId)
-      const dragStartWidth = visibleArtifactsPanelWidth
+      const dragStartWidth = visibleRightPanelWidth
       const frozenContentWidth = Math.max(
         dragStartWidth,
         Number.isFinite(artifactsPanelMaxWidthValue) ? artifactsPanelMaxWidthValue : dragStartWidth,
       )
       applyArtifactsPanelShellWidth(dragStartWidth)
-      freezeArtifactsPanelContentWidth(frozenContentWidth)
-      artifactsPanelResizeStart.current = { pointerX: event.clientX, width: dragStartWidth }
+      if (!browserPanelVisible) {
+        freezeArtifactsPanelContentWidth(frozenContentWidth)
+      }
+      artifactsPanelResizeStart.current = {
+        browser: browserPanelVisible,
+        pointerX: event.clientX,
+        width: dragStartWidth,
+      }
       setIsArtifactsPanelResizing(true)
     },
     [
       applyArtifactsPanelShellWidth,
       artifactsPanelMaxWidthValue,
-      artifactsPanelVisible,
+      browserPanelVisible,
       freezeArtifactsPanelContentWidth,
-      visibleArtifactsPanelWidth,
+      rightPanelVisible,
+      visibleRightPanelWidth,
     ],
   )
 
   const handleArtifactsPanelResizeKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>): void => {
-      if (!artifactsPanelVisible) {
+      if (!rightPanelVisible) {
         return
       }
 
       const step = event.shiftKey ? 24 : 12
+      const setPanelWidth = browserPanelVisible ? setBrowserPanelWidth : setArtifactsPanelWidth
       if (event.key === "ArrowLeft") {
         event.preventDefault()
-        setArtifactsPanelWidth((width) => clampArtifactsPanelWidthToLayout(width + step))
+        setPanelWidth((width) => clampArtifactsPanelWidthToLayout(width + step))
       } else if (event.key === "ArrowRight") {
         event.preventDefault()
-        setArtifactsPanelWidth((width) => clampArtifactsPanelWidthToLayout(width - step))
+        setPanelWidth((width) => clampArtifactsPanelWidthToLayout(width - step))
       } else if (event.key === "Home") {
         event.preventDefault()
-        setArtifactsPanelWidth(ARTIFACTS_PANEL_MIN_WIDTH_PX)
+        setPanelWidth(ARTIFACTS_PANEL_MIN_WIDTH_PX)
       }
     },
-    [artifactsPanelVisible, clampArtifactsPanelWidthToLayout],
+    [browserPanelVisible, clampArtifactsPanelWidthToLayout, rightPanelVisible],
   )
 
   const handleArtifactsReset = React.useCallback(() => {
@@ -391,9 +405,10 @@ export function useArtifactsPanelState({
     hasPanelSelection,
     isArtifactsPanelResizing,
     latestArtifactSelection,
+    rightPanelVisible,
     setArtifactsPanelOpen: setArtifactsPanelOpenState,
     setArtifactsPanelMaximizedState,
     turnOutputSelection,
-    visibleArtifactsPanelWidth,
+    visibleRightPanelWidth,
   }
 }

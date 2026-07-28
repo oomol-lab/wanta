@@ -15,16 +15,20 @@ const input = {
 
 describe("private network policy reviewer", () => {
   it("accepts only exact scope and verbatim user evidence", () => {
-    expect(
-      validateReviewerResponse(
-        JSON.stringify({
-          decision: "approve",
-          evidence: "192.168.1.20:443",
-          scope: input.requestedScope,
-        }),
-        input,
-      ),
-    ).toEqual({ decision: "approve", evidence: "192.168.1.20:443" })
+    const content = JSON.stringify({
+      decision: "approve",
+      evidence: "192.168.1.20:443",
+      scope: input.requestedScope,
+    })
+
+    expect(validateReviewerResponse(content, input)).toEqual({
+      decision: "approve",
+      evidence: "192.168.1.20:443",
+    })
+    expect(validateReviewerResponse(`${content}\n`, input)).toEqual({
+      decision: "approve",
+      evidence: "192.168.1.20:443",
+    })
   })
 
   it.each([

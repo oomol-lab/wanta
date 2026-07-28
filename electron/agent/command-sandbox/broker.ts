@@ -126,8 +126,8 @@ export class CommandSandboxBroker {
         return
       }
       const nextGrants = [...grants, { address: scope.address, port: scope.port }]
-      this.grants.set(sessionId, nextGrants)
       await this.onGrantsChanged(sessionId, nextGrants)
+      this.grants.set(sessionId, nextGrants)
       writeJson(response, { allow: true })
     } catch {
       writeJson(response, { allow: false })

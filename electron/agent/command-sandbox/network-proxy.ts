@@ -67,7 +67,13 @@ export async function startCommandSandboxNetworkProxies(
       },
     )
   })
-  const socksPort = await listenSocksServer(socksServer)
+  let socksPort: number
+  try {
+    socksPort = await listenSocksServer(socksServer)
+  } catch (error) {
+    await Promise.allSettled([closeServer(httpServer), closeSocksServer(socksServer)])
+    throw error
+  }
 
   return {
     httpPort,

@@ -413,6 +413,17 @@ describe("WikiGraph SDK adapter", () => {
       querySupport: true,
       status: "current",
     })
+    expect(sdk.calls.upgrade).toEqual(["/managed/library/copy.wikg"])
+  })
+
+  it("coalesces lazy upgrades for concurrent read-only document inspection", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    sdk.chapters = [chapter(1, "sourced", 10)]
+    const rt = runtime(dir)
+
+    await Promise.all([inspectWikiGraph(rt, "public-archive"), readWikiGraphIndex(rt, "public-archive")])
+
+    expect(sdk.calls.upgrade).toEqual(["/managed/library/copy.wikg"])
   })
 
   it("downgrades missing or failed cover reads to null", async () => {

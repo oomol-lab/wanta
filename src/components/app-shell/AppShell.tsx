@@ -108,6 +108,7 @@ import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 import { summarizeEmptyStateConnections } from "@/routes/Chat/empty-state-connections"
 import { normalizeConnectionCatalogFilter } from "@/routes/Connections/connection-route-model.ts"
+import { knowledgeBreadcrumbs, normalizeKnowledgePath } from "@/routes/Knowledge/knowledge-route-model.ts"
 
 const ArchivedRoute = React.lazy(() =>
   import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
@@ -174,6 +175,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     }
   }, [auth.error, t])
   const [ready, setReady] = React.useState(false)
+  const [knowledgeDirectory, setKnowledgeDirectory] = React.useState("")
+  const [knowledgeTitlebarNavigationVersion, setKnowledgeTitlebarNavigationVersion] = React.useState(0)
   const [billingInitialTarget, setBillingInitialTarget] = React.useState<BillingDetailsTarget | null>(null)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
   const accountId = oomolEnabled ? auth.state?.account?.id : undefined
@@ -904,6 +907,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                   ? t("archived.title")
                   : (activeSession?.title ?? t("chat.newSession"))
   const titlebarEditable = route === "chat" && Boolean(activeSession)
+  const titlebarBreadcrumbs =
+    route === "knowledge" && knowledgeBaseBetaEnabled
+      ? knowledgeBreadcrumbs(knowledgeDirectory, t("knowledge.title"))
+      : undefined
 
   React.useEffect(() => {
     writeStoredSidebarSegment(globalThis.localStorage, sidebarSegment)
@@ -1903,12 +1910,17 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             showBrowserToggle={showBrowserToggle}
             sidebarCollapsed={sidebarCollapsed}
             titlebarEditable={titlebarEditable}
+            titlebarBreadcrumbs={titlebarBreadcrumbs}
             titlebarTitle={titlebarTitle}
             workspace={teamWorkspace.activeWorkspace}
             onArtifactsToggle={handleArtifactsToggle}
             onBrowserToggle={handleBrowserToggle}
             onOpenSearch={handleOpenSearch}
             onRenameSession={sessionActions.handleRename}
+            onTitlebarBreadcrumbNavigate={(path) => {
+              setKnowledgeDirectory(normalizeKnowledgePath(path))
+              setKnowledgeTitlebarNavigationVersion((version) => version + 1)
+            }}
             onToggleSidebar={handleToggleSidebar}
             onViewBilling={oomolEnabled ? handleViewBilling : undefined}
           />
@@ -1939,7 +1951,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                   workspace={teamWorkspace}
                 />
               ) : route === "knowledge" && knowledgeBaseBetaEnabled ? (
-                <KnowledgeRoute knowledge={knowledgeLibrary} onStartChat={handleStartKnowledgeChat} />
+                <KnowledgeRoute
+                  currentDirectory={knowledgeDirectory}
+                  knowledge={knowledgeLibrary}
+                  titlebarNavigationVersion={knowledgeTitlebarNavigationVersion}
+                  onCurrentDirectoryChange={setKnowledgeDirectory}
+                  onStartChat={handleStartKnowledgeChat}
+                />
               ) : route === "teams" && oomolEnabled ? (
                 <TeamManagementRoute
                   connectedProvidersLoading={activeProvidersLoading}

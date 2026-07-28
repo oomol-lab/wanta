@@ -9,6 +9,10 @@ test("buildContextMentionsSystem describes a pinned knowledge base without expos
   assert.match(prompt, /kb-1/)
   assert.match(prompt, /西游记/)
   assert.match(prompt, /load and follow the `wikigraph-knowledge` Skill/)
+  assert.match(prompt, /before answering/)
+  assert.match(prompt, /people, events, relationships, causes\/processes\/results, summaries/)
+  assert.match(prompt, /citations, sources, quotations, or fact-checking/)
+  assert.match(prompt, /do not answer those requests from general model knowledge/)
   assert.doesNotMatch(prompt, /shell `wg` command/)
   assert.doesNotMatch(prompt, /Wanta provides a managed `wg` on PATH/)
   assert.doesNotMatch(prompt, /Never modify a knowledge base unless the user explicitly asks/)
@@ -24,6 +28,22 @@ test("buildContextMentionsSystem describes the global knowledge library", () => 
   assert.match(prompt, /library URI: "wikg:\/\/lib"/)
   assert.doesNotMatch(prompt, /wikg:\/\/lib\/arc\/wikg:\/\/lib/)
   assert.match(prompt, /Treat `wikg:\/\/lib` as the whole local WikiGraph library/)
+  assert.match(prompt, /Use `wikg:\/\/lib` directly for a selected knowledge library/)
+})
+
+test("buildContextMentionsSystem routes the Hua Rong Trail fixture through WikiGraph context", () => {
+  const userPrompt = "关羽在华容道放走曹操，前后涉及的故事起因经过结果和相关人物结局是什么？你帮我列出来。"
+  const contextPrompt =
+    buildContextMentionsSystem([
+      { id: "wikg://lib", kind: "knowledge", name: "Knowledge library", scope: "library" },
+    ]) ?? ""
+  const agentInput = `${contextPrompt}\n\nUser request:\n${userPrompt}`
+
+  assert.match(agentInput, /load and follow the `wikigraph-knowledge` Skill/)
+  assert.match(agentInput, /people, events, relationships, causes\/processes\/results, summaries/)
+  assert.match(agentInput, /do not answer those requests from general model knowledge/)
+  assert.match(agentInput, /wikg:\/\/lib/)
+  assert.doesNotMatch(agentInput, /wikg:\/\/lib\/arc\/wikg:\/\/lib/)
 })
 
 test("buildPermissionModeSystem describes default access", () => {

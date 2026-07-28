@@ -20,7 +20,7 @@ import { useAuth } from "@/hooks/useAuth"
 import { useBillableSeats } from "@/hooks/useBillableSeats"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
-import { billingRequestScopeForWorkspace, canReadTeamSubscriptionForWorkspace } from "@/lib/billing-scope"
+import { billingRequestScopeForWorkspace } from "@/lib/billing-scope"
 import { cn } from "@/lib/utils"
 import { teamPlanLabel } from "@/routes/Billing/team-plan-label"
 import { buildTeamSubscriptionOverview } from "@/routes/Billing/team-subscription-model"
@@ -86,7 +86,8 @@ export function BillingUsagePopover({
   const modelSpend = getSummary(summaries, "model").credit
   const apiSpend = getSummary(summaries, "api").credit
   const connectorSpend = getSummary(summaries, "link").credit
-  const showTeamPlanSection = canReadTeamSubscriptionForWorkspace(workspace)
+  // The compact plan card exposes plan and seat management actions, so it belongs to the team creator only.
+  const showTeamPlanSection = canManageTeamSubscription
   const seatCountAvailable = seatState.count !== null && !seatState.error
   const teamDetailsAvailable = data?.subscriptionAvailable === true && data.teamPendingPaymentAvailable === true
   const teamOverview = React.useMemo(
@@ -208,49 +209,56 @@ export function BillingUsagePopover({
               <BillingUsageSkeleton />
             ) : (
               <>
-                {showTeamPlanSection && teamDetailsAvailable ? (
+                {showTeamPlanSection ? (
                   <section className="rounded-lg border border-border p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="oo-text-label flex items-center gap-2 text-foreground">
                           <ShieldCheckIcon className="size-4 text-muted-foreground" />
                           <span>
-                            {teamOverview.currentPlan
-                              ? teamPlanLabel(teamOverview.currentPlan, t)
-                              : t("billing.teamNoPlan")}
+                            {!teamDetailsAvailable
+                              ? t("billing.planStatus.title")
+                              : teamOverview.currentPlan
+                                ? teamPlanLabel(teamOverview.currentPlan, t)
+                                : t("billing.teamNoPlan")}
                           </span>
                         </div>
                         <div className="oo-text-caption-compact mt-1 text-muted-foreground">
-                          {seatState.loading
-                            ? t("billing.popover.planSeatsLoading")
-                            : !seatCountAvailable || teamOverview.usedSeats === null
-                              ? t("billing.popover.planSeatsUnavailable")
-                              : teamOverview.seatCapacity === null
-                                ? t("billing.popover.planMembers", { count: teamOverview.usedSeats })
-                                : t("billing.popover.planSeats", {
-                                    count: teamOverview.usedSeats,
-                                    limit: teamOverview.seatCapacity,
-                                  })}
+                          {!teamDetailsAvailable
+                            ? t("billing.popover.planUnavailableMeta")
+                            : seatState.loading
+                              ? t("billing.popover.planSeatsLoading")
+                              : !seatCountAvailable || teamOverview.usedSeats === null
+                                ? t("billing.popover.planSeatsUnavailable")
+                                : teamOverview.seatCapacity === null
+                                  ? t("billing.popover.planMembers", { count: teamOverview.usedSeats })
+                                  : t("billing.popover.planSeats", {
+                                      count: teamOverview.usedSeats,
+                                      limit: teamOverview.seatCapacity,
+                                    })}
                           {sharedConnectorCount === undefined
                             ? ""
                             : ` · ${t("billing.popover.sharedLinks", { count: sharedConnectorCount })}`}
                         </div>
                       </div>
                       <PlanStatusBadge
-                        clickable={teamOverview.currentPlan === null}
+                        clickable={teamDetailsAvailable && teamOverview.currentPlan === null}
                         label={
-                          teamOverview.hasPendingPayment
-                            ? t("billing.teamPaymentPending")
-                            : showSeatPrompt
-                              ? t("billing.popover.seatLimitHint")
-                              : showUpgradePrompt
-                                ? t("billing.popover.upgradeHint")
-                                : teamOverview.currentPlan === null
-                                  ? t("billing.popover.planInactive")
-                                  : t("billing.popover.planActive")
+                          !teamDetailsAvailable
+                            ? t("billing.popover.planUnavailableStatus")
+                            : teamOverview.hasPendingPayment
+                              ? t("billing.teamPaymentPending")
+                              : showSeatPrompt
+                                ? t("billing.popover.seatLimitHint")
+                                : showUpgradePrompt
+                                  ? t("billing.popover.upgradeHint")
+                                  : teamOverview.currentPlan === null
+                                    ? t("billing.popover.planInactive")
+                                    : t("billing.popover.planActive")
                         }
                         variant={
-                          teamOverview.hasPendingPayment || showUpgradePrompt || showPlanPrompt || showSeatPrompt
+                          teamDetailsAvailable &&
+                          (teamOverview.hasPendingPayment || showUpgradePrompt || showPlanPrompt || showSeatPrompt)
                             ? "default"
                             : "outline"
                         }
@@ -258,15 +266,17 @@ export function BillingUsagePopover({
                       />
                     </div>
                     <p className="oo-text-caption mt-3 text-muted-foreground">
-                      {teamOverview.hasPendingPayment
-                        ? t("billing.popover.pendingPaymentRecommendation")
-                        : showSeatPrompt
-                          ? t("billing.popover.seatRecommendation")
-                          : teamOverview.currentPlan === null
-                            ? t("billing.popover.noPlanRecommendation")
-                            : showUpgradePrompt
-                              ? t("billing.popover.proRecommendation")
-                              : t("billing.popover.planDescription")}
+                      {!teamDetailsAvailable
+                        ? t("billing.popover.planUnavailableDescription")
+                        : teamOverview.hasPendingPayment
+                          ? t("billing.popover.pendingPaymentRecommendation")
+                          : showSeatPrompt
+                            ? t("billing.popover.seatRecommendation")
+                            : teamOverview.currentPlan === null
+                              ? t("billing.popover.noPlanRecommendation")
+                              : showUpgradePrompt
+                                ? t("billing.popover.proRecommendation")
+                                : t("billing.popover.planDescription")}
                     </p>
                   </section>
                 ) : null}

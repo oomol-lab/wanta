@@ -18,6 +18,11 @@ const positiveCases = [
   "wg wikg://lib --query - <<'QUERY'\n唐僧 和 孙悟空\nQUERY",
   "diff <(wg wikg://lib/entity --query 唐僧 --json) old.json",
   'echo "$(wg wikg://lib/entity --query 唐僧 --json)" | jq .',
+  "OO=$(wg wikg://lib/entity --query 唐僧 --json) node -e 1",
+  "env FOO=$(wg wikg://lib/entity --query 唐僧 --json) node -e 1",
+  "FOO=$(wikigraph wikg://lib inspect) node -e 1",
+  "env -i FOO=$(wg wikg://lib/entity --query 唐僧 --json) node -e 1",
+  "env --unset PATH FOO=$(wg wikg://lib/entity --query 唐僧 --json) node -e 1",
 ]
 
 const negativeCases = [
@@ -32,6 +37,10 @@ const negativeCases = [
   "python -c \"print('wg wikg://lib')\"",
   "cat <<'EOF'\nwg wikg://lib --query 唐僧\nEOF",
   "cat <<EOF\nwg wikg://lib --query 唐僧\nEOF",
+  "OO='$(wg wikg://lib/entity --query 唐僧 --json)' node -e 1",
+  "env FOO='$(wg wikg://lib/entity --query 唐僧 --json)' node -e 1",
+  'OO="wg wikg://lib/entity --query 唐僧 --json" node -e 1',
+  'env FOO="wg wikg://lib/entity --query 唐僧 --json" node -e 1',
 ]
 
 const unbashBoundaryCases = [

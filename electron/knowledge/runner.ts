@@ -20,6 +20,7 @@ import {
 
 const defaultLibraryUri = "wikg://lib"
 const defaultLibraryPreparationByStateDir = new Map<string, Promise<void>>()
+const archivePreparationByStateAndPath = new Map<string, Promise<void>>()
 const unreadableImportMessage =
   "WANTA_KNOWLEDGE_IMPORT_UNREADABLE: The selected WikiGraph file could not be imported because Wanta cannot make the managed copy readable with the current WikiGraph SDK. The original file was not modified."
 
@@ -340,11 +341,15 @@ export async function addWikiGraphLibraryArchive(
 }
 
 async function prepareImportedArchiveForUse(record: WikiGraphLibraryArchiveRecord): Promise<void> {
-  await upgradeWikiGraphMaintenanceTarget(record.path)
+  await prepareArchivePathForUse(record.path)
   // wiki-graph-core@0.4.0 has no separate repair API for current-schema archives whose TOC is still
   // structurally unreadable. Keep this validation boundary explicit so a future SDK repair call can
   // be inserted before the checks without treating a copied file as a completed product import.
   await validateImportedArchive(record.path)
+}
+
+async function prepareArchivePathForUse(archivePath: string): Promise<void> {
+  await upgradeWikiGraphMaintenanceTarget(archivePath)
 }
 
 async function validateImportedArchive(archivePath: string): Promise<void> {
@@ -431,7 +436,7 @@ export async function readWikiGraphMetadata(runtime: WikiGraphRuntime, id: strin
 }
 
 export async function inspectWikiGraph(runtime: WikiGraphRuntime, id: string): Promise<WikiGraphInspect> {
-  const file = await archiveFile(runtime, id)
+  const file = await preparedDocumentArchiveFile(runtime, id)
   return await withRuntime(runtime, "Failed to inspect WikiGraph archive", async () => {
     return await file.readDocument(async (document) => {
       const [chapters, ftsCurrent] = await Promise.all([
@@ -459,7 +464,7 @@ export async function inspectWikiGraph(runtime: WikiGraphRuntime, id: string): P
 }
 
 export async function readWikiGraphIndex(runtime: WikiGraphRuntime, id: string): Promise<WikiGraphIndexState> {
-  const file = await archiveFile(runtime, id)
+  const file = await preparedDocumentArchiveFile(runtime, id)
   return await withRuntime(runtime, "Failed to read WikiGraph index state", async () => {
     return await file.readDocument(async (document) => {
       await readArchiveIndexSettings(document)
@@ -489,10 +494,37 @@ export async function readWikiGraphCover(runtime: WikiGraphRuntime, id: string):
 }
 
 async function archiveFile(runtime: WikiGraphRuntime, id: string): Promise<WikiGraphArchiveFile> {
+  const { file } = await resolveArchiveFile(runtime, id)
+  return file
+}
+
+async function preparedDocumentArchiveFile(runtime: WikiGraphRuntime, id: string): Promise<WikiGraphArchiveFile> {
+  const { file, path: archivePath } = await resolveArchiveFile(runtime, id)
+  const preparationKey = `${runtime.stateDir}\0${archivePath}`
+  const cached = archivePreparationByStateAndPath.get(preparationKey)
+  if (cached) {
+    await cached
+    return file
+  }
+  const preparation = withRuntime(runtime, "Failed to prepare WikiGraph archive", async () => {
+    await prepareArchivePathForUse(archivePath)
+  }).catch((error: unknown) => {
+    archivePreparationByStateAndPath.delete(preparationKey)
+    throw error
+  })
+  archivePreparationByStateAndPath.set(preparationKey, preparation)
+  await preparation
+  return file
+}
+
+async function resolveArchiveFile(
+  runtime: WikiGraphRuntime,
+  id: string,
+): Promise<{ file: WikiGraphArchiveFile; path: string }> {
   await prepareWikiGraphDefaultLibrary(runtime)
   return await withRuntime(runtime, "Failed to resolve WikiGraph archive", async () => {
     const archive = await getWikiGraphLibraryArchive(requireLibraryTarget(archiveUri(id.trim())))
-    return new WikiGraphArchiveFile(archive.path)
+    return { file: new WikiGraphArchiveFile(archive.path), path: archive.path }
   })
 }
 

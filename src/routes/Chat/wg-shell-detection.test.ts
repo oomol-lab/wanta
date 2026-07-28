@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { isWgKnowledgeShellCommand } from "./wg-shell-detection.ts"
+import { isWgKnowledgeShellCommand, isWgShellCommand } from "./wg-shell-detection.ts"
 
 const positiveCases = [
   'wg wikg://lib --query "唐僧" --json',
@@ -70,4 +70,18 @@ describe("WG shell detection", () => {
   it.each(unbashBoundaryNegativeCases)("keeps unbash boundary behavior negative: %s", (command) => {
     expect(isWgKnowledgeShellCommand(command)).toBe(false)
   })
+
+  it.each(["wg help recipe 2>&1", "wg maintenance upgrade --help 2>&1", 'bash -lc "wg help recipe 2>&1"'])(
+    "recognizes any executed WG command for locked knowledge activity: %s",
+    (command) => {
+      expect(isWgShellCommand(command)).toBe(true)
+    },
+  )
+
+  it.each(["echo wg help", "node -e \"console.log('wg help')\"", "grep wg notes.txt"])(
+    "does not recognize plain WG text as an executed WG command: %s",
+    (command) => {
+      expect(isWgShellCommand(command)).toBe(false)
+    },
+  )
 })

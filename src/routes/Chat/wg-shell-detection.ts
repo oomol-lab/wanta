@@ -5,10 +5,14 @@ import { parse } from "unbash"
 const shellRecursionLimit = 6
 
 export function isWgKnowledgeShellCommand(command: string): boolean {
-  return scanShell(command, 0)
+  return scanShell(command, 0, "knowledge")
 }
 
-function scanShell(command: string, depth: number): boolean {
+export function isWgShellCommand(command: string): boolean {
+  return scanShell(command, 0, "executable")
+}
+
+function scanShell(command: string, depth: number, mode: "executable" | "knowledge"): boolean {
   if (depth > shellRecursionLimit || command.trim() === "") {
     return false
   }
@@ -18,7 +22,7 @@ function scanShell(command: string, depth: number): boolean {
     return false
   }
 
-  return scanAstValue(script, command, depth)
+  return scanAstValue(script, command, depth, mode)
 }
 
 function parseShell(command: string): Script | null {
@@ -30,18 +34,18 @@ function parseShell(command: string): Script | null {
   }
 }
 
-function scanAstValue(value: unknown, source: string, depth: number): boolean {
+function scanAstValue(value: unknown, source: string, depth: number, mode: "executable" | "knowledge"): boolean {
   if (Array.isArray(value)) {
-    return value.some((item) => scanAstValue(item, source, depth))
+    return value.some((item) => scanAstValue(item, source, depth, mode))
   }
   if (isAssignmentNode(value)) {
-    return scanWord(value.value, depth)
+    return scanWord(value.value, depth, mode)
   }
   if (isWord(value)) {
-    return scanWord(value, depth)
+    return scanWord(value, depth, mode)
   }
   if (isCommand(value)) {
-    return scanCommand(value, source, depth)
+    return scanCommand(value, source, depth, mode)
   }
   if (!isRecord(value)) {
     return false
@@ -51,60 +55,71 @@ function scanAstValue(value: unknown, source: string, depth: number): boolean {
     if (key === "type" || key === "pos" || key === "end" || key === "text" || key === "value") {
       continue
     }
-    if (scanAstValue(child, source, depth)) {
+    if (scanAstValue(child, source, depth, mode)) {
       return true
     }
   }
   return false
 }
 
-function scanCommand(command: Command, source: string, depth: number): boolean {
+function scanCommand(command: Command, source: string, depth: number, mode: "executable" | "knowledge"): boolean {
   const words = command.name ? [command.name, ...command.suffix] : [...command.suffix]
-  return scanAstValue(command.prefix, source, depth) || scanCommandWords(words, command.redirects, source, depth)
+  return (
+    scanAstValue(command.prefix, source, depth, mode) || scanCommandWords(words, command.redirects, source, depth, mode)
+  )
 }
 
-function scanCommandWords(words: Word[], redirects: Redirect[], source: string, depth: number): boolean {
+function scanCommandWords(
+  words: Word[],
+  redirects: Redirect[],
+  source: string,
+  depth: number,
+  mode: "executable" | "knowledge",
+): boolean {
   const commandIndex = firstCommandWordIndex(words, 0)
   if (commandIndex >= words.length) {
-    return scanNestedWords(words, depth) || scanAstValue(redirects, source, depth)
+    return scanNestedWords(words, depth, mode) || scanAstValue(redirects, source, depth, mode)
   }
 
   const executable = executableName(wordValue(words[commandIndex]))
   if (executable === "env") {
     const envCommandIndex = skipEnvPrefix(words, commandIndex + 1)
-    if (scanNestedWords(words.slice(commandIndex + 1, envCommandIndex), depth)) {
+    if (scanNestedWords(words.slice(commandIndex + 1, envCommandIndex), depth, mode)) {
       return true
     }
     if (envCommandIndex < words.length) {
-      return scanCommandWords(words.slice(envCommandIndex), redirects, source, depth)
+      return scanCommandWords(words.slice(envCommandIndex), redirects, source, depth, mode)
     }
   }
 
   const shellCommandIndex = shellCommandStringIndex(words, commandIndex)
   if (shellCommandIndex !== null) {
     const shellCommand = words[shellCommandIndex]
-    if (shellCommand && scanShell(wordValue(shellCommand), depth + 1)) {
+    if (shellCommand && scanShell(wordValue(shellCommand), depth + 1, mode)) {
       return true
     }
   }
 
+  if (mode === "executable" && isWgExecutable(executable)) {
+    return true
+  }
   if (isWgExecutable(executable) && words.slice(commandIndex + 1).some((word) => wordContainsWikgUri(word))) {
     return true
   }
 
-  return scanNestedWords(words, depth) || scanAstValue(redirects, source, depth)
+  return scanNestedWords(words, depth, mode) || scanAstValue(redirects, source, depth, mode)
 }
 
-function scanNestedWords(words: Word[], depth: number): boolean {
-  return words.some((word) => scanWord(word, depth))
+function scanNestedWords(words: Word[], depth: number, mode: "executable" | "knowledge"): boolean {
+  return words.some((word) => scanWord(word, depth, mode))
 }
 
-function scanWord(word: Word, depth: number): boolean {
+function scanWord(word: Word, depth: number, mode: "executable" | "knowledge"): boolean {
   // unbash exposes the command structure as AST, but its public package exports do not include the
   // word-part helper that materializes command/process substitutions. Keep this small scanner bounded
   // to unbash-provided Word nodes so the main detection path remains AST-based.
   for (const substitution of executableSubstitutionsInWord(word.text)) {
-    if (scanShell(substitution, depth + 1)) {
+    if (scanShell(substitution, depth + 1, mode)) {
       return true
     }
   }

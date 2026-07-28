@@ -15,20 +15,18 @@ import type { TranslateFn } from "@/i18n/i18n"
 import { ChevronRight } from "lucide-react"
 import * as React from "react"
 import { assistantBlockClassName } from "./assistant-turn-renderer-model.ts"
-import {
-  chatTurnProcessStatus,
-  isLiveTurnProcess,
-  settlingToolPartId,
-  shouldSurfaceProcessActivity,
-  summarizeTurnProcess,
-} from "./chat-turns.ts"
+import { chatTurnProcessStatus, isLiveTurnProcess, summarizeTurnProcess } from "./chat-turns.ts"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { processOpenAfterStatusChange, processShouldOpenAutomatically } from "./process-activity-open.ts"
+import {
+  buildTurnProcessActivityRenderModel,
+  latestActiveProcessTool,
+  shouldShowProcessLiveStatus,
+} from "./process-activity-render-model.ts"
 import { ProcessActivityViewport } from "./ProcessActivityViewport.tsx"
 import { formatWholeSecondDuration } from "./tool-activity.ts"
 import { toolActionSummary, toolServiceSlug } from "./tool-display.ts"
-import { isActiveToolPart } from "./tool-state.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
 import { groupedToolActivityParts } from "./wikigraph-tool-grouping.ts"
 import { MessageResponse } from "@/components/ai-elements/message"
@@ -117,27 +115,24 @@ export function TurnProcessActivity({
   onBeforeDisclosure?: (anchor: HTMLElement | null) => () => void
 }) {
   const t = useT()
-  const status = chatTurnProcessStatus(process, live)
+  const renderModel = React.useMemo(
+    () => buildTurnProcessActivityRenderModel({ blocks, live, process }),
+    [blocks, live, process],
+  )
+  const status = renderModel.status
   const shouldOpen = processShouldOpenAutomatically(status, process.hasVisibleOutcome)
-  const statusKey = [
-    status,
-    live ? "live" : "",
-    process.activity?.phase,
-    process.tools.map((part) => `${part.partId}:${part.status}`).join("|"),
-    process.errors.map((part) => part.partId).join("|"),
-  ].join(":")
+  const statusKey = renderModel.statusKey
   const [open, setOpen] = React.useState(shouldOpen)
   const [now, setNow] = React.useState(() => Date.now())
   const triggerRef = React.useRef<HTMLButtonElement>(null)
   const restoreScrollAnchorRef = React.useRef<(() => void) | null>(null)
   const duration = formatProcessDuration(process, now, live)
   const title = processTitle(t, status, duration)
-  const renderBlocks = blocks.map((item) => item.block)
-  const showLiveStatus =
-    (renderBlocks.length === 0 || shouldSurfaceProcessActivity(process.activity)) &&
-    shouldShowLiveStatus(process, status)
+  const activityBlocks = renderModel.activityBlocks
+  const renderBlocks = renderModel.renderBlocks
+  const showLiveStatus = renderModel.showLiveStatus
   const titleText = processStatusText(t, status)
-  const settlingPartId = settlingToolPartId(process, status)
+  const settlingPartId = renderModel.settlingPartId
   const openPreferenceRef = React.useRef<ProcessOpenPreference>("auto")
 
   React.useEffect(() => {
@@ -192,7 +187,7 @@ export function TurnProcessActivity({
       </div>
       <TaskContent className="[&>div]:mt-0">
         <ProcessActivityViewport followKey={statusKey} label={title} live={isLiveTurnProcess(process, live)}>
-          {blocks.map(({ message, block }, index) => (
+          {activityBlocks.map(({ message, block }, index) => (
             <AssistantBlock
               key={`${message.id}:${block.kind === "tools" ? block.key : block.part.partId}`}
               block={block}
@@ -216,28 +211,6 @@ export function TurnProcessActivity({
   )
 }
 
-function latestActiveTool(process: ReturnType<typeof summarizeTurnProcess>): ChatMessagePart | null {
-  for (let index = process.tools.length - 1; index >= 0; index -= 1) {
-    const part = process.tools[index]
-    if (part && isActiveToolPart(part)) {
-      return part
-    }
-  }
-  return null
-}
-
-function shouldShowLiveStatus(
-  process: ReturnType<typeof summarizeTurnProcess>,
-  status = chatTurnProcessStatus(process),
-): boolean {
-  const activeTool = latestActiveTool(process)
-  return (
-    (status === "running" && !activeTool) ||
-    status === "retrying" ||
-    Boolean(process.activity && status !== "completed" && status !== "stopped")
-  )
-}
-
 function LiveStatusBar({
   process,
   live = false,
@@ -252,8 +225,8 @@ function LiveStatusBar({
   }
 
   const status = chatTurnProcessStatus(process, live)
-  const activeTool = latestActiveTool(process)
-  if (!shouldShowLiveStatus(process, status)) {
+  const activeTool = latestActiveProcessTool(process)
+  if (!shouldShowProcessLiveStatus(process, status)) {
     return null
   }
 

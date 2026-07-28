@@ -1,11 +1,11 @@
-import type { ChatMessagePart } from "../../../electron/chat/common.ts"
+import type { ChatMessage, ChatMessagePart } from "../../../electron/chat/common.ts"
 
 import * as React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { I18nContext, translate } from "../../i18n/i18n.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
-import { groupedToolActivityParts } from "./wikigraph-tool-grouping.ts"
+import { groupedToolActivityParts, groupedWikigraphToolActivityBlocks } from "./wikigraph-tool-grouping.ts"
 
 function renderToolActivityStep(
   part: ChatMessagePart,
@@ -40,6 +40,10 @@ function shimmerClassFor(html: string, text: string): string {
     throw new Error(`Missing shimmer span for ${text}.`)
   }
   return match[1]
+}
+
+function assistantMessage(id: string): ChatMessage {
+  return { id, role: "assistant", parts: [], createdAt: 1 }
 }
 
 describe("ToolActivityStep", () => {
@@ -165,6 +169,324 @@ describe("ToolActivityStep", () => {
     expect(html).not.toContain("wg wikg://lib")
     expect(html).not.toContain("jq .")
     expect(html).not.toContain("lucide-chevron-right")
+  })
+
+  it("coalesces WikiGraph activity across adjacent tool blocks before rendering", () => {
+    const firstMessage = assistantMessage("assistant-1")
+    const secondMessage = assistantMessage("assistant-2")
+    const blocks = groupedWikigraphToolActivityBlocks([
+      {
+        message: firstMessage,
+        block: {
+          kind: "tools",
+          key: "tool-skill",
+          parts: [
+            {
+              kind: "tool",
+              partId: "tool-skill",
+              callId: "call-skill",
+              tool: "skill",
+              status: "completed",
+              title: "Loaded skill: wikigraph-knowledge",
+            },
+            {
+              kind: "tool",
+              partId: "tool-wg-help",
+              callId: "call-wg-help",
+              tool: "bash",
+              status: "completed",
+              input: { command: "wg help recipe 2>&1" },
+              output: "Usage: wg ...",
+            },
+          ],
+        },
+      },
+      {
+        message: secondMessage,
+        block: {
+          kind: "tools",
+          key: "tool-wg-1",
+          parts: [
+            {
+              kind: "tool",
+              partId: "tool-wg-1",
+              callId: "call-wg-1",
+              tool: "bash",
+              status: "completed",
+              input: { command: 'wg wikg://lib/search --query "华容道" --json' },
+            },
+            {
+              kind: "tool",
+              partId: "tool-wg-2",
+              callId: "call-wg-2",
+              tool: "bash",
+              status: "running",
+              input: { command: 'wg wikg://lib/evidence --query "关羽 曹操" --json' },
+            },
+          ],
+        },
+      },
+    ])
+    const html = blocks
+      .flatMap(({ block }) => (block.kind === "tools" ? block.parts : []))
+      .map((part) => renderToolActivityStep(part))
+      .join("\n")
+
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]?.block.kind).toBe("tools")
+    expect(blocks[0]?.block.kind === "tools" ? blocks[0].block.parts : []).toHaveLength(1)
+    expect(html.match(/查询知识库/g)).toHaveLength(1)
+    expect(html).toContain("运行中")
+    expect(html).not.toContain("wg help recipe")
+    expect(html).not.toContain("wg wikg://")
+    expect(html).not.toContain("wikigraph-knowledge")
+    expect(html).not.toContain("lucide-chevron-right")
+  })
+
+  it("hides unsettled unknown Bash commands while a WikiGraph activity lock is active", () => {
+    const message = assistantMessage("assistant-1")
+    const blocks = groupedWikigraphToolActivityBlocks([
+      {
+        message,
+        block: {
+          kind: "tools",
+          key: "tool-wg",
+          parts: [
+            {
+              kind: "tool",
+              partId: "tool-wg",
+              callId: "call-wg",
+              tool: "bash",
+              status: "completed",
+              input: { command: 'wg wikg://lib/search --query "华容道" --json' },
+            },
+          ],
+        },
+      },
+      {
+        message,
+        block: {
+          kind: "tools",
+          key: "tool-pending",
+          parts: [
+            {
+              kind: "tool",
+              partId: "tool-pending",
+              callId: "call-pending",
+              tool: "bash",
+              status: "pending",
+              input: {},
+            },
+          ],
+        },
+      },
+    ])
+    const parts = blocks.flatMap(({ block }) => (block.kind === "tools" ? block.parts : []))
+    const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
+
+    expect(parts).toHaveLength(1)
+    expect(html.match(/查询知识库/g)).toHaveLength(1)
+    expect(html).not.toContain("运行命令")
+    expect(html).not.toContain("lucide-chevron-right")
+  })
+
+  it("hides unsettled WG Bash commands before they can be classified as knowledge activity", () => {
+    const message = assistantMessage("assistant-1")
+    const blocks = groupedWikigraphToolActivityBlocks([
+      {
+        message,
+        block: {
+          kind: "tools",
+          key: "tool-wg-pending",
+          parts: [
+            {
+              kind: "tool",
+              partId: "tool-wg-pending",
+              callId: "call-wg-pending",
+              tool: "bash",
+              status: "running",
+              input: { command: "wg" },
+            },
+          ],
+        },
+      },
+    ])
+    const parts = blocks.flatMap(({ block }) => (block.kind === "tools" ? block.parts : []))
+    const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
+
+    expect(parts).toHaveLength(0)
+    expect(html).not.toContain("运行命令")
+    expect(html).not.toContain("wg")
+  })
+
+  it("keeps the trailing WikiGraph activity running while the process is live", () => {
+    const message = assistantMessage("assistant-1")
+    const sourceBlocks = [
+      {
+        message,
+        block: {
+          kind: "tools" as const,
+          key: "tool-wg",
+          parts: [
+            {
+              kind: "tool" as const,
+              partId: "tool-wg",
+              callId: "call-wg",
+              tool: "bash",
+              status: "completed" as const,
+              input: { command: 'wg wikg://lib/search --query "华容道" --json' },
+            },
+          ],
+        },
+      },
+    ]
+    const liveParts = groupedWikigraphToolActivityBlocks(sourceBlocks, { live: true }).flatMap(({ block }) =>
+      block.kind === "tools" ? block.parts : [],
+    )
+    const settledParts = groupedWikigraphToolActivityBlocks(sourceBlocks, { live: false }).flatMap(({ block }) =>
+      block.kind === "tools" ? block.parts : [],
+    )
+
+    expect(liveParts[0]?.status).toBe("running")
+    expect(renderToolActivityStep(liveParts[0]!, { live: true })).toContain("运行中")
+    expect(settledParts[0]?.status).toBe("completed")
+    expect(renderToolActivityStep(settledParts[0]!, { live: false })).toContain("已完成")
+  })
+
+  it("completes a WikiGraph activity once assistant text appears after it", () => {
+    const message = assistantMessage("assistant-1")
+    const blocks = groupedWikigraphToolActivityBlocks(
+      [
+        {
+          message,
+          block: {
+            kind: "tools",
+            key: "tool-wg",
+            parts: [
+              {
+                kind: "tool",
+                partId: "tool-wg",
+                callId: "call-wg",
+                tool: "bash",
+                status: "completed",
+                input: { command: 'wg wikg://lib/search --query "华容道" --json' },
+              },
+            ],
+          },
+        },
+        {
+          message,
+          block: {
+            kind: "text",
+            part: { kind: "text", partId: "text-1", text: "我会继续整理结果。" },
+          },
+        },
+      ],
+      { live: true },
+    )
+    const firstBlock = blocks[0]?.block
+    const parts = firstBlock?.kind === "tools" ? firstBlock.parts : []
+
+    expect(parts[0]?.status).toBe("completed")
+    expect(renderToolActivityStep(parts[0]!, { live: true })).toContain("已完成")
+  })
+
+  it("shows a settled non-WG Bash command and exits the WikiGraph activity lock", () => {
+    const message = assistantMessage("assistant-1")
+    const blocks = groupedWikigraphToolActivityBlocks([
+      {
+        message,
+        block: {
+          kind: "tools",
+          key: "tool-wg",
+          parts: [
+            {
+              kind: "tool",
+              partId: "tool-wg",
+              callId: "call-wg",
+              tool: "bash",
+              status: "completed",
+              input: { command: 'wg wikg://lib/search --query "华容道" --json' },
+            },
+          ],
+        },
+      },
+      {
+        message,
+        block: {
+          kind: "tools",
+          key: "tool-echo",
+          parts: [
+            {
+              kind: "tool",
+              partId: "tool-echo",
+              callId: "call-echo",
+              tool: "bash",
+              status: "completed",
+              input: { command: "echo ok" },
+            },
+            {
+              kind: "tool",
+              partId: "tool-wg-next",
+              callId: "call-wg-next",
+              tool: "bash",
+              status: "completed",
+              input: { command: 'wg wikg://lib/evidence --query "曹操" --json' },
+            },
+          ],
+        },
+      },
+    ])
+    const parts = blocks.flatMap(({ block }) => (block.kind === "tools" ? block.parts : []))
+    const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
+
+    expect(parts).toHaveLength(3)
+    expect(html.match(/查询知识库/g)).toHaveLength(2)
+    expect(html).toContain("echo ok")
+    expect(html).toContain("lucide-chevron-right")
+  })
+
+  it("preserves adjacent ordinary tool blocks when no WikiGraph grouping changes", () => {
+    const firstMessage = assistantMessage("assistant-1")
+    const secondMessage = assistantMessage("assistant-2")
+    const blocks = [
+      {
+        message: firstMessage,
+        block: {
+          kind: "tools" as const,
+          key: "tool-ls",
+          parts: [
+            {
+              kind: "tool" as const,
+              partId: "tool-ls",
+              callId: "call-ls",
+              tool: "bash",
+              status: "completed" as const,
+              input: { command: "ls" },
+            },
+          ],
+        },
+      },
+      {
+        message: secondMessage,
+        block: {
+          kind: "tools" as const,
+          key: "tool-echo",
+          parts: [
+            {
+              kind: "tool" as const,
+              partId: "tool-echo",
+              callId: "call-echo",
+              tool: "bash",
+              status: "completed" as const,
+              input: { command: "echo ok" },
+            },
+          ],
+        },
+      },
+    ]
+
+    expect(groupedWikigraphToolActivityBlocks(blocks)).toEqual(blocks)
   })
 
   it("coalesces WikiGraph skill loads with WG Bash calls in both orders", () => {

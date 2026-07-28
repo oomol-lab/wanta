@@ -11,7 +11,6 @@ import {
   FolderPlus,
   FolderOpen,
   FolderX,
-  Home,
   LibraryBig,
   MessageSquarePlus,
   MoreHorizontal,
@@ -373,54 +372,21 @@ function KnowledgeFolderRow({
   )
 }
 
-function KnowledgeBreadcrumbs({
-  breadcrumbs,
-  onNavigate,
-  t,
-}: {
-  breadcrumbs: Array<{ label: string; path: string }>
-  onNavigate: (path: string) => void
-  t: ReturnType<typeof useT>
-}) {
-  return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1 text-sm text-muted-foreground">
-      {breadcrumbs.map((breadcrumb, index) => (
-        <React.Fragment key={`${breadcrumb.path}:${index}`}>
-          {index > 0 ? <ChevronRight className="size-3.5 shrink-0" /> : null}
-          <button
-            type="button"
-            className={cn(
-              "max-w-full truncate rounded px-1.5 py-0.5 text-left transition-colors hover:bg-muted/60 hover:text-foreground",
-              index === breadcrumbs.length - 1 && "font-medium text-foreground",
-            )}
-            title={breadcrumb.path || t("knowledge.rootDirectory")}
-            onClick={() => onNavigate(breadcrumb.path)}
-          >
-            {index === 0 && breadcrumb.path === "" ? (
-              <span className="inline-flex items-center gap-1.5">
-                <Home className="size-3.5" />
-                {breadcrumb.label}
-              </span>
-            ) : (
-              breadcrumb.label
-            )}
-          </button>
-        </React.Fragment>
-      ))}
-    </div>
-  )
-}
-
 export function KnowledgeRoute({
+  currentDirectory,
   knowledge,
+  titlebarNavigationVersion,
+  onCurrentDirectoryChange,
   onStartChat,
 }: {
+  currentDirectory: string
   knowledge: UseKnowledgeBases
+  titlebarNavigationVersion: number
+  onCurrentDirectoryChange: (directory: string) => void
   onStartChat: (item: KnowledgeBaseSummary) => void
 }) {
   const t = useT()
   const [query, setQuery] = React.useState("")
-  const [currentDirectory, setCurrentDirectory] = React.useState("")
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [removeTarget, setRemoveTarget] = React.useState<KnowledgeBaseSummary | null>(null)
   const [renameTarget, setRenameTarget] = React.useState<KnowledgeBaseSummary | null>(null)
@@ -436,6 +402,7 @@ export function KnowledgeRoute({
   } | null>(null)
   const [dragActive, setDragActive] = React.useState(false)
   const dragDepthRef = React.useRef(0)
+  const previousTitlebarNavigationVersionRef = React.useRef(titlebarNavigationVersion)
   const deferredQuery = React.useDeferredValue(query)
 
   const view = React.useMemo(
@@ -463,6 +430,12 @@ export function KnowledgeRoute({
   }, [knowledge.items, selectedId])
 
   React.useEffect(() => {
+    if (previousTitlebarNavigationVersionRef.current === titlebarNavigationVersion) return
+    previousTitlebarNavigationVersionRef.current = titlebarNavigationVersion
+    setSelectedId(null)
+  }, [titlebarNavigationVersion])
+
+  React.useEffect(() => {
     if (!selectedId) return
     const closeOnEscape = (event: KeyboardEvent): void => {
       if (event.key === "Escape") setSelectedId(null)
@@ -475,7 +448,7 @@ export function KnowledgeRoute({
     const imported = await knowledge.importKnowledgeBase(sourcePath, targetDirectory ?? currentDirectory)
     if (imported) {
       setSelectedId(imported.id)
-      setCurrentDirectory(imported.relativePath ? knowledgePathDirectory(imported.relativePath) : currentDirectory)
+      onCurrentDirectoryChange(imported.relativePath ? knowledgePathDirectory(imported.relativePath) : currentDirectory)
     }
     return imported
   }
@@ -541,7 +514,7 @@ export function KnowledgeRoute({
     if (created) {
       setCreateFolderOpen(false)
       setCreateFolderName("")
-      setCurrentDirectory(created)
+      onCurrentDirectoryChange(created)
       setSelectedId(null)
     }
   }
@@ -565,7 +538,7 @@ export function KnowledgeRoute({
       setRenameTarget(null)
       setRenameValue("")
       setSelectedId(renamed.id)
-      setCurrentDirectory(knowledgePathDirectory(renamed.relativePath))
+      onCurrentDirectoryChange(knowledgePathDirectory(renamed.relativePath))
     }
   }
 
@@ -587,7 +560,7 @@ export function KnowledgeRoute({
       setMoveTarget(null)
       setMoveDirectory("")
       setSelectedId(moved.id)
-      setCurrentDirectory(knowledgePathDirectory(moved.relativePath))
+      onCurrentDirectoryChange(knowledgePathDirectory(moved.relativePath))
     }
   }
 
@@ -604,14 +577,14 @@ export function KnowledgeRoute({
         view.currentDirectory === removeFolderTarget.path ||
         view.currentDirectory.startsWith(`${removeFolderTarget.path}/`)
       ) {
-        setCurrentDirectory(knowledgePathDirectory(removeFolderTarget.path))
+        onCurrentDirectoryChange(knowledgePathDirectory(removeFolderTarget.path))
       }
       setRemoveFolderTarget(null)
     }
   }
 
   const handleNavigate = (path: string): void => {
-    setCurrentDirectory(normalizeKnowledgePath(path))
+    onCurrentDirectoryChange(normalizeKnowledgePath(path))
     setSelectedId(null)
   }
 
@@ -637,51 +610,37 @@ export function KnowledgeRoute({
       onDrop={(event) => void handleDrop(event)}
     >
       <SplitViewRoot narrowPane={narrowPane}>
-        <SplitViewHeader narrowPane={narrowPane} className="oo-border-divider border-b sm:grid-cols-1">
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <SearchField
-                className="max-w-sm flex-1"
-                disabled={knowledge.items.length === 0}
-                placeholder={t("knowledge.search")}
-                value={query}
-                onChange={(event) => setQuery(event.currentTarget.value)}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={knowledge.busy !== null || view.searchMode || !view.currentDirectory}
-                onClick={() => {
-                  setSelectedId(null)
-                  setCurrentDirectory(knowledgePathDirectory(currentDirectory))
-                }}
-              >
-                <ArrowLeft />
-                {t("knowledge.goUp")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="ml-auto"
-                disabled={knowledge.busy !== null || view.searchMode}
-                onClick={() => setCreateFolderOpen(true)}
-              >
-                <FolderPlus />
-                {knowledge.busy === "create-folder" ? t("knowledge.creatingFolder") : t("knowledge.newFolder")}
-              </Button>
-              <Button type="button" size="sm" disabled={knowledge.busy !== null} onClick={() => void handleImport()}>
-                <Plus />
-                {knowledge.busy === "import"
-                  ? t("knowledge.importing")
-                  : view.currentDirectory
-                    ? t("knowledge.importToCurrent")
-                    : t("knowledge.import")}
-              </Button>
-            </div>
-            <KnowledgeBreadcrumbs breadcrumbs={view.breadcrumbs} onNavigate={handleNavigate} t={t} />
-          </div>
+        <SplitViewHeader narrowPane={narrowPane} className="oo-border-divider flex items-center border-b">
+          <SearchField
+            className="max-w-sm min-w-0 flex-1"
+            disabled={knowledge.items.length === 0}
+            placeholder={
+              view.currentDirectory
+                ? t("knowledge.searchCurrentDirectory", { directory: knowledgePathBaseName(view.currentDirectory) })
+                : t("knowledge.search")
+            }
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            disabled={knowledge.busy !== null || view.searchMode}
+            onClick={() => setCreateFolderOpen(true)}
+          >
+            <FolderPlus />
+            {knowledge.busy === "create-folder" ? t("knowledge.creatingFolder") : t("knowledge.newFolder")}
+          </Button>
+          <Button type="button" size="sm" disabled={knowledge.busy !== null} onClick={() => void handleImport()}>
+            <Plus />
+            {knowledge.busy === "import"
+              ? t("knowledge.importing")
+              : view.currentDirectory
+                ? t("knowledge.importToCurrent")
+                : t("knowledge.import")}
+          </Button>
         </SplitViewHeader>
 
         <SplitViewBody

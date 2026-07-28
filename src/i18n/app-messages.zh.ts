@@ -1473,6 +1473,7 @@ export const zhCNMessages = {
   "knowledge.moveSameFolder": "目标文件夹与当前文件夹相同",
   "knowledge.pathConflict": "同一文件夹中已存在同名文件或文件夹",
   "knowledge.search": "搜索知识库",
+  "knowledge.searchCurrentDirectory": "搜索“{directory}”",
   "knowledge.back": "返回知识库",
   "knowledge.goUp": "返回上级",
   "knowledge.rootDirectory": "库根目录",

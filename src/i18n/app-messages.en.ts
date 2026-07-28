@@ -1542,6 +1542,7 @@ export const enMessages = {
   "knowledge.moveSameFolder": "The target folder is already the current folder",
   "knowledge.pathConflict": "A file or folder with that name already exists in this folder",
   "knowledge.search": "Search knowledge bases",
+  "knowledge.searchCurrentDirectory": "Search “{directory}”",
   "knowledge.back": "Back to knowledge",
   "knowledge.goUp": "Up",
   "knowledge.rootDirectory": "Library",

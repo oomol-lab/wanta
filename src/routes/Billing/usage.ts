@@ -1,4 +1,5 @@
 import type { BillingPeriodDays, BillingSpendStats } from "../../../electron/chat/common.ts"
+import type { ConnectionProviderSummary } from "../../../electron/connections/common.ts"
 
 export type UsageCategory = "model" | "api" | "link"
 
@@ -8,6 +9,19 @@ export interface CategorySummary {
   category: UsageCategory
   credit: number
   eventCount: number
+}
+
+export interface SubjectSummary {
+  appId?: string
+  category: UsageCategory
+  credit: number
+  displayName?: string
+  eventCount: number
+  iconUrl?: string
+  source: string
+  subject: string
+  subjects: string[]
+  totalUsage: number
 }
 
 export interface DailySpendBucket {
@@ -76,6 +90,23 @@ export function buildCategorySummaries(
 
 export function getSummary(summaries: CategorySummary[], category: UsageCategory): CategorySummary {
   return summaries.find((summary) => summary.category === category) ?? { category, credit: 0, eventCount: 0 }
+}
+
+export function buildSubjectSummaries(
+  spend: BillingSpendStats | null | undefined,
+  metering: BillingSpendStats | null | undefined,
+  providers: ConnectionProviderSummary[] = [],
+): SubjectSummary[] {
+  const summaries = new Map<string, SubjectSummary>()
+  mergeSubjectTotals(summaries, spend?.subjectTotals, "spend", providers)
+  mergeSubjectTotals(summaries, metering?.subjectTotals, "metering", providers)
+  return [...summaries.values()].sort(
+    (left, right) =>
+      right.credit - left.credit ||
+      right.eventCount - left.eventCount ||
+      left.source.localeCompare(right.source) ||
+      left.subject.localeCompare(right.subject),
+  )
 }
 
 export function buildDailySpendBuckets(
@@ -167,11 +198,14 @@ function summariesTotal(summaries: Map<UsageCategory, CategorySummary>, field: "
 }
 
 export function formatPercent(value: number): string {
+  if (value <= 0) return "0%"
+  if (value < 0.1) return "<0.1%"
+  if (value < 1) return `${value.toFixed(1)}%`
   return `${Math.round(value)}%`
 }
 
 export function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })
+  return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
 export function formatDateTime(timestamp: number): string {
@@ -239,6 +273,101 @@ function parseTimestamp(value: unknown): number | null {
 
 function startOfDay(value: number): number {
   const date = new Date(value)
-  date.setUTCHours(0, 0, 0, 0)
+  date.setHours(0, 0, 0, 0)
   return date.getTime()
+}
+
+function normalizeUsageSource(source: string): string {
+  return source === "SERVICE_AUTH_LINK" ? "SERVICE_OOMOL_CONNECTOR" : source
+}
+
+function mergeSubjectTotals(
+  summaries: Map<string, SubjectSummary>,
+  totals: BillingSpendStats["subjectTotals"] | undefined,
+  mode: "spend" | "metering",
+  providers: ConnectionProviderSummary[],
+): void {
+  for (const [rawSource, subjects] of Object.entries(totals ?? {})) {
+    const source = normalizeUsageSource(rawSource)
+    for (const [subject, total] of Object.entries(subjects)) {
+      if (!subject.trim()) continue
+      const category = usageCategory(source, subject)
+      const connectorGroup = category === "link" ? resolveConnectorGroup(subject, providers) : null
+      const groupedSubject = connectorGroup?.service ?? subject
+      const key = `${source}\u0000${groupedSubject}`
+      const summary = summaries.get(key) ?? {
+        ...(connectorGroup
+          ? {
+              appId: connectorGroup.service,
+              displayName: connectorGroup.displayName,
+              ...(connectorGroup.iconUrl ? { iconUrl: connectorGroup.iconUrl } : {}),
+            }
+          : {}),
+        category,
+        credit: 0,
+        eventCount: 0,
+        source,
+        subject: groupedSubject,
+        subjects: [],
+        totalUsage: 0,
+      }
+      if (!summary.subjects.includes(subject)) {
+        summary.subjects.push(subject)
+      }
+      if (mode === "spend") {
+        summary.credit += toNumber(total.totalCredit)
+      } else {
+        summary.eventCount += toNumber(total.eventCount)
+        summary.totalUsage += toNumber(total.totalUsage)
+      }
+      summaries.set(key, summary)
+    }
+  }
+}
+
+function resolveConnectorGroup(
+  subject: string,
+  providers: ConnectionProviderSummary[],
+): { displayName: string; iconUrl?: string; service: string } {
+  const normalizedSubject = normalizeServiceIdentity(subject.replace(/^service[-_:./]?/i, ""))
+  const candidates = providers
+    .flatMap((provider) =>
+      [provider.service, provider.displayName].map((alias) => ({
+        alias: normalizeServiceIdentity(alias),
+        provider,
+      })),
+    )
+    .filter((candidate) => candidate.alias)
+    .sort((left, right) => right.alias.length - left.alias.length)
+  const matched = candidates.find(
+    (candidate) => normalizedSubject === candidate.alias || normalizedSubject.startsWith(`${candidate.alias}-`),
+  )?.provider
+  if (matched) {
+    return {
+      displayName: matched.displayName,
+      ...(matched.iconUrl ? { iconUrl: matched.iconUrl } : {}),
+      service: matched.service,
+    }
+  }
+  const service = normalizeServiceIdentity(subject.replace(/^service[-_:./]?/i, "").split(/[.:/]/, 1)[0] ?? subject)
+  return {
+    displayName: humanizeServiceName(service || subject),
+    service: service || subject,
+  }
+}
+
+function normalizeServiceIdentity(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+}
+
+function humanizeServiceName(value: string): string {
+  return value
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
 }

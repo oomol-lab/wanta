@@ -220,7 +220,7 @@ function cachedData(cacheScope: string, days: BillingPeriodDays): BillingOvervie
 
 /**
  * Team subscription details do not depend on the selected usage window. Keep the latest
- * successful values when a 7-day or 30-day refresh hits the optional-request timeout, while
+ * successful values when a usage-window refresh hits the optional-request timeout, while
  * still accepting a successful null response as the authoritative "no plan/payment" state.
  */
 export function retainAvailableTeamBillingDetails(

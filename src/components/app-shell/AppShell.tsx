@@ -1744,6 +1744,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         <React.Suspense fallback={<RouteLoadingFallback />}>
           <BillingRoute
             cacheScope={billingCacheScope}
+            connectionProviders={activeProviders}
             initialTarget={billingInitialTarget}
             sharedConnectorCount={sharedConnectorCount}
             titlebarActions={<AppUpdateTitlebarEntry update={appUpdate} />}

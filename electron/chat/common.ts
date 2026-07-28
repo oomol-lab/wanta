@@ -695,9 +695,8 @@ export interface SetAgentTeamRequest {
 }
 
 export type RechargePrice = "5_USD" | "20_USD" | "100_USD"
-// Capped at 30: insight's V2 team stats route (/v2/stats/team/:teamId/*) rejects daily windows
-// wider than STATS_V2_USER_DAILY_MAX_DAYS (30) with HTTP 400 — do not add a value above 30 here.
-export type BillingPeriodDays = 7 | 30
+// Capped at 30: Insight V2 rejects daily windows wider than its 30-day user limit.
+export type BillingPeriodDays = 7 | 14 | 30
 export type TeamSubscriptionPlan = "team_plus" | "team_pro"
 
 export interface CreditBalanceResult {
@@ -740,8 +739,15 @@ export interface BillingStatsItem {
 }
 
 export interface BillingSpendStats {
+  dataAsOf?: number
+  effectiveRange?: {
+    startTime: number
+    endTime: number
+  }
+  granularity?: "hourly" | "daily"
   items: BillingStatsItem[]
   sourceTotals: Record<string, { totalCredit?: string; eventCount?: number; totalUsage?: string }>
+  subjectTotals?: Record<string, Record<string, { totalCredit?: string; eventCount?: number; totalUsage?: string }>>
   total: { totalCredit?: string; eventCount?: number; totalUsage?: string }
 }
 

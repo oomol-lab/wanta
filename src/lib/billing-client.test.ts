@@ -189,6 +189,41 @@ describe("billing-client", () => {
     expect(summary.teamPendingPaymentAvailable).toBe(true)
   })
 
+  it("keeps connector allowance lots visible without counting them as general balance", async () => {
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = urlOf(input)
+      if (url.pathname === "/v1/balance/available") {
+        return Response.json({
+          data: {
+            deficit: "0",
+            items: [
+              { currentCredit: "9", originalCredit: "10", serviceScope: "GENERAL" },
+              {
+                currentCredit: "30",
+                originalCredit: "30",
+                serviceScope: "SERVICE_OOMOL_CONNECTOR",
+              },
+              { currentCredit: "20", originalCredit: "20", serviceScope: "SERVICE_AUTH_LINK" },
+            ],
+            total: { currentCredit: "59", originalCredit: "60" },
+          },
+        })
+      }
+      return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
+    })
+
+    const overview = await getBillingOverview(30, {
+      canManageFunding: false,
+      canManageTeamSubscription: false,
+      canReadTeamSubscription: false,
+      teamId: "team-1",
+      teamName: "acme",
+    })
+
+    expect(overview.balance?.total).toEqual({ currentCredit: "9", originalCredit: "10" })
+    expect(overview.balance?.items.map((item) => item.serviceScope)).toEqual(["GENERAL", "SERVICE_OOMOL_CONNECTOR"])
+  })
+
   it("lets admins read team subscription state without accessing creator funding", async () => {
     const paths: string[] = []
     vi.stubGlobal("fetch", async (input: string | URL | Request) => {
@@ -485,9 +520,12 @@ describe("billing-client", () => {
       if (url.pathname === "/v2/stats/billing") {
         return Response.json({
           data: {
+            dataAsOf: 1_700_000_000_100,
+            effectiveRange: { startTime: 1_699_000_000_000, endTime: 1_700_000_000_000 },
             granularity: "daily",
             items: [{ source: "SERVICE_LLM", time: 1_700_000_000_000, totalCredit: "1.5" }],
             sourceTotals: { SERVICE_LLM: { totalCredit: "1.5" } },
+            subjectTotals: { SERVICE_LLM: { "openai/gpt-5": { totalCredit: "1.5" } } },
             total: { totalCredit: "1.5" },
           },
         })
@@ -519,6 +557,14 @@ describe("billing-client", () => {
       },
     ])
     expect(overview.spend?.total.totalCredit).toBe("1.5")
+    expect(overview.spend?.subjectTotals).toEqual({
+      SERVICE_LLM: { "openai/gpt-5": { totalCredit: "1.5" } },
+    })
+    expect(overview.spend?.dataAsOf).toBe(1_700_000_000_100)
+    expect(overview.spend?.effectiveRange).toEqual({
+      startTime: 1_699_000_000_000,
+      endTime: 1_700_000_000_000,
+    })
     expect(overview.metering?.items).toEqual([
       {
         source: "SERVICE_OOMOL_CONNECTOR",
@@ -535,6 +581,25 @@ describe("billing-client", () => {
     expect(statsRequests.map((request) => request.path).sort()).toEqual(["/v2/stats/billing", "/v2/stats/metering"])
     expect(statsRequests.every((request) => request.granularity === "daily")).toBe(true)
     expect(statsRequests.some((request) => request.hasOrgHeader)).toBe(false)
+  })
+
+  it("requests stats using the user's whole-hour timezone offset", async () => {
+    vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(-480)
+    const offsets: Array<string | null> = []
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = urlOf(input)
+      if (url.pathname.startsWith("/v2/stats/")) {
+        offsets.push(url.searchParams.get("utcOffset"))
+      }
+      if (url.pathname === "/v1/balance/available") {
+        return Response.json({ data: { deficit: "0", items: [], total: {} } })
+      }
+      return Response.json({ data: { items: [], sourceTotals: {}, total: {} } })
+    })
+
+    await getBillingOverview(14, teamScope)
+
+    expect(offsets).toEqual(["8", "8"])
   })
 
   it("clamps an over-limit usage window to the V2 team route's 30-day daily cap", async () => {

@@ -168,6 +168,10 @@ export function groupedWikigraphToolActivityBlocks(
     const parts = groupedLockedWikigraphToolActivityParts(originalParts, {
       forceTrailingKnowledgeRunning: options.live === true && flushOptions.trailing === true,
     })
+    if (parts.length === 0) {
+      pendingTools = []
+      return
+    }
     if (parts.length === originalParts.length && parts.every((part, index) => part === originalParts[index])) {
       grouped.push(...pendingTools)
       pendingTools = []

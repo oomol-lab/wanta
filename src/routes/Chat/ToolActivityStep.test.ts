@@ -91,7 +91,10 @@ describe("ToolActivityStep", () => {
       output: "{}",
     })
 
-    expect(html).toContain("正在查询知识库...")
+    expect(html).toContain("查询知识库")
+    expect(html).toContain("已完成")
+    expect(html).not.toContain("正在查询知识库")
+    expect(html).not.toContain("opacity-0 group-hover/tool-step:opacity-100")
     expect(html).not.toContain("wg wikg://lib")
     expect(html).not.toContain("jq .")
     expect(html).not.toContain("工具参数")
@@ -123,7 +126,8 @@ describe("ToolActivityStep", () => {
     const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
 
     expect(parts).toHaveLength(1)
-    expect(html.match(/正在查询知识库\.\.\./g)).toHaveLength(1)
+    expect(html.match(/查询知识库/g)).toHaveLength(1)
+    expect(html).toContain("已完成")
     expect(html).not.toContain("wg wikg://lib")
     expect(html).not.toContain("jq .")
     expect(html).not.toContain("lucide-chevron-right")
@@ -158,7 +162,8 @@ describe("ToolActivityStep", () => {
       const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
 
       expect(parts).toHaveLength(1)
-      expect(html.match(/正在查询知识库\.\.\./g)).toHaveLength(1)
+      expect(html.match(/查询知识库/g)).toHaveLength(1)
+      expect(html).toContain("已完成")
       expect(html).not.toContain("wikigraph-knowledge")
       expect(html).not.toContain("Loaded skill")
       expect(html).not.toContain("wg wikg://lib")
@@ -198,7 +203,7 @@ describe("ToolActivityStep", () => {
     const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
 
     expect(parts).toHaveLength(3)
-    expect(html.match(/正在查询知识库\.\.\./g)).toHaveLength(2)
+    expect(html.match(/查询知识库/g)).toHaveLength(2)
     expect(html).toContain("jq . /tmp/result.json")
   })
 
@@ -225,7 +230,7 @@ describe("ToolActivityStep", () => {
     const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
 
     expect(parts).toHaveLength(1)
-    expect(html).toContain("正在查询知识库...")
+    expect(html).toContain("查询知识库")
     expect(html).toContain("未完成")
     expect(html).not.toContain("wg wikg://lib/entity")
     expect(html).not.toContain("lucide-chevron-right")
@@ -242,7 +247,7 @@ describe("ToolActivityStep", () => {
       output: "# PDF",
     })
 
-    expect(html).not.toContain("正在查询知识库...")
+    expect(html).not.toContain("查询知识库")
     expect(html).toContain("Loaded skill: pdf")
     expect(html).toContain("lucide-chevron-right")
   })
@@ -258,11 +263,27 @@ describe("ToolActivityStep", () => {
       error: "exit code 1",
     })
 
-    expect(html).toContain("正在查询知识库...")
+    expect(html).toContain("查询知识库")
     expect(html).toContain("未完成")
     expect(html).not.toContain("wg wikg://lib")
     expect(html).not.toContain("jq .")
     expect(html).not.toContain("lucide-chevron-right")
+  })
+
+  it("uses the live status and shimmer instead of loading punctuation for active knowledge queries", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-wg-running",
+      callId: "call-wg-running",
+      tool: "bash",
+      status: "running",
+      input: { command: 'wg wikg://lib/search --query "唐僧" --json' },
+    })
+
+    expect(html).toContain("查询知识库")
+    expect(html).toContain("运行中")
+    expect(html).toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>查询知识库<\/span>/)
+    expect(html).not.toContain("查询知识库...")
   })
 
   it("shimmers only the active web fetch title when the URL is shown inline", () => {

@@ -25,6 +25,7 @@ import {
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { processOpenAfterStatusChange, processShouldOpenAutomatically } from "./process-activity-open.ts"
+import { ProcessActivityViewport } from "./ProcessActivityViewport.tsx"
 import { formatWholeSecondDuration } from "./tool-activity.ts"
 import { toolActionSummary, toolServiceSlug } from "./tool-display.ts"
 import { isActiveToolPart } from "./tool-state.ts"
@@ -102,6 +103,7 @@ export function TurnProcessActivity({
   onRecover,
   onRetryFresh,
   onViewBilling,
+  onBeforeDisclosure,
 }: {
   blocks: AssistantTimelineBlock[]
   process: ReturnType<typeof summarizeTurnProcess>
@@ -112,6 +114,7 @@ export function TurnProcessActivity({
   onRecover?: (kind: ChatErrorKind) => Promise<void> | void
   onRetryFresh?: () => Promise<void> | void
   onViewBilling?: () => void
+  onBeforeDisclosure?: (anchor: HTMLElement | null) => () => void
 }) {
   const t = useT()
   const status = chatTurnProcessStatus(process, live)
@@ -125,6 +128,8 @@ export function TurnProcessActivity({
   ].join(":")
   const [open, setOpen] = React.useState(shouldOpen)
   const [now, setNow] = React.useState(() => Date.now())
+  const triggerRef = React.useRef<HTMLButtonElement>(null)
+  const restoreScrollAnchorRef = React.useRef<(() => void) | null>(null)
   const duration = formatProcessDuration(process, now, live)
   const title = processTitle(t, status, duration)
   const renderBlocks = blocks.map((item) => item.block)
@@ -154,16 +159,26 @@ export function TurnProcessActivity({
     return () => window.clearInterval(timer)
   }, [status])
 
-  const handleOpenChange = React.useCallback((nextOpen: boolean) => {
-    openPreferenceRef.current = nextOpen ? "user_open" : "user_closed"
-    setOpen(nextOpen)
-  }, [])
+  React.useLayoutEffect(() => {
+    restoreScrollAnchorRef.current?.()
+    restoreScrollAnchorRef.current = null
+  }, [open])
+
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      restoreScrollAnchorRef.current = onBeforeDisclosure?.(triggerRef.current) ?? null
+      openPreferenceRef.current = nextOpen ? "user_open" : "user_closed"
+      setOpen(nextOpen)
+    },
+    [onBeforeDisclosure],
+  )
 
   return (
     <Task open={open} onOpenChange={handleOpenChange} className="not-prose my-0 w-full">
       <div className="border-b border-border/60 py-1.5 pr-1.5">
         <TaskTrigger title={title}>
           <button
+            ref={triggerRef}
             type="button"
             className="group inline-flex max-w-full items-center gap-1.5 text-left font-medium text-[var(--oo-section-heading-foreground)] transition-colors select-none"
           >
@@ -176,7 +191,7 @@ export function TurnProcessActivity({
         </TaskTrigger>
       </div>
       <TaskContent className="[&>div]:mt-0">
-        <div className="space-y-2 pt-2">
+        <ProcessActivityViewport followKey={statusKey} label={title} live={isLiveTurnProcess(process, live)}>
           {blocks.map(({ message, block }, index) => (
             <AssistantBlock
               key={`${message.id}:${block.kind === "tools" ? block.key : block.part.partId}`}
@@ -195,7 +210,7 @@ export function TurnProcessActivity({
             />
           ))}
           {showLiveStatus ? <LiveStatusBar process={process} live={live} /> : null}
-        </div>
+        </ProcessActivityViewport>
       </TaskContent>
     </Task>
   )

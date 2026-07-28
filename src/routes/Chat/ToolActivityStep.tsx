@@ -269,7 +269,7 @@ export function ToolActivityStep({
   const showShimmer = active || shimmer
   const displayLine = toolDisplayLine(t, part)
   const metaItems = [provider?.displayName, statusText].filter(Boolean)
-  const completedMeta = part.status === "completed" && !auth
+  const hideCompletedMeta = part.status === "completed" && !auth && !hideDetails
   const outputPreview = React.useMemo(() => {
     if (!detailsVisible || !part.output || auth) {
       return null
@@ -343,8 +343,8 @@ export function ToolActivityStep({
             <span
               className={cn(
                 "flex min-w-0 shrink-0 items-center gap-1 font-medium text-muted-foreground transition-opacity",
-                completedMeta && "opacity-0 group-hover/tool-step:opacity-100",
-                completedMeta &&
+                hideCompletedMeta && "opacity-0 group-hover/tool-step:opacity-100",
+                hideCompletedMeta &&
                   details &&
                   "group-focus-visible/tool-step:opacity-100 group-data-[state=open]/tool-step:opacity-100",
               )}

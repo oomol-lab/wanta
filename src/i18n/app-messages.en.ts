@@ -764,7 +764,7 @@ export const enMessages = {
   "chat.toolBashRunPythonScript": "Running Python script",
   "chat.toolBashReadContent": "Reading file content",
   "chat.toolBashFindFiles": "Finding files",
-  "chat.toolBashQueryKnowledge": "Searching knowledge...",
+  "chat.toolBashQueryKnowledge": "Search knowledge",
   "chat.toolRead": "Reading file: {detail}",
   "chat.toolReadGeneric": "Reading file",
   "chat.toolWrite": "Writing file: {detail}",

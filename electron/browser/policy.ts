@@ -5,7 +5,9 @@ const allowedProtocols = new Set(["http:", "https:"])
 export function parseBrowserUrl(value: string): URL {
   const input = value.trim()
   if (!input) throw new Error("Enter a web address.")
-  const candidate = /^[A-Za-z][A-Za-z\d+.-]*:/u.test(input) ? input : `https://${input}`
+  const hasExplicitScheme = /^[A-Za-z][A-Za-z\d+.-]*:/u.test(input)
+  const isBareHostWithPort = /^[^:/?#\s]+:\d+(?:[/?#]|$)/u.test(input)
+  const candidate = hasExplicitScheme && !isBareHostWithPort ? input : `https://${input}`
   const url = new URL(candidate)
   if (!allowedProtocols.has(url.protocol)) {
     throw new Error("The integrated browser supports only HTTP and HTTPS URLs.")

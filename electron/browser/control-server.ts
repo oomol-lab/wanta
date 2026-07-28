@@ -69,7 +69,6 @@ export class BrowserControlServer {
     }
 
     const controller = new AbortController()
-    request.once("aborted", () => controller.abort())
     response.once("close", () => {
       if (!response.writableEnded) controller.abort()
     })
@@ -162,6 +161,7 @@ function clampScrollDelta(value: unknown): number {
 }
 
 function respond(response: ServerResponse, status: number, body: unknown): void {
+  if (response.destroyed || response.writableEnded) return
   response.writeHead(status, {
     "cache-control": "no-store",
     "content-type": "application/json; charset=utf-8",

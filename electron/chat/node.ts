@@ -228,6 +228,7 @@ function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): s
 }
 
 interface ChatServiceDeps {
+  browserAvailable?: () => boolean
   createArtifactResourceUrl?: (item: { mime: string; modifiedAt: number; path: string; size: number }) => {
     expiresAt: number
     url: string
@@ -1539,7 +1540,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             buildTeamSkillsSystem(req.teamSkills),
             buildContextMentionsSystemPrompt(req.contextMentions),
             buildProjectContextSystem(req.projectContext),
-            buildPermissionModeSystem(req.permissionMode),
+            buildPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
             bugReportSystem,
             buildResponseLanguageSystem(req.appLocale, detectResponseLanguage(req.text)),
           ),

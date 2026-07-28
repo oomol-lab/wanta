@@ -47,7 +47,7 @@ test("buildContextMentionsSystem routes the Hua Rong Trail fixture through WikiG
 })
 
 test("buildPermissionModeSystem describes default access", () => {
-  const prompt = buildPermissionModeSystem("default")
+  const prompt = buildPermissionModeSystem("default", true)
 
   assert.match(prompt, /Default Access/)
   assert.match(prompt, /Use bash normally/)
@@ -64,7 +64,7 @@ test("buildPermissionModeSystem describes default access", () => {
 })
 
 test("buildPermissionModeSystem describes full access", () => {
-  const prompt = buildPermissionModeSystem("full_access")
+  const prompt = buildPermissionModeSystem("full_access", true)
 
   assert.match(prompt, /Full Access \(session-scoped local YOLO\)/)
   assert.match(prompt, /YOLO for local tools/)
@@ -75,6 +75,16 @@ test("buildPermissionModeSystem describes full access", () => {
   assert.match(prompt, /non-local business workflow explicitly requires user approval/)
   assert.match(prompt, /integrated browser is YOLO/)
   assert.match(prompt, /Login, credentials, passkeys, and CAPTCHA remain manual/)
+})
+
+test("buildPermissionModeSystem omits integrated browser guidance when unavailable", () => {
+  const defaultPrompt = buildPermissionModeSystem("default", false)
+  const fullAccessPrompt = buildPermissionModeSystem("full_access", false)
+
+  assert.doesNotMatch(defaultPrompt, /integrated browser/)
+  assert.doesNotMatch(defaultPrompt, /visible browser/)
+  assert.doesNotMatch(fullAccessPrompt, /integrated.browser/)
+  assert.doesNotMatch(fullAccessPrompt, /visible browser/)
 })
 
 test("buildResponseLanguageSystem follows a detected request language before the interface locale", () => {

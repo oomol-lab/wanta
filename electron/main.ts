@@ -191,6 +191,7 @@ const browserControlServer = new BrowserControlServer(browserManager)
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 团队作用域同步，
 // 经 ChatService.setAgentTeam → onSetAgentTeam 回调（渲染层切 workspace 时调用）。
 const chatService = new ChatServiceImpl(null, {
+  browserAvailable: () => settingsStore.read().browserEnabled !== false,
   bugReportRuntime: {
     appCommit: typeof __APP_COMMIT__ === "string" ? __APP_COMMIT__ : "unknown",
     appVersion: app.getVersion(),

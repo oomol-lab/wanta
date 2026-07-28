@@ -6,6 +6,10 @@ describe("browser URL policy", () => {
     expect(parseBrowserUrl("example.com/path").href).toBe("https://example.com/path")
   })
 
+  it("normalizes a bare local development host with a port", () => {
+    expect(parseBrowserUrl("localhost:5173").href).toBe("https://localhost:5173/")
+  })
+
   it("allows web URLs and the internal blank page", () => {
     expect(isAllowedBrowserUrl("https://example.com")).toBe(true)
     expect(isAllowedBrowserUrl("http://localhost:3000")).toBe(true)

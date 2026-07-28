@@ -60,7 +60,9 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
       observer.disconnect()
       window.removeEventListener("resize", scheduleShow)
       if (frame !== null) window.cancelAnimationFrame(frame)
-      void browserService.invoke("hide", sessionId).catch(() => undefined)
+      void browserService.invoke("hide", sessionId).catch((cause: unknown) => {
+        reportRendererHandledError("browser", "hide browser page on unmount failed", cause)
+      })
     }
   }, [browserService, sessionId])
 

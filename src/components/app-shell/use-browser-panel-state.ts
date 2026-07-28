@@ -42,6 +42,7 @@ export function useBrowserPanelState({
     })
     const offRequested = browserService.serverEvents.on("browserRequested", ({ sessionId }) => {
       if (sessionId !== activeSessionId) return
+      receivedStateEvent = true
       setBrowserPanelOpen(true)
     })
     const offRemoved = browserService.serverEvents.on("pageRemoved", ({ sessionId }) => {

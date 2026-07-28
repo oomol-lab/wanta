@@ -1,6 +1,6 @@
 import type { BookMeta, ReadonlyDocument, WikiGraphLibraryArchiveRecord } from "wiki-graph-core"
 
-import { mkdir, readdir, rmdir, stat } from "node:fs/promises"
+import { chmod, copyFile, mkdir, mkdtemp, readdir, rm, rmdir, stat } from "node:fs/promises"
 import path from "node:path"
 import {
   addWikiGraphLibraryArchive as addWikiGraphLibraryArchiveWithSDK,
@@ -49,6 +49,11 @@ export interface WikiGraphMetadata {
   language?: string
 }
 
+export interface WikiGraphMetadataUpdate {
+  authors?: string[]
+  title?: string
+}
+
 export interface WikiGraphInspect {
   content?: {
     chapters?: { total?: number; content?: number }
@@ -62,6 +67,11 @@ export interface WikiGraphInspect {
   }
 }
 
+export interface WikiGraphChapterNode {
+  children?: WikiGraphChapterNode[]
+  title: string
+}
+
 export interface WikiGraphIndexState {
   ftsCurrent?: boolean
   current?: boolean
@@ -70,12 +80,17 @@ export interface WikiGraphIndexState {
 }
 
 interface InspectChapter {
+  depth: number
+  documentOrder: number
   knowledgeGraphReady: boolean
   readingGraphReady: boolean
   stage: string
   summaryReady: boolean
+  title: string
   words: number
 }
+
+type WikiGraphListedChapter = Awaited<ReturnType<typeof listChapters>>[number]
 
 function redactWikiGraphRuntimePaths(runtime: WikiGraphRuntime, value: string): string {
   let message = value
@@ -129,14 +144,10 @@ function metadataFromBookMeta(meta: BookMeta | undefined): WikiGraphMetadata {
   }
 }
 
-function safeImportTarget(sourcePath: string): string {
-  const parsed = path.parse(sourcePath)
-  const base = parsed.name
-    .normalize("NFKD")
-    .replace(/[^a-zA-Z0-9._-]+/gu, "-")
-    .replace(/^-+|-+$/gu, "")
-    .slice(0, 80)
-  return `${base || "archive"}-${Date.now().toString(36)}.wikg`
+function importFileName(sourcePath: string): string {
+  const baseName = path.basename(sourcePath)
+  if (!baseName || baseName === "." || baseName === "..") return "archive.wikg"
+  return normalizeKnowledgeFileName(baseName)
 }
 
 function normalizeLibraryPathSegments(value: string, fallbackLabel: string): string {
@@ -191,10 +202,31 @@ function pathMatchesPrefix(value: string, prefix: string): boolean {
   return value === prefix || value.startsWith(`${prefix}/`)
 }
 
-function safeImportRelativePath(sourcePath: string, targetDirectory: string | undefined): string {
-  const fileName = safeImportTarget(sourcePath)
+function importCandidatePath(sourcePath: string, targetDirectory: string | undefined, duplicateIndex?: number): string {
+  const fileName = importFileName(sourcePath)
+  const candidateFileName =
+    duplicateIndex && duplicateIndex > 1
+      ? `${path.basename(fileName, path.extname(fileName))} ${duplicateIndex}${path.extname(fileName) || ".wikg"}`
+      : fileName
   const directory = normalizeKnowledgeDirectory(targetDirectory, "Knowledge library target directory is invalid")
-  return directory ? `${directory}/${fileName}` : fileName
+  return directory ? `${directory}/${candidateFileName}` : candidateFileName
+}
+
+async function importRelativePath(runtime: WikiGraphRuntime, sourcePath: string, targetDirectory: string | undefined) {
+  const archives = await listWikiGraphLibraryArchives(runtime)
+  const folders = await listKnowledgeLibraryFolders(runtime)
+  for (let index = 1; index <= 1000; index += 1) {
+    const candidate = importCandidatePath(sourcePath, targetDirectory, index === 1 ? undefined : index)
+    ensureKnowledgePathWithinLibrary(runtime, candidate)
+    const physicalPathExists = Boolean(await stat(path.join(runtime.managedLibraryDir, candidate)).catch(() => null))
+    const archiveConflict = archives.some((archive) => {
+      const archivePath = archive.relativePath || archive.path || `${archive.id}.wikg`
+      return pathEquals(archivePath, candidate)
+    })
+    const folderConflict = folders.some((folder) => pathEquals(folder, candidate))
+    if (!physicalPathExists && !archiveConflict && !folderConflict) return candidate
+  }
+  throw new Error("Knowledge library path already exists")
 }
 
 async function withRuntime<T>(runtime: WikiGraphRuntime, fallback: string, operation: () => Promise<T>): Promise<T> {
@@ -321,23 +353,85 @@ export async function addWikiGraphLibraryArchive(
   }
   if (!source.isFile()) throw new Error("Knowledge base must be a regular file")
   return await withRuntime(runtime, "Failed to import WikiGraph archive", async () => {
+    const targetPath = await importRelativePath(runtime, sourcePath, targetDirectory)
+    const imported = await importPreparedWikiGraphArchive(runtime, sourcePath, targetPath)
+    return archiveFromRecord(imported)
+  })
+}
+
+async function importPreparedWikiGraphArchive(
+  runtime: WikiGraphRuntime,
+  inputPath: string,
+  targetPath: string,
+): Promise<WikiGraphLibraryArchiveRecord> {
+  const imported = await addWikiGraphLibraryArchiveWithSDK({
+    inputPath,
+    target: requireLibraryTarget(`${defaultLibraryUri}/arc`),
+    to: targetPath,
+  })
+  try {
+    await prepareImportedArchiveForUse(imported)
+  } catch (error) {
+    await removeUnreadableImportedArchive(imported)
+    if (!isNonDerivedOverlayStateError(error)) throw new Error(unreadableImportMessage, { cause: error })
+    return await retryImportWithIsolatedUpgrade(runtime, inputPath, targetPath, error)
+  }
+  return imported
+}
+
+async function retryImportWithIsolatedUpgrade(
+  runtime: WikiGraphRuntime,
+  inputPath: string,
+  targetPath: string,
+  cause: unknown,
+): Promise<WikiGraphLibraryArchiveRecord> {
+  const prepared = await prepareIsolatedImportCopy(runtime, inputPath)
+  try {
     const imported = await addWikiGraphLibraryArchiveWithSDK({
-      inputPath: sourcePath,
+      inputPath: prepared.path,
       target: requireLibraryTarget(`${defaultLibraryUri}/arc`),
-      to: safeImportRelativePath(sourcePath, targetDirectory),
+      to: targetPath,
     })
     try {
       await prepareImportedArchiveForUse(imported)
     } catch (error) {
-      await removeWikiGraphLibraryArchiveWithSDK({ target: requireLibraryTarget(imported.uri) }).catch(
-        (cleanupError: unknown) => {
-          console.warn("[wanta] failed to clean unreadable WikiGraph import:", cleanupError)
-        },
-      )
+      await removeUnreadableImportedArchive(imported)
       throw new Error(unreadableImportMessage, { cause: error })
     }
-    return archiveFromRecord(imported)
-  })
+    return imported
+  } catch (error) {
+    if (error instanceof Error && error.message === unreadableImportMessage) throw error
+    throw new Error(unreadableImportMessage, { cause: error instanceof Error ? error : cause })
+  } finally {
+    await rm(prepared.directory, { force: true, recursive: true }).catch(() => undefined)
+  }
+}
+
+async function prepareIsolatedImportCopy(
+  runtime: WikiGraphRuntime,
+  sourcePath: string,
+): Promise<{ directory: string; path: string }> {
+  const directory = await mkdtemp(path.join(runtime.stateDir, "import-"))
+  const archivePath = path.join(directory, path.basename(sourcePath) || "archive.wikg")
+  try {
+    await copyFile(sourcePath, archivePath)
+    await chmod(archivePath, 0o600).catch(() => undefined)
+    await withWikiGraphRuntimeStateDirectoryPath(path.join(directory, "state"), async () => {
+      await upgradeWikiGraphMaintenanceTarget(archivePath)
+    })
+    return { directory, path: archivePath }
+  } catch (error) {
+    await rm(directory, { force: true, recursive: true }).catch(() => undefined)
+    throw error
+  }
+}
+
+async function removeUnreadableImportedArchive(imported: WikiGraphLibraryArchiveRecord): Promise<void> {
+  await removeWikiGraphLibraryArchiveWithSDK({ target: requireLibraryTarget(imported.uri) }).catch(
+    (cleanupError: unknown) => {
+      console.warn("[wanta] failed to clean unreadable WikiGraph import:", cleanupError)
+    },
+  )
 }
 
 async function prepareImportedArchiveForUse(record: WikiGraphLibraryArchiveRecord): Promise<void> {
@@ -346,7 +440,17 @@ async function prepareImportedArchiveForUse(record: WikiGraphLibraryArchiveRecor
 }
 
 async function prepareArchivePathForUse(archivePath: string): Promise<void> {
-  await upgradeWikiGraphMaintenanceTarget(archivePath)
+  try {
+    await upgradeWikiGraphMaintenanceTarget(archivePath)
+  } catch (error) {
+    if (!isNonDerivedOverlayStateError(error)) throw error
+    await upgradeWikiGraphMaintenanceTarget(defaultLibraryUri)
+    await upgradeWikiGraphMaintenanceTarget(archivePath)
+  }
+}
+
+function isNonDerivedOverlayStateError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("non-derived overlay state")
 }
 
 async function validateImportedArchive(archivePath: string): Promise<void> {
@@ -432,6 +536,32 @@ export async function readWikiGraphMetadata(runtime: WikiGraphRuntime, id: strin
   })
 }
 
+export async function updateWikiGraphMetadata(
+  runtime: WikiGraphRuntime,
+  id: string,
+  update: WikiGraphMetadataUpdate,
+): Promise<WikiGraphMetadata> {
+  const file = await archiveFile(runtime, id)
+  return await withRuntime(runtime, "Failed to update WikiGraph metadata", async () => {
+    return await file.write(async (document) => {
+      const current = await document.readBookMeta()
+      const next: BookMeta = {
+        authors: update.authors ?? current?.authors ?? [],
+        description: current?.description ?? null,
+        identifier: current?.identifier ?? null,
+        language: current?.language ?? null,
+        publishedAt: current?.publishedAt ?? null,
+        publisher: current?.publisher ?? null,
+        sourceFormat: current?.sourceFormat ?? "txt",
+        title: update.title ?? current?.title ?? null,
+        version: 1,
+      }
+      await document.replaceBookMeta(next)
+      return metadataFromBookMeta(next)
+    })
+  })
+}
+
 export async function inspectWikiGraph(runtime: WikiGraphRuntime, id: string): Promise<WikiGraphInspect> {
   const file = await preparedDocumentArchiveFile(runtime, id)
   return await withRuntime(runtime, "Failed to inspect WikiGraph archive", async () => {
@@ -457,6 +587,13 @@ export async function inspectWikiGraph(runtime: WikiGraphRuntime, id: string): P
         },
       }
     })
+  })
+}
+
+export async function readWikiGraphChapterTree(runtime: WikiGraphRuntime, id: string): Promise<WikiGraphChapterNode[]> {
+  const file = await preparedDocumentArchiveFile(runtime, id)
+  return await withRuntime(runtime, "Failed to read WikiGraph chapter tree", async () => {
+    return await file.readDocument(async (document) => chapterTree(await readChapterTreeEntries(document)))
   })
 }
 
@@ -529,19 +666,66 @@ async function resolveArchiveFile(
   })
 }
 
+function inspectChapterBase(
+  chapter: WikiGraphListedChapter,
+): Pick<InspectChapter, "depth" | "documentOrder" | "stage" | "title" | "words"> {
+  const title =
+    typeof chapter.title === "string" && chapter.title.trim()
+      ? chapter.title.trim()
+      : (chapter.tocPath ?? []).at(-1)?.trim() || chapter.key || chapter.path
+  return {
+    depth: typeof chapter.depth === "number" && Number.isFinite(chapter.depth) ? Math.max(0, chapter.depth) : 0,
+    documentOrder:
+      typeof chapter.documentOrder === "number" && Number.isFinite(chapter.documentOrder)
+        ? chapter.documentOrder
+        : chapter.chapterId,
+    stage: chapter.stage,
+    title,
+    words: chapter.words,
+  }
+}
+
 async function readInspectChapters(document: ReadonlyDocument): Promise<InspectChapter[]> {
   return await Promise.all(
     (await listChapters(document)).map(async (chapter) => {
       const serial = await document.serials.getById(chapter.chapterId)
       return {
+        ...inspectChapterBase(chapter),
         knowledgeGraphReady: serial?.knowledgeGraphReady === true,
         readingGraphReady: serial?.topologyReady === true,
-        stage: chapter.stage,
         summaryReady: chapter.stage === "summarized",
-        words: chapter.words,
       }
     }),
   )
+}
+
+async function readChapterTreeEntries(document: ReadonlyDocument): Promise<InspectChapter[]> {
+  return (await listChapters(document)).map((chapter) => {
+    return {
+      ...inspectChapterBase(chapter),
+      knowledgeGraphReady: false,
+      readingGraphReady: false,
+      summaryReady: false,
+    }
+  })
+}
+
+function chapterTree(chapters: InspectChapter[]): WikiGraphChapterNode[] {
+  const roots: WikiGraphChapterNode[] = []
+  const stack: WikiGraphChapterNode[] = []
+  for (const chapter of [...chapters].sort((left, right) => left.documentOrder - right.documentOrder)) {
+    const node: WikiGraphChapterNode = { title: chapter.title }
+    const depth = Math.min(chapter.depth, stack.length)
+    const parent = depth > 0 ? stack[depth - 1] : undefined
+    if (parent) {
+      parent.children = [...(parent.children ?? []), node]
+    } else {
+      roots.push(node)
+    }
+    stack[depth] = node
+    stack.length = depth + 1
+  }
+  return roots
 }
 
 function inspectCoverage(

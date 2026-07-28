@@ -8,11 +8,13 @@ const runner = vi.hoisted(() => ({
   listWikiGraphLibraryFolders: vi.fn(),
   moveWikiGraphLibraryArchive: vi.fn(),
   prepareWikiGraphArchive: vi.fn(),
+  readWikiGraphChapterTree: vi.fn(),
   readWikiGraphCover: vi.fn(),
   readWikiGraphIndex: vi.fn(),
   readWikiGraphMetadata: vi.fn(),
   removeWikiGraphLibraryArchive: vi.fn(),
   removeWikiGraphLibraryFolder: vi.fn(),
+  updateWikiGraphMetadata: vi.fn(),
 }))
 
 vi.mock("electron", () => ({
@@ -36,10 +38,12 @@ describe("KnowledgeServiceImpl", () => {
     runner.inspectWikiGraph.mockReset()
     runner.listWikiGraphLibraryArchives.mockReset()
     runner.prepareWikiGraphArchive.mockReset()
+    runner.readWikiGraphChapterTree.mockReset()
     runner.readWikiGraphCover.mockReset()
     runner.readWikiGraphIndex.mockReset()
     runner.readWikiGraphMetadata.mockReset()
     runner.removeWikiGraphLibraryArchive.mockReset()
+    runner.updateWikiGraphMetadata.mockReset()
   })
 
   it("downgrades inspect and index SDK failures while preserving metadata summary", async () => {
@@ -126,6 +130,49 @@ describe("KnowledgeServiceImpl", () => {
     expect(runner.prepareWikiGraphArchive.mock.invocationCallOrder[0]).toBeLessThan(
       runner.inspectWikiGraph.mock.invocationCallOrder[0],
     )
+  })
+
+  it("preserves inspect coverage metrics in the renderer summary", async () => {
+    runner.listWikiGraphLibraryArchives.mockResolvedValue([
+      {
+        id: "public-id",
+        uri: "wikg://lib/arc/public-id",
+        relativePath: "book.wikg",
+        createdAt: "2026-01-02T00:00:00.000Z",
+        exists: true,
+        lastSeenSize: 123,
+        status: "present",
+      },
+    ])
+    runner.prepareWikiGraphArchive.mockResolvedValue(undefined)
+    runner.readWikiGraphMetadata.mockResolvedValue({ title: "Book Title" })
+    runner.inspectWikiGraph.mockResolvedValue({
+      coverage: {
+        knowledgeGraph: { coveredWords: 80, totalWords: 100 },
+        readingGraph: { coveredWords: 20, totalWords: 100 },
+        summary: { coveredWords: 100, totalWords: 100 },
+      },
+    })
+    runner.readWikiGraphIndex.mockResolvedValue({})
+    runner.readWikiGraphCover.mockResolvedValue(null)
+    const service = new KnowledgeServiceImpl({
+      runtime: { managedLibraryDir: "/tmp/wanta/library", stateDir: "/tmp/wanta/state" },
+    })
+
+    await expect(service.list()).resolves.toMatchObject([
+      {
+        capabilities: {
+          knowledgeGraph: true,
+          readingGraph: true,
+          summary: true,
+        },
+        coverage: {
+          knowledgeGraph: { coveredWords: 80, totalWords: 100 },
+          readingGraph: { coveredWords: 20, totalWords: 100 },
+          summary: { coveredWords: 100, totalWords: 100 },
+        },
+      },
+    ])
   })
 
   it("keeps listing other knowledge bases when one archive cannot be prepared", async () => {

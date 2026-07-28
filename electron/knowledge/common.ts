@@ -4,6 +4,16 @@ import { serviceName } from "../branding.ts"
 
 export const KNOWLEDGE_LIBRARY_CONTEXT_ID = "wikg://lib"
 
+export interface KnowledgeCoverageMetric {
+  coveredWords?: number
+  totalWords?: number
+}
+
+export interface KnowledgeChapterNode {
+  children?: KnowledgeChapterNode[]
+  title: string
+}
+
 export interface KnowledgeBaseSummary {
   id: string
   title: string
@@ -22,6 +32,12 @@ export interface KnowledgeBaseSummary {
     readingGraph: boolean
     summary: boolean
   }
+  coverage?: {
+    knowledgeGraph?: KnowledgeCoverageMetric
+    readingGraph?: KnowledgeCoverageMetric
+    summary?: KnowledgeCoverageMetric
+  }
+  chapters?: KnowledgeChapterNode[]
   statistics: {
     totalChapters?: number
     contentChapters?: number
@@ -41,8 +57,10 @@ export interface MoveKnowledgeBaseRequest {
 }
 
 export interface RenameKnowledgeBaseRequest {
+  authors?: string[]
   id: string
-  fileName: string
+  fileName?: string
+  title?: string
 }
 
 export interface KnowledgeFolderRequest {
@@ -62,6 +80,7 @@ export const KnowledgeService = serviceName("knowledge-service") as ServiceName<
     list(): Promise<KnowledgeBaseSummary[]>
     listFolders(): Promise<string[]>
     importKnowledgeBase(request?: ImportKnowledgeBaseRequest | string): Promise<KnowledgeBaseSummary | null>
+    readChapters(id: string): Promise<KnowledgeChapterNode[]>
     move(request: MoveKnowledgeBaseRequest): Promise<KnowledgeBaseSummary>
     rename(request: RenameKnowledgeBaseRequest): Promise<KnowledgeBaseSummary>
     createFolder(request: KnowledgeFolderRequest | string): Promise<string>

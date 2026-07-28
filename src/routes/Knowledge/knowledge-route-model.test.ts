@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest"
 import {
   buildKnowledgeLibraryView,
   isWikiGraphFileName,
+  knowledgeArchiveDisplayName,
   knowledgePathExists,
   normalizeKnowledgePath,
+  stripWikiGraphExtension,
   wikiGraphDropCandidates,
 } from "./knowledge-route-model.ts"
 
@@ -33,6 +35,12 @@ describe("knowledge route model", () => {
     expect(isWikiGraphFileName("西游记.wikg")).toBe(true)
     expect(isWikiGraphFileName("Knowledge.WIKG")).toBe(true)
     expect(isWikiGraphFileName("Knowledge.wkig")).toBe(false)
+  })
+
+  it("hides repeated WikiGraph archive extensions for user-facing names", () => {
+    expect(stripWikiGraphExtension("西游记.wikg")).toBe("西游记")
+    expect(stripWikiGraphExtension("西游记.WIKG.wikg")).toBe("西游记")
+    expect(knowledgeArchiveDisplayName("classic/西游记.wikg")).toBe("西游记")
   })
 
   it("keeps only supported files from a drop", () => {

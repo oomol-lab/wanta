@@ -5,6 +5,7 @@ import type {
   KnowledgeService,
   MoveKnowledgeBaseRequest,
   RenameKnowledgeBaseRequest,
+  KnowledgeChapterNode,
 } from "./common.ts"
 import type { WikiGraphInspect, WikiGraphLibraryArchive, WikiGraphMetadata, WikiGraphRuntime } from "./runner.ts"
 import type { IConnectionService } from "@oomol/connection"
@@ -23,10 +24,12 @@ import {
   moveWikiGraphLibraryArchive,
   prepareWikiGraphArchive,
   readWikiGraphCover,
+  readWikiGraphChapterTree,
   readWikiGraphIndex,
   readWikiGraphMetadata,
   removeWikiGraphLibraryArchive,
   removeWikiGraphLibraryFolder,
+  updateWikiGraphMetadata,
   wikiGraphCoverageReady,
 } from "./runner.ts"
 import { isBoundedKnowledgeCoverDataUrl, knowledgeCoverDataUrl } from "./thumbnail.ts"
@@ -67,6 +70,8 @@ function summaryFromInspection(
     typeof titleValue === "string" && titleValue.trim()
       ? titleValue.trim()
       : path.basename(sourceFileName, path.extname(sourceFileName))
+  const coverage = inspect.coverage
+  const hasCoverage = Boolean(coverage?.knowledgeGraph || coverage?.readingGraph || coverage?.summary)
   return {
     id: archive.id,
     title,
@@ -87,6 +92,7 @@ function summaryFromInspection(
       readingGraph: wikiGraphCoverageReady(inspect.coverage?.readingGraph),
       summary: wikiGraphCoverageReady(inspect.coverage?.summary),
     },
+    ...(hasCoverage ? { coverage } : {}),
     statistics: {
       ...(typeof inspect.content?.chapters?.total === "number"
         ? { totalChapters: inspect.content.chapters.total }
@@ -119,6 +125,10 @@ export class KnowledgeServiceImpl
     return await listWikiGraphLibraryFolders(this.deps.runtime)
   }
 
+  public async readChapters(id: string): Promise<KnowledgeChapterNode[]> {
+    return await readWikiGraphChapterTree(this.deps.runtime, id)
+  }
+
   public async move(request: MoveKnowledgeBaseRequest): Promise<KnowledgeBaseSummary> {
     const moved = await moveWikiGraphLibraryArchive(
       this.deps.runtime,
@@ -132,7 +142,24 @@ export class KnowledgeServiceImpl
   }
 
   public async rename(request: RenameKnowledgeBaseRequest): Promise<KnowledgeBaseSummary> {
-    return await this.move({ id: request.id, fileName: request.fileName })
+    const title = request.title?.trim()
+    const authors = request.authors?.flatMap((author) => {
+      const value = author.trim()
+      return value ? [value] : []
+    })
+    if (request.title !== undefined && !title) throw new Error("Knowledge archive title is required")
+    if (title !== undefined || authors !== undefined) {
+      await updateWikiGraphMetadata(this.deps.runtime, request.id, {
+        ...(authors !== undefined ? { authors } : {}),
+        ...(title !== undefined ? { title } : {}),
+      })
+    }
+    const renamed = request.fileName ? await this.move({ id: request.id, fileName: request.fileName }) : undefined
+    if (!renamed) this.broadcastChanged("rename knowledge base")
+    if (renamed) return renamed
+    const archive = (await listWikiGraphLibraryArchives(this.deps.runtime)).find((item) => item.id === request.id)
+    if (!archive) throw new Error("Knowledge archive not found")
+    return await this.summary(archive)
   }
 
   public async createFolder(request: KnowledgeFolderRequest | string): Promise<string> {

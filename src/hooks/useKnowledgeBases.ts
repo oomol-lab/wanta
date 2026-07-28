@@ -1,4 +1,4 @@
-import type { KnowledgeBaseSummary } from "../../electron/knowledge/common.ts"
+import type { KnowledgeBaseSummary, KnowledgeChapterNode } from "../../electron/knowledge/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
@@ -15,9 +15,13 @@ export interface UseKnowledgeBases {
   error: UserFacingError | null
   createFolder: (path: string) => Promise<string | null>
   importKnowledgeBase: (sourcePath?: string, targetDirectory?: string) => Promise<KnowledgeBaseSummary | null>
+  loadChapters: (id: string, options?: { force?: boolean }) => Promise<void>
   move: (id: string, targetDirectory: string) => Promise<KnowledgeBaseSummary | null>
   removeFolder: (path: string) => Promise<boolean>
-  rename: (id: string, fileName: string) => Promise<KnowledgeBaseSummary | null>
+  rename: (
+    id: string,
+    request: { authors?: string[]; fileName?: string; title?: string },
+  ) => Promise<KnowledgeBaseSummary | null>
   refresh: (id: string) => Promise<void>
   remove: (id: string) => Promise<boolean>
   reveal: (id: string) => Promise<void>
@@ -32,9 +36,28 @@ function knowledgeError(cause: unknown, operation: "list" | "action"): UserFacin
   })
 }
 
+function knowledgeChapterCacheSignature(item: KnowledgeBaseSummary): string {
+  return JSON.stringify({
+    authors: item.authors,
+    coverDataUrl: item.coverDataUrl,
+    coverage: item.coverage,
+    importedAt: item.importedAt,
+    relativePath: item.relativePath,
+    size: item.size,
+    sourceFileName: item.sourceFileName,
+    statistics: item.statistics,
+    title: item.title,
+  })
+}
+
 export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
   const service = useKnowledgeService()
   const [items, setItems] = React.useState<KnowledgeBaseSummary[]>([])
+  const [chaptersById, setChaptersById] = React.useState<Map<string, KnowledgeChapterNode[]>>(() => new Map())
+  const chaptersByIdRef = React.useRef(chaptersById)
+  const chapterCacheSignaturesRef = React.useRef(new Map<string, string>())
+  const itemSignaturesRef = React.useRef(new Map<string, string>())
+  const loadingChaptersRef = React.useRef(new Set<string>())
   const [folders, setFolders] = React.useState<string[]>([])
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState<UseKnowledgeBases["busy"]>(null)
@@ -43,6 +66,10 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
   React.useEffect(() => {
     if (!enabled) {
       setItems([])
+      setChaptersById(new Map())
+      chaptersByIdRef.current = new Map()
+      chapterCacheSignaturesRef.current = new Map()
+      itemSignaturesRef.current = new Map()
       setFolders([])
       setLoading(false)
       setError(null)
@@ -68,6 +95,51 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
       subscribe: (listener) => service.serverEvents.on("knowledgeBasesChanged", listener),
     })
   }, [enabled, service])
+
+  React.useEffect(() => {
+    chaptersByIdRef.current = chaptersById
+  }, [chaptersById])
+
+  React.useEffect(() => {
+    const signatures = new Map(items.map((item) => [item.id, knowledgeChapterCacheSignature(item)]))
+    itemSignaturesRef.current = signatures
+    setChaptersById((current) => {
+      let changed = false
+      const next = new Map<string, KnowledgeChapterNode[]>()
+      for (const [id, chapters] of current) {
+        const signature = signatures.get(id)
+        if (signature && chapterCacheSignaturesRef.current.get(id) === signature) {
+          next.set(id, chapters)
+        } else {
+          chapterCacheSignaturesRef.current.delete(id)
+          changed = true
+        }
+      }
+      if (!changed && next.size === current.size) return current
+      chaptersByIdRef.current = next
+      return next
+    })
+  }, [items])
+
+  const clearChapterCache = React.useCallback((id: string) => {
+    chapterCacheSignaturesRef.current.delete(id)
+    setChaptersById((current) => {
+      if (!current.has(id)) return current
+      const next = new Map(current)
+      next.delete(id)
+      chaptersByIdRef.current = next
+      return next
+    })
+  }, [])
+
+  const itemsWithChapters = React.useMemo(
+    () =>
+      items.map((item) => {
+        const chapters = chaptersById.get(item.id)
+        return chapters ? { ...item, chapters } : item
+      }),
+    [chaptersById, items],
+  )
 
   const importKnowledgeBase = React.useCallback(
     async (sourcePath?: string, targetDirectory?: string) => {
@@ -105,11 +177,39 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
     [service],
   )
 
+  const loadChapters = React.useCallback(
+    async (id: string, options?: { force?: boolean }) => {
+      if (!options?.force && chaptersByIdRef.current.has(id)) return
+      if (loadingChaptersRef.current.has(id)) return
+      loadingChaptersRef.current.add(id)
+      try {
+        const chapters = await service.invoke("readChapters", id)
+        setChaptersById((current) => {
+          const next = new Map(current)
+          next.set(id, chapters)
+          chaptersByIdRef.current = next
+          const signature = itemSignaturesRef.current.get(id)
+          if (signature) chapterCacheSignaturesRef.current.set(id, signature)
+          return next
+        })
+      } catch (cause) {
+        console.error("[wanta] read knowledge chapters failed", cause)
+        reportRendererHandledError("knowledge", "read knowledge chapters failed", cause)
+        setError(knowledgeError(cause, "action"))
+      } finally {
+        loadingChaptersRef.current.delete(id)
+      }
+    },
+    [service],
+  )
+
   const rename = React.useCallback(
-    async (id: string, fileName: string) => {
+    async (id: string, request: { authors?: string[]; fileName?: string; title?: string }) => {
       setBusy("rename")
       try {
-        return await service.invoke("rename", { fileName, id })
+        const renamed = await service.invoke("rename", { id, ...request })
+        clearChapterCache(id)
+        return renamed
       } catch (cause) {
         console.error("[wanta] rename knowledge base failed", cause)
         reportRendererHandledError("knowledge", "rename knowledge base failed", cause)
@@ -119,7 +219,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
         setBusy(null)
       }
     },
-    [service],
+    [clearChapterCache, service],
   )
 
   const move = React.useCallback(
@@ -163,6 +263,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
       setBusy("refresh")
       try {
         await service.invoke("refresh", id)
+        clearChapterCache(id)
       } catch (cause) {
         console.error("[wanta] refresh knowledge base failed", cause)
         reportRendererHandledError("knowledge", "refresh knowledge base failed", cause)
@@ -171,7 +272,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
         setBusy(null)
       }
     },
-    [service],
+    [clearChapterCache, service],
   )
 
   const remove = React.useCallback(
@@ -179,6 +280,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
       setBusy("remove")
       try {
         await service.invoke("remove", id)
+        clearChapterCache(id)
         return true
       } catch (cause) {
         console.error("[wanta] remove knowledge base failed", cause)
@@ -189,7 +291,7 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
         setBusy(null)
       }
     },
-    [service],
+    [clearChapterCache, service],
   )
 
   const reveal = React.useCallback(
@@ -206,13 +308,14 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
   )
 
   return {
-    items,
+    items: itemsWithChapters,
     folders,
     loading,
     busy,
     error,
     createFolder,
     importKnowledgeBase,
+    loadChapters,
     move,
     refresh,
     remove,

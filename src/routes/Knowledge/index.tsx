@@ -1,20 +1,21 @@
-import type { KnowledgeBaseSummary } from "../../../electron/knowledge/common.ts"
+import type { KnowledgeBaseSummary, KnowledgeChapterNode } from "../../../electron/knowledge/common.ts"
 import type { UseKnowledgeBases } from "@/hooks/useKnowledgeBases"
 import type { LucideIcon } from "lucide-react"
 
 import {
+  AlignLeft,
   ArrowLeft,
-  Check,
-  ChevronRight,
-  FileText,
+  Circle,
   Folder,
   FolderPlus,
   FolderOpen,
   FolderX,
+  GitBranch,
   LibraryBig,
   MessageSquarePlus,
   MoreHorizontal,
   MoveRight,
+  Network,
   Pencil,
   PanelRightClose,
   Plus,
@@ -28,10 +29,12 @@ import { toast } from "sonner"
 import {
   buildKnowledgeLibraryView,
   isWikiGraphFileName,
+  knowledgeArchiveDisplayName,
   knowledgePathBaseName,
   knowledgePathDirectory,
   knowledgePathExists,
   normalizeKnowledgePath,
+  stripWikiGraphExtension,
   wikiGraphDropCandidates,
 } from "./knowledge-route-model.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
@@ -79,10 +82,10 @@ type KnowledgeAction = {
   onSelect: () => void
 }
 
-function knowledgeStatus(item: KnowledgeBaseSummary, t: ReturnType<typeof useT>): string {
-  if (item.capabilities.knowledgeGraph) return t("knowledge.statusGraph")
-  if (item.capabilities.fullTextSearch) return t("knowledge.statusSearch")
-  return t("knowledge.statusLimited")
+type PendingKnowledgeImport = {
+  directory: string
+  fileName: string
+  id: string
 }
 
 function knowledgeActions({
@@ -163,6 +166,182 @@ function KnowledgeActionIcon({ action }: { action: KnowledgeAction }) {
   return <Icon className={cn("size-4", action.loading && "animate-spin")} />
 }
 
+type KnowledgeCoverageKind = "knowledgeGraph" | "readingGraph" | "summary"
+type KnowledgeCoverage = NonNullable<KnowledgeBaseSummary["coverage"]>
+interface KnowledgeRenameDraft {
+  authors: string
+  fileName: string
+  title: string
+}
+
+const knowledgeCoverageSpecs: Array<{
+  icon: LucideIcon
+  key: KnowledgeCoverageKind
+  labelKey: "knowledge.inspect.knowledgeGraph" | "knowledge.inspect.readingGraph" | "knowledge.inspect.summary"
+}> = [
+  { icon: GitBranch, key: "readingGraph", labelKey: "knowledge.inspect.readingGraph" },
+  { icon: Network, key: "knowledgeGraph", labelKey: "knowledge.inspect.knowledgeGraph" },
+  { icon: AlignLeft, key: "summary", labelKey: "knowledge.inspect.summary" },
+]
+
+function knowledgeCoveragePercent(metric: KnowledgeCoverage[KnowledgeCoverageKind] | undefined): number {
+  const coveredWords =
+    typeof metric?.coveredWords === "number" && Number.isFinite(metric.coveredWords) ? metric.coveredWords : 0
+  const totalWords =
+    typeof metric?.totalWords === "number" && Number.isFinite(metric.totalWords) ? metric.totalWords : 0
+  if (totalWords <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round((coveredWords / totalWords) * 100)))
+}
+
+function knowledgeCoverageTone(percent: number): string {
+  if (percent <= 0) return "text-muted-foreground/45"
+  if (percent < 20) return "text-rose-500"
+  if (percent < 40) return "text-orange-500"
+  if (percent < 60) return "text-amber-500"
+  if (percent < 80) return "text-sky-500"
+  if (percent < 100) return "text-blue-600"
+  return "text-emerald-600"
+}
+
+function parseKnowledgeAuthors(value: string): string[] {
+  return value
+    .split(/[、,，]/u)
+    .map((author) => author.trim())
+    .filter(Boolean)
+}
+
+function isValidKnowledgeFileName(value: string): boolean {
+  const fileName = stripWikiGraphExtension(value)
+  if (!fileName || fileName === "." || fileName === "..") return false
+  if (/[<>:"/\\|?*]/u.test(fileName)) return false
+  if ([...fileName].some((character) => character.charCodeAt(0) < 32)) return false
+  if (/[. ]$/u.test(fileName)) return false
+  return !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu.test(fileName)
+}
+
+function summarizeKnowledgeCoverage(items: KnowledgeBaseSummary[]): KnowledgeCoverage {
+  const summary: KnowledgeCoverage = {}
+  for (const spec of knowledgeCoverageSpecs) {
+    let coveredWords = 0
+    let totalWords = 0
+    for (const item of items) {
+      const metric = item.coverage?.[spec.key]
+      const covered =
+        typeof metric?.coveredWords === "number" && Number.isFinite(metric.coveredWords) ? metric.coveredWords : 0
+      const total = typeof metric?.totalWords === "number" && Number.isFinite(metric.totalWords) ? metric.totalWords : 0
+      if (total <= 0) continue
+      coveredWords += Math.max(0, covered)
+      totalWords += total
+    }
+    summary[spec.key] = { coveredWords, totalWords }
+  }
+  return summary
+}
+
+function KnowledgeInspectBadges({
+  className,
+  coverage,
+  size = "row",
+  t,
+}: {
+  className?: string
+  coverage: KnowledgeCoverage | undefined
+  size?: "breadcrumb" | "detail" | "row"
+  t: ReturnType<typeof useT>
+}) {
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 flex-wrap items-center gap-1",
+        size === "breadcrumb" && "shrink-0 justify-end",
+        size === "detail" && "flex-wrap",
+        className,
+      )}
+    >
+      {knowledgeCoverageSpecs.map((spec) => {
+        const Icon = spec.icon
+        const percent = knowledgeCoveragePercent(coverage?.[spec.key])
+        const label = t(spec.labelKey)
+        return (
+          <span
+            key={spec.key}
+            aria-label={t("knowledge.inspect.coverageLabel", { label, percent })}
+            title={t("knowledge.inspect.coverageLabel", { label, percent })}
+            className={cn(
+              "inline-flex h-5 items-center gap-0.5 rounded border border-border/60 bg-muted/25 px-1.5 text-[10px] leading-none font-medium text-muted-foreground tabular-nums",
+              size === "breadcrumb" && "h-6 px-1.5 text-[11px]",
+              size === "detail" && "h-6 px-2 text-[11px]",
+            )}
+          >
+            <Icon className={cn("size-3", size !== "row" && "size-3.5", knowledgeCoverageTone(percent))} />
+            <span>{percent}%</span>
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+function KnowledgeDetailInspectRows({
+  coverage,
+  t,
+}: {
+  coverage: KnowledgeCoverage | undefined
+  t: ReturnType<typeof useT>
+}) {
+  return (
+    <div className="grid gap-3">
+      {knowledgeCoverageSpecs.map((spec) => {
+        const Icon = spec.icon
+        const metric = coverage?.[spec.key]
+        const coveredWords =
+          typeof metric?.coveredWords === "number" && Number.isFinite(metric.coveredWords) ? metric.coveredWords : 0
+        const percent = knowledgeCoveragePercent(metric)
+        const label = t(spec.labelKey)
+        return (
+          <div key={spec.key} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+            <Icon className={cn("size-4", knowledgeCoverageTone(percent))} />
+            <div className="min-w-0">
+              <div className="oo-text-control truncate font-medium text-foreground">{label}</div>
+              <div className="oo-text-caption truncate text-muted-foreground">
+                {t("knowledge.inspect.coverageWords", {
+                  covered: coveredWords.toLocaleString(),
+                })}
+              </div>
+            </div>
+            <div className="text-sm font-medium text-foreground tabular-nums">{percent}%</div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function KnowledgeChapterTree({ chapters, depth = 0 }: { chapters: KnowledgeChapterNode[]; depth?: number }) {
+  if (chapters.length === 0) return null
+  return (
+    <ol className={cn("grid gap-0.5", depth > 0 && "border-l border-border/80 pl-4")}>
+      {chapters.map((chapter, index) => (
+        <li key={`${depth}:${index}:${chapter.title}`} className="min-w-0">
+          <div className="grid min-h-8 grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-1">
+            {chapter.children?.length ? (
+              <Circle className="size-2 fill-current text-muted-foreground/70" aria-hidden="true" />
+            ) : (
+              <span className="size-4" aria-hidden="true" />
+            )}
+            <span className="min-w-0 text-sm leading-6 text-foreground">{chapter.title}</span>
+          </div>
+          {chapter.children?.length ? (
+            <div className="ml-[0.6rem]">
+              <KnowledgeChapterTree chapters={chapter.children} depth={depth + 1} />
+            </div>
+          ) : null}
+        </li>
+      ))}
+    </ol>
+  )
+}
+
 function KnowledgeActionsDropdown({ actions, className }: { actions: KnowledgeAction[]; className?: string }) {
   const t = useT()
   return (
@@ -238,9 +417,8 @@ function KnowledgeCover({ item, className }: { item: KnowledgeBaseSummary; class
       {item.coverDataUrl ? (
         <img src={item.coverDataUrl} alt="" draggable={false} className="size-full object-contain" />
       ) : (
-        <div className="flex size-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-muted/30 to-muted px-3 text-center">
-          <LibraryBig className="size-5 text-muted-foreground/65" />
-          <span className="oo-text-caption line-clamp-3 font-medium text-foreground/80">{item.title}</span>
+        <div className="grid size-full place-items-center bg-gradient-to-br from-muted/30 to-muted">
+          <LibraryBig className="size-6 text-muted-foreground/65" />
         </div>
       )}
     </div>
@@ -249,6 +427,7 @@ function KnowledgeCover({ item, className }: { item: KnowledgeBaseSummary; class
 
 function KnowledgeArchiveRow({
   archive,
+  compact,
   selected,
   busy,
   onMove,
@@ -261,6 +440,7 @@ function KnowledgeArchiveRow({
   t,
 }: {
   archive: KnowledgeBaseSummary
+  compact: boolean
   selected: boolean
   busy: UseKnowledgeBases["busy"]
   onMove: (item: KnowledgeBaseSummary) => void
@@ -284,11 +464,14 @@ function KnowledgeArchiveRow({
     t,
   })
   const parentPath = knowledgePathDirectory(archive.relativePath)
+  const fileDisplayName = knowledgeArchiveDisplayName(archive.relativePath || archive.sourceFileName)
+  const fileTitle = parentPath ? `${parentPath} / ${archive.sourceFileName}` : archive.sourceFileName
   return (
     <KnowledgeContextMenu actions={actions}>
       <div
         className={cn(
           "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-lg border border-transparent transition-colors focus-within:ring-[3px] focus-within:ring-ring/40 hover:bg-[var(--oo-row-hover)]",
+          !compact && "min-[760px]:grid-cols-[minmax(0,1fr)_minmax(5rem,12rem)_auto]",
           selected && "border-[var(--accent-ring)] bg-[var(--accent-soft)]",
         )}
       >
@@ -296,30 +479,91 @@ function KnowledgeArchiveRow({
           type="button"
           aria-pressed={selected}
           onClick={() => onSelect(archive)}
-          className="grid min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-3 px-2.5 py-2 text-left outline-none"
+          className="grid min-w-0 grid-cols-[5.25rem_minmax(0,1fr)] items-center gap-3 px-2.5 py-3 text-left outline-none"
         >
           <KnowledgeCover item={archive} className="w-full" />
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-foreground">
-              <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="oo-text-control truncate font-medium">{archive.title}</span>
-            </div>
-            <div className="oo-text-caption mt-0.5 truncate">
-              {archive.authors.join("、") || knowledgeStatus(archive, t)}
-            </div>
-            <div className="oo-text-caption mt-0.5 truncate text-muted-foreground">
-              {parentPath ? `${parentPath} / ${archive.sourceFileName}` : archive.sourceFileName}
-            </div>
+            <div className="oo-text-control truncate font-medium text-foreground">{archive.title}</div>
+            {archive.authors.length > 0 ? (
+              <div className="oo-text-caption mt-0.5 truncate">{archive.authors.join("、")}</div>
+            ) : null}
+            {compact ? (
+              <div className="oo-text-caption mt-0.5 truncate text-muted-foreground" title={fileTitle}>
+                {fileDisplayName}
+              </div>
+            ) : null}
+            <KnowledgeInspectBadges coverage={archive.coverage} className="mt-2" t={t} />
           </div>
         </button>
+        <div
+          className={cn(
+            "oo-text-caption hidden min-w-0 truncate px-2 text-right text-muted-foreground",
+            !compact && "min-[760px]:block",
+          )}
+          title={fileTitle}
+        >
+          {fileDisplayName}
+        </div>
         <div className="flex items-center gap-1 pr-2 text-muted-foreground">
-          {selected ? <Check className="size-4 text-emerald-600" /> : null}
           <KnowledgeActionsDropdown actions={actions} className="opacity-70" />
         </div>
       </div>
     </KnowledgeContextMenu>
   )
 }
+
+function PendingKnowledgeArchiveRow({
+  compact,
+  item,
+  t,
+}: {
+  compact: boolean
+  item: PendingKnowledgeImport
+  t: ReturnType<typeof useT>
+}) {
+  const fileDisplayName = knowledgeArchiveDisplayName(item.fileName)
+  return (
+    <div
+      className={cn(
+        "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-lg border border-dashed border-border/80 bg-muted/20 opacity-85",
+        !compact && "min-[760px]:grid-cols-[minmax(0,1fr)_minmax(5rem,12rem)_auto]",
+      )}
+    >
+      <div className="grid min-w-0 grid-cols-[5.25rem_minmax(0,1fr)] items-center gap-3 px-2.5 py-3 text-left">
+        <div className="relative flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/45">
+          <LibraryBig className="size-5 text-muted-foreground/55" />
+        </div>
+        <div className="min-w-0">
+          <div className="oo-text-control truncate font-medium text-foreground">{fileDisplayName}</div>
+          <div className="oo-text-caption mt-0.5 truncate text-muted-foreground">{t("knowledge.importPending")}</div>
+          {compact ? (
+            <div className="oo-text-caption mt-0.5 truncate text-muted-foreground" title={item.fileName}>
+              {fileDisplayName}
+            </div>
+          ) : null}
+          <div className="mt-2 flex flex-wrap items-center gap-1" aria-hidden="true">
+            {Array.from({ length: 3 }, (_, index) => (
+              <span key={index} className="h-5 w-14 animate-pulse rounded border border-border/60 bg-muted/45" />
+            ))}
+          </div>
+        </div>
+      </div>
+      <div
+        className={cn(
+          "oo-text-caption hidden min-w-0 truncate px-2 text-right text-muted-foreground",
+          !compact && "min-[760px]:block",
+        )}
+        title={item.fileName}
+      >
+        {fileDisplayName}
+      </div>
+      <div className="flex items-center gap-1 pr-2 text-muted-foreground">
+        <RefreshCw className="size-4 animate-spin opacity-65" />
+      </div>
+    </div>
+  )
+}
+
 function KnowledgeFolderRow({
   busy,
   folder,
@@ -358,14 +602,10 @@ function KnowledgeFolderRow({
           </div>
           <div className="min-w-0">
             <div className="oo-text-control truncate font-medium text-foreground">{folder.name}</div>
-            <div className="oo-text-caption truncate text-muted-foreground">
-              {t("knowledge.folderCount", { count: folder.archiveCount })}
-            </div>
           </div>
         </button>
         <div className="flex items-center gap-1 pr-2 text-muted-foreground">
           <KnowledgeActionsDropdown actions={actions} className="opacity-70" />
-          <ChevronRight className="size-4 shrink-0" />
         </div>
       </div>
     </KnowledgeContextMenu>
@@ -390,7 +630,7 @@ export function KnowledgeRoute({
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [removeTarget, setRemoveTarget] = React.useState<KnowledgeBaseSummary | null>(null)
   const [renameTarget, setRenameTarget] = React.useState<KnowledgeBaseSummary | null>(null)
-  const [renameValue, setRenameValue] = React.useState("")
+  const [renameDraft, setRenameDraft] = React.useState<KnowledgeRenameDraft>({ authors: "", fileName: "", title: "" })
   const [moveTarget, setMoveTarget] = React.useState<KnowledgeBaseSummary | null>(null)
   const [moveDirectory, setMoveDirectory] = React.useState("")
   const [createFolderOpen, setCreateFolderOpen] = React.useState(false)
@@ -401,6 +641,7 @@ export function KnowledgeRoute({
     path: string
   } | null>(null)
   const [dragActive, setDragActive] = React.useState(false)
+  const [pendingImports, setPendingImports] = React.useState<PendingKnowledgeImport[]>([])
   const dragDepthRef = React.useRef(0)
   const previousTitlebarNavigationVersionRef = React.useRef(titlebarNavigationVersion)
   const deferredQuery = React.useDeferredValue(query)
@@ -421,6 +662,14 @@ export function KnowledgeRoute({
   const activeLabel = view.searchMode
     ? t("knowledge.searchResults")
     : view.currentDirectory || t("knowledge.rootDirectory")
+  const visibleCoverage = React.useMemo(
+    () => summarizeKnowledgeCoverage(view.archives.map((archive) => archive.item)),
+    [view.archives],
+  )
+  const visiblePendingImports = React.useMemo(() => {
+    if (view.searchMode) return []
+    return pendingImports.filter((item) => item.directory === view.currentDirectory)
+  }, [pendingImports, view.currentDirectory, view.searchMode])
   const folderOptions = React.useMemo(() => ["", ...knowledge.folders], [knowledge.folders])
 
   React.useEffect(() => {
@@ -443,6 +692,11 @@ export function KnowledgeRoute({
     window.addEventListener("keydown", closeOnEscape)
     return () => window.removeEventListener("keydown", closeOnEscape)
   }, [selectedId])
+
+  React.useEffect(() => {
+    if (!selected || selected.chapters) return
+    void knowledge.loadChapters(selected.id)
+  }, [knowledge.loadChapters, selected?.chapters, selected?.id])
 
   const handleImport = async (sourcePath?: string, targetDirectory?: string): Promise<KnowledgeBaseSummary | null> => {
     const imported = await knowledge.importKnowledgeBase(sourcePath, targetDirectory ?? currentDirectory)
@@ -470,9 +724,17 @@ export function KnowledgeRoute({
         toast.error(t("knowledge.dropUnavailable", { name: file.name }))
         continue
       }
+      const pendingId = `${selectedPath.path}:${Date.now()}:${Math.random().toString(36).slice(2)}`
+      const pendingImport: PendingKnowledgeImport = {
+        directory: normalizeKnowledgePath(currentDirectory),
+        fileName: selectedPath.name,
+        id: pendingId,
+      }
+      setPendingImports((current) => [...current, pendingImport])
       try {
         lastImported = await handleImport(selectedPath.path, currentDirectory)
       } finally {
+        setPendingImports((current) => current.filter((item) => item.id !== pendingId))
         await window.wanta
           .releaseAttachmentPaths([selectedPath.path, selectedPath.agentPath ?? ""])
           .catch(() => undefined)
@@ -491,7 +753,11 @@ export function KnowledgeRoute({
 
   const openRenameDialog = (item: KnowledgeBaseSummary): void => {
     setRenameTarget(item)
-    setRenameValue(knowledgePathBaseName(item.relativePath || item.sourceFileName))
+    setRenameDraft({
+      authors: item.authors.join("、"),
+      fileName: knowledgeArchiveDisplayName(item.relativePath || item.sourceFileName),
+      title: item.title,
+    })
   }
 
   const openMoveDialog = (item: KnowledgeBaseSummary): void => {
@@ -521,22 +787,33 @@ export function KnowledgeRoute({
 
   const handleRename = async (): Promise<void> => {
     if (!renameTarget) return
-    const fileName = renameValue.trim()
-    if (!fileName) {
-      toast.error(t("knowledge.fileNameRequired"))
+    const title = renameDraft.title.trim()
+    if (!title) {
+      toast.error(t("knowledge.archiveTitleRequired"))
       return
     }
+    if (!isValidKnowledgeFileName(renameDraft.fileName)) {
+      toast.error(t("knowledge.fileNameInvalid"))
+      return
+    }
+    const fileName = stripWikiGraphExtension(renameDraft.fileName)
+    const currentFileName = knowledgeArchiveDisplayName(renameTarget.relativePath || renameTarget.sourceFileName)
     const parentPath = knowledgePathDirectory(renameTarget.relativePath)
-    const nextFileName = fileName.toLocaleLowerCase().endsWith(".wikg") ? fileName : `${fileName}.wikg`
+    const nextFileName = `${fileName}.wikg`
     const nextPath = parentPath ? `${parentPath}/${nextFileName}` : nextFileName
-    if (knowledgePathExists(knowledge.items, knowledge.folders, nextPath, renameTarget.id)) {
+    const fileNameChanged = fileName !== currentFileName
+    if (fileNameChanged && knowledgePathExists(knowledge.items, knowledge.folders, nextPath, renameTarget.id)) {
       toast.error(t("knowledge.pathConflict"))
       return
     }
-    const renamed = await knowledge.rename(renameTarget.id, fileName)
+    const renamed = await knowledge.rename(renameTarget.id, {
+      authors: parseKnowledgeAuthors(renameDraft.authors),
+      ...(fileNameChanged ? { fileName } : {}),
+      title,
+    })
     if (renamed) {
       setRenameTarget(null)
-      setRenameValue("")
+      setRenameDraft({ authors: "", fileName: "", title: "" })
       setSelectedId(renamed.id)
       onCurrentDirectoryChange(knowledgePathDirectory(renamed.relativePath))
     }
@@ -622,6 +899,7 @@ export function KnowledgeRoute({
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
+          <KnowledgeInspectBadges coverage={visibleCoverage} size="breadcrumb" t={t} />
           <Button
             type="button"
             size="sm"
@@ -663,6 +941,7 @@ export function KnowledgeRoute({
               onReveal={(id) => void knowledge.reveal(id)}
               onSelectArchive={(item) => setSelectedId(item.id)}
               onStartChat={onStartChat}
+              pendingImports={visiblePendingImports}
               query={deferredQuery}
               selectedId={selectedId}
               t={t}
@@ -789,18 +1068,16 @@ export function KnowledgeRoute({
         onValueChange={setCreateFolderName}
       />
 
-      <KnowledgeTextDialog
+      <KnowledgeArchiveRenameDialog
         busy={knowledge.busy === "rename"}
-        description={renameTarget ? t("knowledge.renameDescription", { title: renameTarget.title }) : ""}
-        label={t("knowledge.fileName")}
+        draft={renameDraft}
         open={renameTarget !== null}
-        title={t("knowledge.rename")}
-        value={renameValue}
+        target={renameTarget}
         onClose={() => {
           if (knowledge.busy !== "rename") setRenameTarget(null)
         }}
         onSubmit={() => void handleRename()}
-        onValueChange={setRenameValue}
+        onDraftChange={setRenameDraft}
       />
 
       <Dialog
@@ -906,6 +1183,78 @@ function KnowledgeTextDialog({
   )
 }
 
+function KnowledgeArchiveRenameDialog({
+  busy,
+  draft,
+  open,
+  target,
+  onClose,
+  onDraftChange,
+  onSubmit,
+}: {
+  busy: boolean
+  draft: KnowledgeRenameDraft
+  open: boolean
+  target: KnowledgeBaseSummary | null
+  onClose: () => void
+  onDraftChange: (draft: KnowledgeRenameDraft) => void
+  onSubmit: () => void
+}) {
+  const t = useT()
+  const titleId = React.useId()
+  const authorsId = React.useId()
+  const fileNameId = React.useId()
+  const setDraftField = (field: keyof KnowledgeRenameDraft) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    onDraftChange({ ...draft, [field]: event.currentTarget.value })
+  }
+  return (
+    <Dialog
+      open={open}
+      title={t("knowledge.rename")}
+      description={target ? t("knowledge.renameDescription", { title: target.title }) : ""}
+      className="max-w-2xl"
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="button" disabled={busy} onClick={onSubmit}>
+            {t("common.save")}
+          </Button>
+        </div>
+      }
+    >
+      <form
+        className="grid gap-5 px-5 pb-5 sm:grid-cols-[7rem_minmax(0,1fr)]"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onSubmit()
+        }}
+      >
+        <div className="mx-auto w-24 sm:mx-0">
+          {target ? <KnowledgeCover item={target} className="w-full shadow-xs" /> : null}
+        </div>
+        <div className="grid min-w-0 gap-3">
+          <div className="grid gap-1.5">
+            <Label htmlFor={titleId}>{t("knowledge.archiveTitle")}</Label>
+            <Input id={titleId} disabled={busy} value={draft.title} onChange={setDraftField("title")} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor={authorsId}>{t("knowledge.authors")}</Label>
+            <Input id={authorsId} disabled={busy} value={draft.authors} onChange={setDraftField("authors")} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor={fileNameId}>{t("knowledge.fileName")}</Label>
+            <Input id={fileNameId} disabled={busy} value={draft.fileName} onChange={setDraftField("fileName")} />
+          </div>
+          <button type="submit" className="hidden" aria-hidden="true" tabIndex={-1} />
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
 function KnowledgeLibraryContent({
   activeLabel,
   busy,
@@ -921,6 +1270,7 @@ function KnowledgeLibraryContent({
   onReveal,
   onSelectArchive,
   onStartChat,
+  pendingImports,
   query,
   selectedId,
   t,
@@ -940,6 +1290,7 @@ function KnowledgeLibraryContent({
   onReveal: (id: string) => void
   onSelectArchive: (item: KnowledgeBaseSummary) => void
   onStartChat: (item: KnowledgeBaseSummary) => void
+  pendingImports: PendingKnowledgeImport[]
   query: string
   selectedId: string | null
   t: ReturnType<typeof useT>
@@ -949,7 +1300,7 @@ function KnowledgeLibraryContent({
     return <KnowledgeGridSkeleton />
   }
 
-  const noItems = view.directories.length === 0 && view.archives.length === 0
+  const noItems = view.directories.length === 0 && view.archives.length === 0 && pendingImports.length === 0
   if (noItems && !query.trim()) {
     return (
       <div className="flex min-h-72 items-center justify-center py-10">
@@ -987,24 +1338,14 @@ function KnowledgeLibraryContent({
     )
   }
 
+  const compactRows = selectedId !== null
+
   return (
     <div className="grid gap-3">
-      <div className="flex items-center justify-between gap-3 px-1 text-sm text-muted-foreground">
-        <div className="flex min-w-0 items-center gap-2">
-          <FolderOpen className="size-4" />
-          <span className="truncate">{activeLabel}</span>
-        </div>
-        <div className="shrink-0">
-          {view.searchMode
-            ? t("knowledge.searchResultCount", { count: view.archives.length })
-            : t("knowledge.folderSummary", {
-                archives: view.archives.length,
-                folders: view.directories.length,
-              })}
-        </div>
-      </div>
-
       <div className="grid gap-2">
+        {pendingImports.map((item) => (
+          <PendingKnowledgeArchiveRow key={item.id} compact={compactRows} item={item} t={t} />
+        ))}
         {view.directories.map((folder) => (
           <KnowledgeFolderRow
             key={folder.path}
@@ -1020,6 +1361,7 @@ function KnowledgeLibraryContent({
             key={archive.item.id}
             archive={archive.item}
             busy={busy}
+            compact={compactRows}
             selected={selectedId === archive.item.id}
             onMove={onMove}
             onRefresh={onRefresh}
@@ -1076,19 +1418,13 @@ function KnowledgeDetail({
 }) {
   const t = useT()
   const disabled = busy !== null
-  const statistics = [
-    item.statistics.contentChapters ? t("knowledge.chapterCount", { count: item.statistics.contentChapters }) : null,
-    item.statistics.sourceWords
-      ? t("knowledge.wordCount", { count: item.statistics.sourceWords.toLocaleString() })
-      : null,
-  ].filter((value): value is string => Boolean(value))
   const actions = knowledgeActions({ busy, item, onMove, onRefresh, onRemove, onRename, onReveal, onStartChat, t })
+  const fileDisplayName = knowledgeArchiveDisplayName(item.relativePath || item.sourceFileName)
 
   return (
     <KnowledgeContextMenu actions={actions}>
-      <div className="relative grid gap-4">
+      <div className="relative flex h-full min-h-0 flex-col">
         <div className="absolute -top-1 -right-1 z-10 flex items-center gap-0.5">
-          <KnowledgeActionsDropdown actions={actions} />
           <Button
             type="button"
             variant="ghost"
@@ -1102,43 +1438,41 @@ function KnowledgeDetail({
           </Button>
         </div>
 
-        <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-start gap-3 pr-16">
-          <KnowledgeCover item={item} className="w-[5.5rem] shadow-xs" />
-          <div className="min-w-0">
-            <div className="oo-text-label line-clamp-3 text-foreground">{item.title}</div>
-            {item.authors.length > 0 ? (
-              <p className="oo-text-caption mt-1 truncate">{item.authors.join("、")}</p>
-            ) : null}
-            {item.publisher ? <p className="oo-text-caption truncate">{item.publisher}</p> : null}
-            <p className="oo-text-caption mt-1 truncate text-muted-foreground">
-              {item.relativePath || item.sourceFileName}
-            </p>
-            <div className="oo-text-control mt-3 flex items-center gap-1.5 text-foreground">
-              <Check className="size-3.5 text-emerald-600" />
-              <span>{knowledgeStatus(item, t)}</span>
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <div className="pr-8">
+            <div className="min-w-0">
+              <div className="oo-text-label line-clamp-3 text-foreground">{item.title}</div>
+              {item.authors.length > 0 ? (
+                <p className="oo-text-caption mt-1 truncate">{item.authors.join("、")}</p>
+              ) : null}
+              {item.publisher ? <p className="oo-text-caption truncate">{item.publisher}</p> : null}
+              <p className="oo-text-caption mt-1 truncate text-muted-foreground">{fileDisplayName}</p>
+              {item.statistics.sourceWords ? (
+                <p className="oo-text-caption mt-1 truncate text-muted-foreground">
+                  {t("knowledge.wordCount", { count: item.statistics.sourceWords.toLocaleString() })}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="mt-5">
+              <KnowledgeDetailInspectRows coverage={item.coverage} t={t} />
             </div>
           </div>
+
+          {item.chapters?.length ? (
+            <div className="mt-4 border-t border-[var(--oo-divider)] pt-3">
+              <div className="rounded-md bg-[radial-gradient(circle,var(--oo-divider)_1px,transparent_1px)] bg-[length:2rem_2rem] px-2 py-1">
+                <KnowledgeChapterTree chapters={item.chapters} />
+              </div>
+            </div>
+          ) : null}
         </div>
 
-        {statistics.length > 0 ? (
-          <div className="oo-text-caption border-y border-[var(--oo-divider)] py-2.5">{statistics.join(" · ")}</div>
-        ) : null}
-
-        <div className="grid gap-2">
-          <Button type="button" disabled={disabled} onClick={() => onStartChat(item)}>
+        <div className="shrink-0 pt-3">
+          <Button type="button" className="w-full" disabled={disabled} onClick={() => onStartChat(item)}>
             <MessageSquarePlus />
             {t("knowledge.startChat")}
           </Button>
-          <div className="grid grid-cols-2 gap-2">
-            <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onReveal(item.id)}>
-              <FolderOpen />
-              {t("knowledge.reveal")}
-            </Button>
-            <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onRefresh(item.id)}>
-              <RefreshCw className={cn(busy === "refresh" && "animate-spin")} />
-              {t("knowledge.refresh")}
-            </Button>
-          </div>
         </div>
       </div>
     </KnowledgeContextMenu>

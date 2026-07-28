@@ -8,11 +8,15 @@ import {
   ChevronRight,
   FileText,
   Folder,
+  FolderPlus,
   FolderOpen,
+  FolderX,
   Home,
   LibraryBig,
   MessageSquarePlus,
   MoreHorizontal,
+  MoveRight,
+  Pencil,
   PanelRightClose,
   Plus,
   RefreshCw,
@@ -25,7 +29,9 @@ import { toast } from "sonner"
 import {
   buildKnowledgeLibraryView,
   isWikiGraphFileName,
+  knowledgePathBaseName,
   knowledgePathDirectory,
+  knowledgePathExists,
   normalizeKnowledgePath,
   wikiGraphDropCandidates,
 } from "./knowledge-route-model.ts"
@@ -42,6 +48,7 @@ import {
   ConfirmDialogHeader,
   ConfirmDialogTitle,
 } from "@/components/ui/confirm-dialog"
+import { Dialog } from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,6 +56,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   SplitViewBody,
   SplitViewDesktopDetailPane,
@@ -61,7 +70,7 @@ import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 type KnowledgeAction = {
-  id: "start-chat" | "reveal" | "refresh" | "remove"
+  id: "move" | "refresh" | "remove" | "rename" | "reveal" | "start-chat"
   label: string
   icon: LucideIcon
   disabled: boolean
@@ -80,16 +89,20 @@ function knowledgeStatus(item: KnowledgeBaseSummary, t: ReturnType<typeof useT>)
 function knowledgeActions({
   busy,
   item,
+  onMove,
   onRefresh,
   onRemove,
+  onRename,
   onReveal,
   onStartChat,
   t,
 }: {
   busy: UseKnowledgeBases["busy"]
   item: KnowledgeBaseSummary
+  onMove: (item: KnowledgeBaseSummary) => void
   onRefresh: (id: string) => void
   onRemove: (item: KnowledgeBaseSummary) => void
+  onRename: (item: KnowledgeBaseSummary) => void
   onReveal: (id: string) => void
   onStartChat: (item: KnowledgeBaseSummary) => void
   t: ReturnType<typeof useT>
@@ -102,6 +115,22 @@ function knowledgeActions({
       icon: MessageSquarePlus,
       disabled,
       onSelect: () => onStartChat(item),
+    },
+    {
+      id: "rename",
+      label: t("knowledge.rename"),
+      icon: Pencil,
+      disabled,
+      loading: busy === "rename",
+      onSelect: () => onRename(item),
+    },
+    {
+      id: "move",
+      label: t("knowledge.move"),
+      icon: MoveRight,
+      disabled,
+      loading: busy === "move",
+      onSelect: () => onMove(item),
     },
     {
       id: "reveal",
@@ -223,7 +252,9 @@ function KnowledgeArchiveRow({
   archive,
   selected,
   busy,
+  onMove,
   onRemove,
+  onRename,
   onReveal,
   onSelect,
   onStartChat,
@@ -233,73 +264,112 @@ function KnowledgeArchiveRow({
   archive: KnowledgeBaseSummary
   selected: boolean
   busy: UseKnowledgeBases["busy"]
+  onMove: (item: KnowledgeBaseSummary) => void
   onRemove: (item: KnowledgeBaseSummary) => void
+  onRename: (item: KnowledgeBaseSummary) => void
   onRefresh: (id: string) => void
   onReveal: (id: string) => void
   onSelect: (item: KnowledgeBaseSummary) => void
   onStartChat: (item: KnowledgeBaseSummary) => void
   t: ReturnType<typeof useT>
 }) {
-  const actions = knowledgeActions({ busy, item: archive, onRefresh, onRemove, onReveal, onStartChat, t })
+  const actions = knowledgeActions({
+    busy,
+    item: archive,
+    onMove,
+    onRefresh,
+    onRemove,
+    onRename,
+    onReveal,
+    onStartChat,
+    t,
+  })
   const parentPath = knowledgePathDirectory(archive.relativePath)
   return (
     <KnowledgeContextMenu actions={actions}>
-      <button
-        type="button"
-        aria-pressed={selected}
-        onClick={() => onSelect(archive)}
+      <div
         className={cn(
-          "grid w-full grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors outline-none hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40",
+          "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-lg border border-transparent transition-colors focus-within:ring-[3px] focus-within:ring-ring/40 hover:bg-[var(--oo-row-hover)]",
           selected && "border-[var(--accent-ring)] bg-[var(--accent-soft)]",
         )}
       >
-        <KnowledgeCover item={archive} className="w-full" />
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-foreground">
-            <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="oo-text-control truncate font-medium">{archive.title}</span>
+        <button
+          type="button"
+          aria-pressed={selected}
+          onClick={() => onSelect(archive)}
+          className="grid min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-3 px-2.5 py-2 text-left outline-none"
+        >
+          <KnowledgeCover item={archive} className="w-full" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-foreground">
+              <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="oo-text-control truncate font-medium">{archive.title}</span>
+            </div>
+            <div className="oo-text-caption mt-0.5 truncate">
+              {archive.authors.join("、") || knowledgeStatus(archive, t)}
+            </div>
+            <div className="oo-text-caption mt-0.5 truncate text-muted-foreground">
+              {parentPath ? `${parentPath} / ${archive.sourceFileName}` : archive.sourceFileName}
+            </div>
           </div>
-          <div className="oo-text-caption mt-0.5 truncate">
-            {archive.authors.join("、") || knowledgeStatus(archive, t)}
-          </div>
-          <div className="oo-text-caption mt-0.5 truncate text-muted-foreground">
-            {parentPath ? `${parentPath} / ${archive.sourceFileName}` : archive.sourceFileName}
-          </div>
-        </div>
-        <div className="flex items-center gap-1 text-muted-foreground">
+        </button>
+        <div className="flex items-center gap-1 pr-2 text-muted-foreground">
           {selected ? <Check className="size-4 text-emerald-600" /> : null}
+          <KnowledgeActionsDropdown actions={actions} className="opacity-70" />
         </div>
-      </button>
+      </div>
     </KnowledgeContextMenu>
   )
 }
-
 function KnowledgeFolderRow({
+  busy,
   folder,
   onEnter,
+  onRemove,
   t,
 }: {
+  busy: UseKnowledgeBases["busy"]
   folder: { archiveCount: number; name: string; path: string }
   onEnter: (path: string) => void
+  onRemove: (folder: { archiveCount: number; name: string; path: string }) => void
   t: ReturnType<typeof useT>
 }) {
+  const disabled = busy !== null
+  const actions: KnowledgeAction[] = [
+    {
+      id: "remove",
+      label: t("knowledge.removeFolder"),
+      icon: FolderX,
+      disabled,
+      destructive: true,
+      loading: busy === "remove-folder",
+      onSelect: () => onRemove(folder),
+    },
+  ]
   return (
-    <button
-      type="button"
-      className="grid w-full grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors outline-none hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40"
-      onClick={() => onEnter(folder.path)}
-    >
-      <div className="grid size-8 place-items-center rounded-md bg-muted/50 text-muted-foreground">
-        <Folder className="size-4" />
-      </div>
-      <div className="min-w-0">
-        <div className="oo-text-control truncate font-medium text-foreground">{folder.name}</div>
-        <div className="oo-text-caption truncate text-muted-foreground">
-          {t("knowledge.folderCount", { count: folder.archiveCount })}
+    <KnowledgeContextMenu actions={actions}>
+      <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-lg border border-transparent transition-colors focus-within:ring-[3px] focus-within:ring-ring/40 hover:bg-[var(--oo-row-hover)]">
+        <button
+          type="button"
+          className="grid min-w-0 grid-cols-[2rem_minmax(0,1fr)] items-center gap-3 px-2.5 py-2 text-left outline-none"
+          onClick={() => onEnter(folder.path)}
+        >
+          <div className="grid size-8 place-items-center rounded-md bg-muted/50 text-muted-foreground">
+            <Folder className="size-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="oo-text-control truncate font-medium text-foreground">{folder.name}</div>
+            <div className="oo-text-caption truncate text-muted-foreground">
+              {t("knowledge.folderCount", { count: folder.archiveCount })}
+            </div>
+          </div>
+        </button>
+        <div className="flex items-center gap-1 pr-2 text-muted-foreground">
+          <KnowledgeActionsDropdown actions={actions} className="opacity-70" />
+          <ChevronRight className="size-4 shrink-0" />
         </div>
       </div>
-      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-    </button>
+    </KnowledgeContextMenu>
   )
 }
 
@@ -353,19 +423,38 @@ export function KnowledgeRoute({
   const [currentDirectory, setCurrentDirectory] = React.useState("")
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [removeTarget, setRemoveTarget] = React.useState<KnowledgeBaseSummary | null>(null)
+  const [renameTarget, setRenameTarget] = React.useState<KnowledgeBaseSummary | null>(null)
+  const [renameValue, setRenameValue] = React.useState("")
+  const [moveTarget, setMoveTarget] = React.useState<KnowledgeBaseSummary | null>(null)
+  const [moveDirectory, setMoveDirectory] = React.useState("")
+  const [createFolderOpen, setCreateFolderOpen] = React.useState(false)
+  const [createFolderName, setCreateFolderName] = React.useState("")
+  const [removeFolderTarget, setRemoveFolderTarget] = React.useState<{
+    archiveCount: number
+    name: string
+    path: string
+  } | null>(null)
   const [dragActive, setDragActive] = React.useState(false)
   const dragDepthRef = React.useRef(0)
   const deferredQuery = React.useDeferredValue(query)
 
   const view = React.useMemo(
-    () => buildKnowledgeLibraryView(knowledge.items, currentDirectory, deferredQuery, t("knowledge.rootDirectory")),
-    [currentDirectory, deferredQuery, knowledge.items, t],
+    () =>
+      buildKnowledgeLibraryView(
+        knowledge.items,
+        currentDirectory,
+        deferredQuery,
+        t("knowledge.rootDirectory"),
+        knowledge.folders,
+      ),
+    [currentDirectory, deferredQuery, knowledge.folders, knowledge.items, t],
   )
   const selected = knowledge.items.find((item) => item.id === selectedId) ?? null
   const narrowPane = selected ? "detail" : "list"
   const activeLabel = view.searchMode
     ? t("knowledge.searchResults")
     : view.currentDirectory || t("knowledge.rootDirectory")
+  const folderOptions = React.useMemo(() => ["", ...knowledge.folders], [knowledge.folders])
 
   React.useEffect(() => {
     if (selectedId && !knowledge.items.some((item) => item.id === selectedId)) {
@@ -427,6 +516,100 @@ export function KnowledgeRoute({
     setRemoveTarget(null)
   }
 
+  const openRenameDialog = (item: KnowledgeBaseSummary): void => {
+    setRenameTarget(item)
+    setRenameValue(knowledgePathBaseName(item.relativePath || item.sourceFileName))
+  }
+
+  const openMoveDialog = (item: KnowledgeBaseSummary): void => {
+    setMoveTarget(item)
+    setMoveDirectory(knowledgePathDirectory(item.relativePath))
+  }
+
+  const handleCreateFolder = async (): Promise<void> => {
+    const folderName = createFolderName.trim()
+    const targetPath = normalizeKnowledgePath(currentDirectory ? `${currentDirectory}/${folderName}` : folderName)
+    if (!folderName || !targetPath) {
+      toast.error(t("knowledge.folderNameRequired"))
+      return
+    }
+    if (knowledgePathExists(knowledge.items, knowledge.folders, targetPath)) {
+      toast.error(t("knowledge.pathConflict"))
+      return
+    }
+    const created = await knowledge.createFolder(targetPath)
+    if (created) {
+      setCreateFolderOpen(false)
+      setCreateFolderName("")
+      setCurrentDirectory(created)
+      setSelectedId(null)
+    }
+  }
+
+  const handleRename = async (): Promise<void> => {
+    if (!renameTarget) return
+    const fileName = renameValue.trim()
+    if (!fileName) {
+      toast.error(t("knowledge.fileNameRequired"))
+      return
+    }
+    const parentPath = knowledgePathDirectory(renameTarget.relativePath)
+    const nextFileName = fileName.toLocaleLowerCase().endsWith(".wikg") ? fileName : `${fileName}.wikg`
+    const nextPath = parentPath ? `${parentPath}/${nextFileName}` : nextFileName
+    if (knowledgePathExists(knowledge.items, knowledge.folders, nextPath, renameTarget.id)) {
+      toast.error(t("knowledge.pathConflict"))
+      return
+    }
+    const renamed = await knowledge.rename(renameTarget.id, fileName)
+    if (renamed) {
+      setRenameTarget(null)
+      setRenameValue("")
+      setSelectedId(renamed.id)
+      setCurrentDirectory(knowledgePathDirectory(renamed.relativePath))
+    }
+  }
+
+  const handleMove = async (): Promise<void> => {
+    if (!moveTarget) return
+    const targetDirectory = normalizeKnowledgePath(moveDirectory)
+    const fileName = knowledgePathBaseName(moveTarget.relativePath || moveTarget.sourceFileName)
+    const nextPath = targetDirectory ? `${targetDirectory}/${fileName}` : fileName
+    if (targetDirectory === knowledgePathDirectory(moveTarget.relativePath)) {
+      toast.error(t("knowledge.moveSameFolder"))
+      return
+    }
+    if (knowledgePathExists(knowledge.items, knowledge.folders, nextPath, moveTarget.id)) {
+      toast.error(t("knowledge.pathConflict"))
+      return
+    }
+    const moved = await knowledge.move(moveTarget.id, targetDirectory)
+    if (moved) {
+      setMoveTarget(null)
+      setMoveDirectory("")
+      setSelectedId(moved.id)
+      setCurrentDirectory(knowledgePathDirectory(moved.relativePath))
+    }
+  }
+
+  const handleRemoveFolder = async (): Promise<void> => {
+    if (!removeFolderTarget) return
+    if (removeFolderTarget.archiveCount > 0) {
+      toast.error(t("knowledge.removeFolderNotEmpty"))
+      setRemoveFolderTarget(null)
+      return
+    }
+    const removed = await knowledge.removeFolder(removeFolderTarget.path)
+    if (removed) {
+      if (
+        view.currentDirectory === removeFolderTarget.path ||
+        view.currentDirectory.startsWith(`${removeFolderTarget.path}/`)
+      ) {
+        setCurrentDirectory(knowledgePathDirectory(removeFolderTarget.path))
+      }
+      setRemoveFolderTarget(null)
+    }
+  }
+
   const handleNavigate = (path: string): void => {
     setCurrentDirectory(normalizeKnowledgePath(path))
     setSelectedId(null)
@@ -480,10 +663,15 @@ export function KnowledgeRoute({
               <Button
                 type="button"
                 size="sm"
+                variant="outline"
                 className="ml-auto"
-                disabled={knowledge.busy !== null}
-                onClick={() => void handleImport()}
+                disabled={knowledge.busy !== null || view.searchMode}
+                onClick={() => setCreateFolderOpen(true)}
               >
+                <FolderPlus />
+                {knowledge.busy === "create-folder" ? t("knowledge.creatingFolder") : t("knowledge.newFolder")}
+              </Button>
+              <Button type="button" size="sm" disabled={knowledge.busy !== null} onClick={() => void handleImport()}>
                 <Plus />
                 {knowledge.busy === "import"
                   ? t("knowledge.importing")
@@ -508,8 +696,11 @@ export function KnowledgeRoute({
               loading={knowledge.loading}
               onEnterDirectory={handleNavigate}
               onImport={() => void handleImport()}
+              onMove={openMoveDialog}
               onRefresh={(id) => void knowledge.refresh(id)}
               onRemove={setRemoveTarget}
+              onRemoveFolder={setRemoveFolderTarget}
+              onRename={openRenameDialog}
               onReveal={(id) => void knowledge.reveal(id)}
               onSelectArchive={(item) => setSelectedId(item.id)}
               onStartChat={onStartChat}
@@ -530,8 +721,10 @@ export function KnowledgeRoute({
                 busy={knowledge.busy}
                 item={selected}
                 onClose={() => setSelectedId(null)}
+                onMove={openMoveDialog}
                 onRefresh={(id) => void knowledge.refresh(id)}
                 onRemove={setRemoveTarget}
+                onRename={openRenameDialog}
                 onReveal={(id) => void knowledge.reveal(id)}
                 onStartChat={onStartChat}
               />
@@ -544,8 +737,10 @@ export function KnowledgeRoute({
                 busy={knowledge.busy}
                 item={selected}
                 onClose={() => setSelectedId(null)}
+                onMove={openMoveDialog}
                 onRefresh={(id) => void knowledge.refresh(id)}
                 onRemove={setRemoveTarget}
+                onRename={openRenameDialog}
                 onReveal={(id) => void knowledge.reveal(id)}
                 onStartChat={onStartChat}
               />
@@ -587,7 +782,168 @@ export function KnowledgeRoute({
           </ConfirmDialogFooter>
         </ConfirmDialogContent>
       </ConfirmDialog>
+
+      <ConfirmDialog
+        open={removeFolderTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && knowledge.busy !== "remove-folder") setRemoveFolderTarget(null)
+        }}
+      >
+        <ConfirmDialogContent>
+          <ConfirmDialogHeader>
+            <ConfirmDialogTitle>{t("knowledge.removeFolderConfirmTitle")}</ConfirmDialogTitle>
+            <ConfirmDialogDescription>
+              {removeFolderTarget
+                ? removeFolderTarget.archiveCount > 0
+                  ? t("knowledge.removeFolderBlocked", { name: removeFolderTarget.name })
+                  : t("knowledge.removeFolderConfirm", { name: removeFolderTarget.name })
+                : ""}
+            </ConfirmDialogDescription>
+          </ConfirmDialogHeader>
+          <ConfirmDialogFooter>
+            <ConfirmDialogCancel disabled={knowledge.busy === "remove-folder"}>
+              {t("common.cancel")}
+            </ConfirmDialogCancel>
+            <ConfirmDialogAction
+              disabled={knowledge.busy === "remove-folder" || (removeFolderTarget?.archiveCount ?? 0) > 0}
+              onClick={() => void handleRemoveFolder()}
+            >
+              {t("knowledge.removeFolder")}
+            </ConfirmDialogAction>
+          </ConfirmDialogFooter>
+        </ConfirmDialogContent>
+      </ConfirmDialog>
+
+      <KnowledgeTextDialog
+        busy={knowledge.busy === "create-folder"}
+        description={t("knowledge.newFolderDescription", {
+          directory: view.currentDirectory || t("knowledge.rootDirectory"),
+        })}
+        label={t("knowledge.folderName")}
+        open={createFolderOpen}
+        title={t("knowledge.newFolder")}
+        value={createFolderName}
+        onClose={() => {
+          if (knowledge.busy !== "create-folder") setCreateFolderOpen(false)
+        }}
+        onSubmit={() => void handleCreateFolder()}
+        onValueChange={setCreateFolderName}
+      />
+
+      <KnowledgeTextDialog
+        busy={knowledge.busy === "rename"}
+        description={renameTarget ? t("knowledge.renameDescription", { title: renameTarget.title }) : ""}
+        label={t("knowledge.fileName")}
+        open={renameTarget !== null}
+        title={t("knowledge.rename")}
+        value={renameValue}
+        onClose={() => {
+          if (knowledge.busy !== "rename") setRenameTarget(null)
+        }}
+        onSubmit={() => void handleRename()}
+        onValueChange={setRenameValue}
+      />
+
+      <Dialog
+        open={moveTarget !== null}
+        title={t("knowledge.move")}
+        description={moveTarget ? t("knowledge.moveDescription", { title: moveTarget.title }) : ""}
+        onClose={() => {
+          if (knowledge.busy !== "move") setMoveTarget(null)
+        }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={knowledge.busy === "move"}
+              onClick={() => setMoveTarget(null)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button type="button" disabled={knowledge.busy === "move"} onClick={() => void handleMove()}>
+              {t("knowledge.move")}
+            </Button>
+          </div>
+        }
+      >
+        <div className="grid gap-2 px-5 pb-5">
+          <Label htmlFor="knowledge-move-target">{t("knowledge.targetFolder")}</Label>
+          <select
+            id="knowledge-move-target"
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            disabled={knowledge.busy === "move"}
+            value={moveDirectory}
+            onChange={(event) => setMoveDirectory(event.currentTarget.value)}
+          >
+            {folderOptions.map((folder) => (
+              <option key={folder || "__root__"} value={folder}>
+                {folder || t("knowledge.rootDirectory")}
+              </option>
+            ))}
+          </select>
+        </div>
+      </Dialog>
     </div>
+  )
+}
+
+function KnowledgeTextDialog({
+  busy,
+  description,
+  label,
+  open,
+  title,
+  value,
+  onClose,
+  onSubmit,
+  onValueChange,
+}: {
+  busy: boolean
+  description: string
+  label: string
+  open: boolean
+  title: string
+  value: string
+  onClose: () => void
+  onSubmit: () => void
+  onValueChange: (value: string) => void
+}) {
+  const t = useT()
+  const inputId = React.useId()
+  return (
+    <Dialog
+      open={open}
+      title={title}
+      description={description}
+      onClose={onClose}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="button" disabled={busy} onClick={onSubmit}>
+            {title}
+          </Button>
+        </div>
+      }
+    >
+      <form
+        className="grid gap-2 px-5 pb-5"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onSubmit()
+        }}
+      >
+        <Label htmlFor={inputId}>{label}</Label>
+        <Input
+          id={inputId}
+          disabled={busy}
+          value={value}
+          onChange={(event) => onValueChange(event.currentTarget.value)}
+        />
+      </form>
+    </Dialog>
   )
 }
 
@@ -598,8 +954,11 @@ function KnowledgeLibraryContent({
   loading,
   onEnterDirectory,
   onImport,
+  onMove,
   onRefresh,
   onRemove,
+  onRemoveFolder,
+  onRename,
   onReveal,
   onSelectArchive,
   onStartChat,
@@ -614,8 +973,11 @@ function KnowledgeLibraryContent({
   loading: boolean
   onEnterDirectory: (path: string) => void
   onImport: () => void
+  onMove: (item: KnowledgeBaseSummary) => void
   onRefresh: (id: string) => void
   onRemove: (item: KnowledgeBaseSummary) => void
+  onRemoveFolder: (folder: { archiveCount: number; name: string; path: string }) => void
+  onRename: (item: KnowledgeBaseSummary) => void
   onReveal: (id: string) => void
   onSelectArchive: (item: KnowledgeBaseSummary) => void
   onStartChat: (item: KnowledgeBaseSummary) => void
@@ -685,7 +1047,14 @@ function KnowledgeLibraryContent({
 
       <div className="grid gap-2">
         {view.directories.map((folder) => (
-          <KnowledgeFolderRow key={folder.path} folder={folder} onEnter={onEnterDirectory} t={t} />
+          <KnowledgeFolderRow
+            key={folder.path}
+            busy={busy}
+            folder={folder}
+            onEnter={onEnterDirectory}
+            onRemove={onRemoveFolder}
+            t={t}
+          />
         ))}
         {view.archives.map((archive) => (
           <KnowledgeArchiveRow
@@ -693,8 +1062,10 @@ function KnowledgeLibraryContent({
             archive={archive.item}
             busy={busy}
             selected={selectedId === archive.item.id}
+            onMove={onMove}
             onRefresh={onRefresh}
             onRemove={onRemove}
+            onRename={onRename}
             onReveal={onReveal}
             onSelect={onSelectArchive}
             onStartChat={onStartChat}
@@ -727,17 +1098,21 @@ function KnowledgeDetail({
   busy,
   item,
   onClose,
+  onMove,
   onStartChat,
   onRefresh,
   onRemove,
+  onRename,
   onReveal,
 }: {
   busy: UseKnowledgeBases["busy"]
   item: KnowledgeBaseSummary
   onClose: () => void
+  onMove: (item: KnowledgeBaseSummary) => void
   onStartChat: (item: KnowledgeBaseSummary) => void
   onRefresh: (id: string) => void
   onRemove: (item: KnowledgeBaseSummary) => void
+  onRename: (item: KnowledgeBaseSummary) => void
   onReveal: (id: string) => void
 }) {
   const t = useT()
@@ -748,7 +1123,7 @@ function KnowledgeDetail({
       ? t("knowledge.wordCount", { count: item.statistics.sourceWords.toLocaleString() })
       : null,
   ].filter((value): value is string => Boolean(value))
-  const actions = knowledgeActions({ busy, item, onRefresh, onRemove, onReveal, onStartChat, t })
+  const actions = knowledgeActions({ busy, item, onMove, onRefresh, onRemove, onRename, onReveal, onStartChat, t })
 
   return (
     <KnowledgeContextMenu actions={actions}>

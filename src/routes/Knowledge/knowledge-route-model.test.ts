@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 import {
   buildKnowledgeLibraryView,
   isWikiGraphFileName,
+  knowledgePathExists,
   normalizeKnowledgePath,
   wikiGraphDropCandidates,
 } from "./knowledge-route-model.ts"
@@ -99,5 +100,23 @@ describe("knowledge route model", () => {
     expect(view.searchMode).toBe(true)
     expect(view.directories).toEqual([])
     expect(view.archives.map((archive) => [archive.item.id, archive.path])).toEqual([["two", "work/book.wikg"]])
+  })
+
+  it("shows explicit empty folders and keeps conflict checks path-scoped", () => {
+    const items = [knowledgeBase("one", "fiction/book.wikg", "Book")]
+    const folders = ["empty", "fiction/empty-child"]
+    const rootView = buildKnowledgeLibraryView(items, "", "", "Library", folders)
+    const fictionView = buildKnowledgeLibraryView(items, "fiction", "", "Library", folders)
+
+    expect(rootView.directories.map((directory) => [directory.path, directory.archiveCount])).toEqual([
+      ["empty", 0],
+      ["fiction", 1],
+    ])
+    expect(fictionView.directories.map((directory) => [directory.path, directory.archiveCount])).toEqual([
+      ["fiction/empty-child", 0],
+    ])
+    expect(knowledgePathExists(items, folders, "fiction/book.wikg")).toBe(true)
+    expect(knowledgePathExists(items, folders, "work/book.wikg")).toBe(false)
+    expect(knowledgePathExists(items, folders, "empty")).toBe(true)
   })
 })

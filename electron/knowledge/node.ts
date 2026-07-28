@@ -1,4 +1,11 @@
-import type { ImportKnowledgeBaseRequest, KnowledgeBaseSummary, KnowledgeService } from "./common.ts"
+import type {
+  ImportKnowledgeBaseRequest,
+  KnowledgeBaseSummary,
+  KnowledgeFolderRequest,
+  KnowledgeService,
+  MoveKnowledgeBaseRequest,
+  RenameKnowledgeBaseRequest,
+} from "./common.ts"
 import type { WikiGraphInspect, WikiGraphLibraryArchive, WikiGraphMetadata, WikiGraphRuntime } from "./runner.ts"
 import type { IConnectionService } from "@oomol/connection"
 
@@ -9,12 +16,16 @@ import { ServiceEvent } from "../service-events.ts"
 import { KnowledgeService as KnowledgeServiceName } from "./common.ts"
 import {
   addWikiGraphLibraryArchive,
+  createWikiGraphLibraryFolder,
   inspectWikiGraph,
   listWikiGraphLibraryArchives,
+  listWikiGraphLibraryFolders,
+  moveWikiGraphLibraryArchive,
   readWikiGraphCover,
   readWikiGraphIndex,
   readWikiGraphMetadata,
   removeWikiGraphLibraryArchive,
+  removeWikiGraphLibraryFolder,
   wikiGraphCoverageReady,
 } from "./runner.ts"
 import { isBoundedKnowledgeCoverDataUrl, knowledgeCoverDataUrl } from "./thumbnail.ts"
@@ -101,6 +112,39 @@ export class KnowledgeServiceImpl
     const archives = await listWikiGraphLibraryArchives(this.deps.runtime)
     const summaries = await Promise.all(archives.map((archive) => this.summary(archive)))
     return summaries.sort((left, right) => right.importedAt - left.importedAt)
+  }
+
+  public async listFolders(): Promise<string[]> {
+    return await listWikiGraphLibraryFolders(this.deps.runtime)
+  }
+
+  public async move(request: MoveKnowledgeBaseRequest): Promise<KnowledgeBaseSummary> {
+    const moved = await moveWikiGraphLibraryArchive(
+      this.deps.runtime,
+      request.id,
+      request.targetDirectory,
+      request.fileName,
+    )
+    const summary = await this.summary(moved)
+    this.broadcastChanged("move knowledge base")
+    return summary
+  }
+
+  public async rename(request: RenameKnowledgeBaseRequest): Promise<KnowledgeBaseSummary> {
+    return await this.move({ id: request.id, fileName: request.fileName })
+  }
+
+  public async createFolder(request: KnowledgeFolderRequest | string): Promise<string> {
+    const pathValue = typeof request === "string" ? request : request.path
+    const created = await createWikiGraphLibraryFolder(this.deps.runtime, pathValue)
+    this.broadcastChanged("create knowledge folder")
+    return created
+  }
+
+  public async removeFolder(request: KnowledgeFolderRequest | string): Promise<void> {
+    const pathValue = typeof request === "string" ? request : request.path
+    await removeWikiGraphLibraryFolder(this.deps.runtime, pathValue)
+    this.broadcastChanged("remove knowledge folder")
   }
 
   public async importKnowledgeBase(

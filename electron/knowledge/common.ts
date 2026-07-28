@@ -34,6 +34,21 @@ export interface ImportKnowledgeBaseRequest {
   targetDirectory?: string
 }
 
+export interface MoveKnowledgeBaseRequest {
+  id: string
+  targetDirectory?: string
+  fileName?: string
+}
+
+export interface RenameKnowledgeBaseRequest {
+  id: string
+  fileName: string
+}
+
+export interface KnowledgeFolderRequest {
+  path: string
+}
+
 export interface KnowledgeBasesChangedEvent {
   reason: string
 }
@@ -45,7 +60,12 @@ export const KnowledgeService = serviceName("knowledge-service") as ServiceName<
   }
   ClientInvokes: {
     list(): Promise<KnowledgeBaseSummary[]>
+    listFolders(): Promise<string[]>
     importKnowledgeBase(request?: ImportKnowledgeBaseRequest | string): Promise<KnowledgeBaseSummary | null>
+    move(request: MoveKnowledgeBaseRequest): Promise<KnowledgeBaseSummary>
+    rename(request: RenameKnowledgeBaseRequest): Promise<KnowledgeBaseSummary>
+    createFolder(request: KnowledgeFolderRequest | string): Promise<string>
+    removeFolder(request: KnowledgeFolderRequest | string): Promise<void>
     remove(id: string): Promise<void>
     reveal(id: string): Promise<void>
     refresh(id: string): Promise<KnowledgeBaseSummary>

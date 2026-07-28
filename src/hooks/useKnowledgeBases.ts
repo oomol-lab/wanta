@@ -9,10 +9,15 @@ import { observeKnowledgeBaseList } from "./knowledge-base-list-observer.ts"
 
 export interface UseKnowledgeBases {
   items: KnowledgeBaseSummary[]
+  folders: string[]
   loading: boolean
-  busy: "import" | "remove" | "refresh" | null
+  busy: "create-folder" | "import" | "move" | "remove" | "remove-folder" | "rename" | "refresh" | null
   error: UserFacingError | null
+  createFolder: (path: string) => Promise<string | null>
   importKnowledgeBase: (sourcePath?: string, targetDirectory?: string) => Promise<KnowledgeBaseSummary | null>
+  move: (id: string, targetDirectory: string) => Promise<KnowledgeBaseSummary | null>
+  removeFolder: (path: string) => Promise<boolean>
+  rename: (id: string, fileName: string) => Promise<KnowledgeBaseSummary | null>
   refresh: (id: string) => Promise<void>
   remove: (id: string) => Promise<boolean>
   reveal: (id: string) => Promise<void>
@@ -30,6 +35,7 @@ function knowledgeError(cause: unknown, operation: "list" | "action"): UserFacin
 export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
   const service = useKnowledgeService()
   const [items, setItems] = React.useState<KnowledgeBaseSummary[]>([])
+  const [folders, setFolders] = React.useState<string[]>([])
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState<UseKnowledgeBases["busy"]>(null)
   const [error, setError] = React.useState<UserFacingError | null>(null)
@@ -37,19 +43,24 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
   React.useEffect(() => {
     if (!enabled) {
       setItems([])
+      setFolders([])
       setLoading(false)
       setError(null)
       return
     }
     setLoading(true)
     return observeKnowledgeBaseList({
-      load: () => service.invoke("list"),
+      load: async () => {
+        const [nextItems, nextFolders] = await Promise.all([service.invoke("list"), service.invoke("listFolders")])
+        return { folders: nextFolders, items: nextItems }
+      },
       onError: (cause) => {
         console.error("[wanta] list knowledge bases failed", cause)
         reportRendererHandledError("knowledge", "list knowledge bases failed", cause)
         setError(knowledgeError(cause, "list"))
       },
-      onItems: (nextItems) => {
+      onItems: ({ folders: nextFolders, items: nextItems }) => {
+        setFolders(nextFolders)
         setItems(nextItems)
         setError(null)
       },
@@ -68,6 +79,78 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
         reportRendererHandledError("knowledge", "import knowledge base failed", cause)
         setError(knowledgeError(cause, "action"))
         return null
+      } finally {
+        setBusy(null)
+      }
+    },
+    [service],
+  )
+
+  const createFolder = React.useCallback(
+    async (path: string) => {
+      setBusy("create-folder")
+      try {
+        const created = await service.invoke("createFolder", { path })
+        setFolders((current) => (current.includes(created) ? current : [...current, created].sort()))
+        return created
+      } catch (cause) {
+        console.error("[wanta] create knowledge folder failed", cause)
+        reportRendererHandledError("knowledge", "create knowledge folder failed", cause)
+        setError(knowledgeError(cause, "action"))
+        return null
+      } finally {
+        setBusy(null)
+      }
+    },
+    [service],
+  )
+
+  const rename = React.useCallback(
+    async (id: string, fileName: string) => {
+      setBusy("rename")
+      try {
+        return await service.invoke("rename", { fileName, id })
+      } catch (cause) {
+        console.error("[wanta] rename knowledge base failed", cause)
+        reportRendererHandledError("knowledge", "rename knowledge base failed", cause)
+        setError(knowledgeError(cause, "action"))
+        return null
+      } finally {
+        setBusy(null)
+      }
+    },
+    [service],
+  )
+
+  const move = React.useCallback(
+    async (id: string, targetDirectory: string) => {
+      setBusy("move")
+      try {
+        return await service.invoke("move", { id, targetDirectory })
+      } catch (cause) {
+        console.error("[wanta] move knowledge base failed", cause)
+        reportRendererHandledError("knowledge", "move knowledge base failed", cause)
+        setError(knowledgeError(cause, "action"))
+        return null
+      } finally {
+        setBusy(null)
+      }
+    },
+    [service],
+  )
+
+  const removeFolder = React.useCallback(
+    async (path: string) => {
+      setBusy("remove-folder")
+      try {
+        await service.invoke("removeFolder", { path })
+        setFolders((current) => current.filter((item) => item !== path && !item.startsWith(`${path}/`)))
+        return true
+      } catch (cause) {
+        console.error("[wanta] remove knowledge folder failed", cause)
+        reportRendererHandledError("knowledge", "remove knowledge folder failed", cause)
+        setError(knowledgeError(cause, "action"))
+        return false
       } finally {
         setBusy(null)
       }
@@ -122,5 +205,19 @@ export function useKnowledgeBases(enabled = true): UseKnowledgeBases {
     [service],
   )
 
-  return { items, loading, busy, error, importKnowledgeBase, refresh, remove, reveal }
+  return {
+    items,
+    folders,
+    loading,
+    busy,
+    error,
+    createFolder,
+    importKnowledgeBase,
+    move,
+    refresh,
+    remove,
+    removeFolder,
+    rename,
+    reveal,
+  }
 }

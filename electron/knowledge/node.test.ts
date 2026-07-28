@@ -2,12 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const runner = vi.hoisted(() => ({
   addWikiGraphLibraryArchive: vi.fn(),
+  createWikiGraphLibraryFolder: vi.fn(),
   inspectWikiGraph: vi.fn(),
   listWikiGraphLibraryArchives: vi.fn(),
+  listWikiGraphLibraryFolders: vi.fn(),
+  moveWikiGraphLibraryArchive: vi.fn(),
   readWikiGraphCover: vi.fn(),
   readWikiGraphIndex: vi.fn(),
   readWikiGraphMetadata: vi.fn(),
   removeWikiGraphLibraryArchive: vi.fn(),
+  removeWikiGraphLibraryFolder: vi.fn(),
 }))
 
 vi.mock("electron", () => ({

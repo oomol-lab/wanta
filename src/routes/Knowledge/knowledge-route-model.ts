@@ -101,20 +101,38 @@ function archiveCountForDirectory(archives: KnowledgeArchiveNode[], directoryPat
     .length
 }
 
-function directoriesForPath(archives: KnowledgeArchiveNode[], currentDirectory: string): KnowledgeDirectoryNode[] {
+function addDirectoryNode(
+  directories: Map<string, KnowledgeDirectoryNode>,
+  archives: KnowledgeArchiveNode[],
+  path: string,
+): void {
+  const normalized = normalizeKnowledgePath(path)
+  if (!normalized || directories.has(normalized)) return
+  directories.set(normalized, {
+    archiveCount: archiveCountForDirectory(archives, normalized),
+    kind: "directory",
+    name: knowledgePathBaseName(normalized),
+    path: normalized,
+  })
+}
+
+function directoriesForPath(
+  archives: KnowledgeArchiveNode[],
+  currentDirectory: string,
+  folderPaths: string[],
+): KnowledgeDirectoryNode[] {
   const directories = new Map<string, KnowledgeDirectoryNode>()
   for (const archive of archives) {
     const childName = directChildName(currentDirectory, archive.parentPath)
     if (!childName) continue
     const childPath = currentDirectory ? `${currentDirectory}/${childName}` : childName
-    if (!directories.has(childPath)) {
-      directories.set(childPath, {
-        archiveCount: archiveCountForDirectory(archives, childPath),
-        kind: "directory",
-        name: childName,
-        path: childPath,
-      })
-    }
+    addDirectoryNode(directories, archives, childPath)
+  }
+  for (const folderPath of folderPaths) {
+    const normalized = normalizeKnowledgePath(folderPath)
+    const childName = directChildName(currentDirectory, normalized)
+    if (!childName) continue
+    addDirectoryNode(directories, archives, currentDirectory ? `${currentDirectory}/${childName}` : childName)
   }
   return Array.from(directories.values()).sort((left, right) => left.name.localeCompare(right.name))
 }
@@ -124,10 +142,12 @@ export function buildKnowledgeLibraryView(
   currentDirectory: string,
   query: string,
   rootLabel: string,
+  folders: string[] = [],
 ): KnowledgeLibraryView {
   const normalizedDirectory = normalizeKnowledgePath(currentDirectory)
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const allArchives = items.map((item) => archiveNode(item))
+  const folderPaths = folders.map((folder) => normalizeKnowledgePath(folder)).filter(Boolean)
   const visibleArchives = normalizedQuery
     ? allArchives.filter((archive) => archiveSearchText(archive).includes(normalizedQuery))
     : allArchives.filter((archive) => archive.parentPath === normalizedDirectory)
@@ -138,9 +158,25 @@ export function buildKnowledgeLibraryView(
     ),
     breadcrumbs: knowledgeBreadcrumbs(normalizedDirectory, rootLabel),
     currentDirectory: normalizedDirectory,
-    directories: normalizedQuery ? [] : directoriesForPath(allArchives, normalizedDirectory),
+    directories: normalizedQuery ? [] : directoriesForPath(allArchives, normalizedDirectory, folderPaths),
     query: normalizedQuery,
     searchMode: Boolean(normalizedQuery),
     totalArchives: allArchives.length,
   }
+}
+
+export function knowledgePathExists(
+  items: KnowledgeBaseSummary[],
+  folders: string[],
+  path: string,
+  excludeArchiveId?: string,
+): boolean {
+  const normalized = normalizeKnowledgePath(path).toLocaleLowerCase()
+  if (!normalized) return false
+  return (
+    items.some((item) => {
+      if (item.id === excludeArchiveId) return false
+      return normalizeKnowledgePath(item.relativePath || item.sourceFileName).toLocaleLowerCase() === normalized
+    }) || folders.some((folder) => normalizeKnowledgePath(folder).toLocaleLowerCase() === normalized)
+  )
 }

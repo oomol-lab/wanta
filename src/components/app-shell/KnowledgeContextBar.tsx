@@ -72,7 +72,7 @@ export function KnowledgeContextBar({
                 locale === "zh-CN"
                   ? item.authors.join("、")
                   : new Intl.ListFormat(locale, { style: "short", type: "conjunction" }).format(item.authors)
-              const metadata = [authorLabel, item.publisher].filter(Boolean).join(" · ")
+              const metadata = [item.relativePath, authorLabel, item.publisher].filter(Boolean).join(" · ")
               return (
                 <button
                   key={item.id}

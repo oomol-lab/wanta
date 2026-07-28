@@ -7,9 +7,8 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : ""
 }
 
-function shellWordPattern(word: string): string {
-  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  return String.raw`(?:${escaped}|['"]${escaped}['"])`
+function shellCommandPattern(commandPattern: string): string {
+  return String.raw`(?:${commandPattern}|['"]${commandPattern}['"])`
 }
 
 function isWikigraphProbeCommand(command: string): boolean {
@@ -20,13 +19,14 @@ function isWikigraphProbeCommand(command: string): boolean {
   const executable = String.raw`(?:wg|wikigraph|(?:\S+/)(?:wg|wikigraph))`
   const probeArg = String.raw`(?:--help|-h|help|--version|version)`
   const optionalRedirect = String.raw`(?:\s+\d*>[&]?\d+|\s+[<>]{1,2}\S+)*`
+  const probeCommand = String.raw`${executable}\s+${probeArg}${optionalRedirect}`
   const directProbe = new RegExp(String.raw`^${executable}\s+${probeArg}${optionalRedirect}$`, "iu")
   const envProbe = new RegExp(
     String.raw`^env(?:\s+-\S+|\s+\w+=\S+)*\s+${executable}\s+${probeArg}${optionalRedirect}$`,
     "iu",
   )
   const shellProbe = new RegExp(
-    String.raw`^(?:bash|sh|zsh)\s+(?:-[A-Za-z]*c[A-Za-z]*\s+)${shellWordPattern(`wg --help`)}${optionalRedirect}$`,
+    String.raw`^(?:bash|sh|zsh)\s+(?:-[A-Za-z]*c[A-Za-z]*\s+)${shellCommandPattern(probeCommand)}${optionalRedirect}$`,
     "iu",
   )
   return directProbe.test(normalized) || envProbe.test(normalized) || shellProbe.test(normalized)

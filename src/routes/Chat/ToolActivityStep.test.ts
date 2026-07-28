@@ -208,56 +208,59 @@ describe("ToolActivityStep", () => {
   })
 
   it("coalesces an entire WikiGraph flow across skill load, WG probe, completed queries, and a running query", () => {
-    const parts = groupedToolActivityParts([
-      {
-        kind: "tool",
-        partId: "tool-skill",
-        callId: "call-skill",
-        tool: "skill",
-        status: "completed",
-        title: "Loaded skill: wikigraph-knowledge",
-        output: "# WikiGraph Knowledge",
-      },
-      {
-        kind: "tool",
-        partId: "tool-wg-help",
-        callId: "call-wg-help",
-        tool: "bash",
-        status: "completed",
-        input: { command: "wg --help 2>&1" },
-        output: "Usage: wg ...",
-      },
-      {
-        kind: "tool",
-        partId: "tool-wg-1",
-        callId: "call-wg-1",
-        tool: "bash",
-        status: "completed",
-        input: { command: 'wg wikg://lib/search --query "华容道" --json' },
-        output: "{}",
-      },
-      {
-        kind: "tool",
-        partId: "tool-wg-2",
-        callId: "call-wg-2",
-        tool: "bash",
-        status: "running",
-        input: { command: 'wg wikg://lib/evidence --query "关羽 曹操" --json' },
-      },
-    ])
-    const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
+    for (const probeCommand of ["wg --help 2>&1", 'bash -lc "wg --help 2>&1"', "sh -c 'wikigraph --version 2>&1'"]) {
+      const parts = groupedToolActivityParts([
+        {
+          kind: "tool",
+          partId: "tool-skill",
+          callId: "call-skill",
+          tool: "skill",
+          status: "completed",
+          title: "Loaded skill: wikigraph-knowledge",
+          output: "# WikiGraph Knowledge",
+        },
+        {
+          kind: "tool",
+          partId: "tool-wg-help",
+          callId: "call-wg-help",
+          tool: "bash",
+          status: "completed",
+          input: { command: probeCommand },
+          output: "Usage: wg ...",
+        },
+        {
+          kind: "tool",
+          partId: "tool-wg-1",
+          callId: "call-wg-1",
+          tool: "bash",
+          status: "completed",
+          input: { command: 'wg wikg://lib/search --query "华容道" --json' },
+          output: "{}",
+        },
+        {
+          kind: "tool",
+          partId: "tool-wg-2",
+          callId: "call-wg-2",
+          tool: "bash",
+          status: "running",
+          input: { command: 'wg wikg://lib/evidence --query "关羽 曹操" --json' },
+        },
+      ])
+      const html = parts.map((part) => renderToolActivityStep(part)).join("\n")
 
-    expect(parts).toHaveLength(1)
-    expect(html.match(/查询知识库/g)).toHaveLength(1)
-    expect(html).toContain("运行中")
-    expect(html).not.toContain("已完成")
-    expect(html).not.toContain("wg --help")
-    expect(html).not.toContain("wg wikg://")
-    expect(html).not.toContain("Loaded skill")
-    expect(html).not.toContain("wikigraph-knowledge")
-    expect(html).not.toContain("工具参数")
-    expect(html).not.toContain("工具结果")
-    expect(html).not.toContain("lucide-chevron-right")
+      expect(parts).toHaveLength(1)
+      expect(html.match(/查询知识库/g)).toHaveLength(1)
+      expect(html).toContain("运行中")
+      expect(html).not.toContain("已完成")
+      expect(html).not.toContain("wg --help")
+      expect(html).not.toContain("wikigraph --version")
+      expect(html).not.toContain("wg wikg://")
+      expect(html).not.toContain("Loaded skill")
+      expect(html).not.toContain("wikigraph-knowledge")
+      expect(html).not.toContain("工具参数")
+      expect(html).not.toContain("工具结果")
+      expect(html).not.toContain("lucide-chevron-right")
+    }
   })
 
   it("keeps WikiGraph probe commands visible when no knowledge flow surrounds them", () => {

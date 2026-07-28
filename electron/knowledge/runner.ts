@@ -90,6 +90,8 @@ interface InspectChapter {
   words: number
 }
 
+type WikiGraphListedChapter = Awaited<ReturnType<typeof listChapters>>[number]
+
 function redactWikiGraphRuntimePaths(runtime: WikiGraphRuntime, value: string): string {
   let message = value
   for (const pathValue of [runtime.stateDir, runtime.managedLibraryDir]) {
@@ -398,6 +400,7 @@ async function retryImportWithIsolatedUpgrade(
     }
     return imported
   } catch (error) {
+    if (error instanceof Error && error.message === unreadableImportMessage) throw error
     throw new Error(unreadableImportMessage, { cause: error instanceof Error ? error : cause })
   } finally {
     await rm(prepared.directory, { force: true, recursive: true }).catch(() => undefined)
@@ -663,26 +666,34 @@ async function resolveArchiveFile(
   })
 }
 
+function inspectChapterBase(
+  chapter: WikiGraphListedChapter,
+): Pick<InspectChapter, "depth" | "documentOrder" | "stage" | "title" | "words"> {
+  const title =
+    typeof chapter.title === "string" && chapter.title.trim()
+      ? chapter.title.trim()
+      : (chapter.tocPath ?? []).at(-1)?.trim() || chapter.key || chapter.path
+  return {
+    depth: typeof chapter.depth === "number" && Number.isFinite(chapter.depth) ? Math.max(0, chapter.depth) : 0,
+    documentOrder:
+      typeof chapter.documentOrder === "number" && Number.isFinite(chapter.documentOrder)
+        ? chapter.documentOrder
+        : chapter.chapterId,
+    stage: chapter.stage,
+    title,
+    words: chapter.words,
+  }
+}
+
 async function readInspectChapters(document: ReadonlyDocument): Promise<InspectChapter[]> {
   return await Promise.all(
     (await listChapters(document)).map(async (chapter) => {
       const serial = await document.serials.getById(chapter.chapterId)
-      const title =
-        typeof chapter.title === "string" && chapter.title.trim()
-          ? chapter.title.trim()
-          : (chapter.tocPath ?? []).at(-1)?.trim() || chapter.key || chapter.path
       return {
-        depth: typeof chapter.depth === "number" && Number.isFinite(chapter.depth) ? Math.max(0, chapter.depth) : 0,
-        documentOrder:
-          typeof chapter.documentOrder === "number" && Number.isFinite(chapter.documentOrder)
-            ? chapter.documentOrder
-            : chapter.chapterId,
+        ...inspectChapterBase(chapter),
         knowledgeGraphReady: serial?.knowledgeGraphReady === true,
         readingGraphReady: serial?.topologyReady === true,
-        stage: chapter.stage,
         summaryReady: chapter.stage === "summarized",
-        title,
-        words: chapter.words,
       }
     }),
   )
@@ -690,22 +701,11 @@ async function readInspectChapters(document: ReadonlyDocument): Promise<InspectC
 
 async function readChapterTreeEntries(document: ReadonlyDocument): Promise<InspectChapter[]> {
   return (await listChapters(document)).map((chapter) => {
-    const title =
-      typeof chapter.title === "string" && chapter.title.trim()
-        ? chapter.title.trim()
-        : (chapter.tocPath ?? []).at(-1)?.trim() || chapter.key || chapter.path
     return {
-      depth: typeof chapter.depth === "number" && Number.isFinite(chapter.depth) ? Math.max(0, chapter.depth) : 0,
-      documentOrder:
-        typeof chapter.documentOrder === "number" && Number.isFinite(chapter.documentOrder)
-          ? chapter.documentOrder
-          : chapter.chapterId,
+      ...inspectChapterBase(chapter),
       knowledgeGraphReady: false,
       readingGraphReady: false,
-      stage: chapter.stage,
       summaryReady: false,
-      title,
-      words: chapter.words,
     }
   })
 }

@@ -5,6 +5,7 @@ import type {
   KnowledgeService,
   MoveKnowledgeBaseRequest,
   RenameKnowledgeBaseRequest,
+  KnowledgeChapterNode,
 } from "./common.ts"
 import type { WikiGraphInspect, WikiGraphLibraryArchive, WikiGraphMetadata, WikiGraphRuntime } from "./runner.ts"
 import type { IConnectionService } from "@oomol/connection"
@@ -124,7 +125,7 @@ export class KnowledgeServiceImpl
     return await listWikiGraphLibraryFolders(this.deps.runtime)
   }
 
-  public async readChapters(id: string) {
+  public async readChapters(id: string): Promise<KnowledgeChapterNode[]> {
     return await readWikiGraphChapterTree(this.deps.runtime, id)
   }
 

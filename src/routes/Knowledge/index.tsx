@@ -5,7 +5,7 @@ import type { LucideIcon } from "lucide-react"
 import {
   AlignLeft,
   ArrowLeft,
-  ChevronDown,
+  Circle,
   Folder,
   FolderPlus,
   FolderOpen,
@@ -212,7 +212,11 @@ function parseKnowledgeAuthors(value: string): string[] {
 
 function isValidKnowledgeFileName(value: string): boolean {
   const fileName = stripWikiGraphExtension(value)
-  return Boolean(fileName && fileName !== "." && fileName !== ".." && !/[/:\\]/u.test(fileName))
+  if (!fileName || fileName === "." || fileName === "..") return false
+  if (/[<>:"/\\|?*]/u.test(fileName)) return false
+  if ([...fileName].some((character) => character.charCodeAt(0) < 32)) return false
+  if (/[. ]$/u.test(fileName)) return false
+  return !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu.test(fileName)
 }
 
 function summarizeKnowledgeCoverage(items: KnowledgeBaseSummary[]): KnowledgeCoverage {
@@ -321,7 +325,7 @@ function KnowledgeChapterTree({ chapters, depth = 0 }: { chapters: KnowledgeChap
         <li key={`${depth}:${index}:${chapter.title}`} className="min-w-0">
           <div className="grid min-h-8 grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-1">
             {chapter.children?.length ? (
-              <ChevronDown className="size-4 text-muted-foreground" />
+              <Circle className="size-2 fill-current text-muted-foreground/70" aria-hidden="true" />
             ) : (
               <span className="size-4" aria-hidden="true" />
             )}
@@ -1244,6 +1248,7 @@ function KnowledgeArchiveRenameDialog({
             <Label htmlFor={fileNameId}>{t("knowledge.fileName")}</Label>
             <Input id={fileNameId} disabled={busy} value={draft.fileName} onChange={setDraftField("fileName")} />
           </div>
+          <button type="submit" className="hidden" aria-hidden="true" tabIndex={-1} />
         </div>
       </form>
     </Dialog>

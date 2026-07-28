@@ -24,11 +24,11 @@ importers:
         specifier: 4.0.4
         version: 4.0.4
       wiki-graph:
-        specifier: 0.4.0
-        version: 0.4.0(wiki-graph-core@0.4.0)
+        specifier: 0.4.1
+        version: 0.4.1(wiki-graph-core@0.4.1)
       wiki-graph-core:
-        specifier: 0.4.0
-        version: 0.4.0
+        specifier: 0.4.1
+        version: 0.4.1
     devDependencies:
       '@electron-internal/extract-zip':
         specifier: 1.0.2
@@ -4572,16 +4572,16 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
-  wiki-graph-core@0.4.0:
-    resolution: {integrity: sha512-Kfbrs53FjeKP8jlXsQTelM1MLIU/tKzMpzjBD6suZ9Tf7CWtHZrvAAcviIciYcE8hIylBaL+/IKF8rtfR8JTwA==}
+  wiki-graph-core@0.4.1:
+    resolution: {integrity: sha512-CuN9X3gopFIuzso5LHW2TYJxiG+4d6Cd/AOMvniLaoo4gtcbU10QQriLJP70sy+zMlNUhmfxbIeRf10RDkQFBw==}
     engines: {node: '>=22.12.0'}
 
-  wiki-graph@0.4.0:
-    resolution: {integrity: sha512-LoApbkJI9Ge6eOie9E/AVmGB2+kSr/HvshcEfRJuXuy006ATwj4fqMGQ7UpGkc5y0DdYiI5PY0JsQDs5qoIeHQ==}
+  wiki-graph@0.4.1:
+    resolution: {integrity: sha512-+Y9ENYYmQ4DdnTBgCQG0eaZ8I4zenFf24ZLatuiWGYrawOl2k52YuQRYJ1udOvNl3KJIiptRzm/cPUHHbYaj+A==}
     engines: {node: '>=22.12.0'}
     hasBin: true
     peerDependencies:
-      wiki-graph-core: ^0.4.0
+      wiki-graph-core: ^0.4.1
     peerDependenciesMeta:
       wiki-graph-core:
         optional: true
@@ -9539,7 +9539,7 @@ snapshots:
       siginfo: 2.0.0
       stackback: 0.0.2
 
-  wiki-graph-core@0.4.0:
+  wiki-graph-core@0.4.1:
     dependencies:
       '@ai-sdk/anthropic': 3.0.103(zod@4.4.3)
       '@ai-sdk/google': 3.0.101(zod@4.4.3)
@@ -9560,7 +9560,7 @@ snapshots:
     transitivePeerDependencies:
       - chokidar
 
-  wiki-graph@0.4.0(wiki-graph-core@0.4.0):
+  wiki-graph@0.4.1(wiki-graph-core@0.4.1):
     dependencies:
       '@ai-sdk/anthropic': 3.0.103(zod@4.4.3)
       '@ai-sdk/google': 3.0.101(zod@4.4.3)
@@ -9579,7 +9579,7 @@ snapshots:
       yazl: 3.3.1
       zod: 4.4.3
     optionalDependencies:
-      wiki-graph-core: 0.4.0
+      wiki-graph-core: 0.4.1
     transitivePeerDependencies:
       - chokidar
 

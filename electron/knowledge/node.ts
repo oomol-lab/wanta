@@ -21,6 +21,7 @@ import {
   listWikiGraphLibraryArchives,
   listWikiGraphLibraryFolders,
   moveWikiGraphLibraryArchive,
+  prepareWikiGraphArchive,
   readWikiGraphCover,
   readWikiGraphIndex,
   readWikiGraphMetadata,
@@ -208,8 +209,17 @@ export class KnowledgeServiceImpl
   }
 
   private async summary(archive: WikiGraphLibraryArchive): Promise<KnowledgeBaseSummary> {
+    try {
+      await prepareWikiGraphArchive(this.deps.runtime, archive.id)
+    } catch (error: unknown) {
+      console.warn("[wanta] failed to prepare knowledge base:", error)
+      return summaryFromInspection(archive, {}, {}, null)
+    }
     const [metadata, inspect, _index, cover] = await Promise.all([
-      readWikiGraphMetadata(this.deps.runtime, archive.id),
+      readWikiGraphMetadata(this.deps.runtime, archive.id).catch((error: unknown) => {
+        console.warn("[wanta] failed to read knowledge base metadata:", error)
+        return {}
+      }),
       inspectWikiGraph(this.deps.runtime, archive.id).catch((error: unknown) => {
         console.warn("[wanta] failed to inspect knowledge base:", error)
         return {}

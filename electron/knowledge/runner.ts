@@ -342,9 +342,6 @@ export async function addWikiGraphLibraryArchive(
 
 async function prepareImportedArchiveForUse(record: WikiGraphLibraryArchiveRecord): Promise<void> {
   await prepareArchivePathForUse(record.path)
-  // wiki-graph-core@0.4.0 has no separate repair API for current-schema archives whose TOC is still
-  // structurally unreadable. Keep this validation boundary explicit so a future SDK repair call can
-  // be inserted before the checks without treating a copied file as a completed product import.
   await validateImportedArchive(record.path)
 }
 
@@ -491,6 +488,10 @@ export async function readWikiGraphCover(runtime: WikiGraphRuntime, id: string):
   } catch {
     return null
   }
+}
+
+export async function prepareWikiGraphArchive(runtime: WikiGraphRuntime, id: string): Promise<void> {
+  await preparedDocumentArchiveFile(runtime, id)
 }
 
 async function archiveFile(runtime: WikiGraphRuntime, id: string): Promise<WikiGraphArchiveFile> {

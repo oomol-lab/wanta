@@ -71,7 +71,7 @@ export function ProcessActivityViewport({
       <div
         ref={viewportRef}
         aria-label={label}
-        className="max-h-[min(20rem,40vh)] overflow-y-auto pr-1 focus-visible:outline-none"
+        className="max-h-[min(20rem,40vh)] overflow-y-auto rounded-sm pr-1 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         onScroll={handleScroll}
         role="region"
         tabIndex={scrollState.hasOverflow ? 0 : -1}

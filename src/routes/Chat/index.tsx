@@ -31,7 +31,6 @@ import { chatTurnShowsGenerating, resolveChatTurnState } from "./chat-turn-state
 import { ChatComposer } from "./ChatComposer.tsx"
 import { ChatTimeline } from "./ChatTimeline.tsx"
 import { resolveCurrentToolsPresentation } from "./empty-state-connections.ts"
-import { FullAccessConfirmDialog } from "./FullAccessConfirmDialog.tsx"
 import { BrandIcon } from "@/components/BrandIcon"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -314,7 +313,6 @@ export const ChatArea = React.memo(function ChatArea({
   onSelectKnowledgeBase,
 }: ChatAreaProps) {
   const t = useT()
-  const [fullAccessDialogOpen, setFullAccessDialogOpen] = React.useState(false)
   const hasMessages = messages.length > 0
   const activeQuestionCount = pendingQuestions.length
   const turnState = resolveChatTurnState({
@@ -324,18 +322,6 @@ export const ChatArea = React.memo(function ChatArea({
     status,
   })
   const isGenerating = chatTurnShowsGenerating(turnState)
-
-  const requestFullAccess = React.useCallback((): void => {
-    if (permissionMode === "full_access") {
-      return
-    }
-    setFullAccessDialogOpen(true)
-  }, [permissionMode])
-
-  const confirmFullAccess = React.useCallback((): void => {
-    onPermissionModeChange("full_access")
-    setFullAccessDialogOpen(false)
-  }, [onPermissionModeChange])
 
   const showCenteredEmptyState = showEmptyState && !hasMessages && !isGenerating
   const composer = (
@@ -373,7 +359,7 @@ export const ChatArea = React.memo(function ChatArea({
       onSend={onSend}
       onAnswerQuestion={onAnswerQuestion}
       onPermissionModeDefault={() => onPermissionModeChange("default")}
-      onPermissionModeFullAccess={requestFullAccess}
+      onPermissionModeFullAccess={() => onPermissionModeChange("full_access")}
       onOpenConnectionProvider={onOpenConnectionProvider}
       onOpenKnowledgeLibrary={onOpenKnowledgeLibrary}
       selfManagedSetup={selfManagedSetup}
@@ -466,11 +452,6 @@ export const ChatArea = React.memo(function ChatArea({
             </div>
           )}
         </div>
-        <FullAccessConfirmDialog
-          open={fullAccessDialogOpen}
-          onClose={() => setFullAccessDialogOpen(false)}
-          onConfirm={confirmFullAccess}
-        />
       </div>
     </BillingRequestScopeContext.Provider>
   )

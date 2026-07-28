@@ -7,6 +7,7 @@ describe("resolveRuntimeCapabilities", () => {
       resolveRuntimeCapabilities({ mode: "local", localAgentAvailable: true, linkRuntimeAvailable: true }),
     ).toEqual({
       mode: "local",
+      commandSandbox: "direct",
       localAgent: true,
       localTools: true,
       customModels: true,
@@ -49,6 +50,7 @@ describe("resolveRuntimeCapabilities", () => {
     })
     expect(capabilities).toEqual({
       mode: "oomol",
+      commandSandbox: "direct",
       localAgent: true,
       localTools: true,
       customModels: true,
@@ -62,5 +64,16 @@ describe("resolveRuntimeCapabilities", () => {
     expect(capabilities).not.toHaveProperty("sessionToken")
     expect(capabilities).not.toHaveProperty("authToken")
     expect(capabilities).not.toHaveProperty("apiKey")
+  })
+
+  it("reports the macOS command sandbox without exposing policy details", () => {
+    expect(
+      resolveRuntimeCapabilities({
+        mode: "local",
+        commandSandboxAvailable: true,
+        localAgentAvailable: true,
+        linkRuntimeAvailable: false,
+      }),
+    ).toMatchObject({ commandSandbox: "preview" })
   })
 })

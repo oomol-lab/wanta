@@ -50,6 +50,11 @@ test("copied session access remains isolated from later parent changes", async (
   const second = path.join(root, "second")
   await Promise.all([mkdir(first), mkdir(second)])
   const access = new TrustedLocalAccess({ loadAdditionalRoots: async () => [] })
+  const attachment = path.join(root, "attachment.txt")
+  await writeFile(attachment, "attachment")
+  access.rememberAttachments("parent", [
+    { id: "attachment", kind: "file", mime: "text/plain", name: "attachment.txt", path: attachment, size: 10 },
+  ])
   access.rememberPermissionResources("parent", {
     action: "external_directory",
     id: "request-1",
@@ -65,6 +70,7 @@ test("copied session access remains isolated from later parent changes", async (
   })
   access.deleteSession("parent")
 
+  assert.deepEqual(access.sessionAccess("child").attachmentPaths, [attachment])
   assert.equal(await access.assertPath(first).then(() => true), true)
   access.deleteSession("child")
   await assert.rejects(access.assertPath(first), /not available/u)

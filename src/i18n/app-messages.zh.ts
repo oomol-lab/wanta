@@ -877,13 +877,10 @@ export const zhCNMessages = {
   "chat.permissionModePicker": "访问模式",
   "chat.permissionModeDefault": "默认访问",
   "chat.permissionModeDefaultDescription": "普通操作自动执行，仅在敏感或高风险边界确认",
+  "chat.permissionModeDefaultSandboxDescription": "普通操作自动执行，Shell 命令在命令沙箱中运行",
   "chat.permissionModeFullAccess": "完全访问",
-  "chat.permissionModeFullAccessDescription": "跳过本地操作确认，包括高风险命令和项目外路径",
-  "chat.fullAccessDialogTitle": "确认开启完全访问？",
-  "chat.fullAccessDialogBody":
-    "开启后，Wanta 会在当前会话中自动批准本地访问请求，包括本地命令、文件读写/删除，以及所选项目之外的路径访问。\n当前会话内不会再逐次询问本地操作权限。\n仅建议在你信任当前任务时使用。",
-  "chat.fullAccessDialogAcknowledge": "我已了解风险，并愿意继续",
-  "chat.fullAccessDialogConfirm": "确认开启",
+  "chat.permissionModeFullAccessDescription": "本会话不再询问本地操作权限",
+  "chat.permissionModeFullAccessSandboxDescription": "Shell 命令直接在本机运行，本会话不再询问本地操作权限",
   "chat.permissionRequiredTitle": "需要权限才能继续",
   "chat.permissionCommandTitle": "需要运行本地命令",
   "chat.permissionPathTitle": "需要访问文件夹",
@@ -1346,6 +1343,14 @@ export const zhCNMessages = {
   "settings.groupBrowser": "浏览器",
   "settings.groupApplication": "应用",
   "settings.groupBetaFeatures": "Beta 功能",
+  "settings.commandSandbox": "命令沙箱",
+  "settings.commandSandboxPreviewDescription":
+    "保护项目外的未授权文件，避免被 Shell 命令访问；如需直接运行，可在对话中选择「完全访问」。",
+  "settings.commandSandboxDirectDescription": "当前平台暂不支持命令沙箱。",
+  "settings.commandSandboxPreviewTooltip":
+    "默认访问下，Shell 命令可使用当前项目、任务输出、公网和本机服务，其他未授权文件仍受保护。如需直接运行，可在对话中选择「完全访问」。",
+  "settings.commandSandboxDirectTooltip":
+    "当前平台暂不支持命令沙箱。两种访问模式都会直接运行 Shell 命令，区别仅在于 Wanta 是否询问本地操作权限。",
   "settings.browserEnabled": "浏览器",
   "settings.browserEnabledDescription": "允许 Wanta 使用内置浏览器完成网页任务。",
   "settings.browserUpdateFailed": "无法更新浏览器设置",

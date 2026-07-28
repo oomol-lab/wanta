@@ -13,6 +13,12 @@ export interface TrustedLocalAccessOptions {
   trustedAttachmentPaths?: Iterable<string> & { readonly revision?: number }
 }
 
+export interface TrustedSessionAccess {
+  attachmentPaths: string[]
+  permissionPaths: string[]
+  projectRoot?: string
+}
+
 /** 汇总会话明确授权的本地路径，并统一处理 realpath、缓存失效与路径包含校验。 */
 export class TrustedLocalAccess {
   private readonly projectRoots = new Map<string, string>()
@@ -48,8 +54,9 @@ export class TrustedLocalAccess {
 
   public copySession(parentSessionId: string, childSessionId: string): boolean {
     const projectRoot = this.projectRoots.get(parentSessionId)
+    const attachmentPaths = this.attachmentPaths.get(parentSessionId)
     const permissionPaths = this.permissionPaths.get(parentSessionId)
-    if (!projectRoot && !permissionPaths) {
+    if (!projectRoot && !attachmentPaths && !permissionPaths) {
       return false
     }
     if (projectRoot) {
@@ -58,8 +65,20 @@ export class TrustedLocalAccess {
     if (permissionPaths) {
       this.permissionPaths.set(childSessionId, new Set(permissionPaths))
     }
+    if (attachmentPaths) {
+      this.attachmentPaths.set(childSessionId, new Set(attachmentPaths))
+    }
     this.invalidate()
     return true
+  }
+
+  public sessionAccess(sessionId: string): TrustedSessionAccess {
+    const projectRoot = this.projectRoots.get(sessionId)
+    return {
+      attachmentPaths: [...(this.attachmentPaths.get(sessionId) ?? [])],
+      permissionPaths: [...(this.permissionPaths.get(sessionId) ?? [])],
+      ...(projectRoot ? { projectRoot } : {}),
+    }
   }
 
   public deleteSession(sessionId: string): void {

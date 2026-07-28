@@ -29,9 +29,20 @@ test("upsertAccount inserts, replaces by id, sets current, and never persists th
   assert.equal(auth.currentId, "u1")
 })
 
-test("upsertAccount persists the profile (avatar) but strips the runtime sessionToken", () => {
-  const auth = upsertAccount({}, { ...acme, avatarUrl })
-  assert.deepEqual(auth, { currentId: "u1", accounts: [{ ...acmeProfile, avatarUrl }] })
+test("upsertAccount persists identity fields but strips the runtime sessionToken", () => {
+  const auth = upsertAccount(
+    {},
+    {
+      ...acme,
+      avatarUrl,
+      email: "acme@example.com",
+      username: "acme",
+    },
+  )
+  assert.deepEqual(auth, {
+    currentId: "u1",
+    accounts: [{ ...acmeProfile, avatarUrl, email: "acme@example.com", username: "acme" }],
+  })
 })
 
 test("selectAccount picks current first, then the first account, else null", () => {

@@ -55,6 +55,7 @@ import { SpreadsheetPreviewWorkerClient } from "./chat/spreadsheet-preview-worke
 import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
 import { TurnOutputStore } from "./chat/turn-outputs.ts"
 import { UserAttachmentStore } from "./chat/user-attachments.ts"
+import { registerClipboardHandler } from "./clipboard-handler.ts"
 import { parseConnectionOAuthCallback } from "./connections/domain.ts"
 import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./diagnostics-log.ts"
 import { GitServiceImpl } from "./git/node.ts"
@@ -333,6 +334,7 @@ registerAttachmentDialogHandlers(trustedAttachmentPaths, {
   createSpreadsheetPreview: (filePath, mime, size) => spreadsheetPreviewWorker.preview(filePath, mime, size),
   rememberProjectPath: (directoryPath) => trustedProjectPaths.add(directoryPath),
 })
+registerClipboardHandler()
 registerAppLocaleHandler()
 registerRendererErrorHandler()
 

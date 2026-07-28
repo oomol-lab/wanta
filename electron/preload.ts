@@ -9,6 +9,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron"
 import { APP_COMMAND_CHANNEL, isAppCommand } from "./app-command.ts"
 import { APP_LOCALE_CHANNEL } from "./app-locale.ts"
 import { branding } from "./branding.ts"
+import { WRITE_CLIPBOARD_TEXT_CHANNEL } from "./clipboard-common.ts"
 
 declare const __APP_COMMIT__: string | undefined
 declare const __APP_VERSION__: string | undefined
@@ -33,6 +34,7 @@ export interface WantaBridge {
   selectProjectDirectory(): Promise<SelectedAttachmentPath | null>
   setAppLocale(locale: AppLocale): void
   version: string
+  writeClipboardText(text: string): Promise<void>
 }
 
 declare global {
@@ -80,6 +82,7 @@ const wanta: WantaBridge = {
     ipcRenderer.invoke("wanta:select-project-directory") as Promise<SelectedAttachmentPath | null>,
   setAppLocale: (locale: AppLocale) => ipcRenderer.send(APP_LOCALE_CHANNEL, locale),
   version: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0",
+  writeClipboardText: (text: string) => ipcRenderer.invoke(WRITE_CLIPBOARD_TEXT_CHANNEL, text) as Promise<void>,
 }
 
 if (process.contextIsolated) {

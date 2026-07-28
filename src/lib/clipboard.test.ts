@@ -6,6 +6,17 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+test("writeClipboardText prefers the Electron native clipboard bridge", async () => {
+  const nativeWrite = vi.fn(async (_text: string) => undefined)
+  const browserWrite = vi.fn(async (_text: string) => undefined)
+  vi.stubGlobal("wanta", { writeClipboardText: nativeWrite })
+  vi.stubGlobal("navigator", { clipboard: { writeText: browserWrite } })
+
+  assert.equal(await writeClipboardText("UID: user-123"), true)
+  assert.equal(nativeWrite.mock.calls[0]?.[0], "UID: user-123")
+  assert.equal(browserWrite.mock.calls.length, 0)
+})
+
 test("writeClipboardText uses navigator clipboard when available", async () => {
   const writeText = vi.fn(async (_text: string) => undefined)
   vi.stubGlobal("navigator", { clipboard: { writeText } })

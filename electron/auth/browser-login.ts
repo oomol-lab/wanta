@@ -30,6 +30,8 @@ export interface BrowserLoginProfile {
   id: string
   name: string
   avatarUrl?: string
+  email?: string
+  username?: string
 }
 
 function asString(value: unknown): string | undefined {
@@ -91,12 +93,9 @@ export function extractOomolTokenFromCookies(cookies: readonly string[]): string
 
 export function normalizeLoginProfile(response: UserProfileResponse): BrowserLoginProfile | undefined {
   const uid = asString(response.uid)
-  const name =
-    asString(response.nickname) ??
-    asString(response.username) ??
-    asString(response.displayname) ??
-    asString(response.email) ??
-    uid
+  const email = asString(response.email)
+  const username = asString(response.username)
+  const name = asString(response.nickname) ?? username ?? asString(response.displayname) ?? email ?? uid
   const avatarUrl =
     normalizeAvatarUrl(response.avatar_url) ??
     normalizeAvatarUrl(response.avatarUrl) ??
@@ -110,5 +109,11 @@ export function normalizeLoginProfile(response: UserProfileResponse): BrowserLog
     return undefined
   }
 
-  return { id: uid, name, ...(avatarUrl ? { avatarUrl } : {}) }
+  return {
+    id: uid,
+    name,
+    ...(avatarUrl ? { avatarUrl } : {}),
+    ...(email ? { email } : {}),
+    ...(username ? { username } : {}),
+  }
 }

@@ -1,4 +1,14 @@
 export async function writeClipboardText(text: string): Promise<boolean> {
+  const nativeWrite = globalThis.wanta?.writeClipboardText
+  if (nativeWrite) {
+    try {
+      await nativeWrite(text)
+      return true
+    } catch {
+      // Continue with the browser fallback.
+    }
+  }
+
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text)

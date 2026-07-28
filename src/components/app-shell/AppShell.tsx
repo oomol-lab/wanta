@@ -1786,11 +1786,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
     >
       <AppShellNavigationSidebar
-        accountName={auth.state?.account?.name}
+        account={auth.state?.account}
         authenticated={authenticated}
         activeRoute={route}
         selectedSessionId={selectedSessionId}
-        avatarUrl={auth.state?.account?.avatarUrl}
         cloudEnabled={oomolEnabled}
         collapsed={sidebarCollapsed}
         collapsedProjectIds={collapsedProjectIds}

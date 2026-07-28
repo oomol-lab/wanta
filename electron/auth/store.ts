@@ -8,6 +8,8 @@ export interface AuthAccount {
   id: string
   name: string
   avatarUrl?: string
+  email?: string
+  username?: string
 }
 
 /**
@@ -34,6 +36,8 @@ function persistableAccount(account: AuthRuntimeAccount): AuthAccount {
     id: account.id,
     name: account.name,
     ...(account.avatarUrl ? { avatarUrl: account.avatarUrl } : {}),
+    ...(account.email ? { email: account.email } : {}),
+    ...(account.username ? { username: account.username } : {}),
   }
 }
 
@@ -77,7 +81,13 @@ function migrateLegacyAccounts(auth: PersistedAuth): PersistedAuth {
   }
   const normalized: AuthAccount[] = accounts
     .filter((a) => a.endpoint === undefined || a.endpoint === ooEndpoint)
-    .map((a) => ({ id: a.id, name: a.name, ...(a.avatarUrl ? { avatarUrl: a.avatarUrl } : {}) }))
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      ...(a.avatarUrl ? { avatarUrl: a.avatarUrl } : {}),
+      ...(a.email ? { email: a.email } : {}),
+      ...(a.username ? { username: a.username } : {}),
+    }))
   const currentId = normalized.some((a) => a.id === auth.currentId) ? auth.currentId : undefined
   return { currentId, accounts: normalized }
 }

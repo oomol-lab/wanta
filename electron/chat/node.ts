@@ -2,7 +2,6 @@ import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentEventConnectionStatus, AgentManager } from "../agent/manager.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
-import type { ModelChoice } from "../models/common.ts"
 import type { RuntimeCapabilities } from "../runtime/common.ts"
 import type { SessionProjectStore } from "../session/project-store.ts"
 import type { ArtifactBundleStore, ArtifactBundles } from "./artifact-bundles.ts"
@@ -856,14 +855,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.permissions.beginAutomaticReply(request.sessionId, request.id)) {
       return true
     }
-    void (async () => {
-      if (decision.type === "allow") {
-        this.rememberTrustedPermissionResources(request.sessionId, request)
-        await this.syncCommandSandboxPolicy(request.sessionId)
-      }
-      await this.agent?.answerPermission(request.sessionId, request.id, decision.type === "deny" ? "reject" : "once")
-    })()
+    void this.agent
+      .answerPermission(request.sessionId, request.id, decision.type === "deny" ? "reject" : "once")
       .then(() => {
+        if (decision.type === "allow") this.rememberTrustedPermissionResources(request.sessionId, request)
         this.sendBestEffort(
           emit,
           "permissionReplied",
@@ -935,45 +930,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   private rememberTrustedPermissionResources(sessionId: string, request: ChatPermissionRequest): void {
     this.trustedAccess.rememberPermissionResources(sessionId, request)
-  }
-
-  private async syncCommandSandboxPolicy(
-    sessionId: string,
-    turn?: {
-      artifactDir?: string
-      model?: ModelChoice
-      outputProjectRoot?: string
-      processDir?: string
-      userMessage?: string
-    },
-  ): Promise<void> {
-    const updatePolicy = this.agent?.updateCommandSandboxPolicy
-    if (!updatePolicy) return
-    const access = this.trustedAccess.sessionAccess(sessionId)
-    const generationId = this.generations.get(sessionId)?.id
-    const activeTurn = generationId ? this.turnOutputs.get(generationId) : undefined
-    const executionMode = this.sessionPermissionMode(sessionId) === "full_access" ? "direct" : "sandbox"
-    await updatePolicy.call(this.agent, {
-      executionMode,
-      sessionId,
-      ...(turn?.model ? { model: turn.model } : {}),
-      ...(turn?.userMessage ? { userMessage: turn.userMessage } : {}),
-      readOnlyPaths: executionMode === "sandbox" ? access.attachmentPaths : [],
-      readWritePaths:
-        executionMode === "sandbox"
-          ? [
-              ...(access.projectRoot ? [access.projectRoot] : []),
-              ...access.permissionPaths,
-              ...(turn?.artifactDir ? [turn.artifactDir] : activeTurn ? [activeTurn.artifactRoot] : []),
-              ...(turn?.processDir ? [turn.processDir] : activeTurn ? [activeTurn.processRoot] : []),
-              ...(turn?.outputProjectRoot
-                ? [turn.outputProjectRoot]
-                : activeTurn?.outputProjectRoot
-                  ? [activeTurn.outputProjectRoot]
-                  : []),
-            ]
-          : [],
-    })
   }
 
   private invalidateTrustedLocalPathRoots(): void {
@@ -1564,13 +1520,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         : undefined
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
       this.rememberTrustedAttachments(req.sessionId, req.attachments)
-      await this.syncCommandSandboxPolicy(req.sessionId, {
-        artifactDir,
-        model: req.model,
-        outputProjectRoot: artifactProjectRoot,
-        processDir,
-        userMessage: req.text,
-      })
       this.discardTrustedAttachmentPaths(req.attachments)
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
       submitted = true
@@ -2084,11 +2033,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.addSessionPermissionGrant(req.sessionId, request)
       }
     }
+    await this.agent.answerPermission(req.sessionId, req.requestId, req.reply === "always" ? "once" : req.reply)
     if (req.reply !== "reject" && request) {
       this.rememberTrustedPermissionResources(req.sessionId, request)
-      await this.syncCommandSandboxPolicy(req.sessionId)
     }
-    await this.agent.answerPermission(req.sessionId, req.requestId, req.reply === "always" ? "once" : req.reply)
     this.forgetPendingPermissionRequest(req.sessionId, req.requestId)
     this.activeRuns.removeBlockingRequest(req.sessionId, req.requestId)
     this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
@@ -2113,26 +2061,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       throw error
     }
     // 持久化等待期间可能已有更新版本接管该会话，旧请求不得继续改子会话或自动批准权限。
-    if (this.sessionPermissionMode(req.sessionId) !== req.permissionMode) {
-      return
-    }
-    try {
-      await this.syncCommandSandboxPolicy(req.sessionId)
-    } catch (error) {
-      if (this.sessionPermissionMode(req.sessionId) === req.permissionMode) {
-        this.setSessionPermissionModeValue(req.sessionId, previousMode)
-        const rollbackResults = await Promise.allSettled([
-          this.syncCommandSandboxPolicy(req.sessionId),
-          this.deps.onPermissionModeChanged?.(req.sessionId, previousMode),
-        ])
-        for (const result of rollbackResults) {
-          if (result.status === "rejected") {
-            console.warn("[wanta] failed to rollback permission mode after command sandbox update:", result.reason)
-          }
-        }
-      }
-      throw error
-    }
     if (this.sessionPermissionMode(req.sessionId) !== req.permissionMode) {
       return
     }

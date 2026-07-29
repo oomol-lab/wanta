@@ -11,8 +11,6 @@ import type { ModelChoice } from "../models/common.ts"
 import type { RuntimeCustomModel } from "../models/store.ts"
 import type { LinkRuntime, ModelAccess } from "../runtime/agent-runtime.ts"
 import type { GenerateSessionTitleRequest, SessionInfo } from "../session/common.ts"
-import type { PolicyReviewerTarget } from "./command-sandbox/policy-reviewer.ts"
-import type { CommandSandboxPolicyInput } from "./command-sandbox/policy.ts"
 import type { GeneratedSessionTitle } from "./session-title-generator.ts"
 import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
@@ -29,10 +27,6 @@ import { logDiagnostic } from "../diagnostics-log.ts"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { planAttachmentInputs } from "./attachment-input.ts"
-import { CommandSandboxBroker } from "./command-sandbox/broker.ts"
-import { ensureCommandSandboxPlugin } from "./command-sandbox/plugin.ts"
-import { CommandSandboxPolicyStore } from "./command-sandbox/policy.ts"
-import { ensureCommandSandboxShellBin } from "./command-sandbox/shell-bin.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
@@ -58,8 +52,6 @@ export interface AgentManagerOptions {
   /** Wanta-owned WikiGraph CLI entrypoint used by the sidecar PATH `wg` shim. */
   wikiGraphCliPath?: string
   wikiGraphStateDir?: string
-  /** Bundled Wanta command-shell entrypoint. The Preview is enabled only on macOS. */
-  commandSandboxCliPath?: string
   listOpenConnectorAuthorizedServices?: (signal?: AbortSignal) => Promise<string[]>
   /** 内置 skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
@@ -114,12 +106,6 @@ export interface AgentSidecarEnvOptions {
   storeDir: string
   teamName?: string
   teamScopePath: string
-  commandSandbox?: {
-    authKey: string
-    brokerUrl: string
-    delegateShell: string
-    policyDir: string
-  }
 }
 
 export function buildAgentSidecarEnv({
@@ -130,7 +116,6 @@ export function buildAgentSidecarEnv({
   storeDir,
   teamName,
   teamScopePath,
-  commandSandbox,
 }: AgentSidecarEnvOptions): Record<string, string> {
   const ooEnv = linkRuntime
     ? buildAgentLinkEnv({
@@ -147,20 +132,7 @@ export function buildAgentSidecarEnv({
     PATH: commandPath,
     WANTA_BROWSER_CONTROL_TOKEN: browserControl?.token ?? "",
     WANTA_BROWSER_CONTROL_URL: browserControl?.url ?? "",
-    ...(commandSandbox
-      ? {
-          WANTA_COMMAND_SANDBOX_AUTH: commandSandbox.authKey,
-          WANTA_COMMAND_SANDBOX_BROKER_URL: commandSandbox.brokerUrl,
-          WANTA_COMMAND_SANDBOX_DELEGATE_SHELL: commandSandbox.delegateShell,
-          WANTA_COMMAND_SANDBOX_POLICY_DIR: commandSandbox.policyDir,
-        }
-      : {}),
   }
-}
-
-export interface CommandSandboxSessionPolicyInput extends CommandSandboxPolicyInput {
-  model?: ModelChoice
-  userMessage?: string
 }
 
 export interface TeamScopePersistenceOptions {
@@ -300,11 +272,6 @@ export class AgentManager {
   private authorizedServicesCache = new Map<string, { loadedAt: number; services: string[] }>()
   private authorizedServicesLoadControllers = new Map<string, AbortController>()
   private authorizedServicesLoads = new Map<string, Promise<string[]>>()
-  private readonly commandSandboxAuthKey: string | undefined
-  private readonly commandSandboxBroker: CommandSandboxBroker | undefined
-  private readonly commandSandboxPolicyStore: CommandSandboxPolicyStore | undefined
-  private readonly commandSandboxPolicyInputs = new Map<string, CommandSandboxSessionPolicyInput>()
-  private commandSandboxRuntimeReadPaths: string[] = []
   private readonly eventMetrics = new ActivityMetrics((snapshot) => {
     logDiagnostic("performance", "opencode event activity", { ...snapshot }, "trace")
   })
@@ -312,17 +279,6 @@ export class AgentManager {
   public constructor(options: AgentManagerOptions) {
     this.options = options
     this.teamName = options.linkRuntime?.kind === "oomol" ? normalizeTeamName(options.linkRuntime.teamName) : undefined
-    if (process.platform === "darwin" && options.commandSandboxCliPath) {
-      this.commandSandboxAuthKey = randomBytes(32).toString("hex")
-      this.commandSandboxPolicyStore = new CommandSandboxPolicyStore({
-        authKey: this.commandSandboxAuthKey,
-        rootDir: path.join(options.rootDir, "command-sandbox"),
-      })
-      this.commandSandboxBroker = new CommandSandboxBroker({
-        authKey: this.commandSandboxAuthKey,
-        onGrantsChanged: (sessionId, grants) => this.updateCommandSandboxGrants(sessionId, grants),
-      })
-    }
   }
 
   public get client(): OpencodeClient {
@@ -452,30 +408,6 @@ export class AgentManager {
     await this.startSidecar()
   }
 
-  public async updateCommandSandboxPolicy(input: CommandSandboxSessionPolicyInput): Promise<void> {
-    if (!this.commandSandboxPolicyStore) return
-    const previous = this.commandSandboxPolicyInputs.get(input.sessionId)
-    const persistedGrants = previous ? [] : await this.commandSandboxPolicyStore.readNetworkGrants(input.sessionId)
-    const next = {
-      ...previous,
-      ...input,
-      privateNetworkGrants: input.privateNetworkGrants ?? previous?.privateNetworkGrants ?? persistedGrants,
-    }
-    this.commandSandboxPolicyInputs.set(input.sessionId, next)
-    if (next.userMessage && this.commandSandboxBroker) {
-      this.commandSandboxBroker.setSession(
-        input.sessionId,
-        {
-          modelTarget: this.resolvePolicyReviewerTarget(next.model),
-          origin: "main",
-          userMessage: next.userMessage,
-        },
-        next.privateNetworkGrants,
-      )
-    }
-    await this.writeCommandSandboxPolicy(next)
-  }
-
   private async prepareWorkspace(): Promise<void> {
     const { bundledSkillsDir, bundledToolRuntimePath, rootDir } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
@@ -501,13 +433,13 @@ export class AgentManager {
       defaultModel,
       wikiGraphCliPath,
       wikiGraphStateDir,
-      commandSandboxCliPath,
     } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
     const isolationDir = path.join(rootDir, "isolation")
     const storeDir = path.join(rootDir, "oo-store")
     const teamScopePath = this.teamScopePath ?? path.join(rootDir, "team-scope.json")
 
+    const config = buildOpencodeConfig({ customModels, defaultModel, linkRuntime, modelAccess })
     const baseCommandPath = await resolveUserCommandPath({
       preferredDirectories: linkRuntime && ooBinPath ? [path.dirname(ooBinPath)] : [],
     })
@@ -521,34 +453,6 @@ export class AgentManager {
           })
         : undefined
     const commandPath = wikiGraphBinDir ? `${wikiGraphBinDir}${path.delimiter}${baseCommandPath}` : baseCommandPath
-    const commandSandboxAuthKey = this.commandSandboxAuthKey
-    const commandSandboxPolicyStore = this.commandSandboxPolicyStore
-    const commandSandboxBroker = this.commandSandboxBroker
-    const commandSandbox =
-      commandSandboxCliPath && commandSandboxAuthKey && commandSandboxPolicyStore && commandSandboxBroker
-        ? {
-            ...(await this.prepareCommandSandbox({
-              baseCommandPath,
-              cliPath: commandSandboxCliPath,
-              workspaceDir,
-            })),
-            authKey: commandSandboxAuthKey,
-            brokerUrl: await commandSandboxBroker.start(),
-            policyDir: commandSandboxPolicyStore.policyDir,
-          }
-        : undefined
-    const config = buildOpencodeConfig({
-      customModels,
-      defaultModel,
-      linkRuntime,
-      modelAccess,
-      ...(commandSandbox
-        ? {
-            pluginUrls: [commandSandbox.pluginUrl],
-            shellPath: commandSandbox.shellPath,
-          }
-        : {}),
-    })
     const browserControl = await this.options.browserControl?.()
     const env = buildAgentSidecarEnv({
       browserControl,
@@ -558,16 +462,6 @@ export class AgentManager {
       storeDir,
       teamName: this.teamName,
       teamScopePath,
-      ...(commandSandbox
-        ? {
-            commandSandbox: {
-              authKey: commandSandbox.authKey,
-              brokerUrl: commandSandbox.brokerUrl,
-              delegateShell: commandSandbox.delegateShell,
-              policyDir: commandSandbox.policyDir,
-            },
-          }
-        : {}),
     })
 
     const sidecar = new OpencodeSidecar({
@@ -597,73 +491,6 @@ export class AgentManager {
     }
     this.sidecar = sidecar
     this.started = true
-  }
-
-  private async prepareCommandSandbox({
-    baseCommandPath,
-    cliPath,
-    workspaceDir,
-  }: {
-    baseCommandPath: string
-    cliPath: string
-    workspaceDir: string
-  }): Promise<{ delegateShell: string; pluginUrl: string; shellPath: string }> {
-    if (!this.commandSandboxPolicyStore) {
-      throw new Error("Command Sandbox (Preview) is not initialized.")
-    }
-    await this.commandSandboxPolicyStore.initialize()
-    const runtimeDir = path.join(this.options.rootDir, "command-sandbox", "runtime")
-    const shellPath = await ensureCommandSandboxShellBin({
-      binDir: path.join(this.options.rootDir, "bin"),
-      cliPath,
-      nodeBin: process.execPath,
-    })
-    const pluginUrl = await ensureCommandSandboxPlugin(runtimeDir)
-    const delegateShell =
-      process.env.SHELL && path.isAbsolute(process.env.SHELL) && process.env.SHELL !== shellPath
-        ? process.env.SHELL
-        : "/bin/zsh"
-    this.commandSandboxRuntimeReadPaths = [
-      workspaceDir,
-      path.dirname(cliPath),
-      path.dirname(process.execPath),
-      path.dirname(shellPath),
-      ...baseCommandPath.split(path.delimiter),
-    ]
-    return { delegateShell, pluginUrl, shellPath }
-  }
-
-  private async updateCommandSandboxGrants(
-    sessionId: string,
-    privateNetworkGrants: CommandSandboxPolicyInput["privateNetworkGrants"],
-  ): Promise<void> {
-    const input = this.commandSandboxPolicyInputs.get(sessionId)
-    if (!input) return
-    const next = { ...input, privateNetworkGrants }
-    this.commandSandboxPolicyInputs.set(sessionId, next)
-    await this.commandSandboxPolicyStore?.writeNetworkGrants(sessionId, privateNetworkGrants ?? [])
-    await this.writeCommandSandboxPolicy(next)
-  }
-
-  private async writeCommandSandboxPolicy(input: CommandSandboxSessionPolicyInput): Promise<void> {
-    if (!this.commandSandboxPolicyStore) return
-    await this.commandSandboxPolicyStore.write({
-      ...input,
-      runtimeReadPaths: [...(input.runtimeReadPaths ?? []), ...this.commandSandboxRuntimeReadPaths],
-    })
-  }
-
-  private resolvePolicyReviewerTarget(choice: ModelChoice | undefined): PolicyReviewerTarget {
-    const effectiveChoice = choice ?? this.options.defaultModel
-    if (this.options.modelAccess.kind === "oomol" && effectiveChoice?.kind !== "custom") {
-      return {
-        apiKey: this.options.modelAccess.sessionToken,
-        baseUrl: llmBaseUrl,
-        modelId: "deepseek-v4-flash",
-      }
-    }
-    const customModel = this.resolveLocalCustomModel(effectiveChoice)
-    return { apiKey: customModel.apiKey, baseUrl: customModel.baseUrl, modelId: customModel.modelName }
   }
 
   private handleSidecarExit(info: { code?: number | null; error?: Error; signal?: NodeJS.Signals | null }): void {
@@ -1299,10 +1126,7 @@ export class AgentManager {
     const sidecar = this.sidecar ?? this.startingSidecar
     this.sidecar = null
     this.startingSidecar = null
-    return (async () => {
-      await sidecar?.dispose()
-      await this.commandSandboxBroker?.close()
-    })()
+    return sidecar?.dispose() ?? Promise.resolve()
   }
 
   private resolveModel(choice: ModelChoice | undefined): { providerID: string; modelID: string } {

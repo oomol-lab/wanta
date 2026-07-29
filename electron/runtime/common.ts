@@ -3,7 +3,6 @@ export type RuntimeMode = "local" | "oomol"
 /** 可跨 preload / Renderer 边界共享的无凭证能力摘要。 */
 export interface RuntimeCapabilities {
   mode: RuntimeMode
-  commandSandbox: "preview" | "direct"
   localAgent: boolean
   localTools: boolean
   customModels: boolean
@@ -17,7 +16,6 @@ export interface RuntimeCapabilities {
 
 export interface RuntimeCapabilityOptions {
   mode: RuntimeMode
-  commandSandboxAvailable?: boolean
   /** 当前构建与运行状态是否已经具备本地 Agent；免登录 runtime 落地前保持 false。 */
   localAgentAvailable: boolean
   linkRuntimeAvailable: boolean
@@ -29,14 +27,12 @@ export interface RuntimeCapabilityOptions {
  */
 export function resolveRuntimeCapabilities({
   mode,
-  commandSandboxAvailable = false,
   localAgentAvailable,
   linkRuntimeAvailable,
 }: RuntimeCapabilityOptions): RuntimeCapabilities {
   const oomol = mode === "oomol"
   return {
     mode,
-    commandSandbox: commandSandboxAvailable ? "preview" : "direct",
     localAgent: localAgentAvailable,
     localTools: localAgentAvailable,
     customModels: true,

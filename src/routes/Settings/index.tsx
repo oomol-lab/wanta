@@ -17,7 +17,6 @@ import {
   DownloadIcon,
   ExternalLinkIcon,
   KeyRoundIcon,
-  LockKeyholeIcon,
   LogOutIcon,
   LogInIcon,
   MonitorIcon,
@@ -57,11 +56,9 @@ import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAppSettings } from "@/hooks/useAppSettings"
 import { useAttention } from "@/hooks/useAttention"
 import { useAuth } from "@/hooks/useAuth"
-import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities"
 import { useI18n } from "@/i18n/i18n"
 import {
   hasCompleteOpenConnectorEndpoints,
@@ -113,7 +110,6 @@ export function SettingsRoute({
   const auth = useAuth()
   const appSettings = useAppSettings()
   const attention = useAttention()
-  const commandSandbox = useRuntimeCapabilities().capabilities?.commandSandbox ?? "direct"
   const showSelfManagedRuntimeSettings = shouldShowSelfManagedRuntimeSettings(auth.state?.status)
 
   return (
@@ -173,16 +169,6 @@ export function SettingsRoute({
         </SettingsSection>
 
         <SettingsSection title={t("settings.groupBetaFeatures")}>
-          <SettingsItem
-            title={t("settings.commandSandbox")}
-            description={t(
-              commandSandbox === "preview"
-                ? "settings.commandSandboxPreviewDescription"
-                : "settings.commandSandboxDirectDescription",
-            )}
-          >
-            <CommandSandboxStatus commandSandbox={commandSandbox} />
-          </SettingsItem>
           <SettingsItem title={t("settings.knowledgeBeta")} description={t("settings.knowledgeBetaDescription")}>
             <KnowledgeBetaToggle
               enabled={appSettings.settings.knowledgeBaseBetaEnabled}
@@ -193,37 +179,6 @@ export function SettingsRoute({
         </SettingsSection>
       </div>
     </PageRouteShell>
-  )
-}
-
-function CommandSandboxStatus({ commandSandbox }: { commandSandbox: "preview" | "direct" }) {
-  const { t } = useI18n()
-  const enabled = commandSandbox === "preview"
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          role="switch"
-          tabIndex={0}
-          aria-checked={enabled}
-          aria-label={t("settings.commandSandbox")}
-          aria-readonly="true"
-          className="inline-flex cursor-help items-center gap-1.5 rounded-md text-muted-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        >
-          <LockKeyholeIcon className="size-3.5" aria-hidden="true" />
-          <Switch
-            checked={enabled}
-            disabled
-            tabIndex={-1}
-            aria-hidden="true"
-            className="pointer-events-none grayscale disabled:cursor-default disabled:opacity-65"
-          />
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="left" sideOffset={8} className="max-w-80">
-        {t(enabled ? "settings.commandSandboxPreviewTooltip" : "settings.commandSandboxDirectTooltip")}
-      </TooltipContent>
-    </Tooltip>
   )
 }
 

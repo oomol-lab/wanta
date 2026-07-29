@@ -164,6 +164,25 @@ describe("AgentManager", () => {
     expect(env).not.toHaveProperty("WIKIGRAPH_STATE_DIR")
   })
 
+  it("exposes OOMOL authentication and the managed Node runtime to Skill commands", () => {
+    const env = buildAgentSidecarEnv({
+      commandPath: "/usr/bin:/bin",
+      linkRuntime: { kind: "oomol", sessionToken: "session-token" },
+      ooBinPath: "/tmp/oo",
+      storeDir: "/tmp/wanta-agent/oo-store",
+      teamScopePath: "/tmp/wanta-agent/team-scope.json",
+    })
+
+    expect(env).toMatchObject({
+      ELECTRON_RUN_AS_NODE: "1",
+      OO_API_KEY: "session-token",
+      PATH: "/usr/bin:/bin",
+      WANTA_NODE_BIN: process.execPath,
+      WANTA_OO_BIN: "/tmp/oo",
+    })
+    expect(env.OO_ENDPOINT).toBeTruthy()
+  })
+
   it("reuses authorized provider awareness within the prompt cache window", async () => {
     const manager = new AgentManager({
       linkRuntime: { kind: "oomol", sessionToken: "test" },

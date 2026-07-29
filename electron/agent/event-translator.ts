@@ -21,6 +21,7 @@ import type {
 } from "../chat/common.ts"
 
 import { parseAuthorizationSignal } from "../chat/authorization-signal.ts"
+import { logDiagnostic } from "../diagnostics-log.ts"
 
 // OpenCode SSE 事件经此翻译为 ChatService ServerEvents。无状态：每个 OpenCode 事件
 // 直接映射为 0..n 个 {event, data}，node.ts 据此 this.send(event, data)。
@@ -404,6 +405,16 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
       if (isMessageAbortedError(p.error)) {
         return []
       }
+      logDiagnostic(
+        "opencode-event-stream",
+        "opencode session error",
+        {
+          error: p.error,
+          message: errorMessage(p.error),
+          sessionId: p.sessionID,
+        },
+        "error",
+      )
       return [{ event: "agentError", data: { sessionId: p.sessionID, message: errorMessage(p.error) } }]
     }
     default:

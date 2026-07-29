@@ -5,9 +5,11 @@ import {
   readStoredCollapsedProjectIds,
   readStoredSidebarCollapsed,
   readStoredSidebarSegment,
+  readStoredTaskSortMode,
   writeStoredCollapsedProjectIds,
   writeStoredSidebarCollapsed,
   writeStoredSidebarSegment,
+  writeStoredTaskSortMode,
 } from "./sidebar-persistence.ts"
 
 class MemoryStorage implements Pick<Storage, "getItem" | "removeItem" | "setItem"> {
@@ -45,6 +47,16 @@ describe("sidebar persistence", () => {
     expect(readStoredSidebarCollapsed(storage)).toBe(true)
     writeStoredSidebarCollapsed(storage, false)
     expect(readStoredSidebarCollapsed(storage)).toBe(false)
+  })
+
+  test("stores task sort mode with recent activity as the fallback", () => {
+    const storage = new MemoryStorage()
+
+    expect(readStoredTaskSortMode(storage)).toBe("updatedAt")
+    writeStoredTaskSortMode(storage, "title")
+    expect(readStoredTaskSortMode(storage)).toBe("title")
+    storage.setItem("wanta.taskSortMode", "invalid")
+    expect(readStoredTaskSortMode(storage)).toBe("updatedAt")
   })
 
   test("scopes collapsed project groups by account and workspace", () => {

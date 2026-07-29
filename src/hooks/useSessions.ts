@@ -1,4 +1,5 @@
 import type {
+  BatchSessionResult,
   CreateProjectRequest,
   GenerateSessionTitleRequest,
   GenerateSessionTitleResult,
@@ -104,8 +105,10 @@ export interface UseSessions {
   rename: (id: string, title: string) => Promise<void>
   pin: (id: string, pinned: boolean) => Promise<void>
   archive: (id: string) => Promise<void>
+  archiveMany: (ids: string[]) => Promise<BatchSessionResult>
   unarchive: (id: string) => Promise<SessionInfo | null>
   remove: (id: string) => Promise<void>
+  removeMany: (ids: string[]) => Promise<BatchSessionResult>
   refresh: () => Promise<void>
 }
 
@@ -547,6 +550,27 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     [isCurrentScope, scopeKey, sessionService],
   )
 
+  const archiveMany = React.useCallback(
+    async (ids: string[]) => {
+      const mutationScopeKey = scopeKey
+      const result = await sessionService.invoke("archiveMany", { ids, scope: requestScope })
+      if (!isCurrentScope(mutationScopeKey)) {
+        return result
+      }
+      const succeeded = new Set(result.succeededIds)
+      for (const id of succeeded) {
+        localCreatedSessionsRef.current.delete(id)
+        knowledgeBasesWriteQueuesRef.current.delete(id)
+        knowledgeBasesWriteVersionsRef.current.delete(id)
+        knowledgeBasesIntendedIdsRef.current.delete(id)
+        knowledgeBasesPersistedIdsRef.current.delete(id)
+      }
+      setSessions((current) => current.filter((session) => !succeeded.has(session.id)))
+      return result
+    },
+    [isCurrentScope, requestScope, scopeKey, sessionService],
+  )
+
   const unarchive = React.useCallback(
     async (id: string) => {
       return sessionService.invoke("unarchive", id)
@@ -571,6 +595,27 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     [isCurrentScope, scopeKey, sessionService],
   )
 
+  const removeMany = React.useCallback(
+    async (ids: string[]) => {
+      const mutationScopeKey = scopeKey
+      const result = await sessionService.invoke("removeMany", { ids, scope: requestScope })
+      if (!isCurrentScope(mutationScopeKey)) {
+        return result
+      }
+      const succeeded = new Set(result.succeededIds)
+      for (const id of succeeded) {
+        localCreatedSessionsRef.current.delete(id)
+        knowledgeBasesWriteQueuesRef.current.delete(id)
+        knowledgeBasesWriteVersionsRef.current.delete(id)
+        knowledgeBasesIntendedIdsRef.current.delete(id)
+        knowledgeBasesPersistedIdsRef.current.delete(id)
+      }
+      setSessions((current) => current.filter((session) => !succeeded.has(session.id)))
+      return result
+    },
+    [isCurrentScope, requestScope, scopeKey, sessionService],
+  )
+
   return {
     sessions,
     taskSessions,
@@ -592,8 +637,10 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     rename,
     pin,
     archive,
+    archiveMany,
     unarchive,
     remove,
+    removeMany,
     refresh,
   }
 }

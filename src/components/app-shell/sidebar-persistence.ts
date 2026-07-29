@@ -3,12 +3,14 @@ import type { SessionScope } from "../../../electron/session/common.ts"
 import { sessionScopeKey } from "../../../electron/session/common.ts"
 
 export type SidebarSegment = "projects" | "tasks"
+export type SidebarTaskSortMode = "createdAt" | "title" | "updatedAt"
 
 type LocalStorageLike = Pick<Storage, "getItem" | "removeItem" | "setItem">
 
 const sidebarSegmentStorageKey = "wanta.sidebarSegment"
 const sidebarCollapsedStorageKey = "wanta.sidebarCollapsed"
 const projectCollapsedStoragePrefix = "wanta.projectSidebarCollapsed"
+const taskSortModeStorageKey = "wanta.taskSortMode"
 
 function readItem(storage: LocalStorageLike | null | undefined, key: string): string | null {
   try {
@@ -45,6 +47,18 @@ export function readStoredSidebarSegment(storage: LocalStorageLike | null | unde
 
 export function writeStoredSidebarSegment(storage: LocalStorageLike | null | undefined, segment: SidebarSegment): void {
   writeItem(storage, sidebarSegmentStorageKey, segment)
+}
+
+export function readStoredTaskSortMode(storage: LocalStorageLike | null | undefined): SidebarTaskSortMode {
+  const stored = readItem(storage, taskSortModeStorageKey)
+  return stored === "createdAt" || stored === "title" ? stored : "updatedAt"
+}
+
+export function writeStoredTaskSortMode(
+  storage: LocalStorageLike | null | undefined,
+  sortMode: SidebarTaskSortMode,
+): void {
+  writeItem(storage, taskSortModeStorageKey, sortMode)
 }
 
 export function readStoredSidebarCollapsed(storage: LocalStorageLike | null | undefined): boolean {

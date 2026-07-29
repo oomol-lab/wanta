@@ -2,12 +2,23 @@ import type { AuthAccountSummary } from "../../../electron/auth/common.ts"
 import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { ProjectSidebarGroup } from "./app-sidebar-model.ts"
-import type { SidebarSegment } from "./sidebar-persistence.ts"
+import type { SidebarSegment, SidebarTaskSortMode } from "./sidebar-persistence.ts"
 import type { SidebarSessionGroups } from "./sidebar-sessions.ts"
 import type { UseTeamWorkspace } from "@/hooks/useTeamWorkspace"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { Building2, FolderPlus, LibraryBig, Package, Plug, SquarePen } from "lucide-react"
+import {
+  Archive,
+  Building2,
+  Check,
+  Ellipsis,
+  FolderPlus,
+  LibraryBig,
+  ListChecks,
+  Package,
+  Plug,
+  SquarePen,
+} from "lucide-react"
 import * as React from "react"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { SIDEBAR_MAX_WIDTH_PX, SIDEBAR_MIN_WIDTH_PX } from "./app-shell-model.ts"
@@ -23,6 +34,14 @@ import { limitSidebarSessionGroups, runningProjectIds } from "./sidebar-sessions
 import { SidebarFooterControls } from "./SidebarAccountControls.tsx"
 import { BrandIcon } from "@/components/BrandIcon"
 import { ErrorNotice } from "@/components/ErrorNotice"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useT } from "@/i18n/i18n"
 import { appCommandAriaShortcut } from "@/lib/app-shortcuts"
 import { cn } from "@/lib/utils"
@@ -47,6 +66,7 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   onArchiveSessionRequest,
   onLogout,
   onLogin,
+  onManageTasks,
   onNavigate,
   onNewSession,
   onOpenConnections,
@@ -61,6 +81,7 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   onSelectProjectFolder,
   onSelectSession,
   onSetSidebarSegment,
+  onSetTaskSortMode,
   onShowProjectInFolder,
   onSidebarResizeKeyDown,
   onSidebarResizeStart,
@@ -78,6 +99,7 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   sidebarSegment,
   sidebarSessionGroups,
   taskSessions,
+  taskSortMode,
   width,
   workspace,
   workspaceSwitching,
@@ -99,6 +121,7 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   onArchiveSessionRequest: (session: SessionInfo) => void
   onLogout: () => void
   onLogin: () => void
+  onManageTasks: () => void
   onNavigate: (route: Route) => void
   onNewSession: () => void
   onOpenConnections: () => void
@@ -113,6 +136,7 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   onSelectProjectFolder: () => void
   onSelectSession: (session: SessionInfo) => void
   onSetSidebarSegment: (segment: SidebarSegment) => void
+  onSetTaskSortMode: (mode: SidebarTaskSortMode) => void
   onShowProjectInFolder: (project: SessionProject) => void
   onSidebarResizeKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
   onSidebarResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void
@@ -130,6 +154,7 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
   sidebarSegment: SidebarSegment
   sidebarSessionGroups: SidebarSessionGroups
   taskSessions: SessionInfo[]
+  taskSortMode: SidebarTaskSortMode
   width: number
   workspace: UseTeamWorkspace
   workspaceSwitching: boolean
@@ -277,6 +302,59 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
             <SidebarSegmentControl value={sidebarSegment} onChange={onSetSidebarSegment} />
           </div>
           <div className="oo-sidebar-session-scroll -mx-3 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+            {sidebarSegment === "tasks" ? (
+              <div className="group mb-2 flex h-7 items-center justify-between px-3">
+                <div className="oo-sidebar-section-heading oo-text-caption">{t("sidebar.tasks")}</div>
+                <div className="pointer-events-none -mr-1 flex items-center gap-0.5 text-sidebar-foreground/45 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        title={t("tasks.moreActions")}
+                        aria-label={t("tasks.moreActions")}
+                        className="flex size-6 items-center justify-center rounded hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/75"
+                      >
+                        <Ellipsis className="size-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-48">
+                      <DropdownMenuItem onSelect={onManageTasks}>
+                        <ListChecks className="size-4" />
+                        {t("tasks.organize")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => onNavigate("archived")}>
+                        <Archive className="size-4" />
+                        {t("tasks.viewArchived")}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel>{t("tasks.sortLabel")}</DropdownMenuLabel>
+                      {(
+                        [
+                          ["updatedAt", t("tasks.sortUpdated")],
+                          ["createdAt", t("tasks.sortCreated")],
+                          ["title", t("tasks.sortTitle")],
+                        ] satisfies Array<[SidebarTaskSortMode, string]>
+                      ).map(([value, label]) => (
+                        <DropdownMenuItem key={value} onSelect={() => onSetTaskSortMode(value)}>
+                          <span>{label}</span>
+                          {taskSortMode === value ? <Check className="ml-auto size-4" /> : null}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <button
+                    type="button"
+                    title={newChatLabel}
+                    aria-label={newChatLabel}
+                    aria-keyshortcuts={appCommandAriaShortcut(APP_COMMANDS.newChat)}
+                    onClick={onNewSession}
+                    className="flex size-6 items-center justify-center rounded hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/75"
+                  >
+                    <SquarePen className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {sessionsError ? (
               <ErrorNotice error={sessionsError} compact className="mx-0" />
             ) : sidebarSegment === "projects" ? (
@@ -326,12 +404,7 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
                   </div>
                 ) : null}
                 {visibleTaskSessionGroups.regular.length > 0 ? (
-                  <div className="grid gap-0.5">
-                    <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-2">
-                      {t("sidebar.tasks")}
-                    </div>
-                    {visibleTaskSessionGroups.regular.map(renderSession)}
-                  </div>
+                  <div className="grid gap-0.5">{visibleTaskSessionGroups.regular.map(renderSession)}</div>
                 ) : null}
                 {visibleTaskSessionGroups.hiddenCount > 0 ? (
                   <button

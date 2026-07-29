@@ -1199,6 +1199,135 @@ test("archive clears pinned state", async () => {
   assert.equal(typeof archivedSessions[0]?.archivedAt, "number")
 })
 
+test("archiveMany archives matching sessions in one workspace and reports rejected ids", async () => {
+  const otherScope: SessionScope = {
+    kind: "team",
+    teamId: "other-team",
+    teamName: "Other team",
+  }
+  const sessions: SessionInfo[] = [
+    { id: "one", title: "One", createdAt: 1_000, updatedAt: 1_000 },
+    { id: "two", title: "Two", createdAt: 2_000, updatedAt: 2_000 },
+    { id: "other", title: "Other", createdAt: 3_000, updatedAt: 3_000 },
+  ]
+  const persistedMetadata = metadataStore(
+    new Map([
+      ["one", { pinnedAt: 4_000, scope: testTeamScope }],
+      ["two", { scope: testTeamScope }],
+      ["other", { scope: otherScope }],
+    ]),
+  )
+  const service = new SessionServiceImpl(agentWithSessions(sessions), { metadataStore: persistedMetadata })
+
+  const result = await service.archiveMany({
+    ids: ["one", "two", "other", "missing", "one"],
+    scope: testTeamScope,
+  })
+
+  assert.deepEqual(result.succeededIds, ["one", "two"])
+  assert.deepEqual(
+    result.failures.map(({ code, id }) => ({ code, id })),
+    [
+      { code: "out_of_scope", id: "other" },
+      { code: "not_found", id: "missing" },
+    ],
+  )
+  assert.deepEqual(await service.list({ scope: testTeamScope }), [])
+  assert.equal((await persistedMetadata.read()).get("one")?.pinnedAt, undefined)
+  assert.equal(typeof (await persistedMetadata.read()).get("two")?.archivedAt, "number")
+})
+
+test("removeMany reports partial remote failures and commits successful removals", async () => {
+  const deleted: string[] = []
+  const persistedActivity = activityStore(
+    new Map([
+      ["one", 1_000],
+      ["two", 2_000],
+    ]),
+  )
+  const persistedMetadata = metadataStore(
+    new Map([
+      ["one", { scope: testTeamScope }],
+      ["two", { scope: testTeamScope }],
+    ]),
+  )
+  const service = new SessionServiceImpl(
+    {
+      deleteSession: async (id: string) => {
+        if (id === "two") throw new Error("delete failed")
+        deleted.push(id)
+      },
+    } as unknown as AgentManager,
+    {
+      activityStore: persistedActivity,
+      metadataStore: persistedMetadata,
+    },
+  )
+
+  const result = await service.removeMany({ ids: ["one", "two"], scope: testTeamScope })
+
+  assert.deepEqual(deleted, ["one"])
+  assert.deepEqual(result.succeededIds, ["one"])
+  assert.equal(result.failures[0]?.id, "two")
+  assert.equal(result.failures[0]?.code, "runtime_error")
+  assert.equal((await persistedActivity.read()).has("one"), false)
+  assert.equal((await persistedActivity.read()).has("two"), true)
+  assert.equal((await persistedMetadata.read()).has("one"), false)
+  assert.equal((await persistedMetadata.read()).has("two"), true)
+})
+
+test("removeMany deletes independent sessions with bounded concurrency", async () => {
+  const ids = ["one", "two", "three", "four", "five", "six"]
+  let activeDeletes = 0
+  let maxActiveDeletes = 0
+  const service = new SessionServiceImpl(
+    {
+      deleteSession: async () => {
+        activeDeletes += 1
+        maxActiveDeletes = Math.max(maxActiveDeletes, activeDeletes)
+        await Promise.resolve()
+        activeDeletes -= 1
+      },
+    } as unknown as AgentManager,
+    {
+      metadataStore: metadataStore(new Map(ids.map((id) => [id, { scope: testTeamScope }]))),
+    },
+  )
+
+  const result = await service.removeMany({ ids, scope: testTeamScope })
+
+  assert.deepEqual(result.succeededIds, ids)
+  assert.equal(result.failures.length, 0)
+  assert.equal(maxActiveDeletes, 4)
+})
+
+test("removeMany stops dispatching queued deletions when the runtime changes", async () => {
+  const ids = ["one", "two", "three", "four", "five", "six"]
+  const firstWaveStarted = deferred<void>()
+  const releaseFirstWave = deferred<void>()
+  const startedIds: string[] = []
+  const service = new SessionServiceImpl(
+    {
+      deleteSession: async (id: string) => {
+        startedIds.push(id)
+        if (startedIds.length === 4) firstWaveStarted.resolve(undefined)
+        await releaseFirstWave.promise
+      },
+    } as unknown as AgentManager,
+    {
+      metadataStore: metadataStore(new Map(ids.map((id) => [id, { scope: testTeamScope }]))),
+    },
+  )
+
+  const removal = service.removeMany({ ids, scope: testTeamScope })
+  await firstWaveStarted.promise
+  service.setAgent(agentWithSessions([]))
+  releaseFirstWave.resolve(undefined)
+
+  await assert.rejects(removal, /Agent runtime changed/)
+  assert.deepEqual(startedIds, ids.slice(0, 4))
+})
+
 test("remove keeps local state when remote delete fails", async () => {
   const persistedActivity = activityStore(new Map([["session", 3_000]]))
   const persistedMetadata = metadataStore(new Map([["session", { pinnedAt: 2_000 }]]))

@@ -10,7 +10,7 @@ import type { SessionInfo, SessionScope } from "../../../electron/session/common
 import type { ChatSendRequest, ChatSendResult } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
-import type { SidebarSegment } from "./sidebar-persistence.ts"
+import type { SidebarSegment, SidebarTaskSortMode } from "./sidebar-persistence.ts"
 import type { ChatConnectionDrawerState } from "./use-chat-connection-retry.ts"
 import type { BillingDetailsTarget } from "@/components/app-shell/BillingUsagePopover"
 import type { UseAuth } from "@/hooks/useAuth"
@@ -56,7 +56,12 @@ import { AppShellRightPanel } from "./AppShellRightPanel.tsx"
 import { AppShellSessionProjectDialogs } from "./AppShellSessionProjectDialogs.tsx"
 import { KnowledgeContextBar } from "./KnowledgeContextBar.tsx"
 import { isPendingChatCaughtUp, pendingChatTransitionForActiveSession } from "./pending-chat.ts"
-import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
+import {
+  readStoredSidebarSegment,
+  readStoredTaskSortMode,
+  writeStoredSidebarSegment,
+  writeStoredTaskSortMode,
+} from "./sidebar-persistence.ts"
 import { nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
 import { useAppShellCommands } from "./use-app-shell-commands.ts"
 import { useAppShellSidebarSessions } from "./use-app-shell-sidebar-sessions.ts"
@@ -115,6 +120,7 @@ const ArchivedRoute = React.lazy(() =>
 )
 const BillingRoute = React.lazy(() => import("@/routes/Billing").then((module) => ({ default: module.BillingRoute })))
 const ChatArea = React.lazy(() => import("@/routes/Chat").then((module) => ({ default: module.ChatArea })))
+const TasksDialog = React.lazy(() => import("@/routes/Tasks").then((module) => ({ default: module.TasksDialog })))
 const ConnectionsPanel = React.lazy(() =>
   import("@/routes/Connections").then((module) => ({ default: module.ConnectionsPanel })),
 )
@@ -178,6 +184,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const [knowledgeDirectory, setKnowledgeDirectory] = React.useState("")
   const [knowledgeTitlebarNavigationVersion, setKnowledgeTitlebarNavigationVersion] = React.useState(0)
   const [billingInitialTarget, setBillingInitialTarget] = React.useState<BillingDetailsTarget | null>(null)
+  const [tasksDialogOpen, setTasksDialogOpen] = React.useState(false)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
   const accountId = oomolEnabled ? auth.state?.account?.id : undefined
   const teamWorkspace = useTeamWorkspace(accountId)
@@ -211,11 +218,16 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     rename,
     pin,
     archive,
+    archiveMany,
     listArchived,
     unarchive,
     remove: removeSession,
+    removeMany,
     refresh: refreshSessions,
   } = useSessions({ enabled: sessionsEnabled, scope: sessionScope })
+  const [taskSortMode, setTaskSortMode] = React.useState<SidebarTaskSortMode>(() =>
+    readStoredTaskSortMode(globalThis.localStorage),
+  )
   const currentScopeKey = sessionScopeKey(sessionScope)
   const currentConnectionWorkspaceKey = teamWorkspace.connectionWorkspace
     ? connectionWorkspaceSwitchKey(teamWorkspace.connectionWorkspace)
@@ -830,6 +842,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     selectedSessionId,
     sidebarSegment,
     taskSessions: visibleTaskSessions,
+    taskSortMode,
   })
   const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
   const needsDefaultSessionSelection =
@@ -917,6 +930,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   React.useEffect(() => {
     writeStoredSidebarSegment(globalThis.localStorage, sidebarSegment)
   }, [sidebarSegment])
+
+  React.useEffect(() => {
+    writeStoredTaskSortMode(globalThis.localStorage, taskSortMode)
+  }, [taskSortMode])
 
   React.useEffect(() => {
     if (pendingCaughtUp) {
@@ -1197,6 +1214,26 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       forgetSessionRuntime(sessionId, existingSessionComposerDraftKey(currentScopeKey, sessionId))
     },
     [currentScopeKey, forgetSessionRuntime, removeSession],
+  )
+  const archiveSessionsWithRuntimeCleanup = React.useCallback(
+    async (ids: string[]) => {
+      const result = await archiveMany(ids)
+      for (const id of result.succeededIds) {
+        forgetSessionRuntime(id, existingSessionComposerDraftKey(currentScopeKey, id))
+      }
+      return result
+    },
+    [archiveMany, currentScopeKey, forgetSessionRuntime],
+  )
+  const removeSessionsWithRuntimeCleanup = React.useCallback(
+    async (ids: string[]) => {
+      const result = await removeMany(ids)
+      for (const id of result.succeededIds) {
+        forgetSessionRuntime(id, existingSessionComposerDraftKey(currentScopeKey, id))
+      }
+      return result
+    },
+    [currentScopeKey, forgetSessionRuntime, removeMany],
   )
   const handledConnectionReadyEventIdRef = React.useRef<number | null>(null)
 
@@ -1879,6 +1916,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         onArchiveSessionRequest={sessionActions.requestArchive}
         onLogout={auth.logout}
         onLogin={() => void auth.login()}
+        onManageTasks={() => setTasksDialogOpen(true)}
         onNavigate={setRoute}
         onNewSession={handleNewSessionWithKnowledgeReset}
         onOpenConnections={handleOpenConnectionsCommand}
@@ -1894,10 +1932,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         onSelectProjectFolder={handleSelectProjectFolder}
         onSelectSession={handleSelectSession}
         onSetSidebarSegment={setSidebarSegment}
+        onSetTaskSortMode={setTaskSortMode}
         onShowProjectInFolder={projectActions.handleShowInFolder}
         onSidebarResizeKeyDown={handleSidebarResizeKeyDown}
         onSidebarResizeStart={handleSidebarResizeStart}
         onToggleSidebar={handleToggleSidebar}
+        taskSortMode={taskSortMode}
       />
 
       {/* 右：主区（顶部工具条 + 内容） */}
@@ -2147,6 +2187,18 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         onRenameSession={sessionActions.handleRename}
         onSearchSelect={handleSearchSelect}
       />
+      <React.Suspense fallback={null}>
+        <TasksDialog
+          archiveSessions={archiveSessionsWithRuntimeCleanup}
+          isSessionRunning={isSessionRunning}
+          open={tasksDialogOpen}
+          removeSessions={removeSessionsWithRuntimeCleanup}
+          sessions={visibleTaskSessions}
+          sortMode={taskSortMode}
+          onClose={() => setTasksDialogOpen(false)}
+          onSortModeChange={setTaskSortMode}
+        />
+      </React.Suspense>
     </div>
   )
 }

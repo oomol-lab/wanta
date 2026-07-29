@@ -48,6 +48,19 @@ test("groupSidebarSessions keeps idle sessions in creation order when updatedAt 
   )
 })
 
+test("groupSidebarSessions supports recent activity and title sorting", () => {
+  const sessions = [session("beta", 5_000, { createdAt: 1_000 }), session("alpha", 2_000, { createdAt: 2_000 })]
+
+  assert.deepEqual(
+    groupSidebarSessions(sessions, { sortMode: "updatedAt" }).regular.map((item) => item.id),
+    ["beta", "alpha"],
+  )
+  assert.deepEqual(
+    groupSidebarSessions(sessions, { sortMode: "title" }).regular.map((item) => item.id),
+    ["alpha", "beta"],
+  )
+})
+
 test("groupSidebarSessions orders running regular sessions by run start", () => {
   const groups = groupSidebarSessions(
     [session("idle-new", 5_000), session("running-old", 1_000), session("running-new", 2_000)],

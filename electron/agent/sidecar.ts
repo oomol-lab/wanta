@@ -59,9 +59,309 @@ const processReapPollMs = 100
 const opencodeDisposeTimeoutMs = 2_000
 const runtimeOutputFlushMs = 1_000
 
+const networkEnvironmentKeys = [
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "all_proxy",
+  "no_proxy",
+  "NODE_EXTRA_CA_CERTS",
+  "NODE_TLS_REJECT_UNAUTHORIZED",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "CURL_CA_BUNDLE",
+] as const
+
+interface ProxyEndpoint {
+  host: string
+  port: string
+  protocol: "http" | "socks5"
+}
+
+interface SystemProxy {
+  env: Record<string, string>
+  summary: Record<string, string>
+}
+
 export function boundRuntimeOutputLine(line: string): { text: string; truncated: boolean } {
   const truncated = line.length > runtimeLineMaxLength
   return { text: truncated ? line.slice(0, runtimeLineMaxLength) : line, truncated }
+}
+
+function summarizeNetworkEnvironment(env: NodeJS.ProcessEnv): Record<string, string | boolean | undefined> {
+  return Object.fromEntries(
+    networkEnvironmentKeys.map((key) => {
+      const value = env[key]
+      if (!value) {
+        return [key, false]
+      }
+      if (/proxy/iu.test(key)) {
+        return [key, redactProxyValue(value)]
+      }
+      return [key, true]
+    }),
+  )
+}
+
+function redactProxyValue(value: string): string {
+  try {
+    const url = new URL(value)
+    url.username = url.username ? "[redacted]" : ""
+    url.password = url.password ? "[redacted]" : ""
+    return url.toString()
+  } catch {
+    return value.replace(/\/\/[^/@\s]+@/u, "//[redacted]@")
+  }
+}
+
+export function mergeSystemProxyEnvironment(
+  env: NodeJS.ProcessEnv,
+  systemProxy: SystemProxy | undefined,
+): NodeJS.ProcessEnv {
+  if (!systemProxy) {
+    return env
+  }
+  const merged = { ...env }
+  for (const [key, value] of Object.entries(systemProxy.env)) {
+    const lowerKey = key.toLowerCase()
+    if (!merged[key] && !merged[lowerKey]) {
+      merged[key] = value
+    }
+  }
+  return merged
+}
+
+export function parseMacSystemProxy(stdout: string): SystemProxy | undefined {
+  const values = new Map<string, string>()
+  const exceptions: string[] = []
+  let inExceptionsList = false
+
+  for (const line of stdout.split(/\r?\n/u)) {
+    if (/^\s*ExceptionsList\s*:\s*<array>\s*\{/u.test(line)) {
+      inExceptionsList = true
+      continue
+    }
+    if (inExceptionsList) {
+      if (/^\s*\}/u.test(line)) {
+        inExceptionsList = false
+        continue
+      }
+      const exception = line.match(/^\s*\d+\s*:\s*(.+?)\s*$/u)?.[1]
+      if (exception) {
+        exceptions.push(normalizeNoProxyEntry(exception))
+      }
+      continue
+    }
+
+    const match = line.match(/^\s*([A-Za-z]+(?:Enable|Proxy|Port|AutoConfigURL)?)\s*:\s*(.+?)\s*$/u)
+    if (match?.[1] && match[2]) {
+      values.set(match[1], match[2])
+    }
+  }
+
+  const httpProxy = enabledProxy(values, "HTTP", "http")
+  const httpsProxy = enabledProxy(values, "HTTPS", "http")
+  const socksProxy = enabledProxy(values, "SOCKS", "socks5")
+  const env: Record<string, string> = {}
+
+  if (httpProxy) {
+    env.HTTP_PROXY = proxyUrl(httpProxy)
+  }
+  if (httpsProxy) {
+    env.HTTPS_PROXY = proxyUrl(httpsProxy)
+  }
+  const allProxy = httpsProxy ?? httpProxy ?? socksProxy
+  if (allProxy) {
+    env.ALL_PROXY = proxyUrl(allProxy)
+  }
+  if (exceptions.length > 0) {
+    env.NO_PROXY = [...new Set(exceptions.filter(Boolean))].join(",")
+  }
+  if (Object.keys(env).length === 0) {
+    return undefined
+  }
+
+  const summary = summarizeMacSystemProxy(values)
+  if (exceptions.length > 0) {
+    summary.ExceptionsList = env.NO_PROXY
+  }
+  return { env, summary }
+}
+
+export function parseWindowsSystemProxy(stdout: string): SystemProxy | undefined {
+  const values = new Map<string, string>()
+  for (const line of stdout.split(/\r?\n/u)) {
+    const match = line.match(/^\s*(ProxyEnable|ProxyServer|ProxyOverride|AutoConfigURL)\s+REG_\w+\s+(.+?)\s*$/iu)
+    if (match?.[1] && match[2]) {
+      values.set(match[1], match[2])
+    }
+  }
+
+  const proxyEnable = values.get("ProxyEnable")?.trim().toLowerCase()
+  const proxyServer = values.get("ProxyServer")?.trim()
+  if (proxyEnable !== "0x1" || !proxyServer) {
+    return undefined
+  }
+
+  const env = proxyEnvironmentFromWindowsProxyServer(proxyServer)
+  const proxyOverride = values.get("ProxyOverride")?.trim()
+  if (proxyOverride) {
+    env.NO_PROXY = windowsProxyOverrideToNoProxy(proxyOverride)
+  }
+  if (Object.keys(env).length === 0) {
+    return undefined
+  }
+
+  const summary: Record<string, string> = {
+    ProxyEnable: proxyEnable,
+    ProxyServer: redactWindowsProxyServer(proxyServer),
+  }
+  if (proxyOverride) {
+    summary.ProxyOverride = env.NO_PROXY
+  }
+  if (values.has("AutoConfigURL")) {
+    summary.AutoConfigURL = "[configured]"
+  }
+  return { env, summary }
+}
+
+function proxyEnvironmentFromWindowsProxyServer(proxyServer: string): Record<string, string> {
+  const env: Record<string, string> = {}
+  if (!proxyServer.includes("=")) {
+    const proxy = windowsProxyValueToUrl(proxyServer, "http")
+    env.HTTP_PROXY = proxy
+    env.HTTPS_PROXY = proxy
+    env.ALL_PROXY = proxy
+    return env
+  }
+
+  for (const rawPart of proxyServer.split(";")) {
+    const [rawScheme, ...rawValueParts] = rawPart.split("=")
+    const scheme = rawScheme?.trim().toLowerCase()
+    const value = rawValueParts.join("=").trim()
+    if (!scheme || !value) {
+      continue
+    }
+    if (scheme === "http") {
+      env.HTTP_PROXY = windowsProxyValueToUrl(value, "http")
+    } else if (scheme === "https") {
+      env.HTTPS_PROXY = windowsProxyValueToUrl(value, "http")
+    } else if (scheme === "socks") {
+      env.ALL_PROXY = windowsProxyValueToUrl(value, "socks5")
+    }
+  }
+  env.ALL_PROXY ??= env.HTTPS_PROXY ?? env.HTTP_PROXY
+  return env
+}
+
+function windowsProxyValueToUrl(value: string, fallbackProtocol: ProxyEndpoint["protocol"]): string {
+  if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(value)) {
+    return value
+  }
+  const { host, port } = splitHostPort(value)
+  return proxyUrl({ host, port, protocol: fallbackProtocol })
+}
+
+function splitHostPort(value: string): { host: string; port: string } {
+  const trimmed = value.trim()
+  if (trimmed.startsWith("[")) {
+    const end = trimmed.indexOf("]")
+    const host = end >= 0 ? trimmed.slice(1, end) : trimmed
+    const port = end >= 0 && trimmed[end + 1] === ":" ? trimmed.slice(end + 2) : ""
+    return { host, port }
+  }
+  const lastColon = trimmed.lastIndexOf(":")
+  if (lastColon <= 0) {
+    return { host: trimmed, port: "" }
+  }
+  return { host: trimmed.slice(0, lastColon), port: trimmed.slice(lastColon + 1) }
+}
+
+function windowsProxyOverrideToNoProxy(value: string): string {
+  return [
+    ...new Set(
+      value
+        .split(";")
+        .map((entry) => normalizeNoProxyEntry(entry))
+        .filter(Boolean),
+    ),
+  ].join(",")
+}
+
+function redactWindowsProxyServer(value: string): string {
+  return value
+    .split(";")
+    .map((entry) => {
+      const [scheme, ...proxyParts] = entry.split("=")
+      const proxy = proxyParts.join("=")
+      return proxy ? `${scheme}=${redactProxyValue(proxy)}` : redactProxyValue(entry)
+    })
+    .join(";")
+}
+
+function enabledProxy(
+  values: ReadonlyMap<string, string>,
+  prefix: "HTTP" | "HTTPS" | "SOCKS",
+  protocol: ProxyEndpoint["protocol"],
+): ProxyEndpoint | undefined {
+  if (values.get(`${prefix}Enable`) !== "1") {
+    return undefined
+  }
+  const host = values.get(`${prefix}Proxy`)?.trim()
+  const port = values.get(`${prefix}Port`)?.trim()
+  if (!host || !port) {
+    return undefined
+  }
+  return { host, port, protocol }
+}
+
+function proxyUrl(endpoint: ProxyEndpoint): string {
+  const host = endpoint.host.includes(":") && !endpoint.host.startsWith("[") ? `[${endpoint.host}]` : endpoint.host
+  return `${endpoint.protocol}://${host}:${endpoint.port}`
+}
+
+function normalizeNoProxyEntry(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed === "<local>") {
+    return "localhost"
+  }
+  return trimmed.startsWith("*.") ? trimmed.slice(1) : trimmed
+}
+
+function summarizeMacSystemProxy(values: ReadonlyMap<string, string>): Record<string, string> {
+  const summary: Record<string, string> = {}
+  for (const [key, rawValue] of values) {
+    if (/^(HTTP|HTTPS|SOCKS|ProxyAutoConfig).*(Enable|Proxy|Port|AutoConfigURL)$/u.test(key)) {
+      summary[key] = key.endsWith("Proxy") || key.endsWith("AutoConfigURL") ? redactProxyValue(rawValue) : rawValue
+    }
+  }
+  return summary
+}
+
+async function systemProxy(): Promise<SystemProxy | undefined> {
+  try {
+    if (process.platform === "darwin") {
+      const { stdout } = await execFileAsync("scutil", ["--proxy"], { timeout: 1_000 })
+      return parseMacSystemProxy(stdout)
+    }
+    if (process.platform === "win32") {
+      const { stdout } = await execFileAsync(
+        "reg",
+        ["query", String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`],
+        { timeout: 1_000 },
+      )
+      return parseWindowsSystemProxy(stdout)
+    }
+    return undefined
+  } catch (error) {
+    return {
+      env: {},
+      summary: { error: error instanceof Error ? error.message : String(error) },
+    }
+  }
 }
 
 /** OpenCode 本地 sidecar：spawn `opencode serve`、解析 URL、提供 SDK client、随 app 退出回收。 */
@@ -120,7 +420,7 @@ export class OpencodeSidecar {
       throw new Error("OpencodeSidecar disposed during startup")
     }
 
-    const childEnv: NodeJS.ProcessEnv = {
+    const baseChildEnv: NodeJS.ProcessEnv = {
       ...process.env,
       ...env,
       // 外部 agent skill 由 SkillService 扫描后同步到私有 workspace；sidecar 不直接扫全局根，避免同名旧副本抢占。
@@ -130,6 +430,12 @@ export class OpencodeSidecar {
       XDG_CONFIG_HOME: xdgConfigHome,
       XDG_DATA_HOME: xdgDataHome,
     }
+    const proxy = await systemProxy()
+    const childEnv = mergeSystemProxyEnvironment(baseChildEnv, proxy)
+    logDiagnostic("opencode-sidecar", "opencode sidecar network environment", {
+      env: summarizeNetworkEnvironment(childEnv),
+      systemProxy: proxy?.summary,
+    })
     if (serverPassword) {
       childEnv.OPENCODE_SERVER_PASSWORD = serverPassword
       childEnv.OPENCODE_SERVER_USERNAME = "opencode"

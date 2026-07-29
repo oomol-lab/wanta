@@ -7,7 +7,10 @@ import {
   collectDescendantTree,
   boundRuntimeOutputLine,
   distinctProcessGroups,
+  mergeSystemProxyEnvironment,
   OpencodeSidecar,
+  parseMacSystemProxy,
+  parseWindowsSystemProxy,
   parsePsSnapshot,
   reapProcessTree,
   reapWindowsProcessTree,
@@ -136,6 +139,138 @@ describe("boundRuntimeOutputLine", () => {
 
   it("preserves lines within the limit", () => {
     expect(boundRuntimeOutputLine("ready")).toEqual({ text: "ready", truncated: false })
+  })
+})
+
+describe("macOS system proxy environment", () => {
+  const scutilOutput = `<dictionary> {
+  ExceptionsList : <array> {
+    0 : 127.0.0.1
+    1 : 192.168.0.0/16
+    2 : *.local
+    3 : <local>
+  }
+  HTTPEnable : 1
+  HTTPPort : 7897
+  HTTPProxy : 127.0.0.1
+  HTTPSEnable : 1
+  HTTPSPort : 7897
+  HTTPSProxy : 127.0.0.1
+  ProxyAutoConfigEnable : 0
+  SOCKSEnable : 1
+  SOCKSPort : 7897
+  SOCKSProxy : 127.0.0.1
+}`
+
+  it("turns enabled macOS proxies into standard child process proxy env", () => {
+    expect(parseMacSystemProxy(scutilOutput)).toEqual({
+      env: {
+        ALL_PROXY: "http://127.0.0.1:7897",
+        HTTPS_PROXY: "http://127.0.0.1:7897",
+        HTTP_PROXY: "http://127.0.0.1:7897",
+        NO_PROXY: "127.0.0.1,192.168.0.0/16,.local,localhost",
+      },
+      summary: {
+        ExceptionsList: "127.0.0.1,192.168.0.0/16,.local,localhost",
+        HTTPEnable: "1",
+        HTTPPort: "7897",
+        HTTPProxy: "127.0.0.1",
+        HTTPSEnable: "1",
+        HTTPSPort: "7897",
+        HTTPSProxy: "127.0.0.1",
+        ProxyAutoConfigEnable: "0",
+        SOCKSEnable: "1",
+        SOCKSPort: "7897",
+        SOCKSProxy: "127.0.0.1",
+      },
+    })
+  })
+
+  it("does not create proxy env when macOS proxies are disabled", () => {
+    expect(
+      parseMacSystemProxy(`<dictionary> {
+  HTTPEnable : 0
+  HTTPPort : 7897
+  HTTPProxy : 127.0.0.1
+  HTTPSEnable : 0
+}`),
+    ).toBeUndefined()
+  })
+
+  it("fills missing proxy env without overriding explicit environment", () => {
+    const merged = mergeSystemProxyEnvironment(
+      {
+        HTTPS_PROXY: "http://explicit.example:8080",
+        PATH: "/bin",
+      },
+      parseMacSystemProxy(scutilOutput),
+    )
+
+    expect(merged).toMatchObject({
+      ALL_PROXY: "http://127.0.0.1:7897",
+      HTTPS_PROXY: "http://explicit.example:8080",
+      HTTP_PROXY: "http://127.0.0.1:7897",
+      NO_PROXY: "127.0.0.1,192.168.0.0/16,.local,localhost",
+      PATH: "/bin",
+    })
+  })
+})
+
+describe("Windows system proxy environment", () => {
+  it("turns a single enabled Windows proxy into standard child process proxy env", () => {
+    expect(
+      parseWindowsSystemProxy(`
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+    ProxyServer    REG_SZ    127.0.0.1:7897
+    ProxyOverride    REG_SZ    127.0.0.1;localhost;*.local;<local>
+`),
+    ).toEqual({
+      env: {
+        ALL_PROXY: "http://127.0.0.1:7897",
+        HTTPS_PROXY: "http://127.0.0.1:7897",
+        HTTP_PROXY: "http://127.0.0.1:7897",
+        NO_PROXY: "127.0.0.1,localhost,.local",
+      },
+      summary: {
+        ProxyEnable: "0x1",
+        ProxyOverride: "127.0.0.1,localhost,.local",
+        ProxyServer: "127.0.0.1:7897",
+      },
+    })
+  })
+
+  it("turns per-protocol Windows proxies into matching env variables", () => {
+    expect(
+      parseWindowsSystemProxy(`
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+    ProxyServer    REG_SZ    http=127.0.0.1:7890;https=127.0.0.1:7891;socks=127.0.0.1:7892
+`),
+    ).toMatchObject({
+      env: {
+        ALL_PROXY: "socks5://127.0.0.1:7892",
+        HTTPS_PROXY: "http://127.0.0.1:7891",
+        HTTP_PROXY: "http://127.0.0.1:7890",
+      },
+    })
+  })
+
+  it("does not create proxy env when Windows proxy is disabled or PAC-only", () => {
+    expect(
+      parseWindowsSystemProxy(`
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x0
+    ProxyServer    REG_SZ    127.0.0.1:7897
+`),
+    ).toBeUndefined()
+    expect(
+      parseWindowsSystemProxy(`
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x0
+    AutoConfigURL    REG_SZ    http://proxy.example/proxy.pac
+`),
+    ).toBeUndefined()
   })
 })
 

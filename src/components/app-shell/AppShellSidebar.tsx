@@ -158,7 +158,7 @@ export function SidebarEmptyState() {
   const t = useT()
 
   return (
-    <div className="flex min-h-full flex-1 items-center justify-center px-5 py-8 text-center">
+    <div className="flex min-h-0 flex-1 items-center justify-center px-5 py-8 text-center">
       <div className="max-w-40">
         <div className="mx-auto flex size-12 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent/65 text-sidebar-foreground shadow-sm">
           <MessageSquarePlus className="size-5" aria-hidden="true" />
@@ -174,7 +174,7 @@ export function ProjectSidebarEmptyState({ onSelectFolder }: { onSelectFolder: (
   const t = useT()
 
   return (
-    <div className="flex min-h-full flex-1 items-center justify-center px-5 py-8 text-center">
+    <div className="flex min-h-0 flex-1 items-center justify-center px-5 py-8 text-center">
       <div className="max-w-44">
         <div className="mx-auto flex size-12 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent/65 text-sidebar-foreground shadow-sm">
           <Folder className="size-5" aria-hidden="true" />

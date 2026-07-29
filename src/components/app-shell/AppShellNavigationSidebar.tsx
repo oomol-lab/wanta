@@ -301,7 +301,7 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
           <div className="pb-2">
             <SidebarSegmentControl value={sidebarSegment} onChange={onSetSidebarSegment} />
           </div>
-          <div className="oo-sidebar-session-scroll -mx-3 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+          <div className="oo-sidebar-session-scroll -mx-3 flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-2">
             {sidebarSegment === "tasks" ? (
               <div className="group mb-2 flex h-7 items-center justify-between px-3">
                 <div className="oo-sidebar-section-heading oo-text-caption">{t("sidebar.tasks")}</div>

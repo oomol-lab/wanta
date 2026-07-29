@@ -130,6 +130,24 @@ export interface CreateSessionRequest {
   title?: string
 }
 
+export interface BatchSessionRequest {
+  ids: string[]
+  scope: SessionScope
+}
+
+export type BatchSessionFailureCode = "not_found" | "out_of_scope" | "runtime_error"
+
+export interface BatchSessionFailure {
+  code: BatchSessionFailureCode
+  id: string
+  message?: string
+}
+
+export interface BatchSessionResult {
+  failures: BatchSessionFailure[]
+  succeededIds: string[]
+}
+
 export interface GenerateSessionTitleRequest {
   text: string
   attachmentNames?: string[]
@@ -163,7 +181,9 @@ export const SessionService = serviceName("session-service") as ServiceName<{
     rename(req: { id: string; title: string }): Promise<void>
     pin(req: { id: string; pinned: boolean }): Promise<void>
     archive(id: string): Promise<void>
+    archiveMany(req: BatchSessionRequest): Promise<BatchSessionResult>
     unarchive(id: string): Promise<SessionInfo | null>
     remove(id: string): Promise<void>
+    removeMany(req: BatchSessionRequest): Promise<BatchSessionResult>
   }
 }>

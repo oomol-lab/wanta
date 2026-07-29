@@ -1,4 +1,5 @@
 import type { SessionInfo } from "../../../electron/session/common.ts"
+import type { SidebarTaskSortMode } from "./sidebar-persistence.ts"
 
 export interface SidebarSessionGroups {
   pinned: SessionInfo[]
@@ -12,6 +13,7 @@ export interface LimitedSidebarSessionGroups extends SidebarSessionGroups {
 export interface SidebarSessionOrder {
   getSessionRunStartedAt?: (sessionId: string) => number | null
   isSessionRunning?: (sessionId: string) => boolean
+  sortMode?: SidebarTaskSortMode
 }
 
 function validTimestamp(value: number | null | undefined): value is number {
@@ -42,9 +44,17 @@ export function compareRunningSessions(left: SessionInfo, right: SessionInfo, or
 }
 
 export function compareSidebarSessions(left: SessionInfo, right: SessionInfo, order: SidebarSessionOrder = {}): number {
-  return (
-    compareRunningSessions(left, right, order) || right.createdAt - left.createdAt || left.id.localeCompare(right.id)
-  )
+  const running = compareRunningSessions(left, right, order)
+  if (running) return running
+  switch (order.sortMode) {
+    case "title":
+      return left.title.localeCompare(right.title) || left.id.localeCompare(right.id)
+    case "updatedAt":
+      return right.updatedAt - left.updatedAt || right.createdAt - left.createdAt || left.id.localeCompare(right.id)
+    case "createdAt":
+    default:
+      return right.createdAt - left.createdAt || left.id.localeCompare(right.id)
+  }
 }
 
 export function groupSidebarSessions(sessions: SessionInfo[], order: SidebarSessionOrder = {}): SidebarSessionGroups {

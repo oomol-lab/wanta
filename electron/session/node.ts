@@ -2,6 +2,8 @@ import type { AgentManager } from "../agent/manager.ts"
 import type { SessionActivityStore } from "./activity-store.ts"
 import type {
   AssignSessionProjectRequest,
+  BatchSessionRequest,
+  BatchSessionResult,
   CreateProjectRequest,
   CreateSessionRequest,
   GenerateSessionTitleRequest,
@@ -64,6 +66,14 @@ function sessionScopeMatches(sessionScope: SessionScope | undefined, requestedSc
 
 function normalizeSessionPlacement(placement: SessionPlacement | undefined): SessionPlacement {
   return placement === "project" || placement === "task" ? placement : "all"
+}
+
+function normalizeBatchSessionIds(ids: string[]): string[] {
+  const normalized = [...new Set(ids.map((id) => id.trim()).filter(Boolean))]
+  if (normalized.length > 500) {
+    throw new Error("A batch session operation cannot contain more than 500 sessions")
+  }
+  return normalized
 }
 
 function normalizeSessionPermissionMode(mode: SessionPermissionMode): SessionPermissionMode {
@@ -539,6 +549,54 @@ export class SessionServiceImpl
     return this.enqueueMutation((revision) => this.archiveMutation(id, revision))
   }
 
+  public archiveMany(req: BatchSessionRequest): Promise<BatchSessionResult> {
+    return this.enqueueMutation((revision) => this.archiveManyMutation(req, revision))
+  }
+
+  private async archiveManyMutation(req: BatchSessionRequest, revision: number): Promise<BatchSessionResult> {
+    await this.ensureMetadataLoaded(revision)
+    const scope = normalizeRequestedSessionScope(req.scope)
+    const ids = normalizeBatchSessionIds(req.ids)
+    const failures: BatchSessionResult["failures"] = []
+    const succeededIds: string[] = []
+    const nextMetadata = new Map(this.sessionMetadata)
+    const archivedAt = Date.now()
+    for (const id of ids) {
+      const current = this.sessionMetadata.get(id)
+      if (!current) {
+        failures.push({ code: "not_found", id })
+        continue
+      }
+      if (!sessionScopeMatches(current.scope, scope)) {
+        failures.push({ code: "out_of_scope", id })
+        continue
+      }
+      if (current.archivedAt) {
+        failures.push({ code: "not_found", id })
+        continue
+      }
+      const next = { ...current, archivedAt }
+      delete next.pinnedAt
+      nextMetadata.set(id, next)
+      succeededIds.push(id)
+    }
+    if (succeededIds.length === 0) {
+      return { failures, succeededIds }
+    }
+    await this.commitMetadata(nextMetadata)
+    await Promise.all(
+      succeededIds.map(async (sessionId) => {
+        try {
+          await this.deps.onSessionArchived?.(sessionId)
+        } catch (error) {
+          this.logFailure("failed to notify session archived", error, { sessionId })
+        }
+      }),
+    )
+    this.broadcastChangedBestEffort("archive sessions")
+    return { failures, succeededIds }
+  }
+
   private async archiveMutation(id: string, revision: number): Promise<void> {
     await this.ensureMetadataLoaded(revision)
     const current = this.sessionMetadata.get(id) ?? {}
@@ -598,6 +656,62 @@ export class SessionServiceImpl
 
   public remove(id: string): Promise<void> {
     return this.enqueueMutation((revision) => this.removeMutation(id, revision))
+  }
+
+  public removeMany(req: BatchSessionRequest): Promise<BatchSessionResult> {
+    return this.enqueueMutation((revision) => this.removeManyMutation(req, revision))
+  }
+
+  private async removeManyMutation(req: BatchSessionRequest, revision: number): Promise<BatchSessionResult> {
+    const agent = this.requireAgent()
+    await this.ensureActivityLoaded(revision)
+    await this.ensureMetadataLoaded(revision)
+    this.assertRuntimeMatches(agent, revision)
+    const scope = normalizeRequestedSessionScope(req.scope)
+    const ids = normalizeBatchSessionIds(req.ids)
+    const failures: BatchSessionResult["failures"] = []
+    const succeededIds: string[] = []
+    const nextActivity = new Map(this.sessionActivityAt)
+    const nextMetadata = new Map(this.sessionMetadata)
+    for (const id of ids) {
+      const current = this.sessionMetadata.get(id)
+      if (!current) {
+        failures.push({ code: "not_found", id })
+        continue
+      }
+      if (!sessionScopeMatches(current.scope, scope)) {
+        failures.push({ code: "out_of_scope", id })
+        continue
+      }
+      try {
+        await agent.deleteSession(id)
+        this.assertRuntimeMatches(agent, revision)
+        nextActivity.delete(id)
+        nextMetadata.delete(id)
+        succeededIds.push(id)
+        try {
+          await this.deps.onSessionRemoved?.(id)
+        } catch (error) {
+          this.logFailure("failed to clean removed session runtime state", error, { sessionId: id })
+        }
+      } catch (error) {
+        if (!this.runtimeMatches(agent, revision)) {
+          throw error
+        }
+        failures.push({
+          code: "runtime_error",
+          id,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+    if (succeededIds.length > 0) {
+      await this.commitActivityAndMetadata(nextActivity, nextMetadata, "failed to rollback removed sessions state", {
+        sessionIds: succeededIds,
+      })
+      this.broadcastChangedBestEffort("remove sessions")
+    }
+    return { failures, succeededIds }
   }
 
   private async removeMutation(id: string, revision: number): Promise<void> {

@@ -44,6 +44,8 @@ const invalidSessionScope: SessionScope = {
   teamName: "__invalid__",
 }
 
+const batchSessionMutationConcurrency = 4
+
 function normalizeSessionScope(scope: SessionScope | undefined): SessionScope {
   return normalizeSessionScopeValue(scope) ?? invalidSessionScope
 }
@@ -669,43 +671,81 @@ export class SessionServiceImpl
     this.assertRuntimeMatches(agent, revision)
     const scope = normalizeRequestedSessionScope(req.scope)
     const ids = normalizeBatchSessionIds(req.ids)
-    const failures: BatchSessionResult["failures"] = []
-    const succeededIds: string[] = []
+    const candidates: string[] = []
+    const failuresById = new Map<string, BatchSessionResult["failures"][number]>()
+    const succeededIdSet = new Set<string>()
     const nextActivity = new Map(this.sessionActivityAt)
     const nextMetadata = new Map(this.sessionMetadata)
     for (const id of ids) {
       const current = this.sessionMetadata.get(id)
       if (!current) {
-        failures.push({ code: "not_found", id })
+        failuresById.set(id, { code: "not_found", id })
         continue
       }
       if (!sessionScopeMatches(current.scope, scope)) {
-        failures.push({ code: "out_of_scope", id })
+        failuresById.set(id, { code: "out_of_scope", id })
         continue
       }
-      try {
-        await agent.deleteSession(id)
-        this.assertRuntimeMatches(agent, revision)
-        nextActivity.delete(id)
-        nextMetadata.delete(id)
-        succeededIds.push(id)
-        try {
-          await this.deps.onSessionRemoved?.(id)
-        } catch (error) {
-          this.logFailure("failed to clean removed session runtime state", error, { sessionId: id })
-        }
-      } catch (error) {
+      candidates.push(id)
+    }
+    let nextCandidateIndex = 0
+    const runtimeChange: { error?: unknown } = {}
+    const deleteNextCandidate = async (): Promise<void> => {
+      while (!Object.hasOwn(runtimeChange, "error")) {
         if (!this.runtimeMatches(agent, revision)) {
-          throw error
+          runtimeChange.error = this.runtimeChangedError()
+          return
         }
-        failures.push({
-          code: "runtime_error",
-          id,
-          message: error instanceof Error ? error.message : String(error),
-        })
+        const id = candidates[nextCandidateIndex]
+        nextCandidateIndex += 1
+        if (!id) {
+          return
+        }
+        try {
+          await agent.deleteSession(id)
+          if (!this.runtimeMatches(agent, revision)) {
+            runtimeChange.error = this.runtimeChangedError()
+            return
+          }
+          succeededIdSet.add(id)
+        } catch (error) {
+          if (!this.runtimeMatches(agent, revision)) {
+            runtimeChange.error = error
+            return
+          }
+          failuresById.set(id, {
+            code: "runtime_error",
+            id,
+            message: error instanceof Error ? error.message : String(error),
+          })
+        }
       }
     }
+    await Promise.all(
+      Array.from({ length: Math.min(batchSessionMutationConcurrency, candidates.length) }, deleteNextCandidate),
+    )
+    if (Object.hasOwn(runtimeChange, "error")) {
+      throw runtimeChange.error
+    }
+    const succeededIds = ids.filter((id) => succeededIdSet.has(id))
+    const failures = ids.flatMap((id) => {
+      const failure = failuresById.get(id)
+      return failure ? [failure] : []
+    })
     if (succeededIds.length > 0) {
+      for (const id of succeededIds) {
+        nextActivity.delete(id)
+        nextMetadata.delete(id)
+      }
+      await Promise.all(
+        succeededIds.map(async (sessionId) => {
+          try {
+            await this.deps.onSessionRemoved?.(sessionId)
+          } catch (error) {
+            this.logFailure("failed to clean removed session runtime state", error, { sessionId })
+          }
+        }),
+      )
       await this.commitActivityAndMetadata(nextActivity, nextMetadata, "failed to rollback removed sessions state", {
         sessionIds: succeededIds,
       })

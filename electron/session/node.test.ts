@@ -1276,6 +1276,58 @@ test("removeMany reports partial remote failures and commits successful removals
   assert.equal((await persistedMetadata.read()).has("two"), true)
 })
 
+test("removeMany deletes independent sessions with bounded concurrency", async () => {
+  const ids = ["one", "two", "three", "four", "five", "six"]
+  let activeDeletes = 0
+  let maxActiveDeletes = 0
+  const service = new SessionServiceImpl(
+    {
+      deleteSession: async () => {
+        activeDeletes += 1
+        maxActiveDeletes = Math.max(maxActiveDeletes, activeDeletes)
+        await Promise.resolve()
+        activeDeletes -= 1
+      },
+    } as unknown as AgentManager,
+    {
+      metadataStore: metadataStore(new Map(ids.map((id) => [id, { scope: testTeamScope }]))),
+    },
+  )
+
+  const result = await service.removeMany({ ids, scope: testTeamScope })
+
+  assert.deepEqual(result.succeededIds, ids)
+  assert.equal(result.failures.length, 0)
+  assert.equal(maxActiveDeletes, 4)
+})
+
+test("removeMany stops dispatching queued deletions when the runtime changes", async () => {
+  const ids = ["one", "two", "three", "four", "five", "six"]
+  const firstWaveStarted = deferred<void>()
+  const releaseFirstWave = deferred<void>()
+  const startedIds: string[] = []
+  const service = new SessionServiceImpl(
+    {
+      deleteSession: async (id: string) => {
+        startedIds.push(id)
+        if (startedIds.length === 4) firstWaveStarted.resolve(undefined)
+        await releaseFirstWave.promise
+      },
+    } as unknown as AgentManager,
+    {
+      metadataStore: metadataStore(new Map(ids.map((id) => [id, { scope: testTeamScope }]))),
+    },
+  )
+
+  const removal = service.removeMany({ ids, scope: testTeamScope })
+  await firstWaveStarted.promise
+  service.setAgent(agentWithSessions([]))
+  releaseFirstWave.resolve(undefined)
+
+  await assert.rejects(removal, /Agent runtime changed/)
+  assert.deepEqual(startedIds, ids.slice(0, 4))
+})
+
 test("remove keeps local state when remote delete fails", async () => {
   const persistedActivity = activityStore(new Map([["session", 3_000]]))
   const persistedMetadata = metadataStore(new Map([["session", { pinnedAt: 2_000 }]]))

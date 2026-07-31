@@ -385,6 +385,7 @@ export const zhCNMessages = {
   "chat.voiceStarting": "正在准备麦克风",
   "chat.voiceStop": "停止语音输入",
   "chat.voiceCancel": "取消语音输入",
+  "chat.voiceDiscard": "丢弃语音输入",
   "chat.voiceRetry": "重试语音识别",
   "chat.contextUsage": "上下文：{used} / {limit}（{percent}%）",
   "chat.contextUsageCompaction": "上下文：{used} / 自动压缩阈值 {limit}（{percent}%）",

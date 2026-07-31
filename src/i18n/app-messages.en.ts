@@ -401,6 +401,7 @@ export const enMessages = {
   "chat.voiceStarting": "Preparing microphone",
   "chat.voiceStop": "Stop voice input",
   "chat.voiceCancel": "Cancel voice input",
+  "chat.voiceDiscard": "Discard voice input",
   "chat.voiceRetry": "Retry voice recognition",
   "chat.contextUsage": "Context: {used} / {limit} ({percent}%)",
   "chat.contextUsageCompaction": "Context: {used} / {limit} auto-compact threshold ({percent}%)",

@@ -59,18 +59,31 @@ function voiceDurationLabel(durationMs: number): string {
 
 function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; height?: number }) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
-  const [sizeRevision, setSizeRevision] = React.useState(0)
+  const metricsRef = React.useRef({
+    canvasHeight: 1,
+    dpr: 1,
+    fillStyle: "#18181b",
+    width: 1,
+  })
+  const [measurementRevision, setMeasurementRevision] = React.useState(0)
 
   React.useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || typeof ResizeObserver === "undefined") {
+    if (!canvas) {
       return
     }
-    const observer = new ResizeObserver(() => {
-      setSizeRevision((revision) => revision + 1)
+    const updateMeasurement = (): void => setMeasurementRevision((revision) => revision + 1)
+    const resizeObserver = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(updateMeasurement)
+    const themeObserver = typeof MutationObserver === "undefined" ? undefined : new MutationObserver(updateMeasurement)
+    resizeObserver?.observe(canvas)
+    themeObserver?.observe(document.documentElement, {
+      attributeFilter: ["class", "data-theme"],
+      attributes: true,
     })
-    observer.observe(canvas)
-    return () => observer.disconnect()
+    return () => {
+      resizeObserver?.disconnect()
+      themeObserver?.disconnect()
+    }
   }, [])
 
   React.useEffect(() => {
@@ -83,11 +96,24 @@ function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; heigh
     const dpr = window.devicePixelRatio || 1
     const width = Math.max(1, Math.floor(rect.width * dpr))
     const canvasHeight = Math.max(1, Math.floor(height * dpr))
+    metricsRef.current = {
+      canvasHeight,
+      dpr,
+      fillStyle: getComputedStyle(canvas).color || "#18181b",
+      width,
+    }
     if (canvas.width !== width) {
       canvas.width = width
     }
     if (canvas.height !== canvasHeight) {
       canvas.height = canvasHeight
+    }
+  }, [height, measurementRevision])
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) {
+      return
     }
 
     const context = canvas.getContext("2d")
@@ -95,8 +121,9 @@ function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; heigh
       return
     }
 
+    const { canvasHeight, dpr, fillStyle, width } = metricsRef.current
     context.clearRect(0, 0, width, canvasHeight)
-    context.fillStyle = getComputedStyle(canvas).color || "#18181b"
+    context.fillStyle = fillStyle
 
     const barWidth = 3 * dpr
     const gap = 3 * dpr
@@ -121,7 +148,7 @@ function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; heigh
       context.fill()
     })
     context.globalAlpha = 1
-  }, [bars, height, sizeRevision])
+  }, [bars, height, measurementRevision])
 
   return (
     <canvas
@@ -197,7 +224,7 @@ export function ComposerTrailingControls({
   onStopVoice,
 }: ComposerTrailingControlsProps) {
   const t = useT()
-  const visibleVoiceError = voiceError ?? voiceRecorderError
+  const visibleVoiceError = voiceEnabled ? (voiceError ?? voiceRecorderError) : undefined
   const voiceMode = composerVoiceControlMode({ voiceActive, voiceStarting, voiceTranscribing, visibleVoiceError })
   const submit = composerSubmitState({ canSubmit, turnState, willQueueMessage })
   const retryDisabled = !voiceRetryBlob || voiceTranscribing
@@ -256,7 +283,7 @@ export function ComposerTrailingControls({
               type="button"
               variant="ghost"
               size="icon"
-              aria-label={t("chat.voiceCancel")}
+              aria-label={t("chat.voiceDiscard")}
               className="size-8 rounded-full bg-foreground text-background hover:bg-foreground/85 hover:text-background"
               onClick={onCancelVoice}
             >

@@ -750,11 +750,11 @@ export function ChatComposer({
           voiceActive={voiceEnabled && voiceInput.active}
           voiceBars={voiceInput.bars}
           voiceDurationMs={voiceInput.durationMs}
-          voiceError={voiceInput.error}
-          voiceRecorderError={voiceInput.recorderError}
-          voiceRetryBlob={voiceInput.retryBlob}
-          voiceStarting={voiceInput.starting}
-          voiceTranscribing={voiceInput.transcribing}
+          voiceError={voiceEnabled ? voiceInput.error : null}
+          voiceRecorderError={voiceEnabled ? voiceInput.recorderError : undefined}
+          voiceRetryBlob={voiceEnabled ? voiceInput.retryBlob : null}
+          voiceStarting={voiceEnabled && voiceInput.starting}
+          voiceTranscribing={voiceEnabled && voiceInput.transcribing}
           willQueueMessage={composerWillQueueMessage}
           onAddModel={modelCatalogState.openDialog}
           onCancelVoice={voiceInput.cancel}

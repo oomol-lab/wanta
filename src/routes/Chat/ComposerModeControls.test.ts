@@ -35,11 +35,13 @@ function renderControls(voiceEnabled: boolean): string {
 }
 
 describe("ComposerModeControls", () => {
+  const voiceLabel = `aria-label="${t("chat.voiceInput")}"`
+
   it("shows voice input when the runtime enables voice", () => {
-    expect(renderControls(true)).toContain('aria-label="Voice input"')
+    expect(renderControls(true)).toContain(voiceLabel)
   })
 
   it("hides voice input when the runtime disables voice", () => {
-    expect(renderControls(false)).not.toContain('aria-label="Voice input"')
+    expect(renderControls(false)).not.toContain(voiceLabel)
   })
 })

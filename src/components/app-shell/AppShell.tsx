@@ -2063,6 +2063,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       initialSendPending={initialSendPending}
                       composerFocusRequest={composerFocusRequest}
                       cloudModelsEnabled={runtimeCapabilities?.oomolCloudModels === true}
+                      voiceEnabled={runtimeCapabilities?.voice === true}
                       canManageWorkspaceConnections={oomolLinkActive && canManageWorkspaceConnections}
                       emptyStateConnectionSummary={oomolLinkActive ? emptyStateConnectionSummary : null}
                       teamSkillEntryVisible={oomolEnabled && teamSkillEntryVisible}

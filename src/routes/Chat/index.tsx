@@ -45,6 +45,7 @@ interface ChatAreaProps {
   composerDraftKey: string
   composerFocusRequest: number
   cloudModelsEnabled?: boolean
+  voiceEnabled?: boolean
   messages: ChatMessage[]
   knowledgeBaseIds: string[]
   knowledgeEnabled: boolean
@@ -251,6 +252,7 @@ export const ChatArea = React.memo(function ChatArea({
   composerDraftKey,
   composerFocusRequest,
   cloudModelsEnabled = true,
+  voiceEnabled = false,
   messages,
   knowledgeBaseIds,
   knowledgeEnabled,
@@ -342,6 +344,7 @@ export const ChatArea = React.memo(function ChatArea({
     <ChatComposer
       key={composerDraftKey}
       cloudModelsEnabled={cloudModelsEnabled}
+      voiceEnabled={voiceEnabled}
       error={error}
       focusRequest={composerFocusRequest}
       generatedArtifacts={generatedArtifacts}

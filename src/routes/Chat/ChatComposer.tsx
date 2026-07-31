@@ -54,6 +54,8 @@ import { stripDraftAttachment, useComposerAttachments } from "./useComposerAttac
 import { useComposerPalette } from "./useComposerPalette.ts"
 import { useComposerPreferences } from "./useComposerPreferences.ts"
 import { modelCatalogForRuntime, useModelCatalog } from "./useModelCatalog.ts"
+import { useVoiceComposerInput } from "./useVoiceComposerInput.ts"
+import { getVoiceErrorNotice } from "./voice-error-display.ts"
 import {
   PromptInput,
   PromptInputAttachments,
@@ -72,6 +74,7 @@ import { authTypeLabel } from "@/routes/Connections/shared"
 interface ChatComposerProps {
   error: string | null
   cloudModelsEnabled?: boolean
+  voiceEnabled?: boolean
   focusRequest: number
   generatedArtifacts?: ArtifactSelection | null
   hasMessages: boolean
@@ -175,6 +178,7 @@ function paletteLabels({
 
 export function ChatComposer({
   cloudModelsEnabled = true,
+  voiceEnabled = false,
   error,
   focusRequest,
   generatedArtifacts = null,
@@ -239,6 +243,11 @@ export function ChatComposer({
   )
   const { agentMode, reasoningLevel, setAgentMode, setReasoningLevel } = useComposerPreferences()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const appendVoiceTranscription = React.useCallback((text: string) => {
+    dispatchComposer({ type: "insert-transcription", text })
+    window.requestAnimationFrame(() => textareaRef.current?.focus())
+  }, [])
+  const voiceInput = useVoiceComposerInput(appendVoiceTranscription)
   const paletteId = React.useId()
   const { attachments, command, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
   React.useEffect(() => {
@@ -262,7 +271,12 @@ export function ChatComposer({
   const composerWillQueueMessage = activePendingQuestion ? false : willQueueMessage
   const initialSendPending = turnState.status === "submitting" && turnState.initialSendPending
   const submitBlocked = submitDisabled || initialSendPending
-  const composerDisabled = submitDisabled || initialSendPending || answeringQuestion || composerQuestionBlocked
+  const composerDisabled =
+    submitDisabled ||
+    (voiceEnabled && voiceInput.busy) ||
+    initialSendPending ||
+    answeringQuestion ||
+    composerQuestionBlocked
   const composerControlsDisabled = composerModeControlsDisabled({ composerDisabled, modelRequired })
   const modelCatalog = React.useMemo(
     () => modelCatalogForRuntime(modelCatalogState.catalog, cloudModelsEnabled),
@@ -281,6 +295,11 @@ export function ChatComposer({
   React.useEffect(() => {
     setAnsweringQuestion(false)
   }, [activePendingQuestionId])
+  React.useEffect(() => {
+    if (!voiceEnabled && voiceInput.active) {
+      voiceInput.cancel()
+    }
+  }, [voiceEnabled, voiceInput.active, voiceInput.cancel])
   const platform = globalThis.wanta?.platform
   const slashItems = React.useMemo(
     () =>
@@ -582,8 +601,27 @@ export function ChatComposer({
     if (modelError) {
       return { error: modelError, showDiagnosticsCopy: true }
     }
+    if (voiceEnabled) {
+      const voiceNotice = getVoiceErrorNotice({
+        recorderError: voiceInput.recorderError,
+        transcriptionError: voiceInput.error,
+        transcriptionErrorKind: voiceInput.errorKind,
+      })
+      if (voiceNotice) {
+        return { ...voiceNotice, onDismiss: voiceInput.dismissError }
+      }
+    }
     return null
-  }, [error, inputError, modelError])
+  }, [
+    error,
+    inputError,
+    modelError,
+    voiceEnabled,
+    voiceInput.dismissError,
+    voiceInput.error,
+    voiceInput.errorKind,
+    voiceInput.recorderError,
+  ])
   const errorBanner = visibleError ? (
     <ErrorNotice
       error={visibleError.error}
@@ -708,15 +746,28 @@ export function ChatComposer({
           agentMode={agentMode}
           permissionMode={permissionMode}
           reasoningLevel={reasoningLevel}
+          voiceEnabled={voiceEnabled}
+          voiceActive={voiceEnabled && voiceInput.active}
+          voiceBars={voiceInput.bars}
+          voiceDurationMs={voiceInput.durationMs}
+          voiceError={voiceInput.error}
+          voiceRecorderError={voiceInput.recorderError}
+          voiceRetryBlob={voiceInput.retryBlob}
+          voiceStarting={voiceInput.starting}
+          voiceTranscribing={voiceInput.transcribing}
           willQueueMessage={composerWillQueueMessage}
           onAddModel={modelCatalogState.openDialog}
+          onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}
+          onRetryVoice={voiceInput.retry}
           onSelectAgentMode={setAgentMode}
           onSelectDefaultPermissionMode={onPermissionModeDefault}
           onRequestFullAccessPermissionMode={onPermissionModeFullAccess}
           onSelectReasoningLevel={setReasoningLevel}
           onSelectModel={modelCatalogState.selectModel}
+          onStartVoice={voiceInput.start}
           onStop={onStop}
+          onStopVoice={() => void voiceInput.stop()}
         />
       </PromptInputToolbar>
     </PromptInput>

@@ -36,7 +36,7 @@ export interface BuiltinModelDefinition {
   maxOutputTokens?: number
 }
 
-// UI 展示用的内置模型上下文窗口；网关别名实际窗口调整时只改这里。
+// Physical context windows for built-in models; inputTokenLimit is a separate optional pricing-tier guard.
 const gptContextWindow = 400_000
 const gptMaxOutputTokens = 128_000
 const millionTokenContextWindow = 1_000_000
@@ -160,7 +160,6 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
-    inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
     maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   },
   {
@@ -178,7 +177,6 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
-    inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
     maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   },
   {

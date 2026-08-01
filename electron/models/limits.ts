@@ -36,6 +36,8 @@ export function compactionThresholdTokens({
     return undefined
   }
   const outputLimit = effectiveMaxOutputTokens(maxOutputTokens)
+  // Keep this aligned with OpenCode session/overflow.ts: explicit input limits reserve up to 20K,
+  // while context-only models reserve the full configured output budget.
   const reserved = inputLimit ? Math.min(COMPACTION_RESERVED_BUFFER_TOKENS, outputLimit) : outputLimit
   return Math.max(0, limit - reserved)
 }

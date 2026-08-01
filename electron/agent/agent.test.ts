@@ -6,11 +6,7 @@ import { test } from "vitest"
 import { branding } from "../branding.ts"
 import { llmBaseUrl, ooEndpoint } from "../domain.ts"
 import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
-import {
-  DEFAULT_MAX_OUTPUT_TOKENS,
-  QWEN_37_MAX_OUTPUT_TOKENS,
-  STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
-} from "../models/limits.ts"
+import { DEFAULT_MAX_OUTPUT_TOKENS, QWEN_37_MAX_OUTPUT_TOKENS } from "../models/limits.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { AgentManager, buildManagedSkillRuntimeEnv, persistTeamScopeUpdate } from "./manager.ts"
 import { WANTA_BUILD_AGENT_NAME, WANTA_GENERAL_SUBAGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
@@ -221,7 +217,7 @@ test("Qwen 3.7 models retain a 1M context window and compact within the 256K pri
   }
 })
 
-test("DeepSeek V4 built-ins use official model ids with text-only OOMOL routing", () => {
+test("DeepSeek V4 built-ins use the full 1M context without an input pricing-tier guard", () => {
   const config = buildOpencodeConfig({
     linkRuntime: { kind: "oomol", sessionToken: "api-test" },
     modelAccess: { kind: "oomol", sessionToken: "api-test" },
@@ -233,11 +229,11 @@ test("DeepSeek V4 built-ins use official model ids with text-only OOMOL routing"
     const model = config.provider?.oomol?.models?.[modelID]
     assert.ok(model)
     assert.deepEqual(modelVariantKeys(model), ["low", "high", "max"])
-    assert.deepEqual(modelLimit(model), {
-      context: 1_000_000,
-      input: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
-      output: DEFAULT_MAX_OUTPUT_TOKENS,
-    })
+    const limit = modelLimit(model)
+    assert.ok(limit)
+    assert.equal(limit.context, 1_000_000)
+    assert.equal(limit.input, undefined)
+    assert.equal(limit.output, DEFAULT_MAX_OUTPUT_TOKENS)
     assert.equal(model.tool_call, true)
     assert.equal(model.attachment, undefined)
     assert.equal(model.modalities, undefined)

@@ -246,6 +246,33 @@ describe("chat context usage", () => {
     expect(selectedModelContextWindow(builtinCatalog)).toBe(128_000)
   })
 
+  it("uses the full DeepSeek context while reserving its configured output budget", () => {
+    const deepSeekCatalog: ModelCatalog = {
+      ...catalog,
+      selected: { kind: "builtin", id: "deepseek-v4-flash" },
+      builtins: [
+        {
+          id: "deepseek-v4-flash",
+          displayName: "DeepSeek V4 Flash",
+          providerName: "DeepSeek",
+          supportsImages: false,
+          toolCall: true,
+          runtimeKind: "openai-compatible",
+          contextWindow: 1_000_000,
+          maxOutputTokens: 32_000,
+        },
+      ],
+    }
+
+    expect(selectedModelContextBudget(deepSeekCatalog)).toEqual({
+      contextWindowTokens: 1_000_000,
+      contextLimitTokens: 1_000_000,
+      maxOutputTokens: 32_000,
+      compactionThresholdTokens: 968_000,
+    })
+    expect(selectedModelContextWindow(deepSeekCatalog)).toBe(1_000_000)
+  })
+
   it("formats compact token counts", () => {
     expect(formatTokenCount(42)).toBe("42")
     expect(formatTokenCount(1200)).toBe("1.2K")

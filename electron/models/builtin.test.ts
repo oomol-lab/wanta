@@ -80,7 +80,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         toolCall: true,
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
-        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+        inputTokenLimit: undefined,
         maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
       },
       {
@@ -90,7 +90,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         toolCall: true,
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
-        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+        inputTokenLimit: undefined,
         maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
       },
       {
@@ -179,6 +179,21 @@ test("DeepSeek V4 models use the OOMOL compatible runtime and remain text-only",
     assert.equal(model.capabilities.supportsImages, false)
     assert.equal(model.capabilities.supportsPdf, false)
     assert.equal(model.capabilities.toolCall, true)
+    assert.equal(model.contextWindow, 1_000_000)
+    assert.equal(model.inputTokenLimit, undefined)
+    assert.equal(model.maxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS)
+  }
+})
+
+test("only DeepSeek V4 built-ins omit the standard input pricing-tier guard", () => {
+  const deepSeekIDs = new Set(["deepseek-v4-flash", "deepseek-v4-pro"])
+
+  for (const model of BUILTIN_MODEL_DEFINITIONS) {
+    assert.equal(
+      model.inputTokenLimit,
+      deepSeekIDs.has(model.id) ? undefined : STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+      `${model.id} has an unexpected input token limit`,
+    )
   }
 })
 

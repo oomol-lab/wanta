@@ -229,10 +229,11 @@ test("DeepSeek V4 built-ins use the full 1M context without an input pricing-tie
     const model = config.provider?.oomol?.models?.[modelID]
     assert.ok(model)
     assert.deepEqual(modelVariantKeys(model), ["low", "high", "max"])
-    assert.deepEqual(modelLimit(model), {
-      context: 1_000_000,
-      output: DEFAULT_MAX_OUTPUT_TOKENS,
-    })
+    const limit = modelLimit(model)
+    assert.ok(limit)
+    assert.equal(limit.context, 1_000_000)
+    assert.equal(limit.input, undefined)
+    assert.equal(limit.output, DEFAULT_MAX_OUTPUT_TOKENS)
     assert.equal(model.tool_call, true)
     assert.equal(model.attachment, undefined)
     assert.equal(model.modalities, undefined)

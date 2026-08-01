@@ -122,8 +122,8 @@ Wanta は OpenCode を固定バージョンのローカルランタイムとし�
 
 ### エージェントエンジン：OpenCode
 
-アプリは固定バージョンの `opencode-ai@1.17.13` バイナリをループバック専用の
-`opencode serve` Sidecar として起動し、`@opencode-ai/sdk@1.17.13` から操作します。
+アプリは固定バージョンの `opencode-ai@1.18.10` バイナリをループバック専用の
+`opencode serve` Sidecar として起動し、`@opencode-ai/sdk@1.18.10` から操作します。
 OpenCode パッケージは MIT ライセンスで、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 に記載されています。API は安定版として扱われないため、ランタイム、SDK、プラグインを同じ
 正確なバージョンに固定しています。

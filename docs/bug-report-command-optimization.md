@@ -2,7 +2,7 @@
 
 > Survey date: 2026-07-16
 >
-> Scope: Wanta's built-in `/bug-report`, OpenCode 1.17.13, and the command/Skill mechanisms of
+> Scope: Wanta's built-in `/bug-report`, OpenCode 1.18.10, and the command/Skill mechanisms of
 > Claude Code, OpenCode, Cursor, and VS Code / GitHub Copilot.
 >
 > Implementation status: PR `#177` delivered the structured Composer command, the command chip,
@@ -187,7 +187,7 @@ OpenCode keeps commands and Skills separate:
   sees the name and description and loads the full content on demand through the native `skill`
   tool.
 
-The SDK Wanta pins to, 1.17.13, also exposes both a `/command` listing endpoint and a
+The SDK Wanta pins to, 1.18.10, also exposes both a `/command` listing endpoint and a
 `/session/{id}/command` execution endpoint; the current `/bug-report` uses neither, going through
 `/session/{id}/prompt_async` plus a custom system prompt instead.
 
@@ -275,7 +275,7 @@ Pros: better fits OpenCode's command abstraction; may yield a `command.executed`
 separates the template from business code.
 
 Cons: Wanta currently depends on `promptAsync` for streaming, cancellation, permissions, team
-context, and per-turn system merging; SDK 1.17.13's command endpoint returns a complete assistant
+context, and per-turn system merging; SDK 1.18.10's command endpoint returns a complete assistant
 message, and whether the existing SSE and artifact lifecycle can be fully preserved needs a real
 test. Dynamic artifact paths, trusted metadata, and hidden arguments also need a security design.
 
@@ -430,7 +430,7 @@ tokens, cookies, account data, or team-private data.
 
 ## 8. Development Plan
 
-### Phase 0: OpenCode 1.17.13 Command Spike
+### Phase 0: OpenCode 1.18.10 Command Spike
 
 Goal: decide whether the underlying execution stays on `promptAsync + system` or migrates to
 `session.command()`.

@@ -78,8 +78,8 @@ Connector availability is still incorrectly derived from the OOMOL runtime:
 
 The bundled oo CLI is sufficient for the first implementation:
 
-- scripts/oo-cli.ts pins oo CLI 1.5.1.
-- oo 1.5.1 supports a self-hosted connector via connector login and the
+- scripts/oo-cli.ts pins oo CLI 1.7.1.
+- oo 1.7.1 supports a self-hosted connector via connector login and the
   OO_CONNECTOR_URL / OO_CONNECTOR_TOKEN environment variables.
 - The OpenConnector runtime exposes compatible apps, action search, action
   metadata, action execution, and provider metadata endpoints.
@@ -94,10 +94,10 @@ The bundled oo CLI is sufficient for the first implementation:
 
 The integration is not an environment-variable-only change:
 
-- The bundled CLI rejects --organization before sending any request when a
+- The bundled CLI rejects --team before sending any request when a
   self-hosted connector is active.
 - Wanta's Link tools currently require an OOMOL team identity and append
-  --organization to apps and run calls.
+  --team to apps and run calls.
 - Wanta's provider metadata request reads OO_API_KEY, while OpenConnector uses
   OO_CONNECTOR_TOKEN and may also run without authentication.
 - Wanta recognizes the hosted connector authorization error codes but not
@@ -275,8 +275,8 @@ remains model_required and advertises no executable Link tools.
 - If the schema cache is not endpoint-aware, partition the Agent OO_DATA_DIR by
   a stable hash of the backend and normalized endpoint. Prefer this over a
   broad cache clear or refresh on every runtime switch.
-- Keep oo CLI pinned at 1.5.1 unless a real runtime smoke test proves that a CLI
-  fix or upgrade is necessary.
+- Keep oo CLI pinned at the verified 1.7.1 version; upgrades still require real OOMOL and
+  OpenConnector runtime smoke tests.
 
 ### Verification
 
@@ -313,9 +313,12 @@ npm test
   authorization, probe, and circuit-breaker keys.
 - Final quality gates passed: `ts-check`, `lint`, `format`, and 1,790 tests in
   252 files.
+- The current packaged CLI is 1.7.1; its version, parser contract, and bundled Skill export passed
+  the upgrade checks. The real OpenConnector call recorded below is explicitly the pre-upgrade 1.5.1
+  baseline.
 - Real smoke used the sibling OpenConnector with a temporary data directory on
   port 3100. `/health`, `/v1/health`, and `/v1/apps` returned the expected
-  responses; bundled oo 1.5.1 completed apps, search, schema, and a live
+  responses; the then-bundled oo 1.5.1 completed apps, search, schema, and a live
   `hackernews.get_top_stories` action through `OO_CONNECTOR_URL` with the full
   isolated environment.
 - Wanta then launched against a temporary Electron userData directory with the
@@ -838,15 +841,15 @@ type LinkIdentity =
 Behavior:
 
 - OOMOL reads the per-session team scope and appends
-  --organization <teamName>.
+  --team <teamName>.
 - OpenConnector Link identity ignores teamName and sessionTeams.
-- OpenConnector appends neither --organization nor --personal.
+- OpenConnector appends neither --team nor --personal.
 - OpenConnector's cache key includes its normalized endpoint.
 - query_knowledge remains independent of Link identity and continues reading
   sessionKnowledgeBaseIds from WANTA_TEAM_SCOPE_PATH in every Agent runtime.
 - Schema caches use the endpoint-aware OO_DATA_DIR strategy decided in Phase 0.
 
-This is mandatory: oo 1.5.1 rejects --organization before sending a request
+This is mandatory: the bundled oo CLI rejects --team before sending a request
 when a self-hosted connector is selected.
 
 ### 9.2 Provider metadata authentication
@@ -962,8 +965,8 @@ reuse stale inventory, probe, or block state.
 
 Tests with a mock runtime prove:
 
-- OOMOL commands retain --organization;
-- OpenConnector commands never include --organization;
+- OOMOL commands retain --team;
+- OpenConnector commands never include --team;
 - an OpenConnector alias is exposed by oo as connectionName;
 - authenticated and unauthenticated runtimes both work;
 - connection_not_found becomes authorization_required;
@@ -1424,7 +1427,7 @@ Scenario D, OOMOL regression:
 
 - sign in to OOMOL;
 - select OOMOL as the Link runtime;
-- switch teams and verify the correct --organization value;
+- switch teams and verify the correct --team value;
 - verify the current drawer and automatic retry;
 - select OpenConnector and verify that the same team no longer scopes Link
   actions;
@@ -1478,7 +1481,7 @@ This implementation must not:
 - add a main-process oo broker while the credential-bearing sidecar trust model
   remains acceptable;
 - bundle or supervise the sibling connect repository;
-- upgrade oo 1.5.1 without a demonstrated compatibility need;
+- upgrade the pinned oo CLI without a demonstrated compatibility need;
 - refactor unrelated auth, model, team, billing, or Skill modules.
 
 ## 15. Risks and stop conditions

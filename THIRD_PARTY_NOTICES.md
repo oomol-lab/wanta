@@ -9,9 +9,9 @@ for all transitive build and runtime dependencies remains part of release prepar
 
 Wanta uses [OpenCode](https://github.com/anomalyco/opencode) as its local Agent engine:
 
-- `opencode-ai@1.17.13` — packaged executable and local `opencode serve` sidecar;
-- `@opencode-ai/sdk@1.17.13` — HTTP/SSE client used by the Electron main process;
-- `@opencode-ai/plugin@1.17.13` — tool API bundled into Wanta's Agent tool runtime.
+- `opencode-ai@1.18.10` — packaged executable and local `opencode serve` sidecar;
+- `@opencode-ai/sdk@1.18.10` — HTTP/SSE client used by the Electron main process;
+- `@opencode-ai/plugin@1.18.10` — tool API bundled into Wanta's Agent tool runtime.
 
 License: MIT. Copyright (c) 2025 opencode.
 
@@ -21,7 +21,7 @@ around it.
 
 ## oo CLI and Bundled Skills
 
-Wanta downloads and packages `@oomol-lab/oo-cli@1.5.1` platform binaries from the public npm
+Wanta downloads and packages `@oomol-lab/oo-cli@1.7.1` platform binaries from the public npm
 registry. The default package also contains four Skills exported by that distribution:
 
 - `oo`;

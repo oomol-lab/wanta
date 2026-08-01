@@ -52,7 +52,7 @@ async function appendIdentityArgs(argv, identity, sessionID) {
 }
 
 function linkWorkspaceArgs(identity) {
-  return identity.runtime === "oomol" ? ["--organization", identity.teamName] : []
+  return identity.runtime === "oomol" ? ["--team", identity.teamName] : []
 }
 
 function connectionInventoryError(identity, message) {

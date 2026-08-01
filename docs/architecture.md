@@ -196,8 +196,9 @@ atomically writes `teamName`, `sessionTeams` (the team per OpenCode session), an
 `sessionKnowledgeBaseIds` to `userData/agent/team-scope.json` (the tools read it by `sessionID` via
 `WANTA_TEAM_SCOPE_PATH`, which is how the team can switch without a sidecar restart), and via
 `oo-identity.ts` mirrors the team name for the OOMOL Link runtime into
-`oo-store/config/settings.toml`'s `[identity]
-organization` (with rollback on failure). This is the implementation basis for the tool-sources
+`oo-store/config/settings.toml`'s `[identity].team` (with rollback on failure). A legacy
+`[identity].organization` key is accepted only as migration input and is rewritten as `team`. This is
+the implementation basis for the tool-sources
 "per current session team" behavior.
 
 ## 3. IPC pattern (R7, throughout the conventions)

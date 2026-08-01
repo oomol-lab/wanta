@@ -10,6 +10,7 @@ const pnpmLockPath = path.join(repoRoot, "pnpm-lock.yaml")
 
 interface PackageManifest {
   bugs?: { url?: string }
+  dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   engines?: { node?: string }
   homepage?: string
@@ -61,6 +62,7 @@ describe("open-source installation contract", () => {
 
     expect(manifest.devDependencies?.["opencode-ai"]).toBe("1.18.10")
     expect(manifest.devDependencies?.["@opencode-ai/plugin"]).toBe("1.18.10")
+    expect(manifest.dependencies?.["@opencode-ai/sdk"]).toBe("1.18.10")
     expect(readme).toContain("Agent Engine: OpenCode")
     expect(readme).toContain("opencode-ai@1.18.10")
     expect(notices).toContain("@opencode-ai/sdk@1.18.10")

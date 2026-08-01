@@ -313,9 +313,12 @@ npm test
   authorization, probe, and circuit-breaker keys.
 - Final quality gates passed: `ts-check`, `lint`, `format`, and 1,790 tests in
   252 files.
+- The current packaged CLI is 1.7.1; its version, parser contract, and bundled Skill export passed
+  the upgrade checks. The real OpenConnector call recorded below is explicitly the pre-upgrade 1.5.1
+  baseline.
 - Real smoke used the sibling OpenConnector with a temporary data directory on
   port 3100. `/health`, `/v1/health`, and `/v1/apps` returned the expected
-  responses; bundled oo 1.5.1 completed apps, search, schema, and a live
+  responses; the then-bundled oo 1.5.1 completed apps, search, schema, and a live
   `hackernews.get_top_stories` action through `OO_CONNECTOR_URL` with the full
   isolated environment.
 - Wanta then launched against a temporary Electron userData directory with the

@@ -74,6 +74,26 @@ test("built-in model registry has unique ids and matching summaries", () => {
         maxOutputTokens: 128_000,
       },
       {
+        id: "deepseek-v4-flash",
+        supportsImages: false,
+        supportsPdf: false,
+        toolCall: true,
+        runtimeKind: "openai-compatible",
+        contextWindow: 1_000_000,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+      },
+      {
+        id: "deepseek-v4-pro",
+        supportsImages: false,
+        supportsPdf: false,
+        toolCall: true,
+        runtimeKind: "openai-compatible",
+        contextWindow: 1_000_000,
+        inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+      },
+      {
         id: "qwen3.7-plus",
         supportsImages: true,
         supportsPdf: false,
@@ -145,6 +165,23 @@ test("GPT models use OpenAI Responses runtime routing", () => {
   }
 })
 
+test("DeepSeek V4 models use the OOMOL compatible runtime and remain text-only", () => {
+  const expectedModels = [
+    { id: "deepseek-v4-flash", displayName: "DeepSeek V4 Flash" },
+    { id: "deepseek-v4-pro", displayName: "DeepSeek V4 Pro" },
+  ] as const
+
+  for (const expected of expectedModels) {
+    const model = resolveBuiltinModel(expected.id)
+    assert.equal(model.displayName, expected.displayName)
+    assert.deepEqual(model.runtime, { providerID: "oomol", modelID: expected.id })
+    assert.deepEqual(model.capabilities.reasoningVariants, ["low", "high", "max"])
+    assert.equal(model.capabilities.supportsImages, false)
+    assert.equal(model.capabilities.supportsPdf, false)
+    assert.equal(model.capabilities.toolCall, true)
+  }
+})
+
 test("isBuiltinModelId accepts only registered built-in ids", () => {
   assert.equal(isBuiltinModelId("oopilot"), true)
   assert.equal(isBuiltinModelId("gpt-5.6-sol"), true)
@@ -152,7 +189,7 @@ test("isBuiltinModelId accepts only registered built-in ids", () => {
   assert.equal(isBuiltinModelId("gpt-5.6-luna"), true)
   assert.equal(isBuiltinModelId("gpt-5.5"), false)
   assert.equal(isBuiltinModelId("qwen3.7-max"), true)
-  assert.equal(isBuiltinModelId("deepseek-v4-flash"), false)
-  assert.equal(isBuiltinModelId("deepseek-v4-pro"), false)
+  assert.equal(isBuiltinModelId("deepseek-v4-flash"), true)
+  assert.equal(isBuiltinModelId("deepseek-v4-pro"), true)
   assert.equal(isBuiltinModelId("kimi-k3"), false)
 })

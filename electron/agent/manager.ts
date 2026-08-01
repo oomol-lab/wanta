@@ -1204,7 +1204,7 @@ export function buildWorkspaceIdentitySystem(teamName?: string): string {
   if (!normalizedTeamName) {
     throw new Error("Team workspace identity is unavailable")
   }
-  return `Current-turn Link workspace: team ${JSON.stringify(normalizedTeamName)}; raw oo selector: --organization ${JSON.stringify(normalizedTeamName)}.`
+  return `Current-turn Link workspace: team ${JSON.stringify(normalizedTeamName)}; raw oo selector: --team ${JSON.stringify(normalizedTeamName)}.`
 }
 
 async function buildPromptParts(

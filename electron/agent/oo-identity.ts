@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 const identitySection = "identity"
-const teamKeyPattern = /^\s*organization\s*=/
+const teamKeyPattern = /^\s*(?:team|organization)\s*=/
 const sectionPattern = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/
 
 function tomlString(value: string): string {
@@ -51,7 +51,7 @@ function sectionName(line: string): string | undefined {
 }
 
 function identityTeamLine(teamName: string): string {
-  return `organization = ${tomlString(teamName)}`
+  return `team = ${tomlString(teamName)}`
 }
 
 function ensureTrailingNewline(value: string): string {

@@ -215,7 +215,7 @@ describe("list_apps embedded runtime", () => {
       workspace?: { teamName?: string }
     }
 
-    expect(commands).toEqual([["connector", "apps", "posthog", "--organization", "team-a", "--json"]])
+    expect(commands).toEqual([["connector", "apps", "posthog", "--team", "team-a", "--json"]])
     expect(output).toMatchObject({
       errorCode: "connection_inventory_unavailable",
       workspace: { teamName: "team-a" },
@@ -286,7 +286,7 @@ describe("call_action embedded runtime", () => {
     expect(commands).toHaveLength(2)
     expect(commands[0]).toEqual(["connector", "apps", "gmail", "--json"])
     expect(commands[1]).toContain("--connection-name")
-    expect(commands[1]).not.toContain("--organization")
+    expect(commands[1]).not.toContain("--team")
   })
 
   it("runs one canary and skips matching queued calls after an authorization block", async () => {

@@ -182,7 +182,7 @@
     1.3.0, dot-notation id addressing and batch fetching of multiple contracts in one call; 2+ ids
     return a JSON array in request order); the prompt mandates the **search → inspect → call**
     flow, and inputSchema is the single source of truth for parameters. After oo-cli 1.4.2
-    provided `oo connector apps --json --organization`, `list_apps` was added specifically to
+    provided `oo connector apps --json --team`, `list_apps` was added specifically to
     answer the current team's connected provider/app list, so catalog search stops being misused
     as a connection-status query. WikiGraph access is intentionally not a custom OpenCode tool:
     when a pinned archive is relevant, the agent uses bash to run `wg wikg://lib/arc/<id> ...`.
@@ -380,7 +380,7 @@
   bearer token into the renderer. One active backend also keeps action identity, authorization
   routing, connection aliases, cache keys, and idempotency unambiguous.
 - **Consequences**: tools, prompts, permissions, workspace contents, capability reporting, inventory,
-  and authorization UX must switch together. OOMOL retains team-scoped `--organization`, bundled oo
+  and authorization UX must switch together. OOMOL retains team-scoped `--team`, bundled oo
   Skills, the in-app connection drawer, and automatic authorization retry. OpenConnector removes
   team identity and bundled oo Skills and uses an external provider page. Its direct bundled oo
   business commands are automatically approved by ChatService, while credential expansion,

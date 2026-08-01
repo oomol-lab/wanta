@@ -218,7 +218,7 @@
   chose — never use it as a pre-flight health check for ordinary Link reads/actions. The per-turn
   dynamic system prompt must state that turn's team; custom Link tools apply per session
   automatically, and if a bare `oo connector` CLI call is unavoidable it must explicitly pass the
-  same `--organization`; after an error, never drop the selector or retry under a different
+  same `--team`; after an error, never drop the selector or retry under a different
   identity.
 - `call_action` batches get canarying, per-target throttling, and a short-term authorization
   circuit breaker at the tool layer; queued calls after a connection block return

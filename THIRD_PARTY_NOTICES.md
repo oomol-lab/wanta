@@ -21,7 +21,7 @@ around it.
 
 ## oo CLI and Bundled Skills
 
-Wanta downloads and packages `@oomol-lab/oo-cli@1.5.1` platform binaries from the public npm
+Wanta downloads and packages `@oomol-lab/oo-cli@1.7.1` platform binaries from the public npm
 registry. The default package also contains four Skills exported by that distribution:
 
 - `oo`;

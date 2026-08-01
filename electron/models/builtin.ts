@@ -40,6 +40,7 @@ export interface BuiltinModelDefinition {
 const gptContextWindow = 400_000
 const gptMaxOutputTokens = 128_000
 const millionTokenContextWindow = 1_000_000
+const deepSeekV4ReasoningVariants = ["low", "high", "max"] as const satisfies readonly WantaReasoningVariant[]
 const qwen37ReasoningVariants = ["low", "high"] as const satisfies readonly WantaReasoningVariant[]
 
 export const BUILTIN_MODEL_IDS = [
@@ -47,6 +48,8 @@ export const BUILTIN_MODEL_IDS = [
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
   "qwen3.7-plus",
   "qwen3.7-max",
 ] as const
@@ -141,6 +144,42 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
     contextWindow: gptContextWindow,
     inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
     maxOutputTokens: gptMaxOutputTokens,
+  },
+  {
+    id: "deepseek-v4-flash",
+    displayName: "DeepSeek V4 Flash",
+    providerName: "DeepSeek",
+    runtime: {
+      providerID: "oomol",
+      modelID: "deepseek-v4-flash",
+    },
+    capabilities: {
+      reasoningVariants: deepSeekV4ReasoningVariants,
+      supportsImages: false,
+      supportsPdf: false,
+      toolCall: true,
+    },
+    contextWindow: millionTokenContextWindow,
+    inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
+  },
+  {
+    id: "deepseek-v4-pro",
+    displayName: "DeepSeek V4 Pro",
+    providerName: "DeepSeek",
+    runtime: {
+      providerID: "oomol",
+      modelID: "deepseek-v4-pro",
+    },
+    capabilities: {
+      reasoningVariants: deepSeekV4ReasoningVariants,
+      supportsImages: false,
+      supportsPdf: false,
+      toolCall: true,
+    },
+    contextWindow: millionTokenContextWindow,
+    inputTokenLimit: STANDARD_INPUT_TOKEN_LIMIT_TOKENS,
+    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   },
   {
     id: "qwen3.7-plus",

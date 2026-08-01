@@ -29,13 +29,22 @@ test("ModelsStore returns default catalog on missing file", async () => {
   assert.deepEqual(catalog.selected, defaultModelChoice())
   assert.deepEqual(
     catalog.builtins.map((model) => model.id),
-    ["oopilot", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "qwen3.7-plus", "qwen3.7-max"],
+    [
+      "oopilot",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+      "qwen3.7-plus",
+      "qwen3.7-max",
+    ],
   )
   assert.equal(catalog.customModels.length, 0)
   assert.ok(catalog.providers.some((provider) => provider.id === "deepseek"))
 })
 
-test("ModelsStore falls back to Auto when a removed DeepSeek built-in was selected", async () => {
+test("ModelsStore preserves a persisted DeepSeek built-in selection", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
   writeFileSync(
     path.join(dir, "models.json"),
@@ -46,7 +55,7 @@ test("ModelsStore falls back to Auto when a removed DeepSeek built-in was select
   )
   const { store } = createStore(dir)
 
-  assert.deepEqual((await store.catalog()).selected, defaultModelChoice())
+  assert.deepEqual((await store.catalog()).selected, { kind: "builtin", id: "deepseek-v4-flash" })
 })
 
 test("ModelsStore falls back to Auto when the removed GPT 5.5 built-in was selected", async () => {

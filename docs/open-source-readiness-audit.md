@@ -74,8 +74,8 @@ oo CLI 1.5.1 及其内置 Skills 由 MIT 授权覆盖，不再是发布阻塞。
 
 | 组件                                 | 当前版本 | 包声明许可证 | 备注                                 |
 | ------------------------------------ | -------- | ------------ | ------------------------------------ |
-| `opencode-ai`                        | 1.17.13  | MIT          | Wanta Agent engine；随包分发 sidecar |
-| `@opencode-ai/sdk`                   | 1.17.13  | MIT          | 与 OpenCode 三包版本锁定策略保持一致 |
+| `opencode-ai`                        | 1.18.10  | MIT          | Wanta Agent engine；随包分发 sidecar |
+| `@opencode-ai/sdk`                   | 1.18.10  | MIT          | 与 OpenCode 三包版本锁定策略保持一致 |
 | `wiki-graph`                         | 0.4.0    | Apache-2.0   | 仓库指向 OOMOL 的公开 GitHub 项目    |
 | `wiki-graph-core`                    | 0.4.0    | Apache-2.0   | WikiGraph SDK runtime                |
 | `@univerjs/core`                     | 0.25.1   | Apache-2.0   | Univer 完整工作簿能力必须保留        |

@@ -45,7 +45,7 @@ desktop application and describe the result in the pull request. Include screens
 recording for visible UI changes where they make review easier.
 
 Wanta uses [OpenCode](https://github.com/anomalyco/opencode) as its Agent engine. The OpenCode
-packages are pinned together at version 1.17.13 because their APIs are not treated as stable. Do not
+packages are pinned together at version 1.18.10 because their APIs are not treated as stable. Do not
 upgrade `opencode-ai`, `@opencode-ai/sdk`, or `@opencode-ai/plugin` independently.
 
 ## Important Safety Boundaries

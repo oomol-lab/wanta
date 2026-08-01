@@ -59,11 +59,11 @@ describe("open-source installation contract", () => {
     const notices = readFileSync(path.join(repoRoot, "THIRD_PARTY_NOTICES.md"), "utf8")
     const builderConfig = readFileSync(path.join(repoRoot, "electron-builder.ts"), "utf8")
 
-    expect(manifest.devDependencies?.["opencode-ai"]).toBe("1.17.13")
-    expect(manifest.devDependencies?.["@opencode-ai/plugin"]).toBe("1.17.13")
+    expect(manifest.devDependencies?.["opencode-ai"]).toBe("1.18.10")
+    expect(manifest.devDependencies?.["@opencode-ai/plugin"]).toBe("1.18.10")
     expect(readme).toContain("Agent Engine: OpenCode")
-    expect(readme).toContain("opencode-ai@1.17.13")
-    expect(notices).toContain("@opencode-ai/sdk@1.17.13")
+    expect(readme).toContain("opencode-ai@1.18.10")
+    expect(notices).toContain("@opencode-ai/sdk@1.18.10")
     expect(notices).toContain("@oomol-lab/oo-cli@1.5.1")
     for (const fileName of ["LICENSE", "NOTICE", "TRADEMARKS.md", "THIRD_PARTY_NOTICES.md"]) {
       expect(existsSync(path.join(repoRoot, fileName))).toBe(true)

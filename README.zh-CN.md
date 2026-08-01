@@ -112,8 +112,8 @@ Wanta 将 OpenCode 作为固定版本的本地运行时，无需维护 OpenCode 
 
 ### Agent 引擎：OpenCode
 
-应用会将固定版本的 `opencode-ai@1.17.13` 二进制文件作为仅监听回环地址的
-`opencode serve` Sidecar 启动，并通过 `@opencode-ai/sdk@1.17.13` 驱动它。OpenCode
+应用会将固定版本的 `opencode-ai@1.18.10` 二进制文件作为仅监听回环地址的
+`opencode serve` Sidecar 启动，并通过 `@opencode-ai/sdk@1.18.10` 驱动它。OpenCode
 软件包采用 MIT 许可证，详情见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 Wanta 将运行时、SDK 和插件固定为完全相同的版本，因为其 API 不被视为稳定接口。
 

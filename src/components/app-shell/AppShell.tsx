@@ -1637,9 +1637,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   }, [])
   const handleArtifactsToggle = React.useCallback((): void => {
     const next = !artifactsPanelOpen
-    if (next) closeBrowserPanel()
+    if (next) {
+      closeBrowserPanel()
+      setArtifactsPanelMaximizedState(false)
+    }
     setArtifactsPanelOpen(next)
-  }, [artifactsPanelOpen, closeBrowserPanel, setArtifactsPanelOpen])
+  }, [artifactsPanelOpen, closeBrowserPanel, setArtifactsPanelMaximizedState, setArtifactsPanelOpen])
   const handleBrowserToggle = React.useCallback((): void => {
     if (!browserPanelOpen) {
       setArtifactsPanelOpen(false)
@@ -1650,16 +1653,18 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const handleArtifactsOpenWithBrowserClose = React.useCallback(
     (selection: Parameters<typeof handleArtifactsOpen>[0]): void => {
       closeBrowserPanel()
+      setArtifactsPanelMaximizedState(false)
       handleArtifactsOpen(selection)
     },
-    [closeBrowserPanel, handleArtifactsOpen],
+    [closeBrowserPanel, handleArtifactsOpen, setArtifactsPanelMaximizedState],
   )
   const handleTurnOutputOpenWithBrowserClose = React.useCallback(
     (selection: Parameters<typeof handleTurnOutputOpen>[0]): void => {
       closeBrowserPanel()
+      setArtifactsPanelMaximizedState(false)
       handleTurnOutputOpen(selection)
     },
-    [closeBrowserPanel, handleTurnOutputOpen],
+    [closeBrowserPanel, handleTurnOutputOpen, setArtifactsPanelMaximizedState],
   )
   const handleOpenKnowledgeLibrary = React.useCallback((): void => {
     setRoute("knowledge")

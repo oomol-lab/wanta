@@ -17,6 +17,7 @@ const state: BrowserPageState = {
   crashed: false,
   sessionId: "session-1",
   visible: true,
+  zoomFactor: 1,
   navigation: {
     canGoBack: true,
     canGoForward: true,
@@ -26,7 +27,7 @@ const state: BrowserPageState = {
   },
 }
 
-function panelElement(browserService: ConnectionClientService<BrowserService>): React.ReactElement {
+function panelElement(browserService: ConnectionClientService<BrowserService>, maximized = false): React.ReactElement {
   return React.createElement(
     I18nContext.Provider,
     {
@@ -38,15 +39,17 @@ function panelElement(browserService: ConnectionClientService<BrowserService>): 
     },
     React.createElement(BrowserPanel, {
       browserService,
+      maximized,
       sessionId: "session-1",
       state,
       onClose: () => undefined,
+      onToggleMaximized: () => undefined,
     }),
   )
 }
 
-function renderPanel(): string {
-  return renderToStaticMarkup(panelElement({} as ConnectionClientService<BrowserService>))
+function renderPanel(maximized = false): string {
+  return renderToStaticMarkup(panelElement({} as ConnectionClientService<BrowserService>, maximized))
 }
 
 async function renderInteractivePanel(invoke: ReturnType<typeof vi.fn>): Promise<Root> {
@@ -90,6 +93,9 @@ describe("BrowserPanel native view visibility", () => {
 
     expect(invoke).toHaveBeenCalledWith("hide", "session-1")
     expect(document.querySelector(`img[src="${previewDataUrl}"]`)).not.toBeNull()
+    const initialActions = invoke.mock.calls.map(([action]) => action)
+    const initialHideIndex = initialActions.indexOf("hide")
+    expect(initialActions.slice(initialHideIndex + 1)).toContain("capturePreview")
 
     overlay.remove()
     await act(async () => {
@@ -155,6 +161,42 @@ describe("BrowserPanel native view visibility", () => {
     act(() => root.unmount())
   })
 
+  it("does not let a pending hidden-page preview block restoring the native page", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      bottom: 500,
+      height: 400,
+      left: 600,
+      right: 1100,
+      top: 100,
+      width: 500,
+      x: 600,
+      y: 100,
+      toJSON: () => undefined,
+    })
+    const pendingCapture = new Promise<string | null>(() => undefined)
+    const invoke = vi.fn((action: string) =>
+      action === "capturePreview" ? pendingCapture : Promise.resolve(undefined),
+    )
+    const overlay = document.createElement("div")
+    overlay.setAttribute("aria-modal", "true")
+    document.body.append(overlay)
+    const root = await renderInteractivePanel(invoke)
+
+    expect(invoke).toHaveBeenCalledWith("hide", "session-1")
+
+    overlay.remove()
+    await act(async () => {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+    })
+
+    expect(invoke).toHaveBeenCalledWith("show", {
+      bounds: { height: 400, width: 500, x: 600, y: 100 },
+      sessionId: "session-1",
+    })
+
+    act(() => root.unmount())
+  })
+
   it("ignores a stale preview after a newer capture clears it", async () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       bottom: 500,
@@ -201,7 +243,19 @@ describe("BrowserPanel titlebar drag regions", () => {
     const html = renderPanel()
 
     expect(html).toMatch(/oo-titlebar[^"]*\[-webkit-app-region:drag\]/u)
-    expect(html.match(/\[-webkit-app-region:no-drag\]/gu)).toHaveLength(6)
+    expect(html.match(/\[-webkit-app-region:no-drag\]/gu)).toHaveLength(7)
     expect(html).toMatch(/<form class="[^"]*\[-webkit-app-region:no-drag\]/u)
+  })
+
+  it("keeps compact controls usable and reveals manual zoom when maximized", () => {
+    const compact = renderPanel()
+    expect(compact).toContain('aria-label="最大化浏览器"')
+    expect(compact).not.toContain('aria-label="放大"')
+
+    const maximized = renderPanel(true)
+    expect(maximized).toContain('aria-label="放大"')
+    expect(maximized).toContain('aria-label="缩小"')
+    expect(maximized).toContain('aria-label="恢复到 100%"')
+    expect(maximized).toContain('aria-label="恢复浏览器面板"')
   })
 })

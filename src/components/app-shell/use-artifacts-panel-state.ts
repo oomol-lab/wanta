@@ -94,7 +94,7 @@ export function useArtifactsPanelState({
   const hasPanelSelection = panelSelection.kind !== "empty"
   const artifactsPanelVisible = route === "chat" && artifactsPanelOpen && hasPanelSelection && !browserPanelVisible
   const rightPanelVisible = browserPanelVisible || artifactsPanelVisible
-  const artifactsPanelIsMaximized = artifactsPanelVisible && artifactsPanelMaximized
+  const artifactsPanelIsMaximized = rightPanelVisible && artifactsPanelMaximized
   const preferredRightPanelWidth = browserPanelVisible ? browserPanelWidth : artifactsPanelWidth
   const visibleRightPanelWidth = clampArtifactsPanelWidthForLayout(
     preferredRightPanelWidth,
@@ -286,10 +286,10 @@ export function useArtifactsPanelState({
   ])
 
   React.useEffect(() => {
-    if (!artifactsPanelVisible && artifactsPanelMaximized) {
+    if (!rightPanelVisible && artifactsPanelMaximized) {
       setArtifactsPanelMaximizedState(false)
     }
-  }, [artifactsPanelMaximized, artifactsPanelVisible, setArtifactsPanelMaximizedState])
+  }, [artifactsPanelMaximized, rightPanelVisible, setArtifactsPanelMaximizedState])
 
   const handleArtifactsPanelResizeStart = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>): void => {

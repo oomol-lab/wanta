@@ -28,7 +28,8 @@ connected service cannot handle.
    state change, or a stale-ref error.
 4. Use `browser_screenshot` only when visual layout or appearance matters; use `browser_read` for
    ordinary interaction.
-5. Keep actions within the user's request and follow the session's current Default Access or Full
+5. Use both horizontal and vertical scroll distances when wide content requires panning.
+6. Keep actions within the user's request and follow the session's current Default Access or Full
    Access policy.
 
 ## Shared control and safety

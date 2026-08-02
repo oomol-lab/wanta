@@ -92,9 +92,11 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
         {browserPanelVisible && browserState ? (
           <BrowserPanel
             browserService={browserService}
+            maximized={artifactsPanelIsMaximized}
             sessionId={browserState.sessionId}
             state={browserState}
             onClose={onCloseBrowser}
+            onToggleMaximized={() => setArtifactsPanelMaximizedState(!artifactsPanelIsMaximized)}
           />
         ) : artifactsPanelVisible ? (
           <React.Suspense fallback={null}>

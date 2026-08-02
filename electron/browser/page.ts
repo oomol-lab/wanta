@@ -48,16 +48,20 @@ export class BrowserPage {
   private readonly stateChanged: (state: BrowserPageState) => void
   private readonly view: ElectronWebContentsView
   private visible = false
+  private zoomFactor = 1
+  private readonly zoomFactorForUrl: (url: string) => number | undefined
 
   public constructor(input: {
     mainWindow: ElectronBrowserWindow
     partitionSession: Session
     sessionId: string
     stateChanged: (state: BrowserPageState) => void
+    zoomFactorForUrl: (url: string) => number | undefined
   }) {
     this.mainWindow = input.mainWindow
     this.sessionId = input.sessionId
     this.stateChanged = input.stateChanged
+    this.zoomFactorForUrl = input.zoomFactorForUrl
     this.view = new WebContentsView({
       webPreferences: {
         contextIsolation: true,
@@ -97,6 +101,7 @@ export class BrowserPage {
       },
       sessionId: this.sessionId,
       visible: this.visible,
+      zoomFactor: this.zoomFactor,
     }
   }
 
@@ -107,12 +112,14 @@ export class BrowserPage {
   public show(bounds: BrowserViewBounds): void {
     if (this.visible) {
       this.view.setBounds(bounds)
+      this.applyZoomFactor()
       return
     }
     this.mainWindow.contentView.addChildView(this.view)
     this.visible = true
     this.view.setBounds(bounds)
     this.view.webContents.focus()
+    this.applyZoomFactor()
     this.emitState()
   }
 
@@ -126,21 +133,32 @@ export class BrowserPage {
   public async navigate(value: string, signal?: AbortSignal): Promise<BrowserPageState> {
     const url = parseBrowserUrl(value)
     await this.requirePage().goto(url.href, { signal, waitUntil: "domcontentloaded" })
+    this.applyZoomFactor()
     return this.state()
   }
 
   public async goBack(signal?: AbortSignal): Promise<BrowserPageState> {
     await this.requirePage().goBack({ signal, waitUntil: "domcontentloaded" })
+    this.applyZoomFactor()
     return this.state()
   }
 
   public async goForward(signal?: AbortSignal): Promise<BrowserPageState> {
     await this.requirePage().goForward({ signal, waitUntil: "domcontentloaded" })
+    this.applyZoomFactor()
     return this.state()
   }
 
   public async reload(signal?: AbortSignal): Promise<BrowserPageState> {
     await this.requirePage().reload({ signal, waitUntil: "domcontentloaded" })
+    this.applyZoomFactor()
+    return this.state()
+  }
+
+  public setZoomFactor(factor: number): BrowserPageState {
+    this.zoomFactor = normalizeBrowserZoomFactor(factor)
+    this.view.webContents.setZoomFactor(this.zoomFactor)
+    this.emitState()
     return this.state()
   }
 
@@ -182,9 +200,14 @@ export class BrowserPage {
     return this.read(undefined, signal)
   }
 
-  public async scroll(target: string | undefined, deltaY: number, signal?: AbortSignal): Promise<BrowserReadResult> {
+  public async scroll(
+    target: string | undefined,
+    deltaX: number,
+    deltaY: number,
+    signal?: AbortSignal,
+  ): Promise<BrowserReadResult> {
     if (target) await this.locator(target).scrollIntoViewIfNeeded({ signal })
-    await this.requirePage().mouse.wheel(0, deltaY)
+    await this.requirePage().mouse.wheel(deltaX, deltaY)
     return this.read(undefined, signal)
   }
 
@@ -217,6 +240,12 @@ export class BrowserPage {
     return this.page
   }
 
+  private applyZoomFactor(): void {
+    const factor = this.zoomFactorForUrl(this.view.webContents.getURL())
+    if (factor !== undefined) this.zoomFactor = normalizeBrowserZoomFactor(factor)
+    this.view.webContents.setZoomFactor(this.zoomFactor)
+  }
+
   private locator(target: string): Locator {
     return this.requirePage().locator(browserLocatorSelector(target))
   }
@@ -244,7 +273,10 @@ export class BrowserPage {
       void this.updateDocumentColorScheme()
     })
     contents.on("did-stop-loading", emit)
-    contents.on("did-navigate", emit)
+    contents.on("did-navigate", () => {
+      this.applyZoomFactor()
+      emit()
+    })
     contents.on("did-navigate-in-page", emit)
     contents.on("page-title-updated", emit)
     contents.on("render-process-gone", () => {
@@ -309,4 +341,18 @@ export function browserBackgroundTheme(
 ): WindowsTitleBarTheme {
   const schemes = new Set(documentColorScheme?.trim().toLowerCase().split(/\s+/) ?? [])
   return schemes.has("light") && !schemes.has("dark") ? "light" : appTheme
+}
+
+export function normalizeBrowserZoomFactor(factor: number): number {
+  if (!Number.isFinite(factor)) return 1
+  return Math.round(Math.min(2, Math.max(0.25, factor)) * 100) / 100
+}
+
+export function browserZoomOrigin(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.origin : null
+  } catch {
+    return null
+  }
 }

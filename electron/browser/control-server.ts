@@ -109,6 +109,7 @@ export function parseBrowserControlRequest(value: unknown): BrowserControlReques
     case "scroll":
       return {
         action,
+        deltaX: clampScrollDelta(args["deltaX"], 0),
         deltaY: clampScrollDelta(args["deltaY"]),
         sessionId,
         target: optionalString(args["target"]),
@@ -155,8 +156,8 @@ function optionalString(value: unknown, preserveWhitespace = false): string | un
   return normalized || (preserveWhitespace ? "" : undefined)
 }
 
-function clampScrollDelta(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 600
+function clampScrollDelta(value: unknown, fallback = 600): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback
   return Math.max(-5_000, Math.min(5_000, Math.round(value)))
 }
 

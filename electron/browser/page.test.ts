@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { browserBackgroundTheme, browserLocatorSelector } from "./page.ts"
+import {
+  browserBackgroundTheme,
+  browserLocatorSelector,
+  browserZoomOrigin,
+  normalizeBrowserZoomFactor,
+} from "./page.ts"
 
 describe("browser locator selector", () => {
   it("maps top-level and frame-prefixed AI snapshot refs to Playwright aria refs", () => {
@@ -28,5 +33,21 @@ describe("browser background theme", () => {
     expect(browserBackgroundTheme("light dark", "dark")).toBe("dark")
     expect(browserBackgroundTheme("normal", "dark")).toBe("dark")
     expect(browserBackgroundTheme(null, "light")).toBe("light")
+  })
+})
+
+describe("browser zoom", () => {
+  it("clamps and rounds zoom factors", () => {
+    expect(normalizeBrowserZoomFactor(0.01)).toBe(0.25)
+    expect(normalizeBrowserZoomFactor(0.734)).toBe(0.73)
+    expect(normalizeBrowserZoomFactor(4)).toBe(2)
+    expect(normalizeBrowserZoomFactor(Number.NaN)).toBe(1)
+  })
+
+  it("uses Chromium origins as the shared zoom scope", () => {
+    expect(browserZoomOrigin("https://example.com/a")).toBe("https://example.com")
+    expect(browserZoomOrigin("https://example.com:8443/a")).toBe("https://example.com:8443")
+    expect(browserZoomOrigin("about:blank")).toBeNull()
+    expect(browserZoomOrigin("not a url")).toBeNull()
   })
 })

@@ -7,7 +7,7 @@ import * as React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
-import { artifactGroupDisplayItem, artifactKindLabel } from "./artifact-metadata.ts"
+import { artifactGroupDisplayItem, artifactKindLabel, isVideoArtifact } from "./artifact-metadata.ts"
 import { buildArtifactPaletteItems } from "./composer-palette-items.ts"
 import { GeneratedArtifactsShelf } from "./GeneratedArtifacts.tsx"
 import { I18nContext, translate } from "@/i18n/i18n"
@@ -75,6 +75,12 @@ describe("htmlPreviewSrcDoc", () => {
 })
 
 describe("artifact group display", () => {
+  it("recognizes common video extensions when MIME metadata is generic", () => {
+    expect(isVideoArtifact(artifactItem("recording.mkv", "application/octet-stream"))).toBe(true)
+    expect(isVideoArtifact(artifactItem("recording.avi", "application/octet-stream"))).toBe(true)
+    expect(isVideoArtifact(artifactItem("notes.txt", "application/octet-stream"))).toBe(false)
+  })
+
   it("uses the root folder as the cover for file-list artifact packs", () => {
     const pdf = artifactItem("sample.pdf", "application/pdf")
     const spreadsheet = artifactItem("sample.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

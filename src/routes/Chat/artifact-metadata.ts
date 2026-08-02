@@ -52,7 +52,11 @@ export function isImageArtifact(item: LocalArtifactItem | undefined): boolean {
 }
 
 export function isVideoArtifact(item: LocalArtifactItem | undefined): boolean {
-  return Boolean(item?.mime.toLowerCase().startsWith("video/"))
+  return Boolean(
+    item &&
+    (item.mime.toLowerCase().startsWith("video/") ||
+      [".avi", ".m4v", ".mkv", ".mov", ".mp4", ".webm"].includes(fileExtension(item.name))),
+  )
 }
 
 export function isAudioArtifact(item: LocalArtifactItem | undefined): boolean {

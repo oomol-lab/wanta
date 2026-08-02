@@ -27,6 +27,8 @@ describe("mimeFromPath", () => {
   it("recognizes common generated audio and video files", () => {
     expect(mimeFromPath("/tmp/result.mp3")).toBe("audio/mpeg")
     expect(mimeFromPath("/tmp/result.wav")).toBe("audio/wav")
+    expect(mimeFromPath("/tmp/result.avi")).toBe("video/x-msvideo")
+    expect(mimeFromPath("/tmp/result.mkv")).toBe("video/x-matroska")
     expect(mimeFromPath("/tmp/result.mp4")).toBe("video/mp4")
     expect(mimeFromPath("/tmp/result.mov")).toBe("video/quicktime")
   })

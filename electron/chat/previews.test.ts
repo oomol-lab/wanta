@@ -74,3 +74,24 @@ test("localArtifactPreview routes CSV and TSV through the spreadsheet preview wo
     await rm(directory, { force: true, recursive: true })
   }
 })
+
+test("localArtifactPreview streams large videos through an artifact resource lease", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "wanta-preview-video-"))
+  try {
+    const videoPath = path.join(directory, "large.mp4")
+    await writeFile(videoPath, Buffer.alloc(16 * 1024 * 1024 + 1))
+    let grantedSize = 0
+
+    const preview = await localArtifactPreview({ path: videoPath }, ({ size }) => {
+      grantedSize = size
+      return { expiresAt: 123, url: "wanta-resource://artifact/video-token" }
+    })
+
+    assert.equal(preview.kind, "media")
+    assert.equal(preview.mime, "video/mp4")
+    assert.equal(preview.resourceUrl, "wanta-resource://artifact/video-token")
+    assert.equal(grantedSize, 16 * 1024 * 1024 + 1)
+  } finally {
+    await rm(directory, { force: true, recursive: true })
+  }
+})

@@ -146,12 +146,12 @@ export async function localArtifactPreview(
   }
 
   if (item.mime.toLowerCase().startsWith("audio/") || item.mime.toLowerCase().startsWith("video/")) {
-    if (size > attachmentPreviewMaxBytes) {
-      return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
-    }
     const resource = requestResource()
     if (resource) {
       return { kind: "media", mime: item.mime, size, ...resourceResult(resource) }
+    }
+    if (size > attachmentPreviewMaxBytes) {
+      return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
     }
     try {
       const bytes = await readFile(item.path)

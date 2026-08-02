@@ -1018,6 +1018,7 @@ export const zhCNMessages = {
   "artifacts.previewReadFailed": "Wanta 无法读取这个文件。你仍然可以用系统应用打开。",
   "artifacts.previewTooLarge": "文件太大，无法在 Wanta 中预览。你可以用系统应用打开。",
   "artifacts.previewUnsupported": "{type} 文件可以用系统应用打开。",
+  "artifacts.videoCodecUnsupported": "Wanta 无法播放这个视频的格式或编码。你可以用系统应用打开。",
   "artifacts.htmlPreviewTruncated": "HTML 文件较大，内嵌预览可能不完整。请查看源码或用系统浏览器打开完整文件。",
   "artifacts.pdfPage": "第 {page}/{total} 页",
   "artifacts.pdfPrevious": "上一页",

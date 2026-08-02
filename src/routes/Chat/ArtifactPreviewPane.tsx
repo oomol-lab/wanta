@@ -431,6 +431,57 @@ function ArtifactArchivePreview({ preview }: { preview: LocalArtifactPreviewResu
   )
 }
 
+function ArtifactVideoPreview({
+  item,
+  onOpen,
+  onResourceError,
+  pack,
+  preview,
+  source,
+}: {
+  item: LocalArtifactItem
+  onOpen: () => void
+  onResourceError?: () => void
+  pack?: LocalArtifactPack | null
+  preview: LocalArtifactPreviewResult
+  source: string
+}) {
+  const t = useT()
+  const [failed, setFailed] = React.useState(false)
+
+  React.useEffect(() => {
+    setFailed(false)
+  }, [source])
+
+  if (failed) {
+    return (
+      <ArtifactUnavailablePreview
+        description={t("artifacts.videoCodecUnsupported")}
+        item={item}
+        pack={pack}
+        preview={preview}
+        onOpen={onOpen}
+      />
+    )
+  }
+
+  return (
+    <div className="flex min-h-full items-center justify-center bg-[var(--oo-artifact-preview-canvas)] p-4">
+      <video
+        src={source}
+        controls
+        playsInline
+        preload="metadata"
+        className="max-h-full max-w-full rounded-md bg-black shadow-sm"
+        onError={() => {
+          setFailed(true)
+          onResourceError?.()
+        }}
+      />
+    </div>
+  )
+}
+
 export function ArtifactConsumablePreview({
   item,
   preview,
@@ -469,15 +520,14 @@ export function ArtifactConsumablePreview({
 
   if (preview?.kind === "media" && resourceSource && isVideoArtifact(item)) {
     return (
-      <div className="flex min-h-full items-center justify-center bg-[var(--oo-artifact-preview-canvas)] p-4">
-        <video
-          src={resourceSource}
-          controls
-          preload="metadata"
-          className="max-h-full max-w-full rounded-md bg-black shadow-sm"
-          onError={onResourceError}
-        />
-      </div>
+      <ArtifactVideoPreview
+        item={item}
+        pack={pack}
+        preview={preview}
+        source={resourceSource}
+        onOpen={onOpen}
+        onResourceError={onResourceError}
+      />
     )
   }
 

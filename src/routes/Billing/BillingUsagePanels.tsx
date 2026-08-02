@@ -203,7 +203,6 @@ function PeriodToggle({
 
 export function BalanceOverview({
   averageDailySpend,
-  availableShare,
   balanceAvailable,
   modelSpend,
   coverageDays,
@@ -223,7 +222,6 @@ export function BalanceOverview({
   totalSpend,
 }: {
   averageDailySpend: number
-  availableShare: number
   balanceAvailable: boolean
   modelSpend: number
   coverageDays: number
@@ -244,72 +242,71 @@ export function BalanceOverview({
 }) {
   const t = useT()
   return (
-    <section className="h-full overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="flex min-h-10 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
-        <h2 className="oo-text-title truncate text-foreground">
+    <section className="overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+      <div className="flex min-h-10 flex-wrap items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
+        <h2 className="oo-text-title min-w-0 text-foreground">
           {t(canManageFunding ? "billing.availableCredits" : "billing.fundingAccount")}
         </h2>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <PeriodToggle period={period} onChange={onPeriodChange} />
           <Button type="button" variant="outline" size="sm" disabled={loading} onClick={onRefresh}>
             <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
             {t("billing.refresh")}
           </Button>
+          {canManageFunding ? (
+            <Button type="button" size="sm" disabled={topUpDisabled} onClick={onTopUp}>
+              {t("billing.topUpBalance")}
+            </Button>
+          ) : null}
         </div>
       </div>
-      <div className="grid h-[calc(100%-2.75rem)] gap-4 p-4 md:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
-        <div className="grid min-w-0 gap-3">
-          <div className="flex min-w-0 items-start justify-between gap-3">
-            <div className="min-w-0">
-              <PiggyBankIcon className="oo-icon-muted size-4 shrink-0" />
-              {canManageFunding ? (
-                <div className="oo-text-metric-large mt-2 text-foreground">
+      <div className="grid gap-3 p-4 xl:grid-cols-[minmax(16rem,1.35fr)_minmax(0,3fr)]">
+        <div className="grid min-w-0 content-between gap-4 rounded-md border border-border bg-muted/20 px-4 py-3">
+          <div className="flex min-w-0 items-start gap-2">
+            <PiggyBankIcon className="oo-icon-muted mt-0.5 size-4 shrink-0" />
+            {canManageFunding ? (
+              <div className="min-w-0">
+                <div className="oo-text-caption text-muted-foreground">{t("billing.availableCredits")}</div>
+                <div className="oo-text-metric-large mt-1 text-foreground">
                   {loading ? "..." : balanceAvailable ? formatCredit(currentCredit) : "—"}
                 </div>
-              ) : (
-                <div className="mt-2 grid gap-1">
-                  <div className="oo-text-title text-foreground">{t("billing.fundingManagedByCreator")}</div>
-                  <p className="oo-text-caption text-muted-foreground">{t("billing.fundingMemberDescription")}</p>
-                </div>
-              )}
-            </div>
-            {canManageFunding ? (
-              <Button type="button" variant="outline" size="sm" disabled={topUpDisabled} onClick={onTopUp}>
-                {t("billing.topUpBalance")}
-              </Button>
-            ) : null}
+              </div>
+            ) : (
+              <div className="grid min-w-0 gap-1">
+                <div className="oo-text-title text-foreground">{t("billing.fundingManagedByCreator")}</div>
+                <p className="oo-text-caption text-muted-foreground">{t("billing.fundingMemberDescription")}</p>
+              </div>
+            )}
           </div>
 
           {canManageFunding ? (
-            <div className="grid gap-2">
-              {balanceAvailable ? <Progress value={availableShare} className="h-1.5 bg-muted" /> : null}
-              <div className="oo-text-caption flex flex-wrap items-center justify-between gap-2">
-                <span>
-                  {!spendAvailable
-                    ? t("billing.usageUnavailable")
-                    : hasNoUsage
-                      ? t("billing.popover.noUsageTitle")
-                      : showCoverageDays
-                        ? t("billing.coverage", { days: coverageDays })
-                        : t("billing.coverageStable")}
-                </span>
-                {spendAvailable && !hasNoUsage ? (
-                  <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
-                ) : null}
-              </div>
+            <div className="oo-text-caption flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-muted-foreground">
+              <span>
+                {!spendAvailable
+                  ? t("billing.usageUnavailable")
+                  : hasNoUsage
+                    ? t("billing.popover.noUsageTitle")
+                    : showCoverageDays
+                      ? t("billing.coverage", { days: coverageDays })
+                      : t("billing.coverageStable")}
+              </span>
+              {spendAvailable && !hasNoUsage ? (
+                <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
+              ) : null}
             </div>
           ) : null}
         </div>
 
         {hasNoUsage ? (
-          <div className="oo-text-caption flex min-h-24 items-center rounded-md border border-dashed border-border px-4 text-muted-foreground">
+          <div className="oo-text-caption flex min-h-28 items-center rounded-md border border-dashed border-border px-4 text-muted-foreground">
             {t("billing.popover.noUsageDescription")}
           </div>
         ) : (
-          <div className="grid min-w-0 grid-cols-3 gap-2 max-[760px]:grid-cols-1">
+          <div className="grid min-w-0 grid-cols-1 gap-3 min-[720px]:grid-cols-3">
             <MiniStat
               icon={<SparklesIcon className="size-4" />}
               label={t("billing.periodSpend")}
+              meta={t(`billing.period${period}`)}
               value={loading ? "..." : spendAvailable ? formatCredit(totalSpend) : "—"}
             />
             <MiniStat
@@ -329,14 +326,27 @@ export function BalanceOverview({
   )
 }
 
-function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function MiniStat({
+  icon,
+  label,
+  meta,
+  value,
+}: {
+  icon: React.ReactNode
+  label: string
+  meta?: string
+  value: string
+}) {
   return (
-    <div className="grid min-w-0 gap-1 rounded-md border border-border bg-muted/30 px-3 py-2.5">
+    <div className="grid min-h-28 min-w-0 content-between gap-3 rounded-md border border-border bg-muted/20 px-4 py-3">
       <div className="oo-text-caption flex min-w-0 items-center gap-1.5">
         <span className="oo-icon-muted shrink-0">{icon}</span>
-        <span className="truncate">{label}</span>
+        <span>{label}</span>
       </div>
-      <div className="oo-text-value truncate text-foreground">{value}</div>
+      <div>
+        <div className="oo-text-value text-foreground">{value}</div>
+        {meta ? <div className="oo-text-caption-compact mt-1 text-muted-foreground">{meta}</div> : null}
+      </div>
     </div>
   )
 }

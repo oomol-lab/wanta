@@ -14,7 +14,6 @@ import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/hooks/useAuth"
 import { useBillableSeats } from "@/hooks/useBillableSeats"
@@ -79,7 +78,6 @@ export function BillingUsagePopover({
   const spendAvailable = data?.spendAvailable === true
   const hasNoUsage = spendAvailable && totalSpend === 0
   const currentCredit = toNumber(data?.balance?.total.currentCredit)
-  const originalCredit = toNumber(data?.balance?.total.originalCredit)
   const averageDailySpend = totalSpend / usagePeriodDays
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const showCoverageDays = totalSpend >= 0.01 && coverageDays > 0 && coverageDays <= 999
@@ -101,22 +99,6 @@ export function BillingUsagePopover({
       }),
     [canManageTeamSubscription, data?.subscription, data?.teamPendingPayment, seatState.count, sharedConnectorCount],
   )
-  const showPlanPrompt = Boolean(
-    showTeamPlanSection &&
-    teamDetailsAvailable &&
-    data &&
-    !error &&
-    seatCountAvailable &&
-    teamOverview.recommendedAction === "choose_plan",
-  )
-  const showPendingPaymentPrompt = Boolean(
-    showTeamPlanSection &&
-    teamDetailsAvailable &&
-    data &&
-    !error &&
-    seatCountAvailable &&
-    teamOverview.recommendedAction === "continue_payment",
-  )
   const showUpgradePrompt = Boolean(
     showTeamPlanSection &&
     teamDetailsAvailable &&
@@ -133,14 +115,95 @@ export function BillingUsagePopover({
     seatCountAvailable &&
     teamOverview.recommendedAction === "add_seats",
   )
-  const availableShare =
-    originalCredit > 0
-      ? Math.max(0, Math.min(100, (currentCredit / originalCredit) * 100))
-      : currentCredit > 0
-        ? 100
-        : 0
   // 仅在真正拿到余额（无错误）且为 0 时才提示耗尽；会话过期/读取失败一律不显示破坏性"余额耗尽"。
   const hasNoCredits = Boolean(canManageFunding && balanceAvailable && data?.balance && currentCredit <= 0 && !error)
+  const planActionLabel = !teamDetailsAvailable
+    ? null
+    : teamOverview.hasPendingPayment
+      ? t("billing.teamContinuePayment")
+      : showSeatPrompt
+        ? t("billing.popover.manageSeats")
+        : teamOverview.currentPlan === null
+          ? t("billing.popover.upgradeTeamPlanAction")
+          : teamOverview.currentPlan === "team_plus"
+            ? t("billing.popover.upgradePlanAction")
+            : null
+  const planStatusVariant: React.ComponentProps<typeof Badge>["variant"] = !teamDetailsAvailable
+    ? "outline"
+    : teamOverview.hasPendingPayment || showSeatPrompt
+      ? "warning"
+      : teamOverview.currentPlan === null || showUpgradePrompt
+        ? "muted"
+        : "success"
+
+  const planCardContent = (
+    <>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="oo-text-label flex items-center gap-2 text-foreground">
+            <ShieldCheckIcon className="size-4 text-muted-foreground" />
+            <span>
+              {!teamDetailsAvailable
+                ? t("billing.planStatus.title")
+                : teamOverview.currentPlan
+                  ? teamPlanLabel(teamOverview.currentPlan, t)
+                  : t("billing.popover.teamPlanTitle")}
+            </span>
+          </div>
+          <div className="oo-text-caption-compact mt-1 text-muted-foreground">
+            {teamDetailsAvailable && teamOverview.currentPlan === null ? `${t("billing.popover.currentTeam")} · ` : ""}
+            {!teamDetailsAvailable
+              ? t("billing.popover.planUnavailableMeta")
+              : seatState.loading
+                ? t("billing.popover.planSeatsLoading")
+                : !seatCountAvailable || teamOverview.usedSeats === null
+                  ? t("billing.popover.planSeatsUnavailable")
+                  : teamOverview.seatCapacity === null
+                    ? t("billing.popover.planMembers", { count: teamOverview.usedSeats })
+                    : t("billing.popover.planSeats", {
+                        count: teamOverview.usedSeats,
+                        limit: teamOverview.seatCapacity,
+                      })}
+            {sharedConnectorCount === undefined
+              ? ""
+              : ` · ${t("billing.popover.sharedLinks", { count: sharedConnectorCount })}`}
+          </div>
+        </div>
+        <Badge variant={planStatusVariant}>
+          {!teamDetailsAvailable
+            ? t("billing.popover.planUnavailableStatus")
+            : teamOverview.hasPendingPayment
+              ? t("billing.teamPaymentPending")
+              : showSeatPrompt
+                ? t("billing.popover.seatLimitHint")
+                : showUpgradePrompt
+                  ? t("billing.popover.upgradeHint")
+                  : teamOverview.currentPlan === null
+                    ? t("billing.popover.planInactive")
+                    : t("billing.popover.planActive")}
+        </Badge>
+      </div>
+      <p className="oo-text-caption mt-3 text-muted-foreground">
+        {!teamDetailsAvailable
+          ? t("billing.popover.planUnavailableDescription")
+          : teamOverview.hasPendingPayment
+            ? t("billing.popover.pendingPaymentRecommendation")
+            : showSeatPrompt
+              ? t("billing.popover.seatRecommendation")
+              : teamOverview.currentPlan === null
+                ? t("billing.popover.noPlanRecommendation")
+                : showUpgradePrompt
+                  ? t("billing.popover.proRecommendation")
+                  : t("billing.popover.planDescription")}
+      </p>
+      {planActionLabel ? (
+        <span className="oo-text-label mt-3 ml-auto flex w-fit items-center justify-center gap-1 text-foreground underline-offset-4 group-hover:underline">
+          {planActionLabel}
+          <ArrowRightIcon className="size-4" />
+        </span>
+      ) : null}
+    </>
+  )
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -210,88 +273,35 @@ export function BillingUsagePopover({
             ) : (
               <>
                 {showTeamPlanSection ? (
-                  <section className="rounded-lg border border-border p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="oo-text-label flex items-center gap-2 text-foreground">
-                          <ShieldCheckIcon className="size-4 text-muted-foreground" />
-                          <span>
-                            {!teamDetailsAvailable
-                              ? t("billing.planStatus.title")
-                              : teamOverview.currentPlan
-                                ? teamPlanLabel(teamOverview.currentPlan, t)
-                                : t("billing.teamNoPlan")}
-                          </span>
-                        </div>
-                        <div className="oo-text-caption-compact mt-1 text-muted-foreground">
-                          {!teamDetailsAvailable
-                            ? t("billing.popover.planUnavailableMeta")
-                            : seatState.loading
-                              ? t("billing.popover.planSeatsLoading")
-                              : !seatCountAvailable || teamOverview.usedSeats === null
-                                ? t("billing.popover.planSeatsUnavailable")
-                                : teamOverview.seatCapacity === null
-                                  ? t("billing.popover.planMembers", { count: teamOverview.usedSeats })
-                                  : t("billing.popover.planSeats", {
-                                      count: teamOverview.usedSeats,
-                                      limit: teamOverview.seatCapacity,
-                                    })}
-                          {sharedConnectorCount === undefined
-                            ? ""
-                            : ` · ${t("billing.popover.sharedLinks", { count: sharedConnectorCount })}`}
-                        </div>
-                      </div>
-                      <PlanStatusBadge
-                        clickable={teamDetailsAvailable && teamOverview.currentPlan === null}
-                        label={
-                          !teamDetailsAvailable
-                            ? t("billing.popover.planUnavailableStatus")
-                            : teamOverview.hasPendingPayment
-                              ? t("billing.teamPaymentPending")
-                              : showSeatPrompt
-                                ? t("billing.popover.seatLimitHint")
-                                : showUpgradePrompt
-                                  ? t("billing.popover.upgradeHint")
-                                  : teamOverview.currentPlan === null
-                                    ? t("billing.popover.planInactive")
-                                    : t("billing.popover.planActive")
-                        }
-                        variant={
-                          teamDetailsAvailable &&
-                          (teamOverview.hasPendingPayment || showUpgradePrompt || showPlanPrompt || showSeatPrompt)
-                            ? "default"
-                            : "outline"
-                        }
-                        onClick={() => openDetails("plans")}
-                      />
-                    </div>
-                    <p className="oo-text-caption mt-3 text-muted-foreground">
-                      {!teamDetailsAvailable
-                        ? t("billing.popover.planUnavailableDescription")
-                        : teamOverview.hasPendingPayment
-                          ? t("billing.popover.pendingPaymentRecommendation")
-                          : showSeatPrompt
-                            ? t("billing.popover.seatRecommendation")
-                            : teamOverview.currentPlan === null
-                              ? t("billing.popover.noPlanRecommendation")
-                              : showUpgradePrompt
-                                ? t("billing.popover.proRecommendation")
-                                : t("billing.popover.planDescription")}
-                    </p>
-                  </section>
+                  planActionLabel ? (
+                    <button
+                      type="button"
+                      className="group rounded-lg border border-border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+                      onClick={() => openDetails("plans")}
+                    >
+                      {planCardContent}
+                    </button>
+                  ) : (
+                    <section className="rounded-lg border border-border p-3">{planCardContent}</section>
+                  )
                 ) : null}
 
                 <section className="grid gap-3">
-                  <div className="flex items-start justify-between gap-3">
-                    {canManageFunding ? (
-                      <>
+                  {canManageFunding ? (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="oo-text-label text-muted-foreground">{t("billing.availableCredits")}</div>
+                        <Button type="button" size="sm" onClick={() => openDetails("credits")}>
+                          {t("billing.topUpBalance")}
+                        </Button>
+                      </div>
+                      <div className="flex items-end justify-between gap-3">
                         <div>
-                          <div className="oo-text-label text-muted-foreground">{t("billing.availableCredits")}</div>
-                          <div className="oo-text-metric-large mt-1 text-foreground">
+                          <div className="oo-text-metric-large text-foreground">
                             {balanceAvailable ? formatCredit(currentCredit) : "—"}
                           </div>
                         </div>
-                        <div className="oo-text-body pt-5 text-right text-muted-foreground">
+                        <div className="oo-text-body text-right text-muted-foreground">
                           {!spendAvailable
                             ? t("billing.usageUnavailable")
                             : hasNoUsage
@@ -300,19 +310,18 @@ export function BillingUsagePopover({
                                 ? t("billing.popover.coverageDays", { days: coverageDays })
                                 : t("billing.coverageStable")}
                         </div>
-                      </>
-                    ) : (
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-start justify-between gap-3">
                       <div className="grid gap-1">
                         <div className="oo-text-label text-muted-foreground">{t("billing.fundingAccount")}</div>
                         <div className="oo-text-title text-foreground">{t("billing.fundingManagedByCreator")}</div>
                         <p className="oo-text-caption text-muted-foreground">{t("billing.fundingMemberDescription")}</p>
                       </div>
-                    )}
-                  </div>
-                  <div className="grid gap-2">
-                    {canManageFunding && balanceAvailable ? (
-                      <Progress value={availableShare} className="h-1.5 bg-muted" />
-                    ) : null}
+                    </div>
+                  )}
+                  <div className="grid gap-2 border-t border-border pt-3">
                     {spendAvailable && !hasNoUsage ? (
                       <div className="oo-text-caption-compact flex items-center justify-between gap-3 text-muted-foreground">
                         <span>{t("billing.popover.periodSpend", { amount: formatCredit(totalSpend) })}</span>
@@ -344,70 +353,17 @@ export function BillingUsagePopover({
             )}
           </div>
 
-          <div className="border-t border-border bg-muted/40 px-4 py-3">
-            <Button
-              type="button"
-              className="w-full min-w-0"
-              onClick={() => {
-                openDetails(
-                  showPlanPrompt || showPendingPaymentPrompt || showSeatPrompt || showUpgradePrompt
-                    ? "plans"
-                    : hasNoCredits
-                      ? "credits"
-                      : undefined,
-                )
-              }}
-            >
-              {t(
-                showPlanPrompt
-                  ? "billing.planComparison.choosePlan"
-                  : showPendingPaymentPrompt
-                    ? "billing.teamContinuePayment"
-                    : showSeatPrompt
-                      ? "billing.popover.manageSeats"
-                      : showUpgradePrompt
-                        ? "billing.proRecommendation.cta"
-                        : hasNoCredits
-                          ? "billing.purchaseCredits"
-                          : "billing.popover.viewDetails",
-              )}
-              <ArrowRightIcon className="size-4" />
-            </Button>
-          </div>
+          <button
+            type="button"
+            className="oo-text-label flex h-10 w-full items-center justify-center gap-2 border-t border-border bg-muted/20 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
+            onClick={() => openDetails()}
+          >
+            {t("billing.popover.viewDetails")}
+            <ArrowRightIcon className="size-4" />
+          </button>
         </div>
       </PopoverContent>
     </Popover>
-  )
-}
-
-function PlanStatusBadge({
-  clickable,
-  label,
-  variant,
-  onClick,
-}: {
-  clickable: boolean
-  label: string
-  variant: React.ComponentProps<typeof Badge>["variant"]
-  onClick: () => void
-}) {
-  if (!clickable) {
-    return <Badge variant={variant}>{label}</Badge>
-  }
-  return (
-    <Badge asChild variant={variant}>
-      <button
-        type="button"
-        title={label}
-        className="cursor-pointer focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:outline-none"
-        onClick={(event) => {
-          event.stopPropagation()
-          onClick()
-        }}
-      >
-        {label}
-      </button>
-    </Badge>
   )
 }
 
@@ -435,8 +391,7 @@ function BillingUsageSkeleton() {
           </div>
           <Skeleton className="mt-5 h-5 w-24" />
         </div>
-        <Skeleton className="h-2 w-full" />
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
           <Skeleton className="h-4 w-28" />
           <Skeleton className="h-4 w-24" />
         </div>

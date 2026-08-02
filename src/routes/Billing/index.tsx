@@ -94,7 +94,6 @@ export function BillingRoute({
   const categoryEventTotal = summaries.reduce((sum, item) => sum + item.eventCount, 0)
   const totalEvents = categoryEventTotal > 0 ? categoryEventTotal : statsTotalEvents(data?.metering)
   const currentCredit = toNumber(data?.balance?.total.currentCredit)
-  const originalCredit = toNumber(data?.balance?.total.originalCredit)
   const balanceAvailable = data?.balanceAvailable === true
   const spendAvailable = data?.spendAvailable === true
   const meteringAvailable = data?.meteringAvailable === true
@@ -150,12 +149,6 @@ export function BillingRoute({
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const showCoverageDays = totalSpend >= 0.01 && coverageDays > 0 && coverageDays <= 999
-  const availableShare =
-    originalCredit > 0
-      ? Math.max(0, Math.min(100, (currentCredit / originalCredit) * 100))
-      : currentCredit > 0
-        ? 100
-        : 0
   const dailyBuckets = React.useMemo(
     () => buildDailySpendBuckets(data?.spend?.items ?? [], period, totalSpend),
     [data?.spend, period, totalSpend],
@@ -227,7 +220,6 @@ export function BillingRoute({
       spendAvailable={spendAvailable}
       totalEvents={totalEvents}
       totalSpend={totalSpend}
-      availableShare={availableShare}
       period={period}
       topUpDisabled={isSessionExpired}
       onPeriodChange={setPeriod}
@@ -284,7 +276,7 @@ export function BillingRoute({
               onChoosePlan={teamCheckout.choosePlan}
             />
 
-            <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)]">
+            <section className="grid gap-4">
               <AdditionalSeatsPanel
                 currentAdditionalSeats={teamOverview.additionalSeats}
                 disabled={teamActionDisabled}

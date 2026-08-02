@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
 import {
+  artifactsPanelDragLayout,
+  artifactsPanelMaxWidth,
+  ARTIFACTS_PANEL_COLLAPSE_THRESHOLD_PX,
+  ARTIFACTS_PANEL_MIN_WIDTH_PX,
   authorizationHandlingForLinkRuntime,
   existingSessionComposerDraftKey,
   chatSendAccepted,
@@ -29,6 +33,37 @@ import {
 
 afterEach(() => {
   vi.unstubAllEnvs()
+})
+
+describe("artifacts panel drag layout", () => {
+  test("holds at the minimum width throughout the collapse resistance zone", () => {
+    expect(ARTIFACTS_PANEL_COLLAPSE_THRESHOLD_PX).toBe(ARTIFACTS_PANEL_MIN_WIDTH_PX / 2)
+    expect(artifactsPanelDragLayout(ARTIFACTS_PANEL_MIN_WIDTH_PX, 700)).toEqual({
+      collapsed: false,
+      width: ARTIFACTS_PANEL_MIN_WIDTH_PX,
+    })
+    expect(artifactsPanelDragLayout(ARTIFACTS_PANEL_COLLAPSE_THRESHOLD_PX, 700)).toEqual({
+      collapsed: false,
+      width: ARTIFACTS_PANEL_MIN_WIDTH_PX,
+    })
+  })
+
+  test("collapses only after crossing half the minimum width", () => {
+    expect(artifactsPanelDragLayout(ARTIFACTS_PANEL_COLLAPSE_THRESHOLD_PX - 1, 700)).toEqual({
+      collapsed: true,
+      width: 0,
+    })
+  })
+
+  test("still permits collapse when the minimum and maximum widths meet", () => {
+    const maxWidth = artifactsPanelMaxWidth(900, 220, false)
+    expect(maxWidth).toBe(ARTIFACTS_PANEL_MIN_WIDTH_PX)
+    expect(artifactsPanelDragLayout(ARTIFACTS_PANEL_MIN_WIDTH_PX + 100, maxWidth)).toEqual({
+      collapsed: false,
+      width: ARTIFACTS_PANEL_MIN_WIDTH_PX,
+    })
+    expect(artifactsPanelDragLayout(0, maxWidth)).toEqual({ collapsed: true, width: 0 })
+  })
 })
 
 describe("team route and scope migration", () => {

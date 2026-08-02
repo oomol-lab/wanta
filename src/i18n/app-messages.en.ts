@@ -628,11 +628,13 @@ export const enMessages = {
   "billing.popover.planMembers": "{count} members",
   "billing.popover.planSeatsLoading": "Reading member capacity",
   "billing.popover.planSeatsUnavailable": "Member count unavailable",
+  "billing.popover.teamPlanTitle": "Team collaboration plan",
+  "billing.popover.currentTeam": "Current team",
   "billing.popover.planUnavailableMeta": "Plan and seat data unavailable",
   "billing.popover.planUnavailableStatus": "Unavailable",
   "billing.popover.planUnavailableDescription":
     "The current Team plan or pending payment status could not be read. Refresh to try again.",
-  "billing.popover.sharedLinks": "{count} shared connection(s)",
+  "billing.popover.sharedLinks": "{count} connected app(s)",
   "billing.popover.upgradeHint": "Upgrade suggested",
   "billing.popover.seatLimitHint": "Seat limit",
   "billing.popover.planInactive": "Not active",
@@ -644,9 +646,11 @@ export const enMessages = {
   "billing.popover.proRecommendation":
     "Your team size or connector call frequency is getting close to the main Plus use case. Pro fits stable sharing and higher-frequency automation.",
   "billing.popover.noPlanRecommendation":
-    "Choose a Team plan to enable shared connections and team management. Extra seats can also be added separately.",
+    "Let team members share connected accounts while the creator manages members and permissions. Model, API, and connector spend still comes from the personal usage account below.",
   "billing.popover.planDescription":
-    "Team plans support collaboration and team management. Additional seats and usage balance are managed separately.",
+    "The current plan enables shared connected accounts, member collaboration, and team management. Model, API, and connector spend still comes from the personal usage account below.",
+  "billing.popover.upgradeTeamPlanAction": "Upgrade Team plan",
+  "billing.popover.upgradePlanAction": "Upgrade Team plan",
   "billing.popover.manageSeats": "Manage seats",
   "billing.summary": "Usage summary",
   "billing.availableCredits": "Personal usage account",
@@ -733,7 +737,7 @@ export const enMessages = {
   "billing.managePermission.title": "This account cannot manage this team's plan",
   "billing.managePermission.description":
     "Team plans, seats, and payments can only be managed by the team creator. Admins can still view the current status and team usage.",
-  "billing.teamSharedLinks": "Shared connections",
+  "billing.teamSharedLinks": "Connected apps",
   "billing.teamWorkspace": "Team workspace",
   "billing.teamPromotionTitle": "Current promotion",
   "billing.teamPromotionDescription": "Choose a Team plan during the promotion to keep permanent 20% off pricing.",

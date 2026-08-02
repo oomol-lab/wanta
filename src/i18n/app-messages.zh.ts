@@ -600,10 +600,12 @@ export const zhCNMessages = {
   "billing.popover.planMembers": "{count} 个成员",
   "billing.popover.planSeatsLoading": "正在读取成员容量",
   "billing.popover.planSeatsUnavailable": "成员数暂不可用",
+  "billing.popover.teamPlanTitle": "Team 协作计划",
+  "billing.popover.currentTeam": "当前团队",
   "billing.popover.planUnavailableMeta": "计划与席位数据暂不可用",
   "billing.popover.planUnavailableStatus": "暂不可用",
   "billing.popover.planUnavailableDescription": "暂时无法读取当前 Team 计划或待支付状态；刷新后会再次尝试。",
-  "billing.popover.sharedLinks": "{count} 个共享连接",
+  "billing.popover.sharedLinks": "{count} 个已连接 App",
   "billing.popover.upgradeHint": "建议升级",
   "billing.popover.seatLimitHint": "席位不足",
   "billing.popover.planInactive": "未启用",
@@ -613,8 +615,12 @@ export const zhCNMessages = {
     "当前成员数已超过计划席位容量。增加额外席位后，团队成员可以继续稳定使用 Wanta。",
   "billing.popover.proRecommendation":
     "团队人数或连接器调用频次正在接近 Plus 的主要场景，Pro 更适合稳定共享和高频自动化。",
-  "billing.popover.noPlanRecommendation": "可先选择 Team 计划启用共享连接和团队管理；额外席位也可以单独添加。",
-  "billing.popover.planDescription": "Team 计划提供成员协作和团队管理能力；额外席位、用量余额分别单独管理。",
+  "billing.popover.noPlanRecommendation":
+    "用于让团队成员共享连接账号，并由创建者统一管理成员和权限。模型、API 和连接器消耗仍从下方个人用量账户扣除。",
+  "billing.popover.planDescription":
+    "当前计划已启用连接账号共享、成员协作和团队管理。模型、API 和连接器消耗仍从下方个人用量账户扣除。",
+  "billing.popover.upgradeTeamPlanAction": "升级 Team 计划",
+  "billing.popover.upgradePlanAction": "升级 Team 计划",
   "billing.popover.manageSeats": "管理席位",
   "billing.summary": "用量概览",
   "billing.availableCredits": "个人用量账户",
@@ -700,7 +706,7 @@ export const zhCNMessages = {
   "billing.managePermission.title": "当前账号无法管理此团队的计划",
   "billing.managePermission.description":
     "Team 计划、席位和付款只能由团队创建者管理。管理员仍然可以查看当前状态和团队用量。",
-  "billing.teamSharedLinks": "共享连接",
+  "billing.teamSharedLinks": "已连接 App",
   "billing.teamWorkspace": "团队工作区",
   "billing.teamPromotionTitle": "当前活动",
   "billing.teamPromotionDescription": "活动期间选择 Team 计划，可永久保留 8 折价格。",

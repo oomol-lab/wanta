@@ -447,16 +447,18 @@ function ArtifactVideoPreview({
   source: string
 }) {
   const t = useT()
-  const [failed, setFailed] = React.useState(false)
+  const [failure, setFailure] = React.useState<"resource" | "unsupported_source" | null>(null)
 
   React.useEffect(() => {
-    setFailed(false)
+    setFailure(null)
   }, [source])
 
-  if (failed) {
+  if (failure) {
     return (
       <ArtifactUnavailablePreview
-        description={t("artifacts.videoCodecUnsupported")}
+        description={t(
+          failure === "unsupported_source" ? "artifacts.videoCodecUnsupported" : "artifacts.previewReadFailed",
+        )}
         item={item}
         pack={pack}
         preview={preview}
@@ -473,8 +475,12 @@ function ArtifactVideoPreview({
         playsInline
         preload="metadata"
         className="max-h-full max-w-full rounded-md bg-black shadow-sm"
-        onError={() => {
-          setFailed(true)
+        onError={(event) => {
+          if (event.currentTarget.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+            setFailure("unsupported_source")
+            return
+          }
+          setFailure("resource")
           onResourceError?.()
         }}
       />

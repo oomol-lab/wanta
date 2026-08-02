@@ -750,6 +750,7 @@ export default tool({
   description: "Scroll the visible integrated browser, optionally bringing a referenced element into view first.",
   args: {
     target: tool.schema.string().optional().describe("Optional snapshot ref exactly as returned by browser_read, such as e4 or f1e4, or a unique Playwright selector."),
+    deltaX: tool.schema.number().optional().describe("Horizontal CSS-pixel distance. Positive scrolls right; defaults to 0."),
     deltaY: tool.schema.number().optional().describe("Vertical CSS-pixel distance. Positive scrolls down; defaults to 600."),
   },
   async execute(args, context) {

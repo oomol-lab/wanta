@@ -22,6 +22,7 @@ export interface BrowserPageState {
   navigation: BrowserNavigationState
   sessionId: string
   visible: boolean
+  zoomFactor: number
 }
 
 export interface BrowserNavigateRequest {
@@ -31,6 +32,11 @@ export interface BrowserNavigateRequest {
 
 export interface BrowserShowRequest {
   bounds: BrowserViewBounds
+  sessionId: string
+}
+
+export interface BrowserZoomRequest {
+  factor: number
   sessionId: string
 }
 
@@ -57,6 +63,7 @@ export const BrowserService = serviceName("browser-service") as ServiceName<{
     goBack(sessionId: string): Promise<BrowserPageState>
     goForward(sessionId: string): Promise<BrowserPageState>
     reload(sessionId: string): Promise<BrowserPageState>
+    setZoomFactor(request: BrowserZoomRequest): Promise<BrowserPageState>
     openDownloadsFolder(): Promise<void>
     openInSystemBrowser(sessionId: string): Promise<void>
   }

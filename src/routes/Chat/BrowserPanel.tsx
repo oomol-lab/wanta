@@ -2,7 +2,18 @@ import type { BrowserPageState, BrowserViewBounds } from "../../../electron/brow
 import type { BrowserService } from "../../../electron/browser/common.ts"
 import type { ConnectionClientService } from "@oomol/connection"
 
-import { ArrowLeft, ArrowRight, ExternalLink, LoaderCircle, RotateCw, X } from "lucide-react"
+import {
+  ArrowLeft,
+  ArrowRight,
+  ExternalLink,
+  LoaderCircle,
+  Maximize2,
+  Minimize2,
+  RotateCw,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { useT } from "@/i18n/i18n"
@@ -11,9 +22,11 @@ import { cn } from "@/lib/utils"
 
 interface BrowserPanelProps {
   browserService: ConnectionClientService<BrowserService>
+  maximized: boolean
   sessionId: string
   state: BrowserPageState
   onClose: () => void
+  onToggleMaximized: () => void
 }
 
 const toolbarButtonClass =
@@ -23,7 +36,14 @@ function browserViewIsOccluded(root: ParentNode = document): boolean {
   return Boolean(root.querySelector('[aria-modal="true"]'))
 }
 
-export function BrowserPanel({ browserService, sessionId, state, onClose }: BrowserPanelProps) {
+export function BrowserPanel({
+  browserService,
+  maximized,
+  sessionId,
+  state,
+  onClose,
+  onToggleMaximized,
+}: BrowserPanelProps) {
   const t = useT()
   const browserSlotRef = React.useRef<HTMLDivElement | null>(null)
   const previewRequestRef = React.useRef(0)
@@ -34,17 +54,17 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
     setAddress(state.navigation.url === "about:blank" ? "" : state.navigation.url)
   }, [state.navigation.url])
 
-  const refreshPreview = React.useCallback((): void => {
+  const capturePreview = React.useCallback(async (): Promise<void> => {
     const request = ++previewRequestRef.current
-    void browserService
-      .invoke("capturePreview", sessionId)
-      .then((preview) => {
-        if (request === previewRequestRef.current) setPreviewDataUrl(preview)
-      })
-      .catch((cause: unknown) => {
-        reportRendererHandledError("browser", "capture browser modal backdrop preview failed", cause)
-      })
+    const preview = await browserService.invoke("capturePreview", sessionId)
+    if (request === previewRequestRef.current) setPreviewDataUrl(preview)
   }, [browserService, sessionId])
+
+  const refreshPreview = React.useCallback((): void => {
+    void capturePreview().catch((cause: unknown) => {
+      reportRendererHandledError("browser", "capture browser modal backdrop preview failed", cause)
+    })
+  }, [capturePreview])
 
   React.useEffect(() => {
     previewRequestRef.current += 1
@@ -62,7 +82,7 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
     let frame: number | null = null
     let visibilityRevision = 0
     let visibilityTransition = Promise.resolve()
-    const enqueueVisibility = (visible: boolean, bounds?: BrowserViewBounds): void => {
+    const enqueueVisibility = (visible: boolean, bounds?: BrowserViewBounds, captureBeforeHide = true): void => {
       const revision = ++visibilityRevision
       visibilityTransition = visibilityTransition
         .then(async () => {
@@ -73,6 +93,10 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
             return
           }
           await browserService.invoke("hide", sessionId)
+          if (revision !== visibilityRevision || !captureBeforeHide) return
+          void capturePreview().catch((cause: unknown) => {
+            reportRendererHandledError("browser", "capture hidden browser preview failed", cause)
+          })
         })
         .catch((cause: unknown) => {
           reportRendererHandledError(
@@ -124,9 +148,9 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
       overlayObserver.disconnect()
       window.removeEventListener("resize", scheduleShow)
       if (frame !== null) window.cancelAnimationFrame(frame)
-      enqueueVisibility(false)
+      enqueueVisibility(false, undefined, false)
     }
-  }, [browserService, refreshPreview, sessionId])
+  }, [browserService, capturePreview, refreshPreview, sessionId])
 
   const runNavigationAction = React.useCallback(
     (action: "goBack" | "goForward" | "reload"): void => {
@@ -155,6 +179,16 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
       toast.error(t("browser.actionFailed"))
     })
   }, [browserService, sessionId, t])
+
+  const setZoomFactor = React.useCallback(
+    (factor: number): void => {
+      void browserService.invoke("setZoomFactor", { factor, sessionId }).catch((cause: unknown) => {
+        reportRendererHandledError("browser", "set browser zoom failed", cause)
+        toast.error(t("browser.actionFailed"))
+      })
+    },
+    [browserService, sessionId, t],
+  )
 
   return (
     <section className="flex h-full min-h-0 flex-col border-l border-border bg-background">
@@ -198,6 +232,49 @@ export function BrowserPanel({ browserService, sessionId, state, onClose }: Brow
             onChange={(event) => setAddress(event.currentTarget.value)}
           />
         </form>
+        {maximized ? (
+          <>
+            <button
+              type="button"
+              className={toolbarButtonClass}
+              disabled={state.zoomFactor <= 0.25}
+              title={t("browser.zoomOut")}
+              aria-label={t("browser.zoomOut")}
+              onClick={() => setZoomFactor(state.zoomFactor - 0.1)}
+            >
+              <ZoomOut className="size-4" />
+            </button>
+            <button
+              type="button"
+              className="oo-toolbar-button h-8 min-w-11 shrink-0 rounded-md px-1 text-xs [-webkit-app-region:no-drag] hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
+              title={t("browser.resetZoom")}
+              aria-label={t("browser.resetZoom")}
+              onClick={() => setZoomFactor(1)}
+            >
+              {Math.round(state.zoomFactor * 100)}%
+            </button>
+            <button
+              type="button"
+              className={toolbarButtonClass}
+              disabled={state.zoomFactor >= 2}
+              title={t("browser.zoomIn")}
+              aria-label={t("browser.zoomIn")}
+              onClick={() => setZoomFactor(state.zoomFactor + 0.1)}
+            >
+              <ZoomIn className="size-4" />
+            </button>
+          </>
+        ) : null}
+        <button
+          type="button"
+          className={toolbarButtonClass}
+          title={maximized ? t("browser.restore") : t("browser.maximize")}
+          aria-label={maximized ? t("browser.restore") : t("browser.maximize")}
+          aria-pressed={maximized}
+          onClick={onToggleMaximized}
+        >
+          {maximized ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+        </button>
         <button
           type="button"
           className={toolbarButtonClass}

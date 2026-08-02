@@ -103,6 +103,9 @@ effective light or dark theme. Electron also exposes that theme to compatible pa
 `prefers-color-scheme`. Wanta does not inject replacement colors into arbitrary websites or
 override a site's own saved theme preference.
 
+The visible panel supports maximization and manual page zoom. Agent scrolling accepts independent
+horizontal and vertical distances.
+
 OpenCode custom tools call a small authenticated loopback bridge because the agent sidecar cannot
 import Electron. The runtime-supplied OpenCode session ID is mapped to the Wanta chat session on the
 server; the model cannot select another task's page.

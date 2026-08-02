@@ -110,6 +110,10 @@ Stop and ask before adding any of the following:
   chase the renderer layout. Browser and artifact widths are now independent, the browser defaults
   to 480 px when the window permits it, window resize only clamps the visible width, and browser
   layout does not animate across the native-view boundary.
+- The browser panel can use the full content area, exposes 25%-200% page zoom when maximized, and
+  keeps ordinary 100% rendering as the default. Browser tool scrolling accepts independent
+  horizontal and vertical distances. Generated HTML guidance requires a resizable viewport and
+  forbids root overflow clipping unless a fixed non-scrollable canvas was explicitly requested.
 - Renderer modal backdrops cannot composite above Electron's native `WebContentsView`. The browser
   panel keeps a current viewport snapshot beneath the native page; while any renderer surface
   reports `aria-modal="true"`, it hides only the native view so the backdrop dims that snapshot,

@@ -28,10 +28,20 @@ describe("browser control request", () => {
     expect(
       parseBrowserControlRequest({
         action: "scroll",
-        args: { deltaY: 50_000 },
+        args: { deltaX: -50_000, deltaY: 50_000 },
         sessionId: "session",
       }),
-    ).toMatchObject({ deltaY: 5_000 })
+    ).toMatchObject({ deltaX: -5_000, deltaY: 5_000 })
+  })
+
+  it("keeps backward-compatible scroll defaults", () => {
+    expect(
+      parseBrowserControlRequest({
+        action: "scroll",
+        args: {},
+        sessionId: "session",
+      }),
+    ).toMatchObject({ deltaX: 0, deltaY: 600 })
   })
 })
 

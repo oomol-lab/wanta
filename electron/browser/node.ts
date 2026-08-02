@@ -4,6 +4,7 @@ import type {
   BrowserPageState,
   BrowserService,
   BrowserShowRequest,
+  BrowserZoomRequest,
 } from "./common.ts"
 import type { BrowserReadResult, BrowserTypeInput } from "./page.ts"
 import type { IConnectionService } from "@oomol/connection"
@@ -16,7 +17,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { BrowserService as BrowserServiceName } from "./common.ts"
-import { BrowserPage } from "./page.ts"
+import { BrowserPage, browserZoomOrigin, normalizeBrowserZoomFactor } from "./page.ts"
 import { normalizeBrowserBounds } from "./policy.ts"
 
 const maxLivePages = 3
@@ -26,7 +27,7 @@ export type BrowserControlRequest =
   | { action: "read"; sessionId: string; target?: string }
   | { action: "click"; sessionId: string; target: string }
   | ({ action: "type"; sessionId: string } & BrowserTypeInput)
-  | { action: "scroll"; deltaY: number; sessionId: string; target?: string }
+  | { action: "scroll"; deltaX: number; deltaY: number; sessionId: string; target?: string }
   | { action: "screenshot"; fullPage: boolean; sessionId: string }
   | { accept: boolean; action: "dialog"; promptText?: string; sessionId: string }
 
@@ -70,6 +71,7 @@ export class BrowserManager {
   private profileVersion = 0
   private readonly screenshotDir: string
   private visibleSessionId: string | null = null
+  private readonly zoomFactorsByOrigin = new Map<string, number>()
 
   public constructor(options: BrowserServiceOptions) {
     this.downloadsDir = options.downloadsDir
@@ -90,6 +92,7 @@ export class BrowserManager {
     this.enabled = enabled
     if (enabled) return
 
+    this.zoomFactorsByOrigin.clear()
     this.profileVersion += 1
     const reset = this.disposePages()
     this.profileReset = reset
@@ -100,6 +103,7 @@ export class BrowserManager {
     const next = scope?.trim() || "local"
     if (next === this.profileScope) return
     this.profileScope = next
+    this.zoomFactorsByOrigin.clear()
     this.profileVersion += 1
     this.partitionSession = null
     const reset = this.disposePages()
@@ -121,6 +125,7 @@ export class BrowserManager {
 
   public async clearData(): Promise<void> {
     const partitionSession = this.getPartitionSession()
+    this.zoomFactorsByOrigin.clear()
     this.profileVersion += 1
     const reset = (async () => {
       await this.disposePages()
@@ -191,6 +196,20 @@ export class BrowserManager {
     return state
   }
 
+  public setZoomFactor(request: BrowserZoomRequest): Promise<BrowserPageState> {
+    const page = this.pages.get(request.sessionId)?.page
+    if (!page || page.isCrashed()) throw new Error("The browser page is unavailable.")
+    const factor = normalizeBrowserZoomFactor(request.factor)
+    const origin = browserZoomOrigin(page.state().navigation.url)
+    if (!origin) return Promise.resolve(page.setZoomFactor(factor))
+
+    this.zoomFactorsByOrigin.set(origin, factor)
+    for (const entry of this.pages.values()) {
+      if (browserZoomOrigin(entry.page.state().navigation.url) === origin) entry.page.setZoomFactor(factor)
+    }
+    return Promise.resolve(page.state())
+  }
+
   public async openInSystemBrowser(sessionId: string): Promise<void> {
     const state = this.pages.get(sessionId)?.page.state()
     if (!state?.navigation.url || state.navigation.url === "about:blank") return
@@ -216,7 +235,7 @@ export class BrowserManager {
       case "type":
         return page.type(request, signal)
       case "scroll":
-        return page.scroll(request.target, request.deltaY, signal)
+        return page.scroll(request.target, request.deltaX, request.deltaY, signal)
       case "screenshot":
         return this.captureScreenshot(page, request.fullPage, signal)
       case "dialog":
@@ -289,6 +308,10 @@ export class BrowserManager {
         partitionSession: this.getPartitionSession(),
         sessionId: normalizedSessionId,
         stateChanged: (state) => this.emitState(state),
+        zoomFactorForUrl: (url) => {
+          const origin = browserZoomOrigin(url)
+          return origin ? (this.zoomFactorsByOrigin.get(origin) ?? 1) : undefined
+        },
       })
       this.pages.set(normalizedSessionId, { lastUsedAt: Date.now(), page })
       try {
@@ -452,6 +475,10 @@ export class BrowserServiceImpl
 
   public reload(sessionId: string): Promise<BrowserPageState> {
     return this.browser.reload(sessionId)
+  }
+
+  public setZoomFactor(request: BrowserZoomRequest): Promise<BrowserPageState> {
+    return this.browser.setZoomFactor(request)
   }
 
   public openDownloadsFolder(): Promise<void> {

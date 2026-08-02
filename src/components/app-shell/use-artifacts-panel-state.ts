@@ -269,16 +269,23 @@ export function useArtifactsPanelState({
         artifactsPanelResizeFrame.current = window.requestAnimationFrame(flushArtifactsPanelWidth)
       }
     }
-    const handlePointerUp = (): void => {
+    const finishResize = (): void => {
       if (artifactsPanelResizeFrame.current !== null) {
         window.cancelAnimationFrame(artifactsPanelResizeFrame.current)
         artifactsPanelResizeFrame.current = null
       }
+      artifactsPanelPendingRawWidth.current = null
+      artifactsPanelPendingWidth.current = null
+      clearArtifactsPanelContentWidth()
+      artifactsPanelResizeStart.current = null
+      setIsArtifactsPanelResizing(false)
+      setArtifactsPanelDragCollapsedState(false)
+      setArtifactsPanelDragWidth(null)
+    }
+    const handlePointerUp = (): void => {
       const rawWidth = artifactsPanelPendingRawWidth.current
       const width = artifactsPanelPendingWidth.current
       const collapsed = rawWidth !== null && artifactsPanelDragLayout(rawWidth, artifactsPanelMaxWidthValue).collapsed
-      artifactsPanelPendingRawWidth.current = null
-      artifactsPanelPendingWidth.current = null
       if (collapsed) {
         if (artifactsPanelResizeStart.current?.browser) {
           closeBrowserPanel()
@@ -294,16 +301,19 @@ export function useArtifactsPanelState({
           setArtifactsPanelWidth(width)
         }
       }
-      clearArtifactsPanelContentWidth()
-      artifactsPanelResizeStart.current = null
-      setIsArtifactsPanelResizing(false)
-      setArtifactsPanelDragCollapsedState(false)
-      setArtifactsPanelDragWidth(null)
+      finishResize()
+    }
+    const handlePointerCancel = (): void => {
+      const startWidth = artifactsPanelResizeStart.current?.width
+      if (startWidth !== undefined) {
+        applyArtifactsPanelShellWidth(startWidth)
+      }
+      finishResize()
     }
 
     window.addEventListener("pointermove", handlePointerMove)
     window.addEventListener("pointerup", handlePointerUp, { once: true })
-    window.addEventListener("pointercancel", handlePointerUp, { once: true })
+    window.addEventListener("pointercancel", handlePointerCancel, { once: true })
     return () => {
       if (artifactsPanelResizeFrame.current !== null) {
         window.cancelAnimationFrame(artifactsPanelResizeFrame.current)
@@ -316,7 +326,7 @@ export function useArtifactsPanelState({
       setArtifactsPanelDragWidth(null)
       window.removeEventListener("pointermove", handlePointerMove)
       window.removeEventListener("pointerup", handlePointerUp)
-      window.removeEventListener("pointercancel", handlePointerUp)
+      window.removeEventListener("pointercancel", handlePointerCancel)
     }
   }, [
     applyArtifactsPanelShellWidth,

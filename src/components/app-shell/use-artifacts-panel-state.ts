@@ -5,6 +5,7 @@ import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
 
 import * as React from "react"
 import {
+  artifactsPanelDragLayout,
   artifactsPanelMaxWidth,
   ARTIFACTS_PANEL_MIN_WIDTH_PX,
   ARTIFACTS_PANEL_WIDTH_STORAGE_KEY,
@@ -26,6 +27,7 @@ interface UseArtifactsPanelStateOptions {
   activeSessionId: string | null
   appChromeRef: React.RefObject<HTMLDivElement | null>
   browserPanelVisible: boolean
+  closeBrowserPanel: () => void
   route: Route
   setIsSidebarRestoring: React.Dispatch<React.SetStateAction<boolean>>
   setSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>
@@ -50,6 +52,7 @@ interface UseArtifactsPanelStateResult {
   handleTurnOutputOpen: (selection: TurnOutputSelection) => void
   hasPanelSelection: boolean
   isArtifactsPanelResizing: boolean
+  isArtifactsPanelDragCollapsed: boolean
   latestArtifactSelection: ArtifactSelection | null
   rightPanelVisible: boolean
   setArtifactsPanelOpen: React.Dispatch<React.SetStateAction<boolean>>
@@ -62,6 +65,7 @@ export function useArtifactsPanelState({
   activeSessionId,
   appChromeRef,
   browserPanelVisible,
+  closeBrowserPanel,
   route,
   setIsSidebarRestoring,
   setSidebarCollapsed,
@@ -77,6 +81,8 @@ export function useArtifactsPanelState({
   const [browserPanelWidth, setBrowserPanelWidth] = React.useState(readStoredBrowserPanelWidth)
   const [artifactsPanelMaxWidthState, setArtifactsPanelMaxWidthState] = React.useState<number | null>(null)
   const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
+  const [isArtifactsPanelDragCollapsed, setIsArtifactsPanelDragCollapsed] = React.useState(false)
+  const [artifactsPanelDragWidth, setArtifactsPanelDragWidth] = React.useState<number | null>(null)
   const artifactsPanelResizeStart = React.useRef<{
     browser: boolean
     pointerX: number
@@ -84,6 +90,8 @@ export function useArtifactsPanelState({
   } | null>(null)
   const artifactsPanelResizeFrame = React.useRef<number | null>(null)
   const artifactsPanelPendingWidth = React.useRef<number | null>(null)
+  const artifactsPanelPendingRawWidth = React.useRef<number | null>(null)
+  const artifactsPanelDragCollapsedRef = React.useRef(false)
   const artifactsPanelSidebarRestore = React.useRef<boolean | null>(null)
   const sidebarCollapsedRef = React.useRef(sidebarCollapsed)
   const artifactsPanelShellRef = React.useRef<HTMLDivElement | null>(null)
@@ -93,13 +101,11 @@ export function useArtifactsPanelState({
   const turnOutputSelection = panelSelection.kind === "turnOutput" ? panelSelection.selection : null
   const hasPanelSelection = panelSelection.kind !== "empty"
   const artifactsPanelVisible = route === "chat" && artifactsPanelOpen && hasPanelSelection && !browserPanelVisible
-  const rightPanelVisible = browserPanelVisible || artifactsPanelVisible
+  const rightPanelVisible = (browserPanelVisible || artifactsPanelVisible) && !isArtifactsPanelDragCollapsed
   const artifactsPanelIsMaximized = rightPanelVisible && artifactsPanelMaximized
   const preferredRightPanelWidth = browserPanelVisible ? browserPanelWidth : artifactsPanelWidth
-  const visibleRightPanelWidth = clampArtifactsPanelWidthForLayout(
-    preferredRightPanelWidth,
-    artifactsPanelMaxWidthValue,
-  )
+  const visibleRightPanelWidth =
+    artifactsPanelDragWidth ?? clampArtifactsPanelWidthForLayout(preferredRightPanelWidth, artifactsPanelMaxWidthValue)
 
   React.useEffect(() => {
     sidebarCollapsedRef.current = sidebarCollapsed
@@ -129,6 +135,11 @@ export function useArtifactsPanelState({
     if (element) {
       element.style.removeProperty("width")
     }
+  }, [])
+
+  const setArtifactsPanelDragCollapsedState = React.useCallback((collapsed: boolean): void => {
+    artifactsPanelDragCollapsedRef.current = collapsed
+    setIsArtifactsPanelDragCollapsed(collapsed)
   }, [])
 
   const restoreSidebarAfterArtifactsMaximize = React.useCallback((): void => {
@@ -237,9 +248,23 @@ export function useArtifactsPanelState({
       if (!start) {
         return
       }
-      artifactsPanelPendingWidth.current = clampArtifactsPanelWidthToLayout(
-        start.width + start.pointerX - event.clientX,
-      )
+      const rawWidth = start.width + start.pointerX - event.clientX
+      const layout = artifactsPanelDragLayout(rawWidth, artifactsPanelMaxWidthValue)
+      artifactsPanelPendingRawWidth.current = rawWidth
+      artifactsPanelPendingWidth.current = layout.width
+
+      if (layout.collapsed !== artifactsPanelDragCollapsedRef.current) {
+        if (artifactsPanelResizeFrame.current !== null) {
+          window.cancelAnimationFrame(artifactsPanelResizeFrame.current)
+          artifactsPanelResizeFrame.current = null
+        }
+        setArtifactsPanelDragCollapsedState(layout.collapsed)
+        if (layout.collapsed) {
+          return
+        }
+        setArtifactsPanelDragWidth(layout.width)
+        applyArtifactsPanelShellWidth(layout.width)
+      }
       if (artifactsPanelResizeFrame.current === null) {
         artifactsPanelResizeFrame.current = window.requestAnimationFrame(flushArtifactsPanelWidth)
       }
@@ -249,9 +274,19 @@ export function useArtifactsPanelState({
         window.cancelAnimationFrame(artifactsPanelResizeFrame.current)
         artifactsPanelResizeFrame.current = null
       }
+      const rawWidth = artifactsPanelPendingRawWidth.current
       const width = artifactsPanelPendingWidth.current
+      const collapsed = rawWidth !== null && artifactsPanelDragLayout(rawWidth, artifactsPanelMaxWidthValue).collapsed
+      artifactsPanelPendingRawWidth.current = null
       artifactsPanelPendingWidth.current = null
-      if (width !== null) {
+      if (collapsed) {
+        if (artifactsPanelResizeStart.current?.browser) {
+          closeBrowserPanel()
+        } else {
+          setArtifactsPanelOpen(false)
+        }
+        setArtifactsPanelMaximized(false)
+      } else if (width !== null) {
         applyArtifactsPanelShellWidth(width)
         if (artifactsPanelResizeStart.current?.browser) {
           setBrowserPanelWidth(width)
@@ -262,6 +297,8 @@ export function useArtifactsPanelState({
       clearArtifactsPanelContentWidth()
       artifactsPanelResizeStart.current = null
       setIsArtifactsPanelResizing(false)
+      setArtifactsPanelDragCollapsedState(false)
+      setArtifactsPanelDragWidth(null)
     }
 
     window.addEventListener("pointermove", handlePointerMove)
@@ -273,16 +310,21 @@ export function useArtifactsPanelState({
         artifactsPanelResizeFrame.current = null
       }
       artifactsPanelPendingWidth.current = null
+      artifactsPanelPendingRawWidth.current = null
       clearArtifactsPanelContentWidth()
+      setArtifactsPanelDragCollapsedState(false)
+      setArtifactsPanelDragWidth(null)
       window.removeEventListener("pointermove", handlePointerMove)
       window.removeEventListener("pointerup", handlePointerUp)
       window.removeEventListener("pointercancel", handlePointerUp)
     }
   }, [
     applyArtifactsPanelShellWidth,
-    clampArtifactsPanelWidthToLayout,
+    artifactsPanelMaxWidthValue,
     clearArtifactsPanelContentWidth,
+    closeBrowserPanel,
     isArtifactsPanelResizing,
+    setArtifactsPanelDragCollapsedState,
   ])
 
   React.useEffect(() => {
@@ -312,6 +354,10 @@ export function useArtifactsPanelState({
         pointerX: event.clientX,
         width: dragStartWidth,
       }
+      artifactsPanelPendingRawWidth.current = dragStartWidth
+      artifactsPanelPendingWidth.current = dragStartWidth
+      setArtifactsPanelDragCollapsedState(false)
+      setArtifactsPanelDragWidth(null)
       setIsArtifactsPanelResizing(true)
     },
     [
@@ -320,6 +366,7 @@ export function useArtifactsPanelState({
       browserPanelVisible,
       freezeArtifactsPanelContentWidth,
       rightPanelVisible,
+      setArtifactsPanelDragCollapsedState,
       visibleRightPanelWidth,
     ],
   )
@@ -404,6 +451,7 @@ export function useArtifactsPanelState({
     handleTurnOutputOpen,
     hasPanelSelection,
     isArtifactsPanelResizing,
+    isArtifactsPanelDragCollapsed,
     latestArtifactSelection,
     rightPanelVisible,
     setArtifactsPanelOpen: setArtifactsPanelOpenState,

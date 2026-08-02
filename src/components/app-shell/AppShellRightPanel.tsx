@@ -29,6 +29,7 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
   handleArtifactsPanelResizeKeyDown,
   handleArtifactsPanelResizeStart,
   isArtifactsPanelResizing,
+  isArtifactsPanelDragCollapsed,
   onCloseBrowser,
   rightPanelVisible,
   setArtifactsPanelMaximizedState,
@@ -48,6 +49,7 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
   handleArtifactsPanelResizeKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
   handleArtifactsPanelResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void
   isArtifactsPanelResizing: boolean
+  isArtifactsPanelDragCollapsed: boolean
   onCloseBrowser: () => void
   rightPanelVisible: boolean
   setArtifactsPanelMaximizedState: (maximized: boolean) => void
@@ -64,7 +66,7 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
         "oo-artifacts-panel-shell relative min-h-0",
         artifactsPanelIsMaximized ? "min-w-0 flex-1 shrink" : "shrink-0",
         artifactsPanelIsMaximized && "oo-artifacts-panel-maximized",
-        isArtifactsPanelResizing || browserPanelVisible
+        (isArtifactsPanelResizing || browserPanelVisible) && !isArtifactsPanelDragCollapsed
           ? "transition-none"
           : "transition-[width,opacity,transform] duration-200 ease-out",
         rightPanelVisible ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-3 opacity-0",

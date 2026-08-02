@@ -622,6 +622,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     handleTurnOutputOpen,
     hasPanelSelection,
     isArtifactsPanelResizing,
+    isArtifactsPanelDragCollapsed,
     latestArtifactSelection,
     rightPanelVisible,
     setArtifactsPanelOpen,
@@ -632,6 +633,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     activeSessionId: activeChatSessionId,
     appChromeRef,
     browserPanelVisible,
+    closeBrowserPanel,
     route,
     setIsSidebarRestoring,
     setSidebarCollapsed,
@@ -2160,6 +2162,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           handleArtifactsPanelResizeKeyDown={handleArtifactsPanelResizeKeyDown}
           handleArtifactsPanelResizeStart={handleArtifactsPanelResizeStart}
           isArtifactsPanelResizing={isArtifactsPanelResizing}
+          isArtifactsPanelDragCollapsed={isArtifactsPanelDragCollapsed}
           onCloseBrowser={closeBrowserPanel}
           rightPanelVisible={rightPanelVisible}
           setArtifactsPanelMaximizedState={setArtifactsPanelMaximizedState}

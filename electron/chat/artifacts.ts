@@ -129,6 +129,10 @@ export function mimeFromPath(filePath: string): string {
       return "audio/wav"
     case "webm":
       return "video/webm"
+    case "avi":
+      return "video/x-msvideo"
+    case "mkv":
+      return "video/x-matroska"
     case "m4v":
       return "video/mp4"
     case "mov":

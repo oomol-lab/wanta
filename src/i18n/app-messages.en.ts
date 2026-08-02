@@ -1065,6 +1065,8 @@ export const enMessages = {
   "artifacts.previewReadFailed": "Wanta could not read this file. You can still open it with a system app.",
   "artifacts.previewTooLarge": "This file is too large to preview in Wanta. You can open it with a system app.",
   "artifacts.previewUnsupported": "{type} files can be opened with a system app.",
+  "artifacts.videoCodecUnsupported":
+    "This video's format or codec cannot be played in Wanta. You can open it with a system app.",
   "artifacts.htmlPreviewTruncated":
     "This HTML file is large, so the embedded preview may be incomplete. View the source or open the full file in your browser.",
   "artifacts.pdfPage": "Page {page}/{total}",

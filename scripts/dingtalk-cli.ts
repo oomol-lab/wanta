@@ -1,3 +1,4 @@
+import JSZip from "jszip"
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
@@ -5,7 +6,6 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { gunzipSync } from "node:zlib"
-import JSZip from "jszip"
 import { fetchWithRetry } from "./network-download.ts"
 import { extractFileFromTar } from "./oo-cli.ts"
 
@@ -52,11 +52,18 @@ export function resolveDingTalkCliTarget(
   if (upstreamArch !== "amd64" && upstreamArch !== "arm64") {
     throw new Error(`No prebuilt DingTalk CLI binary is available for ${platform} ${arch}.`)
   }
-  if (platform === "darwin" || platform === "linux") {
+  if (platform === "darwin") {
     return {
       archiveKind: "tar.gz",
       assetName: `dws-${platform}-${upstreamArch}.tar.gz`,
       binaryPath: "./dws",
+    }
+  }
+  if (platform === "linux") {
+    return {
+      archiveKind: "tar.gz",
+      assetName: `dws-${platform}-${upstreamArch}.tar.gz`,
+      binaryPath: "dws",
     }
   }
   if (platform === "win32") {
@@ -150,7 +157,9 @@ export async function downloadDingTalkCliBinary(): Promise<string> {
     const parsed = JSON.parse(result.stdout) as { version?: unknown }
     const reported = typeof parsed.version === "string" ? parsed.version.replace(/^v/u, "") : ""
     if (reported !== DINGTALK_CLI_VERSION) {
-      throw new Error(`Downloaded DingTalk CLI reports ${reported || "an unreadable version"}; expected ${DINGTALK_CLI_VERSION}`)
+      throw new Error(
+        `Downloaded DingTalk CLI reports ${reported || "an unreadable version"}; expected ${DINGTALK_CLI_VERSION}`,
+      )
     }
     await rename(temporary, destination)
   } finally {

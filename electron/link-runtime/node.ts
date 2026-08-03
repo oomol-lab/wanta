@@ -17,9 +17,9 @@ import path from "node:path"
 import { atomicWriteText } from "../atomic-file.ts"
 import { ServiceEvent } from "../service-events.ts"
 import { LinkRuntimeService as LinkRuntimeServiceName } from "./common.ts"
+import { DingTalkCliManager } from "./dingtalk-cli.ts"
 import { LarkCliManager } from "./lark-cli.ts"
 import { WecomCliManager } from "./wecom-cli.ts"
-import { DingTalkCliManager } from "./dingtalk-cli.ts"
 
 export interface RuntimeCredentialEncryption {
   decryptString(encrypted: Buffer): string

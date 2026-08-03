@@ -8,7 +8,11 @@ describe("DingTalk CLI packaging", () => {
       assetName: "dws-darwin-arm64.tar.gz",
       binaryPath: "./dws",
     })
-    expect(resolveDingTalkCliTarget("linux", "x64").assetName).toBe("dws-linux-amd64.tar.gz")
+    expect(resolveDingTalkCliTarget("linux", "x64")).toEqual({
+      archiveKind: "tar.gz",
+      assetName: "dws-linux-amd64.tar.gz",
+      binaryPath: "dws",
+    })
     expect(resolveDingTalkCliTarget("win32", "arm64")).toEqual({
       archiveKind: "zip",
       assetName: "dws-windows-arm64.zip",

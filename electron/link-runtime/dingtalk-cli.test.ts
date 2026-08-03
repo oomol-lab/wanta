@@ -42,7 +42,7 @@ describe("DingTalk CLI state", () => {
 
   test("redacts authorization URLs and credentials", () => {
     const message = redactDingTalkCliError(
-      'open https://login.dingtalk.com/oauth2/auth?code=secret access_token=secret',
+      "open https://login.dingtalk.com/oauth2/auth?code=secret access_token=secret",
       1,
       null,
     )

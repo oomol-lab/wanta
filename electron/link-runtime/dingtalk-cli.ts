@@ -287,11 +287,10 @@ export class DingTalkCliManager {
 
   private runAuthorizationCommand(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const child = spawn(
-        this.binaryPath,
-        ["auth", "login", "--yes", "--format", "json", "--no-browser"],
-        { env: this.environment(), stdio: ["ignore", "pipe", "pipe"] },
-      )
+      const child = spawn(this.binaryPath, ["auth", "login", "--yes", "--format", "json", "--no-browser"], {
+        env: this.environment(),
+        stdio: ["ignore", "pipe", "pipe"],
+      })
       this.activeChild = child
       let output = ""
       let openedUrl: string | null = null
@@ -352,9 +351,11 @@ export function parseDingTalkAuthStatus(value: unknown): DingTalkAuthStatus {
     authenticated,
     connection: authenticated ? "connected" : expired ? "expired" : "disconnected",
     ...(corpId && userId ? { profile: `${corpId}:${userId}` } : {}),
-    ...(accountLabel(corpName, userName, corpId, userId) ? {
-      accountLabel: accountLabel(corpName, userName, corpId, userId),
-    } : {}),
+    ...(accountLabel(corpName, userName, corpId, userId)
+      ? {
+          accountLabel: accountLabel(corpName, userName, corpId, userId),
+        }
+      : {}),
   }
 }
 
@@ -383,7 +384,10 @@ export function extractOfficialDingTalkAuthorizationUrl(output: string): string 
 export function redactDingTalkCliError(output: string, code?: number | null, signal?: NodeJS.Signals | null): string {
   const redacted = output
     .replaceAll(/https:\/\/[^\s"'<>]+/gu, "[authorization-url]")
-    .replaceAll(/("?(?:client_secret|access_token|refresh_token|authCode|code)"?\s*[:=]\s*)[^\s,}\]]+/giu, "$1[redacted]")
+    .replaceAll(
+      /("?(?:client_secret|access_token|refresh_token|authCode|code)"?\s*[:=]\s*)[^\s,}\]]+/giu,
+      "$1[redacted]",
+    )
     .trim()
   const suffix = code === undefined ? "" : ` (exit ${code ?? "null"}${signal ? `, ${signal}` : ""})`
   return `${redacted || "DingTalk CLI command failed"}${suffix}`

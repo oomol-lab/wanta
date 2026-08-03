@@ -1,8 +1,4 @@
-import {
-  DINGTALK_CLI_VERSION,
-  downloadDingTalkCliBinary,
-  exportDingTalkCliSkills,
-} from "./dingtalk-cli.ts"
+import { DINGTALK_CLI_VERSION, downloadDingTalkCliBinary, exportDingTalkCliSkills } from "./dingtalk-cli.ts"
 
 try {
   const [binary, skills] = await Promise.all([downloadDingTalkCliBinary(), exportDingTalkCliSkills()])

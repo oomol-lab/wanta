@@ -76,6 +76,30 @@ const networkEnvironmentKeys = [
   "CURL_CA_BUNDLE",
 ] as const
 
+const managedDirectCliEnvironmentNames = new Set([
+  "DWS_CONFIG_DIR",
+  "DWS_KEYCHAIN_DIR",
+  "LARKSUITE_CLI_CONFIG_DIR",
+  "LARKSUITE_CLI_NO_SKILLS_NOTIFIER",
+  "LARKSUITE_CLI_NO_UPDATE_NOTIFIER",
+  "WANTA_DINGTALK_CLI_BIN",
+  "WANTA_LARK_CLI_BIN",
+  "WANTA_WECOM_CLI_BIN",
+  "WECOM_CLI_CONFIG_DIR",
+  "WECOM_CLI_TMP_DIR",
+])
+
+export function sanitizeInheritedDirectCliEnvironment(
+  environment: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  for (const name of Object.keys(environment)) {
+    const normalized = platform === "win32" ? name.toUpperCase() : name
+    if (managedDirectCliEnvironmentNames.has(normalized)) delete environment[name]
+  }
+  return environment
+}
+
 interface ProxyEndpoint {
   host: string
   port: string
@@ -421,8 +445,9 @@ export class OpencodeSidecar {
       throw new Error("OpencodeSidecar disposed during startup")
     }
 
+    const inheritedEnvironment = sanitizeInheritedDirectCliEnvironment({ ...process.env })
     const baseChildEnv: NodeJS.ProcessEnv = {
-      ...process.env,
+      ...inheritedEnvironment,
       ...env,
       // 外部 agent skill 由 SkillService 扫描后同步到私有 workspace；sidecar 不直接扫全局根，避免同名旧副本抢占。
       OPENCODE_DISABLE_EXTERNAL_SKILLS: "1",

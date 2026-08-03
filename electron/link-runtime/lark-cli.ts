@@ -65,6 +65,7 @@ export class LarkCliManager {
   private operation: { kind: "connect" | "disconnect"; promise: Promise<LarkCliState> } | null = null
   private activeChild: ChildProcess | null = null
   private cancelRequested = false
+  private runtimeStateObserved = false
   private state: LarkCliState = {
     activeVersion: null,
     available: false,
@@ -86,8 +87,9 @@ export class LarkCliManager {
     this.rootDir = options.rootDir
   }
 
-  public async getState(): Promise<LarkCliState> {
+  public async getState(options: { notifyRuntimeChange?: boolean } = {}): Promise<LarkCliState> {
     if (this.operation) return this.state
+    const previousConnection = this.state.connection
     try {
       const bundle = await this.resolveActiveBundle()
       const auth = await this.readAuthState(bundle.binaryPath)
@@ -111,6 +113,7 @@ export class LarkCliManager {
         phase: "idle",
       }
     }
+    this.observeRuntimeState(previousConnection, options.notifyRuntimeChange ?? true)
     return this.state
   }
 
@@ -182,7 +185,7 @@ export class LarkCliManager {
 
   /** Expose the managed CLI to the Agent only while its isolated identity is connected. */
   public async agentRuntime(): Promise<ActiveBundle | null> {
-    const state = await this.getState()
+    const state = await this.getState({ notifyRuntimeChange: false })
     if (state.connection !== "connected") return null
     return this.availableRuntime()
   }
@@ -234,7 +237,8 @@ export class LarkCliManager {
       phase: "idle",
     }
     this.stateChanged.emit(this.state)
-    void Promise.resolve(this.onRuntimeChanged?.()).catch(() => undefined)
+    this.runtimeStateObserved = true
+    this.notifyRuntimeChanged()
     return this.state
   }
 
@@ -250,13 +254,24 @@ export class LarkCliManager {
       phase: "idle",
     }
     this.stateChanged.emit(this.state)
-    void Promise.resolve(this.onRuntimeChanged?.()).catch(() => undefined)
+    this.runtimeStateObserved = true
+    this.notifyRuntimeChanged()
     return this.state
   }
 
   private setState(patch: Partial<LarkCliState>): void {
     this.state = { ...this.state, ...patch }
     this.stateChanged.emit(this.state)
+  }
+
+  private observeRuntimeState(previousConnection: LarkCliState["connection"], notify: boolean): void {
+    const changed = this.runtimeStateObserved && previousConnection !== this.state.connection
+    this.runtimeStateObserved = true
+    if (changed && notify) this.notifyRuntimeChanged()
+  }
+
+  private notifyRuntimeChanged(): void {
+    void Promise.resolve(this.onRuntimeChanged?.()).catch(() => undefined)
   }
 
   private assertNotCancelled(): void {

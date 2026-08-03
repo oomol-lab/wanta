@@ -28,6 +28,7 @@ import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { planAttachmentInputs } from "./attachment-input.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
+import { ensureDirectCliCommandBin } from "./direct-cli-bin.ts"
 import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
 import { writeOoIdentitySettings } from "./oo-identity.ts"
@@ -503,23 +504,23 @@ export class AgentManager {
 
     const config = buildOpencodeConfig({ customModels, defaultModel, linkRuntime, modelAccess })
     const baseCommandPath = await resolveUserCommandPath({
-      preferredDirectories: [
-        ...(larkCliBinPath ? [path.dirname(larkCliBinPath)] : []),
-        ...(wecomCliBinPath ? [path.dirname(wecomCliBinPath)] : []),
-        ...(dingTalkCliBinPath ? [path.dirname(dingTalkCliBinPath)] : []),
-        ...(linkRuntime && ooBinPath ? [path.dirname(ooBinPath)] : []),
-      ],
+      preferredDirectories: linkRuntime && ooBinPath ? [path.dirname(ooBinPath)] : [],
     })
-    const wikiGraphBinDir =
-      wikiGraphCliPath && wikiGraphStateDir
-        ? await ensureWikiGraphCommandBin({
-            binDir: path.join(rootDir, "bin"),
-            nodeBin: process.execPath,
-            stateDir: wikiGraphStateDir,
-            wikiGraphCliPath,
-          })
-        : undefined
-    const commandPath = wikiGraphBinDir ? `${wikiGraphBinDir}${path.delimiter}${baseCommandPath}` : baseCommandPath
+    const commandBinDir = await ensureDirectCliCommandBin({
+      binDir: path.join(rootDir, "bin"),
+      dingTalkCliBinPath,
+      larkCliBinPath,
+      wecomCliBinPath,
+    })
+    if (wikiGraphCliPath && wikiGraphStateDir) {
+      await ensureWikiGraphCommandBin({
+        binDir: commandBinDir,
+        nodeBin: process.execPath,
+        stateDir: wikiGraphStateDir,
+        wikiGraphCliPath,
+      })
+    }
+    const commandPath = `${commandBinDir}${path.delimiter}${baseCommandPath}`
     const browserControl = await this.options.browserControl?.()
     const env = buildAgentSidecarEnv({
       browserControl,

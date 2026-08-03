@@ -3,6 +3,7 @@ import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { ChildProcessWithoutNullStreams } from "node:child_process"
 
 import { describe, expect, it, vi } from "vitest"
+import { sanitizeDingTalkEnvironment } from "../dingtalk-cli-environment.ts"
 import {
   collectDescendantTree,
   boundRuntimeOutputLine,
@@ -139,6 +140,30 @@ describe("boundRuntimeOutputLine", () => {
 
   it("preserves lines within the limit", () => {
     expect(boundRuntimeOutputLine("ready")).toEqual({ text: "ready", truncated: false })
+  })
+})
+
+describe("DingTalk child environment", () => {
+  it("removes blocked Windows names case-insensitively and preserves managed directories", () => {
+    const environment = sanitizeDingTalkEnvironment(
+      {
+        dingtalk_dws_agentcode: "untrusted-agent",
+        dws_channel: "untrusted-channel",
+        dws_client_id: "untrusted-client",
+        dws_config_dir: "untrusted-config",
+        DWS_CONFIG_DIR: "wanta-config",
+        dws_keychain_dir: "untrusted-keychain",
+        DWS_KEYCHAIN_DIR: "wanta-keychain",
+        PATH: "C:\\Windows",
+      },
+      "win32",
+    )
+
+    expect(environment).toEqual({
+      DWS_CONFIG_DIR: "wanta-config",
+      DWS_KEYCHAIN_DIR: "wanta-keychain",
+      PATH: "C:\\Windows",
+    })
   })
 })
 

@@ -46,6 +46,12 @@ import {
 } from "@/components/ui/split-view"
 import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
 import {
+  dingTalkCliProviderDetail,
+  dingTalkCliProviderFromState,
+  dingTalkCliService,
+  useDingTalkCliConnection,
+} from "@/hooks/useDingTalkCliConnection"
+import {
   larkCliProviderDetail,
   larkCliProviderFromState,
   larkCliService,
@@ -86,6 +92,7 @@ interface DirectProviderBinding {
   phaseLabel: string
   provider: ConnectionProviderSummary | null
   reopenPolling?: () => void
+  reopenPollingLabel?: string
 }
 
 export function ConnectionsPanel({
@@ -116,6 +123,7 @@ export function ConnectionsPanel({
   } = connections
   const larkCli = useLarkCliConnection()
   const wecomCli = useWecomCliConnection()
+  const dingTalkCli = useDingTalkCliConnection()
   const [query, setQuery] = React.useState("")
   const [activeFilter, setActiveFilter] = React.useState<ConnectionCatalogFilter>(requestedFilter ?? { kind: "all" })
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
@@ -165,15 +173,40 @@ export function ConnectionsPanel({
         : null,
     [t, wecomCli.connectedUpdatedAt, wecomCli.state],
   )
+  const dingTalkCliProvider = React.useMemo(
+    () =>
+      dingTalkCli.state
+        ? dingTalkCliProviderFromState(
+            dingTalkCli.state,
+            {
+              connectActionLabel:
+                dingTalkCli.state.connection === "connected"
+                  ? t("connections.dingTalkCli.switchAccountAction")
+                  : dingTalkCli.state.connection === "expired"
+                    ? t("connections.dingTalkCli.reauthorizeAction")
+                    : t("connections.dingTalkCli.connectAction"),
+              connectionMethodLabel: t("connections.dingTalkCli.connectionMethod"),
+              description: t("connections.dingTalkCli.description"),
+              displayName: t("connections.dingTalkCli.name"),
+            },
+            dingTalkCli.connectedUpdatedAt,
+          )
+        : null,
+    [dingTalkCli.connectedUpdatedAt, dingTalkCli.state, t],
+  )
   const providers = React.useMemo(
     () => [
       ...(summary?.providers ?? []).filter(
-        (provider) => provider.service !== larkCliService && provider.service !== wecomCliService,
+        (provider) =>
+          provider.service !== larkCliService &&
+          provider.service !== wecomCliService &&
+          provider.service !== dingTalkCliService,
       ),
       ...(larkCliProvider ? [larkCliProvider] : []),
       ...(wecomCliProvider ? [wecomCliProvider] : []),
+      ...(dingTalkCliProvider ? [dingTalkCliProvider] : []),
     ],
-    [larkCliProvider, summary?.providers, wecomCliProvider],
+    [dingTalkCliProvider, larkCliProvider, summary?.providers, wecomCliProvider],
   )
   const deferredQuery = React.useDeferredValue(query)
   const normalizedQuery = deferredQuery.trim().toLowerCase()
@@ -208,6 +241,12 @@ export function ConnectionsPanel({
       : wecomCli.state && wecomCli.state.phase !== "idle"
         ? "connect"
         : null
+  const dingTalkCliBusy: UseConnections["busy"] =
+    dingTalkCli.state?.phase === "disconnecting"
+      ? "disconnect"
+      : dingTalkCli.state && dingTalkCli.state.phase !== "idle"
+        ? "connect"
+        : null
   const directProviderByService = React.useMemo<Record<string, DirectProviderBinding>>(
     () => ({
       [larkCliService]: {
@@ -232,9 +271,34 @@ export function ConnectionsPanel({
         phaseLabel: t(`connections.wecomCli.phase.${wecomCli.state?.phase ?? "idle"}`),
         provider: wecomCliProvider,
         reopenPolling: wecomCli.state?.canReopenAuthorization ? wecomCli.reopenAuthorization : undefined,
+        reopenPollingLabel: t("connections.wecomCli.reopenAuthorization"),
+      },
+      [dingTalkCliService]: {
+        busy: dingTalkCliBusy,
+        cancel: dingTalkCli.cancel,
+        connect: dingTalkCli.connect,
+        detail: dingTalkCliProviderDetail,
+        disconnect: dingTalkCli.disconnect,
+        error: dingTalkCli.error,
+        phase: dingTalkCli.state?.phase ?? "idle",
+        phaseLabel: t(`connections.dingTalkCli.phase.${dingTalkCli.state?.phase ?? "idle"}`),
+        provider: dingTalkCliProvider,
+        reopenPolling: dingTalkCli.state?.canReopenAuthorization ? dingTalkCli.reopenAuthorization : undefined,
+        reopenPollingLabel: t("connections.dingTalkCli.reopenAuthorization"),
       },
     }),
-    [larkCli, larkCliBusy, larkCliProvider, t, wecomCli, wecomCliBusy, wecomCliProvider],
+    [
+      dingTalkCli,
+      dingTalkCliBusy,
+      dingTalkCliProvider,
+      larkCli,
+      larkCliBusy,
+      larkCliProvider,
+      t,
+      wecomCli,
+      wecomCliBusy,
+      wecomCliProvider,
+    ],
   )
   const selectedProvider = selectedProviderService
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
@@ -281,7 +345,7 @@ export function ConnectionsPanel({
   const cancelSelectedProviderPolling = selectedDirectProvider?.cancel ?? cancelPolling
   const reopenSelectedProviderPolling = selectedDirectProvider?.reopenPolling
   const reopenSelectedProviderPollingLabel = reopenSelectedProviderPolling
-    ? t("connections.wecomCli.reopenAuthorization")
+    ? selectedDirectProvider?.reopenPollingLabel
     : undefined
   const summaryLoading = busy === "refresh" && !summary
   const listErrorNotice = getConnectionListErrorNotice({ summaryError, detailError: detailErrorNotice?.error ?? null })

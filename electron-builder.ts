@@ -31,7 +31,7 @@ export default {
   ],
   files: ["dist", "dist-electron", "!**/*.{map,d.ts}"],
   afterPack: "scripts/electron-builder-after-pack.cjs",
-  // 内置 oo + opencode + rg 平台二进制（由 scripts/prepare-binaries.ts 在构建前复制到 resources/bin）。
+  // 内置 oo + opencode + rg + Direct CLI 平台二进制（由 prepare-binaries 在构建前复制）。
   // 运行时 app.isPackaged 走 process.resourcesPath/bin。
   // resources/skills 是 oo 自带的 4 个内置 skill（同由 prepare-binaries.ts 导出）；运行时拷进 OpenCode
   // workspace 的 .opencode/skill/，使 Wanta agent 直接读到。
@@ -75,6 +75,10 @@ export default {
     {
       from: "resources/wecom-skills",
       to: "wecom-skills",
+    },
+    {
+      from: "resources/dingtalk-skills",
+      to: "dingtalk-skills",
     },
     {
       from: "resources/agent-tool-runtime",

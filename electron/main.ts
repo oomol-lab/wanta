@@ -23,6 +23,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { AgentRefreshScheduler } from "./agent-refresh-scheduler.ts"
 import {
   ooBinaryName,
+  dingTalkCliBinaryName,
   larkCliBinaryName,
   wecomCliBinaryName,
   opencodeBinaryName,
@@ -30,14 +31,17 @@ import {
   resolveBundledSkillsDir,
   resolveBundledLarkSkillsDir,
   resolveBundledWecomSkillsDir,
+  resolveBundledDingTalkSkillsDir,
   resolveBundledToolRuntimePath,
   resolveDevBundledSkillsDir,
   resolveDevBundledLarkSkillsDir,
   resolveDevBundledWecomSkillsDir,
+  resolveDevBundledDingTalkSkillsDir,
   resolveDevBundledToolRuntimePath,
   resolveDevOoBin,
   resolveDevLarkCliBin,
   resolveDevWecomCliBin,
+  resolveDevDingTalkCliBin,
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
 import { AgentManager } from "./agent/manager.ts"
@@ -71,6 +75,7 @@ import { parseConnectionOAuthCallback } from "./connections/domain.ts"
 import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./diagnostics-log.ts"
 import { GitServiceImpl } from "./git/node.ts"
 import { KnowledgeServiceImpl } from "./knowledge/node.ts"
+import { DingTalkCliManager } from "./link-runtime/dingtalk-cli.ts"
 import { LarkCliManager } from "./link-runtime/lark-cli.ts"
 import { LinkRuntimeManager, LinkRuntimeServiceImpl } from "./link-runtime/node.ts"
 import { WecomCliManager } from "./link-runtime/wecom-cli.ts"
@@ -164,6 +169,9 @@ const bundledLarkCliBinPath = app.isPackaged
 const bundledWecomCliBinPath = app.isPackaged
   ? resolveBundledBin(process.resourcesPath, wecomCliBinaryName())
   : resolveDevWecomCliBin(appRoot)
+const bundledDingTalkCliBinPath = app.isPackaged
+  ? resolveBundledBin(process.resourcesPath, dingTalkCliBinaryName())
+  : resolveDevDingTalkCliBin(appRoot)
 process.env.OO_CLI_PATH = ooBinPath
 // 内置 skill 源目录：生产从打包 Resources/skills，dev 从 resources/skills（postinstall 导出）。
 // AgentManager 启动时拷进 OpenCode workspace 的 .opencode/skill/，使 agent 直接读到。
@@ -176,6 +184,9 @@ const bundledLarkSkillsDir = app.isPackaged
 const bundledWecomSkillsDir = app.isPackaged
   ? resolveBundledWecomSkillsDir(process.resourcesPath)
   : resolveDevBundledWecomSkillsDir(appRoot)
+const bundledDingTalkSkillsDir = app.isPackaged
+  ? resolveBundledDingTalkSkillsDir(process.resourcesPath)
+  : resolveDevBundledDingTalkSkillsDir(appRoot)
 const bundledToolRuntimePath = app.isPackaged
   ? resolveBundledToolRuntimePath(process.resourcesPath)
   : resolveDevBundledToolRuntimePath(appRoot)
@@ -308,7 +319,19 @@ const wecomCliManager = new WecomCliManager({
   rootDir: path.join(app.getPath("userData"), "wecom-cli"),
   skillsDir: bundledWecomSkillsDir,
 })
-const linkRuntimeService = new LinkRuntimeServiceImpl(linkRuntimeManager, larkCliManager, wecomCliManager)
+const dingTalkCliManager = new DingTalkCliManager({
+  binaryPath: bundledDingTalkCliBinPath,
+  onRuntimeChanged: () => agentRefreshScheduler.schedule("DingTalk CLI connection changed", 0),
+  openExternalUrl,
+  rootDir: path.join(app.getPath("userData"), "dingtalk-cli"),
+  skillsDir: bundledDingTalkSkillsDir,
+})
+const linkRuntimeService = new LinkRuntimeServiceImpl(
+  linkRuntimeManager,
+  larkCliManager,
+  wecomCliManager,
+  dingTalkCliManager,
+)
 const authService = new AuthServiceImpl(authManager)
 const skillService = new SkillServiceImpl(authManager, {
   onRuntimeSkillsChanged: (reason) => agentRefreshScheduler.schedule(reason),
@@ -728,6 +751,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   }
   const larkCliRuntime = await larkCliManager.activeRuntime()
   const wecomCliRuntime = await wecomCliManager.activeRuntime()
+  const dingTalkCliRuntime = await dingTalkCliManager.activeRuntime()
   const nextAgent = new AgentManager({
     browserControl: browserControlConnection,
     defaultModel: runtime.defaultModel,
@@ -745,6 +769,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     bundledDirectSkillsDirs: [
       larkCliRuntime?.skillsDir ?? bundledLarkSkillsDir,
       wecomCliRuntime?.skillsDir ?? bundledWecomSkillsDir,
+      dingTalkCliRuntime?.skillsDir ?? bundledDingTalkSkillsDir,
     ],
     bundledToolRuntimePath,
     larkCliBinPath: larkCliRuntime?.binaryPath ?? bundledLarkCliBinPath,
@@ -752,6 +777,9 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     wecomCliBinPath: wecomCliRuntime?.binaryPath ?? bundledWecomCliBinPath,
     wecomCliConfigDir: path.join(app.getPath("userData"), "wecom-cli", "config"),
     wecomCliTmpDir: path.join(app.getPath("userData"), "wecom-cli", "tmp"),
+    dingTalkCliBinPath: dingTalkCliRuntime?.binaryPath ?? bundledDingTalkCliBinPath,
+    dingTalkCliConfigDir: path.join(app.getPath("userData"), "dingtalk-cli", "config"),
+    dingTalkCliKeychainDir: path.join(app.getPath("userData"), "dingtalk-cli", "keychain"),
     rootDir: path.join(app.getPath("userData"), "agent"),
     customModels: runtimeModels.customModels,
   })

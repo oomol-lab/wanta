@@ -7,6 +7,7 @@ import type {
   OpenConnectorTestResult,
   LarkCliState,
   WecomCliState,
+  DingTalkCliState,
 } from "./common.ts"
 import type { IConnectionService } from "@oomol/connection"
 
@@ -16,6 +17,7 @@ import path from "node:path"
 import { atomicWriteText } from "../atomic-file.ts"
 import { ServiceEvent } from "../service-events.ts"
 import { LinkRuntimeService as LinkRuntimeServiceName } from "./common.ts"
+import { DingTalkCliManager } from "./dingtalk-cli.ts"
 import { LarkCliManager } from "./lark-cli.ts"
 import { WecomCliManager } from "./wecom-cli.ts"
 
@@ -449,15 +451,23 @@ export class LinkRuntimeServiceImpl
   private readonly manager: LinkRuntimeManager
   private readonly larkCli: LarkCliManager
   private readonly wecomCli: WecomCliManager
+  private readonly dingTalkCli: DingTalkCliManager
   private readonly unsubscribe: () => void
   private readonly unsubscribeLarkCli: () => void
   private readonly unsubscribeWecomCli: () => void
+  private readonly unsubscribeDingTalkCli: () => void
 
-  public constructor(manager: LinkRuntimeManager, larkCli: LarkCliManager, wecomCli: WecomCliManager) {
+  public constructor(
+    manager: LinkRuntimeManager,
+    larkCli: LarkCliManager,
+    wecomCli: WecomCliManager,
+    dingTalkCli: DingTalkCliManager,
+  ) {
     super(LinkRuntimeServiceName)
     this.manager = manager
     this.larkCli = larkCli
     this.wecomCli = wecomCli
+    this.dingTalkCli = dingTalkCli
     this.unsubscribe = manager.stateChanged.on((state) => {
       void this.send("linkRuntimeChanged", state).catch((error: unknown) => {
         console.warn("[wanta] Link runtime broadcast failed:", error)
@@ -471,6 +481,11 @@ export class LinkRuntimeServiceImpl
     this.unsubscribeWecomCli = wecomCli.stateChanged.on((state) => {
       void this.send("wecomCliChanged", state).catch((error: unknown) => {
         console.warn("[wanta] WeCom CLI state broadcast failed:", error)
+      })
+    })
+    this.unsubscribeDingTalkCli = dingTalkCli.stateChanged.on((state) => {
+      void this.send("dingTalkCliChanged", state).catch((error: unknown) => {
+        console.warn("[wanta] DingTalk CLI state broadcast failed:", error)
       })
     })
   }
@@ -547,10 +562,31 @@ export class LinkRuntimeServiceImpl
     return this.wecomCli.reopenAuthorization()
   }
 
+  public getDingTalkCliState(): Promise<DingTalkCliState> {
+    return this.dingTalkCli.getState()
+  }
+
+  public connectDingTalkCli(): Promise<DingTalkCliState> {
+    return this.dingTalkCli.connect()
+  }
+
+  public disconnectDingTalkCli(): Promise<DingTalkCliState> {
+    return this.dingTalkCli.disconnect()
+  }
+
+  public async cancelDingTalkCliConnection(): Promise<void> {
+    this.dingTalkCli.cancelConnection()
+  }
+
+  public async reopenDingTalkCliAuthorization(): Promise<boolean> {
+    return this.dingTalkCli.reopenAuthorization()
+  }
+
   public override dispose(): void {
     this.unsubscribe()
     this.unsubscribeLarkCli()
     this.unsubscribeWecomCli()
+    this.unsubscribeDingTalkCli()
     super.dispose()
   }
 }

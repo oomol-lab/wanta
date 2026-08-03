@@ -55,8 +55,8 @@ export interface AgentManagerOptions {
   listOpenConnectorAuthorizedServices?: (signal?: AbortSignal) => Promise<string[]>
   /** 内置 skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
-  /** Official local direct-CLI skills, independent of the selected Link runtime. */
-  bundledDirectSkillsDirs?: string[]
+  /** Skills for connected local direct-CLI providers, independent of the selected Link runtime. */
+  activeDirectSkillsDirs?: string[]
   /** Active Wanta-managed Lark CLI direct-runtime binary. */
   larkCliBinPath?: string
   /** Isolated Lark CLI config directory; credentials remain owned by the CLI/keychain. */
@@ -163,16 +163,28 @@ export function buildAgentSidecarEnv({
     PATH: commandPath,
     WANTA_BROWSER_CONTROL_TOKEN: browserControl?.token ?? "",
     WANTA_BROWSER_CONTROL_URL: browserControl?.url ?? "",
-    WANTA_LARK_CLI_BIN: larkCliBinPath ?? "",
-    LARKSUITE_CLI_CONFIG_DIR: larkCliConfigDir ?? "",
-    LARKSUITE_CLI_NO_SKILLS_NOTIFIER: "1",
-    LARKSUITE_CLI_NO_UPDATE_NOTIFIER: "1",
-    WANTA_WECOM_CLI_BIN: wecomCliBinPath ?? "",
-    WECOM_CLI_CONFIG_DIR: wecomCliConfigDir ?? "",
-    WECOM_CLI_TMP_DIR: wecomCliTmpDir ?? "",
-    WANTA_DINGTALK_CLI_BIN: dingTalkCliBinPath ?? "",
-    DWS_CONFIG_DIR: dingTalkCliConfigDir ?? "",
-    DWS_KEYCHAIN_DIR: dingTalkCliKeychainDir ?? "",
+    ...(larkCliBinPath && larkCliConfigDir
+      ? {
+          WANTA_LARK_CLI_BIN: larkCliBinPath,
+          LARKSUITE_CLI_CONFIG_DIR: larkCliConfigDir,
+          LARKSUITE_CLI_NO_SKILLS_NOTIFIER: "1",
+          LARKSUITE_CLI_NO_UPDATE_NOTIFIER: "1",
+        }
+      : {}),
+    ...(wecomCliBinPath && wecomCliConfigDir && wecomCliTmpDir
+      ? {
+          WANTA_WECOM_CLI_BIN: wecomCliBinPath,
+          WECOM_CLI_CONFIG_DIR: wecomCliConfigDir,
+          WECOM_CLI_TMP_DIR: wecomCliTmpDir,
+        }
+      : {}),
+    ...(dingTalkCliBinPath && dingTalkCliConfigDir && dingTalkCliKeychainDir
+      ? {
+          WANTA_DINGTALK_CLI_BIN: dingTalkCliBinPath,
+          DWS_CONFIG_DIR: dingTalkCliConfigDir,
+          DWS_KEYCHAIN_DIR: dingTalkCliKeychainDir,
+        }
+      : {}),
   }
 }
 
@@ -457,7 +469,7 @@ export class AgentManager {
     await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, {
       bundledOoSkills: this.options.linkRuntime?.kind === "oomol",
       connectors: this.options.linkRuntime !== null,
-      directSkillsDirs: this.options.bundledDirectSkillsDirs,
+      directSkillsDirs: this.options.activeDirectSkillsDirs,
     })
     this.teamScopePath = teamScopePath
     await this.writeTeamState(this.teamName)

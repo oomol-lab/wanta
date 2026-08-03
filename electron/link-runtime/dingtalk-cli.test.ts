@@ -188,6 +188,21 @@ describe.runIf(process.platform !== "win32")("DingTalk CLI lifecycle", () => {
       await writeFile(path.join(fixture.rootDir, "config", "expired"), "1", "utf-8")
 
       await expect(fixture.manager.getState()).resolves.toMatchObject({ available: true, connection: "expired" })
+      await expect(fixture.manager.availableRuntime()).resolves.toMatchObject({ skillsDir: expect.any(String) })
+      await expect(fixture.manager.agentRuntime()).resolves.toBeNull()
+    } finally {
+      await rm(fixture.base, { force: true, recursive: true })
+    }
+  })
+
+  test("exposes the Agent runtime only after connection and removes it after disconnect", async () => {
+    const fixture = await createMockDingTalkCli()
+    try {
+      await expect(fixture.manager.agentRuntime()).resolves.toBeNull()
+      await fixture.manager.connect()
+      await expect(fixture.manager.agentRuntime()).resolves.toMatchObject({ skillsDir: expect.any(String) })
+      await fixture.manager.disconnect()
+      await expect(fixture.manager.agentRuntime()).resolves.toBeNull()
     } finally {
       await rm(fixture.base, { force: true, recursive: true })
     }

@@ -162,6 +162,12 @@ describe("AgentManager", () => {
     expect(env).not.toHaveProperty("WANTA_WIKIGRAPH_STATE_DIR")
     expect(env).not.toHaveProperty("WANTA_WIKIGRAPH_WRAPPER_PATH")
     expect(env).not.toHaveProperty("WIKIGRAPH_STATE_DIR")
+    expect(env).not.toHaveProperty("WANTA_LARK_CLI_BIN")
+    expect(env).not.toHaveProperty("LARKSUITE_CLI_CONFIG_DIR")
+    expect(env).not.toHaveProperty("WANTA_WECOM_CLI_BIN")
+    expect(env).not.toHaveProperty("WECOM_CLI_CONFIG_DIR")
+    expect(env).not.toHaveProperty("WANTA_DINGTALK_CLI_BIN")
+    expect(env).not.toHaveProperty("DWS_CONFIG_DIR")
   })
 
   it("isolates local direct CLI configuration in the sidecar", () => {

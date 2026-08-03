@@ -70,7 +70,7 @@ export class DingTalkCliManager {
   public async getState(): Promise<DingTalkCliState> {
     if (this.operation) return this.state
     try {
-      const runtime = await this.activeRuntime()
+      const runtime = await this.availableRuntime()
       if (!runtime) throw new Error("The bundled DingTalk CLI runtime is unavailable.")
       await this.ensurePrivateDirectories()
       const auth = await this.readAuthState()
@@ -164,7 +164,7 @@ export class DingTalkCliManager {
     return true
   }
 
-  public async activeRuntime(): Promise<DingTalkCliRuntime | null> {
+  public async availableRuntime(): Promise<DingTalkCliRuntime | null> {
     try {
       const [binary, skills, version] = await Promise.all([
         stat(this.binaryPath),
@@ -184,8 +184,15 @@ export class DingTalkCliManager {
     }
   }
 
+  /** Expose the managed CLI to the Agent only while an isolated DingTalk profile is connected. */
+  public async agentRuntime(): Promise<DingTalkCliRuntime | null> {
+    const state = await this.getState()
+    if (state.connection !== "connected") return null
+    return this.availableRuntime()
+  }
+
   private async connectNow(): Promise<DingTalkCliState> {
-    const runtime = await this.activeRuntime()
+    const runtime = await this.availableRuntime()
     if (!runtime) throw new Error("The bundled DingTalk CLI runtime is unavailable.")
     await this.ensurePrivateDirectories()
     this.setState({

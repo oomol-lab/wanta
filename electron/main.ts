@@ -749,9 +749,11 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   if (isQuitting) {
     return
   }
-  const larkCliRuntime = await larkCliManager.activeRuntime()
-  const wecomCliRuntime = await wecomCliManager.activeRuntime()
-  const dingTalkCliRuntime = await dingTalkCliManager.activeRuntime()
+  const [larkCliRuntime, wecomCliRuntime, dingTalkCliRuntime] = await Promise.all([
+    larkCliManager.agentRuntime(),
+    wecomCliManager.agentRuntime(),
+    dingTalkCliManager.agentRuntime(),
+  ])
   const nextAgent = new AgentManager({
     browserControl: browserControlConnection,
     defaultModel: runtime.defaultModel,
@@ -766,20 +768,22 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
         .filter((item) => item.status === "active")
         .map((item) => item.service),
     bundledSkillsDir,
-    bundledDirectSkillsDirs: [
-      larkCliRuntime?.skillsDir ?? bundledLarkSkillsDir,
-      wecomCliRuntime?.skillsDir ?? bundledWecomSkillsDir,
-      dingTalkCliRuntime?.skillsDir ?? bundledDingTalkSkillsDir,
-    ],
+    activeDirectSkillsDirs: [
+      larkCliRuntime?.skillsDir,
+      wecomCliRuntime?.skillsDir,
+      dingTalkCliRuntime?.skillsDir,
+    ].filter((directory): directory is string => Boolean(directory)),
     bundledToolRuntimePath,
-    larkCliBinPath: larkCliRuntime?.binaryPath ?? bundledLarkCliBinPath,
-    larkCliConfigDir: path.join(app.getPath("userData"), "lark-cli", "config"),
-    wecomCliBinPath: wecomCliRuntime?.binaryPath ?? bundledWecomCliBinPath,
-    wecomCliConfigDir: path.join(app.getPath("userData"), "wecom-cli", "config"),
-    wecomCliTmpDir: path.join(app.getPath("userData"), "wecom-cli", "tmp"),
-    dingTalkCliBinPath: dingTalkCliRuntime?.binaryPath ?? bundledDingTalkCliBinPath,
-    dingTalkCliConfigDir: path.join(app.getPath("userData"), "dingtalk-cli", "config"),
-    dingTalkCliKeychainDir: path.join(app.getPath("userData"), "dingtalk-cli", "keychain"),
+    larkCliBinPath: larkCliRuntime?.binaryPath,
+    larkCliConfigDir: larkCliRuntime ? path.join(app.getPath("userData"), "lark-cli", "config") : undefined,
+    wecomCliBinPath: wecomCliRuntime?.binaryPath,
+    wecomCliConfigDir: wecomCliRuntime ? path.join(app.getPath("userData"), "wecom-cli", "config") : undefined,
+    wecomCliTmpDir: wecomCliRuntime ? path.join(app.getPath("userData"), "wecom-cli", "tmp") : undefined,
+    dingTalkCliBinPath: dingTalkCliRuntime?.binaryPath,
+    dingTalkCliConfigDir: dingTalkCliRuntime ? path.join(app.getPath("userData"), "dingtalk-cli", "config") : undefined,
+    dingTalkCliKeychainDir: dingTalkCliRuntime
+      ? path.join(app.getPath("userData"), "dingtalk-cli", "keychain")
+      : undefined,
     rootDir: path.join(app.getPath("userData"), "agent"),
     customModels: runtimeModels.customModels,
   })

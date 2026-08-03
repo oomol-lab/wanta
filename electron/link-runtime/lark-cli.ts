@@ -172,12 +172,19 @@ export class LarkCliManager {
     this.setState({ phase: "idle" })
   }
 
-  public async activeRuntime(): Promise<ActiveBundle | null> {
+  public async availableRuntime(): Promise<ActiveBundle | null> {
     try {
       return await this.resolveActiveBundle()
     } catch {
       return null
     }
+  }
+
+  /** Expose the managed CLI to the Agent only while its isolated identity is connected. */
+  public async agentRuntime(): Promise<ActiveBundle | null> {
+    const state = await this.getState()
+    if (state.connection !== "connected") return null
+    return this.availableRuntime()
   }
 
   private async connectNow(): Promise<LarkCliState> {

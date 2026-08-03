@@ -45,6 +45,9 @@ release
 # Locally downloaded WeCom CLI binary (dev/build) — produced by scripts/download-wecom-cli.ts
 .wecom-cli-bin/
 
+# Locally downloaded DingTalk CLI binary (dev/build) — produced by scripts/download-dingtalk-cli.ts
+.dingtalk-cli-bin/
+
 # Bundled oo/opencode binaries staged by scripts/prepare-binaries.ts (not committed)
 resources/bin
 
@@ -56,6 +59,9 @@ resources/lark-skills
 
 # WeCom CLI skills exported from the pinned source commit (not committed)
 resources/wecom-skills
+
+# DingTalk CLI mono skill exported from the pinned release (not committed)
+resources/dingtalk-skills
 
 # Bundled self-contained OpenCode custom-tool runtime (not committed)
 resources/agent-tool-runtime

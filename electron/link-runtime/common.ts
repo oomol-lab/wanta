@@ -79,12 +79,31 @@ export interface WecomCliState {
   phase: WecomCliConnectionPhase
 }
 
+export type DingTalkCliConnectionPhase =
+  | "idle"
+  | "opening_browser"
+  | "waiting_for_authorization"
+  | "waiting_for_admin"
+  | "verifying"
+  | "disconnecting"
+
+export interface DingTalkCliState {
+  accountLabel?: string
+  activeVersion: string | null
+  available: boolean
+  canReopenAuthorization: boolean
+  connection: "connected" | "disconnected" | "expired"
+  error?: string
+  phase: DingTalkCliConnectionPhase
+}
+
 export type LinkRuntimeService = typeof LinkRuntimeService
 export const LinkRuntimeService = serviceName("link-runtime-service") as ServiceName<{
   ServerEvents: {
     linkRuntimeChanged: LinkRuntimeState
     larkCliChanged: LarkCliState
     wecomCliChanged: WecomCliState
+    dingTalkCliChanged: DingTalkCliState
   }
   ClientInvokes: {
     getState(): Promise<LinkRuntimeState>
@@ -104,5 +123,10 @@ export const LinkRuntimeService = serviceName("link-runtime-service") as Service
     disconnectWecomCli(): Promise<WecomCliState>
     cancelWecomCliConnection(): Promise<void>
     reopenWecomCliAuthorization(): Promise<boolean>
+    getDingTalkCliState(): Promise<DingTalkCliState>
+    connectDingTalkCli(): Promise<DingTalkCliState>
+    disconnectDingTalkCli(): Promise<DingTalkCliState>
+    cancelDingTalkCliConnection(): Promise<void>
+    reopenDingTalkCliAuthorization(): Promise<boolean>
   }
 }>

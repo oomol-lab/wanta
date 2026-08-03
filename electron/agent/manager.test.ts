@@ -175,6 +175,9 @@ describe("AgentManager", () => {
       wecomCliBinPath: "/managed/bin/wecom-cli",
       wecomCliConfigDir: "/private/wecom/config",
       wecomCliTmpDir: "/private/wecom/tmp",
+      dingTalkCliBinPath: "/managed/bin/dws",
+      dingTalkCliConfigDir: "/private/dingtalk/config",
+      dingTalkCliKeychainDir: "/private/dingtalk/keychain",
     })
 
     expect(env).toMatchObject({
@@ -184,6 +187,9 @@ describe("AgentManager", () => {
       WANTA_WECOM_CLI_BIN: "/managed/bin/wecom-cli",
       WECOM_CLI_CONFIG_DIR: "/private/wecom/config",
       WECOM_CLI_TMP_DIR: "/private/wecom/tmp",
+      WANTA_DINGTALK_CLI_BIN: "/managed/bin/dws",
+      DWS_CONFIG_DIR: "/private/dingtalk/config",
+      DWS_KEYCHAIN_DIR: "/private/dingtalk/keychain",
     })
   })
 

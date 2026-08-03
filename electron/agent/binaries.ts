@@ -30,6 +30,10 @@ export function wecomCliBinaryName(platform: NodeJS.Platform = process.platform)
   return platform === "win32" ? "wecom-cli.exe" : "wecom-cli"
 }
 
+export function dingTalkCliBinaryName(platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? "dws.exe" : "dws"
+}
+
 /** dev：从项目本地 .oo-bin 解析 oo 二进制（postinstall 下载、prepare-binaries 同源；生产由 extraResources 解析）。 */
 export function resolveDevOoBin(repoRoot: string, platform: NodeJS.Platform = process.platform): string {
   return path.join(repoRoot, ".oo-bin", ooBinaryName(platform))
@@ -41,6 +45,10 @@ export function resolveDevLarkCliBin(repoRoot: string, platform: NodeJS.Platform
 
 export function resolveDevWecomCliBin(repoRoot: string, platform: NodeJS.Platform = process.platform): string {
   return path.join(repoRoot, ".wecom-cli-bin", wecomCliBinaryName(platform))
+}
+
+export function resolveDevDingTalkCliBin(repoRoot: string, platform: NodeJS.Platform = process.platform): string {
+  return path.join(repoRoot, ".dingtalk-cli-bin", dingTalkCliBinaryName(platform))
 }
 
 /** 生产：从打包的 Resources/bin 解析二进制（prepare-binaries 复制、extraResources 打入）。 */
@@ -72,6 +80,14 @@ export function resolveDevBundledWecomSkillsDir(repoRoot: string): string {
 
 export function resolveBundledWecomSkillsDir(resourcesPath: string): string {
   return path.join(resourcesPath, "wecom-skills")
+}
+
+export function resolveDevBundledDingTalkSkillsDir(repoRoot: string): string {
+  return path.join(repoRoot, "resources", "dingtalk-skills")
+}
+
+export function resolveBundledDingTalkSkillsDir(resourcesPath: string): string {
+  return path.join(resourcesPath, "dingtalk-skills")
 }
 
 /** dev：构建期合并的自定义工具 runtime（postinstall 生成）。 */

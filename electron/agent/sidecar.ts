@@ -434,6 +434,14 @@ export class OpencodeSidecar {
     // override redirect credential-adjacent CLI diagnostics outside Wanta's private runtime.
     delete baseChildEnv.WECOM_CLI_LOG_FILE
     delete baseChildEnv.WECOM_CLI_LOG_LEVEL
+    // Wanta owns the DingTalk CLI identity and storage roots. Launcher overrides must not redirect
+    // credentials, swap OAuth clients, weaken Keychain storage, or select an unrelated channel.
+    delete baseChildEnv.DWS_CLIENT_ID
+    delete baseChildEnv.DWS_CLIENT_SECRET
+    delete baseChildEnv.DWS_DISABLE_KEYCHAIN
+    delete baseChildEnv.DWS_GITEE_REPO
+    delete baseChildEnv.DWS_CHANNEL
+    delete baseChildEnv.DINGTALK_DWS_AGENTCODE
     const proxy = await systemProxy()
     const childEnv = mergeSystemProxyEnvironment(baseChildEnv, proxy)
     logDiagnostic("opencode-sidecar", "opencode sidecar network environment", {

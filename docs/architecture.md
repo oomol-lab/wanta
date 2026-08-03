@@ -149,6 +149,16 @@ by the pinned `@wecom/cli` package. `WECOM_CLI_CONFIG_DIR` / `WECOM_CLI_TMP_DIR`
 directory, and these Skills are injected into the private Agent runtime independently of Lark and of
 the selected Link backend. Credentials and raw QR output never enter the renderer.
 
+DingTalk Workspace CLI is a third independent local `direct` provider, with its own browser OAuth
+and organization-approval flow rather than a shared Lark/WeCom state machine. `DingTalkCliManager`
+runs the pinned official `dws` binary with Wanta-owned `DWS_CONFIG_DIR` and `DWS_KEYCHAIN_DIR`
+roots, opens only the allowlisted `https://login.dingtalk.com/oauth2/auth` page, and verifies the
+result through structured `dws auth status --format json` output. Disconnect targets the exact
+active `corpId:userId` profile and never logs out every saved organization. Tokens remain encrypted
+by the official CLI credential backend; only redacted account, phase, availability, and version
+state crosses IPC. The stable mono `dws` Skill is packaged from the same pinned release and injected
+into the private Agent workspace independently of the selected Link backend.
+
 Vite (`vite-plugin-electron/simple` in `vite.config.ts`) bundles `electron/main.ts` and
 `electron/preload.ts` into `dist-electron/main.js` + `preload.js`; the main-process build has a
 **third** rollup input, `electron/chat/spreadsheet-preview-worker.ts` → `dist-electron/spreadsheet-preview-worker.js`,
@@ -635,7 +645,7 @@ electron/
   chat/    common,node + ~45 modules  by far the largest main-process domain: SSE event bridge; per-turn lifecycle & outputs (turn-lifecycle, turn-outputs); structured artifact registration/persistence (artifact-bundles, artifacts) + previews (spreadsheet-preview-worker[-client]); permission / local-access policy (permission-state, project-permission); project-* commands; attachments; stream buffering (stream-event-buffer, context-system). Also thin main-process facades openExternalUrl (shell external open) / setAgentTeam (agent team scope) for the renderer request layer (§4, §5)
   git/     common,node,status,turn-diff(+test)  GitService (serviceName("git-service")): project git status + per-turn diff review
   knowledge/ common,node,store,runner,uri,thumbnail(+test)  WikiGraph knowledge-base import, registration, query runtime & RPC service
-  link-runtime/ common,node,lark-cli,wecom-cli(+test)  selected Link runtime, origin-bound OpenConnector token, health/inventory facade, and isolated provider-specific Lark/WeCom direct CLI lifecycles
+  link-runtime/ common,node,lark-cli,wecom-cli,dingtalk-cli(+test)  selected Link runtime, origin-bound OpenConnector token, health/inventory facade, and isolated provider-specific direct CLI lifecycles
   teams/   common       types only, no node.ts — team requests moved renderer-side (src/lib/teams-client.ts, §4)
   connections/ common,summary,usage,executions,federated,domain,summary-model(+test)  **pure functions + types, no node.ts** — connector requests moved renderer-side (src/lib/connections-client.ts, §4/§7); electron-free, imported straight into the renderer bundle
   skills/  common,node,actions,scan,inventory,…  skill service (install/scan/inventory); browse GET moved renderer-side (src/lib/skills-catalog-client.ts); actions.ts normalize* reused by the renderer (§4)

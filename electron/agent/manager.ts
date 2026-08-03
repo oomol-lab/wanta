@@ -66,6 +66,10 @@ export interface AgentManagerOptions {
   /** Isolated WeCom CLI config and temporary roots. */
   wecomCliConfigDir?: string
   wecomCliTmpDir?: string
+  /** Active Wanta-managed DingTalk Workspace CLI binary and isolated credential roots. */
+  dingTalkCliBinPath?: string
+  dingTalkCliConfigDir?: string
+  dingTalkCliKeychainDir?: string
   /** 构建期合并的自定义工具 runtime；启动时拷进 .opencode/runtime/tool.js。 */
   bundledToolRuntimePath?: string
   /** App 私有根目录（userData 下）：workspace / oo-store / isolation 都在其下。 */
@@ -122,6 +126,9 @@ export interface AgentSidecarEnvOptions {
   wecomCliBinPath?: string
   wecomCliConfigDir?: string
   wecomCliTmpDir?: string
+  dingTalkCliBinPath?: string
+  dingTalkCliConfigDir?: string
+  dingTalkCliKeychainDir?: string
 }
 
 export function buildAgentSidecarEnv({
@@ -137,6 +144,9 @@ export function buildAgentSidecarEnv({
   wecomCliBinPath,
   wecomCliConfigDir,
   wecomCliTmpDir,
+  dingTalkCliBinPath,
+  dingTalkCliConfigDir,
+  dingTalkCliKeychainDir,
 }: AgentSidecarEnvOptions): Record<string, string> {
   const ooEnv = linkRuntime
     ? buildAgentLinkEnv({
@@ -160,6 +170,9 @@ export function buildAgentSidecarEnv({
     WANTA_WECOM_CLI_BIN: wecomCliBinPath ?? "",
     WECOM_CLI_CONFIG_DIR: wecomCliConfigDir ?? "",
     WECOM_CLI_TMP_DIR: wecomCliTmpDir ?? "",
+    WANTA_DINGTALK_CLI_BIN: dingTalkCliBinPath ?? "",
+    DWS_CONFIG_DIR: dingTalkCliConfigDir ?? "",
+    DWS_KEYCHAIN_DIR: dingTalkCliKeychainDir ?? "",
   }
 }
 
@@ -467,6 +480,9 @@ export class AgentManager {
       wecomCliBinPath,
       wecomCliConfigDir,
       wecomCliTmpDir,
+      dingTalkCliBinPath,
+      dingTalkCliConfigDir,
+      dingTalkCliKeychainDir,
     } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
     const isolationDir = path.join(rootDir, "isolation")
@@ -478,6 +494,7 @@ export class AgentManager {
       preferredDirectories: [
         ...(larkCliBinPath ? [path.dirname(larkCliBinPath)] : []),
         ...(wecomCliBinPath ? [path.dirname(wecomCliBinPath)] : []),
+        ...(dingTalkCliBinPath ? [path.dirname(dingTalkCliBinPath)] : []),
         ...(linkRuntime && ooBinPath ? [path.dirname(ooBinPath)] : []),
       ],
     })
@@ -505,6 +522,9 @@ export class AgentManager {
       wecomCliBinPath,
       wecomCliConfigDir,
       wecomCliTmpDir,
+      dingTalkCliBinPath,
+      dingTalkCliConfigDir,
+      dingTalkCliKeychainDir,
     })
 
     const sidecar = new OpencodeSidecar({

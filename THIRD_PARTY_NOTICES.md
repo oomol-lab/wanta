@@ -44,6 +44,18 @@ provider.
 Source: [WecomTeam/wecom-cli](https://github.com/WecomTeam/wecom-cli). License: MIT. Copyright (c)
 2026 WeCom.
 
+## DingTalk Workspace CLI and Skills
+
+Wanta packages the official DingTalk Workspace CLI (`dws`) version 1.0.55 and the matching stable
+mono Skill from the same release for the local DingTalk Direct provider.
+
+Source: [DingTalk-Real-AI/dingtalk-workspace-cli](https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli).
+License: Apache License 2.0. Copyright 2026 Alibaba Group.
+
+The CLI keeps account tokens encrypted through its platform credential backend. Wanta supplies
+private configuration and ciphertext directories and exposes only redacted account and connection
+state to the renderer.
+
 ## MIT License Text
 
 The following text applies to the OpenCode, oo CLI, and WeCom CLI entries above:

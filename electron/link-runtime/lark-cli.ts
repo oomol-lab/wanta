@@ -62,7 +62,7 @@ export class LarkCliManager {
   private readonly platform: NodeJS.Platform
   private readonly arch: string
   private readonly rootDir: string
-  private operation: Promise<LarkCliState> | null = null
+  private operation: { kind: "connect" | "disconnect"; promise: Promise<LarkCliState> } | null = null
   private activeChild: ChildProcess | null = null
   private cancelRequested = false
   private state: LarkCliState = {
@@ -114,7 +114,11 @@ export class LarkCliManager {
   }
 
   public connect(): Promise<LarkCliState> {
-    if (this.operation) return this.operation
+    if (this.operation) {
+      return this.operation.kind === "connect"
+        ? this.operation.promise
+        : Promise.reject(new Error("A Lark CLI disconnect operation is already running."))
+    }
     this.cancelRequested = false
     const operation = this.connectNow()
       .catch((error: unknown) => {
@@ -122,30 +126,48 @@ export class LarkCliManager {
         throw error
       })
       .finally(() => {
-        if (this.operation === operation) this.operation = null
+        if (this.operation?.promise === operation) this.operation = null
+        this.cancelRequested = false
       })
-    this.operation = operation
+    this.operation = { kind: "connect", promise: operation }
     return operation
   }
 
   public disconnect(): Promise<LarkCliState> {
-    if (this.operation) return Promise.reject(new Error("A Lark CLI connection operation is already running."))
+    if (this.operation) {
+      return this.operation.kind === "disconnect"
+        ? this.operation.promise
+        : Promise.reject(new Error("A Lark CLI connection operation is already running."))
+    }
     const operation = this.disconnectNow()
       .catch((error: unknown) => {
         this.setState({ error: errorMessage(error), phase: "idle" })
         throw error
       })
       .finally(() => {
-        if (this.operation === operation) this.operation = null
+        if (this.operation?.promise === operation) this.operation = null
       })
-    this.operation = operation
+    this.operation = { kind: "disconnect", promise: operation }
     return operation
   }
 
   public cancelConnection(): void {
+    if (this.operation?.kind !== "connect") return
     this.cancelRequested = true
-    this.activeChild?.kill()
-    this.activeChild = null
+    const child = this.activeChild
+    child?.kill()
+    if (child) {
+      const escalation = setTimeout(() => {
+        if (this.activeChild !== child) return
+        child.kill("SIGKILL")
+        this.activeChild = null
+      }, 5_000)
+      escalation.unref()
+      child.once("exit", () => {
+        clearTimeout(escalation)
+        if (this.activeChild === child) this.activeChild = null
+      })
+    }
     this.setState({ phase: "idle" })
   }
 
@@ -366,6 +388,7 @@ export class LarkCliManager {
       `${JSON.stringify({ activeVersion: latest, version: 1 } satisfies PersistedActiveBundle, null, 2)}\n`,
       { mode: 0o600 },
     )
+    await this.removeStaleVersions(latest)
     this.setState({ activeVersion: latest, updateStatus: "updated" })
     void Promise.resolve(this.onRuntimeChanged?.()).catch(() => undefined)
     return installed
@@ -429,9 +452,15 @@ export class LarkCliManager {
     if (!response.ok) throw new Error(`Lark CLI download failed with HTTP ${response.status}.`)
     const length = Number(response.headers.get("content-length") ?? "0")
     if (length > maxDownloadBytes) throw new Error("Lark CLI download exceeded the size limit.")
-    const bytes = Buffer.from(await response.arrayBuffer())
-    if (bytes.length > maxDownloadBytes) throw new Error("Lark CLI download exceeded the size limit.")
-    return bytes
+    if (!response.body) throw new Error("Lark CLI download returned an empty body.")
+    const chunks: Buffer[] = []
+    let total = 0
+    for await (const chunk of response.body) {
+      total += chunk.byteLength
+      if (total > maxDownloadBytes) throw new Error("Lark CLI download exceeded the size limit.")
+      chunks.push(Buffer.from(chunk))
+    }
+    return Buffer.concat(chunks, total)
   }
 
   private async exportSkills(binaryPath: string, destination: string): Promise<void> {
@@ -443,7 +472,7 @@ export class LarkCliManager {
       .filter((name): name is string => typeof name === "string" && /^lark-[a-z0-9-]+$/u.test(name))
     if (names.length === 0) throw new Error("Lark CLI did not expose embedded skills.")
     await mkdir(destination, { recursive: true, mode: 0o700 })
-    for (const name of names) await this.exportSkillDirectory(binaryPath, name, "", destination)
+    for (const name of names) await this.exportSkillDirectory(binaryPath, name, "", destination, new Set())
   }
 
   private async exportSkillDirectory(
@@ -451,8 +480,11 @@ export class LarkCliManager {
     skill: string,
     relative: string,
     destination: string,
+    visited: Set<string>,
   ): Promise<void> {
     const target = `${skill}${relative ? `/${relative}` : ""}`
+    if (visited.has(target)) throw new Error(`Lark CLI skill directory cycle detected at ${target}.`)
+    visited.add(target)
     const listed = JSON.parse(
       (await this.runCommand(binaryPath, ["skills", "list", target, "--json"], 30_000)).stdout,
     ) as {
@@ -463,7 +495,7 @@ export class LarkCliManager {
       const entryRelative = entry.path.slice(skill.length + 1)
       if (!safeRelativePath(entryRelative)) continue
       if (entry.is_dir) {
-        await this.exportSkillDirectory(binaryPath, skill, entryRelative, destination)
+        await this.exportSkillDirectory(binaryPath, skill, entryRelative, destination, visited)
         continue
       }
       const read = JSON.parse(
@@ -490,6 +522,16 @@ export class LarkCliManager {
     } catch {
       return null
     }
+  }
+
+  private async removeStaleVersions(activeVersion: string): Promise<void> {
+    const versionsRoot = path.join(this.rootDir, "runtime", "versions")
+    const entries = await readdir(versionsRoot, { withFileTypes: true }).catch(() => [])
+    await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory() && entry.name !== activeVersion)
+        .map((entry) => rm(path.join(versionsRoot, entry.name), { force: true, recursive: true })),
+    )
   }
 }
 
@@ -533,7 +575,7 @@ function isOfficialLarkHost(hostname: string): boolean {
   )
 }
 
-function redactCommandError(output: string, code?: number | null, signal?: NodeJS.Signals | null): string {
+export function redactCommandError(output: string, code?: number | null, signal?: NodeJS.Signals | null): string {
   const redacted = output
     .replaceAll(/https:\/\/[^\s"'<>]+/gu, "[authorization-url]")
     .replaceAll(/("?(?:device_code|app_secret|access_token|refresh_token)"?\s*[:=]\s*)[^\s,}\]]+/giu, "$1[redacted]")

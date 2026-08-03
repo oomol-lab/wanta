@@ -12,6 +12,7 @@ import {
   getProviderAccountValue,
   getProviderActionLabel,
   getProviderCatalogLabel,
+  getProviderDescription,
   getProviderMeta,
   getProviderStatusDisplayLabel,
   getProviderStatusTone,
@@ -95,6 +96,13 @@ test("direct CLI providers use local details and direct-mode catalog metadata", 
   assert.equal(shouldLoadProviderDetail(direct), false)
   assert.equal(supportsManagedConnectionAccountActions(direct), false)
   assert.equal(getProviderMeta(direct, t), "Direct mode")
+})
+
+test("providers needing attention show the reauthorization hint over their marketing description", () => {
+  const attention = provider({ description: "Marketing copy", displayName: "Lark CLI", status: "needs_attention" })
+  const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
+
+  assert.equal(getProviderDescription(attention, t), "Lark CLI needs attention before it can be used.")
 })
 
 test("remote providers retain Connector-managed account actions", () => {

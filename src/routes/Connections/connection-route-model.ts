@@ -185,11 +185,11 @@ export function formatDuration(durationMs: number | null, t: TranslateFn): strin
 }
 
 export function getProviderDescription(provider: ConnectionProviderSummary, t: TranslateFn): string {
-  if (provider.description) return provider.description
   switch (provider.status) {
     case "needs_attention":
       return t("connections.providerNeedsAttentionDescription", { name: provider.displayName })
     case "connected":
+      if (provider.description) return provider.description
       if (isDirectlyAvailableProvider(provider)) {
         return t("connections.noAuthReadyDescription")
       }
@@ -198,6 +198,7 @@ export function getProviderDescription(provider: ConnectionProviderSummary, t: T
       }
       return provider.accountLabel ?? getProviderCategoryLabel(provider, t)
     case "available":
+      if (provider.description) return provider.description
       return getProviderCategoryLabel(provider, t)
   }
 }

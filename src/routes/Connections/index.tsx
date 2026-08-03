@@ -113,12 +113,16 @@ export function ConnectionsPanel({
   const larkCliProvider = React.useMemo(
     () =>
       larkCli.state
-        ? larkCliProviderFromState(larkCli.state, {
-            description: t("connections.larkCli.description"),
-            displayName: t("connections.larkCli.name"),
-          })
+        ? larkCliProviderFromState(
+            larkCli.state,
+            {
+              description: t("connections.larkCli.description"),
+              displayName: t("connections.larkCli.name"),
+            },
+            larkCli.connectedUpdatedAt,
+          )
         : null,
-    [larkCli.state, t],
+    [larkCli.connectedUpdatedAt, larkCli.state, t],
   )
   const providers = React.useMemo(
     () => [
@@ -185,12 +189,15 @@ export function ConnectionsPanel({
         ? "connect"
         : null
   const selectedProviderBusy = selectedProviderIsDirect ? larkCliBusy : busy
-  const selectedProviderPolling =
-    selectedProviderIsDirect && larkCli.state && larkCli.state.phase !== "idle" ? "lark-cli" : polling
+  const selectedProviderPolling = selectedProviderIsDirect
+    ? larkCli.state && larkCli.state.phase !== "idle" && larkCli.state.phase !== "disconnecting"
+      ? "lark-cli"
+      : null
+    : polling
   const selectedProviderProgressLabel = selectedProviderIsDirect
     ? t(`connections.larkCli.phase.${larkCli.state?.phase ?? "idle"}`)
     : undefined
-  const cancelSelectedProviderPolling = selectedProviderIsDirect ? larkCli.cancel : cancelPolling
+  const cancelSelectedProviderPolling = selectedProviderPolling === "lark-cli" ? larkCli.cancel : cancelPolling
   const summaryLoading = busy === "refresh" && !summary
   const listErrorNotice = getConnectionListErrorNotice({ summaryError, detailError: detailErrorNotice?.error ?? null })
   const deleteCachedDetailForService = providerDetail.invalidate
@@ -297,7 +304,10 @@ export function ConnectionsPanel({
       return
     }
 
-    if (filteredProviders.some((provider) => provider.service === selectedProviderService)) {
+    if (
+      filteredProviders.some((provider) => provider.service === selectedProviderService) ||
+      (selectedProviderService === "lark-cli" && !larkCliProvider)
+    ) {
       return
     }
 
@@ -305,7 +315,7 @@ export function ConnectionsPanel({
     setSelectedProviderService(null)
     setDetailPaneClosing(false)
     setNarrowPane("list")
-  }, [clearDetailCloseTimer, filteredProviders, selectedProviderService])
+  }, [clearDetailCloseTimer, filteredProviders, larkCliProvider, selectedProviderService])
 
   const connectProvider = React.useCallback(
     async (

@@ -53,21 +53,33 @@ describe("DingTalk CLI state", () => {
   })
 })
 
-describe.runIf(process.platform !== "win32")("DingTalk CLI lifecycle", () => {
-  test("opens official authorization and logs out only the exact active profile", async () => {
-    const base = await mkdtemp(path.join(os.tmpdir(), "wanta-dingtalk-cli-"))
-    try {
-      const binaryPath = path.join(base, "dws")
-      const rootDir = path.join(base, "private-runtime")
-      const skillsDir = path.join(base, "skills")
-      await mkdir(path.join(skillsDir, "dws"), { recursive: true })
-      await writeFile(path.join(skillsDir, "dws", "SKILL.md"), "---\nname: dws\n---\n", "utf-8")
-      await writeFile(
-        binaryPath,
-        `#!/bin/sh
+interface MockDingTalkCli {
+  base: string
+  manager: DingTalkCliManager
+  opened: string[]
+  rootDir: string
+  states: Array<{ error?: string; phase: string }>
+}
+
+async function createMockDingTalkCli(): Promise<MockDingTalkCli> {
+  const base = await mkdtemp(path.join(os.tmpdir(), "wanta-dingtalk-cli-"))
+  const binaryPath = path.join(base, "dws")
+  const rootDir = path.join(base, "private-runtime")
+  const skillsDir = path.join(base, "skills")
+  await mkdir(path.join(skillsDir, "dws"), { recursive: true })
+  await writeFile(path.join(skillsDir, "dws", "SKILL.md"), "---\nname: dws\n---\n", "utf-8")
+  await writeFile(
+    binaryPath,
+    `#!/bin/sh
 if [ "$1" = "version" ]; then echo '{"version":"v1.0.55"}'; exit 0; fi
 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
-  if [ -f "$DWS_CONFIG_DIR/authorized" ]; then
+  if [ -f "$DWS_CONFIG_DIR/invalid-status" ]; then
+    echo '{"access_token":"secret"'
+  elif [ -f "$DWS_CONFIG_DIR/expired" ]; then
+    echo '{"authenticated":false,"reason":"token_refresh_failed"}'
+  elif [ -f "$DWS_CONFIG_DIR/missing-profile" ]; then
+    echo '{"authenticated":true,"corp_name":"OOMOL","user_name":"Shaun"}'
+  elif [ -f "$DWS_CONFIG_DIR/authorized" ]; then
     echo '{"authenticated":true,"corp_id":"ding-corp","corp_name":"OOMOL","user_id":"user-1","user_name":"Shaun"}'
   else
     echo '{"authenticated":false,"message":"not logged in"}'
@@ -76,6 +88,7 @@ if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
 fi
 if [ "$1" = "auth" ] && [ "$2" = "login" ]; then
   printf 'https://login.dingtalk.com/oauth2/auth?client_id=test&redirect_uri=http%%3A%%2F%%2F127.0.0.1'
+  while [ -f "$DWS_CONFIG_DIR/pause-login" ]; do :; done
   sleep 0.05
   mkdir -p "$DWS_CONFIG_DIR"
   touch "$DWS_CONFIG_DIR/authorized"
@@ -89,33 +102,98 @@ if [ "$1" = "auth" ] && [ "$2" = "logout" ]; then
 fi
 exit 1
 `,
-        "utf-8",
-      )
-      await chmod(binaryPath, 0o755)
-      const opened: string[] = []
-      const manager = new DingTalkCliManager({
-        binaryPath,
-        openExternalUrl: (url) => opened.push(url),
-        rootDir,
-        skillsDir,
-      })
+    "utf-8",
+  )
+  await chmod(binaryPath, 0o755)
+  const opened: string[] = []
+  const states: MockDingTalkCli["states"] = []
+  const manager = new DingTalkCliManager({
+    binaryPath,
+    openExternalUrl: (url) => opened.push(url),
+    rootDir,
+    skillsDir,
+  })
+  manager.stateChanged.on((state) => states.push({ error: state.error, phase: state.phase }))
+  return { base, manager, opened, rootDir, states }
+}
 
-      const connected = await manager.connect()
+describe.runIf(process.platform !== "win32")("DingTalk CLI lifecycle", () => {
+  test("opens official authorization and logs out only the exact active profile", async () => {
+    const fixture = await createMockDingTalkCli()
+    try {
+      const connected = await fixture.manager.connect()
+
       expect(connected).toMatchObject({
         accountLabel: "OOMOL · Shaun",
         connection: "connected",
         phase: "idle",
       })
-      expect(opened).toHaveLength(1)
-      expect(opened[0]).toContain("https://login.dingtalk.com/oauth2/auth")
+      expect(fixture.opened).toHaveLength(1)
+      expect(fixture.opened[0]).toContain("https://login.dingtalk.com/oauth2/auth")
 
-      const disconnected = await manager.disconnect()
+      const disconnected = await fixture.manager.disconnect()
       expect(disconnected.connection).toBe("disconnected")
-      await expect(readFile(path.join(rootDir, "config", "logout-args"), "utf-8")).resolves.toBe(
+      await expect(readFile(path.join(fixture.rootDir, "config", "logout-args"), "utf-8")).resolves.toBe(
         "--profile ding-corp:user-1\n",
       )
     } finally {
-      await rm(base, { force: true, recursive: true })
+      await rm(fixture.base, { force: true, recursive: true })
+    }
+  })
+
+  test("cancels authorization without leaving an error state", async () => {
+    const fixture = await createMockDingTalkCli()
+    try {
+      await mkdir(path.join(fixture.rootDir, "config"), { recursive: true })
+      await writeFile(path.join(fixture.rootDir, "config", "pause-login"), "1", "utf-8")
+      const connection = fixture.manager.connect()
+      while (fixture.opened.length === 0) await new Promise((resolve) => setTimeout(resolve, 1))
+
+      fixture.manager.cancelConnection()
+
+      await expect(connection).rejects.toThrow()
+      expect(fixture.states.at(-1)).toEqual({ error: undefined, phase: "idle" })
+    } finally {
+      await rm(fixture.base, { force: true, recursive: true })
+    }
+  })
+
+  test("reports expired credentials while keeping the runtime available", async () => {
+    const fixture = await createMockDingTalkCli()
+    try {
+      await mkdir(path.join(fixture.rootDir, "config"), { recursive: true })
+      await writeFile(path.join(fixture.rootDir, "config", "expired"), "1", "utf-8")
+
+      await expect(fixture.manager.getState()).resolves.toMatchObject({ available: true, connection: "expired" })
+    } finally {
+      await rm(fixture.base, { force: true, recursive: true })
+    }
+  })
+
+  test("refuses an unscoped logout when the account identity is incomplete", async () => {
+    const fixture = await createMockDingTalkCli()
+    try {
+      await mkdir(path.join(fixture.rootDir, "config"), { recursive: true })
+      await writeFile(path.join(fixture.rootDir, "config", "missing-profile"), "1", "utf-8")
+
+      await expect(fixture.manager.disconnect()).rejects.toThrow("exact account identity")
+      await expect(readFile(path.join(fixture.rootDir, "config", "logout-args"), "utf-8")).rejects.toThrow()
+    } finally {
+      await rm(fixture.base, { force: true, recursive: true })
+    }
+  })
+
+  test("does not expose invalid CLI JSON through state errors", async () => {
+    const fixture = await createMockDingTalkCli()
+    try {
+      await mkdir(path.join(fixture.rootDir, "config"), { recursive: true })
+      await writeFile(path.join(fixture.rootDir, "config", "invalid-status"), "1", "utf-8")
+
+      const state = await fixture.manager.getState()
+      expect(state.error).toBe("DingTalk CLI returned output that is not valid JSON.")
+      expect(state.error).not.toContain("secret")
+    } finally {
+      await rm(fixture.base, { force: true, recursive: true })
     }
   })
 })

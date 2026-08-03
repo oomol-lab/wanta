@@ -5,10 +5,12 @@ import { execFile, spawn } from "node:child_process"
 import { chmod, mkdir, stat } from "node:fs/promises"
 import path from "node:path"
 import { promisify } from "node:util"
+import { sanitizeDingTalkEnvironment } from "../dingtalk-cli-environment.ts"
 import { ServiceEvent } from "../service-events.ts"
 
 const execFileAsync = promisify(execFile)
 const authorizationTimeoutMs = 16 * 60_000
+const logoutTimeoutMs = 30_000
 const maxOutputBytes = 512 * 1024
 
 interface DingTalkCliManagerOptions {
@@ -220,7 +222,7 @@ export class DingTalkCliManager {
     }
     if (!auth.profile) throw new Error("DingTalk CLI did not report an exact account identity to disconnect.")
     this.setState({ error: undefined, phase: "disconnecting" })
-    await this.runCommand(["auth", "logout", "--profile", auth.profile], authorizationTimeoutMs)
+    await this.runCommand(["auth", "logout", "--profile", auth.profile], logoutTimeoutMs)
     this.setState({
       accountLabel: undefined,
       canReopenAuthorization: false,
@@ -234,7 +236,7 @@ export class DingTalkCliManager {
 
   private async readVersion(): Promise<string> {
     const result = await this.runCommand(["version", "--format", "json"], 10_000)
-    const value = JSON.parse(result.stdout) as { version?: unknown }
+    const value = parseJsonOutput(result.stdout) as { version?: unknown }
     if (typeof value.version !== "string" || !/^v?\d+\.\d+\.\d+/u.test(value.version)) {
       throw new Error("DingTalk CLI returned an unreadable version.")
     }
@@ -243,7 +245,7 @@ export class DingTalkCliManager {
 
   private async readAuthState(): Promise<DingTalkAuthStatus> {
     const result = await this.runCommand(["auth", "status", "--format", "json"], 30_000)
-    return parseDingTalkAuthStatus(JSON.parse(result.stdout))
+    return parseDingTalkAuthStatus(parseJsonOutput(result.stdout))
   }
 
   private environment(): NodeJS.ProcessEnv {
@@ -252,17 +254,7 @@ export class DingTalkCliManager {
       DWS_CONFIG_DIR: this.configDir,
       DWS_KEYCHAIN_DIR: this.keychainDir,
     }
-    for (const name of [
-      "DWS_CLIENT_ID",
-      "DWS_CLIENT_SECRET",
-      "DWS_DISABLE_KEYCHAIN",
-      "DWS_GITEE_REPO",
-      "DWS_CHANNEL",
-      "DINGTALK_DWS_AGENTCODE",
-    ]) {
-      delete environment[name]
-    }
-    return environment
+    return sanitizeDingTalkEnvironment(environment)
   }
 
   private async ensurePrivateDirectories(): Promise<void> {
@@ -276,13 +268,21 @@ export class DingTalkCliManager {
     }
   }
 
-  private runCommand(args: string[], timeout: number): Promise<{ stderr: string; stdout: string }> {
-    return execFileAsync(this.binaryPath, args, {
-      encoding: "utf-8",
-      env: this.environment(),
-      maxBuffer: maxOutputBytes,
-      timeout,
-    })
+  private async runCommand(args: string[], timeout: number): Promise<{ stderr: string; stdout: string }> {
+    try {
+      return await execFileAsync(this.binaryPath, args, {
+        encoding: "utf-8",
+        env: this.environment(),
+        maxBuffer: maxOutputBytes,
+        timeout,
+      })
+    } catch (error) {
+      const failure = error as { code?: unknown; stderr?: unknown; stdout?: unknown }
+      const output = [failure.stderr, failure.stdout]
+        .filter((value): value is string => typeof value === "string")
+        .join("\n")
+      throw new Error(redactDingTalkCliError(output, typeof failure.code === "number" ? failure.code : undefined))
+    }
   }
 
   private runAuthorizationCommand(): Promise<void> {
@@ -292,13 +292,15 @@ export class DingTalkCliManager {
         stdio: ["ignore", "pipe", "pipe"],
       })
       this.activeChild = child
+      child.stdout?.setEncoding("utf-8")
+      child.stderr?.setEncoding("utf-8")
       let output = ""
       let openedUrl: string | null = null
       const timeout = setTimeout(() => child.kill(), authorizationTimeoutMs)
       timeout.unref()
 
-      const consume = (chunk: Buffer | string) => {
-        output += chunk.toString()
+      const consume = (chunk: string) => {
+        output += chunk
         if (Buffer.byteLength(output) > maxOutputBytes) {
           child.kill()
           reject(new Error("DingTalk CLI authorization output exceeded the safety limit."))
@@ -317,7 +319,7 @@ export class DingTalkCliManager {
       }
       child.stdout?.on("data", consume)
       child.stderr?.on("data", consume)
-      child.once("error", reject)
+      child.once("error", () => reject(new Error("Unable to start DingTalk CLI authorization.")))
       child.once("close", (code, signal) => {
         clearTimeout(timeout)
         if (this.activeChild === child) this.activeChild = null
@@ -347,15 +349,12 @@ export function parseDingTalkAuthStatus(value: unknown): DingTalkAuthStatus {
   const userName = stringValue(value.user_name)
   const authenticated = value.authenticated
   const expired = !authenticated && value.reason === "token_refresh_failed"
+  const label = accountLabel(corpName, userName, corpId, userId)
   return {
     authenticated,
     connection: authenticated ? "connected" : expired ? "expired" : "disconnected",
     ...(corpId && userId ? { profile: `${corpId}:${userId}` } : {}),
-    ...(accountLabel(corpName, userName, corpId, userId)
-      ? {
-          accountLabel: accountLabel(corpName, userName, corpId, userId),
-        }
-      : {}),
+    ...(label ? { accountLabel: label } : {}),
   }
 }
 
@@ -396,6 +395,14 @@ export function redactDingTalkCliError(output: string, code?: number | null, sig
 function accountLabel(corpName: string, userName: string, corpId: string, userId: string): string | undefined {
   if (corpName && userName) return `${corpName} · ${userName}`
   return userName || corpName || userId || corpId || undefined
+}
+
+function parseJsonOutput(stdout: string): unknown {
+  try {
+    return JSON.parse(stdout)
+  } catch {
+    throw new Error("DingTalk CLI returned output that is not valid JSON.")
+  }
 }
 
 function stringValue(value: unknown): string {

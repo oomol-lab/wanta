@@ -77,6 +77,7 @@ export function useDingTalkCliConnection() {
   const connectionRef = React.useRef<DingTalkCliState["connection"] | undefined>(undefined)
   const connectedUpdatedAtRef = React.useRef<number | undefined>(undefined)
   const acceptState = React.useCallback((next: DingTalkCliState) => {
+    setError(null)
     if (next.connection === "connected" && connectionRef.current !== "connected") {
       connectedUpdatedAtRef.current = Date.now()
     } else if (next.connection === "disconnected") {
@@ -133,10 +134,14 @@ export function useDingTalkCliConnection() {
   }, [linkRuntimeService])
   const connect = React.useCallback(() => mutate("connectDingTalkCli"), [mutate])
   const disconnect = React.useCallback(() => mutate("disconnectDingTalkCli"), [mutate])
-  const reopenAuthorization = React.useCallback(
-    () => linkRuntimeService.invoke("reopenDingTalkCliAuthorization").then(() => undefined),
-    [linkRuntimeService],
-  )
+  const reopenAuthorization = React.useCallback(async () => {
+    setError(null)
+    try {
+      await linkRuntimeService.invoke("reopenDingTalkCliAuthorization")
+    } catch (cause) {
+      setError(resolveConnectionError(cause, "connect"))
+    }
+  }, [linkRuntimeService])
   const stateError = React.useMemo(
     () => (state?.error ? resolveConnectionError(new Error(state.error), "summary") : null),
     [state?.error],

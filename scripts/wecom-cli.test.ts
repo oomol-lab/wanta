@@ -49,6 +49,14 @@ describe("WeCom CLI Skill archive", () => {
     expect(() => tarEntries(tarHeader("oversized", Number.parseInt("77777777777", 8)))).toThrow("Invalid or truncated")
   })
 
+  it("rejects a tar size field with a trailing non-octal character", () => {
+    const header = tarHeader("malformed-size", 1)
+    header.write("00000000001x", 124, 12, "ascii")
+    const archive = Buffer.concat([header, Buffer.alloc(512)])
+
+    expect(() => tarEntries(archive)).toThrow("Invalid or truncated")
+  })
+
   it("parses a complete padded tar entry", () => {
     const archive = Buffer.concat([tarHeader("skill/SKILL.md", 4), Buffer.from("test"), Buffer.alloc(508)])
     expect(tarEntries(archive)).toEqual([{ data: Buffer.from("test"), path: "skill/SKILL.md", type: "0" }])

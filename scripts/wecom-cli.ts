@@ -141,7 +141,9 @@ export function tarEntries(tar: Buffer): TarEntry[] {
     const name = tarString(header, 0, 100)
     const prefix = tarString(header, 345, 155)
     const entryPath = prefix ? `${prefix}/${name}` : name
-    const size = Number.parseInt(tarString(header, 124, 12).trim() || "0", 8)
+    let sizeField = header.subarray(124, 136).toString("ascii").trim()
+    while (sizeField.endsWith("\0")) sizeField = sizeField.slice(0, -1)
+    const size = sizeField === "" || /^[0-7]+$/u.test(sizeField) ? Number.parseInt(sizeField || "0", 8) : Number.NaN
     const dataStart = offset + 512
     const dataEnd = dataStart + size
     const nextOffset = dataStart + Math.ceil(size / 512) * 512

@@ -98,6 +98,7 @@ export class LarkCliManager {
         bundledVersion: await this.readVersion(this.bundledBinaryPath).catch(() => null),
         connection: auth.connection,
         accountLabel: auth.accountLabel,
+        error: undefined,
         phase: "idle",
       }
     } catch (error) {
@@ -407,10 +408,12 @@ export class LarkCliManager {
   private async downloadBundle(version: string): Promise<ActiveBundle> {
     const target = releaseTarget(version, this.platform, this.arch)
     const base = `${officialReleaseBase}/v${version}`
-    const [archive, checksums] = await Promise.all([
+    const [archive, npmPackage] = await Promise.all([
       this.fetchDownload(`${base}/${target.assetName}`),
-      this.fetchDownload(`${base}/checksums.txt`),
+      this.fetchDownload(`https://registry.npmjs.org/@larksuite/cli/-/cli-${version}.tgz`),
     ])
+    const checksums = extractTarFile(gunzipSync(npmPackage), "package/checksums.txt")
+    if (!checksums) throw new Error(`The npm package for Lark CLI ${version} contains no checksum manifest.`)
     const expected = checksumForAsset(checksums.toString("utf-8"), target.assetName)
     const actual = createHash("sha256").update(archive).digest("hex")
     if (!expected || actual !== expected)

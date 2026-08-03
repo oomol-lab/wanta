@@ -10,7 +10,7 @@ import { useLinkRuntimeService } from "../components/AppContext.ts"
 import { resolveConnectionError } from "../lib/connections-error.ts"
 import larkIconUrl from "@/assets/apps/lark.svg"
 
-const service = "lark-cli"
+export const larkCliService = "lark-cli"
 
 function appFromState(state: LarkCliState, connectedUpdatedAt?: number): ConnectionAppSummary | null {
   if (state.connection === "disconnected") return null
@@ -23,7 +23,7 @@ function appFromState(state: LarkCliState, connectedUpdatedAt?: number): Connect
     displayName: state.accountLabel,
     id: "direct:lark-cli:default",
     isDefault: true,
-    service,
+    service: larkCliService,
     status: state.connection === "connected" ? "active" : "reauth_required",
     updatedAt: timestamp,
   }
@@ -51,7 +51,7 @@ export function larkCliProviderFromState(
     executionMode: "direct",
     iconUrl: larkIconUrl,
     runtimeVersion: state.activeVersion ?? undefined,
-    service,
+    service: larkCliService,
     status:
       state.connection === "connected" ? "connected" : state.connection === "expired" ? "needs_attention" : "available",
   }

@@ -169,6 +169,7 @@ export class WecomCliManager {
     if (!runtime) throw new Error("The bundled WeCom CLI runtime is unavailable.")
     await this.ensurePrivateDirectories()
     const current = await this.readAuthState()
+    this.assertNotCancelled()
     if (!current.connected) {
       this.setState({ phase: "waiting_for_scan" })
       await this.runAuthorizationCommand()
@@ -279,7 +280,9 @@ export class WecomCliManager {
           output += chunk.toString().slice(0, maxOutputBytes - Buffer.byteLength(output))
         }
         if (!openedUrl) {
-          const url = findOfficialWecomAuthorizationUrl(output)
+          const lastNewline = output.lastIndexOf("\n")
+          const settledOutput = lastNewline === -1 ? "" : output.slice(0, lastNewline + 1)
+          const url = findOfficialWecomAuthorizationUrl(settledOutput)
           if (url) {
             openedUrl = true
             this.activeAuthorizationUrl = url

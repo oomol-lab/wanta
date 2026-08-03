@@ -1148,7 +1148,7 @@ export const enMessages = {
   "connections.larkCli.phase.disconnecting": "Disconnecting",
   "connections.wecomCli.name": "WeCom CLI",
   "connections.wecomCli.description":
-    "Scan with WeCom to connect a bot for contacts, messages, schedules, todos, meetings, Docs, and Smart Sheets. The official CLI currently limits access to organizations with up to 10 members.",
+    "Scan with WeCom to connect a bot. Organizations with more than 10 members support Docs, Smart Sheets, and Smart Docs; teams with up to 10 members also support messages, schedules, meetings, and todos.",
   "connections.wecomCli.connectAction": "Scan to connect",
   "connections.wecomCli.reopenAuthorization": "Open QR code again",
   "connections.wecomCli.connectionMethod": "WeCom QR code",

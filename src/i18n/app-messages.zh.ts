@@ -1098,7 +1098,7 @@ export const zhCNMessages = {
   "connections.larkCli.phase.disconnecting": "正在断开连接",
   "connections.wecomCli.name": "企业微信 CLI",
   "connections.wecomCli.description":
-    "使用企业微信扫码接入机器人，可使用通讯录、消息、日程、待办、会议、文档和智能表格等能力。官方 CLI 当前仅向不超过 10 人的企业开放。",
+    "使用企业微信扫码接入机器人。10 人以上企业支持文档、智能表格和智能文档；10 人及以下团队还支持消息、日程、会议和待办等能力。",
   "connections.wecomCli.connectAction": "扫码接入",
   "connections.wecomCli.reopenAuthorization": "重新打开二维码",
   "connections.wecomCli.connectionMethod": "企业微信扫码",

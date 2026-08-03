@@ -58,7 +58,9 @@ fi
 if [ "$1" = "auth" ]; then echo '{"id":"bot-123"}'; exit 0; fi
 if [ "$1" = "init" ]; then
   mkdir -p "$WECOM_CLI_CONFIG_DIR"
-  echo 'https://work.weixin.qq.com/ai/qc/gen?source=test&scode=temporary'
+  printf 'https://work.weixin.qq.com/ai/qc/gen?source=test&scode=tempor'
+  sleep 0.05
+  echo 'ary'
   touch "$WECOM_CLI_CONFIG_DIR/authorized"
   exit 0
 fi
@@ -88,6 +90,42 @@ exit 1
       expect(disconnected.connection).toBe("disconnected")
       await expect(readFile(retained, "utf-8")).resolves.toBe("keep")
       await expect(stat(path.join(rootDir, "config"))).resolves.toMatchObject({})
+    } finally {
+      await rm(base, { force: true, recursive: true })
+    }
+  })
+
+  it("honors cancellation while checking existing authorization", async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), "wanta-wecom-cli-cancel-"))
+    try {
+      const binaryPath = path.join(base, "wecom-cli")
+      const rootDir = path.join(base, "private-runtime")
+      const skillsDir = path.join(base, "skills")
+      await mkdir(skillsDir)
+      await writeFile(
+        binaryPath,
+        `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "wecom-cli 0.1.9"; exit 0; fi
+if [ "$1" = "auth" ] && [ "$3" = "--auth-status" ]; then sleep 0.1; echo unauthorized; exit 0; fi
+if [ "$1" = "init" ]; then touch "$WECOM_CLI_CONFIG_DIR/init-started"; exit 1; fi
+exit 1
+`,
+        "utf-8",
+      )
+      await chmod(binaryPath, 0o755)
+      const manager = new WecomCliManager({
+        binaryPath,
+        openExternalUrl: () => undefined,
+        rootDir,
+        skillsDir,
+      })
+
+      const connection = manager.connect()
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      manager.cancelConnection()
+
+      await expect(connection).rejects.toThrow("cancelled")
+      await expect(stat(path.join(rootDir, "config", "init-started"))).rejects.toMatchObject({ code: "ENOENT" })
     } finally {
       await rm(base, { force: true, recursive: true })
     }

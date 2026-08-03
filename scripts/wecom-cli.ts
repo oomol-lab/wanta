@@ -24,6 +24,7 @@ interface WecomCliTarget {
 
 interface PackageVersionMetadata {
   dist?: { integrity?: string; tarball?: string }
+  gitHead?: string
 }
 
 interface TarEntry {
@@ -95,6 +96,11 @@ export async function downloadWecomCliBinary(): Promise<string> {
   if (!metadata.dist?.tarball || !metadata.dist.integrity) {
     throw new Error(`Incomplete npm dist metadata for ${target.packageName}@${WECOM_CLI_VERSION}`)
   }
+  if (metadata.gitHead !== WECOM_CLI_GIT_HEAD) {
+    throw new Error(
+      `${target.packageName}@${WECOM_CLI_VERSION} comes from ${metadata.gitHead ?? "an unknown commit"}; expected ${WECOM_CLI_GIT_HEAD}`,
+    )
+  }
   const archive = await fetchBytes(metadata.dist.tarball)
   verifyTarballIntegrity(archive, metadata.dist.integrity, metadata.dist.tarball)
   const binary = extractFileFromTar(gunzipSync(archive), `package/bin/${target.binaryName}`)
@@ -126,7 +132,7 @@ function tarString(header: Buffer, start: number, length: number): string {
   return value.toString("utf-8", 0, nul === -1 ? length : nul)
 }
 
-function tarEntries(tar: Buffer): TarEntry[] {
+export function tarEntries(tar: Buffer): TarEntry[] {
   const entries: TarEntry[] = []
   let offset = 0
   while (offset + 512 <= tar.length) {
@@ -137,21 +143,23 @@ function tarEntries(tar: Buffer): TarEntry[] {
     const entryPath = prefix ? `${prefix}/${name}` : name
     const size = Number.parseInt(tarString(header, 124, 12).trim() || "0", 8)
     const dataStart = offset + 512
-    if (!Number.isSafeInteger(size) || size < 0 || dataStart + size > tar.length) {
+    const dataEnd = dataStart + size
+    const nextOffset = dataStart + Math.ceil(size / 512) * 512
+    if (!Number.isSafeInteger(size) || size < 0 || dataEnd > tar.length || nextOffset > tar.length) {
       throw new Error(`Invalid or truncated WeCom CLI source archive entry: ${entryPath}`)
     }
     entries.push({
-      data: tar.subarray(dataStart, dataStart + size),
+      data: tar.subarray(dataStart, dataEnd),
       path: entryPath,
       type: String.fromCharCode(header[156] ?? 0),
     })
-    offset = dataStart + Math.ceil(size / 512) * 512
+    offset = nextOffset
   }
   return entries
 }
 
-function safeSkillPath(value: string): boolean {
-  if (!value || path.isAbsolute(value)) return false
+export function safeSkillPath(value: string): boolean {
+  if (!value || path.posix.isAbsolute(value) || path.win32.isAbsolute(value)) return false
   const segments = value.split(/[\\/]/u)
   return segments.every((segment) => segment !== "" && segment !== "." && segment !== "..")
 }

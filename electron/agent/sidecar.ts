@@ -430,6 +430,10 @@ export class OpencodeSidecar {
       XDG_CONFIG_HOME: xdgConfigHome,
       XDG_DATA_HOME: xdgDataHome,
     }
+    // WeCom commands inherit this environment from OpenCode. Never let a launcher-level logging
+    // override redirect credential-adjacent CLI diagnostics outside Wanta's private runtime.
+    delete baseChildEnv.WECOM_CLI_LOG_FILE
+    delete baseChildEnv.WECOM_CLI_LOG_LEVEL
     const proxy = await systemProxy()
     const childEnv = mergeSystemProxyEnvironment(baseChildEnv, proxy)
     logDiagnostic("opencode-sidecar", "opencode sidecar network environment", {

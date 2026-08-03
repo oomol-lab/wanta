@@ -6,6 +6,7 @@ import type {
   OpenConnectorRuntimeStatus,
   OpenConnectorTestResult,
   LarkCliState,
+  WecomCliState,
 } from "./common.ts"
 import type { IConnectionService } from "@oomol/connection"
 
@@ -16,6 +17,7 @@ import { atomicWriteText } from "../atomic-file.ts"
 import { ServiceEvent } from "../service-events.ts"
 import { LinkRuntimeService as LinkRuntimeServiceName } from "./common.ts"
 import { LarkCliManager } from "./lark-cli.ts"
+import { WecomCliManager } from "./wecom-cli.ts"
 
 export interface RuntimeCredentialEncryption {
   decryptString(encrypted: Buffer): string
@@ -446,13 +448,16 @@ export class LinkRuntimeServiceImpl
 {
   private readonly manager: LinkRuntimeManager
   private readonly larkCli: LarkCliManager
+  private readonly wecomCli: WecomCliManager
   private readonly unsubscribe: () => void
   private readonly unsubscribeLarkCli: () => void
+  private readonly unsubscribeWecomCli: () => void
 
-  public constructor(manager: LinkRuntimeManager, larkCli: LarkCliManager) {
+  public constructor(manager: LinkRuntimeManager, larkCli: LarkCliManager, wecomCli: WecomCliManager) {
     super(LinkRuntimeServiceName)
     this.manager = manager
     this.larkCli = larkCli
+    this.wecomCli = wecomCli
     this.unsubscribe = manager.stateChanged.on((state) => {
       void this.send("linkRuntimeChanged", state).catch((error: unknown) => {
         console.warn("[wanta] Link runtime broadcast failed:", error)
@@ -461,6 +466,11 @@ export class LinkRuntimeServiceImpl
     this.unsubscribeLarkCli = larkCli.stateChanged.on((state) => {
       void this.send("larkCliChanged", state).catch((error: unknown) => {
         console.warn("[wanta] Lark CLI state broadcast failed:", error)
+      })
+    })
+    this.unsubscribeWecomCli = wecomCli.stateChanged.on((state) => {
+      void this.send("wecomCliChanged", state).catch((error: unknown) => {
+        console.warn("[wanta] WeCom CLI state broadcast failed:", error)
       })
     })
   }
@@ -517,9 +527,30 @@ export class LinkRuntimeServiceImpl
     this.larkCli.cancelConnection()
   }
 
+  public getWecomCliState(): Promise<WecomCliState> {
+    return this.wecomCli.getState()
+  }
+
+  public connectWecomCli(): Promise<WecomCliState> {
+    return this.wecomCli.connect()
+  }
+
+  public disconnectWecomCli(): Promise<WecomCliState> {
+    return this.wecomCli.disconnect()
+  }
+
+  public async cancelWecomCliConnection(): Promise<void> {
+    this.wecomCli.cancelConnection()
+  }
+
+  public async reopenWecomCliAuthorization(): Promise<boolean> {
+    return this.wecomCli.reopenAuthorization()
+  }
+
   public override dispose(): void {
     this.unsubscribe()
     this.unsubscribeLarkCli()
+    this.unsubscribeWecomCli()
     super.dispose()
   }
 }

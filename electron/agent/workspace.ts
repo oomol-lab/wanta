@@ -6,7 +6,7 @@ const alwaysAvailableBundledSkillIds = new Set(["browser"])
 
 export interface AgentWorkspaceOptions {
   bundledOoSkills: boolean
-  bundledLarkSkillsDir?: string
+  directSkillsDirs?: string[]
   connectors: boolean
 }
 
@@ -37,7 +37,7 @@ export async function ensureAgentWorkspace(
     ),
   )
   await syncToolRuntime(opencodeDir, bundledToolRuntimePath)
-  await syncBundledSkills(opencodeDir, bundledSkillsDir, options.bundledLarkSkillsDir, options.bundledOoSkills)
+  await syncBundledSkills(opencodeDir, bundledSkillsDir, options.directSkillsDirs ?? [], options.bundledOoSkills)
   return rootDir
 }
 
@@ -63,22 +63,23 @@ async function syncToolRuntime(opencodeDir: string, bundledToolRuntimePath: stri
 async function syncBundledSkills(
   opencodeDir: string,
   bundledSkillsDir: string | undefined,
-  bundledLarkSkillsDir: string | undefined,
+  directSkillsDirs: string[],
   includeOomolSkills: boolean,
 ): Promise<void> {
   const skillDir = path.join(opencodeDir, "skill")
 
-  if (!bundledSkillsDir && !bundledLarkSkillsDir) {
+  if (!bundledSkillsDir && directSkillsDirs.length === 0) {
     await rm(skillDir, { force: true, recursive: true })
     return
   }
 
-  const sources: Array<{ directory: string; names: string[] }> = []
-  for (const directory of [bundledSkillsDir, bundledLarkSkillsDir]) {
+  const sources: Array<{ alwaysInclude: boolean; directory: string; names: string[] }> = []
+  for (const directory of [bundledSkillsDir, ...directSkillsDirs]) {
     if (!directory) continue
     try {
       const entries = await readdir(directory, { withFileTypes: true })
       sources.push({
+        alwaysInclude: directSkillsDirs.includes(directory),
         directory,
         names: entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name),
       })
@@ -95,10 +96,7 @@ async function syncBundledSkills(
 
   const skillSources = sources.flatMap((source) =>
     source.names
-      .filter(
-        (name) =>
-          source.directory === bundledLarkSkillsDir || includeOomolSkills || alwaysAvailableBundledSkillIds.has(name),
-      )
+      .filter((name) => source.alwaysInclude || includeOomolSkills || alwaysAvailableBundledSkillIds.has(name))
       .map((name) => ({ name, source: source.directory })),
   )
   if (skillSources.length === 0) {

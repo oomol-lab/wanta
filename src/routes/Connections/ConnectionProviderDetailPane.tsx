@@ -85,8 +85,10 @@ export function ProviderDetail({
   onClose,
   onConnect,
   onDisconnect,
+  onReopenPolling,
   polling,
   progressLabel,
+  reopenPollingLabel,
   provider,
   showCloseButton = false,
 }: {
@@ -107,8 +109,10 @@ export function ProviderDetail({
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
+  onReopenPolling?: () => void
   polling: string | null
   progressLabel?: string
+  reopenPollingLabel?: string
   provider: ConnectionProviderSummary
   showCloseButton?: boolean
 }) {
@@ -172,8 +176,10 @@ export function ProviderDetail({
             onCancelPolling={onCancelPolling}
             onConnect={onConnect}
             onDisconnect={onDisconnect}
+            onReopenPolling={onReopenPolling}
             polling={polling}
             progressLabel={progressLabel}
+            reopenPollingLabel={reopenPollingLabel}
             provider={provider}
           />
         )}
@@ -187,7 +193,10 @@ export function ProviderDetail({
           <dl className="overflow-hidden rounded-md border">
             {direct ? <DetailRow label={t("connections.connectionMode")} value={t("connections.directMode")} /> : null}
             {directlyAvailable ? null : <DetailRow label={t("connections.account")} value={accountValue} />}
-            <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
+            <DetailRow
+              label={t("connections.auth")}
+              value={provider.connectionMethodLabel ?? formatAuthTypes(provider.authTypes, t)}
+            />
             {provider.runtimeVersion ? (
               <DetailRow label={t("connections.runtimeVersion")} value={provider.runtimeVersion} mono />
             ) : null}
@@ -272,8 +281,10 @@ function ConnectionPanel({
   onCancelPolling,
   onConnect,
   onDisconnect,
+  onReopenPolling,
   polling,
   progressLabel,
+  reopenPollingLabel,
   provider,
 }: {
   actionsPending?: boolean
@@ -290,8 +301,10 @@ function ConnectionPanel({
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
+  onReopenPolling?: () => void
   polling: string | null
   progressLabel?: string
+  reopenPollingLabel?: string
   provider: ConnectionProviderSummary
 }) {
   const t = useT()
@@ -358,6 +371,11 @@ function ConnectionPanel({
                 <Loader size={16} />
                 {progressLabel ?? t("connections.oauthWaiting")}
               </Button>
+              {onReopenPolling && reopenPollingLabel ? (
+                <Button size="sm" variant="outline" onClick={onReopenPolling}>
+                  {reopenPollingLabel}
+                </Button>
+              ) : null}
               <Button size="sm" variant="outline" onClick={onCancelPolling}>
                 {t("common.cancel")}
               </Button>
@@ -389,7 +407,7 @@ function ConnectionPanel({
               {authIntent
                 ? t("connections.connectAndContinue")
                 : direct
-                  ? t("connections.connectDirectProvider")
+                  ? (provider.connectActionLabel ?? t("connections.connectDirectProvider"))
                   : directlyAvailable
                     ? t("connections.configureAuth", { auth: formatAuthTypes([activeAuthType], t) })
                     : provider.apps.length > 0

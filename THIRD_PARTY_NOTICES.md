@@ -35,15 +35,25 @@ The CLI and Skills are included by default so official OOMOL Connector and endpo
 self-hosted OpenConnector deployments can use the same invocation path. Local BYOK mode does not
 register Connector tools or inject the oo runtime environment.
 
+## WeCom CLI and Skills
+
+Wanta packages the official `@wecom/cli@0.1.9` platform binary and the matching `wecomcli-*`
+Skills from source commit `72e14f7695f34d28f1ff23ea504ddd2210a87c13` for the local WeCom Direct
+provider.
+
+Source: [WecomTeam/wecom-cli](https://github.com/WecomTeam/wecom-cli). License: MIT. Copyright (c)
+2026 WeCom.
+
 ## MIT License Text
 
-The following text applies to the OpenCode and oo CLI entries above:
+The following text applies to the OpenCode, oo CLI, and WeCom CLI entries above:
 
 ```text
 MIT License
 
 Copyright (c) 2025 opencode
 Copyright (c) 2026 OOMOL Lab
+Copyright (c) 2026 WeCom
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

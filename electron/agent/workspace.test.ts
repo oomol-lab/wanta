@@ -171,7 +171,7 @@ test("ensureAgentWorkspace installs Lark direct-mode skills independently of the
     await writeSkill(bundledLarkSkillsDir, "lark-calendar")
 
     await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, {
-      bundledLarkSkillsDir,
+      directSkillsDirs: [bundledLarkSkillsDir],
       bundledOoSkills: false,
       connectors: false,
     })
@@ -180,6 +180,30 @@ test("ensureAgentWorkspace installs Lark direct-mode skills independently of the
     assert.ok(await exists(path.join(skillRoot, "browser", "SKILL.md")))
     assert.ok(await exists(path.join(skillRoot, "lark-calendar", "SKILL.md")))
     assert.equal(await exists(path.join(skillRoot, "oo")), false)
+  } finally {
+    await rm(base, { force: true, recursive: true })
+  }
+})
+
+test("ensureAgentWorkspace installs independent Lark and WeCom direct-mode skills", async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "wanta-workspace-"))
+  try {
+    const workspaceDir = path.join(base, "workspace")
+    const bundledToolRuntimePath = await writeToolRuntime(base)
+    const larkSkillsDir = path.join(base, "lark-skills")
+    const wecomSkillsDir = path.join(base, "wecom-skills")
+    await writeSkill(larkSkillsDir, "lark-calendar")
+    await writeSkill(wecomSkillsDir, "wecomcli-todo")
+
+    await ensureAgentWorkspace(workspaceDir, undefined, bundledToolRuntimePath, {
+      bundledOoSkills: false,
+      connectors: false,
+      directSkillsDirs: [larkSkillsDir, wecomSkillsDir],
+    })
+
+    const skillRoot = path.join(workspaceDir, ".opencode", "skill")
+    assert.ok(await exists(path.join(skillRoot, "lark-calendar", "SKILL.md")))
+    assert.ok(await exists(path.join(skillRoot, "wecomcli-todo", "SKILL.md")))
   } finally {
     await rm(base, { force: true, recursive: true })
   }

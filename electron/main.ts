@@ -24,16 +24,20 @@ import { AgentRefreshScheduler } from "./agent-refresh-scheduler.ts"
 import {
   ooBinaryName,
   larkCliBinaryName,
+  wecomCliBinaryName,
   opencodeBinaryName,
   resolveBundledBin,
   resolveBundledSkillsDir,
   resolveBundledLarkSkillsDir,
+  resolveBundledWecomSkillsDir,
   resolveBundledToolRuntimePath,
   resolveDevBundledSkillsDir,
   resolveDevBundledLarkSkillsDir,
+  resolveDevBundledWecomSkillsDir,
   resolveDevBundledToolRuntimePath,
   resolveDevOoBin,
   resolveDevLarkCliBin,
+  resolveDevWecomCliBin,
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
 import { AgentManager } from "./agent/manager.ts"
@@ -69,6 +73,7 @@ import { GitServiceImpl } from "./git/node.ts"
 import { KnowledgeServiceImpl } from "./knowledge/node.ts"
 import { LarkCliManager } from "./link-runtime/lark-cli.ts"
 import { LinkRuntimeManager, LinkRuntimeServiceImpl } from "./link-runtime/node.ts"
+import { WecomCliManager } from "./link-runtime/wecom-cli.ts"
 import { isAudioOnlyMediaRequest, isTrustedRendererUrl } from "./media-permission-policy.ts"
 import { ModelCredentialStore } from "./models/credential-store.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
@@ -156,6 +161,9 @@ const ooBinPath = app.isPackaged ? resolveBundledBin(process.resourcesPath, ooBi
 const bundledLarkCliBinPath = app.isPackaged
   ? resolveBundledBin(process.resourcesPath, larkCliBinaryName())
   : resolveDevLarkCliBin(appRoot)
+const bundledWecomCliBinPath = app.isPackaged
+  ? resolveBundledBin(process.resourcesPath, wecomCliBinaryName())
+  : resolveDevWecomCliBin(appRoot)
 process.env.OO_CLI_PATH = ooBinPath
 // 内置 skill 源目录：生产从打包 Resources/skills，dev 从 resources/skills（postinstall 导出）。
 // AgentManager 启动时拷进 OpenCode workspace 的 .opencode/skill/，使 agent 直接读到。
@@ -165,6 +173,9 @@ const bundledSkillsDir = app.isPackaged
 const bundledLarkSkillsDir = app.isPackaged
   ? resolveBundledLarkSkillsDir(process.resourcesPath)
   : resolveDevBundledLarkSkillsDir(appRoot)
+const bundledWecomSkillsDir = app.isPackaged
+  ? resolveBundledWecomSkillsDir(process.resourcesPath)
+  : resolveDevBundledWecomSkillsDir(appRoot)
 const bundledToolRuntimePath = app.isPackaged
   ? resolveBundledToolRuntimePath(process.resourcesPath)
   : resolveDevBundledToolRuntimePath(appRoot)
@@ -290,7 +301,14 @@ const larkCliManager = new LarkCliManager({
   openExternalUrl,
   rootDir: path.join(app.getPath("userData"), "lark-cli"),
 })
-const linkRuntimeService = new LinkRuntimeServiceImpl(linkRuntimeManager, larkCliManager)
+const wecomCliManager = new WecomCliManager({
+  binaryPath: bundledWecomCliBinPath,
+  onRuntimeChanged: () => agentRefreshScheduler.schedule("WeCom CLI connection changed", 0),
+  openExternalUrl,
+  rootDir: path.join(app.getPath("userData"), "wecom-cli"),
+  skillsDir: bundledWecomSkillsDir,
+})
+const linkRuntimeService = new LinkRuntimeServiceImpl(linkRuntimeManager, larkCliManager, wecomCliManager)
 const authService = new AuthServiceImpl(authManager)
 const skillService = new SkillServiceImpl(authManager, {
   onRuntimeSkillsChanged: (reason) => agentRefreshScheduler.schedule(reason),
@@ -709,6 +727,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     return
   }
   const larkCliRuntime = await larkCliManager.activeRuntime()
+  const wecomCliRuntime = await wecomCliManager.activeRuntime()
   const nextAgent = new AgentManager({
     browserControl: browserControlConnection,
     defaultModel: runtime.defaultModel,
@@ -723,10 +742,16 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
         .filter((item) => item.status === "active")
         .map((item) => item.service),
     bundledSkillsDir,
-    bundledLarkSkillsDir: larkCliRuntime?.skillsDir ?? bundledLarkSkillsDir,
+    bundledDirectSkillsDirs: [
+      larkCliRuntime?.skillsDir ?? bundledLarkSkillsDir,
+      wecomCliRuntime?.skillsDir ?? bundledWecomSkillsDir,
+    ],
     bundledToolRuntimePath,
     larkCliBinPath: larkCliRuntime?.binaryPath ?? bundledLarkCliBinPath,
     larkCliConfigDir: path.join(app.getPath("userData"), "lark-cli", "config"),
+    wecomCliBinPath: wecomCliRuntime?.binaryPath ?? bundledWecomCliBinPath,
+    wecomCliConfigDir: path.join(app.getPath("userData"), "wecom-cli", "config"),
+    wecomCliTmpDir: path.join(app.getPath("userData"), "wecom-cli", "tmp"),
     rootDir: path.join(app.getPath("userData"), "agent"),
     customModels: runtimeModels.customModels,
   })

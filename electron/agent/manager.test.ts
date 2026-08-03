@@ -164,6 +164,29 @@ describe("AgentManager", () => {
     expect(env).not.toHaveProperty("WIKIGRAPH_STATE_DIR")
   })
 
+  it("isolates local direct CLI configuration in the sidecar", () => {
+    const env = buildAgentSidecarEnv({
+      commandPath: "/managed/bin:/usr/bin",
+      larkCliBinPath: "/managed/bin/lark-cli",
+      larkCliConfigDir: "/private/lark/config",
+      linkRuntime: null,
+      storeDir: "/private/oo-store",
+      teamScopePath: "/private/team-scope.json",
+      wecomCliBinPath: "/managed/bin/wecom-cli",
+      wecomCliConfigDir: "/private/wecom/config",
+      wecomCliTmpDir: "/private/wecom/tmp",
+    })
+
+    expect(env).toMatchObject({
+      LARKSUITE_CLI_CONFIG_DIR: "/private/lark/config",
+      PATH: "/managed/bin:/usr/bin",
+      WANTA_LARK_CLI_BIN: "/managed/bin/lark-cli",
+      WANTA_WECOM_CLI_BIN: "/managed/bin/wecom-cli",
+      WECOM_CLI_CONFIG_DIR: "/private/wecom/config",
+      WECOM_CLI_TMP_DIR: "/private/wecom/tmp",
+    })
+  })
+
   it("exposes OOMOL authentication and the managed Node runtime to Skill commands", () => {
     const env = buildAgentSidecarEnv({
       commandPath: "/usr/bin:/bin",

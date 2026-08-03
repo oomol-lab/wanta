@@ -24,6 +24,7 @@ import {
   selectVisibleCategoryFilters,
   shouldShowConnectionState,
   shouldLoadProviderDetail,
+  supportsManagedConnectionAccountActions,
 } from "./connection-route-model.ts"
 import { translate } from "@/i18n/i18n"
 
@@ -92,7 +93,12 @@ test("direct CLI providers use local details and direct-mode catalog metadata", 
   const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
 
   assert.equal(shouldLoadProviderDetail(direct), false)
+  assert.equal(supportsManagedConnectionAccountActions(direct), false)
   assert.equal(getProviderMeta(direct, t), "Direct mode")
+})
+
+test("remote providers retain Connector-managed account actions", () => {
+  assert.equal(supportsManagedConnectionAccountActions(provider({ service: "github" })), true)
 })
 
 test("mixed direct and API key providers are directly available before configuration", () => {

@@ -102,6 +102,11 @@ export function shouldLoadProviderDetail(provider: ConnectionProviderSummary): b
   return !isDirectlyAvailableProvider(provider) || provider.authTypes.some((authType) => authType !== "no_auth")
 }
 
+/** Direct providers do not have Connector-managed app metadata, aliases, usage, or execution logs. */
+export function supportsManagedConnectionAccountActions(provider: ConnectionProviderSummary): boolean {
+  return provider.executionMode !== "direct"
+}
+
 export function getProviderStatusTone(
   provider: ConnectionProviderSummary,
 ): "attention" | "available" | "connected" | "directly-available" {

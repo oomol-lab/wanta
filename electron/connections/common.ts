@@ -62,7 +62,13 @@ export interface ConnectionProviderSummary {
   authTypes: Exclude<ConnectionAuthType, null>[]
   actionKind: ConnectionProviderActionKind
   canDisconnect: boolean
+  /** Local Direct providers opt into reconnect only when their runtime can replace an existing identity. */
+  canReconnect?: boolean
   categoryLabels: string[]
+  /** Renderer-owned copy for a local Direct provider's provider-specific primary action. */
+  connectActionLabel?: string
+  /** Renderer-owned copy for a local Direct provider's non-OAuth connection method. */
+  connectionMethodLabel?: string
   connectedUpdatedAt?: number
   displayName: string
   description?: string

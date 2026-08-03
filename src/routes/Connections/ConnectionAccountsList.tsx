@@ -109,10 +109,14 @@ function ConnectionAccountItem({
   const [aliasEditing, setAliasEditing] = React.useState(false)
   const [aliasBusy, setAliasBusy] = React.useState(false)
   const reconnectAuthType =
-    app.authType && app.authType !== "no_auth" && isConnectionAuthType(app.authType, provider.authTypes)
+    (provider.executionMode !== "direct" || provider.canReconnect === true) &&
+    app.authType &&
+    app.authType !== "no_auth" &&
+    isConnectionAuthType(app.authType, provider.authTypes)
       ? app.authType
       : null
-  const authLabel = app.authType ? authTypeLabel(t, app.authType) : t("connections.authUnknown")
+  const authLabel =
+    provider.connectionMethodLabel ?? (app.authType ? authTypeLabel(t, app.authType) : t("connections.authUnknown"))
   const accountLabel = getConnectionAppDisplayLabel(app, index, t)
   const connectedAccount = app.accountLabel?.trim() || app.providerAccountId?.trim() || ""
   const aliasValue = aliasDraft.trim()

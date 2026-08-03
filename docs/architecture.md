@@ -135,6 +135,20 @@ config root is injected through `LARKSUITE_CLI_CONFIG_DIR`, and its matching Ski
 the private Agent workspace. Thus chat uses the same local identity authorized from Connections,
 independently of the selected OOMOL/OpenConnector Link runtime.
 
+WeCom CLI is a separate local `direct` provider with a provider-specific QR-code experience rather
+than a Lark-shaped authorization flow. `WecomCliManager` runs the official
+`init --noninteractive --no-open` command against `<userData>/wecom-cli/config`, opens only the
+allowlisted `https://work.weixin.qq.com/ai/qc/gen` page, keeps the short-lived `scode` URL in main
+process memory, and lets the user reopen or cancel the scan while it is pending. Connection state is
+read through the CLI's hidden `auth show` contract; only the bot ID, CLI version, phase, and redacted
+errors cross `LinkRuntimeServiceImpl`. Disconnect removes only Wanta's isolated WeCom config and
+temporary-media directories, never the user's global `~/.config/wecom` or the robot in WeCom. The
+shipped platform binary is downloaded from the matching `@wecom/cli-*` npm package and verified
+against registry `dist.integrity`; `wecomcli-*` Skills come from the exact source `gitHead` recorded
+by the pinned `@wecom/cli` package. `WECOM_CLI_CONFIG_DIR` / `WECOM_CLI_TMP_DIR`, the managed binary
+directory, and these Skills are injected into the private Agent runtime independently of Lark and of
+the selected Link backend. Credentials and raw QR output never enter the renderer.
+
 Vite (`vite-plugin-electron/simple` in `vite.config.ts`) bundles `electron/main.ts` and
 `electron/preload.ts` into `dist-electron/main.js` + `preload.js`; the main-process build has a
 **third** rollup input, `electron/chat/spreadsheet-preview-worker.ts` → `dist-electron/spreadsheet-preview-worker.js`,
@@ -621,7 +635,7 @@ electron/
   chat/    common,node + ~45 modules  by far the largest main-process domain: SSE event bridge; per-turn lifecycle & outputs (turn-lifecycle, turn-outputs); structured artifact registration/persistence (artifact-bundles, artifacts) + previews (spreadsheet-preview-worker[-client]); permission / local-access policy (permission-state, project-permission); project-* commands; attachments; stream buffering (stream-event-buffer, context-system). Also thin main-process facades openExternalUrl (shell external open) / setAgentTeam (agent team scope) for the renderer request layer (§4, §5)
   git/     common,node,status,turn-diff(+test)  GitService (serviceName("git-service")): project git status + per-turn diff review
   knowledge/ common,node,store,runner,uri,thumbnail(+test)  WikiGraph knowledge-base import, registration, query runtime & RPC service
-  link-runtime/ common,node,lark-cli(+test)  selected Link runtime, origin-bound OpenConnector token, health/inventory facade, and isolated direct Lark CLI lifecycle
+  link-runtime/ common,node,lark-cli,wecom-cli(+test)  selected Link runtime, origin-bound OpenConnector token, health/inventory facade, and isolated provider-specific Lark/WeCom direct CLI lifecycles
   teams/   common       types only, no node.ts — team requests moved renderer-side (src/lib/teams-client.ts, §4)
   connections/ common,summary,usage,executions,federated,domain,summary-model(+test)  **pure functions + types, no node.ts** — connector requests moved renderer-side (src/lib/connections-client.ts, §4/§7); electron-free, imported straight into the renderer bundle
   skills/  common,node,actions,scan,inventory,…  skill service (install/scan/inventory); browse GET moved renderer-side (src/lib/skills-catalog-client.ts); actions.ts normalize* reused by the renderer (§4)

@@ -46,6 +46,12 @@ import {
 } from "@/components/ui/split-view"
 import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
 import { larkCliProviderDetail, larkCliProviderFromState, useLarkCliConnection } from "@/hooks/useLarkCliConnection"
+import {
+  useWecomCliConnection,
+  wecomCliProviderDetail,
+  wecomCliProviderFromState,
+  wecomCliService,
+} from "@/hooks/useWecomCliConnection"
 import { useT } from "@/i18n/i18n"
 import { getOAuthClientConfig } from "@/lib/connections-client"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
@@ -91,6 +97,7 @@ export function ConnectionsPanel({
     summaryError,
   } = connections
   const larkCli = useLarkCliConnection()
+  const wecomCli = useWecomCliConnection()
   const [query, setQuery] = React.useState("")
   const [activeFilter, setActiveFilter] = React.useState<ConnectionCatalogFilter>(requestedFilter ?? { kind: "all" })
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
@@ -124,12 +131,31 @@ export function ConnectionsPanel({
         : null,
     [larkCli.connectedUpdatedAt, larkCli.state, t],
   )
+  const wecomCliProvider = React.useMemo(
+    () =>
+      wecomCli.state
+        ? wecomCliProviderFromState(
+            wecomCli.state,
+            {
+              connectActionLabel: t("connections.wecomCli.connectAction"),
+              connectionMethodLabel: t("connections.wecomCli.connectionMethod"),
+              description: t("connections.wecomCli.description"),
+              displayName: t("connections.wecomCli.name"),
+            },
+            wecomCli.connectedUpdatedAt,
+          )
+        : null,
+    [t, wecomCli.connectedUpdatedAt, wecomCli.state],
+  )
   const providers = React.useMemo(
     () => [
-      ...(summary?.providers ?? []).filter((provider) => provider.service !== "lark-cli"),
+      ...(summary?.providers ?? []).filter(
+        (provider) => provider.service !== "lark-cli" && provider.service !== wecomCliService,
+      ),
       ...(larkCliProvider ? [larkCliProvider] : []),
+      ...(wecomCliProvider ? [wecomCliProvider] : []),
     ],
-    [larkCliProvider, summary?.providers],
+    [larkCliProvider, summary?.providers, wecomCliProvider],
   )
   const deferredQuery = React.useDeferredValue(query)
   const normalizedQuery = deferredQuery.trim().toLowerCase()
@@ -155,7 +181,13 @@ export function ConnectionsPanel({
   const selectedProvider = selectedProviderService
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
-  const selectedProviderIsDirect = selectedProvider?.executionMode === "direct"
+  const selectedDirectService =
+    selectedProvider?.service === "lark-cli" || selectedProvider?.service === wecomCliService
+      ? selectedProvider.service
+      : null
+  const selectedDirectCli =
+    selectedDirectService === "lark-cli" ? larkCli : selectedDirectService === wecomCliService ? wecomCli : null
+  const selectedProviderIsDirect = selectedDirectCli !== null
   const selectedProviderActionsEnabled = selectedProviderIsDirect ? true : connectionActionsEnabled
   const providerDetail = useConnectionProviderDetail({
     enabled: selectedProviderActionsEnabled,
@@ -164,9 +196,13 @@ export function ConnectionsPanel({
     workspaceKey: summaryWorkspaceKey,
   })
   const selectedProviderDetail =
-    selectedProviderIsDirect && selectedProvider ? larkCliProviderDetail(selectedProvider) : providerDetail.detail
+    selectedProviderIsDirect && selectedProvider
+      ? selectedDirectService === "lark-cli"
+        ? larkCliProviderDetail(selectedProvider)
+        : wecomCliProviderDetail(selectedProvider)
+      : providerDetail.detail
   const selectedProviderDetailLoading = selectedProviderIsDirect ? false : providerDetail.loading
-  const selectedProviderDetailError = selectedProviderIsDirect ? larkCli.error : providerDetail.error
+  const selectedProviderDetailError = selectedProviderIsDirect ? selectedDirectCli.error : providerDetail.error
   const selectedProviderActionsBlocked = Boolean(
     !selectedProviderActionsEnabled ||
     (selectedProviderIsDirect && selectedProvider?.actionKind === "unavailable") ||
@@ -178,7 +214,7 @@ export function ConnectionsPanel({
   )
   const detailErrorNotice = selectedProvider
     ? getConnectionDetailErrorNotice({
-        actionError: selectedProviderIsDirect ? larkCli.error : actionError,
+        actionError: selectedProviderIsDirect ? selectedDirectCli.error : actionError,
         detailError: selectedProviderDetailError,
       })
     : null
@@ -188,16 +224,43 @@ export function ConnectionsPanel({
       : larkCli.state && larkCli.state.phase !== "idle"
         ? "connect"
         : null
-  const selectedProviderBusy = selectedProviderIsDirect ? larkCliBusy : busy
+  const wecomCliBusy: UseConnections["busy"] =
+    wecomCli.state?.phase === "disconnecting"
+      ? "disconnect"
+      : wecomCli.state && wecomCli.state.phase !== "idle"
+        ? "connect"
+        : null
+  const selectedProviderBusy = selectedProviderIsDirect
+    ? selectedDirectService === "lark-cli"
+      ? larkCliBusy
+      : wecomCliBusy
+    : busy
+  const confirmDisconnectBusy =
+    confirmDisconnect?.provider.service === "lark-cli"
+      ? larkCliBusy
+      : confirmDisconnect?.provider.service === wecomCliService
+        ? wecomCliBusy
+        : busy
   const selectedProviderPolling = selectedProviderIsDirect
-    ? larkCli.state && larkCli.state.phase !== "idle" && larkCli.state.phase !== "disconnecting"
-      ? "lark-cli"
+    ? selectedDirectCli.state &&
+      selectedDirectCli.state.phase !== "idle" &&
+      selectedDirectCli.state.phase !== "disconnecting"
+      ? selectedDirectService
       : null
     : polling
   const selectedProviderProgressLabel = selectedProviderIsDirect
-    ? t(`connections.larkCli.phase.${larkCli.state?.phase ?? "idle"}`)
+    ? selectedDirectService === "lark-cli"
+      ? t(`connections.larkCli.phase.${larkCli.state?.phase ?? "idle"}`)
+      : t(`connections.wecomCli.phase.${wecomCli.state?.phase ?? "idle"}`)
     : undefined
-  const cancelSelectedProviderPolling = selectedProviderPolling === "lark-cli" ? larkCli.cancel : cancelPolling
+  const cancelSelectedProviderPolling = selectedProviderIsDirect ? selectedDirectCli.cancel : cancelPolling
+  const reopenSelectedProviderPolling =
+    selectedDirectService === wecomCliService && wecomCli.state?.canReopenAuthorization
+      ? wecomCli.reopenAuthorization
+      : undefined
+  const reopenSelectedProviderPollingLabel = reopenSelectedProviderPolling
+    ? t("connections.wecomCli.reopenAuthorization")
+    : undefined
   const summaryLoading = busy === "refresh" && !summary
   const listErrorNotice = getConnectionListErrorNotice({ summaryError, detailError: detailErrorNotice?.error ?? null })
   const deleteCachedDetailForService = providerDetail.invalidate
@@ -306,7 +369,8 @@ export function ConnectionsPanel({
 
     if (
       filteredProviders.some((provider) => provider.service === selectedProviderService) ||
-      (selectedProviderService === "lark-cli" && !larkCliProvider)
+      (selectedProviderService === "lark-cli" && !larkCliProvider) ||
+      (selectedProviderService === wecomCliService && !wecomCliProvider)
     ) {
       return
     }
@@ -315,7 +379,7 @@ export function ConnectionsPanel({
     setSelectedProviderService(null)
     setDetailPaneClosing(false)
     setNarrowPane("list")
-  }, [clearDetailCloseTimer, filteredProviders, larkCliProvider, selectedProviderService])
+  }, [clearDetailCloseTimer, filteredProviders, larkCliProvider, selectedProviderService, wecomCliProvider])
 
   const connectProvider = React.useCallback(
     async (
@@ -324,7 +388,10 @@ export function ConnectionsPanel({
       appId?: string,
     ): Promise<void> => {
       if (provider.executionMode === "direct") {
-        const ok = await larkCli.connect()
+        const directCli =
+          provider.service === "lark-cli" ? larkCli : provider.service === wecomCliService ? wecomCli : null
+        if (!directCli) return
+        const ok = await directCli.connect()
         if (ok) {
           onConnectionReady?.({ service: provider.service, connectionName: "default" })
         }
@@ -418,6 +485,7 @@ export function ConnectionsPanel({
       onConnectionReady,
       polling,
       providerDetail,
+      wecomCli,
     ],
   )
 
@@ -470,7 +538,11 @@ export function ConnectionsPanel({
       connectionActionRequestIdRef.current = requestId
       const ok =
         target.provider.executionMode === "direct"
-          ? await larkCli.disconnect()
+          ? target.provider.service === "lark-cli"
+            ? await larkCli.disconnect()
+            : target.provider.service === wecomCliService
+              ? await wecomCli.disconnect()
+              : false
           : target.app
             ? await disconnectAccount(target.app.id)
             : await disconnect(target.provider.service)
@@ -482,7 +554,7 @@ export function ConnectionsPanel({
         setConfirmDisconnect(null)
       }
     },
-    [connectionActionsEnabled, deleteCachedDetailForService, disconnect, disconnectAccount, larkCli],
+    [connectionActionsEnabled, deleteCachedDetailForService, disconnect, disconnectAccount, larkCli, wecomCli],
   )
 
   if (presentation === "drawer") {
@@ -503,8 +575,10 @@ export function ConnectionsPanel({
             onClose={onClose ?? closeDetail}
             onConnect={connectProvider}
             onDisconnect={requestDisconnectTarget}
+            onReopenPolling={reopenSelectedProviderPolling}
             polling={selectedProviderPolling}
             progressLabel={selectedProviderProgressLabel}
+            reopenPollingLabel={reopenSelectedProviderPollingLabel}
             provider={selectedProvider}
             showCloseButton
           />
@@ -549,7 +623,7 @@ export function ConnectionsPanel({
         />
         <DisconnectDialog
           target={confirmDisconnect}
-          busy={(confirmDisconnect?.provider.executionMode === "direct" ? larkCliBusy : busy) === "disconnect"}
+          busy={confirmDisconnectBusy === "disconnect"}
           onClose={() => setConfirmDisconnect(null)}
           onConfirm={confirmDisconnectTarget}
         />
@@ -631,8 +705,10 @@ export function ConnectionsPanel({
               onClose={closeDetail}
               onConnect={connectProvider}
               onDisconnect={requestDisconnectTarget}
+              onReopenPolling={reopenSelectedProviderPolling}
               polling={selectedProviderPolling}
               progressLabel={selectedProviderProgressLabel}
+              reopenPollingLabel={reopenSelectedProviderPollingLabel}
               provider={selectedProvider}
             />
           </SplitViewMobileDetailPane>
@@ -661,8 +737,10 @@ export function ConnectionsPanel({
               onClose={closeDetail}
               onConnect={connectProvider}
               onDisconnect={requestDisconnectTarget}
+              onReopenPolling={reopenSelectedProviderPolling}
               polling={selectedProviderPolling}
               progressLabel={selectedProviderProgressLabel}
+              reopenPollingLabel={reopenSelectedProviderPollingLabel}
               provider={selectedProvider}
             />
           </SplitViewDesktopDetailPane>
@@ -684,7 +762,7 @@ export function ConnectionsPanel({
 
       <DisconnectDialog
         target={confirmDisconnect}
-        busy={(confirmDisconnect?.provider.executionMode === "direct" ? larkCliBusy : busy) === "disconnect"}
+        busy={confirmDisconnectBusy === "disconnect"}
         onClose={() => setConfirmDisconnect(null)}
         onConfirm={confirmDisconnectTarget}
       />

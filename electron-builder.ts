@@ -73,6 +73,10 @@ export default {
       to: "lark-skills",
     },
     {
+      from: "resources/wecom-skills",
+      to: "wecom-skills",
+    },
+    {
       from: "resources/agent-tool-runtime",
       to: "agent-tool-runtime",
     },

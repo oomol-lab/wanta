@@ -55,12 +55,17 @@ export interface AgentManagerOptions {
   listOpenConnectorAuthorizedServices?: (signal?: AbortSignal) => Promise<string[]>
   /** 内置 skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
-  /** Official Lark CLI skills, available for the local direct connection. */
-  bundledLarkSkillsDir?: string
+  /** Official local direct-CLI skills, independent of the selected Link runtime. */
+  bundledDirectSkillsDirs?: string[]
   /** Active Wanta-managed Lark CLI direct-runtime binary. */
   larkCliBinPath?: string
   /** Isolated Lark CLI config directory; credentials remain owned by the CLI/keychain. */
   larkCliConfigDir?: string
+  /** Active Wanta-managed WeCom CLI direct-runtime binary. */
+  wecomCliBinPath?: string
+  /** Isolated WeCom CLI config and temporary roots. */
+  wecomCliConfigDir?: string
+  wecomCliTmpDir?: string
   /** 构建期合并的自定义工具 runtime；启动时拷进 .opencode/runtime/tool.js。 */
   bundledToolRuntimePath?: string
   /** App 私有根目录（userData 下）：workspace / oo-store / isolation 都在其下。 */
@@ -114,6 +119,9 @@ export interface AgentSidecarEnvOptions {
   teamScopePath: string
   larkCliBinPath?: string
   larkCliConfigDir?: string
+  wecomCliBinPath?: string
+  wecomCliConfigDir?: string
+  wecomCliTmpDir?: string
 }
 
 export function buildAgentSidecarEnv({
@@ -126,6 +134,9 @@ export function buildAgentSidecarEnv({
   teamScopePath,
   larkCliBinPath,
   larkCliConfigDir,
+  wecomCliBinPath,
+  wecomCliConfigDir,
+  wecomCliTmpDir,
 }: AgentSidecarEnvOptions): Record<string, string> {
   const ooEnv = linkRuntime
     ? buildAgentLinkEnv({
@@ -146,6 +157,9 @@ export function buildAgentSidecarEnv({
     LARKSUITE_CLI_CONFIG_DIR: larkCliConfigDir ?? "",
     LARKSUITE_CLI_NO_SKILLS_NOTIFIER: "1",
     LARKSUITE_CLI_NO_UPDATE_NOTIFIER: "1",
+    WANTA_WECOM_CLI_BIN: wecomCliBinPath ?? "",
+    WECOM_CLI_CONFIG_DIR: wecomCliConfigDir ?? "",
+    WECOM_CLI_TMP_DIR: wecomCliTmpDir ?? "",
   }
 }
 
@@ -429,8 +443,8 @@ export class AgentManager {
 
     await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, {
       bundledOoSkills: this.options.linkRuntime?.kind === "oomol",
-      bundledLarkSkillsDir: this.options.bundledLarkSkillsDir,
       connectors: this.options.linkRuntime !== null,
+      directSkillsDirs: this.options.bundledDirectSkillsDirs,
     })
     this.teamScopePath = teamScopePath
     await this.writeTeamState(this.teamName)
@@ -450,6 +464,9 @@ export class AgentManager {
       wikiGraphStateDir,
       larkCliBinPath,
       larkCliConfigDir,
+      wecomCliBinPath,
+      wecomCliConfigDir,
+      wecomCliTmpDir,
     } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
     const isolationDir = path.join(rootDir, "isolation")
@@ -460,6 +477,7 @@ export class AgentManager {
     const baseCommandPath = await resolveUserCommandPath({
       preferredDirectories: [
         ...(larkCliBinPath ? [path.dirname(larkCliBinPath)] : []),
+        ...(wecomCliBinPath ? [path.dirname(wecomCliBinPath)] : []),
         ...(linkRuntime && ooBinPath ? [path.dirname(ooBinPath)] : []),
       ],
     })
@@ -484,6 +502,9 @@ export class AgentManager {
       teamScopePath,
       larkCliBinPath,
       larkCliConfigDir,
+      wecomCliBinPath,
+      wecomCliConfigDir,
+      wecomCliTmpDir,
     })
 
     const sidecar = new OpencodeSidecar({

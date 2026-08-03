@@ -14,6 +14,7 @@ import { downloadLarkCliBinary, exportLarkCliSkills, larkCliBinaryName } from ".
 import { downloadOoBinary, ooExecutableName } from "./oo-cli.ts"
 import { downloadRipgrepBinary, ripgrepExecutableName } from "./ripgrep.ts"
 import { bundledSkillsDir, exportBundledSkills } from "./skills.ts"
+import { downloadWecomCliBinary, exportWecomCliSkills, wecomCliBinaryName } from "./wecom-cli.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
@@ -49,6 +50,11 @@ const larkCliSrc = await downloadLarkCliBinary()
 bundle("Lark CLI", larkCliSrc, larkCliBinaryName())
 await exportLarkCliSkills()
 console.log("[wanta] bundled Lark CLI skills")
+
+const wecomCliSrc = await downloadWecomCliBinary()
+bundle("WeCom CLI", wecomCliSrc, wecomCliBinaryName())
+await exportWecomCliSkills()
+console.log("[wanta] bundled WeCom CLI skills")
 
 // 内置 4 个 oo skill：导出到 resources/skills/，由 electron-builder extraResources 打入 Resources/skills，
 // 运行时拷进 OpenCode workspace 的 .opencode/skill/（见 electron/agent/workspace.ts）。

@@ -67,11 +67,24 @@ export interface LarkCliState {
   updateStatus: "idle" | "checking" | "current" | "updating" | "updated" | "failed"
 }
 
+export type WecomCliConnectionPhase = "idle" | "preparing" | "waiting_for_scan" | "verifying" | "disconnecting"
+
+export interface WecomCliState {
+  accountLabel?: string
+  activeVersion: string | null
+  available: boolean
+  canReopenAuthorization: boolean
+  connection: "connected" | "disconnected"
+  error?: string
+  phase: WecomCliConnectionPhase
+}
+
 export type LinkRuntimeService = typeof LinkRuntimeService
 export const LinkRuntimeService = serviceName("link-runtime-service") as ServiceName<{
   ServerEvents: {
     linkRuntimeChanged: LinkRuntimeState
     larkCliChanged: LarkCliState
+    wecomCliChanged: WecomCliState
   }
   ClientInvokes: {
     getState(): Promise<LinkRuntimeState>
@@ -86,5 +99,10 @@ export const LinkRuntimeService = serviceName("link-runtime-service") as Service
     connectLarkCli(): Promise<LarkCliState>
     disconnectLarkCli(): Promise<LarkCliState>
     cancelLarkCliConnection(): Promise<void>
+    getWecomCliState(): Promise<WecomCliState>
+    connectWecomCli(): Promise<WecomCliState>
+    disconnectWecomCli(): Promise<WecomCliState>
+    cancelWecomCliConnection(): Promise<void>
+    reopenWecomCliAuthorization(): Promise<boolean>
   }
 }>

@@ -1146,6 +1146,17 @@ export const enMessages = {
   "connections.larkCli.phase.authorizing": "Waiting for authorization",
   "connections.larkCli.phase.verifying": "Verifying the login",
   "connections.larkCli.phase.disconnecting": "Disconnecting",
+  "connections.wecomCli.name": "WeCom CLI",
+  "connections.wecomCli.description":
+    "Scan with WeCom to connect a bot for contacts, messages, schedules, todos, meetings, Docs, and Smart Sheets. The official CLI currently limits access to organizations with up to 10 members.",
+  "connections.wecomCli.connectAction": "Scan to connect",
+  "connections.wecomCli.reopenAuthorization": "Open QR code again",
+  "connections.wecomCli.connectionMethod": "WeCom QR code",
+  "connections.wecomCli.phase.idle": "Scan to connect",
+  "connections.wecomCli.phase.preparing": "Preparing the WeCom CLI",
+  "connections.wecomCli.phase.waiting_for_scan": "Waiting for a WeCom scan",
+  "connections.wecomCli.phase.verifying": "Verifying the bot connection",
+  "connections.wecomCli.phase.disconnecting": "Disconnecting WeCom CLI",
   "connections.selfHosted.title": "Connect a self-hosted OpenConnector",
   "connections.selfHosted.description":
     "Choose and configure a Link runtime in Settings to make connector tools available to the agent.",

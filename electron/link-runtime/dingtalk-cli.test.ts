@@ -54,6 +54,7 @@ describe("DingTalk CLI state", () => {
 })
 
 interface MockDingTalkCli {
+  authorizationOpened: Promise<void>
   base: string
   manager: DingTalkCliManager
   opened: string[]
@@ -106,15 +107,37 @@ exit 1
   )
   await chmod(binaryPath, 0o755)
   const opened: string[] = []
+  let resolveAuthorizationOpened: (() => void) | undefined
+  const authorizationOpened = new Promise<void>((resolve) => {
+    resolveAuthorizationOpened = resolve
+  })
   const states: MockDingTalkCli["states"] = []
   const manager = new DingTalkCliManager({
     binaryPath,
-    openExternalUrl: (url) => opened.push(url),
+    openExternalUrl: (url) => {
+      opened.push(url)
+      resolveAuthorizationOpened?.()
+    },
     rootDir,
     skillsDir,
   })
   manager.stateChanged.on((state) => states.push({ error: state.error, phase: state.phase }))
-  return { base, manager, opened, rootDir, states }
+  return { authorizationOpened, base, manager, opened, rootDir, states }
+}
+
+function waitForAuthorization(opened: Promise<void>, connection: Promise<unknown>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("DingTalk authorization URL did not open in time.")), 1_000)
+    const fail = (error: unknown) => {
+      clearTimeout(timeout)
+      reject(error)
+    }
+    void opened.then(() => {
+      clearTimeout(timeout)
+      resolve()
+    }, fail)
+    void connection.catch(fail)
+  })
 }
 
 describe.runIf(process.platform !== "win32")("DingTalk CLI lifecycle", () => {
@@ -147,7 +170,7 @@ describe.runIf(process.platform !== "win32")("DingTalk CLI lifecycle", () => {
       await mkdir(path.join(fixture.rootDir, "config"), { recursive: true })
       await writeFile(path.join(fixture.rootDir, "config", "pause-login"), "1", "utf-8")
       const connection = fixture.manager.connect()
-      while (fixture.opened.length === 0) await new Promise((resolve) => setTimeout(resolve, 1))
+      await waitForAuthorization(fixture.authorizationOpened, connection)
 
       fixture.manager.cancelConnection()
 

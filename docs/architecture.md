@@ -122,6 +122,19 @@ approval, while credential expansion, environment dumps, login/logout, and endpo
 are rejected even in Full Access. OOMOL Skill registry maintenance remains tied to the OOMOL account
 and does not follow the selected Link runtime.
 
+Lark CLI is exposed in the same Connections catalog as a local `direct` provider, but it is not a
+Link backend and does not send its credentials through the renderer or connector APIs.
+`LarkCliManager` owns the isolated `<userData>/lark-cli/config` directory, drives the official
+`config init --new` and `auth login --recommend` browser flows, and returns only redacted connection
+state through `LinkRuntimeServiceImpl`. The shipped app contains a checksum-verified pinned CLI and
+its matching embedded `lark-*` Skills. On Connect, Wanta first checks the official latest version;
+an available update is downloaded to a versioned user-data runtime, verified against the release
+checksum, and atomically activated. Update failure is non-fatal: authorization continues with the
+already usable version. The active binary directory is prepended to the Agent sidecar `PATH`, its
+config root is injected through `LARKSUITE_CLI_CONFIG_DIR`, and its matching Skills are copied into
+the private Agent workspace. Thus chat uses the same local identity authorized from Connections,
+independently of the selected OOMOL/OpenConnector Link runtime.
+
 Vite (`vite-plugin-electron/simple` in `vite.config.ts`) bundles `electron/main.ts` and
 `electron/preload.ts` into `dist-electron/main.js` + `preload.js`; the main-process build has a
 **third** rollup input, `electron/chat/spreadsheet-preview-worker.ts` → `dist-electron/spreadsheet-preview-worker.js`,
@@ -608,7 +621,7 @@ electron/
   chat/    common,node + ~45 modules  by far the largest main-process domain: SSE event bridge; per-turn lifecycle & outputs (turn-lifecycle, turn-outputs); structured artifact registration/persistence (artifact-bundles, artifacts) + previews (spreadsheet-preview-worker[-client]); permission / local-access policy (permission-state, project-permission); project-* commands; attachments; stream buffering (stream-event-buffer, context-system). Also thin main-process facades openExternalUrl (shell external open) / setAgentTeam (agent team scope) for the renderer request layer (§4, §5)
   git/     common,node,status,turn-diff(+test)  GitService (serviceName("git-service")): project git status + per-turn diff review
   knowledge/ common,node,store,runner,uri,thumbnail(+test)  WikiGraph knowledge-base import, registration, query runtime & RPC service
-  link-runtime/ common,node(+test)  selected Link runtime, origin-bound OpenConnector token, health/inventory facade
+  link-runtime/ common,node,lark-cli(+test)  selected Link runtime, origin-bound OpenConnector token, health/inventory facade, and isolated direct Lark CLI lifecycle
   teams/   common       types only, no node.ts — team requests moved renderer-side (src/lib/teams-client.ts, §4)
   connections/ common,summary,usage,executions,federated,domain,summary-model(+test)  **pure functions + types, no node.ts** — connector requests moved renderer-side (src/lib/connections-client.ts, §4/§7); electron-free, imported straight into the renderer bundle
   skills/  common,node,actions,scan,inventory,…  skill service (install/scan/inventory); browse GET moved renderer-side (src/lib/skills-catalog-client.ts); actions.ts normalize* reused by the renderer (§4)

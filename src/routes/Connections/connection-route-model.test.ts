@@ -83,6 +83,18 @@ test("managed no-auth accounts are not treated as connectionless providers", () 
   assert.equal(shouldLoadProviderDetail(ready), true)
 })
 
+test("direct CLI providers use local details and direct-mode catalog metadata", () => {
+  const direct = provider({
+    executionMode: "direct",
+    runtimeVersion: "1.0.81",
+    service: "lark-cli",
+  })
+  const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
+
+  assert.equal(shouldLoadProviderDetail(direct), false)
+  assert.equal(getProviderMeta(direct, t), "Direct mode")
+})
+
 test("mixed direct and API key providers are directly available before configuration", () => {
   const ready = provider({
     actionKind: "api_key",

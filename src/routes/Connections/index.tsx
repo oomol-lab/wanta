@@ -45,6 +45,7 @@ import {
   SplitViewRoot,
 } from "@/components/ui/split-view"
 import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
+import { larkCliProviderDetail, larkCliProviderFromState, useLarkCliConnection } from "@/hooks/useLarkCliConnection"
 import { useT } from "@/i18n/i18n"
 import { getOAuthClientConfig } from "@/lib/connections-client"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
@@ -89,6 +90,7 @@ export function ConnectionsPanel({
     summaryWorkspaceKey,
     summaryError,
   } = connections
+  const larkCli = useLarkCliConnection()
   const [query, setQuery] = React.useState("")
   const [activeFilter, setActiveFilter] = React.useState<ConnectionCatalogFilter>(requestedFilter ?? { kind: "all" })
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
@@ -108,7 +110,23 @@ export function ConnectionsPanel({
   const detailWorkspaceKeyRef = React.useRef<string | null>(summaryWorkspaceKey)
   const listPaneRef = React.useRef<HTMLDivElement | null>(null)
 
-  const providers = summary?.providers ?? []
+  const larkCliProvider = React.useMemo(
+    () =>
+      larkCli.state
+        ? larkCliProviderFromState(larkCli.state, {
+            description: t("connections.larkCli.description"),
+            displayName: t("connections.larkCli.name"),
+          })
+        : null,
+    [larkCli.state, t],
+  )
+  const providers = React.useMemo(
+    () => [
+      ...(summary?.providers ?? []).filter((provider) => provider.service !== "lark-cli"),
+      ...(larkCliProvider ? [larkCliProvider] : []),
+    ],
+    [larkCliProvider, summary?.providers],
+  )
   const deferredQuery = React.useDeferredValue(query)
   const normalizedQuery = deferredQuery.trim().toLowerCase()
   const categoryFilters = React.useMemo(() => buildCategoryFilters(providers, t), [providers, t])
@@ -133,18 +151,22 @@ export function ConnectionsPanel({
   const selectedProvider = selectedProviderService
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
+  const selectedProviderIsDirect = selectedProvider?.executionMode === "direct"
+  const selectedProviderActionsEnabled = selectedProviderIsDirect ? true : connectionActionsEnabled
   const providerDetail = useConnectionProviderDetail({
-    enabled: connectionActionsEnabled,
+    enabled: selectedProviderActionsEnabled,
     getProviderDetail,
     provider: selectedProvider,
     workspaceKey: summaryWorkspaceKey,
   })
-  const selectedProviderDetail = providerDetail.detail
-  const selectedProviderDetailLoading = providerDetail.loading
-  const selectedProviderDetailError = providerDetail.error
+  const selectedProviderDetail =
+    selectedProviderIsDirect && selectedProvider ? larkCliProviderDetail(selectedProvider) : providerDetail.detail
+  const selectedProviderDetailLoading = selectedProviderIsDirect ? false : providerDetail.loading
+  const selectedProviderDetailError = selectedProviderIsDirect ? larkCli.error : providerDetail.error
   const selectedProviderActionsBlocked = Boolean(
-    !connectionActionsEnabled ||
-    !showConnectionState ||
+    !selectedProviderActionsEnabled ||
+    (selectedProviderIsDirect && selectedProvider?.actionKind === "unavailable") ||
+    (!selectedProviderIsDirect && !showConnectionState) ||
     (providerDetail.needsDetail && !selectedProviderDetail && selectedProviderDetailError),
   )
   const selectedProviderActionsPending = Boolean(
@@ -152,10 +174,23 @@ export function ConnectionsPanel({
   )
   const detailErrorNotice = selectedProvider
     ? getConnectionDetailErrorNotice({
-        actionError,
+        actionError: selectedProviderIsDirect ? larkCli.error : actionError,
         detailError: selectedProviderDetailError,
       })
     : null
+  const larkCliBusy: UseConnections["busy"] =
+    larkCli.state?.phase === "disconnecting"
+      ? "disconnect"
+      : larkCli.state && larkCli.state.phase !== "idle"
+        ? "connect"
+        : null
+  const selectedProviderBusy = selectedProviderIsDirect ? larkCliBusy : busy
+  const selectedProviderPolling =
+    selectedProviderIsDirect && larkCli.state && larkCli.state.phase !== "idle" ? "lark-cli" : polling
+  const selectedProviderProgressLabel = selectedProviderIsDirect
+    ? t(`connections.larkCli.phase.${larkCli.state?.phase ?? "idle"}`)
+    : undefined
+  const cancelSelectedProviderPolling = selectedProviderIsDirect ? larkCli.cancel : cancelPolling
   const summaryLoading = busy === "refresh" && !summary
   const listErrorNotice = getConnectionListErrorNotice({ summaryError, detailError: detailErrorNotice?.error ?? null })
   const deleteCachedDetailForService = providerDetail.invalidate
@@ -258,7 +293,7 @@ export function ConnectionsPanel({
   }, [activeFilter.kind, showConnectionState])
 
   React.useEffect(() => {
-    if (!selectedProviderService || !summary) {
+    if (!selectedProviderService) {
       return
     }
 
@@ -270,7 +305,7 @@ export function ConnectionsPanel({
     setSelectedProviderService(null)
     setDetailPaneClosing(false)
     setNarrowPane("list")
-  }, [clearDetailCloseTimer, filteredProviders, selectedProviderService, summary])
+  }, [clearDetailCloseTimer, filteredProviders, selectedProviderService])
 
   const connectProvider = React.useCallback(
     async (
@@ -278,6 +313,13 @@ export function ConnectionsPanel({
       authType: Exclude<ConnectionAuthType, null>,
       appId?: string,
     ): Promise<void> => {
+      if (provider.executionMode === "direct") {
+        const ok = await larkCli.connect()
+        if (ok) {
+          onConnectionReady?.({ service: provider.service, connectionName: "default" })
+        }
+        return
+      }
       if (!connectionActionsEnabled) {
         return
       }
@@ -362,6 +404,7 @@ export function ConnectionsPanel({
       connect,
       deleteCachedDetailForService,
       getAppDetail,
+      larkCli,
       onConnectionReady,
       polling,
       providerDetail,
@@ -399,7 +442,7 @@ export function ConnectionsPanel({
 
   const requestDisconnectTarget = React.useCallback(
     (target: DisconnectTarget): void => {
-      if (!connectionActionsEnabled) {
+      if (target.provider.executionMode !== "direct" && !connectionActionsEnabled) {
         return
       }
       setConfirmDisconnect(target)
@@ -409,13 +452,18 @@ export function ConnectionsPanel({
 
   const confirmDisconnectTarget = React.useCallback(
     async (target: DisconnectTarget): Promise<void> => {
-      if (!connectionActionsEnabled) {
+      if (target.provider.executionMode !== "direct" && !connectionActionsEnabled) {
         setConfirmDisconnect(null)
         return
       }
       const requestId = connectionActionRequestIdRef.current + 1
       connectionActionRequestIdRef.current = requestId
-      const ok = target.app ? await disconnectAccount(target.app.id) : await disconnect(target.provider.service)
+      const ok =
+        target.provider.executionMode === "direct"
+          ? await larkCli.disconnect()
+          : target.app
+            ? await disconnectAccount(target.app.id)
+            : await disconnect(target.provider.service)
       if (connectionActionRequestIdRef.current !== requestId) {
         return
       }
@@ -424,7 +472,7 @@ export function ConnectionsPanel({
         setConfirmDisconnect(null)
       }
     },
-    [connectionActionsEnabled, deleteCachedDetailForService, disconnect, disconnectAccount],
+    [connectionActionsEnabled, deleteCachedDetailForService, disconnect, disconnectAccount, larkCli],
   )
 
   if (presentation === "drawer") {
@@ -433,19 +481,20 @@ export function ConnectionsPanel({
         {selectedProvider ? (
           <ProviderDetail
             authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
-            busy={busy}
+            busy={selectedProviderBusy}
             detail={selectedProviderDetail}
             actionsBlocked={selectedProviderActionsBlocked}
-            canManageConnections={canManageConnections}
+            canManageConnections={selectedProviderIsDirect || canManageConnections}
             actionsPending={selectedProviderActionsPending}
             errorNotice={detailErrorNotice}
             detailLoading={selectedProviderDetailLoading}
             connections={connections}
-            onCancelPolling={cancelPolling}
+            onCancelPolling={cancelSelectedProviderPolling}
             onClose={onClose ?? closeDetail}
             onConnect={connectProvider}
             onDisconnect={requestDisconnectTarget}
-            polling={polling}
+            polling={selectedProviderPolling}
+            progressLabel={selectedProviderProgressLabel}
             provider={selectedProvider}
             showCloseButton
           />
@@ -490,7 +539,7 @@ export function ConnectionsPanel({
         />
         <DisconnectDialog
           target={confirmDisconnect}
-          busy={busy === "disconnect"}
+          busy={(confirmDisconnect?.provider.executionMode === "direct" ? larkCliBusy : busy) === "disconnect"}
           onClose={() => setConfirmDisconnect(null)}
           onConfirm={confirmDisconnectTarget}
         />
@@ -511,7 +560,7 @@ export function ConnectionsPanel({
           loading={summaryLoading}
           query={query}
           showConnectionState={showConnectionState}
-          totalCount={summary?.providerCount ?? providers.length}
+          totalCount={providers.length}
           onFilterChange={setActiveFilter}
           onQueryChange={setQuery}
         />
@@ -560,19 +609,20 @@ export function ConnectionsPanel({
             </div>
             <ProviderDetail
               authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
-              busy={busy}
+              busy={selectedProviderBusy}
               detail={selectedProviderDetail}
               actionsBlocked={selectedProviderActionsBlocked}
-              canManageConnections={canManageConnections}
+              canManageConnections={selectedProviderIsDirect || canManageConnections}
               actionsPending={selectedProviderActionsPending}
               errorNotice={detailErrorNotice}
               detailLoading={selectedProviderDetailLoading}
               connections={connections}
-              onCancelPolling={cancelPolling}
+              onCancelPolling={cancelSelectedProviderPolling}
               onClose={closeDetail}
               onConnect={connectProvider}
               onDisconnect={requestDisconnectTarget}
-              polling={polling}
+              polling={selectedProviderPolling}
+              progressLabel={selectedProviderProgressLabel}
               provider={selectedProvider}
             />
           </SplitViewMobileDetailPane>
@@ -589,19 +639,20 @@ export function ConnectionsPanel({
           >
             <ProviderDetail
               authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
-              busy={busy}
+              busy={selectedProviderBusy}
               detail={selectedProviderDetail}
               actionsBlocked={selectedProviderActionsBlocked}
-              canManageConnections={canManageConnections}
+              canManageConnections={selectedProviderIsDirect || canManageConnections}
               actionsPending={selectedProviderActionsPending}
               errorNotice={detailErrorNotice}
               detailLoading={selectedProviderDetailLoading}
               connections={connections}
-              onCancelPolling={cancelPolling}
+              onCancelPolling={cancelSelectedProviderPolling}
               onClose={closeDetail}
               onConnect={connectProvider}
               onDisconnect={requestDisconnectTarget}
-              polling={polling}
+              polling={selectedProviderPolling}
+              progressLabel={selectedProviderProgressLabel}
               provider={selectedProvider}
             />
           </SplitViewDesktopDetailPane>
@@ -623,7 +674,7 @@ export function ConnectionsPanel({
 
       <DisconnectDialog
         target={confirmDisconnect}
-        busy={busy === "disconnect"}
+        busy={(confirmDisconnect?.provider.executionMode === "direct" ? larkCliBusy : busy) === "disconnect"}
         onClose={() => setConfirmDisconnect(null)}
         onConfirm={confirmDisconnectTarget}
       />

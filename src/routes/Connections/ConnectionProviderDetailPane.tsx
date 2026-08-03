@@ -86,6 +86,7 @@ export function ProviderDetail({
   onConnect,
   onDisconnect,
   polling,
+  progressLabel,
   provider,
   showCloseButton = false,
 }: {
@@ -107,6 +108,7 @@ export function ProviderDetail({
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
   polling: string | null
+  progressLabel?: string
   provider: ConnectionProviderSummary
   showCloseButton?: boolean
 }) {
@@ -114,6 +116,7 @@ export function ProviderDetail({
   const currentAuthType = getDefaultAuthType(provider)
   const accountValue = getProviderAccountValue(provider, t)
   const directlyAvailable = isDirectlyAvailableProvider(provider)
+  const direct = provider.executionMode === "direct"
 
   return (
     <div className="grid min-w-0 gap-3">
@@ -123,6 +126,7 @@ export function ProviderDetail({
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="oo-text-title truncate">{provider.displayName}</h2>
+              {direct ? <Badge variant="secondary">{t("connections.directMode")}</Badge> : null}
               <ProviderStatusBadge canManageConnections={canManageConnections} provider={provider} />
             </div>
             <p className="oo-text-caption oo-text-muted mt-1 break-words">{getProviderDescription(provider, t)}</p>
@@ -169,6 +173,7 @@ export function ProviderDetail({
             onConnect={onConnect}
             onDisconnect={onDisconnect}
             polling={polling}
+            progressLabel={progressLabel}
             provider={provider}
           />
         )}
@@ -180,8 +185,12 @@ export function ProviderDetail({
           <ProviderDetailsSkeleton />
         ) : (
           <dl className="overflow-hidden rounded-md border">
+            {direct ? <DetailRow label={t("connections.connectionMode")} value={t("connections.directMode")} /> : null}
             {directlyAvailable ? null : <DetailRow label={t("connections.account")} value={accountValue} />}
             <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
+            {provider.runtimeVersion ? (
+              <DetailRow label={t("connections.runtimeVersion")} value={provider.runtimeVersion} mono />
+            ) : null}
             <DetailRow label={t("connections.category")} value={formatProviderCategoryLabels(provider, t)} />
             <DetailRow label={t("connections.service")} value={provider.service} mono />
             {directlyAvailable ? null : (
@@ -264,6 +273,7 @@ function ConnectionPanel({
   onConnect,
   onDisconnect,
   polling,
+  progressLabel,
   provider,
 }: {
   actionsPending?: boolean
@@ -281,6 +291,7 @@ function ConnectionPanel({
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
   polling: string | null
+  progressLabel?: string
   provider: ConnectionProviderSummary
 }) {
   const t = useT()
@@ -297,6 +308,7 @@ function ConnectionPanel({
   const isPolling = isConnectionServicePollingTarget(polling, provider.service)
   const authorizationBlocked = polling !== null && !isPolling
   const directlyAvailable = isDirectlyAvailableProvider(provider)
+  const direct = provider.executionMode === "direct"
 
   React.useEffect(() => {
     setSelectedAuthType(currentAuthType)
@@ -321,7 +333,7 @@ function ConnectionPanel({
           </h3>
           {detailLoading ? <Loader className="oo-icon-muted shrink-0" size={16} /> : null}
         </div>
-        {configurableAuthTypes.length > 0 ? (
+        {!direct && configurableAuthTypes.length > 0 ? (
           <AuthTypeToggleGroup
             authTypes={configurableAuthTypes}
             value={activeAuthType ?? null}
@@ -344,7 +356,7 @@ function ConnectionPanel({
             <>
               <Button size="sm" disabled className="gap-1.5">
                 <Loader size={16} />
-                {t("connections.oauthWaiting")}
+                {progressLabel ?? t("connections.oauthWaiting")}
               </Button>
               <Button size="sm" variant="outline" onClick={onCancelPolling}>
                 {t("common.cancel")}
@@ -376,11 +388,13 @@ function ConnectionPanel({
               )}
               {authIntent
                 ? t("connections.connectAndContinue")
-                : directlyAvailable
-                  ? t("connections.configureAuth", { auth: formatAuthTypes([activeAuthType], t) })
-                  : provider.apps.length > 0
-                    ? t("connections.addConnection")
-                    : t("connections.connectProvider")}
+                : direct
+                  ? t("connections.connectDirectProvider")
+                  : directlyAvailable
+                    ? t("connections.configureAuth", { auth: formatAuthTypes([activeAuthType], t) })
+                    : provider.apps.length > 0
+                      ? t("connections.addConnection")
+                      : t("connections.connectProvider")}
             </Button>
           )}
         </div>

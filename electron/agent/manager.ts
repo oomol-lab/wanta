@@ -55,6 +55,12 @@ export interface AgentManagerOptions {
   listOpenConnectorAuthorizedServices?: (signal?: AbortSignal) => Promise<string[]>
   /** 内置 skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
+  /** Official Lark CLI skills, available for the local direct connection. */
+  bundledLarkSkillsDir?: string
+  /** Active Wanta-managed Lark CLI direct-runtime binary. */
+  larkCliBinPath?: string
+  /** Isolated Lark CLI config directory; credentials remain owned by the CLI/keychain. */
+  larkCliConfigDir?: string
   /** 构建期合并的自定义工具 runtime；启动时拷进 .opencode/runtime/tool.js。 */
   bundledToolRuntimePath?: string
   /** App 私有根目录（userData 下）：workspace / oo-store / isolation 都在其下。 */
@@ -106,6 +112,8 @@ export interface AgentSidecarEnvOptions {
   storeDir: string
   teamName?: string
   teamScopePath: string
+  larkCliBinPath?: string
+  larkCliConfigDir?: string
 }
 
 export function buildAgentSidecarEnv({
@@ -116,6 +124,8 @@ export function buildAgentSidecarEnv({
   storeDir,
   teamName,
   teamScopePath,
+  larkCliBinPath,
+  larkCliConfigDir,
 }: AgentSidecarEnvOptions): Record<string, string> {
   const ooEnv = linkRuntime
     ? buildAgentLinkEnv({
@@ -132,6 +142,10 @@ export function buildAgentSidecarEnv({
     PATH: commandPath,
     WANTA_BROWSER_CONTROL_TOKEN: browserControl?.token ?? "",
     WANTA_BROWSER_CONTROL_URL: browserControl?.url ?? "",
+    WANTA_LARK_CLI_BIN: larkCliBinPath ?? "",
+    LARKSUITE_CLI_CONFIG_DIR: larkCliConfigDir ?? "",
+    LARKSUITE_CLI_NO_SKILLS_NOTIFIER: "1",
+    LARKSUITE_CLI_NO_UPDATE_NOTIFIER: "1",
   }
 }
 
@@ -415,6 +429,7 @@ export class AgentManager {
 
     await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, {
       bundledOoSkills: this.options.linkRuntime?.kind === "oomol",
+      bundledLarkSkillsDir: this.options.bundledLarkSkillsDir,
       connectors: this.options.linkRuntime !== null,
     })
     this.teamScopePath = teamScopePath
@@ -433,6 +448,8 @@ export class AgentManager {
       defaultModel,
       wikiGraphCliPath,
       wikiGraphStateDir,
+      larkCliBinPath,
+      larkCliConfigDir,
     } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
     const isolationDir = path.join(rootDir, "isolation")
@@ -441,7 +458,10 @@ export class AgentManager {
 
     const config = buildOpencodeConfig({ customModels, defaultModel, linkRuntime, modelAccess })
     const baseCommandPath = await resolveUserCommandPath({
-      preferredDirectories: linkRuntime && ooBinPath ? [path.dirname(ooBinPath)] : [],
+      preferredDirectories: [
+        ...(larkCliBinPath ? [path.dirname(larkCliBinPath)] : []),
+        ...(linkRuntime && ooBinPath ? [path.dirname(ooBinPath)] : []),
+      ],
     })
     const wikiGraphBinDir =
       wikiGraphCliPath && wikiGraphStateDir
@@ -462,6 +482,8 @@ export class AgentManager {
       storeDir,
       teamName: this.teamName,
       teamScopePath,
+      larkCliBinPath,
+      larkCliConfigDir,
     })
 
     const sidecar = new OpencodeSidecar({

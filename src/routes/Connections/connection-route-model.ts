@@ -98,6 +98,7 @@ export function isDirectlyAvailableProvider(provider: ConnectionProviderSummary)
 }
 
 export function shouldLoadProviderDetail(provider: ConnectionProviderSummary): boolean {
+  if (provider.executionMode === "direct") return false
   return !isDirectlyAvailableProvider(provider) || provider.authTypes.some((authType) => authType !== "no_auth")
 }
 
@@ -179,6 +180,7 @@ export function formatDuration(durationMs: number | null, t: TranslateFn): strin
 }
 
 export function getProviderDescription(provider: ConnectionProviderSummary, t: TranslateFn): string {
+  if (provider.description) return provider.description
   switch (provider.status) {
     case "needs_attention":
       return t("connections.providerNeedsAttentionDescription", { name: provider.displayName })
@@ -278,6 +280,7 @@ export function formatProviderCategoryLabels(provider: ConnectionProviderSummary
 }
 
 export function getProviderMeta(provider: ConnectionProviderSummary, t: TranslateFn): string {
+  if (provider.executionMode === "direct") return t("connections.directMode")
   if (isDirectlyAvailableProvider(provider)) {
     return getProviderCategoryLabel(provider, t)
   }

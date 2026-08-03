@@ -13,6 +13,7 @@ import {
   getConnectionAppDisplayLabel,
   isConnectionAuthType,
   normalizeConnectionAliasInput,
+  supportsManagedConnectionAccountActions,
 } from "./connection-route-model.ts"
 import { AccountExecutionLogsButton } from "./ConnectionExecutionLogs.tsx"
 import { authTypeLabel } from "./shared.ts"
@@ -103,6 +104,7 @@ function ConnectionAccountItem({
   servicePolling: boolean
 }) {
   const t = useT()
+  const managedAccountActions = supportsManagedConnectionAccountActions(provider)
   const [aliasDraft, setAliasDraft] = React.useState(app.alias ?? "")
   const [aliasEditing, setAliasEditing] = React.useState(false)
   const [aliasBusy, setAliasBusy] = React.useState(false)
@@ -151,7 +153,7 @@ function ConnectionAccountItem({
     <article className="grid min-w-0 gap-2.5 rounded-md border bg-card px-3 py-2.5 text-card-foreground">
       <div className="grid min-w-0 gap-1">
         <div className="flex min-w-0 flex-wrap items-start gap-1.5">
-          {aliasEditing ? (
+          {aliasEditing && managedAccountActions ? (
             <form
               className="flex min-w-0 flex-1 items-center gap-1.5"
               onSubmit={(event) => {
@@ -201,18 +203,20 @@ function ConnectionAccountItem({
           ) : (
             <>
               <span className="oo-text-control max-w-full min-w-0 font-medium break-all">{accountLabel}</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                aria-label={t("connections.editAlias")}
-                title={t("connections.editAlias")}
-                disabled={servicePolling}
-                onClick={() => setAliasEditing(true)}
-              >
-                <Edit className="size-3.5" />
-              </Button>
+              {managedAccountActions ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  aria-label={t("connections.editAlias")}
+                  title={t("connections.editAlias")}
+                  disabled={servicePolling}
+                  onClick={() => setAliasEditing(true)}
+                >
+                  <Edit className="size-3.5" />
+                </Button>
+              ) : null}
             </>
           )}
           <span className="flex shrink-0 flex-wrap items-center gap-1.5">
@@ -231,7 +235,9 @@ function ConnectionAccountItem({
         </div>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-2">
-        <AccountExecutionLogsButton appId={app.id} connections={connections} name={accountLabel} />
+        {managedAccountActions ? (
+          <AccountExecutionLogsButton appId={app.id} connections={connections} name={accountLabel} />
+        ) : null}
         {reconnectAuthType ? (
           <Button
             type="button"

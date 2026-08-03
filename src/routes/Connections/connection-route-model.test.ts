@@ -12,6 +12,7 @@ import {
   getProviderAccountValue,
   getProviderActionLabel,
   getProviderCatalogLabel,
+  getProviderDescription,
   getProviderMeta,
   getProviderStatusDisplayLabel,
   getProviderStatusTone,
@@ -24,6 +25,7 @@ import {
   selectVisibleCategoryFilters,
   shouldShowConnectionState,
   shouldLoadProviderDetail,
+  supportsManagedConnectionAccountActions,
 } from "./connection-route-model.ts"
 import { translate } from "@/i18n/i18n"
 
@@ -81,6 +83,30 @@ test("managed no-auth accounts are not treated as connectionless providers", () 
   assert.equal(isConnected(ready), true)
   assert.equal(isDirectlyAvailableProvider(ready), false)
   assert.equal(shouldLoadProviderDetail(ready), true)
+})
+
+test("direct CLI providers use local details and direct-mode catalog metadata", () => {
+  const direct = provider({
+    executionMode: "direct",
+    runtimeVersion: "1.0.81",
+    service: "lark-cli",
+  })
+  const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
+
+  assert.equal(shouldLoadProviderDetail(direct), false)
+  assert.equal(supportsManagedConnectionAccountActions(direct), false)
+  assert.equal(getProviderMeta(direct, t), "Direct mode")
+})
+
+test("providers needing attention show the reauthorization hint over their marketing description", () => {
+  const attention = provider({ description: "Marketing copy", displayName: "Lark CLI", status: "needs_attention" })
+  const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
+
+  assert.equal(getProviderDescription(attention, t), "Lark CLI needs attention before it can be used.")
+})
+
+test("remote providers retain Connector-managed account actions", () => {
+  assert.equal(supportsManagedConnectionAccountActions(provider({ service: "github" })), true)
 })
 
 test("mixed direct and API key providers are directly available before configuration", () => {

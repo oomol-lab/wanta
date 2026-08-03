@@ -69,6 +69,10 @@ export default {
       to: "skills",
     },
     {
+      from: "resources/lark-skills",
+      to: "lark-skills",
+    },
+    {
       from: "resources/agent-tool-runtime",
       to: "agent-tool-runtime",
     },

@@ -129,7 +129,7 @@ function readUInt32(buffer: Buffer, offset: number): number {
   return buffer.readUInt32LE(offset)
 }
 
-function extractFileFromZip(zip: Buffer, wantedPath: string): Buffer | null {
+export function extractFileFromZip(zip: Buffer, wantedPath: string): Buffer | null {
   const eocdSignature = 0x06054b50
   let eocd = -1
   for (let offset = zip.length - 22; offset >= 0 && offset >= zip.length - 65557; offset -= 1) {

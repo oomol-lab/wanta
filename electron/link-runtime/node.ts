@@ -5,6 +5,7 @@ import type {
   OpenConnectorAppSummary,
   OpenConnectorRuntimeStatus,
   OpenConnectorTestResult,
+  LarkCliState,
 } from "./common.ts"
 import type { IConnectionService } from "@oomol/connection"
 
@@ -14,6 +15,7 @@ import path from "node:path"
 import { atomicWriteText } from "../atomic-file.ts"
 import { ServiceEvent } from "../service-events.ts"
 import { LinkRuntimeService as LinkRuntimeServiceName } from "./common.ts"
+import { LarkCliManager } from "./lark-cli.ts"
 
 export interface RuntimeCredentialEncryption {
   decryptString(encrypted: Buffer): string
@@ -443,14 +445,22 @@ export class LinkRuntimeServiceImpl
   implements IConnectionService<LinkRuntimeService>
 {
   private readonly manager: LinkRuntimeManager
+  private readonly larkCli: LarkCliManager
   private readonly unsubscribe: () => void
+  private readonly unsubscribeLarkCli: () => void
 
-  public constructor(manager: LinkRuntimeManager) {
+  public constructor(manager: LinkRuntimeManager, larkCli: LarkCliManager) {
     super(LinkRuntimeServiceName)
     this.manager = manager
+    this.larkCli = larkCli
     this.unsubscribe = manager.stateChanged.on((state) => {
       void this.send("linkRuntimeChanged", state).catch((error: unknown) => {
         console.warn("[wanta] Link runtime broadcast failed:", error)
+      })
+    })
+    this.unsubscribeLarkCli = larkCli.stateChanged.on((state) => {
+      void this.send("larkCliChanged", state).catch((error: unknown) => {
+        console.warn("[wanta] Lark CLI state broadcast failed:", error)
       })
     })
   }
@@ -491,8 +501,25 @@ export class LinkRuntimeServiceImpl
     return this.manager.removeOpenConnector()
   }
 
+  public getLarkCliState(): Promise<LarkCliState> {
+    return this.larkCli.getState()
+  }
+
+  public connectLarkCli(): Promise<LarkCliState> {
+    return this.larkCli.connect()
+  }
+
+  public disconnectLarkCli(): Promise<LarkCliState> {
+    return this.larkCli.disconnect()
+  }
+
+  public async cancelLarkCliConnection(): Promise<void> {
+    this.larkCli.cancelConnection()
+  }
+
   public override dispose(): void {
     this.unsubscribe()
+    this.unsubscribeLarkCli()
     super.dispose()
   }
 }

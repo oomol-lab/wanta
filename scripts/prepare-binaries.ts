@@ -1,14 +1,16 @@
-// 打包前：把当前平台的 opencode + oo + rg 二进制复制到 resources/bin/，供 electron-builder
+// 打包前：把当前平台的 opencode + oo + rg + Lark CLI 二进制复制到 resources/bin/，供 electron-builder
 // extraResources 打进 app 的 Resources/bin（运行时 app.isPackaged 走 process.resourcesPath/bin）。
 // 来源：
 //   - opencode：node_modules/opencode-ai/bin/opencode.exe（opencode-ai postinstall 已为本机选好
 //     正确平台/变体并复制到这个固定名，故不自行拼包名，详见 electron/agent/binaries.ts）；
 //   - oo：.oo-bin/（download-oo.ts 下载；缺失则此处自行 ensure，故全新检出 / 跳过 postinstall 的 CI 也能打包）。
 //   - rg：.oo-bin/（download-ripgrep.ts 下载；OpenCode 内置 grep 工具运行时从 PATH 查找）。
+//   - Lark CLI：.lark-cli-bin/（download-lark-cli.ts 下载，并从同版本导出 lark-* skills）。
 import { chmodSync, copyFileSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { buildAgentToolRuntime } from "./build-agent-tool-runtime.ts"
+import { downloadLarkCliBinary, exportLarkCliSkills, larkCliBinaryName } from "./lark-cli.ts"
 import { downloadOoBinary, ooExecutableName } from "./oo-cli.ts"
 import { downloadRipgrepBinary, ripgrepExecutableName } from "./ripgrep.ts"
 import { bundledSkillsDir, exportBundledSkills } from "./skills.ts"
@@ -42,6 +44,11 @@ bundle("oo", ooSrc, ooExecutableName())
 // rg 与 oo 放在同一 bin 目录；AgentManager 会把该目录前置注入 PATH，供 OpenCode grep 工具使用。
 const ripgrepSrc = await downloadRipgrepBinary()
 bundle("ripgrep", ripgrepSrc, ripgrepExecutableName())
+
+const larkCliSrc = await downloadLarkCliBinary()
+bundle("Lark CLI", larkCliSrc, larkCliBinaryName())
+await exportLarkCliSkills()
+console.log("[wanta] bundled Lark CLI skills")
 
 // 内置 4 个 oo skill：导出到 resources/skills/，由 electron-builder extraResources 打入 Resources/skills，
 // 运行时拷进 OpenCode workspace 的 .opencode/skill/（见 electron/agent/workspace.ts）。

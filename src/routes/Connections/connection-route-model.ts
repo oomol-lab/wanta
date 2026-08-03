@@ -98,7 +98,13 @@ export function isDirectlyAvailableProvider(provider: ConnectionProviderSummary)
 }
 
 export function shouldLoadProviderDetail(provider: ConnectionProviderSummary): boolean {
+  if (provider.executionMode === "direct") return false
   return !isDirectlyAvailableProvider(provider) || provider.authTypes.some((authType) => authType !== "no_auth")
+}
+
+/** Direct providers do not have Connector-managed app metadata, aliases, usage, or execution logs. */
+export function supportsManagedConnectionAccountActions(provider: ConnectionProviderSummary): boolean {
+  return provider.executionMode !== "direct"
 }
 
 export function getProviderStatusTone(
@@ -183,6 +189,7 @@ export function getProviderDescription(provider: ConnectionProviderSummary, t: T
     case "needs_attention":
       return t("connections.providerNeedsAttentionDescription", { name: provider.displayName })
     case "connected":
+      if (provider.description) return provider.description
       if (isDirectlyAvailableProvider(provider)) {
         return t("connections.noAuthReadyDescription")
       }
@@ -191,6 +198,7 @@ export function getProviderDescription(provider: ConnectionProviderSummary, t: T
       }
       return provider.accountLabel ?? getProviderCategoryLabel(provider, t)
     case "available":
+      if (provider.description) return provider.description
       return getProviderCategoryLabel(provider, t)
   }
 }
@@ -278,6 +286,7 @@ export function formatProviderCategoryLabels(provider: ConnectionProviderSummary
 }
 
 export function getProviderMeta(provider: ConnectionProviderSummary, t: TranslateFn): string {
+  if (provider.executionMode === "direct") return t("connections.directMode")
   if (isDirectlyAvailableProvider(provider)) {
     return getProviderCategoryLabel(provider, t)
   }

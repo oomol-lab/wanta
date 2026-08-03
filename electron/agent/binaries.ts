@@ -22,9 +22,17 @@ export function ooBinaryName(platform: NodeJS.Platform = process.platform): stri
   return platform === "win32" ? "oo.exe" : "oo"
 }
 
+export function larkCliBinaryName(platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? "lark-cli.exe" : "lark-cli"
+}
+
 /** dev：从项目本地 .oo-bin 解析 oo 二进制（postinstall 下载、prepare-binaries 同源；生产由 extraResources 解析）。 */
 export function resolveDevOoBin(repoRoot: string, platform: NodeJS.Platform = process.platform): string {
   return path.join(repoRoot, ".oo-bin", ooBinaryName(platform))
+}
+
+export function resolveDevLarkCliBin(repoRoot: string, platform: NodeJS.Platform = process.platform): string {
+  return path.join(repoRoot, ".lark-cli-bin", larkCliBinaryName(platform))
 }
 
 /** 生产：从打包的 Resources/bin 解析二进制（prepare-binaries 复制、extraResources 打入）。 */
@@ -40,6 +48,14 @@ export function resolveDevBundledSkillsDir(repoRoot: string): string {
 /** 生产：从打包的 Resources/skills 解析内置 skill 源目录（extraResources 打入）。 */
 export function resolveBundledSkillsDir(resourcesPath: string): string {
   return path.join(resourcesPath, "skills")
+}
+
+export function resolveDevBundledLarkSkillsDir(repoRoot: string): string {
+  return path.join(repoRoot, "resources", "lark-skills")
+}
+
+export function resolveBundledLarkSkillsDir(resourcesPath: string): string {
+  return path.join(resourcesPath, "lark-skills")
 }
 
 /** dev：构建期合并的自定义工具 runtime（postinstall 生成）。 */

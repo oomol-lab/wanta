@@ -23,13 +23,17 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { AgentRefreshScheduler } from "./agent-refresh-scheduler.ts"
 import {
   ooBinaryName,
+  larkCliBinaryName,
   opencodeBinaryName,
   resolveBundledBin,
   resolveBundledSkillsDir,
+  resolveBundledLarkSkillsDir,
   resolveBundledToolRuntimePath,
   resolveDevBundledSkillsDir,
+  resolveDevBundledLarkSkillsDir,
   resolveDevBundledToolRuntimePath,
   resolveDevOoBin,
+  resolveDevLarkCliBin,
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
 import { AgentManager } from "./agent/manager.ts"
@@ -63,6 +67,7 @@ import { parseConnectionOAuthCallback } from "./connections/domain.ts"
 import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./diagnostics-log.ts"
 import { GitServiceImpl } from "./git/node.ts"
 import { KnowledgeServiceImpl } from "./knowledge/node.ts"
+import { LarkCliManager } from "./link-runtime/lark-cli.ts"
 import { LinkRuntimeManager, LinkRuntimeServiceImpl } from "./link-runtime/node.ts"
 import { isAudioOnlyMediaRequest, isTrustedRendererUrl } from "./media-permission-policy.ts"
 import { ModelCredentialStore } from "./models/credential-store.ts"
@@ -148,12 +153,18 @@ const opencodeBinPath = app.isPackaged
   ? resolveBundledBin(process.resourcesPath, opencodeBinaryName())
   : resolveDevOpencodeBin(appRoot)
 const ooBinPath = app.isPackaged ? resolveBundledBin(process.resourcesPath, ooBinaryName()) : resolveOoBin()
+const bundledLarkCliBinPath = app.isPackaged
+  ? resolveBundledBin(process.resourcesPath, larkCliBinaryName())
+  : resolveDevLarkCliBin(appRoot)
 process.env.OO_CLI_PATH = ooBinPath
 // 内置 skill 源目录：生产从打包 Resources/skills，dev 从 resources/skills（postinstall 导出）。
 // AgentManager 启动时拷进 OpenCode workspace 的 .opencode/skill/，使 agent 直接读到。
 const bundledSkillsDir = app.isPackaged
   ? resolveBundledSkillsDir(process.resourcesPath)
   : resolveDevBundledSkillsDir(appRoot)
+const bundledLarkSkillsDir = app.isPackaged
+  ? resolveBundledLarkSkillsDir(process.resourcesPath)
+  : resolveDevBundledLarkSkillsDir(appRoot)
 const bundledToolRuntimePath = app.isPackaged
   ? resolveBundledToolRuntimePath(process.resourcesPath)
   : resolveDevBundledToolRuntimePath(appRoot)
@@ -272,7 +283,14 @@ const linkRuntimeManager = new LinkRuntimeManager({
   getOomolAvailable: async () => Boolean(await authManager.currentSessionToken()),
   onRuntimeChanged: () => agentRefreshScheduler.schedule("Link runtime changed", 0),
 })
-const linkRuntimeService = new LinkRuntimeServiceImpl(linkRuntimeManager)
+const larkCliManager = new LarkCliManager({
+  bundledBinaryPath: bundledLarkCliBinPath,
+  bundledSkillsDir: bundledLarkSkillsDir,
+  onRuntimeChanged: () => agentRefreshScheduler.schedule("Lark CLI runtime changed", 0),
+  openExternalUrl,
+  rootDir: path.join(app.getPath("userData"), "lark-cli"),
+})
+const linkRuntimeService = new LinkRuntimeServiceImpl(linkRuntimeManager, larkCliManager)
 const authService = new AuthServiceImpl(authManager)
 const skillService = new SkillServiceImpl(authManager, {
   onRuntimeSkillsChanged: (reason) => agentRefreshScheduler.schedule(reason),
@@ -690,6 +708,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   if (isQuitting) {
     return
   }
+  const larkCliRuntime = await larkCliManager.activeRuntime()
   const nextAgent = new AgentManager({
     browserControl: browserControlConnection,
     defaultModel: runtime.defaultModel,
@@ -704,7 +723,10 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
         .filter((item) => item.status === "active")
         .map((item) => item.service),
     bundledSkillsDir,
+    bundledLarkSkillsDir: larkCliRuntime?.skillsDir ?? bundledLarkSkillsDir,
     bundledToolRuntimePath,
+    larkCliBinPath: larkCliRuntime?.binaryPath ?? bundledLarkCliBinPath,
+    larkCliConfigDir: path.join(app.getPath("userData"), "lark-cli", "config"),
     rootDir: path.join(app.getPath("userData"), "agent"),
     customModels: runtimeModels.customModels,
   })

@@ -39,11 +39,17 @@ release
 # Locally downloaded oo binary (dev/build) — produced by scripts/download-oo.ts
 .oo-bin/
 
+# Locally downloaded Lark CLI binary (dev/build) — produced by scripts/download-lark-cli.ts
+.lark-cli-bin/
+
 # Bundled oo/opencode binaries staged by scripts/prepare-binaries.ts (not committed)
 resources/bin
 
 # Bundled oo skills exported by scripts/skills.ts (not committed)
 resources/skills
+
+# Lark CLI skills exported from the pinned binary (not committed)
+resources/lark-skills
 
 # Bundled self-contained OpenCode custom-tool runtime (not committed)
 resources/agent-tool-runtime

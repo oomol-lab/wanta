@@ -6,6 +6,7 @@ const alwaysAvailableBundledSkillIds = new Set(["browser"])
 
 export interface AgentWorkspaceOptions {
   bundledOoSkills: boolean
+  bundledLarkSkillsDir?: string
   connectors: boolean
 }
 
@@ -36,7 +37,7 @@ export async function ensureAgentWorkspace(
     ),
   )
   await syncToolRuntime(opencodeDir, bundledToolRuntimePath)
-  await syncBundledSkills(opencodeDir, bundledSkillsDir, options.bundledOoSkills)
+  await syncBundledSkills(opencodeDir, bundledSkillsDir, options.bundledLarkSkillsDir, options.bundledOoSkills)
   return rootDir
 }
 
@@ -62,37 +63,50 @@ async function syncToolRuntime(opencodeDir: string, bundledToolRuntimePath: stri
 async function syncBundledSkills(
   opencodeDir: string,
   bundledSkillsDir: string | undefined,
+  bundledLarkSkillsDir: string | undefined,
   includeOomolSkills: boolean,
 ): Promise<void> {
   const skillDir = path.join(opencodeDir, "skill")
 
-  if (!bundledSkillsDir) {
+  if (!bundledSkillsDir && !bundledLarkSkillsDir) {
     await rm(skillDir, { force: true, recursive: true })
     return
   }
 
-  let entries
-  try {
-    entries = await readdir(bundledSkillsDir, { withFileTypes: true })
-  } catch (error) {
-    // 源缺失/不可读（如 dev 跳过 postinstall）：非致命——skills 全程 best-effort，不为 4 个可选 skill 阻断
-    // agent 启动。但显式告警（不再静默），避免发布包遗漏 Resources/skills 时问题被完全掩盖；保留已有副本不删。
-    console.warn(`[wanta] bundled skills source unavailable at ${bundledSkillsDir}; keeping existing skills:`, error)
-    return
+  const sources: Array<{ directory: string; names: string[] }> = []
+  for (const directory of [bundledSkillsDir, bundledLarkSkillsDir]) {
+    if (!directory) continue
+    try {
+      const entries = await readdir(directory, { withFileTypes: true })
+      sources.push({
+        directory,
+        names: entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name),
+      })
+    } catch (error) {
+      // 源缺失/不可读（如 dev 跳过 postinstall）：非致命——skills 全程 best-effort，不为 4 个可选 skill 阻断
+      // agent 启动。但显式告警（不再静默），避免发布包遗漏 Resources/skills 时问题被完全掩盖；保留已有副本不删。
+      console.warn(`[wanta] bundled skills source unavailable at ${directory}; keeping other skill sources:`, error)
+    }
   }
+
+  if (sources.length === 0) return
 
   await rm(skillDir, { force: true, recursive: true })
 
-  const skillNames = entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .filter((name) => includeOomolSkills || alwaysAvailableBundledSkillIds.has(name))
-  if (skillNames.length === 0) {
+  const skillSources = sources.flatMap((source) =>
+    source.names
+      .filter(
+        (name) =>
+          source.directory === bundledLarkSkillsDir || includeOomolSkills || alwaysAvailableBundledSkillIds.has(name),
+      )
+      .map((name) => ({ name, source: source.directory })),
+  )
+  if (skillSources.length === 0) {
     return
   }
 
   await mkdir(skillDir, { recursive: true })
   await Promise.all(
-    skillNames.map((name) => cp(path.join(bundledSkillsDir, name), path.join(skillDir, name), { recursive: true })),
+    skillSources.map(({ name, source }) => cp(path.join(source, name), path.join(skillDir, name), { recursive: true })),
   )
 }

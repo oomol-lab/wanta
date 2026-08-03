@@ -159,6 +159,32 @@ test("ensureAgentWorkspace gives OpenConnector Browser and typed tools without O
   }
 })
 
+test("ensureAgentWorkspace installs Lark direct-mode skills independently of the Link runtime", async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "wanta-workspace-"))
+  try {
+    const workspaceDir = path.join(base, "workspace")
+    const bundledSkillsDir = path.join(base, "bundled-skills")
+    const bundledLarkSkillsDir = path.join(base, "lark-skills")
+    const bundledToolRuntimePath = await writeToolRuntime(base)
+    await writeSkill(bundledSkillsDir, "browser")
+    await writeSkill(bundledSkillsDir, "oo")
+    await writeSkill(bundledLarkSkillsDir, "lark-calendar")
+
+    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, {
+      bundledLarkSkillsDir,
+      bundledOoSkills: false,
+      connectors: false,
+    })
+
+    const skillRoot = path.join(workspaceDir, ".opencode", "skill")
+    assert.ok(await exists(path.join(skillRoot, "browser", "SKILL.md")))
+    assert.ok(await exists(path.join(skillRoot, "lark-calendar", "SKILL.md")))
+    assert.equal(await exists(path.join(skillRoot, "oo")), false)
+  } finally {
+    await rm(base, { force: true, recursive: true })
+  }
+})
+
 test("ensureAgentWorkspace works without a bundled skills directory", async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), "wanta-workspace-"))
   try {

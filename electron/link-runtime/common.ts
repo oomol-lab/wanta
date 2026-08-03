@@ -46,10 +46,32 @@ export interface LinkRuntimeState {
   openConnector?: OpenConnectorSummary
 }
 
+export type LarkCliConnectionPhase =
+  | "idle"
+  | "checking"
+  | "updating"
+  | "configuring"
+  | "authorizing"
+  | "verifying"
+  | "disconnecting"
+
+export interface LarkCliState {
+  accountLabel?: string
+  activeVersion: string | null
+  available: boolean
+  bundledVersion: string | null
+  connection: "connected" | "disconnected" | "expired"
+  error?: string
+  latestVersion?: string
+  phase: LarkCliConnectionPhase
+  updateStatus: "idle" | "checking" | "current" | "updating" | "updated" | "failed"
+}
+
 export type LinkRuntimeService = typeof LinkRuntimeService
 export const LinkRuntimeService = serviceName("link-runtime-service") as ServiceName<{
   ServerEvents: {
     linkRuntimeChanged: LinkRuntimeState
+    larkCliChanged: LarkCliState
   }
   ClientInvokes: {
     getState(): Promise<LinkRuntimeState>
@@ -60,5 +82,9 @@ export const LinkRuntimeService = serviceName("link-runtime-service") as Service
     selectRuntime(kind: LinkRuntimeSelection): Promise<LinkRuntimeState>
     clearOpenConnectorToken(): Promise<LinkRuntimeState>
     removeOpenConnector(): Promise<LinkRuntimeState>
+    getLarkCliState(): Promise<LarkCliState>
+    connectLarkCli(): Promise<LarkCliState>
+    disconnectLarkCli(): Promise<LarkCliState>
+    cancelLarkCliConnection(): Promise<void>
   }
 }>

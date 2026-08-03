@@ -65,10 +65,13 @@ export interface ConnectionProviderSummary {
   categoryLabels: string[]
   connectedUpdatedAt?: number
   displayName: string
+  description?: string
+  executionMode?: "direct" | "remote"
   iconUrl?: string
   oauthClientConfig?: ConnectionProviderOAuthClientConfigSummary | null
   service: string
   status: ConnectionProviderStatus
+  runtimeVersion?: string
 }
 
 export type ConnectionProvider = ConnectionProviderSummary

@@ -28,6 +28,7 @@ import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { planAttachmentInputs } from "./attachment-input.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
+import { ensureDirectCliCommandBin } from "./direct-cli-bin.ts"
 import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
 import { writeOoIdentitySettings } from "./oo-identity.ts"
@@ -55,8 +56,8 @@ export interface AgentManagerOptions {
   listOpenConnectorAuthorizedServices?: (signal?: AbortSignal) => Promise<string[]>
   /** 内置 skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
   bundledSkillsDir?: string
-  /** Official local direct-CLI skills, independent of the selected Link runtime. */
-  bundledDirectSkillsDirs?: string[]
+  /** Skills for connected local direct-CLI providers, independent of the selected Link runtime. */
+  activeDirectSkillsDirs?: string[]
   /** Active Wanta-managed Lark CLI direct-runtime binary. */
   larkCliBinPath?: string
   /** Isolated Lark CLI config directory; credentials remain owned by the CLI/keychain. */
@@ -163,16 +164,28 @@ export function buildAgentSidecarEnv({
     PATH: commandPath,
     WANTA_BROWSER_CONTROL_TOKEN: browserControl?.token ?? "",
     WANTA_BROWSER_CONTROL_URL: browserControl?.url ?? "",
-    WANTA_LARK_CLI_BIN: larkCliBinPath ?? "",
-    LARKSUITE_CLI_CONFIG_DIR: larkCliConfigDir ?? "",
-    LARKSUITE_CLI_NO_SKILLS_NOTIFIER: "1",
-    LARKSUITE_CLI_NO_UPDATE_NOTIFIER: "1",
-    WANTA_WECOM_CLI_BIN: wecomCliBinPath ?? "",
-    WECOM_CLI_CONFIG_DIR: wecomCliConfigDir ?? "",
-    WECOM_CLI_TMP_DIR: wecomCliTmpDir ?? "",
-    WANTA_DINGTALK_CLI_BIN: dingTalkCliBinPath ?? "",
-    DWS_CONFIG_DIR: dingTalkCliConfigDir ?? "",
-    DWS_KEYCHAIN_DIR: dingTalkCliKeychainDir ?? "",
+    ...(larkCliBinPath && larkCliConfigDir
+      ? {
+          WANTA_LARK_CLI_BIN: larkCliBinPath,
+          LARKSUITE_CLI_CONFIG_DIR: larkCliConfigDir,
+          LARKSUITE_CLI_NO_SKILLS_NOTIFIER: "1",
+          LARKSUITE_CLI_NO_UPDATE_NOTIFIER: "1",
+        }
+      : {}),
+    ...(wecomCliBinPath && wecomCliConfigDir && wecomCliTmpDir
+      ? {
+          WANTA_WECOM_CLI_BIN: wecomCliBinPath,
+          WECOM_CLI_CONFIG_DIR: wecomCliConfigDir,
+          WECOM_CLI_TMP_DIR: wecomCliTmpDir,
+        }
+      : {}),
+    ...(dingTalkCliBinPath && dingTalkCliConfigDir && dingTalkCliKeychainDir
+      ? {
+          WANTA_DINGTALK_CLI_BIN: dingTalkCliBinPath,
+          DWS_CONFIG_DIR: dingTalkCliConfigDir,
+          DWS_KEYCHAIN_DIR: dingTalkCliKeychainDir,
+        }
+      : {}),
   }
 }
 
@@ -457,7 +470,7 @@ export class AgentManager {
     await ensureAgentWorkspace(workspaceDir, bundledSkillsDir, bundledToolRuntimePath, {
       bundledOoSkills: this.options.linkRuntime?.kind === "oomol",
       connectors: this.options.linkRuntime !== null,
-      directSkillsDirs: this.options.bundledDirectSkillsDirs,
+      directSkillsDirs: this.options.activeDirectSkillsDirs,
     })
     this.teamScopePath = teamScopePath
     await this.writeTeamState(this.teamName)
@@ -491,23 +504,23 @@ export class AgentManager {
 
     const config = buildOpencodeConfig({ customModels, defaultModel, linkRuntime, modelAccess })
     const baseCommandPath = await resolveUserCommandPath({
-      preferredDirectories: [
-        ...(larkCliBinPath ? [path.dirname(larkCliBinPath)] : []),
-        ...(wecomCliBinPath ? [path.dirname(wecomCliBinPath)] : []),
-        ...(dingTalkCliBinPath ? [path.dirname(dingTalkCliBinPath)] : []),
-        ...(linkRuntime && ooBinPath ? [path.dirname(ooBinPath)] : []),
-      ],
+      preferredDirectories: linkRuntime && ooBinPath ? [path.dirname(ooBinPath)] : [],
     })
-    const wikiGraphBinDir =
-      wikiGraphCliPath && wikiGraphStateDir
-        ? await ensureWikiGraphCommandBin({
-            binDir: path.join(rootDir, "bin"),
-            nodeBin: process.execPath,
-            stateDir: wikiGraphStateDir,
-            wikiGraphCliPath,
-          })
-        : undefined
-    const commandPath = wikiGraphBinDir ? `${wikiGraphBinDir}${path.delimiter}${baseCommandPath}` : baseCommandPath
+    const commandBinDir = await ensureDirectCliCommandBin({
+      binDir: path.join(rootDir, "bin"),
+      dingTalkCliBinPath,
+      larkCliBinPath,
+      wecomCliBinPath,
+    })
+    if (wikiGraphCliPath && wikiGraphStateDir) {
+      await ensureWikiGraphCommandBin({
+        binDir: commandBinDir,
+        nodeBin: process.execPath,
+        stateDir: wikiGraphStateDir,
+        wikiGraphCliPath,
+      })
+    }
+    const commandPath = `${commandBinDir}${path.delimiter}${baseCommandPath}`
     const browserControl = await this.options.browserControl?.()
     const env = buildAgentSidecarEnv({
       browserControl,

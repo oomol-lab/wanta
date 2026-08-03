@@ -77,6 +77,9 @@ exit 1
         skillsDir,
       })
 
+      await expect(manager.availableRuntime()).resolves.toMatchObject({ binaryPath, skillsDir })
+      await expect(manager.agentRuntime()).resolves.toBeNull()
+
       const connected = await manager.connect()
       expect(connected).toMatchObject({
         accountLabel: "bot-123",
@@ -85,9 +88,11 @@ exit 1
         phase: "idle",
       })
       expect(opened).toEqual(["https://work.weixin.qq.com/ai/qc/gen?source=test&scode=temporary"])
+      await expect(manager.agentRuntime()).resolves.toMatchObject({ binaryPath, skillsDir })
 
       const disconnected = await manager.disconnect()
       expect(disconnected.connection).toBe("disconnected")
+      await expect(manager.agentRuntime()).resolves.toBeNull()
       await expect(readFile(retained, "utf-8")).resolves.toBe("keep")
       await expect(stat(path.join(rootDir, "config"))).resolves.toMatchObject({})
     } finally {

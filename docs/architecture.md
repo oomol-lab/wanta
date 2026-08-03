@@ -130,10 +130,12 @@ state through `LinkRuntimeServiceImpl`. The shipped app contains a checksum-veri
 its matching embedded `lark-*` Skills. On Connect, Wanta first checks the official latest version;
 an available update is downloaded to a versioned user-data runtime, verified against the release
 checksum, and atomically activated. Update failure is non-fatal: authorization continues with the
-already usable version. The active binary directory is prepended to the Agent sidecar `PATH`, its
-config root is injected through `LARKSUITE_CLI_CONFIG_DIR`, and its matching Skills are copied into
-the private Agent workspace. Thus chat uses the same local identity authorized from Connections,
-independently of the selected OOMOL/OpenConnector Link runtime.
+already usable version. The CLI and matching Skills remain packaged while disconnected; only after
+the isolated identity verifies as `connected` is the active binary directory prepended to the Agent
+sidecar `PATH`, its config root injected through `LARKSUITE_CLI_CONFIG_DIR`, and its matching Skills
+projected into the private Agent workspace. Disconnecting or detecting an expired identity removes
+that capability on the next safe Agent refresh. Thus chat uses the same local identity authorized
+from Connections, independently of the selected OOMOL/OpenConnector Link runtime.
 
 WeCom CLI is a separate local `direct` provider with a provider-specific QR-code experience rather
 than a Lark-shaped authorization flow. `WecomCliManager` runs the official
@@ -145,9 +147,11 @@ errors cross `LinkRuntimeServiceImpl`. Disconnect removes only Wanta's isolated 
 temporary-media directories, never the user's global `~/.config/wecom` or the robot in WeCom. The
 shipped platform binary is downloaded from the matching `@wecom/cli-*` npm package and verified
 against registry `dist.integrity`; `wecomcli-*` Skills come from the exact source `gitHead` recorded
-by the pinned `@wecom/cli` package. `WECOM_CLI_CONFIG_DIR` / `WECOM_CLI_TMP_DIR`, the managed binary
-directory, and these Skills are injected into the private Agent runtime independently of Lark and of
-the selected Link backend. Credentials and raw QR output never enter the renderer.
+by the pinned `@wecom/cli` package. The managed binary, config environment, and `wecomcli-*` Skills
+are exposed to the private Agent runtime only while the isolated bot identity verifies as
+`connected`; otherwise they remain packaged but absent from the Agent `PATH`, environment, and Skill
+index. This activation remains independent of Lark and of the selected Link backend. Credentials and
+raw QR output never enter the renderer.
 
 DingTalk Workspace CLI is a third independent local `direct` provider, with its own browser OAuth
 and organization-approval flow rather than a shared Lark/WeCom state machine. `DingTalkCliManager`
@@ -156,8 +160,10 @@ roots, opens only the allowlisted `https://login.dingtalk.com/oauth2/auth` page,
 result through structured `dws auth status --format json` output. Disconnect targets the exact
 active `corpId:userId` profile and never logs out every saved organization. Tokens remain encrypted
 by the official CLI credential backend; only redacted account, phase, availability, and version
-state crosses IPC. The stable mono `dws` Skill is packaged from the same pinned release and injected
-into the private Agent workspace independently of the selected Link backend.
+state crosses IPC. The stable mono `dws` Skill is packaged from the same pinned release and is
+projected into the private Agent workspace, together with the managed binary and isolated config
+environment, only while an exact profile verifies as `connected`. Disconnected and expired states
+remain absent from the Agent independently of the selected Link backend.
 
 Vite (`vite-plugin-electron/simple` in `vite.config.ts`) bundles `electron/main.ts` and
 `electron/preload.ts` into `dist-electron/main.js` + `preload.js`; the main-process build has a

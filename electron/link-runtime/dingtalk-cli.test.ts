@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { describe, expect, test } from "vitest"
+import { describe, expect, test, vi } from "vitest"
 import {
   DingTalkCliManager,
   extractOfficialDingTalkAuthorizationUrl,
@@ -62,7 +62,7 @@ interface MockDingTalkCli {
   states: Array<{ error?: string; phase: string }>
 }
 
-async function createMockDingTalkCli(): Promise<MockDingTalkCli> {
+async function createMockDingTalkCli(onRuntimeChanged?: () => void): Promise<MockDingTalkCli> {
   const base = await mkdtemp(path.join(os.tmpdir(), "wanta-dingtalk-cli-"))
   const binaryPath = path.join(base, "dws")
   const rootDir = path.join(base, "private-runtime")
@@ -89,7 +89,7 @@ if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
 fi
 if [ "$1" = "auth" ] && [ "$2" = "login" ]; then
   printf 'https://login.dingtalk.com/oauth2/auth?client_id=test&redirect_uri=http%%3A%%2F%%2F127.0.0.1'
-  while [ -f "$DWS_CONFIG_DIR/pause-login" ]; do :; done
+  while [ -f "$DWS_CONFIG_DIR/pause-login" ]; do sleep 0.01; done
   sleep 0.05
   mkdir -p "$DWS_CONFIG_DIR"
   touch "$DWS_CONFIG_DIR/authorized"
@@ -114,6 +114,7 @@ exit 1
   const states: MockDingTalkCli["states"] = []
   const manager = new DingTalkCliManager({
     binaryPath,
+    onRuntimeChanged,
     openExternalUrl: (url) => {
       opened.push(url)
       resolveAuthorizationOpened?.()
@@ -127,7 +128,7 @@ exit 1
 
 function waitForAuthorization(opened: Promise<void>, connection: Promise<unknown>): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("DingTalk authorization URL did not open in time.")), 1_000)
+    const timeout = setTimeout(() => reject(new Error("DingTalk authorization URL did not open in time.")), 3_000)
     const fail = (error: unknown) => {
       clearTimeout(timeout)
       reject(error)
@@ -182,12 +183,32 @@ describe.runIf(process.platform !== "win32")("DingTalk CLI lifecycle", () => {
   })
 
   test("reports expired credentials while keeping the runtime available", async () => {
-    const fixture = await createMockDingTalkCli()
+    const onRuntimeChanged = vi.fn()
+    const fixture = await createMockDingTalkCli(onRuntimeChanged)
     try {
+      await fixture.manager.connect()
       await mkdir(path.join(fixture.rootDir, "config"), { recursive: true })
       await writeFile(path.join(fixture.rootDir, "config", "expired"), "1", "utf-8")
 
       await expect(fixture.manager.getState()).resolves.toMatchObject({ available: true, connection: "expired" })
+      expect(onRuntimeChanged).toHaveBeenCalledTimes(2)
+      await fixture.manager.getState()
+      expect(onRuntimeChanged).toHaveBeenCalledTimes(2)
+      await expect(fixture.manager.availableRuntime()).resolves.toMatchObject({ skillsDir: expect.any(String) })
+      await expect(fixture.manager.agentRuntime()).resolves.toBeNull()
+    } finally {
+      await rm(fixture.base, { force: true, recursive: true })
+    }
+  })
+
+  test("exposes the Agent runtime only after connection and removes it after disconnect", async () => {
+    const fixture = await createMockDingTalkCli()
+    try {
+      await expect(fixture.manager.agentRuntime()).resolves.toBeNull()
+      await fixture.manager.connect()
+      await expect(fixture.manager.agentRuntime()).resolves.toMatchObject({ skillsDir: expect.any(String) })
+      await fixture.manager.disconnect()
+      await expect(fixture.manager.agentRuntime()).resolves.toBeNull()
     } finally {
       await rm(fixture.base, { force: true, recursive: true })
     }

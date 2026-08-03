@@ -48,6 +48,7 @@ export class DingTalkCliManager {
   private activeChild: ChildProcess | null = null
   private cancelRequested = false
   private operation: { kind: "connect" | "disconnect"; promise: Promise<DingTalkCliState> } | null = null
+  private runtimeStateObserved = false
   private state: DingTalkCliState = {
     activeVersion: null,
     available: false,
@@ -67,10 +68,18 @@ export class DingTalkCliManager {
     this.skillsDir = options.skillsDir
   }
 
-  public async getState(): Promise<DingTalkCliState> {
-    if (this.operation) return this.state
+  public async getState(options: { notifyRuntimeChange?: boolean } = {}): Promise<DingTalkCliState> {
+    return (await this.resolveState(options)).state
+  }
+
+  private async resolveState(
+    options: { notifyRuntimeChange?: boolean } = {},
+  ): Promise<{ runtime: DingTalkCliRuntime | null; state: DingTalkCliState }> {
+    if (this.operation) return { runtime: null, state: this.state }
+    const previousConnection = this.state.connection
+    let runtime: DingTalkCliRuntime | null = null
     try {
-      const runtime = await this.activeRuntime()
+      runtime = await this.availableRuntime()
       if (!runtime) throw new Error("The bundled DingTalk CLI runtime is unavailable.")
       await this.ensurePrivateDirectories()
       const auth = await this.readAuthState()
@@ -94,7 +103,8 @@ export class DingTalkCliManager {
         phase: "idle",
       })
     }
-    return this.state
+    this.observeRuntimeState(previousConnection, options.notifyRuntimeChange ?? true)
+    return { runtime, state: this.state }
   }
 
   public connect(): Promise<DingTalkCliState> {
@@ -164,7 +174,7 @@ export class DingTalkCliManager {
     return true
   }
 
-  public async activeRuntime(): Promise<DingTalkCliRuntime | null> {
+  public async availableRuntime(): Promise<DingTalkCliRuntime | null> {
     try {
       const [binary, skills, version] = await Promise.all([
         stat(this.binaryPath),
@@ -184,8 +194,15 @@ export class DingTalkCliManager {
     }
   }
 
+  /** Expose the managed CLI to the Agent only while an isolated DingTalk profile is connected. */
+  public async agentRuntime(): Promise<DingTalkCliRuntime | null> {
+    const { runtime, state } = await this.resolveState({ notifyRuntimeChange: false })
+    if (state.connection !== "connected") return null
+    return runtime
+  }
+
   private async connectNow(): Promise<DingTalkCliState> {
-    const runtime = await this.activeRuntime()
+    const runtime = await this.availableRuntime()
     if (!runtime) throw new Error("The bundled DingTalk CLI runtime is unavailable.")
     await this.ensurePrivateDirectories()
     this.setState({
@@ -209,7 +226,8 @@ export class DingTalkCliManager {
       error: undefined,
       phase: "idle",
     })
-    void Promise.resolve(this.onRuntimeChanged?.()).catch(() => undefined)
+    this.runtimeStateObserved = true
+    this.notifyRuntimeChanged()
     return this.state
   }
 
@@ -218,6 +236,8 @@ export class DingTalkCliManager {
     const auth = await this.readAuthState()
     if (!auth.authenticated) {
       this.setState({ accountLabel: undefined, connection: "disconnected", error: undefined, phase: "idle" })
+      this.runtimeStateObserved = true
+      this.notifyRuntimeChanged()
       return this.state
     }
     if (!auth.profile) throw new Error("DingTalk CLI did not report an exact account identity to disconnect.")
@@ -230,7 +250,8 @@ export class DingTalkCliManager {
       error: undefined,
       phase: "idle",
     })
-    void Promise.resolve(this.onRuntimeChanged?.()).catch(() => undefined)
+    this.runtimeStateObserved = true
+    this.notifyRuntimeChanged()
     return this.state
   }
 
@@ -241,6 +262,16 @@ export class DingTalkCliManager {
       throw new Error("DingTalk CLI returned an unreadable version.")
     }
     return value.version.replace(/^v/u, "")
+  }
+
+  private observeRuntimeState(previousConnection: DingTalkCliState["connection"], notify: boolean): void {
+    const changed = this.runtimeStateObserved && previousConnection !== this.state.connection
+    this.runtimeStateObserved = true
+    if (changed && notify) this.notifyRuntimeChanged()
+  }
+
+  private notifyRuntimeChanged(): void {
+    void Promise.resolve(this.onRuntimeChanged?.()).catch(() => undefined)
   }
 
   private async readAuthState(): Promise<DingTalkAuthStatus> {

@@ -1,7 +1,10 @@
 import type { ProcessSnapshotEntry } from "./sidecar.ts"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { ChildProcessWithoutNullStreams } from "node:child_process"
+import type { SpawnOptionsWithoutStdio } from "node:child_process"
 
+import { EventEmitter } from "node:events"
+import { PassThrough } from "node:stream"
 import { describe, expect, it, vi } from "vitest"
 import { sanitizeDingTalkEnvironment } from "../dingtalk-cli-environment.ts"
 import {
@@ -15,6 +18,7 @@ import {
   parsePsSnapshot,
   reapProcessTree,
   reapWindowsProcessTree,
+  sanitizeInheritedDirectCliEnvironment,
 } from "./sidecar.ts"
 
 describe("OpencodeSidecar", () => {
@@ -127,6 +131,80 @@ describe("OpencodeSidecar", () => {
 
     await expect(start).rejects.toThrow("disposed during startup")
     expect(spawnProcess).not.toHaveBeenCalled()
+  })
+
+  it("scrubs disconnected direct CLI variables inherited from the launcher before spawning", async () => {
+    const inheritedVariables = {
+      DWS_CONFIG_DIR: "/launcher/dingtalk/config",
+      DWS_KEYCHAIN_DIR: "/launcher/dingtalk/keychain",
+      LARKSUITE_CLI_CONFIG_DIR: "/launcher/lark/config",
+      LARKSUITE_CLI_NO_SKILLS_NOTIFIER: "1",
+      LARKSUITE_CLI_NO_UPDATE_NOTIFIER: "1",
+      WANTA_DINGTALK_CLI_BIN: "/launcher/dws",
+      WANTA_LARK_CLI_BIN: "/launcher/lark-cli",
+      WANTA_WECOM_CLI_BIN: "/launcher/wecom-cli",
+      WECOM_CLI_CONFIG_DIR: "/launcher/wecom/config",
+      WECOM_CLI_TMP_DIR: "/launcher/wecom/tmp",
+    }
+    for (const [name, value] of Object.entries(inheritedVariables)) vi.stubEnv(name, value)
+
+    let spawnedEnvironment: NodeJS.ProcessEnv | undefined
+    const proc = new EventEmitter() as ChildProcessWithoutNullStreams
+    const stdout = new PassThrough()
+    proc.stdin = new PassThrough()
+    proc.stdout = stdout
+    proc.stderr = new PassThrough()
+    const spawnProcess = vi.fn((_command: string, _args: string[], options: SpawnOptionsWithoutStdio) => {
+      spawnedEnvironment = options.env
+      queueMicrotask(() => stdout.write("listening on http://127.0.0.1:4096\n"))
+      return proc
+    })
+    const sidecar = new OpencodeSidecar(
+      {
+        config: {},
+        env: {
+          LARKSUITE_CLI_CONFIG_DIR: "/private/lark/config",
+          WANTA_LARK_CLI_BIN: "/managed/lark-cli",
+        },
+        isolationDir: "/tmp/wanta-sidecar-direct-cli-isolation",
+        opencodeBinPath: "/tmp/wanta-sidecar-direct-cli-opencode",
+        workspaceDir: "/tmp/wanta-sidecar-direct-cli-workspace",
+      },
+      { createDirectory: async () => undefined, spawnProcess },
+    )
+
+    try {
+      await sidecar.start()
+      expect(spawnedEnvironment).toMatchObject({
+        LARKSUITE_CLI_CONFIG_DIR: "/private/lark/config",
+        WANTA_LARK_CLI_BIN: "/managed/lark-cli",
+      })
+      for (const name of Object.keys(inheritedVariables)) {
+        if (name === "LARKSUITE_CLI_CONFIG_DIR" || name === "WANTA_LARK_CLI_BIN") continue
+        expect(spawnedEnvironment).not.toHaveProperty(name)
+      }
+    } finally {
+      ;(sidecar as unknown as { proc: ChildProcessWithoutNullStreams | null }).proc = null
+      await sidecar.dispose()
+      vi.unstubAllEnvs()
+    }
+  })
+})
+
+describe("sanitizeInheritedDirectCliEnvironment", () => {
+  it("removes managed names case-insensitively on Windows", () => {
+    expect(
+      sanitizeInheritedDirectCliEnvironment(
+        {
+          Path: "C:\\Windows",
+          wanta_lark_cli_bin: "untrusted",
+          wecom_cli_config_dir: "untrusted",
+          wecom_cli_log_file: "C:\\outside\\wecom.log",
+          wecom_cli_log_level: "debug",
+        },
+        "win32",
+      ),
+    ).toEqual({ Path: "C:\\Windows" })
   })
 })
 

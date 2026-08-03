@@ -59,10 +59,17 @@ export class WecomCliManager {
   }
 
   public async getState(options: { notifyRuntimeChange?: boolean } = {}): Promise<WecomCliState> {
-    if (this.operation) return this.state
+    return (await this.resolveState(options)).state
+  }
+
+  private async resolveState(
+    options: { notifyRuntimeChange?: boolean } = {},
+  ): Promise<{ runtime: WecomCliRuntime | null; state: WecomCliState }> {
+    if (this.operation) return { runtime: null, state: this.state }
     const previousConnection = this.state.connection
+    let runtime: WecomCliRuntime | null = null
     try {
-      const runtime = await this.availableRuntime()
+      runtime = await this.availableRuntime()
       if (!runtime) throw new Error("The bundled WeCom CLI runtime is unavailable.")
       const auth = await this.readAuthState()
       this.state = {
@@ -86,7 +93,7 @@ export class WecomCliManager {
       }
     }
     this.observeRuntimeState(previousConnection, options.notifyRuntimeChange ?? true)
-    return this.state
+    return { runtime, state: this.state }
   }
 
   public connect(): Promise<WecomCliState> {
@@ -168,9 +175,9 @@ export class WecomCliManager {
 
   /** Expose the managed CLI to the Agent only while its isolated bot identity is connected. */
   public async agentRuntime(): Promise<WecomCliRuntime | null> {
-    const state = await this.getState({ notifyRuntimeChange: false })
+    const { runtime, state } = await this.resolveState({ notifyRuntimeChange: false })
     if (state.connection !== "connected") return null
-    return this.availableRuntime()
+    return runtime
   }
 
   private async connectNow(): Promise<WecomCliState> {

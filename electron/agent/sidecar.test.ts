@@ -195,7 +195,13 @@ describe("sanitizeInheritedDirectCliEnvironment", () => {
   it("removes managed names case-insensitively on Windows", () => {
     expect(
       sanitizeInheritedDirectCliEnvironment(
-        { Path: "C:\\Windows", wanta_lark_cli_bin: "untrusted", wecom_cli_config_dir: "untrusted" },
+        {
+          Path: "C:\\Windows",
+          wanta_lark_cli_bin: "untrusted",
+          wecom_cli_config_dir: "untrusted",
+          wecom_cli_log_file: "C:\\outside\\wecom.log",
+          wecom_cli_log_level: "debug",
+        },
         "win32",
       ),
     ).toEqual({ Path: "C:\\Windows" })

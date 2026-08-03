@@ -86,6 +86,8 @@ const managedDirectCliEnvironmentNames = new Set([
   "WANTA_LARK_CLI_BIN",
   "WANTA_WECOM_CLI_BIN",
   "WECOM_CLI_CONFIG_DIR",
+  "WECOM_CLI_LOG_FILE",
+  "WECOM_CLI_LOG_LEVEL",
   "WECOM_CLI_TMP_DIR",
 ])
 

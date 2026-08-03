@@ -128,7 +128,7 @@ exit 1
 
 function waitForAuthorization(opened: Promise<void>, connection: Promise<unknown>): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("DingTalk authorization URL did not open in time.")), 1_000)
+    const timeout = setTimeout(() => reject(new Error("DingTalk authorization URL did not open in time.")), 3_000)
     const fail = (error: unknown) => {
       clearTimeout(timeout)
       reject(error)

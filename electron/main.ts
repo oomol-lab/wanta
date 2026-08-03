@@ -780,10 +780,8 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     wecomCliConfigDir: wecomCliRuntime ? path.join(app.getPath("userData"), "wecom-cli", "config") : undefined,
     wecomCliTmpDir: wecomCliRuntime ? path.join(app.getPath("userData"), "wecom-cli", "tmp") : undefined,
     dingTalkCliBinPath: dingTalkCliRuntime?.binaryPath,
-    dingTalkCliConfigDir: dingTalkCliRuntime ? path.join(app.getPath("userData"), "dingtalk-cli", "config") : undefined,
-    dingTalkCliKeychainDir: dingTalkCliRuntime
-      ? path.join(app.getPath("userData"), "dingtalk-cli", "keychain")
-      : undefined,
+    dingTalkCliConfigDir: dingTalkCliRuntime?.configDir,
+    dingTalkCliKeychainDir: dingTalkCliRuntime?.keychainDir,
     rootDir: path.join(app.getPath("userData"), "agent"),
     customModels: runtimeModels.customModels,
   })

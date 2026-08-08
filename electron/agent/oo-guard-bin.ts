@@ -20,12 +20,20 @@ export async function ensureOoGuardCommandBin({
 }: OoGuardCommandBinOptions): Promise<string> {
   await mkdir(binDir, { recursive: true })
   if (platform === "win32") {
+    const commandPath = path.join(binDir, "oo.cmd")
     await writeFile(
-      path.join(binDir, "oo.cmd"),
-      ["@echo off", "set ELECTRON_RUN_AS_NODE=1", `"${nodeBin}" "${ooGuardCliPath}" %*`, ""].join("\r\n"),
+      commandPath,
+      [
+        "@echo off",
+        "setlocal",
+        "set ELECTRON_RUN_AS_NODE=1",
+        `"${nodeBin}" "${ooGuardCliPath}" %*`,
+        "endlocal & exit /b %ERRORLEVEL%",
+        "",
+      ].join("\r\n"),
       "utf8",
     )
-    return binDir
+    return commandPath
   }
 
   const commandPath = path.join(binDir, "oo")
@@ -40,5 +48,5 @@ export async function ensureOoGuardCommandBin({
     "utf8",
   )
   await chmod(commandPath, 0o755)
-  return binDir
+  return commandPath
 }

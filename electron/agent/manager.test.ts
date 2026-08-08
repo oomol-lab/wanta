@@ -7,6 +7,7 @@ import {
   buildAgentSidecarEnv,
   buildArtifactSystem,
   buildWorkspaceIdentitySystem,
+  isPersistedConnectorToolPart,
   isUserVisibleSession,
 } from "./manager.ts"
 
@@ -16,6 +17,23 @@ afterEach(() => {
 })
 
 describe("AgentManager", () => {
+  it("limits persisted redaction to connector executions", () => {
+    expect(isPersistedConnectorToolPart({ tool: "call_action" })).toBe(true)
+    expect(
+      isPersistedConnectorToolPart({
+        tool: "bash",
+        state: { input: { command: "oo --lang zh connector run posthog --action list_projects --json" } },
+      }),
+    ).toBe(true)
+    expect(
+      isPersistedConnectorToolPart({
+        tool: "bash",
+        state: { input: { command: "printf 'password = \"example\"\\n'" } },
+      }),
+    ).toBe(false)
+    expect(isPersistedConnectorToolPart({ tool: "read", state: { input: { filePath: "README.md" } } })).toBe(false)
+  })
+
   it("pins raw connector CLI guidance to the current team", () => {
     const system = buildWorkspaceIdentitySystem('team "quoted"')
     expect(system).toContain('team "team \\"quoted\\""')
@@ -442,10 +460,10 @@ describe("AgentManager", () => {
       const settingsPath = path.join(rootDir, "oo-store", "config", "settings.toml")
 
       await manager.setTeamName("acme-corp")
-      await expect(readFile(settingsPath, "utf8")).resolves.toContain('organization = "acme-corp"')
+      await expect(readFile(settingsPath, "utf8")).resolves.toContain('team = "acme-corp"')
 
       await manager.setTeamName(undefined)
-      await expect(readFile(settingsPath, "utf8")).resolves.not.toContain("organization =")
+      await expect(readFile(settingsPath, "utf8")).resolves.not.toContain("team =")
     } finally {
       await rm(rootDir, { force: true, recursive: true })
     }
@@ -586,8 +604,8 @@ describe("AgentManager", () => {
       expect(settings).toContain("[skills.recommend]")
       expect(settings).toContain("muted = true")
       expect(settings).toContain("[identity]")
-      expect(settings).toContain('organization = "team \\"quoted\\""')
-      expect(settings).not.toContain("\nteam =")
+      expect(settings).toContain('team = "team \\"quoted\\""')
+      expect(settings).not.toContain("organization =")
       expect(settings).toContain('note = "keep"')
     } finally {
       await rm(rootDir, { force: true, recursive: true })

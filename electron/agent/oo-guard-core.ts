@@ -18,13 +18,16 @@ const sensitiveConnectorKeys = new Set([
 function normalizedKey(value: string): string {
   return value
     .trim()
+    .replace(/([A-Z]+)([A-Z][a-z])/gu, "$1_$2")
     .replace(/([a-z0-9])([A-Z])/gu, "$1_$2")
     .toLowerCase()
     .replaceAll("-", "_")
 }
 
 export function isSensitiveConnectorKey(value: string): boolean {
-  return sensitiveConnectorKeys.has(normalizedKey(value))
+  const key = normalizedKey(value)
+  if (sensitiveConnectorKeys.has(key)) return true
+  return [...sensitiveConnectorKeys].some((sensitiveKey) => key.endsWith(`_${sensitiveKey}`))
 }
 
 function redactConnectorValue(value: unknown): unknown {
@@ -42,30 +45,57 @@ function redactConnectorValue(value: unknown): unknown {
   )
 }
 
-const sensitiveJsonFieldPattern =
-  /("(?:access[_-]?token|api[_-]?key|api[_-]?token|authorization|client[_-]?secret|cookie|credential|password|personal[_-]?api[_-]?key|refresh[_-]?token|secret|secret[_-]?api[_-]?token(?:[_-]?backup)?)"\s*:\s*)("(?:\\.|[^"\\])*"|[^,}\]\r\n]+)/giu
+const jsonFieldPattern = /("((?:\\.|[^"\\])*)"\s*:\s*)("(?:\\.|[^"\\])*"|[^,}\]\r\n]+)/gu
 const sensitiveAssignmentPattern =
-  /\b(access[_-]?token|api[_-]?key|api[_-]?token|authorization|client[_-]?secret|cookie|credential|password|personal[_-]?api[_-]?key|refresh[_-]?token|secret|secret[_-]?api[_-]?token(?:[_-]?backup)?)\s*[:=]\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)/giu
+  /([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)/gu
 
 export function redactConnectorOutput(output: string): string {
   if (!output) return output
   const trailingNewline = output.endsWith("\n")
   try {
     const parsed = JSON.parse(output) as unknown
-    return `${JSON.stringify(redactConnectorValue(parsed))}${trailingNewline ? "\n" : ""}`
+    const redacted = redactConnectorValue(parsed)
+    if (JSON.stringify(redacted) === JSON.stringify(parsed)) return output
+    return `${JSON.stringify(redacted)}${trailingNewline ? "\n" : ""}`
   } catch {
     return output
-      .replace(sensitiveJsonFieldPattern, '$1"[redacted]"')
-      .replace(sensitiveAssignmentPattern, "$1=[redacted]")
+      .replace(jsonFieldPattern, (match, prefix: string, key: string) =>
+        isSensitiveConnectorKey(key) ? `${prefix}"[redacted]"` : match,
+      )
+      .replace(sensitiveAssignmentPattern, (match, key: string) =>
+        isSensitiveConnectorKey(key) ? `${key}=[redacted]` : match,
+      )
   }
 }
 
+function connectorCommandIndex(args: readonly string[]): number {
+  let index = 0
+  while (index < args.length) {
+    const arg = args[index] ?? ""
+    if (arg === "--lang") {
+      index += 2
+      continue
+    }
+    if (arg.startsWith("--lang=") || ["--debug", "-h", "--help", "-V", "--version"].includes(arg)) {
+      index += 1
+      continue
+    }
+    break
+  }
+  return args[index] === "connector" ? index : -1
+}
+
 export function isConnectorBusinessCommand(args: readonly string[]): boolean {
-  return args[0] === "connector" && connectorCommandsRequiringWorkspace.has(args[1] ?? "")
+  const connectorIndex = connectorCommandIndex(args)
+  return connectorIndex >= 0 && connectorCommandsRequiringWorkspace.has(args[connectorIndex + 1] ?? "")
 }
 
 export function hasWorkspaceSelector(args: readonly string[]): boolean {
-  return args.some(
+  const connectorIndex = connectorCommandIndex(args)
+  if (connectorIndex < 0) return false
+  const terminatorIndex = args.indexOf("--", connectorIndex + 2)
+  const commandArgs = args.slice(connectorIndex + 2, terminatorIndex < 0 ? undefined : terminatorIndex)
+  return commandArgs.some(
     (arg) =>
       arg === "--personal" ||
       arg === "--team" ||
@@ -85,7 +115,9 @@ export function bindOomolWorkspace(args: readonly string[], teamName: string): s
   if (!normalizedTeamName) {
     throw new Error("Wanta cannot run an OOMOL connector command without an active team workspace.")
   }
-  return [...args, "--team", normalizedTeamName]
+  const terminatorIndex = args.indexOf("--")
+  if (terminatorIndex < 0) return [...args, "--team", normalizedTeamName]
+  return [...args.slice(0, terminatorIndex), "--team", normalizedTeamName, ...args.slice(terminatorIndex)]
 }
 
 export interface WorkspaceTeamScope {
@@ -99,6 +131,7 @@ export function resolveGuardWorkspaceTeam(scope: WorkspaceTeamScope): string {
     const activeTeams = Object.values(scope.sessionTeams)
       .filter((value): value is string => typeof value === "string")
       .map((value) => value.trim())
+      .filter(Boolean)
     if (activeTeams.length > 0) {
       const uniqueTeams = new Set(activeTeams)
       if (uniqueTeams.size > 1) {

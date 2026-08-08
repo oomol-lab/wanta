@@ -313,6 +313,20 @@ export function isUserVisibleSession(session: RawSession): boolean {
   return !(session.parentID || session.parentId || session.parent_id)
 }
 
+const persistedConnectorToolNames = new Set(["call_action", "list_apps", "search_actions"])
+const shellConnectorCommandPattern =
+  /(?:^|[\s;&|()])(?:oo|["']?\$\{?WANTA_OO_BIN\}?["']?)\s+(?:(?:--debug|-h|--help|-V|--version)\s+|--lang(?:=\S+|\s+\S+)\s+)*connector(?:\s|$)/u
+
+export function isPersistedConnectorToolPart(part: { state?: { input?: unknown }; tool?: unknown }): boolean {
+  if (typeof part.tool !== "string") return false
+  if (persistedConnectorToolNames.has(part.tool)) return true
+  if (part.tool !== "bash" && part.tool !== "shell") return false
+  const input = part.state?.input
+  if (!input || typeof input !== "object") return false
+  const command = (input as { command?: unknown }).command
+  return typeof command === "string" && shellConnectorCommandPattern.test(command)
+}
+
 /** Agent 内核管理器：编排 OpenCode sidecar + 非编码 agent + 自定义连接器工具。electron-free，便于 headless 测试。 */
 export class AgentManager {
   private options: AgentManagerOptions
@@ -469,7 +483,7 @@ export class AgentManager {
     this.disposed = false
     await this.prepareWorkspace()
     await this.startSidecar()
-    await this.scrubPersistedConnectorOutputs().catch((error: unknown) => {
+    void this.scrubPersistedConnectorOutputs().catch((error: unknown) => {
       console.warn("[wanta] failed to scrub persisted connector outputs:", error)
       logDiagnostic("agent", "persisted connector output scrub failed", { error }, "warn")
     })
@@ -477,7 +491,7 @@ export class AgentManager {
 
   /** One-time defense for tool outputs saved before the managed oo guard existed. */
   private async scrubPersistedConnectorOutputs(): Promise<void> {
-    if (!this.sidecar) return
+    if (!this.sidecar || this.disposed) return
     const markerPath = path.join(this.options.rootDir, ".connector-output-redaction-v1")
     try {
       await readFile(markerPath, "utf8")
@@ -490,11 +504,13 @@ export class AgentManager {
     assertOpencodeSuccess(sessionsResult, "session.list for connector output scrub")
     let redactedPartCount = 0
     for (const session of sessionsResult.data ?? []) {
+      if (this.disposed) return
       const messagesResult = await this.client.session.messages({ sessionID: session.id, limit: 10_000 })
       assertOpencodeSuccess(messagesResult, "session.messages for connector output scrub")
       for (const message of messagesResult.data ?? []) {
         for (const part of message.parts) {
           if (part.type !== "tool" || part.state.status !== "completed") continue
+          if (!isPersistedConnectorToolPart(part)) continue
           const output = redactConnectorOutput(part.state.output)
           if (output === part.state.output) continue
           const updatedPart: OpencodePart = { ...part, state: { ...part.state, output } }
@@ -509,6 +525,7 @@ export class AgentManager {
         }
       }
     }
+    if (this.disposed) return
     await atomicWriteText(markerPath, JSON.stringify({ redactedPartCount, version: 1 }))
     logDiagnostic("agent", "persisted connector output scrub completed", { redactedPartCount })
   }
@@ -566,12 +583,11 @@ export class AgentManager {
     })
     let managedOoBinPath = ooBinPath
     if (linkRuntime && ooBinPath && ooGuardCliPath) {
-      await ensureOoGuardCommandBin({
+      managedOoBinPath = await ensureOoGuardCommandBin({
         binDir: commandBinDir,
         nodeBin: process.execPath,
         ooGuardCliPath,
       })
-      managedOoBinPath = path.join(commandBinDir, process.platform === "win32" ? "oo.cmd" : "oo")
     }
     if (wikiGraphCliPath && wikiGraphStateDir) {
       await ensureWikiGraphCommandBin({

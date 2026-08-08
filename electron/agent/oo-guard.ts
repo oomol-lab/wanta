@@ -28,6 +28,13 @@ function appendBounded(chunks: Buffer[], chunk: Buffer, size: number): number {
   return nextSize
 }
 
+function killWithEscalation(child: ReturnType<typeof spawn>): void {
+  child.kill("SIGTERM")
+  const timer = setTimeout(() => child.kill("SIGKILL"), 5_000)
+  timer.unref()
+  child.once("close", () => clearTimeout(timer))
+}
+
 async function runGuarded(command: string, args: string[]): Promise<number> {
   const child = spawn(command, args, { env: process.env, stdio: ["inherit", "pipe", "pipe"] })
   const stdout: Buffer[] = []
@@ -42,7 +49,7 @@ async function runGuarded(command: string, args: string[]): Promise<number> {
       stdoutSize = appendBounded(stdout, chunk, stdoutSize)
     } catch (error) {
       captureError = error instanceof Error ? error : new Error(String(error))
-      child.kill("SIGTERM")
+      killWithEscalation(child)
     }
   })
   child.stderr.on("data", (chunk: Buffer) => {
@@ -51,7 +58,7 @@ async function runGuarded(command: string, args: string[]): Promise<number> {
       stderrSize = appendBounded(stderr, chunk, stderrSize)
     } catch (error) {
       captureError = error instanceof Error ? error : new Error(String(error))
-      child.kill("SIGTERM")
+      killWithEscalation(child)
     }
   })
 

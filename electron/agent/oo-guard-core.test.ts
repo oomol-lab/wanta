@@ -41,6 +41,26 @@ describe("OOMOL connector workspace guard", () => {
     assert.equal(isConnectorBusinessCommand(["connector", "search", "posthog"]), false)
   })
 
+  test("parses documented global options and inserts selectors before the argument terminator", () => {
+    const args = ["--lang", "zh", "--debug", "connector", "run", "posthog", "--", "--team", "payload"]
+    assert.equal(isConnectorBusinessCommand(args), true)
+    assert.equal(hasWorkspaceSelector(args), false)
+    assert.deepEqual(bindOomolWorkspace(args, "team-a"), [
+      "--lang",
+      "zh",
+      "--debug",
+      "connector",
+      "run",
+      "posthog",
+      "--team",
+      "team-a",
+      "--",
+      "--team",
+      "payload",
+    ])
+    assert.equal(hasWorkspaceSelector(["--lang=en", "connector", "apps", "--team=team-a"]), true)
+  })
+
   test("fails closed when a business command has no usable team", () => {
     assert.throws(() => bindOomolWorkspace(["connector", "run", "posthog"], " "), /without an active team workspace/u)
   })
@@ -48,6 +68,13 @@ describe("OOMOL connector workspace guard", () => {
   test("prefers the sole active session workspace over a stale default", () => {
     assert.equal(
       resolveGuardWorkspaceTeam({ teamName: "old-team", sessionTeams: { "session-1": "new-team" } }),
+      "new-team",
+    )
+    assert.equal(
+      resolveGuardWorkspaceTeam({
+        teamName: "workspace-default",
+        sessionTeams: { local: "", "session-1": "new-team" },
+      }),
       "new-team",
     )
     assert.equal(
@@ -82,7 +109,13 @@ describe("connector output redaction", () => {
         data: {
           api_token: "phc_public-looking-but-sensitive",
           id: 173107,
-          nested: { accessToken: "access", secret_api_token: "private" },
+          nested: {
+            accessToken: "access",
+            APIKey: "uppercase-acronym",
+            posthog_api_key: "vendor-prefixed",
+            secret_api_token: "private",
+            "x-api-key": "header-style",
+          },
           name: "CLI",
         },
       })}\n`,
@@ -91,17 +124,32 @@ describe("connector output redaction", () => {
       data: {
         api_token: "[redacted]",
         id: 173107,
-        nested: { accessToken: "[redacted]", secret_api_token: "[redacted]" },
+        nested: {
+          accessToken: "[redacted]",
+          APIKey: "[redacted]",
+          posthog_api_key: "[redacted]",
+          secret_api_token: "[redacted]",
+          "x-api-key": "[redacted]",
+        },
         name: "CLI",
       },
     })
   })
 
   test("redacts credential fields from non-JSON errors", () => {
-    const output = redactConnectorOutput('request failed api_token="secret value", password=hunter2')
+    const output = redactConnectorOutput(
+      'request failed api_token="secret value", password=hunter2 posthog_api_key=phc_secret x-api-key=header-secret',
+    )
     assert.equal(output.includes("secret value"), false)
     assert.equal(output.includes("hunter2"), false)
     assert.match(output, /api_token=\[redacted\]/u)
     assert.match(output, /password=\[redacted\]/u)
+    assert.match(output, /posthog_api_key=\[redacted\]/u)
+    assert.match(output, /x-api-key=\[redacted\]/u)
+  })
+
+  test("leaves output without credentials byte-for-byte unchanged", () => {
+    const output = `{\n  "data": {\n    "id": 173107,\n    "name": "CLI"\n  }\n}\n`
+    assert.equal(redactConnectorOutput(output), output)
   })
 })

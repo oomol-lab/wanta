@@ -343,8 +343,73 @@ function nestedShellCommand(words: readonly string[]): string | undefined {
   return undefined
 }
 
+function executableCommandSubstitutions(command: string): string[] {
+  const substitutions: string[] = []
+  let singleQuoted = false
+  let doubleQuoted = false
+  let escaped = false
+
+  for (let index = 0; index < command.length - 1; index += 1) {
+    const char = command[index]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (char === "\\" && !singleQuoted) {
+      escaped = true
+      continue
+    }
+    if (char === "'" && !doubleQuoted) {
+      singleQuoted = !singleQuoted
+      continue
+    }
+    if (char === '"' && !singleQuoted) {
+      doubleQuoted = !doubleQuoted
+      continue
+    }
+    if (singleQuoted || char !== "$" || command[index + 1] !== "(") continue
+
+    const bodyStart = index + 2
+    let depth = 1
+    let bodySingleQuoted = false
+    let bodyDoubleQuoted = false
+    let bodyEscaped = false
+    for (let bodyIndex = bodyStart; bodyIndex < command.length; bodyIndex += 1) {
+      const bodyChar = command[bodyIndex]
+      if (bodyEscaped) {
+        bodyEscaped = false
+        continue
+      }
+      if (bodyChar === "\\" && !bodySingleQuoted) {
+        bodyEscaped = true
+        continue
+      }
+      if (bodyChar === "'" && !bodyDoubleQuoted) {
+        bodySingleQuoted = !bodySingleQuoted
+        continue
+      }
+      if (bodyChar === '"' && !bodySingleQuoted) {
+        bodyDoubleQuoted = !bodyDoubleQuoted
+        continue
+      }
+      if (bodySingleQuoted || bodyDoubleQuoted) continue
+      if (bodyChar === "(") depth += 1
+      if (bodyChar !== ")") continue
+      depth -= 1
+      if (depth > 0) continue
+      substitutions.push(command.slice(bodyStart, bodyIndex))
+      index = bodyIndex
+      break
+    }
+  }
+  return substitutions
+}
+
 function shellExecutesConnectorBusinessCommand(command: string, depth = 0): boolean {
   if (depth >= maxConnectorShellDepth) return false
+  if (executableCommandSubstitutions(command).some((body) => shellExecutesConnectorBusinessCommand(body, depth + 1))) {
+    return true
+  }
   return topLevelShellSegments(command).some(({ text }) => {
     const parsed = shellWords(text)
     if (!parsed?.length) return false

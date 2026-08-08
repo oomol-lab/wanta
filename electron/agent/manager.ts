@@ -343,6 +343,49 @@ function nestedShellCommand(words: readonly string[]): string | undefined {
   return undefined
 }
 
+function shellWithoutComments(command: string): string {
+  let result = ""
+  let singleQuoted = false
+  let doubleQuoted = false
+  let escaped = false
+  let atWordStart = true
+
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index] ?? ""
+    if (escaped) {
+      result += char
+      escaped = false
+      atWordStart = false
+      continue
+    }
+    if (char === "\\" && !singleQuoted) {
+      result += char
+      escaped = true
+      atWordStart = false
+      continue
+    }
+    if (char === "'" && !doubleQuoted) {
+      result += char
+      singleQuoted = !singleQuoted
+      atWordStart = false
+      continue
+    }
+    if (char === '"' && !singleQuoted) {
+      result += char
+      doubleQuoted = !doubleQuoted
+      atWordStart = false
+      continue
+    }
+    if (!singleQuoted && !doubleQuoted && char === "#" && atWordStart) {
+      while (index + 1 < command.length && !/[\r\n]/u.test(command[index + 1] ?? "")) index += 1
+      continue
+    }
+    result += char
+    atWordStart = !singleQuoted && !doubleQuoted && /[\s;&|()<>]/u.test(char)
+  }
+  return result
+}
+
 function executableCommandSubstitutions(command: string): string[] {
   const substitutions: string[] = []
   let singleQuoted = false
@@ -407,10 +450,15 @@ function executableCommandSubstitutions(command: string): string[] {
 
 function shellExecutesConnectorBusinessCommand(command: string, depth = 0): boolean {
   if (depth >= maxConnectorShellDepth) return false
-  if (executableCommandSubstitutions(command).some((body) => shellExecutesConnectorBusinessCommand(body, depth + 1))) {
+  const executableCommand = shellWithoutComments(command)
+  if (
+    executableCommandSubstitutions(executableCommand).some((body) =>
+      shellExecutesConnectorBusinessCommand(body, depth + 1),
+    )
+  ) {
     return true
   }
-  return topLevelShellSegments(command).some(({ text }) => {
+  return topLevelShellSegments(executableCommand).some(({ text }) => {
     const parsed = shellWords(text)
     if (!parsed?.length) return false
     const words = effectiveShellCommandWords(parsed)

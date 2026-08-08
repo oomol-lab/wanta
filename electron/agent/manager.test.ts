@@ -31,6 +31,18 @@ describe("AgentManager", () => {
         state: { input: { command: "printf 'password = \"example\"\\n'" } },
       }),
     ).toBe(false)
+    expect(
+      isPersistedConnectorToolPart({
+        tool: "bash",
+        state: { input: { command: "printf 'oo connector run demo'" } },
+      }),
+    ).toBe(false)
+    expect(
+      isPersistedConnectorToolPart({
+        tool: "bash",
+        state: { input: { command: "bash -lc 'oo connector apps posthog --json'" } },
+      }),
+    ).toBe(true)
     expect(isPersistedConnectorToolPart({ tool: "read", state: { input: { filePath: "README.md" } } })).toBe(false)
   })
 

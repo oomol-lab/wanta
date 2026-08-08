@@ -27,6 +27,12 @@ import { pathToFileURL } from "node:url"
 import { ActivityMetrics } from "../activity-metrics.ts"
 import { atomicWriteText } from "../atomic-file.ts"
 import { branding } from "../branding.ts"
+import {
+  effectiveShellCommandWords,
+  shellCommandName,
+  shellWords,
+  topLevelShellSegments,
+} from "../chat/shell-syntax.ts"
 import { resolveUserCommandPath } from "../command-path.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
@@ -37,7 +43,7 @@ import { ensureDirectCliCommandBin } from "./direct-cli-bin.ts"
 import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
 import { ensureOoGuardCommandBin } from "./oo-guard-bin.ts"
-import { redactConnectorOutput } from "./oo-guard-core.ts"
+import { isConnectorBusinessCommand, redactConnectorOutput } from "./oo-guard-core.ts"
 import { writeOoIdentitySettings } from "./oo-identity.ts"
 import { buildAgentLinkEnv } from "./oo.ts"
 import { managedPythonEnvironmentPath, managedPythonExecutable } from "./python-environment.ts"
@@ -314,8 +320,40 @@ export function isUserVisibleSession(session: RawSession): boolean {
 }
 
 const persistedConnectorToolNames = new Set(["call_action", "list_apps", "search_actions"])
-const shellConnectorCommandPattern =
-  /(?:^|[\s;&|()])(?:oo|["']?\$\{?WANTA_OO_BIN\}?["']?)\s+(?:(?:--debug|-h|--help|-V|--version)\s+|--lang(?:=\S+|\s+\S+)\s+)*connector(?:\s|$)/u
+const maxConnectorShellDepth = 4
+
+function isOoCommandWord(word: string | undefined): boolean {
+  return word === "oo" || word === "$WANTA_OO_BIN" || word === "${WANTA_OO_BIN}" || shellCommandName(word) === "oo"
+}
+
+function nestedShellCommand(words: readonly string[]): string | undefined {
+  const executable = shellCommandName(words[0])
+  if (["bash", "dash", "fish", "ksh", "sh", "zsh"].includes(executable ?? "")) {
+    const optionIndex = words.findIndex((word, index) => index > 0 && /^-[A-Za-z]*c[A-Za-z]*$/u.test(word))
+    return optionIndex >= 0 ? words[optionIndex + 1] : undefined
+  }
+  if (executable === "cmd" || executable === "cmd.exe") {
+    const optionIndex = words.findIndex((word, index) => index > 0 && /^\/[ck]$/iu.test(word))
+    return optionIndex >= 0 ? words.slice(optionIndex + 1).join(" ") : undefined
+  }
+  if (["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(executable ?? "")) {
+    const optionIndex = words.findIndex((word, index) => index > 0 && /^-(?:c|command)$/iu.test(word))
+    return optionIndex >= 0 ? words.slice(optionIndex + 1).join(" ") : undefined
+  }
+  return undefined
+}
+
+function shellExecutesConnectorBusinessCommand(command: string, depth = 0): boolean {
+  if (depth >= maxConnectorShellDepth) return false
+  return topLevelShellSegments(command).some(({ text }) => {
+    const parsed = shellWords(text)
+    if (!parsed?.length) return false
+    const words = effectiveShellCommandWords(parsed)
+    if (isOoCommandWord(words[0])) return isConnectorBusinessCommand(words.slice(1))
+    const nested = nestedShellCommand(words)
+    return nested ? shellExecutesConnectorBusinessCommand(nested, depth + 1) : false
+  })
+}
 
 export function isPersistedConnectorToolPart(part: { state?: { input?: unknown }; tool?: unknown }): boolean {
   if (typeof part.tool !== "string") return false
@@ -324,7 +362,7 @@ export function isPersistedConnectorToolPart(part: { state?: { input?: unknown }
   const input = part.state?.input
   if (!input || typeof input !== "object") return false
   const command = (input as { command?: unknown }).command
-  return typeof command === "string" && shellConnectorCommandPattern.test(command)
+  return typeof command === "string" && shellExecutesConnectorBusinessCommand(command)
 }
 
 /** Agent 内核管理器：编排 OpenCode sidecar + 非编码 agent + 自定义连接器工具。electron-free，便于 headless 测试。 */

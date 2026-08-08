@@ -2,6 +2,7 @@ import type { ConnectionProviderSummary } from "../../../electron/connections/co
 
 import { describe, expect, test } from "vitest"
 import {
+  compareConnectionProviders,
   compareConnectionProvidersByRecommendation,
   getRecommendedConnectionServicePriority,
 } from "./connection-provider-ranking.ts"
@@ -80,5 +81,17 @@ describe("connection provider recommendation ranking", () => {
     expect(getRecommendedConnectionServicePriority("Google Sheets")).toBe(
       getRecommendedConnectionServicePriority("googlesheets"),
     )
+  })
+
+  test("supports explicit name and recently connected sorting", () => {
+    const recent = { ...provider("recent", "connected", "Zulu"), connectedUpdatedAt: 200 }
+    const older = { ...provider("older", "connected", "Alpha"), connectedUpdatedAt: 100 }
+
+    expect([recent, older].sort((left, right) => compareConnectionProviders(left, right, "name"))[0]?.service).toBe(
+      "older",
+    )
+    expect(
+      [older, recent].sort((left, right) => compareConnectionProviders(left, right, "recently-connected"))[0]?.service,
+    ).toBe("recent")
   })
 })

@@ -1,6 +1,6 @@
-export const providerGridCardHeightPx = 68
-export const providerGridGapPx = 8
-export const providerGridMinColumnWidthPx = 216
+export const providerGridCardHeightPx = 64
+export const providerGridGapPx = 0
+export const providerGridMinColumnWidthPx = 280
 export const providerGridOverscanRows = 4
 
 export interface ProviderGridVisibleRangeInput {

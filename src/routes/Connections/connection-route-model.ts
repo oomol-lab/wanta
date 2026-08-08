@@ -27,6 +27,7 @@ export const uncategorizedCategoryValue = "__uncategorized__"
 export const categoryMessageKeysByRawLabel: Record<string, MessageKey> = {
   AI: "connections.category.ai",
   Communication: "connections.category.communication",
+  "Cross-Border Ecommerce": "connections.category.crossBorderEcommerce",
   "Data & Analytics": "connections.category.dataAnalytics",
   "Design & Media": "connections.category.designMedia",
   "Developer Tools": "connections.category.developerTools",
@@ -41,6 +42,45 @@ export const categoryMessageKeysByRawLabel: Record<string, MessageKey> = {
   Storage: "connections.category.storage",
 }
 
+export const crossBorderEcommerceCategory = "Cross-Border Ecommerce"
+
+const crossBorderEcommerceServices = new Set(
+  [
+    "17track",
+    "adobecommerce",
+    "aftership",
+    "asindataapi",
+    "baselinker",
+    "bigcommerce",
+    "captainbi",
+    "cin7core",
+    "easypost",
+    "helium10",
+    "jumpseller",
+    "lingxing",
+    "lingxingmcp",
+    "linkfox",
+    "printify",
+    "sellerspace",
+    "sellersprite",
+    "shipbob",
+    "shipengine",
+    "shippo",
+    "shipstation",
+    "shopify",
+    "shopifyadmin",
+    "shopifypartner",
+    "shopifystorefront",
+    "sif",
+    "sorftime",
+    "storecensus",
+    "storeleads",
+    "triplewhale",
+    "vtex",
+    "woocommerce",
+  ].map(compactProviderValue),
+)
+
 export type ConnectionCatalogFilter =
   | { kind: "all" }
   | { kind: "attention" }
@@ -48,6 +88,8 @@ export type ConnectionCatalogFilter =
   | { kind: "category"; category: string }
   | { kind: "connected" }
   | { kind: "directly-available" }
+
+export type ConnectionAuthFilter = "all" | Exclude<ConnectionAuthType, null>
 
 export interface ConnectionCategoryFilter {
   count: number
@@ -272,7 +314,22 @@ export function getCategoryDisplayLabel(label: string, t: TranslateFn): string {
 }
 
 export function getProviderCategoryRawLabels(provider: ConnectionProviderSummary): string[] {
-  return provider.categoryLabels.length > 0 ? provider.categoryLabels : [uncategorizedCategoryValue]
+  const labels = provider.categoryLabels.map(normalizeProviderCategoryLabel)
+  if (crossBorderEcommerceServices.has(compactProviderValue(provider.service))) {
+    return [crossBorderEcommerceCategory, ...labels.filter((label) => label !== crossBorderEcommerceCategory)]
+  }
+  return labels.length > 0 ? labels : [uncategorizedCategoryValue]
+}
+
+function normalizeProviderCategoryLabel(label: string): string {
+  const normalized = label.toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, "-")
+  return ["cross-border-e-commerce", "cross-border-commerce", "e-commerce", "ecommerce"].includes(normalized)
+    ? crossBorderEcommerceCategory
+    : label
+}
+
+function compactProviderValue(value: string): string {
+  return value.toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, "")
 }
 
 export function getProviderCategoryLabel(provider: ConnectionProviderSummary, t: TranslateFn): string {
@@ -376,6 +433,13 @@ export function matchesProviderQuery(
       return candidates.some((value) => value?.toLowerCase().includes(normalizedQuery))
     })
   )
+}
+
+export function matchesProviderAuthFilter(
+  provider: ConnectionProviderSummary,
+  authFilter: ConnectionAuthFilter,
+): boolean {
+  return authFilter === "all" || provider.authTypes.includes(authFilter)
 }
 
 export function getFilterValue(filter: ConnectionCatalogFilter): string {

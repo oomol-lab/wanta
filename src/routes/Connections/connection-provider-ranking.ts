@@ -42,6 +42,26 @@ export const recommendedConnectionServicePriority = [
   "googlebigquery",
 ] as const
 
+export type ConnectionProviderSortMode = "name" | "recently-connected" | "recommended"
+
+const providerNameCollator = new Intl.Collator(["zh-CN", "en"], {
+  numeric: true,
+  sensitivity: "base",
+})
+const hanCharacterPattern = /\p{Script=Han}/u
+
+export function compareConnectionProviders(
+  left: ConnectionProviderSummary,
+  right: ConnectionProviderSummary,
+  mode: ConnectionProviderSortMode,
+): number {
+  if (mode === "name") return compareProviderNames(left, right)
+  if (mode === "recently-connected") {
+    return (right.connectedUpdatedAt ?? 0) - (left.connectedUpdatedAt ?? 0) || compareProviderNames(left, right)
+  }
+  return compareConnectionProvidersByRecommendation(left, right)
+}
+
 const recommendedConnectionServicePriorityMap = new Map(
   recommendedConnectionServicePriority.map((service, index) => [compactServiceValue(service), index]),
 )
@@ -53,8 +73,15 @@ export function compareConnectionProvidersByRecommendation(
   return (
     getConnectionProviderStatusWeight(left) - getConnectionProviderStatusWeight(right) ||
     getRecommendedConnectionServicePriority(left.service) - getRecommendedConnectionServicePriority(right.service) ||
-    left.displayName.localeCompare(right.displayName) ||
+    compareProviderNames(left, right) ||
     left.service.localeCompare(right.service)
+  )
+}
+
+function compareProviderNames(left: ConnectionProviderSummary, right: ConnectionProviderSummary): number {
+  return (
+    Number(!hanCharacterPattern.test(left.displayName)) - Number(!hanCharacterPattern.test(right.displayName)) ||
+    providerNameCollator.compare(left.displayName, right.displayName)
   )
 }
 

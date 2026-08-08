@@ -559,6 +559,35 @@ test("tool events preserve title, metadata and timing for renderer summaries", (
   })
 })
 
+test("tool events redact connector credential fields before they reach the renderer", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "p2",
+        sessionID: "s1",
+        messageID: "m1",
+        type: "tool",
+        callID: "c1",
+        tool: "bash",
+        state: {
+          status: "completed",
+          input: { command: "oo connector run posthog --action list_projects" },
+          output: JSON.stringify({ data: { api_token: "secret", id: 173107, name: "CLI" } }),
+        },
+      },
+    },
+  })
+
+  const event = out[0]
+  assert.equal(event?.event, "toolCallResult")
+  assert.ok(event)
+  const output = (event.data as { output?: string }).output
+  assert.deepEqual(JSON.parse(output ?? "{}"), {
+    data: { api_token: "[redacted]", id: 173107, name: "CLI" },
+  })
+})
+
 test("tool events use input description as title fallback", () => {
   const out = translateOpencodeEvent({
     type: "message.part.updated",
@@ -747,6 +776,31 @@ test("normalizeMessage builds ChatMessage with text + reasoning + tool parts in 
   assert.equal(msg.parts[0].kind, "text")
   assert.equal(msg.parts[1].kind, "reasoning")
   assert.equal(msg.parts[2].kind, "tool")
+})
+
+test("normalizeMessage redacts credential fields from persisted historical tool output", () => {
+  const message = normalizeMessage({
+    info: { id: "m1", role: "assistant", time: { created: 123 } },
+    parts: [
+      {
+        id: "p2",
+        type: "tool",
+        callID: "c1",
+        tool: "bash",
+        state: {
+          status: "completed",
+          input: {},
+          output: JSON.stringify({ data: { api_token: "secret", project: "CLI" } }),
+        },
+      },
+    ],
+  })
+
+  const part = message?.parts[0]
+  assert.equal(part?.kind, "tool")
+  assert.deepEqual(JSON.parse(part?.kind === "tool" ? (part.output ?? "{}") : "{}"), {
+    data: { api_token: "[redacted]", project: "CLI" },
+  })
 })
 
 test("normalizeMessage preserves assistant token usage", () => {

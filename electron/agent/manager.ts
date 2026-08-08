@@ -12,11 +12,16 @@ import type { RuntimeCustomModel } from "../models/store.ts"
 import type { LinkRuntime, ModelAccess } from "../runtime/agent-runtime.ts"
 import type { GenerateSessionTitleRequest, SessionInfo } from "../session/common.ts"
 import type { GeneratedSessionTitle } from "./session-title-generator.ts"
-import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@opencode-ai/sdk/v2/client"
+import type {
+  FilePartInput,
+  Part as OpencodePart,
+  SessionPromptAsyncData,
+  TextPartInput,
+} from "@opencode-ai/sdk/v2/client"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 
 import { randomBytes, randomUUID } from "node:crypto"
-import { lstat, mkdir, realpath } from "node:fs/promises"
+import { lstat, mkdir, readFile, realpath } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { ActivityMetrics } from "../activity-metrics.ts"
@@ -31,6 +36,8 @@ import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_I
 import { ensureDirectCliCommandBin } from "./direct-cli-bin.ts"
 import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
+import { ensureOoGuardCommandBin } from "./oo-guard-bin.ts"
+import { redactConnectorOutput } from "./oo-guard-core.ts"
 import { writeOoIdentitySettings } from "./oo-identity.ts"
 import { buildAgentLinkEnv } from "./oo.ts"
 import { managedPythonEnvironmentPath, managedPythonExecutable } from "./python-environment.ts"
@@ -50,6 +57,8 @@ export interface AgentManagerOptions {
   opencodeBinPath: string
   /** The oo binary is resolved and injected only when a Link runtime is configured. */
   ooBinPath?: string
+  /** Electron-as-Node entrypoint that scopes and redacts Agent-side oo business calls. */
+  ooGuardCliPath?: string
   /** Wanta-owned WikiGraph CLI entrypoint used by the sidecar PATH `wg` shim. */
   wikiGraphCliPath?: string
   wikiGraphStateDir?: string
@@ -460,6 +469,48 @@ export class AgentManager {
     this.disposed = false
     await this.prepareWorkspace()
     await this.startSidecar()
+    await this.scrubPersistedConnectorOutputs().catch((error: unknown) => {
+      console.warn("[wanta] failed to scrub persisted connector outputs:", error)
+      logDiagnostic("agent", "persisted connector output scrub failed", { error }, "warn")
+    })
+  }
+
+  /** One-time defense for tool outputs saved before the managed oo guard existed. */
+  private async scrubPersistedConnectorOutputs(): Promise<void> {
+    if (!this.sidecar) return
+    const markerPath = path.join(this.options.rootDir, ".connector-output-redaction-v1")
+    try {
+      await readFile(markerPath, "utf8")
+      return
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
+    }
+
+    const sessionsResult = await this.client.session.list({ limit: 10_000, roots: false })
+    assertOpencodeSuccess(sessionsResult, "session.list for connector output scrub")
+    let redactedPartCount = 0
+    for (const session of sessionsResult.data ?? []) {
+      const messagesResult = await this.client.session.messages({ sessionID: session.id, limit: 10_000 })
+      assertOpencodeSuccess(messagesResult, "session.messages for connector output scrub")
+      for (const message of messagesResult.data ?? []) {
+        for (const part of message.parts) {
+          if (part.type !== "tool" || part.state.status !== "completed") continue
+          const output = redactConnectorOutput(part.state.output)
+          if (output === part.state.output) continue
+          const updatedPart: OpencodePart = { ...part, state: { ...part.state, output } }
+          const updateResult = await this.client.part.update({
+            sessionID: part.sessionID,
+            messageID: part.messageID,
+            partID: part.id,
+            part: updatedPart,
+          })
+          assertOpencodeSuccess(updateResult, "part.update for connector output scrub")
+          redactedPartCount += 1
+        }
+      }
+    }
+    await atomicWriteText(markerPath, JSON.stringify({ redactedPartCount, version: 1 }))
+    logDiagnostic("agent", "persisted connector output scrub completed", { redactedPartCount })
   }
 
   private async prepareWorkspace(): Promise<void> {
@@ -482,6 +533,7 @@ export class AgentManager {
       modelAccess,
       opencodeBinPath,
       ooBinPath,
+      ooGuardCliPath,
       rootDir,
       disableServerAuth,
       customModels,
@@ -512,6 +564,15 @@ export class AgentManager {
       larkCliBinPath,
       wecomCliBinPath,
     })
+    let managedOoBinPath = ooBinPath
+    if (linkRuntime && ooBinPath && ooGuardCliPath) {
+      await ensureOoGuardCommandBin({
+        binDir: commandBinDir,
+        nodeBin: process.execPath,
+        ooGuardCliPath,
+      })
+      managedOoBinPath = path.join(commandBinDir, process.platform === "win32" ? "oo.cmd" : "oo")
+    }
     if (wikiGraphCliPath && wikiGraphStateDir) {
       await ensureWikiGraphCommandBin({
         binDir: commandBinDir,
@@ -526,7 +587,7 @@ export class AgentManager {
       browserControl,
       commandPath,
       linkRuntime,
-      ooBinPath,
+      ooBinPath: managedOoBinPath,
       storeDir,
       teamName: this.teamName,
       teamScopePath,
@@ -539,6 +600,9 @@ export class AgentManager {
       dingTalkCliConfigDir,
       dingTalkCliKeychainDir,
     })
+    if (linkRuntime && ooBinPath && managedOoBinPath !== ooBinPath) {
+      env.WANTA_REAL_OO_BIN = ooBinPath
+    }
 
     const sidecar = new OpencodeSidecar({
       opencodeBinPath,
@@ -1280,7 +1344,10 @@ export function buildWorkspaceIdentitySystem(teamName?: string): string {
   if (!normalizedTeamName) {
     throw new Error("Team workspace identity is unavailable")
   }
-  return `Current-turn Link workspace: team ${JSON.stringify(normalizedTeamName)}; raw oo selector: --team ${JSON.stringify(normalizedTeamName)}.`
+  return (
+    `Current-turn Link workspace: team ${JSON.stringify(normalizedTeamName)}; raw oo selector: --team ${JSON.stringify(normalizedTeamName)}. ` +
+    `Every bare OOMOL oo connector apps/run command MUST keep that exact selector. Never interpret an unscoped connector error as proof that this workspace is disconnected; retry once with the exact selector or use the session-scoped Link tools.`
+  )
 }
 
 async function buildPromptParts(

@@ -22,6 +22,7 @@ import type {
 
 import { parseAuthorizationSignal } from "../chat/authorization-signal.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
+import { redactConnectorOutput } from "./oo-guard-core.ts"
 
 // OpenCode SSE 事件经此翻译为 ChatService ServerEvents。无状态：每个 OpenCode 事件
 // 直接映射为 0..n 个 {event, data}，node.ts 据此 this.send(event, data)。
@@ -582,13 +583,19 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
     const state = part.state
     const context = toolContext(state)
     if (state.error && state.status !== "completed") {
-      return [{ event: "toolCallResult", data: { ...base, ...context, status: "error", error: state.error } }]
+      return [
+        {
+          event: "toolCallResult",
+          data: { ...base, ...context, status: "error", error: redactConnectorOutput(state.error) },
+        },
+      ]
     }
     if (state.status === "pending" || state.status === "running") {
       return [{ event: "toolCallStarted", data: { ...base, ...context, status: state.status } }]
     }
     if (state.status === "completed") {
-      const auth = parseToolAuthorization(part.tool, state.output)
+      const output = redactConnectorOutput(state.output ?? "")
+      const auth = parseToolAuthorization(part.tool, output)
       return [
         {
           event: "toolCallResult",
@@ -596,14 +603,19 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
             ...base,
             ...context,
             status: "completed",
-            output: state.output,
+            output,
             ...(auth ? { authorization: auth } : {}),
           },
         },
       ]
     }
     if (state.status === "error") {
-      return [{ event: "toolCallResult", data: { ...base, ...context, status: "error", error: state.error } }]
+      return [
+        {
+          event: "toolCallResult",
+          data: { ...base, ...context, status: "error", error: redactConnectorOutput(state.error ?? "") },
+        },
+      ]
     }
   }
   return []
@@ -724,15 +736,18 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
         tool: part.tool,
         status: state.error && state.status !== "completed" ? "error" : state.status,
         input: state.input ?? {},
-        output: state.output,
-        error: state.error,
+        output: typeof state.output === "string" ? redactConnectorOutput(state.output) : state.output,
+        error: typeof state.error === "string" ? redactConnectorOutput(state.error) : state.error,
         title: state.title ?? (typeof state.input?.description === "string" ? state.input.description : undefined),
         metadata: state.metadata,
         timing: state.time ? { start: state.time.start, end: state.time.end } : undefined,
         attachmentsCount: Array.isArray(state.attachments) ? state.attachments.length : undefined,
       }
       if (state.status === "completed") {
-        const auth = parseToolAuthorization(part.tool, state.output)
+        const auth = parseToolAuthorization(
+          part.tool,
+          typeof state.output === "string" ? redactConnectorOutput(state.output) : state.output,
+        )
         if (auth) {
           tool.authorization = auth
         }

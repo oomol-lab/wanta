@@ -442,10 +442,10 @@ describe("AgentManager", () => {
       const settingsPath = path.join(rootDir, "oo-store", "config", "settings.toml")
 
       await manager.setTeamName("acme-corp")
-      await expect(readFile(settingsPath, "utf8")).resolves.toContain('team = "acme-corp"')
+      await expect(readFile(settingsPath, "utf8")).resolves.toContain('organization = "acme-corp"')
 
       await manager.setTeamName(undefined)
-      await expect(readFile(settingsPath, "utf8")).resolves.not.toContain("team =")
+      await expect(readFile(settingsPath, "utf8")).resolves.not.toContain("organization =")
     } finally {
       await rm(rootDir, { force: true, recursive: true })
     }
@@ -586,8 +586,8 @@ describe("AgentManager", () => {
       expect(settings).toContain("[skills.recommend]")
       expect(settings).toContain("muted = true")
       expect(settings).toContain("[identity]")
-      expect(settings).toContain('team = "team \\"quoted\\""')
-      expect(settings).not.toContain("organization =")
+      expect(settings).toContain('organization = "team \\"quoted\\""')
+      expect(settings).not.toContain("\nteam =")
       expect(settings).toContain('note = "keep"')
     } finally {
       await rm(rootDir, { force: true, recursive: true })

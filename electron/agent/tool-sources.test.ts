@@ -289,6 +289,38 @@ describe("call_action embedded runtime", () => {
     expect(commands[1]).not.toContain("--team")
   })
 
+  it("refreshes connection inventory immediately after an account switch", async () => {
+    process.env.WANTA_LINK_RUNTIME = "openconnector"
+    process.env.WANTA_CONNECTOR_URL = "http://127.0.0.1:3000"
+    const commands: string[][] = []
+    let inventoryRead = 0
+    const runtime = loadCallActionTool(async (...args) => {
+      const argv = args[1] as string[]
+      commands.push(argv)
+      if (argv[1] === "apps") {
+        inventoryRead += 1
+        const alias = inventoryRead === 1 ? "old-account" : "new-account"
+        return { stdout: JSON.stringify([{ alias, service: "posthog", status: "active" }]) }
+      }
+      return { stdout: JSON.stringify({ data: { ok: true } }) }
+    })
+
+    await runtime.execute(
+      { service: "posthog", action: "list_projects", connectionName: "old-account" },
+      { sessionID: "session-1" },
+    )
+    const switched = JSON.parse(
+      await runtime.execute(
+        { service: "posthog", action: "list_projects", connectionName: "new-account" },
+        { sessionID: "session-1" },
+      ),
+    ) as { data?: { ok?: boolean } }
+
+    expect(inventoryRead).toBe(2)
+    expect(commands).toHaveLength(4)
+    expect(switched).toEqual({ data: { ok: true } })
+  })
+
   it("runs one canary and skips matching queued calls after an authorization block", async () => {
     process.env.WANTA_CONSOLE_URL = "https://console.example.test"
     let calls = 0

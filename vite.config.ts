@@ -148,6 +148,7 @@ export default defineConfig(({ command, mode }) => {
                   main: path.join(dirname, "electron/main.ts"),
                   "spreadsheet-preview-worker": path.join(dirname, "electron/chat/spreadsheet-preview-worker.ts"),
                   "wanta-wg": path.join(dirname, "electron/knowledge/wg.ts"),
+                  "wanta-oo-guard": path.join(dirname, "electron/agent/oo-guard.ts"),
                 },
                 // @opencode-ai/sdk 依赖 cross-spawn（CJS require("child_process")）、electron-updater 走
                 // CJS 动态 require，playwright-core 需要保留其运行时模块结构，都不能打进 ESM 主进程包；

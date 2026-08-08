@@ -51,7 +51,9 @@ function sectionName(line: string): string | undefined {
 }
 
 function identityTeamLine(teamName: string): string {
-  return `team = ${tomlString(teamName)}`
+  // The CLI reads identity.organization; --team is only the command-line product term/alias.
+  // Writing identity.team is silently ignored and makes bare Provider Skill calls fall back to personal scope.
+  return `organization = ${tomlString(teamName)}`
 }
 
 function ensureTrailingNewline(value: string): string {

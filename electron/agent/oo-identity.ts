@@ -51,6 +51,7 @@ function sectionName(line: string): string | undefined {
 }
 
 function identityTeamLine(teamName: string): string {
+  // Current oo versions read identity.team. Remove the retired organization key during migration.
   return `team = ${tomlString(teamName)}`
 }
 
@@ -90,24 +91,15 @@ export function updateOoIdentitySettings(source: string, teamName: string | unde
     return `${prefix}${prefix.trim() ? "\n" : ""}[${identitySection}]\n${identityTeamLine(normalized)}\n`
   }
 
-  const nextLines = [...lines]
-  let teamLine = -1
-  for (let index = identityStart + 1; index < identityEnd; index += 1) {
-    if (teamKeyPattern.test(nextLines[index] ?? "")) {
-      teamLine = index
-      break
-    }
-  }
-
-  if (normalized) {
-    if (teamLine >= 0) {
-      nextLines[teamLine] = identityTeamLine(normalized)
-    } else {
-      nextLines.splice(identityEnd, 0, identityTeamLine(normalized))
-    }
-  } else if (teamLine >= 0) {
-    nextLines.splice(teamLine, 1)
-  }
+  const identityBody = lines.slice(identityStart + 1, identityEnd)
+  const firstSelector = identityBody.findIndex((line) => teamKeyPattern.test(line))
+  const insertionOffset =
+    firstSelector < 0
+      ? identityBody.length
+      : identityBody.slice(0, firstSelector).filter((line) => !teamKeyPattern.test(line)).length
+  const nextIdentityBody = identityBody.filter((line) => !teamKeyPattern.test(line))
+  if (normalized) nextIdentityBody.splice(insertionOffset, 0, identityTeamLine(normalized))
+  const nextLines = [...lines.slice(0, identityStart + 1), ...nextIdentityBody, ...lines.slice(identityEnd)]
 
   return `${nextLines.join("\n")}\n`
 }

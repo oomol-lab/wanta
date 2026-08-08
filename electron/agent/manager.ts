@@ -12,16 +12,27 @@ import type { RuntimeCustomModel } from "../models/store.ts"
 import type { LinkRuntime, ModelAccess } from "../runtime/agent-runtime.ts"
 import type { GenerateSessionTitleRequest, SessionInfo } from "../session/common.ts"
 import type { GeneratedSessionTitle } from "./session-title-generator.ts"
-import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@opencode-ai/sdk/v2/client"
+import type {
+  FilePartInput,
+  Part as OpencodePart,
+  SessionPromptAsyncData,
+  TextPartInput,
+} from "@opencode-ai/sdk/v2/client"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 
 import { randomBytes, randomUUID } from "node:crypto"
-import { lstat, mkdir, realpath } from "node:fs/promises"
+import { lstat, mkdir, readFile, realpath } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { ActivityMetrics } from "../activity-metrics.ts"
 import { atomicWriteText } from "../atomic-file.ts"
 import { branding } from "../branding.ts"
+import {
+  effectiveShellCommandWords,
+  shellCommandName,
+  shellWords,
+  topLevelShellSegments,
+} from "../chat/shell-syntax.ts"
 import { resolveUserCommandPath } from "../command-path.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
@@ -31,6 +42,8 @@ import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_I
 import { ensureDirectCliCommandBin } from "./direct-cli-bin.ts"
 import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
+import { ensureOoGuardCommandBin } from "./oo-guard-bin.ts"
+import { isConnectorBusinessCommand, redactConnectorOutput } from "./oo-guard-core.ts"
 import { writeOoIdentitySettings } from "./oo-identity.ts"
 import { buildAgentLinkEnv } from "./oo.ts"
 import { managedPythonEnvironmentPath, managedPythonExecutable } from "./python-environment.ts"
@@ -50,6 +63,8 @@ export interface AgentManagerOptions {
   opencodeBinPath: string
   /** The oo binary is resolved and injected only when a Link runtime is configured. */
   ooBinPath?: string
+  /** Electron-as-Node entrypoint that scopes and redacts Agent-side oo business calls. */
+  ooGuardCliPath?: string
   /** Wanta-owned WikiGraph CLI entrypoint used by the sidecar PATH `wg` shim. */
   wikiGraphCliPath?: string
   wikiGraphStateDir?: string
@@ -304,6 +319,165 @@ export function isUserVisibleSession(session: RawSession): boolean {
   return !(session.parentID || session.parentId || session.parent_id)
 }
 
+const persistedConnectorToolNames = new Set(["call_action", "list_apps", "search_actions"])
+const maxConnectorShellDepth = 4
+
+function isOoCommandWord(word: string | undefined): boolean {
+  return word === "oo" || word === "$WANTA_OO_BIN" || word === "${WANTA_OO_BIN}" || shellCommandName(word) === "oo"
+}
+
+function nestedShellCommand(words: readonly string[]): string | undefined {
+  const executable = shellCommandName(words[0])
+  if (["bash", "dash", "fish", "ksh", "sh", "zsh"].includes(executable ?? "")) {
+    const optionIndex = words.findIndex((word, index) => index > 0 && /^-[A-Za-z]*c[A-Za-z]*$/u.test(word))
+    return optionIndex >= 0 ? words[optionIndex + 1] : undefined
+  }
+  if (executable === "cmd" || executable === "cmd.exe") {
+    const optionIndex = words.findIndex((word, index) => index > 0 && /^\/[ck]$/iu.test(word))
+    return optionIndex >= 0 ? words.slice(optionIndex + 1).join(" ") : undefined
+  }
+  if (["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(executable ?? "")) {
+    const optionIndex = words.findIndex((word, index) => index > 0 && /^-(?:c|command)$/iu.test(word))
+    return optionIndex >= 0 ? words.slice(optionIndex + 1).join(" ") : undefined
+  }
+  return undefined
+}
+
+function shellWithoutComments(command: string): string {
+  let result = ""
+  let singleQuoted = false
+  let doubleQuoted = false
+  let escaped = false
+  let atWordStart = true
+
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index] ?? ""
+    if (escaped) {
+      result += char
+      escaped = false
+      atWordStart = false
+      continue
+    }
+    if (char === "\\" && !singleQuoted) {
+      result += char
+      escaped = true
+      atWordStart = false
+      continue
+    }
+    if (char === "'" && !doubleQuoted) {
+      result += char
+      singleQuoted = !singleQuoted
+      atWordStart = false
+      continue
+    }
+    if (char === '"' && !singleQuoted) {
+      result += char
+      doubleQuoted = !doubleQuoted
+      atWordStart = false
+      continue
+    }
+    if (!singleQuoted && !doubleQuoted && char === "#" && atWordStart) {
+      while (index + 1 < command.length && !/[\r\n]/u.test(command[index + 1] ?? "")) index += 1
+      continue
+    }
+    result += char
+    atWordStart = !singleQuoted && !doubleQuoted && /[\s;&|()<>]/u.test(char)
+  }
+  return result
+}
+
+function executableCommandSubstitutions(command: string): string[] {
+  const substitutions: string[] = []
+  let singleQuoted = false
+  let doubleQuoted = false
+  let escaped = false
+
+  for (let index = 0; index < command.length - 1; index += 1) {
+    const char = command[index]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (char === "\\" && !singleQuoted) {
+      escaped = true
+      continue
+    }
+    if (char === "'" && !doubleQuoted) {
+      singleQuoted = !singleQuoted
+      continue
+    }
+    if (char === '"' && !singleQuoted) {
+      doubleQuoted = !doubleQuoted
+      continue
+    }
+    if (singleQuoted || char !== "$" || command[index + 1] !== "(") continue
+
+    const bodyStart = index + 2
+    let depth = 1
+    let bodySingleQuoted = false
+    let bodyDoubleQuoted = false
+    let bodyEscaped = false
+    for (let bodyIndex = bodyStart; bodyIndex < command.length; bodyIndex += 1) {
+      const bodyChar = command[bodyIndex]
+      if (bodyEscaped) {
+        bodyEscaped = false
+        continue
+      }
+      if (bodyChar === "\\" && !bodySingleQuoted) {
+        bodyEscaped = true
+        continue
+      }
+      if (bodyChar === "'" && !bodyDoubleQuoted) {
+        bodySingleQuoted = !bodySingleQuoted
+        continue
+      }
+      if (bodyChar === '"' && !bodySingleQuoted) {
+        bodyDoubleQuoted = !bodyDoubleQuoted
+        continue
+      }
+      if (bodySingleQuoted || bodyDoubleQuoted) continue
+      if (bodyChar === "(") depth += 1
+      if (bodyChar !== ")") continue
+      depth -= 1
+      if (depth > 0) continue
+      substitutions.push(command.slice(bodyStart, bodyIndex))
+      index = bodyIndex
+      break
+    }
+  }
+  return substitutions
+}
+
+function shellExecutesConnectorBusinessCommand(command: string, depth = 0): boolean {
+  if (depth >= maxConnectorShellDepth) return false
+  const executableCommand = shellWithoutComments(command)
+  if (
+    executableCommandSubstitutions(executableCommand).some((body) =>
+      shellExecutesConnectorBusinessCommand(body, depth + 1),
+    )
+  ) {
+    return true
+  }
+  return topLevelShellSegments(executableCommand).some(({ text }) => {
+    const parsed = shellWords(text)
+    if (!parsed?.length) return false
+    const words = effectiveShellCommandWords(parsed)
+    if (isOoCommandWord(words[0])) return isConnectorBusinessCommand(words.slice(1))
+    const nested = nestedShellCommand(words)
+    return nested ? shellExecutesConnectorBusinessCommand(nested, depth + 1) : false
+  })
+}
+
+export function isPersistedConnectorToolPart(part: { state?: { input?: unknown }; tool?: unknown }): boolean {
+  if (typeof part.tool !== "string") return false
+  if (persistedConnectorToolNames.has(part.tool)) return true
+  if (part.tool !== "bash" && part.tool !== "shell") return false
+  const input = part.state?.input
+  if (!input || typeof input !== "object") return false
+  const command = (input as { command?: unknown }).command
+  return typeof command === "string" && shellExecutesConnectorBusinessCommand(command)
+}
+
 /** Agent 内核管理器：编排 OpenCode sidecar + 非编码 agent + 自定义连接器工具。electron-free，便于 headless 测试。 */
 export class AgentManager {
   private options: AgentManagerOptions
@@ -460,6 +634,51 @@ export class AgentManager {
     this.disposed = false
     await this.prepareWorkspace()
     await this.startSidecar()
+    void this.scrubPersistedConnectorOutputs().catch((error: unknown) => {
+      console.warn("[wanta] failed to scrub persisted connector outputs:", error)
+      logDiagnostic("agent", "persisted connector output scrub failed", { error }, "warn")
+    })
+  }
+
+  /** One-time defense for tool outputs saved before the managed oo guard existed. */
+  private async scrubPersistedConnectorOutputs(): Promise<void> {
+    if (!this.sidecar || this.disposed) return
+    const markerPath = path.join(this.options.rootDir, ".connector-output-redaction-v1")
+    try {
+      await readFile(markerPath, "utf8")
+      return
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
+    }
+
+    const sessionsResult = await this.client.session.list({ limit: 10_000, roots: false })
+    assertOpencodeSuccess(sessionsResult, "session.list for connector output scrub")
+    let redactedPartCount = 0
+    for (const session of sessionsResult.data ?? []) {
+      if (this.disposed) return
+      const messagesResult = await this.client.session.messages({ sessionID: session.id, limit: 10_000 })
+      assertOpencodeSuccess(messagesResult, "session.messages for connector output scrub")
+      for (const message of messagesResult.data ?? []) {
+        for (const part of message.parts) {
+          if (part.type !== "tool" || part.state.status !== "completed") continue
+          if (!isPersistedConnectorToolPart(part)) continue
+          const output = redactConnectorOutput(part.state.output)
+          if (output === part.state.output) continue
+          const updatedPart: OpencodePart = { ...part, state: { ...part.state, output } }
+          const updateResult = await this.client.part.update({
+            sessionID: part.sessionID,
+            messageID: part.messageID,
+            partID: part.id,
+            part: updatedPart,
+          })
+          assertOpencodeSuccess(updateResult, "part.update for connector output scrub")
+          redactedPartCount += 1
+        }
+      }
+    }
+    if (this.disposed) return
+    await atomicWriteText(markerPath, JSON.stringify({ redactedPartCount, version: 1 }))
+    logDiagnostic("agent", "persisted connector output scrub completed", { redactedPartCount })
   }
 
   private async prepareWorkspace(): Promise<void> {
@@ -482,6 +701,7 @@ export class AgentManager {
       modelAccess,
       opencodeBinPath,
       ooBinPath,
+      ooGuardCliPath,
       rootDir,
       disableServerAuth,
       customModels,
@@ -512,6 +732,14 @@ export class AgentManager {
       larkCliBinPath,
       wecomCliBinPath,
     })
+    let managedOoBinPath = ooBinPath
+    if (linkRuntime && ooBinPath && ooGuardCliPath) {
+      managedOoBinPath = await ensureOoGuardCommandBin({
+        binDir: commandBinDir,
+        nodeBin: process.execPath,
+        ooGuardCliPath,
+      })
+    }
     if (wikiGraphCliPath && wikiGraphStateDir) {
       await ensureWikiGraphCommandBin({
         binDir: commandBinDir,
@@ -526,7 +754,7 @@ export class AgentManager {
       browserControl,
       commandPath,
       linkRuntime,
-      ooBinPath,
+      ooBinPath: managedOoBinPath,
       storeDir,
       teamName: this.teamName,
       teamScopePath,
@@ -539,6 +767,9 @@ export class AgentManager {
       dingTalkCliConfigDir,
       dingTalkCliKeychainDir,
     })
+    if (linkRuntime && ooBinPath && managedOoBinPath !== ooBinPath) {
+      env.WANTA_REAL_OO_BIN = ooBinPath
+    }
 
     const sidecar = new OpencodeSidecar({
       opencodeBinPath,
@@ -1280,7 +1511,10 @@ export function buildWorkspaceIdentitySystem(teamName?: string): string {
   if (!normalizedTeamName) {
     throw new Error("Team workspace identity is unavailable")
   }
-  return `Current-turn Link workspace: team ${JSON.stringify(normalizedTeamName)}; raw oo selector: --team ${JSON.stringify(normalizedTeamName)}.`
+  return (
+    `Current-turn Link workspace: team ${JSON.stringify(normalizedTeamName)}; raw oo selector: --team ${JSON.stringify(normalizedTeamName)}. ` +
+    `Every bare OOMOL oo connector apps/run command MUST keep that exact selector. Never interpret an unscoped connector error as proof that this workspace is disconnected; retry once with the exact selector or use the session-scoped Link tools.`
+  )
 }
 
 async function buildPromptParts(

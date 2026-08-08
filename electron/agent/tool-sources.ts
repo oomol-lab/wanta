@@ -387,18 +387,13 @@ const AUTH_BLOCKING = new Set([
   "authorization_failed",
 ])
 
-const CONNECTION_NAME_CACHE_MS = 5 * 1000
 const ACTION_PROBE_CACHE_MS = 5 * 1000
 const CONNECTION_BLOCK_MS = 10 * 1000
 const MAX_PARALLEL_ACTION_CALLS = 2
-const connectionNameLookups = new Map()
 const actionProbeStates = new Map()
 const connectionBlocks = new Map()
 
 function pruneExpiredRuntimeState(now = Date.now()) {
-  for (const [key, cached] of connectionNameLookups) {
-    if (now - cached.createdAt >= CONNECTION_NAME_CACHE_MS) connectionNameLookups.delete(key)
-  }
   for (const [key, state] of actionProbeStates) {
     if (!state.probePromise && state.active === 0 && now - state.createdAt >= ACTION_PROBE_CACHE_MS) {
       actionProbeStates.delete(key)
@@ -430,35 +425,24 @@ function appConnectionName(app) {
 }
 
 async function knownConnectionNames(service, identity) {
-  const key = identity.cacheKey + ":" + service
-  const now = Date.now()
-  pruneExpiredRuntimeState(now)
-  const cached = connectionNameLookups.get(key)
-  if (cached && now - cached.createdAt < CONNECTION_NAME_CACHE_MS) {
-    return await cached.promise
-  }
-  const promise = (async () => {
-    const argv = ["connector", "apps", service]
-    await appendIdentityArgs(argv, identity)
-    argv.push("--json")
-    try {
-      const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
-      const apps = parseApps(result.stdout)
-      return {
-        names: new Set(
-          apps
-            .filter((app) => !app || typeof app !== "object" || app.status !== "disconnected")
-            .map(appConnectionName)
-            .filter(Boolean),
-        ),
-      }
-    } catch (error) {
-      const e = error || {}
-      return { names: null, message: String(e.stderr || e.message || "connection inventory lookup failed").trim() }
+  const argv = ["connector", "apps", service]
+  await appendIdentityArgs(argv, identity)
+  argv.push("--json")
+  try {
+    const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
+    const apps = parseApps(result.stdout)
+    return {
+      names: new Set(
+        apps
+          .filter((app) => !app || typeof app !== "object" || app.status !== "disconnected")
+          .map(appConnectionName)
+          .filter(Boolean),
+      ),
     }
-  })()
-  connectionNameLookups.set(key, { createdAt: now, promise: promise })
-  return await promise
+  } catch (error) {
+    const e = error || {}
+    return { names: null, message: String(e.stderr || e.message || "connection inventory lookup failed").trim() }
+  }
 }
 
 function authorizationResult(output) {

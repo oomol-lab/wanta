@@ -896,7 +896,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           { sessionId: displaySessionId, requestId: request.id },
           { sessionId: displaySessionId },
         )
-        this.forgetPendingPermissionRequest(displaySessionId, request.id)
+        this.forgetPendingPermissionRequest(request.sessionId, request.id)
         this.activeRuns.removeBlockingRequest(displaySessionId, request.id)
         this.scheduleGenerationInactivityWatchdogAfterReply(displaySessionId)
       })

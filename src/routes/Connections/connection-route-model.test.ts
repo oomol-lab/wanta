@@ -179,6 +179,15 @@ test("available tools filter combines connected and directly available providers
 
 test("cross-border ecommerce providers receive a stable catalog category", () => {
   assert.equal(getProviderCategoryRawLabels(provider({ service: "shopify_admin" }))[0], "Cross-Border Ecommerce")
+  assert.deepEqual(
+    getProviderCategoryRawLabels(
+      provider({
+        categoryLabels: [" E-commerce ", "ecommerce", " Productivity ", "Productivity", "   "],
+        service: "shopify_admin",
+      }),
+    ),
+    ["Cross-Border Ecommerce", "Productivity"],
+  )
   assert.equal(
     getProviderCategoryRawLabels(provider({ categoryLabels: ["Productivity"], service: "ordinary-provider" })).includes(
       "Cross-Border Ecommerce",

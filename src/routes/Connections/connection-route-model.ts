@@ -314,7 +314,7 @@ export function getCategoryDisplayLabel(label: string, t: TranslateFn): string {
 }
 
 export function getProviderCategoryRawLabels(provider: ConnectionProviderSummary): string[] {
-  const labels = provider.categoryLabels.map(normalizeProviderCategoryLabel)
+  const labels = [...new Set(provider.categoryLabels.map(normalizeProviderCategoryLabel))].filter(Boolean)
   if (crossBorderEcommerceServices.has(compactProviderValue(provider.service))) {
     return [crossBorderEcommerceCategory, ...labels.filter((label) => label !== crossBorderEcommerceCategory)]
   }
@@ -322,10 +322,11 @@ export function getProviderCategoryRawLabels(provider: ConnectionProviderSummary
 }
 
 function normalizeProviderCategoryLabel(label: string): string {
-  const normalized = label.toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, "-")
+  const normalizedLabel = label.trim()
+  const normalized = normalizedLabel.toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, "-")
   return ["cross-border-e-commerce", "cross-border-commerce", "e-commerce", "ecommerce"].includes(normalized)
     ? crossBorderEcommerceCategory
-    : label
+    : normalizedLabel
 }
 
 function compactProviderValue(value: string): string {

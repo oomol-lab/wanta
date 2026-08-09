@@ -1194,6 +1194,8 @@ export const zhCNMessages = {
   "connections.scenario.aiDescription": "将模型、搜索和媒体生成能力接入 Agent 与自动化。",
   "connections.scenario.communicationTitle": "团队沟通",
   "connections.scenario.communicationDescription": "通过聊天、邮件和通知服务同步进展、协同工作。",
+  "connections.scenario.developmentTitle": "研发与数据",
+  "connections.scenario.developmentDescription": "连接代码、部署、数据库与分析工具，加速产品开发和问题排查。",
   "connections.scenario.explore": "查看相关连接",
   "connections.scenario.current": "当前",
   "connections.scenario.connectionCount": "{count} 个连接",

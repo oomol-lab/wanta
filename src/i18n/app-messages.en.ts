@@ -1248,6 +1248,9 @@ export const enMessages = {
   "connections.scenario.aiDescription": "Bring models, search, and media generation into agents and automation.",
   "connections.scenario.communicationTitle": "Team communication",
   "connections.scenario.communicationDescription": "Keep work in sync through chat, email, and notification services.",
+  "connections.scenario.developmentTitle": "Development & data",
+  "connections.scenario.developmentDescription":
+    "Connect code, deployment, database, and analytics tools to build faster and troubleshoot issues.",
   "connections.scenario.explore": "Explore connections",
   "connections.scenario.current": "Current",
   "connections.scenario.connectionCount": "{count} connections",

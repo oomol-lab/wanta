@@ -847,10 +847,18 @@ const ProviderCard = React.memo(function ProviderCard({
       onKeyDown={onKeyDown}
       className={cn(
         "group/card relative grid min-w-0 cursor-pointer overflow-hidden border-r border-b bg-card px-4 py-3 text-left text-card-foreground transition-[background-color,box-shadow,transform] outline-none hover:bg-[var(--oo-row-hover)] focus-visible:z-10 focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px",
+        index === 0 && "rounded-tl-[calc(var(--radius-lg)_-_1px)]",
+        index < columnCount &&
+          (index === itemCount - 1 || index % columnCount === columnCount - 1) &&
+          "rounded-tr-[calc(var(--radius-lg)_-_1px)]",
         index % columnCount === columnCount - 1 && "border-r-0",
-        index >= itemCount - (itemCount % columnCount || columnCount) && "border-b-0",
-        selected &&
-          "bg-[var(--accent-soft)] shadow-[inset_0_0_0_1px_var(--accent-ring)] before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-r-full before:bg-[var(--accent-strong)] hover:bg-[var(--accent-soft)]",
+        index >= itemCount - (itemCount % columnCount || columnCount) && [
+          "border-b-0",
+          index % columnCount === 0 && "rounded-bl-[calc(var(--radius-lg)_-_1px)]",
+          (index === itemCount - 1 || index % columnCount === columnCount - 1) &&
+            "rounded-br-[calc(var(--radius-lg)_-_1px)]",
+        ],
+        selected && "bg-[var(--accent-soft)] shadow-[inset_0_0_0_1px_var(--accent-ring)] hover:bg-[var(--accent-soft)]",
       )}
       style={{ height: providerGridCardHeightPx }}
     >

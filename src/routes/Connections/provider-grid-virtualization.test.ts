@@ -19,7 +19,7 @@ it("centers the selected card using the reflowed column count", () => {
       scrollHeight: 4_000,
       viewportHeight: 600,
     }),
-  ).toBe(918)
+  ).toBe(748)
   expect(
     getProviderGridCenteredScrollTop({
       catalogTop: 120,
@@ -28,7 +28,7 @@ it("centers the selected card using the reflowed column count", () => {
       scrollHeight: 4_000,
       viewportHeight: 600,
     }),
-  ).toBe(158)
+  ).toBe(108)
 })
 
 it("centered selection scroll position clamps to the list boundaries", () => {
@@ -104,9 +104,9 @@ describe("provider grid virtualization", () => {
 
   it("matches the responsive grid column formula", () => {
     expect(getProviderGridColumnCount(0)).toBe(1)
-    expect(getProviderGridColumnCount(216)).toBe(1)
-    expect(getProviderGridColumnCount(440)).toBe(2)
-    expect(getProviderGridColumnCount(664)).toBe(3)
+    expect(getProviderGridColumnCount(280)).toBe(1)
+    expect(getProviderGridColumnCount(560)).toBe(2)
+    expect(getProviderGridColumnCount(840)).toBe(3)
   })
 
   it("computes fixed row count and total height", () => {

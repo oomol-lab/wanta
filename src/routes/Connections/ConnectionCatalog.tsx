@@ -1,7 +1,13 @@
 import type { ConnectionProviderSummary } from "../../../electron/connections/common.ts"
-import type { ConnectionCatalogFilter, ConnectionCategoryFilter } from "./connection-route-model.ts"
+import type { ConnectionProviderSortMode } from "./connection-provider-ranking.ts"
+import type {
+  ConnectionAuthFilter,
+  ConnectionCatalogFilter,
+  ConnectionCategoryFilter,
+} from "./connection-route-model.ts"
+import type { TranslateFn } from "@/i18n/i18n"
 
-import { ChevronDown } from "lucide-react"
+import { ArrowUpDown, ChevronDown, Filter, X } from "lucide-react"
 import * as React from "react"
 import {
   categoryFilterLimit,
@@ -23,6 +29,7 @@ import {
   providerGridGapPx,
 } from "./provider-grid-virtualization.ts"
 import { ProviderIcon } from "./ProviderIcon.tsx"
+import { authTypeLabel as getAuthTypeLabel } from "./shared.ts"
 import { SearchField } from "@/components/SearchField"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -31,6 +38,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -49,29 +58,41 @@ export function ConnectionDrawerSkeleton() {
 
 export function ConnectionListToolbar({
   activeFilter,
+  authFilter,
   attentionCount,
   availableToolsCount,
   categoryFilters,
   connectedCount,
   directlyAvailableCount,
   loading,
+  onAuthFilterChange,
   onFilterChange,
   onQueryChange,
+  onReset,
+  onSortModeChange,
   query,
+  resultCount,
   showConnectionState,
+  sortMode,
   totalCount,
 }: {
   activeFilter: ConnectionCatalogFilter
+  authFilter: ConnectionAuthFilter
   attentionCount: number
   availableToolsCount: number
   categoryFilters: ConnectionCategoryFilter[]
   connectedCount: number
   directlyAvailableCount: number
   loading: boolean
+  onAuthFilterChange: (filter: ConnectionAuthFilter) => void
   onFilterChange: (filter: ConnectionCatalogFilter) => void
   onQueryChange: (query: string) => void
+  onReset: () => void
+  onSortModeChange: (mode: ConnectionProviderSortMode) => void
   query: string
+  resultCount: number
   showConnectionState: boolean
+  sortMode: ConnectionProviderSortMode
   totalCount: number
 }) {
   const t = useT()
@@ -84,6 +105,7 @@ export function ConnectionListToolbar({
     (filter) => !visibleCategoryFilters.some((visibleFilter) => visibleFilter.label === filter.label),
   )
   const filterValue = getFilterValue(activeFilter)
+  const hasFilters = activeFilter.kind !== "all" || authFilter !== "all" || query.trim().length > 0
 
   React.useLayoutEffect(() => {
     const filterRow = filterRowRef.current
@@ -98,7 +120,7 @@ export function ConnectionListToolbar({
     }
 
     const updateVisibleCategoryCount = () => {
-      const availableWidth = filterRow.clientWidth
+      const availableWidth = (filterRow.firstElementChild as HTMLElement | null)?.clientWidth ?? filterRow.clientWidth
       const allWidth = getMeasurement("all")
       const availableToolsWidth = getMeasurement("available-tools")
       const connectedWidth = getMeasurement("connected")
@@ -163,12 +185,19 @@ export function ConnectionListToolbar({
 
   return (
     <div className="grid w-full min-w-0 gap-2">
-      <SearchField
-        value={query}
-        placeholder={t("connections.search")}
-        onChange={(event) => onQueryChange(event.currentTarget.value)}
-      />
-      <div ref={filterRowRef} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <SearchField
+            className="min-w-48 flex-1"
+            value={query}
+            placeholder={t("connections.searchProviders")}
+            onChange={(event) => onQueryChange(event.currentTarget.value)}
+          />
+          <ProviderSortMenu mode={sortMode} onChange={onSortModeChange} />
+          <ProviderAuthFilterMenu value={authFilter} onChange={onAuthFilterChange} onReset={onReset} />
+        </div>
+      </div>
+      <div ref={filterRowRef} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
         <div className="oo-connection-filter-row flex min-w-0 items-center overflow-x-auto overflow-y-hidden">
           <ToggleGroup
             type="single"
@@ -222,33 +251,50 @@ export function ConnectionListToolbar({
             ))}
           </ToggleGroup>
         </div>
-        {overflowCategoryFilters.length > 0 ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 rounded-md transition-[background-color,border-color,box-shadow,transform] active:translate-y-px data-[state=open]:border-[var(--accent-ring)] data-[state=open]:bg-[var(--accent-soft)] data-[state=open]:text-foreground data-[state=open]:shadow-[inset_0_0_0_1px_var(--accent-ring)]"
-              >
-                {t("connections.moreCategories")}
-                <ChevronDown className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={8} className="w-56">
-              <DropdownMenuLabel>{t("connections.category")}</DropdownMenuLabel>
-              {overflowCategoryFilters.map((filter) => (
-                <DropdownMenuItem
-                  key={filter.label}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] gap-3"
-                  onSelect={() => onFilterChange({ kind: "category", category: filter.label })}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {overflowCategoryFilters.length > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 rounded-md transition-[background-color,border-color,box-shadow,transform] active:translate-y-px data-[state=open]:border-[var(--accent-ring)] data-[state=open]:bg-[var(--accent-soft)] data-[state=open]:text-foreground data-[state=open]:shadow-[inset_0_0_0_1px_var(--accent-ring)]"
                 >
-                  <span className="truncate">{filter.displayLabel}</span>
-                  <span className="oo-text-muted">{filter.count}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
+                  {t("connections.moreCategories")}
+                  <ChevronDown className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={8} className="w-56">
+                <DropdownMenuLabel>{t("connections.category")}</DropdownMenuLabel>
+                {overflowCategoryFilters.map((filter) => (
+                  <DropdownMenuItem
+                    key={filter.label}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] gap-3"
+                    onSelect={() => onFilterChange({ kind: "category", category: filter.label })}
+                  >
+                    <span className="truncate">{filter.displayLabel}</span>
+                    <span className="oo-text-muted">{filter.count}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+          <span className="oo-text-micro oo-text-muted whitespace-nowrap">
+            {t("connections.showingProviders", { count: resultCount, total: totalCount })}
+          </span>
+          {hasFilters ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              title={t("connections.resetFilters")}
+              aria-label={t("connections.resetFilters")}
+              onClick={onReset}
+            >
+              <X className="size-3.5" />
+            </Button>
+          ) : null}
+        </div>
       </div>
       <div ref={filterMeasurementRef} aria-hidden="true" className="pointer-events-none invisible absolute -z-10">
         <ToggleGroup type="single" variant="default" size="sm" spacing={1} className="flex w-max flex-nowrap gap-1">
@@ -304,6 +350,82 @@ export function ConnectionListToolbar({
   )
 }
 
+function ProviderSortMenu({
+  mode,
+  onChange,
+}: {
+  mode: ConnectionProviderSortMode
+  onChange: (mode: ConnectionProviderSortMode) => void
+}) {
+  const t = useT()
+  const modes: ConnectionProviderSortMode[] = ["recommended", "name", "recently-connected"]
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5">
+          <ArrowUpDown className="size-4" />
+          {sortModeLabel(mode, t)}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuLabel>{t("connections.sort")}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={mode} onValueChange={(value) => onChange(value as ConnectionProviderSortMode)}>
+          {modes.map((value) => (
+            <DropdownMenuRadioItem key={value} value={value}>
+              {sortModeLabel(value, t)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function ProviderAuthFilterMenu({
+  onChange,
+  onReset,
+  value,
+}: {
+  onChange: (value: ConnectionAuthFilter) => void
+  onReset: () => void
+  value: ConnectionAuthFilter
+}) {
+  const t = useT()
+  const authFilters: ConnectionAuthFilter[] = ["all", "oauth2", "api_key", "custom_credential", "federated", "no_auth"]
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant={value === "all" ? "outline" : "secondary"} size="sm" className="gap-1.5">
+          <Filter className="size-4" />
+          {t("connections.moreFilters")}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel>{t("connections.auth")}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={value} onValueChange={(next) => onChange(next as ConnectionAuthFilter)}>
+          {authFilters.map((filter) => (
+            <DropdownMenuRadioItem key={filter} value={filter}>
+              {authFilterLabel(filter, t)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuItem onSelect={onReset}>{t("connections.resetFilters")}</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function sortModeLabel(mode: ConnectionProviderSortMode, t: TranslateFn): string {
+  if (mode === "name") return t("connections.sortName")
+  if (mode === "recently-connected") return t("connections.sortRecentlyConnected")
+  return t("connections.sortRecommended")
+}
+
+function authFilterLabel(filter: ConnectionAuthFilter, t: TranslateFn): string {
+  if (filter === "all") return t("connections.filterAll")
+  return getAuthTypeLabel(t, filter)
+}
+
 function FilterToggleItem({ count, label, value }: { count: number | null; label: string; value: string }) {
   return (
     <ToggleGroupItem
@@ -325,14 +447,14 @@ function FilterToggleItem({ count, label, value }: { count: number | null; label
 export function ProviderListSkeleton() {
   return (
     <div
-      className="grid"
-      style={{ gap: providerGridGapPx, gridTemplateColumns: "repeat(auto-fill, minmax(13.5rem, 1fr))" }}
+      className="grid overflow-hidden rounded-lg border"
+      style={{ gap: providerGridGapPx, gridTemplateColumns: "repeat(auto-fill, minmax(17.5rem, 1fr))" }}
       aria-hidden="true"
     >
       {Array.from({ length: 12 }, (_, index) => (
         <div
           key={index}
-          className="grid h-[68px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border bg-card px-2.5 py-1.5"
+          className="grid h-16 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-r border-b bg-card px-4 py-3"
         >
           <div className="size-9 animate-pulse rounded-md bg-muted" />
           <div className="grid gap-1.5">
@@ -622,7 +744,9 @@ function ProviderGrid({
             <ProviderCard
               canManageConnections={canManageConnections}
               provider={provider}
+              columnCount={columnCount}
               index={index}
+              itemCount={itemCount}
               selected={provider.service === selectedService}
               showConnectionState={showConnectionState}
               tabIndex={index === focusedIndex ? 0 : -1}
@@ -661,12 +785,16 @@ function ProviderGrid({
   ])
 
   return (
-    <div ref={gridRef} className="relative" style={{ height: visibleRange.totalHeight }}>
+    <div
+      ref={gridRef}
+      className="relative overflow-hidden rounded-lg border"
+      style={{ height: visibleRange.totalHeight }}
+    >
       <div
         className="absolute inset-x-0 top-0 grid will-change-transform"
         style={{
           gap: providerGridGapPx,
-          gridTemplateColumns: "repeat(auto-fill, minmax(13.5rem, 1fr))",
+          gridTemplateColumns: "repeat(auto-fill, minmax(17.5rem, 1fr))",
           transform: `translateY(${visibleRange.topOffset}px)`,
         }}
       >
@@ -680,8 +808,10 @@ function ProviderGrid({
 
 const ProviderCard = React.memo(function ProviderCard({
   canManageConnections,
+  columnCount,
   provider,
   index,
+  itemCount,
   selected,
   showConnectionState,
   tabIndex,
@@ -690,7 +820,9 @@ const ProviderCard = React.memo(function ProviderCard({
   onSelect,
 }: {
   canManageConnections: boolean
+  columnCount: number
   index: number
+  itemCount: number
   onFocus: () => void
   onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
   provider: ConnectionProviderSummary
@@ -714,9 +846,11 @@ const ProviderCard = React.memo(function ProviderCard({
       onFocus={onFocus}
       onKeyDown={onKeyDown}
       className={cn(
-        "group/card relative grid min-w-0 cursor-pointer overflow-hidden rounded-md border bg-card px-2.5 py-1.5 text-left text-card-foreground transition-[background-color,border-color,box-shadow,transform] outline-none hover:border-[var(--selection-ring)] hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px",
+        "group/card relative grid min-w-0 cursor-pointer overflow-hidden border-r border-b bg-card px-4 py-3 text-left text-card-foreground transition-[background-color,box-shadow,transform] outline-none hover:bg-[var(--oo-row-hover)] focus-visible:z-10 focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px",
+        index % columnCount === columnCount - 1 && "border-r-0",
+        index >= itemCount - (itemCount % columnCount || columnCount) && "border-b-0",
         selected &&
-          "border-[var(--accent-ring)] bg-[var(--accent-soft)] shadow-[inset_0_0_0_1px_var(--accent-ring)] before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-r-full before:bg-[var(--accent-strong)] hover:bg-[var(--accent-soft)]",
+          "bg-[var(--accent-soft)] shadow-[inset_0_0_0_1px_var(--accent-ring)] before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-r-full before:bg-[var(--accent-strong)] hover:bg-[var(--accent-soft)]",
       )}
       style={{ height: providerGridCardHeightPx }}
     >

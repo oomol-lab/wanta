@@ -6,20 +6,27 @@ import type {
   ConnectionProviderSummary,
   ConnectionUserOAuthClientConfigSummary,
 } from "../../../electron/connections/common.ts"
-import type { ConnectionAuthIntent, ConnectionCatalogFilter, DisconnectTarget } from "./connection-route-model.ts"
+import type { ConnectionProviderSortMode } from "./connection-provider-ranking.ts"
+import type {
+  ConnectionAuthFilter,
+  ConnectionAuthIntent,
+  ConnectionCatalogFilter,
+  DisconnectTarget,
+} from "./connection-route-model.ts"
 import type { UseConnections } from "@/hooks/useConnections"
 
 import { ArrowLeft, X } from "lucide-react"
 import * as React from "react"
 import { ConnectDialog } from "./ConnectDialog.tsx"
 import { getConnectionDetailErrorNotice, getConnectionListErrorNotice } from "./connection-error-display.ts"
-import { compareConnectionProvidersByRecommendation } from "./connection-provider-ranking.ts"
+import { compareConnectionProviders } from "./connection-provider-ranking.ts"
 import {
   buildCategoryFilters,
   canMutateConnections,
   detailPaneAnimationMs,
   isConnected,
   isDirectlyAvailableProvider,
+  matchesProviderAuthFilter,
   matchesProviderFilter,
   matchesProviderQuery,
   shouldShowConnectionState,
@@ -31,6 +38,7 @@ import {
   ProviderListSkeleton,
 } from "./ConnectionCatalog.tsx"
 import { ConnectionStateNotice, EmptyList, ProviderDetail } from "./ConnectionProviderDetailPane.tsx"
+import { ConnectionScenarioShowcase } from "./ConnectionScenarioShowcase.tsx"
 import { DisconnectDialog } from "./DisconnectDialog.tsx"
 import { shouldOpenOAuthClientDialog } from "./oauth-client-config.ts"
 import { useConnectionProviderDetail } from "./use-connection-provider-detail.ts"
@@ -126,6 +134,8 @@ export function ConnectionsPanel({
   const dingTalkCli = useDingTalkCliConnection()
   const [query, setQuery] = React.useState("")
   const [activeFilter, setActiveFilter] = React.useState<ConnectionCatalogFilter>(requestedFilter ?? { kind: "all" })
+  const [authFilter, setAuthFilter] = React.useState<ConnectionAuthFilter>("all")
+  const [sortMode, setSortMode] = React.useState<ConnectionProviderSortMode>("recommended")
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
   const [detailPaneClosing, setDetailPaneClosing] = React.useState(false)
@@ -226,9 +236,21 @@ export function ConnectionsPanel({
   )
   const filteredProviders = React.useMemo(() => {
     return catalogProviders
+      .filter((provider) => matchesProviderAuthFilter(provider, authFilter))
       .filter((provider) => matchesProviderQuery(provider, normalizedQuery, t))
-      .sort(compareConnectionProvidersByRecommendation)
-  }, [catalogProviders, normalizedQuery, t])
+      .sort((left, right) => compareConnectionProviders(left, right, sortMode))
+  }, [authFilter, catalogProviders, normalizedQuery, sortMode, t])
+
+  const selectScenario = React.useCallback((category: string) => {
+    setQuery("")
+    setAuthFilter("all")
+    setSortMode("recommended")
+    setActiveFilter((current) =>
+      current.kind === "category" && current.category === category ? { kind: "all" } : { kind: "category", category },
+    )
+    setSelectedProviderService(null)
+    setNarrowPane("list")
+  }, [])
   const larkCliBusy: UseConnections["busy"] =
     larkCli.state?.phase === "disconnecting"
       ? "disconnect"
@@ -715,6 +737,7 @@ export function ConnectionsPanel({
       <SplitViewHeader narrowPane={narrowPane} className="oo-border-divider border-b sm:grid-cols-1">
         <ConnectionListToolbar
           activeFilter={activeFilter}
+          authFilter={authFilter}
           attentionCount={attentionCount}
           availableToolsCount={availableToolsCount}
           categoryFilters={categoryFilters}
@@ -722,10 +745,20 @@ export function ConnectionsPanel({
           directlyAvailableCount={directlyAvailableCount}
           loading={summaryLoading}
           query={query}
+          resultCount={filteredProviders.length}
           showConnectionState={showConnectionState}
+          sortMode={sortMode}
           totalCount={providers.length}
           onFilterChange={setActiveFilter}
+          onAuthFilterChange={setAuthFilter}
           onQueryChange={setQuery}
+          onReset={() => {
+            setQuery("")
+            setAuthFilter("all")
+            setSortMode("recommended")
+            setActiveFilter({ kind: "all" })
+          }}
+          onSortModeChange={setSortMode}
         />
       </SplitViewHeader>
 
@@ -735,6 +768,13 @@ export function ConnectionsPanel({
       >
         <SplitViewListPane ref={listPaneRef} narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
+            {!selectedProvider ? (
+              <ConnectionScenarioShowcase
+                activeCategory={activeFilter.kind === "category" ? activeFilter.category : null}
+                providers={providers}
+                onSelect={selectScenario}
+              />
+            ) : null}
             {summary?.appsStatus && summary.appsStatus !== "ready" ? (
               <ConnectionStateNotice status={summary.appsStatus} />
             ) : null}

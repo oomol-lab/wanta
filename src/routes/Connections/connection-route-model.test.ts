@@ -12,6 +12,7 @@ import {
   getProviderAccountValue,
   getProviderActionLabel,
   getProviderCatalogLabel,
+  getProviderCategoryRawLabels,
   getProviderDescription,
   getProviderMeta,
   getProviderStatusDisplayLabel,
@@ -174,6 +175,25 @@ test("available tools filter combines connected and directly available providers
   assert.equal(matchesProviderFilter(directlyAvailable, { kind: "available-tools" }), true)
   assert.equal(matchesProviderFilter(provider({ status: "available" }), { kind: "available-tools" }), false)
   assert.equal(matchesProviderFilter(provider({ status: "needs_attention" }), { kind: "available-tools" }), false)
+})
+
+test("cross-border ecommerce providers receive a stable catalog category", () => {
+  assert.equal(getProviderCategoryRawLabels(provider({ service: "shopify_admin" }))[0], "Cross-Border Ecommerce")
+  assert.deepEqual(
+    getProviderCategoryRawLabels(
+      provider({
+        categoryLabels: [" E-commerce ", "ecommerce", " Productivity ", "Productivity", "   "],
+        service: "shopify_admin",
+      }),
+    ),
+    ["Cross-Border Ecommerce", "Productivity"],
+  )
+  assert.equal(
+    getProviderCategoryRawLabels(provider({ categoryLabels: ["Productivity"], service: "ordinary-provider" })).includes(
+      "Cross-Border Ecommerce",
+    ),
+    false,
+  )
 })
 
 test("buildCredentialSummaryDisplayValues keeps only non-secret display values", () => {

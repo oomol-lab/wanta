@@ -92,9 +92,14 @@ import {
 } from "./context-system.ts"
 import { normalizeChatError } from "./error.ts"
 import { GenerationRegistry } from "./generation-registry.ts"
-import { evaluateLocalAccessRequest, localAccessGrantForRequest } from "./local-access-policy.ts"
+import {
+  evaluateLocalAccessRequest,
+  localAccessGrantForRequest,
+  localAccessPromptReason,
+} from "./local-access-policy.ts"
 import { directoryArtifacts, fileArtifact, localArtifactItem, readArtifactPack } from "./local-artifacts.ts"
 import { OutputPersistence } from "./output-persistence.ts"
+import { PermissionDiagnostics } from "./permission-diagnostics.ts"
 import { PermissionState } from "./permission-state.ts"
 import { attachmentPreview, localArtifactPreview } from "./previews.ts"
 import { detectResponseLanguage } from "./response-language.ts"
@@ -123,6 +128,7 @@ const generationStartAckTimeoutMs = 45_000
 const generationInactivityTimeoutMs = 2 * 60_000
 const generationActiveToolInactivityTimeoutMs = 10 * 60_000
 const questionRejectTimeoutMs = 5_000
+const automaticPermissionRetryDelayMs = 75
 const completionRetryInitialDelayMs = 50
 const completionRetryMaxDelayMs = 2_000
 const completionRetryMaxAttempts = 20
@@ -287,6 +293,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private readonly trustedAccess: TrustedLocalAccess
   private readonly subagentSessions: SubagentSessions
   private readonly permissions = new PermissionState()
+  private readonly permissionDiagnostics = new PermissionDiagnostics()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "model_required" }
   private runtimeCapabilities: RuntimeCapabilities = resolveRuntimeCapabilities({
@@ -800,7 +807,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const candidate = localAccessGrantForRequest(request, {
       ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
       ...(managedPythonProcessRoot ? { managedPythonProcessRoot } : {}),
-      ...(generationId ? { projectDependencyGenerationId: generationId } : {}),
     })
     if (!candidate) {
       return
@@ -847,7 +853,29 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       ...(taskProcessRoot ? { taskProcessRoot } : {}),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
     })
-    if (!this.agent || decision.type === "prompt") {
+    if (!this.agent) {
+      return false
+    }
+    if (decision.type === "prompt") {
+      const promptReason = localAccessPromptReason(request)
+      this.permissionDiagnostics.recordPrompt(promptReason, `${request.sessionId}:${request.id}`)
+      request.wanta = { ...request.wanta, promptReason }
+      logDiagnostic(
+        "chat-service",
+        "local permission requires confirmation",
+        {
+          action: request.action,
+          hasActiveGeneration: Boolean(activeGenerationId),
+          hasTaskProcessRoot: Boolean(taskProcessRoot),
+          hasTrustedProjectRoot: Boolean(projectRoot),
+          highRisk: decision.highRisk,
+          kind: decision.kind,
+          reason: promptReason,
+          sessionId: displaySessionId,
+          subagent: displaySessionId !== request.sessionId,
+        },
+        "info",
+      )
       return false
     }
     const displayRequest =
@@ -855,8 +883,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.permissions.beginAutomaticReply(request.sessionId, request.id)) {
       return true
     }
-    void this.agent
-      .answerPermission(request.sessionId, request.id, decision.type === "deny" ? "reject" : "once")
+    void this.answerAutomaticPermission(request, decision.type === "deny" ? "reject" : "once")
       .then(() => {
         if (decision.type === "allow") this.rememberTrustedPermissionResources(request.sessionId, request)
         this.sendBestEffort(
@@ -882,12 +909,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           },
           "warn",
         )
-        this.rememberPendingPermissionRequest(displayRequest)
+        const failedDisplayRequest: ChatPermissionRequest = {
+          ...displayRequest,
+          wanta: {
+            ...displayRequest.wanta,
+            automaticReplyFailed: true,
+            promptReason: "automatic_reply_failed",
+          },
+        }
+        this.permissionDiagnostics.recordPrompt("automatic_reply_failed", `${request.sessionId}:${request.id}`)
+        this.rememberPendingPermissionRequest(failedDisplayRequest)
         this.activeRuns.addBlockingRequest(displaySessionId, request.id, "awaiting_permission")
         this.sendBestEffort(
           emit,
           "permissionAsked",
-          { sessionId: displaySessionId, request: displayRequest },
+          { sessionId: displaySessionId, request: failedDisplayRequest },
           { sessionId: displaySessionId },
         )
       })
@@ -895,6 +931,36 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.permissions.endAutomaticReply(request.sessionId, request.id)
       })
     return true
+  }
+
+  private async answerAutomaticPermission(request: ChatPermissionRequest, reply: "once" | "reject"): Promise<void> {
+    if (!this.agent) throw new Error("Agent not configured")
+    let lastError: unknown
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        await this.agent.answerPermission(request.sessionId, request.id, reply)
+        this.permissionDiagnostics.recordAutomaticReply(attempt === 1 ? "first_attempt" : "retry_succeeded")
+        return
+      } catch (error) {
+        lastError = error
+        try {
+          const stillPending = (await this.agent.getPendingPermissions(request.sessionId)).some(
+            (pending) => pending.id === request.id,
+          )
+          if (!stillPending) {
+            this.permissionDiagnostics.recordAutomaticReply("reconciled")
+            return
+          }
+        } catch {
+          // A failed reconciliation must not hide the original reply failure.
+        }
+        if (attempt < 2) {
+          await new Promise<void>((resolve) => setTimeout(resolve, automaticPermissionRetryDelayMs))
+        }
+      }
+    }
+    this.permissionDiagnostics.recordAutomaticReply("failed")
+    throw lastError
   }
 
   private async autoAnswerPendingPermissions(
@@ -1513,6 +1579,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               generatedAt: new Date().toISOString(),
               model: bugReportModelLabel(req.model),
               permissionMode: this.sessionPermissionMode(req.sessionId),
+              permissionDiagnostics: this.permissionDiagnostics.snapshot(),
               platform: this.deps.bugReportRuntime?.platform ?? process.platform,
             },
             targetFilePath: path.join(artifactDir, BUG_REPORT_FILE_NAME),

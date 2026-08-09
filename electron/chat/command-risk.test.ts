@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
+import { isLowConsequenceCleanupCommand } from "./bounded-cleanup.ts"
 import { commandRequiresConfirmation } from "./command-risk.ts"
 
 test("side-effect classification follows command structure rather than arbitrary argument text", () => {
@@ -60,4 +61,32 @@ test("top-level composition finds risky commands without treating redirection as
   assert.equal(commandRequiresConfirmation("printf error 2>&1"), false)
   assert.equal(commandRequiresConfirmation("printf error &> /tmp/error.log"), false)
   assert.equal(commandRequiresConfirmation("curl https://example.test/data | jq ."), false)
+})
+
+test("bounded cleanup recognizes only managed outputs and generated project roots", () => {
+  const taskProcessRoot = "/tmp/wanta/process/turn-1"
+  const trustedProjectRoot = "/Users/example/code/app"
+  const context = { taskProcessRoot, trustedProjectRoot }
+
+  for (const command of [
+    `rm -rf ${taskProcessRoot}/scratch`,
+    `cd ${taskProcessRoot} && rm -rf scratch`,
+    `cd ${trustedProjectRoot} && rm -rf dist`,
+    `rm -rf ${trustedProjectRoot}/node_modules`,
+    `rm --recursive --force ${trustedProjectRoot}/coverage`,
+  ]) {
+    assert.equal(isLowConsequenceCleanupCommand(command, context), true, command)
+  }
+
+  for (const command of [
+    `rm -rf ${taskProcessRoot}`,
+    `rm -rf ${trustedProjectRoot}`,
+    `rm -rf ${trustedProjectRoot}/src`,
+    `rm -rf ${trustedProjectRoot}/dist/chunks`,
+    `cd ${trustedProjectRoot} && rm -rf *`,
+    `rm -rf $HOME`,
+    `rm -rf ${trustedProjectRoot}/dist && git reset --hard`,
+  ]) {
+    assert.equal(isLowConsequenceCleanupCommand(command, context), false, command)
+  }
 })

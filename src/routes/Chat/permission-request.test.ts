@@ -7,7 +7,6 @@ import {
   isHighRiskPermissionRequest,
   isOoCliPermissionRequest,
   isPythonDependencyPermissionRequest,
-  isLikelyProjectDependencyInstallRequest,
   isLikelyProjectDevCommandRequest,
   isProjectScopedPythonDependencyInstallRequest,
   managedPythonDependencyInstall,
@@ -50,45 +49,6 @@ test("renderer permission helpers recognize likely project dev commands without 
   )
   assert.equal(isLikelyProjectDevCommandRequest(permission({ metadata: { command: "npm install" } })), false)
   assert.equal(isLikelyProjectDevCommandRequest(permission({ metadata: { command: "npm run lint -- --fix" } })), false)
-  assert.equal(
-    isLikelyProjectDependencyInstallRequest(
-      permission({ metadata: { command: "cd /Users/me/code/app && pnpm add zod" } }),
-    ),
-    true,
-  )
-  assert.equal(isLikelyProjectDependencyInstallRequest(permission({ metadata: { command: "npm install" } })), false)
-  assert.equal(
-    isLikelyProjectDependencyInstallRequest(
-      permission({ metadata: { command: "cd /Users/me/code/app && npm install --global eslint" } }),
-    ),
-    false,
-  )
-  assert.equal(
-    isLikelyProjectDependencyInstallRequest(
-      permission({ metadata: { command: "cd /Users/me/code/app && npm install --location=global eslint" } }),
-    ),
-    false,
-  )
-  assert.equal(
-    isLikelyProjectDependencyInstallRequest(
-      permission({ metadata: { command: "npm install zod && echo --prefix /tmp/not-a-project" } }),
-    ),
-    false,
-  )
-  assert.equal(
-    isLikelyProjectDependencyInstallRequest(
-      permission({ metadata: { command: "npm install zod -- --prefix /tmp/not-a-project" } }),
-    ),
-    false,
-  )
-  assert.equal(
-    isLikelyProjectDependencyInstallRequest(
-      permission({
-        metadata: { command: "npm --prefix /Users/me/code/app install zod && npm --global install eslint" },
-      }),
-    ),
-    true,
-  )
 })
 
 test("high risk command detection marks destructive commands for default access prompts", () => {

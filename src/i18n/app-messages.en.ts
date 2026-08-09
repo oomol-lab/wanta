@@ -972,7 +972,9 @@ export const enMessages = {
   "chat.permissionHighRiskTitle": "Confirm high-risk command",
   "chat.permissionSensitiveDataTitle": "Confirm private data access",
   "chat.permissionPythonDependencyTitle": "Install Python dependencies?",
-  "chat.permissionProjectDependencyTitle": "Modify project dependencies?",
+  "chat.permissionBroadAccessTitle": "Confirm broad local access",
+  "chat.permissionAutomaticReplyFailedTitle": "Automatic approval did not complete",
+  "chat.permissionDependencyBoundaryTitle": "Confirm dependency operation",
   "chat.permissionRequiredDescription":
     "Wanta needs to run a local operation for this step.\nAllowing this step does not enable full access.",
   "chat.permissionCommandDescription":
@@ -987,14 +989,17 @@ export const enMessages = {
     "Wanta needs to install these packages in an isolated Python environment for this task:\n{packages}\nThis will not modify your system Python or user-wide packages.",
   "chat.permissionPythonDependencyBoundaryDescription":
     "Wanta wants to run a Python dependency operation:\n{command}\nIts target scope or package source is outside the automatic-approval boundary.",
-  "chat.permissionProjectDependencyDescription":
-    "Wanta wants to run a dependency operation in the current project:\n{command}\nAllowing it will avoid repeated confirmations for standard dependency operations in this project during this task.",
+  "chat.permissionBroadAccessDescription":
+    "Wanta wants to access a broad local scope:\n{resource}\nThis scope may contain files unrelated to the current task. Confirm before continuing.",
+  "chat.permissionAutomaticReplyFailedDescription":
+    "Wanta would normally run this ordinary operation automatically, but the local Agent did not receive the automatic approval:\n{operation}\nYou can confirm to continue; this does not mean the operation itself was classified as high risk.",
+  "chat.permissionDependencyBoundaryDescription":
+    "Wanta wants to run a dependency operation:\n{command}\nIts target project, installation scope, or package source is outside the automatic-approval boundary.",
   "chat.permissionRequiredAllowOnce": "Allow this step",
   "chat.permissionRequiredAllowSession": "Allow in this chat",
   "chat.permissionRequiredAllowCommandSession": "Allow this command in this chat",
   "chat.permissionRequiredAllowProjectDevSession": "Allow project dev commands in this chat",
   "chat.permissionRequiredAllowPythonDependenciesTask": "Allow these Python dependencies for this task",
-  "chat.permissionRequiredAllowProjectDependenciesTask": "Allow project dependency operations for this task",
   "chat.permissionRequiredAllowPathSession": "Allow this folder in this chat",
   "chat.permissionRequiredAllowEditSession": "Allow this path in this chat",
   "chat.permissionRequiredReject": "Cancel this step",

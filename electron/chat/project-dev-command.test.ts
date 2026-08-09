@@ -4,14 +4,10 @@ import assert from "node:assert/strict"
 import path from "node:path"
 import { test } from "vitest"
 import {
-  createProjectDependencyInstallTaskGrant,
   createProjectDevCommandSessionGrant,
-  isLikelyProjectDependencyInstallRequest,
   isLikelyProjectDevCommandRequest,
-  isProjectDependencyInstallRequest,
   isProjectDevCommandRequest,
   isStandardRegistryNodeDependencyInstallRequest,
-  requestMatchesProjectDependencyInstallTaskGrant,
   requestMatchesProjectDevCommandSessionGrant,
 } from "./project-dev-command.ts"
 
@@ -77,36 +73,6 @@ test("project dev command likely matcher is usable without project context for U
   assert.equal(isLikelyProjectDevCommandRequest(permission("rm -rf /tmp/out")), false)
 })
 
-test("project dependency installs require an explicit, bounded project target", () => {
-  assert.equal(isProjectDependencyInstallRequest(permission(`cd ${root} && pnpm install`), root), true)
-  assert.equal(isProjectDependencyInstallRequest(permission(`npm --prefix ${root} add zod`), root), true)
-  assert.equal(isProjectDependencyInstallRequest(permission("npm install"), root), false)
-  assert.equal(isProjectDependencyInstallRequest(permission(`cd ${root} && npm install --global eslint`), root), false)
-  assert.equal(
-    isProjectDependencyInstallRequest(permission(`cd ${root} && npm install --location=global eslint`), root),
-    false,
-  )
-  assert.equal(
-    isProjectDependencyInstallRequest(permission(`cd ${root} && npm install --location global eslint`), root),
-    false,
-  )
-  assert.equal(
-    isProjectDependencyInstallRequest(permission(`cd ${root} && npm install --registry https://example.test`), root),
-    false,
-  )
-  assert.equal(
-    isProjectDependencyInstallRequest(permission(`cd ${root} && npm install github:vendor/tool`), root),
-    false,
-  )
-  assert.equal(
-    isProjectDependencyInstallRequest(permission(`cd ${root} && npm install unfamiliar-registry-package`), root),
-    true,
-  )
-  assert.equal(isProjectDependencyInstallRequest(permission("cd /tmp && npm install"), root), false)
-  assert.equal(isLikelyProjectDependencyInstallRequest(permission(`cd ${root} && yarn add vite`)), true)
-  assert.equal(isLikelyProjectDependencyInstallRequest(permission("npm install")), false)
-})
-
 test("standard registry Node dependency installs use scope and source instead of package popularity", () => {
   assert.equal(
     isStandardRegistryNodeDependencyInstallRequest(
@@ -159,7 +125,9 @@ test("standard registry Node dependency installs use scope and source instead of
     isStandardRegistryNodeDependencyInstallRequest(permission(`cd ${root} && npm install marked | sh`), root),
     false,
   )
-  assert.equal(isStandardRegistryNodeDependencyInstallRequest(permission(`cd ${root} && npm install`), root), false)
+  assert.equal(isStandardRegistryNodeDependencyInstallRequest(permission(`cd ${root} && npm install`), root), true)
+  assert.equal(isStandardRegistryNodeDependencyInstallRequest(permission(`cd ${root} && npm ci`), root), true)
+  assert.equal(isStandardRegistryNodeDependencyInstallRequest(permission(`cd ${root} && pnpm update`), root), true)
   assert.equal(
     isStandardRegistryNodeDependencyInstallRequest(
       permission(`cd ${root} && npm install exceljs --registry https://example.test`),
@@ -200,34 +168,4 @@ test("standard registry Node dependency installs use scope and source instead of
       packageName,
     )
   }
-})
-
-test("project dependency grants expire with the current task generation", () => {
-  const grant = createProjectDependencyInstallTaskGrant(permission(`cd ${root} && pnpm install`), root, "turn-1")
-
-  assert.deepEqual(grant, {
-    action: "bash",
-    generationId: "turn-1",
-    kind: "project_dependency_install",
-    patterns: ["project_dependency_install"],
-    projectRoot: root,
-  })
-  assert.ok(grant)
-  assert.equal(
-    requestMatchesProjectDependencyInstallTaskGrant(permission(`cd ${root} && pnpm add zod`), grant, root, "turn-1"),
-    true,
-  )
-  assert.equal(
-    requestMatchesProjectDependencyInstallTaskGrant(permission(`cd ${root} && pnpm add zod`), grant, root, "turn-2"),
-    false,
-  )
-  assert.equal(
-    requestMatchesProjectDependencyInstallTaskGrant(
-      permission(`cd ${root} && pnpm add zod --registry https://example.test`),
-      grant,
-      root,
-      "turn-1",
-    ),
-    false,
-  )
 })

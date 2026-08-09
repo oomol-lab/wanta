@@ -1,8 +1,9 @@
 import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
-import type { AgentPermissionMode, ChatPermissionRequest } from "./common.ts"
+import type { AgentPermissionMode, ChatPermissionRequest, LocalPermissionPromptReason } from "./common.ts"
 import type { PermissionRequestKind, SessionPermissionGrant } from "./permission-request.ts"
 
 import { openConnectorCommandPolicy } from "../agent/oo-command-permission.ts"
+import { isLowConsequenceCleanupCommand } from "./bounded-cleanup.ts"
 import {
   createSessionPermissionGrant,
   isHighRiskPermissionRequest,
@@ -10,6 +11,7 @@ import {
   isProjectScopedPythonDependencyInstallRequest,
   isTaskScopedPythonDependencyInstallRequest,
   permissionRequestHasSensitiveResource,
+  permissionRequestHasBroadResource,
   permissionCommand,
   permissionRequestNeedsDefaultPrompt,
   permissionRequestKind,
@@ -17,16 +19,15 @@ import {
   requestMatchesSessionGrant,
 } from "./permission-request.ts"
 import {
-  createProjectDependencyInstallTaskGrant,
   createProjectDevCommandSessionGrant,
   isStandardRegistryNodeDependencyInstallRequest,
-  requestMatchesProjectDependencyInstallTaskGrant,
   requestMatchesProjectDevCommandSessionGrant,
 } from "./project-dev-command.ts"
 import { projectPermissionRequestInsideRoot } from "./project-permission.ts"
 import { isProjectReadOnlyCommandRequest } from "./project-read-command.ts"
 
 export type LocalAccessAllowReason =
+  | "bounded_cleanup"
   | "default_command"
   | "default_local"
   | "full_access"
@@ -63,6 +64,14 @@ export interface LocalAccessPolicyContext {
   trustedProjectRoot?: string
 }
 
+export function localAccessPromptReason(request: ChatPermissionRequest): LocalPermissionPromptReason {
+  if (permissionRequestHasSensitiveResource(request)) return "sensitive_resource"
+  if (isHighRiskPermissionRequest(request)) return "high_risk_command"
+  if (permissionRequestHasBroadResource(request)) return "broad_resource"
+  if (permissionRequestNeedsDefaultPrompt(request)) return "dependency_mutation"
+  return "unclassified_request"
+}
+
 function hasMatchingNarrowSessionGrant(
   request: ChatPermissionRequest,
   grants: readonly SessionPermissionGrant[] | undefined,
@@ -73,12 +82,6 @@ function hasMatchingNarrowSessionGrant(
     grants?.some((grant) => {
       if (grant.generationId && grant.generationId !== activeGenerationId) {
         return false
-      }
-      if (
-        trustedProjectRoot &&
-        requestMatchesProjectDependencyInstallTaskGrant(request, grant, trustedProjectRoot, activeGenerationId)
-      ) {
-        return true
       }
       if (trustedProjectRoot && requestMatchesProjectDevCommandSessionGrant(request, grant, trustedProjectRoot)) {
         return true
@@ -117,6 +120,17 @@ export function evaluateLocalAccessRequest(
   // Only Full Access bypasses this protection.
   if (permissionRequestHasSensitiveResource(request)) {
     return { type: "prompt", kind, highRisk }
+  }
+  const command = kind === "command" ? permissionCommand(request) : undefined
+  if (
+    highRisk &&
+    command &&
+    isLowConsequenceCleanupCommand(command, {
+      taskProcessRoot: context.taskProcessRoot,
+      trustedProjectRoot: context.trustedProjectRoot,
+    })
+  ) {
+    return { type: "allow", reason: "bounded_cleanup", kind, highRisk }
   }
   if (highRisk) {
     return { type: "prompt", kind, highRisk }
@@ -169,19 +183,8 @@ export function localAccessGrantForRequest(
   request: ChatPermissionRequest,
   context: Pick<LocalAccessPolicyContext, "trustedProjectRoot"> & {
     managedPythonProcessRoot?: string
-    projectDependencyGenerationId?: string
   } = {},
 ): SessionPermissionGrant | null {
-  if (context.trustedProjectRoot && context.projectDependencyGenerationId) {
-    const projectDependencyGrant = createProjectDependencyInstallTaskGrant(
-      request,
-      context.trustedProjectRoot,
-      context.projectDependencyGenerationId,
-    )
-    if (projectDependencyGrant) {
-      return projectDependencyGrant
-    }
-  }
   if (context.trustedProjectRoot) {
     const projectDevGrant = createProjectDevCommandSessionGrant(request, context.trustedProjectRoot)
     if (projectDevGrant) {

@@ -1,5 +1,6 @@
 import type { ModelChoice } from "../models/common.ts"
 import type { AgentMode, AgentPermissionMode } from "./common.ts"
+import type { PermissionDiagnosticsSnapshot } from "./permission-diagnostics.ts"
 
 import { BUG_REPORT_COMMAND } from "./common.ts"
 export { BUG_REPORT_COMMAND }
@@ -16,6 +17,7 @@ export interface BugReportRuntimeContext {
   generatedAt: string
   model: string
   permissionMode: AgentPermissionMode
+  permissionDiagnostics?: PermissionDiagnosticsSnapshot
   platform: NodeJS.Platform
 }
 
@@ -69,6 +71,9 @@ export function buildBugReportSystemPrompt(options: {
     `- Model: ${runtime.model}`,
     `- Agent mode: ${runtime.agentMode}`,
     `- Permission mode: ${runtime.permissionMode}`,
+    ...(runtime.permissionDiagnostics
+      ? [`- Local permission diagnostics since app start: ${JSON.stringify(runtime.permissionDiagnostics)}`]
+      : []),
     "",
     "The Markdown file must use this structure:",
     "# Wanta Bug Report",

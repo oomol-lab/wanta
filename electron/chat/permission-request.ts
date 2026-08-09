@@ -26,11 +26,7 @@ import {
 } from "./shell-syntax.ts"
 
 export type PermissionRequestKind = "command" | "edit" | "path" | "network" | "local"
-export type SessionPermissionGrantKind =
-  | "project_dependency_install"
-  | "project_dev_command"
-  | "python_dependency_install"
-  | "request"
+export type SessionPermissionGrantKind = "project_dev_command" | "python_dependency_install" | "request"
 
 export interface SessionPermissionGrant {
   action: string

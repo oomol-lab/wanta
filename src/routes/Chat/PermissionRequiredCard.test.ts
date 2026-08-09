@@ -78,4 +78,46 @@ describe("PermissionRequiredCard", () => {
     expect(html).toContain("需要安装 Python 依赖")
     expect(html).toContain("目标范围或依赖来源超出了自动批准边界")
   })
+
+  it("explains broad local access instead of presenting a generic path prompt", () => {
+    const html = renderPermissionCard({
+      action: "external_directory",
+      id: "permission-1",
+      resources: ["/Users/me"],
+      sessionId: "session-1",
+      wanta: { promptReason: "broad_resource" },
+    })
+
+    expect(html).toContain("需要确认大范围访问")
+    expect(html).toContain("可能包含与当前任务无关的文件")
+  })
+
+  it("distinguishes an automatic-reply failure from a high-risk operation", () => {
+    const html = renderPermissionCard({
+      action: "bash",
+      id: "permission-1",
+      metadata: { command: "npm test" },
+      resources: ["npm test"],
+      sessionId: "session-1",
+      wanta: { automaticReplyFailed: true, promptReason: "automatic_reply_failed" },
+    })
+
+    expect(html).toContain("自动批准未完成")
+    expect(html).toContain("不表示操作本身被判定为高风险")
+    expect(html).not.toContain("需要确认高风险命令")
+  })
+
+  it("explains an unbounded Node dependency operation as a policy boundary", () => {
+    const html = renderPermissionCard({
+      action: "bash",
+      id: "permission-1",
+      metadata: { command: "npm install" },
+      resources: ["npm install"],
+      sessionId: "session-1",
+      wanta: { promptReason: "dependency_mutation" },
+    })
+
+    expect(html).toContain("需要确认依赖操作")
+    expect(html).toContain("目标项目、安装范围或依赖来源不在自动批准边界内")
+  })
 })

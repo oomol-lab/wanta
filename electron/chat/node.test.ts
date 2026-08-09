@@ -1,6 +1,6 @@
 import type { AgentManager } from "../agent/manager.ts"
 import type { SessionProject } from "../session/common.ts"
-import type { ChatMessage } from "./common.ts"
+import type { ChatMessage, ChatPermissionRequest } from "./common.ts"
 
 import assert from "node:assert/strict"
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
@@ -2942,6 +2942,9 @@ test("trusted project permission approval does not cover paths outside the proje
   await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
 
   assert.equal(bridge.answerPermission.mock.calls.length, 0)
+  const asked = events.find((event) => event.event === "permissionAsked")
+  const askedRequest = (asked?.data as { request?: ChatPermissionRequest } | undefined)?.request
+  assert.equal(askedRequest?.wanta?.promptReason, "sensitive_resource")
 })
 
 test("trusted project read-only shell commands are approved without showing a permission card", async () => {
@@ -3152,6 +3155,67 @@ test("automatic permission replies are deduplicated across pending reload and ev
   assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
   resolveReply?.()
   await waitForCondition(() => events.some((event) => event.event === "permissionReplied"))
+})
+
+test("automatic permission replies retry a transient sidecar failure before prompting", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  const request = {
+    id: "permission-1",
+    sessionId: "session-1",
+    action: "bash",
+    resources: ["npm test"],
+    metadata: { command: "npm test" },
+  }
+  bridge.answerPermission.mockRejectedValueOnce(new Error("temporary bridge failure"))
+  bridge.getPendingPermissions.mockResolvedValueOnce([request])
+
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: { ...request, sessionID: request.sessionId },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
+  await waitForCondition(() => events.some((event) => event.event === "permissionReplied"))
+  assert.deepEqual(bridge.answerPermission.mock.calls, [
+    ["session-1", "permission-1", "once"],
+    ["session-1", "permission-1", "once"],
+  ])
+  assert.equal(
+    events.some((event) => event.event === "permissionAsked"),
+    false,
+  )
+})
+
+test("automatic permission reply failures are identified separately from policy prompts", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  const request = {
+    id: "permission-1",
+    sessionId: "session-1",
+    action: "bash",
+    resources: ["npm test"],
+    metadata: { command: "npm test" },
+  }
+  bridge.answerPermission.mockRejectedValue(new Error("bridge unavailable"))
+  bridge.getPendingPermissions.mockResolvedValue([request])
+
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: { ...request, sessionID: request.sessionId },
+  })
+
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+  const asked = events.find((event) => event.event === "permissionAsked")
+  const askedRequest = (asked?.data as { request?: ChatPermissionRequest } | undefined)?.request
+  assert.deepEqual(askedRequest?.wanta, {
+    automaticReplyFailed: true,
+    promptReason: "automatic_reply_failed",
+  })
 })
 
 test("pure oo permissions are approved in the main process", async () => {
@@ -3642,7 +3706,7 @@ test("package runner probes and document commands are approved from structure ra
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
 })
 
-test("project dependency task approval avoids repeated prompts during the active generation", async () => {
+test("bounded project dependency operations avoid repeated prompts", async () => {
   const bridge = createBridgeAgent()
   const projectPath = "/Users/example/code/wanta"
   const service = new ChatServiceImpl(bridge.agent, {
@@ -3676,9 +3740,7 @@ test("project dependency task approval avoids repeated prompts during the active
       metadata: { command: install },
     },
   })
-  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
-
-  await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "always" })
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
   const addDependency = `cd ${projectPath} && pnpm install`
   bridge.emit({
     type: "permission.v2.asked",
@@ -3696,7 +3758,7 @@ test("project dependency task approval avoids repeated prompts during the active
     ["session-1", "permission-1", "once"],
     ["session-1", "permission-2", "once"],
   ])
-  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 1)
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
 
   bridge.emit({
     type: "message.updated",
@@ -3720,8 +3782,8 @@ test("project dependency task approval avoids repeated prompts during the active
       metadata: { command: addDependency },
     },
   })
-  await waitForCondition(() => events.filter((event) => event.event === "permissionAsked").length === 2)
-  assert.equal(bridge.answerPermission.mock.calls.length, 2)
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 3)
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 0)
 })
 
 test("buildContextMentionsSystem returns undefined without selected context", () => {

@@ -568,52 +568,6 @@ test("task-scoped managed Python grants only cover the approved packages in the 
   )
 })
 
-test("task-scoped project dependency grants cover only the active project task", () => {
-  const root = "/Users/example/code/wanta"
-  const grant = localAccessGrantForRequest(permission({ metadata: { command: `cd ${root} && pnpm install` } }), {
-    projectDependencyGenerationId: "turn-1",
-    trustedProjectRoot: root,
-  })
-
-  assert.deepEqual(grant, {
-    action: "bash",
-    generationId: "turn-1",
-    kind: "project_dependency_install",
-    patterns: ["project_dependency_install"],
-    projectRoot: root,
-  })
-  assert.deepEqual(
-    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${root} && pnpm install` } }), {
-      activeGenerationId: "turn-1",
-      permissionMode: "default",
-      sessionGrants: grant ? [grant] : [],
-      trustedProjectRoot: root,
-    }),
-    { type: "allow", reason: "session_grant", kind: "command", highRisk: false },
-  )
-  assert.deepEqual(
-    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${root} && pnpm install` } }), {
-      activeGenerationId: "turn-2",
-      permissionMode: "default",
-      sessionGrants: grant ? [grant] : [],
-      trustedProjectRoot: root,
-    }),
-    { type: "prompt", kind: "command", highRisk: false },
-  )
-  assert.deepEqual(
-    evaluateLocalAccessRequest(
-      permission({ metadata: { command: `cd ${root} && pnpm add left-pad --registry https://example.test` } }),
-      {
-        activeGenerationId: "turn-1",
-        permissionMode: "default",
-        sessionGrants: grant ? [grant] : [],
-        trustedProjectRoot: root,
-      },
-    ),
-    { type: "prompt", kind: "command", highRisk: true },
-  )
-})
-
 test("local access policy allows requests in full access mode", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "rm -rf /tmp/wanta-test" } }), {
@@ -621,6 +575,38 @@ test("local access policy allows requests in full access mode", () => {
     }),
     { type: "allow", reason: "full_access", kind: "command", highRisk: true },
   )
+})
+
+test("default access auto-approves low-consequence generated-output cleanup", () => {
+  const taskProcessRoot = "/tmp/wanta/process/turn-1"
+  const trustedProjectRoot = "/Users/example/code/app"
+  for (const command of [
+    `rm -rf ${taskProcessRoot}/scratch`,
+    `cd ${trustedProjectRoot} && rm -rf dist`,
+    `rm -rf ${trustedProjectRoot}/node_modules`,
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+        taskProcessRoot,
+        trustedProjectRoot,
+      }),
+      { type: "allow", reason: "bounded_cleanup", kind: "command", highRisk: true },
+      command,
+    )
+  }
+
+  for (const command of [`rm -rf ${trustedProjectRoot}`, `rm -rf ${trustedProjectRoot}/src`]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+        taskProcessRoot,
+        trustedProjectRoot,
+      }),
+      { type: "prompt", kind: "command", highRisk: true },
+      command,
+    )
+  }
 })
 
 test("local access policy allows requests covered by a session grant", () => {

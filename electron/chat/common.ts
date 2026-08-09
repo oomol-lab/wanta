@@ -157,6 +157,13 @@ export interface RejectQuestionRequest {
   requestId: string
 }
 export type ChatPermissionReply = "once" | "always" | "reject"
+export type LocalPermissionPromptReason =
+  | "automatic_reply_failed"
+  | "broad_resource"
+  | "dependency_mutation"
+  | "high_risk_command"
+  | "sensitive_resource"
+  | "unclassified_request"
 export interface ChatPermissionRequest {
   id: string
   sessionId: string
@@ -164,6 +171,11 @@ export interface ChatPermissionRequest {
   resources: string[]
   save?: string[]
   metadata?: Record<string, unknown>
+  /** Wanta-owned presentation context. Never accepted as policy input from OpenCode. */
+  wanta?: {
+    automaticReplyFailed?: boolean
+    promptReason?: LocalPermissionPromptReason
+  }
   tool?: {
     messageId: string
     callId: string

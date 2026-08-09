@@ -260,6 +260,10 @@
   access mode, and relays the user's choice; ⑤ the system prompt was fully rewritten as
   dual-capability (connector meta-tools + local tools) with dynamic additions per access mode —
   opening the tools without changing the prompt leaves the model refusing itself.
+  Default-access prompts carry a product-owned reason for user-facing explanation and privacy-safe
+  aggregate diagnostics. Automatic permission replies reconcile pending state and retry once before
+  falling back to a card; if delivery still fails, the card explicitly identifies a local runtime
+  problem instead of implying that an ordinary operation was classified as dangerous.
 - **Rationale (key constraints)**: OpenCode permission values are `ask | allow | deny`. Wanta's
   product layer does not expose fine-grained permissions, sparing users from understanding
   per-built-in-tool rules; underneath, OpenCode ask still gates high-risk local actions. **Do not
@@ -272,7 +276,8 @@
   `npm test`, `rg`, data-processing scripts, or ordinary Desktop/Downloads files one by one;
   specific non-sensitive file reads stay smooth, and only broad scans of the whole home/system
   root prompt. Unscoped, global/system, or alternate-source dependency changes, reading credentials/keys, browser login state,
-  mail/messages/contacts/calendar data, recursive or destructive deletion, storage overwrite,
+  mail/messages/contacts/calendar data, recursive or destructive deletion outside managed scratch
+  or exact well-known generated project roots, storage overwrite,
   privilege escalation, push, deploy, remote repository deletion, and infrastructure or recursive
   cloud-storage destruction still require confirmation; such sensitive reads take precedence over
   generic directory session grants and cannot be silently waved through because the user once
@@ -280,13 +285,12 @@
   coding and document tasks from drowning in back-to-back approvals, dependency approval follows
   execution scope and explicit source overrides rather than a reviewed popularity list: direct
   Python requirements use the exact turn-private `.wanta-python` interpreter or an exact selected
-  project's `.venv` / `venv` interpreter, directly or through `uv pip --python`; direct Node.js
-  packages use npm/pnpm/yarn/bun commands explicitly targeted at the turn process directory or
-  selected project. Normal extras, version constraints, and unfamiliar ordinary flags are accepted
+  project's `.venv` / `venv` interpreter, directly or through `uv pip --python`; standard Node.js
+  install/ci/add/remove/update operations use npm/pnpm/yarn/bun commands explicitly targeted at the
+  turn process directory or selected project and may be lockfile-driven without package arguments.
+  Normal extras, version constraints, and unfamiliar ordinary flags are accepted
   without Wanta pinning a version. Node.js and Python package runners are ordinary local execution
-  rather than a separate high-risk class. The user can still issue a task-level grant for
-  no-argument or other Node.js dependency operations explicitly targeted at the selected project;
-  those grants do not outlive their intended task/session scope. Package names, package size, and
+  rather than a separate high-risk class. Package names, package size, and
   browser tooling do not create confirmations. Global installs, custom registries, alternative
   indexes, user config, Git/URL/local sources, requirements files, `--user`,
   `--break-system-packages`, bare pip, and system Python remain protected. Default Access is a risk policy

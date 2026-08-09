@@ -6,7 +6,6 @@ import * as React from "react"
 import { toast } from "sonner"
 import {
   isHighRiskPermissionRequest,
-  isLikelyProjectDependencyInstallRequest,
   isLikelyProjectDevCommandRequest,
   isPythonDependencyPermissionRequest,
   managedPythonDependencyInstall,
@@ -41,13 +40,11 @@ export function PermissionRequiredCard({
   const highRisk = isHighRiskPermissionRequest(request)
   const resource = kind === "command" ? permissionCommand(request) : permissionPrimaryResource(request)
   const projectDevCommand = kind === "command" && isLikelyProjectDevCommandRequest(request)
-  const projectDependencyInstall = isLikelyProjectDependencyInstallRequest(request)
   const pythonDependencyInstall = managedPythonDependencyInstall(request)
   const pythonDependencyRequest = isPythonDependencyPermissionRequest(request)
   const sensitiveResource = permissionRequestHasSensitiveResource(request)
-  const taskScopedDependencyInstall = Boolean(
-    (pythonDependencyInstall || projectDependencyInstall) && !sensitiveResource,
-  )
+  const promptReason = request.wanta?.promptReason
+  const taskScopedDependencyInstall = Boolean(pythonDependencyInstall && !sensitiveResource)
   const canAllowForSession = Boolean(
     (!highRisk || taskScopedDependencyInstall) &&
     !sensitiveResource &&
@@ -86,27 +83,28 @@ export function PermissionRequiredCard({
       title: t("chat.permissionPathTitle"),
     },
   }
-  const copy = sensitiveResource
+  const copy = request.wanta?.automaticReplyFailed
     ? {
         ...copyByKind[kind],
-        description: t("chat.permissionSensitiveDataDescription", { resource: resource ?? request.action }),
-        title: t("chat.permissionSensitiveDataTitle"),
+        description: t("chat.permissionAutomaticReplyFailedDescription", {
+          operation: resource ?? request.action,
+        }),
+        title: t("chat.permissionAutomaticReplyFailedTitle"),
       }
-    : pythonDependencyInstall
+    : sensitiveResource
       ? {
-          ...copyByKind.command,
-          allowForSessionLabel: t("chat.permissionRequiredAllowPythonDependenciesTask"),
-          description: t("chat.permissionPythonDependencyDescription", {
-            packages: pythonDependencyInstall.packages.join(", "),
-          }),
-          title: t("chat.permissionPythonDependencyTitle"),
+          ...copyByKind[kind],
+          description: t("chat.permissionSensitiveDataDescription", { resource: resource ?? request.action }),
+          title: t("chat.permissionSensitiveDataTitle"),
         }
-      : projectDependencyInstall
+      : pythonDependencyInstall
         ? {
             ...copyByKind.command,
-            allowForSessionLabel: t("chat.permissionRequiredAllowProjectDependenciesTask"),
-            description: t("chat.permissionProjectDependencyDescription", { command: resource ?? request.action }),
-            title: t("chat.permissionProjectDependencyTitle"),
+            allowForSessionLabel: t("chat.permissionRequiredAllowPythonDependenciesTask"),
+            description: t("chat.permissionPythonDependencyDescription", {
+              packages: pythonDependencyInstall.packages.join(", "),
+            }),
+            title: t("chat.permissionPythonDependencyTitle"),
           }
         : highRisk
           ? {
@@ -122,7 +120,23 @@ export function PermissionRequiredCard({
                 }),
                 title: t("chat.permissionPythonDependencyTitle"),
               }
-            : copyByKind[kind]
+            : promptReason === "broad_resource"
+              ? {
+                  ...copyByKind[kind],
+                  description: t("chat.permissionBroadAccessDescription", {
+                    resource: resource ?? request.action,
+                  }),
+                  title: t("chat.permissionBroadAccessTitle"),
+                }
+              : promptReason === "dependency_mutation"
+                ? {
+                    ...copyByKind.command,
+                    description: t("chat.permissionDependencyBoundaryDescription", {
+                      command: resource ?? request.action,
+                    }),
+                    title: t("chat.permissionDependencyBoundaryTitle"),
+                  }
+                : copyByKind[kind]
   React.useEffect(() => {
     setSubmitting(false)
   }, [request.id])

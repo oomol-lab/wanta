@@ -156,17 +156,27 @@
   stays ordinary whether expressed as separate commands or one bounded `&&` chain; harmless
   file-descriptor duplication such as `2>&1` does not change that result. This does not cover
   `--user`, `--break-system-packages`, extra indexes, URL/local-path/requirements files, bare pip,
-  or system Python. Direct Node.js packages with no explicit source override are auto-approved only
-  when an npm/pnpm/yarn/bun install explicitly targets the turn process directory or the currently
-  selected project. Node.js and Python package runners are ordinary local execution rather than a
-  package-specific risk class.
-  No-argument or other project dependency operations can earn a task-level grant valid only for the
-  current generation. Package names, package size, browser tooling, and unfamiliar ordinary flags
-  are not confirmation boundaries. Global installs, custom registries, user config, Git/URL/local
+  or system Python. Standard Node.js install/ci/add/remove/update operations with no explicit source
+  override are auto-approved when npm/pnpm/yarn/bun explicitly targets the turn process directory
+  or the currently selected project; lockfile-driven operations do not need a package argument.
+  Node.js and Python package runners are ordinary local execution rather than a package-specific
+  risk class. Package names, package size, browser tooling, and unfamiliar ordinary flags are not
+  confirmation boundaries. Recursive cleanup is also auto-approved for direct children of Wanta's
+  per-turn process directory and for exact well-known generated project roots such as `dist`,
+  `coverage`, and `node_modules`; project roots, source directories, variables, wildcards, and
+  composed destructive commands remain protected. Global installs, custom registries, user config, Git/URL/local
   package sources, and out-of-scope commands never qualify for automatic approval. Session
   grants may still cover non-sensitive requests the user has explicitly allowed; Full Access =
   session-level local YOLO — once confirmed, the main process auto-replies local permissions for the
   session and stops doing per-request local risk judgment.
+  User-visible prompts carry a Wanta-owned reason (`sensitive_resource`, `broad_resource`,
+  `high_risk_command`, `dependency_mutation`, or `unclassified_request`) so the renderer can explain
+  the boundary instead of presenting a generic approval. A safe request whose automatic reply
+  fails is labeled `automatic_reply_failed`, retried once, and presented as a runtime-delivery
+  problem rather than misrepresented as high risk. In-memory counters record only these reason and
+  outcome categories—never commands, resources, or paths—and are included in `/bug-report`
+  runtime metadata. Standard bounded project dependency operations are automatic, so do not
+  reintroduce the obsolete project-dependency task grant or its renderer action.
   New ask rules must be verified end to end: pending-permission queries, event push, auto-approve
   dedup, and reply.
 - **oo CLI fast path**: OOMOL keeps the OpenCode fast pass for commands whose first token is `oo` /

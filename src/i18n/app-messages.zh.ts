@@ -932,7 +932,9 @@ export const zhCNMessages = {
   "chat.permissionHighRiskTitle": "需要确认高风险命令",
   "chat.permissionSensitiveDataTitle": "需要确认私密数据访问",
   "chat.permissionPythonDependencyTitle": "需要安装 Python 依赖",
-  "chat.permissionProjectDependencyTitle": "需要修改项目依赖",
+  "chat.permissionBroadAccessTitle": "需要确认大范围访问",
+  "chat.permissionAutomaticReplyFailedTitle": "自动批准未完成",
+  "chat.permissionDependencyBoundaryTitle": "需要确认依赖操作",
   "chat.permissionRequiredDescription": "Wanta 需要执行本次本地操作。\n允许本次操作不会开启完全访问权限。",
   "chat.permissionCommandDescription": "Wanta 想执行：\n{command}\n允许本次操作不会开启完全访问权限。",
   "chat.permissionPathDescription": "Wanta 想访问：\n{path}\n允许本次操作不会开启完全访问权限。",
@@ -944,14 +946,17 @@ export const zhCNMessages = {
     "Wanta 需要在本次任务的隔离 Python 环境中安装：\n{packages}\n不会修改系统 Python 或用户全局包。",
   "chat.permissionPythonDependencyBoundaryDescription":
     "Wanta 想执行 Python 依赖操作：\n{command}\n其目标范围或依赖来源超出了自动批准边界，需要确认。",
-  "chat.permissionProjectDependencyDescription":
-    "Wanta 想在当前项目中执行依赖操作：\n{command}\n允许后，本次任务内同一项目的标准依赖操作不再逐次确认。",
+  "chat.permissionBroadAccessDescription":
+    "Wanta 想访问较大的本地范围：\n{resource}\n该范围可能包含与当前任务无关的文件，请确认后继续。",
+  "chat.permissionAutomaticReplyFailedDescription":
+    "Wanta 原本可以自动执行这项普通操作，但本地 Agent 没有成功接收自动批准：\n{operation}\n你可以确认继续；这不表示操作本身被判定为高风险。",
+  "chat.permissionDependencyBoundaryDescription":
+    "Wanta 想执行依赖操作：\n{command}\n目标项目、安装范围或依赖来源不在自动批准边界内，需要确认。",
   "chat.permissionRequiredAllowOnce": "允许本次操作",
   "chat.permissionRequiredAllowSession": "本会话内允许",
   "chat.permissionRequiredAllowCommandSession": "本会话内允许此命令",
   "chat.permissionRequiredAllowProjectDevSession": "本会话内允许项目开发命令",
   "chat.permissionRequiredAllowPythonDependenciesTask": "本次任务允许这些 Python 依赖",
-  "chat.permissionRequiredAllowProjectDependenciesTask": "本次任务允许项目依赖操作",
   "chat.permissionRequiredAllowPathSession": "本会话内允许此文件夹",
   "chat.permissionRequiredAllowEditSession": "本会话内允许此路径",
   "chat.permissionRequiredReject": "取消此步骤",

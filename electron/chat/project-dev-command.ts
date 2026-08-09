@@ -19,7 +19,6 @@ import {
   splitLeadingAnd,
 } from "./shell-command.ts"
 
-const projectDependencyInstallGrantPattern = "project_dependency_install"
 const projectDevCommandGrantPattern = "project_dev_command"
 const packageManagers = new Set(["bun", "npm", "pnpm", "yarn"])
 const packageDependencyVerbs = new Set(["add", "ci", "i", "install", "remove", "rm", "uninstall", "update", "upgrade"])
@@ -255,15 +254,6 @@ function commandExplicitlyTargetsProject(command: string, projectRoot: string): 
   return false
 }
 
-function commandLikelyTargetsAProject(command: string): boolean {
-  const split = splitLeadingAnd(command)
-  if (split) {
-    return Boolean(explicitCdDirectory(split.left))
-  }
-  const words = shellWords(command)
-  return Boolean(words?.some((word) => projectTargetOptions.has(optionName(word))))
-}
-
 function directDevCommandAllowed(words: readonly string[]): boolean {
   const name = commandName(words[0])
   if (!name) {
@@ -344,25 +334,6 @@ export function isProjectDevCommandRequest(request: ChatPermissionRequest, proje
 }
 
 /**
- * 只识别显式指向当前项目的标准包管理器依赖变更。它用于一次当前任务授权，
- * 不接受全局安装、自定义 registry 或 user config，避免扩大为任意包管理器权限。
- */
-export function isProjectDependencyInstallRequest(request: ChatPermissionRequest, projectRoot: string): boolean {
-  if (permissionRequestKind(request) !== "command") {
-    return false
-  }
-  const command = permissionCommand(request)
-  const words = command ? parsedProjectDevCommandWords(command, projectRoot) : null
-  return Boolean(
-    command &&
-    words &&
-    commandExplicitlyTargetsProject(command, projectRoot) &&
-    packageDependencyInstallAllowed(words) &&
-    directInstallArgumentsUseStandardRegistry(words),
-  )
-}
-
-/**
  * Recognizes a direct standard-registry install inside one bounded target.
  * Package popularity is irrelevant; global installs and alternate sources remain confirmation
  * boundaries.
@@ -380,19 +351,9 @@ export function isStandardRegistryNodeDependencyInstallRequest(
     command &&
     words &&
     commandExplicitlyTargetsProject(command, targetRoot) &&
-    !hasDeniedProjectDependencyOption(words) &&
-    registryNodeDependencyPackages(words, { allowEmpty: false }),
+    packageDependencyInstallAllowed(words) &&
+    directInstallArgumentsUseStandardRegistry(words),
   )
-}
-
-/** 渲染层只用于展示当前任务授权入口；主进程仍会复核真实项目根目录。 */
-export function isLikelyProjectDependencyInstallRequest(request: ChatPermissionRequest): boolean {
-  if (permissionRequestKind(request) !== "command") {
-    return false
-  }
-  const command = permissionCommand(request)
-  const words = command ? parsedLikelyProjectDevCommandWords(command) : null
-  return Boolean(command && words && commandLikelyTargetsAProject(command) && packageDependencyInstallAllowed(words))
 }
 
 export function createProjectDevCommandSessionGrant(
@@ -405,23 +366,6 @@ export function createProjectDevCommandSessionGrant(
   return { action: "command", kind: "project_dev_command", patterns: [projectDevCommandGrantPattern] }
 }
 
-export function createProjectDependencyInstallTaskGrant(
-  request: ChatPermissionRequest,
-  projectRoot: string,
-  generationId: string,
-): SessionPermissionGrant | null {
-  if (!isProjectDependencyInstallRequest(request, projectRoot)) {
-    return null
-  }
-  return {
-    action: request.action.trim().toLowerCase(),
-    generationId,
-    kind: "project_dependency_install",
-    patterns: [projectDependencyInstallGrantPattern],
-    projectRoot,
-  }
-}
-
 export function requestMatchesProjectDevCommandSessionGrant(
   request: ChatPermissionRequest,
   grant: SessionPermissionGrant,
@@ -431,22 +375,5 @@ export function requestMatchesProjectDevCommandSessionGrant(
     grant.kind === "project_dev_command" &&
     grant.patterns.includes(projectDevCommandGrantPattern) &&
     isProjectDevCommandRequest(request, projectRoot)
-  )
-}
-
-export function requestMatchesProjectDependencyInstallTaskGrant(
-  request: ChatPermissionRequest,
-  grant: SessionPermissionGrant,
-  projectRoot: string,
-  generationId: string | undefined,
-): boolean {
-  return Boolean(
-    generationId &&
-    grant.kind === "project_dependency_install" &&
-    grant.action === request.action.trim().toLowerCase() &&
-    grant.generationId === generationId &&
-    grant.projectRoot === projectRoot &&
-    grant.patterns.includes(projectDependencyInstallGrantPattern) &&
-    isProjectDependencyInstallRequest(request, projectRoot),
   )
 }

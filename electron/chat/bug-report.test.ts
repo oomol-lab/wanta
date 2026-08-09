@@ -37,6 +37,10 @@ describe("bug report command", () => {
         generatedAt: "2026-07-13T06:30:22.000Z",
         model: "builtin:oomol/oopilot",
         permissionMode: "default",
+        permissionDiagnostics: {
+          automaticReplies: { failed: 0, first_attempt: 4, reconciled: 1, retry_succeeded: 2 },
+          prompts: { broad_resource: 1 },
+        },
         platform: "darwin",
       },
       targetFilePath: "/tmp/artifacts/wanta-bug-report.md",
@@ -49,6 +53,8 @@ describe("bug report command", () => {
     expect(prompt).toContain("Do not reproduce the report body in the assistant response")
     expect(prompt).toContain("never include credentials, tokens, cookies")
     expect(prompt).toContain("- Wanta version: 1.2.3")
+    expect(prompt).toContain('"retry_succeeded":2')
+    expect(prompt).toContain('"broad_resource":1')
     expect(prompt).toContain("## Acceptance criteria")
   })
 })

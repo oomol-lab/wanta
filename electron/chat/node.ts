@@ -2089,27 +2089,34 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     let request = this.pendingPermissionRequest(req.sessionId, req.requestId)
     const sessionIds = [req.sessionId, ...this.subagentSessions.childSessionIds(req.sessionId)]
-    if (req.reply === "always") {
-      if (!request) {
-        try {
-          request = (await this.agent.getPendingPermissionsForSessions(sessionIds)).find(
-            (item) => item.id === req.requestId,
-          )
-        } catch (error) {
-          console.warn("[wanta] failed to inspect permission before saving session grant:", error)
-          logDiagnostic(
-            "chat-service",
-            "failed to inspect permission before saving session grant",
-            { error, requestId: req.requestId, sessionId: req.sessionId },
-            "warn",
-          )
+    if (!request) {
+      try {
+        request = (await this.agent.getPendingPermissionsForSessions(sessionIds)).find(
+          (item) => item.id === req.requestId,
+        )
+        if (!request) {
+          this.activeRuns.removeBlockingRequest(req.sessionId, req.requestId)
+          this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
+          this.emitSessionActivity(req.sessionId)
+          return
         }
-      }
-      if (request) {
-        this.addSessionPermissionGrant(req.sessionId, request)
+      } catch (error) {
+        console.warn("[wanta] failed to inspect permission before replying:", error)
+        logDiagnostic(
+          "chat-service",
+          "failed to inspect permission before replying",
+          { error, requestId: req.requestId, sessionId: req.sessionId },
+          "warn",
+        )
+        throw error
       }
     }
-    const sourceSessionId = request?.sessionId ?? req.sessionId
+    if (req.reply === "always") {
+      for (const sessionId of sessionIds) {
+        this.addSessionPermissionGrant(sessionId, request)
+      }
+    }
+    const sourceSessionId = request.sessionId
     await this.agent.answerPermission(sourceSessionId, req.requestId, req.reply === "always" ? "once" : req.reply)
     if (req.reply !== "reject" && request) {
       this.rememberTrustedPermissionResources(req.sessionId, request)

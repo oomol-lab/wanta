@@ -3317,12 +3317,12 @@ test("a later automatic success clears failed permission state from the source c
   assert.deepEqual(await service.getPendingPermissions("parent-session"), [])
   await waitForCondition(() => events.some((event) => event.event === "permissionReplied"))
 
+  bridge.getPendingPermissions.mockResolvedValue([])
   await service.answerPermission({ sessionId: "parent-session", requestId: "permission-1", reply: "once" })
   assert.deepEqual(bridge.answerPermission.mock.calls, [
     ["child-session", "permission-1", "once"],
     ["child-session", "permission-1", "once"],
     ["child-session", "permission-1", "once"],
-    ["parent-session", "permission-1", "once"],
   ])
 })
 
@@ -3464,6 +3464,59 @@ test("always permission reply stores a main-process session grant", async () => 
   ])
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 1)
   assert.equal(bridge.getPendingPermissions.mock.calls.length, 0)
+})
+
+test("always permission replies propagate grants to active task subagents", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "task-1",
+        sessionID: "parent-session",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "task",
+        state: {
+          status: "running",
+          input: {},
+          metadata: { parentSessionId: "parent-session", sessionId: "child-session" },
+        },
+      },
+    },
+  })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "child-session",
+      action: "external_directory",
+      resources: ["/Users/example"],
+    },
+  })
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+
+  await service.answerPermission({ sessionId: "parent-session", requestId: "permission-1", reply: "always" })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-2",
+      sessionID: "child-session",
+      action: "external_directory",
+      resources: ["/Users/example/Documents/report.xlsx"],
+    },
+  })
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
+
+  assert.deepEqual(bridge.answerPermission.mock.calls, [
+    ["child-session", "permission-1", "once"],
+    ["child-session", "permission-2", "once"],
+  ])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 1)
 })
 
 test("direct managed Python dependencies are approved automatically in the active turn environment", async () => {

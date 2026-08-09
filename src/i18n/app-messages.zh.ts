@@ -1195,6 +1195,8 @@ export const zhCNMessages = {
   "connections.scenario.communicationTitle": "团队沟通",
   "connections.scenario.communicationDescription": "通过聊天、邮件和通知服务同步进展、协同工作。",
   "connections.scenario.explore": "查看相关连接",
+  "connections.scenario.current": "当前",
+  "connections.scenario.connectionCount": "{count} 个连接",
   "connections.directlyAvailable": "免配置",
   "connections.viewDetails": "查看",
   "connections.reconnect": "重新连接",

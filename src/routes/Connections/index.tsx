@@ -245,7 +245,9 @@ export function ConnectionsPanel({
     setQuery("")
     setAuthFilter("all")
     setSortMode("recommended")
-    setActiveFilter({ kind: "category", category })
+    setActiveFilter((current) =>
+      current.kind === "category" && current.category === category ? { kind: "all" } : { kind: "category", category },
+    )
     setSelectedProviderService(null)
     setNarrowPane("list")
   }, [])
@@ -766,7 +768,13 @@ export function ConnectionsPanel({
       >
         <SplitViewListPane ref={listPaneRef} narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
-            {!selectedProvider ? <ConnectionScenarioShowcase providers={providers} onSelect={selectScenario} /> : null}
+            {!selectedProvider ? (
+              <ConnectionScenarioShowcase
+                activeCategory={activeFilter.kind === "category" ? activeFilter.category : null}
+                providers={providers}
+                onSelect={selectScenario}
+              />
+            ) : null}
             {summary?.appsStatus && summary.appsStatus !== "ready" ? (
               <ConnectionStateNotice status={summary.appsStatus} />
             ) : null}

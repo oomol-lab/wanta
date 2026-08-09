@@ -225,12 +225,9 @@ export function ReadOnlyConnectionNotice() {
 export function ConnectionStateNotice({ status }: { status: "forbidden" | "unavailable" }) {
   const t = useT()
   return (
-    <section className="grid gap-1 rounded-lg border border-dashed px-3 py-2.5">
-      <div className="flex min-w-0 items-center gap-2">
-        <AlertCircle className="oo-icon-muted size-4" />
-        <div className="oo-text-label truncate">{t("connections.stateUnavailableTitle")}</div>
-      </div>
-      <div className="oo-text-caption oo-text-muted">
+    <section className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg border border-dashed px-3 py-2">
+      <AlertCircle className="oo-icon-muted size-4 shrink-0" />
+      <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={t("connections.stateUnavailableTitle")}>
         {t(
           status === "forbidden" ? "connections.stateForbiddenDescription" : "connections.stateUnavailableDescription",
         )}

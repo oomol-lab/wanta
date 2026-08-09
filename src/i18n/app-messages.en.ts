@@ -1249,6 +1249,8 @@ export const enMessages = {
   "connections.scenario.communicationTitle": "Team communication",
   "connections.scenario.communicationDescription": "Keep work in sync through chat, email, and notification services.",
   "connections.scenario.explore": "Explore connections",
+  "connections.scenario.current": "Current",
+  "connections.scenario.connectionCount": "{count} connections",
   "connections.directlyAvailable": "No setup",
   "connections.viewDetails": "View",
   "connections.reconnect": "Reconnect",

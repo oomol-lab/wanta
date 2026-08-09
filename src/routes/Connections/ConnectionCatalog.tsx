@@ -120,7 +120,7 @@ export function ConnectionListToolbar({
     }
 
     const updateVisibleCategoryCount = () => {
-      const availableWidth = filterRow.clientWidth
+      const availableWidth = (filterRow.firstElementChild as HTMLElement | null)?.clientWidth ?? filterRow.clientWidth
       const allWidth = getMeasurement("all")
       const availableToolsWidth = getMeasurement("available-tools")
       const connectedWidth = getMeasurement("connected")
@@ -185,11 +185,10 @@ export function ConnectionListToolbar({
 
   return (
     <div className="grid w-full min-w-0 gap-2">
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <span className="oo-text-label font-semibold">{t("connections.teamCatalogTitle")}</span>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <SearchField
-            className="w-64 max-w-full"
+            className="min-w-48 flex-1"
             value={query}
             placeholder={t("connections.searchProviders")}
             onChange={(event) => onQueryChange(event.currentTarget.value)}
@@ -198,7 +197,7 @@ export function ConnectionListToolbar({
           <ProviderAuthFilterMenu value={authFilter} onChange={onAuthFilterChange} onReset={onReset} />
         </div>
       </div>
-      <div ref={filterRowRef} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
+      <div ref={filterRowRef} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
         <div className="oo-connection-filter-row flex min-w-0 items-center overflow-x-auto overflow-y-hidden">
           <ToggleGroup
             type="single"
@@ -252,58 +251,50 @@ export function ConnectionListToolbar({
             ))}
           </ToggleGroup>
         </div>
-        {overflowCategoryFilters.length > 0 ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 rounded-md transition-[background-color,border-color,box-shadow,transform] active:translate-y-px data-[state=open]:border-[var(--accent-ring)] data-[state=open]:bg-[var(--accent-soft)] data-[state=open]:text-foreground data-[state=open]:shadow-[inset_0_0_0_1px_var(--accent-ring)]"
-              >
-                {t("connections.moreCategories")}
-                <ChevronDown className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={8} className="w-56">
-              <DropdownMenuLabel>{t("connections.category")}</DropdownMenuLabel>
-              {overflowCategoryFilters.map((filter) => (
-                <DropdownMenuItem
-                  key={filter.label}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] gap-3"
-                  onSelect={() => onFilterChange({ kind: "category", category: filter.label })}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {overflowCategoryFilters.length > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 rounded-md transition-[background-color,border-color,box-shadow,transform] active:translate-y-px data-[state=open]:border-[var(--accent-ring)] data-[state=open]:bg-[var(--accent-soft)] data-[state=open]:text-foreground data-[state=open]:shadow-[inset_0_0_0_1px_var(--accent-ring)]"
                 >
-                  <span className="truncate">{filter.displayLabel}</span>
-                  <span className="oo-text-muted">{filter.count}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
-      </div>
-      <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 border-t pt-2">
-        <span className="oo-text-micro oo-text-muted mr-auto">
-          {t("connections.showingProviders", { count: resultCount, total: totalCount })}
-        </span>
-        {activeFilter.kind !== "all" ? (
-          <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => onFilterChange({ kind: "all" })}>
-            {activeFilter.kind === "category"
-              ? (categoryFilters.find((filter) => filter.label === activeFilter.category)?.displayLabel ??
-                activeFilter.category)
-              : catalogFilterLabel(activeFilter.kind, t)}
-            <X className="size-3" />
-          </Button>
-        ) : null}
-        {authFilter !== "all" ? (
-          <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => onAuthFilterChange("all")}>
-            {authFilterLabel(authFilter, t)}
-            <X className="size-3" />
-          </Button>
-        ) : null}
-        {hasFilters ? (
-          <Button variant="ghost" size="sm" className="h-7 px-2" onClick={onReset}>
-            {t("connections.resetFilters")}
-          </Button>
-        ) : null}
+                  {t("connections.moreCategories")}
+                  <ChevronDown className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={8} className="w-56">
+                <DropdownMenuLabel>{t("connections.category")}</DropdownMenuLabel>
+                {overflowCategoryFilters.map((filter) => (
+                  <DropdownMenuItem
+                    key={filter.label}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] gap-3"
+                    onSelect={() => onFilterChange({ kind: "category", category: filter.label })}
+                  >
+                    <span className="truncate">{filter.displayLabel}</span>
+                    <span className="oo-text-muted">{filter.count}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+          <span className="oo-text-micro oo-text-muted whitespace-nowrap">
+            {t("connections.showingProviders", { count: resultCount, total: totalCount })}
+          </span>
+          {hasFilters ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              title={t("connections.resetFilters")}
+              aria-label={t("connections.resetFilters")}
+              onClick={onReset}
+            >
+              <X className="size-3.5" />
+            </Button>
+          ) : null}
+        </div>
       </div>
       <div ref={filterMeasurementRef} aria-hidden="true" className="pointer-events-none invisible absolute -z-10">
         <ToggleGroup type="single" variant="default" size="sm" spacing={1} className="flex w-max flex-nowrap gap-1">
@@ -433,13 +424,6 @@ function sortModeLabel(mode: ConnectionProviderSortMode, t: TranslateFn): string
 function authFilterLabel(filter: ConnectionAuthFilter, t: TranslateFn): string {
   if (filter === "all") return t("connections.filterAll")
   return getAuthTypeLabel(t, filter)
-}
-
-function catalogFilterLabel(filter: Exclude<ConnectionCatalogFilter["kind"], "all" | "category">, t: TranslateFn) {
-  if (filter === "available-tools") return t("connections.filterAvailableTools")
-  if (filter === "connected") return t("connections.filterConnected")
-  if (filter === "directly-available") return t("connections.filterDirectlyAvailable")
-  return t("connections.needsAttention")
 }
 
 function FilterToggleItem({ count, label, value }: { count: number | null; label: string; value: string }) {

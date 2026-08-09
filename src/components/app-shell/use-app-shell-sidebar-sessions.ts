@@ -38,8 +38,8 @@ export function useAppShellSidebarSessions({
   )
   const taskGroups = React.useMemo(() => groupSidebarSessions(taskSessions, sessionOrder), [sessionOrder, taskSessions])
   const pinnedProjectSessions = React.useMemo(
-    () => pinnedProjectSidebarSessions(projectSessions, projectSessionOrder),
-    [projectSessionOrder, projectSessions],
+    () => pinnedProjectSidebarSessions(projects, projectSessions, projectSessionOrder),
+    [projectSessionOrder, projectSessions, projects],
   )
   const projectGroups = React.useMemo(
     () => buildProjectSidebarGroups(projects, projectSessions, projectSessionOrder, { selectedSessionId }),

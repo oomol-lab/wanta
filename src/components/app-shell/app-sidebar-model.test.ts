@@ -122,15 +122,17 @@ test("buildProjectSidebarGroups hoists pinned sessions out of pinned and regular
 })
 
 test("pinnedProjectSidebarSessions includes every active pinned project session", () => {
+  const projects = [project("pinned-project", 2_000), project("regular-project", 1_000)]
   const sessions = [
     { ...session("old-pin", "pinned-project", 1_000), pinnedAt: 4_000 },
     { ...session("new-pin", "regular-project", 2_000), pinnedAt: 5_000 },
     { ...session("archived-pin", "regular-project", 3_000), pinnedAt: 6_000, archivedAt: 7_000 },
+    { ...session("missing-project-pin", "missing-project", 4_000), pinnedAt: 7_000 },
     { ...session("root-pin", "", 4_000), pinnedAt: 8_000 },
   ]
 
   assert.deepEqual(
-    pinnedProjectSidebarSessions(sessions).map((item) => item.id),
+    pinnedProjectSidebarSessions(projects, sessions).map((item) => item.id),
     ["new-pin", "old-pin"],
   )
 })

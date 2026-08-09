@@ -64,9 +64,16 @@ export function buildProjectSidebarGroups(
     .sort(compareProjectSidebarGroups)
 }
 
-export function pinnedProjectSidebarSessions(sessions: SessionInfo[], order: SidebarSessionOrder = {}): SessionInfo[] {
+export function pinnedProjectSidebarSessions(
+  projects: SessionProject[],
+  sessions: SessionInfo[],
+  order: SidebarSessionOrder = {},
+): SessionInfo[] {
+  const projectIds = new Set(projects.map((project) => project.id))
   return sessions
-    .filter((session) => session.projectId && session.pinnedAt && !session.archivedAt)
+    .filter(
+      (session) => session.projectId && projectIds.has(session.projectId) && session.pinnedAt && !session.archivedAt,
+    )
     .sort((a, b) => compareRunningSessions(a, b, order) || (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
 }
 

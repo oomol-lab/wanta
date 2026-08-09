@@ -215,6 +215,59 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
       onArchive={() => onArchiveSessionRequest(session)}
     />
   )
+  const renderTaskSectionHeader = () => (
+    <div className="group mb-2 flex h-7 items-center justify-between px-3">
+      <div className="oo-sidebar-section-heading oo-text-caption">{t("sidebar.tasks")}</div>
+      <div className="pointer-events-none -mr-1 flex items-center gap-0.5 text-sidebar-foreground/45 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              title={t("tasks.moreActions")}
+              aria-label={t("tasks.moreActions")}
+              className="flex size-6 items-center justify-center rounded hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/75"
+            >
+              <Ellipsis className="size-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-48">
+            <DropdownMenuItem onSelect={onManageTasks}>
+              <ListChecks className="size-4" />
+              {t("tasks.organize")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onNavigate("archived")}>
+              <Archive className="size-4" />
+              {t("tasks.viewArchived")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>{t("tasks.sortLabel")}</DropdownMenuLabel>
+            {(
+              [
+                ["updatedAt", t("tasks.sortUpdated")],
+                ["createdAt", t("tasks.sortCreated")],
+                ["title", t("tasks.sortTitle")],
+              ] satisfies Array<[SidebarTaskSortMode, string]>
+            ).map(([value, label]) => (
+              <DropdownMenuItem key={value} onSelect={() => onSetTaskSortMode(value)}>
+                <span>{label}</span>
+                {taskSortMode === value ? <Check className="ml-auto size-4" /> : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <button
+          type="button"
+          title={newChatLabel}
+          aria-label={newChatLabel}
+          aria-keyshortcuts={appCommandAriaShortcut(APP_COMMANDS.newChat)}
+          onClick={onNewSession}
+          className="flex size-6 items-center justify-center rounded hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/75"
+        >
+          <SquarePen className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  )
 
   return (
     <aside
@@ -302,61 +355,11 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
             <SidebarSegmentControl value={sidebarSegment} onChange={onSetSidebarSegment} />
           </div>
           <div className="oo-sidebar-session-scroll -mx-3 flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-2">
-            {sidebarSegment === "tasks" ? (
-              <div className="group mb-2 flex h-7 items-center justify-between px-3">
-                <div className="oo-sidebar-section-heading oo-text-caption">{t("sidebar.tasks")}</div>
-                <div className="pointer-events-none -mr-1 flex items-center gap-0.5 text-sidebar-foreground/45 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        title={t("tasks.moreActions")}
-                        aria-label={t("tasks.moreActions")}
-                        className="flex size-6 items-center justify-center rounded hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/75"
-                      >
-                        <Ellipsis className="size-3.5" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="min-w-48">
-                      <DropdownMenuItem onSelect={onManageTasks}>
-                        <ListChecks className="size-4" />
-                        {t("tasks.organize")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => onNavigate("archived")}>
-                        <Archive className="size-4" />
-                        {t("tasks.viewArchived")}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuLabel>{t("tasks.sortLabel")}</DropdownMenuLabel>
-                      {(
-                        [
-                          ["updatedAt", t("tasks.sortUpdated")],
-                          ["createdAt", t("tasks.sortCreated")],
-                          ["title", t("tasks.sortTitle")],
-                        ] satisfies Array<[SidebarTaskSortMode, string]>
-                      ).map(([value, label]) => (
-                        <DropdownMenuItem key={value} onSelect={() => onSetTaskSortMode(value)}>
-                          <span>{label}</span>
-                          {taskSortMode === value ? <Check className="ml-auto size-4" /> : null}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <button
-                    type="button"
-                    title={newChatLabel}
-                    aria-label={newChatLabel}
-                    aria-keyshortcuts={appCommandAriaShortcut(APP_COMMANDS.newChat)}
-                    onClick={onNewSession}
-                    className="flex size-6 items-center justify-center rounded hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/75"
-                  >
-                    <SquarePen className="size-3.5" />
-                  </button>
-                </div>
-              </div>
-            ) : null}
             {sessionsError ? (
-              <ErrorNotice error={sessionsError} compact className="mx-0" />
+              <>
+                {sidebarSegment === "tasks" ? renderTaskSectionHeader() : null}
+                <ErrorNotice error={sessionsError} compact className="mx-0" />
+              </>
             ) : sidebarSegment === "projects" ? (
               projectSidebarGroups.length > 0 ? (
                 <div className="grid gap-2">
@@ -365,8 +368,8 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
                       <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-1">
                         {t("sidebar.pinned")}
                       </div>
-                      {projectPinnedGroups.map(renderProjectGroup)}
                       {projectPinnedSessions.map(renderSession)}
+                      {projectPinnedGroups.map(renderProjectGroup)}
                     </div>
                   ) : null}
                   {projectRegularGroups.length > 0 ? (
@@ -403,9 +406,10 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
                     {visibleTaskSessionGroups.pinned.map(renderSession)}
                   </div>
                 ) : null}
-                {visibleTaskSessionGroups.regular.length > 0 ? (
-                  <div className="grid gap-0.5">{visibleTaskSessionGroups.regular.map(renderSession)}</div>
-                ) : null}
+                <div className="grid gap-0.5">
+                  {renderTaskSectionHeader()}
+                  {visibleTaskSessionGroups.regular.map(renderSession)}
+                </div>
                 {visibleTaskSessionGroups.hiddenCount > 0 ? (
                   <button
                     type="button"
@@ -419,7 +423,10 @@ export const AppShellNavigationSidebar = React.memo(function AppShellNavigationS
                 ) : null}
               </div>
             ) : (
-              <SidebarEmptyState />
+              <>
+                {renderTaskSectionHeader()}
+                <SidebarEmptyState />
+              </>
             )}
           </div>
 

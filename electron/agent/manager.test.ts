@@ -649,7 +649,7 @@ describe("AgentManager", () => {
   })
 
   it("passes OpenCode agent names and reasoning variants to promptAsync", async () => {
-    const promptAsync = vi.fn(async () => ({ data: true }))
+    const promptAsync = vi.fn(async (_parameters: unknown) => ({ data: true }))
     const manager = new AgentManager({
       linkRuntime: { kind: "oomol", sessionToken: "test" },
       modelAccess: { kind: "oomol", sessionToken: "test" },
@@ -677,7 +677,7 @@ describe("AgentManager", () => {
     expect(calls[0]?.[0].agent).toBe("plan")
     expect(calls[0]?.[0].variant).toBe("high")
     expect(calls[1]?.[0].agent).toBe("build")
-    expect(calls[1]?.[0].variant).toBe("medium")
+    expect(calls[1]?.[0]).not.toHaveProperty("variant")
     expect(calls[2]?.[0]).not.toHaveProperty("variant")
   })
 
@@ -713,6 +713,7 @@ describe("AgentManager", () => {
       const calls = promptAsync.mock.calls as unknown as Array<
         [
           {
+            model?: { modelID: string; providerID: string }
             parts: Array<{
               metadata?: Record<string, unknown>
               mime?: string
@@ -749,6 +750,22 @@ describe("AgentManager", () => {
     const imagePath = path.join(directory, "photo.png")
     await Promise.all([writeFile(jsonPath, "{}"), writeFile(imagePath, "test image")])
     const promptAsync = vi.fn(async () => ({ data: true }))
+    const imageUnderstandingFetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: '{"summary":"A test photo","images":[{"filename":"photo.png"}],"task_relevant_details":[]}',
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+    )
+    vi.stubGlobal("fetch", imageUnderstandingFetch)
     const manager = new AgentManager({
       customModels: [
         {
@@ -796,10 +813,16 @@ describe("AgentManager", () => {
         model: { kind: "builtin", id: "oopilot" },
         teamName: "acme",
       })
+      await manager.promptStreaming("session-1", "analyze", {
+        attachments: [image],
+        model: { kind: "builtin", id: "qwen3.7-plus" },
+        teamName: "acme",
+      })
 
       const calls = promptAsync.mock.calls as unknown as Array<
         [
           {
+            model?: { modelID: string; providerID: string }
             parts: Array<{
               metadata?: Record<string, unknown>
               mime?: string
@@ -817,7 +840,70 @@ describe("AgentManager", () => {
         type: "text",
         text: expect.stringContaining("does not support image input"),
       })
-      expect(calls[1]?.[0].parts[0]).toMatchObject({ mime: "image/png", type: "file" })
+      expect(calls[0]?.[0].parts[2]).toMatchObject({
+        metadata: { wantaPurpose: "image-understanding", wantaVisibility: "internal" },
+        synthetic: true,
+        type: "text",
+        text: expect.stringContaining("A test photo"),
+      })
+      expect(calls[1]?.[0]).toMatchObject({ model: { modelID: "deepseek-v4-flash", providerID: "oomol" } })
+      expect(calls[1]?.[0].parts[0]).toMatchObject({
+        metadata: { wantaPurpose: "attachment-reference", wantaVisibility: "internal" },
+        synthetic: true,
+        type: "text",
+      })
+      expect(calls[1]?.[0].parts[1]).toMatchObject({
+        metadata: { wantaPurpose: "image-understanding", wantaVisibility: "internal" },
+        synthetic: true,
+        type: "text",
+        text: expect.stringContaining("Qwen 3.7 Plus"),
+      })
+      expect(calls[2]?.[0].parts[0]).toMatchObject({ mime: "image/png", type: "file" })
+      expect(imageUnderstandingFetch).toHaveBeenCalledTimes(2)
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("prevents visual guessing when assisted image understanding fails", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-image-understanding-failure-"))
+    const imagePath = path.join(directory, "photo.png")
+    await writeFile(imagePath, "test image")
+    const promptAsync = vi.fn(async (_parameters: unknown) => ({ data: true }))
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unavailable", { status: 503 })),
+    )
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { session: { promptAsync } } }
+    manager.buildAuthorizedSystem = async () => undefined
+
+    try {
+      await manager.promptStreaming("session-1", "what is shown?", {
+        attachments: [{ id: "image-1", mime: "image/png", name: "photo.png", path: imagePath, size: 10 }],
+        model: { kind: "builtin", id: "oopilot" },
+        teamName: "acme",
+      })
+
+      const call = promptAsync.mock.calls[0]?.[0] as {
+        model?: { modelID: string; providerID: string }
+        parts?: Array<{ metadata?: Record<string, unknown>; text?: string; type: string }>
+      }
+      expect(call.model).toEqual({ modelID: "deepseek-v4-flash", providerID: "oomol" })
+      expect(call.parts).toContainEqual(
+        expect.objectContaining({
+          metadata: { wantaPurpose: "image-understanding", wantaVisibility: "internal" },
+          text: expect.stringContaining("Do not guess"),
+          type: "text",
+        }),
+      )
     } finally {
       await rm(directory, { force: true, recursive: true })
     }

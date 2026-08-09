@@ -11,7 +11,7 @@ import type { ModelChoice } from "../models/common.ts"
 import type { RuntimeCustomModel } from "../models/store.ts"
 import type { LinkRuntime, ModelAccess } from "../runtime/agent-runtime.ts"
 import type { GenerateSessionTitleRequest, SessionInfo } from "../session/common.ts"
-import type { GeneratedSessionTitle } from "./session-title-generator.ts"
+import type { GeneratedSessionTitle, SessionTitleTarget } from "./session-title-generator.ts"
 import type {
   FilePartInput,
   Part as OpencodePart,
@@ -120,6 +120,19 @@ function normalizeKnowledgeBaseIds(ids: readonly string[]): string[] {
 function sameStringArray(left: readonly string[] | undefined, right: readonly string[]): boolean {
   if (!left) return right.length === 0
   return left.length === right.length && left.every((item, index) => item === right[index])
+}
+
+function sessionTitleRequestProfile(
+  providerID: string,
+  modelID: string,
+): "compatible" | "deepseek" | "openai-reasoning" {
+  if (providerID === "deepseek" || /^deepseek-v4(?:-|$)/i.test(modelID)) {
+    return "deepseek"
+  }
+  if (/^gpt-5(?:\.|-|$)/i.test(modelID)) {
+    return "openai-reasoning"
+  }
+  return "compatible"
 }
 
 export function buildManagedSkillRuntimeEnv(nodeBin: string = process.execPath): Record<string, string> {
@@ -1060,25 +1073,39 @@ export class AgentManager {
   public generateSessionTitle(input: GenerateSessionTitleRequest): Promise<GeneratedSessionTitle> {
     return generateTitle(input, (choice) => this.resolveSessionTitleTarget(choice))
   }
-  private resolveSessionTitleTarget(choice: ModelChoice | undefined): {
-    apiKey: string
-    baseUrl: string
-    modelID: string
-  } {
+  private resolveSessionTitleTarget(choice: ModelChoice | undefined): SessionTitleTarget {
     const effectiveChoice = choice ?? this.options.defaultModel
     if (this.options.modelAccess.kind !== "oomol") {
       const customModel = this.resolveLocalCustomModel(effectiveChoice)
-      return { apiKey: customModel.apiKey, baseUrl: customModel.baseUrl, modelID: customModel.modelName }
+      return {
+        apiKey: customModel.apiKey,
+        baseUrl: customModel.baseUrl,
+        modelID: customModel.modelName,
+        requestProfile: sessionTitleRequestProfile(customModel.providerId, customModel.modelName),
+        structuredOutput: customModel.providerId === "deepseek",
+      }
     }
     const resolved = this.resolveModel(effectiveChoice)
     if (effectiveChoice?.kind !== "custom") {
-      return { apiKey: this.options.modelAccess.sessionToken, baseUrl: llmBaseUrl, modelID: resolved.modelID }
+      return {
+        apiKey: this.options.modelAccess.sessionToken,
+        baseUrl: llmBaseUrl,
+        modelID: resolved.modelID,
+        requestProfile: sessionTitleRequestProfile(resolved.providerID, resolved.modelID),
+        structuredOutput: true,
+      }
     }
     const customModel = this.options.customModels?.find((item) => item.id === effectiveChoice.id)
     if (!customModel) {
       throw new Error("Selected custom model is no longer available.")
     }
-    return { apiKey: customModel.apiKey, baseUrl: customModel.baseUrl, modelID: resolved.modelID }
+    return {
+      apiKey: customModel.apiKey,
+      baseUrl: customModel.baseUrl,
+      modelID: resolved.modelID,
+      requestProfile: sessionTitleRequestProfile(customModel.providerId, resolved.modelID),
+      structuredOutput: customModel.providerId === "deepseek",
+    }
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {

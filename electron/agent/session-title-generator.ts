@@ -1,6 +1,7 @@
 import type { ModelChoice } from "../models/common.ts"
 import type { GenerateSessionTitleRequest } from "../session/common.ts"
 
+import { logDiagnostic } from "../diagnostics-log.ts"
 import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
 
 export interface GeneratedSessionTitle {
@@ -12,7 +13,11 @@ export interface SessionTitleTarget {
   apiKey: string
   baseUrl: string
   modelID: string
+  requestProfile: "compatible" | "deepseek" | "openai-reasoning"
+  structuredOutput: boolean
 }
+
+const titleMaxOutputTokens = 4_096
 
 const systemPrompt = [
   "Generate a concise chat title as a task label.",
@@ -36,12 +41,20 @@ export async function generateSessionTitle(
   const fallback = buildFallbackSessionTitle(input)
   const source = buildTitleSource(input)
   if (!source) return { generated: false, title: fallback }
+  let target: SessionTitleTarget | undefined
   try {
-    const rawTitle = await requestTitle(source, resolveTarget(input.model))
+    target = resolveTarget(input.model)
+    const rawTitle = await requestTitle(source, target)
     const title = sanitizeGeneratedSessionTitle(rawTitle, input)
     return title.usedFallback ? { generated: false, title: fallback } : { generated: true, title: title.title }
   } catch (error) {
     console.warn("[wanta] failed to generate session title, using fallback:", error)
+    logDiagnostic(
+      "session-title",
+      "failed to generate session title",
+      { error, modelID: target?.modelID, requestProfile: target?.requestProfile },
+      "warn",
+    )
     return { generated: false, title: fallback }
   }
 }
@@ -49,13 +62,18 @@ export async function generateSessionTitle(
 async function requestTitle(source: string, target: SessionTitleTarget): Promise<string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" }
   if (target.apiKey) headers.Authorization = `Bearer ${target.apiKey}`
+  const outputTokenOptions =
+    target.requestProfile === "openai-reasoning"
+      ? { max_completion_tokens: titleMaxOutputTokens, reasoning_effort: "low" }
+      : { max_tokens: titleMaxOutputTokens }
   const response = await fetch(`${target.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
     method: "POST",
     headers,
     body: JSON.stringify({
       model: target.modelID,
-      temperature: 0.1,
-      max_tokens: 512,
+      ...outputTokenOptions,
+      ...(target.requestProfile === "deepseek" ? { thinking: { type: "disabled" } } : {}),
+      ...(target.structuredOutput ? { response_format: { type: "json_object" } } : {}),
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: source },
@@ -64,8 +82,22 @@ async function requestTitle(source: string, target: SessionTitleTarget): Promise
     signal: AbortSignal.timeout(30_000),
   })
   if (!response.ok) throw new Error(`session title request failed: ${response.status} ${response.statusText}`)
-  const payload = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  return payload.choices?.[0]?.message?.content ?? ""
+  const payload = (await response.json()) as {
+    choices?: Array<{
+      finish_reason?: string
+      message?: { content?: string; reasoning_content?: string }
+    }>
+  }
+  const choice = payload.choices?.[0]
+  const content = choice?.message?.content?.trim() ?? ""
+  if (!content) {
+    const finishReason = choice?.finish_reason ?? "missing"
+    const reasoning = choice?.message?.reasoning_content ? "present" : "missing"
+    throw new Error(
+      `session title response had no content (finish_reason=${finishReason}, reasoning_content=${reasoning})`,
+    )
+  }
+  return content
 }
 
 function buildTitleSource(input: GenerateSessionTitleRequest): string {

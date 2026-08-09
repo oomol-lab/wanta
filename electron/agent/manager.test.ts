@@ -1091,8 +1091,85 @@ describe("AgentManager", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const request = fetchMock.mock.calls[0]?.[1]
     expect(request).toBeDefined()
-    expect(JSON.parse(String(request?.body))).toMatchObject({ max_tokens: 512, model: "gpt-5.6-sol" })
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      max_completion_tokens: 4096,
+      model: "gpt-5.6-sol",
+      reasoning_effort: "low",
+      response_format: { type: "json_object" },
+    })
     expect(request?.headers).toMatchObject({ Authorization: "Bearer test" })
+  })
+
+  it("disables thinking and requests structured output for DeepSeek session titles", async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"PostHog 注册来源"}' } }] }), {
+        status: 200,
+      })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+
+    const title = await manager.generateSessionTitle({
+      model: { kind: "builtin", id: "deepseek-v4-flash" },
+      text: "帮我分析一下 PostHog 注册来源",
+    })
+
+    expect(title).toEqual({ generated: true, title: "PostHog 注册来源" })
+    const request = fetchMock.mock.calls[0]?.[1]
+    const body = JSON.parse(String(request?.body))
+    expect(body).toMatchObject({
+      max_tokens: 4096,
+      model: "deepseek-v4-flash",
+      response_format: { type: "json_object" },
+      thinking: { type: "disabled" },
+    })
+    expect(body).not.toHaveProperty("temperature")
+    expect(body).not.toHaveProperty("reasoning_effort")
+  })
+
+  it("falls back with response diagnostics when title generation exhausts its output", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "length",
+              message: { content: "", reasoning_content: "still reasoning" },
+            },
+          ],
+        }),
+        { status: 200 },
+      )
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+
+    const title = await manager.generateSessionTitle({
+      model: { kind: "builtin", id: "deepseek-v4-flash" },
+      text: "帮我分析一下注册来源",
+    })
+
+    expect(title).toEqual({ generated: false, title: "分析一下注册来源" })
+    expect(warn).toHaveBeenCalledWith(
+      "[wanta] failed to generate session title, using fallback:",
+      expect.objectContaining({
+        message: "session title response had no content (finish_reason=length, reasoning_content=present)",
+      }),
+    )
   })
 
   it("uses the selected custom model endpoint and credential to generate a session title", async () => {
@@ -1132,7 +1209,8 @@ describe("AgentManager", () => {
     const [url, request] = fetchMock.mock.calls[0] ?? []
     expect(String(url)).toBe("https://models.example.test/v1/chat/completions")
     expect(request?.headers).toMatchObject({ Authorization: "Bearer custom-secret" })
-    expect(JSON.parse(String(request?.body))).toMatchObject({ model: "custom-model" })
+    expect(JSON.parse(String(request?.body))).toMatchObject({ max_tokens: 4096, model: "custom-model" })
+    expect(JSON.parse(String(request?.body))).not.toHaveProperty("response_format")
   })
 
   it("uses the local default custom model for a stale builtin title choice", async () => {

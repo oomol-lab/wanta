@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { IMAGE_UNDERSTANDING_BUILTIN_MODEL_ID, resolveBuiltinModel } from "../models/builtin.ts"
 import {
   AgentManager,
   buildAgentSidecarEnv,
@@ -649,7 +650,7 @@ describe("AgentManager", () => {
   })
 
   it("passes OpenCode agent names and reasoning variants to promptAsync", async () => {
-    const promptAsync = vi.fn(async () => ({ data: true }))
+    const promptAsync = vi.fn(async (_parameters: unknown) => ({ data: true }))
     const manager = new AgentManager({
       linkRuntime: { kind: "oomol", sessionToken: "test" },
       modelAccess: { kind: "oomol", sessionToken: "test" },
@@ -677,7 +678,7 @@ describe("AgentManager", () => {
     expect(calls[0]?.[0].agent).toBe("plan")
     expect(calls[0]?.[0].variant).toBe("high")
     expect(calls[1]?.[0].agent).toBe("build")
-    expect(calls[1]?.[0].variant).toBe("medium")
+    expect(calls[1]?.[0]).not.toHaveProperty("variant")
     expect(calls[2]?.[0]).not.toHaveProperty("variant")
   })
 
@@ -713,6 +714,7 @@ describe("AgentManager", () => {
       const calls = promptAsync.mock.calls as unknown as Array<
         [
           {
+            model?: { modelID: string; providerID: string }
             parts: Array<{
               metadata?: Record<string, unknown>
               mime?: string
@@ -749,6 +751,22 @@ describe("AgentManager", () => {
     const imagePath = path.join(directory, "photo.png")
     await Promise.all([writeFile(jsonPath, "{}"), writeFile(imagePath, "test image")])
     const promptAsync = vi.fn(async () => ({ data: true }))
+    const imageUnderstandingFetch = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: '{"summary":"A test photo","images":[{"filename":"photo.png"}],"task_relevant_details":[]}',
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+    )
+    vi.stubGlobal("fetch", imageUnderstandingFetch)
     const manager = new AgentManager({
       customModels: [
         {
@@ -796,10 +814,16 @@ describe("AgentManager", () => {
         model: { kind: "builtin", id: "oopilot" },
         teamName: "acme",
       })
+      await manager.promptStreaming("session-1", "analyze", {
+        attachments: [image],
+        model: { kind: "builtin", id: "qwen3.7-plus" },
+        teamName: "acme",
+      })
 
       const calls = promptAsync.mock.calls as unknown as Array<
         [
           {
+            model?: { modelID: string; providerID: string }
             parts: Array<{
               metadata?: Record<string, unknown>
               mime?: string
@@ -817,7 +841,123 @@ describe("AgentManager", () => {
         type: "text",
         text: expect.stringContaining("does not support image input"),
       })
-      expect(calls[1]?.[0].parts[0]).toMatchObject({ mime: "image/png", type: "file" })
+      expect(calls[0]?.[0].parts[2]).toMatchObject({
+        metadata: { wantaPurpose: "image-understanding", wantaVisibility: "internal" },
+        synthetic: true,
+        type: "text",
+        text: expect.stringContaining("A test photo"),
+      })
+      expect(calls[1]?.[0]).toMatchObject({ model: { modelID: "deepseek-v4-flash", providerID: "oomol" } })
+      expect(calls[1]?.[0].parts[0]).toMatchObject({
+        metadata: { wantaPurpose: "attachment-reference", wantaVisibility: "internal" },
+        synthetic: true,
+        type: "text",
+      })
+      expect(calls[1]?.[0].parts[1]).toMatchObject({
+        metadata: { wantaPurpose: "image-understanding", wantaVisibility: "internal" },
+        synthetic: true,
+        type: "text",
+        text: expect.stringContaining(resolveBuiltinModel(IMAGE_UNDERSTANDING_BUILTIN_MODEL_ID).displayName),
+      })
+      expect(calls[2]?.[0].parts[0]).toMatchObject({ mime: "image/png", type: "file" })
+      expect(imageUnderstandingFetch).toHaveBeenCalledTimes(2)
+      const visionRequest = imageUnderstandingFetch.mock.calls[0]?.[1]
+      expect(visionRequest?.headers).toMatchObject({ Authorization: "Bearer test" })
+      expect(JSON.parse(String(visionRequest?.body))).toMatchObject({
+        model: "qwen3.7-plus",
+        response_format: { type: "json_object" },
+      })
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("prevents visual guessing when assisted image understanding fails", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-image-understanding-failure-"))
+    const imagePath = path.join(directory, "photo.png")
+    await writeFile(imagePath, "test image")
+    const promptAsync = vi.fn(async (_parameters: unknown) => ({ data: true }))
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unavailable", { status: 503 })),
+    )
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { session: { promptAsync } } }
+    manager.buildAuthorizedSystem = async () => undefined
+
+    try {
+      await manager.promptStreaming("session-1", "what is shown?", {
+        attachments: [{ id: "image-1", mime: "image/png", name: "photo.png", path: imagePath, size: 10 }],
+        model: { kind: "builtin", id: "oopilot" },
+        teamName: "acme",
+      })
+
+      const call = promptAsync.mock.calls[0]?.[0] as {
+        model?: { modelID: string; providerID: string }
+        parts?: Array<{ metadata?: Record<string, unknown>; text?: string; type: string }>
+      }
+      expect(call.model).toEqual({ modelID: "deepseek-v4-flash", providerID: "oomol" })
+      expect(call.parts).toContainEqual(
+        expect.objectContaining({
+          metadata: { wantaPurpose: "image-understanding", wantaVisibility: "internal" },
+          text: expect.stringContaining("Do not guess"),
+          type: "text",
+        }),
+      )
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("resolves without prompting the model when image understanding is aborted", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-image-understanding-abort-"))
+    const imagePath = path.join(directory, "photo.png")
+    await writeFile(imagePath, "test image")
+    const promptAsync = vi.fn(async (_parameters: unknown) => ({ data: true }))
+    const abort = vi.fn(async () => ({ data: true }))
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal
+          if (signal?.aborted) {
+            reject(signal.reason)
+            return
+          }
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true })
+        }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { session: { abort, promptAsync } } }
+    manager.buildAuthorizedSystem = async () => undefined
+    const controller = new AbortController()
+
+    try {
+      const prompting = manager.promptStreaming("session-1", "what is shown?", {
+        attachments: [{ id: "image-1", mime: "image/png", name: "photo.png", path: imagePath, size: 10 }],
+        model: { kind: "builtin", id: "oopilot" },
+        signal: controller.signal,
+        teamName: "acme",
+      })
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+      controller.abort()
+
+      await expect(prompting).resolves.toBeUndefined()
+      expect(promptAsync).not.toHaveBeenCalled()
+      expect(abort).toHaveBeenCalledWith({ sessionID: "session-1" })
     } finally {
       await rm(directory, { force: true, recursive: true })
     }
@@ -1091,8 +1231,85 @@ describe("AgentManager", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const request = fetchMock.mock.calls[0]?.[1]
     expect(request).toBeDefined()
-    expect(JSON.parse(String(request?.body))).toMatchObject({ max_tokens: 512, model: "gpt-5.6-sol" })
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      max_completion_tokens: 4096,
+      model: "gpt-5.6-sol",
+      reasoning_effort: "low",
+      response_format: { type: "json_object" },
+    })
     expect(request?.headers).toMatchObject({ Authorization: "Bearer test" })
+  })
+
+  it("disables thinking and requests structured output for DeepSeek session titles", async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"PostHog 注册来源"}' } }] }), {
+        status: 200,
+      })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+
+    const title = await manager.generateSessionTitle({
+      model: { kind: "builtin", id: "deepseek-v4-flash" },
+      text: "帮我分析一下 PostHog 注册来源",
+    })
+
+    expect(title).toEqual({ generated: true, title: "PostHog 注册来源" })
+    const request = fetchMock.mock.calls[0]?.[1]
+    const body = JSON.parse(String(request?.body))
+    expect(body).toMatchObject({
+      max_tokens: 4096,
+      model: "deepseek-v4-flash",
+      response_format: { type: "json_object" },
+      thinking: { type: "disabled" },
+    })
+    expect(body).not.toHaveProperty("temperature")
+    expect(body).not.toHaveProperty("reasoning_effort")
+  })
+
+  it("falls back with response diagnostics when title generation exhausts its output", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "length",
+              message: { content: "", reasoning_content: "still reasoning" },
+            },
+          ],
+        }),
+        { status: 200 },
+      )
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+
+    const title = await manager.generateSessionTitle({
+      model: { kind: "builtin", id: "deepseek-v4-flash" },
+      text: "帮我分析一下注册来源",
+    })
+
+    expect(title).toEqual({ generated: false, title: "分析一下注册来源" })
+    expect(warn).toHaveBeenCalledWith(
+      "[wanta] failed to generate session title, using fallback:",
+      expect.objectContaining({
+        message: "session title response had no content (finish_reason=length, reasoning_content=present)",
+      }),
+    )
   })
 
   it("uses the selected custom model endpoint and credential to generate a session title", async () => {
@@ -1112,7 +1329,7 @@ describe("AgentManager", () => {
           apiKeyConfigured: true,
           baseUrl: "https://models.example.test/v1/",
           id: "custom-1",
-          modelName: "custom-model",
+          modelName: "gpt-5-compatible-proxy",
           providerId: "openrouter",
           providerName: "Custom provider",
         },
@@ -1132,7 +1349,53 @@ describe("AgentManager", () => {
     const [url, request] = fetchMock.mock.calls[0] ?? []
     expect(String(url)).toBe("https://models.example.test/v1/chat/completions")
     expect(request?.headers).toMatchObject({ Authorization: "Bearer custom-secret" })
-    expect(JSON.parse(String(request?.body))).toMatchObject({ model: "custom-model" })
+    const body = JSON.parse(String(request?.body))
+    expect(body).toMatchObject({ max_tokens: 4096, model: "gpt-5-compatible-proxy" })
+    expect(body).not.toHaveProperty("max_completion_tokens")
+    expect(body).not.toHaveProperty("reasoning_effort")
+    expect(body).not.toHaveProperty("response_format")
+  })
+
+  it("uses consistent DeepSeek title options for a proxied DeepSeek V4 custom model", async () => {
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"代理模型标题"}' } }] }), {
+          status: 200,
+        }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      customModels: [
+        {
+          apiKey: "custom-secret",
+          apiKeyConfigured: true,
+          baseUrl: "https://models.example.test/v1",
+          id: "proxied-deepseek",
+          modelName: "deepseek-v4-flash",
+          providerId: "openrouter",
+          providerName: "Custom provider",
+        },
+      ],
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+
+    await expect(
+      manager.generateSessionTitle({
+        model: { kind: "custom", id: "proxied-deepseek" },
+        text: "生成标题",
+      }),
+    ).resolves.toEqual({ generated: true, title: "代理模型标题" })
+    const request = fetchMock.mock.calls[0]?.[1]
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      max_tokens: 4096,
+      model: "deepseek-v4-flash",
+      response_format: { type: "json_object" },
+      thinking: { type: "disabled" },
+    })
   })
 
   it("uses the local default custom model for a stale builtin title choice", async () => {

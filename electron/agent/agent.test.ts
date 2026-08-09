@@ -64,7 +64,7 @@ test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => 
   const model = provider.models?.[WANTA_MODEL_ID]
   assert.ok(model)
   assert.equal(model.reasoning, true)
-  assert.deepEqual(modelVariantKeys(model), ["low", "medium", "high", "max"])
+  assert.deepEqual(modelVariantKeys(model), ["low", "high", "max"])
   assert.equal(modelVariantReasoningEffort(model, "max"), "max")
   assert.deepEqual(modelLimit(model), {
     context: 400_000,
@@ -120,7 +120,7 @@ test("buildOpencodeConfig wires the oomol openai-compatible provider", () => {
   const model = provider.models?.[auto.runtime.modelID]
   assert.ok(model)
   assert.equal(model.reasoning, true)
-  assert.deepEqual(modelVariantKeys(model), ["low", "medium", "high", "max"])
+  assert.deepEqual(modelVariantKeys(model), ["low", "high", "max"])
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })

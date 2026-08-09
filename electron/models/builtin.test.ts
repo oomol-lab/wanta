@@ -8,6 +8,7 @@ import {
   builtinModelSummaries,
   isBuiltinModelId,
   resolveBuiltinModel,
+  resolveExecutionBuiltinModelId,
 } from "./builtin.ts"
 import { DEFAULT_MAX_OUTPUT_TOKENS, QWEN_37_MAX_OUTPUT_TOKENS, STANDARD_INPUT_TOKEN_LIMIT_TOKENS } from "./limits.ts"
 
@@ -149,6 +150,14 @@ test("Auto built-in model remains on the OOMOL compatible runtime", () => {
 
   assert.equal(model.displayName, "Auto")
   assert.deepEqual(model.runtime, { providerID: "oomol", modelID: "oopilot" })
+})
+
+test("Auto executes with DeepSeek V4 Flash while explicit models keep their identity", () => {
+  assert.equal(resolveExecutionBuiltinModelId("oopilot"), "deepseek-v4-flash")
+  for (const id of BUILTIN_MODEL_IDS) {
+    if (id === DEFAULT_BUILTIN_MODEL_ID) continue
+    assert.equal(resolveExecutionBuiltinModelId(id), id, `${id} must keep its identity`)
+  }
 })
 
 test("GPT models use OpenAI Responses runtime routing", () => {

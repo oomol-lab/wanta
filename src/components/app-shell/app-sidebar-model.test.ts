@@ -2,7 +2,11 @@ import type { SessionInfo, SessionProject } from "../../../electron/session/comm
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { buildProjectSidebarGroups, projectSidebarSessionsInRenderOrder } from "./app-sidebar-model.ts"
+import {
+  buildProjectSidebarGroups,
+  pinnedProjectSidebarSessions,
+  projectSidebarSessionsInRenderOrder,
+} from "./app-sidebar-model.ts"
 
 function project(id: string, updatedAt: number): SessionProject {
   return {
@@ -94,6 +98,43 @@ test("buildProjectSidebarGroups keeps project order while a child session is run
   )
 })
 
+test("buildProjectSidebarGroups hoists pinned sessions out of pinned and regular projects", () => {
+  const groups = buildProjectSidebarGroups(
+    [{ ...project("pinned-project", 2_000), pinnedAt: 3_000 }, project("regular-project", 1_000)],
+    [
+      { ...session("pinned-child", "pinned-project", 4_000), pinnedAt: 5_000 },
+      session("pinned-project-regular-child", "pinned-project", 3_000),
+      { ...session("regular-project-pinned-child", "regular-project", 2_000), pinnedAt: 4_000 },
+      session("regular-child", "regular-project", 1_000),
+    ],
+  )
+
+  assert.deepEqual(
+    groups.map((group) => ({
+      project: group.project.id,
+      sessions: group.sessions.map((item) => item.id),
+    })),
+    [
+      { project: "pinned-project", sessions: ["pinned-project-regular-child"] },
+      { project: "regular-project", sessions: ["regular-child"] },
+    ],
+  )
+})
+
+test("pinnedProjectSidebarSessions includes every active pinned project session", () => {
+  const sessions = [
+    { ...session("old-pin", "pinned-project", 1_000), pinnedAt: 4_000 },
+    { ...session("new-pin", "regular-project", 2_000), pinnedAt: 5_000 },
+    { ...session("archived-pin", "regular-project", 3_000), pinnedAt: 6_000, archivedAt: 7_000 },
+    { ...session("root-pin", "", 4_000), pinnedAt: 8_000 },
+  ]
+
+  assert.deepEqual(
+    pinnedProjectSidebarSessions(sessions).map((item) => item.id),
+    ["new-pin", "old-pin"],
+  )
+})
+
 test("projectSidebarSessionsInRenderOrder mirrors the project sidebar sections", () => {
   const pinnedGroup = {
     hiddenCount: 0,
@@ -113,6 +154,6 @@ test("projectSidebarSessionsInRenderOrder mirrors the project sidebar sections",
       pinnedSessions: [pinnedSession],
       regularGroups: [regularGroup],
     }).map((item) => item.id),
-    ["pinned-child", "pinned-session", "regular-child"],
+    ["pinned-session", "pinned-child", "regular-child"],
   )
 })

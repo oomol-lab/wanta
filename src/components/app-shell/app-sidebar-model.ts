@@ -1,7 +1,7 @@
 import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
 import type { SidebarSessionOrder } from "./sidebar-sessions.ts"
 
-import { compareSidebarSessions } from "./sidebar-sessions.ts"
+import { compareRunningSessions, compareSidebarSessions } from "./sidebar-sessions.ts"
 
 export interface ProjectSidebarGroup {
   hiddenCount: number
@@ -42,7 +42,7 @@ export function buildProjectSidebarGroups(
       continue
     }
     const project = projectById.get(session.projectId)
-    if (!project || (session.pinnedAt && !project.pinnedAt)) {
+    if (!project || session.pinnedAt) {
       continue
     }
     const current = sessionsByProject.get(session.projectId) ?? []
@@ -64,6 +64,12 @@ export function buildProjectSidebarGroups(
     .sort(compareProjectSidebarGroups)
 }
 
+export function pinnedProjectSidebarSessions(sessions: SessionInfo[], order: SidebarSessionOrder = {}): SessionInfo[] {
+  return sessions
+    .filter((session) => session.projectId && session.pinnedAt && !session.archivedAt)
+    .sort((a, b) => compareRunningSessions(a, b, order) || (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
+}
+
 export function projectSidebarSessionsInRenderOrder({
   pinnedGroups,
   pinnedSessions,
@@ -74,8 +80,8 @@ export function projectSidebarSessionsInRenderOrder({
   regularGroups: ProjectSidebarGroup[]
 }): SessionInfo[] {
   return [
-    ...pinnedGroups.flatMap((group) => group.sessions),
     ...pinnedSessions,
+    ...pinnedGroups.flatMap((group) => group.sessions),
     ...regularGroups.flatMap((group) => group.sessions),
   ]
 }

@@ -2,8 +2,12 @@ import type { SessionInfo, SessionProject } from "../../../electron/session/comm
 import type { SidebarSegment, SidebarTaskSortMode } from "./sidebar-persistence.ts"
 
 import * as React from "react"
-import { buildProjectSidebarGroups, projectSidebarSessionsInRenderOrder } from "./app-sidebar-model.ts"
-import { compareRunningSessions, groupSidebarSessions } from "./sidebar-sessions.ts"
+import {
+  buildProjectSidebarGroups,
+  pinnedProjectSidebarSessions,
+  projectSidebarSessionsInRenderOrder,
+} from "./app-sidebar-model.ts"
+import { groupSidebarSessions } from "./sidebar-sessions.ts"
 
 export function useAppShellSidebarSessions({
   getSessionRunStartedAt,
@@ -33,15 +37,10 @@ export function useAppShellSidebarSessions({
     [getSessionRunStartedAt, isSessionRunning],
   )
   const taskGroups = React.useMemo(() => groupSidebarSessions(taskSessions, sessionOrder), [sessionOrder, taskSessions])
-  const pinnedProjectSessions = React.useMemo(() => {
-    const pinnedProjectIds = new Set(projects.filter((project) => project.pinnedAt).map((project) => project.id))
-    return projectSessions
-      .filter(
-        (session) =>
-          session.projectId && !pinnedProjectIds.has(session.projectId) && session.pinnedAt && !session.archivedAt,
-      )
-      .sort((a, b) => compareRunningSessions(a, b, projectSessionOrder) || (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
-  }, [projectSessionOrder, projectSessions, projects])
+  const pinnedProjectSessions = React.useMemo(
+    () => pinnedProjectSidebarSessions(projectSessions, projectSessionOrder),
+    [projectSessionOrder, projectSessions],
+  )
   const projectGroups = React.useMemo(
     () => buildProjectSidebarGroups(projects, projectSessions, projectSessionOrder, { selectedSessionId }),
     [projectSessionOrder, projectSessions, projects, selectedSessionId],

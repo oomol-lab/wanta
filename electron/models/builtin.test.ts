@@ -154,7 +154,10 @@ test("Auto built-in model remains on the OOMOL compatible runtime", () => {
 
 test("Auto executes with DeepSeek V4 Flash while explicit models keep their identity", () => {
   assert.equal(resolveExecutionBuiltinModelId("oopilot"), "deepseek-v4-flash")
-  assert.equal(resolveExecutionBuiltinModelId("qwen3.7-plus"), "qwen3.7-plus")
+  for (const id of BUILTIN_MODEL_IDS) {
+    if (id === DEFAULT_BUILTIN_MODEL_ID) continue
+    assert.equal(resolveExecutionBuiltinModelId(id), id, `${id} must keep its identity`)
+  }
 })
 
 test("GPT models use OpenAI Responses runtime routing", () => {

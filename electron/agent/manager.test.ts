@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { IMAGE_UNDERSTANDING_BUILTIN_MODEL_ID, resolveBuiltinModel } from "../models/builtin.ts"
 import {
   AgentManager,
   buildAgentSidecarEnv,
@@ -751,7 +752,7 @@ describe("AgentManager", () => {
     await Promise.all([writeFile(jsonPath, "{}"), writeFile(imagePath, "test image")])
     const promptAsync = vi.fn(async () => ({ data: true }))
     const imageUnderstandingFetch = vi.fn(
-      async () =>
+      async (_input: string | URL | Request, _init?: RequestInit) =>
         new Response(
           JSON.stringify({
             choices: [
@@ -856,10 +857,16 @@ describe("AgentManager", () => {
         metadata: { wantaPurpose: "image-understanding", wantaVisibility: "internal" },
         synthetic: true,
         type: "text",
-        text: expect.stringContaining("Qwen 3.7 Plus"),
+        text: expect.stringContaining(resolveBuiltinModel(IMAGE_UNDERSTANDING_BUILTIN_MODEL_ID).displayName),
       })
       expect(calls[2]?.[0].parts[0]).toMatchObject({ mime: "image/png", type: "file" })
       expect(imageUnderstandingFetch).toHaveBeenCalledTimes(2)
+      const visionRequest = imageUnderstandingFetch.mock.calls[0]?.[1]
+      expect(visionRequest?.headers).toMatchObject({ Authorization: "Bearer test" })
+      expect(JSON.parse(String(visionRequest?.body))).toMatchObject({
+        model: "qwen3.7-plus",
+        response_format: { type: "json_object" },
+      })
     } finally {
       await rm(directory, { force: true, recursive: true })
     }
@@ -904,6 +911,53 @@ describe("AgentManager", () => {
           type: "text",
         }),
       )
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("resolves without prompting the model when image understanding is aborted", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-image-understanding-abort-"))
+    const imagePath = path.join(directory, "photo.png")
+    await writeFile(imagePath, "test image")
+    const promptAsync = vi.fn(async (_parameters: unknown) => ({ data: true }))
+    const abort = vi.fn(async () => ({ data: true }))
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal
+          if (signal?.aborted) {
+            reject(signal.reason)
+            return
+          }
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true })
+        }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { session: { abort, promptAsync } } }
+    manager.buildAuthorizedSystem = async () => undefined
+    const controller = new AbortController()
+
+    try {
+      const prompting = manager.promptStreaming("session-1", "what is shown?", {
+        attachments: [{ id: "image-1", mime: "image/png", name: "photo.png", path: imagePath, size: 10 }],
+        model: { kind: "builtin", id: "oopilot" },
+        signal: controller.signal,
+        teamName: "acme",
+      })
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+      controller.abort()
+
+      await expect(prompting).resolves.toBeUndefined()
+      expect(promptAsync).not.toHaveBeenCalled()
+      expect(abort).toHaveBeenCalledWith({ sessionID: "session-1" })
     } finally {
       await rm(directory, { force: true, recursive: true })
     }
@@ -1275,7 +1329,7 @@ describe("AgentManager", () => {
           apiKeyConfigured: true,
           baseUrl: "https://models.example.test/v1/",
           id: "custom-1",
-          modelName: "custom-model",
+          modelName: "gpt-5-compatible-proxy",
           providerId: "openrouter",
           providerName: "Custom provider",
         },
@@ -1295,8 +1349,53 @@ describe("AgentManager", () => {
     const [url, request] = fetchMock.mock.calls[0] ?? []
     expect(String(url)).toBe("https://models.example.test/v1/chat/completions")
     expect(request?.headers).toMatchObject({ Authorization: "Bearer custom-secret" })
-    expect(JSON.parse(String(request?.body))).toMatchObject({ max_tokens: 4096, model: "custom-model" })
-    expect(JSON.parse(String(request?.body))).not.toHaveProperty("response_format")
+    const body = JSON.parse(String(request?.body))
+    expect(body).toMatchObject({ max_tokens: 4096, model: "gpt-5-compatible-proxy" })
+    expect(body).not.toHaveProperty("max_completion_tokens")
+    expect(body).not.toHaveProperty("reasoning_effort")
+    expect(body).not.toHaveProperty("response_format")
+  })
+
+  it("uses consistent DeepSeek title options for a proxied DeepSeek V4 custom model", async () => {
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"代理模型标题"}' } }] }), {
+          status: 200,
+        }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      customModels: [
+        {
+          apiKey: "custom-secret",
+          apiKeyConfigured: true,
+          baseUrl: "https://models.example.test/v1",
+          id: "proxied-deepseek",
+          modelName: "deepseek-v4-flash",
+          providerId: "openrouter",
+          providerName: "Custom provider",
+        },
+      ],
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+
+    await expect(
+      manager.generateSessionTitle({
+        model: { kind: "custom", id: "proxied-deepseek" },
+        text: "生成标题",
+      }),
+    ).resolves.toEqual({ generated: true, title: "代理模型标题" })
+    const request = fetchMock.mock.calls[0]?.[1]
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      max_tokens: 4096,
+      model: "deepseek-v4-flash",
+      response_format: { type: "json_object" },
+      thinking: { type: "disabled" },
+    })
   })
 
   it("uses the local default custom model for a stale builtin title choice", async () => {

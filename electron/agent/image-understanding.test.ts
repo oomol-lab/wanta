@@ -1,8 +1,8 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, rm, truncate, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { understandAttachedImages } from "./image-understanding.ts"
+import { understandAttachedImages, readBoundedRegularFile } from "./image-understanding.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -70,5 +70,55 @@ describe("understandAttachedImages", () => {
 
     expect(result).toBeUndefined()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects incomplete structured image results", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-image-understanding-schema-"))
+    const imagePath = path.join(directory, "screen.png")
+    await writeFile(imagePath, "image bytes")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }] }), { status: 200 })),
+    )
+
+    try {
+      await expect(
+        understandAttachedImages(
+          [{ id: "image-1", mime: "image/png", name: "screen.png", path: imagePath, size: 11 }],
+          "describe it",
+          "session-token",
+        ),
+      ).rejects.toThrow("invalid structured content")
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects an image that expands after attachment planning", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-image-understanding-race-"))
+    const imagePath = path.join(directory, "screen.png")
+    await writeFile(imagePath, "small image")
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    try {
+      await expect(
+        understandAttachedImages(
+          [{ id: "image-1", mime: "image/png", name: "screen.png", path: imagePath, size: 11 }],
+          "describe it",
+          "session-token",
+          undefined,
+          {
+            readImageFile: async (filePath, maxBytes) => {
+              await truncate(filePath, maxBytes + 1)
+              return readBoundedRegularFile(filePath, maxBytes)
+            },
+          },
+        ),
+      ).rejects.toThrow("approved attachment size budget")
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
   })
 })

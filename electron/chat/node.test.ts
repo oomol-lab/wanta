@@ -3218,6 +3218,61 @@ test("automatic permission reply failures are identified separately from policy 
   })
 })
 
+test("failed automatic permission replies from task subagents are answered in the source session", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "task-1",
+        sessionID: "parent-session",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "task",
+        state: {
+          status: "running",
+          input: {},
+          metadata: { parentSessionId: "parent-session", sessionId: "child-session" },
+        },
+      },
+    },
+  })
+  const request = {
+    id: "permission-1",
+    sessionId: "child-session",
+    action: "bash",
+    resources: ["npm test"],
+    metadata: { command: "npm test" },
+  }
+  bridge.answerPermission.mockRejectedValue(new Error("bridge unavailable"))
+  bridge.getPendingPermissions.mockImplementation(async (sessionId: string) =>
+    sessionId === "child-session" ? [request] : [],
+  )
+
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: { ...request, sessionID: request.sessionId },
+  })
+
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+  const asked = events.find((event) => event.event === "permissionAsked")
+  const askedRequest = (asked?.data as { request?: ChatPermissionRequest } | undefined)?.request
+  assert.equal(askedRequest?.sessionId, "parent-session")
+  bridge.answerPermission.mockResolvedValueOnce(undefined)
+
+  await service.answerPermission({ sessionId: "parent-session", requestId: "permission-1", reply: "once" })
+
+  assert.deepEqual(bridge.answerPermission.mock.calls, [
+    ["child-session", "permission-1", "once"],
+    ["child-session", "permission-1", "once"],
+    ["child-session", "permission-1", "once"],
+  ])
+})
+
 test("pure oo permissions are approved in the main process", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)

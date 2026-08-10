@@ -222,6 +222,53 @@ describe("createClaudeTurnTranslator", () => {
     ])
   })
 
+  it("keeps part ids aligned when the CLI re-emits one complete assistant message per content block", () => {
+    // Real wire shape observed with claude-agent-sdk 0.3.226 (CLI 2.1.226):
+    // each finished block is mirrored as its own complete assistant message
+    // sharing the API message id. The authoritative upsert must land on the
+    // partId the stream registered for that block, or the same content renders
+    // twice (streamed part + a fabricated `${id}:0` part).
+    const translator = createClaudeTurnTranslator(sessionId)
+    translator.translate(messageStart("msg_1"))
+    translator.translate(blockStart(0, { type: "thinking", thinking: "", signature: "" }))
+    translator.translate(blockDelta(0, { type: "thinking_delta", thinking: "pondering" }))
+
+    const thinkingUpsert = translator.translate(
+      assistantMessage("msg_1", [{ type: "thinking", thinking: "pondering", signature: "" }]),
+    )
+    expect(thinkingUpsert).toEqual([
+      {
+        event: "messageReasoningDelta",
+        data: { sessionId, messageId: "msg_1", partId: "msg_1:0", text: "pondering" },
+      },
+    ])
+
+    translator.translate(blockStart(1, { type: "text", text: "" }))
+    translator.translate(blockDelta(1, { type: "text_delta", text: "Hello" }))
+
+    const textUpsert = translator.translate(assistantMessage("msg_1", [{ type: "text", text: "Hello" }]))
+    expect(textUpsert).toEqual([
+      { event: "messageDelta", data: { sessionId, messageId: "msg_1", partId: "msg_1:1", text: "Hello" } },
+    ])
+  })
+
+  it("resets per-block bookkeeping between turns of the same translator", () => {
+    const translator = createClaudeTurnTranslator(sessionId)
+    translator.translate(assistantMessage("msg_1", [{ type: "text", text: "first" }]))
+    translator.translate({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+    } as unknown as SDKMessage)
+
+    const events = translator.translate(assistantMessage("msg_2", [{ type: "text", text: "second" }]))
+    expect(events).toEqual([
+      { event: "messageStarted", data: { sessionId, messageId: "msg_2", role: "assistant" } },
+      { event: "messageDelta", data: { sessionId, messageId: "msg_2", partId: "msg_2:0", text: "second" } },
+    ])
+  })
+
   it("emits messageStarted before content for a full assistant message with no prior stream", () => {
     const translator = createClaudeTurnTranslator(sessionId)
     const events = translator.translate(assistantMessage("msg_9", [{ type: "text", text: "hi" }]))

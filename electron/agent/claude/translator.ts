@@ -70,6 +70,8 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
   const streamBlocks = new Map<number, StreamBlock>()
   /** tool_use id -> issuing assistant message + recorded name/input. */
   const toolCalls = new Map<string, ToolCallRecord>()
+  /** API message id -> content blocks already delivered by earlier complete-message frames. */
+  const deliveredBlockCounts = new Map<string, number>()
 
   function ensureAssistantMessageStarted(messageId: string, events: AgentEvent[]): void {
     if (startedAssistantMessages.has(messageId)) {
@@ -168,7 +170,14 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
     const events: AgentEvent[] = []
     const messageId = message.message.id
     ensureAssistantMessageStarted(messageId, events)
-    message.message.content.forEach((block, index) => {
+    // The CLI emits one complete assistant message PER content block, all
+    // sharing the same API message id, so a block's true index is its offset
+    // plus every block already delivered under that id. Deriving part ids from
+    // the local offset alone would land the authoritative upsert on a partId
+    // different from the streamed one and render the same content twice.
+    const baseIndex = deliveredBlockCounts.get(messageId) ?? 0
+    message.message.content.forEach((block, offset) => {
+      const index = baseIndex + offset
       if (block.type === "text") {
         // Authoritative upsert: full text replaces whatever streamed (no delta).
         events.push({
@@ -188,6 +197,7 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
         startToolCall(messageId, block.id, block.name, (block.input ?? {}) as Record<string, unknown>, events)
       }
     })
+    deliveredBlockCounts.set(messageId, baseIndex + message.message.content.length)
     if (message.error !== undefined) {
       events.push({ event: "agentError", data: { sessionId, message: assistantErrorMessage(message.error) } })
     }
@@ -257,6 +267,9 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
       case "user":
         return translateUserMessage(message)
       case "result": {
+        // Per-block bookkeeping is per turn; a finished turn's message ids never
+        // receive further complete-message frames.
+        deliveredBlockCounts.clear()
         const events: AgentEvent[] = [{ event: "messageCompleted", data: { sessionId } }]
         if (message.subtype !== "success") {
           events.push({

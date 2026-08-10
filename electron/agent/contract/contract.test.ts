@@ -47,6 +47,8 @@ interface AdapterContractHarness {
   emitToolCallStarted: () => Promise<{ partId: string; callId: string }>
   /** Only for adapters whose profile declares question support. */
   emitQuestionAsked?: () => Promise<void>
+  /** Text parts of the session transcript, for adapters serving history from their own recorder. */
+  transcriptTexts?: () => Promise<string[]>
   effects: {
     promptCount: () => number
     cancelCount: () => number
@@ -246,6 +248,7 @@ async function createClaudeHarness(): Promise<AdapterContractHarness> {
   const sessionId = mintExternalSessionId("claude-code")
   let permissionSeq = 0
   let permissionSettled = 0
+  let assistantSeq = 0
   const ensureTurn = async (): Promise<FakeClaudeQuery> => {
     if (queries.length === 0) {
       await adapter.send({ type: "prompt", sessionId, text: "start turn" })
@@ -260,14 +263,43 @@ async function createClaudeHarness(): Promise<AdapterContractHarness> {
     adapter,
     sessionId,
     emitAssistantText: async (text) => {
+      // Real SDK wire shape (0.3.226): stream partials first, then one complete
+      // assistant message PER content block, all sharing the API message id.
       const fake = await ensureTurn()
-      fake.push({
-        type: "assistant",
-        message: { id: "api-msg-1", content: [{ type: "text", text }] },
+      assistantSeq += 1
+      const messageId = `api-msg-${assistantSeq}`
+      const push = (message: unknown): void => {
+        fake.push(message as SDKMessage)
+      }
+      const stream = (event: unknown): unknown => ({
+        type: "stream_event",
+        event,
         parent_tool_use_id: null,
-        uuid: "assistant-uuid-1",
+        uuid: `stream-uuid-${assistantSeq}`,
         session_id: "sdk-session",
-      } as unknown as SDKMessage)
+      })
+      const complete = (content: unknown[]): unknown => ({
+        type: "assistant",
+        message: { id: messageId, content },
+        parent_tool_use_id: null,
+        uuid: `assistant-uuid-${assistantSeq}`,
+        session_id: "sdk-session",
+      })
+      push(stream({ type: "message_start", message: { id: messageId } }))
+      push(
+        stream({
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "thinking", thinking: "", signature: "" },
+        }),
+      )
+      push(
+        stream({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "considering" } }),
+      )
+      push(complete([{ type: "thinking", thinking: "considering", signature: "" }]))
+      push(stream({ type: "content_block_start", index: 1, content_block: { type: "text", text: "" } }))
+      push(stream({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text } }))
+      push(complete([{ type: "text", text }]))
     },
     emitPermissionAsked: async () => {
       const fake = await ensureTurn()
@@ -295,6 +327,12 @@ async function createClaudeHarness(): Promise<AdapterContractHarness> {
         session_id: "sdk-session",
       } as unknown as SDKMessage)
       return { partId: "claude-call-1", callId: "claude-call-1" }
+    },
+    transcriptTexts: async () => {
+      const messages = await adapter.getMessages(sessionId)
+      return messages.flatMap((message) =>
+        message.parts.filter((part) => part.kind === "text").map((part) => part.text ?? ""),
+      )
     },
     effects: {
       promptCount: () => queries.reduce((total, fake) => total + fake.promptMessages.length, 0),
@@ -434,6 +472,12 @@ async function createAcpHarness(): Promise<AdapterContractHarness> {
       } as SessionUpdate)
       return { partId: "acp-call-1", callId: "acp-call-1" }
     },
+    transcriptTexts: async () => {
+      const messages = await adapter.getMessages(sessionId)
+      return messages.flatMap((message) =>
+        message.parts.filter((part) => part.kind === "text").map((part) => part.text ?? ""),
+      )
+    },
     effects: {
       promptCount: () => promptCount,
       cancelCount: () => cancelCount,
@@ -512,13 +556,41 @@ describe.each(adapterFixtures)("agent adapter contract: $kind", ({ kind, create 
 
   test("start is idempotent: a second start must not duplicate delivery", async () => {
     const { harness, events } = await startHarness(create)
-    await harness.adapter.start()
-    await harness.emitAssistantText("once")
+    const deltasWith = (needle: string): number =>
+      eventsOf(events, "messageDelta").filter((event) => event.data.text.includes(needle)).length
+    await harness.emitAssistantText("baseline")
     await vi.waitFor(() => {
-      expect(eventsOf(events, "messageDelta").filter((event) => event.data.text.includes("once")).length).toBe(1)
+      expect(deltasWith("baseline")).toBeGreaterThan(0)
     })
     await settle()
-    expect(eventsOf(events, "messageDelta").filter((event) => event.data.text.includes("once")).length).toBe(1)
+    const baseline = deltasWith("baseline")
+    await harness.adapter.start()
+    await harness.emitAssistantText("repeated")
+    await vi.waitFor(() => {
+      expect(deltasWith("repeated")).toBeGreaterThan(0)
+    })
+    await settle()
+    // Emission shape is identical before and after the second start(): any
+    // duplicated subscription would double the per-text delivery count.
+    expect(deltasWith("repeated")).toBe(baseline)
+  })
+
+  test("assistant text lands in the transcript exactly once", async () => {
+    const { harness } = await startHarness(create)
+    if (!harness.transcriptTexts) {
+      // Kernel-backed adapters serve history from their own server, not from
+      // contract events; transcript uniqueness only applies to recorders.
+      return
+    }
+    const transcriptTexts = harness.transcriptTexts
+    await harness.emitAssistantText("transcript-once")
+    await vi.waitFor(async () => {
+      const texts = await transcriptTexts()
+      expect(texts.some((text) => text.includes("transcript-once"))).toBe(true)
+    })
+    await settle()
+    const texts = await transcriptTexts()
+    expect(texts.filter((text) => text.includes("transcript-once"))).toHaveLength(1)
   })
 
   test("unsubscribe stops delivery for that listener only", async () => {

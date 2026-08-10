@@ -1,12 +1,7 @@
 import type { ModelCatalog } from "../../../electron/models/common.ts"
 
 import { describe, expect, it } from "vitest"
-import {
-  buildModelMenuItems,
-  combinedModelReasoningLabel,
-  modelReasoningTriggerLabel,
-  selectedModelSummary,
-} from "./model-control-options.ts"
+import { buildModelMenuItems, selectedModelSummary } from "./model-control-options.ts"
 import { llmBaseUrl } from "@/lib/domain"
 
 const catalog: ModelCatalog = {
@@ -105,18 +100,12 @@ describe("model control options", () => {
     })
   })
 
-  it("combines model and reasoning labels for the compact trigger", () => {
-    expect(combinedModelReasoningLabel("GPT 5.6 Sol", "High")).toBe("GPT 5.6 Sol · High")
-  })
-
-  it("shows the configuration prompt instead of a fallback model when a model is required", () => {
-    expect(
-      modelReasoningTriggerLabel({
-        modelLabel: "Auto",
-        modelRequired: true,
-        modelRequiredLabel: "Select or configure model",
-        reasoningLabel: "Default",
-      }),
-    ).toBe("Select or configure model")
+  it("marks the selected item active so the picker can highlight it", () => {
+    expect(buildModelMenuItems(catalog, "Configure").map((item) => [item.id, item.active])).toEqual([
+      ["builtin:oopilot", false],
+      ["builtin:gpt-5.6-sol", true],
+      ["custom:custom-1", false],
+      ["action:add", false],
+    ])
   })
 })

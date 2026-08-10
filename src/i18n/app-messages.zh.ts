@@ -399,7 +399,7 @@ export const zhCNMessages = {
   "chat.contextUsagePanelInputLimit": "模型输入上限：{limit}",
   "chat.contextUsagePanelWindow": "模型窗口：{limit}",
   "chat.contextUsagePanelTokensUnknown": "已用 {used} 标记",
-  "chat.modelReasoningPicker": "切换模型和推理",
+  "chat.modelPicker": "切换模型",
   "chat.modelSection": "模型",
   "chat.modelBuiltIn": "内置模型",
   "chat.modelSelectOrConfigure": "选择或配置模型",

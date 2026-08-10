@@ -5,12 +5,15 @@ import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.
 import type { ContextUsageInfo } from "./context-usage.ts"
 
 import { Brain, Cpu, Mic } from "lucide-react"
+import * as React from "react"
 import { AgentModePicker } from "./AgentModePicker.tsx"
 import { AgentOptionPicker } from "./AgentOptionPicker.tsx"
 import { AgentPicker } from "./AgentPicker.tsx"
 import { ComposerContextUsageIndicator } from "./ComposerContextUsageIndicator.tsx"
-import { ModelReasoningPicker } from "./ModelReasoningPicker.tsx"
+import { reasoningLevelLabel } from "./model-control-utils.ts"
+import { selectedModelReasoningLevels } from "./model-reasoning-levels.ts"
 import { PermissionModePicker } from "./PermissionModePicker.tsx"
+import { WantaModelPicker } from "./WantaModelPicker.tsx"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 
@@ -84,6 +87,81 @@ export function ComposerModeControls({
   onStartVoice,
 }: ComposerModeControlsProps) {
   const t = useT()
+  // Kernel reasoning options for the selected Wanta model; "default" is the
+  // picker's Auto row rather than an explicit option.
+  const kernelReasoningOptions = React.useMemo(
+    () =>
+      selectedModelReasoningLevels(modelCatalog)
+        .filter((level) => level !== "default")
+        .map((level) => ({ id: level, label: reasoningLevelLabel(level, t) })),
+    [modelCatalog, t],
+  )
+  // An unavailable persisted level renders as Auto until the user picks again.
+  const kernelReasoningValue = kernelReasoningOptions.some((option) => option.id === reasoningLevel)
+    ? reasoningLevel
+    : undefined
+  const selectModel = React.useCallback(
+    (choice: ModelChoice): void => {
+      // Switching models clamps a reasoning level the new model cannot serve.
+      const nextLevels = selectedModelReasoningLevels(
+        modelCatalog ? { ...modelCatalog, selected: choice } : modelCatalog,
+      )
+      if (!nextLevels.includes(reasoningLevel)) {
+        onSelectReasoningLevel("default")
+      }
+      onSelectModel(choice)
+    },
+    [modelCatalog, onSelectModel, onSelectReasoningLevel, reasoningLevel],
+  )
+  // A single-mode agent has nothing to choose; hide the picker entirely.
+  const permissionModePickerVisible = !permissionModes || permissionModes.length >= 2
+
+  const modelPicker = modelRoutingEnabled ? (
+    <WantaModelPicker
+      catalog={modelCatalog}
+      disabled={composerDisabled}
+      modelRequired={modelRequired}
+      onAddModel={onAddModel}
+      onDeleteModel={onDeleteModel}
+      onSelectModel={selectModel}
+    />
+  ) : agentModelSelectionEnabled ? (
+    <AgentOptionPicker
+      ariaLabel={t("chat.agentModelPicker")}
+      defaultOptionId={agentCatalog?.defaultModelId}
+      disabled={composerDisabled}
+      icon={Cpu}
+      options={agentCatalog?.models ?? []}
+      value={agentModelId}
+      onOpen={onAgentPickerOpen}
+      onSelect={(id) => onSelectAgentModel?.(id)}
+    />
+  ) : null
+
+  const reasoningPicker = modelRoutingEnabled ? (
+    kernelReasoningOptions.length > 0 ? (
+      <AgentOptionPicker
+        ariaLabel={t("chat.reasoningSection")}
+        disabled={composerDisabled}
+        icon={Brain}
+        options={kernelReasoningOptions}
+        value={kernelReasoningValue}
+        onSelect={(id) => onSelectReasoningLevel((id ?? "default") as ReasoningLevel)}
+      />
+    ) : null
+  ) : agentEffortSelectionEnabled ? (
+    <AgentOptionPicker
+      ariaLabel={t("chat.agentEffortPicker")}
+      defaultOptionId={agentCatalog?.defaultEffortId}
+      disabled={composerDisabled}
+      icon={Brain}
+      options={agentCatalog?.efforts ?? []}
+      value={agentEffortId}
+      onOpen={onAgentPickerOpen}
+      onSelect={(id) => onSelectAgentEffort?.(id)}
+    />
+  ) : null
+
   return (
     <>
       <ComposerContextUsageIndicator usage={contextUsage} />
@@ -95,57 +173,25 @@ export function ComposerModeControls({
         onOpen={onAgentPickerOpen}
         onSelect={(kind) => onSelectAgentKind?.(kind)}
       />
+      {modelPicker}
       {agentModesEnabled ? (
         <AgentModePicker disabled={composerDisabled} value={agentMode} onValueChange={onSelectAgentMode} />
       ) : null}
-      <PermissionModePicker
-        disabled={composerDisabled}
-        modes={permissionModes}
-        value={permissionMode}
-        onSelect={(mode) => {
-          if (mode === "full_access") {
-            onRequestFullAccessPermissionMode()
-          } else {
-            onSelectPermissionMode(mode)
-          }
-        }}
-      />
-      {modelRoutingEnabled ? (
-        <ModelReasoningPicker
-          catalog={modelCatalog}
+      {permissionModePickerVisible ? (
+        <PermissionModePicker
           disabled={composerDisabled}
-          modelRequired={modelRequired}
-          reasoningLevel={reasoningLevel}
-          onAddModel={onAddModel}
-          onDeleteModel={onDeleteModel}
-          onSelectModel={onSelectModel}
-          onSelectReasoningLevel={onSelectReasoningLevel}
+          modes={permissionModes}
+          value={permissionMode}
+          onSelect={(mode) => {
+            if (mode === "full_access") {
+              onRequestFullAccessPermissionMode()
+            } else {
+              onSelectPermissionMode(mode)
+            }
+          }}
         />
       ) : null}
-      {!modelRoutingEnabled && agentModelSelectionEnabled ? (
-        <AgentOptionPicker
-          ariaLabel={t("chat.agentModelPicker")}
-          defaultOptionId={agentCatalog?.defaultModelId}
-          disabled={composerDisabled}
-          icon={Cpu}
-          options={agentCatalog?.models ?? []}
-          value={agentModelId}
-          onOpen={onAgentPickerOpen}
-          onSelect={(id) => onSelectAgentModel?.(id)}
-        />
-      ) : null}
-      {!modelRoutingEnabled && agentEffortSelectionEnabled ? (
-        <AgentOptionPicker
-          ariaLabel={t("chat.agentEffortPicker")}
-          defaultOptionId={agentCatalog?.defaultEffortId}
-          disabled={composerDisabled}
-          icon={Brain}
-          options={agentCatalog?.efforts ?? []}
-          value={agentEffortId}
-          onOpen={onAgentPickerOpen}
-          onSelect={(id) => onSelectAgentEffort?.(id)}
-        />
-      ) : null}
+      {reasoningPicker}
       {voiceEnabled ? (
         <Button
           type="button"

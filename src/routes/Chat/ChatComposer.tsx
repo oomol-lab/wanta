@@ -18,7 +18,7 @@ import type { UserFacingError } from "@/lib/user-facing-error"
 
 import { ArrowRight, BrainCircuit, Bug, Server, X } from "lucide-react"
 import * as React from "react"
-import { AGENT_PROFILES } from "../../../electron/agent/contract/profile.ts"
+import { AGENT_PROFILES, isExternalAgentKind } from "../../../electron/agent/contract/profile.ts"
 import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import { composerModeControlsDisabled } from "./composer-controls.ts"
@@ -65,11 +65,13 @@ import {
   PromptInputTextarea,
   PromptInputToolbar,
 } from "@/components/ai-elements/prompt-input"
+import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { useAppSettings } from "@/hooks/useAppSettings"
 import { useExternalAgents } from "@/hooks/useExternalAgents"
 import { useT } from "@/i18n/i18n"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { authTypeLabel } from "@/routes/Connections/shared"
@@ -245,7 +247,24 @@ export function ChatComposer({
   const appSettings = useAppSettings()
   const skillInventory = useSkillInventoryResource()
   const modelCatalogState = useModelCatalog()
+  const chatService = useChatService()
   const externalAgentsState = useExternalAgents()
+  const refreshExternalAgents = externalAgentsState.refresh
+  const warmedAgentKindsRef = React.useRef(new Set<AgentKind>())
+  React.useEffect(() => {
+    // Warm the displayed external agent's catalog once per kind per mount so
+    // model and effort options are ready by the time the pickers open.
+    if (!isExternalAgentKind(agentKind) || warmedAgentKindsRef.current.has(agentKind)) {
+      return
+    }
+    warmedAgentKindsRef.current.add(agentKind)
+    void chatService
+      .invoke("warmExternalAgent", agentKind)
+      .then(() => refreshExternalAgents())
+      .catch((cause: unknown) => {
+        reportRendererHandledError("agent", `warm external agent failed: ${agentKind}`, cause)
+      })
+  }, [agentKind, chatService, refreshExternalAgents])
   const [composer, dispatchComposer] = React.useReducer(
     composerReducer,
     initialComposerStateProp ?? initialComposerState(),

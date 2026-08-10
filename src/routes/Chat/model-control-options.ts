@@ -123,21 +123,3 @@ export function builtinModelTier(id: Extract<ModelChoice, { kind: "builtin" }>["
       return undefined
   }
 }
-
-export function combinedModelReasoningLabel(modelLabel: string, reasoningLabel: string): string {
-  return `${modelLabel} · ${reasoningLabel}`
-}
-
-export function modelReasoningTriggerLabel({
-  modelLabel,
-  modelRequired,
-  modelRequiredLabel,
-  reasoningLabel,
-}: {
-  modelLabel: string
-  modelRequired: boolean
-  modelRequiredLabel: string
-  reasoningLabel: string
-}): string {
-  return modelRequired ? modelRequiredLabel : combinedModelReasoningLabel(modelLabel, reasoningLabel)
-}

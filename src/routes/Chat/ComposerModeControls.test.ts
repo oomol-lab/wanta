@@ -1,3 +1,4 @@
+import type { ModelCatalog } from "../../../electron/models/common.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ComponentProps } from "react"
 
@@ -27,6 +28,24 @@ const baseProps: ComponentProps<typeof ComposerModeControls> = {
   onStartVoice: () => undefined,
 }
 
+// Selected built-in model without reasoning variants: the kernel reasoning
+// picker has no explicit levels to offer and must disappear.
+const noReasoningCatalog: ModelCatalog = {
+  selected: { kind: "builtin", id: "gpt-5.6-sol" },
+  providers: [],
+  builtins: [
+    {
+      id: "gpt-5.6-sol",
+      displayName: "GPT 5.6 Sol",
+      providerName: "OpenAI",
+      supportsImages: true,
+      toolCall: true,
+      runtimeKind: "openai-responses",
+    },
+  ],
+  customModels: [],
+}
+
 function renderControls(overrides: Partial<ComponentProps<typeof ComposerModeControls>>): string {
   return renderToStaticMarkup(
     React.createElement(
@@ -41,7 +60,9 @@ describe("ComposerModeControls", () => {
   const voiceLabel = `aria-label="${t("chat.voiceInput")}"`
   const agentPickerLabel = `aria-label="${t("chat.agentPickerLabel")}"`
   const agentModeLabel = `aria-label="${t("chat.agentModePicker")}"`
-  const modelPickerLabel = `aria-label="${t("chat.modelReasoningPicker")}"`
+  const modelPickerLabel = `aria-label="${t("chat.modelPicker")}"`
+  const permissionModeLabel = `aria-label="${t("chat.permissionModePicker")}"`
+  const reasoningPickerLabel = `aria-label="${t("chat.reasoningSection")}"`
 
   it("shows voice input when the runtime enables voice", () => {
     expect(renderControls({ voiceEnabled: true })).toContain(voiceLabel)
@@ -57,10 +78,24 @@ describe("ComposerModeControls", () => {
     expect(html).toContain(t("chat.agentBuiltIn"))
   })
 
-  it("renders mode and model pickers for agents with Wanta-owned capabilities", () => {
+  it("renders mode, model, and reasoning pickers for agents with Wanta-owned capabilities", () => {
     const html = renderControls({ agentModesEnabled: true, modelRoutingEnabled: true })
     expect(html).toContain(agentModeLabel)
     expect(html).toContain(modelPickerLabel)
+    expect(html).toContain(reasoningPickerLabel)
+  })
+
+  it("orders controls as agent, model, mode, permission, reasoning", () => {
+    const html = renderControls({ agentModesEnabled: true, modelRoutingEnabled: true })
+    const positions = [
+      agentPickerLabel,
+      modelPickerLabel,
+      agentModeLabel,
+      permissionModeLabel,
+      reasoningPickerLabel,
+    ].map((label) => html.indexOf(label))
+    expect(positions.every((position) => position >= 0)).toBe(true)
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
   })
 
   it("hides the agent mode picker when the agent does not honor modes", () => {
@@ -69,5 +104,18 @@ describe("ComposerModeControls", () => {
 
   it("hides the model picker when the agent owns model routing", () => {
     expect(renderControls({ modelRoutingEnabled: false })).not.toContain(modelPickerLabel)
+  })
+
+  it("hides the permission mode picker for single-mode agents", () => {
+    expect(renderControls({ permissionModes: ["default"] })).not.toContain(permissionModeLabel)
+    expect(renderControls({ permissionModes: ["default", "full_access"] })).toContain(permissionModeLabel)
+  })
+
+  it("hides the kernel reasoning picker when the selected model has no reasoning variants", () => {
+    expect(renderControls({ modelCatalog: noReasoningCatalog })).not.toContain(reasoningPickerLabel)
+  })
+
+  it("prompts for configuration on the model trigger when a model is required", () => {
+    expect(renderControls({ modelRequired: true })).toContain(t("chat.modelSelectOrConfigure"))
   })
 })

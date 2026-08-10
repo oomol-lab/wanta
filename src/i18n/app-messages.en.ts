@@ -415,7 +415,7 @@ export const enMessages = {
   "chat.contextUsagePanelInputLimit": "Model input limit: {limit}",
   "chat.contextUsagePanelWindow": "Model window: {limit}",
   "chat.contextUsagePanelTokensUnknown": "{used} tokens used",
-  "chat.modelReasoningPicker": "Switch model and reasoning",
+  "chat.modelPicker": "Switch model",
   "chat.modelSection": "Model",
   "chat.modelBuiltIn": "Built-in models",
   "chat.modelSelectOrConfigure": "Select or configure model",

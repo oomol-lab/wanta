@@ -505,7 +505,7 @@ function SkillPeek({
               {t("skills.installedLocationsHelper")}
             </CardDescription>
           </div>
-          <div className="grid max-h-56 gap-1.5 overflow-auto pr-1">
+          <div className={cn("grid max-h-56 overflow-auto pr-1", installedHosts.length >= 4 ? "gap-0" : "gap-1.5")}>
             {installedHosts.map((host) => (
               <SkillInstallLocationRow
                 key={`${host.agentId}:${host.scope}:${host.path ?? host.sourcePath ?? host.agentName}`}

@@ -112,6 +112,12 @@ interface AcpSessionState {
 /** One select-type session config option (model or reasoning effort). */
 interface AcpConfigSelect {
   configId: string
+  /**
+   * Wire channel for applying a choice: v1.3 session/set_config_option, or the
+   * older unstable session/set_model (the shape codex-acp 1.1.14 and grok 1.0
+   * actually ship, carried as `models` on session/new).
+   */
+  via: "config_option" | "set_model"
   options: ExternalAgentCatalogOption[]
   currentValue?: string
   /** Value observed at session creation; the reset target for "agent default". */
@@ -176,8 +182,61 @@ function parseConfigSelects(configOptions: unknown): AcpConfigSelects {
     const currentValue = typeof option.currentValue === "string" ? option.currentValue : undefined
     selects[axis] = {
       configId: option.id,
+      via: "config_option",
       options,
       ...(currentValue !== undefined ? { currentValue, initialValue: currentValue } : {}),
+    }
+  }
+  return selects
+}
+
+/**
+ * Structural parse of the unstable `models` state ({availableModels, currentModelId})
+ * that pre-configOptions ACP agents return on session/new.
+ */
+function parseModelState(models: unknown): AcpConfigSelect | undefined {
+  if (!models || typeof models !== "object") {
+    return undefined
+  }
+  const shape = models as { availableModels?: unknown; currentModelId?: unknown }
+  if (!Array.isArray(shape.availableModels)) {
+    return undefined
+  }
+  const options: ExternalAgentCatalogOption[] = []
+  for (const entry of shape.availableModels) {
+    if (!entry || typeof entry !== "object") {
+      continue
+    }
+    const model = entry as { modelId?: unknown; name?: unknown; description?: unknown }
+    if (typeof model.modelId !== "string" || model.modelId.length === 0) {
+      continue
+    }
+    options.push({
+      id: model.modelId,
+      label: typeof model.name === "string" && model.name ? model.name : model.modelId,
+      ...(typeof model.description === "string" && model.description ? { description: model.description } : {}),
+    })
+  }
+  if (options.length === 0) {
+    return undefined
+  }
+  const currentValue = typeof shape.currentModelId === "string" ? shape.currentModelId : undefined
+  return {
+    configId: "model",
+    via: "set_model",
+    options,
+    ...(currentValue !== undefined ? { currentValue, initialValue: currentValue } : {}),
+  }
+}
+
+/** Selects reported by a session/new (or load) response: configOptions first, models shape as fallback. */
+function parseSessionSelects(response: unknown): AcpConfigSelects {
+  const body = response as { configOptions?: unknown; models?: unknown } | null
+  const selects = parseConfigSelects(body?.configOptions)
+  if (!selects.model) {
+    const modelState = parseModelState(body?.models)
+    if (modelState) {
+      selects.model = modelState
     }
   }
   return selects
@@ -236,6 +295,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   /** Model/effort choices made before the ACP session exists; applied on creation. */
   private readonly desiredSelections = new Map<string, { model?: string; effort?: string }>()
   private catalog: ExternalAgentCatalog | undefined
+  private catalogWarmup: Promise<void> | undefined
   private permissionSeq = 0
   private userMessageSeq = 0
   private probeCache: { at: number; promise: Promise<ExternalAgentRuntimeStatus> } | undefined
@@ -496,6 +556,38 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
         desired[axis] = previous
       }
       throw error
+    }
+  }
+
+  /**
+   * Pre-populate the model/effort catalog before any user session exists: open
+   * a throwaway ACP session, read its selects, close it. The spawned agent
+   * connection is app-lifetime and reused by real sessions afterwards.
+   */
+  public override async warmCatalog(): Promise<void> {
+    if (!this.profile.inputs.setModel && !this.profile.inputs.setEffort) {
+      return
+    }
+    if (this.catalog && (this.catalog.models.length > 0 || this.catalog.efforts.length > 0)) {
+      return
+    }
+    this.catalogWarmup ??= this.runCatalogWarmup().finally(() => {
+      this.catalogWarmup = undefined
+    })
+    await this.catalogWarmup
+  }
+
+  private async runCatalogWarmup(): Promise<void> {
+    try {
+      const handle = await this.ensureConnection()
+      const cwd = await this.ensureScratchDir(`warmup-${this.kind}`)
+      const response = await handle.connection.agent.request("session/new", { cwd, mcpServers: [] })
+      this.updateCatalogFromSelects(parseSessionSelects(response))
+      await handle.connection.agent
+        .request("session/close" as never, { sessionId: response.sessionId } as never)
+        .catch(() => undefined)
+    } catch (error) {
+      logDiagnostic("acp-adapter", "catalog warmup failed", { adapter: this.kind, error: errorMessage(error) }, "warn")
     }
   }
 
@@ -818,7 +910,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const cwd = input.outputProjectRoot ?? (await this.ensureScratchDir(input.sessionId))
     const response = await handle.connection.agent.request("session/new", { cwd, mcpServers: [] })
     const modes = response.modes ?? undefined
-    const configSelects = parseConfigSelects((response as { configOptions?: unknown }).configOptions)
+    const configSelects = parseSessionSelects(response)
     this.updateCatalogFromSelects(configSelects)
     const session: AcpSessionState = {
       wantaSessionId: input.sessionId,
@@ -843,7 +935,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     return session
   }
 
-  /** Send session/set_config_option for one axis; tolerates agents without that option. */
+  /** Apply one axis over the select's wire channel; tolerates agents without that option. */
   private async setConfigValue(
     handle: AcpConnectionHandle,
     session: AcpSessionState,
@@ -855,6 +947,15 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       return
     }
     try {
+      if (select.via === "set_model") {
+        // Unstable pre-configOptions channel; not in the typed method map.
+        await handle.connection.agent.request(
+          "session/set_model" as never,
+          { sessionId: session.acpSessionId, modelId: value } as never,
+        )
+        select.currentValue = value
+        return
+      }
       const response = await handle.connection.agent.request("session/set_config_option", {
         sessionId: session.acpSessionId,
         configId: select.configId,

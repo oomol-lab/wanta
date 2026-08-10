@@ -79,10 +79,14 @@ External agents build on `electron/agent/external/`:
 - **Model/effort selection**: `set-model` / `set-effort` input variants (plus
   `agentModelId`/`agentEffortId` on the session-creating prompt). Claude maps
   them to SDK `model`/`effort` options and live `setModel`/flag settings; the
-  ACP adapter maps them to v1.3 session config options (`session/set_config_option`,
-  categories `model` / `thought_level`). Available options surface on
-  `ExternalAgentRuntimeStatus.catalog` (static baseline, refreshed from the
-  live agent) and the UI renders them verbatim.
+  ACP adapter prefers v1.3 session config options (`session/set_config_option`,
+  categories `model` / `thought_level`) and falls back to the unstable `models`
+  state + `session/set_model` that shipping agents (codex-acp 1.1.14, grok 1.0)
+  actually implement. Available options surface on
+  `ExternalAgentRuntimeStatus.catalog` and the UI renders them verbatim; a
+  `warmCatalog()` pass (throwaway ACP session closed right away, or an idle
+  Claude query) fills the catalog before the first user session so draft-time
+  pickers show the real lists.
 - **Usage reporting**: adapters emit `usageUpdated` (normalized
   `ChatTokenUsage` + optional `contextWindow`) — Claude from result-frame
   usage/modelUsage, ACP from `usage_update`. The recorder attaches it to the

@@ -79,7 +79,7 @@ test("external sessions rename and remove without touching the kernel", async ()
     },
   })
 
-  const created = await service.create({ agentKind: "gemini-cli", scope: localScope })
+  const created = await service.create({ agentKind: "codex", scope: localScope })
   await service.rename({ id: created.id, title: "Renamed" })
   assert.equal(external.current().get(created.id)?.title, "Renamed")
 

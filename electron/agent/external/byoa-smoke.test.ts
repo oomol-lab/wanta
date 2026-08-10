@@ -161,34 +161,33 @@ test.runIf(enabled)(
   },
 )
 
-test.runIf(enabled)(
-  "gemini-cli adapter completes a real ACP turn with the installed CLI",
-  { timeout: 180_000 },
-  async () => {
-    const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-byoa-smoke-gemini-"))
-    const registration = ACP_AGENT_REGISTRY["gemini-cli"]
-    const adapter = new AcpAgentAdapter({
-      kind: "gemini-cli",
-      registration,
-      probe: () => probeExternalAgent("gemini-cli"),
-      scratchRootDir,
-    })
-    try {
-      const status = await adapter.runtimeStatus()
-      if (status.binary.status !== "detected") {
-        console.warn("[byoa-smoke] gemini binary not detected; smoke degraded to probe-only")
-        return
-      }
-      const outcome = await runSmokeTurn(
-        adapter,
-        mintExternalSessionId("gemini-cli"),
-        "Reply with exactly the two words: SMOKE OK. Do not use any tools.",
-      )
-      expectUsableOutcome(outcome, registration.loginHint)
-      await reportOutcome("gemini-cli", outcome)
-    } finally {
-      await adapter.stop()
-      await rm(scratchRootDir, { recursive: true, force: true }).catch(() => undefined)
+test.runIf(enabled)("grok adapter completes a real ACP turn with the installed CLI", { timeout: 180_000 }, async () => {
+  const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-byoa-smoke-grok-"))
+  const registration = ACP_AGENT_REGISTRY["grok"]
+  const adapter = new AcpAgentAdapter({
+    kind: "grok",
+    registration,
+    probe: () => probeExternalAgent("grok"),
+    scratchRootDir,
+  })
+  try {
+    const status = await adapter.runtimeStatus()
+    if (status.binary.status !== "detected") {
+      console.warn("[byoa-smoke] grok binary not detected; smoke degraded to probe-only")
+      return
     }
-  },
-)
+    const outcome = await runSmokeTurn(
+      adapter,
+      mintExternalSessionId("grok"),
+      "Reply with exactly the two words: SMOKE OK. Do not use any tools.",
+    )
+    expectUsableOutcome(outcome, registration.loginHint)
+    if (outcome.completed) {
+      expect(outcome.assistantText).toMatch(/SMOKE OK/iu)
+    }
+    await reportOutcome("grok", outcome)
+  } finally {
+    await adapter.stop()
+    await rm(scratchRootDir, { recursive: true, force: true }).catch(() => undefined)
+  }
+})

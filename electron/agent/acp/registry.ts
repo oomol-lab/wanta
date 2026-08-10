@@ -41,16 +41,6 @@ export interface AcpAgentRegistration {
 }
 
 export const ACP_AGENT_REGISTRY = {
-  "gemini-cli": {
-    displayName: "Gemini CLI",
-    cliCommands: ["gemini"],
-    acpArgs: ["--acp"],
-    versionArgs: ["--version"],
-    loginHint: "Run `gemini` in a terminal and complete the Google sign-in, then retry.",
-    // gemini-cli 0.42 modes: default (ask) / autoEdit / yolo.
-    permissionModeMap: { default: "default", accept_edits: "autoEdit", full_access: "yolo" },
-    loginMarkerPath: ".gemini/oauth_creds.json",
-  },
   codex: {
     displayName: "Codex",
     cliCommands: ["codex-acp"],
@@ -59,9 +49,25 @@ export const ACP_AGENT_REGISTRY = {
     loginHint: "Run `codex login` in a terminal to sign in, then retry.",
     // codex-acp modes: read-only / agent (workspace-write) / agent-full-access.
     permissionModeMap: { default: "agent", read_only: "read-only", full_access: "agent-full-access" },
+    // codex-acp 1.1.14: session/new carries the unstable models shape, then a
+    // config_option_update replaces it with family-level models (category
+    // "model") plus a thought_level effort select — both axes are live.
     selection: { model: true, effort: true },
     loginMarkerPath: ".codex/auth.json",
     bundledBinName: "codex-acp",
+  },
+  grok: {
+    displayName: "Grok",
+    cliCommands: ["grok"],
+    // Verified against grok 1.0.0: `grok agent stdio` speaks full ACP v1
+    // (initialize, session/new with the unstable models shape, session/set_model,
+    // session/close, standard permission requests).
+    acpArgs: ["agent", "stdio"],
+    versionArgs: ["--version"],
+    loginHint: "Run `grok login` in a terminal to sign in, then retry.",
+    // grok advertises no ACP session modes; approvals round-trip per request.
+    selection: { model: true, effort: false },
+    loginMarkerPath: ".grok/auth.json",
   },
 } as const satisfies Record<string, AcpAgentRegistration>
 

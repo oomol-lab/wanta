@@ -31,7 +31,7 @@ import { ACP_AGENT_REGISTRY } from "./registry.ts"
 // real wire protocol (ndjson-equivalent AnyMessage streams), so schema
 // validation on both sides is exercised.
 
-const REGISTRATION = ACP_AGENT_REGISTRY["gemini-cli"]
+const REGISTRATION = ACP_AGENT_REGISTRY["codex"]
 const WANTA_SESSION_ID = "wanta-session-1"
 
 interface FakePromptTurn {
@@ -58,6 +58,8 @@ interface FakeAgent {
   promptRequests: PromptRequest[]
   setModeRequests: SetSessionModeRequest[]
   setConfigOptionRequests: Array<{ sessionId: string; configId: string; value: unknown }>
+  setModelRequests: Array<{ sessionId: string; modelId: string }>
+  closedSessionIds: string[]
   cancelledSessionIds: string[]
   permissionResponses: RequestPermissionResponse[]
 }
@@ -71,6 +73,8 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
   const promptRequests: PromptRequest[] = []
   const setModeRequests: SetSessionModeRequest[] = []
   const setConfigOptionRequests: Array<{ sessionId: string; configId: string; value: unknown }> = []
+  const setModelRequests: Array<{ sessionId: string; modelId: string }> = []
+  const closedSessionIds: string[] = []
   const cancelledSessionIds: string[] = []
   const permissionResponses: RequestPermissionResponse[] = []
 
@@ -92,6 +96,22 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
       setConfigOptionRequests.push(params as { sessionId: string; configId: string; value: unknown })
       return { configOptions: [] }
     })
+    .onRequest(
+      "session/set_model",
+      (params: unknown) => params as { sessionId: string; modelId: string },
+      ({ params }) => {
+        setModelRequests.push(params)
+        return {}
+      },
+    )
+    .onRequest(
+      "session/close",
+      (params: unknown) => params as { sessionId: string },
+      ({ params }) => {
+        closedSessionIds.push(params.sessionId)
+        return {}
+      },
+    )
     .onRequest("session/prompt", async ({ params, client: agentClient }) => {
       promptRequests.push(params)
       const promptBehavior = behavior.prompt
@@ -154,6 +174,8 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
     promptRequests,
     setModeRequests,
     setConfigOptionRequests,
+    setModelRequests,
+    closedSessionIds,
     cancelledSessionIds,
     permissionResponses,
   }
@@ -178,7 +200,7 @@ interface AdapterHarness {
 
 async function createHarness(
   behavior: FakeAgentBehavior = {},
-  kind: keyof typeof ACP_AGENT_REGISTRY = "gemini-cli",
+  kind: keyof typeof ACP_AGENT_REGISTRY = "codex",
 ): Promise<AdapterHarness> {
   const fake = createFakeAgent(behavior)
   const registration = ACP_AGENT_REGISTRY[kind]
@@ -254,8 +276,8 @@ const permissionOptions: PermissionOption[] = [
 describe("AcpAgentAdapter", () => {
   test("declares its registry-derived identity and capability surface", async () => {
     const harness = await createHarness()
-    expect(harness.adapter.kind).toBe("gemini-cli")
-    expect(harness.adapter.profile).toBe(AGENT_PROFILES["gemini-cli"])
+    expect(harness.adapter.kind).toBe("codex")
+    expect(harness.adapter.profile).toBe(AGENT_PROFILES["codex"])
     expect(harness.adapter.supportsInput("prompt")).toBe(true)
     expect(harness.adapter.supportsInput("cancel")).toBe(true)
     expect(harness.adapter.supportsInput("permission-response")).toBe(true)
@@ -456,7 +478,7 @@ describe("AcpAgentAdapter", () => {
         requestId: "acp-perm-unknown",
         reply: "once",
       }),
-    ).rejects.toThrow("gemini-cli: unknown permission request acp-perm-unknown")
+    ).rejects.toThrow("codex: unknown permission request acp-perm-unknown")
   })
 
   test("subprocess exit fails the in-flight turn and the next prompt respawns", async () => {
@@ -497,8 +519,8 @@ describe("AcpAgentAdapter", () => {
         modes: {
           currentModeId: "default",
           availableModes: [
-            { id: "default", name: "Default" },
-            { id: "yolo", name: "Yolo" },
+            { id: "agent", name: "Agent" },
+            { id: "agent-full-access", name: "Full access" },
           ],
         },
       }),
@@ -507,7 +529,7 @@ describe("AcpAgentAdapter", () => {
     await harness.waitFor((event) => event.event === "messageCompleted")
     await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "full_access")
     await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "default")
-    expect(harness.fake.setModeRequests.map((request) => request.modeId)).toEqual(["yolo", "default"])
+    expect(harness.fake.setModeRequests.map((request) => request.modeId)).toEqual(["agent-full-access", "agent"])
     expect(harness.fake.setModeRequests.every((request) => request.sessionId === "acp-session-1")).toBe(true)
   })
 
@@ -616,11 +638,49 @@ describe("AcpAgentAdapter", () => {
     expect(eventData(usage, "usageUpdated").tokenUsage).toMatchObject({ total: 1234, contextWindow: 272_000 })
   })
 
-  test("set-model is rejected loudly for agents without config-option selection", async () => {
-    const harness = await createHarness()
-    await expect(
-      harness.adapter.send({ type: "set-model", sessionId: WANTA_SESSION_ID, modelId: "x" }),
-    ).rejects.toThrow("gemini-cli: set-model is not supported")
+  test("unstable models shape populates the catalog and set-model uses session/set_model", async () => {
+    const harness = await createHarness({
+      newSession: () =>
+        ({
+          sessionId: "acp-session-1",
+          models: {
+            currentModelId: "gpt-5.6-sol[xhigh]",
+            availableModels: [
+              { modelId: "gpt-5.6-sol[xhigh]", name: "GPT-5.6-Sol (xhigh)" },
+              { modelId: "gpt-5.6-luna[low]", name: "GPT-5.6-Luna (low)", description: "Fast and affordable" },
+            ],
+          },
+        }) as never,
+    })
+    await harness.adapter.send(promptInput())
+    const status = await harness.adapter.runtimeStatus()
+    expect(status.catalog?.models.map((model) => model.id)).toEqual(["gpt-5.6-sol[xhigh]", "gpt-5.6-luna[low]"])
+    expect(status.catalog?.defaultModelId).toBe("gpt-5.6-sol[xhigh]")
+    await harness.adapter.send({ type: "set-model", sessionId: WANTA_SESSION_ID, modelId: "gpt-5.6-luna[low]" })
+    expect(harness.fake.setModelRequests).toEqual([
+      expect.objectContaining({ sessionId: "acp-session-1", modelId: "gpt-5.6-luna[low]" }),
+    ])
+    expect(harness.fake.setConfigOptionRequests).toHaveLength(0)
+  })
+
+  test("warmCatalog opens and closes a throwaway session to pre-populate models", async () => {
+    const harness = await createHarness({
+      newSession: () =>
+        ({
+          sessionId: "acp-warm-1",
+          models: {
+            currentModelId: "gpt-5.6-sol[xhigh]",
+            availableModels: [{ modelId: "gpt-5.6-sol[xhigh]", name: "GPT-5.6-Sol (xhigh)" }],
+          },
+        }) as never,
+    })
+    await harness.adapter.warmCatalog()
+    const status = await harness.adapter.runtimeStatus()
+    expect(status.catalog?.models.map((model) => model.id)).toEqual(["gpt-5.6-sol[xhigh]"])
+    expect(harness.fake.closedSessionIds).toEqual(["acp-warm-1"])
+    // A second warm is a no-op once the catalog is populated.
+    await harness.adapter.warmCatalog()
+    expect(harness.fake.newSessionRequests).toHaveLength(1)
   })
 
   test("permission modes map onto advertised session modes via the registry map", async () => {
@@ -628,19 +688,19 @@ describe("AcpAgentAdapter", () => {
       newSession: () => ({
         sessionId: "acp-session-1",
         modes: {
-          currentModeId: "default",
+          currentModeId: "agent",
           availableModes: [
-            { id: "default", name: "Default" },
-            { id: "autoEdit", name: "Auto edit" },
-            { id: "yolo", name: "Yolo" },
+            { id: "read-only", name: "Read only" },
+            { id: "agent", name: "Agent" },
+            { id: "agent-full-access", name: "Full access" },
           ],
         },
       }),
     })
     await harness.adapter.send(promptInput())
-    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "accept_edits")
-    expect(harness.fake.setModeRequests.at(-1)).toEqual(expect.objectContaining({ modeId: "autoEdit" }))
+    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "read_only")
+    expect(harness.fake.setModeRequests.at(-1)).toEqual(expect.objectContaining({ modeId: "read-only" }))
     await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "default")
-    expect(harness.fake.setModeRequests.at(-1)).toEqual(expect.objectContaining({ modeId: "default" }))
+    expect(harness.fake.setModeRequests.at(-1)).toEqual(expect.objectContaining({ modeId: "agent" }))
   })
 })

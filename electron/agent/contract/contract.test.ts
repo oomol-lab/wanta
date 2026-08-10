@@ -416,20 +416,20 @@ async function createAcpHarness(): Promise<AdapterContractHarness> {
     }
   }
   const adapter = new AcpAgentAdapter({
-    kind: "gemini-cli",
-    registration: ACP_AGENT_REGISTRY["gemini-cli"],
+    kind: "codex",
+    registration: ACP_AGENT_REGISTRY["codex"],
     probe: () =>
       Promise.resolve({
-        kind: "gemini-cli",
+        kind: "codex",
         displayName: "Gemini CLI",
-        binary: { status: "detected", path: "/fake/gemini", version: "0.42.0" },
+        binary: { status: "detected", path: "/fake/codex-acp", version: "1.1.14" },
         login: { status: "logged_in" },
-        loginHint: ACP_AGENT_REGISTRY["gemini-cli"].loginHint,
+        loginHint: ACP_AGENT_REGISTRY["codex"].loginHint,
       } satisfies ExternalAgentRuntimeStatus),
     scratchRootDir,
     connect,
   })
-  const sessionId = mintExternalSessionId("gemini-cli")
+  const sessionId = mintExternalSessionId("codex")
   let permissionSeq = 0
   const ensureTurn = async (): Promise<NonNullable<typeof bridge>> => {
     if (!bridge) {
@@ -493,7 +493,7 @@ async function createAcpHarness(): Promise<AdapterContractHarness> {
 const adapterFixtures: Array<{ kind: AgentKind; create: () => Promise<AdapterContractHarness> }> = [
   { kind: "opencode", create: createOpencodeHarness },
   { kind: "claude-code", create: createClaudeHarness },
-  { kind: "gemini-cli", create: createAcpHarness },
+  { kind: "codex", create: createAcpHarness },
 ]
 
 async function startHarness(create: () => Promise<AdapterContractHarness>): Promise<{

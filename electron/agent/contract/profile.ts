@@ -115,7 +115,11 @@ function acpAgentProfiles(): Record<AcpAgentKind, AgentProfile> {
         setEffort: registration.selection?.effort ?? false,
       },
       history: externalAgentHistory,
-      permissionModes: AGENT_PERMISSION_MODE_ORDER.filter((mode) => mode in modeMap),
+      // No mode map = the agent keeps its own approval flow; "default" is the
+      // only declarable stance (single-mode agents render no picker).
+      permissionModes: registration.permissionModeMap
+        ? AGENT_PERMISSION_MODE_ORDER.filter((mode) => mode in modeMap)
+        : ["default"],
     }
   }
   return profiles

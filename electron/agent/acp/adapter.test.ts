@@ -1,0 +1,522 @@
+import type { AgentEvent } from "../contract/event.ts"
+import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
+import type { AcpTransport } from "./adapter.ts"
+import type {
+  AnyMessage,
+  InitializeResponse,
+  NewSessionRequest,
+  NewSessionResponse,
+  PermissionOption,
+  PromptRequest,
+  PromptResponse,
+  RequestPermissionResponse,
+  SessionUpdate,
+  SetSessionModeRequest,
+  Stream,
+  ToolCallUpdate,
+} from "@agentclientprotocol/sdk"
+
+import { agent, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk"
+import { mkdtemp } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { afterEach, describe, expect, test, vi } from "vitest"
+import { AGENT_PROFILES } from "../contract/profile.ts"
+import { AcpAgentAdapter } from "./adapter.ts"
+import { ACP_AGENT_REGISTRY } from "./registry.ts"
+
+// Adapter tests against an IN-PROCESS fake ACP agent built with the SDK's
+// agent-side builder, wired to the adapter through an in-memory stream pair
+// injected via the AcpAdapterOptions.connect test seam. The fake speaks the
+// real wire protocol (ndjson-equivalent AnyMessage streams), so schema
+// validation on both sides is exercised.
+
+const REGISTRATION = ACP_AGENT_REGISTRY["gemini-cli"]
+const WANTA_SESSION_ID = "wanta-session-1"
+
+interface FakePromptTurn {
+  params: PromptRequest
+  sendUpdate: (update: SessionUpdate) => Promise<void>
+  requestPermission: (toolCall: ToolCallUpdate, options: PermissionOption[]) => Promise<RequestPermissionResponse>
+  /** Resolves when the fake agent receives session/cancel. */
+  cancelled: Promise<void>
+}
+
+interface FakeAgentBehavior {
+  initialize?: Partial<InitializeResponse>
+  /** Override session/new; may throw (for auth_required scenarios). */
+  newSession?: (params: NewSessionRequest) => NewSessionResponse
+  /** Drive a prompt turn; defaults to an immediate end_turn. */
+  prompt?: (turn: FakePromptTurn) => Promise<PromptResponse>
+}
+
+interface FakeAgent {
+  connect: () => Promise<AcpTransport>
+  connectCount: () => number
+  fireExit: (code: number | null) => void
+  newSessionRequests: NewSessionRequest[]
+  promptRequests: PromptRequest[]
+  setModeRequests: SetSessionModeRequest[]
+  cancelledSessionIds: string[]
+  permissionResponses: RequestPermissionResponse[]
+}
+
+function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
+  let sessionSeq = 0
+  let connectCount = 0
+  const cancelResolvers: Array<() => void> = []
+  const exitCallbackGroups: Array<Array<(info: { code: number | null }) => void>> = []
+  const newSessionRequests: NewSessionRequest[] = []
+  const promptRequests: PromptRequest[] = []
+  const setModeRequests: SetSessionModeRequest[] = []
+  const cancelledSessionIds: string[] = []
+  const permissionResponses: RequestPermissionResponse[] = []
+
+  const app = agent({ name: "fake-acp-agent" })
+    .onRequest("initialize", () => ({ protocolVersion: PROTOCOL_VERSION, ...behavior.initialize }))
+    .onRequest("session/new", ({ params }) => {
+      newSessionRequests.push(params)
+      if (behavior.newSession) {
+        return behavior.newSession(params)
+      }
+      sessionSeq += 1
+      return { sessionId: `acp-session-${sessionSeq}` }
+    })
+    .onRequest("session/set_mode", ({ params }) => {
+      setModeRequests.push(params)
+      return {}
+    })
+    .onRequest("session/prompt", async ({ params, client: agentClient }) => {
+      promptRequests.push(params)
+      const promptBehavior = behavior.prompt
+      if (!promptBehavior) {
+        return { stopReason: "end_turn" }
+      }
+      const cancelled = new Promise<void>((resolve) => {
+        cancelResolvers.push(resolve)
+      })
+      return promptBehavior({
+        params,
+        sendUpdate: (update) => agentClient.notify("session/update", { sessionId: params.sessionId, update }),
+        requestPermission: async (toolCall, options) => {
+          const response = await agentClient.request("session/request_permission", {
+            sessionId: params.sessionId,
+            toolCall,
+            options,
+          })
+          permissionResponses.push(response)
+          return response
+        },
+        cancelled,
+      })
+    })
+    .onNotification("session/cancel", ({ params }) => {
+      cancelledSessionIds.push(params.sessionId)
+      for (const resolve of cancelResolvers.splice(0)) {
+        resolve()
+      }
+    })
+
+  return {
+    connect: async () => {
+      connectCount += 1
+      const clientToAgent = new TransformStream<AnyMessage, AnyMessage>()
+      const agentToClient = new TransformStream<AnyMessage, AnyMessage>()
+      const agentSide: Stream = { writable: agentToClient.writable, readable: clientToAgent.readable }
+      const clientSide: Stream = { writable: clientToAgent.writable, readable: agentToClient.readable }
+      const agentConnection = app.connect(agentSide)
+      const exitCallbacks: Array<(info: { code: number | null }) => void> = []
+      exitCallbackGroups.push(exitCallbacks)
+      return {
+        stream: clientSide,
+        dispose: () => {
+          agentConnection.close()
+        },
+        onExit: (callback) => {
+          exitCallbacks.push(callback)
+        },
+      }
+    },
+    connectCount: () => connectCount,
+    fireExit: (code) => {
+      const latest = exitCallbackGroups.at(-1) ?? []
+      for (const callback of latest) {
+        callback({ code })
+      }
+    },
+    newSessionRequests,
+    promptRequests,
+    setModeRequests,
+    cancelledSessionIds,
+    permissionResponses,
+  }
+}
+
+const startedAdapters: AcpAgentAdapter[] = []
+
+afterEach(async () => {
+  for (const adapter of startedAdapters.splice(0)) {
+    await adapter.stop()
+  }
+})
+
+interface AdapterHarness {
+  adapter: AcpAgentAdapter
+  fake: FakeAgent
+  probe: ReturnType<typeof vi.fn>
+  scratchRootDir: string
+  events: AgentEvent[]
+  waitFor: (predicate: (event: AgentEvent) => boolean) => Promise<AgentEvent>
+}
+
+async function createHarness(behavior: FakeAgentBehavior = {}): Promise<AdapterHarness> {
+  const fake = createFakeAgent(behavior)
+  const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "acp-adapter-test-"))
+  const probe = vi.fn(
+    async (): Promise<ExternalAgentRuntimeStatus> => ({
+      kind: "gemini-cli",
+      displayName: REGISTRATION.displayName,
+      binary: { status: "detected", path: "/fake/bin/gemini", version: "1.0.0" },
+      login: { status: "unknown" },
+      loginHint: REGISTRATION.loginHint,
+    }),
+  )
+  const adapter = new AcpAgentAdapter({
+    kind: "gemini-cli",
+    registration: REGISTRATION,
+    probe,
+    scratchRootDir,
+    connect: fake.connect,
+  })
+  await adapter.start()
+  startedAdapters.push(adapter)
+  const events: AgentEvent[] = []
+  const waiters: Array<{ predicate: (event: AgentEvent) => boolean; resolve: (event: AgentEvent) => void }> = []
+  adapter.onEvent((event) => {
+    events.push(event)
+    const matched = waiters.filter((waiter) => waiter.predicate(event))
+    for (const waiter of matched) {
+      waiters.splice(waiters.indexOf(waiter), 1)
+      waiter.resolve(event)
+    }
+  })
+  const waitFor = (predicate: (event: AgentEvent) => boolean): Promise<AgentEvent> => {
+    const existing = events.find(predicate)
+    if (existing) {
+      return Promise.resolve(existing)
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("timed out waiting for agent event")), 2000)
+      waiters.push({
+        predicate,
+        resolve: (event) => {
+          clearTimeout(timer)
+          resolve(event)
+        },
+      })
+    })
+  }
+  return { adapter, fake, probe, scratchRootDir, events, waitFor }
+}
+
+type AgentEventDataByKind = {
+  [K in AgentEvent["event"]]: Extract<AgentEvent, { event: K }>["data"]
+}
+
+function eventData<K extends AgentEvent["event"]>(event: AgentEvent, kind: K): AgentEventDataByKind[K] {
+  if (event.event !== kind) {
+    throw new Error(`expected event ${kind}, got ${event.event}`)
+  }
+  return event.data as AgentEventDataByKind[K]
+}
+
+function promptInput(text = "hello agent") {
+  return { type: "prompt", sessionId: WANTA_SESSION_ID, text, messageId: "user-1" } as const
+}
+
+const permissionOptions: PermissionOption[] = [
+  { optionId: "opt-allow-once", name: "Allow once", kind: "allow_once" },
+  { optionId: "opt-allow-always", name: "Always allow", kind: "allow_always" },
+  { optionId: "opt-reject-once", name: "Reject", kind: "reject_once" },
+]
+
+describe("AcpAgentAdapter", () => {
+  test("declares its registry-derived identity and capability surface", async () => {
+    const harness = await createHarness()
+    expect(harness.adapter.kind).toBe("gemini-cli")
+    expect(harness.adapter.profile).toBe(AGENT_PROFILES["gemini-cli"])
+    expect(harness.adapter.supportsInput("prompt")).toBe(true)
+    expect(harness.adapter.supportsInput("cancel")).toBe(true)
+    expect(harness.adapter.supportsInput("permission-response")).toBe(true)
+    expect(harness.adapter.supportsInput("question-response")).toBe(false)
+  })
+
+  test("caches runtime probes for repeated status queries", async () => {
+    const harness = await createHarness()
+    await harness.adapter.runtimeStatus()
+    await harness.adapter.runtimeStatus()
+    expect(harness.probe).toHaveBeenCalledTimes(1)
+  })
+
+  test("streams a full turn: user synthesis, chunks, tool pair, completion", async () => {
+    const harness = await createHarness({
+      prompt: async (turn) => {
+        await turn.sendUpdate({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Hello " } })
+        await turn.sendUpdate({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "world" } })
+        await turn.sendUpdate({
+          sessionUpdate: "tool_call",
+          toolCallId: "call-1",
+          title: "Read file",
+          kind: "read",
+          status: "in_progress",
+          rawInput: { path: "/tmp/a.txt" },
+        })
+        await turn.sendUpdate({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "call-1",
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: "file body" } }],
+        })
+        await turn.sendUpdate({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Done" } })
+        return { stopReason: "end_turn" }
+      },
+    })
+    await harness.adapter.send(promptInput())
+    // The user turn is synthesized synchronously on submission.
+    expect(harness.events.slice(0, 2)).toEqual([
+      {
+        event: "messageStarted",
+        data: { sessionId: WANTA_SESSION_ID, messageId: "user-1", role: "user" },
+      },
+      {
+        event: "messageDelta",
+        data: {
+          sessionId: WANTA_SESSION_ID,
+          messageId: "user-1",
+          partId: "user-1:text",
+          text: "hello agent",
+          delta: "hello agent",
+        },
+      },
+    ])
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    expect(harness.events.map((event) => event.event)).toEqual([
+      "messageStarted",
+      "messageDelta",
+      "messageStarted",
+      "messageDelta",
+      "messageDelta",
+      "toolCallStarted",
+      "toolCallResult",
+      "messageStarted",
+      "messageDelta",
+      "messageCompleted",
+    ])
+    expect(harness.events[4]).toMatchObject({
+      event: "messageDelta",
+      data: { text: "Hello world", delta: "world" },
+    })
+    expect(harness.events[5]).toMatchObject({
+      event: "toolCallStarted",
+      data: { callId: "call-1", tool: "read", input: { path: "/tmp/a.txt" }, status: "running" },
+    })
+    expect(harness.events[6]).toMatchObject({
+      event: "toolCallResult",
+      data: { callId: "call-1", status: "completed", output: "file body" },
+    })
+    // Every event carries the WANTA session id, never the ACP one.
+    for (const event of harness.events) {
+      expect((event.data as { sessionId?: string }).sessionId).toBe(WANTA_SESSION_ID)
+    }
+    // The wire side: one session with the required empty mcpServers, one prompt.
+    expect(harness.fake.newSessionRequests).toHaveLength(1)
+    expect(harness.fake.newSessionRequests[0]!.mcpServers).toEqual([])
+    expect(harness.fake.newSessionRequests[0]!.cwd.startsWith(harness.scratchRootDir)).toBe(true)
+    expect(harness.fake.promptRequests[0]!.prompt).toEqual([{ type: "text", text: "hello agent" }])
+  })
+
+  test.each([
+    ["once", "opt-allow-once"],
+    ["always", "opt-allow-always"],
+    ["reject", "opt-reject-once"],
+  ] as const)("permission round trip: reply %s selects %s", async (reply, expectedOptionId) => {
+    const harness = await createHarness({
+      prompt: async (turn) => {
+        await turn.requestPermission(
+          {
+            toolCallId: "call-1",
+            title: "Write file",
+            rawInput: { path: "/tmp/x" },
+            locations: [{ path: "/tmp/x" }, { path: "/tmp/y" }],
+          },
+          permissionOptions,
+        )
+        return { stopReason: "end_turn" }
+      },
+    })
+    await harness.adapter.send(promptInput())
+    const asked = await harness.waitFor((event) => event.event === "permissionAsked")
+    const request = eventData(asked, "permissionAsked").request
+    expect(request.id).toMatch(/^acp-perm-\d+$/u)
+    expect(request.sessionId).toBe(WANTA_SESSION_ID)
+    expect(request.action).toBe("Write file")
+    expect(request.resources).toEqual(["/tmp/x", "/tmp/y"])
+    expect(request.metadata).toEqual({
+      options: permissionOptions,
+      toolCallId: "call-1",
+      rawInput: { path: "/tmp/x" },
+    })
+    await harness.adapter.send({
+      type: "permission-response",
+      sessionId: WANTA_SESSION_ID,
+      requestId: request.id,
+      reply,
+    })
+    await harness.waitFor((event) => event.event === "permissionReplied")
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    expect(harness.fake.permissionResponses).toEqual([{ outcome: { outcome: "selected", optionId: expectedOptionId } }])
+  })
+
+  test("cancel answers a pending permission with the cancelled outcome", async () => {
+    const harness = await createHarness({
+      prompt: async (turn) => {
+        await turn.requestPermission({ toolCallId: "call-1", title: "Delete file" }, permissionOptions)
+        await turn.cancelled
+        return { stopReason: "cancelled" }
+      },
+    })
+    await harness.adapter.send(promptInput())
+    const asked = await harness.waitFor((event) => event.event === "permissionAsked")
+    await harness.adapter.send({ type: "cancel", sessionId: WANTA_SESSION_ID })
+    const replied = await harness.waitFor((event) => event.event === "permissionReplied")
+    expect(eventData(replied, "permissionReplied").requestId).toBe(eventData(asked, "permissionAsked").request.id)
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    expect(harness.fake.permissionResponses).toEqual([{ outcome: { outcome: "cancelled" } }])
+    expect(harness.fake.cancelledSessionIds).toEqual(["acp-session-1"])
+  })
+
+  test("stop settles a parked permission request with the cancelled outcome", async () => {
+    const harness = await createHarness({
+      prompt: async (turn) => {
+        await turn.requestPermission({ toolCallId: "call-1", title: "Delete file" }, permissionOptions)
+        return { stopReason: "end_turn" }
+      },
+    })
+    await harness.adapter.send(promptInput())
+    await harness.waitFor((event) => event.event === "permissionAsked")
+    await harness.adapter.stop()
+    const replies = harness.events.filter((event) => event.event === "permissionReplied")
+    expect(replies).toHaveLength(1)
+    await vi.waitFor(() => {
+      expect(harness.fake.permissionResponses).toEqual([{ outcome: { outcome: "cancelled" } }])
+    })
+  })
+
+  test("auth_required on session/new rejects the send and reports the login hint", async () => {
+    const harness = await createHarness({
+      newSession: () => {
+        throw RequestError.authRequired()
+      },
+    })
+    const expectedMessage = `${REGISTRATION.displayName} requires sign-in. ${REGISTRATION.loginHint}`
+    await expect(harness.adapter.send(promptInput())).rejects.toThrow(expectedMessage)
+    const error = await harness.waitFor((event) => event.event === "agentError")
+    expect(eventData(error, "agentError")).toEqual({ sessionId: WANTA_SESSION_ID, message: expectedMessage })
+  })
+
+  test("a protocol version mismatch closes the connection with a clear error", async () => {
+    const harness = await createHarness({
+      initialize: { protocolVersion: (PROTOCOL_VERSION as number) + 1 },
+    })
+    await expect(harness.adapter.send(promptInput())).rejects.toThrow(/protocol version/u)
+    const error = await harness.waitFor((event) => event.event === "agentError")
+    const message = eventData(error, "agentError").message
+    expect(message).toContain(`${(PROTOCOL_VERSION as number) + 1}`)
+    expect(message).toContain(`${PROTOCOL_VERSION}`)
+    expect(harness.fake.newSessionRequests).toHaveLength(0)
+  })
+
+  test("an unknown permission requestId is rejected loudly", async () => {
+    const harness = await createHarness()
+    await expect(
+      harness.adapter.send({
+        type: "permission-response",
+        sessionId: WANTA_SESSION_ID,
+        requestId: "acp-perm-unknown",
+        reply: "once",
+      }),
+    ).rejects.toThrow("gemini-cli: unknown permission request acp-perm-unknown")
+  })
+
+  test("subprocess exit fails the in-flight turn and the next prompt respawns", async () => {
+    let promptCalls = 0
+    const harness = await createHarness({
+      prompt: async (turn) => {
+        promptCalls += 1
+        if (promptCalls === 1) {
+          await turn.sendUpdate({
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "working..." },
+          })
+          // Simulate a crash mid-turn: never resolve.
+          return new Promise<PromptResponse>(() => {})
+        }
+        return { stopReason: "end_turn" }
+      },
+    })
+    await harness.adapter.send(promptInput())
+    await harness.waitFor((event) => event.event === "messageDelta" && event.data.text === "working...")
+    harness.fake.fireExit(1)
+    const error = await harness.waitFor((event) => event.event === "agentError")
+    expect(eventData(error, "agentError")).toEqual({
+      sessionId: WANTA_SESSION_ID,
+      message: `${REGISTRATION.displayName} exited unexpectedly`,
+    })
+    // The connection was cleared: the next prompt respawns and opens a fresh ACP session.
+    await harness.adapter.send(promptInput("second try"))
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    expect(harness.fake.connectCount()).toBe(2)
+    expect(harness.fake.newSessionRequests).toHaveLength(2)
+  })
+
+  test("applyPermissionMode projects full access onto the advertised session mode", async () => {
+    const harness = await createHarness({
+      newSession: () => ({
+        sessionId: "acp-session-1",
+        modes: {
+          currentModeId: "default",
+          availableModes: [
+            { id: "default", name: "Default" },
+            { id: "yolo", name: "Yolo" },
+          ],
+        },
+      }),
+    })
+    await harness.adapter.send(promptInput())
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "full_access")
+    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "default")
+    expect(harness.fake.setModeRequests.map((request) => request.modeId)).toEqual(["yolo", "default"])
+    expect(harness.fake.setModeRequests.every((request) => request.sessionId === "acp-session-1")).toBe(true)
+  })
+
+  test("applyPermissionMode is a no-op when the session does not advertise the mode", async () => {
+    const harness = await createHarness()
+    await harness.adapter.send(promptInput())
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "full_access")
+    expect(harness.fake.setModeRequests).toEqual([])
+  })
+
+  test("forgetSession drops the ACP mapping so a new ACP session is opened", async () => {
+    const harness = await createHarness()
+    await harness.adapter.send(promptInput())
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    harness.adapter.forgetSession(WANTA_SESSION_ID)
+    await harness.adapter.send(promptInput("again"))
+    await harness.waitFor((event) => event.event === "messageCompleted" && harness.fake.promptRequests.length === 2)
+    expect(harness.fake.newSessionRequests).toHaveLength(2)
+    // Same subprocess: forgetting a session must not tear down the connection.
+    expect(harness.fake.connectCount()).toBe(1)
+  })
+})

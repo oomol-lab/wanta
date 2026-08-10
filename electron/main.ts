@@ -44,6 +44,8 @@ import {
   resolveDevDingTalkCliBin,
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
+import { createExternalAgents } from "./agent/external/create.ts"
+import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
 import { AgentManager } from "./agent/manager.ts"
 import { OpencodeAgentAdapter } from "./agent/opencode-adapter.ts"
 import { AgentRetirementPool } from "./agent/retirement.ts"
@@ -91,6 +93,7 @@ import { normalizeRendererErrorReport } from "./renderer-error-report.ts"
 import { resolveAgentRuntime } from "./runtime/agent-runtime.ts"
 import { resolveRuntimeCapabilities } from "./runtime/common.ts"
 import { SessionActivityStore } from "./session/activity-store.ts"
+import { ExternalSessionStore } from "./session/external-store.ts"
 import { SessionMetadataStore } from "./session/metadata-store.ts"
 import { SessionServiceImpl } from "./session/node.ts"
 import { SessionProjectStore } from "./session/project-store.ts"
@@ -206,6 +209,15 @@ let runtimeInitialized = false
 const authStore = new AuthStore(app.getPath("userData"))
 const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
 const sessionMetadataStore = new SessionMetadataStore(app.getPath("userData"))
+const externalSessionStore = new ExternalSessionStore(app.getPath("userData"))
+// External (BYOA) adapters are app-lifetime and independent of the OOMOL account
+// runtime: their models and auth belong to the agent CLIs themselves.
+const externalAgents = createExternalAgents({
+  appRoot,
+  isPackaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  scratchRootDir: path.join(app.getPath("userData"), "agent-external"),
+})
 const sessionProjectStore = new SessionProjectStore(app.getPath("userData"))
 const artifactBundleStore = new ArtifactBundleStore(app.getPath("userData"))
 const authorizationOverlayStore = new AuthorizationOverlayStore(app.getPath("userData"))
@@ -256,9 +268,14 @@ const chatService = new ChatServiceImpl(null, {
 })
 const sessionService = new SessionServiceImpl(null, {
   activityStore: sessionActivityStore,
+  externalSessionStore,
   metadataStore: sessionMetadataStore,
   onSessionArchived: (sessionId) => attentionService.removeSession(sessionId),
   onSessionRemoved: async (sessionId) => {
+    const externalKind = externalAgentKindForSessionId(sessionId)
+    if (externalKind) {
+      externalAgents.get(externalKind)?.forgetSession(sessionId)
+    }
     await browserManager.removeSession(sessionId)
     await chatService.forgetSession(sessionId).catch((error: unknown) => {
       console.warn("[wanta] failed to clear removed session chat state", error)
@@ -444,6 +461,14 @@ if (isLocked) {
       void userAttachmentStore.pruneExpiredUnreferenced().catch((error: unknown) => {
         console.warn("[wanta] failed to prune expired attachment snapshots:", error)
       })
+      // External (BYOA) adapters: start is probe-only (no subprocess until the
+      // first prompt); failures degrade to per-agent status, never block startup.
+      chatService.setExternalAgents(externalAgents)
+      for (const adapter of externalAgents.values()) {
+        void adapter.start().catch((error: unknown) => {
+          console.warn(`[wanta] external agent ${adapter.kind} failed to start:`, error)
+        })
+      }
       // 打包态启动跨平台后台更新：延迟首查、周期检查、系统唤醒后补查；发现后后台下载，
       // 安装仍由用户点击重启或正常退出触发，避免打断 Agent 任务。
       updateService.startBackgroundChecks()
@@ -543,6 +568,15 @@ function reapAgentForShutdown(): Promise<void> {
       await runBoundedShutdownStep("retire active agent", () => agentRetirementPool.retire(activeAgent))
     }
     await runBoundedShutdownStep("drain agent retirements", () => agentRetirementPool.drain())
+    await runBoundedShutdownStep("stop external agents", async () => {
+      await Promise.all(
+        [...externalAgents.values()].map((adapter) =>
+          adapter.stop().catch((error: unknown) => {
+            console.warn(`[wanta] external agent ${adapter.kind} failed to stop:`, error)
+          }),
+        ),
+      )
+    })
     await runBoundedShutdownStep("dispose spreadsheet preview worker", () => spreadsheetPreviewWorker.dispose())
     await runBoundedShutdownStep("dispose browser control server", () => browserControlServer.dispose())
     await runBoundedShutdownStep("dispose integrated browser", () => browserManager.dispose())

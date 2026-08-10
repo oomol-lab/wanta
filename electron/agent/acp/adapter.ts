@@ -1,0 +1,725 @@
+import type { AgentPermissionMode, ChatPermissionReply, ChatPermissionRequest } from "../../chat/common.ts"
+import type {
+  AgentSendOptions,
+  CancelAgentInput,
+  PermissionResponseAgentInput,
+  PromptAgentInput,
+} from "../contract/input.ts"
+import type { AgentProfile } from "../contract/profile.ts"
+import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
+import type { AcpAgentKind, AcpAgentRegistration } from "./registry.ts"
+import type { AcpSessionTranslator } from "./translator.ts"
+import type {
+  AgentCapabilities,
+  AuthMethod,
+  ClientConnection,
+  InitializeResponse,
+  PermissionOption,
+  PromptResponse,
+  RequestPermissionRequest,
+  RequestPermissionResponse,
+  SessionNotification,
+  Stream,
+} from "@agentclientprotocol/sdk"
+
+import { client, ndJsonStream, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk"
+import { spawn } from "node:child_process"
+import { mkdir } from "node:fs/promises"
+import path from "node:path"
+import { Readable, Writable } from "node:stream"
+import { logDiagnostic } from "../../diagnostics-log.ts"
+import { AGENT_PROFILES } from "../contract/profile.ts"
+import { ExternalAgentAdapter } from "../external/adapter-base.ts"
+import { externalSessionUuid } from "../external/session-id.ts"
+import { createAcpSessionTranslator } from "./translator.ts"
+
+// Generic ACP agent adapter (BYOA phase 2).
+//
+// ONE adapter instance per registered ACP agent kind; the registry entry is the
+// only per-agent variation (no code branches per agent). One subprocess and one
+// ACP connection per instance, spawned lazily on the first prompt; ACP
+// multiplexes sessions over it. Wanta session ids map 1:1 to ACP session ids
+// and every emitted event carries the Wanta id.
+//
+// Verified against @agentclientprotocol/sdk@1.3.0 (dist/acp.d.ts,
+// dist/schema/types.gen.d.ts, dist/jsonrpc.js):
+// - `ndJsonStream(output, input)` takes WHATWG web streams; Node child pipes
+//   are wrapped with Writable.toWeb / Readable.toWeb.
+// - The modern `client()` builder registers handlers by method literal and
+//   `connect(stream)` returns a ClientConnection whose `.agent` context sends
+//   agent-side requests. `initialize` is an explicit request, not automatic.
+// - `mcpServers` is a REQUIRED field on session/new (pass []).
+// - auth_required is RequestError code -32000; request cancellation is -32800.
+
+const ACP_AUTH_REQUIRED_CODE = -32000
+const ACP_REQUEST_CANCELLED_CODE = -32800
+const PROBE_CACHE_TTL_MS = 30_000
+
+/** Test seam: a connected ACP wire plus subprocess lifecycle hooks. */
+export interface AcpTransport {
+  stream: Stream
+  dispose: () => void
+  onExit?: (cb: (info: { code: number | null }) => void) => void
+}
+
+export interface AcpAdapterOptions {
+  kind: AcpAgentKind
+  registration: AcpAgentRegistration
+  /** Binary path + login state probe; results are cached for 30 seconds. */
+  probe: () => Promise<ExternalAgentRuntimeStatus>
+  /** Per-session cwd fallback; <scratchRootDir>/<sessionUuid> is created on demand. */
+  scratchRootDir: string
+  /**
+   * Test seam: produce a connected ACP stream plus a dispose fn. The default
+   * spawns the probed binary with registration.acpArgs over stdio.
+   */
+  connect?: () => Promise<AcpTransport>
+}
+
+interface AcpConnectionHandle {
+  connection: ClientConnection
+  dispose: () => void
+  agentCapabilities?: AgentCapabilities
+  authMethods?: AuthMethod[]
+  /** Set once the connection is torn down so loss handling runs exactly once. */
+  lost: boolean
+}
+
+/** In-flight prompt marker; settled exactly once by resolve/reject/loss. */
+interface AcpTurn {
+  settled: boolean
+}
+
+interface AcpSessionState {
+  wantaSessionId: string
+  acpSessionId: string
+  translator: AcpSessionTranslator
+  /** Mode the session started in; restored on permission mode "default". */
+  initialModeId?: string
+  availableModeIds: readonly string[]
+  /** True between session/cancel and the turn settling; gates permission outcomes. */
+  cancelling: boolean
+  activeTurn?: AcpTurn
+}
+
+interface PendingAcpPermission {
+  requestId: string
+  wantaSessionId: string
+  options: readonly PermissionOption[]
+  resolve: (response: RequestPermissionResponse) => void
+}
+
+function requestErrorCode(error: unknown): number | undefined {
+  if (error instanceof RequestError) {
+    return error.code
+  }
+  if (error !== null && typeof error === "object" && typeof (error as { code?: unknown }).code === "number") {
+    return (error as { code: number }).code
+  }
+  return undefined
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Map a Wanta permission reply onto the agent-offered options. Falls back along
+ * same-direction kinds only; when no option matches the direction the outcome
+ * degrades to "cancelled" rather than picking an opposite-direction option.
+ */
+function selectPermissionOptionId(
+  options: readonly PermissionOption[],
+  reply: ChatPermissionReply,
+): string | undefined {
+  const byKind = (kind: PermissionOption["kind"]): string | undefined =>
+    options.find((option) => option.kind === kind)?.optionId
+  switch (reply) {
+    case "once":
+      return byKind("allow_once") ?? byKind("allow_always")
+    case "always":
+      return byKind("allow_always") ?? byKind("allow_once")
+    case "reject":
+      return byKind("reject_once") ?? byKind("reject_always")
+  }
+}
+
+export class AcpAgentAdapter extends ExternalAgentAdapter {
+  private readonly options: AcpAdapterOptions
+  private connectionHandle: AcpConnectionHandle | undefined
+  private connectionPromise: Promise<AcpConnectionHandle> | undefined
+  private readonly sessionsByWantaId = new Map<string, AcpSessionState>()
+  private readonly wantaIdByAcpId = new Map<string, string>()
+  private readonly sessionCreationByWantaId = new Map<string, Promise<AcpSessionState>>()
+  private readonly pendingAcpPermissions = new Map<string, PendingAcpPermission>()
+  private permissionSeq = 0
+  private userMessageSeq = 0
+  private probeCache: { at: number; promise: Promise<ExternalAgentRuntimeStatus> } | undefined
+
+  constructor(options: AcpAdapterOptions) {
+    super()
+    this.options = options
+  }
+
+  public get kind(): AcpAgentKind {
+    return this.options.kind
+  }
+
+  public get profile(): AgentProfile {
+    return AGENT_PROFILES[this.options.kind]
+  }
+
+  public runtimeStatus(): Promise<ExternalAgentRuntimeStatus> {
+    const now = Date.now()
+    if (this.probeCache && now - this.probeCache.at < PROBE_CACHE_TTL_MS) {
+      return this.probeCache.promise
+    }
+    const promise = this.options.probe()
+    const entry = { at: now, promise }
+    this.probeCache = entry
+    promise.catch(() => {
+      // A failed probe must not be cached for 30 seconds.
+      if (this.probeCache === entry) {
+        this.probeCache = undefined
+      }
+    })
+    return promise
+  }
+
+  protected async handleStart(): Promise<void> {
+    // The subprocess is spawned lazily on the first prompt.
+  }
+
+  protected async handleStop(): Promise<void> {
+    // BaseAgentAdapter.teardown() already emitted permissionReplied for parked
+    // requests; here we settle the protocol side with the cancelled outcome.
+    const settled = this.settlePendingPermissions(() => true, false)
+    if (settled > 0) {
+      // Give the JSON-RPC responders one macrotask to flush the cancelled
+      // outcomes onto the wire before the connection is torn down.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    this.disposeConnection()
+  }
+
+  protected override handleForgetSession(sessionId: string): void {
+    const session = this.sessionsByWantaId.get(sessionId)
+    if (session) {
+      this.wantaIdByAcpId.delete(session.acpSessionId)
+      this.sessionsByWantaId.delete(sessionId)
+    }
+    // The session is gone; settle its parked resolvers without re-emitting.
+    this.settlePendingPermissions((pending) => pending.wantaSessionId === sessionId, false)
+  }
+
+  protected async handlePrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
+    if (options?.signal?.aborted) {
+      return
+    }
+    const displayName = this.options.registration.displayName
+    let handle: AcpConnectionHandle
+    try {
+      handle = await this.ensureConnection()
+    } catch (error) {
+      const message = errorMessage(error)
+      this.emit({ event: "agentError", data: { sessionId: input.sessionId, message } })
+      throw error instanceof Error ? error : new Error(message)
+    }
+    let session: AcpSessionState
+    try {
+      session = await this.ensureAcpSession(handle, input)
+    } catch (error) {
+      const message = this.isAuthRequiredError(error)
+        ? this.signInRequiredMessage()
+        : `${displayName} could not open a session: ${errorMessage(error)}`
+      this.emit({ event: "agentError", data: { sessionId: input.sessionId, message } })
+      throw new Error(message)
+    }
+    if (options?.signal?.aborted) {
+      return
+    }
+    if (session.activeTurn && !session.activeTurn.settled) {
+      throw new Error(`${this.kind}: a prompt is already in flight for this session`)
+    }
+    // External agents never echo the user turn back; synthesize it so the
+    // transcript and streaming overlays see it immediately.
+    this.userMessageSeq += 1
+    const userMessageId = input.messageId ?? `acp-user-${this.userMessageSeq}`
+    this.emit({
+      event: "messageStarted",
+      data: { sessionId: input.sessionId, messageId: userMessageId, role: "user" },
+    })
+    this.emit({
+      event: "messageDelta",
+      data: {
+        sessionId: input.sessionId,
+        messageId: userMessageId,
+        partId: `${userMessageId}:text`,
+        text: input.text,
+        delta: input.text,
+      },
+    })
+    session.translator.noteTurnStarted()
+    session.cancelling = false
+    const turn: AcpTurn = { settled: false }
+    session.activeTurn = turn
+    const promptPromise = handle.connection.agent.request("session/prompt", {
+      sessionId: session.acpSessionId,
+      prompt: [{ type: "text", text: input.text }],
+    })
+    this.trackTurn(session, turn, promptPromise, options?.signal)
+    // Resolve on dispatch (submission ack); completion arrives as messageCompleted.
+  }
+
+  protected async handleCancel(input: CancelAgentInput, options?: AgentSendOptions): Promise<void> {
+    if (options?.signal?.aborted) {
+      return
+    }
+    await this.cancelSession(input.sessionId)
+  }
+
+  protected override async handlePermissionResponse(
+    input: PermissionResponseAgentInput,
+    options?: AgentSendOptions,
+  ): Promise<void> {
+    if (options?.signal?.aborted) {
+      return
+    }
+    const pending = this.pendingAcpPermissions.get(input.requestId)
+    if (!pending) {
+      throw new Error(`${this.kind}: unknown permission request ${input.requestId}`)
+    }
+    this.pendingAcpPermissions.delete(input.requestId)
+    const optionId = selectPermissionOptionId(pending.options, input.reply)
+    if (optionId === undefined) {
+      pending.resolve({ outcome: { outcome: "cancelled" } })
+    } else {
+      pending.resolve({ outcome: { outcome: "selected", optionId } })
+    }
+    this.emit({
+      event: "permissionReplied",
+      data: { sessionId: pending.wantaSessionId, requestId: input.requestId },
+    })
+  }
+
+  /**
+   * Best-effort projection of Wanta's permission mode onto the agent's session
+   * modes: only active when the registry declares a full-access mode id AND the
+   * session advertises it.
+   */
+  public override async applyPermissionMode(sessionId: string, mode: AgentPermissionMode): Promise<void> {
+    const fullAccessModeId = this.options.registration.fullAccessModeId
+    if (!fullAccessModeId) {
+      return
+    }
+    const session = this.sessionsByWantaId.get(sessionId)
+    if (!session || !session.availableModeIds.includes(fullAccessModeId)) {
+      return
+    }
+    const targetModeId = mode === "full_access" ? fullAccessModeId : session.initialModeId
+    if (!targetModeId) {
+      return
+    }
+    const handle = this.connectionHandle
+    if (!handle || handle.lost) {
+      return
+    }
+    try {
+      await handle.connection.agent.request("session/set_mode", {
+        sessionId: session.acpSessionId,
+        modeId: targetModeId,
+      })
+    } catch (error) {
+      logDiagnostic(
+        "acp-adapter",
+        "session/set_mode failed",
+        { adapter: this.kind, modeId: targetModeId, error: errorMessage(error) },
+        "warn",
+      )
+    }
+  }
+
+  private signInRequiredMessage(): string {
+    return `${this.options.registration.displayName} requires sign-in. ${this.options.registration.loginHint}`
+  }
+
+  private isAuthRequiredError(error: unknown): boolean {
+    return requestErrorCode(error) === ACP_AUTH_REQUIRED_CODE
+  }
+
+  private async cancelSession(wantaSessionId: string): Promise<void> {
+    const session = this.sessionsByWantaId.get(wantaSessionId)
+    if (!session) {
+      return
+    }
+    session.cancelling = true
+    // Protocol rule: after session/cancel every pending permission request of
+    // that turn must be answered with the cancelled outcome.
+    this.settlePendingPermissions((pending) => pending.wantaSessionId === wantaSessionId, true)
+    const handle = this.connectionHandle
+    if (!handle || handle.lost) {
+      return
+    }
+    try {
+      await handle.connection.agent.notify("session/cancel", { sessionId: session.acpSessionId })
+    } catch (error) {
+      logDiagnostic(
+        "acp-adapter",
+        "session/cancel notification failed",
+        { adapter: this.kind, error: errorMessage(error) },
+        "warn",
+      )
+    }
+  }
+
+  private trackTurn(
+    session: AcpSessionState,
+    turn: AcpTurn,
+    promptPromise: Promise<PromptResponse>,
+    signal?: AbortSignal,
+  ): void {
+    const wantaSessionId = session.wantaSessionId
+    const onAbort = (): void => {
+      void this.cancelSession(wantaSessionId)
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+    const settle = (): boolean => {
+      signal?.removeEventListener("abort", onAbort)
+      if (turn.settled) {
+        return false
+      }
+      turn.settled = true
+      if (session.activeTurn === turn) {
+        session.activeTurn = undefined
+      }
+      return true
+    }
+    promptPromise.then(
+      () => {
+        if (!settle()) {
+          return
+        }
+        this.emit({ event: "messageCompleted", data: { sessionId: wantaSessionId } })
+      },
+      (error: unknown) => {
+        if (!settle()) {
+          return
+        }
+        if (session.cancelling || requestErrorCode(error) === ACP_REQUEST_CANCELLED_CODE) {
+          // Cancelled turns still end; the UI must leave the streaming state.
+          this.emit({ event: "messageCompleted", data: { sessionId: wantaSessionId } })
+          return
+        }
+        const message = this.isAuthRequiredError(error)
+          ? this.signInRequiredMessage()
+          : `${this.options.registration.displayName} prompt failed: ${errorMessage(error)}`
+        this.emit({ event: "agentError", data: { sessionId: wantaSessionId, message } })
+      },
+    )
+  }
+
+  private async ensureConnection(): Promise<AcpConnectionHandle> {
+    if (this.connectionHandle) {
+      return this.connectionHandle
+    }
+    this.connectionPromise ??= this.openConnection()
+    const promise = this.connectionPromise
+    try {
+      return await promise
+    } catch (error) {
+      if (this.connectionPromise === promise) {
+        this.connectionPromise = undefined
+      }
+      throw error
+    }
+  }
+
+  private async openConnection(): Promise<AcpConnectionHandle> {
+    const displayName = this.options.registration.displayName
+    const transport = await (this.options.connect ? this.options.connect() : this.spawnTransport())
+    const app = client({ name: "wanta" })
+      .onRequest("session/request_permission", (context) => this.onAcpPermissionRequest(context.params))
+      .onNotification("session/update", (context) => {
+        this.onAcpSessionUpdate(context.params)
+      })
+    const connection = app.connect(transport.stream)
+    const handle: AcpConnectionHandle = { connection, dispose: transport.dispose, lost: false }
+    const markLost = (): void => {
+      this.handleConnectionLost(handle)
+    }
+    transport.onExit?.(markLost)
+    void connection.closed.then(markLost, markLost)
+    let initialize: InitializeResponse
+    try {
+      initialize = await connection.agent.request("initialize", {
+        protocolVersion: PROTOCOL_VERSION,
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+      })
+    } catch (error) {
+      this.teardownHandle(handle)
+      throw new Error(`${displayName} failed to initialize the ACP connection: ${errorMessage(error)}`)
+    }
+    if (initialize.protocolVersion !== PROTOCOL_VERSION) {
+      this.teardownHandle(handle)
+      throw new Error(
+        `${displayName} negotiated ACP protocol version ${initialize.protocolVersion}, ` +
+          `but Wanta requires version ${PROTOCOL_VERSION}. Update ${displayName} and retry.`,
+      )
+    }
+    handle.agentCapabilities = initialize.agentCapabilities
+    handle.authMethods = initialize.authMethods ?? undefined
+    if (!this.isStarted) {
+      this.teardownHandle(handle)
+      throw new Error(`${this.kind}: adapter stopped while connecting`)
+    }
+    this.connectionHandle = handle
+    this.connectionPromise = undefined
+    return handle
+  }
+
+  /** Spawn the probed CLI in ACP mode and wrap its stdio as web streams. */
+  private async spawnTransport(): Promise<AcpTransport> {
+    const registration = this.options.registration
+    const status = await this.runtimeStatus()
+    if (status.binary.status !== "detected") {
+      const detail = status.binary.status === "error" ? ` (${status.binary.message})` : ""
+      throw new Error(`${registration.displayName} CLI was not found on this machine${detail}.`)
+    }
+    const child = spawn(status.binary.path, [...registration.acpArgs], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: process.env,
+    })
+    if (!child.stdin || !child.stdout) {
+      child.kill()
+      throw new Error(`${registration.displayName} subprocess did not expose stdio pipes.`)
+    }
+    // ACP traffic is stdout-only; stderr must be drained so the CLI never
+    // blocks on a full pipe.
+    child.stderr?.resume()
+    // Node web-stream declarations are structurally compatible with the DOM
+    // globals the SDK types reference, but nominally distinct; cast once here.
+    const stream = ndJsonStream(
+      Writable.toWeb(child.stdin) as unknown as WritableStream<Uint8Array>,
+      Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>,
+    )
+    const exitCallbacks: Array<(info: { code: number | null }) => void> = []
+    let exited = false
+    const fireExit = (code: number | null): void => {
+      if (exited) {
+        return
+      }
+      exited = true
+      for (const callback of exitCallbacks) {
+        callback({ code })
+      }
+    }
+    child.once("exit", (code) => fireExit(code))
+    child.once("error", (error) => {
+      logDiagnostic("acp-adapter", "ACP subprocess error", { adapter: this.kind, error: errorMessage(error) }, "error")
+      fireExit(null)
+    })
+    return {
+      stream,
+      dispose: () => {
+        if (!exited) {
+          child.kill()
+        }
+      },
+      onExit: (callback) => {
+        exitCallbacks.push(callback)
+      },
+    }
+  }
+
+  private teardownHandle(handle: AcpConnectionHandle): void {
+    handle.lost = true
+    try {
+      handle.connection.close()
+    } catch {
+      // Already closed.
+    }
+    try {
+      handle.dispose()
+    } catch {
+      // Transport already gone.
+    }
+  }
+
+  private disposeConnection(): void {
+    const handle = this.connectionHandle
+    this.connectionHandle = undefined
+    this.connectionPromise = undefined
+    if (handle) {
+      // Detached first, so loss handling below skips the error broadcast.
+      this.handleConnectionLost(handle)
+    }
+  }
+
+  /**
+   * Subprocess exit or connection close: fail every in-flight turn loudly and
+   * clear all connection-scoped state so the next prompt respawns cleanly.
+   */
+  private handleConnectionLost(handle: AcpConnectionHandle): void {
+    if (handle.lost) {
+      return
+    }
+    this.teardownHandle(handle)
+    if (this.connectionHandle !== handle) {
+      return
+    }
+    this.connectionHandle = undefined
+    this.connectionPromise = undefined
+    this.settlePendingPermissions(() => true, true)
+    const displayName = this.options.registration.displayName
+    for (const session of this.sessionsByWantaId.values()) {
+      const turn = session.activeTurn
+      if (turn && !turn.settled) {
+        turn.settled = true
+        session.activeTurn = undefined
+        this.emit({
+          event: "agentError",
+          data: { sessionId: session.wantaSessionId, message: `${displayName} exited unexpectedly` },
+        })
+      }
+    }
+    // ACP session ids died with the subprocess; drop the mappings so the next
+    // prompt opens fresh sessions on the respawned process.
+    this.sessionsByWantaId.clear()
+    this.wantaIdByAcpId.clear()
+    logDiagnostic("acp-adapter", "ACP connection lost", { adapter: this.kind }, "warn")
+  }
+
+  private async ensureAcpSession(handle: AcpConnectionHandle, input: PromptAgentInput): Promise<AcpSessionState> {
+    const existing = this.sessionsByWantaId.get(input.sessionId)
+    if (existing) {
+      return existing
+    }
+    const pending = this.sessionCreationByWantaId.get(input.sessionId)
+    if (pending) {
+      return pending
+    }
+    const creation = this.createAcpSession(handle, input)
+    this.sessionCreationByWantaId.set(input.sessionId, creation)
+    try {
+      return await creation
+    } finally {
+      this.sessionCreationByWantaId.delete(input.sessionId)
+    }
+  }
+
+  private async createAcpSession(handle: AcpConnectionHandle, input: PromptAgentInput): Promise<AcpSessionState> {
+    const cwd = input.outputProjectRoot ?? (await this.ensureScratchDir(input.sessionId))
+    const response = await handle.connection.agent.request("session/new", { cwd, mcpServers: [] })
+    const modes = response.modes ?? undefined
+    const session: AcpSessionState = {
+      wantaSessionId: input.sessionId,
+      acpSessionId: response.sessionId,
+      translator: createAcpSessionTranslator(input.sessionId),
+      initialModeId: modes?.currentModeId,
+      availableModeIds: (modes?.availableModes ?? []).map((mode) => mode.id),
+      cancelling: false,
+    }
+    this.sessionsByWantaId.set(input.sessionId, session)
+    this.wantaIdByAcpId.set(response.sessionId, input.sessionId)
+    return session
+  }
+
+  private async ensureScratchDir(wantaSessionId: string): Promise<string> {
+    const uuid = externalSessionUuid(wantaSessionId) ?? wantaSessionId.replace(/[^\w-]/gu, "-")
+    const dir = path.join(this.options.scratchRootDir, uuid)
+    await mkdir(dir, { recursive: true })
+    return dir
+  }
+
+  private onAcpSessionUpdate(notification: SessionNotification): void {
+    const wantaSessionId = this.wantaIdByAcpId.get(notification.sessionId)
+    const session = wantaSessionId !== undefined ? this.sessionsByWantaId.get(wantaSessionId) : undefined
+    if (!session) {
+      logDiagnostic(
+        "acp-adapter",
+        "session/update for unknown ACP session",
+        { adapter: this.kind, acpSessionId: notification.sessionId, update: notification.update.sessionUpdate },
+        "warn",
+      )
+      return
+    }
+    const events = session.translator.translate(notification.update)
+    if (events.length === 0) {
+      logDiagnostic(
+        "acp-adapter",
+        "session/update produced no contract events",
+        { adapter: this.kind, update: notification.update.sessionUpdate },
+        "trace",
+      )
+      return
+    }
+    for (const event of events) {
+      this.emit(event)
+    }
+  }
+
+  private onAcpPermissionRequest(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+    const wantaSessionId = this.wantaIdByAcpId.get(params.sessionId)
+    const session = wantaSessionId !== undefined ? this.sessionsByWantaId.get(wantaSessionId) : undefined
+    if (!session || wantaSessionId === undefined) {
+      logDiagnostic(
+        "acp-adapter",
+        "permission request for unknown ACP session",
+        { adapter: this.kind, acpSessionId: params.sessionId },
+        "warn",
+      )
+      return Promise.resolve({ outcome: { outcome: "cancelled" } })
+    }
+    if (session.cancelling || !this.isStarted) {
+      // Protocol rule: a cancelled turn answers permission requests with the
+      // cancelled outcome. Nothing was surfaced, so no events are emitted.
+      return Promise.resolve({ outcome: { outcome: "cancelled" } })
+    }
+    this.permissionSeq += 1
+    const requestId = `acp-perm-${this.permissionSeq}`
+    const metadata: Record<string, unknown> = {
+      options: params.options,
+      toolCallId: params.toolCall.toolCallId,
+    }
+    if (params.toolCall.rawInput !== undefined) {
+      metadata["rawInput"] = params.toolCall.rawInput
+    }
+    const request: ChatPermissionRequest = {
+      id: requestId,
+      sessionId: wantaSessionId,
+      action: params.toolCall.title ?? "permission",
+      resources: (params.toolCall.locations ?? []).map((location) => location.path).slice(0, 3),
+      metadata,
+    }
+    return new Promise<RequestPermissionResponse>((resolve) => {
+      this.pendingAcpPermissions.set(requestId, {
+        requestId,
+        wantaSessionId,
+        options: params.options,
+        resolve,
+      })
+      this.emit({ event: "permissionAsked", data: { sessionId: wantaSessionId, request } })
+    })
+  }
+
+  /** Resolve matching parked permission requests with the cancelled outcome. */
+  private settlePendingPermissions(matches: (pending: PendingAcpPermission) => boolean, emitReplied: boolean): number {
+    let settled = 0
+    // Deleting the current entry while iterating a Map is well-defined.
+    for (const [requestId, pending] of this.pendingAcpPermissions) {
+      if (!matches(pending)) {
+        continue
+      }
+      this.pendingAcpPermissions.delete(requestId)
+      pending.resolve({ outcome: { outcome: "cancelled" } })
+      settled += 1
+      if (emitReplied) {
+        this.emit({
+          event: "permissionReplied",
+          data: { sessionId: pending.wantaSessionId, requestId },
+        })
+      }
+    }
+    return settled
+  }
+}

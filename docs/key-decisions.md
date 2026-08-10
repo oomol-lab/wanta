@@ -251,8 +251,8 @@
   process holds the local access policy: Default Access treats bash as a normal working channel,
   auto-approving ordinary shell commands, scripts, project checks, data processing, simple output
   filtering, ordinary file reads/writes, and specific non-sensitive paths; only fundamental
-  security boundaries are pushed to the renderer for confirmation — credential/key paths, broad or
-  recursive home/system scans, destructive deletion, global/system or alternate-source dependency changes, privilege
+  security boundaries are pushed to the renderer for confirmation — credential/key paths, broad
+  home/system edit scopes, destructive deletion, global/system or alternate-source dependency changes, privilege
   escalation, `git push/reset/clean`, publish/deploy, infrastructure changes, and the like.
   Sensitive-resource checks take precedence over generic directory session grants; a generic grant
   can never green-light a high-risk request. Full Access can still take over the session's

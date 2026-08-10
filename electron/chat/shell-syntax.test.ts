@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
+import { commandRequiresConfirmation } from "./command-risk.ts"
 import {
   commandWithoutHereDocumentBodies,
   commandWithoutSafeDescriptorDuplication,
@@ -19,6 +20,27 @@ test("here-document payload removal preserves the commands before and after the 
     commandWithoutHereDocumentBodies(command),
     `cat > "/tmp/report.py" <<'PYEOF'\n\n\n\npython3 /tmp/report.py 2>/dev/null || python /tmp/report.py`,
   )
+})
+
+test("here-document detection ignores non-executable operator text", () => {
+  for (const prefix of [
+    `printf '<<EOF'`,
+    `printf "<<EOF"`,
+    `printf \\<\\<EOF`,
+    `printf ready # <<EOF`,
+    `cat << # EOF`,
+    `cat <<<EOF`,
+  ]) {
+    const command = `${prefix}\nrm -rf /tmp/example\nEOF`
+    const sanitized = commandWithoutHereDocumentBodies(command)
+    assert.match(sanitized, /rm -rf \/tmp\/example/u, prefix)
+    assert.equal(commandRequiresConfirmation(sanitized), true, prefix)
+  }
+})
+
+test("here-document detection preserves quoted delimiters and tab stripping", () => {
+  const command = `cat <<-'END REPORT'\n\tpayload / text\n\tEND REPORT\nprintf done`
+  assert.equal(commandWithoutHereDocumentBodies(command), `cat <<-'END REPORT'\n\n\nprintf done`)
 })
 
 test("explicit cd directories accept literal paths and literal assignments", () => {

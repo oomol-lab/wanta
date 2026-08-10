@@ -14,6 +14,97 @@ const shellAssignmentPattern = /^[A-Za-z_][A-Za-z0-9_]*=/u
 const envOptionsWithValue = new Set(["-C", "-S", "-u", "--argv0", "--chdir", "--split-string", "--unset"])
 const shellExpansionCharacters = new Set(["`", "$", "*", "?", "[", "]", "{", "}", "|", "&", ";", "<", ">"])
 
+function hereDocumentDeclarations(line: string): HereDocument[] {
+  const declarations: HereDocument[] = []
+  let singleQuoted = false
+  let doubleQuoted = false
+  let escaped = false
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index] ?? ""
+    const previous = line[index - 1]
+    const next = line[index + 1]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (char === "\\" && !singleQuoted) {
+      escaped = true
+      continue
+    }
+    if (char === "'" && !doubleQuoted) {
+      singleQuoted = !singleQuoted
+      continue
+    }
+    if (char === '"' && !singleQuoted) {
+      doubleQuoted = !doubleQuoted
+      continue
+    }
+    if (singleQuoted || doubleQuoted) {
+      continue
+    }
+    if (char === "#" && (index === 0 || /[\s;&|()]/u.test(previous ?? ""))) {
+      break
+    }
+    if (char !== "<" || next !== "<" || previous === "<" || line[index + 2] === "<") {
+      continue
+    }
+
+    let cursor = index + 2
+    const stripLeadingTabs = line[cursor] === "-"
+    if (stripLeadingTabs) {
+      cursor += 1
+    }
+    while (line[cursor] === " " || line[cursor] === "\t") {
+      cursor += 1
+    }
+    if (line[cursor] === "#") {
+      break
+    }
+
+    let delimiter = ""
+    let delimiterStarted = false
+    let delimiterSingleQuoted = false
+    let delimiterDoubleQuoted = false
+    let delimiterEscaped = false
+    for (; cursor < line.length; cursor += 1) {
+      const delimiterChar = line[cursor] ?? ""
+      if (delimiterEscaped) {
+        delimiter += delimiterChar
+        delimiterStarted = true
+        delimiterEscaped = false
+        continue
+      }
+      if (delimiterChar === "\\" && !delimiterSingleQuoted) {
+        delimiterStarted = true
+        delimiterEscaped = true
+        continue
+      }
+      if (delimiterChar === "'" && !delimiterDoubleQuoted) {
+        delimiterStarted = true
+        delimiterSingleQuoted = !delimiterSingleQuoted
+        continue
+      }
+      if (delimiterChar === '"' && !delimiterSingleQuoted) {
+        delimiterStarted = true
+        delimiterDoubleQuoted = !delimiterDoubleQuoted
+        continue
+      }
+      if (!delimiterSingleQuoted && !delimiterDoubleQuoted && /[\s;&|<>()]/u.test(delimiterChar)) {
+        break
+      }
+      delimiter += delimiterChar
+      delimiterStarted = true
+    }
+    if (!delimiterStarted || delimiterSingleQuoted || delimiterDoubleQuoted || delimiterEscaped) {
+      continue
+    }
+    declarations.push({ delimiter, stripLeadingTabs })
+    index = cursor - 1
+  }
+  return declarations
+}
+
 /**
  * Removes here-document payloads before shell policy inspection. The payload is input to the
  * command, not shell syntax: treating Python division, prose, or HTML inside it as shell operands
@@ -23,7 +114,6 @@ export function commandWithoutHereDocumentBodies(command: string): string {
   const lines = command.split(/(?<=\n)/u)
   const pending: HereDocument[] = []
   const result: string[] = []
-  const declarationPattern = /<<(-)?\s*(?:'([^'\r\n]+)'|"([^"\r\n]+)"|([A-Za-z_][A-Za-z0-9_]*))/gu
 
   for (const line of lines) {
     if (pending.length > 0) {
@@ -38,12 +128,7 @@ export function commandWithoutHereDocumentBodies(command: string): string {
     }
 
     result.push(line)
-    for (const match of line.matchAll(declarationPattern)) {
-      const delimiter = match[2] ?? match[3] ?? match[4]
-      if (delimiter) {
-        pending.push({ delimiter, stripLeadingTabs: Boolean(match[1]) })
-      }
-    }
+    pending.push(...hereDocumentDeclarations(line))
   }
   return result.join("")
 }

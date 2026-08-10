@@ -47,6 +47,8 @@ import type {
   SendMessageRequest,
   SaveLocalImageAsResult,
   SetChatPermissionModeRequest,
+  SetExternalSessionEffortRequest,
+  SetExternalSessionModelRequest,
   SetAgentTeamRequest,
   ShowLocalPathInFolderRequest,
   ToolCallResultEvent,
@@ -428,6 +430,35 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return statuses.filter((status): status is ExternalAgentRuntimeStatus => Boolean(status))
   }
 
+  public async setExternalSessionModel(req: SetExternalSessionModelRequest): Promise<void> {
+    await this.externalAdapterFor(req.sessionId).send({
+      type: "set-model",
+      sessionId: req.sessionId,
+      ...(req.modelId ? { modelId: req.modelId } : {}),
+    })
+  }
+
+  public async setExternalSessionEffort(req: SetExternalSessionEffortRequest): Promise<void> {
+    await this.externalAdapterFor(req.sessionId).send({
+      type: "set-effort",
+      sessionId: req.sessionId,
+      ...(req.effortId ? { effortId: req.effortId } : {}),
+    })
+  }
+
+  public async getExternalSessionSelection(sessionId: string): Promise<{ modelId?: string; effortId?: string }> {
+    return this.externalAdapterFor(sessionId).sessionSelection(sessionId)
+  }
+
+  private externalAdapterFor(sessionId: string): ExternalAgentAdapter {
+    const kind = externalAgentKindForSessionId(sessionId)
+    const adapter = kind ? this.externalAgents.get(kind) : undefined
+    if (!adapter) {
+      throw new Error("This operation only applies to external agent sessions.")
+    }
+    return adapter
+  }
+
   /** Resolve the backend that owns a session id (kernel or an external adapter). */
   private chatBackendFor(sessionId: string): OpencodeAgentAdapter | ExternalAgentAdapter | null {
     const kind = externalAgentKindForSessionId(sessionId)
@@ -505,6 +536,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   /** Run one normalized agent event through the bridge pipeline (filtering, folding, watchdogs, broadcast). */
   private processAgentEvent(emit: (event: string, data: unknown) => Promise<void>, translated: ChatEmit): void {
+    if (translated.event === "usageUpdated") {
+      // Already folded into the adapter transcript; the usage meter reads it
+      // off messages on reload, mirroring the kernel history path.
+      return
+    }
     const sourceSessionId = translated.data.sessionId
     const generationSessionId = sourceSessionId ? this.generationWatchdogSessionId(sourceSessionId) : null
     const failedSessionId = generationSessionId ?? sourceSessionId
@@ -1795,6 +1831,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             text: req.text,
             messageId: userMessageId,
             ...(trustedProjectRoot ? { outputProjectRoot: trustedProjectRoot } : {}),
+            ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
+            ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
           },
           { signal: generation.controller.signal },
         )
@@ -2337,6 +2375,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     // 持久化等待期间可能已有更新版本接管该会话，旧请求不得继续改子会话或自动批准权限。
     if (this.sessionPermissionMode(req.sessionId) !== req.permissionMode) {
       return
+    }
+    // External sessions get the mode projected immediately (mid-run switches
+    // must not wait for the next prompt); adapters treat it as best effort.
+    const externalKind = externalAgentKindForSessionId(req.sessionId)
+    if (externalKind) {
+      try {
+        await this.externalAgents.get(externalKind)?.applyPermissionMode?.(req.sessionId, req.permissionMode)
+      } catch (error) {
+        logDiagnostic(
+          "chat-service",
+          "failed to project permission mode onto external agent",
+          { error, kind: externalKind, sessionId: req.sessionId },
+          "warn",
+        )
+      }
     }
     const affectedSessionIds = [req.sessionId]
     for (const childSessionId of this.subagentSessions.trustedChildSessionIds(req.sessionId)) {

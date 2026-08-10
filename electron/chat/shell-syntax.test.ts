@@ -1,10 +1,25 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
+  commandWithoutHereDocumentBodies,
   commandWithoutSafeDescriptorDuplication,
   explicitCdDirectory,
   shellWordsWithoutRedirections,
 } from "./shell-syntax.ts"
+
+test("here-document payload removal preserves the commands before and after the payload", () => {
+  const command =
+    `cat > "/tmp/report.py" <<'PYEOF'\n` +
+    `ratio = 10000 / total\n` +
+    `private_example = "/Users/example/.ssh/id_ed25519"\n` +
+    `PYEOF\n` +
+    `python3 /tmp/report.py 2>/dev/null || python /tmp/report.py`
+
+  assert.equal(
+    commandWithoutHereDocumentBodies(command),
+    `cat > "/tmp/report.py" <<'PYEOF'\n\n\n\npython3 /tmp/report.py 2>/dev/null || python /tmp/report.py`,
+  )
+})
 
 test("explicit cd directories accept literal paths and literal assignments", () => {
   assert.equal(explicitCdDirectory('cd "/tmp/Project (draft)"'), "/tmp/Project (draft)")

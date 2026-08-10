@@ -5,9 +5,48 @@ export interface TopLevelShellSegment {
   text: string
 }
 
+interface HereDocument {
+  delimiter: string
+  stripLeadingTabs: boolean
+}
+
 const shellAssignmentPattern = /^[A-Za-z_][A-Za-z0-9_]*=/u
 const envOptionsWithValue = new Set(["-C", "-S", "-u", "--argv0", "--chdir", "--split-string", "--unset"])
 const shellExpansionCharacters = new Set(["`", "$", "*", "?", "[", "]", "{", "}", "|", "&", ";", "<", ">"])
+
+/**
+ * Removes here-document payloads before shell policy inspection. The payload is input to the
+ * command, not shell syntax: treating Python division, prose, or HTML inside it as shell operands
+ * can turn an innocent `/` into an apparent filesystem-root access.
+ */
+export function commandWithoutHereDocumentBodies(command: string): string {
+  const lines = command.split(/(?<=\n)/u)
+  const pending: HereDocument[] = []
+  const result: string[] = []
+  const declarationPattern = /<<(-)?\s*(?:'([^'\r\n]+)'|"([^"\r\n]+)"|([A-Za-z_][A-Za-z0-9_]*))/gu
+
+  for (const line of lines) {
+    if (pending.length > 0) {
+      const current = pending[0]
+      const withoutLineEnding = line.replace(/\r?\n$/u, "")
+      const candidate = current?.stripLeadingTabs ? withoutLineEnding.replace(/^\t+/u, "") : withoutLineEnding
+      if (current && candidate === current.delimiter) {
+        pending.shift()
+      }
+      result.push(line.endsWith("\n") ? "\n" : "")
+      continue
+    }
+
+    result.push(line)
+    for (const match of line.matchAll(declarationPattern)) {
+      const delimiter = match[2] ?? match[3] ?? match[4]
+      if (delimiter) {
+        pending.push({ delimiter, stripLeadingTabs: Boolean(match[1]) })
+      }
+    }
+  }
+  return result.join("")
+}
 
 export function shellCommandName(value: string | undefined): string | undefined {
   const normalized = value?.trim().replace(/\\/gu, "/")
@@ -194,6 +233,7 @@ export function effectiveShellCommandWords(words: readonly string[]): readonly s
  * while redirections such as `2>&1` and `&>` stay attached to their command.
  */
 export function topLevelShellSegments(command: string): TopLevelShellSegment[] {
+  command = commandWithoutHereDocumentBodies(command)
   const segments: TopLevelShellSegment[] = []
   let current = ""
   let singleQuoted = false

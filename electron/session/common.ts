@@ -1,4 +1,5 @@
 import type { AgentKind } from "../agent/contract/profile.ts"
+import type { AgentPermissionMode } from "../chat/common.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { ServiceName } from "@oomol/connection"
 
@@ -19,7 +20,7 @@ export interface SessionInfo {
   archivedAt?: number
 }
 
-export type SessionPermissionMode = "default" | "full_access"
+export type SessionPermissionMode = AgentPermissionMode
 
 export interface LocalSessionScope {
   kind: "local"

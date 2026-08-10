@@ -1,3 +1,5 @@
+import type { AgentPermissionMode } from "../../chat/common.ts"
+
 // ACP agent registry (BYOA phase 2).
 //
 // Every ACP-speaking agent is ONE registration entry here plus the profile row
@@ -16,10 +18,18 @@ export interface AcpAgentRegistration {
   /** User guidance when the agent reports authentication is required. */
   loginHint: string
   /**
-   * Optional ACP session mode id that corresponds to Wanta's full-access
-   * permission mode; applied via session/set_mode when the agent advertises it.
+   * Wanta permission modes this agent supports, each mapped to the ACP session
+   * mode id applied via session/set_mode. Key order defines the profile's
+   * declared mode list; entries the live session does not advertise are
+   * skipped at apply time. Absent map = the agent keeps its own default mode.
    */
-  fullAccessModeId?: string
+  permissionModeMap?: Readonly<Partial<Record<AgentPermissionMode, string>>>
+  /**
+   * Whether the agent exposes ACP session config options for model and
+   * reasoning-effort selection (v1.3 configOptions, categories "model" and
+   * "thought_level"). Drives the profile's setModel/setEffort declarations.
+   */
+  selection?: { model: boolean; effort: boolean }
   /** Config file (relative to $HOME) whose presence suggests a completed login. */
   loginMarkerPath?: string
   /**
@@ -37,7 +47,8 @@ export const ACP_AGENT_REGISTRY = {
     acpArgs: ["--acp"],
     versionArgs: ["--version"],
     loginHint: "Run `gemini` in a terminal and complete the Google sign-in, then retry.",
-    fullAccessModeId: "yolo",
+    // gemini-cli 0.42 modes: default (ask) / autoEdit / yolo.
+    permissionModeMap: { default: "default", accept_edits: "autoEdit", full_access: "yolo" },
     loginMarkerPath: ".gemini/oauth_creds.json",
   },
   codex: {
@@ -46,6 +57,9 @@ export const ACP_AGENT_REGISTRY = {
     acpArgs: [],
     versionArgs: ["--version"],
     loginHint: "Run `codex login` in a terminal to sign in, then retry.",
+    // codex-acp modes: read-only / agent (workspace-write) / agent-full-access.
+    permissionModeMap: { default: "agent", read_only: "read-only", full_access: "agent-full-access" },
+    selection: { model: true, effort: true },
     loginMarkerPath: ".codex/auth.json",
     bundledBinName: "codex-acp",
   },

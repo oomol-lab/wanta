@@ -38,6 +38,13 @@ export interface PromptAgentInput {
   artifactDir?: string
   outputProjectRoot?: string
   processDir?: string
+  /**
+   * Agent-native model/effort ids for adapters whose profile declares
+   * setModel/setEffort. Carried on the prompt so a choice made before the
+   * session's first turn applies from turn one.
+   */
+  agentModelId?: string
+  agentEffortId?: string
 }
 
 /** Abort the active generation of a session (ACP: session/cancel). */
@@ -64,7 +71,27 @@ export interface QuestionResponseAgentInput {
   outcome: QuestionResponseOutcome
 }
 
-export type AgentInput = PromptAgentInput | CancelAgentInput | PermissionResponseAgentInput | QuestionResponseAgentInput
+/** Switch the agent-native model of a session (absent id = agent default). */
+export interface SetModelAgentInput {
+  type: "set-model"
+  sessionId: string
+  modelId?: string
+}
+
+/** Switch the agent-native reasoning effort of a session (absent id = agent default). */
+export interface SetEffortAgentInput {
+  type: "set-effort"
+  sessionId: string
+  effortId?: string
+}
+
+export type AgentInput =
+  | PromptAgentInput
+  | CancelAgentInput
+  | PermissionResponseAgentInput
+  | QuestionResponseAgentInput
+  | SetModelAgentInput
+  | SetEffortAgentInput
 
 /** Options that cannot be serialized into the input payload. */
 export interface AgentSendOptions {
@@ -105,6 +132,8 @@ const promptInputSchema = z.object({
   artifactDir: z.string().optional(),
   outputProjectRoot: z.string().optional(),
   processDir: z.string().optional(),
+  agentModelId: z.string().optional(),
+  agentEffortId: z.string().optional(),
 })
 
 const cancelInputSchema = z.object({
@@ -133,12 +162,26 @@ const questionResponseInputSchema = z.object({
   outcome: questionOutcomeSchema,
 })
 
+const setModelInputSchema = z.object({
+  type: z.literal("set-model"),
+  sessionId: z.string().min(1),
+  modelId: z.string().min(1).optional(),
+})
+
+const setEffortInputSchema = z.object({
+  type: z.literal("set-effort"),
+  sessionId: z.string().min(1),
+  effortId: z.string().min(1).optional(),
+})
+
 /** Compile-time check: schema union and AgentInput must stay in lockstep. */
 export const agentInputSchema: z.ZodType<AgentInput> = z.discriminatedUnion("type", [
   promptInputSchema,
   cancelInputSchema,
   permissionResponseInputSchema,
   questionResponseInputSchema,
+  setModelInputSchema,
+  setEffortInputSchema,
 ])
 
 /**

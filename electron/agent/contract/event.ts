@@ -12,6 +12,7 @@ import type {
   QuestionResolvedEvent,
   ToolCallResultEvent,
   ToolCallStartedEvent,
+  UsageUpdatedEvent,
 } from "../../chat/common.ts"
 
 import { z } from "zod"
@@ -69,6 +70,7 @@ export type AgentEvent =
   | { event: "permissionAsked"; data: { sessionId: string; request: ChatPermissionRequest } }
   | { event: "permissionReplied"; data: { sessionId: string; requestId: string } }
   | { event: "messageCompleted"; data: MessageCompletedEvent }
+  | { event: "usageUpdated"; data: UsageUpdatedEvent }
   | { event: "messagePartRemoved"; data: MessagePartRemovedEvent }
   | { event: "agentError"; data: AgentErrorEvent }
   | { event: "connectionStatus"; data: AgentConnectionStatus }
@@ -244,6 +246,18 @@ const messageCompletedSchema = z.object({
   sessionId: z.string(),
 })
 
+const usageUpdatedSchema = z.object({
+  sessionId: z.string(),
+  tokenUsage: z.object({
+    total: z.number().optional(),
+    input: z.number(),
+    output: z.number(),
+    reasoning: z.number(),
+    cache: z.object({ read: z.number(), write: z.number() }),
+    contextWindow: z.number().optional(),
+  }),
+})
+
 const messagePartRemovedSchema = z.object({
   sessionId: z.string(),
   messageId: z.string(),
@@ -294,6 +308,7 @@ export const agentEventSchema: z.ZodType<AgentEvent> = z.discriminatedUnion("eve
   }),
   z.object({ event: z.literal("permissionReplied"), data: permissionResolvedSchema }),
   z.object({ event: z.literal("messageCompleted"), data: messageCompletedSchema }),
+  z.object({ event: z.literal("usageUpdated"), data: usageUpdatedSchema }),
   z.object({ event: z.literal("messagePartRemoved"), data: messagePartRemovedSchema }),
   z.object({ event: z.literal("agentError"), data: agentErrorSchema }),
   z.object({ event: z.literal("connectionStatus"), data: connectionStatusSchema }),

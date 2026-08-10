@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatMessagePart } from "../../chat/common.ts"
+import type { ChatMessage, ChatMessagePart, ChatTokenUsage } from "../../chat/common.ts"
 import type { AgentEvent } from "../contract/event.ts"
 
 // In-memory transcript built from the adapter's own contract events. External
@@ -15,6 +15,8 @@ interface TranscriptMessage {
 
 export class ExternalTranscriptRecorder {
   private readonly sessions = new Map<string, Map<string, TranscriptMessage>>()
+  /** Usage reported before the turn's assistant message exists; applied on arrival. */
+  private readonly pendingUsage = new Map<string, ChatTokenUsage>()
 
   public record(event: AgentEvent): void {
     switch (event.event) {
@@ -96,14 +98,21 @@ export class ExternalTranscriptRecorder {
       case "messageCompleted": {
         // The turn-completion check reads finishReason/completedAt off the
         // latest assistant message, so completion must be materialized here.
-        const messages = this.sessions.get(event.data.sessionId)
-        if (!messages) {
-          return
-        }
-        const assistant = [...messages.values()].filter((entry) => entry.message.role === "assistant").at(-1)
+        const assistant = this.latestAssistant(event.data.sessionId)
         if (assistant && assistant.message.completedAt === undefined) {
           assistant.message.completedAt = Date.now()
           assistant.message.finishReason ??= "stop"
+        }
+        return
+      }
+      case "usageUpdated": {
+        // The usage meter reads tokenUsage off the latest assistant message,
+        // mirroring where the kernel history path carries it.
+        const assistant = this.latestAssistant(event.data.sessionId)
+        if (assistant) {
+          assistant.message.tokenUsage = event.data.tokenUsage
+        } else {
+          this.pendingUsage.set(event.data.sessionId, event.data.tokenUsage)
         }
         return
       }
@@ -153,6 +162,15 @@ export class ExternalTranscriptRecorder {
 
   public forgetSession(sessionId: string): void {
     this.sessions.delete(sessionId)
+    this.pendingUsage.delete(sessionId)
+  }
+
+  private latestAssistant(sessionId: string): TranscriptMessage | undefined {
+    const messages = this.sessions.get(sessionId)
+    if (!messages) {
+      return undefined
+    }
+    return [...messages.values()].filter((entry) => entry.message.role === "assistant").at(-1)
   }
 
   private ensureMessage(sessionId: string, messageId: string, role: ChatMessage["role"]): TranscriptMessage {
@@ -169,6 +187,13 @@ export class ExternalTranscriptRecorder {
         order: [],
       }
       messages.set(messageId, entry)
+      if (role === "assistant") {
+        const parked = this.pendingUsage.get(sessionId)
+        if (parked) {
+          entry.message.tokenUsage = parked
+          this.pendingUsage.delete(sessionId)
+        }
+      }
     }
     return entry
   }

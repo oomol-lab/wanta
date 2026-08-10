@@ -541,6 +541,9 @@ describe.each(adapterFixtures)("agent adapter contract: $kind", ({ kind, create 
     expect(harness.adapter.supportsInput("cancel")).toBe(true)
     expect(harness.adapter.supportsInput("permission-response")).toBe(profile.inputs.permissionResponse)
     expect(harness.adapter.supportsInput("question-response")).toBe(profile.inputs.questionResponse)
+    expect(harness.adapter.supportsInput("set-model")).toBe(profile.inputs.setModel)
+    expect(harness.adapter.supportsInput("set-effort")).toBe(profile.inputs.setEffort)
+    expect(profile.permissionModes.length).toBeGreaterThan(0)
   })
 
   test("onEvent delivers schema-valid translated events", async () => {
@@ -755,6 +758,14 @@ describe("BaseAgentAdapter defaults", () => {
     await adapter.start()
     expect(adapter.supportsInput("permission-response")).toBe(false)
     expect(adapter.supportsInput("question-response")).toBe(false)
+    expect(adapter.supportsInput("set-model")).toBe(false)
+    expect(adapter.supportsInput("set-effort")).toBe(false)
+    await expect(adapter.send({ type: "set-model", sessionId: "s", modelId: "m" })).rejects.toThrow(
+      "opencode: set-model is not supported",
+    )
+    await expect(adapter.send({ type: "set-effort", sessionId: "s", effortId: "e" })).rejects.toThrow(
+      "opencode: set-effort is not supported",
+    )
     await expect(
       adapter.send({ type: "permission-response", sessionId: "s", requestId: "r", reply: "once" }),
     ).rejects.toThrow("opencode: permission-response is not supported")

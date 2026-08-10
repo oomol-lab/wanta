@@ -25,8 +25,18 @@ function validTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
 }
 
+const persistedPermissionModes: readonly SessionPermissionMode[] = [
+  "default",
+  "read_only",
+  "accept_edits",
+  "plan",
+  "full_access",
+]
+
 function normalizePermissionMode(value: unknown): SessionPermissionMode | undefined {
-  return value === "full_access" || value === "default" ? value : undefined
+  return persistedPermissionModes.includes(value as SessionPermissionMode)
+    ? (value as SessionPermissionMode)
+    : undefined
 }
 
 export function normalizeKnowledgeBaseIds(value: unknown): string[] | undefined {

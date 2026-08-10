@@ -93,6 +93,15 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
     return Promise.resolve([])
   }
 
+  /**
+   * Last user-chosen agent-native model/effort for a session. The adapter's
+   * desired-state stash is the authority; the renderer reads it back so a
+   * window reload cannot desync the pickers from what the agent will use.
+   */
+  public sessionSelection(_sessionId: string): { modelId?: string; effortId?: string } {
+    return {}
+  }
+
   /** Release all in-memory state of a deleted session and its on-disk transcript. */
   public forgetSession(sessionId: string): void {
     this.transcript.forgetSession(sessionId)
@@ -145,6 +154,7 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
       case "messageAttachment":
       case "toolCallStarted":
       case "toolCallResult":
+      case "usageUpdated":
       case "messagePartRemoved": {
         const sessionId = event.data.sessionId
         if (!this.pendingTranscriptSaves.has(sessionId)) {

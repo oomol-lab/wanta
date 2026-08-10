@@ -1,4 +1,5 @@
-import type { AcpAgentKind } from "../acp/registry.ts"
+import type { AgentPermissionMode } from "../../chat/common.ts"
+import type { AcpAgentKind, AcpAgentRegistration } from "../acp/registry.ts"
 
 import { ACP_AGENT_REGISTRY } from "../acp/registry.ts"
 
@@ -32,7 +33,20 @@ export interface AgentInputCapabilityFlags {
   permissionResponse: boolean
   /** Settling questionAsked events via question-response inputs. */
   questionResponse: boolean
+  /** Agent-native model selection via set-model inputs (and prompt agentModelId). */
+  setModel: boolean
+  /** Agent-native reasoning-effort selection via set-effort inputs (and prompt agentEffortId). */
+  setEffort: boolean
 }
+
+/** Canonical display order of the normalized permission modes. */
+export const AGENT_PERMISSION_MODE_ORDER: readonly AgentPermissionMode[] = [
+  "default",
+  "read_only",
+  "accept_edits",
+  "plan",
+  "full_access",
+]
 
 /** What the agent can do about past sessions. */
 export interface AgentHistoryCapabilities {
@@ -63,6 +77,8 @@ export interface AgentProfile {
   auth: AgentAuthMode
   inputs: AgentInputCapabilityFlags
   history: AgentHistoryCapabilities
+  /** Normalized permission modes this agent supports, in display order. */
+  permissionModes: readonly AgentPermissionMode[]
 }
 
 /**
@@ -76,21 +92,30 @@ const externalAgentInputs: AgentInputCapabilityFlags = {
   systemPrompt: false,
   permissionResponse: true,
   questionResponse: false,
+  setModel: false,
+  setEffort: false,
 }
 
-/** In-run transcript reads only; no history listing or cross-restart resume yet. */
+/** Persisted transcript reads only; no history listing or agent-side resume yet. */
 const externalAgentHistory: AgentHistoryCapabilities = { list: false, read: true, resume: false }
 
 function acpAgentProfiles(): Record<AcpAgentKind, AgentProfile> {
   const profiles = {} as Record<AcpAgentKind, AgentProfile>
-  for (const [kind, registration] of Object.entries(ACP_AGENT_REGISTRY)) {
-    profiles[kind as AcpAgentKind] = {
-      kind: kind as AcpAgentKind,
+  const entries = Object.entries(ACP_AGENT_REGISTRY) as Array<[AcpAgentKind, AcpAgentRegistration]>
+  for (const [kind, registration] of entries) {
+    const modeMap = registration.permissionModeMap ?? {}
+    profiles[kind] = {
+      kind,
       displayName: registration.displayName,
       modelSource: "agent",
       auth: { kind: "agent-cli", loginCommand: registration.loginHint },
-      inputs: externalAgentInputs,
+      inputs: {
+        ...externalAgentInputs,
+        setModel: registration.selection?.model ?? false,
+        setEffort: registration.selection?.effort ?? false,
+      },
       history: externalAgentHistory,
+      permissionModes: AGENT_PERMISSION_MODE_ORDER.filter((mode) => mode in modeMap),
     }
   }
   return profiles
@@ -109,16 +134,21 @@ export const AGENT_PROFILES = {
       systemPrompt: true,
       permissionResponse: true,
       questionResponse: true,
+      setModel: false,
+      setEffort: false,
     },
     history: { list: true, read: true, resume: true },
+    permissionModes: ["default", "full_access"],
   },
   "claude-code": {
     kind: "claude-code",
     displayName: "Claude Code",
     modelSource: "agent",
     auth: { kind: "agent-cli", loginCommand: "Run `claude` in a terminal and sign in, then retry." },
-    inputs: externalAgentInputs,
+    inputs: { ...externalAgentInputs, setModel: true, setEffort: true },
     history: externalAgentHistory,
+    // Mapped 1:1 onto SDK permission modes (full_access = bypassPermissions).
+    permissionModes: ["default", "accept_edits", "plan", "full_access"],
   },
   ...acpAgentProfiles(),
 } satisfies Record<AgentKind, AgentProfile> as Record<AgentKind, AgentProfile>

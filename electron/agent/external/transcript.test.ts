@@ -87,4 +87,24 @@ describe("ExternalTranscriptRecorder", () => {
     const textOccurrences = parts.filter((part) => part.kind === "text" && (part.text ?? "").includes("Hello there"))
     expect(textOccurrences).toHaveLength(1)
   })
+
+  it("attaches usage reports to the latest assistant message, parking early ones", () => {
+    const recorder = new ExternalTranscriptRecorder()
+    const usage = {
+      total: 100,
+      input: 50,
+      output: 50,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+      contextWindow: 200_000,
+    }
+    // Reported before any assistant message exists: parked, then applied.
+    recorder.record({ event: "usageUpdated", data: { sessionId, tokenUsage: usage } })
+    recorder.record({ event: "messageStarted", data: { sessionId, messageId: "a1", role: "assistant" } })
+    expect(recorder.messages(sessionId)[0]?.tokenUsage).toEqual(usage)
+
+    const updated = { ...usage, total: 200 }
+    recorder.record({ event: "usageUpdated", data: { sessionId, tokenUsage: updated } })
+    expect(recorder.messages(sessionId)[0]?.tokenUsage).toEqual(updated)
+  })
 })

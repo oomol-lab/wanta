@@ -66,8 +66,27 @@ External agents build on `electron/agent/external/`:
   session id; ACP agents keep an in-memory wanta-id -> native-id map.
 - **`ExternalAgentAdapter`** (`external/adapter-base.ts`): transcript-backed
   `getMessages`, pending-permission queries, `forgetSession`, and the optional
-  `applyPermissionMode` capability (Wanta permission mode projected onto the
-  agent's own approval policy — Claude permission modes, ACP session modes).
+  `applyPermissionMode` capability. Wanta's normalized permission-mode
+  vocabulary (`default | read_only | accept_edits | plan | full_access`) is
+  declared per agent in `AgentProfile.permissionModes` and projected onto the
+  agent's own approval policy (Claude SDK permission modes; ACP session modes
+  via the registry's `permissionModeMap`). Enforcement is always agent-side.
+- **Transcript persistence**: every emitted event is folded into
+  `ExternalTranscriptRecorder` and mirrored to one JSON file per session under
+  `<scratchRoot>/<kind>/transcripts/` (atomic replace, debounced writes,
+  immediate flush on turn completion/stop, lazy rehydration on view or first
+  prompt, deleted with the session).
+- **Model/effort selection**: `set-model` / `set-effort` input variants (plus
+  `agentModelId`/`agentEffortId` on the session-creating prompt). Claude maps
+  them to SDK `model`/`effort` options and live `setModel`/flag settings; the
+  ACP adapter maps them to v1.3 session config options (`session/set_config_option`,
+  categories `model` / `thought_level`). Available options surface on
+  `ExternalAgentRuntimeStatus.catalog` (static baseline, refreshed from the
+  live agent) and the UI renders them verbatim.
+- **Usage reporting**: adapters emit `usageUpdated` (normalized
+  `ChatTokenUsage` + optional `contextWindow`) — Claude from result-frame
+  usage/modelUsage, ACP from `usage_update`. The recorder attaches it to the
+  latest assistant message, which is what lights the composer context meter.
 - **Probing** (`external/probe.ts`): PATH scan (reusing
   `electron/agents/catalog.ts` + `resolveUserCommandPath`) with `--version`
   verification, plus fail-open login detection (Claude: `~/.claude.json`
@@ -76,9 +95,9 @@ External agents build on `electron/agent/external/`:
   `getExternalAgents` invoke.
 - **Sessions** (`electron/session/external-store.ts`): Wanta-owned records
   replace `agent.listSessions()` for external sessions; scope/pin/archive stay
-  in the shared metadata overlay. History survives only within one app run
-  (transcripts are in-memory; cross-restart resume is a declared non-goal for
-  now).
+  in the shared metadata overlay. Transcripts persist across restarts as
+  Wanta's own event record; importing agent-side history files stays a
+  non-goal.
 - **Version pairing**: `@anthropic-ai/claude-agent-sdk` is pinned in
   package.json and declares its paired CLI version (`claudeCodeVersion` in the
   package manifest). The adapter drives the USER'S detected `claude` binary via
@@ -93,10 +112,10 @@ External agents build on `electron/agent/external/`:
 
 0. **ACP-speaking agent?** Then it is ONE registration entry in
    `electron/agent/acp/registry.ts` (command, ACP args, login hint, optional
-   full-access mode id) — the profile is derived, the generic `AcpAgentAdapter`
-   picks it up, and `external/create.ts` instantiates it automatically. No new
-   code branches are allowed anywhere. Only continue with the steps below for a
-   NATIVE (non-ACP) adapter.
+   `permissionModeMap` and `selection` capability flags) — the profile is
+   derived, the generic `AcpAgentAdapter` picks it up, and `external/create.ts`
+   instantiates it automatically. No new code branches are allowed anywhere.
+   Only continue with the steps below for a NATIVE (non-ACP) adapter.
 1. Extend `AgentKind` in `contract/profile.ts`; the `satisfies
 Record<AgentKind, AgentProfile>` on `AGENT_PROFILES` breaks the build until
    the new profile row exists. Declare only capabilities the adapter genuinely

@@ -26,6 +26,7 @@ import {
   agentAttachments,
   appendOptimisticConversationTurn,
   applyCancelledToolParts,
+  commitSessionMessages,
   hasVisibleMessageDelta,
   markAssistantMessageToolsInterrupted,
   markAssistantMessageToolsCancelled,
@@ -499,7 +500,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
           rememberCancelledToolParts(sessionId, partIds)
           return messages
         })()
-        return nextMessages === previousMessages ? prev : { ...prev, [sessionId]: nextMessages }
+        return commitSessionMessages(prev, sessionId, nextMessages, previousMessages)
       })
     },
     [isSessionUserStopped, rememberCancelledToolParts],

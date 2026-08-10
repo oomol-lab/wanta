@@ -213,7 +213,7 @@ export function AgentPicker({
         type="button"
         variant="ghost"
         size="sm"
-        title={selectedLabel}
+        title={locked ? t("chat.agentLockedHint", { agent: selectedLabel }) : selectedLabel}
         aria-label={t("chat.agentPickerLabel")}
         aria-expanded={open}
         aria-haspopup="menu"

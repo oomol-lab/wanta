@@ -459,6 +459,7 @@ export const enMessages = {
   "chat.agentBuiltIn": "Built-in Agent",
   "chat.agentNotDetected": "Not detected",
   "chat.agentLoginRequired": "Sign-in required: {hint}",
+  "chat.agentLockedHint": "This session is bound to {agent}; start a new session to switch agents",
   "chat.reasoningSection": "Reasoning",
   "chat.reasoningLevelDefault": "Default",
   "chat.reasoningLevelLow": "Low",

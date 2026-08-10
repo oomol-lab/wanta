@@ -443,6 +443,7 @@ export const zhCNMessages = {
   "chat.agentBuiltIn": "内置智能体",
   "chat.agentNotDetected": "未检测到",
   "chat.agentLoginRequired": "需要登录：{hint}",
+  "chat.agentLockedHint": "会话已绑定 {agent}，切换智能体请新建会话",
   "chat.reasoningSection": "推理",
   "chat.reasoningLevelDefault": "默认",
   "chat.reasoningLevelLow": "低",

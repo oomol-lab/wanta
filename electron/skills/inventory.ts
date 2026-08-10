@@ -31,6 +31,7 @@ function createHostCoverage(
     return {
       agentId: agent.id,
       agentName: agent.name,
+      contentHash: installedSkill.hash,
       controlState: readControlState(installedSkill, manifestStore),
       kind: installedSkill.metadata.kind,
       packageName: installedSkill.metadata.packageName,
@@ -53,10 +54,12 @@ export function groupInstalledSkills(
 
   return skillNames.map((skillName) => {
     const matchedSkills = installedSkills.filter((skill) => skill.name === skillName)
-    const firstMetadata = matchedSkills[0]?.metadata
+    const canonicalMetadata =
+      matchedSkills.find((skill) => isWantaRuntimeAgent(skill.agent))?.metadata ?? matchedSkills[0]?.metadata
     const resolvedKind = resolveGroupKind(matchedSkills)
-    const description = matchedSkills.find((skill) => skill.metadata.description)?.metadata.description
-    const icon = matchedSkills.find((skill) => skill.metadata.icon)?.metadata.icon
+    const description =
+      canonicalMetadata?.description ?? matchedSkills.find((skill) => skill.metadata.description)?.metadata.description
+    const icon = canonicalMetadata?.icon ?? matchedSkills.find((skill) => skill.metadata.icon)?.metadata.icon
 
     const coveredHosts = createHostCoverage(skillName, installedSkills, manifestStore, coverageAgents)
     const externalHosts = coveredHosts.filter((host) => host.scope === "external")
@@ -67,8 +70,8 @@ export function groupInstalledSkills(
       id: skillName,
       name: skillName,
       kind: resolvedKind,
-      packageName: firstMetadata?.packageName,
-      version: firstMetadata?.version,
+      packageName: canonicalMetadata?.packageName,
+      version: canonicalMetadata?.version,
       externalHosts,
       hosts: coveredHosts,
       runtimeHosts,

@@ -10,6 +10,7 @@ import {
   getPublicSkillInstallState,
   getPublicPackageInstallState,
   getRuntimeHosts,
+  getSkillDocumentRevision,
   getRuntimeSkillRemoveTarget,
   getSelectedManagedSkillGroup,
   initialPublicPackageCatalogState,
@@ -26,6 +27,21 @@ test("skillDocumentPreviewSource strips frontmatter only when a closing delimite
   assert.equal(skillDocumentPreviewSource("---\nname: demo\n# Demo\n"), "---\nname: demo\n# Demo\n")
   assert.equal(skillDocumentPreviewSource("# Demo\n"), "# Demo\n")
   assert.equal(skillDocumentPreviewSource("\uFEFF# Demo\n"), "# Demo\n")
+})
+
+test("getSkillDocumentRevision follows the selected installed host content", () => {
+  const group = managedSkillGroup("demo", "@alice/demo", {
+    contentHash: "content-v1",
+    path: "/wanta/skills/demo",
+  })
+
+  assert.equal(getSkillDocumentRevision(group), "content-v1")
+
+  const updated = managedSkillGroup("demo", "@alice/demo", {
+    contentHash: "content-v2",
+    path: "/wanta/skills/demo",
+  })
+  assert.equal(getSkillDocumentRevision(updated), "content-v2")
 })
 
 test("isEmojiIcon excludes numeric strings", () => {
@@ -351,17 +367,21 @@ function managedSkillGroup(
   name: string,
   packageName: string | undefined,
   options: {
+    contentHash?: string
     controlState?: "controlled" | "modified" | "source-missing" | "unknown"
     kind?: "local" | "registry" | "unknown"
+    path?: string
     version?: string
   } = {},
 ): ManagedSkillGroup {
   const host = {
     agentId: "wanta",
     agentName: "Wanta",
+    ...(options.contentHash ? { contentHash: options.contentHash } : {}),
     ...(options.controlState ? { controlState: options.controlState } : {}),
     kind: options.kind ?? ("registry" as const),
     ...(packageName ? { packageName } : {}),
+    ...(options.path ? { path: options.path } : {}),
     scope: "runtime" as const,
     status: "installed" as const,
     ...(options.version ? { version: options.version } : {}),

@@ -1,10 +1,78 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
+import { commandRequiresConfirmation } from "./command-risk.ts"
 import {
+  commandWithoutHereDocumentBodies,
   commandWithoutSafeDescriptorDuplication,
   explicitCdDirectory,
   shellWordsWithoutRedirections,
 } from "./shell-syntax.ts"
+
+test("here-document payload removal preserves the commands before and after the payload", () => {
+  const command =
+    `cat > "/tmp/report.py" <<'PYEOF'\n` +
+    `ratio = 10000 / total\n` +
+    `private_example = "/Users/example/.ssh/id_ed25519"\n` +
+    `PYEOF\n` +
+    `python3 /tmp/report.py 2>/dev/null || python /tmp/report.py`
+
+  assert.equal(
+    commandWithoutHereDocumentBodies(command),
+    `cat > "/tmp/report.py" <<'PYEOF'\n\n\n\npython3 /tmp/report.py 2>/dev/null || python /tmp/report.py`,
+  )
+})
+
+test("here-document detection ignores non-executable operator text", () => {
+  for (const prefix of [
+    `printf '<<EOF'`,
+    `printf "<<EOF"`,
+    `printf \\<\\<EOF`,
+    `printf ready # <<EOF`,
+    `cat << # EOF`,
+    `cat <<<EOF`,
+  ]) {
+    const command = `${prefix}\nrm -rf /tmp/example\nEOF`
+    const sanitized = commandWithoutHereDocumentBodies(command)
+    assert.match(sanitized, /rm -rf \/tmp\/example/u, prefix)
+    assert.equal(commandRequiresConfirmation(sanitized), true, prefix)
+  }
+})
+
+test("here-document detection preserves quoted delimiters and tab stripping", () => {
+  const command = `cat <<-'END REPORT'\n\tpayload / text\n\tEND REPORT\nprintf done`
+  assert.equal(commandWithoutHereDocumentBodies(command), `cat <<-'END REPORT'\n\n\nprintf done`)
+})
+
+test("here-document payload removal preserves commands after an escaped newline", () => {
+  const command = `cat <<EOF && \\\nrm -rf /tmp/example
+payload / text
+EOF`
+  const sanitized = commandWithoutHereDocumentBodies(command)
+
+  assert.match(sanitized, /rm -rf \/tmp\/example/u)
+  assert.doesNotMatch(sanitized, /payload \/ text/u)
+  assert.equal(commandRequiresConfirmation(sanitized), true)
+})
+
+test("an unescaped newline after a heredoc declaration starts its payload", () => {
+  const command = `cat <<EOF &&
+rm -rf /tmp/example
+EOF`
+  const sanitized = commandWithoutHereDocumentBodies(command)
+
+  assert.doesNotMatch(sanitized, /rm -rf \/tmp\/example/u)
+  assert.equal(commandRequiresConfirmation(sanitized), false)
+})
+
+test("here-document detection preserves quote state across physical lines", () => {
+  for (const quote of ["'", '"']) {
+    const command = `printf ${quote}literal\n<<EOF\n${quote}\nrm -rf /tmp/example\nEOF`
+    const sanitized = commandWithoutHereDocumentBodies(command)
+
+    assert.match(sanitized, /rm -rf \/tmp\/example/u, quote)
+    assert.equal(commandRequiresConfirmation(sanitized), true, quote)
+  }
+})
 
 test("explicit cd directories accept literal paths and literal assignments", () => {
   assert.equal(explicitCdDirectory('cd "/tmp/Project (draft)"'), "/tmp/Project (draft)")

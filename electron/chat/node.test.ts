@@ -2793,7 +2793,7 @@ test("task subagent permission prompts are displayed on the parent run without t
     properties: {
       id: "permission-1",
       sessionID: "child-session",
-      action: "external_directory",
+      action: "edit",
       resources: ["/Users/example"],
     },
   })
@@ -3438,7 +3438,7 @@ test("always permission reply stores a main-process session grant", async () => 
     properties: {
       id: "permission-1",
       sessionID: "session-1",
-      action: "external_directory",
+      action: "edit",
       resources: ["/Users/example"],
     },
   })
@@ -3451,7 +3451,7 @@ test("always permission reply stores a main-process session grant", async () => 
     properties: {
       id: "permission-2",
       sessionID: "session-1",
-      action: "external_directory",
+      action: "edit",
       resources: ["/Users/example/Documents/finance/report.xlsx"],
     },
   })
@@ -3494,7 +3494,7 @@ test("always permission replies propagate grants to active task subagents", asyn
     properties: {
       id: "permission-1",
       sessionID: "child-session",
-      action: "external_directory",
+      action: "edit",
       resources: ["/Users/example"],
     },
   })
@@ -3506,7 +3506,7 @@ test("always permission replies propagate grants to active task subagents", asyn
     properties: {
       id: "permission-2",
       sessionID: "child-session",
-      action: "external_directory",
+      action: "edit",
       resources: ["/Users/example/Documents/report.xlsx"],
     },
   })

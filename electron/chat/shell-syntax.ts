@@ -5,9 +5,155 @@ export interface TopLevelShellSegment {
   text: string
 }
 
+interface HereDocument {
+  delimiter: string
+  stripLeadingTabs: boolean
+}
+
+interface ShellLexicalState {
+  doubleQuoted: boolean
+  escaped: boolean
+  singleQuoted: boolean
+}
+
 const shellAssignmentPattern = /^[A-Za-z_][A-Za-z0-9_]*=/u
 const envOptionsWithValue = new Set(["-C", "-S", "-u", "--argv0", "--chdir", "--split-string", "--unset"])
 const shellExpansionCharacters = new Set(["`", "$", "*", "?", "[", "]", "{", "}", "|", "&", ";", "<", ">"])
+
+function hereDocumentDeclarations(
+  line: string,
+  state: ShellLexicalState,
+): { continues: boolean; declarations: HereDocument[] } {
+  const declarations: HereDocument[] = []
+  const hasLineEnding = /\r?\n$/u.test(line)
+  const shellText = line.replace(/\r?\n$/u, "")
+
+  for (let index = 0; index < shellText.length; index += 1) {
+    const char = shellText[index] ?? ""
+    const previous = shellText[index - 1]
+    const next = shellText[index + 1]
+    if (state.escaped) {
+      state.escaped = false
+      continue
+    }
+    if (char === "\\" && !state.singleQuoted) {
+      state.escaped = true
+      continue
+    }
+    if (char === "'" && !state.doubleQuoted) {
+      state.singleQuoted = !state.singleQuoted
+      continue
+    }
+    if (char === '"' && !state.singleQuoted) {
+      state.doubleQuoted = !state.doubleQuoted
+      continue
+    }
+    if (state.singleQuoted || state.doubleQuoted) {
+      continue
+    }
+    if (char === "#" && (index === 0 || /[\s;&|()]/u.test(previous ?? ""))) {
+      break
+    }
+    if (char !== "<" || next !== "<" || previous === "<" || shellText[index + 2] === "<") {
+      continue
+    }
+
+    let cursor = index + 2
+    const stripLeadingTabs = shellText[cursor] === "-"
+    if (stripLeadingTabs) {
+      cursor += 1
+    }
+    while (shellText[cursor] === " " || shellText[cursor] === "\t") {
+      cursor += 1
+    }
+    if (shellText[cursor] === "#") {
+      break
+    }
+
+    let delimiter = ""
+    let delimiterStarted = false
+    let delimiterSingleQuoted = false
+    let delimiterDoubleQuoted = false
+    let delimiterEscaped = false
+    for (; cursor < shellText.length; cursor += 1) {
+      const delimiterChar = shellText[cursor] ?? ""
+      if (delimiterEscaped) {
+        delimiter += delimiterChar
+        delimiterStarted = true
+        delimiterEscaped = false
+        continue
+      }
+      if (delimiterChar === "\\" && !delimiterSingleQuoted) {
+        delimiterStarted = true
+        delimiterEscaped = true
+        continue
+      }
+      if (delimiterChar === "'" && !delimiterDoubleQuoted) {
+        delimiterStarted = true
+        delimiterSingleQuoted = !delimiterSingleQuoted
+        continue
+      }
+      if (delimiterChar === '"' && !delimiterSingleQuoted) {
+        delimiterStarted = true
+        delimiterDoubleQuoted = !delimiterDoubleQuoted
+        continue
+      }
+      if (!delimiterSingleQuoted && !delimiterDoubleQuoted && /[\s;&|<>()]/u.test(delimiterChar)) {
+        break
+      }
+      delimiter += delimiterChar
+      delimiterStarted = true
+    }
+    if (!delimiterStarted || delimiterSingleQuoted || delimiterDoubleQuoted || delimiterEscaped) {
+      continue
+    }
+    declarations.push({ delimiter, stripLeadingTabs })
+    index = cursor - 1
+  }
+  const escapedLineEnding = hasLineEnding && state.escaped
+  if (escapedLineEnding) {
+    state.escaped = false
+  }
+  return {
+    continues: escapedLineEnding || state.singleQuoted || state.doubleQuoted,
+    declarations,
+  }
+}
+
+/**
+ * Removes here-document payloads before shell policy inspection. The payload is input to the
+ * command, not shell syntax: treating Python division, prose, or HTML inside it as shell operands
+ * can turn an innocent `/` into an apparent filesystem-root access.
+ */
+export function commandWithoutHereDocumentBodies(command: string): string {
+  const lines = command.split(/(?<=\n)/u)
+  const awaitingContinuation: HereDocument[] = []
+  const pending: HereDocument[] = []
+  const result: string[] = []
+  const lexicalState: ShellLexicalState = { doubleQuoted: false, escaped: false, singleQuoted: false }
+
+  for (const line of lines) {
+    if (pending.length > 0) {
+      const current = pending[0]
+      const withoutLineEnding = line.replace(/\r?\n$/u, "")
+      const candidate = current?.stripLeadingTabs ? withoutLineEnding.replace(/^\t+/u, "") : withoutLineEnding
+      if (current && candidate === current.delimiter) {
+        pending.shift()
+      }
+      result.push(line.endsWith("\n") ? "\n" : "")
+      continue
+    }
+
+    result.push(line)
+    const scan = hereDocumentDeclarations(line, lexicalState)
+    awaitingContinuation.push(...scan.declarations)
+    if (!scan.continues) {
+      pending.push(...awaitingContinuation)
+      awaitingContinuation.length = 0
+    }
+  }
+  return result.join("")
+}
 
 export function shellCommandName(value: string | undefined): string | undefined {
   const normalized = value?.trim().replace(/\\/gu, "/")
@@ -194,6 +340,7 @@ export function effectiveShellCommandWords(words: readonly string[]): readonly s
  * while redirections such as `2>&1` and `&>` stay attached to their command.
  */
 export function topLevelShellSegments(command: string): TopLevelShellSegment[] {
+  command = commandWithoutHereDocumentBodies(command)
   const segments: TopLevelShellSegment[] = []
   let current = ""
   let singleQuoted = false

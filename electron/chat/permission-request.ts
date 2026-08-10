@@ -15,6 +15,7 @@ import {
 } from "./dependency-policy.ts"
 import {
   commandWithoutSafeDescriptorDuplication,
+  commandWithoutHereDocumentBodies,
   commandWithoutSafeOutputFilter,
   effectiveShellCommandWords,
   explicitCdDirectory,
@@ -153,10 +154,11 @@ export function isHighRiskPermissionRequest(request: ChatPermissionRequest): boo
   if (!command) {
     return false
   }
+  const shellControlText = commandWithoutHereDocumentBodies(command)
   return (
-    dependencyCommandRequiresConfirmation(command) ||
-    commandRequiresConfirmation(command) ||
-    HIGH_RISK_COMMAND_PATH_PATTERNS.some((pattern) => pattern.test(command))
+    dependencyCommandRequiresConfirmation(shellControlText) ||
+    commandRequiresConfirmation(shellControlText) ||
+    HIGH_RISK_COMMAND_PATH_PATTERNS.some((pattern) => pattern.test(shellControlText))
   )
 }
 
@@ -588,7 +590,10 @@ export function permissionRequestHasSensitiveResource(request: ChatPermissionReq
     return false
   }
   const command = commandText(request)
-  return commandAccessResources(command).some(isSensitiveResource) || SENSITIVE_COMMAND_RESOURCE_PATTERN.test(command)
+  return (
+    commandAccessResources(command).some(isSensitiveResource) ||
+    SENSITIVE_COMMAND_RESOURCE_PATTERN.test(commandWithoutHereDocumentBodies(command))
+  )
 }
 
 export function permissionRequestHasBroadResource(request: ChatPermissionRequest): boolean {
@@ -616,10 +621,12 @@ export function permissionRequestNeedsDefaultPrompt(request: ChatPermissionReque
     return false
   }
   if (kind === "command") {
-    const command = commandText(request)
-    return isDependencyMutationCommand(command) || permissionRequestHasBroadResource(request)
+    const command = commandWithoutHereDocumentBodies(commandText(request))
+    return isDependencyMutationCommand(command)
   }
-  return permissionRequestHasBroadResource(request)
+  // Broad non-sensitive reads are consequence-free. Keep confirmation for edits whose requested
+  // scope is itself a home/system root; destructive shell commands are already gated above.
+  return kind === "edit" && permissionRequestHasBroadResource(request)
 }
 
 function escapeRegExp(value: string): string {

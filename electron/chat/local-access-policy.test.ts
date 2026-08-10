@@ -669,7 +669,7 @@ test("generic folder grants distinguish read-only and destructive find execution
   )
 })
 
-test("local access policy prompts broad shell scans but keeps specific ordinary reads smooth", () => {
+test("local access policy auto-approves broad non-sensitive reads", () => {
   for (const command of [
     "find ~ -type f",
     "find ~ | head -20",
@@ -678,7 +678,7 @@ test("local access policy prompts broad shell scans but keeps specific ordinary 
   ]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode: "default" }),
-      { type: "prompt", kind: "command", highRisk: false },
+      { type: "allow", reason: "default_command", kind: "command", highRisk: false },
       command,
     )
   }
@@ -696,7 +696,7 @@ test("local access policy prompts broad shell scans but keeps specific ordinary 
   )
 })
 
-test("local access policy recognizes broad Unix and Windows account or system roots", () => {
+test("local access policy allows broad path reads but still prompts broad edits", () => {
   for (const resource of [
     "/home",
     "/home/alice",
@@ -711,10 +711,17 @@ test("local access policy recognizes broad Unix and Windows account or system ro
       evaluateLocalAccessRequest(permission({ action: "external_directory", resources: [resource] }), {
         permissionMode: "default",
       }),
-      { type: "prompt", kind: "path", highRisk: false },
+      { type: "allow", reason: "default_local", kind: "path", highRisk: false },
       resource,
     )
   }
+
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "edit", resources: ["/Users/example"] }), {
+      permissionMode: "default",
+    }),
+    { type: "prompt", kind: "edit", highRisk: false },
+  )
 
   assert.deepEqual(
     evaluateLocalAccessRequest(
@@ -723,6 +730,24 @@ test("local access policy recognizes broad Unix and Windows account or system ro
     ),
     { type: "allow", reason: "default_local", kind: "path", highRisk: false },
   )
+})
+
+test("local access policy auto-approves the two recorded PostHog report heredoc workflows", () => {
+  const processRoot = "/Users/example/Library/Application Support/wanta/agent/process/session-1/turn-1"
+  const artifactRoot = "/Users/example/Library/Application Support/wanta/agent/artifacts/session-1/turn-1"
+  for (const command of [
+    `cd "${processRoot}/queries" && python3 <<'EOF'\n# model = monthly_new / (1 - retention)\nnew_share = 10000 / total_active\nEOF`,
+    `cat > "${processRoot}/gen_retention_report.py" <<'PYEOF'\nsummary = "fetch_emails / create_page / query"\nratio = "25% / 5%"\nout = "${artifactRoot}/report.html"\nPYEOF\npython3 "${processRoot}/gen_retention_report.py"`,
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+        taskProcessRoot: processRoot,
+      }),
+      { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+      command,
+    )
+  }
 })
 
 test("local access policy keeps project dev grants compatible but prompts unsafe package mutations", () => {

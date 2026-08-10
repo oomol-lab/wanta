@@ -143,8 +143,8 @@
   `permission.v2.asked` are first handled by the ChatService main-process local access policy;
   Default Access treats bash as a normal working channel, auto-approving ordinary shell commands,
   scripts, project checks, data processing, simple output filtering, ordinary file reads/writes, and
-  specific non-sensitive paths. Reading specific non-sensitive files, ordinary directories, and
-  project files should not create prompts; only broad home/system root scans prompt. Credentials/
+  specific non-sensitive paths. Non-sensitive reads, including broad home/system discovery, should
+  not create prompts. Broad edit scopes and destructive operations remain protected. Credentials/
   secrets, browser login state, and private app data such as mail/messages/contacts/calendar must be
   evaluated before any generic directory grant — an ordinary folder grant never covers these
   sensitive sub-paths. Third-party Python dependencies must use the exact private `.wanta-python`

@@ -251,8 +251,8 @@
   process holds the local access policy: Default Access treats bash as a normal working channel,
   auto-approving ordinary shell commands, scripts, project checks, data processing, simple output
   filtering, ordinary file reads/writes, and specific non-sensitive paths; only fundamental
-  security boundaries are pushed to the renderer for confirmation — credential/key paths, broad or
-  recursive home/system scans, destructive deletion, global/system or alternate-source dependency changes, privilege
+  security boundaries are pushed to the renderer for confirmation — credential/key paths, broad
+  home/system edit scopes, destructive deletion, global/system or alternate-source dependency changes, privilege
   escalation, `git push/reset/clean`, publish/deploy, infrastructure changes, and the like.
   Sensitive-resource checks take precedence over generic directory session grants; a generic grant
   can never green-light a high-risk request. Full Access can still take over the session's
@@ -274,8 +274,8 @@
   access with zero confirmation" to "under Default Access, bash and ordinary file capabilities
   flow smoothly, pausing only at real risk boundaries". Users need not approve `oo ... | head`,
   `npm test`, `rg`, data-processing scripts, or ordinary Desktop/Downloads files one by one;
-  specific non-sensitive file reads stay smooth, and only broad scans of the whole home/system
-  root prompt. Unscoped, global/system, or alternate-source dependency changes, reading credentials/keys, browser login state,
+  non-sensitive reads stay smooth even across broad home/system scopes; broad edits and destructive
+  operations still prompt. Unscoped, global/system, or alternate-source dependency changes, reading credentials/keys, browser login state,
   mail/messages/contacts/calendar data, recursive or destructive deletion outside managed scratch
   or exact well-known generated project roots, storage overwrite,
   privilege escalation, push, deploy, remote repository deletion, and infrastructure or recursive

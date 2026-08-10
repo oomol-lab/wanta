@@ -327,15 +327,15 @@ test("default prompt detection only flags basic safety boundaries", () => {
     false,
   )
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "npm install" } })), true)
-  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "find ~ -type f" } })), true)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "find ~ -type f" } })), false)
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -la ~" } })), false)
-  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -R ~" } })), true)
-  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "find ~ | head -20" } })), true)
-  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -R ~ | head -20" } })), true)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -R ~" } })), false)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "find ~ | head -20" } })), false)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -R ~ | head -20" } })), false)
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls ~ | head -20" } })), false)
   assert.equal(
     permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: 'bash -lc "find ~ -maxdepth 2"' } })),
-    true,
+    false,
   )
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "pipx install black" } })), true)
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "uv tool install ruff" } })), true)
@@ -362,6 +362,11 @@ test("default prompt detection only flags basic safety boundaries", () => {
     false,
   )
   assert.equal(
+    permissionRequestNeedsDefaultPrompt(permission({ action: "external_directory", resources: ["/Users/me"] })),
+    false,
+  )
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ action: "edit", resources: ["/Users/me"] })), true)
+  assert.equal(
     permissionRequestNeedsDefaultPrompt(permission({ action: "external_directory", resources: ["/Users/me/.ssh"] })),
     true,
   )
@@ -369,6 +374,14 @@ test("default prompt detection only flags basic safety boundaries", () => {
     permissionRequestNeedsDefaultPrompt(permission({ action: "edit", resources: ["/Users/me/code/app/.env"] })),
     true,
   )
+})
+
+test("heredoc payload text is not treated as shell filesystem access", () => {
+  const command = `cd "/tmp/queries" && python3 <<'EOF'\n# model = monthly_new / (1 - retention)\nnew_share = 10000 / total_active\nexample = "/Users/me/.ssh/id_ed25519"\nEOF`
+  const request = permission({ metadata: { command } })
+  assert.equal(permissionRequestHasBroadResource(request), false)
+  assert.equal(permissionRequestHasSensitiveResource(request), false)
+  assert.equal(permissionRequestNeedsDefaultPrompt(request), false)
 })
 
 test("Python dependency permission semantics cover protected and auto-approvable forms", () => {

@@ -44,6 +44,8 @@ export interface ClaudeCodeAdapterOptions {
   probe: () => Promise<ExternalAgentRuntimeStatus>
   /** Directory for per-session scratch cwd when a session has no project. Created on demand. */
   scratchRootDir: string
+  /** Directory for persisted per-session transcripts; omitted = in-memory only. */
+  transcriptDir?: string
   /** Resolves the merged user PATH for the subprocess env (electron/command-path.ts resolveUserCommandPath by default). */
   commandPath?: () => Promise<string>
   /** Test seam: the SDK query function. Defaults to the real `query` from @anthropic-ai/claude-agent-sdk. */
@@ -159,7 +161,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
   private probeInFlight: Promise<ExternalAgentRuntimeStatus> | undefined
 
   public constructor(options: ClaudeCodeAdapterOptions) {
-    super()
+    super(options.transcriptDir ? { transcriptDir: options.transcriptDir } : {})
     this.probe = options.probe
     this.scratchRootDir = options.scratchRootDir
     this.commandPath = options.commandPath ?? (() => resolveUserCommandPath())

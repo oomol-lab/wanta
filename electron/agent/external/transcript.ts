@@ -112,6 +112,32 @@ export class ExternalTranscriptRecorder {
     }
   }
 
+  /** Whether any live state for the session is held in memory. */
+  public has(sessionId: string): boolean {
+    return this.sessions.has(sessionId)
+  }
+
+  /**
+   * Rehydrate a session from a previously serialized messages() snapshot.
+   * The flattened ChatMessage[] shape is lossless (parts carry their partId),
+   * so the internal parts-map and order rebuild directly. No-op when live
+   * state already exists — disk never overrides an in-flight session.
+   */
+  public restore(sessionId: string, messages: ChatMessage[]): void {
+    if (this.sessions.has(sessionId)) {
+      return
+    }
+    const entries = new Map<string, TranscriptMessage>()
+    for (const message of messages) {
+      entries.set(message.id, {
+        message: { ...message, parts: [] },
+        parts: new Map(message.parts.map((part) => [part.partId, part])),
+        order: message.parts.map((part) => part.partId),
+      })
+    }
+    this.sessions.set(sessionId, entries)
+  }
+
   public messages(sessionId: string): ChatMessage[] {
     const entries = this.sessions.get(sessionId)
     if (!entries) {

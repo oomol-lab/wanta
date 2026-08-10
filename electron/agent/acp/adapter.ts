@@ -69,6 +69,8 @@ export interface AcpAdapterOptions {
   probe: () => Promise<ExternalAgentRuntimeStatus>
   /** Per-session cwd fallback; <scratchRootDir>/<sessionUuid> is created on demand. */
   scratchRootDir: string
+  /** Directory for persisted per-session transcripts; omitted = in-memory only. */
+  transcriptDir?: string
   /**
    * Test seam: produce a connected ACP stream plus a dispose fn. The default
    * spawns the probed binary with registration.acpArgs over stdio.
@@ -157,7 +159,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   private probeCache: { at: number; promise: Promise<ExternalAgentRuntimeStatus> } | undefined
 
   constructor(options: AcpAdapterOptions) {
-    super()
+    super(options.transcriptDir ? { transcriptDir: options.transcriptDir } : {})
     this.options = options
   }
 

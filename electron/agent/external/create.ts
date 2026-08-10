@@ -34,6 +34,7 @@ export function createExternalAgents(
     new ClaudeCodeAgentAdapter({
       probe: () => probeExternalAgent("claude-code", probeOptions),
       scratchRootDir: path.join(options.scratchRootDir, "claude-code"),
+      transcriptDir: path.join(options.scratchRootDir, "claude-code", "transcripts"),
     }),
   )
   for (const kind of ACP_AGENT_KINDS) {
@@ -44,6 +45,7 @@ export function createExternalAgents(
         registration: ACP_AGENT_REGISTRY[kind],
         probe: () => probeExternalAgent(kind, probeOptions),
         scratchRootDir: path.join(options.scratchRootDir, kind),
+        transcriptDir: path.join(options.scratchRootDir, kind, "transcripts"),
       }),
     )
   }

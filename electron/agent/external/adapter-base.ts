@@ -135,6 +135,11 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
   /** Subclass hook to release native per-session resources (subprocesses, id maps). */
   protected handleForgetSession(_sessionId: string): void {}
 
+  /** Subclass hook to scrub agent-internal noise from a restored transcript. */
+  protected sanitizeRestoredMessages(messages: ChatMessage[]): ChatMessage[] {
+    return messages
+  }
+
   private hydrateTranscript(sessionId: string): Promise<void> {
     const store = this.transcriptStore
     if (!store || this.transcript.has(sessionId)) {
@@ -143,8 +148,9 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
     let hydration = this.transcriptHydrations.get(sessionId)
     if (!hydration) {
       hydration = store.load(sessionId).then((messages) => {
-        if (messages && messages.length > 0) {
-          this.transcript.restore(sessionId, messages)
+        const sanitized = messages && messages.length > 0 ? this.sanitizeRestoredMessages(messages) : messages
+        if (sanitized && sanitized.length > 0) {
+          this.transcript.restore(sessionId, sanitized)
         }
       })
       this.transcriptHydrations.set(sessionId, hydration)

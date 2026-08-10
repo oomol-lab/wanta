@@ -1,4 +1,4 @@
-import type { AgentPermissionMode, ChatPermissionRequest } from "../../chat/common.ts"
+import type { AgentPermissionMode, ChatMessage, ChatPermissionRequest } from "../../chat/common.ts"
 import type {
   AgentSendOptions,
   CancelAgentInput,
@@ -26,7 +26,7 @@ import { logDiagnostic } from "../../diagnostics-log.ts"
 import { AGENT_PROFILES } from "../contract/profile.ts"
 import { ExternalAgentAdapter } from "../external/adapter-base.ts"
 import { externalSessionUuid } from "../external/session-id.ts"
-import { createClaudeTurnTranslator } from "./translator.ts"
+import { createClaudeTurnTranslator, isLocalCommandText } from "./translator.ts"
 
 // Claude Code native adapter (BYOA phase 1).
 //
@@ -394,6 +394,19 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     const modelId = this.desiredModels.get(sessionId)
     const effortId = this.desiredEfforts.get(sessionId)
     return { ...(modelId !== undefined ? { modelId } : {}), ...(effortId !== undefined ? { effortId } : {}) }
+  }
+
+  /** Drop CLI slash-command bookkeeping that older builds persisted as user text. */
+  protected override sanitizeRestoredMessages(messages: ChatMessage[]): ChatMessage[] {
+    return messages
+      .map((message) => {
+        if (message.role !== "user") {
+          return message
+        }
+        const parts = message.parts.filter((part) => part.kind !== "text" || !isLocalCommandText(part.text ?? ""))
+        return parts.length === message.parts.length ? message : { ...message, parts }
+      })
+      .filter((message) => message.role !== "user" || message.parts.length > 0)
   }
 
   public override async applyPermissionMode(sessionId: string, mode: AgentPermissionMode): Promise<void> {

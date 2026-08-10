@@ -61,6 +61,18 @@ function assistantErrorMessage(kind: string): string {
   return kind === "authentication_failed" ? `${base} ${LOGIN_HINT}` : base
 }
 
+/**
+ * CLI-internal user frames: slash-command bookkeeping the CLI records in the
+ * session (e.g. `<local-command-stdout>Set model to ...</local-command-stdout>`
+ * after a setModel call). They are not user prompts and must never render.
+ */
+const localCommandTagPattern =
+  /^<(?:command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat)>/u
+
+export function isLocalCommandText(text: string): boolean {
+  return localCommandTagPattern.test(text.trimStart())
+}
+
 function positiveOrZero(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0
 }
@@ -297,10 +309,11 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
       return events
     }
     const messageId = String(message.uuid)
-    const texts =
+    const texts = (
       typeof content === "string"
         ? [content]
         : content.filter((block) => block.type === "text").map((block) => block.text)
+    ).filter((text) => !isLocalCommandText(text))
     let emittedStart = false
     texts.forEach((text, index) => {
       if (!emittedStart) {

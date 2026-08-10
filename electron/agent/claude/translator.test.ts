@@ -310,6 +310,29 @@ describe("createClaudeTurnTranslator", () => {
     expect(translator.translate(userMessage("not a replay"))).toEqual([])
   })
 
+  it("drops CLI slash-command bookkeeping frames instead of rendering them as user text", () => {
+    const translator = createClaudeTurnTranslator(sessionId)
+
+    // setModel behaves like /model: the CLI records its acknowledgement as a
+    // user frame that must never surface in the chat.
+    expect(
+      translator.translate(
+        userMessage("<local-command-stdout>Set model to claude-opus-5[1m]</local-command-stdout>", {
+          isReplay: true,
+          uuid: "user-uuid-3",
+        }),
+      ),
+    ).toEqual([])
+    expect(
+      translator.translate(userMessage("<command-name>/model</command-name>", { isReplay: true, uuid: "user-uuid-4" })),
+    ).toEqual([])
+    // Ordinary text that merely mentions the tag mid-sentence still renders.
+    const events = translator.translate(
+      userMessage("what does <local-command-stdout> mean?", { isReplay: true, uuid: "user-uuid-5" }),
+    )
+    expect(events.some((event) => event.event === "messageDelta")).toBe(true)
+  })
+
   it("derives context occupancy from the last main-loop API call, not the turn aggregate", () => {
     // The result frame's usage SUMS every API call of the turn (each tool
     // round-trip re-counts the whole context as cache reads); occupancy must

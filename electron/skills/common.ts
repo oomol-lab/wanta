@@ -38,6 +38,7 @@ export interface SkillSummary {
 export interface ManagedSkillHostCoverage {
   agentId: string
   agentName: string
+  contentHash?: string
   kind?: ManagedSkillKind
   packageName?: string
   path?: string

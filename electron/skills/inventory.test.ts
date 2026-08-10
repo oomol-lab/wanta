@@ -4,6 +4,7 @@ import assert from "node:assert/strict"
 import { test } from "vitest"
 import { manifestSchemaVersion } from "./constants.ts"
 import { buildSummary, groupInstalledSkills } from "./inventory.ts"
+import { wantaRuntimeAgent } from "./scan.ts"
 
 const agents = [
   {
@@ -149,4 +150,47 @@ test("buildSummary reports an empty inventory with no managed skills", () => {
   assert.equal(summary.managedSkills, 0)
   assert.equal(summary.needsAttention, 0)
   assert.deepEqual(summary.skills, [])
+})
+
+test("groupInstalledSkills uses Wanta runtime metadata as the canonical group version", () => {
+  const groups = groupInstalledSkills(
+    [
+      {
+        agent: agents[1],
+        hash: "external-old-hash",
+        metadata: {
+          description: "Old external description",
+          kind: "registry",
+          packageName: "@oomol/example",
+          version: "1.0.0",
+        },
+        name: "example",
+        path: "/claude/skills/example",
+        sourceHash: "external-old-hash",
+        sourcePath: "/oo/skills/registry/example",
+      },
+      {
+        agent: wantaRuntimeAgent,
+        hash: "wanta-new-hash",
+        metadata: {
+          description: "Current Wanta description",
+          kind: "registry",
+          packageName: "@oomol/example",
+          version: "2.0.0",
+        },
+        name: "example",
+        path: "/wanta/skills/example",
+        sourceHash: "wanta-new-hash",
+        sourcePath: "/wanta/store/registry/example",
+      },
+    ],
+    manifestStore,
+    [wantaRuntimeAgent, agents[1]],
+  )
+  const example = groups.find((group) => group.id === "example")
+
+  assert.equal(example?.version, "2.0.0")
+  assert.equal(example?.description, "Current Wanta description")
+  assert.equal(example?.runtimeHosts[0]?.contentHash, "wanta-new-hash")
+  assert.equal(example?.externalHosts[0]?.version, "1.0.0")
 })

@@ -270,8 +270,16 @@ export function getLocalSkillPublishPath(group: ManagedSkillGroup): string | und
 }
 
 export function getSkillDocumentRootPath(group: ManagedSkillGroup): string | undefined {
-  const installedHost = getInstalledSkillHosts(group).find((host) => host.path || host.sourcePath)
+  const installedHost = getSkillDocumentHost(group)
   return installedHost?.path ?? installedHost?.sourcePath
+}
+
+export function getSkillDocumentRevision(group: ManagedSkillGroup): string | undefined {
+  return getSkillDocumentHost(group)?.contentHash
+}
+
+function getSkillDocumentHost(group: ManagedSkillGroup): ManagedSkillHostCoverage | undefined {
+  return getInstalledSkillHosts(group).find((host) => host.path || host.sourcePath)
 }
 
 export function isPublishableLocalSkill(group: ManagedSkillGroup): boolean {

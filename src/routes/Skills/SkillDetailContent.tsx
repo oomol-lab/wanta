@@ -16,6 +16,7 @@ import {
   getLocalSkillPublishPath,
   getRuntimeHosts,
   getSkillDocumentRootPath,
+  getSkillDocumentRevision,
   getSkillKindLabel,
   getStatusBadgeClassName,
   hasSkillUpdateAvailable,
@@ -259,6 +260,7 @@ function SkillPeek({
   const runtimeHosts = getRuntimeHosts(selectedSkill)
   const installedHosts = selectedSkill.hosts.filter((host) => host.status === "installed")
   const skillDocumentRootPath = getSkillDocumentRootPath(selectedSkill)
+  const skillDocumentRevision = getSkillDocumentRevision(selectedSkill)
   const hasPublishedUpdate = hasSkillUpdateAvailable(selectedVersionCheck)
   const canUpdatePublishedSkill = hasPublishedUpdate && shouldUpdatePublishedSkill(selectedSkill)
   const canRestoreRegistrySkill =
@@ -327,7 +329,7 @@ function SkillPeek({
     return () => {
       cancelled = true
     }
-  }, [skillDocumentRootPath, skillService, t])
+  }, [skillDocumentRevision, skillDocumentRootPath, skillService, t])
 
   const openSkillDocument = React.useCallback(async () => {
     if (!skillDocumentRootPath) {

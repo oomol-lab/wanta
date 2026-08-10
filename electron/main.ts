@@ -45,6 +45,7 @@ import {
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
 import { AgentManager } from "./agent/manager.ts"
+import { OpencodeAgentAdapter } from "./agent/opencode-adapter.ts"
 import { AgentRetirementPool } from "./agent/retirement.ts"
 import { APP_COMMAND_CHANNEL, APP_COMMANDS } from "./app-command.ts"
 import { APP_LOCALE_CHANNEL, isAppLocale, normalizeAppLocale } from "./app-locale.ts"
@@ -195,7 +196,7 @@ const bundledToolRuntimePath = app.isPackaged
 // Agent 内核：凭证来自 Electron 会话中的短期 token；userData/auth.json 仅保存账号 profile。
 // 未登录时 agent=null，服务仍注册但 isReady()=false，渲染层显示登录页；
 // 登录 / 登出时经 applyAuthAccount 动态装配。
-let agent: AgentManager | null = null
+let agent: OpencodeAgentAdapter | null = null
 // 装配串行化：登录后紧接登出时避免 dispose/start 交错。
 let applyChain: Promise<void> = Promise.resolve()
 let agentRuntimeVersion = 0
@@ -755,38 +756,40 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     wecomCliManager.agentRuntime(),
     dingTalkCliManager.agentRuntime(),
   ])
-  const nextAgent = new AgentManager({
-    browserControl: browserControlConnection,
-    defaultModel: runtime.defaultModel,
-    linkRuntime,
-    modelAccess: runtime.modelAccess,
-    opencodeBinPath,
-    ooBinPath,
-    ooGuardCliPath,
-    wikiGraphCliPath,
-    wikiGraphStateDir,
-    listOpenConnectorAuthorizedServices: async (signal) =>
-      (await linkRuntimeManager.listOpenConnectorApps(signal))
-        .filter((item) => item.status === "active")
-        .map((item) => item.service),
-    bundledSkillsDir,
-    activeDirectSkillsDirs: [
-      larkCliRuntime?.skillsDir,
-      wecomCliRuntime?.skillsDir,
-      dingTalkCliRuntime?.skillsDir,
-    ].filter((directory): directory is string => Boolean(directory)),
-    bundledToolRuntimePath,
-    larkCliBinPath: larkCliRuntime?.binaryPath,
-    larkCliConfigDir: larkCliRuntime ? path.join(app.getPath("userData"), "lark-cli", "config") : undefined,
-    wecomCliBinPath: wecomCliRuntime?.binaryPath,
-    wecomCliConfigDir: wecomCliRuntime ? path.join(app.getPath("userData"), "wecom-cli", "config") : undefined,
-    wecomCliTmpDir: wecomCliRuntime ? path.join(app.getPath("userData"), "wecom-cli", "tmp") : undefined,
-    dingTalkCliBinPath: dingTalkCliRuntime?.binaryPath,
-    dingTalkCliConfigDir: dingTalkCliRuntime?.configDir,
-    dingTalkCliKeychainDir: dingTalkCliRuntime?.keychainDir,
-    rootDir: path.join(app.getPath("userData"), "agent"),
-    customModels: runtimeModels.customModels,
-  })
+  const nextAgent = new OpencodeAgentAdapter(
+    new AgentManager({
+      browserControl: browserControlConnection,
+      defaultModel: runtime.defaultModel,
+      linkRuntime,
+      modelAccess: runtime.modelAccess,
+      opencodeBinPath,
+      ooBinPath,
+      ooGuardCliPath,
+      wikiGraphCliPath,
+      wikiGraphStateDir,
+      listOpenConnectorAuthorizedServices: async (signal) =>
+        (await linkRuntimeManager.listOpenConnectorApps(signal))
+          .filter((item) => item.status === "active")
+          .map((item) => item.service),
+      bundledSkillsDir,
+      activeDirectSkillsDirs: [
+        larkCliRuntime?.skillsDir,
+        wecomCliRuntime?.skillsDir,
+        dingTalkCliRuntime?.skillsDir,
+      ].filter((directory): directory is string => Boolean(directory)),
+      bundledToolRuntimePath,
+      larkCliBinPath: larkCliRuntime?.binaryPath,
+      larkCliConfigDir: larkCliRuntime ? path.join(app.getPath("userData"), "lark-cli", "config") : undefined,
+      wecomCliBinPath: wecomCliRuntime?.binaryPath,
+      wecomCliConfigDir: wecomCliRuntime ? path.join(app.getPath("userData"), "wecom-cli", "config") : undefined,
+      wecomCliTmpDir: wecomCliRuntime ? path.join(app.getPath("userData"), "wecom-cli", "tmp") : undefined,
+      dingTalkCliBinPath: dingTalkCliRuntime?.binaryPath,
+      dingTalkCliConfigDir: dingTalkCliRuntime?.configDir,
+      dingTalkCliKeychainDir: dingTalkCliRuntime?.keychainDir,
+      rootDir: path.join(app.getPath("userData"), "agent"),
+      customModels: runtimeModels.customModels,
+    }),
+  )
   agent = nextAgent
   chatService.setAgent(nextAgent)
   sessionService.setAgent(nextAgent)

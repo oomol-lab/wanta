@@ -1,48 +1,30 @@
 import type {
   AuthorizationInfo,
-  AssistantActivityEvent,
   ChatPermissionReply,
   ChatPermissionRequest,
   ChatQuestionRequest,
-  QuestionResolvedEvent,
   ChatMessage,
   ChatMessagePart,
   ChatRole,
   ChatTokenUsage,
-  MessageAttachmentEvent,
-  MessageCompletedEvent,
   MessageDeltaEvent,
-  MessagePartRemovedEvent,
   MessageReasoningDeltaEvent,
-  MessageStartedEvent,
-  ToolCallResultEvent,
-  ToolCallStartedEvent,
   ToolStatus,
 } from "../chat/common.ts"
+import type { AgentBusinessEvent } from "./contract/event.ts"
 
 import { parseAuthorizationSignal } from "../chat/authorization-signal.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { redactConnectorOutput } from "./oo-guard-core.ts"
 
-// OpenCode SSE 事件经此翻译为 ChatService ServerEvents。无状态：每个 OpenCode 事件
-// 直接映射为 0..n 个 {event, data}，node.ts 据此 this.send(event, data)。
+// Stateless translation of OpenCode SSE events into the normalized AgentEvent
+// contract (see contract/event.ts): each OpenCode event maps to 0..n
+// {event, data} emits. OpencodeAgentAdapter publishes them on the unified
+// adapter event stream, and the chat event bridge broadcasts them via
+// this.send(event, data).
 
-export type ChatEmit =
-  | { event: "messageStarted"; data: MessageStartedEvent }
-  | { event: "messageDelta"; data: MessageDeltaEvent }
-  | { event: "messageReasoningDelta"; data: MessageReasoningDeltaEvent }
-  | { event: "messageAttachment"; data: MessageAttachmentEvent }
-  | { event: "assistantActivity"; data: AssistantActivityEvent }
-  | { event: "toolCallStarted"; data: ToolCallStartedEvent }
-  | { event: "toolCallResult"; data: ToolCallResultEvent }
-  | { event: "questionAsked"; data: { sessionId: string; request: ChatQuestionRequest } }
-  | { event: "questionReplied"; data: QuestionResolvedEvent }
-  | { event: "questionRejected"; data: QuestionResolvedEvent }
-  | { event: "permissionAsked"; data: { sessionId: string; request: ChatPermissionRequest } }
-  | { event: "permissionReplied"; data: { sessionId: string; requestId: string } }
-  | { event: "messageCompleted"; data: MessageCompletedEvent }
-  | { event: "messagePartRemoved"; data: MessagePartRemovedEvent }
-  | { event: "agentError"; data: { sessionId?: string; message: string } }
+/** Historical alias: the translator output is exactly the contract's business-event union. */
+export type ChatEmit = AgentBusinessEvent
 
 interface OpencodeEvent {
   type: string

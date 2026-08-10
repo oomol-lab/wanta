@@ -1,4 +1,4 @@
-import type { AgentManager } from "../agent/manager.ts"
+import type { OpencodeAgentAdapter } from "../agent/opencode-adapter.ts"
 import type { SessionActivityStore } from "./activity-store.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "./common.ts"
 import type { SessionMetadata } from "./metadata-store.ts"
@@ -16,10 +16,10 @@ const testTeamScope = {
   teamName: "team-name",
 }
 
-function agentWithSessions(sessions: SessionInfo[]): AgentManager {
+function agentWithSessions(sessions: SessionInfo[]): OpencodeAgentAdapter {
   return {
     listSessions: async () => sessions,
-  } as AgentManager
+  } as unknown as OpencodeAgentAdapter
 }
 
 function metadataStore(initial = new Map<string, SessionMetadata>()): SessionMetadataStore {
@@ -118,7 +118,7 @@ test("local activity never moves a session timestamp backwards", async () => {
 test("generateTitle preserves whether the title came from the model", async () => {
   const service = new SessionServiceImpl({
     generateSessionTitle: async () => ({ generated: true, title: "Gmail 三日报告" }),
-  } as unknown as AgentManager)
+  } as unknown as OpencodeAgentAdapter)
 
   const result = await service.generateTitle({ text: "分析最近三天 Gmail 信息" })
 
@@ -345,7 +345,7 @@ test("creates sessions and projects in the local workspace", async () => {
         updatedAt: 1_000,
       }),
       listSessions: async () => [],
-    } as unknown as AgentManager,
+    } as unknown as OpencodeAgentAdapter,
     { metadataStore: persistedMetadata, projectStore: persistedProjects },
   )
 
@@ -582,7 +582,7 @@ test("create persists the requested session scope", async () => {
           updatedAt: 1_000,
         },
       ],
-    } as unknown as AgentManager,
+    } as unknown as OpencodeAgentAdapter,
     {
       metadataStore: persistedMetadata,
     },
@@ -603,7 +603,7 @@ test("create removes the OpenCode session when local metadata persistence fails"
       deleteSession: async (id: string) => {
         deleted.push(id)
       },
-    } as unknown as AgentManager,
+    } as unknown as OpencodeAgentAdapter,
     {
       metadataStore: {
         read: async () => new Map(),
@@ -1037,7 +1037,7 @@ test("create persists project assignment when the project matches the session sc
           updatedAt: 2_000,
         },
       ],
-    } as unknown as AgentManager,
+    } as unknown as OpencodeAgentAdapter,
     {
       metadataStore: persistedMetadata,
       projectStore: projectStore(new Map([[project.id, project]])),
@@ -1257,7 +1257,7 @@ test("removeMany reports partial remote failures and commits successful removals
         if (id === "two") throw new Error("delete failed")
         deleted.push(id)
       },
-    } as unknown as AgentManager,
+    } as unknown as OpencodeAgentAdapter,
     {
       activityStore: persistedActivity,
       metadataStore: persistedMetadata,
@@ -1288,7 +1288,7 @@ test("removeMany deletes independent sessions with bounded concurrency", async (
         await Promise.resolve()
         activeDeletes -= 1
       },
-    } as unknown as AgentManager,
+    } as unknown as OpencodeAgentAdapter,
     {
       metadataStore: metadataStore(new Map(ids.map((id) => [id, { scope: testTeamScope }]))),
     },
@@ -1313,7 +1313,7 @@ test("removeMany stops dispatching queued deletions when the runtime changes", a
         if (startedIds.length === 4) firstWaveStarted.resolve(undefined)
         await releaseFirstWave.promise
       },
-    } as unknown as AgentManager,
+    } as unknown as OpencodeAgentAdapter,
     {
       metadataStore: metadataStore(new Map(ids.map((id) => [id, { scope: testTeamScope }]))),
     },
@@ -1336,7 +1336,7 @@ test("remove keeps local state when remote delete fails", async () => {
       deleteSession: async () => {
         throw new Error("delete failed")
       },
-    } as unknown as AgentManager,
+    } as unknown as OpencodeAgentAdapter,
     {
       activityStore: persistedActivity,
       metadataStore: persistedMetadata,
@@ -1354,7 +1354,7 @@ test("remove invokes local cleanup after remote delete succeeds", async () => {
   const service = new SessionServiceImpl(
     {
       deleteSession: async () => undefined,
-    } as unknown as AgentManager,
+    } as unknown as OpencodeAgentAdapter,
     {
       onSessionRemoved: (sessionId) => {
         removed.push(sessionId)
@@ -1387,13 +1387,13 @@ test("runtime reset discards stale store loads before listing the replacement ag
       oldAgentListCount += 1
       return []
     },
-  } as unknown as AgentManager
+  } as unknown as OpencodeAgentAdapter
   const newAgent = {
     listSessions: async () => {
       newAgentListCount += 1
       return [{ id: "new-session", title: "New", createdAt: 1_000, updatedAt: 1_000 }]
     },
-  } as unknown as AgentManager
+  } as unknown as OpencodeAgentAdapter
   const service = new SessionServiceImpl(oldAgent, { metadataStore: persistedMetadata })
 
   const staleList = service.list({ scope: testTeamScope })
@@ -1429,13 +1429,13 @@ test("runtime reset rejects a queued mutation instead of running it on the repla
       oldCreateCount += 1
       throw new Error("unexpected old agent create")
     },
-  } as unknown as AgentManager
+  } as unknown as OpencodeAgentAdapter
   const newAgent = {
     createSession: async () => {
       newCreateCount += 1
       throw new Error("unexpected new agent create")
     },
-  } as unknown as AgentManager
+  } as unknown as OpencodeAgentAdapter
   const service = new SessionServiceImpl(oldAgent, { metadataStore: persistedMetadata })
 
   const activeMutation = service.pin({ id: "session", pinned: true })
@@ -1495,7 +1495,7 @@ test("runtime reset rolls back a remotely created session before local persisten
     deleteSession: async (sessionId: string) => {
       deletedSessionIds.push(sessionId)
     },
-  } as unknown as AgentManager
+  } as unknown as OpencodeAgentAdapter
   const service = new SessionServiceImpl(oldAgent, { metadataStore: metadataStore() })
 
   const pendingCreate = service.create({ scope: testTeamScope })

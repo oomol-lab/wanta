@@ -1,5 +1,6 @@
+import type { AgentConnectionStatus } from "../agent/contract/event.ts"
 import type { ChatEmit } from "../agent/event-translator.ts"
-import type { AgentEventConnectionStatus, AgentManager } from "../agent/manager.ts"
+import type { OpencodeAgentAdapter } from "../agent/opencode-adapter.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
 import type { RuntimeCapabilities } from "../runtime/common.ts"
@@ -64,7 +65,6 @@ import { copyFile, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { ActivityMetrics } from "../activity-metrics.ts"
-import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { createOpencodeMessageId } from "../agent/opencode-id.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
@@ -272,8 +272,9 @@ interface StopSessionGenerationOptions {
 export class ChatServiceImpl extends ConnectionService<ChatService> implements IConnectionService<ChatService> {
   public readonly sessionActivity = new ServiceEvent<{ sessionId: string; usedAt: number }>()
 
-  private agent: AgentManager | null
+  private agent: OpencodeAgentAdapter | null
   private bridged = false
+  private agentUnsubscribe: (() => void) | null = null
   private readonly userStops = new UserStopTracker()
   private emittedMessageErrors = new Map<string, Set<string>>()
   private readonly generations = new GenerationRegistry()
@@ -317,7 +318,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     logDiagnostic("performance", "chat event activity", { ...snapshot }, "trace")
   })
 
-  public constructor(agent: AgentManager | null = null, deps: ChatServiceDeps = {}) {
+  public constructor(agent: OpencodeAgentAdapter | null = null, deps: ChatServiceDeps = {}) {
     super(ChatServiceName)
     this.agent = agent
     this.deps = deps
@@ -350,9 +351,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   /** 登录 / 登出时由 main 重新装配 agent（旧 agent 的事件流随其 dispose 终止）。 */
-  public setAgent(agent: AgentManager | null): void {
+  public setAgent(agent: OpencodeAgentAdapter | null): void {
     this.streamEventBuffer?.clear()
     this.streamEventBuffer = null
+    this.agentUnsubscribe?.()
+    this.agentUnsubscribe = null
     this.agent = agent
     this.bridged = false
     this.userStops.clear()
@@ -437,219 +440,218 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.streamEventBuffer = new ChatStreamEventBuffer((buffered) => {
       this.sendBestEffort(emit, buffered.event, buffered.data, { sessionId: buffered.data.sessionId })
     })
-    const handleConnectionStatus = (status: AgentEventConnectionStatus): void => {
-      this.handleAgentConnectionStatus(emit, status)
+    this.agentUnsubscribe = this.agent.onEvent((event) => {
+      if (event.event === "connectionStatus") {
+        this.handleAgentConnectionStatus(emit, event.data)
+        return
+      }
+      this.processAgentEvent(emit, event)
+    })
+  }
+
+  /** Run one normalized agent event through the bridge pipeline (filtering, folding, watchdogs, broadcast). */
+  private processAgentEvent(emit: (event: string, data: unknown) => Promise<void>, translated: ChatEmit): void {
+    const sourceSessionId = translated.data.sessionId
+    const generationSessionId = sourceSessionId ? this.generationWatchdogSessionId(sourceSessionId) : null
+    const failedSessionId = generationSessionId ?? sourceSessionId
+    if (failedSessionId && this.connectionFailedSessions.has(failedSessionId)) {
+      return
     }
-    this.agent.subscribe((event) => {
-      for (const translated of translateOpencodeEvent(event)) {
-        const sourceSessionId = translated.data.sessionId
-        const generationSessionId = sourceSessionId ? this.generationWatchdogSessionId(sourceSessionId) : null
-        const failedSessionId = generationSessionId ?? sourceSessionId
-        if (failedSessionId && this.connectionFailedSessions.has(failedSessionId)) {
-          continue
-        }
-        const userStoppedSessionId =
-          translated.event === "agentError" && sourceSessionId
-            ? [sourceSessionId, generationSessionId]
-                .filter((sessionId): sessionId is string => Boolean(sessionId))
-                .find((sessionId) => this.userStops.consumeAbort(sessionId, translated.data.message))
-            : undefined
-        if (translated.event === "agentError" && userStoppedSessionId) {
-          const sessionId = generationSessionId ?? userStoppedSessionId
-          const messageId = this.activeAssistantMessages.get(sessionId)
-          const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
-          const stoppedAt = Date.now()
-          if (messageId) {
-            void this.rememberStoppedGeneration(sessionId, messageId, partIds, stoppedAt).catch((error: unknown) => {
-              console.warn("[wanta] failed to record stopped generation", error)
-            })
-          }
-          void this.finalizeTurnOutput(sessionId, messageId)
-            .catch((error: unknown) => {
-              console.warn("[wanta] failed to finalize stopped turn output", error)
-            })
-            .finally(() => {
-              this.clearSessionGeneration(sessionId)
-              this.activeAssistantMessages.delete(sessionId)
-              this.activeToolParts.delete(sessionId)
-              this.activeRuns.delete(sessionId)
-              this.emitSessionActivity(sessionId)
-              this.sendBestEffort(
-                emit,
-                "generationStopped",
-                { sessionId, ...(messageId ? { messageId, partIds, stoppedAt } : {}) },
-                { sessionId },
-              )
-            })
-          continue
-        }
-        if (this.userStops.shouldSuppressEvent(translated)) {
-          continue
-        }
-        if (
-          translated.event === "messageDelta" &&
-          translated.data.synthetic === true &&
-          this.managedUserMessageIds.has(translated.data.messageId)
-        ) {
-          continue
-        }
-        if (
-          translated.event === "messageAttachment" &&
-          this.internalAttachmentPathsByMessage.get(translated.data.messageId)?.has(translated.data.attachment.path)
-        ) {
-          continue
-        }
-        const activitySessionId = generationSessionId ?? sourceSessionId
-        if (activitySessionId) {
-          this.generations.clearAcknowledgementWatchdog(activitySessionId)
-        }
-        if (translated.event === "messageStarted") {
-          if (translated.data.internal === true) {
-            this.rememberInternalMessage(translated.data.sessionId, translated.data.messageId)
-            continue
-          }
-          if (translated.data.role === "user" && this.compactingSessions.has(translated.data.sessionId)) {
-            this.rememberInternalMessage(translated.data.sessionId, translated.data.messageId)
-            continue
-          }
-          if (translated.data.role === "assistant") {
-            this.compactingSessions.delete(translated.data.sessionId)
-          }
-          if (!this.rememberMessageStarted(translated)) {
-            continue
-          }
-        }
-        if (
-          ("messageId" in translated.data &&
-            typeof translated.data.messageId === "string" &&
-            this.isInternalMessage(translated.data.sessionId, translated.data.messageId)) ||
-          (translated.event === "messageDelta" && translated.data.synthetic === true)
-        ) {
-          continue
-        }
-        if (translated.event === "assistantActivity" && translated.data.phase === "compacting") {
-          this.compactingSessions.add(translated.data.sessionId)
-        }
-        if (translated.event === "permissionAsked" && this.answerLocalAccessPermission(emit, translated.data.request)) {
-          if (generationSessionId) {
-            this.generations.clearInactivityWatchdog(generationSessionId)
-          }
-          continue
-        }
-        const displayed = this.subagentSessions.forDisplay(translated)
-        const displayedSessionId = displayed.data.sessionId
-        if (
-          sourceSessionId &&
-          generationSessionId &&
-          sourceSessionId !== generationSessionId &&
-          displayed === translated
-        ) {
-          this.scheduleGenerationInactivityWatchdog(generationSessionId)
-          continue
-        }
-        if (translated.event === "permissionAsked") {
-          this.rememberPendingPermissionRequest(translated.data.request)
-        }
-        this.activeRuns.applyEvent(displayed)
-        if (translated.event === "messageStarted" && translated.data.role === "assistant") {
-          this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
-          this.activeToolParts.set(translated.data.sessionId, new Set())
-          const { artifactRoot, processRoot } = this.turnOutputs.consume(translated.data.sessionId)
-          if (artifactRoot && processRoot) {
-            const activeTurn = this.turnOutputs.forSession(translated.data.sessionId)
-            if (activeTurn?.artifactRoot === artifactRoot && activeTurn.processRoot === processRoot) {
-              activeTurn.messageId = translated.data.messageId
-            }
-          }
-        }
-        if (translated.event === "toolCallStarted") {
-          this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
-          const partIds = this.activeToolParts.get(translated.data.sessionId) ?? new Set<string>()
-          partIds.add(translated.data.partId)
-          this.activeToolParts.set(translated.data.sessionId, partIds)
-          this.activeRuns.update(translated.data.sessionId, {
-            activeAssistantMessageId: translated.data.messageId,
-            activeToolPartIds: [...partIds],
-            phase: "tool_running",
-          })
-          const childSessionId = taskChildSessionId(translated.data)
-          if (childSessionId) {
-            this.subagentSessions.remember(translated.data.sessionId, childSessionId)
-            void this.agent
-              ?.inheritSessionKnowledgeBaseIds(translated.data.sessionId, childSessionId)
-              .catch((error: unknown) => {
-                console.warn("[wanta] failed to inherit task subagent knowledge scope:", error)
-              })
-          }
-        }
-        if (translated.event === "toolCallResult") {
-          const partIds = this.activeToolParts.get(translated.data.sessionId)
-          partIds?.delete(translated.data.partId)
-          if (partIds?.size === 0) {
-            this.activeToolParts.delete(translated.data.sessionId)
-          }
-          this.activeRuns.update(translated.data.sessionId, {
-            activeAssistantMessageId: translated.data.messageId,
-            activeToolPartIds: partIds ? [...partIds] : [],
-            phase: partIds && partIds.size > 0 ? "tool_running" : "thinking",
-          })
-          const childSessionId = taskChildSessionId(translated.data)
-          if (childSessionId) {
-            this.subagentSessions.forget(translated.data.sessionId, childSessionId)
-            void this.agent?.clearSessionKnowledgeBaseIds(childSessionId).catch((error: unknown) => {
-              console.warn("[wanta] failed to clear task subagent knowledge scope:", error)
-            })
-          }
-          if (translated.data.authorization) {
-            void this.rememberAuthorizationOverlay(
-              translated.data.sessionId,
-              translated.data.messageId,
-              translated.data.partId,
-              translated.data.authorization,
-            ).catch((error: unknown) => {
-              console.warn("[wanta] failed to record authorization overlay", error)
-            })
-          }
-        }
-        if (translated.event === "agentError" && translated.data.sessionId) {
-          const sessionId = translated.data.sessionId
-          this.compactingSessions.delete(sessionId)
-          this.generations.clearInactivityWatchdog(sessionId)
-          void this.interruptSessionGeneration(emit, sessionId, "runtime_error", translated.data.message, {
-            abortAgent: false,
-          })
-          continue
-        }
-        if (translated.event === "messageCompleted") {
-          const sessionId = translated.data.sessionId
-          this.clearInternalMessages(sessionId)
-          this.compactingSessions.delete(sessionId)
-          const generation = this.generations.get(sessionId)
-          if (generation) void this.completeSessionGeneration(emit, sessionId, generation)
-          continue
-        }
-        if (sourceSessionId) {
-          if (inactivityWatchdogActionForEvent(displayed.event) === "pause") {
-            if (generationSessionId) {
-              this.generations.clearInactivityWatchdog(generationSessionId)
-            }
-          } else if (generationSessionId) {
-            this.scheduleGenerationInactivityWatchdog(generationSessionId)
-          }
-        }
-        if (displayed.event === "messageDelta" || displayed.event === "messageReasoningDelta") {
-          this.eventMetrics.record(`stream-input:${displayed.event}`)
-          this.streamEventBuffer?.enqueue(displayed)
-        } else {
-          this.sendBestEffort(emit, displayed.event, displayed.data, { sessionId: displayedSessionId })
+    const userStoppedSessionId =
+      translated.event === "agentError" && sourceSessionId
+        ? [sourceSessionId, generationSessionId]
+            .filter((sessionId): sessionId is string => Boolean(sessionId))
+            .find((sessionId) => this.userStops.consumeAbort(sessionId, translated.data.message))
+        : undefined
+    if (translated.event === "agentError" && userStoppedSessionId) {
+      const sessionId = generationSessionId ?? userStoppedSessionId
+      const messageId = this.activeAssistantMessages.get(sessionId)
+      const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
+      const stoppedAt = Date.now()
+      if (messageId) {
+        void this.rememberStoppedGeneration(sessionId, messageId, partIds, stoppedAt).catch((error: unknown) => {
+          console.warn("[wanta] failed to record stopped generation", error)
+        })
+      }
+      void this.finalizeTurnOutput(sessionId, messageId)
+        .catch((error: unknown) => {
+          console.warn("[wanta] failed to finalize stopped turn output", error)
+        })
+        .finally(() => {
+          this.clearSessionGeneration(sessionId)
+          this.activeAssistantMessages.delete(sessionId)
+          this.activeToolParts.delete(sessionId)
+          this.activeRuns.delete(sessionId)
+          this.emitSessionActivity(sessionId)
+          this.sendBestEffort(
+            emit,
+            "generationStopped",
+            { sessionId, ...(messageId ? { messageId, partIds, stoppedAt } : {}) },
+            { sessionId },
+          )
+        })
+      return
+    }
+    if (this.userStops.shouldSuppressEvent(translated)) {
+      return
+    }
+    if (
+      translated.event === "messageDelta" &&
+      translated.data.synthetic === true &&
+      this.managedUserMessageIds.has(translated.data.messageId)
+    ) {
+      return
+    }
+    if (
+      translated.event === "messageAttachment" &&
+      this.internalAttachmentPathsByMessage.get(translated.data.messageId)?.has(translated.data.attachment.path)
+    ) {
+      return
+    }
+    const activitySessionId = generationSessionId ?? sourceSessionId
+    if (activitySessionId) {
+      this.generations.clearAcknowledgementWatchdog(activitySessionId)
+    }
+    if (translated.event === "messageStarted") {
+      if (translated.data.internal === true) {
+        this.rememberInternalMessage(translated.data.sessionId, translated.data.messageId)
+        return
+      }
+      if (translated.data.role === "user" && this.compactingSessions.has(translated.data.sessionId)) {
+        this.rememberInternalMessage(translated.data.sessionId, translated.data.messageId)
+        return
+      }
+      if (translated.data.role === "assistant") {
+        this.compactingSessions.delete(translated.data.sessionId)
+      }
+      if (!this.rememberMessageStarted(translated)) {
+        return
+      }
+    }
+    if (
+      ("messageId" in translated.data &&
+        typeof translated.data.messageId === "string" &&
+        this.isInternalMessage(translated.data.sessionId, translated.data.messageId)) ||
+      (translated.event === "messageDelta" && translated.data.synthetic === true)
+    ) {
+      return
+    }
+    if (translated.event === "assistantActivity" && translated.data.phase === "compacting") {
+      this.compactingSessions.add(translated.data.sessionId)
+    }
+    if (translated.event === "permissionAsked" && this.answerLocalAccessPermission(emit, translated.data.request)) {
+      if (generationSessionId) {
+        this.generations.clearInactivityWatchdog(generationSessionId)
+      }
+      return
+    }
+    const displayed = this.subagentSessions.forDisplay(translated)
+    const displayedSessionId = displayed.data.sessionId
+    if (sourceSessionId && generationSessionId && sourceSessionId !== generationSessionId && displayed === translated) {
+      this.scheduleGenerationInactivityWatchdog(generationSessionId)
+      return
+    }
+    if (translated.event === "permissionAsked") {
+      this.rememberPendingPermissionRequest(translated.data.request)
+    }
+    this.activeRuns.applyEvent(displayed)
+    if (translated.event === "messageStarted" && translated.data.role === "assistant") {
+      this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
+      this.activeToolParts.set(translated.data.sessionId, new Set())
+      const { artifactRoot, processRoot } = this.turnOutputs.consume(translated.data.sessionId)
+      if (artifactRoot && processRoot) {
+        const activeTurn = this.turnOutputs.forSession(translated.data.sessionId)
+        if (activeTurn?.artifactRoot === artifactRoot && activeTurn.processRoot === processRoot) {
+          activeTurn.messageId = translated.data.messageId
         }
       }
-    }, handleConnectionStatus)
+    }
+    if (translated.event === "toolCallStarted") {
+      this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
+      const partIds = this.activeToolParts.get(translated.data.sessionId) ?? new Set<string>()
+      partIds.add(translated.data.partId)
+      this.activeToolParts.set(translated.data.sessionId, partIds)
+      this.activeRuns.update(translated.data.sessionId, {
+        activeAssistantMessageId: translated.data.messageId,
+        activeToolPartIds: [...partIds],
+        phase: "tool_running",
+      })
+      const childSessionId = taskChildSessionId(translated.data)
+      if (childSessionId) {
+        this.subagentSessions.remember(translated.data.sessionId, childSessionId)
+        void this.agent
+          ?.inheritSessionKnowledgeBaseIds(translated.data.sessionId, childSessionId)
+          .catch((error: unknown) => {
+            console.warn("[wanta] failed to inherit task subagent knowledge scope:", error)
+          })
+      }
+    }
+    if (translated.event === "toolCallResult") {
+      const partIds = this.activeToolParts.get(translated.data.sessionId)
+      partIds?.delete(translated.data.partId)
+      if (partIds?.size === 0) {
+        this.activeToolParts.delete(translated.data.sessionId)
+      }
+      this.activeRuns.update(translated.data.sessionId, {
+        activeAssistantMessageId: translated.data.messageId,
+        activeToolPartIds: partIds ? [...partIds] : [],
+        phase: partIds && partIds.size > 0 ? "tool_running" : "thinking",
+      })
+      const childSessionId = taskChildSessionId(translated.data)
+      if (childSessionId) {
+        this.subagentSessions.forget(translated.data.sessionId, childSessionId)
+        void this.agent?.clearSessionKnowledgeBaseIds(childSessionId).catch((error: unknown) => {
+          console.warn("[wanta] failed to clear task subagent knowledge scope:", error)
+        })
+      }
+      if (translated.data.authorization) {
+        void this.rememberAuthorizationOverlay(
+          translated.data.sessionId,
+          translated.data.messageId,
+          translated.data.partId,
+          translated.data.authorization,
+        ).catch((error: unknown) => {
+          console.warn("[wanta] failed to record authorization overlay", error)
+        })
+      }
+    }
+    if (translated.event === "agentError" && translated.data.sessionId) {
+      const sessionId = translated.data.sessionId
+      this.compactingSessions.delete(sessionId)
+      this.generations.clearInactivityWatchdog(sessionId)
+      void this.interruptSessionGeneration(emit, sessionId, "runtime_error", translated.data.message, {
+        abortAgent: false,
+      })
+      return
+    }
+    if (translated.event === "messageCompleted") {
+      const sessionId = translated.data.sessionId
+      this.clearInternalMessages(sessionId)
+      this.compactingSessions.delete(sessionId)
+      const generation = this.generations.get(sessionId)
+      if (generation) void this.completeSessionGeneration(emit, sessionId, generation)
+      return
+    }
+    if (sourceSessionId) {
+      if (inactivityWatchdogActionForEvent(displayed.event) === "pause") {
+        if (generationSessionId) {
+          this.generations.clearInactivityWatchdog(generationSessionId)
+        }
+      } else if (generationSessionId) {
+        this.scheduleGenerationInactivityWatchdog(generationSessionId)
+      }
+    }
+    if (displayed.event === "messageDelta" || displayed.event === "messageReasoningDelta") {
+      this.eventMetrics.record(`stream-input:${displayed.event}`)
+      this.streamEventBuffer?.enqueue(displayed)
+    } else {
+      this.sendBestEffort(emit, displayed.event, displayed.data, { sessionId: displayedSessionId })
+    }
   }
 
   private handleAgentConnectionStatus(
     emit: (event: string, data: unknown) => Promise<void>,
-    status: AgentEventConnectionStatus,
+    status: AgentConnectionStatus,
   ): void {
     if (status.status === "runtime_restarting") {
       this.setAgentStatus({ status: "starting" })
@@ -944,7 +946,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     let lastError: unknown
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
-        await this.agent.answerPermission(request.sessionId, request.id, reply)
+        await this.agent.send({
+          type: "permission-response",
+          sessionId: request.sessionId,
+          requestId: request.id,
+          reply,
+        })
         this.permissionDiagnostics.recordAutomaticReply(attempt === 1 ? "first_attempt" : "retry_succeeded")
         return
       } catch (error) {
@@ -1392,7 +1399,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const stoppedAt = Date.now()
     if (options.abortAgent) {
       try {
-        await this.agent.abort(sessionId)
+        await this.agent.send({ type: "cancel", sessionId })
       } catch (error) {
         if (options.throwOnAbortFailure && (messageId || !generation)) {
           this.userStops.delete(sessionId)
@@ -1598,26 +1605,31 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       submitted = true
       this.scheduleGenerationSubmitWatchdog(req.sessionId, promptGeneration.id)
       void this.agent
-        .promptStreaming(req.sessionId, req.text, {
-          attachments: req.attachments,
-          artifactDir,
-          outputProjectRoot: artifactProjectRoot,
-          processDir,
-          mode: execution.mode,
-          messageId: userMessageId,
-          model: req.model,
-          teamName,
-          reasoningLevel: req.reasoningLevel,
-          signal: promptGeneration.controller.signal,
-          system: mergeSystemPrompts(
-            buildTeamSkillsSystem(req.teamSkills),
-            buildContextMentionsSystemPrompt(req.contextMentions),
-            buildProjectContextSystem(req.projectContext),
-            buildPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
-            bugReportSystem,
-            buildResponseLanguageSystem(req.appLocale, detectResponseLanguage(req.text)),
-          ),
-        })
+        .send(
+          {
+            type: "prompt",
+            sessionId: req.sessionId,
+            text: req.text,
+            attachments: req.attachments,
+            artifactDir,
+            outputProjectRoot: artifactProjectRoot,
+            processDir,
+            mode: execution.mode,
+            messageId: userMessageId,
+            model: req.model,
+            teamName,
+            reasoningLevel: req.reasoningLevel,
+            system: mergeSystemPrompts(
+              buildTeamSkillsSystem(req.teamSkills),
+              buildContextMentionsSystemPrompt(req.contextMentions),
+              buildProjectContextSystem(req.projectContext),
+              buildPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
+              bugReportSystem,
+              buildResponseLanguageSystem(req.appLocale, detectResponseLanguage(req.text)),
+            ),
+          },
+          { signal: promptGeneration.controller.signal },
+        )
         .then(() => {
           if (
             this.isCurrentGeneration(req.sessionId, promptGeneration.id) &&
@@ -2042,7 +2054,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
-    await this.agent.answerQuestion(req.sessionId, req.requestId, req.answers)
+    await this.agent.send({
+      type: "question-response",
+      sessionId: req.sessionId,
+      requestId: req.requestId,
+      outcome: { kind: "answered", answers: req.answers },
+    })
     this.activeRuns.removeBlockingRequest(req.sessionId, req.requestId)
     this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
     this.emitSessionActivity(req.sessionId)
@@ -2053,7 +2070,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       throw new Error("Agent not configured (sign in first)")
     }
     await withTimeout(
-      this.agent.rejectQuestion(req.sessionId, req.requestId),
+      this.agent.send({
+        type: "question-response",
+        sessionId: req.sessionId,
+        requestId: req.requestId,
+        outcome: { kind: "rejected" },
+      }),
       questionRejectTimeoutMs,
       "question rejection",
     )
@@ -2117,7 +2139,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     }
     const sourceSessionId = request.sessionId
-    await this.agent.answerPermission(sourceSessionId, req.requestId, req.reply === "always" ? "once" : req.reply)
+    await this.agent.send({
+      type: "permission-response",
+      sessionId: sourceSessionId,
+      requestId: req.requestId,
+      reply: req.reply === "always" ? "once" : req.reply,
+    })
     if (req.reply !== "reject" && request) {
       this.rememberTrustedPermissionResources(req.sessionId, request)
     }

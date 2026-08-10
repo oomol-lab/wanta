@@ -7,6 +7,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promi
 import os from "node:os"
 import path from "node:path"
 import { afterEach, expect, test, vi } from "vitest"
+import { OpencodeAgentAdapter } from "../agent/opencode-adapter.ts"
 import { resolveRuntimeCapabilities } from "../runtime/common.ts"
 import { ExpiringTrustedPathRegistry } from "../trusted-path-registry.ts"
 import {
@@ -50,7 +51,7 @@ test("runtime capabilities remain credential-free across the chat service bounda
 })
 
 function createBridgeAgent(): {
-  agent: AgentManager
+  agent: OpencodeAgentAdapter
   abort: ReturnType<typeof vi.fn>
   answerPermission: ReturnType<typeof vi.fn>
   answerQuestion: ReturnType<typeof vi.fn>
@@ -118,7 +119,7 @@ function createBridgeAgent(): {
   const clearSessionKnowledgeBaseIds = vi.fn(async () => undefined)
   const setSessionKnowledgeBaseIds = vi.fn(async () => undefined)
   const setSessionTeamName = vi.fn(async () => undefined)
-  const agent = {
+  const manager = {
     isReady: () => true,
     subscribe: (
       callback: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void,
@@ -147,6 +148,9 @@ function createBridgeAgent(): {
     getPendingQuestionsForSessions,
     inheritSessionKnowledgeBaseIds,
   } as unknown as AgentManager
+  const agent = new OpencodeAgentAdapter(manager)
+  // The stub manager reports ready, so start() only attaches the translated event stream (synchronous).
+  void agent.start()
   return {
     agent,
     abort,
@@ -1737,7 +1741,7 @@ test("authorization overlays survive service restart", async () => {
       },
     ],
   }
-  restartedBridge.agent.getMessages = vi.fn(async () => [restoredMessage]) as AgentManager["getMessages"]
+  restartedBridge.agent.getMessages = vi.fn(async () => [restoredMessage]) as OpencodeAgentAdapter["getMessages"]
   const restarted = new ChatServiceImpl(restartedBridge.agent, { authorizationOverlayStore: store })
 
   const [message] = await restarted.getMessages("session-1")

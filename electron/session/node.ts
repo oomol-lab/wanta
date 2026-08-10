@@ -1,4 +1,4 @@
-import type { AgentManager } from "../agent/manager.ts"
+import type { OpencodeAgentAdapter } from "../agent/opencode-adapter.ts"
 import type { SessionActivityStore } from "./activity-store.ts"
 import type {
   AssignSessionProjectRequest,
@@ -94,7 +94,7 @@ export class SessionServiceImpl
   extends ConnectionService<SessionService>
   implements IConnectionService<SessionService>
 {
-  private agent: AgentManager | null
+  private agent: OpencodeAgentAdapter | null
   private readonly deps: SessionServiceDeps
   private activityLoaded = false
   private activityLoadPromise: Promise<void> | null = null
@@ -108,14 +108,14 @@ export class SessionServiceImpl
   private mutationQueue: Promise<void> = Promise.resolve()
   private runtimeRevision = 0
 
-  public constructor(agent: AgentManager | null = null, deps: SessionServiceDeps = {}) {
+  public constructor(agent: OpencodeAgentAdapter | null = null, deps: SessionServiceDeps = {}) {
     super(SessionServiceName)
     this.agent = agent
     this.deps = deps
   }
 
   /** 登录 / 登出时由 main 重新装配 agent。 */
-  public setAgent(agent: AgentManager | null): void {
+  public setAgent(agent: OpencodeAgentAdapter | null): void {
     this.runtimeRevision += 1
     this.agent = agent
     if (!agent) {
@@ -1051,16 +1051,16 @@ export class SessionServiceImpl
     return resolved
   }
 
-  private requireAgent(): AgentManager {
+  private requireAgent(): OpencodeAgentAdapter {
     if (!this.agent) throw new Error("Agent not configured (sign in first)")
     return this.agent
   }
 
-  private runtimeMatches(agent: AgentManager, revision: number): boolean {
+  private runtimeMatches(agent: OpencodeAgentAdapter, revision: number): boolean {
     return this.agent === agent && this.runtimeRevision === revision
   }
 
-  private assertRuntimeMatches(agent: AgentManager, revision: number): void {
+  private assertRuntimeMatches(agent: OpencodeAgentAdapter, revision: number): void {
     if (!this.runtimeMatches(agent, revision)) {
       throw this.runtimeChangedError()
     }

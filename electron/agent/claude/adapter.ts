@@ -4,8 +4,11 @@ import type {
   CancelAgentInput,
   PermissionResponseAgentInput,
   PromptAgentInput,
+  SetEffortAgentInput,
+  SetModelAgentInput,
 } from "../contract/input.ts"
 import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
+import type { ExternalAgentCatalog } from "../external/status.ts"
 import type {
   CanUseTool,
   PermissionResult,
@@ -136,8 +139,47 @@ function salientResources(toolInput: Record<string, unknown>): string[] {
   return resources
 }
 
-function sdkPermissionMode(mode: AgentPermissionMode): "bypassPermissions" | "default" {
-  return mode === "full_access" ? "bypassPermissions" : "default"
+function sdkPermissionMode(mode: AgentPermissionMode): "acceptEdits" | "bypassPermissions" | "default" | "plan" {
+  switch (mode) {
+    case "full_access":
+      return "bypassPermissions"
+    case "accept_edits":
+      return "acceptEdits"
+    case "plan":
+      return "plan"
+    default:
+      // read_only is not declared in the claude-code profile; map defensively.
+      return "default"
+  }
+}
+
+/** Effort levels safe to switch live via flag settings (SDK 0.3.226; "max" needs a respawn). */
+const CLAUDE_EFFORT_IDS = ["low", "medium", "high", "xhigh"] as const
+type ClaudeEffortId = (typeof CLAUDE_EFFORT_IDS)[number]
+
+function isClaudeEffortId(value: string): value is ClaudeEffortId {
+  return (CLAUDE_EFFORT_IDS as readonly string[]).includes(value)
+}
+
+/**
+ * Static baseline catalog: the CLI's stable model aliases, replaced by the live
+ * model list (supportedModels) once a session is running. Labels are
+ * agent-native vocabulary and rendered verbatim.
+ */
+function staticClaudeCatalog(): ExternalAgentCatalog {
+  return {
+    models: [
+      { id: "opus", label: "Opus" },
+      { id: "sonnet", label: "Sonnet" },
+      { id: "haiku", label: "Haiku" },
+    ],
+    efforts: [
+      { id: "low", label: "Low" },
+      { id: "medium", label: "Medium" },
+      { id: "high", label: "High" },
+      { id: "xhigh", label: "Extra High" },
+    ],
+  }
 }
 
 function isAuthenticationFailureMessage(message: string): boolean {
@@ -156,6 +198,10 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
   private readonly sessions = new Map<string, ClaudeSessionState>()
   private readonly sessionCreations = new Map<string, Promise<ClaudeSessionState>>()
   private readonly desiredPermissionModes = new Map<string, AgentPermissionMode>()
+  private readonly desiredModels = new Map<string, string>()
+  private readonly desiredEfforts = new Map<string, ClaudeEffortId>()
+  private catalog: ExternalAgentCatalog = staticClaudeCatalog()
+  private catalogRefreshed = false
   private readonly pendingSdkPermissions = new Map<string, PendingSdkPermission>()
   private probeCache: { status: ExternalAgentRuntimeStatus; expiresAt: number } | undefined
   private probeInFlight: Promise<ExternalAgentRuntimeStatus> | undefined
@@ -193,6 +239,24 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
   protected async handlePrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
     if (options?.signal?.aborted) {
       return
+    }
+    // Draft-time model/effort choices ride the first prompt; failures to apply
+    // them must never fail the turn itself.
+    if (input.agentModelId !== undefined) {
+      await this.applyModel(input.sessionId, input.agentModelId).catch((error: unknown) => {
+        logDiagnostic("claude-code-adapter", "prompt-borne model apply failed", {
+          sessionId: input.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+    }
+    if (input.agentEffortId !== undefined && isClaudeEffortId(input.agentEffortId)) {
+      await this.applyEffort(input.sessionId, input.agentEffortId).catch((error: unknown) => {
+        logDiagnostic("claude-code-adapter", "prompt-borne effort apply failed", {
+          sessionId: input.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
     }
     const session = await this.ensureSession(input)
     if (options?.signal?.aborted) {
@@ -248,6 +312,87 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     }
   }
 
+  protected override async handleSetModel(input: SetModelAgentInput): Promise<void> {
+    await this.applyModel(input.sessionId, input.modelId)
+  }
+
+  protected override async handleSetEffort(input: SetEffortAgentInput): Promise<void> {
+    if (input.effortId !== undefined && !isClaudeEffortId(input.effortId)) {
+      throw new Error(`claude-code: unknown effort "${input.effortId}"`)
+    }
+    await this.applyEffort(input.sessionId, input.effortId as ClaudeEffortId | undefined)
+  }
+
+  /**
+   * Stash the choice for session creation and switch the live query when one
+   * exists. A failed live switch restores the previous stash so a future
+   * session recreation never resurrects a value the agent rejected.
+   */
+  private async applyModel(sessionId: string, modelId: string | undefined): Promise<void> {
+    const previous = this.desiredModels.get(sessionId)
+    if (modelId === undefined) {
+      this.desiredModels.delete(sessionId)
+    } else {
+      this.desiredModels.set(sessionId, modelId)
+    }
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      return
+    }
+    const handle = session.queryHandle as unknown as { setModel?: (model?: string) => Promise<void> }
+    if (typeof handle.setModel !== "function") {
+      return
+    }
+    try {
+      await handle.setModel(modelId)
+    } catch (error) {
+      this.restoreDesired(this.desiredModels, sessionId, previous)
+      throw error
+    }
+  }
+
+  private async applyEffort(sessionId: string, effortId: ClaudeEffortId | undefined): Promise<void> {
+    const previous = this.desiredEfforts.get(sessionId)
+    if (effortId === undefined) {
+      this.desiredEfforts.delete(sessionId)
+    } else {
+      this.desiredEfforts.set(sessionId, effortId)
+    }
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      return
+    }
+    const handle = session.queryHandle as unknown as {
+      applyFlagSettings?: (settings: { effortLevel?: string | null }) => Promise<unknown>
+    }
+    if (typeof handle.applyFlagSettings !== "function") {
+      return
+    }
+    try {
+      // applyFlagSettings is a shallow MERGE; clearing a key requires an
+      // explicit null ({} would silently keep the previous effort in force).
+      await handle.applyFlagSettings({ effortLevel: effortId ?? null })
+    } catch (error) {
+      this.restoreDesired(this.desiredEfforts, sessionId, previous)
+      throw error
+    }
+  }
+
+  private restoreDesired<T>(map: Map<string, T>, sessionId: string, previous: T | undefined): void {
+    if (previous === undefined) {
+      map.delete(sessionId)
+    } else {
+      map.set(sessionId, previous)
+    }
+  }
+
+  /** Last user-chosen model/effort for a session (renderer read-back after reloads). */
+  public override sessionSelection(sessionId: string): { modelId?: string; effortId?: string } {
+    const modelId = this.desiredModels.get(sessionId)
+    const effortId = this.desiredEfforts.get(sessionId)
+    return { ...(modelId !== undefined ? { modelId } : {}), ...(effortId !== undefined ? { effortId } : {}) }
+  }
+
   public override async applyPermissionMode(sessionId: string, mode: AgentPermissionMode): Promise<void> {
     this.desiredPermissionModes.set(sessionId, mode)
     const session = this.sessions.get(sessionId)
@@ -268,7 +413,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
 
   public runtimeStatus(): Promise<ExternalAgentRuntimeStatus> {
     if (this.probeCache && this.probeCache.expiresAt > Date.now()) {
-      return Promise.resolve(this.probeCache.status)
+      return Promise.resolve(this.decorateStatus(this.probeCache.status))
     }
     this.probeInFlight ??= this.probe()
       .then((status) => {
@@ -278,11 +423,53 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       .finally(() => {
         this.probeInFlight = undefined
       })
-    return this.probeInFlight
+    return this.probeInFlight.then((status) => this.decorateStatus(status))
+  }
+
+  private decorateStatus(status: ExternalAgentRuntimeStatus): ExternalAgentRuntimeStatus {
+    return { ...status, catalog: this.catalog }
+  }
+
+  /** Replace the static model aliases with the live model list, once per adapter run. */
+  private refreshCatalog(session: ClaudeSessionState): void {
+    if (this.catalogRefreshed) {
+      return
+    }
+    const handle = session.queryHandle as unknown as {
+      supportedModels?: () => Promise<Array<{ value?: unknown; displayName?: unknown; description?: unknown }>>
+    }
+    if (typeof handle.supportedModels !== "function") {
+      return
+    }
+    this.catalogRefreshed = true
+    void handle
+      .supportedModels()
+      .then((models) => {
+        const options = (Array.isArray(models) ? models : [])
+          .filter((model) => typeof model.value === "string" && model.value.length > 0)
+          .map((model) => ({
+            id: model.value as string,
+            label:
+              typeof model.displayName === "string" && model.displayName ? model.displayName : (model.value as string),
+            ...(typeof model.description === "string" && model.description ? { description: model.description } : {}),
+          }))
+        if (options.length > 0) {
+          this.catalog = { ...this.catalog, models: options }
+        }
+      })
+      .catch((error: unknown) => {
+        // Keep the static baseline and allow a later session to retry.
+        this.catalogRefreshed = false
+        logDiagnostic("claude-code-adapter", "supportedModels failed", {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
   }
 
   protected override handleForgetSession(sessionId: string): void {
     this.desiredPermissionModes.delete(sessionId)
+    this.desiredModels.delete(sessionId)
+    this.desiredEfforts.delete(sessionId)
     for (const [requestId, pending] of this.pendingSdkPermissions) {
       if (pending.sessionId === sessionId) {
         this.pendingSdkPermissions.delete(requestId)
@@ -343,6 +530,8 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         // sdk.d.ts 0.3.226), so the current env is spread in explicitly.
         env: { ...process.env, PATH: commandPathValue },
         permissionMode: sdkPermissionMode(this.desiredPermissionModes.get(sessionId) ?? "default"),
+        ...(this.desiredModels.has(sessionId) ? { model: this.desiredModels.get(sessionId) } : {}),
+        ...(this.desiredEfforts.has(sessionId) ? { effort: this.desiredEfforts.get(sessionId) } : {}),
         // Required at creation time so a later switch to bypassPermissions
         // (full_access) via setPermissionMode is accepted by the CLI.
         allowDangerouslySkipPermissions: true,
@@ -369,6 +558,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     }
     this.sessions.set(sessionId, session)
     session.loop = this.runQueryLoop(session)
+    this.refreshCatalog(session)
     return session
   }
 

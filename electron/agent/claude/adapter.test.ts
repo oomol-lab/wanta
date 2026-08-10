@@ -29,6 +29,8 @@ interface FakeQueryHandle {
   promptMessages: SDKUserMessage[]
   interrupt: ReturnType<typeof vi.fn>
   setPermissionMode: ReturnType<typeof vi.fn>
+  setModel: ReturnType<typeof vi.fn>
+  applyFlagSettings: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
 }
 
@@ -93,17 +95,21 @@ function createFakeQueryFn(): { queryFn: typeof query; calls: FakeQueryCall[] } 
     }
     const interrupt = vi.fn(() => Promise.resolve(undefined))
     const setPermissionMode = vi.fn(() => Promise.resolve())
+    const setModel = vi.fn(() => Promise.resolve())
+    const applyFlagSettings = vi.fn(() => Promise.resolve({}))
     const close = vi.fn(() => {
       end()
     })
     calls.push({
       options: params.options ?? {},
-      fake: { push, end, fail, promptMessages, interrupt, setPermissionMode, close },
+      fake: { push, end, fail, promptMessages, interrupt, setPermissionMode, setModel, applyFlagSettings, close },
     })
     return {
       [Symbol.asyncIterator]: () => ({ next }),
       interrupt,
       setPermissionMode,
+      setModel,
+      applyFlagSettings,
       close,
     } as unknown as Query
   })
@@ -435,5 +441,49 @@ describe("ClaudeCodeAgentAdapter", () => {
     // The prompt path reuses the cached probe as well.
     await adapter.send({ type: "prompt", sessionId, text: "hello" })
     expect(probe).toHaveBeenCalledTimes(1)
+  })
+
+  it("threads prompt-borne agent model and effort into query creation", async () => {
+    const { adapter, calls } = await createHarness()
+    await adapter.send({ type: "prompt", sessionId, text: "hi", agentModelId: "opus", agentEffortId: "high" })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.options.model).toBe("opus")
+    expect(calls[0]?.options.effort).toBe("high")
+  })
+
+  it("applies set-model and set-effort made before the first prompt at session creation", async () => {
+    const { adapter, calls } = await createHarness()
+    await adapter.send({ type: "set-model", sessionId, modelId: "sonnet" })
+    await adapter.send({ type: "set-effort", sessionId, effortId: "low" })
+    await adapter.send({ type: "prompt", sessionId, text: "hi" })
+    expect(calls[0]?.options.model).toBe("sonnet")
+    expect(calls[0]?.options.effort).toBe("low")
+  })
+
+  it("switches the live query on set-model and set-effort", async () => {
+    const { adapter, calls } = await createHarness()
+    await adapter.send({ type: "prompt", sessionId, text: "hi" })
+    await adapter.send({ type: "set-model", sessionId, modelId: "haiku" })
+    expect(calls[0]?.fake.setModel).toHaveBeenCalledWith("haiku")
+    await adapter.send({ type: "set-effort", sessionId, effortId: "xhigh" })
+    expect(calls[0]?.fake.applyFlagSettings).toHaveBeenCalledWith({ effortLevel: "xhigh" })
+    // Reset must clear the flag layer explicitly: applyFlagSettings is a
+    // shallow merge, so {} would silently keep the previous effort in force.
+    await adapter.send({ type: "set-effort", sessionId })
+    expect(calls[0]?.fake.applyFlagSettings).toHaveBeenLastCalledWith({ effortLevel: null })
+  })
+
+  it("rejects unknown effort ids loudly", async () => {
+    const { adapter } = await createHarness()
+    await expect(adapter.send({ type: "set-effort", sessionId, effortId: "ultra" })).rejects.toThrow(
+      'claude-code: unknown effort "ultra"',
+    )
+  })
+
+  it("exposes the static model and effort catalog on runtime status", async () => {
+    const { adapter } = await createHarness()
+    const status = await adapter.runtimeStatus()
+    expect(status.catalog?.models.map((model) => model.id)).toEqual(["opus", "sonnet", "haiku"])
+    expect(status.catalog?.efforts.map((effort) => effort.id)).toEqual(["low", "medium", "high", "xhigh"])
   })
 })

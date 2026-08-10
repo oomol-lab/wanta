@@ -4,9 +4,12 @@ import type {
   CancelAgentInput,
   PermissionResponseAgentInput,
   PromptAgentInput,
+  SetEffortAgentInput,
+  SetModelAgentInput,
 } from "../contract/input.ts"
 import type { AgentProfile } from "../contract/profile.ts"
 import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
+import type { ExternalAgentCatalog, ExternalAgentCatalogOption } from "../external/status.ts"
 import type { AcpAgentKind, AcpAgentRegistration } from "./registry.ts"
 import type { AcpSessionTranslator } from "./translator.ts"
 import type {
@@ -99,9 +102,85 @@ interface AcpSessionState {
   /** Mode the session started in; restored on permission mode "default". */
   initialModeId?: string
   availableModeIds: readonly string[]
+  /** Select-type config options by normalized axis (ACP v1.3 configOptions). */
+  configSelects: AcpConfigSelects
   /** True between session/cancel and the turn settling; gates permission outcomes. */
   cancelling: boolean
   activeTurn?: AcpTurn
+}
+
+/** One select-type session config option (model or reasoning effort). */
+interface AcpConfigSelect {
+  configId: string
+  options: ExternalAgentCatalogOption[]
+  currentValue?: string
+  /** Value observed at session creation; the reset target for "agent default". */
+  initialValue?: string
+}
+
+interface AcpConfigSelects {
+  model?: AcpConfigSelect
+  effort?: AcpConfigSelect
+}
+
+/**
+ * Structural parse of ACP session config options into the two axes Wanta
+ * surfaces. Categories follow the v1.3 vocabulary ("model", "thought_level");
+ * grouped select options are flattened.
+ */
+function parseConfigSelects(configOptions: unknown): AcpConfigSelects {
+  const selects: AcpConfigSelects = {}
+  if (!Array.isArray(configOptions)) {
+    return selects
+  }
+  for (const raw of configOptions) {
+    if (!raw || typeof raw !== "object") {
+      continue
+    }
+    const option = raw as {
+      type?: unknown
+      id?: unknown
+      category?: unknown
+      currentValue?: unknown
+      options?: unknown
+    }
+    if (option.type !== "select" || typeof option.id !== "string") {
+      continue
+    }
+    const axis = option.category === "model" ? "model" : option.category === "thought_level" ? "effort" : undefined
+    if (!axis || selects[axis]) {
+      continue
+    }
+    const entries = Array.isArray(option.options) ? option.options : []
+    const flat = entries.flatMap((entry: unknown) => {
+      if (entry && typeof entry === "object" && Array.isArray((entry as { options?: unknown }).options)) {
+        return (entry as { options: unknown[] }).options
+      }
+      return [entry]
+    })
+    const options: ExternalAgentCatalogOption[] = []
+    for (const entry of flat) {
+      if (!entry || typeof entry !== "object") {
+        continue
+      }
+      const item = entry as { value?: unknown; name?: unknown; description?: unknown }
+      if (typeof item.value !== "string" || item.value.length === 0) {
+        continue
+      }
+      options.push({
+        id: item.value,
+        label: typeof item.name === "string" && item.name ? item.name : item.value,
+        ...(typeof item.description === "string" && item.description ? { description: item.description } : {}),
+      })
+    }
+    const currentValue = typeof option.currentValue === "string" ? option.currentValue : undefined
+    selects[axis] = {
+      configId: option.id,
+      options,
+      ...(currentValue !== undefined ? { currentValue, initialValue: currentValue } : {}),
+    }
+  }
+  return selects
 }
 
 interface PendingAcpPermission {
@@ -154,6 +233,9 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   private readonly wantaIdByAcpId = new Map<string, string>()
   private readonly sessionCreationByWantaId = new Map<string, Promise<AcpSessionState>>()
   private readonly pendingAcpPermissions = new Map<string, PendingAcpPermission>()
+  /** Model/effort choices made before the ACP session exists; applied on creation. */
+  private readonly desiredSelections = new Map<string, { model?: string; effort?: string }>()
+  private catalog: ExternalAgentCatalog | undefined
   private permissionSeq = 0
   private userMessageSeq = 0
   private probeCache: { at: number; promise: Promise<ExternalAgentRuntimeStatus> } | undefined
@@ -174,7 +256,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   public runtimeStatus(): Promise<ExternalAgentRuntimeStatus> {
     const now = Date.now()
     if (this.probeCache && now - this.probeCache.at < PROBE_CACHE_TTL_MS) {
-      return this.probeCache.promise
+      return this.probeCache.promise.then((status) => this.decorateStatus(status))
     }
     const promise = this.options.probe()
     const entry = { at: now, promise }
@@ -185,7 +267,54 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
         this.probeCache = undefined
       }
     })
-    return promise
+    return promise.then((status) => this.decorateStatus(status))
+  }
+
+  private decorateStatus(status: ExternalAgentRuntimeStatus): ExternalAgentRuntimeStatus {
+    return this.catalog ? { ...status, catalog: this.catalog } : status
+  }
+
+  /** Merge freshly reported selects into a session, preserving the creation-time reset target. */
+  private mergeConfigSelects(session: AcpSessionState, updated: AcpConfigSelects): void {
+    if (!updated.model && !updated.effort) {
+      return
+    }
+    const preserve = (
+      next: AcpConfigSelect | undefined,
+      previous: AcpConfigSelect | undefined,
+    ): AcpConfigSelect | undefined => {
+      if (!next) {
+        return previous
+      }
+      const initialValue = previous?.initialValue ?? next.initialValue
+      return { ...next, ...(initialValue !== undefined ? { initialValue } : {}) }
+    }
+    session.configSelects = {
+      model: preserve(updated.model, session.configSelects.model),
+      effort: preserve(updated.effort, session.configSelects.effort),
+    }
+    this.updateCatalogFromSelects(session.configSelects)
+  }
+
+  /** Fold a session's parsed config selects into the adapter-level catalog. */
+  private updateCatalogFromSelects(selects: AcpConfigSelects): void {
+    if (!selects.model && !selects.effort) {
+      return
+    }
+    this.catalog = {
+      models: selects.model?.options ?? this.catalog?.models ?? [],
+      efforts: selects.effort?.options ?? this.catalog?.efforts ?? [],
+      ...(selects.model?.initialValue !== undefined
+        ? { defaultModelId: selects.model.initialValue }
+        : this.catalog?.defaultModelId !== undefined
+          ? { defaultModelId: this.catalog.defaultModelId }
+          : {}),
+      ...(selects.effort?.initialValue !== undefined
+        ? { defaultEffortId: selects.effort.initialValue }
+        : this.catalog?.defaultEffortId !== undefined
+          ? { defaultEffortId: this.catalog.defaultEffortId }
+          : {}),
+    }
   }
 
   protected async handleStart(): Promise<void> {
@@ -205,6 +334,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   }
 
   protected override handleForgetSession(sessionId: string): void {
+    this.desiredSelections.delete(sessionId)
     const session = this.sessionsByWantaId.get(sessionId)
     if (session) {
       this.wantaIdByAcpId.delete(session.acpSessionId)
@@ -217,6 +347,17 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   protected async handlePrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
     if (options?.signal?.aborted) {
       return
+    }
+    // Draft-time choices ride the first prompt; createAcpSession applies them.
+    if (input.agentModelId !== undefined || input.agentEffortId !== undefined) {
+      const desired = this.desiredSelections.get(input.sessionId) ?? {}
+      if (input.agentModelId !== undefined) {
+        desired.model = input.agentModelId
+      }
+      if (input.agentEffortId !== undefined) {
+        desired.effort = input.agentEffortId
+      }
+      this.desiredSelections.set(input.sessionId, desired)
     }
     const displayName = this.options.registration.displayName
     let handle: AcpConnectionHandle
@@ -304,22 +445,86 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     })
   }
 
+  protected override async handleSetModel(input: SetModelAgentInput): Promise<void> {
+    if (!this.profile.inputs.setModel) {
+      return this.rejectUnsupportedInput("set-model")
+    }
+    await this.applyConfigSelection(input.sessionId, "model", input.modelId)
+  }
+
+  protected override async handleSetEffort(input: SetEffortAgentInput): Promise<void> {
+    if (!this.profile.inputs.setEffort) {
+      return this.rejectUnsupportedInput("set-effort")
+    }
+    await this.applyConfigSelection(input.sessionId, "effort", input.effortId)
+  }
+
+  /**
+   * Stash the choice for pre-session application and switch the live session
+   * when one exists. Absent value = reset to the creation-time default. A
+   * failed live switch restores the previous stash so a future session
+   * recreation never resurrects a value the agent rejected.
+   */
+  private async applyConfigSelection(
+    sessionId: string,
+    axis: keyof AcpConfigSelects,
+    value: string | undefined,
+  ): Promise<void> {
+    const desired = this.desiredSelections.get(sessionId) ?? {}
+    const previous = desired[axis]
+    if (value === undefined) {
+      delete desired[axis]
+    } else {
+      desired[axis] = value
+    }
+    this.desiredSelections.set(sessionId, desired)
+    const session = this.sessionsByWantaId.get(sessionId)
+    const handle = this.connectionHandle
+    if (!session || !handle || handle.lost) {
+      return
+    }
+    const target = value ?? session.configSelects[axis]?.initialValue
+    if (target === undefined || session.configSelects[axis]?.currentValue === target) {
+      return
+    }
+    try {
+      await this.setConfigValue(handle, session, axis, target)
+    } catch (error) {
+      if (previous === undefined) {
+        delete desired[axis]
+      } else {
+        desired[axis] = previous
+      }
+      throw error
+    }
+  }
+
+  /** Last user-chosen model/effort for a session (renderer read-back after reloads). */
+  public override sessionSelection(sessionId: string): { modelId?: string; effortId?: string } {
+    const desired = this.desiredSelections.get(sessionId)
+    return {
+      ...(desired?.model !== undefined ? { modelId: desired.model } : {}),
+      ...(desired?.effort !== undefined ? { effortId: desired.effort } : {}),
+    }
+  }
+
   /**
    * Best-effort projection of Wanta's permission mode onto the agent's session
-   * modes: only active when the registry declares a full-access mode id AND the
-   * session advertises it.
+   * modes via the registry's mode map; entries the live session does not
+   * advertise are skipped.
    */
   public override async applyPermissionMode(sessionId: string, mode: AgentPermissionMode): Promise<void> {
-    const fullAccessModeId = this.options.registration.fullAccessModeId
-    if (!fullAccessModeId) {
+    const modeMap = this.options.registration.permissionModeMap
+    if (!modeMap) {
       return
     }
     const session = this.sessionsByWantaId.get(sessionId)
-    if (!session || !session.availableModeIds.includes(fullAccessModeId)) {
+    if (!session) {
       return
     }
-    const targetModeId = mode === "full_access" ? fullAccessModeId : session.initialModeId
-    if (!targetModeId) {
+    const mapped = modeMap[mode]
+    const targetModeId = mapped ?? (mode === "default" ? session.initialModeId : undefined)
+    if (!targetModeId || !session.availableModeIds.includes(targetModeId)) {
       return
     }
     const handle = this.connectionHandle
@@ -613,17 +818,60 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const cwd = input.outputProjectRoot ?? (await this.ensureScratchDir(input.sessionId))
     const response = await handle.connection.agent.request("session/new", { cwd, mcpServers: [] })
     const modes = response.modes ?? undefined
+    const configSelects = parseConfigSelects((response as { configOptions?: unknown }).configOptions)
+    this.updateCatalogFromSelects(configSelects)
     const session: AcpSessionState = {
       wantaSessionId: input.sessionId,
       acpSessionId: response.sessionId,
       translator: createAcpSessionTranslator(input.sessionId),
       initialModeId: modes?.currentModeId,
       availableModeIds: (modes?.availableModes ?? []).map((mode) => mode.id),
+      configSelects,
       cancelling: false,
     }
     this.sessionsByWantaId.set(input.sessionId, session)
     this.wantaIdByAcpId.set(response.sessionId, input.sessionId)
+    // Choices made before the session existed apply before the first prompt;
+    // failures are logged inside and must not fail session creation.
+    const desired = this.desiredSelections.get(input.sessionId)
+    if (desired?.model !== undefined) {
+      await this.setConfigValue(handle, session, "model", desired.model).catch(() => undefined)
+    }
+    if (desired?.effort !== undefined) {
+      await this.setConfigValue(handle, session, "effort", desired.effort).catch(() => undefined)
+    }
     return session
+  }
+
+  /** Send session/set_config_option for one axis; tolerates agents without that option. */
+  private async setConfigValue(
+    handle: AcpConnectionHandle,
+    session: AcpSessionState,
+    axis: keyof AcpConfigSelects,
+    value: string,
+  ): Promise<void> {
+    const select = session.configSelects[axis]
+    if (!select) {
+      return
+    }
+    try {
+      const response = await handle.connection.agent.request("session/set_config_option", {
+        sessionId: session.acpSessionId,
+        configId: select.configId,
+        value,
+      })
+      select.currentValue = value
+      const updated = parseConfigSelects((response as { configOptions?: unknown } | null)?.configOptions)
+      this.mergeConfigSelects(session, updated)
+    } catch (error) {
+      logDiagnostic(
+        "acp-adapter",
+        "session/set_config_option failed",
+        { adapter: this.kind, axis, value, error: errorMessage(error) },
+        "warn",
+      )
+      throw error instanceof Error ? error : new Error(errorMessage(error))
+    }
   }
 
   private async ensureScratchDir(wantaSessionId: string): Promise<string> {
@@ -643,6 +891,33 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
         { adapter: this.kind, acpSessionId: notification.sessionId, update: notification.update.sessionUpdate },
         "warn",
       )
+      return
+    }
+    // Session-state updates are adapter concerns, not chat-timeline events.
+    const update = notification.update as { sessionUpdate: string; [key: string]: unknown }
+    if (update.sessionUpdate === "usage_update") {
+      const used = typeof update["used"] === "number" && update["used"] > 0 ? update["used"] : 0
+      const size = typeof update["size"] === "number" && update["size"] > 0 ? update["size"] : 0
+      if (used > 0 || size > 0) {
+        this.emit({
+          event: "usageUpdated",
+          data: {
+            sessionId: session.wantaSessionId,
+            tokenUsage: {
+              total: used,
+              input: 0,
+              output: 0,
+              reasoning: 0,
+              cache: { read: 0, write: 0 },
+              ...(size > 0 ? { contextWindow: size } : {}),
+            },
+          },
+        })
+      }
+      return
+    }
+    if (update.sessionUpdate === "config_option_update") {
+      this.mergeConfigSelects(session, parseConfigSelects(update["configOptions"]))
       return
     }
     const events = session.translator.translate(notification.update)

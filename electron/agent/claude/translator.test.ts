@@ -310,6 +310,77 @@ describe("createClaudeTurnTranslator", () => {
     expect(translator.translate(userMessage("not a replay"))).toEqual([])
   })
 
+  it("derives context occupancy from the last main-loop API call, not the turn aggregate", () => {
+    // The result frame's usage SUMS every API call of the turn (each tool
+    // round-trip re-counts the whole context as cache reads); occupancy must
+    // come from the last assistant frame's per-call usage instead.
+    const translator = createClaudeTurnTranslator(sessionId)
+    translator.translate({
+      type: "assistant",
+      message: {
+        id: "msg_1",
+        content: [{ type: "text", text: "step" }],
+        usage: {
+          input_tokens: 100,
+          output_tokens: 10,
+          cache_read_input_tokens: 40_000,
+          cache_creation_input_tokens: 0,
+        },
+      },
+      parent_tool_use_id: null,
+      session_id: "sdk-session",
+    } as unknown as SDKMessage)
+    const events = translator.translate({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+      usage: { input_tokens: 800, output_tokens: 80, cache_read_input_tokens: 320_000, cache_creation_input_tokens: 0 },
+      modelUsage: { "claude-opus-5": { contextWindow: 200_000 } },
+    } as unknown as SDKMessage)
+    const usageEvent = events.find((event) => event.event === "usageUpdated")
+    expect(usageEvent?.data).toEqual({
+      sessionId,
+      tokenUsage: {
+        total: 40_110,
+        input: 100,
+        output: 10,
+        reasoning: 0,
+        cache: { read: 40_000, write: 0 },
+        contextWindow: 200_000,
+      },
+    })
+  })
+
+  it("maps result usage and context window to a usageUpdated event before completion", () => {
+    const translator = createClaudeTurnTranslator(sessionId)
+    const events = translator.translate({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+      usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30, cache_creation_input_tokens: 5 },
+      modelUsage: { "claude-opus-5": { contextWindow: 200_000 } },
+    } as unknown as SDKMessage)
+    expect(events).toEqual([
+      {
+        event: "usageUpdated",
+        data: {
+          sessionId,
+          tokenUsage: {
+            total: 65,
+            input: 10,
+            output: 20,
+            reasoning: 0,
+            cache: { read: 30, write: 5 },
+            contextWindow: 200_000,
+          },
+        },
+      },
+      { event: "messageCompleted", data: { sessionId } },
+    ])
+  })
+
   it("maps result success to messageCompleted only", () => {
     const translator = createClaudeTurnTranslator(sessionId)
     const events = translator.translate({

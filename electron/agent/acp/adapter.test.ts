@@ -57,6 +57,7 @@ interface FakeAgent {
   newSessionRequests: NewSessionRequest[]
   promptRequests: PromptRequest[]
   setModeRequests: SetSessionModeRequest[]
+  setConfigOptionRequests: Array<{ sessionId: string; configId: string; value: unknown }>
   cancelledSessionIds: string[]
   permissionResponses: RequestPermissionResponse[]
 }
@@ -69,6 +70,7 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
   const newSessionRequests: NewSessionRequest[] = []
   const promptRequests: PromptRequest[] = []
   const setModeRequests: SetSessionModeRequest[] = []
+  const setConfigOptionRequests: Array<{ sessionId: string; configId: string; value: unknown }> = []
   const cancelledSessionIds: string[] = []
   const permissionResponses: RequestPermissionResponse[] = []
 
@@ -85,6 +87,10 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
     .onRequest("session/set_mode", ({ params }) => {
       setModeRequests.push(params)
       return {}
+    })
+    .onRequest("session/set_config_option", ({ params }) => {
+      setConfigOptionRequests.push(params as { sessionId: string; configId: string; value: unknown })
+      return { configOptions: [] }
     })
     .onRequest("session/prompt", async ({ params, client: agentClient }) => {
       promptRequests.push(params)
@@ -147,6 +153,7 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
     newSessionRequests,
     promptRequests,
     setModeRequests,
+    setConfigOptionRequests,
     cancelledSessionIds,
     permissionResponses,
   }
@@ -169,21 +176,25 @@ interface AdapterHarness {
   waitFor: (predicate: (event: AgentEvent) => boolean) => Promise<AgentEvent>
 }
 
-async function createHarness(behavior: FakeAgentBehavior = {}): Promise<AdapterHarness> {
+async function createHarness(
+  behavior: FakeAgentBehavior = {},
+  kind: keyof typeof ACP_AGENT_REGISTRY = "gemini-cli",
+): Promise<AdapterHarness> {
   const fake = createFakeAgent(behavior)
+  const registration = ACP_AGENT_REGISTRY[kind]
   const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "acp-adapter-test-"))
   const probe = vi.fn(
     async (): Promise<ExternalAgentRuntimeStatus> => ({
-      kind: "gemini-cli",
-      displayName: REGISTRATION.displayName,
-      binary: { status: "detected", path: "/fake/bin/gemini", version: "1.0.0" },
+      kind,
+      displayName: registration.displayName,
+      binary: { status: "detected", path: "/fake/bin/agent", version: "1.0.0" },
       login: { status: "unknown" },
-      loginHint: REGISTRATION.loginHint,
+      loginHint: registration.loginHint,
     }),
   )
   const adapter = new AcpAgentAdapter({
-    kind: "gemini-cli",
-    registration: REGISTRATION,
+    kind,
+    registration,
     probe,
     scratchRootDir,
     connect: fake.connect,
@@ -518,5 +529,118 @@ describe("AcpAgentAdapter", () => {
     expect(harness.fake.newSessionRequests).toHaveLength(2)
     // Same subprocess: forgetting a session must not tear down the connection.
     expect(harness.fake.connectCount()).toBe(1)
+  })
+
+  test("session config options populate the catalog and set-model switches the live session", async () => {
+    const configOptions = [
+      {
+        id: "model",
+        name: "Model",
+        type: "select",
+        category: "model",
+        currentValue: "gpt-5.2-codex",
+        options: [
+          { value: "gpt-5.2-codex", name: "GPT-5.2 Codex" },
+          { value: "gpt-5.2", name: "GPT-5.2" },
+        ],
+      },
+      {
+        id: "reasoning_effort",
+        name: "Reasoning effort",
+        type: "select",
+        category: "thought_level",
+        currentValue: "medium",
+        options: [
+          { value: "low", name: "Low" },
+          { value: "medium", name: "Medium" },
+          { value: "high", name: "High" },
+        ],
+      },
+    ]
+    const harness = await createHarness(
+      { newSession: () => ({ sessionId: "acp-session-1", configOptions }) as never },
+      "codex",
+    )
+    await harness.adapter.send(promptInput())
+    const status = await harness.adapter.runtimeStatus()
+    expect(status.catalog?.models.map((model) => model.id)).toEqual(["gpt-5.2-codex", "gpt-5.2"])
+    expect(status.catalog?.defaultModelId).toBe("gpt-5.2-codex")
+    expect(status.catalog?.efforts.map((effort) => effort.id)).toEqual(["low", "medium", "high"])
+
+    await harness.adapter.send({ type: "set-model", sessionId: WANTA_SESSION_ID, modelId: "gpt-5.2" })
+    expect(harness.fake.setConfigOptionRequests).toEqual([
+      expect.objectContaining({ configId: "model", value: "gpt-5.2" }),
+    ])
+    await harness.adapter.send({ type: "set-effort", sessionId: WANTA_SESSION_ID, effortId: "high" })
+    expect(harness.fake.setConfigOptionRequests.at(-1)).toEqual(
+      expect.objectContaining({ configId: "reasoning_effort", value: "high" }),
+    )
+  })
+
+  test("a model chosen before the session exists applies right after session creation", async () => {
+    const configOptions = [
+      {
+        id: "model",
+        name: "Model",
+        type: "select",
+        category: "model",
+        currentValue: "gpt-5.2-codex",
+        options: [
+          { value: "gpt-5.2-codex", name: "GPT-5.2 Codex" },
+          { value: "gpt-5.2", name: "GPT-5.2" },
+        ],
+      },
+    ]
+    const harness = await createHarness(
+      { newSession: () => ({ sessionId: "acp-session-1", configOptions }) as never },
+      "codex",
+    )
+    await harness.adapter.send({ type: "set-model", sessionId: WANTA_SESSION_ID, modelId: "gpt-5.2" })
+    expect(harness.fake.setConfigOptionRequests).toHaveLength(0)
+    await harness.adapter.send(promptInput())
+    expect(harness.fake.setConfigOptionRequests).toEqual([
+      expect.objectContaining({ configId: "model", value: "gpt-5.2" }),
+    ])
+  })
+
+  test("usage_update translates to a usageUpdated event with total and context window", async () => {
+    const harness = await createHarness({
+      prompt: async (turn) => {
+        await turn.sendUpdate({ sessionUpdate: "usage_update", used: 1234, size: 272_000 } as SessionUpdate)
+        await turn.sendUpdate({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ok" } })
+        return { stopReason: "end_turn" }
+      },
+    })
+    await harness.adapter.send(promptInput())
+    const usage = await harness.waitFor((event) => event.event === "usageUpdated")
+    expect(eventData(usage, "usageUpdated").tokenUsage).toMatchObject({ total: 1234, contextWindow: 272_000 })
+  })
+
+  test("set-model is rejected loudly for agents without config-option selection", async () => {
+    const harness = await createHarness()
+    await expect(
+      harness.adapter.send({ type: "set-model", sessionId: WANTA_SESSION_ID, modelId: "x" }),
+    ).rejects.toThrow("gemini-cli: set-model is not supported")
+  })
+
+  test("permission modes map onto advertised session modes via the registry map", async () => {
+    const harness = await createHarness({
+      newSession: () => ({
+        sessionId: "acp-session-1",
+        modes: {
+          currentModeId: "default",
+          availableModes: [
+            { id: "default", name: "Default" },
+            { id: "autoEdit", name: "Auto edit" },
+            { id: "yolo", name: "Yolo" },
+          ],
+        },
+      }),
+    })
+    await harness.adapter.send(promptInput())
+    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "accept_edits")
+    expect(harness.fake.setModeRequests.at(-1)).toEqual(expect.objectContaining({ modeId: "autoEdit" }))
+    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "default")
+    expect(harness.fake.setModeRequests.at(-1)).toEqual(expect.objectContaining({ modeId: "default" }))
   })
 })

@@ -61,6 +61,57 @@ function assistantErrorMessage(kind: string): string {
   return kind === "authentication_failed" ? `${base} ${LOGIN_HINT}` : base
 }
 
+function positiveOrZero(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0
+}
+
+/**
+ * Map the turn's usage onto the contract's usage event. Context occupancy must
+ * come from the LAST main-loop API call (its input + cache tokens ARE the
+ * context): the result frame's `usage` is a per-turn accounting SUM over every
+ * API call, which re-counts the whole context once per tool round-trip and
+ * would peg the meter far above real occupancy. The result frame is only the
+ * fallback when no assistant frame carried usage, and stays the source of the
+ * context window (modelUsage). Returns null when nothing measurable exists.
+ */
+function translateResultUsage(
+  sessionId: string,
+  message: SDKMessage,
+  lastApiUsage: Record<string, unknown> | undefined,
+): AgentEvent | null {
+  const frame = message as {
+    usage?: Record<string, unknown>
+    modelUsage?: Record<string, { contextWindow?: unknown }>
+  }
+  const usage = lastApiUsage ?? frame.usage
+  const input = positiveOrZero(usage?.["input_tokens"])
+  const output = positiveOrZero(usage?.["output_tokens"])
+  const cacheRead = positiveOrZero(usage?.["cache_read_input_tokens"])
+  const cacheWrite = positiveOrZero(usage?.["cache_creation_input_tokens"])
+  const total = input + output + cacheRead + cacheWrite
+  let contextWindow = 0
+  for (const entry of Object.values(frame.modelUsage ?? {})) {
+    contextWindow = Math.max(contextWindow, positiveOrZero(entry.contextWindow))
+  }
+  if (total <= 0 && contextWindow <= 0) {
+    return null
+  }
+  return {
+    event: "usageUpdated",
+    data: {
+      sessionId,
+      tokenUsage: {
+        total,
+        input,
+        output,
+        reasoning: 0,
+        cache: { read: cacheRead, write: cacheWrite },
+        ...(contextWindow > 0 ? { contextWindow } : {}),
+      },
+    },
+  }
+}
+
 export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTranslator {
   /** Assistant message ids that already got their messageStarted event. */
   const startedAssistantMessages = new Set<string>()
@@ -72,6 +123,8 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
   const toolCalls = new Map<string, ToolCallRecord>()
   /** API message id -> content blocks already delivered by earlier complete-message frames. */
   const deliveredBlockCounts = new Map<string, number>()
+  /** Per-call usage of the latest MAIN-LOOP assistant frame (context occupancy source). */
+  let lastApiUsage: Record<string, unknown> | undefined
 
   function ensureAssistantMessageStarted(messageId: string, events: AgentEvent[]): void {
     if (startedAssistantMessages.has(messageId)) {
@@ -170,6 +223,10 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
     const events: AgentEvent[] = []
     const messageId = message.message.id
     ensureAssistantMessageStarted(messageId, events)
+    const frameUsage = (message.message as { usage?: unknown }).usage
+    if (message.parent_tool_use_id === null && frameUsage && typeof frameUsage === "object") {
+      lastApiUsage = frameUsage as Record<string, unknown>
+    }
     // The CLI emits one complete assistant message PER content block, all
     // sharing the same API message id, so a block's true index is its offset
     // plus every block already delivered under that id. Deriving part ids from
@@ -270,7 +327,15 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
         // Per-block bookkeeping is per turn; a finished turn's message ids never
         // receive further complete-message frames.
         deliveredBlockCounts.clear()
-        const events: AgentEvent[] = [{ event: "messageCompleted", data: { sessionId } }]
+        const events: AgentEvent[] = []
+        const usageEvent = translateResultUsage(sessionId, message, lastApiUsage)
+        lastApiUsage = undefined
+        if (usageEvent) {
+          // Usage precedes completion so the transcript's completion flush
+          // already carries it.
+          events.push(usageEvent)
+        }
+        events.push({ event: "messageCompleted", data: { sessionId } })
         if (message.subtype !== "success") {
           events.push({
             event: "agentError",

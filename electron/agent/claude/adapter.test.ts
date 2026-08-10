@@ -484,11 +484,15 @@ describe("ClaudeCodeAgentAdapter", () => {
     const { adapter } = await createHarness()
     const status = await adapter.runtimeStatus()
     expect(status.catalog?.models.map((model) => model.id)).toEqual([
+      "default",
       "opus[1m]",
       "claude-fable-5[1m]",
       "sonnet",
       "haiku",
     ])
+    // The CLI's "default" entry is what Auto resolves to; the picker captions
+    // its Default row with it.
+    expect(status.catalog?.defaultModelId).toBe("default")
     expect(status.catalog?.efforts.map((effort) => effort.id)).toEqual(["low", "medium", "high", "xhigh"])
   })
 })

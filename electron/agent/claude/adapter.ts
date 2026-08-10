@@ -170,11 +170,15 @@ function isClaudeEffortId(value: string): value is ClaudeEffortId {
 function staticClaudeCatalog(): ExternalAgentCatalog {
   return {
     models: [
+      { id: "default", label: "Default (recommended)" },
       { id: "opus[1m]", label: "Opus (1M context)", description: "Opus 5 with 1M context" },
       { id: "claude-fable-5[1m]", label: "Fable", description: "Fable 5" },
       { id: "sonnet", label: "Sonnet", description: "Sonnet 5" },
       { id: "haiku", label: "Haiku", description: "Haiku 4.5" },
     ],
+    // Sending no model keeps the CLI's own policy, which is this same
+    // "Default (recommended)" entry; surface it as the picker's default.
+    defaultModelId: "default",
     efforts: [
       { id: "low", label: "Low" },
       { id: "medium", label: "Medium" },
@@ -480,7 +484,15 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         ...(typeof model.description === "string" && model.description ? { description: model.description } : {}),
       }))
     if (options.length > 0) {
-      this.catalog = { ...this.catalog, models: options }
+      const next: ExternalAgentCatalog = { ...this.catalog, models: options }
+      // The CLI's "default" entry IS its no-model-flag behavior; a live list
+      // without it means we no longer know what Auto resolves to.
+      if (options.some((option) => option.id === "default")) {
+        next.defaultModelId = "default"
+      } else {
+        delete next.defaultModelId
+      }
+      this.catalog = next
     }
   }
 

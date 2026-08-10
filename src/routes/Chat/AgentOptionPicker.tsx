@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
-const AUTO_ROW_ID = "__auto__"
+const DEFAULT_ROW_ID = "__default__"
 
 interface AgentOptionRow {
   id: string
@@ -20,7 +20,7 @@ interface AgentOptionRow {
 
 /**
  * Single-select menu over agent-native options (models, reasoning efforts).
- * The first row is always "Auto" (the agent's own default); option labels come
+ * The first row is always "Default" (the agent's own default); option labels come
  * verbatim from the agent and are rendered as data, never translated.
  */
 export function AgentOptionPicker({
@@ -34,12 +34,12 @@ export function AgentOptionPicker({
   onSelect,
 }: {
   ariaLabel: string
-  /** The agent-reported default id; captions the Auto row when known. */
+  /** The agent-reported default id; captions the Default row when known. */
   defaultOptionId?: string
   disabled: boolean
   icon: LucideIcon
   options: readonly ExternalAgentCatalogOption[]
-  /** Selected option id; undefined = Auto. */
+  /** Selected option id; undefined = the agent default. */
   value?: string
   onOpen?: () => void
   onSelect: (id?: string) => void
@@ -62,9 +62,9 @@ export function AgentOptionPicker({
   const rows = React.useMemo<AgentOptionRow[]>(
     () => [
       {
-        id: AUTO_ROW_ID,
-        label: t("chat.agentOptionAuto"),
-        description: defaultOptionLabel ?? t("chat.agentOptionAutoDescription"),
+        id: DEFAULT_ROW_ID,
+        label: t("chat.agentOptionDefault"),
+        description: defaultOptionLabel ?? t("chat.agentOptionDefaultDescription"),
       },
       ...options.map((option) => ({
         id: option.id,
@@ -75,7 +75,7 @@ export function AgentOptionPicker({
     [defaultOptionLabel, options, t],
   )
   const selectedRow = value !== undefined ? rows.find((row) => row.id === value) : undefined
-  const selectedLabel = selectedRow?.label ?? value ?? t("chat.agentOptionAuto")
+  const selectedLabel = selectedRow?.label ?? value ?? t("chat.agentOptionDefault")
 
   const onOpenRef = React.useRef(onOpen)
   onOpenRef.current = onOpen
@@ -98,7 +98,7 @@ export function AgentOptionPicker({
         return
       }
       closeMenu()
-      onSelect(row.id === AUTO_ROW_ID ? undefined : row.id)
+      onSelect(row.id === DEFAULT_ROW_ID ? undefined : row.id)
     },
     [closeMenu, disabled, onSelect],
   )
@@ -149,7 +149,7 @@ export function AgentOptionPicker({
           onKeyDown={handleMenuKeyDown}
         >
           {rows.map((row, index) => {
-            const active = row.id === (value ?? AUTO_ROW_ID)
+            const active = row.id === (value ?? DEFAULT_ROW_ID)
             const highlighted = index === activeIndex
             return (
               <button

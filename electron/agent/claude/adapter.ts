@@ -208,6 +208,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
   private readonly desiredEfforts = new Map<string, ClaudeEffortId>()
   private catalog: ExternalAgentCatalog = staticClaudeCatalog()
   private catalogRefreshed = false
+  private userMessageSeq = 0
   private catalogWarmup: Promise<void> | undefined
   private readonly pendingSdkPermissions = new Map<string, PendingSdkPermission>()
   private probeCache: { status: ExternalAgentRuntimeStatus; expiresAt: number } | undefined
@@ -269,6 +270,24 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     if (options?.signal?.aborted) {
       return
     }
+    // The CLI only echoes user text on replay (resume), never during a live
+    // turn; synthesize the user turn so the persisted transcript keeps it.
+    this.userMessageSeq += 1
+    const userMessageId = input.messageId ?? `claude-user-${this.userMessageSeq}`
+    this.emit({
+      event: "messageStarted",
+      data: { sessionId: input.sessionId, messageId: userMessageId, role: "user" },
+    })
+    this.emit({
+      event: "messageDelta",
+      data: {
+        sessionId: input.sessionId,
+        messageId: userMessageId,
+        partId: `${userMessageId}:text`,
+        text: input.text,
+        delta: input.text,
+      },
+    })
     // Submission ack semantics: resolve once the message is enqueued for the
     // subprocess; turn progress flows back through the event channel.
     session.inputQueue.push({

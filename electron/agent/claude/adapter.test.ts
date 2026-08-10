@@ -245,10 +245,30 @@ describe("ClaudeCodeAgentAdapter", () => {
 
     await vi.waitFor(() => expect(events.some((event) => event.event === "messageCompleted")).toBe(true))
     expect(events).toEqual([
+      // The CLI never echoes live user turns; the adapter synthesizes them so
+      // the persisted transcript keeps the user side of the conversation.
+      { event: "messageStarted", data: { sessionId, messageId: "claude-user-1", role: "user" } },
+      {
+        event: "messageDelta",
+        data: { sessionId, messageId: "claude-user-1", partId: "claude-user-1:text", text: "hello", delta: "hello" },
+      },
       { event: "messageStarted", data: { sessionId, messageId: "msg_1", role: "assistant" } },
       { event: "messageDelta", data: { sessionId, messageId: "msg_1", partId: "msg_1:0", text: "Hi!" } },
       { event: "messageCompleted", data: { sessionId } },
     ])
+  })
+
+  it("synthesizes the user turn under the caller-provided message id", async () => {
+    const { adapter, events } = await createHarness()
+    await adapter.send({ type: "prompt", sessionId, text: "count", messageId: "user-msg-7" })
+    expect(events[0]).toEqual({
+      event: "messageStarted",
+      data: { sessionId, messageId: "user-msg-7", role: "user" },
+    })
+    expect(events[1]).toEqual({
+      event: "messageDelta",
+      data: { sessionId, messageId: "user-msg-7", partId: "user-msg-7:text", text: "count", delta: "count" },
+    })
   })
 
   it("round-trips canUseTool through permissionAsked and permission-response replies", async () => {

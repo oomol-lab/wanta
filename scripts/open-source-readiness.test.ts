@@ -33,7 +33,7 @@ describe("open-source installation contract", () => {
     expect(manifest.homepage).toBe("https://wanta.ai/")
     expect(manifest.bugs?.url).toBe("https://github.com/oomol-lab/wanta/issues")
     expect(manifest.engines?.node).toBe(">=22.22.2")
-    expect(manifest.packageManager).toBe("pnpm@9.14.4")
+    expect(manifest.packageManager).toBe("pnpm@11.21.0")
   })
 
   test("does not depend on a repository-local private npm registry", () => {

@@ -77,7 +77,10 @@ export function resolveDingTalkCliTarget(
 }
 
 async function fetchBytes(url: string): Promise<Buffer> {
-  const response = await fetchWithRetry(url)
+  // The dingtalk-workspace-cli npm package is ~66MB. The default 30s timeout
+  // also aborts the body read, so it always fails on slow networks (~2MB/s).
+  // Extend to 180s.
+  const response = await fetchWithRetry(url, {}, { timeoutMs: 180_000 })
   if (!response.ok) throw new Error(`download DingTalk CLI failed: HTTP ${response.status} ${url}`)
   const contentLength = Number(response.headers.get("content-length") ?? "0")
   if (contentLength > maxDownloadBytes) throw new Error(`DingTalk CLI download exceeded ${maxDownloadBytes} bytes`)

@@ -8,8 +8,8 @@ import { expect, test } from "vitest"
 import { AcpAgentAdapter } from "../acp/adapter.ts"
 import { ACP_AGENT_REGISTRY } from "../acp/registry.ts"
 import { ClaudeCodeAgentAdapter } from "../claude/adapter.ts"
-import { mintExternalSessionId } from "./session-id.ts"
 import { probeExternalAgent } from "./probe.ts"
+import { mintExternalSessionId } from "./session-id.ts"
 
 // Opt-in smoke against the REAL local agent binaries (no fakes):
 //
@@ -73,15 +73,13 @@ async function reportOutcome(kind: string, outcome: SmokeOutcome): Promise<void>
   const { appendFile } = await import("node:fs/promises")
   await appendFile(
     target,
-    `${
-      JSON.stringify({
-        kind,
-        completed: outcome.completed,
-        authError: outcome.authError ?? null,
-        assistantTextPreview: outcome.assistantText.slice(0, 200),
-        eventKinds: [...new Set(outcome.events.map((event) => event.event))],
-      })
-    }\n`,
+    `${JSON.stringify({
+      kind,
+      completed: outcome.completed,
+      authError: outcome.authError ?? null,
+      assistantTextPreview: outcome.assistantText.slice(0, 200),
+      eventKinds: [...new Set(outcome.events.map((event) => event.event))],
+    })}\n`,
   )
 }
 
@@ -94,58 +92,103 @@ function expectUsableOutcome(outcome: SmokeOutcome, loginHint: string): void {
   expect(outcome.assistantText.length).toBeGreaterThan(0)
 }
 
-test.runIf(enabled)("claude-code adapter completes a real turn with the installed CLI", { timeout: 180_000 }, async () => {
-  const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-byoa-smoke-claude-"))
-  const adapter = new ClaudeCodeAgentAdapter({
-    probe: () => probeExternalAgent("claude-code"),
-    scratchRootDir,
-  })
-  try {
-    const status = await adapter.runtimeStatus()
-    if (status.binary.status !== "detected") {
-      console.warn("[byoa-smoke] claude binary not detected; smoke degraded to probe-only")
-      return
+test.runIf(enabled)(
+  "claude-code adapter completes a real turn with the installed CLI",
+  { timeout: 180_000 },
+  async () => {
+    const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-byoa-smoke-claude-"))
+    const adapter = new ClaudeCodeAgentAdapter({
+      probe: () => probeExternalAgent("claude-code"),
+      scratchRootDir,
+    })
+    try {
+      const status = await adapter.runtimeStatus()
+      if (status.binary.status !== "detected") {
+        console.warn("[byoa-smoke] claude binary not detected; smoke degraded to probe-only")
+        return
+      }
+      const outcome = await runSmokeTurn(
+        adapter,
+        mintExternalSessionId("claude-code"),
+        "Reply with exactly the two words: SMOKE OK. Do not use any tools.",
+      )
+      expectUsableOutcome(outcome, "sign in")
+      if (outcome.completed) {
+        expect(outcome.assistantText).toMatch(/SMOKE OK/iu)
+      }
+      await reportOutcome("claude-code", outcome)
+    } finally {
+      await adapter.stop()
+      await rm(scratchRootDir, { recursive: true, force: true }).catch(() => undefined)
     }
-    const outcome = await runSmokeTurn(
-      adapter,
-      mintExternalSessionId("claude-code"),
-      "Reply with exactly the two words: SMOKE OK. Do not use any tools.",
-    )
-    expectUsableOutcome(outcome, "sign in")
-    if (outcome.completed) {
-      expect(outcome.assistantText).toMatch(/SMOKE OK/iu)
-    }
-    await reportOutcome("claude-code", outcome)
-  } finally {
-    await adapter.stop()
-    await rm(scratchRootDir, { recursive: true, force: true }).catch(() => undefined)
-  }
-})
+  },
+)
 
-test.runIf(enabled)("gemini-cli adapter completes a real ACP turn with the installed CLI", { timeout: 180_000 }, async () => {
-  const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-byoa-smoke-gemini-"))
-  const registration = ACP_AGENT_REGISTRY["gemini-cli"]
-  const adapter = new AcpAgentAdapter({
-    kind: "gemini-cli",
-    registration,
-    probe: () => probeExternalAgent("gemini-cli"),
-    scratchRootDir,
-  })
-  try {
-    const status = await adapter.runtimeStatus()
-    if (status.binary.status !== "detected") {
-      console.warn("[byoa-smoke] gemini binary not detected; smoke degraded to probe-only")
-      return
+test.runIf(enabled)(
+  "codex adapter completes a real ACP turn via the codex-acp bridge",
+  { timeout: 180_000 },
+  async () => {
+    const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-byoa-smoke-codex-"))
+    const registration = ACP_AGENT_REGISTRY["codex"]
+    // codex-acp is npm-distributed; dev resolves it from node_modules/.bin like create.ts does.
+    const probeOptions = { extraBinDirectories: [path.join(process.cwd(), "node_modules", ".bin")] }
+    const adapter = new AcpAgentAdapter({
+      kind: "codex",
+      registration,
+      probe: () => probeExternalAgent("codex", probeOptions),
+      scratchRootDir,
+    })
+    try {
+      const status = await adapter.runtimeStatus()
+      if (status.binary.status !== "detected") {
+        console.warn("[byoa-smoke] codex-acp bridge not detected; smoke degraded to probe-only")
+        return
+      }
+      const outcome = await runSmokeTurn(
+        adapter,
+        mintExternalSessionId("codex"),
+        "Reply with exactly the two words: SMOKE OK. Do not use any tools.",
+      )
+      expectUsableOutcome(outcome, registration.loginHint)
+      if (outcome.completed) {
+        expect(outcome.assistantText).toMatch(/SMOKE OK/iu)
+      }
+      await reportOutcome("codex", outcome)
+    } finally {
+      await adapter.stop()
+      await rm(scratchRootDir, { recursive: true, force: true }).catch(() => undefined)
     }
-    const outcome = await runSmokeTurn(
-      adapter,
-      mintExternalSessionId("gemini-cli"),
-      "Reply with exactly the two words: SMOKE OK. Do not use any tools.",
-    )
-    expectUsableOutcome(outcome, registration.loginHint)
-    await reportOutcome("gemini-cli", outcome)
-  } finally {
-    await adapter.stop()
-    await rm(scratchRootDir, { recursive: true, force: true }).catch(() => undefined)
-  }
-})
+  },
+)
+
+test.runIf(enabled)(
+  "gemini-cli adapter completes a real ACP turn with the installed CLI",
+  { timeout: 180_000 },
+  async () => {
+    const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-byoa-smoke-gemini-"))
+    const registration = ACP_AGENT_REGISTRY["gemini-cli"]
+    const adapter = new AcpAgentAdapter({
+      kind: "gemini-cli",
+      registration,
+      probe: () => probeExternalAgent("gemini-cli"),
+      scratchRootDir,
+    })
+    try {
+      const status = await adapter.runtimeStatus()
+      if (status.binary.status !== "detected") {
+        console.warn("[byoa-smoke] gemini binary not detected; smoke degraded to probe-only")
+        return
+      }
+      const outcome = await runSmokeTurn(
+        adapter,
+        mintExternalSessionId("gemini-cli"),
+        "Reply with exactly the two words: SMOKE OK. Do not use any tools.",
+      )
+      expectUsableOutcome(outcome, registration.loginHint)
+      await reportOutcome("gemini-cli", outcome)
+    } finally {
+      await adapter.stop()
+      await rm(scratchRootDir, { recursive: true, force: true }).catch(() => undefined)
+    }
+  },
+)

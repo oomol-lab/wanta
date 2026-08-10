@@ -56,6 +56,12 @@ import { AppShellMainTitlebar } from "./AppShellMainTitlebar.tsx"
 import { AppShellNavigationSidebar } from "./AppShellNavigationSidebar.tsx"
 import { AppShellRightPanel } from "./AppShellRightPanel.tsx"
 import { AppShellSessionProjectDialogs } from "./AppShellSessionProjectDialogs.tsx"
+import {
+  readStoredAgentComposerPrefs,
+  readStoredLastAgentKind,
+  writeStoredAgentComposerPrefs,
+  writeStoredLastAgentKind,
+} from "./composer-agent-prefs.ts"
 import { KnowledgeContextBar } from "./KnowledgeContextBar.tsx"
 import { isPendingChatCaughtUp, pendingChatTransitionForActiveSession } from "./pending-chat.ts"
 import {
@@ -147,6 +153,22 @@ const SettingsRoute = React.lazy(() =>
   import("@/routes/Settings").then((module) => ({ default: module.SettingsRoute })),
 )
 const SkillsRoute = React.lazy(() => import("@/routes/Skills").then((module) => ({ default: module.SkillsRoute })))
+
+/** Selections map seeded with the sticky draft entry, or empty when none. */
+function draftSelectionEntry(prefs: {
+  modelId?: string
+  effortId?: string
+}): Record<string, { modelId?: string; effortId?: string }> {
+  if (!prefs.modelId && !prefs.effortId) {
+    return {}
+  }
+  return {
+    draft: {
+      ...(prefs.modelId ? { modelId: prefs.modelId } : {}),
+      ...(prefs.effortId ? { effortId: prefs.effortId } : {}),
+    },
+  }
+}
 
 function releaseTransientFocus(): void {
   const blurActiveElement = (): void => {
@@ -297,16 +319,31 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   } | null>(null)
   const pendingAttentionRefreshesRef = React.useRef(new Set<string>())
   const [isDraftSession, setIsDraftSession] = React.useState(false)
-  const [draftPermissionMode, setDraftPermissionMode] = React.useState<AgentPermissionMode>("default")
-  const [draftAgentKind, setDraftAgentKind] = React.useState<AgentKind>("opencode")
+  // Draft composer state starts from the sticky per-agent preferences so a new
+  // window resumes where the user's last explicit choices left off.
+  const [draftAgentKind, setDraftAgentKind] = React.useState<AgentKind>(
+    () => readStoredLastAgentKind(globalThis.localStorage) ?? "opencode",
+  )
+  const [draftPermissionMode, setDraftPermissionMode] = React.useState<AgentPermissionMode>(
+    () =>
+      readStoredAgentComposerPrefs(
+        globalThis.localStorage,
+        readStoredLastAgentKind(globalThis.localStorage) ?? "opencode",
+      ).permissionMode ?? "default",
+  )
   // Agent-native model/effort selection, keyed by session id ("draft" before
   // the first send creates the session). In-memory only; adapters re-derive
   // live state per session.
   const [agentSelections, setAgentSelections] = React.useState<Record<string, { modelId?: string; effortId?: string }>>(
-    {},
+    () => {
+      const kind = readStoredLastAgentKind(globalThis.localStorage) ?? "opencode"
+      return draftSelectionEntry(readStoredAgentComposerPrefs(globalThis.localStorage, kind))
+    },
   )
   const agentSelectionsRef = React.useRef(agentSelections)
   agentSelectionsRef.current = agentSelections
+  const draftAgentKindRef = React.useRef(draftAgentKind)
+  draftAgentKindRef.current = draftAgentKind
   const [draftKnowledgeBaseIds, setDraftKnowledgeBaseIds] = React.useState<string[]>([])
   const [draftProjectId, setDraftProjectId] = React.useState<string | null>(null)
   const [sidebarSegment, setSidebarSegment] = React.useState<SidebarSegment>(() =>
@@ -1014,6 +1051,17 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     composerDraftsByKey.current.clear()
   }, [])
   const readLastProjectId = React.useCallback((): string | null => lastChatProjectId.current, [])
+  // A fresh draft re-applies the current agent's sticky preferences instead of
+  // dropping every selection; full_access is filtered out at the storage layer.
+  const applyDraftComposerDefaults = React.useCallback((kind?: AgentKind): void => {
+    const prefs = readStoredAgentComposerPrefs(globalThis.localStorage, kind ?? draftAgentKindRef.current)
+    setDraftPermissionMode(prefs.permissionMode ?? "default")
+    setAgentSelections((prev) => {
+      const next = { ...prev }
+      delete next["draft"]
+      return { ...next, ...draftSelectionEntry(prefs) }
+    })
+  }, [])
   const {
     handleNewSession,
     handleNewTaskSession,
@@ -1035,8 +1083,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     releaseTransientFocus,
     route,
     sessionScope,
+    applyDraftComposerDefaults,
     setComposerFocusRequest,
-    setDraftPermissionMode,
     setDraftProjectId,
     setIsDraftSession,
     setPendingChatTransition,
@@ -1360,8 +1408,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setConnectionCatalogFilter({ kind: "all" })
     setSelectedSessionId(null)
     setIsDraftSession(false)
-    setDraftPermissionMode("default")
-    setDraftAgentKind("opencode")
+    const restoredAgentKind = readStoredLastAgentKind(globalThis.localStorage) ?? "opencode"
+    setDraftAgentKind(restoredAgentKind)
+    applyDraftComposerDefaults(restoredAgentKind)
     setDraftKnowledgeBaseIds([])
     setDraftProjectId(null)
     setPendingChatTransition(null)
@@ -1371,6 +1420,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     releaseTransientFocus()
   }, [
     activeWorkspaceKey,
+    applyDraftComposerDefaults,
     clearAllComposerDrafts,
     clearRetries,
     handleArtifactsReset,
@@ -1725,35 +1775,33 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   })
   const handlePermissionModeChange = React.useCallback(
     (mode: AgentPermissionMode): void => {
+      // Sticky per-agent default for future chats (full_access never sticks).
+      writeStoredAgentComposerPrefs(globalThis.localStorage, displayedAgentKind, { permissionMode: mode })
       if (activeChatSessionId) {
         void persistPermissionMode(activeChatSessionId, mode).catch(() => undefined)
         return
       }
       setDraftPermissionMode(mode)
     },
-    [activeChatSessionId, persistPermissionMode],
+    [activeChatSessionId, displayedAgentKind, persistPermissionMode],
   )
   // Only draft sessions can change agent; the picker is locked once a session
   // exists, so no per-session persistence happens here. Switching the draft
-  // agent drops any model/effort choice made for the previous agent.
-  const handleSelectAgentKind = React.useCallback((kind: AgentKind): void => {
-    setDraftAgentKind(kind)
-    // A mode the new agent does not declare must not leak into its sessions.
-    setDraftPermissionMode((mode) => (AGENT_PROFILES[kind].permissionModes.includes(mode) ? mode : "default"))
-    setAgentSelections((prev) => {
-      if (!prev["draft"]) {
-        return prev
-      }
-      const next = { ...prev }
-      delete next["draft"]
-      return next
-    })
-  }, [])
+  // agent restores that agent's own sticky model/effort/permission choices.
+  const handleSelectAgentKind = React.useCallback(
+    (kind: AgentKind): void => {
+      setDraftAgentKind(kind)
+      writeStoredLastAgentKind(globalThis.localStorage, kind)
+      applyDraftComposerDefaults(kind)
+    },
+    [applyDraftComposerDefaults],
+  )
   const activeAgentSelection = agentSelections[activeChatSessionId ?? "draft"]
   const handleSelectAgentModel = React.useCallback(
     (modelId?: string): void => {
       const key = activeChatSessionId ?? "draft"
       let previousModelId: string | undefined
+      writeStoredAgentComposerPrefs(globalThis.localStorage, displayedAgentKind, { modelId })
       setAgentSelections((prev) => {
         previousModelId = prev[key]?.modelId
         return { ...prev, [key]: { ...prev[key], modelId } }
@@ -1773,12 +1821,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           })
       }
     },
-    [activeChatSessionId, chatService],
+    [activeChatSessionId, chatService, displayedAgentKind],
   )
   const handleSelectAgentEffort = React.useCallback(
     (effortId?: string): void => {
       const key = activeChatSessionId ?? "draft"
       let previousEffortId: string | undefined
+      writeStoredAgentComposerPrefs(globalThis.localStorage, displayedAgentKind, { effortId })
       setAgentSelections((prev) => {
         previousEffortId = prev[key]?.effortId
         return { ...prev, [key]: { ...prev[key], effortId } }
@@ -1799,7 +1848,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           })
       }
     },
-    [activeChatSessionId, chatService],
+    [activeChatSessionId, chatService, displayedAgentKind],
   )
   // The adapter's desired-state stash is the authority for a session's agent
   // model/effort; read it back once per session so a window reload cannot

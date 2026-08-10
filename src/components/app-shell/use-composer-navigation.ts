@@ -1,4 +1,3 @@
-import type { AgentPermissionMode } from "../../../electron/chat/common.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
 import type { AppShellRoute } from "./app-shell-types.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
@@ -34,8 +33,8 @@ export function useComposerNavigation({
   releaseTransientFocus,
   route,
   sessionScope,
+  applyDraftComposerDefaults,
   setComposerFocusRequest,
-  setDraftPermissionMode,
   setDraftProjectId,
   setIsDraftSession,
   setPendingChatTransition,
@@ -56,8 +55,9 @@ export function useComposerNavigation({
   releaseTransientFocus: () => void
   route: AppShellRoute
   sessionScope: SessionScope | null
+  /** Reset draft permission/model/effort to the current agent's sticky prefs. */
+  applyDraftComposerDefaults: () => void
   setComposerFocusRequest: React.Dispatch<React.SetStateAction<number>>
-  setDraftPermissionMode: React.Dispatch<React.SetStateAction<AgentPermissionMode>>
   setDraftProjectId: React.Dispatch<React.SetStateAction<string | null>>
   setIsDraftSession: React.Dispatch<React.SetStateAction<boolean>>
   setPendingChatTransition: React.Dispatch<
@@ -77,7 +77,7 @@ export function useComposerNavigation({
       }
       setSelectedSessionId(null)
       setIsDraftSession(true)
-      setDraftPermissionMode("default")
+      applyDraftComposerDefaults()
       setDraftProjectId(target.projectId ?? NO_DRAFT_PROJECT_ID)
       setPendingChatTransition(null)
       setRoute("chat")
@@ -86,10 +86,10 @@ export function useComposerNavigation({
       setComposerFocusRequest((request) => request + 1)
     },
     [
+      applyDraftComposerDefaults,
       clearComposerDraft,
       sessionScope,
       setComposerFocusRequest,
-      setDraftPermissionMode,
       setDraftProjectId,
       setIsDraftSession,
       setPendingChatTransition,

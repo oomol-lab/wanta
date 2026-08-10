@@ -1,0 +1,9 @@
+# pnpm 10+ blocks dependency install/postinstall scripts by default. This list
+# allows the dependencies that actually ran build scripts under pnpm 9 (sqlite3
+# is a native module required for packaging; the rest keep behavior unchanged).
+allowBuilds:
+  electron-winstaller: true
+  msgpackr-extract: true
+  opencode-ai: true
+  protobufjs: true
+  sqlite3: true

@@ -6,7 +6,7 @@ machine-level prerequisites.
 ## Preconditions
 
 - Node.js `>=22.22.2`
-- pnpm `9.14.4` via `corepack`
+- pnpm `11.21.0` via `corepack`
 - screen recording permission on macOS if visual verification will be needed
 - any required hardware or OS permissions already granted by the operator
 

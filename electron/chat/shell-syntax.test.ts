@@ -43,6 +43,27 @@ test("here-document detection preserves quoted delimiters and tab stripping", ()
   assert.equal(commandWithoutHereDocumentBodies(command), `cat <<-'END REPORT'\n\n\nprintf done`)
 })
 
+test("here-document payload removal preserves commands after an escaped newline", () => {
+  const command = `cat <<EOF && \\\nrm -rf /tmp/example
+payload / text
+EOF`
+  const sanitized = commandWithoutHereDocumentBodies(command)
+
+  assert.match(sanitized, /rm -rf \/tmp\/example/u)
+  assert.doesNotMatch(sanitized, /payload \/ text/u)
+  assert.equal(commandRequiresConfirmation(sanitized), true)
+})
+
+test("an unescaped newline after a heredoc declaration starts its payload", () => {
+  const command = `cat <<EOF &&
+rm -rf /tmp/example
+EOF`
+  const sanitized = commandWithoutHereDocumentBodies(command)
+
+  assert.doesNotMatch(sanitized, /rm -rf \/tmp\/example/u)
+  assert.equal(commandRequiresConfirmation(sanitized), false)
+})
+
 test("explicit cd directories accept literal paths and literal assignments", () => {
   assert.equal(explicitCdDirectory('cd "/tmp/Project (draft)"'), "/tmp/Project (draft)")
   assert.equal(explicitCdDirectory('WORKDIR="/tmp/Project (draft)"\ncd "$WORKDIR"'), "/tmp/Project (draft)")

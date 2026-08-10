@@ -105,6 +105,36 @@ function hereDocumentDeclarations(line: string): HereDocument[] {
   return declarations
 }
 
+function hasEscapedLineEnding(line: string): boolean {
+  const withoutLineEnding = line.replace(/\r?\n$/u, "")
+  let singleQuoted = false
+  let doubleQuoted = false
+  let escaped = false
+  for (let index = 0; index < withoutLineEnding.length; index += 1) {
+    const char = withoutLineEnding[index] ?? ""
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (char === "\\" && !singleQuoted) {
+      escaped = true
+      continue
+    }
+    if (char === "'" && !doubleQuoted) {
+      singleQuoted = !singleQuoted
+      continue
+    }
+    if (char === '"' && !singleQuoted) {
+      doubleQuoted = !doubleQuoted
+      continue
+    }
+    if (!singleQuoted && !doubleQuoted && char === "#" && (index === 0 || /[\s;&|()]/u.test(line[index - 1] ?? ""))) {
+      return false
+    }
+  }
+  return escaped
+}
+
 /**
  * Removes here-document payloads before shell policy inspection. The payload is input to the
  * command, not shell syntax: treating Python division, prose, or HTML inside it as shell operands
@@ -112,6 +142,7 @@ function hereDocumentDeclarations(line: string): HereDocument[] {
  */
 export function commandWithoutHereDocumentBodies(command: string): string {
   const lines = command.split(/(?<=\n)/u)
+  const awaitingContinuation: HereDocument[] = []
   const pending: HereDocument[] = []
   const result: string[] = []
 
@@ -128,7 +159,11 @@ export function commandWithoutHereDocumentBodies(command: string): string {
     }
 
     result.push(line)
-    pending.push(...hereDocumentDeclarations(line))
+    awaitingContinuation.push(...hereDocumentDeclarations(line))
+    if (!hasEscapedLineEnding(line)) {
+      pending.push(...awaitingContinuation)
+      awaitingContinuation.length = 0
+    }
   }
   return result.join("")
 }

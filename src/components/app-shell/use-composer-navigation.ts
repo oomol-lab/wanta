@@ -1,3 +1,4 @@
+import type { AgentPermissionMode } from "../../../electron/chat/common.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
 import type { AppShellRoute } from "./app-shell-types.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
@@ -56,7 +57,7 @@ export function useComposerNavigation({
   route: AppShellRoute
   sessionScope: SessionScope | null
   setComposerFocusRequest: React.Dispatch<React.SetStateAction<number>>
-  setDraftPermissionMode: React.Dispatch<React.SetStateAction<"default" | "full_access">>
+  setDraftPermissionMode: React.Dispatch<React.SetStateAction<AgentPermissionMode>>
   setDraftProjectId: React.Dispatch<React.SetStateAction<string | null>>
   setIsDraftSession: React.Dispatch<React.SetStateAction<boolean>>
   setPendingChatTransition: React.Dispatch<

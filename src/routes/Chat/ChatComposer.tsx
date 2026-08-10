@@ -18,6 +18,7 @@ import type { UserFacingError } from "@/lib/user-facing-error"
 
 import { ArrowRight, BrainCircuit, Bug, Server, X } from "lucide-react"
 import * as React from "react"
+import { AGENT_PROFILES } from "../../../electron/agent/contract/profile.ts"
 import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import { composerModeControlsDisabled } from "./composer-controls.ts"
@@ -75,13 +76,17 @@ import { authTypeLabel } from "@/routes/Connections/shared"
 
 interface ChatComposerProps {
   error: string | null
+  agentEffortId?: string
   agentKind?: AgentKind
+  agentModelId?: string
   agentModesEnabled?: boolean
   agentPickerLocked?: boolean
   attachmentsEnabled?: boolean
   cloudModelsEnabled?: boolean
   modelRoutingEnabled?: boolean
+  onSelectAgentEffort?: (effortId?: string) => void
   onSelectAgentKind?: (kind: AgentKind) => void
+  onSelectAgentModel?: (modelId?: string) => void
   voiceEnabled?: boolean
   focusRequest: number
   generatedArtifacts?: ArtifactSelection | null
@@ -112,7 +117,7 @@ interface ChatComposerProps {
   onComposerStateChange?: (state: ComposerState) => void
   onSend: (request: ChatSendRequest) => Promise<ChatSendResult>
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
-  onPermissionModeDefault: () => void
+  onPermissionModeSelect: (mode: AgentPermissionMode) => void
   onPermissionModeFullAccess: () => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onOpenKnowledgeLibrary?: () => void
@@ -185,13 +190,17 @@ function paletteLabels({
 }
 
 export function ChatComposer({
+  agentEffortId,
   agentKind = "opencode",
+  agentModelId,
   agentModesEnabled = true,
   agentPickerLocked = false,
   attachmentsEnabled = true,
   cloudModelsEnabled = true,
   modelRoutingEnabled = true,
+  onSelectAgentEffort,
   onSelectAgentKind,
+  onSelectAgentModel,
   voiceEnabled = false,
   error,
   focusRequest,
@@ -223,7 +232,7 @@ export function ChatComposer({
   onComposerStateChange,
   onSend,
   onAnswerQuestion,
-  onPermissionModeDefault,
+  onPermissionModeSelect,
   onPermissionModeFullAccess,
   onOpenConnectionProvider,
   onOpenKnowledgeLibrary,
@@ -656,6 +665,7 @@ export function ChatComposer({
     () => externalAgentsState.agents.find((agent) => agent.kind === agentKind),
     [agentKind, externalAgentsState.agents],
   )
+  const displayedAgentProfile = AGENT_PROFILES[agentKind]
   const agentLoginNotice =
     displayedExternalAgent?.login.status === "logged_out" ? (
       <p className="oo-text-caption px-1 text-muted-foreground">
@@ -781,13 +791,19 @@ export function ChatComposer({
           turnState={composerTurnState}
           modelCatalog={modelCatalog}
           modelRequired={modelRequired}
+          agentCatalog={displayedExternalAgent?.catalog}
+          agentEffortId={agentEffortId}
+          agentEffortSelectionEnabled={displayedAgentProfile.inputs.setEffort}
           agentKind={agentKind}
           agentMode={agentMode}
+          agentModelId={agentModelId}
+          agentModelSelectionEnabled={displayedAgentProfile.inputs.setModel}
           agentModesEnabled={agentModesEnabled}
           agentPickerLocked={agentPickerLocked}
           externalAgents={externalAgentsState.agents}
           modelRoutingEnabled={modelRoutingEnabled}
           permissionMode={permissionMode}
+          permissionModes={displayedAgentProfile.permissionModes}
           reasoningLevel={reasoningLevel}
           voiceEnabled={voiceEnabled}
           voiceActive={voiceEnabled && voiceInput.active}
@@ -804,9 +820,11 @@ export function ChatComposer({
           onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}
           onRetryVoice={voiceInput.retry}
+          onSelectAgentEffort={onSelectAgentEffort}
           onSelectAgentKind={onSelectAgentKind}
+          onSelectAgentModel={onSelectAgentModel}
           onSelectAgentMode={setAgentMode}
-          onSelectDefaultPermissionMode={onPermissionModeDefault}
+          onSelectPermissionMode={onPermissionModeSelect}
           onRequestFullAccessPermissionMode={onPermissionModeFullAccess}
           onSelectReasoningLevel={setReasoningLevel}
           onSelectModel={modelCatalogState.selectModel}

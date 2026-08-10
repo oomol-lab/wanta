@@ -1,11 +1,12 @@
 import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
-import type { ExternalAgentRuntimeStatus } from "../../../electron/agent/external/status.ts"
+import type { ExternalAgentCatalog, ExternalAgentRuntimeStatus } from "../../../electron/agent/external/status.ts"
 import type { AgentMode, AgentPermissionMode, ReasoningLevel } from "../../../electron/chat/common.ts"
 import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.ts"
 import type { ContextUsageInfo } from "./context-usage.ts"
 
-import { Mic } from "lucide-react"
+import { Brain, Cpu, Mic } from "lucide-react"
 import { AgentModePicker } from "./AgentModePicker.tsx"
+import { AgentOptionPicker } from "./AgentOptionPicker.tsx"
 import { AgentPicker } from "./AgentPicker.tsx"
 import { ComposerContextUsageIndicator } from "./ComposerContextUsageIndicator.tsx"
 import { ModelReasoningPicker } from "./ModelReasoningPicker.tsx"
@@ -16,8 +17,13 @@ import { useT } from "@/i18n/i18n"
 const NO_EXTERNAL_AGENTS: ExternalAgentRuntimeStatus[] = []
 
 interface ComposerModeControlsProps {
+  agentCatalog?: ExternalAgentCatalog
+  agentEffortId?: string
+  agentEffortSelectionEnabled?: boolean
   agentKind?: AgentKind
   agentMode: AgentMode
+  agentModelId?: string
+  agentModelSelectionEnabled?: boolean
   agentModesEnabled?: boolean
   agentPickerLocked?: boolean
   composerDisabled: boolean
@@ -26,6 +32,7 @@ interface ComposerModeControlsProps {
   modelCatalog: ModelCatalog | null
   modelRoutingEnabled?: boolean
   permissionMode: AgentPermissionMode
+  permissionModes?: readonly AgentPermissionMode[]
   reasoningLevel: ReasoningLevel
   modelRequired?: boolean
   voiceEnabled: boolean
@@ -33,17 +40,24 @@ interface ComposerModeControlsProps {
   onAgentPickerOpen?: () => void
   onDeleteModel: (id: string) => void
   onRequestFullAccessPermissionMode: () => void
+  onSelectAgentEffort?: (effortId?: string) => void
   onSelectAgentKind?: (kind: AgentKind) => void
   onSelectAgentMode: (mode: AgentMode) => void
-  onSelectDefaultPermissionMode: () => void
+  onSelectAgentModel?: (modelId?: string) => void
+  onSelectPermissionMode: (mode: AgentPermissionMode) => void
   onSelectModel: (choice: ModelChoice) => void
   onSelectReasoningLevel: (level: ReasoningLevel) => void
   onStartVoice: () => void
 }
 
 export function ComposerModeControls({
+  agentCatalog,
+  agentEffortId,
+  agentEffortSelectionEnabled = false,
   agentKind = "opencode",
   agentMode,
+  agentModelId,
+  agentModelSelectionEnabled = false,
   agentModesEnabled = true,
   agentPickerLocked = false,
   composerDisabled,
@@ -52,6 +66,7 @@ export function ComposerModeControls({
   modelCatalog,
   modelRoutingEnabled = true,
   permissionMode,
+  permissionModes,
   reasoningLevel,
   modelRequired = false,
   voiceEnabled,
@@ -59,9 +74,11 @@ export function ComposerModeControls({
   onAgentPickerOpen,
   onDeleteModel,
   onRequestFullAccessPermissionMode,
+  onSelectAgentEffort,
   onSelectAgentKind,
   onSelectAgentMode,
-  onSelectDefaultPermissionMode,
+  onSelectAgentModel,
+  onSelectPermissionMode,
   onSelectModel,
   onSelectReasoningLevel,
   onStartVoice,
@@ -83,9 +100,15 @@ export function ComposerModeControls({
       ) : null}
       <PermissionModePicker
         disabled={composerDisabled}
+        modes={permissionModes}
         value={permissionMode}
-        onDefault={onSelectDefaultPermissionMode}
-        onFullAccess={onRequestFullAccessPermissionMode}
+        onSelect={(mode) => {
+          if (mode === "full_access") {
+            onRequestFullAccessPermissionMode()
+          } else {
+            onSelectPermissionMode(mode)
+          }
+        }}
       />
       {modelRoutingEnabled ? (
         <ModelReasoningPicker
@@ -97,6 +120,30 @@ export function ComposerModeControls({
           onDeleteModel={onDeleteModel}
           onSelectModel={onSelectModel}
           onSelectReasoningLevel={onSelectReasoningLevel}
+        />
+      ) : null}
+      {!modelRoutingEnabled && agentModelSelectionEnabled ? (
+        <AgentOptionPicker
+          ariaLabel={t("chat.agentModelPicker")}
+          defaultOptionId={agentCatalog?.defaultModelId}
+          disabled={composerDisabled}
+          icon={Cpu}
+          options={agentCatalog?.models ?? []}
+          value={agentModelId}
+          onOpen={onAgentPickerOpen}
+          onSelect={(id) => onSelectAgentModel?.(id)}
+        />
+      ) : null}
+      {!modelRoutingEnabled && agentEffortSelectionEnabled ? (
+        <AgentOptionPicker
+          ariaLabel={t("chat.agentEffortPicker")}
+          defaultOptionId={agentCatalog?.defaultEffortId}
+          disabled={composerDisabled}
+          icon={Brain}
+          options={agentCatalog?.efforts ?? []}
+          value={agentEffortId}
+          onOpen={onAgentPickerOpen}
+          onSelect={(id) => onSelectAgentEffort?.(id)}
         />
       ) : null}
       {voiceEnabled ? (

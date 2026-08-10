@@ -62,6 +62,8 @@ export function useComposerSubmission({
   currentScopeKey,
   displayedPermissionMode,
   draftAgentKind,
+  draftAgentSelection,
+  onDraftAgentSelectionCommitted,
   messages,
   messagesLoaded,
   teamSkills,
@@ -87,6 +89,9 @@ export function useComposerSubmission({
   displayedPermissionMode: AgentPermissionMode
   /** Agent kind applied when the first send creates the session. */
   draftAgentKind: AgentKind
+  /** Agent-native model/effort chosen on the draft; rides the session-creating send. */
+  draftAgentSelection?: { modelId?: string; effortId?: string }
+  onDraftAgentSelectionCommitted?: (sessionId: string) => void
   messages: Parameters<typeof buildSessionTitleInput>[0]
   messagesLoaded: boolean
   teamSkills: ChatTeamSkillContext[]
@@ -177,6 +182,7 @@ export function useComposerSubmission({
       try {
         setRoute("chat")
         let sessionId = activeChatSessionId
+        const creatingExternalSession = !sessionId && isExternalAgentKind(draftAgentKind)
         const titleInput = { ...buildSessionTitleInput(messages, text, attachments), model }
         const fallbackTitle = buildFallbackSessionTitle(titleInput)
         const autoFallbackTitle = sessionId ? titleGeneration.getAutoFallbackTitle(sessionId) : undefined
@@ -219,6 +225,9 @@ export function useComposerSubmission({
             return { error, status: "failed" }
           }
           sessionId = info.id
+          if (creatingExternalSession) {
+            onDraftAgentSelectionCommitted?.(sessionId)
+          }
           titleGeneration.rememberAutoFallbackTitle(sessionId, fallbackTitle)
           if (isCurrentSendTarget()) {
             setSelectedSessionId(sessionId)
@@ -266,6 +275,12 @@ export function useComposerSubmission({
         retainRecentSession(sessionId)
         try {
           const sendPromise = send(sessionId, text, attachments, {
+            ...(creatingExternalSession && draftAgentSelection?.modelId
+              ? { agentModelId: draftAgentSelection.modelId }
+              : {}),
+            ...(creatingExternalSession && draftAgentSelection?.effortId
+              ? { agentEffortId: draftAgentSelection.effortId }
+              : {}),
             contextMentions,
             model,
             teamSkills: effectiveTeamSkills,
@@ -298,6 +313,8 @@ export function useComposerSubmission({
       currentScopeKey,
       displayedPermissionMode,
       draftAgentKind,
+      draftAgentSelection,
+      onDraftAgentSelectionCommitted,
       messages,
       messagesLoaded,
       teamSkills,

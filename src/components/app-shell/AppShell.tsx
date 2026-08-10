@@ -299,6 +299,14 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [draftPermissionMode, setDraftPermissionMode] = React.useState<AgentPermissionMode>("default")
   const [draftAgentKind, setDraftAgentKind] = React.useState<AgentKind>("opencode")
+  // Agent-native model/effort selection, keyed by session id ("draft" before
+  // the first send creates the session). In-memory only; adapters re-derive
+  // live state per session.
+  const [agentSelections, setAgentSelections] = React.useState<Record<string, { modelId?: string; effortId?: string }>>(
+    {},
+  )
+  const agentSelectionsRef = React.useRef(agentSelections)
+  agentSelectionsRef.current = agentSelections
   const [draftKnowledgeBaseIds, setDraftKnowledgeBaseIds] = React.useState<string[]>([])
   const [draftProjectId, setDraftProjectId] = React.useState<string | null>(null)
   const [sidebarSegment, setSidebarSegment] = React.useState<SidebarSegment>(() =>
@@ -1051,6 +1059,17 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setDraftKnowledgeBaseIds([])
     handleNewSession()
   }, [handleNewSession])
+  const commitDraftAgentSelection = React.useCallback((sessionId: string): void => {
+    setAgentSelections((prev) => {
+      const draft = prev["draft"]
+      if (!draft) {
+        return prev
+      }
+      const next = { ...prev, [sessionId]: draft }
+      delete next["draft"]
+      return next
+    })
+  }, [])
   const {
     forgetSession: forgetComposerSubmissionSession,
     isDraftSendInFlight,
@@ -1075,6 +1094,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     currentScopeKey,
     displayedPermissionMode,
     draftAgentKind,
+    draftAgentSelection: agentSelections["draft"],
+    onDraftAgentSelectionCommitted: commitDraftAgentSelection,
     messages,
     messagesLoaded,
     knowledgeBaseIds: activeKnowledgeBaseIds,
@@ -1713,10 +1734,100 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [activeChatSessionId, persistPermissionMode],
   )
   // Only draft sessions can change agent; the picker is locked once a session
-  // exists, so no per-session persistence happens here.
+  // exists, so no per-session persistence happens here. Switching the draft
+  // agent drops any model/effort choice made for the previous agent.
   const handleSelectAgentKind = React.useCallback((kind: AgentKind): void => {
     setDraftAgentKind(kind)
+    // A mode the new agent does not declare must not leak into its sessions.
+    setDraftPermissionMode((mode) => (AGENT_PROFILES[kind].permissionModes.includes(mode) ? mode : "default"))
+    setAgentSelections((prev) => {
+      if (!prev["draft"]) {
+        return prev
+      }
+      const next = { ...prev }
+      delete next["draft"]
+      return next
+    })
   }, [])
+  const activeAgentSelection = agentSelections[activeChatSessionId ?? "draft"]
+  const handleSelectAgentModel = React.useCallback(
+    (modelId?: string): void => {
+      const key = activeChatSessionId ?? "draft"
+      let previousModelId: string | undefined
+      setAgentSelections((prev) => {
+        previousModelId = prev[key]?.modelId
+        return { ...prev, [key]: { ...prev[key], modelId } }
+      })
+      if (activeChatSessionId) {
+        void chatService
+          .invoke("setExternalSessionModel", {
+            sessionId: activeChatSessionId,
+            ...(modelId ? { modelId } : {}),
+          })
+          .catch((error: unknown) => {
+            reportRendererHandledError("chat", "set agent model failed", error)
+            // The adapter refused the switch; the optimistic value must not stick.
+            setAgentSelections((prev) =>
+              prev[key]?.modelId === modelId ? { ...prev, [key]: { ...prev[key], modelId: previousModelId } } : prev,
+            )
+          })
+      }
+    },
+    [activeChatSessionId, chatService],
+  )
+  const handleSelectAgentEffort = React.useCallback(
+    (effortId?: string): void => {
+      const key = activeChatSessionId ?? "draft"
+      let previousEffortId: string | undefined
+      setAgentSelections((prev) => {
+        previousEffortId = prev[key]?.effortId
+        return { ...prev, [key]: { ...prev[key], effortId } }
+      })
+      if (activeChatSessionId) {
+        void chatService
+          .invoke("setExternalSessionEffort", {
+            sessionId: activeChatSessionId,
+            ...(effortId ? { effortId } : {}),
+          })
+          .catch((error: unknown) => {
+            reportRendererHandledError("chat", "set agent effort failed", error)
+            setAgentSelections((prev) =>
+              prev[key]?.effortId === effortId
+                ? { ...prev, [key]: { ...prev[key], effortId: previousEffortId } }
+                : prev,
+            )
+          })
+      }
+    },
+    [activeChatSessionId, chatService],
+  )
+  // The adapter's desired-state stash is the authority for a session's agent
+  // model/effort; read it back once per session so a window reload cannot
+  // desync the pickers (a user choice made meanwhile always wins).
+  React.useEffect(() => {
+    if (!activeChatSessionId || displayedAgentKind === "opencode") {
+      return
+    }
+    const sessionId = activeChatSessionId
+    if (agentSelectionsRef.current[sessionId]) {
+      return
+    }
+    let cancelled = false
+    void chatService
+      .invoke("getExternalSessionSelection", sessionId)
+      .then((selection) => {
+        if (cancelled || (!selection.modelId && !selection.effortId)) {
+          return
+        }
+        setAgentSelections((prev) => (prev[sessionId] ? prev : { ...prev, [sessionId]: selection }))
+      })
+      .catch((error: unknown) => {
+        reportRendererHandledError("chat", "read agent selection failed", error)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeChatSessionId, chatService, displayedAgentKind])
 
   const handleViewBilling = React.useCallback((target?: BillingDetailsTarget) => {
     setBillingInitialTarget(target ?? null)
@@ -2057,6 +2168,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       agentPickerLocked={Boolean(activeChatSessionId)}
                       attachmentsEnabled={attachmentsEnabled}
                       modelRoutingEnabled={modelRoutingEnabled}
+                      agentModelId={activeAgentSelection?.modelId}
+                      agentEffortId={activeAgentSelection?.effortId}
+                      onSelectAgentModel={handleSelectAgentModel}
+                      onSelectAgentEffort={handleSelectAgentEffort}
                       onSelectAgentKind={handleSelectAgentKind}
                       billingCacheScope={billingCacheScope}
                       billingRequestScope={billingRequestScope}

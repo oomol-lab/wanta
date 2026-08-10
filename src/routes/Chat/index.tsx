@@ -95,6 +95,10 @@ interface ChatAreaProps {
   }
   onSend: (request: ChatSendRequest) => Promise<ChatSendResult>
   onPermissionModeChange: (mode: AgentPermissionMode) => void
+  agentModelId?: string
+  agentEffortId?: string
+  onSelectAgentModel?: (modelId?: string) => void
+  onSelectAgentEffort?: (effortId?: string) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
   onAnswerPermission: (requestId: string, reply: ChatPermissionReply) => Promise<void>
   onRejectQuestion: (requestId: string) => Promise<void>
@@ -306,6 +310,10 @@ export const ChatArea = React.memo(function ChatArea({
   onComposerStateChange,
   onSend,
   onPermissionModeChange,
+  agentModelId,
+  agentEffortId,
+  onSelectAgentModel,
+  onSelectAgentEffort,
   onAnswerQuestion,
   onAnswerPermission,
   onRejectQuestion,
@@ -357,12 +365,16 @@ export const ChatArea = React.memo(function ChatArea({
     <ChatComposer
       key={composerDraftKey}
       agentKind={agentKind}
+      agentEffortId={agentEffortId}
+      agentModelId={agentModelId}
       agentModesEnabled={agentModesEnabled}
       agentPickerLocked={agentPickerLocked}
       attachmentsEnabled={attachmentsEnabled}
       cloudModelsEnabled={cloudModelsEnabled}
       modelRoutingEnabled={modelRoutingEnabled}
+      onSelectAgentEffort={onSelectAgentEffort}
       onSelectAgentKind={onSelectAgentKind}
+      onSelectAgentModel={onSelectAgentModel}
       voiceEnabled={voiceEnabled}
       error={error}
       focusRequest={composerFocusRequest}
@@ -394,7 +406,7 @@ export const ChatArea = React.memo(function ChatArea({
       onQueuedMessageResume={onQueuedMessageResume}
       onSend={onSend}
       onAnswerQuestion={onAnswerQuestion}
-      onPermissionModeDefault={() => onPermissionModeChange("default")}
+      onPermissionModeSelect={onPermissionModeChange}
       onPermissionModeFullAccess={requestFullAccess}
       onOpenConnectionProvider={onOpenConnectionProvider}
       onOpenKnowledgeLibrary={onOpenKnowledgeLibrary}

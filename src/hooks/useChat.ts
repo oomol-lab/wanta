@@ -873,6 +873,8 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       text: string,
       attachments: ChatAttachment[] = [],
       options: {
+        agentModelId?: string
+        agentEffortId?: string
         contextMentions?: ChatContextMention[]
         mode?: AgentMode
         model?: ModelChoice
@@ -900,6 +902,8 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
           sessionId,
           text,
           appLocale: locale,
+          agentModelId: options.agentModelId,
+          agentEffortId: options.agentEffortId,
           attachments: agentAttachments(attachments),
           contextMentions: options.contextMentions,
           mode: options.mode,

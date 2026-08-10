@@ -281,3 +281,32 @@ describe("chat context usage", () => {
     expect(formatTokenCount(1_500_000)).toBe("1.5M")
   })
 })
+
+describe("agent-reported context window", () => {
+  it("builds the budget from usage.contextWindow when no catalog applies", () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [],
+        createdAt: 1,
+        tokenUsage: {
+          total: 68_000,
+          input: 0,
+          output: 0,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+          contextWindow: 272_000,
+        },
+      },
+    ]
+    const info = buildContextUsageInfo(messages, null)
+    expect(info?.usedTokens).toBe(68_000)
+    expect(info?.limitTokens).toBe(272_000)
+    expect(info?.percent).toBe(25)
+  })
+
+  it("stays hidden with neither catalog nor usage", () => {
+    expect(buildContextUsageInfo([], null)).toBeNull()
+  })
+})

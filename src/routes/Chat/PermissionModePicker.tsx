@@ -1,6 +1,6 @@
 import type { AgentPermissionMode } from "../../../electron/chat/common.ts"
 
-import { Check, ChevronDown, ShieldCheck, TriangleAlert } from "lucide-react"
+import { Check, ChevronDown, Eye, Map as MapIcon, PencilLine, ShieldCheck, TriangleAlert } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { nextModelMenuIndex } from "./model-control-utils.ts"
@@ -9,42 +9,77 @@ import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
-const permissionModeOptions: readonly AgentPermissionMode[] = ["default", "full_access"]
+const FALLBACK_MODES: readonly AgentPermissionMode[] = ["default", "full_access"]
 
 function permissionModeMenuItemElementId(mode: AgentPermissionMode): string {
   return `permission-mode-menu-item-${mode}`
 }
 
 function permissionModeLabel(mode: AgentPermissionMode, t: ReturnType<typeof useT>): string {
-  return mode === "full_access" ? t("chat.permissionModeFullAccess") : t("chat.permissionModeDefault")
+  switch (mode) {
+    case "full_access":
+      return t("chat.permissionModeFullAccess")
+    case "read_only":
+      return t("chat.permissionModeReadOnly")
+    case "accept_edits":
+      return t("chat.permissionModeAcceptEdits")
+    case "plan":
+      return t("chat.permissionModePlan")
+    default:
+      return t("chat.permissionModeDefault")
+  }
 }
 
 function permissionModeDescription(mode: AgentPermissionMode, t: ReturnType<typeof useT>): string {
-  return mode === "full_access"
-    ? t("chat.permissionModeFullAccessDescription")
-    : t("chat.permissionModeDefaultDescription")
+  switch (mode) {
+    case "full_access":
+      return t("chat.permissionModeFullAccessDescription")
+    case "read_only":
+      return t("chat.permissionModeReadOnlyDescription")
+    case "accept_edits":
+      return t("chat.permissionModeAcceptEditsDescription")
+    case "plan":
+      return t("chat.permissionModePlanDescription")
+    default:
+      return t("chat.permissionModeDefaultDescription")
+  }
 }
 
 function PermissionModeIcon({ mode, active = false }: { mode: AgentPermissionMode; active?: boolean }) {
-  return mode === "full_access" ? (
-    <TriangleAlert className={cn("size-4 shrink-0", active ? "text-[var(--oo-warning-foreground)]" : undefined)} />
-  ) : (
-    <ShieldCheck className="size-4 shrink-0" />
-  )
+  switch (mode) {
+    case "full_access":
+      return (
+        <TriangleAlert className={cn("size-4 shrink-0", active ? "text-[var(--oo-warning-foreground)]" : undefined)} />
+      )
+    case "read_only":
+      return <Eye className="size-4 shrink-0" />
+    case "accept_edits":
+      return <PencilLine className="size-4 shrink-0" />
+    case "plan":
+      return <MapIcon className="size-4 shrink-0" />
+    default:
+      return <ShieldCheck className="size-4 shrink-0" />
+  }
 }
 
+/**
+ * Permission-mode selector over the agent's declared mode list (profile
+ * driven). Selection is reported as the mode value; the caller owns any
+ * confirmation flow (full access) before committing.
+ */
 export function PermissionModePicker({
   disabled,
+  modes,
   value,
-  onDefault,
-  onFullAccess,
+  onSelect,
 }: {
   disabled: boolean
+  modes?: readonly AgentPermissionMode[]
   value: AgentPermissionMode
-  onDefault: () => void
-  onFullAccess: () => void
+  onSelect: (mode: AgentPermissionMode) => void
 }) {
   const t = useT()
+  const modeOptions = modes && modes.length > 0 ? modes : FALLBACK_MODES
   const [open, setOpen] = React.useState(false)
   const [activeIndex, setActiveIndex] = React.useState(0)
   const itemRefs = React.useRef(new Map<AgentPermissionMode, HTMLButtonElement>())
@@ -57,7 +92,7 @@ export function PermissionModePicker({
     width: 300,
   })
   const selectedLabel = permissionModeLabel(value, t)
-  const activeMode = permissionModeOptions[activeIndex]
+  const activeMode = modeOptions[activeIndex]
   const activeItemElementId = activeMode ? permissionModeMenuItemElementId(activeMode) : undefined
 
   const focusMode = React.useCallback((mode: AgentPermissionMode | undefined): void => {
@@ -73,24 +108,20 @@ export function PermissionModePicker({
         return
       }
       closeMenu()
-      if (mode === "full_access") {
-        onFullAccess()
-      } else {
-        onDefault()
-      }
+      onSelect(mode)
     },
-    [closeMenu, disabled, onDefault, onFullAccess],
+    [closeMenu, disabled, onSelect],
   )
 
   React.useEffect(() => {
     if (!open) {
       return
     }
-    const selectedIndex = permissionModeOptions.indexOf(value)
+    const selectedIndex = modeOptions.indexOf(value)
     const nextIndex = selectedIndex >= 0 ? selectedIndex : 0
     setActiveIndex(nextIndex)
-    window.requestAnimationFrame(() => focusMode(permissionModeOptions[nextIndex]))
-  }, [focusMode, open, value])
+    window.requestAnimationFrame(() => focusMode(modeOptions[nextIndex]))
+  }, [focusMode, modeOptions, open, value])
 
   const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === "Tab") {
@@ -105,14 +136,14 @@ export function PermissionModePicker({
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault()
       const direction = event.key === "ArrowDown" ? 1 : -1
-      const nextIndex = nextModelMenuIndex(activeIndex, permissionModeOptions.length, direction)
+      const nextIndex = nextModelMenuIndex(activeIndex, modeOptions.length, direction)
       setActiveIndex(nextIndex)
-      focusMode(permissionModeOptions[nextIndex])
+      focusMode(modeOptions[nextIndex])
       return
     }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault()
-      activateMode(permissionModeOptions[activeIndex])
+      activateMode(modeOptions[activeIndex])
     }
   }
 
@@ -128,7 +159,7 @@ export function PermissionModePicker({
           className="oo-border-divider fixed z-50 overflow-y-auto rounded-lg border bg-popover p-1.5 text-popover-foreground shadow-xl"
           onKeyDown={handleMenuKeyDown}
         >
-          {permissionModeOptions.map((mode, index) => {
+          {modeOptions.map((mode, index) => {
             const active = value === mode
             const highlighted = index === activeIndex
             const label = permissionModeLabel(mode, t)

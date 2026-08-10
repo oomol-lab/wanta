@@ -37,7 +37,10 @@ describe("open-source installation contract", () => {
   })
 
   test("does not depend on a repository-local private npm registry", () => {
-    expect(existsSync(path.join(repoRoot, ".npmrc"))).toBe(false)
+    const npmrc = readFileSync(path.join(repoRoot, ".npmrc"), "utf8")
+    expect(npmrc).not.toContain("npm.pkg.github.com")
+    expect(npmrc).not.toContain("_authToken")
+    expect(npmrc).toContain("@oomol:registry=https://registry.npmjs.org/")
     expect(existsSync(path.join(repoRoot, "package-lock.json"))).toBe(false)
     expect(lockfile).not.toContain("npm.pkg.github.com")
     expect(lockfile).not.toContain("_authToken")

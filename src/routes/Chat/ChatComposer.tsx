@@ -674,7 +674,13 @@ export function ChatComposer({
       : t("chat.questionComposerPlaceholder")
     : placeholder
   const hasInputAddons = command !== null || attachments.length > 0 || contextMentions.length > 0
-  const contextUsage = React.useMemo(() => buildContextUsageInfo(messages, modelCatalog), [messages, modelCatalog])
+  // The context budget comes from Wanta's own model catalog, which is only
+  // authoritative when the agent routes models through Wanta; agents that bring
+  // their own model must not render a meter fabricated from unrelated limits.
+  const contextUsage = React.useMemo(
+    () => buildContextUsageInfo(messages, modelRoutingEnabled ? modelCatalog : null),
+    [messages, modelCatalog, modelRoutingEnabled],
+  )
 
   const promptInput = (
     <PromptInput

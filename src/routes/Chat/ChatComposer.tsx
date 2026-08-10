@@ -1,3 +1,4 @@
+import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
 import type {
   AgentPermissionMode,
   ChatContextMention,
@@ -66,6 +67,7 @@ import {
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { useAppSettings } from "@/hooks/useAppSettings"
+import { useExternalAgents } from "@/hooks/useExternalAgents"
 import { useT } from "@/i18n/i18n"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
@@ -73,7 +75,13 @@ import { authTypeLabel } from "@/routes/Connections/shared"
 
 interface ChatComposerProps {
   error: string | null
+  agentKind?: AgentKind
+  agentModesEnabled?: boolean
+  agentPickerLocked?: boolean
+  attachmentsEnabled?: boolean
   cloudModelsEnabled?: boolean
+  modelRoutingEnabled?: boolean
+  onSelectAgentKind?: (kind: AgentKind) => void
   voiceEnabled?: boolean
   focusRequest: number
   generatedArtifacts?: ArtifactSelection | null
@@ -177,7 +185,13 @@ function paletteLabels({
 }
 
 export function ChatComposer({
+  agentKind = "opencode",
+  agentModesEnabled = true,
+  agentPickerLocked = false,
+  attachmentsEnabled = true,
   cloudModelsEnabled = true,
+  modelRoutingEnabled = true,
+  onSelectAgentKind,
   voiceEnabled = false,
   error,
   focusRequest,
@@ -222,6 +236,7 @@ export function ChatComposer({
   const appSettings = useAppSettings()
   const skillInventory = useSkillInventoryResource()
   const modelCatalogState = useModelCatalog()
+  const externalAgentsState = useExternalAgents()
   const [composer, dispatchComposer] = React.useReducer(
     composerReducer,
     initialComposerStateProp ?? initialComposerState(),
@@ -266,7 +281,7 @@ export function ChatComposer({
   const activePendingQuestion = pendingQuestions[0]
   const activePendingQuestionId = activePendingQuestion?.id
   const composerQuestionBlocked = Boolean(activePendingQuestion && !isSingleTextQuestion(activePendingQuestion))
-  const composerAttachmentsDisabled = Boolean(activePendingQuestion)
+  const composerAttachmentsDisabled = Boolean(activePendingQuestion) || !attachmentsEnabled
   const composerTurnState: ChatTurnState = activePendingQuestion ? { chatStatus: "ready", status: "idle" } : turnState
   const composerWillQueueMessage = activePendingQuestion ? false : willQueueMessage
   const initialSendPending = turnState.status === "submitting" && turnState.initialSendPending
@@ -439,6 +454,9 @@ export function ChatComposer({
     draftSelection,
     focusDraftAt,
     onAddArtifactAttachment: (item) => {
+      if (composerDisabled || composerAttachmentsDisabled) {
+        return
+      }
       composerAttachments.addAttachments([
         {
           kind: item.artifact.kind,
@@ -559,14 +577,16 @@ export function ChatComposer({
     }
     let result: ChatSendResult
     try {
+      // Agent-owned capabilities are omitted from the payload entirely so the
+      // request reflects only inputs this agent honors.
       result = await onSend({
         afterOptimisticSubmit: clearAfterOptimisticSubmit,
         attachments: attachments.map(stripDraftAttachment),
         contextMentions,
-        mode: agentMode,
-        model: modelCatalog?.selected,
+        mode: agentModesEnabled ? agentMode : undefined,
+        model: modelRoutingEnabled ? modelCatalog?.selected : undefined,
         permissionMode,
-        reasoningLevel,
+        reasoningLevel: modelRoutingEnabled ? reasoningLevel : undefined,
         text: composerSubmissionText({ command, draft: text }),
       })
     } catch (err) {
@@ -630,6 +650,18 @@ export function ChatComposer({
       onDismiss={visibleError.onDismiss}
     />
   ) : null
+  // Probed sign-in hint for the displayed agent; only an explicit logged_out
+  // state shows guidance (finding by kind naturally skips the built-in agent).
+  const displayedExternalAgent = React.useMemo(
+    () => externalAgentsState.agents.find((agent) => agent.kind === agentKind),
+    [agentKind, externalAgentsState.agents],
+  )
+  const agentLoginNotice =
+    displayedExternalAgent?.login.status === "logged_out" ? (
+      <p className="oo-text-caption px-1 text-muted-foreground">
+        {t("chat.agentLoginRequired", { hint: displayedExternalAgent.loginHint })}
+      </p>
+    ) : null
   const submitText = draft
   const canSubmit = activePendingQuestion
     ? !submitBlocked && !composerDisabled && attachments.length === 0 && submitText.trim().length > 0
@@ -743,7 +775,12 @@ export function ChatComposer({
           turnState={composerTurnState}
           modelCatalog={modelCatalog}
           modelRequired={modelRequired}
+          agentKind={agentKind}
           agentMode={agentMode}
+          agentModesEnabled={agentModesEnabled}
+          agentPickerLocked={agentPickerLocked}
+          externalAgents={externalAgentsState.agents}
+          modelRoutingEnabled={modelRoutingEnabled}
           permissionMode={permissionMode}
           reasoningLevel={reasoningLevel}
           voiceEnabled={voiceEnabled}
@@ -757,9 +794,11 @@ export function ChatComposer({
           voiceTranscribing={voiceEnabled && voiceInput.transcribing}
           willQueueMessage={composerWillQueueMessage}
           onAddModel={modelCatalogState.openDialog}
+          onAgentPickerOpen={externalAgentsState.refresh}
           onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}
           onRetryVoice={voiceInput.retry}
+          onSelectAgentKind={onSelectAgentKind}
           onSelectAgentMode={setAgentMode}
           onSelectDefaultPermissionMode={onPermissionModeDefault}
           onRequestFullAccessPermissionMode={onPermissionModeFullAccess}
@@ -824,6 +863,7 @@ export function ChatComposer({
   return (
     <>
       {errorBanner}
+      {agentLoginNotice}
       <div className="flex flex-col gap-2">
         <div className="relative">
           {palette}

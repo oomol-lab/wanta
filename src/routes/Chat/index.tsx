@@ -1,3 +1,4 @@
+import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
 import type {
   AuthorizationInfo,
   AssistantActivityEvent,
@@ -40,11 +41,17 @@ import { cn } from "@/lib/utils"
 
 interface ChatAreaProps {
   activeSessionId: string | null
+  agentKind?: AgentKind
+  agentModesEnabled?: boolean
+  agentPickerLocked?: boolean
+  attachmentsEnabled?: boolean
   billingCacheScope: string
   billingRequestScope: BillingRequestScope | null
   composerDraftKey: string
   composerFocusRequest: number
   cloudModelsEnabled?: boolean
+  modelRoutingEnabled?: boolean
+  onSelectAgentKind?: (kind: AgentKind) => void
   voiceEnabled?: boolean
   messages: ChatMessage[]
   knowledgeBaseIds: string[]
@@ -247,11 +254,17 @@ function EmptyCapabilityAction({
 
 export const ChatArea = React.memo(function ChatArea({
   activeSessionId,
+  agentKind = "opencode",
+  agentModesEnabled = true,
+  agentPickerLocked = false,
+  attachmentsEnabled = true,
   billingCacheScope,
   billingRequestScope,
   composerDraftKey,
   composerFocusRequest,
   cloudModelsEnabled = true,
+  modelRoutingEnabled = true,
+  onSelectAgentKind,
   voiceEnabled = false,
   messages,
   knowledgeBaseIds,
@@ -343,7 +356,13 @@ export const ChatArea = React.memo(function ChatArea({
   const composer = (
     <ChatComposer
       key={composerDraftKey}
+      agentKind={agentKind}
+      agentModesEnabled={agentModesEnabled}
+      agentPickerLocked={agentPickerLocked}
+      attachmentsEnabled={attachmentsEnabled}
       cloudModelsEnabled={cloudModelsEnabled}
+      modelRoutingEnabled={modelRoutingEnabled}
+      onSelectAgentKind={onSelectAgentKind}
       voiceEnabled={voiceEnabled}
       error={error}
       focusRequest={composerFocusRequest}

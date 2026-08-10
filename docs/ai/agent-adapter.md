@@ -55,8 +55,48 @@ vocabulary is the source of truth). ACP vocabulary is used where a concept maps
 cleanly (`cancel`, tool-call ids/status, permission replies). Connection health
 is a normal event variant (`connectionStatus`), not a side channel.
 
+## External (BYOA) adapter layer
+
+External agents build on `electron/agent/external/`:
+
+- **Session identity & routing**: external session ids are
+  `wanta-ext:<kind>:<uuid>` (`external/session-id.ts`). The chat layer routes
+  every session-scoped operation with a pure id parse (`chatBackendFor`), never
+  a kind lookup table. Claude Code reuses the embedded uuid as its native
+  session id; ACP agents keep an in-memory wanta-id -> native-id map.
+- **`ExternalAgentAdapter`** (`external/adapter-base.ts`): transcript-backed
+  `getMessages`, pending-permission queries, `forgetSession`, and the optional
+  `applyPermissionMode` capability (Wanta permission mode projected onto the
+  agent's own approval policy — Claude permission modes, ACP session modes).
+- **Probing** (`external/probe.ts`): PATH scan (reusing
+  `electron/agents/catalog.ts` + `resolveUserCommandPath`) with `--version`
+  verification, plus fail-open login detection (Claude: `~/.claude.json`
+  `oauthAccount` key presence only — no secret is ever read; ACP agents: config
+  marker files). Exposed to the renderer via the chat service
+  `getExternalAgents` invoke.
+- **Sessions** (`electron/session/external-store.ts`): Wanta-owned records
+  replace `agent.listSessions()` for external sessions; scope/pin/archive stay
+  in the shared metadata overlay. History survives only within one app run
+  (transcripts are in-memory; cross-restart resume is a declared non-goal for
+  now).
+- **Version pairing**: `@anthropic-ai/claude-agent-sdk` is pinned in
+  package.json and declares its paired CLI version (`claudeCodeVersion` in the
+  package manifest). The adapter drives the USER'S detected `claude` binary via
+  `pathToClaudeCodeExecutable`; probe results expose both versions so a drift is
+  visible instead of silent. ACP is version-negotiated at `initialize`
+  (`PROTOCOL_VERSION`), and a mismatch is a hard error.
+- **Credential red line**: Wanta stores no subscription secrets. Login state is
+  observed, never managed; the login hint tells the user to sign in with the
+  agent's own CLI.
+
 ## Checklist: adding a new agent
 
+0. **ACP-speaking agent?** Then it is ONE registration entry in
+   `electron/agent/acp/registry.ts` (command, ACP args, login hint, optional
+   full-access mode id) — the profile is derived, the generic `AcpAgentAdapter`
+   picks it up, and `external/create.ts` instantiates it automatically. No new
+   code branches are allowed anywhere. Only continue with the steps below for a
+   NATIVE (non-ACP) adapter.
 1. Extend `AgentKind` in `contract/profile.ts`; the `satisfies
 Record<AgentKind, AgentProfile>` on `AGENT_PROFILES` breaks the build until
    the new profile row exists. Declare only capabilities the adapter genuinely

@@ -151,6 +151,14 @@ export async function detectCliCommand(
   commands: readonly string[],
   options: AgentDiscoveryOptions = {},
 ): Promise<string | undefined> {
+  return (await detectCliExecutable(commands, options))?.command
+}
+
+/** Like detectCliCommand, but also returns the resolved absolute executable path (used by BYOA probing). */
+export async function detectCliExecutable(
+  commands: readonly string[],
+  options: AgentDiscoveryOptions = {},
+): Promise<{ command: string; executablePath: string } | undefined> {
   if (commands.length === 0) {
     return undefined
   }
@@ -166,7 +174,7 @@ export async function detectCliCommand(
         detected: true,
         executablePath,
       })
-      return command
+      return { command, executablePath }
     }
 
     logDiagnosticOnChange(

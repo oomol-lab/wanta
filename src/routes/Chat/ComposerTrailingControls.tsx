@@ -1,3 +1,5 @@
+import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
+import type { ExternalAgentRuntimeStatus } from "../../../electron/agent/external/status.ts"
 import type { AgentMode, AgentPermissionMode, ReasoningLevel } from "../../../electron/chat/common.ts"
 import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.ts"
 import type { ChatTurnState } from "./chat-turn-state.ts"
@@ -23,7 +25,12 @@ interface ComposerTrailingControlsProps {
   turnState: ChatTurnState
   modelCatalog: ModelCatalog | null
   modelRequired?: boolean
+  agentKind?: AgentKind
   agentMode: AgentMode
+  agentModesEnabled?: boolean
+  agentPickerLocked?: boolean
+  externalAgents?: ExternalAgentRuntimeStatus[]
+  modelRoutingEnabled?: boolean
   permissionMode: AgentPermissionMode
   reasoningLevel: ReasoningLevel
   voiceEnabled: boolean
@@ -37,9 +44,11 @@ interface ComposerTrailingControlsProps {
   voiceTranscribing: boolean
   willQueueMessage: boolean
   onAddModel: () => void
+  onAgentPickerOpen?: () => void
   onCancelVoice: () => void
   onDeleteModel: (id: string) => void
   onRetryVoice: () => void
+  onSelectAgentKind?: (kind: AgentKind) => void
   onSelectAgentMode: (mode: AgentMode) => void
   onSelectDefaultPermissionMode: () => void
   onRequestFullAccessPermissionMode: () => void
@@ -197,7 +206,12 @@ export function ComposerTrailingControls({
   turnState,
   modelCatalog,
   modelRequired = false,
+  agentKind,
   agentMode,
+  agentModesEnabled,
+  agentPickerLocked,
+  externalAgents,
+  modelRoutingEnabled,
   permissionMode,
   reasoningLevel,
   voiceEnabled,
@@ -211,9 +225,11 @@ export function ComposerTrailingControls({
   voiceTranscribing,
   willQueueMessage,
   onAddModel,
+  onAgentPickerOpen,
   onCancelVoice,
   onDeleteModel,
   onRetryVoice,
+  onSelectAgentKind,
   onSelectAgentMode,
   onSelectDefaultPermissionMode,
   onRequestFullAccessPermissionMode,
@@ -319,17 +335,24 @@ export function ComposerTrailingControls({
               </>
             ) : null}
             <ComposerModeControls
+              agentKind={agentKind}
               agentMode={agentMode}
+              agentModesEnabled={agentModesEnabled}
+              agentPickerLocked={agentPickerLocked}
               composerDisabled={composerDisabled}
               contextUsage={contextUsage}
+              externalAgents={externalAgents}
               modelCatalog={modelCatalog}
               modelRequired={modelRequired}
+              modelRoutingEnabled={modelRoutingEnabled}
               permissionMode={permissionMode}
               reasoningLevel={reasoningLevel}
               voiceEnabled={voiceEnabled}
               onAddModel={onAddModel}
+              onAgentPickerOpen={onAgentPickerOpen}
               onDeleteModel={onDeleteModel}
               onRequestFullAccessPermissionMode={onRequestFullAccessPermissionMode}
+              onSelectAgentKind={onSelectAgentKind}
               onSelectAgentMode={onSelectAgentMode}
               onSelectDefaultPermissionMode={onSelectDefaultPermissionMode}
               onSelectModel={onSelectModel}

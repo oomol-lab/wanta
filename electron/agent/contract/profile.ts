@@ -1,4 +1,8 @@
-// Central capability declaration for every agent kind (BYOA phase 0).
+import type { AcpAgentKind } from "../acp/registry.ts"
+
+import { ACP_AGENT_REGISTRY } from "../acp/registry.ts"
+
+// Central capability declaration for every agent kind (BYOA).
 //
 // One AgentProfile per agent, all in one place, exhaustively checked at compile
 // time via `satisfies Record<AgentKind, AgentProfile>`. UI and chat logic must
@@ -6,8 +10,8 @@
 // from these declarations and from reflected adapter events — never from
 // `if (agent === "...")` branches.
 
-/** Closed set of integrated agents. Later phases extend this union. */
-export type AgentKind = "opencode"
+/** Closed set of integrated agents: built-in kernel, native adapters, and ACP registry entries. */
+export type AgentKind = "opencode" | "claude-code" | AcpAgentKind
 
 /**
  * Which optional parts of the input contract the adapter genuinely honors.
@@ -61,6 +65,37 @@ export interface AgentProfile {
   history: AgentHistoryCapabilities
 }
 
+/**
+ * External agents own their models, auth, and system prompts; Wanta reflects
+ * them and never routes models or injects prompt tails.
+ */
+const externalAgentInputs: AgentInputCapabilityFlags = {
+  attachments: false,
+  modes: false,
+  reasoningLevels: false,
+  systemPrompt: false,
+  permissionResponse: true,
+  questionResponse: false,
+}
+
+/** In-run transcript reads only; no history listing or cross-restart resume yet. */
+const externalAgentHistory: AgentHistoryCapabilities = { list: false, read: true, resume: false }
+
+function acpAgentProfiles(): Record<AcpAgentKind, AgentProfile> {
+  const profiles = {} as Record<AcpAgentKind, AgentProfile>
+  for (const [kind, registration] of Object.entries(ACP_AGENT_REGISTRY)) {
+    profiles[kind as AcpAgentKind] = {
+      kind: kind as AcpAgentKind,
+      displayName: registration.displayName,
+      modelSource: "agent",
+      auth: { kind: "agent-cli", loginCommand: registration.loginHint },
+      inputs: externalAgentInputs,
+      history: externalAgentHistory,
+    }
+  }
+  return profiles
+}
+
 export const AGENT_PROFILES = {
   opencode: {
     kind: "opencode",
@@ -77,4 +112,24 @@ export const AGENT_PROFILES = {
     },
     history: { list: true, read: true, resume: true },
   },
-} as const satisfies Record<AgentKind, AgentProfile>
+  "claude-code": {
+    kind: "claude-code",
+    displayName: "Claude Code",
+    modelSource: "agent",
+    auth: { kind: "agent-cli", loginCommand: "Run `claude` in a terminal and sign in, then retry." },
+    inputs: externalAgentInputs,
+    history: externalAgentHistory,
+  },
+  ...acpAgentProfiles(),
+} satisfies Record<AgentKind, AgentProfile> as Record<AgentKind, AgentProfile>
+
+/** Agent kinds handled by external adapters (everything except the built-in kernel). */
+export type ExternalAgentKind = Exclude<AgentKind, "opencode">
+
+export const EXTERNAL_AGENT_KINDS = (Object.keys(AGENT_PROFILES) as AgentKind[]).filter(
+  (kind): kind is ExternalAgentKind => kind !== "opencode",
+)
+
+export function isExternalAgentKind(kind: AgentKind): kind is ExternalAgentKind {
+  return kind !== "opencode"
+}

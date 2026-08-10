@@ -1,3 +1,4 @@
+import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
 import type {
   AgentPermissionMode,
   AgentRuntimeStatus,
@@ -24,6 +25,7 @@ import type { ChatStatus } from "ai"
 import { PanelRightClose, PanelRightOpen } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { AGENT_PROFILES } from "../../../electron/agent/contract/profile.ts"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { KNOWLEDGE_LIBRARY_CONTEXT_ID } from "../../../electron/knowledge/common.ts"
 import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
@@ -102,6 +104,7 @@ import { billingRequestScopeForWorkspace } from "@/lib/billing-scope"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
+import { composerCapabilitiesForProfile } from "@/routes/Chat/agent-control-options"
 import { releaseAttachmentSnapshots } from "@/routes/Chat/chat-attachment-utils"
 import {
   chatTurnAllowsDirectSend,
@@ -295,6 +298,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const pendingAttentionRefreshesRef = React.useRef(new Set<string>())
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [draftPermissionMode, setDraftPermissionMode] = React.useState<AgentPermissionMode>("default")
+  const [draftAgentKind, setDraftAgentKind] = React.useState<AgentKind>("opencode")
   const [draftKnowledgeBaseIds, setDraftKnowledgeBaseIds] = React.useState<string[]>([])
   const [draftProjectId, setDraftProjectId] = React.useState<string | null>(null)
   const [sidebarSegment, setSidebarSegment] = React.useState<SidebarSegment>(() =>
@@ -847,11 +851,21 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     taskSortMode,
   })
   const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
+  // Agent choice is fixed at session creation; existing sessions without an
+  // agentKind belong to the built-in kernel.
+  const displayedAgentKind: AgentKind = activeSession?.agentKind ?? (activeChatSessionId ? "opencode" : draftAgentKind)
+  const activeAgentProfile = AGENT_PROFILES[displayedAgentKind]
+  const { agentModesEnabled, attachmentsEnabled, modelRoutingEnabled } =
+    composerCapabilitiesForProfile(activeAgentProfile)
   const needsDefaultSessionSelection =
     sessionsSettledForCurrentScope && !isDraftSession && !selectedSessionId && selectableSidebarSessions.length > 0
   const agentStartupError =
     agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
-  const modelRequired = agentStatus.status === "model_required"
+  // Agents that own their models must not be gated by the built-in kernel's
+  // missing-model state; treat that state as ready for them.
+  const kernelModelRequired = agentStatus.status === "model_required"
+  const modelRequired = kernelModelRequired && modelRoutingEnabled
+  const chatReady = ready || (kernelModelRequired && !modelRoutingEnabled)
   const workspaceStartupError = workspaceActivationState.status === "failed" ? workspaceActivationState.error : null
   const startupError = agentStartupError ?? workspaceStartupError ?? sessionSnapshotError
   const retryWorkspaceActivation = React.useCallback(() => {
@@ -868,13 +882,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const chatBootstrapping =
     !startupError &&
     !modelRequired &&
-    ((!ready && !hasVisibleLoadedSession) ||
+    ((!chatReady && !hasVisibleLoadedSession) ||
       !sessionsSettledForCurrentScope ||
       needsDefaultSessionSelection ||
       Boolean(activeChatSessionId && !messagesLoaded && !activePendingChatTransition))
-  const chatSubmitDisabled = !ready || chatBootstrapping || workspaceActivationBlocked || !sessionScope
+  const chatSubmitDisabled = !chatReady || chatBootstrapping || workspaceActivationBlocked || !sessionScope
   const showChatEmptyState =
-    (ready || modelRequired) &&
+    (chatReady || modelRequired) &&
     sessionsSettledForCurrentScope &&
     !activePendingChatTransition &&
     (!activeChatSessionId || (messagesLoaded && messages.length === 0))
@@ -1060,6 +1074,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     createSession: create,
     currentScopeKey,
     displayedPermissionMode,
+    draftAgentKind,
     messages,
     messagesLoaded,
     knowledgeBaseIds: activeKnowledgeBaseIds,
@@ -1325,6 +1340,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setSelectedSessionId(null)
     setIsDraftSession(false)
     setDraftPermissionMode("default")
+    setDraftAgentKind("opencode")
     setDraftKnowledgeBaseIds([])
     setDraftProjectId(null)
     setPendingChatTransition(null)
@@ -1696,6 +1712,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     },
     [activeChatSessionId, persistPermissionMode],
   )
+  // Only draft sessions can change agent; the picker is locked once a session
+  // exists, so no per-session persistence happens here.
+  const handleSelectAgentKind = React.useCallback((kind: AgentKind): void => {
+    setDraftAgentKind(kind)
+  }, [])
 
   const handleViewBilling = React.useCallback((target?: BillingDetailsTarget) => {
     setBillingInitialTarget(target ?? null)
@@ -2031,6 +2052,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <ChatArea
                       activeSessionId={activeChatSessionId}
+                      agentKind={displayedAgentKind}
+                      agentModesEnabled={agentModesEnabled}
+                      agentPickerLocked={Boolean(activeChatSessionId)}
+                      attachmentsEnabled={attachmentsEnabled}
+                      modelRoutingEnabled={modelRoutingEnabled}
+                      onSelectAgentKind={handleSelectAgentKind}
                       billingCacheScope={billingCacheScope}
                       billingRequestScope={billingRequestScope}
                       composerDraftKey={activeComposerDraftKey}
@@ -2104,7 +2131,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                           ? t("error.agent.title")
                           : modelRequired
                             ? t("chat.modelRequiredPlaceholder")
-                            : ready
+                            : chatReady
                               ? t(linksEnabled ? "chat.inputPlaceholder" : "chat.inputPlaceholderLocal")
                               : t("chat.agentStarting")
                       }

@@ -18,6 +18,7 @@ import type {
   SessionScopeRequest,
   SessionService,
 } from "./common.ts"
+import type { ExternalSessionRecord, ExternalSessionStore } from "./external-store.ts"
 import type { SessionMetadata, SessionMetadataStore } from "./metadata-store.ts"
 import type { SessionProjectStore } from "./project-store.ts"
 import type { IConnectionService } from "@oomol/connection"
@@ -25,12 +26,15 @@ import type { IConnectionService } from "@oomol/connection"
 import { ConnectionService } from "@oomol/connection"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
+import { isExternalAgentKind } from "../agent/contract/profile.ts"
+import { isExternalSessionId, mintExternalSessionId } from "../agent/external/session-id.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { normalizeSessionScopeValue, sessionScopesEqual, SessionService as SessionServiceName } from "./common.ts"
 import { normalizeKnowledgeBaseIds } from "./metadata-store.ts"
 
 interface SessionServiceDeps {
   activityStore?: SessionActivityStore
+  externalSessionStore?: ExternalSessionStore
   metadataStore?: SessionMetadataStore
   onSessionArchived?: (sessionId: string) => Promise<void> | void
   onSessionRemoved?: (sessionId: string) => Promise<void> | void
@@ -105,6 +109,9 @@ export class SessionServiceImpl
   private projectsLoaded = false
   private projectsLoadPromise: Promise<void> | null = null
   private projects = new Map<string, SessionProject>()
+  private externalLoaded = false
+  private externalLoadPromise: Promise<void> | null = null
+  private externalSessions = new Map<string, ExternalSessionRecord>()
   private mutationQueue: Promise<void> = Promise.resolve()
   private runtimeRevision = 0
 
@@ -129,6 +136,9 @@ export class SessionServiceImpl
       this.projects = new Map()
       this.projectsLoaded = false
       this.projectsLoadPromise = null
+      this.externalSessions = new Map()
+      this.externalLoaded = false
+      this.externalLoadPromise = null
     }
   }
 
@@ -138,7 +148,12 @@ export class SessionServiceImpl
     if (!agent) {
       return []
     }
-    await Promise.all([this.ensureActivityLoaded(), this.ensureMetadataLoaded(), this.ensureProjectsLoaded()])
+    await Promise.all([
+      this.ensureActivityLoaded(),
+      this.ensureMetadataLoaded(),
+      this.ensureProjectsLoaded(),
+      this.ensureExternalLoaded(),
+    ])
     if (!this.runtimeMatches(agent, revision)) {
       return []
     }
@@ -147,7 +162,7 @@ export class SessionServiceImpl
       return []
     }
     return this.mergeLocalState(
-      sessions,
+      [...sessions, ...this.externalSessionInfos()],
       "active",
       normalizeRequestedSessionScope(req.scope),
       normalizeSessionPlacement(req.placement),
@@ -160,7 +175,12 @@ export class SessionServiceImpl
     if (!agent) {
       return []
     }
-    await Promise.all([this.ensureActivityLoaded(), this.ensureMetadataLoaded(), this.ensureProjectsLoaded()])
+    await Promise.all([
+      this.ensureActivityLoaded(),
+      this.ensureMetadataLoaded(),
+      this.ensureProjectsLoaded(),
+      this.ensureExternalLoaded(),
+    ])
     if (!this.runtimeMatches(agent, revision)) {
       return []
     }
@@ -169,7 +189,7 @@ export class SessionServiceImpl
       return []
     }
     return this.mergeLocalState(
-      sessions,
+      [...sessions, ...this.externalSessionInfos()],
       "archived",
       normalizeRequestedSessionScope(req.scope),
       normalizeSessionPlacement(req.placement),
@@ -201,6 +221,9 @@ export class SessionServiceImpl
   }
 
   private async createMutation(req: CreateSessionRequest, revision: number): Promise<SessionInfo> {
+    if (req.agentKind && isExternalAgentKind(req.agentKind)) {
+      return this.createExternalMutation(req, req.agentKind, revision)
+    }
     const agent = this.agent
     if (!agent) {
       throw new Error("Agent not configured (sign in first)")
@@ -254,6 +277,59 @@ export class SessionServiceImpl
     }
     this.broadcastChangedBestEffort("create session")
     return { ...info, scope, ...(scopedProjectId ? { projectId: scopedProjectId } : {}) }
+  }
+
+  /** External (BYOA) sessions are Wanta-owned records; no kernel round trip is involved. */
+  private async createExternalMutation(
+    req: CreateSessionRequest,
+    agentKind: Exclude<CreateSessionRequest["agentKind"], undefined | "opencode">,
+    revision: number,
+  ): Promise<SessionInfo> {
+    const scope = normalizeRequestedSessionScope(req.scope)
+    const projectId = req.projectId?.trim() || undefined
+    await this.ensureMetadataLoaded(revision)
+    await this.ensureProjectsLoaded(revision)
+    await this.ensureExternalLoaded(revision)
+    const now = Date.now()
+    const record: ExternalSessionRecord = {
+      id: mintExternalSessionId(agentKind),
+      agentKind,
+      title: req.title?.trim() || "New session",
+      createdAt: now,
+      updatedAt: now,
+    }
+    const project = projectId ? this.projects.get(projectId) : undefined
+    const scopedProjectId = project && sessionScopeMatches(project.scope, scope) ? project.id : undefined
+    const nextExternal = new Map(this.externalSessions).set(record.id, record)
+    const nextMetadata = new Map(this.sessionMetadata)
+    this.setMetadataEntry(
+      record.id,
+      { scope, ...(scopedProjectId ? { projectId: scopedProjectId } : {}) },
+      nextMetadata,
+    )
+    await this.commitExternal(nextExternal)
+    try {
+      await this.commitMetadata(nextMetadata)
+    } catch (error) {
+      try {
+        const rollback = new Map(this.externalSessions)
+        rollback.delete(record.id)
+        await this.commitExternal(rollback)
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], "Failed to persist and roll back the created session")
+      }
+      throw error
+    }
+    this.broadcastChangedBestEffort("create session")
+    return {
+      id: record.id,
+      title: record.title,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      agentKind,
+      scope,
+      ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
+    }
   }
 
   public createProject(req: CreateProjectRequest): Promise<SessionProject> {
@@ -518,10 +594,28 @@ export class SessionServiceImpl
   }
 
   public async rename(req: { id: string; title: string }): Promise<void> {
+    if (isExternalSessionId(req.id)) {
+      return this.enqueueMutation((revision) => this.renameExternalMutation(req, revision))
+    }
     const agent = this.requireAgent()
     const revision = this.runtimeRevision
     await agent.renameSession(req.id, req.title)
     this.assertRuntimeMatches(agent, revision)
+    this.broadcastChangedBestEffort("rename session")
+  }
+
+  private async renameExternalMutation(req: { id: string; title: string }, revision: number): Promise<void> {
+    await this.ensureExternalLoaded(revision)
+    const current = this.externalSessions.get(req.id)
+    if (!current) {
+      throw new Error("Session not found")
+    }
+    const nextExternal = new Map(this.externalSessions).set(req.id, {
+      ...current,
+      title: req.title.trim() || current.title,
+      updatedAt: Date.now(),
+    })
+    await this.commitExternal(nextExternal)
     this.broadcastChangedBestEffort("rename session")
   }
 
@@ -674,6 +768,7 @@ export class SessionServiceImpl
     const candidates: string[] = []
     const failuresById = new Map<string, BatchSessionResult["failures"][number]>()
     const succeededIdSet = new Set<string>()
+    const externalRemovedIds = new Set<string>()
     const nextActivity = new Map(this.sessionActivityAt)
     const nextMetadata = new Map(this.sessionMetadata)
     for (const id of ids) {
@@ -702,7 +797,11 @@ export class SessionServiceImpl
           return
         }
         try {
-          await agent.deleteSession(id)
+          if (isExternalSessionId(id)) {
+            externalRemovedIds.add(id)
+          } else {
+            await agent.deleteSession(id)
+          }
           if (!this.runtimeMatches(agent, revision)) {
             runtimeChange.error = this.runtimeChangedError()
             return
@@ -737,6 +836,14 @@ export class SessionServiceImpl
         nextActivity.delete(id)
         nextMetadata.delete(id)
       }
+      if (externalRemovedIds.size > 0) {
+        await this.ensureExternalLoaded(revision)
+        const nextExternal = new Map(this.externalSessions)
+        for (const id of externalRemovedIds) {
+          nextExternal.delete(id)
+        }
+        await this.commitExternal(nextExternal)
+      }
       await Promise.all(
         succeededIds.map(async (sessionId) => {
           try {
@@ -755,12 +862,20 @@ export class SessionServiceImpl
   }
 
   private async removeMutation(id: string, revision: number): Promise<void> {
-    const agent = this.requireAgent()
+    const external = isExternalSessionId(id)
     await this.ensureActivityLoaded(revision)
     await this.ensureMetadataLoaded(revision)
-    this.assertRuntimeMatches(agent, revision)
-    await agent.deleteSession(id)
-    this.assertRuntimeMatches(agent, revision)
+    if (external) {
+      await this.ensureExternalLoaded(revision)
+      const nextExternal = new Map(this.externalSessions)
+      nextExternal.delete(id)
+      await this.commitExternal(nextExternal)
+    } else {
+      const agent = this.requireAgent()
+      this.assertRuntimeMatches(agent, revision)
+      await agent.deleteSession(id)
+      this.assertRuntimeMatches(agent, revision)
+    }
     const nextActivity = new Map(this.sessionActivityAt)
     const nextMetadata = new Map(this.sessionMetadata)
     nextActivity.delete(id)
@@ -901,6 +1016,55 @@ export class SessionServiceImpl
     if (this.sessionMetadata === previous) this.sessionMetadata = next
   }
 
+  private async ensureExternalLoaded(expectedRevision?: number): Promise<void> {
+    while (!this.externalLoaded) {
+      if (!this.externalLoadPromise) {
+        const revision = this.runtimeRevision
+        const loadPromise = (async () => {
+          const persisted = await this.deps.externalSessionStore?.read()
+          if (revision !== this.runtimeRevision) {
+            return
+          }
+          for (const [id, record] of persisted ?? []) {
+            this.externalSessions.set(id, record)
+          }
+          this.externalLoaded = true
+        })()
+        this.externalLoadPromise = loadPromise
+      }
+      const loadPromise = this.externalLoadPromise
+      try {
+        await loadPromise
+        if (expectedRevision !== undefined) this.assertRevisionMatches(expectedRevision)
+      } finally {
+        if (this.externalLoadPromise === loadPromise) {
+          this.externalLoadPromise = null
+        }
+      }
+    }
+    if (expectedRevision !== undefined) {
+      await Promise.resolve()
+      this.assertRevisionMatches(expectedRevision)
+    }
+  }
+
+  private async commitExternal(next: Map<string, ExternalSessionRecord>): Promise<void> {
+    const previous = this.externalSessions
+    await this.deps.externalSessionStore?.write(next)
+    if (this.externalSessions === previous) this.externalSessions = next
+  }
+
+  /** External (BYOA) session records rendered as base SessionInfo rows for the merge. */
+  private externalSessionInfos(): SessionInfo[] {
+    return [...this.externalSessions.values()].map((record) => ({
+      id: record.id,
+      title: record.title,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      agentKind: record.agentKind,
+    }))
+  }
+
   private async ensureProjectsLoaded(expectedRevision?: number): Promise<void> {
     while (!this.projectsLoaded) {
       if (!this.projectsLoadPromise) {
@@ -1021,7 +1185,10 @@ export class SessionServiceImpl
     await this.ensureActivityLoaded()
     await this.ensureMetadataLoaded()
     await this.ensureProjectsLoaded()
-    const session = (await this.agent.listSessions()).find((item) => item.id === id)
+    await this.ensureExternalLoaded()
+    const session = isExternalSessionId(id)
+      ? this.externalSessionInfos().find((item) => item.id === id)
+      : (await this.agent.listSessions()).find((item) => item.id === id)
     if (!session) {
       return null
     }

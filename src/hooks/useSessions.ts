@@ -1,3 +1,4 @@
+import type { AgentKind } from "../../electron/agent/contract/profile.ts"
 import type {
   BatchSessionResult,
   CreateProjectRequest,
@@ -84,6 +85,11 @@ function upsertSessionProject(projects: SessionProject[], project: SessionProjec
   return sortSessionProjects(next)
 }
 
+export interface CreateSessionOptions {
+  /** Agent that will drive the session; omitted for the built-in kernel. */
+  agentKind?: AgentKind
+}
+
 export interface UseSessions {
   sessions: SessionInfo[]
   taskSessions: SessionInfo[]
@@ -92,7 +98,7 @@ export interface UseSessions {
   loaded: boolean
   loadedScopeKey: string | null
   error: UserFacingError | null
-  create: (title?: string, projectId?: string) => Promise<SessionInfo>
+  create: (title?: string, projectId?: string, options?: CreateSessionOptions) => Promise<SessionInfo>
   listArchived: () => Promise<SessionInfo[]>
   createProject: (req: Omit<CreateProjectRequest, "scope">) => Promise<SessionProject>
   assignSessionProject: (sessionId: string, projectId?: string) => Promise<void>
@@ -323,9 +329,14 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   }, [enabled, sessionService, refresh, runRefresh])
 
   const create = React.useCallback(
-    async (title?: string, projectId?: string) => {
+    async (title?: string, projectId?: string, options?: CreateSessionOptions) => {
       const mutationScopeKey = scopeKey
-      const info = await sessionService.invoke("create", { projectId, scope: requestScope, title })
+      const info = await sessionService.invoke("create", {
+        ...(options?.agentKind ? { agentKind: options.agentKind } : {}),
+        projectId,
+        scope: requestScope,
+        title,
+      })
       if (!isCurrentScope(mutationScopeKey)) {
         return info
       }

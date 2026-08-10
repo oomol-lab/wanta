@@ -1,3 +1,4 @@
+import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
 import type {
   AgentMode,
   AgentPermissionMode,
@@ -14,8 +15,10 @@ import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
 import type { UseSessionTitleGenerationResult } from "./use-session-title-generation.ts"
 import type { UseChat } from "@/hooks/useChat"
+import type { CreateSessionOptions } from "@/hooks/useSessions"
 
 import * as React from "react"
+import { isExternalAgentKind } from "../../../electron/agent/contract/profile.ts"
 import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
 import { buildSessionTitleInput, rememberTurnRetryOptions, sessionScopeKey } from "./app-shell-model.ts"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
@@ -58,6 +61,7 @@ export function useComposerSubmission({
   createSession,
   currentScopeKey,
   displayedPermissionMode,
+  draftAgentKind,
   messages,
   messagesLoaded,
   teamSkills,
@@ -78,9 +82,11 @@ export function useComposerSubmission({
   activeProject?: SessionProject
   activeProjectContext?: ChatProjectContext
   activeSession?: SessionInfo
-  createSession: (title?: string, projectId?: string) => Promise<SessionInfo>
+  createSession: (title?: string, projectId?: string, options?: CreateSessionOptions) => Promise<SessionInfo>
   currentScopeKey: string
   displayedPermissionMode: AgentPermissionMode
+  /** Agent kind applied when the first send creates the session. */
+  draftAgentKind: AgentKind
   messages: Parameters<typeof buildSessionTitleInput>[0]
   messagesLoaded: boolean
   teamSkills: ChatTeamSkillContext[]
@@ -201,7 +207,11 @@ export function useComposerSubmission({
         if (!sessionId) {
           let info: SessionInfo
           try {
-            info = await createSession(fallbackTitle, effectiveProjectContext?.id ?? activeProject?.id)
+            info = await createSession(
+              fallbackTitle,
+              effectiveProjectContext?.id ?? activeProject?.id,
+              isExternalAgentKind(draftAgentKind) ? { agentKind: draftAgentKind } : undefined,
+            )
           } catch (error) {
             if (bridgeEmptySend && isCurrentSendTarget()) {
               setPendingChatTransition(null)
@@ -287,6 +297,7 @@ export function useComposerSubmission({
       createSession,
       currentScopeKey,
       displayedPermissionMode,
+      draftAgentKind,
       messages,
       messagesLoaded,
       teamSkills,

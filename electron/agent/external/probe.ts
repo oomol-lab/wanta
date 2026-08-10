@@ -1,0 +1,153 @@
+import type { ExternalAgentKind } from "../contract/profile.ts"
+import type { ExternalAgentBinaryProbe, ExternalAgentLoginProbe, ExternalAgentRuntimeStatus } from "./status.ts"
+
+import { execFile } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { promisify } from "node:util"
+import { detectCliExecutable, pathExists } from "../../agents/catalog.ts"
+import { resolveUserCommandPath } from "../../command-path.ts"
+import { logDiagnosticOnChange } from "../../diagnostics-log.ts"
+import { ACP_AGENT_REGISTRY } from "../acp/registry.ts"
+import { AGENT_PROFILES, EXTERNAL_AGENT_KINDS } from "../contract/profile.ts"
+
+// BYOA runtime probing: binary detection (PATH scan + --version verification)
+// and best-effort login-state detection, exposed to the UI as a resource.
+// Login probing is fail-open by design: only an explicit "logged_out" should
+// drive login guidance; "unknown" must never block using an agent — the agent
+// itself remains the authority when a session actually starts.
+
+const execFileAsync = promisify(execFile)
+
+const versionProbeTimeoutMs = 5_000
+
+export type { ExternalAgentBinaryProbe, ExternalAgentLoginProbe, ExternalAgentRuntimeStatus } from "./status.ts"
+
+export interface ExternalAgentProbeOptions {
+  env?: NodeJS.ProcessEnv
+  homeDirectory?: string
+  /** Extra directories searched before PATH (dev node_modules/.bin, bundled Resources/bin). */
+  extraBinDirectories?: readonly string[]
+}
+
+async function probeCommandPath(options: ExternalAgentProbeOptions): Promise<string> {
+  const env = options.env ?? process.env
+  const base = await resolveUserCommandPath({ env, homeDirectory: options.homeDirectory })
+  const extras = (options.extraBinDirectories ?? []).filter(Boolean)
+  return extras.length > 0 ? `${extras.join(path.delimiter)}${path.delimiter}${base}` : base
+}
+
+async function probeBinary(
+  commands: readonly string[],
+  versionArgs: readonly string[],
+  options: ExternalAgentProbeOptions,
+  pathEnv: string,
+): Promise<ExternalAgentBinaryProbe> {
+  const env = options.env ?? process.env
+  const detected = await detectCliExecutable(commands, {
+    env,
+    homeDirectory: options.homeDirectory,
+    pathEnv,
+  })
+  if (!detected) {
+    return { status: "not_found" }
+  }
+  try {
+    const { stdout } = await execFileAsync(detected.executablePath, [...versionArgs], {
+      timeout: versionProbeTimeoutMs,
+      maxBuffer: 64 * 1024,
+      env: { ...env, PATH: pathEnv },
+    })
+    const firstLine = stdout
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .find(Boolean)
+    const version = firstLine?.match(/\d+\.\d+[\w.-]*/u)?.[0] ?? firstLine
+    return { status: "detected", path: detected.executablePath, ...(version ? { version } : {}) }
+  } catch (error) {
+    return {
+      status: "error",
+      message: `Detected at ${detected.executablePath} but --version failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    }
+  }
+}
+
+/**
+ * Claude Code login state from the CLI's own config file. Only key presence is
+ * inspected; no secret ever leaves this function (~/.claude.json holds account
+ * profile fields, credentials live in the OS keychain).
+ */
+async function probeClaudeLogin(options: ExternalAgentProbeOptions): Promise<ExternalAgentLoginProbe> {
+  const env = options.env ?? process.env
+  const home = options.homeDirectory ?? os.homedir()
+  try {
+    const raw = await readFile(path.join(home, ".claude.json"), "utf8")
+    const parsed = JSON.parse(raw) as { oauthAccount?: { emailAddress?: unknown; displayName?: unknown } }
+    if (parsed.oauthAccount && typeof parsed.oauthAccount === "object") {
+      const account =
+        typeof parsed.oauthAccount.emailAddress === "string"
+          ? parsed.oauthAccount.emailAddress
+          : typeof parsed.oauthAccount.displayName === "string"
+            ? parsed.oauthAccount.displayName
+            : undefined
+      return { status: "logged_in", ...(account ? { account } : {}) }
+    }
+    if (env["ANTHROPIC_API_KEY"]?.trim()) {
+      return { status: "logged_in" }
+    }
+    return { status: "logged_out" }
+  } catch {
+    return env["ANTHROPIC_API_KEY"]?.trim() ? { status: "logged_in" } : { status: "unknown" }
+  }
+}
+
+async function probeLoginMarker(
+  markerPath: string | undefined,
+  options: ExternalAgentProbeOptions,
+): Promise<ExternalAgentLoginProbe> {
+  if (!markerPath) {
+    return { status: "unknown" }
+  }
+  const home = options.homeDirectory ?? os.homedir()
+  return (await pathExists(path.join(home, markerPath))) ? { status: "logged_in" } : { status: "unknown" }
+}
+
+export async function probeExternalAgent(
+  kind: ExternalAgentKind,
+  options: ExternalAgentProbeOptions = {},
+): Promise<ExternalAgentRuntimeStatus> {
+  const profile = AGENT_PROFILES[kind]
+  const loginHint = profile.auth.kind === "agent-cli" ? profile.auth.loginCommand : ""
+  const pathEnv = await probeCommandPath(options)
+  let status: ExternalAgentRuntimeStatus
+  if (kind === "claude-code") {
+    const [binary, login] = await Promise.all([
+      probeBinary(["claude"], ["--version"], options, pathEnv),
+      probeClaudeLogin(options),
+    ])
+    status = { kind, displayName: profile.displayName, binary, login, loginHint }
+  } else {
+    const registration = ACP_AGENT_REGISTRY[kind]
+    const [binary, login] = await Promise.all([
+      probeBinary(registration.cliCommands, registration.versionArgs, options, pathEnv),
+      probeLoginMarker(registration.loginMarkerPath, options),
+    ])
+    status = { kind, displayName: profile.displayName, binary, login, loginHint }
+  }
+  logDiagnosticOnChange(`byoa-probe:${kind}`, "byoa-probe", "external agent probe", {
+    kind,
+    binaryStatus: status.binary.status,
+    ...(status.binary.status === "detected" ? { version: status.binary.version ?? null } : {}),
+    loginStatus: status.login.status,
+  })
+  return status
+}
+
+export async function probeExternalAgents(
+  options: ExternalAgentProbeOptions = {},
+): Promise<ExternalAgentRuntimeStatus[]> {
+  return Promise.all(EXTERNAL_AGENT_KINDS.map((kind) => probeExternalAgent(kind, options)))
+}

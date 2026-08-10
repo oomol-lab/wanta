@@ -1,5 +1,8 @@
 import type { AgentConnectionStatus } from "../agent/contract/event.ts"
+import type { ExternalAgentKind } from "../agent/contract/profile.ts"
 import type { ChatEmit } from "../agent/event-translator.ts"
+import type { ExternalAgentAdapter } from "../agent/external/adapter-base.ts"
+import type { ExternalAgentRuntimeStatus } from "../agent/external/probe.ts"
 import type { OpencodeAgentAdapter } from "../agent/opencode-adapter.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
@@ -65,6 +68,7 @@ import { copyFile, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { ActivityMetrics } from "../activity-metrics.ts"
+import { externalAgentKindForSessionId } from "../agent/external/session-id.ts"
 import { createOpencodeMessageId } from "../agent/opencode-id.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
@@ -275,6 +279,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private agent: OpencodeAgentAdapter | null
   private bridged = false
   private agentUnsubscribe: (() => void) | null = null
+  /** External (BYOA) adapters, app-lifetime, keyed by agent kind. */
+  private externalAgents: ReadonlyMap<ExternalAgentKind, ExternalAgentAdapter> = new Map()
+  private externalAgentUnsubscribes: Array<() => void> = []
   private readonly userStops = new UserStopTracker()
   private emittedMessageErrors = new Map<string, Set<string>>()
   private readonly generations = new GenerationRegistry()
@@ -381,6 +388,53 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.managedUserMessageIdsBySession.clear()
     this.deps.trustedAttachmentPaths?.clear()
     this.scopeMutationQueue = Promise.resolve()
+  }
+
+  /**
+   * Register app-lifetime external (BYOA) adapters. Their events run through
+   * the same bridge pipeline as the kernel; connection-status events stay
+   * per-adapter and never touch the kernel's global agent status.
+   */
+  public setExternalAgents(agents: ReadonlyMap<ExternalAgentKind, ExternalAgentAdapter>): void {
+    for (const unsubscribe of this.externalAgentUnsubscribes) {
+      unsubscribe()
+    }
+    this.externalAgentUnsubscribes = []
+    this.externalAgents = agents
+    const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
+    for (const adapter of agents.values()) {
+      this.externalAgentUnsubscribes.push(
+        adapter.onEvent((event) => {
+          if (event.event === "connectionStatus") {
+            return
+          }
+          this.processAgentEvent(emit, event)
+        }),
+      )
+    }
+  }
+
+  public async getExternalAgents(): Promise<ExternalAgentRuntimeStatus[]> {
+    const statuses = await Promise.all(
+      [...this.externalAgents.values()].map(async (adapter) => {
+        try {
+          return await adapter.runtimeStatus()
+        } catch (error) {
+          logDiagnostic("chat-service", "external agent probe failed", { error, kind: adapter.kind }, "warn")
+          return null
+        }
+      }),
+    )
+    return statuses.filter((status): status is ExternalAgentRuntimeStatus => Boolean(status))
+  }
+
+  /** Resolve the backend that owns a session id (kernel or an external adapter). */
+  private chatBackendFor(sessionId: string): OpencodeAgentAdapter | ExternalAgentAdapter | null {
+    const kind = externalAgentKindForSessionId(sessionId)
+    if (kind) {
+      return this.externalAgents.get(kind) ?? null
+    }
+    return this.agent
   }
 
   public setAgentStatus(status: AgentRuntimeStatus): void {
@@ -641,9 +695,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.scheduleGenerationInactivityWatchdog(generationSessionId)
       }
     }
-    if (displayed.event === "messageDelta" || displayed.event === "messageReasoningDelta") {
+    if ((displayed.event === "messageDelta" || displayed.event === "messageReasoningDelta") && this.streamEventBuffer) {
       this.eventMetrics.record(`stream-input:${displayed.event}`)
-      this.streamEventBuffer?.enqueue(displayed)
+      this.streamEventBuffer.enqueue(displayed)
     } else {
       this.sendBestEffort(emit, displayed.event, displayed.data, { sessionId: displayedSessionId })
     }
@@ -942,11 +996,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private async answerAutomaticPermission(request: ChatPermissionRequest, reply: "once" | "reject"): Promise<void> {
-    if (!this.agent) throw new Error("Agent not configured")
+    const backend = this.chatBackendFor(request.sessionId)
+    if (!backend) throw new Error("Agent not configured")
     let lastError: unknown
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
-        await this.agent.send({
+        await backend.send({
           type: "permission-response",
           sessionId: request.sessionId,
           requestId: request.id,
@@ -957,7 +1012,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       } catch (error) {
         lastError = error
         try {
-          const stillPending = (await this.agent.getPendingPermissions(request.sessionId)).some(
+          const stillPending = (await backend.getPendingPermissions(request.sessionId)).some(
             (pending) => pending.id === request.id,
           )
           if (!stillPending) {
@@ -983,12 +1038,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       data: unknown,
     ) => Promise<void>,
   ): Promise<void> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend) {
       return
     }
     let permissions: ChatPermissionRequest[]
     try {
-      permissions = await this.agent.getPendingPermissions(sessionId)
+      permissions = await backend.getPendingPermissions(sessionId)
     } catch (error) {
       console.warn("[wanta] failed to inspect pending permissions:", error)
       logDiagnostic("chat-service", "failed to inspect pending permissions", { error, sessionId }, "warn")
@@ -1138,8 +1194,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private async currentTurnIsComplete(sessionId: string, generation: SessionGeneration): Promise<boolean> {
-    if (!this.agent) return false
-    const messages = await withTimeout(this.agent.getMessages(sessionId), 1_000, "idle history verification").catch(
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend) return false
+    const messages = await withTimeout(backend.getMessages(sessionId), 1_000, "idle history verification").catch(
       () => null,
     )
     if (!messages || messages.length === 0) return false
@@ -1389,7 +1446,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private async stopSessionGeneration(sessionId: string, options: StopSessionGenerationOptions): Promise<void> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend) {
       return
     }
     const generation = this.generations.get(sessionId)
@@ -1399,7 +1457,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const stoppedAt = Date.now()
     if (options.abortAgent) {
       try {
-        await this.agent.send({ type: "cancel", sessionId })
+        await backend.send({ type: "cancel", sessionId })
       } catch (error) {
         if (options.throwOnAbortFailure && (messageId || !generation)) {
           this.userStops.delete(sessionId)
@@ -1468,6 +1526,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async sendMessage(req: SendMessageRequest): Promise<void> {
+    const externalKind = externalAgentKindForSessionId(req.sessionId)
+    if (externalKind) {
+      return this.sendExternalMessage(req, externalKind)
+    }
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
@@ -1671,6 +1733,98 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (attachmentsRecorded && !submitted) {
         await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
       }
+      throw error
+    }
+  }
+
+  /**
+   * External (BYOA) turn pipeline: no managed artifact/process directories, no
+   * Link/team scope, no Wanta system prompt tail — the agent owns models, auth,
+   * and workspace behavior. Wanta contributes run tracking, permission-mode
+   * projection, and the shared event bridge.
+   */
+  private async sendExternalMessage(req: SendMessageRequest, kind: ExternalAgentKind): Promise<void> {
+    const adapter = this.externalAgents.get(kind)
+    if (!adapter) {
+      throw new Error("This agent is not available.")
+    }
+    if (req.attachments?.length) {
+      throw new Error("Attachments are not supported for this agent yet.")
+    }
+    if (this.generations.has(req.sessionId)) {
+      throw new Error("A generation is already active for this session.")
+    }
+    this.setSessionPermissionModeValue(
+      req.sessionId,
+      req.permissionMode ?? this.sessionPermissionMode(req.sessionId),
+      req.permissionModeVersion,
+    )
+    const userMessageId = createOpencodeMessageId()
+    const generation = this.beginSessionGeneration(req.sessionId, userMessageId)
+    this.createActiveRun(req, generation)
+    this.userStops.delete(req.sessionId)
+    this.connectionFailedSessions.delete(req.sessionId)
+    this.clearMessageErrorSignatures(req.sessionId)
+    this.emitSessionActivity(req.sessionId)
+    try {
+      const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
+      if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
+        this.clearSessionGeneration(req.sessionId, generation.id)
+        return
+      }
+      if (trustedProjectRoot) {
+        this.trustedAccess.setProjectRoot(req.sessionId, trustedProjectRoot)
+      }
+      try {
+        await adapter.applyPermissionMode?.(req.sessionId, this.sessionPermissionMode(req.sessionId))
+      } catch (error) {
+        logDiagnostic(
+          "chat-service",
+          "failed to project permission mode onto external agent",
+          { error, kind, sessionId: req.sessionId },
+          "warn",
+        )
+      }
+      this.activeRuns.update(req.sessionId, { phase: "submitted" })
+      this.scheduleGenerationSubmitWatchdog(req.sessionId, generation.id)
+      void adapter
+        .send(
+          {
+            type: "prompt",
+            sessionId: req.sessionId,
+            text: req.text,
+            messageId: userMessageId,
+            ...(trustedProjectRoot ? { outputProjectRoot: trustedProjectRoot } : {}),
+          },
+          { signal: generation.controller.signal },
+        )
+        .then(() => {
+          if (
+            this.isCurrentGeneration(req.sessionId, generation.id) &&
+            !generation.controller.signal.aborted &&
+            !this.activeAssistantMessages.has(req.sessionId)
+          ) {
+            this.scheduleGenerationStartWatchdog(req.sessionId, generation.id)
+          }
+        })
+        .catch((error: unknown) => {
+          if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
+            this.clearSessionGeneration(req.sessionId, generation.id)
+            return
+          }
+          const messageId = this.activeAssistantMessages.get(req.sessionId)
+          this.clearSessionGeneration(req.sessionId, generation.id)
+          this.activeAssistantMessages.delete(req.sessionId)
+          this.activeToolParts.delete(req.sessionId)
+          this.emitMessageError(
+            this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+            req.sessionId,
+            errorMessage(error),
+            messageId,
+          )
+        })
+    } catch (error) {
+      this.clearSessionGeneration(req.sessionId, generation.id)
       throw error
     }
   }
@@ -2016,10 +2170,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend) {
       return []
     }
-    const messages = await this.agent.getMessages(sessionId)
+    const messages = await backend.getMessages(sessionId)
     const [authorizationOverlays, stoppedGenerations, userAttachmentRecords] = await Promise.all([
       this.outputPersistence.overlaysFor(sessionId),
       this.outputPersistence.stoppedFor(sessionId),
@@ -2037,12 +2192,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend) {
       return []
     }
     const sessionIds = [sessionId, ...this.subagentSessions.childSessionIds(sessionId)]
     const questions: ChatQuestionRequest[] = []
-    const sessionQuestions = await this.agent.getPendingQuestionsForSessions(sessionIds)
+    const sessionQuestions = await backend.getPendingQuestionsForSessions(sessionIds)
     for (const request of sessionQuestions) {
       const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
       questions.push(displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId })
@@ -2051,10 +2207,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async answerQuestion(req: AnswerQuestionRequest): Promise<void> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(req.sessionId)
+    if (!backend) {
       throw new Error("Agent not configured (sign in first)")
     }
-    await this.agent.send({
+    await backend.send({
       type: "question-response",
       sessionId: req.sessionId,
       requestId: req.requestId,
@@ -2066,11 +2223,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async rejectQuestion(req: RejectQuestionRequest): Promise<void> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(req.sessionId)
+    if (!backend) {
       throw new Error("Agent not configured (sign in first)")
     }
     await withTimeout(
-      this.agent.send({
+      backend.send({
         type: "question-response",
         sessionId: req.sessionId,
         requestId: req.requestId,
@@ -2085,13 +2243,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getPendingPermissions(sessionId: string): Promise<ChatPermissionRequest[]> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend) {
       return []
     }
     const sessionIds = [sessionId, ...this.subagentSessions.childSessionIds(sessionId)]
     const pendingPermissions: ChatPermissionRequest[] = []
     const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
-    const permissions = await this.agent.getPendingPermissionsForSessions(sessionIds)
+    const permissions = await backend.getPendingPermissionsForSessions(sessionIds)
     for (const request of permissions) {
       if (!this.answerLocalAccessPermission(emit, request)) {
         const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
@@ -2106,16 +2265,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async answerPermission(req: AnswerPermissionRequest): Promise<void> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(req.sessionId)
+    if (!backend) {
       throw new Error("Agent not configured (sign in first)")
     }
     let request = this.pendingPermissionRequest(req.sessionId, req.requestId)
     const sessionIds = [req.sessionId, ...this.subagentSessions.childSessionIds(req.sessionId)]
     if (!request) {
       try {
-        request = (await this.agent.getPendingPermissionsForSessions(sessionIds)).find(
-          (item) => item.id === req.requestId,
-        )
+        request = (await backend.getPendingPermissionsForSessions(sessionIds)).find((item) => item.id === req.requestId)
         if (!request) {
           this.activeRuns.removeBlockingRequest(req.sessionId, req.requestId)
           this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
@@ -2139,11 +2297,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     }
     const sourceSessionId = request.sessionId
-    await this.agent.send({
+    // Kernel sessions keep "always" as a Wanta-local grant (downgraded to "once"
+    // toward OpenCode); external agents receive "always" verbatim so they can
+    // persist the approval in their own native rule system.
+    const forwardedReply =
+      req.reply === "always" && !externalAgentKindForSessionId(sourceSessionId) ? "once" : req.reply
+    await backend.send({
       type: "permission-response",
       sessionId: sourceSessionId,
       requestId: req.requestId,
-      reply: req.reply === "always" ? "once" : req.reply,
+      reply: forwardedReply,
     })
     if (req.reply !== "reject" && request) {
       this.rememberTrustedPermissionResources(req.sessionId, request)

@@ -1,3 +1,4 @@
+import type { AgentKind } from "../agent/contract/profile.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { ServiceName } from "@oomol/connection"
 
@@ -8,6 +9,8 @@ export interface SessionInfo {
   title: string
   createdAt: number
   updatedAt: number
+  /** Which agent drives this session; absent means the built-in kernel. */
+  agentKind?: AgentKind
   scope?: SessionScope
   projectId?: string
   permissionMode?: SessionPermissionMode
@@ -128,6 +131,8 @@ export interface CreateSessionRequest {
   projectId?: string
   scope: SessionScope
   title?: string
+  /** Agent that will drive the session; defaults to the built-in kernel. */
+  agentKind?: AgentKind
 }
 
 export interface BatchSessionRequest {

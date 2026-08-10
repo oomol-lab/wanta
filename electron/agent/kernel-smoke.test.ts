@@ -35,6 +35,7 @@ test.runIf(enabled)(
           apiKey: "smoke-test-key",
           modelName: "smoke",
           displayName: "Smoke",
+          apiKeyConfigured: true,
           supportsImages: false,
           supportsToolCalls: true,
         },

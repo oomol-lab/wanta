@@ -450,6 +450,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return this.externalAdapterFor(sessionId).sessionSelection(sessionId)
   }
 
+  public async warmExternalAgent(kind: ExternalAgentKind): Promise<void> {
+    await this.externalAgents.get(kind)?.warmCatalog()
+  }
+
   private externalAdapterFor(sessionId: string): ExternalAgentAdapter {
     const kind = externalAgentKindForSessionId(sessionId)
     const adapter = kind ? this.externalAgents.get(kind) : undefined

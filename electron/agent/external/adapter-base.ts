@@ -102,6 +102,15 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
     return {}
   }
 
+  /**
+   * Optional pre-population of the model/effort catalog before any session
+   * exists (called when the user focuses the agent in the composer). Default:
+   * nothing to warm.
+   */
+  public warmCatalog(): Promise<void> {
+    return Promise.resolve()
+  }
+
   /** Release all in-memory state of a deleted session and its on-disk transcript. */
   public forgetSession(sessionId: string): void {
     this.transcript.forgetSession(sessionId)

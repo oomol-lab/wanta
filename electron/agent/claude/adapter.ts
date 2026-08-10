@@ -162,16 +162,18 @@ function isClaudeEffortId(value: string): value is ClaudeEffortId {
 }
 
 /**
- * Static baseline catalog: the CLI's stable model aliases, replaced by the live
- * model list (supportedModels) once a session is running. Labels are
- * agent-native vocabulary and rendered verbatim.
+ * Static baseline catalog, replaced by the live list (supportedModels) once a
+ * query is available. Ids and labels verified against CLI 2.1.226
+ * `supportedModels()` output; subscriptions may differ, which the live refresh
+ * absorbs. Labels are agent-native vocabulary and rendered verbatim.
  */
 function staticClaudeCatalog(): ExternalAgentCatalog {
   return {
     models: [
-      { id: "opus", label: "Opus" },
-      { id: "sonnet", label: "Sonnet" },
-      { id: "haiku", label: "Haiku" },
+      { id: "opus[1m]", label: "Opus (1M context)", description: "Opus 5 with 1M context" },
+      { id: "claude-fable-5[1m]", label: "Fable", description: "Fable 5" },
+      { id: "sonnet", label: "Sonnet", description: "Sonnet 5" },
+      { id: "haiku", label: "Haiku", description: "Haiku 4.5" },
     ],
     efforts: [
       { id: "low", label: "Low" },
@@ -202,6 +204,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
   private readonly desiredEfforts = new Map<string, ClaudeEffortId>()
   private catalog: ExternalAgentCatalog = staticClaudeCatalog()
   private catalogRefreshed = false
+  private catalogWarmup: Promise<void> | undefined
   private readonly pendingSdkPermissions = new Map<string, PendingSdkPermission>()
   private probeCache: { status: ExternalAgentRuntimeStatus; expiresAt: number } | undefined
   private probeInFlight: Promise<ExternalAgentRuntimeStatus> | undefined
@@ -435,9 +438,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     if (this.catalogRefreshed) {
       return
     }
-    const handle = session.queryHandle as unknown as {
-      supportedModels?: () => Promise<Array<{ value?: unknown; displayName?: unknown; description?: unknown }>>
-    }
+    const handle = session.queryHandle as unknown as { supportedModels?: () => Promise<unknown> }
     if (typeof handle.supportedModels !== "function") {
       return
     }
@@ -445,17 +446,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     void handle
       .supportedModels()
       .then((models) => {
-        const options = (Array.isArray(models) ? models : [])
-          .filter((model) => typeof model.value === "string" && model.value.length > 0)
-          .map((model) => ({
-            id: model.value as string,
-            label:
-              typeof model.displayName === "string" && model.displayName ? model.displayName : (model.value as string),
-            ...(typeof model.description === "string" && model.description ? { description: model.description } : {}),
-          }))
-        if (options.length > 0) {
-          this.catalog = { ...this.catalog, models: options }
-        }
+        this.adoptSupportedModels(models)
       })
       .catch((error: unknown) => {
         // Keep the static baseline and allow a later session to retry.
@@ -464,6 +455,73 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
           error: error instanceof Error ? error.message : String(error),
         })
       })
+  }
+
+  private adoptSupportedModels(models: unknown): void {
+    const options = (Array.isArray(models) ? models : [])
+      .map((model) => model as { value?: unknown; displayName?: unknown; description?: unknown })
+      .filter((model) => typeof model.value === "string" && model.value.length > 0)
+      .map((model) => ({
+        id: model.value as string,
+        label: typeof model.displayName === "string" && model.displayName ? model.displayName : (model.value as string),
+        ...(typeof model.description === "string" && model.description ? { description: model.description } : {}),
+      }))
+    if (options.length > 0) {
+      this.catalog = { ...this.catalog, models: options }
+    }
+  }
+
+  /**
+   * Pre-populate the live model list before any user session exists by
+   * spawning a short-lived idle query (no prompt is ever sent). The static
+   * baseline stays in place when warming fails.
+   */
+  public override async warmCatalog(): Promise<void> {
+    if (this.catalogRefreshed) {
+      return
+    }
+    this.catalogWarmup ??= this.runCatalogWarmup().finally(() => {
+      this.catalogWarmup = undefined
+    })
+    await this.catalogWarmup
+  }
+
+  private async runCatalogWarmup(): Promise<void> {
+    const status = await this.runtimeStatus()
+    if (status.binary.status !== "detected") {
+      return
+    }
+    const cwd = path.join(this.scratchRootDir, "warmup")
+    await mkdir(cwd, { recursive: true })
+    const commandPathValue = await this.commandPath()
+    const inputQueue = new AsyncInputQueue<SDKUserMessage>()
+    const handle = this.queryFn({
+      prompt: inputQueue,
+      options: {
+        cwd,
+        pathToClaudeCodeExecutable: status.binary.path,
+        env: { ...process.env, PATH: commandPathValue },
+      },
+    })
+    try {
+      const probe = handle as unknown as { supportedModels?: () => Promise<unknown> }
+      if (typeof probe.supportedModels !== "function") {
+        return
+      }
+      this.adoptSupportedModels(await probe.supportedModels())
+      this.catalogRefreshed = true
+    } catch (error) {
+      logDiagnostic("claude-code-adapter", "catalog warmup failed", {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      inputQueue.end()
+      try {
+        handle.close()
+      } catch {
+        // Already gone.
+      }
+    }
   }
 
   protected override handleForgetSession(sessionId: string): void {

@@ -483,7 +483,12 @@ describe("ClaudeCodeAgentAdapter", () => {
   it("exposes the static model and effort catalog on runtime status", async () => {
     const { adapter } = await createHarness()
     const status = await adapter.runtimeStatus()
-    expect(status.catalog?.models.map((model) => model.id)).toEqual(["opus", "sonnet", "haiku"])
+    expect(status.catalog?.models.map((model) => model.id)).toEqual([
+      "opus[1m]",
+      "claude-fable-5[1m]",
+      "sonnet",
+      "haiku",
+    ])
     expect(status.catalog?.efforts.map((effort) => effort.id)).toEqual(["low", "medium", "high", "xhigh"])
   })
 })

@@ -10,55 +10,63 @@ interface HereDocument {
   stripLeadingTabs: boolean
 }
 
+interface ShellLexicalState {
+  doubleQuoted: boolean
+  escaped: boolean
+  singleQuoted: boolean
+}
+
 const shellAssignmentPattern = /^[A-Za-z_][A-Za-z0-9_]*=/u
 const envOptionsWithValue = new Set(["-C", "-S", "-u", "--argv0", "--chdir", "--split-string", "--unset"])
 const shellExpansionCharacters = new Set(["`", "$", "*", "?", "[", "]", "{", "}", "|", "&", ";", "<", ">"])
 
-function hereDocumentDeclarations(line: string): HereDocument[] {
+function hereDocumentDeclarations(
+  line: string,
+  state: ShellLexicalState,
+): { continues: boolean; declarations: HereDocument[] } {
   const declarations: HereDocument[] = []
-  let singleQuoted = false
-  let doubleQuoted = false
-  let escaped = false
+  const hasLineEnding = /\r?\n$/u.test(line)
+  const shellText = line.replace(/\r?\n$/u, "")
 
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index] ?? ""
-    const previous = line[index - 1]
-    const next = line[index + 1]
-    if (escaped) {
-      escaped = false
+  for (let index = 0; index < shellText.length; index += 1) {
+    const char = shellText[index] ?? ""
+    const previous = shellText[index - 1]
+    const next = shellText[index + 1]
+    if (state.escaped) {
+      state.escaped = false
       continue
     }
-    if (char === "\\" && !singleQuoted) {
-      escaped = true
+    if (char === "\\" && !state.singleQuoted) {
+      state.escaped = true
       continue
     }
-    if (char === "'" && !doubleQuoted) {
-      singleQuoted = !singleQuoted
+    if (char === "'" && !state.doubleQuoted) {
+      state.singleQuoted = !state.singleQuoted
       continue
     }
-    if (char === '"' && !singleQuoted) {
-      doubleQuoted = !doubleQuoted
+    if (char === '"' && !state.singleQuoted) {
+      state.doubleQuoted = !state.doubleQuoted
       continue
     }
-    if (singleQuoted || doubleQuoted) {
+    if (state.singleQuoted || state.doubleQuoted) {
       continue
     }
     if (char === "#" && (index === 0 || /[\s;&|()]/u.test(previous ?? ""))) {
       break
     }
-    if (char !== "<" || next !== "<" || previous === "<" || line[index + 2] === "<") {
+    if (char !== "<" || next !== "<" || previous === "<" || shellText[index + 2] === "<") {
       continue
     }
 
     let cursor = index + 2
-    const stripLeadingTabs = line[cursor] === "-"
+    const stripLeadingTabs = shellText[cursor] === "-"
     if (stripLeadingTabs) {
       cursor += 1
     }
-    while (line[cursor] === " " || line[cursor] === "\t") {
+    while (shellText[cursor] === " " || shellText[cursor] === "\t") {
       cursor += 1
     }
-    if (line[cursor] === "#") {
+    if (shellText[cursor] === "#") {
       break
     }
 
@@ -67,8 +75,8 @@ function hereDocumentDeclarations(line: string): HereDocument[] {
     let delimiterSingleQuoted = false
     let delimiterDoubleQuoted = false
     let delimiterEscaped = false
-    for (; cursor < line.length; cursor += 1) {
-      const delimiterChar = line[cursor] ?? ""
+    for (; cursor < shellText.length; cursor += 1) {
+      const delimiterChar = shellText[cursor] ?? ""
       if (delimiterEscaped) {
         delimiter += delimiterChar
         delimiterStarted = true
@@ -102,37 +110,14 @@ function hereDocumentDeclarations(line: string): HereDocument[] {
     declarations.push({ delimiter, stripLeadingTabs })
     index = cursor - 1
   }
-  return declarations
-}
-
-function hasEscapedLineEnding(line: string): boolean {
-  const withoutLineEnding = line.replace(/\r?\n$/u, "")
-  let singleQuoted = false
-  let doubleQuoted = false
-  let escaped = false
-  for (let index = 0; index < withoutLineEnding.length; index += 1) {
-    const char = withoutLineEnding[index] ?? ""
-    if (escaped) {
-      escaped = false
-      continue
-    }
-    if (char === "\\" && !singleQuoted) {
-      escaped = true
-      continue
-    }
-    if (char === "'" && !doubleQuoted) {
-      singleQuoted = !singleQuoted
-      continue
-    }
-    if (char === '"' && !singleQuoted) {
-      doubleQuoted = !doubleQuoted
-      continue
-    }
-    if (!singleQuoted && !doubleQuoted && char === "#" && (index === 0 || /[\s;&|()]/u.test(line[index - 1] ?? ""))) {
-      return false
-    }
+  const escapedLineEnding = hasLineEnding && state.escaped
+  if (escapedLineEnding) {
+    state.escaped = false
   }
-  return escaped
+  return {
+    continues: escapedLineEnding || state.singleQuoted || state.doubleQuoted,
+    declarations,
+  }
 }
 
 /**
@@ -145,6 +130,7 @@ export function commandWithoutHereDocumentBodies(command: string): string {
   const awaitingContinuation: HereDocument[] = []
   const pending: HereDocument[] = []
   const result: string[] = []
+  const lexicalState: ShellLexicalState = { doubleQuoted: false, escaped: false, singleQuoted: false }
 
   for (const line of lines) {
     if (pending.length > 0) {
@@ -159,8 +145,9 @@ export function commandWithoutHereDocumentBodies(command: string): string {
     }
 
     result.push(line)
-    awaitingContinuation.push(...hereDocumentDeclarations(line))
-    if (!hasEscapedLineEnding(line)) {
+    const scan = hereDocumentDeclarations(line, lexicalState)
+    awaitingContinuation.push(...scan.declarations)
+    if (!scan.continues) {
       pending.push(...awaitingContinuation)
       awaitingContinuation.length = 0
     }

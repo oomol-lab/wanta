@@ -64,6 +64,16 @@ EOF`
   assert.equal(commandRequiresConfirmation(sanitized), false)
 })
 
+test("here-document detection preserves quote state across physical lines", () => {
+  for (const quote of ["'", '"']) {
+    const command = `printf ${quote}literal\n<<EOF\n${quote}\nrm -rf /tmp/example\nEOF`
+    const sanitized = commandWithoutHereDocumentBodies(command)
+
+    assert.match(sanitized, /rm -rf \/tmp\/example/u, quote)
+    assert.equal(commandRequiresConfirmation(sanitized), true, quote)
+  }
+})
+
 test("explicit cd directories accept literal paths and literal assignments", () => {
   assert.equal(explicitCdDirectory('cd "/tmp/Project (draft)"'), "/tmp/Project (draft)")
   assert.equal(explicitCdDirectory('WORKDIR="/tmp/Project (draft)"\ncd "$WORKDIR"'), "/tmp/Project (draft)")

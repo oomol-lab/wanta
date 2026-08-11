@@ -331,9 +331,7 @@ export function commandRequiresConfirmation(command: string, depth = 0): boolean
     }
     const source = shellCommandName(words[0])
     return Boolean(
-      source &&
-      ["curl", "wget"].includes(source) &&
-      pipelineExecutesDownloadedProgram(commands[index + 1] ?? []),
+      source && ["curl", "wget"].includes(source) && pipelineExecutesDownloadedProgram(commands[index + 1] ?? []),
     )
   })
 }

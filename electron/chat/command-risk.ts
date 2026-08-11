@@ -316,6 +316,18 @@ function pipelineExecutesDownloadedProgram(words: readonly string[]): boolean {
   return scriptInterpreterCommands.has(name)
 }
 
+function downloadedPipelineExecutesProgram(
+  commands: readonly (readonly string[])[],
+  segments: ReturnType<typeof topLevelShellSegments>,
+  sourceIndex: number,
+): boolean {
+  for (let index = sourceIndex + 1; index < commands.length; index += 1) {
+    if (segments[index - 1]?.operatorAfter !== "pipe") return false
+    if (pipelineExecutesDownloadedProgram(commands[index] ?? [])) return true
+  }
+  return false
+}
+
 export function commandRequiresConfirmation(command: string, depth = 0): boolean {
   const segments = topLevelShellSegments(command)
   const commands = segments.map(({ text }) => {
@@ -331,7 +343,7 @@ export function commandRequiresConfirmation(command: string, depth = 0): boolean
     }
     const source = shellCommandName(words[0])
     return Boolean(
-      source && ["curl", "wget"].includes(source) && pipelineExecutesDownloadedProgram(commands[index + 1] ?? []),
+      source && ["curl", "wget"].includes(source) && downloadedPipelineExecutesProgram(commands, segments, index),
     )
   })
 }

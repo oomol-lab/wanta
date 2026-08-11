@@ -34,16 +34,33 @@ interface SkillsInstallExport {
   skills?: Array<{ skillId?: string; status?: string }>
 }
 
+export type BundledSkillsInstaller = (outDir: string) => Promise<string>
+
 /**
  * 把 oo bundled skill 导出到 outDir（默认 resources/skills/）。幂等：先清空目录再导出，避免旧版本残留。
  * 返回导出目录绝对路径。导出失败或 oo skills 未全部导出则抛错。
  */
-export async function exportBundledSkills(outDir: string = bundledSkillsDir): Promise<string> {
-  const ooBin = await downloadOoBinary()
-  const storeDir = path.join(os.tmpdir(), "wanta-oo-skill-export-store")
-
+export async function exportBundledSkills(
+  outDir: string = bundledSkillsDir,
+  installOoSkills: BundledSkillsInstaller = installBundledOoSkills,
+): Promise<string> {
   await rm(outDir, { force: true, recursive: true })
   await mkdir(outDir, { recursive: true })
+
+  const stdout = await installOoSkills(outDir)
+  assertSkillsExported(stdout, outDir)
+  await applyBundledSkillOverrides(outDir)
+  await Promise.all(
+    wantaBundledSkillIds.map((skillId) =>
+      cp(path.join(wantaSkillsDir, skillId), path.join(outDir, skillId), { recursive: true }),
+    ),
+  )
+  return outDir
+}
+
+async function installBundledOoSkills(outDir: string): Promise<string> {
+  const ooBin = await downloadOoBinary()
+  const storeDir = path.join(os.tmpdir(), "wanta-oo-skill-export-store")
 
   const result = spawnSync(ooBin, ["skills", "install", `--out-dir=${outDir}`, "--agent-format=universal", "--json"], {
     encoding: "utf-8",
@@ -65,15 +82,7 @@ export async function exportBundledSkills(outDir: string = bundledSkillsDir): Pr
   if (result.status !== 0) {
     throw new Error(`oo skills install --out-dir failed (code ${result.status}): ${result.stderr || result.stdout}`)
   }
-
-  assertSkillsExported(result.stdout, outDir)
-  await applyBundledSkillOverrides(outDir)
-  await Promise.all(
-    wantaBundledSkillIds.map((skillId) =>
-      cp(path.join(wantaSkillsDir, skillId), path.join(outDir, skillId), { recursive: true }),
-    ),
-  )
-  return outDir
+  return result.stdout
 }
 
 export async function applyBundledSkillOverrides(

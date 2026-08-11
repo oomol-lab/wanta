@@ -792,6 +792,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   ])
   const nextAgent = new OpencodeAgentAdapter(
     new AgentManager({
+      accountName: account?.name,
       browserControl: browserControlConnection,
       defaultModel: runtime.defaultModel,
       linkRuntime,

@@ -299,6 +299,23 @@ function riskySimpleCommand(words: readonly string[], depth: number): boolean {
   )
 }
 
+function pythonConsumesStdinAsProgram(words: readonly string[]): boolean {
+  for (const word of words.slice(1)) {
+    if (word === "-c" || word === "-m" || word.startsWith("-c") || word.startsWith("-m")) {
+      return false
+    }
+  }
+  return true
+}
+
+function pipelineExecutesDownloadedProgram(words: readonly string[]): boolean {
+  const name = shellCommandName(words[0])
+  if (!name) return false
+  if (shellCommands.has(name)) return true
+  if (name === "python" || name === "python3") return pythonConsumesStdinAsProgram(words)
+  return scriptInterpreterCommands.has(name)
+}
+
 export function commandRequiresConfirmation(command: string, depth = 0): boolean {
   const segments = topLevelShellSegments(command)
   const commands = segments.map(({ text }) => {
@@ -313,12 +330,10 @@ export function commandRequiresConfirmation(command: string, depth = 0): boolean
       return false
     }
     const source = shellCommandName(words[0])
-    const target = shellCommandName(commands[index + 1]?.[0])
     return Boolean(
       source &&
-      target &&
       ["curl", "wget"].includes(source) &&
-      (shellCommands.has(target) || scriptInterpreterCommands.has(target)),
+      pipelineExecutesDownloadedProgram(commands[index + 1] ?? []),
     )
   })
 }

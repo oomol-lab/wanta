@@ -256,6 +256,7 @@ describe("AgentManager", () => {
 
   it("exposes OOMOL authentication and the managed Node runtime to Skill commands", () => {
     const env = buildAgentSidecarEnv({
+      accountName: "alwaysmavs",
       commandPath: "/usr/bin:/bin",
       linkRuntime: { kind: "oomol", sessionToken: "session-token" },
       ooBinPath: "/tmp/oo",
@@ -269,6 +270,7 @@ describe("AgentManager", () => {
       PATH: "/usr/bin:/bin",
       WANTA_NODE_BIN: process.execPath,
       WANTA_OO_BIN: "/tmp/oo",
+      WANTA_ACCOUNT_NAME: "alwaysmavs",
     })
     expect(env.OO_ENDPOINT).toBeTruthy()
   })

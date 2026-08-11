@@ -63,6 +63,8 @@ import { ensureAgentWorkspace } from "./workspace.ts"
 export type { GeneratedSessionTitle } from "./session-title-generator.ts"
 
 export interface AgentManagerOptions {
+  /** Signed-in account name exposed as non-secret Skill publishing context. */
+  accountName?: string
   browserControl?: () => Promise<AgentBrowserControlConnection | undefined>
   linkRuntime: LinkRuntime | null
   modelAccess: ModelAccess
@@ -155,6 +157,7 @@ export function buildManagedSkillRuntimeEnv(nodeBin: string = process.execPath):
 }
 
 export interface AgentSidecarEnvOptions {
+  accountName?: string
   browserControl?: AgentBrowserControlConnection
   commandPath: string
   linkRuntime: LinkRuntime | null
@@ -173,6 +176,7 @@ export interface AgentSidecarEnvOptions {
 }
 
 export function buildAgentSidecarEnv({
+  accountName,
   browserControl,
   commandPath,
   linkRuntime,
@@ -191,6 +195,7 @@ export function buildAgentSidecarEnv({
 }: AgentSidecarEnvOptions): Record<string, string> {
   const ooEnv = linkRuntime
     ? buildAgentLinkEnv({
+        accountName,
         linkRuntime,
         teamName,
         teamScopePath,
@@ -776,6 +781,7 @@ export class AgentManager {
     const commandPath = `${commandBinDir}${path.delimiter}${baseCommandPath}`
     const browserControl = await this.options.browserControl?.()
     const env = buildAgentSidecarEnv({
+      accountName: this.options.accountName,
       browserControl,
       commandPath,
       linkRuntime,

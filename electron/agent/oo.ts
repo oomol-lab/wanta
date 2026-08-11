@@ -29,6 +29,8 @@ export function isAuthBlocking(code: string | null): boolean {
 }
 
 export interface AgentLinkEnvOptions {
+  /** 当前登录账号名；仅用于本地 Skill 发布时生成 scoped packageName，不是凭证。 */
+  accountName?: string
   linkRuntime: LinkRuntime
   /** 当前团队工作区名称；未设置表示团队身份尚未解析。 */
   teamName?: string
@@ -55,6 +57,7 @@ export interface OoMaintenanceEnvOptions {
 
 /** R3：自定义工具经 OpenCode 调用 oo 所需的全部环境变量。 */
 export function buildAgentLinkEnv({
+  accountName,
   linkRuntime,
   teamName,
   teamScopePath,
@@ -69,6 +72,9 @@ export function buildAgentLinkEnv({
   })
   if (teamScopePath) {
     env.WANTA_TEAM_SCOPE_PATH = teamScopePath
+  }
+  if (accountName?.trim()) {
+    env.WANTA_ACCOUNT_NAME = accountName.trim()
   }
   if (linkRuntime.kind === "oomol") {
     env.OO_API_KEY = linkRuntime.sessionToken

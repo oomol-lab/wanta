@@ -1,4 +1,4 @@
-import type { AgentPermissionMode, ChatMessage, ChatPermissionRequest } from "../../chat/common.ts"
+import type { AgentPermissionMode, ChatAttachment, ChatMessage, ChatPermissionRequest } from "../../chat/common.ts"
 import type {
   AgentSendOptions,
   CancelAgentInput,
@@ -199,6 +199,15 @@ function isAuthenticationFailureMessage(message: string): boolean {
   return /authentication/iu.test(message)
 }
 
+/** Attachment paths as a prompt note the CLI resolves with its own file tools. */
+function attachmentPathNote(attachments: readonly ChatAttachment[]): string {
+  const lines = attachments.map((attachment) => {
+    const target = attachment.agentPath?.trim() || attachment.path
+    return `- ${target}${attachment.kind === "directory" ? " (directory)" : ""}`
+  })
+  return `The user attached the following files for this message. Read them as needed:\n${lines.join("\n")}`
+}
+
 export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
   public readonly kind = "claude-code" as const
   public readonly profile = AGENT_PROFILES["claude-code"]
@@ -284,11 +293,18 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       return
     }
     this.emitUserTurn(input)
+    // Attachments ride as a separate text block of path references: the CLI's
+    // own file tools resolve them (Read handles images too), which keeps large
+    // files out of the prompt payload and inside the agent's permission model.
+    const content: Array<{ type: "text"; text: string }> = [{ type: "text", text: input.text }]
+    if (input.attachments?.length) {
+      content.push({ type: "text", text: attachmentPathNote(input.attachments) })
+    }
     // Submission ack semantics: resolve once the message is enqueued for the
     // subprocess; turn progress flows back through the event channel.
     session.inputQueue.push({
       type: "user",
-      message: { role: "user", content: [{ type: "text", text: input.text }] },
+      message: { role: "user", content },
       parent_tool_use_id: null,
       session_id: session.sessionUuid,
     })

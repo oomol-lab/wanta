@@ -201,6 +201,37 @@ describe("ClaudeCodeAgentAdapter", () => {
     await vi.waitFor(() => expect(calls[0].fake.promptMessages).toHaveLength(2))
   })
 
+  it("appends attachments as a path-note text block the CLI resolves itself", async () => {
+    const { adapter, calls } = await createHarness()
+    await adapter.send({
+      type: "prompt",
+      sessionId,
+      text: "read the notes",
+      attachments: [
+        { id: "att-1", name: "notes.md", mime: "text/markdown", size: 12, path: "/tmp/notes.md" },
+        {
+          id: "att-2",
+          name: "assets",
+          mime: "inode/directory",
+          size: 0,
+          path: "/tmp/raw-assets",
+          kind: "directory",
+          agentPath: "/tmp/assets",
+        },
+      ],
+    })
+
+    await vi.waitFor(() => expect(calls[0].fake.promptMessages).toHaveLength(1))
+    const content = calls[0].fake.promptMessages[0].message.content
+    expect(Array.isArray(content) && content).toEqual([
+      { type: "text", text: "read the notes" },
+      {
+        type: "text",
+        text: "The user attached the following files for this message. Read them as needed:\n- /tmp/notes.md\n- /tmp/assets (directory)",
+      },
+    ])
+  })
+
   it("resumes the native session when persisted history exists, instead of recreating the id", async () => {
     // A restored session already owns its deterministic uuid on the CLI side;
     // creating it again fails with "Session ID already in use".

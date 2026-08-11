@@ -17,6 +17,9 @@ import type { UserAttachmentStore } from "./user-attachments.ts"
 
 import assert from "node:assert/strict"
 import { randomUUID } from "node:crypto"
+import { mkdtemp, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import { test, vi } from "vitest"
 import { AGENT_PROFILES } from "../agent/contract/profile.ts"
 import { ExternalAgentAdapter } from "../agent/external/adapter-base.ts"
@@ -60,6 +63,8 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
   public readonly permissionResponses: PermissionResponseAgentInput[] = []
   public readonly setModels: SetModelAgentInput[] = []
   public readonly setEfforts: SetEffortAgentInput[] = []
+  /** When set, the next prompt throws this error instead of dispatching. */
+  public failNextPrompt: Error | undefined
   private readonly nativePendingPermissionIds = new Set<string>()
 
   public constructor(kind: ExternalAgentKind) {
@@ -74,6 +79,11 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
   protected async handlePrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
     if (options?.signal?.aborted) {
       return
+    }
+    if (this.failNextPrompt) {
+      const error = this.failNextPrompt
+      this.failNextPrompt = undefined
+      throw error
     }
     this.prompts.push(input)
     const userMessageId = input.messageId ?? `user-${this.prompts.length}`
@@ -228,7 +238,15 @@ async function waitForTurnCompletion(service: ChatServiceImpl): Promise<void> {
 // Edge 1: attachments into an external session
 // ---------------------------------------------------------------------------
 
-test("edge1: attachment send into an external session rejects cleanly and leaves zero run residue", async () => {
+/** A real on-disk attachment: the trust boundary realpath()s every candidate. */
+async function createProbeAttachment(): Promise<ChatAttachment> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-dx-attach-"))
+  const filePath = path.join(dir, "notes.md")
+  await writeFile(filePath, "probe", "utf8")
+  return { id: "att-1", name: "notes.md", mime: "text/markdown", size: 5, path: filePath }
+}
+
+test("edge1: attachment send into an external session records the attachment and forwards it to the adapter", async () => {
   const record = vi.fn(async () => undefined)
   const removeMessage = vi.fn(async () => undefined)
   const attachmentStore = {
@@ -236,46 +254,97 @@ test("edge1: attachment send into an external session rejects cleanly and leaves
     record,
     removeMessage,
   } as unknown as UserAttachmentStore
-  const { service, events, adapters } = createHarness(["claude-code"], { userAttachmentStore: attachmentStore })
+  const attachment = await createProbeAttachment()
+  const { service, events, adapters } = createHarness(["claude-code"], {
+    userAttachmentStore: attachmentStore,
+    // Picker authorization: attachment paths are trusted only when the user
+    // selected them, mirrored here the way main.ts wires the shared set.
+    trustedAttachmentPaths: new Set([attachment.path]),
+  })
   const adapter = adapters.get("claude-code")
   assert.ok(adapter)
   const sessionId = mintExternalSessionId("claude-code")
-  const attachment: ChatAttachment = {
-    id: "att-1",
-    name: "notes.md",
-    mime: "text/markdown",
-    size: 12,
-    path: "/tmp/notes.md",
-  }
 
-  await assert.rejects(
-    service.sendMessage(sendRequest(sessionId, "please read this", { attachments: [attachment] })),
-    /Attachments are not supported for this agent yet\./,
-  )
+  await service.sendMessage(sendRequest(sessionId, "please read this", { attachments: [attachment] }))
 
-  // No half-created generation: no active run, no adapter dispatch, no
-  // optimistic user message in the transcript, no attachment record written.
-  assert.equal(service.hasActiveGeneration(), false)
-  assert.equal(await service.getActiveRun(sessionId), null)
-  assert.equal(adapter.prompts.length, 0)
-  assert.deepEqual(await service.getMessages(sessionId), [])
-  assert.equal(record.mock.calls.length, 0)
-  assert.equal(removeMessage.mock.calls.length, 0)
-  assert.deepEqual(
-    events.filter((entry) => entry.event === "messageError"),
-    [],
-  )
-
-  // A follow-up plain-text send into the same session works end to end.
-  await service.sendMessage(sendRequest(sessionId, "hello without attachments"))
+  // The adapter receives the attachments on the prompt, and the display
+  // record ties them to the same user message id the adapter echoes back.
   assert.equal(adapter.prompts.length, 1)
-  adapter.completeAssistantTurn(sessionId, "reply-1", "hi")
+  assert.deepEqual(adapter.prompts[0]?.attachments, [attachment])
+  assert.equal(record.mock.calls.length, 1)
+  const [recordedSessionId, recordedMessageId] = record.mock.calls[0] as unknown as [string, string]
+  assert.equal(recordedSessionId, sessionId)
+  assert.equal(recordedMessageId, adapter.prompts[0]?.messageId)
+  assert.equal(removeMessage.mock.calls.length, 0)
+
+  adapter.completeAssistantTurn(sessionId, "reply-1", "read it")
   await waitForTurnCompletion(service)
   const messages = await service.getMessages(sessionId)
   assert.equal(messages.length, 2)
   assert.equal(messages[0]?.role, "user")
   assert.equal(messages[1]?.role, "assistant")
-  assert.ok(events.some((entry) => entry.event === "messageCompleted"))
+  assert.deepEqual(
+    events.filter((entry) => entry.event === "messageError"),
+    [],
+  )
+})
+
+test("edge1b: a failed attachment send rolls the display record back", async () => {
+  const record = vi.fn(async () => undefined)
+  const removeMessage = vi.fn(async () => undefined)
+  const attachmentStore = {
+    read: async () => new Map(),
+    record,
+    removeMessage,
+  } as unknown as UserAttachmentStore
+  const attachment = await createProbeAttachment()
+  const { service, adapters } = createHarness(["claude-code"], {
+    userAttachmentStore: attachmentStore,
+    trustedAttachmentPaths: new Set([attachment.path]),
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  adapter.failNextPrompt = new Error("agent exploded")
+  const sessionId = mintExternalSessionId("claude-code")
+
+  await service.sendMessage(sendRequest(sessionId, "please read this", { attachments: [attachment] }))
+  await waitForCondition(() => removeMessage.mock.calls.length === 1, "attachment record rollback")
+  assert.equal(record.mock.calls.length, 1)
+  assert.equal(service.hasActiveGeneration(), false)
+})
+
+test("edge1c: an attachment path the user never authorized is rejected at the IPC boundary", async () => {
+  // Attachment paths are renderer-supplied; without picker authorization a
+  // compromised renderer could hand the agent any local file. The external
+  // path must enforce the same trust boundary as the kernel path.
+  const record = vi.fn(async () => undefined)
+  const attachmentStore = {
+    read: async () => new Map(),
+    record,
+    removeMessage: vi.fn(async () => undefined),
+  } as unknown as UserAttachmentStore
+  const { service, adapters } = createHarness(["claude-code"], {
+    userAttachmentStore: attachmentStore,
+    trustedAttachmentPaths: new Set<string>(),
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+  const attachment: ChatAttachment = {
+    id: "att-evil",
+    name: "id_rsa",
+    mime: "application/octet-stream",
+    size: 1,
+    path: "/Users/someone/.ssh/id_rsa",
+  }
+
+  await assert.rejects(
+    service.sendMessage(sendRequest(sessionId, "leak this", { attachments: [attachment] })),
+    /not selected or previously authorized/,
+  )
+  assert.equal(adapter.prompts.length, 0)
+  assert.equal(record.mock.calls.length, 0)
+  assert.equal(service.hasActiveGeneration(), false)
 })
 
 // ---------------------------------------------------------------------------

@@ -38,11 +38,14 @@ describe("composerCapabilitiesForProfile", () => {
     })
   })
 
-  it("disables model routing, modes, and attachments for external profiles", () => {
+  it("disables model routing and modes but keeps attachments for external profiles", () => {
+    // Attachments are delivered as file references the agent resolves itself,
+    // so every external agent supports them; model routing and Wanta modes
+    // stay agent-owned.
     for (const kind of EXTERNAL_AGENT_KINDS) {
       expect(composerCapabilitiesForProfile(AGENT_PROFILES[kind])).toEqual({
         agentModesEnabled: false,
-        attachmentsEnabled: false,
+        attachmentsEnabled: true,
         modelRoutingEnabled: false,
       })
     }

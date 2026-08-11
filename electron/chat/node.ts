@@ -1826,6 +1826,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!req.text.trim()) {
       throw new Error("Message text is empty.")
     }
+    // Same trust boundary as the kernel path: attachment paths cross the IPC
+    // boundary, so only picker-authorized or previously trusted paths may be
+    // recorded and handed to the agent. Asserted BEFORE the single-generation
+    // check: the await would otherwise open a same-tick window where two sends
+    // both pass the check and spawn duplicate generations.
+    await this.assertTrustedAttachments(req.attachments)
     if (this.generations.has(req.sessionId)) {
       throw new Error("A generation is already active for this session.")
     }
@@ -1850,6 +1856,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (trustedProjectRoot) {
         this.trustedAccess.setProjectRoot(req.sessionId, trustedProjectRoot)
       }
+      if (req.attachments?.length) {
+        // Same display path as the kernel: the store record is what getMessages
+        // folds back onto the synthesized user turn.
+        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments, req.text)
+        this.rememberTrustedAttachments(req.sessionId, req.attachments)
+        // One-shot picker authorization is consumed on submit, kernel-style.
+        this.discardTrustedAttachmentPaths(req.attachments)
+      }
       await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
       this.scheduleGenerationSubmitWatchdog(req.sessionId, generation.id)
@@ -1860,6 +1874,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             sessionId: req.sessionId,
             text: req.text,
             messageId: userMessageId,
+            ...(req.attachments?.length ? { attachments: req.attachments } : {}),
             ...(trustedProjectRoot ? { outputProjectRoot: trustedProjectRoot } : {}),
             ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
             ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
@@ -1876,6 +1891,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           }
         })
         .catch((error: unknown) => {
+          if (req.attachments?.length) {
+            // The prompt never reached the agent; a record without a user turn
+            // would resurface as an orphaned attachment bubble on reload.
+            void this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+          }
           if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
             this.clearSessionGeneration(req.sessionId, generation.id)
             return

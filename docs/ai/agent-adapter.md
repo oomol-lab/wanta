@@ -99,6 +99,13 @@ External agents build on `electron/agent/external/`:
   `warmCatalog()` pass (throwaway ACP session closed right away, or an idle
   Claude query) fills the catalog before the first user session so draft-time
   pickers show the real lists.
+- **Attachments**: delivered as file references the agent resolves with its
+  own tools and permission model — never inlined into the payload. The ACP
+  adapter appends one `resource_link` block per attachment (baseline prompt
+  capability, so no capability negotiation is needed); the Claude adapter
+  appends a path-note text block (the CLI's Read tool handles images too).
+  Display rides the kernel's `userAttachmentStore` record keyed by the
+  synthesized user message id.
 - **Usage reporting**: adapters emit `usageUpdated` (normalized
   `ChatTokenUsage` + optional `contextWindow`) — Claude from result-frame
   usage/modelUsage, ACP from `usage_update`. The recorder attaches it to the

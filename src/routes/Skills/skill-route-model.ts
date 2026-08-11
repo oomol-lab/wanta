@@ -320,7 +320,9 @@ export function getSkillVersionCheck(
   }
 
   const versionCheck = versionCheckByKey.get(getSkillVersionCheckKey(group.id, group.packageName))
-  if (versionCheck?.currentVersion && group.version && versionCheck.currentVersion.trim() !== group.version.trim()) {
+  const reportedVersion = versionCheck?.currentVersion?.trim()
+  const installedVersion = group.version?.trim()
+  if (reportedVersion && installedVersion && reportedVersion !== installedVersion) {
     return undefined
   }
 

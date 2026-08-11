@@ -3,6 +3,8 @@ import type { useSkillService } from "@/components/AppContext"
 import type { useSkillInventoryResource, useSkillVersionReportResource } from "@/components/AppDataHooks"
 
 import * as React from "react"
+import { runRegistrySkillUpdate } from "./registry-skill-update.ts"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 interface UseRegistrySkillUpdateOptions {
   inventoryResource: ReturnType<typeof useSkillInventoryResource>
@@ -42,9 +44,14 @@ export function useRegistrySkillUpdate({
       setUpdatingRegistrySkillId(skill.id)
       onStart?.()
       try {
-        const nextInventory = await skillService.invoke("updateRegistrySkill", { packageName, skillId: skill.id })
-        inventoryResource.setData(nextInventory)
-        await versionResource.refresh({ forceRefresh: true, silent: true })
+        await runRegistrySkillUpdate({
+          invalidateVersions: versionResource.invalidate,
+          refreshVersions: () => versionResource.refresh({ forceRefresh: true, silent: true }),
+          reportVersionRefreshError: (cause) =>
+            reportRendererHandledError("skills", "silent skill version refresh failed after update", cause),
+          setInventory: inventoryResource.setData,
+          update: () => skillService.invoke("updateRegistrySkill", { packageName, skillId: skill.id }),
+        })
       } catch (cause) {
         onError(cause, skill.id)
       } finally {

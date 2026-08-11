@@ -11,6 +11,8 @@ import {
   getPublicPackageInstallState,
   getRuntimeHosts,
   getSkillDocumentRevision,
+  getSkillVersionCheck,
+  getSkillVersionCheckKey,
   getRuntimeSkillRemoveTarget,
   getSelectedManagedSkillGroup,
   initialPublicPackageCatalogState,
@@ -42,6 +44,61 @@ test("getSkillDocumentRevision follows the selected installed host content", () 
     path: "/wanta/skills/demo",
   })
   assert.equal(getSkillDocumentRevision(updated), "content-v2")
+})
+
+test("getSkillVersionCheck ignores a report that predates the installed inventory version", () => {
+  const group = managedSkillGroup("demo", "@alice/demo", { version: "2.0.0" })
+  const staleCheck = {
+    currentVersion: "1.0.0",
+    id: "demo",
+    kind: "registry" as const,
+    latestVersion: "2.0.0",
+    name: "demo",
+    packageName: "@alice/demo",
+    skillId: "demo",
+    status: "update-available" as const,
+  }
+  const checks = new Map([[getSkillVersionCheckKey("demo", "@alice/demo"), staleCheck]])
+
+  assert.equal(getSkillVersionCheck(checks, group), undefined)
+})
+
+test("getSkillVersionCheck keeps a report matching the installed inventory version", () => {
+  const group = managedSkillGroup("demo", "@alice/demo", { version: " 2.0.0 " })
+  const currentCheck = {
+    currentVersion: "2.0.0 ",
+    id: "demo",
+    kind: "registry" as const,
+    latestVersion: "2.0.0",
+    name: "demo",
+    packageName: "@alice/demo",
+    skillId: "demo",
+    status: "current" as const,
+  }
+  const checks = new Map([[getSkillVersionCheckKey("demo", "@alice/demo"), currentCheck]])
+
+  assert.equal(getSkillVersionCheck(checks, group), currentCheck)
+})
+
+test("getSkillVersionCheck keeps reports when either trimmed version is incomplete", () => {
+  const currentCheck = {
+    currentVersion: " ",
+    id: "demo",
+    kind: "registry" as const,
+    latestVersion: "2.0.0",
+    name: "demo",
+    packageName: "@alice/demo",
+    skillId: "demo",
+    status: "unknown" as const,
+  }
+  const checks = new Map([[getSkillVersionCheckKey("demo", "@alice/demo"), currentCheck]])
+
+  assert.equal(
+    getSkillVersionCheck(checks, managedSkillGroup("demo", "@alice/demo", { version: "2.0.0" })),
+    currentCheck,
+  )
+  currentCheck.currentVersion = "1.0.0"
+  assert.equal(getSkillVersionCheck(checks, managedSkillGroup("demo", "@alice/demo", { version: " " })), currentCheck)
 })
 
 test("isEmojiIcon excludes numeric strings", () => {

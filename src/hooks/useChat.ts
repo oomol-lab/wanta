@@ -26,6 +26,7 @@ import {
   agentAttachments,
   appendOptimisticConversationTurn,
   applyCancelledToolParts,
+  commitSessionMessages,
   hasVisibleMessageDelta,
   markAssistantMessageToolsInterrupted,
   markAssistantMessageToolsCancelled,
@@ -56,6 +57,7 @@ type CancelledToolPartsMap = Map<string, Set<string>>
 
 const userStoppedToolCancelWindowMs = 30_000
 const maxRetainedSessionCaches = 12
+const maxUserStreamMessageIds = 2048
 
 function questionDraftKey(sessionId: string, requestId: string): string {
   return `${sessionId}\0${requestId}`
@@ -83,6 +85,9 @@ export interface UseChat {
       contextMentions?: ChatContextMention[]
       mode?: AgentMode
       model?: ModelChoice
+      /** Agent-native selections for external (BYOA) sessions. */
+      agentModelId?: string
+      agentEffortId?: string
       teamSkills?: ChatTeamSkillContext[]
       permissionMode?: AgentPermissionMode
       projectContext?: ChatProjectContext
@@ -125,6 +130,17 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
   } | null>(null)
   const [sessionSnapshotReloadVersion, setSessionSnapshotReloadVersion] = React.useState(0)
   const userStoppedSessions = React.useRef(new Map<string, number>())
+  // Message ids the stream declared as user-authored; deltas for them are
+  // prompt echoes and must not clear the optimistic thinking indicator.
+  const userStreamMessageIds = React.useRef(new Set<string>())
+  const rememberUserStreamMessageId = React.useCallback((messageId: string): void => {
+    const ids = userStreamMessageIds.current
+    ids.add(messageId)
+    if (ids.size > maxUserStreamMessageIds) {
+      const oldest = ids.values().next().value
+      if (oldest) ids.delete(oldest)
+    }
+  }, [])
   const cancelledToolParts = React.useRef<CancelledToolPartsMap>(new Map())
   const pendingQuestionsMutationVersions = React.useRef(new Map<string, number>())
   const pendingPermissionsMutationVersions = React.useRef(new Map<string, number>())
@@ -499,7 +515,7 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
           rememberCancelledToolParts(sessionId, partIds)
           return messages
         })()
-        return nextMessages === previousMessages ? prev : { ...prev, [sessionId]: nextMessages }
+        return commitSessionMessages(prev, sessionId, nextMessages, previousMessages)
       })
     },
     [isSessionUserStopped, rememberCancelledToolParts],
@@ -591,12 +607,16 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         if (e.role === "assistant") {
           setStatus(e.sessionId, "streaming")
           setActivity(e.sessionId, { sessionId: e.sessionId, messageId: e.messageId, phase: "thinking" })
+        } else if (e.role === "user") {
+          rememberUserStreamMessageId(e.messageId)
         }
       }),
       chatService.serverEvents.on("messageDelta", (e) => {
         removeAnsweredPendingQuestions(e.sessionId)
         setStatus(e.sessionId, "streaming")
-        if (hasVisibleMessageDelta(e)) {
+        // A user-echo delta is not assistant progress; keep the thinking
+        // indicator alive until real assistant output arrives.
+        if (hasVisibleMessageDelta(e) && !userStreamMessageIds.current.has(e.messageId)) {
           setActivity(e.sessionId, undefined)
         }
         enqueueTextDelta("text", e)
@@ -872,6 +892,8 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       text: string,
       attachments: ChatAttachment[] = [],
       options: {
+        agentModelId?: string
+        agentEffortId?: string
         contextMentions?: ChatContextMention[]
         mode?: AgentMode
         model?: ModelChoice
@@ -899,6 +921,8 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
           sessionId,
           text,
           appLocale: locale,
+          agentModelId: options.agentModelId,
+          agentEffortId: options.agentEffortId,
           attachments: agentAttachments(attachments),
           contextMentions: options.contextMentions,
           mode: options.mode,

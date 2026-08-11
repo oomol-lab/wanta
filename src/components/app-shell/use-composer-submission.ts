@@ -1,3 +1,4 @@
+import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
 import type {
   AgentMode,
   AgentPermissionMode,
@@ -14,8 +15,10 @@ import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
 import type { UseSessionTitleGenerationResult } from "./use-session-title-generation.ts"
 import type { UseChat } from "@/hooks/useChat"
+import type { CreateSessionOptions } from "@/hooks/useSessions"
 
 import * as React from "react"
+import { isExternalAgentKind } from "../../../electron/agent/contract/profile.ts"
 import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
 import { buildSessionTitleInput, rememberTurnRetryOptions, sessionScopeKey } from "./app-shell-model.ts"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
@@ -58,6 +61,9 @@ export function useComposerSubmission({
   createSession,
   currentScopeKey,
   displayedPermissionMode,
+  draftAgentKind,
+  draftAgentSelection,
+  onDraftAgentSelectionCommitted,
   messages,
   messagesLoaded,
   teamSkills,
@@ -78,9 +84,14 @@ export function useComposerSubmission({
   activeProject?: SessionProject
   activeProjectContext?: ChatProjectContext
   activeSession?: SessionInfo
-  createSession: (title?: string, projectId?: string) => Promise<SessionInfo>
+  createSession: (title?: string, projectId?: string, options?: CreateSessionOptions) => Promise<SessionInfo>
   currentScopeKey: string
   displayedPermissionMode: AgentPermissionMode
+  /** Agent kind applied when the first send creates the session. */
+  draftAgentKind: AgentKind
+  /** Agent-native model/effort chosen on the draft; rides the session-creating send. */
+  draftAgentSelection?: { modelId?: string; effortId?: string }
+  onDraftAgentSelectionCommitted?: (sessionId: string) => void
   messages: Parameters<typeof buildSessionTitleInput>[0]
   messagesLoaded: boolean
   teamSkills: ChatTeamSkillContext[]
@@ -171,6 +182,7 @@ export function useComposerSubmission({
       try {
         setRoute("chat")
         let sessionId = activeChatSessionId
+        const creatingExternalSession = !sessionId && isExternalAgentKind(draftAgentKind)
         const titleInput = { ...buildSessionTitleInput(messages, text, attachments), model }
         const fallbackTitle = buildFallbackSessionTitle(titleInput)
         const autoFallbackTitle = sessionId ? titleGeneration.getAutoFallbackTitle(sessionId) : undefined
@@ -201,7 +213,11 @@ export function useComposerSubmission({
         if (!sessionId) {
           let info: SessionInfo
           try {
-            info = await createSession(fallbackTitle, effectiveProjectContext?.id ?? activeProject?.id)
+            info = await createSession(
+              fallbackTitle,
+              effectiveProjectContext?.id ?? activeProject?.id,
+              isExternalAgentKind(draftAgentKind) ? { agentKind: draftAgentKind } : undefined,
+            )
           } catch (error) {
             if (bridgeEmptySend && isCurrentSendTarget()) {
               setPendingChatTransition(null)
@@ -209,6 +225,9 @@ export function useComposerSubmission({
             return { error, status: "failed" }
           }
           sessionId = info.id
+          if (creatingExternalSession) {
+            onDraftAgentSelectionCommitted?.(sessionId)
+          }
           titleGeneration.rememberAutoFallbackTitle(sessionId, fallbackTitle)
           if (isCurrentSendTarget()) {
             setSelectedSessionId(sessionId)
@@ -256,6 +275,12 @@ export function useComposerSubmission({
         retainRecentSession(sessionId)
         try {
           const sendPromise = send(sessionId, text, attachments, {
+            ...(creatingExternalSession && draftAgentSelection?.modelId
+              ? { agentModelId: draftAgentSelection.modelId }
+              : {}),
+            ...(creatingExternalSession && draftAgentSelection?.effortId
+              ? { agentEffortId: draftAgentSelection.effortId }
+              : {}),
             contextMentions,
             model,
             teamSkills: effectiveTeamSkills,
@@ -287,6 +312,9 @@ export function useComposerSubmission({
       createSession,
       currentScopeKey,
       displayedPermissionMode,
+      draftAgentKind,
+      draftAgentSelection,
+      onDraftAgentSelectionCommitted,
       messages,
       messagesLoaded,
       teamSkills,

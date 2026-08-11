@@ -10,6 +10,7 @@ import {
   applyCancelledToolParts,
   appendOptimisticConversationTurn,
   coalesceTextDeltaEvent,
+  commitSessionMessages,
   ensureMessage,
   hasVisibleMessageDelta,
   markAssistantMessageToolsCancelled,
@@ -663,5 +664,35 @@ describe("chat message identity reconciliation", () => {
     expect(visibleChatError({ active: "Active failed" }, null, "active")).toBe("Active failed")
     expect(visibleChatError({}, "Global failed", "active")).toBe("Global failed")
     expect(visibleChatError({ active: "Active failed" }, "Global failed", "active")).toBe("Active failed")
+  })
+})
+
+describe("commitSessionMessages", () => {
+  it("creates the session entry even when the fetched transcript is empty", () => {
+    // Regression: reopening a persisted external session after a restart
+    // fetches [], and merge returns the identical empty array — the session
+    // must still be recorded as loaded or the bootstrap spinner never clears.
+    const previous: ChatMessage[] = []
+    const next = mergeFetchedMessages(previous, [])
+    expect(next).toBe(previous)
+
+    const map = commitSessionMessages({}, "wanta-ext:claude-code:uuid-1", next, previous)
+    expect(Object.hasOwn(map, "wanta-ext:claude-code:uuid-1")).toBe(true)
+    expect(map["wanta-ext:claude-code:uuid-1"]).toEqual([])
+  })
+
+  it("keeps referential identity for an already-loaded unchanged session", () => {
+    const previous: ChatMessage[] = [{ id: "m1", role: "assistant", parts: [], createdAt: 1 }]
+    const map = { "session-1": previous }
+    expect(commitSessionMessages(map, "session-1", previous, previous)).toBe(map)
+  })
+
+  it("writes changed messages for an already-loaded session", () => {
+    const previous: ChatMessage[] = []
+    const map = { "session-1": previous }
+    const next: ChatMessage[] = [{ id: "m1", role: "assistant", parts: [], createdAt: 1 }]
+    const updated = commitSessionMessages(map, "session-1", next, previous)
+    expect(updated).not.toBe(map)
+    expect(updated["session-1"]).toBe(next)
   })
 })

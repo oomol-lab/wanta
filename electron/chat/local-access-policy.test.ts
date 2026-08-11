@@ -782,3 +782,105 @@ test("local access policy keeps project dev grants compatible but prompts unsafe
     { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })
+
+// External (BYOA) sessions: permission policy is owned by the agent's own
+// CLI (linkcode-style pass-through). Every ask the agent surfaces reaches the
+// user; the only automatic answers are the user's explicit session grants.
+
+const EXTERNAL_ROOT = path.join("/tmp", "wanta-agent-external", "claude-code", "uuid-1")
+
+test("external sessions prompt for file writes even inside the scratch cwd", () => {
+  // The agent asking means its own policy wants explicit approval; Wanta must
+  // not answer on its behalf, not even inside the session's working directory.
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "Write", resources: [path.join(EXTERNAL_ROOT, "hello.txt")] }), {
+      permissionMode: "default",
+      isExternalSession: true,
+    }),
+    { type: "prompt", kind: "edit", highRisk: false },
+  )
+})
+
+test("external sessions prompt for edits inside the trusted project root", () => {
+  const projectRoot = path.join("/tmp", "my-project")
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "Edit", resources: [path.join(projectRoot, "src", "index.ts")] }), {
+      permissionMode: "default",
+      isExternalSession: true,
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "prompt", kind: "edit", highRisk: false },
+  )
+})
+
+test("external sessions prompt for commands instead of the blanket default allow", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "Bash", metadata: { command: "echo hi > ~/anywhere" } }), {
+      permissionMode: "default",
+      isExternalSession: true,
+    }),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+})
+
+test("external sessions prompt even in full access mode", () => {
+  // full_access projects onto the agent's own bypass mode, so the agent stops
+  // asking on its own; an ask that still arrives is surfaced, never answered.
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "Bash", metadata: { command: "echo hi" } }), {
+      permissionMode: "full_access",
+      isExternalSession: true,
+    }),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+})
+
+test("external sessions honor the user's explicit session grants", () => {
+  const request = permission({ action: "Write", resources: [path.join(EXTERNAL_ROOT, "hello.txt")] })
+  const grant = localAccessGrantForRequest(request)
+  assert.ok(grant)
+  assert.deepEqual(
+    evaluateLocalAccessRequest(request, {
+      permissionMode: "default",
+      isExternalSession: true,
+      sessionGrants: [grant],
+    }),
+    { type: "allow", reason: "session_grant", kind: "edit", highRisk: false },
+  )
+})
+
+test("external session grants cannot cross sensitive or high-risk boundaries", () => {
+  const sensitive = permission({ action: "Read", resources: ["/Users/someone/.aws/credentials"] })
+  const sensitiveGrant = localAccessGrantForRequest(sensitive)
+  assert.ok(sensitiveGrant)
+  assert.deepEqual(
+    evaluateLocalAccessRequest(sensitive, {
+      permissionMode: "default",
+      isExternalSession: true,
+      sessionGrants: [sensitiveGrant],
+    }),
+    { type: "prompt", kind: "local", highRisk: false },
+  )
+
+  const highRisk = permission({ action: "Bash", metadata: { command: "rm -rf /Users/someone/project" } })
+  const highRiskGrant = localAccessGrantForRequest(highRisk)
+  assert.ok(highRiskGrant)
+  assert.deepEqual(
+    evaluateLocalAccessRequest(highRisk, {
+      permissionMode: "default",
+      isExternalSession: true,
+      sessionGrants: [highRiskGrant],
+    }),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+})
+
+test("external sessions with no resolvable context still fail closed to a prompt", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "Write", resources: ["/tmp/anywhere.txt"] }), {
+      permissionMode: "default",
+      isExternalSession: true,
+    }),
+    { type: "prompt", kind: "edit", highRisk: false },
+  )
+})

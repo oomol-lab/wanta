@@ -1,3 +1,4 @@
+import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
 import type {
   AuthorizationInfo,
   AssistantActivityEvent,
@@ -40,11 +41,17 @@ import { cn } from "@/lib/utils"
 
 interface ChatAreaProps {
   activeSessionId: string | null
+  agentKind?: AgentKind
+  agentModesEnabled?: boolean
+  agentPickerLocked?: boolean
+  attachmentsEnabled?: boolean
   billingCacheScope: string
   billingRequestScope: BillingRequestScope | null
   composerDraftKey: string
   composerFocusRequest: number
   cloudModelsEnabled?: boolean
+  modelRoutingEnabled?: boolean
+  onSelectAgentKind?: (kind: AgentKind) => void
   voiceEnabled?: boolean
   messages: ChatMessage[]
   knowledgeBaseIds: string[]
@@ -88,6 +95,10 @@ interface ChatAreaProps {
   }
   onSend: (request: ChatSendRequest) => Promise<ChatSendResult>
   onPermissionModeChange: (mode: AgentPermissionMode) => void
+  agentModelId?: string
+  agentEffortId?: string
+  onSelectAgentModel?: (modelId?: string) => void
+  onSelectAgentEffort?: (effortId?: string) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
   onAnswerPermission: (requestId: string, reply: ChatPermissionReply) => Promise<void>
   onRejectQuestion: (requestId: string) => Promise<void>
@@ -247,11 +258,17 @@ function EmptyCapabilityAction({
 
 export const ChatArea = React.memo(function ChatArea({
   activeSessionId,
+  agentKind = "opencode",
+  agentModesEnabled = true,
+  agentPickerLocked = false,
+  attachmentsEnabled = true,
   billingCacheScope,
   billingRequestScope,
   composerDraftKey,
   composerFocusRequest,
   cloudModelsEnabled = true,
+  modelRoutingEnabled = true,
+  onSelectAgentKind,
   voiceEnabled = false,
   messages,
   knowledgeBaseIds,
@@ -293,6 +310,10 @@ export const ChatArea = React.memo(function ChatArea({
   onComposerStateChange,
   onSend,
   onPermissionModeChange,
+  agentModelId,
+  agentEffortId,
+  onSelectAgentModel,
+  onSelectAgentEffort,
   onAnswerQuestion,
   onAnswerPermission,
   onRejectQuestion,
@@ -343,7 +364,17 @@ export const ChatArea = React.memo(function ChatArea({
   const composer = (
     <ChatComposer
       key={composerDraftKey}
+      agentKind={agentKind}
+      agentEffortId={agentEffortId}
+      agentModelId={agentModelId}
+      agentModesEnabled={agentModesEnabled}
+      agentPickerLocked={agentPickerLocked}
+      attachmentsEnabled={attachmentsEnabled}
       cloudModelsEnabled={cloudModelsEnabled}
+      modelRoutingEnabled={modelRoutingEnabled}
+      onSelectAgentEffort={onSelectAgentEffort}
+      onSelectAgentKind={onSelectAgentKind}
+      onSelectAgentModel={onSelectAgentModel}
       voiceEnabled={voiceEnabled}
       error={error}
       focusRequest={composerFocusRequest}
@@ -375,7 +406,7 @@ export const ChatArea = React.memo(function ChatArea({
       onQueuedMessageResume={onQueuedMessageResume}
       onSend={onSend}
       onAnswerQuestion={onAnswerQuestion}
-      onPermissionModeDefault={() => onPermissionModeChange("default")}
+      onPermissionModeSelect={onPermissionModeChange}
       onPermissionModeFullAccess={requestFullAccess}
       onOpenConnectionProvider={onOpenConnectionProvider}
       onOpenKnowledgeLibrary={onOpenKnowledgeLibrary}

@@ -1,3 +1,5 @@
+import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
+import type { ExternalAgentCatalog, ExternalAgentRuntimeStatus } from "../../../electron/agent/external/status.ts"
 import type { AgentMode, AgentPermissionMode, ReasoningLevel } from "../../../electron/chat/common.ts"
 import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.ts"
 import type { ChatTurnState } from "./chat-turn-state.ts"
@@ -23,8 +25,19 @@ interface ComposerTrailingControlsProps {
   turnState: ChatTurnState
   modelCatalog: ModelCatalog | null
   modelRequired?: boolean
+  agentCatalog?: ExternalAgentCatalog
+  agentEffortId?: string
+  agentEffortSelectionEnabled?: boolean
+  agentKind?: AgentKind
   agentMode: AgentMode
+  agentModelId?: string
+  agentModelSelectionEnabled?: boolean
+  agentModesEnabled?: boolean
+  agentPickerLocked?: boolean
+  externalAgents?: ExternalAgentRuntimeStatus[]
+  modelRoutingEnabled?: boolean
   permissionMode: AgentPermissionMode
+  permissionModes?: readonly AgentPermissionMode[]
   reasoningLevel: ReasoningLevel
   voiceEnabled: boolean
   voiceActive: boolean
@@ -37,11 +50,15 @@ interface ComposerTrailingControlsProps {
   voiceTranscribing: boolean
   willQueueMessage: boolean
   onAddModel: () => void
+  onAgentPickerOpen?: () => void
   onCancelVoice: () => void
   onDeleteModel: (id: string) => void
   onRetryVoice: () => void
+  onSelectAgentEffort?: (effortId?: string) => void
+  onSelectAgentKind?: (kind: AgentKind) => void
   onSelectAgentMode: (mode: AgentMode) => void
-  onSelectDefaultPermissionMode: () => void
+  onSelectAgentModel?: (modelId?: string) => void
+  onSelectPermissionMode: (mode: AgentPermissionMode) => void
   onRequestFullAccessPermissionMode: () => void
   onSelectModel: (choice: ModelChoice) => void
   onSelectReasoningLevel: (level: ReasoningLevel) => void
@@ -197,8 +214,19 @@ export function ComposerTrailingControls({
   turnState,
   modelCatalog,
   modelRequired = false,
+  agentCatalog,
+  agentEffortId,
+  agentEffortSelectionEnabled,
+  agentKind,
   agentMode,
+  agentModelId,
+  agentModelSelectionEnabled,
+  agentModesEnabled,
+  agentPickerLocked,
+  externalAgents,
+  modelRoutingEnabled,
   permissionMode,
+  permissionModes,
   reasoningLevel,
   voiceEnabled,
   voiceActive,
@@ -211,11 +239,15 @@ export function ComposerTrailingControls({
   voiceTranscribing,
   willQueueMessage,
   onAddModel,
+  onAgentPickerOpen,
   onCancelVoice,
   onDeleteModel,
   onRetryVoice,
+  onSelectAgentEffort,
+  onSelectAgentKind,
   onSelectAgentMode,
-  onSelectDefaultPermissionMode,
+  onSelectAgentModel,
+  onSelectPermissionMode,
   onRequestFullAccessPermissionMode,
   onSelectModel,
   onSelectReasoningLevel,
@@ -319,19 +351,34 @@ export function ComposerTrailingControls({
               </>
             ) : null}
             <ComposerModeControls
+              agentCatalog={agentCatalog}
+              agentEffortId={agentEffortId}
+              agentEffortSelectionEnabled={agentEffortSelectionEnabled}
+              agentKind={agentKind}
               agentMode={agentMode}
+              agentModelId={agentModelId}
+              agentModelSelectionEnabled={agentModelSelectionEnabled}
+              agentModesEnabled={agentModesEnabled}
+              agentPickerLocked={agentPickerLocked}
               composerDisabled={composerDisabled}
               contextUsage={contextUsage}
+              externalAgents={externalAgents}
               modelCatalog={modelCatalog}
               modelRequired={modelRequired}
+              modelRoutingEnabled={modelRoutingEnabled}
               permissionMode={permissionMode}
+              permissionModes={permissionModes}
               reasoningLevel={reasoningLevel}
               voiceEnabled={voiceEnabled}
               onAddModel={onAddModel}
+              onAgentPickerOpen={onAgentPickerOpen}
               onDeleteModel={onDeleteModel}
               onRequestFullAccessPermissionMode={onRequestFullAccessPermissionMode}
+              onSelectAgentEffort={onSelectAgentEffort}
+              onSelectAgentKind={onSelectAgentKind}
               onSelectAgentMode={onSelectAgentMode}
-              onSelectDefaultPermissionMode={onSelectDefaultPermissionMode}
+              onSelectAgentModel={onSelectAgentModel}
+              onSelectPermissionMode={onSelectPermissionMode}
               onSelectModel={onSelectModel}
               onSelectReasoningLevel={onSelectReasoningLevel}
               onStartVoice={onStartVoice}

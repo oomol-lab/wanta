@@ -20,6 +20,12 @@ export class ActiveRunRegistry {
     string,
     Map<string, Extract<ChatRunPhase, "awaiting_permission" | "awaiting_question">>
   >()
+  /**
+   * User message ids seen via messageStarted, per session. Deltas for these
+   * are prompt echoes (external agents re-emit the user turn); they must not
+   * flip the run to "answering" or claim activeAssistantMessageId.
+   */
+  private readonly userMessageIds = new Map<string, Set<string>>()
   private readonly onUpdated: (update: ActiveRunUpdate) => void
 
   public constructor(onUpdated: (update: ActiveRunUpdate) => void) {
@@ -95,6 +101,7 @@ export class ActiveRunRegistry {
     }
     this.runs.delete(sessionId)
     this.blockingPhases.delete(sessionId)
+    this.userMessageIds.delete(sessionId)
     this.onUpdated({
       ended: { endedAt: Date.now(), endedRunId: current.runId },
       run: null,
@@ -108,6 +115,7 @@ export class ActiveRunRegistry {
     }
     this.runs.clear()
     this.blockingPhases.clear()
+    this.userMessageIds.clear()
   }
 
   public blockingPhase(sessionId: string): Extract<ChatRunPhase, "awaiting_permission" | "awaiting_question"> | null {
@@ -159,6 +167,9 @@ export class ActiveRunRegistry {
         })
         break
       case "messageDelta":
+        if (this.userMessageIds.get(sessionId)?.has(event.data.messageId)) {
+          break
+        }
         this.update(sessionId, {
           activeAssistantMessageId: event.data.messageId,
           phase: event.data.text || event.data.delta ? "answering" : "thinking",
@@ -170,6 +181,10 @@ export class ActiveRunRegistry {
       case "messageStarted":
         if (event.data.role === "assistant") {
           this.update(sessionId, { activeAssistantMessageId: event.data.messageId, phase: "thinking" })
+        } else if (event.data.role === "user" && this.runs.has(sessionId)) {
+          const ids = this.userMessageIds.get(sessionId) ?? new Set<string>()
+          ids.add(event.data.messageId)
+          this.userMessageIds.set(sessionId, ids)
         }
         break
       case "permissionAsked":

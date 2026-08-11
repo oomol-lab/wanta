@@ -813,3 +813,18 @@ export function visibleChatError(
 ): string | null {
   return activeSessionId ? (errorsBySession[activeSessionId] ?? globalError) : globalError
 }
+
+/**
+ * Immutable messages-map update that always records the session key. Loaded-ness
+ * is keyed on map-key presence, so an empty fetch (external sessions reopen with
+ * [] after a restart) must still create the entry — only a session that is
+ * already present may keep its referential identity for render stability.
+ */
+export function commitSessionMessages(
+  map: Record<string, ChatMessage[]>,
+  sessionId: string,
+  next: ChatMessage[],
+  previous: ChatMessage[],
+): Record<string, ChatMessage[]> {
+  return next === previous && Object.hasOwn(map, sessionId) ? map : { ...map, [sessionId]: next }
+}

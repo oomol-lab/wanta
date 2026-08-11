@@ -1,3 +1,5 @@
+import type { ExternalAgentKind } from "../agent/contract/profile.ts"
+import type { ExternalAgentRuntimeStatus } from "../agent/external/status.ts"
 import type { WantaAgentMode } from "../agent/mode.ts"
 import type { WantaReasoningLevel } from "../agent/reasoning.ts"
 import type { AppLocale } from "../app-locale.ts"
@@ -13,7 +15,15 @@ export type ChatRole = "user" | "assistant"
 export type ToolStatus = "pending" | "running" | "completed" | "error"
 export type ReasoningLevel = WantaReasoningLevel
 export type AgentMode = WantaAgentMode
-export type AgentPermissionMode = "default" | "full_access"
+/**
+ * Normalized permission-mode vocabulary across agents, in canonical display
+ * order. Every agent declares the subset it supports in its AgentProfile;
+ * adapters map each mode onto their agent's native approval policy.
+ * Enforcement always stays agent-side.
+ */
+export const AGENT_PERMISSION_MODES = ["default", "read_only", "accept_edits", "plan", "auto", "full_access"] as const
+
+export type AgentPermissionMode = (typeof AGENT_PERMISSION_MODES)[number]
 
 export const BUG_REPORT_COMMAND = "/bug-report"
 
@@ -202,6 +212,21 @@ export interface SetChatPermissionModeRequest {
 export interface MessageCompletedEvent {
   sessionId: string
 }
+/** Cumulative token usage snapshot reported by an external agent mid-turn or at completion. */
+export interface UsageUpdatedEvent {
+  sessionId: string
+  tokenUsage: ChatTokenUsage
+}
+/** Select an agent-native model for an external session (absent id = agent default). */
+export interface SetExternalSessionModelRequest {
+  sessionId: string
+  modelId?: string
+}
+/** Select an agent-native reasoning effort for an external session (absent id = agent default). */
+export interface SetExternalSessionEffortRequest {
+  sessionId: string
+  effortId?: string
+}
 export interface MessagePartRemovedEvent {
   sessionId: string
   messageId: string
@@ -360,12 +385,17 @@ export interface ChatTokenUsage {
     read: number
     write: number
   }
+  /** Context window size reported by the agent, for external-agent usage meters. */
+  contextWindow?: number
 }
 
 export interface SendMessageRequest {
   sessionId: string
   text: string
   appLocale?: AppLocale
+  /** Agent-native model/effort ids chosen before the first turn of an external session. */
+  agentModelId?: string
+  agentEffortId?: string
   attachments?: ChatAttachment[]
   contextMentions?: ChatContextMention[]
   teamSkills?: ChatTeamSkillContext[]
@@ -901,6 +931,14 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     setPermissionMode(req: SetChatPermissionModeRequest): Promise<void>
     getAgentStatus(): Promise<AgentRuntimeStatus>
     getRuntimeCapabilities(): Promise<RuntimeCapabilities>
+    getExternalAgents(): Promise<ExternalAgentRuntimeStatus[]>
+    /** Live model/effort switch for an external session; rejects for kernel sessions. */
+    setExternalSessionModel(req: SetExternalSessionModelRequest): Promise<void>
+    setExternalSessionEffort(req: SetExternalSessionEffortRequest): Promise<void>
+    /** Adapter-held model/effort choice for an external session (renderer read-back). */
+    getExternalSessionSelection(sessionId: string): Promise<{ modelId?: string; effortId?: string }>
+    /** Pre-populate an agent's model/effort catalog when the composer focuses it. */
+    warmExternalAgent(kind: ExternalAgentKind): Promise<void>
     /** Agent sidecar 是否就绪；本地模式缺少 custom model 时为 false。 */
     isReady(): Promise<boolean>
   }

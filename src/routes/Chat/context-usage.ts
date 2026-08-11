@@ -77,8 +77,16 @@ export function selectedModelContextWindow(catalog: ModelCatalog | null): number
 }
 
 export function buildContextUsageInfo(messages: ChatMessage[], catalog: ModelCatalog | null): ContextUsageInfo | null {
-  const budget = selectedModelContextBudget(catalog)
   const usage = latestContextTokenUsage(messages)
+  let budget = selectedModelContextBudget(catalog)
+  // A non-positive reported window would otherwise become the limit and peg the
+  // meter at 100%; agent-reported values are data, so normalize them first.
+  const reportedContextWindow = positiveNumber(usage?.contextWindow)
+  if (!budget && reportedContextWindow > 0) {
+    // External agents report their own context window on the usage itself; no
+    // compaction threshold is known, so the window is the limit.
+    budget = { contextWindowTokens: reportedContextWindow, contextLimitTokens: reportedContextWindow }
+  }
   const usedTokens = usage ? contextTokensFromUsage(usage) : 0
   if (!budget?.contextLimitTokens && usedTokens === 0) {
     return null

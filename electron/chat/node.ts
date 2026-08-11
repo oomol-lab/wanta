@@ -1,5 +1,9 @@
+import type { AgentConnectionStatus } from "../agent/contract/event.ts"
+import type { ExternalAgentKind } from "../agent/contract/profile.ts"
 import type { ChatEmit } from "../agent/event-translator.ts"
-import type { AgentEventConnectionStatus, AgentManager } from "../agent/manager.ts"
+import type { ExternalAgentAdapter } from "../agent/external/adapter-base.ts"
+import type { ExternalAgentRuntimeStatus } from "../agent/external/probe.ts"
+import type { OpencodeAgentAdapter } from "../agent/opencode-adapter.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
 import type { RuntimeCapabilities } from "../runtime/common.ts"
@@ -43,6 +47,8 @@ import type {
   SendMessageRequest,
   SaveLocalImageAsResult,
   SetChatPermissionModeRequest,
+  SetExternalSessionEffortRequest,
+  SetExternalSessionModelRequest,
   SetAgentTeamRequest,
   ShowLocalPathInFolderRequest,
   ToolCallResultEvent,
@@ -64,7 +70,7 @@ import { copyFile, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { ActivityMetrics } from "../activity-metrics.ts"
-import { translateOpencodeEvent } from "../agent/event-translator.ts"
+import { externalAgentKindForSessionId } from "../agent/external/session-id.ts"
 import { createOpencodeMessageId } from "../agent/opencode-id.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
@@ -220,7 +226,10 @@ function metadataString(value: unknown): string | undefined {
 }
 
 function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): string | undefined {
-  if (data.tool !== "task") {
+  // Task fan-out is a kernel mechanism: the child ids live in the kernel's
+  // session space and feed kernel-only knowledge-scope APIs. External adapter
+  // events flow through the same pipeline, so they must never claim a pair.
+  if (data.tool !== "task" || externalAgentKindForSessionId(data.sessionId)) {
     return undefined
   }
   const metadata = data.metadata
@@ -272,8 +281,12 @@ interface StopSessionGenerationOptions {
 export class ChatServiceImpl extends ConnectionService<ChatService> implements IConnectionService<ChatService> {
   public readonly sessionActivity = new ServiceEvent<{ sessionId: string; usedAt: number }>()
 
-  private agent: AgentManager | null
+  private agent: OpencodeAgentAdapter | null
   private bridged = false
+  private agentUnsubscribe: (() => void) | null = null
+  /** External (BYOA) adapters, app-lifetime, keyed by agent kind. */
+  private externalAgents: ReadonlyMap<ExternalAgentKind, ExternalAgentAdapter> = new Map()
+  private externalAgentUnsubscribes: Array<() => void> = []
   private readonly userStops = new UserStopTracker()
   private emittedMessageErrors = new Map<string, Set<string>>()
   private readonly generations = new GenerationRegistry()
@@ -317,7 +330,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     logDiagnostic("performance", "chat event activity", { ...snapshot }, "trace")
   })
 
-  public constructor(agent: AgentManager | null = null, deps: ChatServiceDeps = {}) {
+  public constructor(agent: OpencodeAgentAdapter | null = null, deps: ChatServiceDeps = {}) {
     super(ChatServiceName)
     this.agent = agent
     this.deps = deps
@@ -350,9 +363,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   /** 登录 / 登出时由 main 重新装配 agent（旧 agent 的事件流随其 dispose 终止）。 */
-  public setAgent(agent: AgentManager | null): void {
+  public setAgent(agent: OpencodeAgentAdapter | null): void {
     this.streamEventBuffer?.clear()
     this.streamEventBuffer = null
+    this.agentUnsubscribe?.()
+    this.agentUnsubscribe = null
     this.agent = agent
     this.bridged = false
     this.userStops.clear()
@@ -378,6 +393,108 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.managedUserMessageIdsBySession.clear()
     this.deps.trustedAttachmentPaths?.clear()
     this.scopeMutationQueue = Promise.resolve()
+  }
+
+  /**
+   * Register app-lifetime external (BYOA) adapters. Their events run through
+   * the same bridge pipeline as the kernel; connection-status events stay
+   * per-adapter and never touch the kernel's global agent status.
+   */
+  public setExternalAgents(agents: ReadonlyMap<ExternalAgentKind, ExternalAgentAdapter>): void {
+    for (const unsubscribe of this.externalAgentUnsubscribes) {
+      unsubscribe()
+    }
+    this.externalAgentUnsubscribes = []
+    this.externalAgents = agents
+    const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
+    for (const adapter of agents.values()) {
+      this.externalAgentUnsubscribes.push(
+        adapter.onEvent((event) => {
+          if (event.event === "connectionStatus") {
+            return
+          }
+          this.processAgentEvent(emit, event)
+        }),
+      )
+    }
+  }
+
+  public async getExternalAgents(): Promise<ExternalAgentRuntimeStatus[]> {
+    const statuses = await Promise.all(
+      [...this.externalAgents.values()].map(async (adapter) => {
+        try {
+          return await adapter.runtimeStatus()
+        } catch (error) {
+          logDiagnostic("chat-service", "external agent probe failed", { error, kind: adapter.kind }, "warn")
+          return null
+        }
+      }),
+    )
+    return statuses.filter((status): status is ExternalAgentRuntimeStatus => Boolean(status))
+  }
+
+  public async setExternalSessionModel(req: SetExternalSessionModelRequest): Promise<void> {
+    await this.externalAdapterFor(req.sessionId).send({
+      type: "set-model",
+      sessionId: req.sessionId,
+      ...(req.modelId ? { modelId: req.modelId } : {}),
+    })
+  }
+
+  public async setExternalSessionEffort(req: SetExternalSessionEffortRequest): Promise<void> {
+    await this.externalAdapterFor(req.sessionId).send({
+      type: "set-effort",
+      sessionId: req.sessionId,
+      ...(req.effortId ? { effortId: req.effortId } : {}),
+    })
+  }
+
+  public async getExternalSessionSelection(sessionId: string): Promise<{ modelId?: string; effortId?: string }> {
+    return this.externalAdapterFor(sessionId).sessionSelection(sessionId)
+  }
+
+  public async warmExternalAgent(kind: ExternalAgentKind): Promise<void> {
+    await this.externalAgents.get(kind)?.warmCatalog()
+  }
+
+  private externalAdapterFor(sessionId: string): ExternalAgentAdapter {
+    const kind = externalAgentKindForSessionId(sessionId)
+    const adapter = kind ? this.externalAgents.get(kind) : undefined
+    if (!adapter) {
+      throw new Error("This operation only applies to external agent sessions.")
+    }
+    return adapter
+  }
+
+  /** Resolve the backend that owns a session id (kernel or an external adapter). */
+  private chatBackendFor(sessionId: string): OpencodeAgentAdapter | ExternalAgentAdapter | null {
+    const kind = externalAgentKindForSessionId(sessionId)
+    if (kind) {
+      return this.externalAgents.get(kind) ?? null
+    }
+    return this.agent
+  }
+
+  /**
+   * Best-effort projection of a permission mode onto the session's adapter.
+   * Backends without the capability (the kernel) are a silent no-op; failures
+   * never block the caller because enforcement stays agent-side anyway.
+   */
+  private async projectPermissionMode(sessionId: string, mode: AgentPermissionMode): Promise<void> {
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend || !("applyPermissionMode" in backend) || !backend.applyPermissionMode) {
+      return
+    }
+    try {
+      await backend.applyPermissionMode(sessionId, mode)
+    } catch (error) {
+      logDiagnostic(
+        "chat-service",
+        "failed to project permission mode onto external agent",
+        { error, kind: externalAgentKindForSessionId(sessionId), sessionId },
+        "warn",
+      )
+    }
   }
 
   public setAgentStatus(status: AgentRuntimeStatus): void {
@@ -437,219 +554,223 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.streamEventBuffer = new ChatStreamEventBuffer((buffered) => {
       this.sendBestEffort(emit, buffered.event, buffered.data, { sessionId: buffered.data.sessionId })
     })
-    const handleConnectionStatus = (status: AgentEventConnectionStatus): void => {
-      this.handleAgentConnectionStatus(emit, status)
+    this.agentUnsubscribe = this.agent.onEvent((event) => {
+      if (event.event === "connectionStatus") {
+        this.handleAgentConnectionStatus(emit, event.data)
+        return
+      }
+      this.processAgentEvent(emit, event)
+    })
+  }
+
+  /** Run one normalized agent event through the bridge pipeline (filtering, folding, watchdogs, broadcast). */
+  private processAgentEvent(emit: (event: string, data: unknown) => Promise<void>, translated: ChatEmit): void {
+    if (translated.event === "usageUpdated") {
+      // Already folded into the adapter transcript; the usage meter reads it
+      // off messages on reload, mirroring the kernel history path.
+      return
     }
-    this.agent.subscribe((event) => {
-      for (const translated of translateOpencodeEvent(event)) {
-        const sourceSessionId = translated.data.sessionId
-        const generationSessionId = sourceSessionId ? this.generationWatchdogSessionId(sourceSessionId) : null
-        const failedSessionId = generationSessionId ?? sourceSessionId
-        if (failedSessionId && this.connectionFailedSessions.has(failedSessionId)) {
-          continue
-        }
-        const userStoppedSessionId =
-          translated.event === "agentError" && sourceSessionId
-            ? [sourceSessionId, generationSessionId]
-                .filter((sessionId): sessionId is string => Boolean(sessionId))
-                .find((sessionId) => this.userStops.consumeAbort(sessionId, translated.data.message))
-            : undefined
-        if (translated.event === "agentError" && userStoppedSessionId) {
-          const sessionId = generationSessionId ?? userStoppedSessionId
-          const messageId = this.activeAssistantMessages.get(sessionId)
-          const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
-          const stoppedAt = Date.now()
-          if (messageId) {
-            void this.rememberStoppedGeneration(sessionId, messageId, partIds, stoppedAt).catch((error: unknown) => {
-              console.warn("[wanta] failed to record stopped generation", error)
-            })
-          }
-          void this.finalizeTurnOutput(sessionId, messageId)
-            .catch((error: unknown) => {
-              console.warn("[wanta] failed to finalize stopped turn output", error)
-            })
-            .finally(() => {
-              this.clearSessionGeneration(sessionId)
-              this.activeAssistantMessages.delete(sessionId)
-              this.activeToolParts.delete(sessionId)
-              this.activeRuns.delete(sessionId)
-              this.emitSessionActivity(sessionId)
-              this.sendBestEffort(
-                emit,
-                "generationStopped",
-                { sessionId, ...(messageId ? { messageId, partIds, stoppedAt } : {}) },
-                { sessionId },
-              )
-            })
-          continue
-        }
-        if (this.userStops.shouldSuppressEvent(translated)) {
-          continue
-        }
-        if (
-          translated.event === "messageDelta" &&
-          translated.data.synthetic === true &&
-          this.managedUserMessageIds.has(translated.data.messageId)
-        ) {
-          continue
-        }
-        if (
-          translated.event === "messageAttachment" &&
-          this.internalAttachmentPathsByMessage.get(translated.data.messageId)?.has(translated.data.attachment.path)
-        ) {
-          continue
-        }
-        const activitySessionId = generationSessionId ?? sourceSessionId
-        if (activitySessionId) {
-          this.generations.clearAcknowledgementWatchdog(activitySessionId)
-        }
-        if (translated.event === "messageStarted") {
-          if (translated.data.internal === true) {
-            this.rememberInternalMessage(translated.data.sessionId, translated.data.messageId)
-            continue
-          }
-          if (translated.data.role === "user" && this.compactingSessions.has(translated.data.sessionId)) {
-            this.rememberInternalMessage(translated.data.sessionId, translated.data.messageId)
-            continue
-          }
-          if (translated.data.role === "assistant") {
-            this.compactingSessions.delete(translated.data.sessionId)
-          }
-          if (!this.rememberMessageStarted(translated)) {
-            continue
-          }
-        }
-        if (
-          ("messageId" in translated.data &&
-            typeof translated.data.messageId === "string" &&
-            this.isInternalMessage(translated.data.sessionId, translated.data.messageId)) ||
-          (translated.event === "messageDelta" && translated.data.synthetic === true)
-        ) {
-          continue
-        }
-        if (translated.event === "assistantActivity" && translated.data.phase === "compacting") {
-          this.compactingSessions.add(translated.data.sessionId)
-        }
-        if (translated.event === "permissionAsked" && this.answerLocalAccessPermission(emit, translated.data.request)) {
-          if (generationSessionId) {
-            this.generations.clearInactivityWatchdog(generationSessionId)
-          }
-          continue
-        }
-        const displayed = this.subagentSessions.forDisplay(translated)
-        const displayedSessionId = displayed.data.sessionId
-        if (
-          sourceSessionId &&
-          generationSessionId &&
-          sourceSessionId !== generationSessionId &&
-          displayed === translated
-        ) {
-          this.scheduleGenerationInactivityWatchdog(generationSessionId)
-          continue
-        }
-        if (translated.event === "permissionAsked") {
-          this.rememberPendingPermissionRequest(translated.data.request)
-        }
-        this.activeRuns.applyEvent(displayed)
-        if (translated.event === "messageStarted" && translated.data.role === "assistant") {
-          this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
-          this.activeToolParts.set(translated.data.sessionId, new Set())
-          const { artifactRoot, processRoot } = this.turnOutputs.consume(translated.data.sessionId)
-          if (artifactRoot && processRoot) {
-            const activeTurn = this.turnOutputs.forSession(translated.data.sessionId)
-            if (activeTurn?.artifactRoot === artifactRoot && activeTurn.processRoot === processRoot) {
-              activeTurn.messageId = translated.data.messageId
-            }
-          }
-        }
-        if (translated.event === "toolCallStarted") {
-          this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
-          const partIds = this.activeToolParts.get(translated.data.sessionId) ?? new Set<string>()
-          partIds.add(translated.data.partId)
-          this.activeToolParts.set(translated.data.sessionId, partIds)
-          this.activeRuns.update(translated.data.sessionId, {
-            activeAssistantMessageId: translated.data.messageId,
-            activeToolPartIds: [...partIds],
-            phase: "tool_running",
-          })
-          const childSessionId = taskChildSessionId(translated.data)
-          if (childSessionId) {
-            this.subagentSessions.remember(translated.data.sessionId, childSessionId)
-            void this.agent
-              ?.inheritSessionKnowledgeBaseIds(translated.data.sessionId, childSessionId)
-              .catch((error: unknown) => {
-                console.warn("[wanta] failed to inherit task subagent knowledge scope:", error)
-              })
-          }
-        }
-        if (translated.event === "toolCallResult") {
-          const partIds = this.activeToolParts.get(translated.data.sessionId)
-          partIds?.delete(translated.data.partId)
-          if (partIds?.size === 0) {
-            this.activeToolParts.delete(translated.data.sessionId)
-          }
-          this.activeRuns.update(translated.data.sessionId, {
-            activeAssistantMessageId: translated.data.messageId,
-            activeToolPartIds: partIds ? [...partIds] : [],
-            phase: partIds && partIds.size > 0 ? "tool_running" : "thinking",
-          })
-          const childSessionId = taskChildSessionId(translated.data)
-          if (childSessionId) {
-            this.subagentSessions.forget(translated.data.sessionId, childSessionId)
-            void this.agent?.clearSessionKnowledgeBaseIds(childSessionId).catch((error: unknown) => {
-              console.warn("[wanta] failed to clear task subagent knowledge scope:", error)
-            })
-          }
-          if (translated.data.authorization) {
-            void this.rememberAuthorizationOverlay(
-              translated.data.sessionId,
-              translated.data.messageId,
-              translated.data.partId,
-              translated.data.authorization,
-            ).catch((error: unknown) => {
-              console.warn("[wanta] failed to record authorization overlay", error)
-            })
-          }
-        }
-        if (translated.event === "agentError" && translated.data.sessionId) {
-          const sessionId = translated.data.sessionId
-          this.compactingSessions.delete(sessionId)
-          this.generations.clearInactivityWatchdog(sessionId)
-          void this.interruptSessionGeneration(emit, sessionId, "runtime_error", translated.data.message, {
-            abortAgent: false,
-          })
-          continue
-        }
-        if (translated.event === "messageCompleted") {
-          const sessionId = translated.data.sessionId
-          this.clearInternalMessages(sessionId)
-          this.compactingSessions.delete(sessionId)
-          const generation = this.generations.get(sessionId)
-          if (generation) void this.completeSessionGeneration(emit, sessionId, generation)
-          continue
-        }
-        if (sourceSessionId) {
-          if (inactivityWatchdogActionForEvent(displayed.event) === "pause") {
-            if (generationSessionId) {
-              this.generations.clearInactivityWatchdog(generationSessionId)
-            }
-          } else if (generationSessionId) {
-            this.scheduleGenerationInactivityWatchdog(generationSessionId)
-          }
-        }
-        if (displayed.event === "messageDelta" || displayed.event === "messageReasoningDelta") {
-          this.eventMetrics.record(`stream-input:${displayed.event}`)
-          this.streamEventBuffer?.enqueue(displayed)
-        } else {
-          this.sendBestEffort(emit, displayed.event, displayed.data, { sessionId: displayedSessionId })
+    const sourceSessionId = translated.data.sessionId
+    const generationSessionId = sourceSessionId ? this.generationWatchdogSessionId(sourceSessionId) : null
+    const failedSessionId = generationSessionId ?? sourceSessionId
+    if (failedSessionId && this.connectionFailedSessions.has(failedSessionId)) {
+      return
+    }
+    const userStoppedSessionId =
+      translated.event === "agentError" && sourceSessionId
+        ? [sourceSessionId, generationSessionId]
+            .filter((sessionId): sessionId is string => Boolean(sessionId))
+            .find((sessionId) => this.userStops.consumeAbort(sessionId, translated.data.message))
+        : undefined
+    if (translated.event === "agentError" && userStoppedSessionId) {
+      const sessionId = generationSessionId ?? userStoppedSessionId
+      const messageId = this.activeAssistantMessages.get(sessionId)
+      const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
+      const stoppedAt = Date.now()
+      if (messageId) {
+        void this.rememberStoppedGeneration(sessionId, messageId, partIds, stoppedAt).catch((error: unknown) => {
+          console.warn("[wanta] failed to record stopped generation", error)
+        })
+      }
+      void this.finalizeTurnOutput(sessionId, messageId)
+        .catch((error: unknown) => {
+          console.warn("[wanta] failed to finalize stopped turn output", error)
+        })
+        .finally(() => {
+          this.clearSessionGeneration(sessionId)
+          this.activeAssistantMessages.delete(sessionId)
+          this.activeToolParts.delete(sessionId)
+          this.activeRuns.delete(sessionId)
+          this.emitSessionActivity(sessionId)
+          this.sendBestEffort(
+            emit,
+            "generationStopped",
+            { sessionId, ...(messageId ? { messageId, partIds, stoppedAt } : {}) },
+            { sessionId },
+          )
+        })
+      return
+    }
+    if (this.userStops.shouldSuppressEvent(translated)) {
+      return
+    }
+    if (
+      translated.event === "messageDelta" &&
+      translated.data.synthetic === true &&
+      this.managedUserMessageIds.has(translated.data.messageId)
+    ) {
+      return
+    }
+    if (
+      translated.event === "messageAttachment" &&
+      this.internalAttachmentPathsByMessage.get(translated.data.messageId)?.has(translated.data.attachment.path)
+    ) {
+      return
+    }
+    const activitySessionId = generationSessionId ?? sourceSessionId
+    if (activitySessionId) {
+      this.generations.clearAcknowledgementWatchdog(activitySessionId)
+    }
+    if (translated.event === "messageStarted") {
+      if (translated.data.internal === true) {
+        this.rememberInternalMessage(translated.data.sessionId, translated.data.messageId)
+        return
+      }
+      if (translated.data.role === "user" && this.compactingSessions.has(translated.data.sessionId)) {
+        this.rememberInternalMessage(translated.data.sessionId, translated.data.messageId)
+        return
+      }
+      if (translated.data.role === "assistant") {
+        this.compactingSessions.delete(translated.data.sessionId)
+      }
+      if (!this.rememberMessageStarted(translated)) {
+        return
+      }
+    }
+    if (
+      ("messageId" in translated.data &&
+        typeof translated.data.messageId === "string" &&
+        this.isInternalMessage(translated.data.sessionId, translated.data.messageId)) ||
+      (translated.event === "messageDelta" && translated.data.synthetic === true)
+    ) {
+      return
+    }
+    if (translated.event === "assistantActivity" && translated.data.phase === "compacting") {
+      this.compactingSessions.add(translated.data.sessionId)
+    }
+    if (translated.event === "permissionAsked" && this.answerLocalAccessPermission(emit, translated.data.request)) {
+      if (generationSessionId) {
+        this.generations.clearInactivityWatchdog(generationSessionId)
+      }
+      return
+    }
+    const displayed = this.subagentSessions.forDisplay(translated)
+    const displayedSessionId = displayed.data.sessionId
+    if (sourceSessionId && generationSessionId && sourceSessionId !== generationSessionId && displayed === translated) {
+      this.scheduleGenerationInactivityWatchdog(generationSessionId)
+      return
+    }
+    if (translated.event === "permissionAsked") {
+      this.rememberPendingPermissionRequest(translated.data.request)
+    }
+    this.activeRuns.applyEvent(displayed)
+    if (translated.event === "messageStarted" && translated.data.role === "assistant") {
+      this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
+      this.activeToolParts.set(translated.data.sessionId, new Set())
+      const { artifactRoot, processRoot } = this.turnOutputs.consume(translated.data.sessionId)
+      if (artifactRoot && processRoot) {
+        const activeTurn = this.turnOutputs.forSession(translated.data.sessionId)
+        if (activeTurn?.artifactRoot === artifactRoot && activeTurn.processRoot === processRoot) {
+          activeTurn.messageId = translated.data.messageId
         }
       }
-    }, handleConnectionStatus)
+    }
+    if (translated.event === "toolCallStarted") {
+      this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
+      const partIds = this.activeToolParts.get(translated.data.sessionId) ?? new Set<string>()
+      partIds.add(translated.data.partId)
+      this.activeToolParts.set(translated.data.sessionId, partIds)
+      this.activeRuns.update(translated.data.sessionId, {
+        activeAssistantMessageId: translated.data.messageId,
+        activeToolPartIds: [...partIds],
+        phase: "tool_running",
+      })
+      const childSessionId = taskChildSessionId(translated.data)
+      if (childSessionId) {
+        this.subagentSessions.remember(translated.data.sessionId, childSessionId)
+        void this.agent
+          ?.inheritSessionKnowledgeBaseIds(translated.data.sessionId, childSessionId)
+          .catch((error: unknown) => {
+            console.warn("[wanta] failed to inherit task subagent knowledge scope:", error)
+          })
+      }
+    }
+    if (translated.event === "toolCallResult") {
+      const partIds = this.activeToolParts.get(translated.data.sessionId)
+      partIds?.delete(translated.data.partId)
+      if (partIds?.size === 0) {
+        this.activeToolParts.delete(translated.data.sessionId)
+      }
+      this.activeRuns.update(translated.data.sessionId, {
+        activeAssistantMessageId: translated.data.messageId,
+        activeToolPartIds: partIds ? [...partIds] : [],
+        phase: partIds && partIds.size > 0 ? "tool_running" : "thinking",
+      })
+      const childSessionId = taskChildSessionId(translated.data)
+      if (childSessionId) {
+        this.subagentSessions.forget(translated.data.sessionId, childSessionId)
+        void this.agent?.clearSessionKnowledgeBaseIds(childSessionId).catch((error: unknown) => {
+          console.warn("[wanta] failed to clear task subagent knowledge scope:", error)
+        })
+      }
+      if (translated.data.authorization) {
+        void this.rememberAuthorizationOverlay(
+          translated.data.sessionId,
+          translated.data.messageId,
+          translated.data.partId,
+          translated.data.authorization,
+        ).catch((error: unknown) => {
+          console.warn("[wanta] failed to record authorization overlay", error)
+        })
+      }
+    }
+    if (translated.event === "agentError" && translated.data.sessionId) {
+      const sessionId = translated.data.sessionId
+      this.compactingSessions.delete(sessionId)
+      this.generations.clearInactivityWatchdog(sessionId)
+      void this.interruptSessionGeneration(emit, sessionId, "runtime_error", translated.data.message, {
+        abortAgent: false,
+      })
+      return
+    }
+    if (translated.event === "messageCompleted") {
+      const sessionId = translated.data.sessionId
+      this.clearInternalMessages(sessionId)
+      this.compactingSessions.delete(sessionId)
+      const generation = this.generations.get(sessionId)
+      if (generation) void this.completeSessionGeneration(emit, sessionId, generation)
+      return
+    }
+    if (sourceSessionId) {
+      if (inactivityWatchdogActionForEvent(displayed.event) === "pause") {
+        if (generationSessionId) {
+          this.generations.clearInactivityWatchdog(generationSessionId)
+        }
+      } else if (generationSessionId) {
+        this.scheduleGenerationInactivityWatchdog(generationSessionId)
+      }
+    }
+    if ((displayed.event === "messageDelta" || displayed.event === "messageReasoningDelta") && this.streamEventBuffer) {
+      this.eventMetrics.record(`stream-input:${displayed.event}`)
+      this.streamEventBuffer.enqueue(displayed)
+    } else {
+      this.sendBestEffort(emit, displayed.event, displayed.data, { sessionId: displayedSessionId })
+    }
   }
 
   private handleAgentConnectionStatus(
     emit: (event: string, data: unknown) => Promise<void>,
-    status: AgentEventConnectionStatus,
+    status: AgentConnectionStatus,
   ): void {
     if (status.status === "runtime_restarting") {
       this.setAgentStatus({ status: "starting" })
@@ -851,6 +972,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const projectRoot = this.trustedAccess.projectRoot(request.sessionId)
     const activeGenerationId = this.generations.get(displaySessionId)?.id
     const taskProcessRoot = activeGenerationId ? this.turnOutputs.get(activeGenerationId)?.processRoot : undefined
+    // Keyed off the session id's kind, so a malformed external id still fails
+    // closed (prompt) instead of falling through to the kernel's defaults.
+    const isExternalSession = externalAgentKindForSessionId(request.sessionId) !== undefined
     const decision = evaluateLocalAccessRequest(request, {
       activeGenerationId,
       linkRuntime: this.activeLinkRuntime,
@@ -858,8 +982,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       sessionGrants: this.permissions.sessionGrants(request.sessionId),
       ...(taskProcessRoot ? { taskProcessRoot } : {}),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
+      ...(isExternalSession ? { isExternalSession } : {}),
     })
-    if (!this.agent) {
+    // External sessions answer through their own adapter; only a session with
+    // no backend at all falls through to the manual card.
+    if (!this.chatBackendFor(request.sessionId)) {
       return false
     }
     if (decision.type === "prompt") {
@@ -940,17 +1067,23 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private async answerAutomaticPermission(request: ChatPermissionRequest, reply: "once" | "reject"): Promise<void> {
-    if (!this.agent) throw new Error("Agent not configured")
+    const backend = this.chatBackendFor(request.sessionId)
+    if (!backend) throw new Error("Agent not configured")
     let lastError: unknown
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
-        await this.agent.answerPermission(request.sessionId, request.id, reply)
+        await backend.send({
+          type: "permission-response",
+          sessionId: request.sessionId,
+          requestId: request.id,
+          reply,
+        })
         this.permissionDiagnostics.recordAutomaticReply(attempt === 1 ? "first_attempt" : "retry_succeeded")
         return
       } catch (error) {
         lastError = error
         try {
-          const stillPending = (await this.agent.getPendingPermissions(request.sessionId)).some(
+          const stillPending = (await backend.getPendingPermissions(request.sessionId)).some(
             (pending) => pending.id === request.id,
           )
           if (!stillPending) {
@@ -976,12 +1109,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       data: unknown,
     ) => Promise<void>,
   ): Promise<void> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend) {
       return
     }
     let permissions: ChatPermissionRequest[]
     try {
-      permissions = await this.agent.getPendingPermissions(sessionId)
+      permissions = await backend.getPendingPermissions(sessionId)
     } catch (error) {
       console.warn("[wanta] failed to inspect pending permissions:", error)
       logDiagnostic("chat-service", "failed to inspect pending permissions", { error, sessionId }, "warn")
@@ -1131,8 +1265,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private async currentTurnIsComplete(sessionId: string, generation: SessionGeneration): Promise<boolean> {
-    if (!this.agent) return false
-    const messages = await withTimeout(this.agent.getMessages(sessionId), 1_000, "idle history verification").catch(
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend) return false
+    const messages = await withTimeout(backend.getMessages(sessionId), 1_000, "idle history verification").catch(
       () => null,
     )
     if (!messages || messages.length === 0) return false
@@ -1382,7 +1517,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private async stopSessionGeneration(sessionId: string, options: StopSessionGenerationOptions): Promise<void> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend) {
       return
     }
     const generation = this.generations.get(sessionId)
@@ -1392,7 +1528,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const stoppedAt = Date.now()
     if (options.abortAgent) {
       try {
-        await this.agent.abort(sessionId)
+        await backend.send({ type: "cancel", sessionId })
       } catch (error) {
         if (options.throwOnAbortFailure && (messageId || !generation)) {
           this.userStops.delete(sessionId)
@@ -1461,6 +1597,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async sendMessage(req: SendMessageRequest): Promise<void> {
+    const externalKind = externalAgentKindForSessionId(req.sessionId)
+    if (externalKind) {
+      return this.sendExternalMessage(req, externalKind)
+    }
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
@@ -1598,26 +1738,31 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       submitted = true
       this.scheduleGenerationSubmitWatchdog(req.sessionId, promptGeneration.id)
       void this.agent
-        .promptStreaming(req.sessionId, req.text, {
-          attachments: req.attachments,
-          artifactDir,
-          outputProjectRoot: artifactProjectRoot,
-          processDir,
-          mode: execution.mode,
-          messageId: userMessageId,
-          model: req.model,
-          teamName,
-          reasoningLevel: req.reasoningLevel,
-          signal: promptGeneration.controller.signal,
-          system: mergeSystemPrompts(
-            buildTeamSkillsSystem(req.teamSkills),
-            buildContextMentionsSystemPrompt(req.contextMentions),
-            buildProjectContextSystem(req.projectContext),
-            buildPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
-            bugReportSystem,
-            buildResponseLanguageSystem(req.appLocale, detectResponseLanguage(req.text)),
-          ),
-        })
+        .send(
+          {
+            type: "prompt",
+            sessionId: req.sessionId,
+            text: req.text,
+            attachments: req.attachments,
+            artifactDir,
+            outputProjectRoot: artifactProjectRoot,
+            processDir,
+            mode: execution.mode,
+            messageId: userMessageId,
+            model: req.model,
+            teamName,
+            reasoningLevel: req.reasoningLevel,
+            system: mergeSystemPrompts(
+              buildTeamSkillsSystem(req.teamSkills),
+              buildContextMentionsSystemPrompt(req.contextMentions),
+              buildProjectContextSystem(req.projectContext),
+              buildPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
+              bugReportSystem,
+              buildResponseLanguageSystem(req.appLocale, detectResponseLanguage(req.text)),
+            ),
+          },
+          { signal: promptGeneration.controller.signal },
+        )
         .then(() => {
           if (
             this.isCurrentGeneration(req.sessionId, promptGeneration.id) &&
@@ -1659,6 +1804,95 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (attachmentsRecorded && !submitted) {
         await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
       }
+      throw error
+    }
+  }
+
+  /**
+   * External (BYOA) turn pipeline: no managed artifact/process directories, no
+   * Link/team scope, no Wanta system prompt tail — the agent owns models, auth,
+   * and workspace behavior. Wanta contributes run tracking, permission-mode
+   * projection, and the shared event bridge.
+   */
+  private async sendExternalMessage(req: SendMessageRequest, kind: ExternalAgentKind): Promise<void> {
+    const adapter = this.externalAgents.get(kind)
+    if (!adapter) {
+      throw new Error("This agent is not available.")
+    }
+    if (req.attachments?.length && !adapter.profile.inputs.attachments) {
+      throw new Error("Attachments are not supported for this agent yet.")
+    }
+    // Main is the IPC boundary; a blank prompt must never spawn an agent turn.
+    if (!req.text.trim()) {
+      throw new Error("Message text is empty.")
+    }
+    if (this.generations.has(req.sessionId)) {
+      throw new Error("A generation is already active for this session.")
+    }
+    this.setSessionPermissionModeValue(
+      req.sessionId,
+      req.permissionMode ?? this.sessionPermissionMode(req.sessionId),
+      req.permissionModeVersion,
+    )
+    const userMessageId = createOpencodeMessageId()
+    const generation = this.beginSessionGeneration(req.sessionId, userMessageId)
+    this.createActiveRun(req, generation)
+    this.userStops.delete(req.sessionId)
+    this.connectionFailedSessions.delete(req.sessionId)
+    this.clearMessageErrorSignatures(req.sessionId)
+    this.emitSessionActivity(req.sessionId)
+    try {
+      const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
+      if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
+        this.clearSessionGeneration(req.sessionId, generation.id)
+        return
+      }
+      if (trustedProjectRoot) {
+        this.trustedAccess.setProjectRoot(req.sessionId, trustedProjectRoot)
+      }
+      await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
+      this.activeRuns.update(req.sessionId, { phase: "submitted" })
+      this.scheduleGenerationSubmitWatchdog(req.sessionId, generation.id)
+      void adapter
+        .send(
+          {
+            type: "prompt",
+            sessionId: req.sessionId,
+            text: req.text,
+            messageId: userMessageId,
+            ...(trustedProjectRoot ? { outputProjectRoot: trustedProjectRoot } : {}),
+            ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
+            ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
+          },
+          { signal: generation.controller.signal },
+        )
+        .then(() => {
+          if (
+            this.isCurrentGeneration(req.sessionId, generation.id) &&
+            !generation.controller.signal.aborted &&
+            !this.activeAssistantMessages.has(req.sessionId)
+          ) {
+            this.scheduleGenerationStartWatchdog(req.sessionId, generation.id)
+          }
+        })
+        .catch((error: unknown) => {
+          if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
+            this.clearSessionGeneration(req.sessionId, generation.id)
+            return
+          }
+          const messageId = this.activeAssistantMessages.get(req.sessionId)
+          this.clearSessionGeneration(req.sessionId, generation.id)
+          this.activeAssistantMessages.delete(req.sessionId)
+          this.activeToolParts.delete(req.sessionId)
+          this.emitMessageError(
+            this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+            req.sessionId,
+            errorMessage(error),
+            messageId,
+          )
+        })
+    } catch (error) {
+      this.clearSessionGeneration(req.sessionId, generation.id)
       throw error
     }
   }
@@ -1996,7 +2230,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async stopGeneration(sessionId: string): Promise<void> {
-    if (!this.agent) {
+    // The kernel-null guard must not swallow stops for external sessions: they
+    // route through their own adapter and work without the OpenCode kernel.
+    if (!this.chatBackendFor(sessionId)) {
       return
     }
     this.userStops.mark(sessionId)
@@ -2004,10 +2240,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend) {
       return []
     }
-    const messages = await this.agent.getMessages(sessionId)
+    const messages = await backend.getMessages(sessionId)
     const [authorizationOverlays, stoppedGenerations, userAttachmentRecords] = await Promise.all([
       this.outputPersistence.overlaysFor(sessionId),
       this.outputPersistence.stoppedFor(sessionId),
@@ -2025,12 +2262,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend) {
       return []
     }
     const sessionIds = [sessionId, ...this.subagentSessions.childSessionIds(sessionId)]
     const questions: ChatQuestionRequest[] = []
-    const sessionQuestions = await this.agent.getPendingQuestionsForSessions(sessionIds)
+    const sessionQuestions = await backend.getPendingQuestionsForSessions(sessionIds)
     for (const request of sessionQuestions) {
       const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
       questions.push(displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId })
@@ -2039,21 +2277,33 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async answerQuestion(req: AnswerQuestionRequest): Promise<void> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(req.sessionId)
+    if (!backend) {
       throw new Error("Agent not configured (sign in first)")
     }
-    await this.agent.answerQuestion(req.sessionId, req.requestId, req.answers)
+    await backend.send({
+      type: "question-response",
+      sessionId: req.sessionId,
+      requestId: req.requestId,
+      outcome: { kind: "answered", answers: req.answers },
+    })
     this.activeRuns.removeBlockingRequest(req.sessionId, req.requestId)
     this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
     this.emitSessionActivity(req.sessionId)
   }
 
   public async rejectQuestion(req: RejectQuestionRequest): Promise<void> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(req.sessionId)
+    if (!backend) {
       throw new Error("Agent not configured (sign in first)")
     }
     await withTimeout(
-      this.agent.rejectQuestion(req.sessionId, req.requestId),
+      backend.send({
+        type: "question-response",
+        sessionId: req.sessionId,
+        requestId: req.requestId,
+        outcome: { kind: "rejected" },
+      }),
       questionRejectTimeoutMs,
       "question rejection",
     )
@@ -2063,13 +2313,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getPendingPermissions(sessionId: string): Promise<ChatPermissionRequest[]> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend) {
       return []
     }
     const sessionIds = [sessionId, ...this.subagentSessions.childSessionIds(sessionId)]
     const pendingPermissions: ChatPermissionRequest[] = []
     const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
-    const permissions = await this.agent.getPendingPermissionsForSessions(sessionIds)
+    const permissions = await backend.getPendingPermissionsForSessions(sessionIds)
     for (const request of permissions) {
       if (!this.answerLocalAccessPermission(emit, request)) {
         const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
@@ -2084,16 +2335,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async answerPermission(req: AnswerPermissionRequest): Promise<void> {
-    if (!this.agent) {
+    const backend = this.chatBackendFor(req.sessionId)
+    if (!backend) {
       throw new Error("Agent not configured (sign in first)")
     }
     let request = this.pendingPermissionRequest(req.sessionId, req.requestId)
     const sessionIds = [req.sessionId, ...this.subagentSessions.childSessionIds(req.sessionId)]
     if (!request) {
       try {
-        request = (await this.agent.getPendingPermissionsForSessions(sessionIds)).find(
-          (item) => item.id === req.requestId,
-        )
+        request = (await backend.getPendingPermissionsForSessions(sessionIds)).find((item) => item.id === req.requestId)
         if (!request) {
           this.activeRuns.removeBlockingRequest(req.sessionId, req.requestId)
           this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
@@ -2117,7 +2367,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     }
     const sourceSessionId = request.sessionId
-    await this.agent.answerPermission(sourceSessionId, req.requestId, req.reply === "always" ? "once" : req.reply)
+    // The reply is forwarded verbatim; how "always" maps onto the agent's own
+    // approval semantics is each adapter's business (the kernel adapter
+    // downgrades it because the grant lives Wanta-side, external agents
+    // persist it in their native rule system).
+    await backend.send({
+      type: "permission-response",
+      sessionId: sourceSessionId,
+      requestId: req.requestId,
+      reply: req.reply,
+    })
     if (req.reply !== "reject" && request) {
       this.rememberTrustedPermissionResources(req.sessionId, request)
     }
@@ -2148,6 +2407,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (this.sessionPermissionMode(req.sessionId) !== req.permissionMode) {
       return
     }
+    // Sessions with an adapter-side mode get it projected immediately
+    // (mid-run switches must not wait for the next prompt); best effort.
+    await this.projectPermissionMode(req.sessionId, req.permissionMode)
     const affectedSessionIds = [req.sessionId]
     for (const childSessionId of this.subagentSessions.trustedChildSessionIds(req.sessionId)) {
       if (this.setSessionPermissionModeValue(childSessionId, req.permissionMode, req.version)) {

@@ -57,6 +57,14 @@ export type LocalAccessDecision =
 
 export interface LocalAccessPolicyContext {
   activeGenerationId?: string
+  /**
+   * The request comes from an external (BYOA) agent session. Permission policy
+   * for those sessions is owned by the agent's own CLI: it decides when to
+   * ask, and Wanta relays every ask to the user instead of answering through
+   * host-side policy. Must be derived from the session id's kind, never from
+   * whether a scratch root could be resolved.
+   */
+  isExternalSession?: boolean
   linkRuntime?: ActiveLinkRuntime
   permissionMode: AgentPermissionMode
   sessionGrants?: readonly SessionPermissionGrant[]
@@ -107,6 +115,29 @@ export function evaluateLocalAccessRequest(
 ): LocalAccessDecision {
   const kind = permissionRequestKind(request)
   const highRisk = isHighRiskPermissionRequest(request)
+  if (context.isExternalSession) {
+    // linkcode-style pass-through: the external agent's own CLI policy decides
+    // WHEN to ask (its native permission modes: acceptEdits, auto classifier,
+    // sandbox levels, ...), and Wanta relays every ask to the user instead of
+    // answering through host-side policy. The only automatic answers are the
+    // user's own explicit "allow for this session" grants, and even those
+    // cannot cross credential boundaries or approve high-risk commands.
+    if (permissionRequestHasSensitiveResource(request) || highRisk) {
+      return { type: "prompt", kind, highRisk }
+    }
+    if (
+      hasMatchingNarrowSessionGrant(
+        request,
+        context.sessionGrants,
+        context.trustedProjectRoot,
+        context.activeGenerationId,
+      ) ||
+      hasMatchingGenericSessionGrant(request, context.sessionGrants)
+    ) {
+      return { type: "allow", reason: "session_grant", kind, highRisk }
+    }
+    return { type: "prompt", kind, highRisk }
+  }
   const openConnectorPolicy =
     context.linkRuntime === "openconnector" && kind === "command"
       ? openConnectorCommandPolicy(permissionCommand(request) ?? request.resources.join(" "))

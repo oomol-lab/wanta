@@ -1,3 +1,4 @@
+import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
 import type {
   AgentPermissionMode,
   ChatContextMention,
@@ -17,6 +18,7 @@ import type { UserFacingError } from "@/lib/user-facing-error"
 
 import { ArrowRight, BrainCircuit, Bug, Server, X } from "lucide-react"
 import * as React from "react"
+import { AGENT_PROFILES, isExternalAgentKind } from "../../../electron/agent/contract/profile.ts"
 import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import { composerModeControlsDisabled } from "./composer-controls.ts"
@@ -63,17 +65,30 @@ import {
   PromptInputTextarea,
   PromptInputToolbar,
 } from "@/components/ai-elements/prompt-input"
+import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { useAppSettings } from "@/hooks/useAppSettings"
+import { useExternalAgents } from "@/hooks/useExternalAgents"
 import { useT } from "@/i18n/i18n"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { authTypeLabel } from "@/routes/Connections/shared"
 
 interface ChatComposerProps {
   error: string | null
+  agentEffortId?: string
+  agentKind?: AgentKind
+  agentModelId?: string
+  agentModesEnabled?: boolean
+  agentPickerLocked?: boolean
+  attachmentsEnabled?: boolean
   cloudModelsEnabled?: boolean
+  modelRoutingEnabled?: boolean
+  onSelectAgentEffort?: (effortId?: string) => void
+  onSelectAgentKind?: (kind: AgentKind) => void
+  onSelectAgentModel?: (modelId?: string) => void
   voiceEnabled?: boolean
   focusRequest: number
   generatedArtifacts?: ArtifactSelection | null
@@ -104,7 +119,7 @@ interface ChatComposerProps {
   onComposerStateChange?: (state: ComposerState) => void
   onSend: (request: ChatSendRequest) => Promise<ChatSendResult>
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
-  onPermissionModeDefault: () => void
+  onPermissionModeSelect: (mode: AgentPermissionMode) => void
   onPermissionModeFullAccess: () => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onOpenKnowledgeLibrary?: () => void
@@ -177,7 +192,17 @@ function paletteLabels({
 }
 
 export function ChatComposer({
+  agentEffortId,
+  agentKind = "opencode",
+  agentModelId,
+  agentModesEnabled = true,
+  agentPickerLocked = false,
+  attachmentsEnabled = true,
   cloudModelsEnabled = true,
+  modelRoutingEnabled = true,
+  onSelectAgentEffort,
+  onSelectAgentKind,
+  onSelectAgentModel,
   voiceEnabled = false,
   error,
   focusRequest,
@@ -209,7 +234,7 @@ export function ChatComposer({
   onComposerStateChange,
   onSend,
   onAnswerQuestion,
-  onPermissionModeDefault,
+  onPermissionModeSelect,
   onPermissionModeFullAccess,
   onOpenConnectionProvider,
   onOpenKnowledgeLibrary,
@@ -222,6 +247,24 @@ export function ChatComposer({
   const appSettings = useAppSettings()
   const skillInventory = useSkillInventoryResource()
   const modelCatalogState = useModelCatalog()
+  const chatService = useChatService()
+  const externalAgentsState = useExternalAgents()
+  const refreshExternalAgents = externalAgentsState.refresh
+  const warmedAgentKindsRef = React.useRef(new Set<AgentKind>())
+  React.useEffect(() => {
+    // Warm the displayed external agent's catalog once per kind per mount so
+    // model and effort options are ready by the time the pickers open.
+    if (!isExternalAgentKind(agentKind) || warmedAgentKindsRef.current.has(agentKind)) {
+      return
+    }
+    warmedAgentKindsRef.current.add(agentKind)
+    void chatService
+      .invoke("warmExternalAgent", agentKind)
+      .then(() => refreshExternalAgents())
+      .catch((cause: unknown) => {
+        reportRendererHandledError("agent", `warm external agent failed: ${agentKind}`, cause)
+      })
+  }, [agentKind, chatService, refreshExternalAgents])
   const [composer, dispatchComposer] = React.useReducer(
     composerReducer,
     initialComposerStateProp ?? initialComposerState(),
@@ -266,7 +309,7 @@ export function ChatComposer({
   const activePendingQuestion = pendingQuestions[0]
   const activePendingQuestionId = activePendingQuestion?.id
   const composerQuestionBlocked = Boolean(activePendingQuestion && !isSingleTextQuestion(activePendingQuestion))
-  const composerAttachmentsDisabled = Boolean(activePendingQuestion)
+  const composerAttachmentsDisabled = Boolean(activePendingQuestion) || !attachmentsEnabled
   const composerTurnState: ChatTurnState = activePendingQuestion ? { chatStatus: "ready", status: "idle" } : turnState
   const composerWillQueueMessage = activePendingQuestion ? false : willQueueMessage
   const initialSendPending = turnState.status === "submitting" && turnState.initialSendPending
@@ -439,6 +482,9 @@ export function ChatComposer({
     draftSelection,
     focusDraftAt,
     onAddArtifactAttachment: (item) => {
+      if (composerDisabled || composerAttachmentsDisabled) {
+        return
+      }
       composerAttachments.addAttachments([
         {
           kind: item.artifact.kind,
@@ -546,6 +592,13 @@ export function ChatComposer({
     ) {
       return
     }
+    // A draft can still hold attachments picked before the agent was switched;
+    // disabling the picker does not empty it. Say so instead of letting the
+    // main process reject the turn.
+    if (!attachmentsEnabled && attachments.length > 0) {
+      showTrustedInputError(t("chat.attachmentsUnsupportedForAgent"))
+      return
+    }
     let clearedAfterSubmit = false
     const clearAfterOptimisticSubmit = (): void => {
       if (clearedAfterSubmit) {
@@ -559,14 +612,16 @@ export function ChatComposer({
     }
     let result: ChatSendResult
     try {
+      // Agent-owned capabilities are omitted from the payload entirely so the
+      // request reflects only inputs this agent honors.
       result = await onSend({
         afterOptimisticSubmit: clearAfterOptimisticSubmit,
         attachments: attachments.map(stripDraftAttachment),
         contextMentions,
-        mode: agentMode,
-        model: modelCatalog?.selected,
+        mode: agentModesEnabled ? agentMode : undefined,
+        model: modelRoutingEnabled ? modelCatalog?.selected : undefined,
         permissionMode,
-        reasoningLevel,
+        reasoningLevel: modelRoutingEnabled ? reasoningLevel : undefined,
         text: composerSubmissionText({ command, draft: text }),
       })
     } catch (err) {
@@ -630,6 +685,19 @@ export function ChatComposer({
       onDismiss={visibleError.onDismiss}
     />
   ) : null
+  // Probed sign-in hint for the displayed agent; only an explicit logged_out
+  // state shows guidance (finding by kind naturally skips the built-in agent).
+  const displayedExternalAgent = React.useMemo(
+    () => externalAgentsState.agents.find((agent) => agent.kind === agentKind),
+    [agentKind, externalAgentsState.agents],
+  )
+  const displayedAgentProfile = AGENT_PROFILES[agentKind]
+  const agentLoginNotice =
+    displayedExternalAgent?.login.status === "logged_out" ? (
+      <p className="oo-text-caption px-1 text-muted-foreground">
+        {t("chat.agentLoginRequired", { hint: displayedExternalAgent.loginHint })}
+      </p>
+    ) : null
   const submitText = draft
   const canSubmit = activePendingQuestion
     ? !submitBlocked && !composerDisabled && attachments.length === 0 && submitText.trim().length > 0
@@ -642,7 +710,13 @@ export function ChatComposer({
       : t("chat.questionComposerPlaceholder")
     : placeholder
   const hasInputAddons = command !== null || attachments.length > 0 || contextMentions.length > 0
-  const contextUsage = React.useMemo(() => buildContextUsageInfo(messages, modelCatalog), [messages, modelCatalog])
+  // The context budget comes from Wanta's own model catalog, which is only
+  // authoritative when the agent routes models through Wanta; agents that bring
+  // their own model must not render a meter fabricated from unrelated limits.
+  const contextUsage = React.useMemo(
+    () => buildContextUsageInfo(messages, modelRoutingEnabled ? modelCatalog : null),
+    [messages, modelCatalog, modelRoutingEnabled],
+  )
 
   const promptInput = (
     <PromptInput
@@ -743,8 +817,19 @@ export function ChatComposer({
           turnState={composerTurnState}
           modelCatalog={modelCatalog}
           modelRequired={modelRequired}
+          agentCatalog={displayedExternalAgent?.catalog}
+          agentEffortId={agentEffortId}
+          agentEffortSelectionEnabled={displayedAgentProfile.inputs.setEffort}
+          agentKind={agentKind}
           agentMode={agentMode}
+          agentModelId={agentModelId}
+          agentModelSelectionEnabled={displayedAgentProfile.inputs.setModel}
+          agentModesEnabled={agentModesEnabled}
+          agentPickerLocked={agentPickerLocked}
+          externalAgents={externalAgentsState.agents}
+          modelRoutingEnabled={modelRoutingEnabled}
           permissionMode={permissionMode}
+          permissionModes={displayedAgentProfile.permissionModes}
           reasoningLevel={reasoningLevel}
           voiceEnabled={voiceEnabled}
           voiceActive={voiceEnabled && voiceInput.active}
@@ -757,11 +842,15 @@ export function ChatComposer({
           voiceTranscribing={voiceEnabled && voiceInput.transcribing}
           willQueueMessage={composerWillQueueMessage}
           onAddModel={modelCatalogState.openDialog}
+          onAgentPickerOpen={externalAgentsState.refresh}
           onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}
           onRetryVoice={voiceInput.retry}
+          onSelectAgentEffort={onSelectAgentEffort}
+          onSelectAgentKind={onSelectAgentKind}
+          onSelectAgentModel={onSelectAgentModel}
           onSelectAgentMode={setAgentMode}
-          onSelectDefaultPermissionMode={onPermissionModeDefault}
+          onSelectPermissionMode={onPermissionModeSelect}
           onRequestFullAccessPermissionMode={onPermissionModeFullAccess}
           onSelectReasoningLevel={setReasoningLevel}
           onSelectModel={modelCatalogState.selectModel}
@@ -824,6 +913,7 @@ export function ChatComposer({
   return (
     <>
       {errorBanner}
+      {agentLoginNotice}
       <div className="flex flex-col gap-2">
         <div className="relative">
           {palette}

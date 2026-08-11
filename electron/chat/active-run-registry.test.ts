@@ -54,3 +54,39 @@ test("assistant events advance active run presentation phases", () => {
   assert.equal(registry.get("session-1")?.activeAssistantMessageId, "message-1")
   assert.equal(registry.get("session-1")?.phase, "answering")
 })
+
+test("a user prompt echo never flips the run to answering", () => {
+  const registry = new ActiveRunRegistry(() => undefined)
+  registry.create("session-1", "generation-1", {
+    kind: "team",
+    teamId: "team-id",
+    teamName: "team-name",
+  })
+  registry.update("session-1", { phase: "submitted" })
+  // External adapters synthesize the user turn back into the stream.
+  registry.applyEvent({
+    event: "messageStarted",
+    data: { messageId: "user-1", role: "user", sessionId: "session-1" },
+  })
+  registry.applyEvent({
+    event: "messageDelta",
+    data: {
+      delta: "the prompt",
+      messageId: "user-1",
+      partId: "user-1:text",
+      sessionId: "session-1",
+      text: "the prompt",
+    },
+  })
+
+  assert.equal(registry.get("session-1")?.phase, "submitted")
+  assert.equal(registry.get("session-1")?.activeAssistantMessageId, undefined)
+
+  // Real assistant output still advances the phase as before.
+  registry.applyEvent({
+    event: "messageDelta",
+    data: { delta: "hi", messageId: "assistant-1", partId: "part-1", sessionId: "session-1", text: "hi" },
+  })
+  assert.equal(registry.get("session-1")?.phase, "answering")
+  assert.equal(registry.get("session-1")?.activeAssistantMessageId, "assistant-1")
+})

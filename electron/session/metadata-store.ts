@@ -4,6 +4,7 @@ import type { SessionPermissionMode } from "./common.ts"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { atomicWriteText } from "../atomic-file.ts"
+import { AGENT_PERMISSION_MODES } from "../chat/common.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 import { normalizeSessionScopeValue } from "./common.ts"
 
@@ -26,7 +27,7 @@ function validTimestamp(value: unknown): value is number {
 }
 
 function normalizePermissionMode(value: unknown): SessionPermissionMode | undefined {
-  return value === "full_access" || value === "default" ? value : undefined
+  return AGENT_PERMISSION_MODES.includes(value as SessionPermissionMode) ? (value as SessionPermissionMode) : undefined
 }
 
 export function normalizeKnowledgeBaseIds(value: unknown): string[] | undefined {

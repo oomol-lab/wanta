@@ -9,6 +9,8 @@ const rootDir = path.resolve(dirname, "..")
 const srcDir = path.join(rootDir, "src")
 
 const rendererElectronAllowlist = new Set([
+  "electron/agent/contract/profile.ts",
+  "electron/agent/external/status.ts",
   "electron/agent/mode.ts",
   "electron/agent/reasoning.ts",
   "electron/app-command.ts",

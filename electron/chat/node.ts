@@ -1850,6 +1850,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (trustedProjectRoot) {
         this.trustedAccess.setProjectRoot(req.sessionId, trustedProjectRoot)
       }
+      if (req.attachments?.length) {
+        // Same display path as the kernel: the store record is what getMessages
+        // folds back onto the synthesized user turn.
+        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments, req.text)
+        this.rememberTrustedAttachments(req.sessionId, req.attachments)
+      }
       await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
       this.scheduleGenerationSubmitWatchdog(req.sessionId, generation.id)
@@ -1860,6 +1866,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             sessionId: req.sessionId,
             text: req.text,
             messageId: userMessageId,
+            ...(req.attachments?.length ? { attachments: req.attachments } : {}),
             ...(trustedProjectRoot ? { outputProjectRoot: trustedProjectRoot } : {}),
             ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
             ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
@@ -1876,6 +1883,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           }
         })
         .catch((error: unknown) => {
+          if (req.attachments?.length) {
+            // The prompt never reached the agent; a record without a user turn
+            // would resurface as an orphaned attachment bubble on reload.
+            void this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+          }
           if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
             this.clearSessionGeneration(req.sessionId, generation.id)
             return

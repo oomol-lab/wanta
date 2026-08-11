@@ -368,6 +368,37 @@ describe("AcpAgentAdapter", () => {
     expect(harness.fake.promptRequests[0]!.prompt).toEqual([{ type: "text", text: "hello agent" }])
   })
 
+  test("attachments ride the prompt as resource_link blocks after the text", async () => {
+    const harness = await createHarness()
+    await harness.adapter.send({
+      type: "prompt",
+      sessionId: WANTA_SESSION_ID,
+      text: "read the notes",
+      attachments: [
+        { id: "att-1", name: "notes.md", mime: "text/markdown", size: 12, path: "/tmp/notes.md" },
+        {
+          id: "att-2",
+          name: "shot.png",
+          mime: "image/png",
+          size: 99,
+          path: "/tmp/raw.png",
+          agentPath: "/tmp/optimized.png",
+          agentName: "optimized.png",
+          agentMime: "image/png",
+        },
+      ],
+    })
+    await harness.waitFor((event) => event.event === "messageCompleted")
+
+    // The agent-optimized copy wins when present; the uri is a file URL the
+    // agent resolves with its own tools.
+    expect(harness.fake.promptRequests[0]!.prompt).toEqual([
+      { type: "text", text: "read the notes" },
+      { type: "resource_link", uri: "file:///tmp/notes.md", name: "notes.md", mimeType: "text/markdown" },
+      { type: "resource_link", uri: "file:///tmp/optimized.png", name: "optimized.png", mimeType: "image/png" },
+    ])
+  })
+
   test.each([
     ["once", "opt-allow-once"],
     ["always", "opt-allow-always"],

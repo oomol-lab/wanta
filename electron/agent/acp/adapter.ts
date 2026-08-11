@@ -14,6 +14,7 @@ import type { AcpAgentKind, AcpAgentRegistration } from "./registry.ts"
 import type { AcpSessionTranslator } from "./translator.ts"
 import type {
   ClientConnection,
+  ContentBlock,
   InitializeResponse,
   PermissionOption,
   PromptResponse,
@@ -28,6 +29,7 @@ import { spawn } from "node:child_process"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { Readable, Writable } from "node:stream"
+import { pathToFileURL } from "node:url"
 import { errorMessage, logDiagnostic } from "../../diagnostics-log.ts"
 import { AGENT_PROFILES } from "../contract/profile.ts"
 import { ExternalAgentAdapter } from "../external/adapter-base.ts"
@@ -268,6 +270,26 @@ function requestErrorCode(error: unknown): number | undefined {
  * same-direction kinds only; when no option matches the direction the outcome
  * degrades to "cancelled" rather than picking an opposite-direction option.
  */
+/**
+ * The prompt as ACP content blocks: the user text plus one resource_link per
+ * attachment. resource_link is baseline prompt capability (unlike image/audio,
+ * which need a capability declaration), so the agent resolves the file with
+ * its own tools regardless of what it advertised at initialize.
+ */
+function promptContentBlocks(input: PromptAgentInput): ContentBlock[] {
+  const blocks: ContentBlock[] = [{ type: "text", text: input.text }]
+  for (const attachment of input.attachments ?? []) {
+    const target = attachment.agentPath?.trim() || attachment.path
+    blocks.push({
+      type: "resource_link",
+      uri: pathToFileURL(target).href,
+      name: attachment.agentName?.trim() || attachment.name,
+      ...(attachment.agentMime || attachment.mime ? { mimeType: attachment.agentMime ?? attachment.mime } : {}),
+    })
+  }
+  return blocks
+}
+
 function selectPermissionOptionId(
   options: readonly PermissionOption[],
   reply: ChatPermissionReply,
@@ -462,7 +484,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     session.activeTurn = turn
     const promptPromise = handle.connection.agent.request("session/prompt", {
       sessionId: session.acpSessionId,
-      prompt: [{ type: "text", text: input.text }],
+      prompt: promptContentBlocks(input),
     })
     this.trackTurn(session, turn, promptPromise, options?.signal)
     // Resolve on dispatch (submission ack); completion arrives as messageCompleted.

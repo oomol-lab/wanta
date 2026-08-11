@@ -78,10 +78,12 @@ export interface AgentProfile {
 
 /**
  * External agents own their models, auth, and system prompts; Wanta reflects
- * them and never routes models or injects prompt tails.
+ * them and never routes models or injects prompt tails. Attachments are
+ * delivered as file references (ACP resource_link blocks, path notes for the
+ * Claude SDK) that the agent resolves with its own file tools.
  */
 const externalAgentInputs: AgentInputCapabilityFlags = {
-  attachments: false,
+  attachments: true,
   modes: false,
   reasoningLevels: false,
   systemPrompt: false,

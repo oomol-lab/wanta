@@ -17,6 +17,9 @@ import type { UserAttachmentStore } from "./user-attachments.ts"
 
 import assert from "node:assert/strict"
 import { randomUUID } from "node:crypto"
+import { mkdtemp, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import { test, vi } from "vitest"
 import { AGENT_PROFILES } from "../agent/contract/profile.ts"
 import { ExternalAgentAdapter } from "../agent/external/adapter-base.ts"
@@ -235,6 +238,14 @@ async function waitForTurnCompletion(service: ChatServiceImpl): Promise<void> {
 // Edge 1: attachments into an external session
 // ---------------------------------------------------------------------------
 
+/** A real on-disk attachment: the trust boundary realpath()s every candidate. */
+async function createProbeAttachment(): Promise<ChatAttachment> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-dx-attach-"))
+  const filePath = path.join(dir, "notes.md")
+  await writeFile(filePath, "probe", "utf8")
+  return { id: "att-1", name: "notes.md", mime: "text/markdown", size: 5, path: filePath }
+}
+
 test("edge1: attachment send into an external session records the attachment and forwards it to the adapter", async () => {
   const record = vi.fn(async () => undefined)
   const removeMessage = vi.fn(async () => undefined)
@@ -243,17 +254,16 @@ test("edge1: attachment send into an external session records the attachment and
     record,
     removeMessage,
   } as unknown as UserAttachmentStore
-  const { service, events, adapters } = createHarness(["claude-code"], { userAttachmentStore: attachmentStore })
+  const attachment = await createProbeAttachment()
+  const { service, events, adapters } = createHarness(["claude-code"], {
+    userAttachmentStore: attachmentStore,
+    // Picker authorization: attachment paths are trusted only when the user
+    // selected them, mirrored here the way main.ts wires the shared set.
+    trustedAttachmentPaths: new Set([attachment.path]),
+  })
   const adapter = adapters.get("claude-code")
   assert.ok(adapter)
   const sessionId = mintExternalSessionId("claude-code")
-  const attachment: ChatAttachment = {
-    id: "att-1",
-    name: "notes.md",
-    mime: "text/markdown",
-    size: 12,
-    path: "/tmp/notes.md",
-  }
 
   await service.sendMessage(sendRequest(sessionId, "please read this", { attachments: [attachment] }))
 
@@ -287,22 +297,53 @@ test("edge1b: a failed attachment send rolls the display record back", async () 
     record,
     removeMessage,
   } as unknown as UserAttachmentStore
-  const { service, adapters } = createHarness(["claude-code"], { userAttachmentStore: attachmentStore })
+  const attachment = await createProbeAttachment()
+  const { service, adapters } = createHarness(["claude-code"], {
+    userAttachmentStore: attachmentStore,
+    trustedAttachmentPaths: new Set([attachment.path]),
+  })
   const adapter = adapters.get("claude-code")
   assert.ok(adapter)
   adapter.failNextPrompt = new Error("agent exploded")
   const sessionId = mintExternalSessionId("claude-code")
-  const attachment: ChatAttachment = {
-    id: "att-1",
-    name: "notes.md",
-    mime: "text/markdown",
-    size: 12,
-    path: "/tmp/notes.md",
-  }
 
   await service.sendMessage(sendRequest(sessionId, "please read this", { attachments: [attachment] }))
   await waitForCondition(() => removeMessage.mock.calls.length === 1, "attachment record rollback")
   assert.equal(record.mock.calls.length, 1)
+  assert.equal(service.hasActiveGeneration(), false)
+})
+
+test("edge1c: an attachment path the user never authorized is rejected at the IPC boundary", async () => {
+  // Attachment paths are renderer-supplied; without picker authorization a
+  // compromised renderer could hand the agent any local file. The external
+  // path must enforce the same trust boundary as the kernel path.
+  const record = vi.fn(async () => undefined)
+  const attachmentStore = {
+    read: async () => new Map(),
+    record,
+    removeMessage: vi.fn(async () => undefined),
+  } as unknown as UserAttachmentStore
+  const { service, adapters } = createHarness(["claude-code"], {
+    userAttachmentStore: attachmentStore,
+    trustedAttachmentPaths: new Set<string>(),
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+  const attachment: ChatAttachment = {
+    id: "att-evil",
+    name: "id_rsa",
+    mime: "application/octet-stream",
+    size: 1,
+    path: "/Users/someone/.ssh/id_rsa",
+  }
+
+  await assert.rejects(
+    service.sendMessage(sendRequest(sessionId, "leak this", { attachments: [attachment] })),
+    /not selected or previously authorized/,
+  )
+  assert.equal(adapter.prompts.length, 0)
+  assert.equal(record.mock.calls.length, 0)
   assert.equal(service.hasActiveGeneration(), false)
 })
 

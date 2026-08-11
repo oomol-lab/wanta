@@ -1826,6 +1826,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!req.text.trim()) {
       throw new Error("Message text is empty.")
     }
+    // Same trust boundary as the kernel path: attachment paths cross the IPC
+    // boundary, so only picker-authorized or previously trusted paths may be
+    // recorded and handed to the agent. Asserted BEFORE the single-generation
+    // check: the await would otherwise open a same-tick window where two sends
+    // both pass the check and spawn duplicate generations.
+    await this.assertTrustedAttachments(req.attachments)
     if (this.generations.has(req.sessionId)) {
       throw new Error("A generation is already active for this session.")
     }
@@ -1855,6 +1861,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         // folds back onto the synthesized user turn.
         await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments, req.text)
         this.rememberTrustedAttachments(req.sessionId, req.attachments)
+        // One-shot picker authorization is consumed on submit, kernel-style.
+        this.discardTrustedAttachmentPaths(req.attachments)
       }
       await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
       this.activeRuns.update(req.sessionId, { phase: "submitted" })

@@ -98,10 +98,7 @@ test("getSkillVersionCheck keeps reports when either trimmed version is incomple
     currentCheck,
   )
   currentCheck.currentVersion = "1.0.0"
-  assert.equal(
-    getSkillVersionCheck(checks, managedSkillGroup("demo", "@alice/demo", { version: " " })),
-    currentCheck,
-  )
+  assert.equal(getSkillVersionCheck(checks, managedSkillGroup("demo", "@alice/demo", { version: " " })), currentCheck)
 })
 
 test("isEmojiIcon excludes numeric strings", () => {

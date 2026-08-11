@@ -1,22 +1,20 @@
 import type { ExternalAgentCatalogOption } from "../../../electron/agent/external/status.ts"
+import type { AgentOptionRow } from "./agent-control-options.ts"
 import type { LucideIcon } from "lucide-react"
 
 import { Check, ChevronDown } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
+import {
+  AGENT_OPTION_DEFAULT_ROW_ID as DEFAULT_ROW_ID,
+  buildAgentOptionRows,
+  normalizeAgentOptionValue,
+} from "./agent-control-options.ts"
 import { nextModelMenuIndex } from "./model-control-utils.ts"
 import { useComposerMenu } from "./useComposerMenu.ts"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
-
-const DEFAULT_ROW_ID = "__default__"
-
-interface AgentOptionRow {
-  id: string
-  label: string
-  description?: string
-}
 
 /**
  * Single-select menu over agent-native options (models, reasoning efforts).
@@ -56,26 +54,17 @@ export function AgentOptionPicker({
     setOpen,
     width: 280,
   })
-  const defaultOptionLabel = defaultOptionId
-    ? options.find((option) => option.id === defaultOptionId)?.label
-    : undefined
+  const normalizedValue = normalizeAgentOptionValue(value, defaultOptionId)
   const rows = React.useMemo<AgentOptionRow[]>(
-    () => [
-      {
-        id: DEFAULT_ROW_ID,
-        label: t("chat.agentOptionDefault"),
-        description: defaultOptionLabel ?? t("chat.agentOptionDefaultDescription"),
-      },
-      ...options.map((option) => ({
-        id: option.id,
-        label: option.label,
-        ...(option.description ? { description: option.description } : {}),
-      })),
-    ],
-    [defaultOptionLabel, options, t],
+    () =>
+      buildAgentOptionRows(options, defaultOptionId, {
+        defaultLabel: t("chat.agentOptionDefault"),
+        defaultDescription: t("chat.agentOptionDefaultDescription"),
+      }),
+    [defaultOptionId, options, t],
   )
-  const selectedRow = value !== undefined ? rows.find((row) => row.id === value) : undefined
-  const selectedLabel = selectedRow?.label ?? value ?? t("chat.agentOptionDefault")
+  const selectedRow = normalizedValue !== undefined ? rows.find((row) => row.id === normalizedValue) : undefined
+  const selectedLabel = selectedRow?.label ?? normalizedValue ?? t("chat.agentOptionDefault")
 
   const onOpenRef = React.useRef(onOpen)
   onOpenRef.current = onOpen
@@ -107,11 +96,11 @@ export function AgentOptionPicker({
     if (!open) {
       return
     }
-    const selectedIndex = value !== undefined ? rows.findIndex((row) => row.id === value) : 0
+    const selectedIndex = normalizedValue !== undefined ? rows.findIndex((row) => row.id === normalizedValue) : 0
     const nextIndex = selectedIndex >= 0 ? selectedIndex : 0
     setActiveIndex(nextIndex)
     window.requestAnimationFrame(() => focusRow(rows[nextIndex]))
-  }, [focusRow, open, rows, value])
+  }, [focusRow, open, rows, normalizedValue])
 
   const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === "Tab") {
@@ -149,7 +138,7 @@ export function AgentOptionPicker({
           onKeyDown={handleMenuKeyDown}
         >
           {rows.map((row, index) => {
-            const active = row.id === (value ?? DEFAULT_ROW_ID)
+            const active = row.id === (normalizedValue ?? DEFAULT_ROW_ID)
             const highlighted = index === activeIndex
             return (
               <button

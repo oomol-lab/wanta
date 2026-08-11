@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest"
 import { AGENT_PROFILES, EXTERNAL_AGENT_KINDS } from "../../../electron/agent/contract/profile.ts"
 import {
   agentPickerTriggerLabel,
+  buildAgentOptionRows,
   buildAgentPickerRows,
   composerCapabilitiesForProfile,
+  normalizeAgentOptionValue,
 } from "./agent-control-options.ts"
 
 const labels = {
@@ -93,5 +95,53 @@ describe("agentPickerTriggerLabel", () => {
 
   it("uses the profile display name for external agents", () => {
     expect(agentPickerTriggerLabel(externalKind, "Built-in Agent")).toBe(AGENT_PROFILES[externalKind].displayName)
+  })
+})
+
+describe("buildAgentOptionRows", () => {
+  const rowLabels = { defaultLabel: "Default", defaultDescription: "Decided by the agent" }
+
+  it("absorbs the agent-declared default option into the Default row instead of listing it twice", () => {
+    // Claude's catalog ships an explicit {id:"default"} entry that IS the
+    // agent default; rendering it after the synthetic Default row produced
+    // two menu rows with identical semantics.
+    const rows = buildAgentOptionRows(
+      [
+        { id: "default", label: "Default (recommended)" },
+        { id: "sonnet", label: "Sonnet", description: "Sonnet 5" },
+      ],
+      "default",
+      rowLabels,
+    )
+    expect(rows).toEqual([
+      { id: "__default__", label: "Default", description: "Default (recommended)" },
+      { id: "sonnet", label: "Sonnet", description: "Sonnet 5" },
+    ])
+  })
+
+  it("keeps every option and the generic caption when no default id is declared", () => {
+    const rows = buildAgentOptionRows([{ id: "grok-4-fast", label: "Grok 4 Fast" }], undefined, rowLabels)
+    expect(rows).toEqual([
+      { id: "__default__", label: "Default", description: "Decided by the agent" },
+      { id: "grok-4-fast", label: "Grok 4 Fast" },
+    ])
+  })
+
+  it("keeps the generic caption when the declared default is not among the options", () => {
+    const rows = buildAgentOptionRows([{ id: "a", label: "A" }], "missing", rowLabels)
+    expect(rows[0]).toEqual({ id: "__default__", label: "Default", description: "Decided by the agent" })
+    expect(rows).toHaveLength(2)
+  })
+})
+
+describe("normalizeAgentOptionValue", () => {
+  it("collapses a stored selection of the default id onto the Default row", () => {
+    expect(normalizeAgentOptionValue("default", "default")).toBeUndefined()
+  })
+
+  it("passes through explicit non-default selections and undefined", () => {
+    expect(normalizeAgentOptionValue("sonnet", "default")).toBe("sonnet")
+    expect(normalizeAgentOptionValue(undefined, "default")).toBeUndefined()
+    expect(normalizeAgentOptionValue("sonnet", undefined)).toBe("sonnet")
   })
 })

@@ -1,5 +1,5 @@
 import type { AgentKind, AgentProfile } from "../../../electron/agent/contract/profile.ts"
-import type { ExternalAgentRuntimeStatus } from "../../../electron/agent/external/status.ts"
+import type { ExternalAgentCatalogOption, ExternalAgentRuntimeStatus } from "../../../electron/agent/external/status.ts"
 
 import { AGENT_PROFILES } from "../../../electron/agent/contract/profile.ts"
 
@@ -69,4 +69,58 @@ export function buildAgentPickerRows(
     })
   }
   return rows
+}
+
+export const AGENT_OPTION_DEFAULT_ROW_ID = "__default__"
+
+export interface AgentOptionRow {
+  id: string
+  label: string
+  description?: string
+}
+
+export interface AgentOptionRowLabels {
+  defaultLabel: string
+  defaultDescription: string
+}
+
+/**
+ * A stored selection equal to the agent-declared default id collapses to the
+ * synthetic Default row: both mean "the agent's own default", and showing them
+ * as two distinct states would render duplicate menu entries.
+ */
+export function normalizeAgentOptionValue(
+  value: string | undefined,
+  defaultOptionId: string | undefined,
+): string | undefined {
+  return value !== undefined && value === defaultOptionId ? undefined : value
+}
+
+/**
+ * Synthetic Default row first (captioned with the agent default's own label
+ * when known), then every option except the declared default, which the
+ * Default row already represents.
+ */
+export function buildAgentOptionRows(
+  options: readonly ExternalAgentCatalogOption[],
+  defaultOptionId: string | undefined,
+  labels: AgentOptionRowLabels,
+): AgentOptionRow[] {
+  const defaultOptionLabel = defaultOptionId
+    ? options.find((option) => option.id === defaultOptionId)?.label
+    : undefined
+  return [
+    {
+      id: AGENT_OPTION_DEFAULT_ROW_ID,
+      label: labels.defaultLabel,
+      description: defaultOptionLabel ?? labels.defaultDescription,
+    },
+    ...options
+      .filter((option) => option.id !== defaultOptionId)
+      .map((option) => ({
+        id: option.id,
+        label: option.label,
+        ...(option.description ? { description: option.description } : {}),
+      })),
+  ]
 }

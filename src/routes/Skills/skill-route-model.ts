@@ -319,7 +319,12 @@ export function getSkillVersionCheck(
     return undefined
   }
 
-  return versionCheckByKey.get(getSkillVersionCheckKey(group.id, group.packageName))
+  const versionCheck = versionCheckByKey.get(getSkillVersionCheckKey(group.id, group.packageName))
+  if (versionCheck?.currentVersion && group.version && versionCheck.currentVersion.trim() !== group.version.trim()) {
+    return undefined
+  }
+
+  return versionCheck
 }
 
 export function hasSkillUpdateAvailable(versionCheck: SkillVersionReport["skills"][number] | undefined): boolean {

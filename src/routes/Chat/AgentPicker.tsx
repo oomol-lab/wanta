@@ -65,7 +65,11 @@ export function AgentPicker({
   // Refresh probed statuses whenever the menu opens, regardless of how it was
   // opened (click or keyboard).
   const onOpenRef = React.useRef(onOpen)
-  onOpenRef.current = onOpen
+  // Synced after commit: a render-time write can publish a callback from a
+  // render React later discards, which the open effect would then invoke.
+  React.useEffect(() => {
+    onOpenRef.current = onOpen
+  }, [onOpen])
   React.useEffect(() => {
     if (open) {
       onOpenRef.current?.()
@@ -218,6 +222,9 @@ export function AgentPicker({
         aria-expanded={open}
         aria-haspopup="menu"
         disabled={disabled}
+        // Locked keeps the trigger focusable so its hint tooltip stays
+        // reachable, but assistive tech must still hear that it does nothing.
+        aria-disabled={menuDisabled || undefined}
         className="oo-composer-control-button h-8 max-w-full min-w-0 shrink rounded-full px-2"
         onClick={toggleMenu}
         onKeyDown={handleTriggerKeyDown}

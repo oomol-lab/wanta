@@ -305,6 +305,7 @@ export const enMessages = {
   "chat.attachmentPathUnavailable": "Could not read this file path. Choose a file from disk.",
   "chat.attachmentSaveFailed": "Could not save this pasted attachment. Choose a file from disk.",
   "chat.attachmentFolderPickerUnavailable": "This environment cannot choose folders. Use the Wanta desktop app.",
+  "chat.attachmentsUnsupportedForAgent": "This agent does not accept attachments yet. Remove them to send.",
   "chat.sendNotAccepted": "This message was not accepted yet. Try again shortly.",
   "chat.stopFailed": "Failed to stop generation.",
   "chat.agentStarting": "Agent starting…",

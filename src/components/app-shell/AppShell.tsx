@@ -25,7 +25,7 @@ import type { ChatStatus } from "ai"
 import { PanelRightClose, PanelRightOpen } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-import { AGENT_PROFILES } from "../../../electron/agent/contract/profile.ts"
+import { AGENT_PROFILES, isExternalAgentKind } from "../../../electron/agent/contract/profile.ts"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { KNOWLEDGE_LIBRARY_CONTEXT_ID } from "../../../electron/knowledge/common.ts"
 import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
@@ -340,10 +340,18 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       return draftSelectionEntry(readStoredAgentComposerPrefs(globalThis.localStorage, kind))
     },
   )
+  // Both refs mirror committed state for later callbacks/effects. Writing them
+  // during render would publish values from a render React can still discard.
   const agentSelectionsRef = React.useRef(agentSelections)
-  agentSelectionsRef.current = agentSelections
+  React.useEffect(() => {
+    agentSelectionsRef.current = agentSelections
+  }, [agentSelections])
   const draftAgentKindRef = React.useRef(draftAgentKind)
-  draftAgentKindRef.current = draftAgentKind
+  React.useEffect(() => {
+    draftAgentKindRef.current = draftAgentKind
+  }, [draftAgentKind])
+  /** `<sessionKey>:<axis>` -> latest dispatched selection request, for rollback ordering. */
+  const agentSelectionRequestSeq = React.useRef(new Map<string, number>())
   const [draftKnowledgeBaseIds, setDraftKnowledgeBaseIds] = React.useState<string[]>([])
   const [draftProjectId, setDraftProjectId] = React.useState<string | null>(null)
   const [sidebarSegment, setSidebarSegment] = React.useState<SidebarSegment>(() =>
@@ -1635,7 +1643,15 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       const retryTeamSkills = storedOptions?.teamSkills ?? teamSkills.chatContextSkills
       const titleInput = { ...buildSessionTitleInput([], source.text, source.attachments), model }
       const fallbackTitle = buildFallbackSessionTitle(titleInput)
-      const session = await create(fallbackTitle, projectContext?.id ?? activeProject?.id)
+      // A clean-context retry must stay on the same agent; without this the new
+      // session falls back to the built-in kernel and the retry silently
+      // switches agents mid-conversation.
+      const retryAgentKind = activeSession?.agentKind
+      const session = await create(
+        fallbackTitle,
+        projectContext?.id ?? activeProject?.id,
+        retryAgentKind && isExternalAgentKind(retryAgentKind) ? { agentKind: retryAgentKind } : undefined,
+      )
 
       titleGeneration.rememberAutoFallbackTitle(session.id, fallbackTitle)
       await persistPermissionMode(session.id, permissionMode)
@@ -1661,6 +1677,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       activeKnowledgeBaseIds,
       activeProject?.id,
       activeProjectContext,
+      activeSession?.agentKind,
       create,
       displayedPermissionMode,
       teamSkills.chatContextSkills,
@@ -1807,19 +1824,26 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           : chatService.invoke("setExternalSessionEffort", { sessionId, ...(value ? { effortId: value } : {}) })
       return (value?: string): void => {
         const key = activeChatSessionId ?? "draft"
-        let previousValue: string | undefined
+        // Read the rollback target from committed state before scheduling the
+        // update: an updater may run later than (or be replayed after) this
+        // handler, so a value captured inside it can be unset when the request
+        // rejects. The token then keeps a slow failure from clobbering a newer
+        // selection that happens to carry the same id.
+        const previousValue = agentSelectionsRef.current[key]?.[field]
+        const token = (agentSelectionRequestSeq.current.get(`${key}:${field}`) ?? 0) + 1
+        agentSelectionRequestSeq.current.set(`${key}:${field}`, token)
         writeStoredAgentComposerPrefs(
           globalThis.localStorage,
           displayedAgentKind,
           field === "modelId" ? { modelId: value } : { effortId: value },
         )
-        setAgentSelections((prev) => {
-          previousValue = prev[key]?.[field]
-          return { ...prev, [key]: { ...prev[key], [field]: value } }
-        })
+        setAgentSelections((prev) => ({ ...prev, [key]: { ...prev[key], [field]: value } }))
         if (activeChatSessionId) {
           void send(activeChatSessionId, value).catch((error: unknown) => {
             reportRendererHandledError("chat", `set agent ${field === "modelId" ? "model" : "effort"} failed`, error)
+            if (agentSelectionRequestSeq.current.get(`${key}:${field}`) !== token) {
+              return
+            }
             // The adapter refused the switch; the optimistic value must not stick.
             setAgentSelections((prev) =>
               prev[key]?.[field] === value ? { ...prev, [key]: { ...prev[key], [field]: previousValue } } : prev,

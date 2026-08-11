@@ -349,9 +349,17 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
         }
         events.push({ event: "messageCompleted", data: { sessionId } })
         if (message.subtype !== "success") {
+          // `errors` is declared on every failure variant, but a frame from a
+          // newer CLI must not throw inside translation and kill the turn.
+          const detail = Array.isArray(message.errors) ? message.errors.join("; ") : ""
           events.push({
             event: "agentError",
-            data: { sessionId, message: `Claude Code turn failed (${message.subtype}): ${message.errors.join("; ")}` },
+            data: {
+              sessionId,
+              message: detail
+                ? `Claude Code turn failed (${message.subtype}): ${detail}`
+                : `Claude Code turn failed (${message.subtype}).`,
+            },
           })
         }
         return events

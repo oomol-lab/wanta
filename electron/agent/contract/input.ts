@@ -132,8 +132,10 @@ const promptInputSchema = z.object({
   artifactDir: z.string().optional(),
   outputProjectRoot: z.string().optional(),
   processDir: z.string().optional(),
-  agentModelId: z.string().optional(),
-  agentEffortId: z.string().optional(),
+  // Same floor as the dedicated set-model/set-effort inputs: an empty id would
+  // otherwise reach the adapters and be sent as a real selection.
+  agentModelId: z.string().min(1).optional(),
+  agentEffortId: z.string().min(1).optional(),
 })
 
 const cancelInputSchema = z.object({

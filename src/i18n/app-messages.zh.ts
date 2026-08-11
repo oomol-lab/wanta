@@ -292,6 +292,7 @@ export const zhCNMessages = {
   "chat.attachmentPathUnavailable": "无法读取该文件路径，请从磁盘选择文件。",
   "chat.attachmentSaveFailed": "无法保存粘贴的附件，请从磁盘选择文件。",
   "chat.attachmentFolderPickerUnavailable": "当前环境无法选择文件夹，请使用桌面版 Wanta。",
+  "chat.attachmentsUnsupportedForAgent": "该智能体暂不支持附件，请移除后再发送。",
   "chat.sendNotAccepted": "当前消息还没有被接收，请稍后重试。",
   "chat.stopFailed": "停止生成失败。",
   "chat.agentStarting": "Agent 启动中…",

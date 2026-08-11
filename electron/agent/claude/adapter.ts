@@ -681,6 +681,14 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       loop: Promise.resolve(),
       startMode,
     }
+    // handleStop copies and clears `sessions` before tearing them down, so a
+    // stop that landed during the awaits above would never see this session:
+    // close it here instead of leaving an orphaned subprocess behind.
+    if (!this.isStarted) {
+      inputQueue.end()
+      this.closeQuery(session)
+      throw new Error(`${this.kind}: adapter stopped while creating the session`)
+    }
     this.sessions.set(sessionId, session)
     session.loop = this.runQueryLoop(session)
     this.refreshCatalog(session)

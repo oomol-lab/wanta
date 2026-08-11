@@ -85,6 +85,9 @@ export interface UseChat {
       contextMentions?: ChatContextMention[]
       mode?: AgentMode
       model?: ModelChoice
+      /** Agent-native selections for external (BYOA) sessions. */
+      agentModelId?: string
+      agentEffortId?: string
       teamSkills?: ChatTeamSkillContext[]
       permissionMode?: AgentPermissionMode
       projectContext?: ChatProjectContext

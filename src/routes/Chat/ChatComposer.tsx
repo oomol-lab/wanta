@@ -592,6 +592,13 @@ export function ChatComposer({
     ) {
       return
     }
+    // A draft can still hold attachments picked before the agent was switched;
+    // disabling the picker does not empty it. Say so instead of letting the
+    // main process reject the turn.
+    if (!attachmentsEnabled && attachments.length > 0) {
+      showTrustedInputError(t("chat.attachmentsUnsupportedForAgent"))
+      return
+    }
     let clearedAfterSubmit = false
     const clearAfterOptimisticSubmit = (): void => {
       if (clearedAfterSubmit) {

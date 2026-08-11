@@ -226,7 +226,10 @@ function metadataString(value: unknown): string | undefined {
 }
 
 function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): string | undefined {
-  if (data.tool !== "task") {
+  // Task fan-out is a kernel mechanism: the child ids live in the kernel's
+  // session space and feed kernel-only knowledge-scope APIs. External adapter
+  // events flow through the same pipeline, so they must never claim a pair.
+  if (data.tool !== "task" || externalAgentKindForSessionId(data.sessionId)) {
     return undefined
   }
   const metadata = data.metadata

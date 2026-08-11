@@ -768,6 +768,13 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
           `but Wanta requires version ${PROTOCOL_VERSION}. Update ${displayName} and retry.`,
       )
     }
+    // Loss handling is wired before initialize completes, so a subprocess that
+    // dies mid-handshake already ran handleConnectionLost against a handle this
+    // method had not stored yet. Storing it now would park a dead connection
+    // that never triggers loss handling again (no respawn until stop()).
+    if (handle.lost) {
+      throw new Error(`${displayName} exited before the ACP connection was ready.`)
+    }
     if (!this.isStarted) {
       this.teardownHandle(handle)
       throw new Error(`${this.kind}: adapter stopped while connecting`)

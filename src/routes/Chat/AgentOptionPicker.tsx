@@ -67,7 +67,11 @@ export function AgentOptionPicker({
   const selectedLabel = selectedRow?.label ?? normalizedValue ?? t("chat.agentOptionDefault")
 
   const onOpenRef = React.useRef(onOpen)
-  onOpenRef.current = onOpen
+  // Synced after commit: a render-time write can publish a callback from a
+  // render React later discards, which the open effect would then invoke.
+  React.useEffect(() => {
+    onOpenRef.current = onOpen
+  }, [onOpen])
   React.useEffect(() => {
     if (open) {
       onOpenRef.current?.()

@@ -120,6 +120,10 @@ export function reduceChatRunSessions(
     return setSessionRunView(state, action.sessionId, { ...current, status: action.status })
   }
   if (action.type === "set_activity") {
+    // An activity may only appear while something backs it: the optimistic
+    // submit window ("submitted") or a live run (startedAt). Anything else is
+    // a late echo after the run ended and would freeze the indicator forever.
+    if (action.activity && current.startedAt === undefined && current.status !== "submitted") return state
     if (sameAssistantActivity(current.activity, action.activity)) return state
     const next = { ...current }
     if (action.activity) next.activity = action.activity

@@ -113,6 +113,8 @@ interface ClaudeSessionState {
   /** Bounded ring buffer of recent subprocess stderr chunks for diagnostics. */
   stderrTail: string[]
   loop: Promise<void>
+  /** How the native CLI session was started; drives the retry fallback. */
+  startMode: "fresh" | "resume"
 }
 
 interface PendingSdkPermission {
@@ -209,6 +211,13 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
   private catalog: ExternalAgentCatalog = staticClaudeCatalog()
   private catalogRefreshed = false
   private userMessageSeq = 0
+  /**
+   * Per-session override of how the native CLI session is started. Default is
+   * derived from persisted history (resume when history exists); a failed
+   * resume flips to "fresh" and a fresh start rejected as "already in use"
+   * flips back to "resume", so a retry always takes the other path.
+   */
+  private readonly nativeStartOverride = new Map<string, "fresh" | "resume">()
   private catalogWarmup: Promise<void> | undefined
   private readonly pendingSdkPermissions = new Map<string, PendingSdkPermission>()
   private probeCache: { status: ExternalAgentRuntimeStatus; expiresAt: number } | undefined
@@ -372,7 +381,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     try {
       await handle.setModel(modelId)
     } catch (error) {
-      this.restoreDesired(this.desiredModels, sessionId, previous)
+      this.restoreDesired(this.desiredModels, sessionId, previous, modelId)
       throw error
     }
   }
@@ -399,12 +408,25 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       // explicit null ({} would silently keep the previous effort in force).
       await handle.applyFlagSettings({ effortLevel: effortId ?? null })
     } catch (error) {
-      this.restoreDesired(this.desiredEfforts, sessionId, previous)
+      this.restoreDesired(this.desiredEfforts, sessionId, previous, effortId)
       throw error
     }
   }
 
-  private restoreDesired<T>(map: Map<string, T>, sessionId: string, previous: T | undefined): void {
+  /**
+   * Roll back a failed live switch, but only while the stash still holds the
+   * value THIS attempt wrote — a slow rejection must never clobber a newer
+   * accepted choice.
+   */
+  private restoreDesired<T>(
+    map: Map<string, T>,
+    sessionId: string,
+    previous: T | undefined,
+    attempted: T | undefined,
+  ): void {
+    if (map.get(sessionId) !== attempted) {
+      return
+    }
     if (previous === undefined) {
       map.delete(sessionId)
     } else {
@@ -524,9 +546,17 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     if (this.catalogRefreshed) {
       return
     }
-    this.catalogWarmup ??= this.runCatalogWarmup().finally(() => {
-      this.catalogWarmup = undefined
-    })
+    this.catalogWarmup ??= this.runCatalogWarmup()
+      .catch((error: unknown) => {
+        // Warm failures (probe, spawn, fs) keep the static baseline; they must
+        // never reject into the composer's warm-on-focus call.
+        logDiagnostic("claude-code-adapter", "catalog warmup failed", {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+      .finally(() => {
+        this.catalogWarmup = undefined
+      })
     await this.catalogWarmup
   }
 
@@ -572,6 +602,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     this.desiredPermissionModes.delete(sessionId)
     this.desiredModels.delete(sessionId)
     this.desiredEfforts.delete(sessionId)
+    this.nativeStartOverride.delete(sessionId)
     for (const [requestId, pending] of this.pendingSdkPermissions) {
       if (pending.sessionId === sessionId) {
         this.pendingSdkPermissions.delete(requestId)
@@ -614,6 +645,11 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     // Deterministic native identity: the SDK session UUID is the uuid embedded
     // in the external session id (fresh uuid only for non-external test ids).
     const sessionUuid = externalSessionUuid(sessionId) ?? randomUUID()
+    // A session with persisted history already owns this uuid on the CLI side;
+    // creating it again fails with "Session ID already in use", so resume it
+    // (verified against 2.1.226: resume replays nothing and keeps the same id).
+    const startMode =
+      this.nativeStartOverride.get(sessionId) ?? (this.hasPersistedHistory(sessionId) ? "resume" : "fresh")
     let cwd = input.outputProjectRoot
     if (!cwd) {
       cwd = path.join(this.scratchRootDir, sessionUuid)
@@ -638,7 +674,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         // (full_access) via setPermissionMode is accepted by the CLI.
         allowDangerouslySkipPermissions: true,
         includePartialMessages: true,
-        sessionId: sessionUuid,
+        ...(startMode === "resume" ? { resume: sessionUuid } : { sessionId: sessionUuid }),
         canUseTool: this.createCanUseTool(sessionId),
         stderr: (data: string) => {
           stderrTail.push(data)
@@ -657,6 +693,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       abortController,
       stderrTail,
       loop: Promise.resolve(),
+      startMode,
     }
     this.sessions.set(sessionId, session)
     session.loop = this.runQueryLoop(session)
@@ -667,15 +704,46 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
   /** Consume the query generator, translating every SDK message into contract events. */
   private async runQueryLoop(session: ClaudeSessionState): Promise<void> {
     const translator = createClaudeTurnTranslator(session.sessionId)
+    let receivedAnyMessage = false
+    let turnOpen = false
     try {
       for await (const message of session.queryHandle) {
+        if (!receivedAnyMessage) {
+          receivedAnyMessage = true
+          // The chosen start mode worked; later decisions re-derive fresh.
+          this.nativeStartOverride.delete(session.sessionId)
+        }
         for (const event of translator.translate(message)) {
+          if (event.event === "messageStarted" && event.data.role === "assistant") {
+            turnOpen = true
+          } else if (event.event === "messageCompleted") {
+            turnOpen = false
+          }
           this.emit(event)
         }
+      }
+      // A subprocess that exits without a result frame must still settle the
+      // turn; deliberate shutdown (stop) is exempt via the isReady guard.
+      if (turnOpen && this.isReady()) {
+        this.emit({
+          event: "agentError",
+          data: { sessionId: session.sessionId, message: "Claude Code exited before completing the turn." },
+        })
       }
     } catch (error) {
       const raw = error instanceof Error ? error.message : String(error)
       const message = isAuthenticationFailureMessage(raw) ? `${raw} ${LOGIN_HINT}` : raw
+      // A startup failure means the start mode itself was wrong (resume of a
+      // vanished CLI session, or a fresh start rejected as duplicate); flip it
+      // so the user's retry takes the other path instead of dead-ending.
+      if (!receivedAnyMessage) {
+        const failureText = raw + session.stderrTail.join("")
+        if (session.startMode === "resume") {
+          this.nativeStartOverride.set(session.sessionId, "fresh")
+        } else if (/already in use/iu.test(failureText)) {
+          this.nativeStartOverride.set(session.sessionId, "resume")
+        }
+      }
       this.emit({ event: "agentError", data: { sessionId: session.sessionId, message } })
       logDiagnostic(
         "claude-code-adapter",
@@ -688,6 +756,14 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         this.sessions.delete(session.sessionId)
       }
       session.inputQueue.end()
+      // A dead query can never answer its parked permission prompts; sweep
+      // them so the UI does not hang zombie permission cards forever.
+      for (const [requestId, pending] of this.pendingSdkPermissions) {
+        if (pending.sessionId === session.sessionId) {
+          this.pendingSdkPermissions.delete(requestId)
+          pending.settle({ behavior: "deny", message: "The agent process ended before this was answered." }, true)
+        }
+      }
     }
   }
 

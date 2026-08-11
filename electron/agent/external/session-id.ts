@@ -40,10 +40,14 @@ export function externalAgentKindForSessionId(sessionId: string): ExternalAgentK
   return undefined
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
+
 /**
  * The stable per-session UUID embedded in an external session id. Adapters may
  * reuse it as their native session identity when the agent allows caller-chosen
  * ids (Claude Code does), keeping the mapping deterministic across restarts.
+ * Strictly validated: session ids arrive over IPC and this value is used in
+ * file paths, so anything that is not a plain UUID is rejected.
  */
 export function externalSessionUuid(sessionId: string): string | undefined {
   if (externalAgentKindForSessionId(sessionId) === undefined) {
@@ -51,5 +55,5 @@ export function externalSessionUuid(sessionId: string): string | undefined {
   }
   const lastSeparator = sessionId.lastIndexOf(":")
   const uuid = sessionId.slice(lastSeparator + 1)
-  return uuid || undefined
+  return UUID_PATTERN.test(uuid) ? uuid : undefined
 }

@@ -9,7 +9,7 @@ import type {
   query,
 } from "@anthropic-ai/claude-agent-sdk"
 
-import { mkdtemp, rm, stat } from "node:fs/promises"
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -135,7 +135,10 @@ function findPermissionAsked(events: AgentEvent[]): Extract<AgentEvent, { event:
 const scratchDirs: string[] = []
 const startedAdapters: ClaudeCodeAgentAdapter[] = []
 
-async function createHarness(status: ExternalAgentRuntimeStatus = detectedStatus()) {
+async function createHarness(
+  status: ExternalAgentRuntimeStatus = detectedStatus(),
+  extras: { transcriptDir?: string } = {},
+) {
   const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-claude-adapter-test-"))
   scratchDirs.push(scratchRootDir)
   const probe = vi.fn(() => Promise.resolve(status))
@@ -145,6 +148,7 @@ async function createHarness(status: ExternalAgentRuntimeStatus = detectedStatus
     scratchRootDir,
     commandPath: () => Promise.resolve("/fake/path-bin"),
     queryFn,
+    ...(extras.transcriptDir ? { transcriptDir: extras.transcriptDir } : {}),
   })
   await adapter.start()
   startedAdapters.push(adapter)
@@ -195,6 +199,47 @@ describe("ClaudeCodeAgentAdapter", () => {
     await adapter.send({ type: "prompt", sessionId, text: "again" })
     expect(calls).toHaveLength(1)
     await vi.waitFor(() => expect(calls[0].fake.promptMessages).toHaveLength(2))
+  })
+
+  it("resumes the native session when persisted history exists, instead of recreating the id", async () => {
+    // A restored session already owns its deterministic uuid on the CLI side;
+    // creating it again fails with "Session ID already in use".
+    const transcriptDir = await mkdtemp(path.join(os.tmpdir(), "wanta-claude-transcripts-"))
+    scratchDirs.push(transcriptDir)
+    await writeFile(
+      path.join(transcriptDir, `${sessionUuid}.json`),
+      JSON.stringify({
+        version: 1,
+        messages: [{ id: "u1", role: "user", parts: [{ kind: "text", partId: "u1:text", text: "earlier" }] }],
+      }),
+    )
+    const { adapter, calls } = await createHarness(detectedStatus(), { transcriptDir })
+    await adapter.send({ type: "prompt", sessionId, text: "continue" })
+    expect(calls[0].options.resume).toBe(sessionUuid)
+    expect(calls[0].options.sessionId).toBeUndefined()
+  })
+
+  it("falls back to a fresh native session when the resume start fails outright", async () => {
+    const transcriptDir = await mkdtemp(path.join(os.tmpdir(), "wanta-claude-transcripts-"))
+    scratchDirs.push(transcriptDir)
+    await writeFile(
+      path.join(transcriptDir, `${sessionUuid}.json`),
+      JSON.stringify({
+        version: 1,
+        messages: [{ id: "u1", role: "user", parts: [{ kind: "text", partId: "u1:text", text: "earlier" }] }],
+      }),
+    )
+    const { adapter, calls, events } = await createHarness(detectedStatus(), { transcriptDir })
+    await adapter.send({ type: "prompt", sessionId, text: "continue" })
+    expect(calls[0].options.resume).toBe(sessionUuid)
+    // The CLI-side session vanished: the query dies before any message.
+    calls[0].fake.fail(new Error("Claude Code process exited with code 1"))
+    await vi.waitFor(() => expect(events.some((event) => event.event === "agentError")).toBe(true))
+
+    await adapter.send({ type: "prompt", sessionId, text: "retry" })
+    expect(calls).toHaveLength(2)
+    expect(calls[1].options.sessionId).toBe(sessionUuid)
+    expect(calls[1].options.resume).toBeUndefined()
   })
 
   it("uses outputProjectRoot as cwd when the session has a project", async () => {

@@ -66,6 +66,11 @@ export function readStoredAgentComposerPrefs(
   storage: LocalStorageLike | null | undefined,
   kind: AgentKind,
 ): AgentComposerPrefs {
+  // Old session records can still carry retired agent kinds (e.g. a removed
+  // registry entry); those must degrade to defaults, not crash below.
+  if (!isAgentKind(kind)) {
+    return {}
+  }
   const stored = readStore(storage).byAgent?.[kind]
   if (!stored || typeof stored !== "object") {
     return {}

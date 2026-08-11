@@ -165,19 +165,26 @@ function parseConfigSelects(configOptions: unknown): AcpConfigSelects {
       return [entry]
     })
     const options: ExternalAgentCatalogOption[] = []
+    const seenIds = new Set<string>()
     for (const entry of flat) {
       if (!entry || typeof entry !== "object") {
         continue
       }
       const item = entry as { value?: unknown; name?: unknown; description?: unknown }
-      if (typeof item.value !== "string" || item.value.length === 0) {
+      if (typeof item.value !== "string" || item.value.length === 0 || seenIds.has(item.value)) {
         continue
       }
+      seenIds.add(item.value)
       options.push({
         id: item.value,
         label: typeof item.name === "string" && item.name ? item.name : item.value,
         ...(typeof item.description === "string" && item.description ? { description: item.description } : {}),
       })
+    }
+    // A select with zero usable options carries no catalog information; keep
+    // whatever we knew instead of wiping the pickers (matches parseModelState).
+    if (options.length === 0) {
+      continue
     }
     const currentValue = typeof option.currentValue === "string" ? option.currentValue : undefined
     selects[axis] = {
@@ -203,14 +210,16 @@ function parseModelState(models: unknown): AcpConfigSelect | undefined {
     return undefined
   }
   const options: ExternalAgentCatalogOption[] = []
+  const seenIds = new Set<string>()
   for (const entry of shape.availableModels) {
     if (!entry || typeof entry !== "object") {
       continue
     }
     const model = entry as { modelId?: unknown; name?: unknown; description?: unknown }
-    if (typeof model.modelId !== "string" || model.modelId.length === 0) {
+    if (typeof model.modelId !== "string" || model.modelId.length === 0 || seenIds.has(model.modelId)) {
       continue
     }
+    seenIds.add(model.modelId)
     options.push({
       id: model.modelId,
       label: typeof model.name === "string" && model.name ? model.name : model.modelId,
@@ -294,6 +303,8 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   private readonly pendingAcpPermissions = new Map<string, PendingAcpPermission>()
   /** Model/effort choices made before the ACP session exists; applied on creation. */
   private readonly desiredSelections = new Map<string, { model?: string; effort?: string }>()
+  /** Last projected Wanta permission mode per session, applied at creation. */
+  private readonly desiredPermissionModes = new Map<string, AgentPermissionMode>()
   private catalog: ExternalAgentCatalog | undefined
   private catalogWarmup: Promise<void> | undefined
   private permissionSeq = 0
@@ -390,11 +401,21 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       // outcomes onto the wire before the connection is torn down.
       await new Promise((resolve) => setTimeout(resolve, 0))
     }
+    // Closing the connection rejects in-flight session/prompt requests; mark
+    // those turns settled first so trackTurn's rejection path stays silent
+    // instead of broadcasting a spurious agentError for a deliberate stop.
+    for (const session of this.sessionsByWantaId.values()) {
+      if (session.activeTurn && !session.activeTurn.settled) {
+        session.activeTurn.settled = true
+        session.activeTurn = undefined
+      }
+    }
     this.disposeConnection()
   }
 
   protected override handleForgetSession(sessionId: string): void {
     this.desiredSelections.delete(sessionId)
+    this.desiredPermissionModes.delete(sessionId)
     const session = this.sessionsByWantaId.get(sessionId)
     if (session) {
       this.wantaIdByAcpId.delete(session.acpSessionId)
@@ -550,10 +571,15 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     try {
       await this.setConfigValue(handle, session, axis, target)
     } catch (error) {
-      if (previous === undefined) {
-        delete desired[axis]
-      } else {
-        desired[axis] = previous
+      // Only roll back if the stash still holds THIS call's value; a slower
+      // rejection must never clobber a newer accepted choice.
+      const latest = this.desiredSelections.get(sessionId) ?? desired
+      if (latest[axis] === value) {
+        if (previous === undefined) {
+          delete latest[axis]
+        } else {
+          latest[axis] = previous
+        }
       }
       throw error
     }
@@ -610,6 +636,10 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     if (!modeMap) {
       return
     }
+    // The chat layer projects the mode BEFORE the first prompt creates the
+    // session; stash it so createAcpSession can apply it, or the whole first
+    // turn would run under the agent's own default mode.
+    this.desiredPermissionModes.set(sessionId, mode)
     const session = this.sessionsByWantaId.get(sessionId)
     if (!session) {
       return
@@ -931,6 +961,10 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
     if (desired?.effort !== undefined) {
       await this.setConfigValue(handle, session, "effort", desired.effort).catch(() => undefined)
+    }
+    const desiredMode = this.desiredPermissionModes.get(input.sessionId)
+    if (desiredMode !== undefined) {
+      await this.applyPermissionMode(input.sessionId, desiredMode).catch(() => undefined)
     }
     return session
   }

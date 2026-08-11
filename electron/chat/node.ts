@@ -2204,7 +2204,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async stopGeneration(sessionId: string): Promise<void> {
-    if (!this.agent) {
+    // The kernel-null guard must not swallow stops for external sessions: they
+    // route through their own adapter and work without the OpenCode kernel.
+    if (!this.chatBackendFor(sessionId)) {
       return
     }
     this.userStops.mark(sessionId)

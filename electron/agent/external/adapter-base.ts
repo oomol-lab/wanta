@@ -32,6 +32,17 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
   private readonly pendingTranscriptSaves = new Map<string, ReturnType<typeof setTimeout>>()
   /** sessionId -> serialized tail of pending disk operations (saves, removal). */
   private readonly transcriptOps = new Map<string, Promise<void>>()
+  /**
+   * Sessions the host deleted. Late events from a still-draining native
+   * process must neither re-record them in memory nor resurrect their file.
+   */
+  private readonly forgottenSessions = new Set<string>()
+  /**
+   * Sessions whose on-disk transcript held ANY content before sanitizing.
+   * The native side may own their id even when every restored message was
+   * scrubbed as noise, so resume decisions must use this, not the survivors.
+   */
+  private readonly sessionsWithDiskHistory = new Set<string>()
 
   protected constructor(options: ExternalAgentAdapterOptions = {}) {
     super()
@@ -39,6 +50,10 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
   }
 
   protected override emit(event: AgentEvent): void {
+    const sessionId = "sessionId" in event.data ? event.data.sessionId : undefined
+    if (typeof sessionId === "string" && this.forgottenSessions.has(sessionId)) {
+      return
+    }
     this.transcript.record(event)
     if (event.event === "permissionAsked") {
       this.pendingPermissionRequests.set(event.data.request.id, event.data.request)
@@ -50,10 +65,13 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
   }
 
   public override async send(input: AgentInput, options?: AgentSendOptions): Promise<void> {
-    // A prompt into a restored-but-not-yet-viewed session must hydrate first,
-    // or the next save would overwrite the on-disk history with only the new
-    // turn. getMessages() hydrates the viewing path; this covers sending.
     if (input.type === "prompt" && typeof input.sessionId === "string") {
+      // An explicit new prompt reopens a forgotten session id; the tombstone
+      // only exists to block LATE events from a still-draining native process.
+      this.forgottenSessions.delete(input.sessionId)
+      // A prompt into a restored-but-not-yet-viewed session must hydrate first,
+      // or the next save would overwrite the on-disk history with only the new
+      // turn. getMessages() hydrates the viewing path; this covers sending.
       await this.hydrateTranscript(input.sessionId)
     }
     return super.send(input, options)
@@ -113,6 +131,8 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
 
   /** Release all in-memory state of a deleted session and its on-disk transcript. */
   public forgetSession(sessionId: string): void {
+    this.forgottenSessions.add(sessionId)
+    this.sessionsWithDiskHistory.delete(sessionId)
     this.transcript.forgetSession(sessionId)
     this.transcriptHydrations.delete(sessionId)
     const timer = this.pendingTranscriptSaves.get(sessionId)
@@ -140,16 +160,36 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
     return messages
   }
 
+  /**
+   * Whether this session already carries persisted history (hydrated from a
+   * previous run or an earlier crashed process). Lets adapters pick a
+   * resume-style native session start instead of creating a fresh one.
+   */
+  protected hasPersistedHistory(sessionId: string): boolean {
+    return this.sessionsWithDiskHistory.has(sessionId) || this.transcript.messages(sessionId).length > 0
+  }
+
   private hydrateTranscript(sessionId: string): Promise<void> {
     const store = this.transcriptStore
-    if (!store || this.transcript.has(sessionId)) {
+    if (!store || this.transcript.has(sessionId) || this.forgottenSessions.has(sessionId)) {
       return Promise.resolve()
     }
     let hydration = this.transcriptHydrations.get(sessionId)
     if (!hydration) {
-      hydration = store.load(sessionId).then((messages) => {
+      // The load rides the per-session op chain so it can never race ahead of
+      // a queued removal and resurrect a deleted session's history. The chain
+      // also swallows and logs failures, so a broken disk state degrades to an
+      // empty history instead of poisoning every later getMessages/send.
+      hydration = this.queueTranscriptOp(sessionId, async () => {
+        if (this.forgottenSessions.has(sessionId)) {
+          return
+        }
+        const messages = await store.load(sessionId)
+        if (messages && messages.length > 0) {
+          this.sessionsWithDiskHistory.add(sessionId)
+        }
         const sanitized = messages && messages.length > 0 ? this.sanitizeRestoredMessages(messages) : messages
-        if (sanitized && sanitized.length > 0) {
+        if (sanitized && sanitized.length > 0 && !this.forgottenSessions.has(sessionId)) {
           this.transcript.restore(sessionId, sanitized)
         }
       })

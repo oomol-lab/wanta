@@ -227,7 +227,13 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
           return translateChunk(update, "thought")
         case "tool_call": {
           const events: AgentEvent[] = []
-          const snapshot = adoptSnapshot(update.toolCallId, events)
+          // A re-announced call id must merge into the existing snapshot; a
+          // fresh adoption would fork the call into a second transcript part
+          // and strand the first one in "running" forever.
+          const snapshot = toolCallsById.get(update.toolCallId) ?? adoptSnapshot(update.toolCallId, events)
+          if (snapshot.terminal) {
+            return events
+          }
           mergeToolCallFields(snapshot, update)
           events.push(startedEvent(update.toolCallId, snapshot))
           if (update.status === "completed" || update.status === "failed") {

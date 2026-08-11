@@ -23,7 +23,7 @@ import {
   isStandardRegistryNodeDependencyInstallRequest,
   requestMatchesProjectDevCommandSessionGrant,
 } from "./project-dev-command.ts"
-import { projectPermissionRequestInsideRoot } from "./project-permission.ts"
+import { projectPermissionRequestInsideRoot, projectPermissionResourceInsideRoot } from "./project-permission.ts"
 import { isProjectReadOnlyCommandRequest } from "./project-read-command.ts"
 
 export type LocalAccessAllowReason =
@@ -33,6 +33,7 @@ export type LocalAccessAllowReason =
   | "full_access"
   | "oo_cli"
   | "project_read_command"
+  | "external_boundary"
   | "session_grant"
   | "trusted_dependency"
   | "trusted_project"
@@ -57,6 +58,16 @@ export type LocalAccessDecision =
 
 export interface LocalAccessPolicyContext {
   activeGenerationId?: string
+  /**
+   * The request comes from an unsandboxed external (BYOA) agent session: the
+   * kernel's blanket local-access defaults do not apply, and automatic
+   * approval stays limited to file operations inside the session's known
+   * boundaries. Must be derived from the session id's kind, never from
+   * whether a scratch root could be resolved.
+   */
+  isExternalSession?: boolean
+  /** Scratch working directory of the external session, when resolvable. */
+  externalSessionRoot?: string
   linkRuntime?: ActiveLinkRuntime
   permissionMode: AgentPermissionMode
   sessionGrants?: readonly SessionPermissionGrant[]
@@ -158,6 +169,21 @@ export function evaluateLocalAccessRequest(
   if (hasMatchingGenericSessionGrant(request, context.sessionGrants)) {
     return { type: "allow", reason: "session_grant", kind, highRisk }
   }
+  if (context.isExternalSession) {
+    // An external agent only surfaces a request when its own CLI policy wants
+    // explicit user approval; auto-granting it through the kernel's blanket
+    // defaults would silently bypass that CLI's whole permission model. Only
+    // file operations provably inside the session's working boundaries stay
+    // automatic; everything else asks the user (including when no boundary
+    // could be resolved at all).
+    const boundaries = [context.externalSessionRoot, context.trustedProjectRoot].filter((root): root is string =>
+      Boolean(root),
+    )
+    if ((kind === "path" || kind === "edit") && requestResourcesInsideAnyRoot(request, boundaries)) {
+      return { type: "allow", reason: "external_boundary", kind, highRisk }
+    }
+    return { type: "prompt", kind, highRisk }
+  }
   if (permissionRequestNeedsDefaultPrompt(request)) {
     return { type: "prompt", kind, highRisk }
   }
@@ -177,6 +203,14 @@ export function evaluateLocalAccessRequest(
     return { type: "allow", reason: "default_local", kind, highRisk }
   }
   return { type: "prompt", kind, highRisk }
+}
+
+function requestResourcesInsideAnyRoot(request: ChatPermissionRequest, roots: readonly string[]): boolean {
+  const resources = request.resources.map((resource) => resource.trim()).filter(Boolean)
+  if (resources.length === 0 || roots.length === 0) {
+    return false
+  }
+  return resources.every((resource) => roots.some((root) => projectPermissionResourceInsideRoot(resource, root)))
 }
 
 export function localAccessGrantForRequest(

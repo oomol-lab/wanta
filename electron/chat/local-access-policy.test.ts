@@ -757,3 +757,77 @@ test("local access policy keeps project dev grants compatible but prompts unsafe
     { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })
+
+// External (BYOA) sessions: the agent CLI already decided the action needs
+// approval; blanket kernel defaults must not silently grant it.
+
+const EXTERNAL_ROOT = path.join("/tmp", "wanta-agent-external", "claude-code", "uuid-1")
+
+test("external sessions auto-approve file writes only inside the scratch boundary", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "Write", resources: [path.join(EXTERNAL_ROOT, "hello.txt")] }), {
+      permissionMode: "default",
+      isExternalSession: true,
+      externalSessionRoot: EXTERNAL_ROOT,
+    }),
+    { type: "allow", reason: "external_boundary", kind: "edit", highRisk: false },
+  )
+})
+
+test("external sessions prompt for file writes outside every boundary", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "Write", resources: ["/Users/someone/Desktop/leak.txt"] }), {
+      permissionMode: "default",
+      isExternalSession: true,
+      externalSessionRoot: EXTERNAL_ROOT,
+    }),
+    { type: "prompt", kind: "edit", highRisk: false },
+  )
+})
+
+test("external sessions treat the trusted project root as an additional boundary", () => {
+  const projectRoot = path.join("/tmp", "my-project")
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "Edit", resources: [path.join(projectRoot, "src", "index.ts")] }), {
+      permissionMode: "default",
+      isExternalSession: true,
+      externalSessionRoot: EXTERNAL_ROOT,
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "allow", reason: "external_boundary", kind: "edit", highRisk: false },
+  )
+})
+
+test("external sessions prompt for commands instead of the blanket default allow", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "Bash", metadata: { command: "echo hi > ~/anywhere" } }), {
+      permissionMode: "default",
+      isExternalSession: true,
+      externalSessionRoot: EXTERNAL_ROOT,
+    }),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+})
+
+test("external sessions still honor full access", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "Bash", metadata: { command: "echo hi" } }), {
+      permissionMode: "full_access",
+      isExternalSession: true,
+      externalSessionRoot: EXTERNAL_ROOT,
+    }),
+    { type: "allow", reason: "full_access", kind: "command", highRisk: false },
+  )
+})
+
+test("external sessions with no resolvable boundary fail closed to a prompt", () => {
+  // A malformed external session id (or missing scratch-root dep) must never
+  // fall through to the kernel's blanket defaults.
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "Write", resources: ["/tmp/anywhere.txt"] }), {
+      permissionMode: "default",
+      isExternalSession: true,
+    }),
+    { type: "prompt", kind: "edit", highRisk: false },
+  )
+})

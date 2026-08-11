@@ -31,8 +31,6 @@ interface ToolCallSnapshot {
   rawInput?: unknown
   rawOutput?: unknown
   content: ToolCallContent[]
-  /** Once completed/failed was emitted, later updates are dropped. */
-  terminal: boolean
 }
 
 /**
@@ -93,7 +91,10 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
   let currentMessageId: string | undefined
   const startedMessageIds = new Set<string>()
   const cumulativeTextByPartId = new Map<string, string>()
+  /** Live (non-terminal) tool calls; snapshots are dropped once terminal. */
   const toolCallsById = new Map<string, ToolCallSnapshot>()
+  /** Ids whose completed/failed result was emitted; later updates are dropped. */
+  const terminalToolCallIds = new Set<string>()
 
   function mintMessageId(): string {
     messageSeq += 1
@@ -177,9 +178,42 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
     const messageId = currentMessageId ?? mintMessageId()
     currentMessageId = messageId
     ensureStarted(messageId, events)
-    const snapshot: ToolCallSnapshot = { messageId, content: [], terminal: false }
+    const snapshot: ToolCallSnapshot = { messageId, content: [] }
     toolCallsById.set(toolCallId, snapshot)
     return snapshot
+  }
+
+  type ToolCallLike = Extract<SessionUpdate, { sessionUpdate: "tool_call" | "tool_call_update" }>
+
+  /**
+   * Shared tool_call/tool_call_update handling. `announce` (the tool_call
+   * announcement) always emits a started event and rotates the narration
+   * bubble; a plain update emits started only while the call keeps running.
+   * A re-announced call id merges into the existing snapshot; a fresh adoption
+   * would fork the call into a second transcript part and strand the first one
+   * in "running" forever. Updates after the terminal result are dropped.
+   */
+  function handleToolCall(update: ToolCallLike, announce: boolean): AgentEvent[] {
+    const events: AgentEvent[] = []
+    if (terminalToolCallIds.has(update.toolCallId)) {
+      return events
+    }
+    const snapshot = toolCallsById.get(update.toolCallId) ?? adoptSnapshot(update.toolCallId, events)
+    mergeToolCallFields(snapshot, update)
+    const finished = update.status === "completed" || update.status === "failed"
+    if (announce || !finished) {
+      events.push(startedEvent(update.toolCallId, snapshot))
+    }
+    if (finished) {
+      terminalToolCallIds.add(update.toolCallId)
+      toolCallsById.delete(update.toolCallId)
+      events.push(resultEvent(update.toolCallId, snapshot, update.status as "completed" | "failed"))
+    }
+    if (announce) {
+      // Rotate so narration after the tool call starts a new bubble.
+      currentMessageId = undefined
+    }
+    return events
   }
 
   function mergeToolCallFields(
@@ -217,6 +251,9 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
   return {
     noteTurnStarted(): void {
       currentMessageId = undefined
+      // Finished parts can never receive another chunk (message ids rotate per
+      // turn), so their cumulative buffers are dead weight after the turn.
+      cumulativeTextByPartId.clear()
     },
 
     translate(update: SessionUpdate): AgentEvent[] {
@@ -225,40 +262,10 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
           return translateChunk(update, "text")
         case "agent_thought_chunk":
           return translateChunk(update, "thought")
-        case "tool_call": {
-          const events: AgentEvent[] = []
-          // A re-announced call id must merge into the existing snapshot; a
-          // fresh adoption would fork the call into a second transcript part
-          // and strand the first one in "running" forever.
-          const snapshot = toolCallsById.get(update.toolCallId) ?? adoptSnapshot(update.toolCallId, events)
-          if (snapshot.terminal) {
-            return events
-          }
-          mergeToolCallFields(snapshot, update)
-          events.push(startedEvent(update.toolCallId, snapshot))
-          if (update.status === "completed" || update.status === "failed") {
-            snapshot.terminal = true
-            events.push(resultEvent(update.toolCallId, snapshot, update.status))
-          }
-          // Rotate so narration after the tool call starts a new bubble.
-          currentMessageId = undefined
-          return events
-        }
-        case "tool_call_update": {
-          const events: AgentEvent[] = []
-          const snapshot = toolCallsById.get(update.toolCallId) ?? adoptSnapshot(update.toolCallId, events)
-          if (snapshot.terminal) {
-            return events
-          }
-          mergeToolCallFields(snapshot, update)
-          if (update.status === "completed" || update.status === "failed") {
-            snapshot.terminal = true
-            events.push(resultEvent(update.toolCallId, snapshot, update.status))
-          } else {
-            events.push(startedEvent(update.toolCallId, snapshot))
-          }
-          return events
-        }
+        case "tool_call":
+          return handleToolCall(update, true)
+        case "tool_call_update":
+          return handleToolCall(update, false)
         default:
           // plan, plan_update, plan_removed, available_commands_update,
           // current_mode_update, config_option_update, session_info_update,

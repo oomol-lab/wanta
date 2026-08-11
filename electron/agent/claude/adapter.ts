@@ -22,8 +22,8 @@ import { randomUUID } from "node:crypto"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { resolveUserCommandPath } from "../../command-path.ts"
-import { logDiagnostic } from "../../diagnostics-log.ts"
-import { AGENT_PROFILES } from "../contract/profile.ts"
+import { errorMessage, logDiagnostic } from "../../diagnostics-log.ts"
+import { AGENT_PROFILES, agentLoginHint } from "../contract/profile.ts"
 import { ExternalAgentAdapter } from "../external/adapter-base.ts"
 import { externalSessionUuid } from "../external/session-id.ts"
 import { createClaudeTurnTranslator, isLocalCommandText } from "./translator.ts"
@@ -40,7 +40,7 @@ import { createClaudeTurnTranslator, isLocalCommandText } from "./translator.ts"
 
 const PROBE_CACHE_TTL_MS = 30_000
 const MAX_STDERR_CHUNKS = 40
-const LOGIN_HINT = "Run `claude` in a terminal and sign in, then retry."
+const LOGIN_HINT = agentLoginHint("claude-code")
 
 export interface ClaudeCodeAdapterOptions {
   /** Probe supplier (binary path + login state). Injected by main; cached by the adapter for 30s. */
@@ -109,7 +109,6 @@ interface ClaudeSessionState {
   sessionUuid: string
   inputQueue: AsyncInputQueue<SDKUserMessage>
   queryHandle: Query
-  abortController: AbortController
   /** Bounded ring buffer of recent subprocess stderr chunks for diagnostics. */
   stderrTail: string[]
   loop: Promise<void>
@@ -216,7 +215,6 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
   private readonly desiredEfforts = new Map<string, ClaudeEffortId>()
   private catalog: ExternalAgentCatalog = staticClaudeCatalog()
   private catalogRefreshed = false
-  private userMessageSeq = 0
   /**
    * Per-session override of how the native CLI session is started. Default is
    * derived from persisted history (resume when history exists); a failed
@@ -269,7 +267,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       await this.applyModel(input.sessionId, input.agentModelId).catch((error: unknown) => {
         logDiagnostic("claude-code-adapter", "prompt-borne model apply failed", {
           sessionId: input.sessionId,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage(error),
         })
       })
     }
@@ -277,7 +275,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       await this.applyEffort(input.sessionId, input.agentEffortId).catch((error: unknown) => {
         logDiagnostic("claude-code-adapter", "prompt-borne effort apply failed", {
           sessionId: input.sessionId,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage(error),
         })
       })
     }
@@ -285,24 +283,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     if (options?.signal?.aborted) {
       return
     }
-    // The CLI only echoes user text on replay (resume), never during a live
-    // turn; synthesize the user turn so the persisted transcript keeps it.
-    this.userMessageSeq += 1
-    const userMessageId = input.messageId ?? `claude-user-${this.userMessageSeq}`
-    this.emit({
-      event: "messageStarted",
-      data: { sessionId: input.sessionId, messageId: userMessageId, role: "user" },
-    })
-    this.emit({
-      event: "messageDelta",
-      data: {
-        sessionId: input.sessionId,
-        messageId: userMessageId,
-        partId: `${userMessageId}:text`,
-        text: input.text,
-        delta: input.text,
-      },
-    })
+    this.emitUserTurn(input)
     // Submission ack semantics: resolve once the message is enqueued for the
     // subprocess; turn progress flows back through the event channel.
     session.inputQueue.push({
@@ -324,7 +305,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       // The query may already be gone; cancel must never throw at the caller.
       logDiagnostic("claude-code-adapter", "interrupt failed", {
         sessionId: input.sessionId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       })
     }
   }
@@ -472,7 +453,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       logDiagnostic(
         "claude-code-adapter",
         "setPermissionMode failed",
-        { sessionId, mode, error: error instanceof Error ? error.message : String(error) },
+        { sessionId, mode, error: errorMessage(error) },
         "error",
       )
     }
@@ -516,7 +497,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         // Keep the static baseline and allow a later session to retry.
         this.catalogRefreshed = false
         logDiagnostic("claude-code-adapter", "supportedModels failed", {
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage(error),
         })
       })
   }
@@ -557,7 +538,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         // Warm failures (probe, spawn, fs) keep the static baseline; they must
         // never reject into the composer's warm-on-focus call.
         logDiagnostic("claude-code-adapter", "catalog warmup failed", {
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage(error),
         })
       })
       .finally(() => {
@@ -592,7 +573,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       this.catalogRefreshed = true
     } catch (error) {
       logDiagnostic("claude-code-adapter", "catalog warmup failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       })
     } finally {
       inputQueue.end()
@@ -696,7 +677,6 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       sessionUuid,
       inputQueue,
       queryHandle,
-      abortController,
       stderrTail,
       loop: Promise.resolve(),
       startMode,
@@ -737,7 +717,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         })
       }
     } catch (error) {
-      const raw = error instanceof Error ? error.message : String(error)
+      const raw = errorMessage(error)
       const message = isAuthenticationFailureMessage(raw) ? `${raw} ${LOGIN_HINT}` : raw
       // A startup failure means the start mode itself was wrong (resume of a
       // vanished CLI session, or a fresh start rejected as duplicate); flip it
@@ -779,7 +759,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     } catch (error) {
       logDiagnostic("claude-code-adapter", "close failed", {
         sessionId: session.sessionId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       })
     }
   }

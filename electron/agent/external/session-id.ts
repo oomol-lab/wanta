@@ -19,11 +19,6 @@ export function isExternalSessionId(sessionId: string): boolean {
   return sessionId.startsWith(EXTERNAL_SESSION_ID_PREFIX)
 }
 
-/** The agent kind a session id routes to; built-in kernel for everything unprefixed. */
-export function agentKindForSessionId(sessionId: string): AgentKind {
-  return externalAgentKindForSessionId(sessionId) ?? "opencode"
-}
-
 export function externalAgentKindForSessionId(sessionId: string): ExternalAgentKind | undefined {
   if (!sessionId.startsWith(EXTERNAL_SESSION_ID_PREFIX)) {
     return undefined

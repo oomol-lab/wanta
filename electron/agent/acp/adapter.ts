@@ -13,8 +13,6 @@ import type { ExternalAgentCatalog, ExternalAgentCatalogOption } from "../extern
 import type { AcpAgentKind, AcpAgentRegistration } from "./registry.ts"
 import type { AcpSessionTranslator } from "./translator.ts"
 import type {
-  AgentCapabilities,
-  AuthMethod,
   ClientConnection,
   InitializeResponse,
   PermissionOption,
@@ -30,7 +28,7 @@ import { spawn } from "node:child_process"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { Readable, Writable } from "node:stream"
-import { logDiagnostic } from "../../diagnostics-log.ts"
+import { errorMessage, logDiagnostic } from "../../diagnostics-log.ts"
 import { AGENT_PROFILES } from "../contract/profile.ts"
 import { ExternalAgentAdapter } from "../external/adapter-base.ts"
 import { externalSessionUuid } from "../external/session-id.ts"
@@ -84,8 +82,6 @@ export interface AcpAdapterOptions {
 interface AcpConnectionHandle {
   connection: ClientConnection
   dispose: () => void
-  agentCapabilities?: AgentCapabilities
-  authMethods?: AuthMethod[]
   /** Set once the connection is torn down so loss handling runs exactly once. */
   lost: boolean
 }
@@ -252,7 +248,6 @@ function parseSessionSelects(response: unknown): AcpConfigSelects {
 }
 
 interface PendingAcpPermission {
-  requestId: string
   wantaSessionId: string
   options: readonly PermissionOption[]
   resolve: (response: RequestPermissionResponse) => void
@@ -266,10 +261,6 @@ function requestErrorCode(error: unknown): number | undefined {
     return (error as { code: number }).code
   }
   return undefined
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -308,7 +299,6 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   private catalog: ExternalAgentCatalog | undefined
   private catalogWarmup: Promise<void> | undefined
   private permissionSeq = 0
-  private userMessageSeq = 0
   private probeCache: { at: number; promise: Promise<ExternalAgentRuntimeStatus> } | undefined
 
   constructor(options: AcpAdapterOptions) {
@@ -465,24 +455,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     if (session.activeTurn && !session.activeTurn.settled) {
       throw new Error(`${this.kind}: a prompt is already in flight for this session`)
     }
-    // External agents never echo the user turn back; synthesize it so the
-    // transcript and streaming overlays see it immediately.
-    this.userMessageSeq += 1
-    const userMessageId = input.messageId ?? `acp-user-${this.userMessageSeq}`
-    this.emit({
-      event: "messageStarted",
-      data: { sessionId: input.sessionId, messageId: userMessageId, role: "user" },
-    })
-    this.emit({
-      event: "messageDelta",
-      data: {
-        sessionId: input.sessionId,
-        messageId: userMessageId,
-        partId: `${userMessageId}:text`,
-        text: input.text,
-        delta: input.text,
-      },
-    })
+    this.emitUserTurn(input)
     session.translator.noteTurnStarted()
     session.cancelling = false
     const turn: AcpTurn = { settled: false }
@@ -795,8 +768,6 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
           `but Wanta requires version ${PROTOCOL_VERSION}. Update ${displayName} and retry.`,
       )
     }
-    handle.agentCapabilities = initialize.agentCapabilities
-    handle.authMethods = initialize.authMethods ?? undefined
     if (!this.isStarted) {
       this.teardownHandle(handle)
       throw new Error(`${this.kind}: adapter stopped while connecting`)
@@ -1105,7 +1076,6 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
     return new Promise<RequestPermissionResponse>((resolve) => {
       this.pendingAcpPermissions.set(requestId, {
-        requestId,
         wantaSessionId,
         options: params.options,
         resolve,

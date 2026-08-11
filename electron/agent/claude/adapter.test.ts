@@ -305,10 +305,16 @@ describe("ClaudeCodeAgentAdapter", () => {
     expect(events).toEqual([
       // The CLI never echoes live user turns; the adapter synthesizes them so
       // the persisted transcript keeps the user side of the conversation.
-      { event: "messageStarted", data: { sessionId, messageId: "claude-user-1", role: "user" } },
+      { event: "messageStarted", data: { sessionId, messageId: "claude-code-user-1", role: "user" } },
       {
         event: "messageDelta",
-        data: { sessionId, messageId: "claude-user-1", partId: "claude-user-1:text", text: "hello", delta: "hello" },
+        data: {
+          sessionId,
+          messageId: "claude-code-user-1",
+          partId: "claude-code-user-1:text",
+          text: "hello",
+          delta: "hello",
+        },
       },
       { event: "messageStarted", data: { sessionId, messageId: "msg_1", role: "assistant" } },
       { event: "messageDelta", data: { sessionId, messageId: "msg_1", partId: "msg_1:0", text: "Hi!" } },

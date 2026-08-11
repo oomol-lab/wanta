@@ -472,6 +472,28 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return this.agent
   }
 
+  /**
+   * Best-effort projection of a permission mode onto the session's adapter.
+   * Backends without the capability (the kernel) are a silent no-op; failures
+   * never block the caller because enforcement stays agent-side anyway.
+   */
+  private async projectPermissionMode(sessionId: string, mode: AgentPermissionMode): Promise<void> {
+    const backend = this.chatBackendFor(sessionId)
+    if (!backend || !("applyPermissionMode" in backend) || !backend.applyPermissionMode) {
+      return
+    }
+    try {
+      await backend.applyPermissionMode(sessionId, mode)
+    } catch (error) {
+      logDiagnostic(
+        "chat-service",
+        "failed to project permission mode onto external agent",
+        { error, kind: externalAgentKindForSessionId(sessionId), sessionId },
+        "warn",
+      )
+    }
+  }
+
   public setAgentStatus(status: AgentRuntimeStatus): void {
     this.agentStatus = status
     void this.send("agentStatusChanged", { status }).catch((error: unknown) => {
@@ -1794,7 +1816,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!adapter) {
       throw new Error("This agent is not available.")
     }
-    if (req.attachments?.length) {
+    if (req.attachments?.length && !adapter.profile.inputs.attachments) {
       throw new Error("Attachments are not supported for this agent yet.")
     }
     // Main is the IPC boundary; a blank prompt must never spawn an agent turn.
@@ -1825,16 +1847,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (trustedProjectRoot) {
         this.trustedAccess.setProjectRoot(req.sessionId, trustedProjectRoot)
       }
-      try {
-        await adapter.applyPermissionMode?.(req.sessionId, this.sessionPermissionMode(req.sessionId))
-      } catch (error) {
-        logDiagnostic(
-          "chat-service",
-          "failed to project permission mode onto external agent",
-          { error, kind, sessionId: req.sessionId },
-          "warn",
-        )
-      }
+      await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
       this.scheduleGenerationSubmitWatchdog(req.sessionId, generation.id)
       void adapter
@@ -2351,16 +2364,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     }
     const sourceSessionId = request.sessionId
-    // Kernel sessions keep "always" as a Wanta-local grant (downgraded to "once"
-    // toward OpenCode); external agents receive "always" verbatim so they can
-    // persist the approval in their own native rule system.
-    const forwardedReply =
-      req.reply === "always" && !externalAgentKindForSessionId(sourceSessionId) ? "once" : req.reply
+    // The reply is forwarded verbatim; how "always" maps onto the agent's own
+    // approval semantics is each adapter's business (the kernel adapter
+    // downgrades it because the grant lives Wanta-side, external agents
+    // persist it in their native rule system).
     await backend.send({
       type: "permission-response",
       sessionId: sourceSessionId,
       requestId: req.requestId,
-      reply: forwardedReply,
+      reply: req.reply,
     })
     if (req.reply !== "reject" && request) {
       this.rememberTrustedPermissionResources(req.sessionId, request)
@@ -2392,21 +2404,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (this.sessionPermissionMode(req.sessionId) !== req.permissionMode) {
       return
     }
-    // External sessions get the mode projected immediately (mid-run switches
-    // must not wait for the next prompt); adapters treat it as best effort.
-    const externalKind = externalAgentKindForSessionId(req.sessionId)
-    if (externalKind) {
-      try {
-        await this.externalAgents.get(externalKind)?.applyPermissionMode?.(req.sessionId, req.permissionMode)
-      } catch (error) {
-        logDiagnostic(
-          "chat-service",
-          "failed to project permission mode onto external agent",
-          { error, kind: externalKind, sessionId: req.sessionId },
-          "warn",
-        )
-      }
-    }
+    // Sessions with an adapter-side mode get it projected immediately
+    // (mid-run switches must not wait for the next prompt); best effort.
+    await this.projectPermissionMode(req.sessionId, req.permissionMode)
     const affectedSessionIds = [req.sessionId]
     for (const childSessionId of this.subagentSessions.trustedChildSessionIds(req.sessionId)) {
       if (this.setSessionPermissionModeValue(childSessionId, req.permissionMode, req.version)) {

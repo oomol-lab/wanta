@@ -6,7 +6,6 @@ import { reportRendererHandledError } from "../lib/renderer-diagnostics.ts"
 
 export interface UseExternalAgents {
   agents: ExternalAgentRuntimeStatus[]
-  loaded: boolean
   refresh: () => void
 }
 
@@ -19,7 +18,6 @@ export interface UseExternalAgents {
 export function useExternalAgents(): UseExternalAgents {
   const chatService = useChatService()
   const [agents, setAgents] = React.useState<ExternalAgentRuntimeStatus[]>([])
-  const [loaded, setLoaded] = React.useState(false)
   const requestSequenceRef = React.useRef(0)
 
   const refresh = React.useCallback((): void => {
@@ -31,7 +29,6 @@ export function useExternalAgents(): UseExternalAgents {
           return
         }
         setAgents(next)
-        setLoaded(true)
       })
       .catch((cause: unknown) => {
         reportRendererHandledError("agent", "probe external agents failed", cause)
@@ -46,5 +43,5 @@ export function useExternalAgents(): UseExternalAgents {
     }
   }, [refresh])
 
-  return { agents, loaded, refresh }
+  return { agents, refresh }
 }

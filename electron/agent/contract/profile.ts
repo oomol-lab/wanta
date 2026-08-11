@@ -1,6 +1,7 @@
 import type { AgentPermissionMode } from "../../chat/common.ts"
 import type { AcpAgentKind, AcpAgentRegistration } from "../acp/registry.ts"
 
+import { AGENT_PERMISSION_MODES } from "../../chat/common.ts"
 import { ACP_AGENT_REGISTRY } from "../acp/registry.ts"
 
 // Central capability declaration for every agent kind (BYOA).
@@ -40,14 +41,7 @@ export interface AgentInputCapabilityFlags {
 }
 
 /** Canonical display order of the normalized permission modes. */
-export const AGENT_PERMISSION_MODE_ORDER: readonly AgentPermissionMode[] = [
-  "default",
-  "read_only",
-  "accept_edits",
-  "plan",
-  "auto",
-  "full_access",
-]
+export const AGENT_PERMISSION_MODE_ORDER: readonly AgentPermissionMode[] = AGENT_PERMISSION_MODES
 
 /** What the agent can do about past sessions. */
 export interface AgentHistoryCapabilities {
@@ -158,6 +152,12 @@ export const AGENT_PROFILES = {
   },
   ...acpAgentProfiles(),
 } satisfies Record<AgentKind, AgentProfile> as Record<AgentKind, AgentProfile>
+
+/** The agent's login-command hint; empty for Wanta-account agents. */
+export function agentLoginHint(kind: AgentKind): string {
+  const auth = AGENT_PROFILES[kind].auth
+  return auth.kind === "agent-cli" ? auth.loginCommand : ""
+}
 
 /** Agent kinds handled by external adapters (everything except the built-in kernel). */
 export type ExternalAgentKind = Exclude<AgentKind, "opencode">

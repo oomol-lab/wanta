@@ -16,11 +16,14 @@ export type ToolStatus = "pending" | "running" | "completed" | "error"
 export type ReasoningLevel = WantaReasoningLevel
 export type AgentMode = WantaAgentMode
 /**
- * Normalized permission-mode vocabulary across agents. Every agent declares the
- * subset it supports in its AgentProfile; adapters map each mode onto their
- * agent's native approval policy. Enforcement always stays agent-side.
+ * Normalized permission-mode vocabulary across agents, in canonical display
+ * order. Every agent declares the subset it supports in its AgentProfile;
+ * adapters map each mode onto their agent's native approval policy.
+ * Enforcement always stays agent-side.
  */
-export type AgentPermissionMode = "default" | "read_only" | "accept_edits" | "plan" | "auto" | "full_access"
+export const AGENT_PERMISSION_MODES = ["default", "read_only", "accept_edits", "plan", "auto", "full_access"] as const
+
+export type AgentPermissionMode = (typeof AGENT_PERMISSION_MODES)[number]
 
 export const BUG_REPORT_COMMAND = "/bug-report"
 

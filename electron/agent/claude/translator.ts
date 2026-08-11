@@ -6,6 +6,9 @@ import type {
   SDKUserMessageReplay,
 } from "@anthropic-ai/claude-agent-sdk"
 
+import { agentLoginHint } from "../contract/profile.ts"
+import { numberOrZero } from "../event-translator.ts"
+
 // Claude Agent SDK message -> normalized AgentEvent translation (BYOA phase 1).
 //
 // One translator instance per live query: it keeps the per-session correlation
@@ -18,7 +21,7 @@ import type {
 // assistant messages carry BetaMessage, tool results arrive as user messages
 // with tool_result content blocks.
 
-const LOGIN_HINT = "Run `claude` in a terminal and sign in, then retry."
+const LOGIN_HINT = agentLoginHint("claude-code")
 
 type StreamBlock = { kind: "text" | "thinking"; partId: string; text: string } | { kind: "tool"; callId: string }
 
@@ -73,10 +76,6 @@ export function isLocalCommandText(text: string): boolean {
   return localCommandTagPattern.test(text.trimStart())
 }
 
-function positiveOrZero(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0
-}
-
 /**
  * Map the turn's usage onto the contract's usage event. Context occupancy must
  * come from the LAST main-loop API call (its input + cache tokens ARE the
@@ -96,14 +95,14 @@ function translateResultUsage(
     modelUsage?: Record<string, { contextWindow?: unknown }>
   }
   const usage = lastApiUsage ?? frame.usage
-  const input = positiveOrZero(usage?.["input_tokens"])
-  const output = positiveOrZero(usage?.["output_tokens"])
-  const cacheRead = positiveOrZero(usage?.["cache_read_input_tokens"])
-  const cacheWrite = positiveOrZero(usage?.["cache_creation_input_tokens"])
+  const input = numberOrZero(usage?.["input_tokens"])
+  const output = numberOrZero(usage?.["output_tokens"])
+  const cacheRead = numberOrZero(usage?.["cache_read_input_tokens"])
+  const cacheWrite = numberOrZero(usage?.["cache_creation_input_tokens"])
   const total = input + output + cacheRead + cacheWrite
   let contextWindow = 0
   for (const entry of Object.values(frame.modelUsage ?? {})) {
-    contextWindow = Math.max(contextWindow, positiveOrZero(entry.contextWindow))
+    contextWindow = Math.max(contextWindow, numberOrZero(entry.contextWindow))
   }
   if (total <= 0 && contextWindow <= 0) {
     return null

@@ -77,7 +77,10 @@ export class OpencodeAgentAdapter extends BaseAgentAdapter {
   }
 
   protected override async handlePermissionResponse(input: PermissionResponseAgentInput): Promise<void> {
-    await this.manager.answerPermission(input.sessionId, input.requestId, input.reply)
+    // "always" is a Wanta-side session grant, not a kernel rule: the chat
+    // service records it and the kernel only needs this one approval.
+    const reply = input.reply === "always" ? "once" : input.reply
+    await this.manager.answerPermission(input.sessionId, input.requestId, reply)
   }
 
   protected override async handleQuestionResponse(input: QuestionResponseAgentInput): Promise<void> {

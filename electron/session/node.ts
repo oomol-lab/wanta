@@ -27,7 +27,11 @@ import { ConnectionService } from "@oomol/connection"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import { isExternalAgentKind } from "../agent/contract/profile.ts"
-import { isExternalSessionId, mintExternalSessionId } from "../agent/external/session-id.ts"
+import {
+  externalAgentKindForSessionId,
+  isExternalSessionId,
+  mintExternalSessionId,
+} from "../agent/external/session-id.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { normalizeSessionScopeValue, sessionScopesEqual, SessionService as SessionServiceName } from "./common.ts"
 import { normalizeKnowledgeBaseIds } from "./metadata-store.ts"
@@ -293,7 +297,6 @@ export class SessionServiceImpl
     const now = Date.now()
     const record: ExternalSessionRecord = {
       id: mintExternalSessionId(agentKind),
-      agentKind,
       title: req.title?.trim() || "New session",
       createdAt: now,
       updatedAt: now,
@@ -1061,7 +1064,7 @@ export class SessionServiceImpl
       title: record.title,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
-      agentKind: record.agentKind,
+      agentKind: externalAgentKindForSessionId(record.id),
     }))
   }
 

@@ -44,9 +44,38 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
    */
   private readonly sessionsWithDiskHistory = new Set<string>()
 
+  private userTurnSeq = 0
+
   protected constructor(options: ExternalAgentAdapterOptions = {}) {
     super()
     this.transcriptStore = options.transcriptDir ? new ExternalTranscriptStore(options.transcriptDir) : undefined
+  }
+
+  /**
+   * External agents never echo the user turn back during a live turn (the
+   * Claude CLI only replays it on resume; ACP agents not at all), so every
+   * adapter synthesizes it before dispatching the prompt. Emits the
+   * messageStarted/messageDelta pair so the transcript and streaming overlays
+   * see the user turn immediately, and returns the message id used.
+   */
+  protected emitUserTurn(input: { sessionId: string; messageId?: string; text: string }): string {
+    this.userTurnSeq += 1
+    const userMessageId = input.messageId ?? `${this.kind}-user-${this.userTurnSeq}`
+    this.emit({
+      event: "messageStarted",
+      data: { sessionId: input.sessionId, messageId: userMessageId, role: "user" },
+    })
+    this.emit({
+      event: "messageDelta",
+      data: {
+        sessionId: input.sessionId,
+        messageId: userMessageId,
+        partId: `${userMessageId}:text`,
+        text: input.text,
+        delta: input.text,
+      },
+    })
+    return userMessageId
   }
 
   protected override emit(event: AgentEvent): void {
@@ -166,7 +195,7 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
    * resume-style native session start instead of creating a fresh one.
    */
   protected hasPersistedHistory(sessionId: string): boolean {
-    return this.sessionsWithDiskHistory.has(sessionId) || this.transcript.messages(sessionId).length > 0
+    return this.sessionsWithDiskHistory.has(sessionId) || this.transcript.messageCount(sessionId) > 0
   }
 
   private hydrateTranscript(sessionId: string): Promise<void> {
@@ -258,6 +287,13 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
       )
     })
     this.transcriptOps.set(sessionId, next)
+    // Drop the entry once the chain drains so idle sessions do not keep a
+    // settled promise alive for the app's whole lifetime.
+    void next.finally(() => {
+      if (this.transcriptOps.get(sessionId) === next) {
+        this.transcriptOps.delete(sessionId)
+      }
+    })
     return next
   }
 

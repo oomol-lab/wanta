@@ -35,6 +35,11 @@ export async function flushDiagnosticsLog(): Promise<void> {
   await writeQueue
 }
 
+/** Loggable message for an unknown thrown value. */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 export function logDiagnostic(
   scope: string,
   message: string,

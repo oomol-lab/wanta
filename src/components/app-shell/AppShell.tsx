@@ -1797,64 +1797,50 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [applyDraftComposerDefaults],
   )
   const activeAgentSelection = agentSelections[activeChatSessionId ?? "draft"]
-  const handleSelectAgentModel = React.useCallback(
-    (modelId?: string): void => {
-      const key = activeChatSessionId ?? "draft"
-      let previousModelId: string | undefined
-      writeStoredAgentComposerPrefs(globalThis.localStorage, displayedAgentKind, { modelId })
-      setAgentSelections((prev) => {
-        previousModelId = prev[key]?.modelId
-        return { ...prev, [key]: { ...prev[key], modelId } }
-      })
-      if (activeChatSessionId) {
-        void chatService
-          .invoke("setExternalSessionModel", {
-            sessionId: activeChatSessionId,
-            ...(modelId ? { modelId } : {}),
-          })
-          .catch((error: unknown) => {
-            reportRendererHandledError("chat", "set agent model failed", error)
+  // One shared optimistic-update/rollback dance for both agent-selection axes;
+  // only the stored field and the IPC call differ.
+  const makeAgentSelectionHandler = React.useCallback(
+    (field: "modelId" | "effortId") => {
+      const send = (sessionId: string, value?: string): Promise<unknown> =>
+        field === "modelId"
+          ? chatService.invoke("setExternalSessionModel", { sessionId, ...(value ? { modelId: value } : {}) })
+          : chatService.invoke("setExternalSessionEffort", { sessionId, ...(value ? { effortId: value } : {}) })
+      return (value?: string): void => {
+        const key = activeChatSessionId ?? "draft"
+        let previousValue: string | undefined
+        writeStoredAgentComposerPrefs(
+          globalThis.localStorage,
+          displayedAgentKind,
+          field === "modelId" ? { modelId: value } : { effortId: value },
+        )
+        setAgentSelections((prev) => {
+          previousValue = prev[key]?.[field]
+          return { ...prev, [key]: { ...prev[key], [field]: value } }
+        })
+        if (activeChatSessionId) {
+          void send(activeChatSessionId, value).catch((error: unknown) => {
+            reportRendererHandledError("chat", `set agent ${field === "modelId" ? "model" : "effort"} failed`, error)
             // The adapter refused the switch; the optimistic value must not stick.
             setAgentSelections((prev) =>
-              prev[key]?.modelId === modelId ? { ...prev, [key]: { ...prev[key], modelId: previousModelId } } : prev,
+              prev[key]?.[field] === value ? { ...prev, [key]: { ...prev[key], [field]: previousValue } } : prev,
             )
           })
+        }
       }
     },
     [activeChatSessionId, chatService, displayedAgentKind],
   )
-  const handleSelectAgentEffort = React.useCallback(
-    (effortId?: string): void => {
-      const key = activeChatSessionId ?? "draft"
-      let previousEffortId: string | undefined
-      writeStoredAgentComposerPrefs(globalThis.localStorage, displayedAgentKind, { effortId })
-      setAgentSelections((prev) => {
-        previousEffortId = prev[key]?.effortId
-        return { ...prev, [key]: { ...prev[key], effortId } }
-      })
-      if (activeChatSessionId) {
-        void chatService
-          .invoke("setExternalSessionEffort", {
-            sessionId: activeChatSessionId,
-            ...(effortId ? { effortId } : {}),
-          })
-          .catch((error: unknown) => {
-            reportRendererHandledError("chat", "set agent effort failed", error)
-            setAgentSelections((prev) =>
-              prev[key]?.effortId === effortId
-                ? { ...prev, [key]: { ...prev[key], effortId: previousEffortId } }
-                : prev,
-            )
-          })
-      }
-    },
-    [activeChatSessionId, chatService, displayedAgentKind],
+  const handleSelectAgentModel = React.useMemo(() => makeAgentSelectionHandler("modelId"), [makeAgentSelectionHandler])
+  const handleSelectAgentEffort = React.useMemo(
+    () => makeAgentSelectionHandler("effortId"),
+    [makeAgentSelectionHandler],
   )
   // The adapter's desired-state stash is the authority for a session's agent
   // model/effort; read it back once per session so a window reload cannot
   // desync the pickers (a user choice made meanwhile always wins).
   React.useEffect(() => {
-    if (!activeChatSessionId || displayedAgentKind === "opencode") {
+    const inputs = AGENT_PROFILES[displayedAgentKind].inputs
+    if (!activeChatSessionId || (!inputs.setModel && !inputs.setEffort)) {
       return
     }
     const sessionId = activeChatSessionId

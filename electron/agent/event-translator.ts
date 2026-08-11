@@ -637,7 +637,7 @@ function attachmentPart(part: OpencodePart): ChatMessagePart {
   }
 }
 
-function numberOrZero(value: unknown): number {
+export function numberOrZero(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0
 }
 

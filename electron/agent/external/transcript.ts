@@ -9,14 +9,16 @@ import type { AgentEvent } from "../contract/event.ts"
 
 interface TranscriptMessage {
   message: ChatMessage
+  /** Parts keyed by partId; Map insertion order IS the display order. */
   parts: Map<string, ChatMessagePart>
-  order: string[]
 }
 
 export class ExternalTranscriptRecorder {
   private readonly sessions = new Map<string, Map<string, TranscriptMessage>>()
   /** Usage reported before the turn's assistant message exists; applied on arrival. */
   private readonly pendingUsage = new Map<string, ChatTokenUsage>()
+  /** sessionId -> id of the most recently created assistant message. */
+  private readonly latestAssistantIds = new Map<string, string>()
 
   public record(event: AgentEvent): void {
     switch (event.event) {
@@ -87,12 +89,7 @@ export class ExternalTranscriptRecorder {
         return
       }
       case "messagePartRemoved": {
-        const entry = this.sessions.get(event.data.sessionId)?.get(event.data.messageId)
-        if (!entry) {
-          return
-        }
-        entry.parts.delete(event.data.partId)
-        entry.order = entry.order.filter((partId) => partId !== event.data.partId)
+        this.sessions.get(event.data.sessionId)?.get(event.data.messageId)?.parts.delete(event.data.partId)
         return
       }
       case "messageCompleted": {
@@ -129,8 +126,8 @@ export class ExternalTranscriptRecorder {
   /**
    * Rehydrate a session from a previously serialized messages() snapshot.
    * The flattened ChatMessage[] shape is lossless (parts carry their partId),
-   * so the internal parts-map and order rebuild directly. No-op when live
-   * state already exists — disk never overrides an in-flight session.
+   * so the internal parts-map rebuilds directly. No-op when live state
+   * already exists — disk never overrides an in-flight session.
    */
   public restore(sessionId: string, messages: ChatMessage[]): void {
     if (this.sessions.has(sessionId)) {
@@ -141,8 +138,10 @@ export class ExternalTranscriptRecorder {
       entries.set(message.id, {
         message: { ...message, parts: [] },
         parts: new Map(message.parts.map((part) => [part.partId, part])),
-        order: message.parts.map((part) => part.partId),
       })
+      if (message.role === "assistant") {
+        this.latestAssistantIds.set(sessionId, message.id)
+      }
     }
     this.sessions.set(sessionId, entries)
   }
@@ -154,23 +153,27 @@ export class ExternalTranscriptRecorder {
     }
     return [...entries.values()].map((entry) => ({
       ...entry.message,
-      parts: entry.order
-        .map((partId) => entry.parts.get(partId))
-        .filter((part): part is ChatMessagePart => Boolean(part)),
+      parts: [...entry.parts.values()],
     }))
+  }
+
+  /** Number of recorded messages, without cloning them. */
+  public messageCount(sessionId: string): number {
+    return this.sessions.get(sessionId)?.size ?? 0
   }
 
   public forgetSession(sessionId: string): void {
     this.sessions.delete(sessionId)
     this.pendingUsage.delete(sessionId)
+    this.latestAssistantIds.delete(sessionId)
   }
 
   private latestAssistant(sessionId: string): TranscriptMessage | undefined {
-    const messages = this.sessions.get(sessionId)
-    if (!messages) {
+    const latestId = this.latestAssistantIds.get(sessionId)
+    if (latestId === undefined) {
       return undefined
     }
-    return [...messages.values()].filter((entry) => entry.message.role === "assistant").at(-1)
+    return this.sessions.get(sessionId)?.get(latestId)
   }
 
   private ensureMessage(sessionId: string, messageId: string, role: ChatMessage["role"]): TranscriptMessage {
@@ -184,10 +187,10 @@ export class ExternalTranscriptRecorder {
       entry = {
         message: { id: messageId, role, parts: [], createdAt: Date.now() },
         parts: new Map(),
-        order: [],
       }
       messages.set(messageId, entry)
       if (role === "assistant") {
+        this.latestAssistantIds.set(sessionId, messageId)
         const parked = this.pendingUsage.get(sessionId)
         if (parked) {
           entry.message.tokenUsage = parked
@@ -199,9 +202,6 @@ export class ExternalTranscriptRecorder {
   }
 
   private upsertPart(entry: TranscriptMessage, part: ChatMessagePart): void {
-    if (!entry.parts.has(part.partId)) {
-      entry.order.push(part.partId)
-    }
     entry.parts.set(part.partId, part)
   }
 }

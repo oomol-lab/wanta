@@ -1,5 +1,3 @@
-import type { ExternalAgentKind } from "../agent/contract/profile.ts"
-
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { externalAgentKindForSessionId } from "../agent/external/session-id.ts"
@@ -11,9 +9,10 @@ import { logStoreReadFailure } from "../store-diagnostics.ts"
 // still lives in SessionMetadataStore exactly like OpenCode sessions — this
 // store only replaces what agent.listSessions() provides for the kernel.
 
+// The agent kind is not stored: the session id (`wanta-ext:<kind>:<uuid>`)
+// is its single source of truth and is re-derived wherever needed.
 export interface ExternalSessionRecord {
   id: string
-  agentKind: ExternalAgentKind
   title: string
   createdAt: number
   updatedAt: number
@@ -38,10 +37,9 @@ function normalizeRecords(value: unknown): Map<string, ExternalSessionRecord> {
     if (!id || !entry || typeof entry !== "object") {
       continue
     }
-    // The id itself is the source of truth for the agent kind; entries whose id
-    // no longer parses to a known external kind are dropped on read.
-    const kind = externalAgentKindForSessionId(id)
-    if (!kind) {
+    // Entries whose id no longer parses to a known external kind are dropped
+    // on read.
+    if (!externalAgentKindForSessionId(id)) {
       continue
     }
     const source = entry as Partial<ExternalSessionRecord>
@@ -51,7 +49,6 @@ function normalizeRecords(value: unknown): Map<string, ExternalSessionRecord> {
     }
     sessions.set(id, {
       id,
-      agentKind: kind,
       title: typeof source.title === "string" && source.title.trim() ? source.title : "New session",
       createdAt,
       updatedAt: validTimestamp(source.updatedAt) ? source.updatedAt : createdAt,
@@ -67,7 +64,6 @@ function serializeRecords(records: Map<string, ExternalSessionRecord>): Persiste
       continue
     }
     sessions[id] = {
-      agentKind: entry.agentKind,
       title: entry.title,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,

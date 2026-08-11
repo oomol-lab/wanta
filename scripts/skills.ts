@@ -1,5 +1,6 @@
 // 静态内置 agent skill：构建期用 oo 二进制把 oo bundled skill 导出到 resources/skills/（gitignore），
-// 再补入 Wanta 自带的只读工作流 skills（resources/wanta-skills/）。
+// 再叠加 Wanta 的 tracked skill 补充规则（resources/skill-overrides/），并补入 Wanta 自带的只读工作流
+// skills（resources/wanta-skills/）。
 // 供 dev 与打包共用。运行时由 electron/agent/workspace.ts 拷进 OpenCode workspace 的 .opencode/skill/，
 // 使 Wanta 自己的 agent 直接读到这些 skill——不再像旧 oo-cli 那样把 skill 释放到其他 AI agent 家目录。
 //
@@ -7,7 +8,7 @@
 // `--out-dir` 只写指定目录；仍隔离 OO_CONFIG/DATA/LOG 到临时目录并禁用 sync，避免污染开发机家目录。
 
 import { spawnSync } from "node:child_process"
-import { cp, mkdir, rm } from "node:fs/promises"
+import { appendFile, cp, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -19,6 +20,7 @@ const repoRoot = path.join(dirname, "..")
 // 导出落地目录（gitignore）。dev 运行时与生产打包都以此为源；运行时路径解析见 electron/agent/binaries.ts。
 export const bundledSkillsDir = path.join(repoRoot, "resources", "skills")
 export const wantaSkillsDir = path.join(repoRoot, "resources", "wanta-skills")
+export const skillOverridesDir = path.join(repoRoot, "resources", "skill-overrides")
 
 const ooBundledSkillIds = ["oo", "oo-find-skills", "oo-create-skill", "oo-publish-skill"] as const
 export const wantaBundledSkillIds = ["browser", "wikigraph-knowledge"] as const
@@ -32,16 +34,33 @@ interface SkillsInstallExport {
   skills?: Array<{ skillId?: string; status?: string }>
 }
 
+export type BundledSkillsInstaller = (outDir: string) => Promise<string>
+
 /**
  * 把 oo bundled skill 导出到 outDir（默认 resources/skills/）。幂等：先清空目录再导出，避免旧版本残留。
  * 返回导出目录绝对路径。导出失败或 oo skills 未全部导出则抛错。
  */
-export async function exportBundledSkills(outDir: string = bundledSkillsDir): Promise<string> {
-  const ooBin = await downloadOoBinary()
-  const storeDir = path.join(os.tmpdir(), "wanta-oo-skill-export-store")
-
+export async function exportBundledSkills(
+  outDir: string = bundledSkillsDir,
+  installOoSkills: BundledSkillsInstaller = installBundledOoSkills,
+): Promise<string> {
   await rm(outDir, { force: true, recursive: true })
   await mkdir(outDir, { recursive: true })
+
+  const stdout = await installOoSkills(outDir)
+  assertSkillsExported(stdout, outDir)
+  await applyBundledSkillOverrides(outDir)
+  await Promise.all(
+    wantaBundledSkillIds.map((skillId) =>
+      cp(path.join(wantaSkillsDir, skillId), path.join(outDir, skillId), { recursive: true }),
+    ),
+  )
+  return outDir
+}
+
+async function installBundledOoSkills(outDir: string): Promise<string> {
+  const ooBin = await downloadOoBinary()
+  const storeDir = path.join(os.tmpdir(), "wanta-oo-skill-export-store")
 
   const result = spawnSync(ooBin, ["skills", "install", `--out-dir=${outDir}`, "--agent-format=universal", "--json"], {
     encoding: "utf-8",
@@ -63,14 +82,25 @@ export async function exportBundledSkills(outDir: string = bundledSkillsDir): Pr
   if (result.status !== 0) {
     throw new Error(`oo skills install --out-dir failed (code ${result.status}): ${result.stderr || result.stdout}`)
   }
+  return result.stdout
+}
 
-  assertSkillsExported(result.stdout, outDir)
+export async function applyBundledSkillOverrides(
+  outDir: string,
+  overridesDir: string = skillOverridesDir,
+): Promise<void> {
+  const overrideFiles = await readdirMarkdownFiles(overridesDir)
   await Promise.all(
-    wantaBundledSkillIds.map((skillId) =>
-      cp(path.join(wantaSkillsDir, skillId), path.join(outDir, skillId), { recursive: true }),
-    ),
+    overrideFiles.map(async (filename) => {
+      const skillId = path.basename(filename, ".md")
+      const supplement = (await readFile(path.join(overridesDir, filename), "utf8")).trim()
+      await appendFile(path.join(outDir, skillId, "SKILL.md"), `\n\n${supplement}\n`, "utf8")
+    }),
   )
-  return outDir
+}
+
+async function readdirMarkdownFiles(directory: string): Promise<string[]> {
+  return (await readdir(directory)).filter((name) => name.endsWith(".md"))
 }
 
 /** 校验 oo skills install --json 的导出结果：oo 内置 skill 全部 exported、无失败。 */

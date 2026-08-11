@@ -299,6 +299,35 @@ function riskySimpleCommand(words: readonly string[], depth: number): boolean {
   )
 }
 
+function pythonConsumesStdinAsProgram(words: readonly string[]): boolean {
+  for (const word of words.slice(1)) {
+    if (word === "-c" || word === "-m" || word.startsWith("-c") || word.startsWith("-m")) {
+      return false
+    }
+  }
+  return true
+}
+
+function pipelineExecutesDownloadedProgram(words: readonly string[]): boolean {
+  const name = shellCommandName(words[0])
+  if (!name) return false
+  if (shellCommands.has(name)) return true
+  if (name === "python" || name === "python3") return pythonConsumesStdinAsProgram(words)
+  return scriptInterpreterCommands.has(name)
+}
+
+function downloadedPipelineExecutesProgram(
+  commands: readonly (readonly string[])[],
+  segments: ReturnType<typeof topLevelShellSegments>,
+  sourceIndex: number,
+): boolean {
+  for (let index = sourceIndex + 1; index < commands.length; index += 1) {
+    if (segments[index - 1]?.operatorAfter !== "pipe") return false
+    if (pipelineExecutesDownloadedProgram(commands[index] ?? [])) return true
+  }
+  return false
+}
+
 export function commandRequiresConfirmation(command: string, depth = 0): boolean {
   const segments = topLevelShellSegments(command)
   const commands = segments.map(({ text }) => {
@@ -313,12 +342,8 @@ export function commandRequiresConfirmation(command: string, depth = 0): boolean
       return false
     }
     const source = shellCommandName(words[0])
-    const target = shellCommandName(commands[index + 1]?.[0])
     return Boolean(
-      source &&
-      target &&
-      ["curl", "wget"].includes(source) &&
-      (shellCommands.has(target) || scriptInterpreterCommands.has(target)),
+      source && ["curl", "wget"].includes(source) && downloadedPipelineExecutesProgram(commands, segments, index),
     )
   })
 }

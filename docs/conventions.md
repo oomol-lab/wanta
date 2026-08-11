@@ -185,8 +185,10 @@
   oo business operations. Safe shell wrappers are inspected; unrecognized ordinary wrappers,
   pipelines, and output filtering fall through to the normal Default Access policy instead of
   creating a parser-only prompt. Pipes/redirection are not by themselves a reason to prompt —
-  prompt only on a genuine baseline security risk; `sudo`, piping into a shell, writes to sensitive
-  paths, etc. still require confirmation. Full Access bypasses every local prompt after the
+  prompt only on a genuine baseline security risk. A `curl`/`wget` response piped into bare Python
+  or `python -` is executable input and remains protected; piping JSON into an explicit local
+  `python -m ...` or `python -c ...` data processor is ordinary filtering. `sudo`, piping into a
+  shell, writes to sensitive paths, etc. still require confirmation. Full Access bypasses every local prompt after the
   OpenConnector credential and injected-runtime hard-deny checks.
 - **Permission gates only built-in tools**: `bash: deny` and the like do not constrain `.opencode`
   custom tools (their permission gate lives inside each built-in tool's execute) — when

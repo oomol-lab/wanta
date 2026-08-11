@@ -20,7 +20,7 @@ export type AgentMode = WantaAgentMode
  * subset it supports in its AgentProfile; adapters map each mode onto their
  * agent's native approval policy. Enforcement always stays agent-side.
  */
-export type AgentPermissionMode = "default" | "read_only" | "accept_edits" | "plan" | "full_access"
+export type AgentPermissionMode = "default" | "read_only" | "accept_edits" | "plan" | "auto" | "full_access"
 
 export const BUG_REPORT_COMMAND = "/bug-report"
 

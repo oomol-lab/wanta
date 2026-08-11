@@ -260,7 +260,6 @@ const chatService = new ChatServiceImpl(null, {
   trustedAttachmentPaths,
   turnOutputStore,
   userAttachmentStore,
-  externalAgentScratchRoot: path.join(app.getPath("userData"), "agent-external"),
   onPermissionModeChanged: (sessionId, permissionMode) =>
     sessionService.setPermissionMode({ id: sessionId, permissionMode }),
   onOomolAuthRequired: () => authManager.expireSession().then(() => undefined),

@@ -188,10 +188,7 @@ function createHarness(
   events: CapturedEvent[]
   adapters: Map<ExternalAgentKind, FakeExternalAdapter>
 } {
-  // Production always passes externalAgentScratchRoot (electron/main.ts:263);
-  // without it the local-access policy cannot see external session boundaries
-  // and would auto-approve external permission requests via kernel defaults.
-  const service = new ChatServiceImpl(null, { externalAgentScratchRoot: "/fake/external-scratch", ...deps })
+  const service = new ChatServiceImpl(null, { ...deps })
   // Override the transport before setExternalAgents: the bridge captures
   // this.send once when the adapters are registered.
   const events = captureServiceEvents(service)
@@ -633,25 +630,16 @@ test("edge8: prompt-borne model/effort ids are forwarded verbatim and never kill
 })
 
 // ---------------------------------------------------------------------------
-// Edge 5b: permission prompting must not depend on a derivable scratch root
+// Edge 5b: external permission asks always surface, even for malformed uuids
 // ---------------------------------------------------------------------------
 
-test("edge5b BUG: a malformed external session uuid silently auto-approves the agent's permission request", async () => {
-  // Root cause chain: externalSessionScratchRoot (electron/chat/node.ts:464-472)
-  // returns undefined when externalSessionUuid rejects a non-UUID suffix, so
-  // evaluateLocalAccessRequest never enters the external-boundary branch
-  // (electron/chat/local-access-policy.ts:170 keys the branch off
-  // `context.externalSessionRoot !== undefined`) and the request falls through
-  // to the kernel blanket defaults ("default_local"/"default_command" allow).
-  // The chat service then auto-replies "once" through the adapter without the
-  // user ever seeing the card - although the external CLI surfaced the request
-  // precisely because ITS policy wanted explicit user approval. The dep's own
-  // doc comment (chat/node.ts:257-261, "absent = external requests always
-  // prompt") promises the opposite of what happens: with the root missing (or
-  // the uuid malformed) requests are auto-APPROVED, not prompted. A session id
-  // is renderer-supplied IPC input; the prompt-vs-auto decision should key off
-  // externalAgentKindForSessionId (is this an external session at all), not off
-  // whether a scratch path happens to be derivable.
+test("edge5b: a malformed external session uuid still surfaces the agent's permission request as a prompt", async () => {
+  // External permission policy is pass-through: the agent's CLI decided the
+  // action needs explicit approval, so the ask must reach the user as a card
+  // and never be answered automatically. The external check keys off
+  // externalAgentKindForSessionId (is this an external session at all), never
+  // off whether any session detail happens to be derivable, so a junk uuid
+  // fails closed to the same prompt.
   const { service, events, adapters } = createHarness(["codex"])
   const codex = adapters.get("codex")
   assert.ok(codex)

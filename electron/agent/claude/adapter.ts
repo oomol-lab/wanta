@@ -141,7 +141,9 @@ function salientResources(toolInput: Record<string, unknown>): string[] {
   return resources
 }
 
-function sdkPermissionMode(mode: AgentPermissionMode): "acceptEdits" | "bypassPermissions" | "default" | "plan" {
+function sdkPermissionMode(
+  mode: AgentPermissionMode,
+): "acceptEdits" | "auto" | "bypassPermissions" | "default" | "plan" {
   switch (mode) {
     case "full_access":
       return "bypassPermissions"
@@ -149,6 +151,10 @@ function sdkPermissionMode(mode: AgentPermissionMode): "acceptEdits" | "bypassPe
       return "acceptEdits"
     case "plan":
       return "plan"
+    case "auto":
+      // The CLI's classifier mode: routine actions are approved by the agent
+      // itself, risky ones still surface a permission ask.
+      return "auto"
     default:
       // read_only is not declared in the claude-code profile; map defensively.
       return "default"

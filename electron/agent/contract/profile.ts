@@ -45,6 +45,7 @@ export const AGENT_PERMISSION_MODE_ORDER: readonly AgentPermissionMode[] = [
   "read_only",
   "accept_edits",
   "plan",
+  "auto",
   "full_access",
 ]
 
@@ -151,8 +152,9 @@ export const AGENT_PROFILES = {
     auth: { kind: "agent-cli", loginCommand: "Run `claude` in a terminal and sign in, then retry." },
     inputs: { ...externalAgentInputs, setModel: true, setEffort: true },
     history: externalAgentHistory,
-    // Mapped 1:1 onto SDK permission modes (full_access = bypassPermissions).
-    permissionModes: ["default", "accept_edits", "plan", "full_access"],
+    // Mapped 1:1 onto SDK permission modes (auto = the CLI's classifier mode,
+    // full_access = bypassPermissions).
+    permissionModes: ["default", "accept_edits", "plan", "auto", "full_access"],
   },
   ...acpAgentProfiles(),
 } satisfies Record<AgentKind, AgentProfile> as Record<AgentKind, AgentProfile>

@@ -67,10 +67,22 @@ External agents build on `electron/agent/external/`:
 - **`ExternalAgentAdapter`** (`external/adapter-base.ts`): transcript-backed
   `getMessages`, pending-permission queries, `forgetSession`, and the optional
   `applyPermissionMode` capability. Wanta's normalized permission-mode
-  vocabulary (`default | read_only | accept_edits | plan | full_access`) is
-  declared per agent in `AgentProfile.permissionModes` and projected onto the
-  agent's own approval policy (Claude SDK permission modes; ACP session modes
-  via the registry's `permissionModeMap`). Enforcement is always agent-side.
+  vocabulary (`default | read_only | accept_edits | plan | auto | full_access`)
+  is declared per agent in `AgentProfile.permissionModes` and projected onto
+  the agent's own approval policy (Claude SDK permission modes, including the
+  `auto` classifier mode; ACP session modes via the registry's
+  `permissionModeMap`). Enforcement is always agent-side.
+- **Permission ownership is agent-side (linkcode-style pass-through)**: the
+  agent's own CLI policy decides WHEN to ask, and every ask it surfaces
+  reaches the user as a permission card. Wanta never answers on the agent's
+  behalf (`evaluateLocalAccessRequest` external branch,
+  `electron/chat/local-access-policy.ts`): the only automatic answers are the
+  user's explicit "allow for this session" grants, and even those never cross
+  sensitive-resource or high-risk boundaries. The kernel's blanket defaults
+  (`default_local`/`default_command`, trusted-project allows, host-side
+  `full_access`) apply only to built-in kernel sessions. To reduce prompts,
+  users pick a more permissive agent-native mode (accept edits, auto,
+  full access) instead of Wanta auto-approving behind the scenes.
 - **Transcript persistence**: every emitted event is folded into
   `ExternalTranscriptRecorder` and mirrored to one JSON file per session under
   `<scratchRoot>/<kind>/transcripts/` (atomic replace, debounced writes,

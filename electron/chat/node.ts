@@ -70,7 +70,7 @@ import { copyFile, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { ActivityMetrics } from "../activity-metrics.ts"
-import { externalAgentKindForSessionId, externalSessionUuid } from "../agent/external/session-id.ts"
+import { externalAgentKindForSessionId } from "../agent/external/session-id.ts"
 import { createOpencodeMessageId } from "../agent/opencode-id.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
@@ -254,12 +254,6 @@ interface ChatServiceDeps {
   trustedAttachmentPaths?: Iterable<string> & Pick<Set<string>, "clear" | "delete"> & { readonly revision?: number }
   turnOutputStore?: TurnOutputStore
   userAttachmentStore?: UserAttachmentStore
-  /**
-   * Root directory holding external (BYOA) agent scratch cwds
-   * (<root>/<kind>/<uuid>). Bounds automatic local-access approval for
-   * external sessions; absent = external requests always prompt.
-   */
-  externalAgentScratchRoot?: string
   bugReportRuntime?: {
     appCommit: string
     appVersion: string
@@ -458,17 +452,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async warmExternalAgent(kind: ExternalAgentKind): Promise<void> {
     await this.externalAgents.get(kind)?.warmCatalog()
-  }
-
-  /** Scratch cwd of an external session (<root>/<kind>/<uuid>), when known. */
-  private externalSessionScratchRoot(sessionId: string): string | undefined {
-    const root = this.deps.externalAgentScratchRoot
-    const kind = externalAgentKindForSessionId(sessionId)
-    if (!root || !kind) {
-      return undefined
-    }
-    const uuid = externalSessionUuid(sessionId)
-    return uuid ? path.join(root, kind, uuid) : undefined
   }
 
   private externalAdapterFor(sessionId: string): ExternalAgentAdapter {
@@ -964,11 +947,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const projectRoot = this.trustedAccess.projectRoot(request.sessionId)
     const activeGenerationId = this.generations.get(displaySessionId)?.id
     const taskProcessRoot = activeGenerationId ? this.turnOutputs.get(activeGenerationId)?.processRoot : undefined
-    // Keyed off the session id's kind, never off scratch-root resolvability: a
-    // malformed external id must fail closed (prompt), not fall through to the
-    // kernel's blanket defaults.
+    // Keyed off the session id's kind, so a malformed external id still fails
+    // closed (prompt) instead of falling through to the kernel's defaults.
     const isExternalSession = externalAgentKindForSessionId(request.sessionId) !== undefined
-    const externalSessionRoot = isExternalSession ? this.externalSessionScratchRoot(request.sessionId) : undefined
     const decision = evaluateLocalAccessRequest(request, {
       activeGenerationId,
       linkRuntime: this.activeLinkRuntime,
@@ -977,7 +958,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       ...(taskProcessRoot ? { taskProcessRoot } : {}),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
       ...(isExternalSession ? { isExternalSession } : {}),
-      ...(externalSessionRoot ? { externalSessionRoot } : {}),
     })
     // External sessions answer through their own adapter; only a session with
     // no backend at all falls through to the manual card.

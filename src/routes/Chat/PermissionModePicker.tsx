@@ -1,6 +1,6 @@
 import type { AgentPermissionMode } from "../../../electron/chat/common.ts"
 
-import { Check, ChevronDown, Eye, Map as MapIcon, PencilLine, ShieldCheck, TriangleAlert } from "lucide-react"
+import { Check, ChevronDown, Eye, Map as MapIcon, PencilLine, ShieldCheck, Sparkles, TriangleAlert } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { nextModelMenuIndex } from "./model-control-utils.ts"
@@ -25,6 +25,8 @@ function permissionModeLabel(mode: AgentPermissionMode, t: ReturnType<typeof use
       return t("chat.permissionModeAcceptEdits")
     case "plan":
       return t("chat.permissionModePlan")
+    case "auto":
+      return t("chat.permissionModeAuto")
     default:
       return t("chat.permissionModeDefault")
   }
@@ -40,6 +42,8 @@ function permissionModeDescription(mode: AgentPermissionMode, t: ReturnType<type
       return t("chat.permissionModeAcceptEditsDescription")
     case "plan":
       return t("chat.permissionModePlanDescription")
+    case "auto":
+      return t("chat.permissionModeAutoDescription")
     default:
       return t("chat.permissionModeDefaultDescription")
   }
@@ -57,6 +61,8 @@ function PermissionModeIcon({ mode, active = false }: { mode: AgentPermissionMod
       return <PencilLine className="size-4 shrink-0" />
     case "plan":
       return <MapIcon className="size-4 shrink-0" />
+    case "auto":
+      return <Sparkles className="size-4 shrink-0" />
     default:
       return <ShieldCheck className="size-4 shrink-0" />
   }

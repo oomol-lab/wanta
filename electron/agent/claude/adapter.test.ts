@@ -275,6 +275,19 @@ describe("ClaudeCodeAgentAdapter", () => {
     expect(calls[0].fake.setPermissionMode).toHaveBeenCalledWith("bypassPermissions")
   })
 
+  it("maps auto to the SDK classifier mode at creation and live via setPermissionMode", async () => {
+    const { adapter, calls } = await createHarness()
+
+    await adapter.applyPermissionMode(sessionId, "auto")
+    await adapter.send({ type: "prompt", sessionId, text: "hello" })
+    expect(calls[0].options.permissionMode).toBe("auto")
+
+    await adapter.applyPermissionMode(sessionId, "accept_edits")
+    expect(calls[0].fake.setPermissionMode).toHaveBeenCalledWith("acceptEdits")
+    await adapter.applyPermissionMode(sessionId, "auto")
+    expect(calls[0].fake.setPermissionMode).toHaveBeenCalledWith("auto")
+  })
+
   it("emits translated contract events for SDK messages flowing out of the query", async () => {
     const { adapter, events, calls } = await createHarness()
     await adapter.send({ type: "prompt", sessionId, text: "hello" })

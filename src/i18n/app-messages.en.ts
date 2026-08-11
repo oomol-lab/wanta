@@ -470,6 +470,8 @@ export const enMessages = {
   "chat.permissionModeAcceptEditsDescription": "Auto-approves file edits; other actions still ask",
   "chat.permissionModePlan": "Plan",
   "chat.permissionModePlanDescription": "Researches and plans without making changes",
+  "chat.permissionModeAuto": "Auto approvals",
+  "chat.permissionModeAutoDescription": "The agent auto-approves routine actions; risky ones still ask",
   "chat.reasoningSection": "Reasoning",
   "chat.reasoningLevelDefault": "Default",
   "chat.reasoningLevelLow": "Low",
@@ -971,7 +973,7 @@ export const enMessages = {
   "chat.permissionModePicker": "Access mode",
   "chat.permissionModeDefault": "Default access",
   "chat.permissionModeDefaultDescription":
-    "Runs ordinary actions automatically; asks only at sensitive or high-risk boundaries",
+    "Follows the agent's default approval policy; asks when confirmation is needed",
   "chat.permissionModeFullAccess": "Full access",
   "chat.permissionModeFullAccessDescription":
     "Skips local confirmations, including for high-risk commands and paths outside the project",

@@ -30,6 +30,7 @@ const persistedPermissionModes: readonly SessionPermissionMode[] = [
   "read_only",
   "accept_edits",
   "plan",
+  "auto",
   "full_access",
 ]
 

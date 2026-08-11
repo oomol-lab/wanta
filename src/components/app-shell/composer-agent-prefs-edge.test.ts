@@ -139,3 +139,21 @@ describe("composer-agent-prefs: unknown agent kinds (removed-agent leftovers)", 
     expect(readStoredAgentComposerPrefs(storage, "codex")).toEqual({ modelId: "gpt-5.2" })
   })
 })
+
+describe("composer-agent-prefs: auto permission mode", () => {
+  it("auto is sticky for claude-code, unlike full_access", () => {
+    const storage = memoryStorage()
+    writeStoredAgentComposerPrefs(storage, "claude-code", { permissionMode: "auto" })
+    expect(readStoredAgentComposerPrefs(storage, "claude-code")).toEqual({ permissionMode: "auto" })
+    // full_access never persists; the previous sticky mode stays.
+    writeStoredAgentComposerPrefs(storage, "claude-code", { permissionMode: "full_access" })
+    expect(readStoredAgentComposerPrefs(storage, "claude-code")).toEqual({ permissionMode: "auto" })
+  })
+
+  it("a stored auto mode degrades to defaults for agents that do not declare it", () => {
+    const storage = memoryStorage({
+      [KEY]: JSON.stringify({ byAgent: { codex: { permissionMode: "auto" } } }),
+    })
+    expect(readStoredAgentComposerPrefs(storage, "codex")).toEqual({})
+  })
+})

@@ -2,6 +2,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { loadEnv } from "vite"
 import { defineConfig } from "vitest/config"
+import packageManifest from "./package.json" with { type: "json" }
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -20,11 +21,12 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
+      __OPENCODE_VERSION__: JSON.stringify(packageManifest.devDependencies["opencode-ai"]),
       __OO_ENDPOINT__: JSON.stringify(ooEndpoint),
       __PACKAGE_ASSETS_BASE_URL__: JSON.stringify(packageAssetsBaseUrl),
     },
     test: {
-      include: ["electron/**/*.test.ts", "src/**/*.test.ts", "scripts/**/*.test.ts"],
+      include: ["electron/**/*.test.ts", "src/**/*.test.{ts,tsx}", "scripts/**/*.test.ts"],
       environment: "node",
     },
   }

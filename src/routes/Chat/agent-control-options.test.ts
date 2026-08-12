@@ -12,6 +12,7 @@ import {
 
 const labels = {
   builtIn: "Built-in Agent",
+  builtInVersion: "1.18.10",
   loginRequired: (hint: string) => `Sign-in required: ${hint}`,
   notDetected: "Not detected",
 }
@@ -55,7 +56,7 @@ describe("composerCapabilitiesForProfile", () => {
 describe("buildAgentPickerRows", () => {
   it("puts the selectable built-in agent first", () => {
     const rows = buildAgentPickerRows([], labels)
-    expect(rows).toEqual([{ kind: "opencode", label: "Built-in Agent", selectable: true }])
+    expect(rows).toEqual([{ kind: "opencode", label: "Built-in Agent", selectable: true, sublabel: "1.18.10" }])
   })
 
   it("marks detected agents selectable with their version", () => {

@@ -58,7 +58,7 @@ function renderControls(overrides: Partial<ComponentProps<typeof ComposerModeCon
 
 describe("ComposerModeControls", () => {
   const voiceLabel = `aria-label="${t("chat.voiceInput")}"`
-  const agentPickerLabel = `aria-label="${t("chat.agentPickerLabel")}"`
+  const agentConfigurationLabel = `aria-label="${t("chat.agentConfiguration")}"`
   const agentModeLabel = `aria-label="${t("chat.agentModePicker")}"`
   const modelPickerLabel = `aria-label="${t("chat.modelPicker")}"`
   const permissionModeLabel = `aria-label="${t("chat.permissionModePicker")}"`
@@ -72,28 +72,23 @@ describe("ComposerModeControls", () => {
     expect(renderControls({ voiceEnabled: false })).not.toContain(voiceLabel)
   })
 
-  it("always renders the agent picker with the built-in label by default", () => {
+  it("renders one combined agent configuration trigger", () => {
     const html = renderControls({})
-    expect(html).toContain(agentPickerLabel)
-    expect(html).toContain(t("chat.agentBuiltIn"))
+    expect(html).toContain(agentConfigurationLabel)
+    expect(html).not.toContain(modelPickerLabel)
+    expect(html).not.toContain(reasoningPickerLabel)
   })
 
-  it("renders mode, model, and reasoning pickers for agents with Wanta-owned capabilities", () => {
+  it("keeps Wanta model and reasoning selections inside the combined trigger", () => {
     const html = renderControls({ agentModesEnabled: true, modelRoutingEnabled: true })
     expect(html).toContain(agentModeLabel)
-    expect(html).toContain(modelPickerLabel)
-    expect(html).toContain(reasoningPickerLabel)
+    expect(html).toContain(agentConfigurationLabel)
+    expect(html).toContain("Auto · Default")
   })
 
-  it("orders controls as agent, model, mode, permission, reasoning", () => {
+  it("orders mode and permission before the combined configuration trigger", () => {
     const html = renderControls({ agentModesEnabled: true, modelRoutingEnabled: true })
-    const positions = [
-      agentPickerLabel,
-      modelPickerLabel,
-      agentModeLabel,
-      permissionModeLabel,
-      reasoningPickerLabel,
-    ].map((label) => html.indexOf(label))
+    const positions = [agentModeLabel, permissionModeLabel, agentConfigurationLabel].map((label) => html.indexOf(label))
     expect(positions.every((position) => position >= 0)).toBe(true)
     expect(positions).toEqual([...positions].sort((a, b) => a - b))
   })
@@ -102,8 +97,21 @@ describe("ComposerModeControls", () => {
     expect(renderControls({ agentModesEnabled: false })).not.toContain(agentModeLabel)
   })
 
-  it("hides the model picker when the agent owns model routing", () => {
-    expect(renderControls({ modelRoutingEnabled: false })).not.toContain(modelPickerLabel)
+  it("uses the same combined trigger when the external agent owns model routing", () => {
+    const html = renderControls({
+      agentCatalog: {
+        defaultModelId: "sonnet",
+        efforts: [{ id: "high", label: "High" }],
+        models: [{ id: "sonnet", label: "Claude Sonnet" }],
+      },
+      agentEffortSelectionEnabled: true,
+      agentKind: "claude-code",
+      agentModelSelectionEnabled: true,
+      modelRoutingEnabled: false,
+    })
+    expect(html).toContain(agentConfigurationLabel)
+    expect(html).toContain("Default · Claude Code")
+    expect(html).not.toContain(modelPickerLabel)
   })
 
   it("hides the permission mode picker for single-mode agents", () => {
@@ -111,8 +119,11 @@ describe("ComposerModeControls", () => {
     expect(renderControls({ permissionModes: ["default", "full_access"] })).toContain(permissionModeLabel)
   })
 
-  it("hides the kernel reasoning picker when the selected model has no reasoning variants", () => {
-    expect(renderControls({ modelCatalog: noReasoningCatalog })).not.toContain(reasoningPickerLabel)
+  it("keeps a model-only Wanta configuration in the combined trigger", () => {
+    const html = renderControls({ modelCatalog: noReasoningCatalog })
+    expect(html).toContain(agentConfigurationLabel)
+    expect(html).toContain("GPT 5.6 Sol · Default")
+    expect(html).not.toContain(reasoningPickerLabel)
   })
 
   it("prompts for configuration on the model trigger when a model is required", () => {

@@ -39,6 +39,7 @@ export interface AgentPickerRow {
 
 export interface AgentPickerRowLabels {
   builtIn: string
+  builtInVersion: string
   loginRequired: (hint: string) => string
   notDetected: string
 }
@@ -52,7 +53,9 @@ export function buildAgentPickerRows(
   options: readonly ExternalAgentRuntimeStatus[],
   labels: AgentPickerRowLabels,
 ): AgentPickerRow[] {
-  const rows: AgentPickerRow[] = [{ kind: "opencode", label: labels.builtIn, selectable: true }]
+  const rows: AgentPickerRow[] = [
+    { kind: "opencode", label: labels.builtIn, selectable: true, sublabel: labels.builtInVersion },
+  ]
   for (const status of options) {
     const detected = status.binary.status === "detected"
     rows.push({

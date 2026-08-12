@@ -73,6 +73,42 @@ async function probeBinary(
   }
 }
 
+export function parseClaudeAuthStatus(raw: string): ExternalAgentLoginProbe | undefined {
+  try {
+    const parsed = JSON.parse(raw) as { loggedIn?: unknown }
+    if (parsed.loggedIn === true) {
+      return { status: "logged_in" }
+    }
+    if (parsed.loggedIn === false) {
+      return { status: "logged_out" }
+    }
+  } catch {
+    // Older Claude versions may not support JSON auth status; use the legacy
+    // config marker fallback below instead of treating that as logged out.
+  }
+  return undefined
+}
+
+async function probeClaudeCliLogin(
+  executablePath: string,
+  pathEnv: string,
+  options: ExternalAgentProbeOptions,
+): Promise<ExternalAgentLoginProbe | undefined> {
+  const env = options.env ?? process.env
+  try {
+    const { stdout } = await execFileAsync(executablePath, ["auth", "status", "--json"], {
+      timeout: versionProbeTimeoutMs,
+      maxBuffer: 64 * 1024,
+      env: { ...env, PATH: pathEnv },
+    })
+    return parseClaudeAuthStatus(stdout)
+  } catch (error) {
+    const stdout =
+      error && typeof error === "object" && "stdout" in error && typeof error.stdout === "string" ? error.stdout : ""
+    return parseClaudeAuthStatus(stdout)
+  }
+}
+
 /**
  * Claude Code login state from the CLI's own config file. Only key presence is
  * inspected; no secret ever leaves this function (~/.claude.json holds account
@@ -121,12 +157,13 @@ export async function probeExternalAgent(
   const loginHint = agentLoginHint(kind)
   const pathEnv = await probeCommandPath(options)
   const registration = kind === "claude-code" ? undefined : ACP_AGENT_REGISTRY[kind]
-  const [binary, login] = await Promise.all([
-    registration
-      ? probeBinary(registration.cliCommands, registration.versionArgs, options, pathEnv)
-      : probeBinary(["claude"], ["--version"], options, pathEnv),
-    registration ? probeLoginMarker(registration.loginMarkerPath, options) : probeClaudeLogin(options),
-  ])
+  const binary = registration
+    ? await probeBinary(registration.cliCommands, registration.versionArgs, options, pathEnv)
+    : await probeBinary(["claude"], ["--version"], options, pathEnv)
+  const login = registration
+    ? await probeLoginMarker(registration.loginMarkerPath, options)
+    : ((binary.status === "detected" ? await probeClaudeCliLogin(binary.path, pathEnv, options) : undefined) ??
+      (await probeClaudeLogin(options)))
   const status: ExternalAgentRuntimeStatus = { kind, displayName: profile.displayName, binary, login, loginHint }
   logDiagnosticOnChange(`byoa-probe:${kind}`, "byoa-probe", "external agent probe", {
     kind,

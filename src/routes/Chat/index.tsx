@@ -43,7 +43,6 @@ interface ChatAreaProps {
   activeSessionId: string | null
   agentKind?: AgentKind
   agentModesEnabled?: boolean
-  agentPickerLocked?: boolean
   attachmentsEnabled?: boolean
   billingCacheScope: string
   billingRequestScope: BillingRequestScope | null
@@ -260,7 +259,6 @@ export const ChatArea = React.memo(function ChatArea({
   activeSessionId,
   agentKind = "opencode",
   agentModesEnabled = true,
-  agentPickerLocked = false,
   attachmentsEnabled = true,
   billingCacheScope,
   billingRequestScope,
@@ -368,7 +366,6 @@ export const ChatArea = React.memo(function ChatArea({
       agentEffortId={agentEffortId}
       agentModelId={agentModelId}
       agentModesEnabled={agentModesEnabled}
-      agentPickerLocked={agentPickerLocked}
       attachmentsEnabled={attachmentsEnabled}
       cloudModelsEnabled={cloudModelsEnabled}
       modelRoutingEnabled={modelRoutingEnabled}

@@ -9,6 +9,10 @@ import electron from "vite-plugin-electron/simple"
 import { branding, storageKey } from "./electron/branding.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
+const packageManifest = JSON.parse(fs.readFileSync(path.join(dirname, "package.json"), "utf8")) as {
+  devDependencies?: Record<string, string>
+}
+const openCodeVersion = packageManifest.devDependencies?.["opencode-ai"] ?? "unknown"
 
 // dev：让 vite-plugin-electron 启动 postinstall 下载到 .electron-dist 的那份
 // Electron（带 dev 专用 Bundle ID / URL scheme = wanta-local）。仅当该副本存在
@@ -115,6 +119,7 @@ export default defineConfig(({ command, mode }) => {
   const buildDefines = {
     __APP_COMMIT__: JSON.stringify(appCommit),
     __APP_VERSION__: JSON.stringify(appVersion),
+    __OPENCODE_VERSION__: JSON.stringify(openCodeVersion),
     __OO_ENDPOINT__: JSON.stringify(ooEndpoint),
     __PACKAGE_ASSETS_BASE_URL__: JSON.stringify(packageAssetsBaseUrl),
   }

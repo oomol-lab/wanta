@@ -1,12 +1,7 @@
 import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
 
 import { describe, expect, it } from "vitest"
-import {
-  readStoredAgentComposerPrefs,
-  readStoredLastAgentKind,
-  writeStoredAgentComposerPrefs,
-  writeStoredLastAgentKind,
-} from "./composer-agent-prefs.ts"
+import { readStoredAgentComposerPrefs, writeStoredAgentComposerPrefs } from "./composer-agent-prefs.ts"
 
 // Adversarial edge tests for the sticky composer preference storage. All of
 // these must degrade to defaults WITHOUT throwing: the prefs layer sits on the
@@ -34,7 +29,6 @@ describe("composer-agent-prefs: storage failures", () => {
       },
     }
     expect(() => writeStoredAgentComposerPrefs(quotaStorage, "codex", { modelId: "gpt-5.3" })).not.toThrow()
-    expect(() => writeStoredLastAgentKind(quotaStorage, "grok")).not.toThrow()
     // The previously persisted value is still readable; the failed write is lost.
     expect(readStoredAgentComposerPrefs(storage, "codex")).toEqual({ modelId: "gpt-5.2" })
   })
@@ -47,7 +41,6 @@ describe("composer-agent-prefs: storage failures", () => {
       },
       setItem: (_key: string, value: string): void => void written.push(value),
     }
-    expect(readStoredLastAgentKind(storage)).toBeUndefined()
     expect(readStoredAgentComposerPrefs(storage, "codex")).toEqual({})
     expect(() => writeStoredAgentComposerPrefs(storage, "codex", { modelId: "gpt-5.2" })).not.toThrow()
     // The write starts from an empty store instead of propagating the error.
@@ -55,10 +48,8 @@ describe("composer-agent-prefs: storage failures", () => {
   })
 
   it("null and undefined storage degrade to defaults", () => {
-    expect(readStoredLastAgentKind(null)).toBeUndefined()
     expect(readStoredAgentComposerPrefs(undefined, "codex")).toEqual({})
     expect(() => writeStoredAgentComposerPrefs(null, "codex", { modelId: "x" })).not.toThrow()
-    expect(() => writeStoredLastAgentKind(undefined, "codex")).not.toThrow()
   })
 })
 
@@ -98,14 +89,15 @@ describe("composer-agent-prefs: malformed persisted shapes", () => {
   it("a top-level array, number, or null payload degrades to defaults", () => {
     for (const payload of ["[1,2,3]", "42", "null", '"str"']) {
       const storage = memoryStorage({ [KEY]: payload })
-      expect(readStoredLastAgentKind(storage)).toBeUndefined()
       expect(readStoredAgentComposerPrefs(storage, "codex")).toEqual({})
     }
   })
 
-  it("a non-string lastAgentKind degrades to undefined", () => {
-    const storage = memoryStorage({ [KEY]: JSON.stringify({ lastAgentKind: 3 }) })
-    expect(readStoredLastAgentKind(storage)).toBeUndefined()
+  it("ignores a legacy lastAgentKind while preserving per-agent preferences", () => {
+    const storage = memoryStorage({
+      [KEY]: JSON.stringify({ lastAgentKind: "codex", byAgent: { codex: { modelId: "gpt-5.2" } } }),
+    })
+    expect(readStoredAgentComposerPrefs(storage, "codex")).toEqual({ modelId: "gpt-5.2" })
   })
 })
 

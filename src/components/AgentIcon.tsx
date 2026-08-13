@@ -1,8 +1,12 @@
 import wantaLogo from "../../resources/branding/logo.png"
 import claudeCodeIcon from "@/assets/agent-icons/claude-code-color.svg"
 import codexIcon from "@/assets/agent-icons/codex-color.svg"
+import grokDarkIcon from "@/assets/agent-icons/grok-dark.svg"
+import grokIcon from "@/assets/agent-icons/grok.svg"
 import hermesAgentDarkIcon from "@/assets/agent-icons/hermes-agent-dark.svg"
 import hermesAgentIcon from "@/assets/agent-icons/hermes-agent.svg"
+import openCodeDarkIcon from "@/assets/agent-icons/opencode-dark.svg"
+import openCodeIcon from "@/assets/agent-icons/opencode.svg"
 import qoderDarkIcon from "@/assets/agent-icons/qoder-color-dark.svg"
 import qoderIcon from "@/assets/agent-icons/qoder-color.svg"
 import traeIcon from "@/assets/agent-icons/trae-color.svg"
@@ -40,6 +44,9 @@ export function AgentIcon({ className, host }: AgentIconProps) {
 }
 
 function getAgentIcon(normalizedHost: string): AgentIconAsset | undefined {
+  if (normalizedHost.includes("opencode")) {
+    return { agent: "opencode", darkSrc: openCodeDarkIcon, src: openCodeIcon }
+  }
   if (normalizedHost.includes("wanta")) {
     return { agent: "wanta", src: wantaLogo }
   }
@@ -48,6 +55,9 @@ function getAgentIcon(normalizedHost: string): AgentIconAsset | undefined {
   }
   if (normalizedHost.includes("codex")) {
     return { agent: "codex", src: codexIcon }
+  }
+  if (normalizedHost.includes("grok")) {
+    return { agent: "grok", darkSrc: grokDarkIcon, src: grokIcon }
   }
   if (normalizedHost.includes("hermes")) {
     return { agent: "hermes", darkSrc: hermesAgentDarkIcon, src: hermesAgentIcon }

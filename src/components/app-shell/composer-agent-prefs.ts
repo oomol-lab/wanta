@@ -3,9 +3,9 @@ import type { AgentPermissionMode } from "../../../electron/chat/common.ts"
 
 import { AGENT_PROFILES } from "../../../electron/agent/contract/profile.ts"
 
-// Sticky composer defaults: the last agent the user picked, and the last
-// model/effort/permission-mode chosen per agent. A new chat draft starts from
-// these instead of forgetting every selection.
+// Sticky composer defaults for model/effort/permission mode, kept separately
+// per agent. A fresh chat always starts with the built-in OpenCode agent; once
+// the user chooses a BYOA agent, that agent's own saved choices are restored.
 //
 // full_access is deliberately never persisted: entering it has an explicit
 // confirmation step, and a new chat must not inherit that decision silently.
@@ -19,11 +19,11 @@ export interface AgentComposerPrefs {
 }
 
 interface StoredComposerAgentPrefs {
-  lastAgentKind?: string
   byAgent?: Record<string, { modelId?: unknown; effortId?: unknown; permissionMode?: unknown }>
 }
 
 const storageKey = "wanta.composerAgentPrefs"
+export const DEFAULT_COMPOSER_AGENT_KIND: AgentKind = "opencode"
 
 function isAgentKind(value: unknown): value is AgentKind {
   return typeof value === "string" && Object.hasOwn(AGENT_PROFILES, value)
@@ -51,15 +51,6 @@ function writeStore(storage: LocalStorageLike | null | undefined, store: StoredC
   } catch {
     // Local storage being unavailable only loses stickiness, never state.
   }
-}
-
-export function readStoredLastAgentKind(storage: LocalStorageLike | null | undefined): AgentKind | undefined {
-  const stored = readStore(storage).lastAgentKind
-  return isAgentKind(stored) ? stored : undefined
-}
-
-export function writeStoredLastAgentKind(storage: LocalStorageLike | null | undefined, kind: AgentKind): void {
-  writeStore(storage, { ...readStore(storage), lastAgentKind: kind })
 }
 
 export function readStoredAgentComposerPrefs(

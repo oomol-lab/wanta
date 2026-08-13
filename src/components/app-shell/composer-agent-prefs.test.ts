@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
+  DEFAULT_COMPOSER_AGENT_KIND,
   readStoredAgentComposerPrefs,
-  readStoredLastAgentKind,
   writeStoredAgentComposerPrefs,
-  writeStoredLastAgentKind,
 } from "./composer-agent-prefs.ts"
 
 function memoryStorage(initial?: Record<string, string>) {
@@ -15,14 +14,8 @@ function memoryStorage(initial?: Record<string, string>) {
 }
 
 describe("composer agent prefs", () => {
-  it("round-trips the last agent kind and rejects unknown kinds", () => {
-    const storage = memoryStorage()
-    expect(readStoredLastAgentKind(storage)).toBeUndefined()
-    writeStoredLastAgentKind(storage, "codex")
-    expect(readStoredLastAgentKind(storage)).toBe("codex")
-
-    const polluted = memoryStorage({ "wanta.composerAgentPrefs": JSON.stringify({ lastAgentKind: "gemini-cli" }) })
-    expect(readStoredLastAgentKind(polluted)).toBeUndefined()
+  it("uses the built-in OpenCode agent for every fresh composer", () => {
+    expect(DEFAULT_COMPOSER_AGENT_KIND).toBe("opencode")
   })
 
   it("keeps per-agent model/effort/permission preferences separate", () => {
@@ -69,7 +62,6 @@ describe("composer agent prefs", () => {
 
   it("survives corrupted storage payloads", () => {
     const storage = memoryStorage({ "wanta.composerAgentPrefs": "{not json" })
-    expect(readStoredLastAgentKind(storage)).toBeUndefined()
     expect(readStoredAgentComposerPrefs(storage, "codex")).toEqual({})
     writeStoredAgentComposerPrefs(storage, "codex", { modelId: "gpt-5.5" })
     expect(readStoredAgentComposerPrefs(storage, "codex")).toEqual({ modelId: "gpt-5.5" })

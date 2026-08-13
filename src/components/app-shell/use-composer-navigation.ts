@@ -55,7 +55,7 @@ export function useComposerNavigation({
   releaseTransientFocus: () => void
   route: AppShellRoute
   sessionScope: SessionScope | null
-  /** Reset draft permission/model/effort to the current agent's sticky prefs. */
+  /** Reset to OpenCode with its sticky permission/model/effort preferences. */
   applyDraftComposerDefaults: () => void
   setComposerFocusRequest: React.Dispatch<React.SetStateAction<number>>
   setDraftProjectId: React.Dispatch<React.SetStateAction<string | null>>

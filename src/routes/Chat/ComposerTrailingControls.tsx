@@ -33,7 +33,6 @@ interface ComposerTrailingControlsProps {
   agentModelId?: string
   agentModelSelectionEnabled?: boolean
   agentModesEnabled?: boolean
-  agentPickerLocked?: boolean
   externalAgents?: ExternalAgentRuntimeStatus[]
   modelRoutingEnabled?: boolean
   permissionMode: AgentPermissionMode
@@ -222,7 +221,6 @@ export function ComposerTrailingControls({
   agentModelId,
   agentModelSelectionEnabled,
   agentModesEnabled,
-  agentPickerLocked,
   externalAgents,
   modelRoutingEnabled,
   permissionMode,
@@ -359,7 +357,6 @@ export function ComposerTrailingControls({
               agentModelId={agentModelId}
               agentModelSelectionEnabled={agentModelSelectionEnabled}
               agentModesEnabled={agentModesEnabled}
-              agentPickerLocked={agentPickerLocked}
               composerDisabled={composerDisabled}
               contextUsage={contextUsage}
               externalAgents={externalAgents}

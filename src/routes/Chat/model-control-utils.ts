@@ -17,14 +17,6 @@ export function nextModelMenuIndex(currentIndex: number, itemCount: number, dire
   return itemCount === 0 ? 0 : (currentIndex + direction + itemCount) % itemCount
 }
 
-export function modelMenuItemElementId(itemId: string): string {
-  const encoded = Array.from(itemId, (char) => {
-    const codePoint = char.codePointAt(0)
-    return codePoint === undefined ? "0" : codePoint.toString(16)
-  }).join("-")
-  return `model-menu-item-${encoded}`
-}
-
 export function reasoningLevelLabel(level: ReasoningLevel, t: ReturnType<typeof useT>): string {
   switch (level) {
     case "default":

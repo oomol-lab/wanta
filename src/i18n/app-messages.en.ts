@@ -457,6 +457,8 @@ export const enMessages = {
   "chat.agentModeBuild": "Execute",
   "chat.agentModePlan": "Plan",
   "chat.agentPickerLabel": "Agent",
+  "chat.agentConfiguration": "Agent configuration",
+  "chat.agentOpenCode": "OpenCode",
   "chat.agentBuiltIn": "Built-in Agent",
   "chat.agentNotDetected": "Not detected",
   "chat.agentLoginRequired": "Sign-in required: {hint}",

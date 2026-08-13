@@ -82,7 +82,6 @@ interface ChatComposerProps {
   agentKind?: AgentKind
   agentModelId?: string
   agentModesEnabled?: boolean
-  agentPickerLocked?: boolean
   attachmentsEnabled?: boolean
   cloudModelsEnabled?: boolean
   modelRoutingEnabled?: boolean
@@ -196,7 +195,6 @@ export function ChatComposer({
   agentKind = "opencode",
   agentModelId,
   agentModesEnabled = true,
-  agentPickerLocked = false,
   attachmentsEnabled = true,
   cloudModelsEnabled = true,
   modelRoutingEnabled = true,
@@ -825,7 +823,6 @@ export function ChatComposer({
           agentModelId={agentModelId}
           agentModelSelectionEnabled={displayedAgentProfile.inputs.setModel}
           agentModesEnabled={agentModesEnabled}
-          agentPickerLocked={agentPickerLocked}
           externalAgents={externalAgentsState.agents}
           modelRoutingEnabled={modelRoutingEnabled}
           permissionMode={permissionMode}

@@ -26,6 +26,7 @@ type ConfigurationPage = "root" | "agent" | "model" | "effort"
 
 function ConfigurationRow({
   disabled = false,
+  expanded = false,
   label,
   value,
   onClick,
@@ -33,6 +34,7 @@ function ConfigurationRow({
   onMouseEnter,
 }: {
   disabled?: boolean
+  expanded?: boolean
   label: string
   value: string
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void
@@ -42,6 +44,9 @@ function ConfigurationRow({
   return (
     <button
       type="button"
+      role="menuitem"
+      aria-expanded={expanded}
+      aria-haspopup="menu"
       disabled={disabled || !onClick}
       className="flex min-h-10 w-full min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground disabled:cursor-default disabled:opacity-70 disabled:hover:bg-transparent"
       onClick={onClick}
@@ -200,6 +205,7 @@ export function AgentConfigurationPicker({
   const [page, setPage] = React.useState<ConfigurationPage>("root")
   const [submenuStyle, setSubmenuStyle] = React.useState<React.CSSProperties>({})
   const submenuRef = React.useRef<HTMLDivElement | null>(null)
+  const submenuAnchorRef = React.useRef<HTMLButtonElement | null>(null)
   const additionalMenuRefs = React.useMemo(() => [submenuRef], [])
   const { closeMenu, handleTriggerKeyDown, menuRef, menuStyle, rootRef, toggleMenu, triggerRef } = useComposerMenu({
     additionalOutsideRefs: additionalMenuRefs,
@@ -212,34 +218,54 @@ export function AgentConfigurationPicker({
     width: 320,
   })
 
+  const positionSubmenu = React.useCallback((anchor: HTMLButtonElement): void => {
+    const rect = anchor.getBoundingClientRect()
+    const width = 320
+    const gap = 8
+    const margin = 16
+    const menuWidth = Math.min(width, window.innerWidth - margin * 2)
+    const submenuHeight = submenuRef.current?.getBoundingClientRect().height ?? 0
+    const maxTop = Math.max(margin, window.innerHeight - margin - submenuHeight)
+    const opensRight = rect.right + gap + menuWidth <= window.innerWidth - margin
+    setSubmenuStyle({
+      left: opensRight ? rect.right + gap : Math.max(margin, rect.left - gap - menuWidth),
+      top: Math.min(Math.max(margin, rect.top), maxTop),
+      width: menuWidth,
+      maxHeight: window.innerHeight - margin * 2,
+    })
+  }, [])
+
   const openSubmenu = React.useCallback(
     (nextPage: Exclude<ConfigurationPage, "root">, anchor: HTMLButtonElement): void => {
-      const rect = anchor.getBoundingClientRect()
-      const width = 320
-      const gap = 8
-      const margin = 16
-      const opensRight = rect.right + gap + width <= window.innerWidth - margin
-      setSubmenuStyle({
-        left: opensRight ? rect.right + gap : Math.max(margin, rect.left - gap - width),
-        top: Math.max(margin, rect.top),
-        width: Math.min(width, window.innerWidth - margin * 2),
-        maxHeight: window.innerHeight - margin * 2,
-      })
+      submenuAnchorRef.current = anchor
+      positionSubmenu(anchor)
       setPage(nextPage)
     },
-    [],
+    [positionSubmenu],
   )
 
   React.useLayoutEffect(() => {
-    if (page === "root" || !submenuRef.current) {
+    if (page !== "root" && submenuAnchorRef.current) {
+      positionSubmenu(submenuAnchorRef.current)
+    }
+  }, [page, positionSubmenu])
+
+  React.useEffect(() => {
+    if (page === "root") {
       return
     }
-    const rect = submenuRef.current.getBoundingClientRect()
-    const overflow = rect.bottom - (window.innerHeight - 16)
-    if (overflow > 0) {
-      setSubmenuStyle((style) => ({ ...style, top: Math.max(16, Number(style.top ?? 16) - overflow) }))
+    const reposition = (): void => {
+      if (submenuAnchorRef.current) {
+        positionSubmenu(submenuAnchorRef.current)
+      }
     }
-  }, [page])
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", reposition, true)
+    return () => {
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
+    }
+  }, [page, positionSubmenu])
 
   const agentRows = React.useMemo(
     () =>
@@ -282,8 +308,8 @@ export function AgentConfigurationPicker({
   const triggerParts = modelRoutingEnabled
     ? [modelLabel, effortLabel]
     : agentModelSelectionEnabled
-      ? [modelLabel, agentEffortId ? effortLabel : null, selectedAgentLabel]
-      : [selectedAgentLabel, agentEffortId ? effortLabel : null]
+      ? [modelLabel, effortVisible && agentEffortId ? effortLabel : null, selectedAgentLabel]
+      : [selectedAgentLabel, effortVisible && agentEffortId ? effortLabel : null]
   const triggerLabel = triggerParts.filter(Boolean).join(" · ") || selectedAgentLabel
 
   const onOpenRef = React.useRef(onAgentPickerOpen)
@@ -428,6 +454,7 @@ export function AgentConfigurationPicker({
       </div>
       {modelVisible ? (
         <ConfigurationRow
+          expanded={page === "model"}
           label={t("chat.modelSection")}
           value={modelLabel}
           onClick={(event) => openSubmenu("model", event.currentTarget)}
@@ -437,6 +464,7 @@ export function AgentConfigurationPicker({
       ) : null}
       {effortVisible ? (
         <ConfigurationRow
+          expanded={page === "effort"}
           label={modelRoutingEnabled ? t("chat.reasoningSection") : t("chat.agentEffortPicker")}
           value={effortLabel}
           onClick={(event) => openSubmenu("effort", event.currentTarget)}
@@ -446,6 +474,7 @@ export function AgentConfigurationPicker({
       ) : null}
       <div className="oo-border-divider mt-1 border-t pt-1">
         <ConfigurationRow
+          expanded={page === "agent"}
           label={t("chat.agentPickerLabel")}
           value={selectedAgentLabel}
           onClick={(event) => openSubmenu("agent", event.currentTarget)}

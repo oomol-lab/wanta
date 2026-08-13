@@ -61,10 +61,13 @@ const baseProps: ComponentProps<typeof AgentConfigurationPicker> = {
   onSelectReasoningLevel: vi.fn(),
 }
 
+const roots: Array<ReturnType<typeof createRoot>> = []
+
 async function renderPicker(overrides: Partial<ComponentProps<typeof AgentConfigurationPicker>> = {}) {
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
+  roots.push(root)
   await act(async () => {
     root.render(
       <I18nContext.Provider
@@ -100,13 +103,18 @@ async function hoverButton(text: string) {
 }
 
 afterEach(() => {
+  act(() => {
+    for (const root of roots.splice(0)) {
+      root.unmount()
+    }
+  })
   document.body.replaceChildren()
   vi.clearAllMocks()
 })
 
 describe("AgentConfigurationPicker", () => {
   it("groups agent, Wanta model, and reasoning in one portaled panel", async () => {
-    const { host, root } = await renderPicker()
+    const { host } = await renderPicker()
     const menu = document.querySelector<HTMLElement>('[role="menu"][aria-label="Agent configuration"]')
 
     expect(menu).not.toBeNull()
@@ -118,27 +126,29 @@ describe("AgentConfigurationPicker", () => {
       (button) => button.textContent,
     )
     expect(rootRows).toEqual(["ModelAuto", "ReasoningDefault", "AgentOpenCode"])
+    expect(rootRows).toHaveLength(3)
+    for (const row of menu?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []) {
+      expect(row.getAttribute("aria-haspopup")).toBe("menu")
+      expect(row.getAttribute("aria-expanded")).toBe("false")
+    }
     expect(menu?.querySelectorAll("svg")).toHaveLength(3)
     expect(document.querySelector("button button")).toBeNull()
-
-    act(() => root.unmount())
   })
 
   it("selects a BYOA agent from the same configuration panel", async () => {
     const onSelectAgentKind = vi.fn()
-    const { root } = await renderPicker({ onSelectAgentKind })
+    await renderPicker({ onSelectAgentKind })
 
     await hoverButton("OpenCode")
     expect(document.body.textContent).toContain("Codex")
     await act(async () => buttonWithText("Codex")?.click())
 
     expect(onSelectAgentKind).toHaveBeenCalledWith("codex")
-    act(() => root.unmount())
   })
 
   it("keeps detected agents selectable and disables only undetected agents", async () => {
     const onSelectAgentKind = vi.fn()
-    const { root } = await renderPicker({ onSelectAgentKind })
+    await renderPicker({ onSelectAgentKind })
 
     await hoverButton("OpenCode")
     const claude = buttonWithText("Claude Code")
@@ -147,21 +157,19 @@ describe("AgentConfigurationPicker", () => {
     expect(claude?.disabled).toBe(false)
     expect(codex?.disabled).toBe(false)
     expect(grok?.disabled).toBe(true)
-    expect(buttonWithTexts("OpenCode", "1.18.10")).toBeDefined()
+    expect(buttonWithTexts("OpenCode", __OPENCODE_VERSION__)).toBeDefined()
     expect(buttonWithTexts("Claude Code", "2.0.0")).toBeDefined()
     expect(buttonWithTexts("Codex", "1.0.0")).toBeDefined()
     expect(buttonWithTexts("Grok", "Not detected")).toBeDefined()
     expect(codex?.querySelectorAll(".block")).toHaveLength(0)
     await act(async () => codex?.click())
     expect(onSelectAgentKind).toHaveBeenCalledWith("codex")
-
-    act(() => root.unmount())
   })
 
   it("routes external model and effort choices through BYOA callbacks", async () => {
     const onSelectAgentEffort = vi.fn()
     const onSelectAgentModel = vi.fn()
-    const { root, trigger } = await renderPicker({
+    const { trigger } = await renderPicker({
       agentCatalog: baseProps.externalAgents[1]?.catalog,
       agentEffortSelectionEnabled: true,
       agentKind: "codex",
@@ -179,7 +187,33 @@ describe("AgentConfigurationPicker", () => {
     await hoverButton("Reasoning effort")
     await act(async () => buttonWithText("Max")?.click())
     expect(onSelectAgentEffort).toHaveBeenCalledWith("max")
+  })
 
-    act(() => root.unmount())
+  it("maps the external Default model row back to an undefined selection", async () => {
+    const onSelectAgentModel = vi.fn()
+    await renderPicker({
+      agentCatalog: baseProps.externalAgents[1]?.catalog,
+      agentKind: "codex",
+      agentModelId: "gpt-next",
+      agentModelSelectionEnabled: true,
+      modelRoutingEnabled: false,
+      onSelectAgentModel,
+    })
+
+    await hoverButton("Model")
+    await act(async () => buttonWithText("Default")?.click())
+
+    expect(onSelectAgentModel).toHaveBeenCalledWith(undefined)
+  })
+
+  it("hides a stale effort value when the selected agent does not support effort selection", async () => {
+    const { host } = await renderPicker({
+      agentEffortId: "stale-effort",
+      agentEffortSelectionEnabled: false,
+      agentKind: "grok",
+      modelRoutingEnabled: false,
+    })
+
+    expect(host.querySelector('[aria-label="Agent configuration"]')?.textContent).toBe("Grok")
   })
 })

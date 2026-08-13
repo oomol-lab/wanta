@@ -44,7 +44,7 @@ export function AgentIcon({ className, host }: AgentIconProps) {
 }
 
 function getAgentIcon(normalizedHost: string): AgentIconAsset | undefined {
-  if (normalizedHost.includes("opencode") || normalizedHost === "opencode") {
+  if (normalizedHost.includes("opencode")) {
     return { agent: "opencode", darkSrc: openCodeDarkIcon, src: openCodeIcon }
   }
   if (normalizedHost.includes("wanta")) {

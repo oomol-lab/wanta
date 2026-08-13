@@ -8,6 +8,7 @@ import {
   createSessionPermissionGrant,
   isHighRiskPermissionRequest,
   isOoCliPermissionRequest,
+  isWantaHostToolPermissionRequest,
   isProjectScopedPythonDependencyInstallRequest,
   isTaskScopedPythonDependencyInstallRequest,
   permissionRequestHasSensitiveResource,
@@ -36,6 +37,7 @@ export type LocalAccessAllowReason =
   | "session_grant"
   | "trusted_dependency"
   | "trusted_project"
+  | "wanta_host_tool"
 
 export type LocalAccessDecision =
   | {
@@ -115,6 +117,18 @@ export function evaluateLocalAccessRequest(
 ): LocalAccessDecision {
   const kind = permissionRequestKind(request)
   const highRisk = isHighRiskPermissionRequest(request)
+  // Wanta host MCP tools are the external-agent transport for the same
+  // capability kernel that OpenCode invokes directly. Their identity,
+  // credentials, validation, and audit boundary remain host-owned; do not add
+  // a second agent-runtime approval card just because ACP is the transport.
+  if (
+    context.isExternalSession &&
+    isWantaHostToolPermissionRequest(request) &&
+    !permissionRequestHasSensitiveResource(request) &&
+    !highRisk
+  ) {
+    return { type: "allow", reason: "wanta_host_tool", kind, highRisk }
+  }
   if (context.isExternalSession) {
     // linkcode-style pass-through: the external agent's own CLI policy decides
     // WHEN to ask (its native permission modes: acceptEdits, auto classifier,

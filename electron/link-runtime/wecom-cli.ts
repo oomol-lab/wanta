@@ -180,6 +180,13 @@ export class WecomCliManager {
     return runtime
   }
 
+  /** Run a business command with Wanta's isolated connected bot identity. */
+  public async executeAgentCommand(args: string[]): Promise<{ stderr: string; stdout: string }> {
+    assertAgentCommand(args)
+    if (!(await this.agentRuntime())) throw new Error("WeCom direct mode is not connected in Wanta.")
+    return this.runCommand(args, 2 * 60_000)
+  }
+
   private async connectNow(): Promise<WecomCliState> {
     this.setState({ canReopenAuthorization: false, error: undefined, phase: "preparing" })
     const runtime = await this.availableRuntime()
@@ -353,6 +360,14 @@ export class WecomCliManager {
   private setState(patch: Partial<WecomCliState>): void {
     this.state = { ...this.state, ...patch }
     this.stateChanged.emit(this.state)
+  }
+}
+
+function assertAgentCommand(args: string[]): void {
+  const command = args[0]?.trim().toLowerCase()
+  if (!command) throw new Error("A WeCom CLI command is required.")
+  if (["auth", "config", "completion", "init", "update", "upgrade"].includes(command)) {
+    throw new Error(`WeCom CLI administration is not available to agents: ${command}`)
   }
 }
 

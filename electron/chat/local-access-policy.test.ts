@@ -28,6 +28,39 @@ test("local access policy allows ordinary commands in default mode", () => {
   )
 })
 
+test("external agents auto-approve Wanta host MCP dispatch without weakening native local permissions", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ action: "permission", metadata: { toolCallId: "call-1", wantaHostTool: "call_action" } }),
+      { isExternalSession: true, permissionMode: "default" },
+    ),
+    { type: "allow", reason: "wanta_host_tool", kind: "local", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        action: "mcp.wanta_link.call_action",
+        metadata: {
+          rawInput: {
+            server: "wanta_link",
+            tool: "call_action",
+            arguments: { service: "posthog", action: "list_projects" },
+          },
+        },
+      }),
+      { isExternalSession: true, permissionMode: "default" },
+    ),
+    { type: "allow", reason: "wanta_host_tool", kind: "local", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "permission", metadata: { rawInput: { tool: "call_action" } } }), {
+      isExternalSession: true,
+      permissionMode: "default",
+    }),
+    { type: "prompt", kind: "local", highRisk: false },
+  )
+})
+
 test("local access policy allows pure oo commands without a renderer prompt", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: 'oo search "gmail" --json' } }), {

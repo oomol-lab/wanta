@@ -1,7 +1,12 @@
 import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
 
 import { describe, expect, it } from "vitest"
-import { readStoredAgentComposerPrefs, writeStoredAgentComposerPrefs } from "./composer-agent-prefs.ts"
+import {
+  readStoredAgentComposerPrefs,
+  readStoredDefaultAgentKind,
+  writeStoredAgentComposerPrefs,
+  writeStoredDefaultAgentKind,
+} from "./composer-agent-prefs.ts"
 
 // Adversarial edge tests for the sticky composer preference storage. All of
 // these must degrade to defaults WITHOUT throwing: the prefs layer sits on the
@@ -49,7 +54,9 @@ describe("composer-agent-prefs: storage failures", () => {
 
   it("null and undefined storage degrade to defaults", () => {
     expect(readStoredAgentComposerPrefs(undefined, "codex")).toEqual({})
+    expect(readStoredDefaultAgentKind(undefined)).toBe("opencode")
     expect(() => writeStoredAgentComposerPrefs(null, "codex", { modelId: "x" })).not.toThrow()
+    expect(() => writeStoredDefaultAgentKind(null, "codex")).not.toThrow()
   })
 })
 
@@ -93,11 +100,19 @@ describe("composer-agent-prefs: malformed persisted shapes", () => {
     }
   })
 
-  it("ignores a legacy lastAgentKind while preserving per-agent preferences", () => {
+  it("adopts a valid legacy lastAgentKind while preserving per-agent preferences", () => {
     const storage = memoryStorage({
       [KEY]: JSON.stringify({ lastAgentKind: "codex", byAgent: { codex: { modelId: "gpt-5.2" } } }),
     })
+    expect(readStoredDefaultAgentKind(storage)).toBe("codex")
     expect(readStoredAgentComposerPrefs(storage, "codex")).toEqual({ modelId: "gpt-5.2" })
+  })
+
+  it("falls back to OpenCode for malformed or retired default agent kinds", () => {
+    for (const lastAgentKind of [null, 7, "", "gemini-cli"]) {
+      const storage = memoryStorage({ [KEY]: JSON.stringify({ lastAgentKind }) })
+      expect(readStoredDefaultAgentKind(storage)).toBe("opencode")
+    }
   })
 })
 

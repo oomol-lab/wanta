@@ -19,6 +19,8 @@ export interface AcpSessionTranslator {
   translate(update: SessionUpdate): AgentEvent[]
   /** Mark a new prompt turn so following narration starts a fresh bubble. */
   noteTurnStarted(): void
+  /** Resolve an ACP call id to its current Wanta host-tool projection. */
+  wantaHostToolForCall(toolCallId: string): string | undefined
 }
 
 /** Merged view of a tool call across its tool_call/tool_call_update stream. */
@@ -57,6 +59,18 @@ function asRecord(value: unknown): Record<string, unknown> {
     return value as Record<string, unknown>
   }
   return {}
+}
+
+function toolProjection(snapshot: ToolCallSnapshot): { input: Record<string, unknown>; tool: string } {
+  const rawInput = asRecord(snapshot.rawInput)
+  if (isWantaHostServer(rawInput["server"]) && typeof rawInput["tool"] === "string") {
+    return { tool: rawInput["tool"], input: asRecord(rawInput["arguments"]) }
+  }
+  return { tool: snapshot.name ?? snapshot.kind ?? "other", input: rawInput }
+}
+
+function isWantaHostServer(value: unknown): boolean {
+  return typeof value === "string" && /^wanta_[a-z0-9_-]+$/u.test(value)
 }
 
 /**
@@ -135,6 +149,7 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
   }
 
   function startedEvent(toolCallId: string, snapshot: ToolCallSnapshot): AgentEvent {
+    const projection = toolProjection(snapshot)
     return {
       event: "toolCallStarted",
       data: {
@@ -142,8 +157,8 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
         messageId: snapshot.messageId,
         partId: toolCallId,
         callId: toolCallId,
-        tool: snapshot.name ?? snapshot.kind ?? "other",
-        input: asRecord(snapshot.rawInput),
+        tool: projection.tool,
+        input: projection.input,
         status: "running",
         ...(snapshot.title !== undefined ? { title: snapshot.title } : {}),
       },
@@ -151,7 +166,8 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
   }
 
   function resultEvent(toolCallId: string, snapshot: ToolCallSnapshot, acpStatus: "completed" | "failed"): AgentEvent {
-    const tool = snapshot.name ?? snapshot.kind ?? "other"
+    const projection = toolProjection(snapshot)
+    const tool = projection.tool
     const text = toolOutputText(snapshot)
     const base = {
       sessionId: wantaSessionId,
@@ -159,7 +175,7 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
       partId: toolCallId,
       callId: toolCallId,
       tool,
-      input: asRecord(snapshot.rawInput),
+      input: projection.input,
       ...(snapshot.title !== undefined ? { title: snapshot.title } : {}),
     }
     if (acpStatus === "completed") {
@@ -256,9 +272,29 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
       cumulativeTextByPartId.clear()
     },
 
+    wantaHostToolForCall(toolCallId: string): string | undefined {
+      const snapshot = toolCallsById.get(toolCallId)
+      if (!snapshot) return undefined
+      const rawInput = asRecord(snapshot.rawInput)
+      return isWantaHostServer(rawInput["server"]) && typeof rawInput["tool"] === "string"
+        ? rawInput["tool"]
+        : undefined
+    },
+
     translate(update: SessionUpdate): AgentEvent[] {
       switch (update.sessionUpdate) {
         case "agent_message_chunk":
+          if (
+            update.content.type === "text" &&
+            update.content.text.startsWith(
+              "Warning: Skill descriptions were shortened to fit the skills context budget.",
+            )
+          ) {
+            // codex-acp projects Codex runtime notices onto the assistant text
+            // channel. This is neither the model's answer nor actionable in a
+            // Wanta task, so do not persist or render it as chat content.
+            return []
+          }
           return translateChunk(update, "text")
         case "agent_thought_chunk":
           return translateChunk(update, "thought")

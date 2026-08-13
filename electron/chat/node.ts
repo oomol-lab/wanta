@@ -3,6 +3,7 @@ import type { ExternalAgentKind } from "../agent/contract/profile.ts"
 import type { ChatEmit } from "../agent/event-translator.ts"
 import type { ExternalAgentAdapter } from "../agent/external/adapter-base.ts"
 import type { ExternalAgentRuntimeStatus } from "../agent/external/probe.ts"
+import type { HostQuestionBroker } from "../agent/host-question-broker.ts"
 import type { OpencodeAgentAdapter } from "../agent/opencode-adapter.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
@@ -90,6 +91,8 @@ import {
 import { ChatService as ChatServiceName } from "./common.ts"
 import {
   buildContextMentionsSystem as buildContextMentionsSystemPrompt,
+  buildExternalPermissionModeSystem,
+  buildLinkRuntimeSystem,
   buildPermissionModeSystem,
   buildProjectContextSystem,
   buildResponseLanguageSystem,
@@ -244,6 +247,7 @@ function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): s
 
 interface ChatServiceDeps {
   browserAvailable?: () => boolean
+  hostQuestions?: HostQuestionBroker
   createArtifactResourceUrl?: (item: { mime: string; modifiedAt: number; path: string; size: number }) => {
     expiresAt: number
     url: string
@@ -329,6 +333,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private readonly eventMetrics = new ActivityMetrics((snapshot) => {
     logDiagnostic("performance", "chat event activity", { ...snapshot }, "trace")
   })
+  private readonly detachHostQuestionHandler: (() => void) | undefined
 
   public constructor(agent: OpencodeAgentAdapter | null = null, deps: ChatServiceDeps = {}) {
     super(ChatServiceName)
@@ -352,6 +357,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       },
       () => this.invalidateTrustedLocalPathRoots(),
     )
+    this.detachHostQuestionHandler = deps.hostQuestions?.setAskedHandler((request) => {
+      const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
+      this.processAgentEvent(emit, { event: "questionAsked", data: { request, sessionId: request.sessionId } })
+    })
   }
 
   public override dispose(): void {
@@ -359,6 +368,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.streamEventBuffer = null
     this.clearAllCompletionRetries()
     this.eventMetrics.dispose()
+    this.detachHostQuestionHandler?.()
     super.dispose()
   }
 
@@ -1809,10 +1819,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   /**
-   * External (BYOA) turn pipeline: no managed artifact/process directories, no
-   * Link/team scope, no Wanta system prompt tail — the agent owns models, auth,
-   * and workspace behavior. Wanta contributes run tracking, permission-mode
-   * projection, and the shared event bridge.
+   * External (BYOA) turn pipeline. The agent owns its reasoning loop, native
+   * model, and local permission enforcement; Wanta still owns product context
+   * such as Link identity, selected skills, project context, and language.
    */
   private async sendExternalMessage(req: SendMessageRequest, kind: ExternalAgentKind): Promise<void> {
     const adapter = this.externalAgents.get(kind)
@@ -1848,6 +1857,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.clearMessageErrorSignatures(req.sessionId)
     this.emitSessionActivity(req.sessionId)
     try {
+      const teamName = teamNameFromRequest(req)
       const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
       if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, generation.id)
@@ -1878,6 +1888,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             ...(trustedProjectRoot ? { outputProjectRoot: trustedProjectRoot } : {}),
             ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
             ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
+            ...(teamName ? { teamName } : {}),
+            system: mergeSystemPrompts(
+              buildLinkRuntimeSystem(this.activeLinkRuntime, teamName),
+              buildTeamSkillsSystem(req.teamSkills),
+              buildContextMentionsSystemPrompt(req.contextMentions),
+              buildProjectContextSystem(req.projectContext),
+              buildExternalPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
+              buildResponseLanguageSystem(req.appLocale, detectResponseLanguage(req.text)),
+            ),
           },
           { signal: generation.controller.signal },
         )
@@ -2283,12 +2302,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]> {
     const backend = this.chatBackendFor(sessionId)
-    if (!backend) {
-      return []
-    }
     const sessionIds = [sessionId, ...this.subagentSessions.childSessionIds(sessionId)]
-    const questions: ChatQuestionRequest[] = []
-    const sessionQuestions = await backend.getPendingQuestionsForSessions(sessionIds)
+    const questions: ChatQuestionRequest[] = [...(this.deps.hostQuestions?.requests(sessionIds) ?? [])]
+    const sessionQuestions = backend ? await backend.getPendingQuestionsForSessions(sessionIds) : []
     for (const request of sessionQuestions) {
       const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
       questions.push(displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId })
@@ -2297,6 +2313,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async answerQuestion(req: AnswerQuestionRequest): Promise<void> {
+    if (this.deps.hostQuestions?.answer(req.sessionId, req.requestId, req.answers)) {
+      this.activeRuns.removeBlockingRequest(req.sessionId, req.requestId)
+      this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
+      this.emitSessionActivity(req.sessionId)
+      return
+    }
     const backend = this.chatBackendFor(req.sessionId)
     if (!backend) {
       throw new Error("Agent not configured (sign in first)")
@@ -2313,6 +2335,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async rejectQuestion(req: RejectQuestionRequest): Promise<void> {
+    if (this.deps.hostQuestions?.reject(req.sessionId, req.requestId)) {
+      this.activeRuns.removeBlockingRequest(req.sessionId, req.requestId)
+      this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
+      this.emitSessionActivity(req.sessionId)
+      return
+    }
     const backend = this.chatBackendFor(req.sessionId)
     if (!backend) {
       throw new Error("Agent not configured (sign in first)")

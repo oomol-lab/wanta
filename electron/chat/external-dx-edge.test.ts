@@ -698,6 +698,34 @@ test("edge8: prompt-borne model/effort ids are forwarded verbatim and never kill
   assert.equal((await service.getMessages(sessionId)).filter((message) => message.role === "assistant").length, 2)
 })
 
+test("external turns receive the same Wanta team and Link identity instead of falling back to a default workspace", async () => {
+  const { service, adapters } = createHarness(["codex"])
+  service.setLinkRuntime("oomol")
+  const codex = adapters.get("codex")
+  assert.ok(codex)
+  const sessionId = mintExternalSessionId("codex")
+
+  await service.sendMessage(
+    sendRequest(sessionId, "query PostHog", {
+      scope: { kind: "team", teamId: "team-id", teamName: " OOMOL-Internal " },
+      appLocale: "zh-CN",
+      permissionMode: "default",
+      teamSkills: [{ id: "posthog", name: "PostHog", description: "Analyze product usage" }],
+    }),
+  )
+
+  assert.equal(codex.prompts.length, 1)
+  assert.equal(codex.prompts[0]?.teamName, "OOMOL-Internal")
+  assert.match(codex.prompts[0]?.system ?? "", /Current-turn Wanta Link workspace: team "OOMOL-Internal"/)
+  assert.match(codex.prompts[0]?.system ?? "", /--team "OOMOL-Internal"/)
+  assert.match(codex.prompts[0]?.system ?? "", /Team-configured skills for the active workspace/)
+  assert.match(codex.prompts[0]?.system ?? "", /Default Access through the external agent's native permission policy/)
+  assert.match(codex.prompts[0]?.system ?? "", /application interface language: Simplified Chinese/)
+
+  codex.completeAssistantTurn(sessionId, "reply", "done")
+  await waitForTurnCompletion(service)
+})
+
 // ---------------------------------------------------------------------------
 // Edge 5b: external permission asks always surface, even for malformed uuids
 // ---------------------------------------------------------------------------

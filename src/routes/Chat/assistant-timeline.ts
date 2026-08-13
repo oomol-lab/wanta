@@ -17,9 +17,18 @@ export interface AssistantTimelineSegment {
 }
 
 const progressTextMaxLength = 240
+const codexSkillBudgetWarningPrefix = "Warning: Skill descriptions were shortened to fit the skills context budget."
+
+function isSuppressedAgentRuntimeNotice(block: RenderBlock): boolean {
+  return block.kind === "text" && (block.part.text ?? "").trimStart().startsWith(codexSkillBudgetWarningPrefix)
+}
 
 export function assistantTimelineBlocks(messages: ChatMessage[]): AssistantTimelineBlock[] {
-  return messages.flatMap((message) => renderBlocks(message.parts).map((block) => ({ message, block })))
+  return messages.flatMap((message) =>
+    renderBlocks(message.parts)
+      .filter((block) => !isSuppressedAgentRuntimeNotice(block))
+      .map((block) => ({ message, block })),
+  )
 }
 
 function isToolCallFinishReason(reason: string | undefined): boolean {
@@ -38,7 +47,11 @@ function messageToolParts(message: ChatMessage): ChatMessagePart[] {
   return message.parts.filter((part) => part.kind === "tool")
 }
 
-function textBelongsToProcess(message: ChatMessage, part: ChatMessagePart): boolean {
+function textBelongsToProcess(
+  message: ChatMessage,
+  part: ChatMessagePart,
+  activeAssistantMessageId: string | undefined,
+): boolean {
   const text = part.text?.trim() ?? ""
   if (!text || text.length > progressTextMaxLength || hasStructuredResponseText(text)) {
     return false
@@ -57,15 +70,26 @@ function textBelongsToProcess(message: ChatMessage, part: ChatMessagePart): bool
   if (tools.length > 0) {
     return true
   }
+  // ACP agents can stream a short progress sentence before announcing the
+  // tool call that follows it. Keep that still-active narration in the
+  // process disclosure from its first chunk so it does not first render as a
+  // standalone answer and then jump into "Processing" when the tool arrives.
+  // A text-only answer becomes a response as soon as the turn completes.
+  if (message.id === activeAssistantMessageId) {
+    return true
+  }
   return isToolCallFinishReason(message.finishReason)
 }
 
-function blockSegmentKind(item: AssistantTimelineBlock): AssistantTimelineSegmentKind {
+function blockSegmentKind(
+  item: AssistantTimelineBlock,
+  activeAssistantMessageId: string | undefined,
+): AssistantTimelineSegmentKind {
   switch (item.block.kind) {
     case "tools":
       return "process"
     case "text":
-      return textBelongsToProcess(item.message, item.block.part) ? "process" : "response"
+      return textBelongsToProcess(item.message, item.block.part, activeAssistantMessageId) ? "process" : "response"
     case "status":
       return item.block.part.statusType === "connectionFailed" || item.block.part.statusType === "runtimeFailed"
         ? "response"
@@ -80,10 +104,13 @@ function blockKey(item: AssistantTimelineBlock): string {
   return `${item.message.id}:${item.block.kind === "tools" ? item.block.key : item.block.part.partId}`
 }
 
-export function segmentAssistantTimeline(messages: ChatMessage[]): AssistantTimelineSegment[] {
+export function segmentAssistantTimeline(
+  messages: ChatMessage[],
+  options: { activeAssistantMessageId?: string } = {},
+): AssistantTimelineSegment[] {
   const segments: AssistantTimelineSegment[] = []
   for (const item of assistantTimelineBlocks(messages)) {
-    const kind = blockSegmentKind(item)
+    const kind = blockSegmentKind(item, options.activeAssistantMessageId)
     const current = segments.at(-1)
     if (current?.kind === kind) {
       current.blocks.push(item)

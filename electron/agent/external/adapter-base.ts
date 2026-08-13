@@ -198,6 +198,25 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
     return this.sessionsWithDiskHistory.has(sessionId) || this.transcript.messageCount(sessionId) > 0
   }
 
+  /** Bounded host transcript used when a native runtime cannot load its own previous session. */
+  protected restoredConversationContext(sessionId: string, maxCharacters = 100_000): string | undefined {
+    const serialized: string[] = []
+    let size = 0
+    for (const message of this.transcript.messages(sessionId).reverse()) {
+      const value = JSON.stringify({ role: message.role, parts: message.parts })
+      if (serialized.length > 0 && size + value.length > maxCharacters) break
+      serialized.push(value)
+      size += value.length
+    }
+    if (serialized.length === 0) return undefined
+    return [
+      "<wanta_restored_conversation>",
+      "This is Wanta's persisted transcript for the same task. Continue it as prior conversation context; do not repeat it to the user.",
+      ...serialized.reverse(),
+      "</wanta_restored_conversation>",
+    ].join("\n")
+  }
+
   private hydrateTranscript(sessionId: string): Promise<void> {
     const store = this.transcriptStore
     if (!store || this.transcript.has(sessionId) || this.forgottenSessions.has(sessionId)) {

@@ -75,6 +75,27 @@ export function permissionCommand(request: ChatPermissionRequest): string | unde
   return permissionPrimaryResource(request)
 }
 
+/**
+ * ACP agents ask before dispatching MCP tools even when the server is a
+ * Wanta-owned, loopback-only capability server. Those calls already cross the
+ * same host capability boundary used by the built-in agent, so the ACP prompt
+ * is redundant. Keep this check deliberately narrow: both the generated
+ * server namespace and a concrete tool name must be present in rawInput.
+ */
+export function isWantaHostToolPermissionRequest(request: ChatPermissionRequest): boolean {
+  if (typeof request.metadata?.wantaHostTool === "string" && request.metadata.wantaHostTool.length > 0) {
+    return true
+  }
+  const rawInput = request.metadata?.rawInput
+  if (rawInput === null || typeof rawInput !== "object" || Array.isArray(rawInput)) {
+    return false
+  }
+  const { server, tool } = rawInput as { server?: unknown; tool?: unknown }
+  return (
+    typeof server === "string" && /^wanta_[a-z0-9_-]+$/u.test(server) && typeof tool === "string" && tool.length > 0
+  )
+}
+
 function commandText(request: ChatPermissionRequest): string {
   return (permissionCommand(request) ?? request.resources.join(" ")).trim()
 }

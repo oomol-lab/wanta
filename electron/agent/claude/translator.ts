@@ -152,11 +152,12 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
     input: Record<string, unknown>,
     events: AgentEvent[],
   ): void {
-    toolCalls.set(callId, { messageId, tool, input })
+    const normalizedTool = tool.replace(/^mcp__wanta_[a-z0-9_-]+__/u, "")
+    toolCalls.set(callId, { messageId, tool: normalizedTool, input })
     ensureAssistantMessageStarted(messageId, events)
     events.push({
       event: "toolCallStarted",
-      data: { sessionId, messageId, partId: callId, callId, tool, input, status: "running" },
+      data: { sessionId, messageId, partId: callId, callId, tool: normalizedTool, input, status: "running" },
     })
   }
 

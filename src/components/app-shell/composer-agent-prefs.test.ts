@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   DEFAULT_COMPOSER_AGENT_KIND,
   readStoredAgentComposerPrefs,
+  readStoredDefaultAgentKind,
+  writeStoredDefaultAgentKind,
   writeStoredAgentComposerPrefs,
 } from "./composer-agent-prefs.ts"
 
@@ -14,8 +16,18 @@ function memoryStorage(initial?: Record<string, string>) {
 }
 
 describe("composer agent prefs", () => {
-  it("uses the built-in OpenCode agent for every fresh composer", () => {
+  it("falls back to OpenCode until the user explicitly chooses a default agent", () => {
+    const storage = memoryStorage()
     expect(DEFAULT_COMPOSER_AGENT_KIND).toBe("opencode")
+    expect(readStoredDefaultAgentKind(storage)).toBe("opencode")
+  })
+
+  it("uses the most recently selected agent for future new-chat drafts", () => {
+    const storage = memoryStorage()
+    writeStoredDefaultAgentKind(storage, "codex")
+    expect(readStoredDefaultAgentKind(storage)).toBe("codex")
+    writeStoredDefaultAgentKind(storage, "claude-code")
+    expect(readStoredDefaultAgentKind(storage)).toBe("claude-code")
   })
 
   it("keeps per-agent model/effort/permission preferences separate", () => {
@@ -31,6 +43,21 @@ describe("composer agent prefs", () => {
     })
     expect(readStoredAgentComposerPrefs(storage, "claude-code")).toEqual({ modelId: "claude-fable-5[1m]" })
     expect(readStoredAgentComposerPrefs(storage, "opencode")).toEqual({})
+  })
+
+  it("changing the default agent preserves every agent's own sticky preferences", () => {
+    const storage = memoryStorage()
+    writeStoredAgentComposerPrefs(storage, "codex", { modelId: "gpt-5.6-sol", effortId: "xhigh" })
+    writeStoredDefaultAgentKind(storage, "codex")
+    writeStoredAgentComposerPrefs(storage, "claude-code", { modelId: "sonnet", permissionMode: "auto" })
+    writeStoredDefaultAgentKind(storage, "claude-code")
+
+    expect(readStoredDefaultAgentKind(storage)).toBe("claude-code")
+    expect(readStoredAgentComposerPrefs(storage, "codex")).toEqual({ modelId: "gpt-5.6-sol", effortId: "xhigh" })
+    expect(readStoredAgentComposerPrefs(storage, "claude-code")).toEqual({
+      modelId: "sonnet",
+      permissionMode: "auto",
+    })
   })
 
   it("clears a preference when the patch carries an explicit undefined", () => {

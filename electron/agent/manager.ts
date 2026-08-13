@@ -66,6 +66,7 @@ export interface AgentManagerOptions {
   /** Signed-in account name exposed as non-secret Skill publishing context. */
   accountName?: string
   browserControl?: () => Promise<AgentBrowserControlConnection | undefined>
+  hostCapability?: () => Promise<{ token: string; url: string } | undefined>
   linkRuntime: LinkRuntime | null
   modelAccess: ModelAccess
   /** opencode 二进制绝对路径。 */
@@ -165,6 +166,7 @@ export interface AgentSidecarEnvOptions {
   storeDir: string
   teamName?: string
   teamScopePath: string
+  hostCapability?: { token: string; url: string }
   larkCliBinPath?: string
   larkCliConfigDir?: string
   wecomCliBinPath?: string
@@ -192,6 +194,7 @@ export function buildAgentSidecarEnv({
   dingTalkCliBinPath,
   dingTalkCliConfigDir,
   dingTalkCliKeychainDir,
+  hostCapability,
 }: AgentSidecarEnvOptions): Record<string, string> {
   const ooEnv = linkRuntime
     ? buildAgentLinkEnv({
@@ -209,6 +212,8 @@ export function buildAgentSidecarEnv({
     PATH: commandPath,
     WANTA_BROWSER_CONTROL_TOKEN: browserControl?.token ?? "",
     WANTA_BROWSER_CONTROL_URL: browserControl?.url ?? "",
+    WANTA_HOST_CAPABILITY_TOKEN: hostCapability?.token ?? "",
+    WANTA_HOST_CAPABILITY_URL: hostCapability?.url ?? "",
     ...(larkCliBinPath && larkCliConfigDir
       ? {
           WANTA_LARK_CLI_BIN: larkCliBinPath,
@@ -780,9 +785,11 @@ export class AgentManager {
     }
     const commandPath = `${commandBinDir}${path.delimiter}${baseCommandPath}`
     const browserControl = await this.options.browserControl?.()
+    const hostCapability = await this.options.hostCapability?.()
     const env = buildAgentSidecarEnv({
       accountName: this.options.accountName,
       browserControl,
+      hostCapability,
       commandPath,
       linkRuntime,
       ooBinPath: managedOoBinPath,

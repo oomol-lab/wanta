@@ -57,6 +57,9 @@ importers:
       '@iconify/types':
         specifier: 2.0.0
         version: 2.0.0
+      '@modelcontextprotocol/sdk':
+        specifier: 1.30.0
+        version: 1.30.0(supports-color@7.2.0)(zod@4.4.3)
       '@oomol/connection':
         specifier: 0.2.28
         version: 0.2.28

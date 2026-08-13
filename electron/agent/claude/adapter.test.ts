@@ -1,5 +1,6 @@
 import type { AgentEvent } from "../contract/event.ts"
 import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
+import type { ClaudeCodeAdapterOptions } from "./adapter.ts"
 import type {
   Options,
   PermissionUpdate,
@@ -137,7 +138,7 @@ const startedAdapters: ClaudeCodeAgentAdapter[] = []
 
 async function createHarness(
   status: ExternalAgentRuntimeStatus = detectedStatus(),
-  extras: { transcriptDir?: string } = {},
+  extras: { hostMcpServers?: ClaudeCodeAdapterOptions["hostMcpServers"]; transcriptDir?: string } = {},
 ) {
   const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-claude-adapter-test-"))
   scratchDirs.push(scratchRootDir)
@@ -148,6 +149,7 @@ async function createHarness(
     scratchRootDir,
     commandPath: () => Promise.resolve("/fake/path-bin"),
     queryFn,
+    hostMcpServers: extras.hostMcpServers,
     ...(extras.transcriptDir ? { transcriptDir: extras.transcriptDir } : {}),
   })
   await adapter.start()
@@ -228,6 +230,47 @@ describe("ClaudeCodeAgentAdapter", () => {
       {
         type: "text",
         text: "The user attached the following files for this message. Read them as needed:\n- /tmp/notes.md\n- /tmp/assets (directory)",
+      },
+    ])
+  })
+
+  it("registers Wanta host MCP servers on the native Claude session", async () => {
+    const { adapter, calls } = await createHarness(detectedStatus(), {
+      hostMcpServers: async () => [
+        {
+          name: "wanta_link",
+          url: "http://127.0.0.1:4321/mcp",
+          headers: { Authorization: "Bearer opaque-token" },
+        },
+      ],
+    })
+    await adapter.send({ type: "prompt", sessionId, text: "query PostHog" })
+
+    expect(calls[0].options.strictMcpConfig).toBeUndefined()
+    expect(calls[0].options.mcpServers).toEqual({
+      wanta_link: {
+        type: "http",
+        url: "http://127.0.0.1:4321/mcp",
+        headers: { Authorization: "Bearer opaque-token" },
+        alwaysLoad: true,
+      },
+    })
+  })
+
+  it("places dynamic Wanta host context before the user request", async () => {
+    const { adapter, calls } = await createHarness()
+    await adapter.send({
+      type: "prompt",
+      sessionId,
+      text: "query PostHog",
+      system: 'Current-turn Wanta Link workspace: team "team-a".',
+    })
+
+    await vi.waitFor(() => expect(calls[0].fake.promptMessages).toHaveLength(1))
+    expect(calls[0].fake.promptMessages[0].message.content).toEqual([
+      {
+        type: "text",
+        text: '<wanta_host_context>\nThe following context is supplied by Wanta for this turn and is authoritative for Wanta-managed capabilities.\nCurrent-turn Wanta Link workspace: team "team-a".\n</wanta_host_context>\n\n<user_request>\nquery PostHog\n</user_request>',
       },
     ])
   })

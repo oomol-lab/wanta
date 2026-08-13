@@ -7,7 +7,27 @@
 // 用 String.raw 内嵌：保留正则中的反斜杠；工具代码刻意不含反引号与模板插值语法，
 // 故无转义陷阱。这些代码运行在 OpenCode 的 Bun 运行时，不参与本项目 tsc/oxlint。
 
-const LINK_TOOL_RUNTIME_SHARED_TS = String.raw`
+const HOST_CAPABILITY_TOOL_RUNTIME_SHARED_TS = String.raw`
+const HOST_CAPABILITY_URL = String(process.env.WANTA_HOST_CAPABILITY_URL || "").replace(/\/+$/, "")
+const HOST_CAPABILITY_TOKEN = String(process.env.WANTA_HOST_CAPABILITY_TOKEN || "")
+
+async function callHostCapability(capability, toolName, input, context) {
+  if (!HOST_CAPABILITY_URL || !HOST_CAPABILITY_TOKEN) return null
+  const response = await fetch(HOST_CAPABILITY_URL + "/v1/invoke", {
+    method: "POST",
+    headers: { authorization: "Bearer " + HOST_CAPABILITY_TOKEN, "content-type": "application/json" },
+    body: JSON.stringify({ capability: capability, tool: toolName, input: input, sessionId: context.sessionID }),
+    signal: context.abort,
+  })
+  const payload = await response.json()
+  if (!response.ok) throw new Error(payload && payload.error ? payload.error : "Host capability call failed.")
+  return payload.result
+}
+`
+
+const LINK_TOOL_RUNTIME_SHARED_TS =
+  HOST_CAPABILITY_TOOL_RUNTIME_SHARED_TS +
+  String.raw`
 const execFileAsync = promisify(execFile)
 const OO_BIN = process.env.WANTA_OO_BIN || "oo"
 const OO_EXEC_OPTIONS = { maxBuffer: 16 * 1024 * 1024, timeout: 10 * 1000 }
@@ -270,6 +290,8 @@ export default tool({
     query: tool.schema.string().describe("Natural-language description of the desired action, e.g. 'list hacker news top stories'"),
   },
   async execute(args, context) {
+    const hosted = await callHostCapability("link", "search_actions", { query: args.query }, context)
+    if (hosted !== null) return hosted
     const argv = ["connector", "search", args.query, "--json"]
     try {
       const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
@@ -299,6 +321,8 @@ export default tool({
     service: tool.schema.string().optional().describe("Optional service slug to filter, e.g. 'gmail'. Omit to list every connected provider app in the active workspace."),
   },
   async execute(args, context) {
+    const hosted = await callHostCapability("link", "list_apps", { service: args.service }, context)
+    if (hosted !== null) return hosted
     const service = String(args.service || "").trim()
     let identity
     try {
@@ -331,9 +355,13 @@ export default tool({
 })
 `
 
-const INSPECT_ACTION_TOOL_TS = String.raw`import { tool } from "../runtime/tool.js"
+const INSPECT_ACTION_TOOL_TS =
+  String.raw`import { tool } from "../runtime/tool.js"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
+` +
+  HOST_CAPABILITY_TOOL_RUNTIME_SHARED_TS +
+  String.raw`
 
 const execFileAsync = promisify(execFile)
 const OO_BIN = process.env.WANTA_OO_BIN || "oo"
@@ -348,6 +376,8 @@ export default tool({
       .describe("One or more action ids in the form '<service>.<action>' (service segment before the first dot, action after it), e.g. ['hackernews.get_item']. When a workflow needs several contracts at once, such as an async submit/result pair or a read step feeding a write step, pass every id in one call, e.g. ['cal.create_schedule','callingly.get_agent_schedule']."),
   },
   async execute(args, context) {
+    const hosted = await callHostCapability("link", "inspect_action", { actions: args.actions }, context)
+    if (hosted !== null) return hosted
     const ids = (args.actions || []).map((id) => String(id).trim()).filter(Boolean)
     if (ids.length === 0) {
       return JSON.stringify({ status: "error", message: "Provide at least one action id in the form <service>.<action>." })
@@ -570,6 +600,13 @@ export default tool({
         return JSON.stringify({ status: "error", message: "params is not valid JSON: " + args.params })
       }
     }
+    const hosted = await callHostCapability("link", "call_action", {
+      service: args.service,
+      action: args.action,
+      params: JSON.parse(data),
+      connectionName: args.connectionName,
+    }, context)
+    if (hosted !== null) return hosted
     const identity = await currentIdentity(context.sessionID)
     const connectionName = String(args.connectionName || "").trim()
     if (connectionName) {

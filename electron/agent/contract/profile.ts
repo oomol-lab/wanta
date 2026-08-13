@@ -50,6 +50,16 @@ export interface AgentHistoryCapabilities {
   resume: boolean
 }
 
+export interface AgentHostCapabilities {
+  browser: boolean
+  directProviders: boolean
+  knowledge: boolean
+  link: boolean
+  managedOutputs: boolean
+  question: boolean
+  skills: boolean
+}
+
 /**
  * Who owns model selection for this agent. "wanta" means the Wanta model
  * catalog applies (model selector and BYOK UI visible); "agent" means the
@@ -72,15 +82,17 @@ export interface AgentProfile {
   auth: AgentAuthMode
   inputs: AgentInputCapabilityFlags
   history: AgentHistoryCapabilities
+  /** Wanta-owned capabilities available independently of the selected agent engine. */
+  hostCapabilities: AgentHostCapabilities
   /** Normalized permission modes this agent supports, in display order. */
   permissionModes: readonly AgentPermissionMode[]
 }
 
 /**
- * External agents own their models, auth, and system prompts; Wanta reflects
- * them and never routes models or injects prompt tails. Attachments are
- * delivered as file references (ACP resource_link blocks, path notes for the
- * Claude SDK) that the agent resolves with its own file tools.
+ * External agents own their models, auth, and native base prompts. ACP has no
+ * portable dynamic system-prompt field, so Wanta's per-turn host context uses
+ * a delimited compatibility block while host capabilities enforce identity
+ * outside the prompt. Attachments are delivered as file references.
  */
 const externalAgentInputs: AgentInputCapabilityFlags = {
   attachments: true,
@@ -93,8 +105,17 @@ const externalAgentInputs: AgentInputCapabilityFlags = {
   setEffort: false,
 }
 
-/** Persisted transcript reads only; no history listing or agent-side resume yet. */
-const externalAgentHistory: AgentHistoryCapabilities = { list: false, read: true, resume: false }
+/** Wanta lists, reads, and restores external-agent tasks from its persisted transcript. */
+const externalAgentHistory: AgentHistoryCapabilities = { list: true, read: true, resume: true }
+const wantaHostCapabilities: AgentHostCapabilities = {
+  browser: true,
+  directProviders: true,
+  knowledge: true,
+  link: true,
+  managedOutputs: true,
+  question: true,
+  skills: true,
+}
 
 function acpAgentProfiles(): Record<AcpAgentKind, AgentProfile> {
   const profiles = {} as Record<AcpAgentKind, AgentProfile>
@@ -112,6 +133,7 @@ function acpAgentProfiles(): Record<AcpAgentKind, AgentProfile> {
         setEffort: registration.selection?.effort ?? false,
       },
       history: externalAgentHistory,
+      hostCapabilities: wantaHostCapabilities,
       // No mode map = the agent keeps its own approval flow; "default" is the
       // only declarable stance (single-mode agents render no picker).
       permissionModes: registration.permissionModeMap
@@ -139,6 +161,7 @@ export const AGENT_PROFILES = {
       setEffort: false,
     },
     history: { list: true, read: true, resume: true },
+    hostCapabilities: wantaHostCapabilities,
     permissionModes: ["default", "full_access"],
   },
   "claude-code": {
@@ -148,6 +171,7 @@ export const AGENT_PROFILES = {
     auth: { kind: "agent-cli", loginCommand: "Run `claude` in a terminal and sign in, then retry." },
     inputs: { ...externalAgentInputs, setModel: true, setEffort: true },
     history: externalAgentHistory,
+    hostCapabilities: wantaHostCapabilities,
     // Mapped 1:1 onto SDK permission modes (auto = the CLI's classifier mode,
     // full_access = bypassPermissions).
     permissionModes: ["default", "accept_edits", "plan", "auto", "full_access"],

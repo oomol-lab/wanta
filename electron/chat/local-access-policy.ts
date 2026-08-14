@@ -129,6 +129,20 @@ export function evaluateLocalAccessRequest(
   ) {
     return { type: "allow", reason: "wanta_host_tool", kind, highRisk }
   }
+  // The guarded OOCLI fallback is a Wanta-owned Link transport just like the
+  // host MCP path. Apply the same narrow command classifier to every adapter
+  // so switching from OpenCode to Claude/Codex does not add a redundant shell
+  // approval. Unknown shell composition, sensitive resources, and high-risk
+  // commands continue into the external agent's native permission flow.
+  if (
+    context.isExternalSession &&
+    context.linkRuntime &&
+    isOoCliPermissionRequest(request) &&
+    !permissionRequestHasSensitiveResource(request) &&
+    !highRisk
+  ) {
+    return { type: "allow", reason: "oo_cli", kind, highRisk }
+  }
   if (context.isExternalSession) {
     // linkcode-style pass-through: the external agent's own CLI policy decides
     // WHEN to ask (its native permission modes: acceptEdits, auto classifier,

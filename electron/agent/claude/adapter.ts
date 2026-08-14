@@ -123,6 +123,7 @@ interface ClaudeSessionState {
 interface PendingSdkPermission {
   sessionId: string
   suggestions: PermissionUpdate[] | undefined
+  toolInput: Record<string, unknown>
   settle: (result: PermissionResult, emitReplied: boolean) => void
 }
 
@@ -142,6 +143,16 @@ function salientResources(toolInput: Record<string, unknown>): string[] {
     }
   }
   return resources
+}
+
+/**
+ * Claude exposes Wanta MCP calls as `mcp__<server>__<tool>`. Keep this
+ * deliberately narrow so only tools from Wanta's generated host servers can
+ * skip the redundant external-agent transport prompt.
+ */
+function wantaHostToolName(toolName: string): string | undefined {
+  const match = /^mcp__wanta_[a-z0-9_-]+__([a-z0-9_-]+)$/u.exec(toolName)
+  return match?.[1]
 }
 
 function sdkPermissionMode(
@@ -340,12 +351,13 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     }
     switch (input.reply) {
       case "once":
-        pending.settle({ behavior: "allow" }, true)
+        pending.settle({ behavior: "allow", updatedInput: pending.toolInput }, true)
         return
       case "always":
         pending.settle(
           {
             behavior: "allow",
+            updatedInput: pending.toolInput,
             ...(pending.suggestions !== undefined ? { updatedPermissions: pending.suggestions } : {}),
           },
           true,
@@ -813,7 +825,15 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
    */
   private createCanUseTool(sessionId: string): CanUseTool {
     return (toolName, toolInput, opts) => {
+      // `Skill` only loads Claude's local Skill instructions. It is a
+      // read-only discovery operation, not a shell/file mutation, and should
+      // not interrupt a turn with an approval card. The runtime validator in
+      // the shipping SDK requires the original input on every allow result.
+      if (toolName === "Skill") {
+        return Promise.resolve({ behavior: "allow", updatedInput: toolInput })
+      }
       const requestId = opts.requestId ?? opts.toolUseID
+      const wantaHostTool = wantaHostToolName(toolName)
       const request: ChatPermissionRequest = {
         id: requestId,
         sessionId,
@@ -823,6 +843,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
           ...(opts.title !== undefined ? { title: opts.title } : {}),
           ...(opts.description !== undefined ? { description: opts.description } : {}),
           ...(opts.displayName !== undefined ? { displayName: opts.displayName } : {}),
+          ...(wantaHostTool !== undefined ? { wantaHostTool } : {}),
           toolInput,
         },
       }
@@ -842,7 +863,12 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
           }
           resolve(result)
         }
-        this.pendingSdkPermissions.set(requestId, { sessionId, suggestions: opts.suggestions, settle })
+        this.pendingSdkPermissions.set(requestId, {
+          sessionId,
+          suggestions: opts.suggestions,
+          toolInput,
+          settle,
+        })
         opts.signal.addEventListener("abort", onAbort, { once: true })
         this.emit({ event: "permissionAsked", data: { sessionId, request } })
         if (opts.signal.aborted) {

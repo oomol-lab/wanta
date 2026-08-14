@@ -22,9 +22,66 @@ test("local access policy allows ordinary commands in default mode", () => {
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector apps posthog 2>&1 | head -80" } }), {
+      linkRuntime: "oomol",
       permissionMode: "default",
     }),
-    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+    { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
+  )
+})
+
+test("OpenCode, Claude, and ACP agents share the guarded OOCLI allow path", () => {
+  const command =
+    'oo connector run "posthog" --action "list_projects" --data \'{}\' --json --team "OOMOL-Internal" 2>&1 | head -100'
+  const requests = [
+    permission({ metadata: { command } }),
+    permission({ action: "Bash", metadata: { toolInput: { command } } }),
+    permission({ action: "Run command", metadata: { rawInput: { command } } }),
+  ]
+
+  assert.deepEqual(evaluateLocalAccessRequest(requests[0]!, { linkRuntime: "oomol", permissionMode: "default" }), {
+    type: "allow",
+    reason: "oo_cli",
+    kind: "command",
+    highRisk: false,
+  })
+  for (const request of requests.slice(1)) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(request, {
+        isExternalSession: true,
+        linkRuntime: "oomol",
+        permissionMode: "default",
+      }),
+      { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
+    )
+  }
+})
+
+test("external-agent OOCLI parity stays narrow and fails closed", () => {
+  for (const command of [
+    "oo auth login",
+    "oo connector logout",
+    "oo connector apps --connector-token secret",
+    'oo connector run "posthog" --action "list_projects" --json | tee /tmp/projects.json',
+    'oo connector run "posthog" --action "list_projects" --json && echo done',
+    'oo connector run "posthog" --action "list_projects" --json > /tmp/projects.json',
+    'oo connector run "posthog" --action "list_projects" --json | cat ~/.ssh/id_rsa',
+  ]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        isExternalSession: true,
+        linkRuntime: "oomol",
+        permissionMode: "default",
+      }).type,
+      "prompt",
+      command,
+    )
+  }
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector apps --json | head -20" } }), {
+      isExternalSession: true,
+      permissionMode: "default",
+    }),
+    { type: "prompt", kind: "command", highRisk: false },
   )
 })
 
@@ -97,13 +154,20 @@ test("local access policy allows direct and standard wrapped oo commands under O
     }),
     { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
   )
-  for (const command of ["zsh -c 'cd /tmp && oo connector apps --json'", "oo connector apps --json 2>&1 | head -80"]) {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "zsh -c 'cd /tmp && oo connector apps --json'" } }), {
+      linkRuntime: "openconnector",
+      permissionMode: "default",
+    }),
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+  )
+  for (const command of ["oo connector apps --json 2>&1", "oo connector apps --json 2>&1 | head -80"]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), {
         linkRuntime: "openconnector",
         permissionMode: "default",
       }),
-      { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+      { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
       command,
     )
   }

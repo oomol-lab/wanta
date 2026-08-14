@@ -81,6 +81,21 @@ External agents build on `electron/agent/external/`:
   Wanta auto-approves that redundant ACP transport prompt because the call
   enters the same host-owned capability kernel used directly by OpenCode,
   where identity, credentials, validation, and auditing are already enforced.
+  Claude's native `Skill` discovery tool is also auto-approved because it only
+  loads local instructions; any file, shell, or network operation instructed
+  by that Skill remains subject to Claude's normal permission flow. Claude MCP
+  permission names must be correlated from `mcp__wanta_*__<tool>` into the
+  same host-owned marker used by ACP. Every Claude SDK allow result preserves
+  the original tool input as `updatedInput`, as required by the paired runtime
+  validator.
+  The guarded `oo` CLI compatibility path is classified by the same shared
+  command policy for OpenCode, Claude, and ACP agents. A single `oo` command
+  may include only the shared bounded output suffixes (`head`/`tail` or stderr
+  descriptor duplication); arbitrary pipes, sequences, file redirection,
+  credential/configuration overrides, and authentication commands remain in
+  the native approval flow. Loaded Skills also receive a host execution
+  policy: Wanta MCP capabilities take precedence over CLI examples, so the raw
+  CLI remains a fallback rather than an agent-specific primary transport.
   Explicit session grants still never cross sensitive-resource or high-risk
   boundaries. The kernel's other blanket defaults (`default_local` /
   `default_command`, trusted-project allows, host-side `full_access`) continue

@@ -57,7 +57,10 @@ test("skill host tools load complete instructions and keep referenced files insi
   kernel.register(createSkillHostCapability())
   const context = { bindings: { [SKILL_SNAPSHOT_BINDING]: snapshot }, sessionId: "session-1" }
 
-  expect((await kernel.execute("skills", "load_skill", context, { skillId: "alpha" })).text).toContain("# Alpha")
+  const loadedSkill = (await kernel.execute("skills", "load_skill", context, { skillId: "alpha" })).text
+  expect(loadedSkill).toContain("<wanta_execution_policy>")
+  expect(loadedSkill).toContain("prefer wanta_link discovery and action tools")
+  expect(loadedSkill).toContain("# Alpha")
   expect(
     (await kernel.execute("skills", "read_skill_file", context, { skillId: "alpha", path: "references/guide.md" }))
       .text,

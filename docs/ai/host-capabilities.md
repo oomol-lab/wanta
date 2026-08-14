@@ -56,6 +56,12 @@ Raw CLIs remain a fallback, not the primary business API. Every agent runtime
 that can execute `oo` must use a Wanta-managed guard. The guard must fail closed
 when it cannot resolve an unambiguous session workspace, preserve explicit
 selectors, reject cross-workspace fallback, and redact connector output.
+Loaded Skill instructions carry the same transport override for every external
+adapter: when a Wanta host capability covers the requested operation, the
+agent must use that capability instead of copying a CLI example into its native
+shell. If an agent still selects the guarded `oo` compatibility path, the
+shared permission classifier—not an adapter-specific rule—decides whether the
+single command is safe to run without a redundant approval card.
 
 ## Kernel contract
 

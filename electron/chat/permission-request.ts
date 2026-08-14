@@ -1,6 +1,6 @@
 import type { ChatPermissionRequest } from "./common.ts"
 
-import { isPureOoCliCommand } from "../agent/oo-command-permission.ts"
+import { openConnectorCommandPolicy } from "../agent/oo-command-permission.ts"
 import {
   isManagedPythonExecutable,
   managedPythonEnvironmentPath,
@@ -71,6 +71,18 @@ export function permissionCommand(request: ChatPermissionRequest): string | unde
   const command = request.metadata?.command
   if (typeof command === "string" && command.trim()) {
     return command.trim()
+  }
+  // Native adapters expose command inputs under different metadata keys:
+  // Claude currently contributes the command as a salient resource, while
+  // ACP agents commonly retain the protocol payload as rawInput. Normalize
+  // both shapes here so the shared policy never depends on the selected agent.
+  for (const input of [request.metadata?.toolInput, request.metadata?.rawInput]) {
+    if (input !== null && typeof input === "object" && !Array.isArray(input)) {
+      const nestedCommand = (input as { command?: unknown }).command
+      if (typeof nestedCommand === "string" && nestedCommand.trim()) {
+        return nestedCommand.trim()
+      }
+    }
   }
   return permissionPrimaryResource(request)
 }
@@ -184,7 +196,15 @@ export function isHighRiskPermissionRequest(request: ChatPermissionRequest): boo
 }
 
 export function isOoCliPermissionRequest(request: ChatPermissionRequest): boolean {
-  return permissionRequestKind(request) === "command" && isPureOoCliCommand(commandText(request))
+  if (permissionRequestKind(request) !== "command") {
+    return false
+  }
+  // Agents routinely cap connector output with head/tail or merge stderr.
+  // These suffixes do not broaden what `oo` executes. Strip only the bounded,
+  // shared safe forms before applying the strict single-command classifier;
+  // arbitrary pipes, sequences, substitutions, and file redirects still fail.
+  const normalized = commandWithoutSafeDescriptorDuplication(commandWithoutSafeOutputFilter(commandText(request)))
+  return openConnectorCommandPolicy(normalized) === "allow"
 }
 
 const pythonPackageRequirementPattern =

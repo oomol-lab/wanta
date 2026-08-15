@@ -29,7 +29,11 @@ export function externalAgentKindForSessionId(sessionId: string): ExternalAgentK
     return undefined
   }
   const kind = rest.slice(0, separator)
-  if (kind in AGENT_PROFILES && isExternalAgentKind(kind as AgentKind)) {
+  // Own-property check only: `in` walks the prototype chain, so a hostile id
+  // whose kind segment is an inherited Object.prototype key ("constructor",
+  // "toString", "__proto__", ...) would otherwise pass as a valid kind and
+  // defeat the drop-on-read guards that route on this function.
+  if (Object.hasOwn(AGENT_PROFILES, kind) && isExternalAgentKind(kind as AgentKind)) {
     return kind as ExternalAgentKind
   }
   return undefined

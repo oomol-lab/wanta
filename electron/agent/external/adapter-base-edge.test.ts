@@ -562,6 +562,33 @@ describe("forgetSession and stop() races", () => {
     expect(await fileExists(transcriptPath(transcriptDir, SESSION_A))).toBe(false)
   })
 
+  it("an already-aborted prompt after forgetSession must not clear the tombstone and resurrect the file", async () => {
+    // The delete flow aborts the generation, then a resumed sendExternalMessage
+    // dispatches the prompt with an aborted signal. That send must NOT reopen the
+    // late-event gate, or a still-draining native frame would rewrite the file.
+    const transcriptDir = await makeTranscriptDir()
+    const adapter = await makeAdapter(transcriptDir)
+    for (const event of assistantTurn(SESSION_A, "m1", "will be deleted")) {
+      adapter.emitForTest(event)
+    }
+    adapter.forgetSession(SESSION_A)
+    await vi.waitFor(async () => {
+      expect(await fileExists(transcriptPath(transcriptDir, SESSION_A))).toBe(false)
+    })
+
+    const controller = new AbortController()
+    controller.abort()
+    await adapter.send({ type: "prompt", sessionId: SESSION_A, text: "reopen?" }, { signal: controller.signal })
+
+    // A straggler frame lands after the aborted send; the tombstone must still hold.
+    adapter.emitForTest({
+      event: "messageDelta",
+      data: { sessionId: SESSION_A, messageId: "m-late", partId: "m-late:0", text: "zombie" },
+    })
+    await sleep(TRANSCRIPT_DEBOUNCE_WAIT_MS)
+    expect(await fileExists(transcriptPath(transcriptDir, SESSION_A))).toBe(false)
+  })
+
   it("stop() completes in-flight and pending saves without unhandled rejections or late writes", async () => {
     const unhandled: unknown[] = []
     const onUnhandled = (reason: unknown): void => {

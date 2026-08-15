@@ -55,3 +55,35 @@ test("OpenConnector policy keeps credential and runtime boundary protections", (
     assert.equal(openConnectorCommandPolicy(command), "deny", command)
   }
 })
+
+test("OpenConnector policy denies mutations hidden behind leading oo global flags", () => {
+  // A leading global flag (--debug / --lang <v> / -V / --help) must not smuggle
+  // a credential/config/auth mutation past the deny-list into a silent allow.
+  for (const command of [
+    "oo --debug config set endpoint https://evil.example.test",
+    "oo --lang zh connector logout",
+    "oo --lang=zh connector login https://attacker.example.test",
+    "oo -V connector logout",
+    "oo --debug auth logout",
+    "oo -h auth login",
+    "${WANTA_OO_BIN} --debug config set endpoint https://evil.example.test",
+    "echo hi; oo config set endpoint https://evil.example.test",
+    // Global flags can also sit BETWEEN `connector` and its subcommand (commander
+    // accepts --lang/--debug after the connector token), so these must deny too.
+    "oo connector --lang zh logout",
+    "oo connector --debug logout",
+    "oo connector --lang zh login https://attacker.example.test",
+    "oo --lang zh connector --debug logout",
+  ]) {
+    assert.equal(openConnectorCommandPolicy(command), "deny", command)
+  }
+  // Legitimate business commands with the same flags still resolve to allow,
+  // including config/logout appearing only as an action arg or data value.
+  for (const command of [
+    "oo --lang zh connector run gmail list --json",
+    "oo connector --lang zh run app --action logout",
+    "oo connector run app --action config --json",
+  ]) {
+    assert.equal(openConnectorCommandPolicy(command), "allow", command)
+  }
+})

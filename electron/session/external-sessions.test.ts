@@ -73,6 +73,24 @@ test("external sessions are created and listed when no kernel adapter exists", a
   )
 })
 
+test("an unregistered agentKind never mints an external session id (create gate)", async () => {
+  // RPC types are erased at runtime; a junk kind must not reach mintExternalSessionId.
+  // With no kernel adapter it falls to the kernel path and fails closed instead.
+  const external = externalStore()
+  const service = new SessionServiceImpl(null, {
+    externalSessionStore: external.store,
+    metadataStore: metadataStore(),
+  })
+  ;(service as unknown as { send: () => Promise<void> }).send = async () => undefined
+
+  await assert.rejects(
+    service.create({ agentKind: "gemini" as never, scope: localScope }),
+    /Agent not configured/,
+  )
+  // No wanta-ext:gemini record was persisted.
+  assert.equal(external.current().size, 0)
+})
+
 test("external archived sessions and projects remain available when no kernel adapter exists", async () => {
   const external = externalStore()
   const service = new SessionServiceImpl(null, {

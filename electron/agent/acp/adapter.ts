@@ -578,8 +578,18 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     if (!session || !handle || handle.lost) {
       return
     }
-    const target = value ?? session.configSelects[axis]?.initialValue
-    if (target === undefined || session.configSelects[axis]?.currentValue === target) {
+    const select = session.configSelects[axis]
+    const target = value ?? select?.initialValue
+    if (target === undefined || select?.currentValue === target) {
+      return
+    }
+    // A reset (value === undefined) targets the creation-time default. A later
+    // cross-axis clamp (e.g. a model switch narrowing the effort space) may have
+    // dropped that value from the options; the agent already sits on a valid
+    // clamped default, so re-sending the vanished value would only draw a
+    // -32602 and leave the user unable to pick "Default". The stash is already
+    // cleared above, so skipping the wire call adopts the agent's default.
+    if (value === undefined && select !== undefined && !select.options.some((option) => option.id === target)) {
       return
     }
     try {
@@ -1007,6 +1017,17 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       }
       const desiredMode = this.desiredPermissionModes.get(input.sessionId)
       if (desiredMode !== undefined) await this.applyPermissionMode(input.sessionId, desiredMode)
+      // The one-shot guard above only covered the session/new round-trip. A forget
+      // (or stop) can still land during the post-registration awaits above without
+      // throwing; re-check so the catch below closes the native session instead of
+      // leaking a deleted session that handlePrompt would still dispatch a turn into.
+      if (!this.isStarted || this.isSessionForgotten(input.sessionId)) {
+        throw new Error(
+          this.isSessionForgotten(input.sessionId)
+            ? `${this.kind}: session was deleted while being created`
+            : `${this.kind}: adapter stopped while creating the session`,
+        )
+      }
       return session
     } catch (error) {
       this.sessionsByWantaId.delete(input.sessionId)

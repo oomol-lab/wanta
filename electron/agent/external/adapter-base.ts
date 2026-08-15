@@ -95,7 +95,11 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter implements C
   }
 
   public override async send(input: AgentInput, options?: AgentSendOptions): Promise<void> {
-    if (input.type === "prompt" && typeof input.sessionId === "string") {
+    // An already-aborted prompt never dispatches (the concrete handlePrompt
+    // short-circuits), so it must NOT clear the tombstone: doing so would reopen
+    // the late-event gate and let a deleted session's still-draining native
+    // frames resurrect its transcript on disk.
+    if (input.type === "prompt" && typeof input.sessionId === "string" && !options?.signal?.aborted) {
       // An explicit new prompt reopens a forgotten session id; the tombstone
       // only exists to block LATE events from a still-draining native process.
       this.forgottenSessions.delete(input.sessionId)
@@ -239,11 +243,17 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter implements C
           return
         }
         const messages = await store.load(sessionId)
+        // A forget (and its queued remove) may have landed during the load; if
+        // the tombstone is now set, neither mark disk history nor restore, so a
+        // racing send-reopen that cleared the tombstone cannot resurrect it.
+        if (this.forgottenSessions.has(sessionId)) {
+          return
+        }
         if (messages && messages.length > 0) {
           this.sessionsWithDiskHistory.add(sessionId)
         }
         const sanitized = messages && messages.length > 0 ? this.sanitizeRestoredMessages(messages) : messages
-        if (sanitized && sanitized.length > 0 && !this.forgottenSessions.has(sessionId)) {
+        if (sanitized && sanitized.length > 0) {
           this.transcript.restore(sessionId, sanitized)
         }
       })

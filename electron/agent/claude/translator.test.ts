@@ -406,6 +406,37 @@ describe("createClaudeTurnTranslator", () => {
     })
   })
 
+  it("uses the main-loop model's context window after a mid-session downswitch, not the max", () => {
+    // modelUsage is cumulative and multi-model; after switching opus[1m] -> sonnet
+    // the stale 1M entry lingers. The window must track the main-loop model
+    // (sonnet, 200k) so the occupancy meter is not silently under-reported.
+    const translator = createClaudeTurnTranslator(sessionId)
+    translator.translate({
+      type: "assistant",
+      message: {
+        id: "msg_1",
+        model: "claude-sonnet-5",
+        content: [{ type: "text", text: "answer" }],
+        usage: { input_tokens: 150_000, output_tokens: 100, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      session_id: "sdk-session",
+    } as unknown as SDKMessage)
+    const events = translator.translate({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+      usage: { input_tokens: 150_000, output_tokens: 100, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+      modelUsage: {
+        "claude-opus-5": { contextWindow: 1_000_000 },
+        "claude-sonnet-5": { contextWindow: 200_000 },
+      },
+    } as unknown as SDKMessage)
+    const usageEvent = events.find((event) => event.event === "usageUpdated")
+    expect(usageEvent?.data.tokenUsage.contextWindow).toBe(200_000)
+  })
+
   it("maps result usage and context window to a usageUpdated event before completion", () => {
     const translator = createClaudeTurnTranslator(sessionId)
     const events = translator.translate({

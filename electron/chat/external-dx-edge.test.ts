@@ -12,7 +12,7 @@ import type { ExternalAgentRuntimeStatus } from "../agent/external/probe.ts"
 import type { OpencodeAgentAdapter } from "../agent/opencode-adapter.ts"
 import type { ExternalSessionRecord, ExternalSessionStore } from "../session/external-store.ts"
 import type { SessionMetadata, SessionMetadataStore } from "../session/metadata-store.ts"
-import type { ChatAttachment, ChatPermissionRequest, SendMessageRequest } from "./common.ts"
+import type { AgentPermissionMode, ChatAttachment, ChatPermissionRequest, SendMessageRequest } from "./common.ts"
 import type { UserAttachmentStore } from "./user-attachments.ts"
 
 import assert from "node:assert/strict"
@@ -64,8 +64,13 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
   public readonly permissionResponses: PermissionResponseAgentInput[] = []
   public readonly setModels: SetModelAgentInput[] = []
   public readonly setEfforts: SetEffortAgentInput[] = []
+  public readonly permissionModes: Array<{ sessionId: string; mode: AgentPermissionMode }> = []
   /** When set, the next prompt throws this error instead of dispatching. */
   public failNextPrompt: Error | undefined
+  /** When set, the next native permission-mode projection rejects. */
+  public failNextPermissionMode: Error | undefined
+  private readonly modelSelections = new Map<string, string>()
+  private readonly effortSelections = new Map<string, string>()
   private readonly nativePendingPermissionIds = new Set<string>()
 
   public constructor(kind: ExternalAgentKind) {
@@ -125,6 +130,11 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
       return this.rejectUnsupportedInput("set-model")
     }
     this.setModels.push(input)
+    if (input.modelId) {
+      this.modelSelections.set(input.sessionId, input.modelId)
+    } else {
+      this.modelSelections.delete(input.sessionId)
+    }
   }
 
   protected override async handleSetEffort(input: SetEffortAgentInput): Promise<void> {
@@ -132,6 +142,29 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
       return this.rejectUnsupportedInput("set-effort")
     }
     this.setEfforts.push(input)
+    if (input.effortId) {
+      this.effortSelections.set(input.sessionId, input.effortId)
+    } else {
+      this.effortSelections.delete(input.sessionId)
+    }
+  }
+
+  public override sessionSelection(sessionId: string): { modelId?: string; effortId?: string } {
+    const modelId = this.modelSelections.get(sessionId)
+    const effortId = this.effortSelections.get(sessionId)
+    return {
+      ...(modelId ? { modelId } : {}),
+      ...(effortId ? { effortId } : {}),
+    }
+  }
+
+  public override async applyPermissionMode(sessionId: string, mode: AgentPermissionMode): Promise<void> {
+    if (this.failNextPermissionMode) {
+      const error = this.failNextPermissionMode
+      this.failNextPermissionMode = undefined
+      throw error
+    }
+    this.permissionModes.push({ sessionId, mode })
   }
 
   public runtimeStatus(): Promise<ExternalAgentRuntimeStatus> {
@@ -761,6 +794,101 @@ test("edge8: prompt-borne model/effort ids are forwarded verbatim and never kill
   grok.completeAssistantTurn(sessionId, "reply-after", "still fine")
   await waitForTurnCompletion(service)
   assert.equal((await service.getMessages(sessionId)).filter((message) => message.role === "assistant").length, 2)
+})
+
+test("external model and effort choices are persisted per session", async () => {
+  const persisted: Array<{ sessionId: string; patch: { modelId?: string | null; effortId?: string | null } }> = []
+  const { service } = createHarness(["claude-code"], {
+    onExternalSessionSelectionChanged: (sessionId, patch) => {
+      persisted.push({ sessionId, patch })
+    },
+  })
+  const sessionId = mintExternalSessionId("claude-code")
+
+  await service.setExternalSessionModel({ sessionId, modelId: "sonnet" })
+  await service.setExternalSessionEffort({ sessionId, effortId: "high" })
+  await service.setExternalSessionModel({ sessionId })
+
+  assert.deepEqual(persisted, [
+    { sessionId, patch: { modelId: "sonnet" } },
+    { sessionId, patch: { effortId: "high" } },
+    { sessionId, patch: { modelId: null } },
+  ])
+})
+
+test("external model and effort updates stay ordered when persistence overlaps", async () => {
+  let releaseModelPersistence!: () => void
+  let releaseEffortPersistence!: () => void
+  const modelPersistence = new Promise<void>((resolve) => (releaseModelPersistence = resolve))
+  const effortPersistence = new Promise<void>((resolve) => (releaseEffortPersistence = resolve))
+  const persisted: Array<{ modelId?: string | null; effortId?: string | null }> = []
+  const { service, adapters } = createHarness(["claude-code"], {
+    onExternalSessionSelectionChanged: async (_sessionId, patch) => {
+      persisted.push(patch)
+      if (patch.modelId === "first-model") await modelPersistence
+      if (patch.effortId === "first-effort") await effortPersistence
+    },
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+
+  const firstModel = service.setExternalSessionModel({ sessionId, modelId: "first-model" })
+  const secondModel = service.setExternalSessionModel({ sessionId, modelId: "second-model" })
+  await waitForCondition(() => adapter.setModels.length === 1, "first model update")
+  assert.deepEqual(adapter.sessionSelection(sessionId), { modelId: "first-model" })
+  releaseModelPersistence()
+  await Promise.all([firstModel, secondModel])
+
+  const firstEffort = service.setExternalSessionEffort({ sessionId, effortId: "first-effort" })
+  const secondEffort = service.setExternalSessionEffort({ sessionId, effortId: "second-effort" })
+  await waitForCondition(() => adapter.setEfforts.length === 1, "first effort update")
+  assert.deepEqual(adapter.sessionSelection(sessionId), {
+    modelId: "second-model",
+    effortId: "first-effort",
+  })
+  releaseEffortPersistence()
+  await Promise.all([firstEffort, secondEffort])
+
+  assert.deepEqual(
+    adapter.setModels.map(({ modelId }) => modelId),
+    ["first-model", "second-model"],
+  )
+  assert.deepEqual(
+    adapter.setEfforts.map(({ effortId }) => effortId),
+    ["first-effort", "second-effort"],
+  )
+  assert.deepEqual(persisted, [
+    { modelId: "first-model" },
+    { modelId: "second-model" },
+    { effortId: "first-effort" },
+    { effortId: "second-effort" },
+  ])
+  assert.deepEqual(adapter.sessionSelection(sessionId), {
+    modelId: "second-model",
+    effortId: "second-effort",
+  })
+})
+
+test("a rejected native permission mode rolls host metadata back and a queued retry can succeed", async () => {
+  const persistedModes: AgentPermissionMode[] = []
+  const { service, adapters } = createHarness(["codex"], {
+    onPermissionModeChanged: async (_sessionId, mode) => {
+      persistedModes.push(mode)
+    },
+  })
+  const adapter = adapters.get("codex")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("codex")
+  adapter.failNextPermissionMode = new Error("mode refused")
+
+  const rejected = service.setPermissionMode({ sessionId, permissionMode: "full_access", version: 1 })
+  const retry = service.setPermissionMode({ sessionId, permissionMode: "full_access", version: 2 })
+
+  await assert.rejects(rejected, /mode refused/)
+  await retry
+  assert.deepEqual(persistedModes, ["full_access", "default", "full_access"])
+  assert.deepEqual(adapter.permissionModes, [{ sessionId, mode: "full_access" }])
 })
 
 test("external turns receive the same Wanta team and Link identity instead of falling back to a default workspace", async () => {

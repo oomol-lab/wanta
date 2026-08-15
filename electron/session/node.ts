@@ -10,6 +10,7 @@ import type {
   GenerateSessionTitleResult,
   SetSessionPermissionModeRequest,
   SetSessionKnowledgeBasesRequest,
+  SetSessionAgentSelectionRequest,
   SessionInfo,
   SessionPlacement,
   SessionProject,
@@ -32,6 +33,7 @@ import {
   isExternalSessionId,
   mintExternalSessionId,
 } from "../agent/external/session-id.ts"
+import { AGENT_PERMISSION_MODES } from "../chat/common.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { normalizeSessionScopeValue, sessionScopesEqual, SessionService as SessionServiceName } from "./common.ts"
 import { normalizeKnowledgeBaseIds } from "./metadata-store.ts"
@@ -87,7 +89,7 @@ function normalizeBatchSessionIds(ids: string[]): string[] {
 }
 
 function normalizeSessionPermissionMode(mode: SessionPermissionMode): SessionPermissionMode {
-  return mode === "full_access" ? "full_access" : "default"
+  return AGENT_PERMISSION_MODES.includes(mode) ? mode : "default"
 }
 
 function normalizeProjectPath(projectPath: string): string {
@@ -400,6 +402,30 @@ export class SessionServiceImpl
     return this.enqueueMutation((revision) => this.setPermissionModeMutation(req, revision))
   }
 
+  public setAgentSelection(req: SetSessionAgentSelectionRequest): Promise<void> {
+    return this.enqueueMutation((revision) => this.setAgentSelectionMutation(req, revision))
+  }
+
+  private async setAgentSelectionMutation(req: SetSessionAgentSelectionRequest, revision: number): Promise<void> {
+    await this.ensureMetadataLoaded(revision)
+    const current = this.sessionMetadata.get(req.id) ?? {}
+    const next = { ...current }
+    if ("modelId" in req) {
+      const modelId = req.modelId?.trim()
+      if (modelId) next.agentModelId = modelId
+      else delete next.agentModelId
+    }
+    if ("effortId" in req) {
+      const effortId = req.effortId?.trim()
+      if (effortId) next.agentEffortId = effortId
+      else delete next.agentEffortId
+    }
+    const nextMetadata = new Map(this.sessionMetadata)
+    this.setMetadataEntry(req.id, next, nextMetadata)
+    await this.commitMetadata(nextMetadata)
+    this.broadcastChangedBestEffort("set session agent selection")
+  }
+
   private async setPermissionModeMutation(req: SetSessionPermissionModeRequest, revision: number): Promise<void> {
     await this.ensureMetadataLoaded(revision)
     const current = this.sessionMetadata.get(req.id) ?? {}
@@ -408,10 +434,10 @@ export class SessionServiceImpl
     if (normalizeSessionPermissionMode(current.permissionMode ?? "default") === permissionMode) {
       return
     }
-    if (permissionMode === "full_access") {
-      next.permissionMode = permissionMode
-    } else {
+    if (permissionMode === "default") {
       delete next.permissionMode
+    } else {
+      next.permissionMode = permissionMode
     }
     const nextMetadata = new Map(this.sessionMetadata)
     this.setMetadataEntry(req.id, next, nextMetadata)
@@ -1161,6 +1187,8 @@ export class SessionServiceImpl
       metadata.scope ||
       metadata.projectId ||
       metadata.permissionMode ||
+      metadata.agentModelId ||
+      metadata.agentEffortId ||
       metadata.knowledgeBaseIds ||
       metadata.pinnedAt ||
       metadata.archivedAt
@@ -1198,6 +1226,8 @@ export class SessionServiceImpl
       scope,
       ...(project ? { projectId: project.id } : {}),
       ...(metadata?.permissionMode ? { permissionMode: metadata.permissionMode } : {}),
+      ...(metadata?.agentModelId ? { agentModelId: metadata.agentModelId } : {}),
+      ...(metadata?.agentEffortId ? { agentEffortId: metadata.agentEffortId } : {}),
       ...(metadata?.knowledgeBaseIds ? { knowledgeBaseIds: metadata.knowledgeBaseIds } : {}),
       ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
       ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
@@ -1272,6 +1302,8 @@ export class SessionServiceImpl
           scope,
           ...(project ? { projectId: project.id } : {}),
           ...(metadata?.permissionMode ? { permissionMode: metadata.permissionMode } : {}),
+          ...(metadata?.agentModelId ? { agentModelId: metadata.agentModelId } : {}),
+          ...(metadata?.agentEffortId ? { agentEffortId: metadata.agentEffortId } : {}),
           ...(metadata?.knowledgeBaseIds ? { knowledgeBaseIds: metadata.knowledgeBaseIds } : {}),
           ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
           ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),

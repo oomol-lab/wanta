@@ -477,6 +477,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
   }
 
   public override async applyPermissionMode(sessionId: string, mode: AgentPermissionMode): Promise<void> {
+    const previous = this.desiredPermissionModes.get(sessionId)
     this.desiredPermissionModes.set(sessionId, mode)
     const session = this.sessions.get(sessionId)
     if (!session) {
@@ -485,12 +486,14 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     try {
       await session.queryHandle.setPermissionMode(sdkPermissionMode(mode))
     } catch (error) {
+      this.restoreDesired(this.desiredPermissionModes, sessionId, previous, mode)
       logDiagnostic(
         "claude-code-adapter",
         "setPermissionMode failed",
         { sessionId, mode, error: errorMessage(error) },
         "error",
       )
+      throw error
     }
   }
 

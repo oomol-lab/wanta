@@ -12,6 +12,9 @@ export interface SessionInfo {
   updatedAt: number
   /** Which agent drives this session; absent means the built-in kernel. */
   agentKind?: AgentKind
+  /** Persisted agent-native selection for external sessions. */
+  agentModelId?: string
+  agentEffortId?: string
   scope?: SessionScope
   projectId?: string
   permissionMode?: SessionPermissionMode
@@ -113,6 +116,12 @@ export interface AssignSessionProjectRequest {
 export interface SetSessionPermissionModeRequest {
   id: string
   permissionMode: SessionPermissionMode
+}
+
+export interface SetSessionAgentSelectionRequest {
+  id: string
+  modelId?: string | null
+  effortId?: string | null
 }
 
 export interface SetSessionKnowledgeBasesRequest {

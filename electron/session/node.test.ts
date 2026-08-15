@@ -197,18 +197,37 @@ test("list merges persisted session permission mode", async () => {
   assert.equal((await service.list({ scope: testTeamScope }))[0]?.permissionMode, "full_access")
 })
 
-test("setPermissionMode persists full access and clears default", async () => {
+test("setPermissionMode persists every non-default mode and clears default", async () => {
   const persistedMetadata = metadataStore()
   const service = new SessionServiceImpl(agentWithSessions([]), {
     metadataStore: persistedMetadata,
   })
 
-  await service.setPermissionMode({ id: "session", permissionMode: "full_access" })
-
-  assert.deepEqual(await persistedMetadata.read(), new Map([["session", { permissionMode: "full_access" }]]))
+  for (const permissionMode of ["read_only", "accept_edits", "plan", "auto", "full_access"] as const) {
+    await service.setPermissionMode({ id: "session", permissionMode })
+    assert.deepEqual(await persistedMetadata.read(), new Map([["session", { permissionMode }]]))
+  }
 
   await service.setPermissionMode({ id: "session", permissionMode: "default" })
 
+  assert.deepEqual(await persistedMetadata.read(), new Map())
+})
+
+test("setAgentSelection persists each axis independently and clears explicit defaults", async () => {
+  const persistedMetadata = metadataStore()
+  const service = new SessionServiceImpl(agentWithSessions([]), { metadataStore: persistedMetadata })
+
+  await service.setAgentSelection({ id: "session", modelId: "claude-sonnet" })
+  await service.setAgentSelection({ id: "session", effortId: "high" })
+  assert.deepEqual(
+    await persistedMetadata.read(),
+    new Map([["session", { agentModelId: "claude-sonnet", agentEffortId: "high" }]]),
+  )
+
+  await service.setAgentSelection({ id: "session", modelId: null })
+  assert.deepEqual(await persistedMetadata.read(), new Map([["session", { agentEffortId: "high" }]]))
+
+  await service.setAgentSelection({ id: "session", effortId: null })
   assert.deepEqual(await persistedMetadata.read(), new Map())
 })
 

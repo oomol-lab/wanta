@@ -671,11 +671,13 @@ describe("AcpAgentAdapter", () => {
     expect(harness.fake.setModeRequests.every((request) => request.sessionId === "acp-session-1")).toBe(true)
   })
 
-  test("applyPermissionMode is a no-op when the session does not advertise the mode", async () => {
+  test("applyPermissionMode fails closed when the session does not advertise the mode", async () => {
     const harness = await createHarness()
     await harness.adapter.send(promptInput())
     await harness.waitFor((event) => event.event === "messageCompleted")
-    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "full_access")
+    await expect(harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "full_access")).rejects.toThrow(
+      /permission mode "full_access" is not available/u,
+    )
     expect(harness.fake.setModeRequests).toEqual([])
   })
 

@@ -15,6 +15,7 @@ test("SessionMetadataStore persists scope, permission mode, pinned, and archived
     ["pinned", { pinnedAt: 1_000, scope: { kind: "team", teamId: "team-id", teamName: "team-name" } }],
     ["archived", { archivedAt: 2_000 }],
     ["full-access", { permissionMode: "full_access" }],
+    ["agent-selection", { agentModelId: "sonnet", agentEffortId: "high" }],
     ["team", { scope: { kind: "team", teamId: "team-id", teamName: "team-name" } }],
   ])
 

@@ -395,11 +395,11 @@ describe("claude selection: prompt-borne selections", () => {
 })
 
 describe("claude selection: permission-mode projection", () => {
-  it("a rejected setPermissionMode is swallowed (projection is best effort)", async () => {
+  it("a rejected setPermissionMode fails closed", async () => {
     const { adapter, calls } = await createHarness()
     await adapter.send({ type: "prompt", sessionId, text: "hello" })
     calls[0]!.fake.setPermissionMode.mockRejectedValueOnce(new Error("mode refused"))
-    await expect(adapter.applyPermissionMode(sessionId, "plan")).resolves.toBeUndefined()
+    await expect(adapter.applyPermissionMode(sessionId, "plan")).rejects.toThrow("mode refused")
   })
 
   it("an undeclared mode maps defensively to default instead of erroring", async () => {

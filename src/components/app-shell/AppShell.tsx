@@ -1860,9 +1860,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     () => makeAgentSelectionHandler("effortId"),
     [makeAgentSelectionHandler],
   )
-  // The adapter's desired-state stash is the authority for a session's agent
-  // model/effort; read it back once per session so a window reload cannot
-  // desync the pickers (a user choice made meanwhile always wins).
+  // Persisted session metadata survives app restarts; the adapter stash is a
+  // live-process fallback for renderer reloads and in-flight native changes.
   React.useEffect(() => {
     const inputs = AGENT_PROFILES[displayedAgentKind].inputs
     if (!activeChatSessionId || (!inputs.setModel && !inputs.setEffort)) {
@@ -1870,6 +1869,14 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     }
     const sessionId = activeChatSessionId
     if (agentSelectionsRef.current[sessionId]) {
+      return
+    }
+    const persistedSelection = {
+      ...(activeSession?.agentModelId ? { modelId: activeSession.agentModelId } : {}),
+      ...(activeSession?.agentEffortId ? { effortId: activeSession.agentEffortId } : {}),
+    }
+    if (persistedSelection.modelId || persistedSelection.effortId) {
+      setAgentSelections((prev) => (prev[sessionId] ? prev : { ...prev, [sessionId]: persistedSelection }))
       return
     }
     let cancelled = false
@@ -1887,7 +1894,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     return () => {
       cancelled = true
     }
-  }, [activeChatSessionId, chatService, displayedAgentKind])
+  }, [activeChatSessionId, activeSession?.agentEffortId, activeSession?.agentModelId, chatService, displayedAgentKind])
 
   const handleViewBilling = React.useCallback((target?: BillingDetailsTarget) => {
     setBillingInitialTarget(target ?? null)

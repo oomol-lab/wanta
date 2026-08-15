@@ -85,6 +85,27 @@ test("external-agent OOCLI parity stays narrow and fails closed", () => {
   )
 })
 
+test("external-agent oo_cli auto-approve requires an active Link runtime, not the truthy 'none'", () => {
+  // "none" is the production default when no Link runtime is connected and is a
+  // truthy string; it must NOT satisfy the oo_cli gate, or a BYOA agent could run
+  // the user's own unguarded oo binary with no approval card.
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: "oo connector run gmail --action send_email --json" } }),
+      { isExternalSession: true, linkRuntime: "none", permissionMode: "default" },
+    ),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+  // With a real runtime the same command still auto-approves (parity preserved).
+  assert.equal(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: "oo connector run gmail --action send_email --json" } }),
+      { isExternalSession: true, linkRuntime: "oomol", permissionMode: "default" },
+    ).type,
+    "allow",
+  )
+})
+
 test("external agents auto-approve Wanta host MCP dispatch without weakening native local permissions", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(

@@ -12,6 +12,15 @@ import { ClaudeCodeAgentAdapter } from "../claude/adapter.ts"
 import { AGENT_PROFILES } from "../contract/profile.ts"
 import { ExternalAgentAdapter } from "./adapter-base.ts"
 import { externalSessionUuid } from "./session-id.ts"
+import { ExternalTranscriptStore } from "./transcript-store.ts"
+
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
 
 // Adversarial edge-case coverage for external transcript persistence and
 // hydration: corrupted on-disk files, sanitizer interplay on restored
@@ -562,6 +571,33 @@ describe("forgetSession and stop() races", () => {
     expect(await fileExists(transcriptPath(transcriptDir, SESSION_A))).toBe(false)
   })
 
+  it("an already-aborted prompt after forgetSession must not clear the tombstone and resurrect the file", async () => {
+    // The delete flow aborts the generation, then a resumed sendExternalMessage
+    // dispatches the prompt with an aborted signal. That send must NOT reopen the
+    // late-event gate, or a still-draining native frame would rewrite the file.
+    const transcriptDir = await makeTranscriptDir()
+    const adapter = await makeAdapter(transcriptDir)
+    for (const event of assistantTurn(SESSION_A, "m1", "will be deleted")) {
+      adapter.emitForTest(event)
+    }
+    adapter.forgetSession(SESSION_A)
+    await vi.waitFor(async () => {
+      expect(await fileExists(transcriptPath(transcriptDir, SESSION_A))).toBe(false)
+    })
+
+    const controller = new AbortController()
+    controller.abort()
+    await adapter.send({ type: "prompt", sessionId: SESSION_A, text: "reopen?" }, { signal: controller.signal })
+
+    // A straggler frame lands after the aborted send; the tombstone must still hold.
+    adapter.emitForTest({
+      event: "messageDelta",
+      data: { sessionId: SESSION_A, messageId: "m-late", partId: "m-late:0", text: "zombie" },
+    })
+    await sleep(TRANSCRIPT_DEBOUNCE_WAIT_MS)
+    expect(await fileExists(transcriptPath(transcriptDir, SESSION_A))).toBe(false)
+  })
+
   it("stop() completes in-flight and pending saves without unhandled rejections or late writes", async () => {
     const unhandled: unknown[] = []
     const onUnhandled = (reason: unknown): void => {
@@ -853,5 +889,53 @@ describe("hydration races", () => {
     adapter.forgetSession(SESSION_A)
     const ghost = await adapter.getMessages(SESSION_A)
     expect(ghost).toEqual([])
+  })
+
+  it("a delete + reopen while the original load is in flight must not restore deleted history", async () => {
+    // The tombstone alone is not enough: a valid prompt can reopen the id and
+    // clear the tombstone BEFORE an already-started store.load resolves, so the
+    // stale load would restore the deleted messages (and sessionsWithDiskHistory).
+    // A per-session deletion generation invalidates that superseded load.
+    const transcriptDir = await makeTranscriptDir()
+    await writeTranscriptFile(
+      transcriptDir,
+      SESSION_A,
+      validTranscriptJson([userMessage("u1", "secret"), assistantMessage("a1", "deleted")]),
+    )
+    const adapter = await makeAdapter(transcriptDir)
+    adapter.promptEmitsUserTurn = true
+
+    // Hold the first load in flight so the delete + reopen interleave before it
+    // resolves; on release it delegates to the real load (the file still exists).
+    const realLoad = ExternalTranscriptStore.prototype.load
+    const gate = deferred()
+    let gated = false
+    const loadSpy = vi.spyOn(ExternalTranscriptStore.prototype, "load").mockImplementation(function (
+      this: ExternalTranscriptStore,
+      sessionId: string,
+    ) {
+      if (sessionId === SESSION_A && !gated) {
+        gated = true
+        return gate.promise.then(() => realLoad.call(this, sessionId))
+      }
+      return realLoad.call(this, sessionId)
+    })
+
+    const hydrating = adapter.getMessages(SESSION_A) // op1
+    // Wait until the load is genuinely IN FLIGHT (op1's body reached store.load)
+    // before deleting, so this exercises the post-load race, not the pre-load guard.
+    await vi.waitFor(() => expect(gated).toBe(true))
+    adapter.forgetSession(SESSION_A) // bumps the deletion generation, queues remove
+    const sending = adapter.send({ type: "prompt", sessionId: SESSION_A, text: "new turn" }) // clears the tombstone
+    gate.resolve() // original load resolves; the generation check must reject its result
+    await hydrating
+    await sending
+    loadSpy.mockRestore()
+    await adapter.stop()
+
+    // Reopened from disk: only the new turn, never the deleted history.
+    const reopened = await makeAdapter(transcriptDir)
+    const messages = await reopened.getMessages(SESSION_A)
+    expect(messages.map((message) => message.id)).toEqual(["prompt-user-1"])
   })
 })

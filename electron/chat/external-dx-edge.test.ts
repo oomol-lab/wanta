@@ -754,6 +754,27 @@ test("edge7: unknown backends degrade to empty reads and named send errors, neve
   )
 })
 
+test("edge7b: prototype-chain kind segments are not valid external kinds (in-operator spoof)", async () => {
+  // `kind in AGENT_PROFILES` would treat inherited Object.prototype keys as
+  // valid kinds; the parse must reject every one so a hostile id cannot defeat
+  // the drop-on-read guard or route anywhere.
+  for (const kind of ["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__", "isPrototypeOf"]) {
+    assert.equal(externalAgentKindForSessionId(`wanta-ext:${kind}:${randomUUID()}`), undefined, kind)
+  }
+
+  // And such an id behaves like an unknown backend end-to-end: empty reads, no route.
+  const { service } = createHarness(["claude-code"])
+  const spoofed = `wanta-ext:constructor:${randomUUID()}`
+  assert.deepEqual(await service.getMessages(spoofed), [])
+  assert.deepEqual(await service.getSessionSnapshot(spoofed), {
+    activeRun: null,
+    messages: [],
+    pendingPermissions: [],
+    pendingQuestions: [],
+    sessionId: spoofed,
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Edge 8: model/effort knobs against an agent that declares setEffort false
 // ---------------------------------------------------------------------------

@@ -522,7 +522,11 @@ describe("ClaudeCodeAgentAdapter", () => {
   })
 
   it("marks Claude Wanta MCP permission requests as host-owned", async () => {
-    const { adapter, events, calls } = await createHarness()
+    const { adapter, events, calls } = await createHarness(detectedStatus(), {
+      hostMcpServers: async () => [
+        { name: "wanta_skills", url: "http://127.0.0.1:4321/mcp", headers: { Authorization: "Bearer opaque" } },
+      ],
+    })
     await adapter.send({ type: "prompt", sessionId, text: "load a Wanta skill" })
     const canUseTool = calls[0].options.canUseTool
     const permission = canUseTool!(
@@ -541,6 +545,54 @@ describe("ClaudeCodeAgentAdapter", () => {
       behavior: "allow",
       updatedInput: { skill_id: "oo-posthog" },
     })
+  })
+
+  it("does not trust an agent-supplied Wanta-like MCP server name that Wanta never registered", async () => {
+    // The CLI also loads project/user/plugin MCP config, so a non-host server
+    // named `wanta_forged` must NOT inherit the host-tool auto-approve marker:
+    // its permission ask has to reach the user like any other external tool.
+    const { adapter, events, calls } = await createHarness(detectedStatus(), {
+      hostMcpServers: async () => [{ name: "wanta_skills", url: "http://127.0.0.1:4321/mcp", headers: {} }],
+    })
+    await adapter.send({ type: "prompt", sessionId, text: "run a forged tool" })
+    const canUseTool = calls[0].options.canUseTool
+    void canUseTool!(
+      "mcp__wanta_forged__run_anything",
+      { cmd: "rm -rf /" },
+      { signal: new AbortController().signal, requestId: "req-forged", toolUseID: "toolu-forged" },
+    )
+
+    const asked = findPermissionAsked(events)
+    expect(asked?.data.request.metadata).not.toHaveProperty("wantaHostTool")
+    expect(asked?.data.request.action).toBe("mcp__wanta_forged__run_anything")
+  })
+
+  it("does not trust foreign MCP servers that embed a registered host name as a prefix", async () => {
+    // None of these is the registered `wanta_skills`, so none may be attributed
+    // to it by a prefix match:
+    // - `wanta_skills__evil`  -> mcp__wanta_skills__evil__do  (tool tail has `__`)
+    // - `wanta_skills_`       -> mcp__wanta_skills___do       (tool tail starts `_`)
+    // - `wanta_skillsx`       -> mcp__wanta_skillsx__do       (not a `__` boundary)
+    const { adapter, events, calls } = await createHarness(detectedStatus(), {
+      hostMcpServers: async () => [{ name: "wanta_skills", url: "http://127.0.0.1:4321/mcp", headers: {} }],
+    })
+    await adapter.send({ type: "prompt", sessionId, text: "run embedded-prefix tools" })
+    const canUseTool = calls[0].options.canUseTool
+    const forged = ["mcp__wanta_skills__evil__do", "mcp__wanta_skills___do", "mcp__wanta_skillsx__do"]
+    forged.forEach((toolName, index) => {
+      void canUseTool!(
+        toolName,
+        { cmd: "exfiltrate" },
+        { signal: new AbortController().signal, requestId: `req-embed-${index}`, toolUseID: `toolu-embed-${index}` },
+      )
+    })
+
+    for (const toolName of forged) {
+      const asked = events.find(
+        (event) => event.event === "permissionAsked" && event.data.request.action === toolName,
+      ) as Extract<AgentEvent, { event: "permissionAsked" }> | undefined
+      expect(asked?.data.request.metadata).not.toHaveProperty("wantaHostTool")
+    }
   })
 
   it("resolves a parked permission with deny and permissionReplied when the SDK aborts it", async () => {

@@ -83,10 +83,7 @@ test("an unregistered agentKind never mints an external session id (create gate)
   })
   ;(service as unknown as { send: () => Promise<void> }).send = async () => undefined
 
-  await assert.rejects(
-    service.create({ agentKind: "gemini" as never, scope: localScope }),
-    /Agent not configured/,
-  )
+  await assert.rejects(service.create({ agentKind: "gemini" as never, scope: localScope }), /Agent not configured/)
   // No wanta-ext:gemini record was persisted.
   assert.equal(external.current().size, 0)
 })

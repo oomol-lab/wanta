@@ -417,7 +417,12 @@ describe("createClaudeTurnTranslator", () => {
         id: "msg_1",
         model: "claude-sonnet-5",
         content: [{ type: "text", text: "answer" }],
-        usage: { input_tokens: 150_000, output_tokens: 100, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        usage: {
+          input_tokens: 150_000,
+          output_tokens: 100,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
       },
       parent_tool_use_id: null,
       session_id: "sdk-session",

@@ -1,10 +1,10 @@
 import type { BrowserControlRequest, BrowserControlResult } from "../browser/node.ts"
 
-import { mkdtemp, rm, truncate, writeFile } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-import { describe, expect, test } from "vitest"
+import { describe, expect, test, vi } from "vitest"
 import { createBrowserHostCapability } from "./browser-host-capability.ts"
 import { HostCapabilityKernel } from "./host-capability.ts"
 
@@ -91,27 +91,24 @@ describe("browser host capability", () => {
   })
 
   test("rejects screenshots larger than the host capability limit before reading them", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "wanta-browser-host-large-"))
-    const screenshot = path.join(root, "browser.png")
-    await writeFile(screenshot, "x")
-    await truncate(screenshot, 16 * 1024 * 1024 + 1)
+    const read = vi.fn(async () => Buffer.from("must not be read"))
     const kernel = new HostCapabilityKernel()
     kernel.register(
-      createBrowserHostCapability({
-        execute: () =>
-          Promise.resolve({
-            fileUrl: pathToFileURL(screenshot).href,
-            title: "Large",
-            url: "https://example.com",
-          }),
-      }),
+      createBrowserHostCapability(
+        {
+          execute: () =>
+            Promise.resolve({
+              fileUrl: "file:///oversized-browser.png",
+              title: "Large",
+              url: "https://example.com",
+            }),
+        },
+        { read, size: async () => 16 * 1024 * 1024 + 1 },
+      ),
     )
-    try {
-      await expect(
-        kernel.execute("browser", "browser_screenshot", { bindings: {}, sessionId: "session-1" }, {}),
-      ).rejects.toThrow(/16 MiB/)
-    } finally {
-      await rm(root, { force: true, recursive: true })
-    }
+    await expect(
+      kernel.execute("browser", "browser_screenshot", { bindings: {}, sessionId: "session-1" }, {}),
+    ).rejects.toThrow(/16 MiB/)
+    expect(read).not.toHaveBeenCalled()
   })
 })

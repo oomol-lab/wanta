@@ -12,8 +12,21 @@ export interface BrowserCapabilityExecutor {
   execute(request: BrowserControlRequest, signal?: AbortSignal): Promise<BrowserControlResult>
 }
 
+interface BrowserScreenshotFiles {
+  read(path: string): Promise<Buffer>
+  size(path: string): Promise<number>
+}
+
+const browserScreenshotFiles: BrowserScreenshotFiles = {
+  read: (path) => readFile(path),
+  size: async (path) => (await stat(path)).size,
+}
+
 /** The agent-independent browser contract. Session identity is always supplied by Wanta. */
-export function createBrowserHostCapability(browser: BrowserCapabilityExecutor): HostCapability {
+export function createBrowserHostCapability(
+  browser: BrowserCapabilityExecutor,
+  files: BrowserScreenshotFiles = browserScreenshotFiles,
+): HostCapability {
   return {
     id: BROWSER_CAPABILITY_ID,
     version: "1.0.0",
@@ -73,7 +86,7 @@ export function createBrowserHostCapability(browser: BrowserCapabilityExecutor):
           deltaY: scrollDelta(input.deltaY, 600),
         }),
       ),
-      screenshotTool(browser),
+      screenshotTool(browser, files),
       tool(
         browser,
         "browser_dialog",
@@ -90,7 +103,10 @@ export function createBrowserHostCapability(browser: BrowserCapabilityExecutor):
   }
 }
 
-function screenshotTool(browser: BrowserCapabilityExecutor): HostCapability["tools"][number] {
+function screenshotTool(
+  browser: BrowserCapabilityExecutor,
+  files: BrowserScreenshotFiles,
+): HostCapability["tools"][number] {
   return {
     name: "browser_screenshot",
     description:
@@ -107,10 +123,10 @@ function screenshotTool(browser: BrowserCapabilityExecutor): HostCapability["too
       )
       if (!("fileUrl" in result)) throw new Error("Browser screenshot did not return an image file.")
       const screenshotPath = fileURLToPath(result.fileUrl)
-      if ((await stat(screenshotPath)).size > MAX_SCREENSHOT_BYTES) {
+      if ((await files.size(screenshotPath)) > MAX_SCREENSHOT_BYTES) {
         throw new Error("Browser screenshot exceeds the 16 MiB host capability limit.")
       }
-      const data = (await readFile(screenshotPath)).toString("base64")
+      const data = (await files.read(screenshotPath)).toString("base64")
       const text = JSON.stringify({ title: result.title, url: result.url })
       return {
         text,

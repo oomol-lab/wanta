@@ -57,8 +57,9 @@ import { AppShellNavigationSidebar } from "./AppShellNavigationSidebar.tsx"
 import { AppShellRightPanel } from "./AppShellRightPanel.tsx"
 import { AppShellSessionProjectDialogs } from "./AppShellSessionProjectDialogs.tsx"
 import {
-  DEFAULT_COMPOSER_AGENT_KIND,
   readStoredAgentComposerPrefs,
+  readStoredDefaultAgentKind,
+  writeStoredDefaultAgentKind,
   writeStoredAgentComposerPrefs,
 } from "./composer-agent-prefs.ts"
 import { KnowledgeContextBar } from "./KnowledgeContextBar.tsx"
@@ -318,19 +319,22 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   } | null>(null)
   const pendingAttentionRefreshesRef = React.useRef(new Set<string>())
   const [isDraftSession, setIsDraftSession] = React.useState(false)
-  // A fresh draft always starts on the built-in OpenCode agent. Model, effort,
-  // and permission choices remain sticky within each agent.
-  const [draftAgentKind, setDraftAgentKind] = React.useState<AgentKind>(DEFAULT_COMPOSER_AGENT_KIND)
+  // Existing sessions keep their creation-time agent. A fresh draft inherits
+  // the user's most recently explicit agent choice, with separate sticky
+  // model/effort/permission preferences per agent.
+  const [draftAgentKind, setDraftAgentKind] = React.useState<AgentKind>(() =>
+    readStoredDefaultAgentKind(globalThis.localStorage),
+  )
+  const defaultAgentKindRef = React.useRef(draftAgentKind)
   const [draftPermissionMode, setDraftPermissionMode] = React.useState<AgentPermissionMode>(
-    () =>
-      readStoredAgentComposerPrefs(globalThis.localStorage, DEFAULT_COMPOSER_AGENT_KIND).permissionMode ?? "default",
+    () => readStoredAgentComposerPrefs(globalThis.localStorage, draftAgentKind).permissionMode ?? "default",
   )
   // Agent-native model/effort selection, keyed by session id ("draft" before
   // the first send creates the session). In-memory only; adapters re-derive
   // live state per session.
   const [agentSelections, setAgentSelections] = React.useState<Record<string, { modelId?: string; effortId?: string }>>(
     () => {
-      return draftSelectionEntry(readStoredAgentComposerPrefs(globalThis.localStorage, DEFAULT_COMPOSER_AGENT_KIND))
+      return draftSelectionEntry(readStoredAgentComposerPrefs(globalThis.localStorage, draftAgentKind))
     },
   )
   // Both refs mirror committed state for later callbacks/effects. Writing them
@@ -1048,10 +1052,15 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     composerDraftsByKey.current.clear()
   }, [])
   const readLastProjectId = React.useCallback((): string | null => lastChatProjectId.current, [])
-  // A fresh draft returns to OpenCode. Explicitly selecting a BYOA agent in
-  // that draft restores its own sticky preferences; full_access never sticks.
+  // A fresh draft inherits the last explicitly selected agent. Passing a kind
+  // means the user changed the default; opening historical sessions never does.
+  // Each agent restores its own preferences, while full_access never sticks.
   const applyDraftComposerDefaults = React.useCallback((kind?: AgentKind): void => {
-    const nextKind = kind ?? DEFAULT_COMPOSER_AGENT_KIND
+    const nextKind = kind ?? defaultAgentKindRef.current
+    if (kind) {
+      defaultAgentKindRef.current = kind
+      writeStoredDefaultAgentKind(globalThis.localStorage, kind)
+    }
     const prefs = readStoredAgentComposerPrefs(globalThis.localStorage, nextKind)
     setDraftAgentKind(nextKind)
     setDraftPermissionMode(prefs.permissionMode ?? "default")

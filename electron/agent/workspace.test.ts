@@ -42,6 +42,9 @@ test("ensureAgentWorkspace writes tool sources and copies bundled skills into .o
     for (const toolName of Object.keys(agentToolFiles(true))) {
       assert.ok(await exists(path.join(workspaceDir, ".opencode", "tools", toolName)), `tool ${toolName} written`)
     }
+    const callActionSource = await readFile(path.join(workspaceDir, ".opencode", "tools", "call_action.ts"), "utf8")
+    assert.match(callActionSource, /WANTA_HOST_CAPABILITY_URL/)
+    assert.match(callActionSource, /callHostCapability\("link", "call_action"/)
     assert.equal(
       await readFile(path.join(workspaceDir, ".opencode", "runtime", "tool.js"), "utf-8"),
       "export const tool = (input) => input\n",

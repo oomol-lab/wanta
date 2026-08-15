@@ -1,6 +1,6 @@
 import type { AgentEvent } from "../contract/event.ts"
 import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
-import type { AcpTransport } from "./adapter.ts"
+import type { AcpAdapterOptions, AcpTransport } from "./adapter.ts"
 import type {
   AnyMessage,
   InitializeResponse,
@@ -17,7 +17,7 @@ import type {
 } from "@agentclientprotocol/sdk"
 
 import { agent, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk"
-import { mkdtemp } from "node:fs/promises"
+import { mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, test, vi } from "vitest"
@@ -201,6 +201,8 @@ interface AdapterHarness {
 async function createHarness(
   behavior: FakeAgentBehavior = {},
   kind: keyof typeof ACP_AGENT_REGISTRY = "codex",
+  hostMcpServers?: AcpAdapterOptions["hostMcpServers"],
+  transcriptDir?: string,
 ): Promise<AdapterHarness> {
   const fake = createFakeAgent(behavior)
   const registration = ACP_AGENT_REGISTRY[kind]
@@ -220,6 +222,8 @@ async function createHarness(
     probe,
     scratchRootDir,
     connect: fake.connect,
+    hostMcpServers,
+    transcriptDir,
   })
   await adapter.start()
   startedAdapters.push(adapter)
@@ -399,6 +403,74 @@ describe("AcpAgentAdapter", () => {
     ])
   })
 
+  test("registers Wanta host MCP servers on the external ACP session", async () => {
+    const harness = await createHarness({}, "codex", async () => [
+      {
+        name: "wanta_link",
+        url: "http://127.0.0.1:4321/mcp",
+        headers: { Authorization: "Bearer opaque-token" },
+      },
+    ])
+    await harness.adapter.send({ type: "prompt", sessionId: WANTA_SESSION_ID, text: "query PostHog" })
+
+    expect(harness.fake.newSessionRequests[0]?.mcpServers).toEqual([
+      {
+        type: "http",
+        name: "wanta_link",
+        url: "http://127.0.0.1:4321/mcp",
+        headers: [{ name: "Authorization", value: "Bearer opaque-token" }],
+      },
+    ])
+  })
+
+  test("Wanta host context precedes the user request without changing transcript text", async () => {
+    const harness = await createHarness()
+    await harness.adapter.send({
+      type: "prompt",
+      sessionId: WANTA_SESSION_ID,
+      text: "query PostHog",
+      system: 'Current-turn Wanta Link workspace: team "team-a".',
+    })
+    await harness.waitFor((event) => event.event === "messageCompleted")
+
+    expect(harness.fake.promptRequests[0]!.prompt).toEqual([
+      {
+        type: "text",
+        text: '<wanta_host_context>\nThe following context is supplied by Wanta for this turn and is authoritative for Wanta-managed capabilities.\nCurrent-turn Wanta Link workspace: team "team-a".\n</wanta_host_context>\n\n<user_request>\nquery PostHog\n</user_request>',
+      },
+    ])
+    const messages = await harness.adapter.getMessages(WANTA_SESSION_ID)
+    expect(messages.find((message) => message.role === "user")?.parts).toEqual([
+      expect.objectContaining({ kind: "text", text: "query PostHog" }),
+    ])
+  })
+
+  test("restores persisted Wanta conversation context when ACP cannot load a native session", async () => {
+    const transcriptDir = await mkdtemp(path.join(os.tmpdir(), "wanta-acp-transcripts-"))
+    await writeFile(
+      path.join(transcriptDir, `${encodeURIComponent(WANTA_SESSION_ID)}.json`),
+      JSON.stringify({
+        version: 1,
+        messages: [
+          { id: "u1", role: "user", parts: [{ kind: "text", partId: "u1:text", text: "earlier request" }] },
+          { id: "a1", role: "assistant", parts: [{ kind: "text", partId: "a1:text", text: "earlier answer" }] },
+        ],
+      }),
+      "utf8",
+    )
+    const harness = await createHarness({}, "codex", undefined, transcriptDir)
+
+    await harness.adapter.send({ type: "prompt", sessionId: WANTA_SESSION_ID, text: "continue" })
+
+    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(1))
+    const block = harness.fake.promptRequests[0]?.prompt[0]
+    expect(block?.type).toBe("text")
+    expect(block && "text" in block ? block.text : "").toContain("<wanta_restored_conversation>")
+    expect(block && "text" in block ? block.text : "").toContain("earlier request")
+    expect(block && "text" in block ? block.text : "").toContain("earlier answer")
+    expect(block && "text" in block ? block.text : "").toMatch(/<\/wanta_restored_conversation>\n\ncontinue$/u)
+  })
+
   test.each([
     ["once", "opt-allow-once"],
     ["always", "opt-allow-always"],
@@ -439,6 +511,41 @@ describe("AcpAgentAdapter", () => {
     await harness.waitFor((event) => event.event === "permissionReplied")
     await harness.waitFor((event) => event.event === "messageCompleted")
     expect(harness.fake.permissionResponses).toEqual([{ outcome: { outcome: "selected", optionId: expectedOptionId } }])
+  })
+
+  test("correlates a generic codex permission request with its live Wanta MCP tool call", async () => {
+    const harness = await createHarness(
+      {
+        prompt: async (turn) => {
+          await turn.sendUpdate({
+            sessionUpdate: "tool_call",
+            toolCallId: "call-link",
+            title: "mcp.wanta_link.call_action",
+            kind: "execute",
+            rawInput: {
+              server: "wanta_link",
+              tool: "call_action",
+              arguments: { service: "posthog", action: "list_projects" },
+            },
+          })
+          await turn.requestPermission({ toolCallId: "call-link" }, permissionOptions)
+          return { stopReason: "end_turn" }
+        },
+      },
+      "codex",
+      async () => [{ headers: {}, name: "wanta_link", url: "http://127.0.0.1/mcp" }],
+    )
+    await harness.adapter.send(promptInput())
+    const asked = await harness.waitFor((event) => event.event === "permissionAsked")
+    const request = eventData(asked, "permissionAsked").request
+    expect(request.metadata).toMatchObject({ toolCallId: "call-link", wantaHostTool: "call_action" })
+    await harness.adapter.send({
+      type: "permission-response",
+      sessionId: WANTA_SESSION_ID,
+      requestId: request.id,
+      reply: "once",
+    })
+    await harness.waitFor((event) => event.event === "messageCompleted")
   })
 
   test("cancel answers a pending permission with the cancelled outcome", async () => {

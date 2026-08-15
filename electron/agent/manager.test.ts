@@ -254,6 +254,21 @@ describe("AgentManager", () => {
     })
   })
 
+  it("exposes only the opaque built-in host capability transport to the sidecar", () => {
+    const env = buildAgentSidecarEnv({
+      commandPath: "/managed/bin",
+      hostCapability: { token: "opaque-token", url: "http://127.0.0.1:4321" },
+      linkRuntime: null,
+      storeDir: "/private/oo-store",
+      teamScopePath: "/private/team-scope.json",
+    })
+
+    expect(env).toMatchObject({
+      WANTA_HOST_CAPABILITY_TOKEN: "opaque-token",
+      WANTA_HOST_CAPABILITY_URL: "http://127.0.0.1:4321",
+    })
+  })
+
   it("exposes OOMOL authentication and the managed Node runtime to Skill commands", () => {
     const env = buildAgentSidecarEnv({
       accountName: "alwaysmavs",

@@ -39,6 +39,8 @@ test("permission helpers classify common request kinds", () => {
     permissionCommand(permission({ metadata: { command: "npm test" }, resources: ["Bash(npm test)"] })),
     "npm test",
   )
+  assert.equal(permissionCommand(permission({ metadata: { toolInput: { command: "pnpm test" } } })), "pnpm test")
+  assert.equal(permissionCommand(permission({ metadata: { rawInput: { command: "cargo test" } } })), "cargo test")
 })
 
 test("renderer permission helpers recognize likely project dev commands without Node-only imports", () => {
@@ -314,7 +316,22 @@ test("oo CLI permission requests are recognized for automatic approval", () => {
     true,
   )
   assert.equal(
+    isOoCliPermissionRequest(
+      permission({ metadata: { toolInput: { command: "oo connector apps --json 2>&1 | head -100" } } }),
+    ),
+    true,
+  )
+  assert.equal(
     isOoCliPermissionRequest(permission({ metadata: { command: 'oo search "metaso" --json && rm -rf /tmp/x' } })),
+    false,
+  )
+  assert.equal(
+    isOoCliPermissionRequest(permission({ metadata: { command: 'oo search "metaso" --json | tee /tmp/result' } })),
+    false,
+  )
+  assert.equal(isOoCliPermissionRequest(permission({ metadata: { command: "oo auth login" } })), false)
+  assert.equal(
+    isOoCliPermissionRequest(permission({ metadata: { command: "oo connector apps --connector-token secret" } })),
     false,
   )
 })

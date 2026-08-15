@@ -1,6 +1,41 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { buildContextMentionsSystem, buildPermissionModeSystem, buildResponseLanguageSystem } from "./context-system.ts"
+import {
+  buildContextMentionsSystem,
+  buildExternalPermissionModeSystem,
+  buildLinkRuntimeSystem,
+  buildPermissionModeSystem,
+  buildResponseLanguageSystem,
+} from "./context-system.ts"
+
+test("buildLinkRuntimeSystem binds raw OOMOL calls to the exact team", () => {
+  const prompt = buildLinkRuntimeSystem("oomol", 'Team "Quoted"') ?? ""
+
+  assert.match(prompt, /Current-turn Wanta Link workspace: team "Team \\"Quoted\\""/)
+  assert.match(prompt, /`wanta_link` MCP tools/)
+  assert.match(prompt, /do not invoke the raw `oo` CLI/)
+  assert.match(prompt, /--team "Team \\"Quoted\\""/)
+  assert.match(prompt, /never retry in a personal or default workspace/i)
+  assert.match(prompt, /does not prove that the current Wanta team is disconnected/)
+})
+
+test("buildLinkRuntimeSystem fails closed when OOMOL has no team identity", () => {
+  const prompt = buildLinkRuntimeSystem("oomol", undefined) ?? ""
+
+  assert.match(prompt, /no team workspace identity is available/)
+  assert.match(prompt, /Do not run `oo connector apps` or `oo connector run`/)
+  assert.match(prompt, /instead of falling back to a personal or default workspace/)
+})
+
+test("buildLinkRuntimeSystem keeps OpenConnector free of OOMOL selectors", () => {
+  const prompt = buildLinkRuntimeSystem("openconnector", "ignored-team") ?? ""
+
+  assert.match(prompt, /OpenConnector/)
+  assert.match(prompt, /`wanta_link` MCP tools/)
+  assert.match(prompt, /must omit `--team` and `--personal`/)
+  assert.doesNotMatch(prompt, /ignored-team/)
+  assert.equal(buildLinkRuntimeSystem("none", "ignored-team"), undefined)
+})
 
 test("buildContextMentionsSystem describes a pinned knowledge base without exposing a path", () => {
   const prompt = buildContextMentionsSystem([{ id: "kb-1", kind: "knowledge", name: "西游记" }]) ?? ""
@@ -61,6 +96,30 @@ test("buildPermissionModeSystem describes default access", () => {
   assert.match(prompt, /sensitive or consequential browser action/)
   assert.match(prompt, /Login, credentials, passkeys, and CAPTCHA are always manual/)
   assert.doesNotMatch(prompt, /user has enabled Full Access/)
+})
+
+test("buildExternalPermissionModeSystem preserves agent-native enforcement", () => {
+  const defaultPrompt = buildExternalPermissionModeSystem("default", true)
+  const fullAccessPrompt = buildExternalPermissionModeSystem("full_access", true)
+
+  assert.match(defaultPrompt, /Default Access through the external agent's native permission policy/)
+  assert.match(defaultPrompt, /will not silently answer it on the agent's behalf/)
+  assert.doesNotMatch(defaultPrompt, /Local permission requests are auto-approved/)
+  assert.match(fullAccessPrompt, /projected onto the external agent's native permission mode when supported/)
+  assert.match(fullAccessPrompt, /external agent runtime remains the enforcement authority/)
+  assert.doesNotMatch(fullAccessPrompt, /Local permission requests are auto-approved/)
+  assert.match(defaultPrompt, /`wanta_browser` MCP tools/)
+  assert.match(defaultPrompt, /sensitive or consequential browser action/)
+  assert.match(fullAccessPrompt, /visible integrated browser.*YOLO/)
+  assert.match(fullAccessPrompt, /Login, credentials, passkeys, and CAPTCHA remain manual/)
+})
+
+test("buildExternalPermissionModeSystem omits integrated browser guidance when unavailable", () => {
+  const defaultPrompt = buildExternalPermissionModeSystem("default", false)
+  const fullAccessPrompt = buildExternalPermissionModeSystem("full_access", false)
+
+  assert.doesNotMatch(defaultPrompt, /wanta_browser|integrated browser|visible browser/)
+  assert.doesNotMatch(fullAccessPrompt, /wanta_browser|integrated browser|visible browser/)
 })
 
 test("buildPermissionModeSystem describes full access", () => {

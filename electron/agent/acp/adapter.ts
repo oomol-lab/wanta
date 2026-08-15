@@ -8,6 +8,7 @@ import type {
   SetModelAgentInput,
 } from "../contract/input.ts"
 import type { AgentProfile } from "../contract/profile.ts"
+import type { HostMcpServerProvider } from "../external/host-mcp.ts"
 import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
 import type { ExternalAgentCatalog, ExternalAgentCatalogOption } from "../external/status.ts"
 import type { AcpAgentKind, AcpAgentRegistration } from "./registry.ts"
@@ -16,6 +17,7 @@ import type {
   ClientConnection,
   ContentBlock,
   InitializeResponse,
+  McpServer,
   PermissionOption,
   PromptResponse,
   RequestPermissionRequest,
@@ -33,6 +35,7 @@ import { pathToFileURL } from "node:url"
 import { errorMessage, logDiagnostic } from "../../diagnostics-log.ts"
 import { AGENT_PROFILES } from "../contract/profile.ts"
 import { ExternalAgentAdapter } from "../external/adapter-base.ts"
+import { externalAgentPromptText } from "../external/prompt.ts"
 import { externalSessionUuid } from "../external/session-id.ts"
 import { createAcpSessionTranslator } from "./translator.ts"
 
@@ -74,6 +77,8 @@ export interface AcpAdapterOptions {
   scratchRootDir: string
   /** Directory for persisted per-session transcripts; omitted = in-memory only. */
   transcriptDir?: string
+  /** Host-owned MCP capabilities resolved for the concrete Wanta session. */
+  hostMcpServers?: HostMcpServerProvider
   /**
    * Test seam: produce a connected ACP stream plus a dispose fn. The default
    * spawns the probed binary with registration.acpArgs over stdio.
@@ -276,8 +281,9 @@ function requestErrorCode(error: unknown): number | undefined {
  * which need a capability declaration), so the agent resolves the file with
  * its own tools regardless of what it advertised at initialize.
  */
-function promptContentBlocks(input: PromptAgentInput): ContentBlock[] {
-  const blocks: ContentBlock[] = [{ type: "text", text: input.text }]
+function promptContentBlocks(input: PromptAgentInput, restoredContext?: string): ContentBlock[] {
+  const text = externalAgentPromptText(input)
+  const blocks: ContentBlock[] = [{ type: "text", text: restoredContext ? `${restoredContext}\n\n${text}` : text }]
   for (const attachment of input.attachments ?? []) {
     const target = attachment.agentPath?.trim() || attachment.path
     blocks.push({
@@ -452,6 +458,10 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       }
       this.desiredSelections.set(input.sessionId, desired)
     }
+    const restoreContext =
+      !this.sessionsByWantaId.has(input.sessionId) && this.hasPersistedHistory(input.sessionId)
+        ? this.restoredConversationContext(input.sessionId)
+        : undefined
     const displayName = this.options.registration.displayName
     let handle: AcpConnectionHandle
     try {
@@ -462,6 +472,15 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       throw error instanceof Error ? error : new Error(message)
     }
     let session: AcpSessionState
+    if (this.sessionsByWantaId.has(input.sessionId)) {
+      try {
+        await this.options.hostMcpServers?.(input)
+      } catch (error) {
+        const message = `${displayName} could not refresh host capabilities: ${errorMessage(error)}`
+        this.emit({ event: "agentError", data: { sessionId: input.sessionId, message } })
+        throw new Error(message)
+      }
+    }
     try {
       session = await this.ensureAcpSession(handle, input)
     } catch (error) {
@@ -484,7 +503,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     session.activeTurn = turn
     const promptPromise = handle.connection.agent.request("session/prompt", {
       sessionId: session.acpSessionId,
-      prompt: promptContentBlocks(input),
+      prompt: promptContentBlocks(input, restoreContext),
     })
     this.trackTurn(session, turn, promptPromise, options?.signal)
     // Resolve on dispatch (submission ack); completion arrives as messageCompleted.
@@ -938,14 +957,15 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
 
   private async createAcpSession(handle: AcpConnectionHandle, input: PromptAgentInput): Promise<AcpSessionState> {
     const cwd = input.outputProjectRoot ?? (await this.ensureScratchDir(input.sessionId))
-    const response = await handle.connection.agent.request("session/new", { cwd, mcpServers: [] })
+    const mcpServers = await this.hostMcpServers(input)
+    const response = await handle.connection.agent.request("session/new", { cwd, mcpServers })
     const modes = response.modes ?? undefined
     const configSelects = parseSessionSelects(response)
     this.updateCatalogFromSelects(configSelects)
     const session: AcpSessionState = {
       wantaSessionId: input.sessionId,
       acpSessionId: response.sessionId,
-      translator: createAcpSessionTranslator(input.sessionId),
+      translator: createAcpSessionTranslator(input.sessionId, new Set(mcpServers.map((server) => server.name))),
       initialModeId: modes?.currentModeId,
       availableModeIds: (modes?.availableModes ?? []).map((mode) => mode.id),
       configSelects,
@@ -967,6 +987,16 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       await this.applyPermissionMode(input.sessionId, desiredMode).catch(() => undefined)
     }
     return session
+  }
+
+  private async hostMcpServers(input: PromptAgentInput): Promise<McpServer[]> {
+    const servers = await this.options.hostMcpServers?.(input)
+    return (servers ?? []).map((server) => ({
+      type: "http",
+      name: server.name,
+      url: server.url,
+      headers: Object.entries(server.headers).map(([name, value]) => ({ name, value })),
+    }))
   }
 
   /** Apply one axis over the select's wire channel; tolerates agents without that option. */
@@ -1092,6 +1122,10 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const metadata: Record<string, unknown> = {
       options: params.options,
       toolCallId: params.toolCall.toolCallId,
+    }
+    const wantaHostTool = session.translator.wantaHostToolForCall(params.toolCall.toolCallId)
+    if (wantaHostTool) {
+      metadata["wantaHostTool"] = wantaHostTool
     }
     if (params.toolCall.rawInput !== undefined) {
       metadata["rawInput"] = params.toolCall.rawInput

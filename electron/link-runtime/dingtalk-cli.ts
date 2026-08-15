@@ -201,6 +201,13 @@ export class DingTalkCliManager {
     return runtime
   }
 
+  /** Run a business command with Wanta's isolated connected identity. */
+  public async executeAgentCommand(args: string[]): Promise<{ stderr: string; stdout: string }> {
+    assertAgentCommand(args)
+    if (!(await this.agentRuntime())) throw new Error("DingTalk direct mode is not connected in Wanta.")
+    return this.runCommand(args, 2 * 60_000)
+  }
+
   private async connectNow(): Promise<DingTalkCliState> {
     const runtime = await this.availableRuntime()
     if (!runtime) throw new Error("The bundled DingTalk CLI runtime is unavailable.")
@@ -367,6 +374,16 @@ export class DingTalkCliManager {
   private setState(patch: Partial<DingTalkCliState>): void {
     this.state = { ...this.state, ...patch }
     this.stateChanged.emit(this.state)
+  }
+}
+
+function assertAgentCommand(args: string[]): void {
+  const normalized = args.map((arg) => arg.trim().toLowerCase())
+  const command = normalized.find((arg) => arg && !arg.startsWith("-"))
+  if (!command) throw new Error("A DingTalk CLI command is required.")
+  const forbidden = normalized.find((arg) => ["auth", "config", "completion", "update", "upgrade"].includes(arg))
+  if (forbidden) {
+    throw new Error(`DingTalk CLI administration is not available to agents: ${forbidden}`)
   }
 }
 

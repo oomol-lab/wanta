@@ -47,6 +47,10 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
     this.emit(event)
   }
 
+  public restoredContextForTest(sessionId: string, maxCharacters: number): string | undefined {
+    return this.restoredConversationContext(sessionId, maxCharacters)
+  }
+
   public runtimeStatus(): Promise<ExternalAgentRuntimeStatus> {
     return Promise.resolve({
       kind: "claude-code",
@@ -97,6 +101,12 @@ function assistantTurn(sessionId: string, messageId: string, text: string): Agen
 function transcriptPath(transcriptDir: string, sessionId: string): string {
   return path.join(transcriptDir, `${externalSessionUuid(sessionId) ?? encodeURIComponent(sessionId)}.json`)
 }
+
+it("omits an oversized newest message from restored conversation context", () => {
+  const adapter = new FakeExternalAdapter({})
+  for (const event of assistantTurn(SESSION_A, "oversized", "x".repeat(200))) adapter.emitForTest(event)
+  expect(adapter.restoredContextForTest(SESSION_A, 100)).toBeUndefined()
+})
 
 async function writeTranscriptFile(transcriptDir: string, sessionId: string, content: string): Promise<void> {
   await writeFile(transcriptPath(transcriptDir, sessionId), content, "utf8")

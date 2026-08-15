@@ -159,7 +159,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
   onBeforeDisclosure,
   onViewBilling,
 }: ChatTurnViewProps) {
-  const timelineSegments = segmentAssistantTimeline(turn.assistants)
+  const timelineSegments = segmentAssistantTimeline(turn.assistants, { activeAssistantMessageId })
   const responseBlocks = timelineSegments
     .filter((segment) => segment.kind === "response")
     .flatMap((segment) => segment.blocks)

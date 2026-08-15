@@ -27,11 +27,13 @@ export class OpencodeAgentAdapter extends BaseAgentAdapter {
   public readonly profile = AGENT_PROFILES.opencode
 
   private readonly manager: AgentManager
+  private readonly prepareHostContext?: (input: PromptAgentInput) => Promise<void>
   private detachManagerEvents: (() => void) | null = null
 
-  public constructor(manager: AgentManager) {
+  public constructor(manager: AgentManager, prepareHostContext?: (input: PromptAgentInput) => Promise<void>) {
     super()
     this.manager = manager
+    this.prepareHostContext = prepareHostContext
   }
 
   protected async handleStart(): Promise<void> {
@@ -57,6 +59,7 @@ export class OpencodeAgentAdapter extends BaseAgentAdapter {
   }
 
   protected async handlePrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
+    await this.prepareHostContext?.(input)
     await this.manager.promptStreaming(input.sessionId, input.text, {
       attachments: input.attachments,
       mode: input.mode,

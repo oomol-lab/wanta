@@ -33,6 +33,20 @@ function questionPart(partId: string): ChatMessagePart {
 }
 
 describe("assistantTimelineBlocks", () => {
+  it("hides persisted Codex skill-budget runtime notices", () => {
+    const blocks = assistantTimelineBlocks([
+      message("warning", [
+        textPart(
+          "warning:text",
+          "Warning: Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill.",
+        ),
+      ]),
+      message("answer", [textPart("answer:text", "Working on it.")]),
+    ])
+
+    expect(blocks.map(({ message }) => message.id)).toEqual(["answer"])
+  })
+
   it("keeps tool and feedback text blocks in assistant message order", () => {
     const blocks = assistantTimelineBlocks([
       message("a1", [toolPart("tool-1"), textPart("text-1", "first feedback")]),
@@ -112,6 +126,15 @@ describe("assistantTimelineBlocks", () => {
         segment.blocks.map(({ block }) => (block.kind === "text" ? block.part.partId : block.kind)),
       ),
     ).toEqual(["response-1"])
+  })
+
+  it("keeps short active ACP narration in processing before its tool call arrives", () => {
+    const active = message("a1", [textPart("progress-1", "I will inspect the PostHog project first.")])
+
+    expect(
+      segmentAssistantTimeline([active], { activeAssistantMessageId: active.id }).map((segment) => segment.kind),
+    ).toEqual(["process"])
+    expect(segmentAssistantTimeline([active]).map((segment) => segment.kind)).toEqual(["response"])
   })
 
   it("keeps a long structured plan visible before later tools", () => {

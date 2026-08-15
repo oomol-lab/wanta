@@ -118,6 +118,37 @@ describe("createClaudeTurnTranslator", () => {
     expect(translator.translate(blockDelta(1, { type: "input_json_delta", partial_json: '{"command":' }))).toEqual([])
   })
 
+  it("projects Wanta Link MCP calls as native connector tools", () => {
+    const translator = createClaudeTurnTranslator(sessionId)
+    translator.translate(messageStart("msg_1"))
+
+    expect(
+      translator.translate(
+        blockStart(1, {
+          type: "tool_use",
+          id: "toolu_link",
+          name: "mcp__wanta_link__call_action",
+          // Streaming starts before the SDK has delivered the complete JSON;
+          // the authoritative assistant frame upserts the real input later.
+          input: {},
+        }),
+      ),
+    ).toEqual([
+      {
+        event: "toolCallStarted",
+        data: {
+          sessionId,
+          messageId: "msg_1",
+          partId: "toolu_link",
+          callId: "toolu_link",
+          tool: "call_action",
+          input: {},
+          status: "running",
+        },
+      },
+    ])
+  })
+
   it("pairs tool results with the recorded start: partId, messageId, tool, and input correlate", () => {
     const translator = createClaudeTurnTranslator(sessionId)
     translator.translate(messageStart("msg_1"))

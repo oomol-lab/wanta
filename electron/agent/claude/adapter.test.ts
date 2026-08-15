@@ -1,5 +1,6 @@
 import type { AgentEvent } from "../contract/event.ts"
 import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
+import type { ClaudeCodeAdapterOptions } from "./adapter.ts"
 import type {
   Options,
   PermissionUpdate,
@@ -137,7 +138,7 @@ const startedAdapters: ClaudeCodeAgentAdapter[] = []
 
 async function createHarness(
   status: ExternalAgentRuntimeStatus = detectedStatus(),
-  extras: { transcriptDir?: string } = {},
+  extras: { hostMcpServers?: ClaudeCodeAdapterOptions["hostMcpServers"]; transcriptDir?: string } = {},
 ) {
   const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-claude-adapter-test-"))
   scratchDirs.push(scratchRootDir)
@@ -148,6 +149,7 @@ async function createHarness(
     scratchRootDir,
     commandPath: () => Promise.resolve("/fake/path-bin"),
     queryFn,
+    hostMcpServers: extras.hostMcpServers,
     ...(extras.transcriptDir ? { transcriptDir: extras.transcriptDir } : {}),
   })
   await adapter.start()
@@ -228,6 +230,47 @@ describe("ClaudeCodeAgentAdapter", () => {
       {
         type: "text",
         text: "The user attached the following files for this message. Read them as needed:\n- /tmp/notes.md\n- /tmp/assets (directory)",
+      },
+    ])
+  })
+
+  it("registers Wanta host MCP servers on the native Claude session", async () => {
+    const { adapter, calls } = await createHarness(detectedStatus(), {
+      hostMcpServers: async () => [
+        {
+          name: "wanta_link",
+          url: "http://127.0.0.1:4321/mcp",
+          headers: { Authorization: "Bearer opaque-token" },
+        },
+      ],
+    })
+    await adapter.send({ type: "prompt", sessionId, text: "query PostHog" })
+
+    expect(calls[0].options.strictMcpConfig).toBeUndefined()
+    expect(calls[0].options.mcpServers).toEqual({
+      wanta_link: {
+        type: "http",
+        url: "http://127.0.0.1:4321/mcp",
+        headers: { Authorization: "Bearer opaque-token" },
+        alwaysLoad: true,
+      },
+    })
+  })
+
+  it("places dynamic Wanta host context before the user request", async () => {
+    const { adapter, calls } = await createHarness()
+    await adapter.send({
+      type: "prompt",
+      sessionId,
+      text: "query PostHog",
+      system: 'Current-turn Wanta Link workspace: team "team-a".',
+    })
+
+    await vi.waitFor(() => expect(calls[0].fake.promptMessages).toHaveLength(1))
+    expect(calls[0].fake.promptMessages[0].message.content).toEqual([
+      {
+        type: "text",
+        text: '<wanta_host_context>\nThe following context is supplied by Wanta for this turn and is authoritative for Wanta-managed capabilities.\nCurrent-turn Wanta Link workspace: team "team-a".\n</wanta_host_context>\n\n<user_request>\nquery PostHog\n</user_request>',
       },
     ])
   })
@@ -375,7 +418,7 @@ describe("ClaudeCodeAgentAdapter", () => {
       { type: "addRules", rules: [{ toolName: "Bash" }], behavior: "allow", destination: "session" },
     ]
 
-    // "once" => plain allow.
+    // "once" => allow while preserving the SDK tool input.
     const oncePromise = canUseTool!(
       "Bash",
       { command: "ls -la" },
@@ -407,7 +450,7 @@ describe("ClaudeCodeAgentAdapter", () => {
       },
     })
     await adapter.send({ type: "permission-response", sessionId, requestId: "req-1", reply: "once" })
-    await expect(oncePromise).resolves.toEqual({ behavior: "allow" })
+    await expect(oncePromise).resolves.toEqual({ behavior: "allow", updatedInput: { command: "ls -la" } })
     expect(events.some((event) => event.event === "permissionReplied" && event.data.requestId === "req-1")).toBe(true)
 
     // "always" => allow with the SDK's suggested permission updates.
@@ -422,9 +465,13 @@ describe("ClaudeCodeAgentAdapter", () => {
       },
     )
     await adapter.send({ type: "permission-response", sessionId, requestId: "req-2", reply: "always" })
-    await expect(alwaysPromise).resolves.toEqual({ behavior: "allow", updatedPermissions: suggestions })
+    await expect(alwaysPromise).resolves.toEqual({
+      behavior: "allow",
+      updatedInput: { file_path: "/tmp/a", extra: 1 },
+      updatedPermissions: suggestions,
+    })
 
-    // "always" without suggestions omits updatedPermissions entirely.
+    // "always" without suggestions still preserves the SDK tool input.
     const bareAlwaysPromise = canUseTool!(
       "Read",
       { file_path: "/tmp/b" },
@@ -436,8 +483,8 @@ describe("ClaudeCodeAgentAdapter", () => {
     )
     await adapter.send({ type: "permission-response", sessionId, requestId: "req-3", reply: "always" })
     const bareAlways = await bareAlwaysPromise
-    expect(bareAlways).toEqual({ behavior: "allow" })
-    expect(Object.keys(bareAlways ?? {})).toEqual(["behavior"])
+    expect(bareAlways).toEqual({ behavior: "allow", updatedInput: { file_path: "/tmp/b" } })
+    expect(Object.keys(bareAlways ?? {})).toEqual(["behavior", "updatedInput"])
 
     // "reject" => deny with the user-facing decline message.
     const rejectPromise = canUseTool!(
@@ -453,6 +500,46 @@ describe("ClaudeCodeAgentAdapter", () => {
     await expect(rejectPromise).resolves.toEqual({
       behavior: "deny",
       message: "The user declined this action in Wanta.",
+    })
+  })
+
+  it("auto-allows Claude Skill loading without surfacing a permission card", async () => {
+    const { adapter, events, calls } = await createHarness()
+    await adapter.send({ type: "prompt", sessionId, text: "use the PostHog skill" })
+    const canUseTool = calls[0].options.canUseTool
+
+    await expect(
+      canUseTool!(
+        "Skill",
+        { skill: "oo-posthog", args: "analyze this week" },
+        { signal: new AbortController().signal, requestId: "req-skill", toolUseID: "toolu-skill" },
+      ),
+    ).resolves.toEqual({
+      behavior: "allow",
+      updatedInput: { skill: "oo-posthog", args: "analyze this week" },
+    })
+    expect(events.some((event) => event.event === "permissionAsked")).toBe(false)
+  })
+
+  it("marks Claude Wanta MCP permission requests as host-owned", async () => {
+    const { adapter, events, calls } = await createHarness()
+    await adapter.send({ type: "prompt", sessionId, text: "load a Wanta skill" })
+    const canUseTool = calls[0].options.canUseTool
+    const permission = canUseTool!(
+      "mcp__wanta_skills__load_skill",
+      { skill_id: "oo-posthog" },
+      { signal: new AbortController().signal, requestId: "req-host", toolUseID: "toolu-host" },
+    )
+
+    const asked = findPermissionAsked(events)
+    expect(asked?.data.request.metadata).toMatchObject({
+      wantaHostTool: "load_skill",
+      toolInput: { skill_id: "oo-posthog" },
+    })
+    await adapter.send({ type: "permission-response", sessionId, requestId: "req-host", reply: "once" })
+    await expect(permission).resolves.toEqual({
+      behavior: "allow",
+      updatedInput: { skill_id: "oo-posthog" },
     })
   })
 

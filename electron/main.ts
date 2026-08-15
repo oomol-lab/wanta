@@ -1,3 +1,5 @@
+import type { DirectCliProvider } from "./agent/direct-cli-host-capability.ts"
+import type { LinkCapabilityRuntime } from "./agent/link-capability.ts"
 import type { AppCommand } from "./app-command.ts"
 import type { AppLocale } from "./app-locale.ts"
 import type { AuthRuntimeAccount } from "./auth/store.ts"
@@ -18,6 +20,7 @@ import {
   session,
   shell,
 } from "electron"
+import { createHash } from "node:crypto"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { AgentRefreshScheduler } from "./agent-refresh-scheduler.ts"
@@ -44,11 +47,27 @@ import {
   resolveDevDingTalkCliBin,
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
+import { BROWSER_CAPABILITY_ID, createBrowserHostCapability } from "./agent/browser-host-capability.ts"
+import { createDirectCliHostCapability, DIRECT_CLI_CAPABILITY_ID } from "./agent/direct-cli-host-capability.ts"
 import { createExternalAgents } from "./agent/external/create.ts"
 import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
+import { HostCapabilityInvokeServer } from "./agent/host-capability-invoke-server.ts"
+import { HostCapabilityServer } from "./agent/host-capability-server.ts"
+import { HostCapabilityKernel } from "./agent/host-capability.ts"
+import { HostQuestionBroker } from "./agent/host-question-broker.ts"
+import { createKnowledgeHostCapability, KNOWLEDGE_CAPABILITY_ID } from "./agent/knowledge-host-capability.ts"
+import { LinkCapability } from "./agent/link-capability.ts"
+import { createLinkHostCapability, LINK_CAPABILITY_ID, LINK_RUNTIME_BINDING } from "./agent/link-host-capability.ts"
 import { AgentManager } from "./agent/manager.ts"
 import { OpencodeAgentAdapter } from "./agent/opencode-adapter.ts"
+import { createQuestionHostCapability, QUESTION_CAPABILITY_ID } from "./agent/question-host-capability.ts"
 import { AgentRetirementPool } from "./agent/retirement.ts"
+import {
+  createSkillHostCapability,
+  SKILL_CAPABILITY_ID,
+  SKILL_SNAPSHOT_BINDING,
+} from "./agent/skill-host-capability.ts"
+import { SkillRegistry } from "./agent/skill-registry.ts"
 import { APP_COMMAND_CHANNEL, APP_COMMANDS } from "./app-command.ts"
 import { APP_LOCALE_CHANNEL, isAppLocale, normalizeAppLocale } from "./app-locale.ts"
 import { ArtifactResourceLeaseStore } from "./artifact-resource/lease-store.ts"
@@ -78,6 +97,7 @@ import { parseConnectionOAuthCallback } from "./connections/domain.ts"
 import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./diagnostics-log.ts"
 import { GitServiceImpl } from "./git/node.ts"
 import { KnowledgeServiceImpl } from "./knowledge/node.ts"
+import { WikiGraphQueryRunner } from "./knowledge/query-runner.ts"
 import { DingTalkCliManager } from "./link-runtime/dingtalk-cli.ts"
 import { LarkCliManager } from "./link-runtime/lark-cli.ts"
 import { LinkRuntimeManager, LinkRuntimeServiceImpl } from "./link-runtime/node.ts"
@@ -210,14 +230,65 @@ const authStore = new AuthStore(app.getPath("userData"))
 const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
 const sessionMetadataStore = new SessionMetadataStore(app.getPath("userData"))
 const externalSessionStore = new ExternalSessionStore(app.getPath("userData"))
-// External (BYOA) adapters are app-lifetime and independent of the OOMOL account
-// runtime: their models and auth belong to the agent CLIs themselves.
-const externalAgents = createExternalAgents({
-  appRoot,
-  isPackaged: app.isPackaged,
-  resourcesPath: process.resourcesPath,
-  scratchRootDir: path.join(app.getPath("userData"), "agent-external"),
+let activeLinkCapabilityRuntime: LinkCapabilityRuntime | null = null
+let activeLinkCapabilityScope: string | null = null
+let directRuntimeCache:
+  | Promise<
+      readonly [
+        Awaited<ReturnType<LarkCliManager["agentRuntime"]>>,
+        Awaited<ReturnType<WecomCliManager["agentRuntime"]>>,
+        Awaited<ReturnType<DingTalkCliManager["agentRuntime"]>>,
+      ]
+    >
+  | undefined
+
+function directRuntimes() {
+  directRuntimeCache ??= Promise.all([
+    larkCliManager.agentRuntime(),
+    wecomCliManager.agentRuntime(),
+    dingTalkCliManager.agentRuntime(),
+  ] as const).catch((error: unknown) => {
+    directRuntimeCache = undefined
+    throw error
+  })
+  return directRuntimeCache
+}
+const linkCapability = new LinkCapability({
+  ooBinPath,
+  runtime: () => activeLinkCapabilityRuntime,
+  storeDir: path.join(app.getPath("userData"), "agent-external", "link-oo-store"),
 })
+const hostCapabilityKernel = new HostCapabilityKernel({
+  onAudit: (record) => logDiagnostic("host-capability", "tool call", { ...record }),
+})
+const hostQuestionBroker = new HostQuestionBroker()
+hostCapabilityKernel.register(createLinkHostCapability(linkCapability))
+hostCapabilityKernel.register(createSkillHostCapability())
+hostCapabilityKernel.register(createKnowledgeHostCapability(new WikiGraphQueryRunner(wikiGraphStateDir)))
+hostCapabilityKernel.register(createQuestionHostCapability(hostQuestionBroker))
+hostCapabilityKernel.register(
+  createDirectCliHostCapability({
+    connected: async () => {
+      const runtimes = await directRuntimes()
+      return (["lark", "wecom", "dingtalk"] as DirectCliProvider[]).filter((_provider, index) =>
+        Boolean(runtimes[index]),
+      )
+    },
+    execute: (provider, args) => {
+      if (provider === "lark") return larkCliManager.executeAgentCommand(args)
+      if (provider === "wecom") return wecomCliManager.executeAgentCommand(args)
+      return dingTalkCliManager.executeAgentCommand(args)
+    },
+  }),
+)
+const linkCapabilityServer = new HostCapabilityServer({
+  capabilityIds: [LINK_CAPABILITY_ID],
+  instructions: "Wanta host capabilities are session-scoped. Never infer or replace their account identity.",
+  kernel: hostCapabilityKernel,
+  name: "wanta_link",
+  version: "1.0.0",
+})
+const builtInHostInvokeServer = new HostCapabilityInvokeServer(hostCapabilityKernel, [LINK_CAPABILITY_ID])
 const sessionProjectStore = new SessionProjectStore(app.getPath("userData"))
 const artifactBundleStore = new ArtifactBundleStore(app.getPath("userData"))
 const authorizationOverlayStore = new AuthorizationOverlayStore(app.getPath("userData"))
@@ -235,10 +306,123 @@ const browserManager = new BrowserManager({
 })
 const browserService = new BrowserServiceImpl(browserManager)
 const browserControlServer = new BrowserControlServer(browserManager)
+hostCapabilityKernel.register(createBrowserHostCapability(browserManager))
+const browserCapabilityServer = new HostCapabilityServer({
+  capabilityIds: [BROWSER_CAPABILITY_ID],
+  instructions: "Wanta host capabilities are session-scoped. Never infer or replace their session identity.",
+  kernel: hostCapabilityKernel,
+  name: "wanta_browser",
+  version: "1.0.0",
+})
+const baseSkillSources = [
+  {
+    id: "wanta-managed",
+    kind: "managed" as const,
+    root: path.join(app.getPath("userData"), "agent", "workspace", ".opencode", "skills"),
+  },
+  { id: "wanta-bundled", kind: "bundled" as const, root: bundledSkillsDir },
+]
+const skillRegistry = new SkillRegistry(baseSkillSources)
+const skillCapabilityServer = new HostCapabilityServer({
+  capabilityIds: [SKILL_CAPABILITY_ID],
+  instructions: "Skill files are host-owned and immutable to the agent. Use only the current-turn snapshot.",
+  kernel: hostCapabilityKernel,
+  name: "wanta_skills",
+  version: "1.0.0",
+})
+const knowledgeCapabilityServer = new HostCapabilityServer({
+  capabilityIds: [KNOWLEDGE_CAPABILITY_ID],
+  instructions: "Knowledge access is read-only and restricted to Wanta's managed WikiGraph library.",
+  kernel: hostCapabilityKernel,
+  name: "wanta_knowledge",
+  version: "1.0.0",
+})
+const questionCapabilityServer = new HostCapabilityServer({
+  capabilityIds: [QUESTION_CAPABILITY_ID],
+  instructions: "Structured questions are session-bound and block until the user responds in Wanta.",
+  kernel: hostCapabilityKernel,
+  name: "wanta_question",
+  version: "1.0.0",
+})
+const directCliCapabilityServer = new HostCapabilityServer({
+  capabilityIds: [DIRECT_CLI_CAPABILITY_ID],
+  instructions: "Direct-provider credentials and configuration remain inside Wanta's managed runtimes.",
+  kernel: hostCapabilityKernel,
+  name: "wanta_direct",
+  version: "1.0.0",
+})
+// External (BYOA) adapters are app-lifetime and independent of the OOMOL account
+// runtime: their models and auth belong to the agent CLIs themselves. Host
+// capabilities are issued per Wanta session and keep identity in main.
+const externalAgents = createExternalAgents({
+  appRoot,
+  isPackaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  scratchRootDir: path.join(app.getPath("userData"), "agent-external"),
+  hostMcpServers: async (input) => {
+    const [larkRuntime, wecomRuntime, dingTalkRuntime] = await directRuntimes()
+    const directSkillSources = [
+      ...(larkRuntime ? [{ id: "direct-lark", kind: "connection" as const, root: larkRuntime.skillsDir }] : []),
+      ...(wecomRuntime ? [{ id: "direct-wecom", kind: "connection" as const, root: wecomRuntime.skillsDir }] : []),
+      ...(dingTalkRuntime
+        ? [{ id: "direct-dingtalk", kind: "connection" as const, root: dingTalkRuntime.skillsDir }]
+        : []),
+    ]
+    const skillSnapshot =
+      directSkillSources.length > 0
+        ? await new SkillRegistry([...baseSkillSources, ...directSkillSources]).snapshot()
+        : await skillRegistry.snapshot()
+    const context = {
+      bindings: {},
+      sessionId: input.sessionId,
+      ...(input.messageId ? { turnId: input.messageId } : {}),
+      ...(input.teamName ? { teamName: input.teamName } : {}),
+      ...(input.outputProjectRoot ? { projectRoot: input.outputProjectRoot } : {}),
+      ...(input.artifactDir ? { artifactDir: input.artifactDir } : {}),
+      ...(input.processDir ? { processDir: input.processDir } : {}),
+    }
+    const servers = []
+    servers.push(
+      await skillCapabilityServer.issue({
+        ...context,
+        bindings: { [SKILL_SNAPSHOT_BINDING]: skillSnapshot },
+      }),
+    )
+    servers.push(await knowledgeCapabilityServer.issue(context))
+    servers.push(await questionCapabilityServer.issue(context))
+    if (directSkillSources.length > 0) {
+      servers.push(
+        await directCliCapabilityServer.issue({
+          ...context,
+          bindings: { [SKILL_SNAPSHOT_BINDING]: skillSnapshot },
+        }),
+      )
+    } else {
+      directCliCapabilityServer.disableSession(input.sessionId)
+    }
+    if (settingsStore.read().browserEnabled !== false) {
+      servers.push(await browserCapabilityServer.issue(context))
+    } else {
+      browserCapabilityServer.disableSession(input.sessionId)
+    }
+    if (activeLinkCapabilityRuntime) {
+      servers.push(
+        await linkCapabilityServer.issue({
+          ...context,
+          bindings: { [LINK_RUNTIME_BINDING]: activeLinkCapabilityRuntime },
+        }),
+      )
+    } else {
+      linkCapabilityServer.disableSession(input.sessionId)
+    }
+    return servers
+  },
+})
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 团队作用域同步，
 // 经 ChatService.setAgentTeam → onSetAgentTeam 回调（渲染层切 workspace 时调用）。
 const chatService = new ChatServiceImpl(null, {
   browserAvailable: () => settingsStore.read().browserEnabled !== false,
+  hostQuestions: hostQuestionBroker,
   bugReportRuntime: {
     appCommit: typeof __APP_COMMIT__ === "string" ? __APP_COMMIT__ : "unknown",
     appVersion: app.getVersion(),
@@ -276,6 +460,16 @@ const sessionService = new SessionServiceImpl(null, {
     if (externalKind) {
       externalAgents.get(externalKind)?.forgetSession(sessionId)
     }
+    await Promise.all([
+      linkCapabilityServer.revokeSession(sessionId),
+      browserCapabilityServer.revokeSession(sessionId),
+      skillCapabilityServer.revokeSession(sessionId),
+      knowledgeCapabilityServer.revokeSession(sessionId),
+      questionCapabilityServer.revokeSession(sessionId),
+      directCliCapabilityServer.revokeSession(sessionId),
+    ])
+    builtInHostInvokeServer.disableSession(sessionId)
+    hostQuestionBroker.cancelSession(sessionId)
     await browserManager.removeSession(sessionId)
     await chatService.forgetSession(sessionId).catch((error: unknown) => {
       console.warn("[wanta] failed to clear removed session chat state", error)
@@ -327,20 +521,29 @@ const linkRuntimeManager = new LinkRuntimeManager({
 const larkCliManager = new LarkCliManager({
   bundledBinaryPath: bundledLarkCliBinPath,
   bundledSkillsDir: bundledLarkSkillsDir,
-  onRuntimeChanged: () => agentRefreshScheduler.schedule("Lark CLI runtime changed", 0),
+  onRuntimeChanged: () => {
+    directRuntimeCache = undefined
+    return agentRefreshScheduler.schedule("Lark CLI runtime changed", 0)
+  },
   openExternalUrl,
   rootDir: path.join(app.getPath("userData"), "lark-cli"),
 })
 const wecomCliManager = new WecomCliManager({
   binaryPath: bundledWecomCliBinPath,
-  onRuntimeChanged: () => agentRefreshScheduler.schedule("WeCom CLI connection changed", 0),
+  onRuntimeChanged: () => {
+    directRuntimeCache = undefined
+    return agentRefreshScheduler.schedule("WeCom CLI connection changed", 0)
+  },
   openExternalUrl,
   rootDir: path.join(app.getPath("userData"), "wecom-cli"),
   skillsDir: bundledWecomSkillsDir,
 })
 const dingTalkCliManager = new DingTalkCliManager({
   binaryPath: bundledDingTalkCliBinPath,
-  onRuntimeChanged: () => agentRefreshScheduler.schedule("DingTalk CLI connection changed", 0),
+  onRuntimeChanged: () => {
+    directRuntimeCache = undefined
+    return agentRefreshScheduler.schedule("DingTalk CLI connection changed", 0)
+  },
   openExternalUrl,
   rootDir: path.join(app.getPath("userData"), "dingtalk-cli"),
   skillsDir: bundledDingTalkSkillsDir,
@@ -577,6 +780,18 @@ function reapAgentForShutdown(): Promise<void> {
         ),
       )
     })
+    await runBoundedShutdownStep("dispose host capability servers", async () => {
+      await Promise.all([
+        linkCapabilityServer.dispose(),
+        browserCapabilityServer.dispose(),
+        skillCapabilityServer.dispose(),
+        knowledgeCapabilityServer.dispose(),
+        questionCapabilityServer.dispose(),
+        directCliCapabilityServer.dispose(),
+      ])
+    })
+    await runBoundedShutdownStep("dispose built-in host invoke server", () => builtInHostInvokeServer.dispose())
+    hostQuestionBroker.dispose()
     await runBoundedShutdownStep("dispose spreadsheet preview worker", () => spreadsheetPreviewWorker.dispose())
     await runBoundedShutdownStep("dispose browser control server", () => browserControlServer.dispose())
     await runBoundedShutdownStep("dispose integrated browser", () => browserManager.dispose())
@@ -724,6 +939,20 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
         ? { kind: "oomol" as const, sessionToken: account.sessionToken, teamName: activeAgentTeamName }
         : null
       : await linkRuntimeManager.openConnectorRuntime()
+  const nextLinkCapabilityScope = linkRuntime
+    ? linkRuntime.kind === "oomol"
+      ? `oomol:${account?.id ?? "signed-out"}`
+      : `openconnector:${linkRuntime.baseUrl}:${createHash("sha256")
+          .update(linkRuntime.runtimeToken ?? "anonymous")
+          .digest("hex")
+          .slice(0, 16)}`
+    : null
+  if (nextLinkCapabilityScope !== activeLinkCapabilityScope) {
+    linkCapabilityServer.disableAll()
+    builtInHostInvokeServer.disableAll()
+  }
+  activeLinkCapabilityScope = nextLinkCapabilityScope
+  activeLinkCapabilityRuntime = linkRuntime ? { accountName: account?.name, linkRuntime } : null
   chatService.setLinkRuntime(linkRuntime?.kind ?? "none")
   // 冷启动 deep-link、模型事件与 auth 广播可能重复触发；运行时身份和配置版本均未变化时短路。
   if (
@@ -794,6 +1023,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     new AgentManager({
       accountName: account?.name,
       browserControl: browserControlConnection,
+      hostCapability: () => builtInHostInvokeServer.connection(),
       defaultModel: runtime.defaultModel,
       linkRuntime,
       modelAccess: runtime.modelAccess,
@@ -824,6 +1054,21 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
       rootDir: path.join(app.getPath("userData"), "agent"),
       customModels: runtimeModels.customModels,
     }),
+    async (input) => {
+      if (!activeLinkCapabilityRuntime) {
+        builtInHostInvokeServer.disableSession(input.sessionId)
+        return
+      }
+      builtInHostInvokeServer.update({
+        bindings: { [LINK_RUNTIME_BINDING]: activeLinkCapabilityRuntime },
+        sessionId: input.sessionId,
+        ...(input.messageId ? { turnId: input.messageId } : {}),
+        ...(input.teamName ? { teamName: input.teamName } : {}),
+        ...(input.outputProjectRoot ? { projectRoot: input.outputProjectRoot } : {}),
+        ...(input.artifactDir ? { artifactDir: input.artifactDir } : {}),
+        ...(input.processDir ? { processDir: input.processDir } : {}),
+      })
+    },
   )
   agent = nextAgent
   chatService.setAgent(nextAgent)

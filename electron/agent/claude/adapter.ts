@@ -7,6 +7,7 @@ import type {
   SetEffortAgentInput,
   SetModelAgentInput,
 } from "../contract/input.ts"
+import type { HostMcpServerProvider } from "../external/host-mcp.ts"
 import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
 import type { ExternalAgentCatalog } from "../external/status.ts"
 import type {
@@ -25,6 +26,7 @@ import { resolveUserCommandPath } from "../../command-path.ts"
 import { errorMessage, logDiagnostic } from "../../diagnostics-log.ts"
 import { AGENT_PROFILES, agentLoginHint } from "../contract/profile.ts"
 import { ExternalAgentAdapter } from "../external/adapter-base.ts"
+import { externalAgentPromptText } from "../external/prompt.ts"
 import { externalSessionUuid } from "../external/session-id.ts"
 import { createClaudeTurnTranslator, isLocalCommandText } from "./translator.ts"
 
@@ -49,6 +51,8 @@ export interface ClaudeCodeAdapterOptions {
   scratchRootDir: string
   /** Directory for persisted per-session transcripts; omitted = in-memory only. */
   transcriptDir?: string
+  /** Host-owned MCP capabilities resolved for the concrete Wanta session. */
+  hostMcpServers?: HostMcpServerProvider
   /** Resolves the merged user PATH for the subprocess env (electron/command-path.ts resolveUserCommandPath by default). */
   commandPath?: () => Promise<string>
   /** Test seam: the SDK query function. Defaults to the real `query` from @anthropic-ai/claude-agent-sdk. */
@@ -119,6 +123,7 @@ interface ClaudeSessionState {
 interface PendingSdkPermission {
   sessionId: string
   suggestions: PermissionUpdate[] | undefined
+  toolInput: Record<string, unknown>
   settle: (result: PermissionResult, emitReplied: boolean) => void
 }
 
@@ -138,6 +143,16 @@ function salientResources(toolInput: Record<string, unknown>): string[] {
     }
   }
   return resources
+}
+
+/**
+ * Claude exposes Wanta MCP calls as `mcp__<server>__<tool>`. Keep this
+ * deliberately narrow so only tools from Wanta's generated host servers can
+ * skip the redundant external-agent transport prompt.
+ */
+function wantaHostToolName(toolName: string): string | undefined {
+  const match = /^mcp__wanta_[a-z0-9_-]+__([a-z0-9_-]+)$/u.exec(toolName)
+  return match?.[1]
 }
 
 function sdkPermissionMode(
@@ -215,6 +230,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
   private readonly probe: () => Promise<ExternalAgentRuntimeStatus>
   private readonly scratchRootDir: string
   private readonly commandPath: () => Promise<string>
+  private readonly hostMcpServers?: HostMcpServerProvider
   private readonly queryFn: typeof query
 
   private readonly sessions = new Map<string, ClaudeSessionState>()
@@ -241,6 +257,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     this.probe = options.probe
     this.scratchRootDir = options.scratchRootDir
     this.commandPath = options.commandPath ?? (() => resolveUserCommandPath())
+    this.hostMcpServers = options.hostMcpServers
     this.queryFn = options.queryFn ?? query
   }
 
@@ -288,6 +305,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         })
       })
     }
+    if (this.sessions.has(input.sessionId)) await this.hostMcpServers?.(input)
     const session = await this.ensureSession(input)
     if (options?.signal?.aborted) {
       return
@@ -296,7 +314,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     // Attachments ride as a separate text block of path references: the CLI's
     // own file tools resolve them (Read handles images too), which keeps large
     // files out of the prompt payload and inside the agent's permission model.
-    const content: Array<{ type: "text"; text: string }> = [{ type: "text", text: input.text }]
+    const content: Array<{ type: "text"; text: string }> = [{ type: "text", text: externalAgentPromptText(input) }]
     if (input.attachments?.length) {
       content.push({ type: "text", text: attachmentPathNote(input.attachments) })
     }
@@ -333,12 +351,13 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     }
     switch (input.reply) {
       case "once":
-        pending.settle({ behavior: "allow" }, true)
+        pending.settle({ behavior: "allow", updatedInput: pending.toolInput }, true)
         return
       case "always":
         pending.settle(
           {
             behavior: "allow",
+            updatedInput: pending.toolInput,
             ...(pending.suggestions !== undefined ? { updatedPermissions: pending.suggestions } : {}),
           },
           true,
@@ -659,6 +678,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       await mkdir(cwd, { recursive: true })
     }
     const commandPathValue = await this.commandPath()
+    const hostMcpServers = await this.hostMcpServers?.(input)
     const inputQueue = new AsyncInputQueue<SDKUserMessage>()
     const abortController = new AbortController()
     const stderrTail: string[] = []
@@ -670,6 +690,16 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         // Options.env REPLACES the subprocess env entirely (verified against
         // sdk.d.ts 0.3.226), so the current env is spread in explicitly.
         env: { ...process.env, PATH: commandPathValue },
+        ...(hostMcpServers?.length
+          ? {
+              mcpServers: Object.fromEntries(
+                hostMcpServers.map((server) => [
+                  server.name,
+                  { type: "http" as const, url: server.url, headers: server.headers, alwaysLoad: true },
+                ]),
+              ),
+            }
+          : {}),
         permissionMode: sdkPermissionMode(this.desiredPermissionModes.get(sessionId) ?? "default"),
         ...(this.desiredModels.has(sessionId) ? { model: this.desiredModels.get(sessionId) } : {}),
         ...(this.desiredEfforts.has(sessionId) ? { effort: this.desiredEfforts.get(sessionId) } : {}),
@@ -795,7 +825,15 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
    */
   private createCanUseTool(sessionId: string): CanUseTool {
     return (toolName, toolInput, opts) => {
+      // `Skill` only loads Claude's local Skill instructions. It is a
+      // read-only discovery operation, not a shell/file mutation, and should
+      // not interrupt a turn with an approval card. The runtime validator in
+      // the shipping SDK requires the original input on every allow result.
+      if (toolName === "Skill") {
+        return Promise.resolve({ behavior: "allow", updatedInput: toolInput })
+      }
       const requestId = opts.requestId ?? opts.toolUseID
+      const wantaHostTool = wantaHostToolName(toolName)
       const request: ChatPermissionRequest = {
         id: requestId,
         sessionId,
@@ -805,6 +843,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
           ...(opts.title !== undefined ? { title: opts.title } : {}),
           ...(opts.description !== undefined ? { description: opts.description } : {}),
           ...(opts.displayName !== undefined ? { displayName: opts.displayName } : {}),
+          ...(wantaHostTool !== undefined ? { wantaHostTool } : {}),
           toolInput,
         },
       }
@@ -824,7 +863,12 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
           }
           resolve(result)
         }
-        this.pendingSdkPermissions.set(requestId, { sessionId, suggestions: opts.suggestions, settle })
+        this.pendingSdkPermissions.set(requestId, {
+          sessionId,
+          suggestions: opts.suggestions,
+          toolInput,
+          settle,
+        })
         opts.signal.addEventListener("abort", onAbort, { once: true })
         this.emit({ event: "permissionAsked", data: { sessionId, request } })
         if (opts.signal.aborted) {

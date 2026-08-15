@@ -39,10 +39,12 @@ A new kind of interaction is a new variant on `AgentInput` or `AgentEvent`.
 6. **UI is capability-driven.** Model selector, BYOK panel, login prompts, and
    history behavior derive from `AgentProfile` plus reflected events. Never
    write `if (agent === "...")` in UI or chat logic.
-7. **Deep capabilities stay concrete.** OpenCode-specific depth (server-side
-   sessions, artifact/process dirs, Link team scope, title generation) lives on
-   `OpencodeAgentAdapter` as explicit passthroughs — outside the normalized
-   contract. External adapters are never forced to fake them.
+7. **Host capabilities stay host-owned; deep adapter features stay concrete.**
+   Link workspace identity, selected context, response policy, redaction, and
+   business authorization semantics belong to Wanta and cross every adapter.
+   Agent-native depth (server-side sessions, title generation, native history,
+   and artifact/process support not declared by a profile) stays on the concrete
+   adapter and is never faked. See `host-capabilities.md`.
 8. **Credential red lines.** External agents authenticate through their own CLI
    login (`auth: { kind: "agent-cli" }`); Wanta stores no subscription secrets.
    BYOK keys keep the existing `safeStorage` rules (see docs/conventions.md).
@@ -72,17 +74,32 @@ External agents build on `electron/agent/external/`:
   the agent's own approval policy (Claude SDK permission modes, including the
   `auto` classifier mode; ACP session modes via the registry's
   `permissionModeMap`). Enforcement is always agent-side.
-- **Permission ownership is agent-side (linkcode-style pass-through)**: the
-  agent's own CLI policy decides WHEN to ask, and every ask it surfaces
-  reaches the user as a permission card. Wanta never answers on the agent's
-  behalf (`evaluateLocalAccessRequest` external branch,
-  `electron/chat/local-access-policy.ts`): the only automatic answers are the
-  user's explicit "allow for this session" grants, and even those never cross
-  sensitive-resource or high-risk boundaries. The kernel's blanket defaults
-  (`default_local`/`default_command`, trusted-project allows, host-side
-  `full_access`) apply only to built-in kernel sessions. To reduce prompts,
-  users pick a more permissive agent-native mode (accept edits, auto,
-  full access) instead of Wanta auto-approving behind the scenes.
+- **Native permission ownership is agent-side, host capability permission is
+  host-side**: the external agent's CLI decides WHEN native file, shell, and
+  network work needs approval, and Wanta relays those asks to the user. The one
+  deliberate exception is dispatch to a generated `wanta_*` MCP server:
+  Wanta auto-approves that redundant ACP transport prompt because the call
+  enters the same host-owned capability kernel used directly by OpenCode,
+  where identity, credentials, validation, and auditing are already enforced.
+  Claude's native `Skill` discovery tool is also auto-approved because it only
+  loads local instructions; any file, shell, or network operation instructed
+  by that Skill remains subject to Claude's normal permission flow. Claude MCP
+  permission names must be correlated from `mcp__wanta_*__<tool>` into the
+  same host-owned marker used by ACP. Every Claude SDK allow result preserves
+  the original tool input as `updatedInput`, as required by the paired runtime
+  validator.
+  The guarded `oo` CLI compatibility path is classified by the same shared
+  command policy for OpenCode, Claude, and ACP agents. A single `oo` command
+  may include only the shared bounded output suffixes (`head`/`tail` or stderr
+  descriptor duplication); arbitrary pipes, sequences, file redirection,
+  credential/configuration overrides, and authentication commands remain in
+  the native approval flow. Loaded Skills also receive a host execution
+  policy: Wanta MCP capabilities take precedence over CLI examples, so the raw
+  CLI remains a fallback rather than an agent-specific primary transport.
+  Explicit session grants still never cross sensitive-resource or high-risk
+  boundaries. The kernel's other blanket defaults (`default_local` /
+  `default_command`, trusted-project allows, host-side `full_access`) continue
+  to apply only to built-in kernel sessions.
 - **Transcript persistence**: every emitted event is folded into
   `ExternalTranscriptRecorder` and mirrored to one JSON file per session under
   `<scratchRoot>/<kind>/transcripts/` (atomic replace, debounced writes,
@@ -106,6 +123,13 @@ External agents build on `electron/agent/external/`:
   appends a path-note text block (the CLI's Read tool handles images too).
   Display rides the kernel's `userAttachmentStore` record keyed by the
   synthesized user message id.
+- **Host turn context**: Wanta passes the active Link workspace, team skills,
+  selected context, project context, permission guidance, and response-language
+  policy through the normalized prompt input. ACP and Claude adapters translate
+  the dynamic tail into a delimited first text block while transcript display
+  preserves the original user text. This remains a guidance transport; Wanta
+  MCP carries executable host capabilities and enforces identity independently
+  of whether the agent follows the prompt.
 - **Usage reporting**: adapters emit `usageUpdated` (normalized
   `ChatTokenUsage` + optional `contextWindow`) — Claude from result-frame
   usage/modelUsage, ACP from `usage_update`. The recorder attaches it to the

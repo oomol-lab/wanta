@@ -1,5 +1,6 @@
 import type { ExternalAgentKind } from "../contract/profile.ts"
 import type { ExternalAgentAdapter } from "./adapter-base.ts"
+import type { HostMcpServerProvider } from "./host-mcp.ts"
 
 import path from "node:path"
 import { AcpAgentAdapter } from "../acp/adapter.ts"
@@ -18,6 +19,7 @@ export interface CreateExternalAgentsOptions {
   resourcesPath?: string
   /** Private root for per-session scratch working directories. */
   scratchRootDir: string
+  hostMcpServers?: HostMcpServerProvider
 }
 
 export function createExternalAgents(
@@ -35,6 +37,7 @@ export function createExternalAgents(
       probe: () => probeExternalAgent("claude-code", probeOptions),
       scratchRootDir: path.join(options.scratchRootDir, "claude-code"),
       transcriptDir: path.join(options.scratchRootDir, "claude-code", "transcripts"),
+      hostMcpServers: options.hostMcpServers,
     }),
   )
   for (const kind of ACP_AGENT_KINDS) {
@@ -46,6 +49,7 @@ export function createExternalAgents(
         probe: () => probeExternalAgent(kind, probeOptions),
         scratchRootDir: path.join(options.scratchRootDir, kind),
         transcriptDir: path.join(options.scratchRootDir, kind, "transcripts"),
+        hostMcpServers: options.hostMcpServers,
       }),
     )
   }

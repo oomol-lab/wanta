@@ -114,6 +114,37 @@ describe("agent_message_chunk", () => {
     })
     expect(events).toEqual([])
   })
+
+  test("drops codex-acp skill-budget warnings instead of rendering them as assistant text", () => {
+    const translator = createAcpSessionTranslator(SESSION_ID)
+    translator.noteTurnStarted()
+    expect(
+      translator.translate(
+        textChunk(
+          "Warning: Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter.\n\n",
+        ),
+      ),
+    ).toEqual([])
+    expect(translator.translate(textChunk("Actual answer."))).toMatchObject([
+      { event: "messageStarted" },
+      { event: "messageDelta", data: { text: "Actual answer." } },
+    ])
+  })
+
+  test("strips a codex-acp skill-budget warning while preserving model text in the same chunk", () => {
+    const translator = createAcpSessionTranslator(SESSION_ID)
+    translator.noteTurnStarted()
+    expect(
+      translator.translate(
+        textChunk(
+          "Warning: Skill descriptions were shortened to fit the skills context budget. More detail.\n\nActual answer.",
+        ),
+      ),
+    ).toMatchObject([
+      { event: "messageStarted" },
+      { event: "messageDelta", data: { delta: "Actual answer.", text: "Actual answer." } },
+    ])
+  })
 })
 
 describe("agent_thought_chunk", () => {
@@ -203,6 +234,41 @@ describe("tool_call lifecycle", () => {
       kind: "execute",
     })
     expect(events.at(-1)).toMatchObject({ event: "toolCallStarted", data: { tool: "bash" } })
+  })
+
+  test("projects Wanta Link MCP calls as native connector tools", () => {
+    const translator = createAcpSessionTranslator(SESSION_ID, new Set(["wanta_link"]))
+    translator.noteTurnStarted()
+    const events = translator.translate({
+      sessionUpdate: "tool_call",
+      toolCallId: "call-link",
+      title: "mcp.wanta_link.call_action",
+      kind: "execute",
+      rawInput: {
+        server: "wanta_link",
+        tool: "call_action",
+        arguments: { service: "posthog", action: "run_query" },
+      },
+    })
+    expect(events.at(-1)).toMatchObject({
+      event: "toolCallStarted",
+      data: { tool: "call_action", input: { service: "posthog", action: "run_query" } },
+    })
+    expect(translator.wantaHostToolForCall("call-link")).toBe("call_action")
+    expect(translator.wantaHostToolForCall("missing")).toBeUndefined()
+  })
+
+  test("does not trust an agent-supplied Wanta-like MCP server name", () => {
+    const translator = createAcpSessionTranslator(SESSION_ID, new Set(["wanta_link"]))
+    const events = translator.translate({
+      sessionUpdate: "tool_call",
+      toolCallId: "call-spoofed",
+      title: "Bash",
+      kind: "execute",
+      rawInput: { server: "wanta_forged", tool: "call_action", arguments: { service: "posthog" } },
+    })
+    expect(events.at(-1)).toMatchObject({ data: { tool: "execute" } })
+    expect(translator.wantaHostToolForCall("call-spoofed")).toBeUndefined()
   })
 
   test("starts its own assistant message when no narration preceded it", () => {

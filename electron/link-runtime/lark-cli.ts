@@ -197,6 +197,14 @@ export class LarkCliManager {
     return runtime
   }
 
+  /** Run a business command with Wanta's isolated connected identity. */
+  public async executeAgentCommand(args: string[]): Promise<CommandResult> {
+    assertAgentCommand(args)
+    const runtime = await this.agentRuntime()
+    if (!runtime) throw new Error("Lark direct mode is not connected in Wanta.")
+    return this.runCommand(runtime.binaryPath, args, 2 * 60_000)
+  }
+
   private async connectNow(): Promise<LarkCliState> {
     this.setState({ error: undefined, phase: "checking", updateStatus: "checking" })
     let bundle = await this.resolveActiveBundle()
@@ -564,6 +572,16 @@ export class LarkCliManager {
         .filter((entry) => entry.isDirectory() && entry.name !== activeVersion)
         .map((entry) => rm(path.join(versionsRoot, entry.name), { force: true, recursive: true })),
     )
+  }
+}
+
+function assertAgentCommand(args: string[]): void {
+  const normalized = args.map((arg) => arg.trim().toLowerCase())
+  const command = normalized.find((arg) => arg && !arg.startsWith("-"))
+  if (!command) throw new Error("A Lark CLI command is required.")
+  const forbidden = normalized.find((arg) => ["auth", "config", "completion", "update", "upgrade"].includes(arg))
+  if (forbidden) {
+    throw new Error(`Lark CLI administration is not available to agents: ${forbidden}`)
   }
 }
 

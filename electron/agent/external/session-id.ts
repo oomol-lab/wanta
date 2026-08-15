@@ -19,7 +19,17 @@ export function isExternalSessionId(sessionId: string): boolean {
   return sessionId.startsWith(EXTERNAL_SESSION_ID_PREFIX)
 }
 
-export function externalAgentKindForSessionId(sessionId: string): ExternalAgentKind | undefined {
+export interface ExternalSessionIdentity {
+  /** Stable persisted provider id. It need not be available in this app version. */
+  kind: string
+  uuid: string
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
+const EXTERNAL_AGENT_KIND_PATTERN = /^[a-z0-9][a-z0-9-]*$/u
+
+/** Parse persisted identity without consulting the current adapter registry. */
+export function parseExternalSessionIdentity(sessionId: string): ExternalSessionIdentity | undefined {
   if (!sessionId.startsWith(EXTERNAL_SESSION_ID_PREFIX)) {
     return undefined
   }
@@ -29,13 +39,22 @@ export function externalAgentKindForSessionId(sessionId: string): ExternalAgentK
     return undefined
   }
   const kind = rest.slice(0, separator)
-  if (kind in AGENT_PROFILES && isExternalAgentKind(kind as AgentKind)) {
-    return kind as ExternalAgentKind
+  const uuid = rest.slice(separator + 1)
+  if (!EXTERNAL_AGENT_KIND_PATTERN.test(kind) || !UUID_PATTERN.test(uuid)) return undefined
+  return { kind, uuid }
+}
+
+export function isAgentKind(kind: string): kind is AgentKind {
+  return Object.hasOwn(AGENT_PROFILES, kind)
+}
+
+export function externalAgentKindForSessionId(sessionId: string): ExternalAgentKind | undefined {
+  const identity = parseExternalSessionIdentity(sessionId)
+  if (identity && isAgentKind(identity.kind) && isExternalAgentKind(identity.kind)) {
+    return identity.kind
   }
   return undefined
 }
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
 
 /**
  * The stable per-session UUID embedded in an external session id. Adapters may
@@ -45,10 +64,5 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * file paths, so anything that is not a plain UUID is rejected.
  */
 export function externalSessionUuid(sessionId: string): string | undefined {
-  if (externalAgentKindForSessionId(sessionId) === undefined) {
-    return undefined
-  }
-  const lastSeparator = sessionId.lastIndexOf(":")
-  const uuid = sessionId.slice(lastSeparator + 1)
-  return UUID_PATTERN.test(uuid) ? uuid : undefined
+  return parseExternalSessionIdentity(sessionId)?.uuid
 }

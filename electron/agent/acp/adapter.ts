@@ -995,15 +995,14 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     this.sessionsByWantaId.set(input.sessionId, session)
     this.wantaIdByAcpId.set(response.sessionId, input.sessionId)
     try {
-      // Agent-native selection remains advisory; a rejected catalog choice
-      // falls back to the agent default. Permission mode is different: it is
-      // an enforcement boundary and must apply before the first prompt.
+      // A rejected catalog choice must fail before the prompt is dispatched
+      // so Wanta never persists or displays a model the agent did not accept.
       const desired = this.desiredSelections.get(input.sessionId)
       if (desired?.model !== undefined) {
-        await this.setConfigValue(handle, session, "model", desired.model).catch(() => undefined)
+        await this.applyDesiredSelectionAtCreation(handle, session, desired, "model", desired.model)
       }
       if (desired?.effort !== undefined) {
-        await this.setConfigValue(handle, session, "effort", desired.effort).catch(() => undefined)
+        await this.applyDesiredSelectionAtCreation(handle, session, desired, "effort", desired.effort)
       }
       const desiredMode = this.desiredPermissionModes.get(input.sessionId)
       if (desiredMode !== undefined) await this.applyPermissionMode(input.sessionId, desiredMode)
@@ -1028,7 +1027,24 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }))
   }
 
-  /** Apply one axis over the select's wire channel; tolerates agents without that option. */
+  private async applyDesiredSelectionAtCreation(
+    handle: AcpConnectionHandle,
+    session: AcpSessionState,
+    desired: { model?: string; effort?: string },
+    axis: keyof AcpConfigSelects,
+    value: string,
+  ): Promise<void> {
+    try {
+      await this.setConfigValue(handle, session, axis, value)
+    } catch (error) {
+      // The session metadata rollback is owned by ChatService. Clear the live
+      // adapter stash here as well so retry cannot resurrect a rejected value.
+      if (desired[axis] === value) delete desired[axis]
+      throw error
+    }
+  }
+
+  /** Apply one axis over the select's wire channel; reject capability drift loudly. */
   private async setConfigValue(
     handle: AcpConnectionHandle,
     session: AcpSessionState,
@@ -1037,7 +1053,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   ): Promise<void> {
     const select = session.configSelects[axis]
     if (!select) {
-      return
+      throw new Error(`${this.kind}: ${axis} selection is not available in this session`)
     }
     try {
       if (select.via === "set_model") {

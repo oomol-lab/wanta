@@ -287,23 +287,19 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     if (options?.signal?.aborted) {
       return
     }
-    // Draft-time model/effort choices ride the first prompt; failures to apply
-    // them must never fail the turn itself.
+    // Draft-time model/effort choices ride the first prompt. They must apply
+    // before dispatch so persisted/UI state never claims a rejected choice.
     if (input.agentModelId !== undefined) {
-      await this.applyModel(input.sessionId, input.agentModelId).catch((error: unknown) => {
-        logDiagnostic("claude-code-adapter", "prompt-borne model apply failed", {
-          sessionId: input.sessionId,
-          error: errorMessage(error),
-        })
-      })
+      if (!this.catalog.models.some((model) => model.id === input.agentModelId)) {
+        throw new Error(`claude-code: unknown model "${input.agentModelId}"`)
+      }
+      await this.applyModel(input.sessionId, input.agentModelId)
     }
-    if (input.agentEffortId !== undefined && isClaudeEffortId(input.agentEffortId)) {
-      await this.applyEffort(input.sessionId, input.agentEffortId).catch((error: unknown) => {
-        logDiagnostic("claude-code-adapter", "prompt-borne effort apply failed", {
-          sessionId: input.sessionId,
-          error: errorMessage(error),
-        })
-      })
+    if (input.agentEffortId !== undefined) {
+      if (!isClaudeEffortId(input.agentEffortId)) {
+        throw new Error(`claude-code: unknown effort "${input.agentEffortId}"`)
+      }
+      await this.applyEffort(input.sessionId, input.agentEffortId)
     }
     if (this.sessions.has(input.sessionId)) await this.hostMcpServers?.(input)
     const session = await this.ensureSession(input)

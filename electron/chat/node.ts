@@ -73,7 +73,7 @@ import { copyFile, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { ActivityMetrics } from "../activity-metrics.ts"
-import { externalAgentKindForSessionId } from "../agent/external/session-id.ts"
+import { externalAgentKindForSessionId, isExternalSessionId } from "../agent/external/session-id.ts"
 import { createOpencodeMessageId } from "../agent/opencode-id.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
@@ -559,8 +559,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   /** Resolve the backend that owns a session id (kernel or an external adapter). */
   private chatBackendFor(sessionId: string): ChatAgentBackend | null {
     const kind = externalAgentKindForSessionId(sessionId)
-    if (kind) {
-      return this.externalAgents.get(kind) ?? null
+    if (isExternalSessionId(sessionId)) {
+      return kind ? (this.externalAgents.get(kind) ?? null) : null
     }
     return this.agent
   }
@@ -1698,6 +1698,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (externalKind) {
       return this.sendExternalMessage(req, externalKind)
     }
+    if (isExternalSessionId(req.sessionId)) {
+      throw new Error("Invalid or unsupported external agent session.")
+    }
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
@@ -1926,6 +1929,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     )
     const userMessageId = createOpencodeMessageId()
     const generation = this.beginChatTurn(req, userMessageId)
+    const previousSelection = adapter.sessionSelection(req.sessionId)
+    let selectionPersistedForSubmit = false
     let artifactDir: string | undefined
     let processDir: string | undefined
     try {
@@ -1993,6 +1998,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           ...(req.agentModelId ? { modelId: req.agentModelId } : {}),
           ...(req.agentEffortId ? { effortId: req.agentEffortId } : {}),
         })
+        selectionPersistedForSubmit = true
       }
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
       this.scheduleGenerationSubmitWatchdog(req.sessionId, generation.id)
@@ -2030,7 +2036,23 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             this.scheduleGenerationStartWatchdog(req.sessionId, generation.id)
           }
         })
-        .catch((error: unknown) => {
+        .catch(async (error: unknown) => {
+          if (selectionPersistedForSubmit) {
+            const rollback = {
+              ...(req.agentModelId ? { modelId: previousSelection.modelId ?? null } : {}),
+              ...(req.agentEffortId ? { effortId: previousSelection.effortId ?? null } : {}),
+            }
+            await Promise.resolve(this.deps.onExternalSessionSelectionChanged?.(req.sessionId, rollback)).catch(
+              (rollbackError: unknown) => {
+                logDiagnostic(
+                  "chat-service",
+                  "failed to roll back rejected prompt selection",
+                  { error: rollbackError, sessionId: req.sessionId },
+                  "error",
+                )
+              },
+            )
+          }
           this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
           this.turnOutputs.delete(req.sessionId, generation.id)
           void removeUnsubmittedTurnDirectories(artifactDir, processDir)

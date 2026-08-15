@@ -487,20 +487,28 @@ describe("acp selection: warmCatalog edges", () => {
 })
 
 describe("acp selection: prompt-borne selections", () => {
-  test("a failing prompt-borne model apply never fails the session-creating turn", async () => {
+  test("a failing prompt-borne model apply rejects before dispatch and clears the rejected stash", async () => {
     const harness = await createHarness({
       newSession: () => modelsShape("m1", ["m1", "m2"]),
       setModel: () => {
         throw new Error("switch refused")
       },
     })
-    await expect(
-      harness.adapter.send({ ...promptInput(), agentModelId: "m2", agentEffortId: "high" }),
-    ).resolves.toBeUndefined()
-    await harness.waitFor((event) => event.event === "messageCompleted")
-    expect(harness.fake.promptRequests).toHaveLength(1)
+    await expect(harness.adapter.send({ ...promptInput(), agentModelId: "m2" })).rejects.toThrow(
+      "could not open a session",
+    )
+    expect(harness.fake.promptRequests).toHaveLength(0)
     // The failed apply was attempted exactly once, on the freshly created session.
     expect(harness.fake.setModelRequests).toHaveLength(1)
+    expect(harness.adapter.sessionSelection(WANTA_SESSION_ID)).toEqual({})
+  })
+
+  test("a declared selection axis missing from the live session rejects loudly", async () => {
+    const harness = await createHarness({ newSession: () => ({ sessionId: "acp-session-1" }) })
+    await expect(harness.adapter.send({ ...promptInput(), agentModelId: "m2" })).rejects.toThrow(
+      "model selection is not available in this session",
+    )
+    expect(harness.fake.promptRequests).toHaveLength(0)
   })
 })
 

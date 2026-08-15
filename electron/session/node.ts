@@ -289,6 +289,7 @@ export class SessionServiceImpl
     const now = Date.now()
     const record: ExternalSessionRecord = {
       id: mintExternalSessionId(agentKind),
+      agentKind,
       title: req.title?.trim() || "New session",
       createdAt: now,
       updatedAt: now,
@@ -1075,13 +1076,21 @@ export class SessionServiceImpl
 
   /** External (BYOA) session records rendered as base SessionInfo rows for the merge. */
   private externalSessionInfos(): SessionInfo[] {
-    return [...this.externalSessions.values()].map((record) => ({
-      id: record.id,
-      title: record.title,
-      createdAt: record.createdAt,
-      updatedAt: record.updatedAt,
-      agentKind: externalAgentKindForSessionId(record.id),
-    }))
+    return [...this.externalSessions.values()].flatMap((record) => {
+      const agentKind = externalAgentKindForSessionId(record.id)
+      // Unsupported providers remain persisted for forward/backward
+      // compatibility, but are not misrepresented as OpenCode in today's UI.
+      if (!agentKind) return []
+      return [
+        {
+          id: record.id,
+          title: record.title,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+          agentKind,
+        },
+      ]
+    })
   }
 
   private async ensureProjectsLoaded(expectedRevision?: number): Promise<void> {

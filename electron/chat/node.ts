@@ -426,6 +426,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.trustedAccess.clear()
     this.subagentSessions.clear()
     this.permissions.clear()
+    this.permissionModeMutationTokens.clear()
     this.outputPersistence.reset()
     this.desiredWorkspaceTeamName = undefined
     this.startedMessages.clear()
@@ -615,6 +616,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.clearInternalMessages(sessionId)
     this.compactingSessions.delete(sessionId)
     this.permissions.deleteSession(sessionId)
+    this.permissionModeMutationTokens.delete(sessionId)
     this.trustedAccess.deleteSession(sessionId)
     const messageIds = this.managedUserMessageIdsBySession.get(sessionId)
     for (const messageId of messageIds ?? []) {

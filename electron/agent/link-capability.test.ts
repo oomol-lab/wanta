@@ -170,6 +170,37 @@ describe("LinkCapability", () => {
     })
     expect(execute).toHaveBeenCalledTimes(1)
   })
+
+  test("never exceeds the action concurrency limit while handing slots to queued calls", async () => {
+    let active = 0
+    let maxActive = 0
+    const execute: LinkCommandExecutor = vi.fn(async () => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      active -= 1
+      return { stderr: "", stdout: JSON.stringify({ data: { ok: true } }) }
+    })
+    const capability = new LinkCapability({
+      execute,
+      ooBinPath: "/fake/oo",
+      runtime: () => ({ linkRuntime: { kind: "oomol", sessionToken: "secret-session-token" } }),
+      storeDir: "/private/wanta/link",
+    })
+    const context = { sessionId: "session-1", teamName: "Analytics Team" }
+
+    await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        capability.callAction(context, {
+          action: "run_query",
+          params: { projectId: index },
+          service: "posthog",
+        }),
+      ),
+    )
+
+    expect(maxActive).toBe(2)
+  })
 })
 
 test("HostCapabilityServer exposes Link tools through an authenticated loopback endpoint", async () => {

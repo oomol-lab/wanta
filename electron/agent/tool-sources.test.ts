@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AGENT_TOOL_FILES, agentToolFiles, BROWSER_AGENT_TOOL_FILES } from "./tool-sources.ts"
 
 describe("runtime tool assembly", () => {
@@ -141,6 +141,7 @@ function loadCallActionTool(execFile: (...args: unknown[]) => Promise<unknown>):
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   delete process.env.WANTA_BROWSER_CONTROL_TOKEN
   delete process.env.WANTA_BROWSER_CONTROL_URL
   delete process.env.WANTA_CONSOLE_URL
@@ -153,6 +154,8 @@ afterEach(() => {
   delete process.env.WIKIGRAPH_STATE_DIR
   delete process.env.OO_API_KEY
   delete process.env.OO_CONNECTOR_TOKEN
+  delete process.env.WANTA_HOST_CAPABILITY_TOKEN
+  delete process.env.WANTA_HOST_CAPABILITY_URL
 })
 
 beforeEach(() => {
@@ -246,6 +249,41 @@ describe("list_apps embedded runtime", () => {
 })
 
 describe("call_action embedded runtime", () => {
+  it("falls back to the local Link runtime when the host transport is unavailable", async () => {
+    process.env.WANTA_HOST_CAPABILITY_URL = "http://127.0.0.1:1"
+    process.env.WANTA_HOST_CAPABILITY_TOKEN = "host-token"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new Error("connection refused"))),
+    )
+    const commands: string[][] = []
+    const runtime = loadCallActionTool(async (...args) => {
+      commands.push(args[1] as string[])
+      return { stdout: JSON.stringify({ data: { ok: true } }) }
+    })
+
+    await expect(
+      runtime.execute({ service: "posthog", action: "run_query" }, { sessionID: "session-1" }),
+    ).resolves.toBe(JSON.stringify({ data: { ok: true } }))
+    expect(commands).toHaveLength(1)
+  })
+
+  it("preserves an explicit host capability error instead of falling back", async () => {
+    process.env.WANTA_HOST_CAPABILITY_URL = "http://127.0.0.1:4321"
+    process.env.WANTA_HOST_CAPABILITY_TOKEN = "host-token"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ json: async () => ({ error: "session revoked" }), ok: false }) as Response),
+    )
+    const execute = vi.fn(async () => ({ stdout: "should not run" }))
+    const runtime = loadCallActionTool(execute)
+
+    await expect(
+      runtime.execute({ service: "posthog", action: "run_query" }, { sessionID: "session-1" }),
+    ).rejects.toThrow(/session revoked/)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it("builds OpenConnector authorization URLs from the configured Console origin", async () => {
     process.env.WANTA_LINK_RUNTIME = "openconnector"
     process.env.WANTA_CONNECTOR_URL = "http://127.0.0.1:3000"

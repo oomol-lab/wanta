@@ -35,7 +35,14 @@ export function createKnowledgeHostCapability(executor: WikiGraphQueryExecutor):
         name: "knowledge_next",
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         description: "Continue a paginated WikiGraph result using the opaque cursor returned by knowledge_query.",
-        inputSchema: z.object({ cursor: z.string().min(1), uri: z.string().min(1).optional() }),
+        inputSchema: z.object({
+          cursor: z
+            .string()
+            .min(1)
+            .max(8 * 1024)
+            .regex(/^[A-Za-z0-9._~+/=:][A-Za-z0-9._~+\-/=:]*$/u),
+          uri: z.string().min(1).optional(),
+        }),
         execute: async (_context, input) => {
           const cursor = requiredString(input.cursor)
           const uri = input.uri === undefined ? undefined : libraryUri(input.uri)

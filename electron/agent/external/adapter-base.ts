@@ -204,7 +204,7 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
     let size = 0
     for (const message of this.transcript.messages(sessionId).reverse()) {
       const value = JSON.stringify({ role: message.role, parts: message.parts })
-      if (serialized.length > 0 && size + value.length > maxCharacters) break
+      if (size + value.length > maxCharacters) break
       serialized.push(value)
       size += value.length
     }

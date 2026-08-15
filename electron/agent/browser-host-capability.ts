@@ -23,7 +23,7 @@ export function createBrowserHostCapability(browser: BrowserCapabilityExecutor):
         browser,
         "browser_navigate",
         "Open a web URL in Wanta's visible integrated browser. The user can see and operate the same page. Use only HTTP or HTTPS URLs. Login, credentials, and CAPTCHA must be completed by the user.",
-        z.object({ url: z.string().url() }),
+        z.object({ url: z.url({ protocol: /^https?$/u }) }),
         (context, input) => ({ action: "navigate", sessionId: context.sessionId, url: stringValue(input.url) }),
       ),
       tool(

@@ -514,23 +514,27 @@ describe("AcpAgentAdapter", () => {
   })
 
   test("correlates a generic codex permission request with its live Wanta MCP tool call", async () => {
-    const harness = await createHarness({
-      prompt: async (turn) => {
-        await turn.sendUpdate({
-          sessionUpdate: "tool_call",
-          toolCallId: "call-link",
-          title: "mcp.wanta_link.call_action",
-          kind: "execute",
-          rawInput: {
-            server: "wanta_link",
-            tool: "call_action",
-            arguments: { service: "posthog", action: "list_projects" },
-          },
-        })
-        await turn.requestPermission({ toolCallId: "call-link" }, permissionOptions)
-        return { stopReason: "end_turn" }
+    const harness = await createHarness(
+      {
+        prompt: async (turn) => {
+          await turn.sendUpdate({
+            sessionUpdate: "tool_call",
+            toolCallId: "call-link",
+            title: "mcp.wanta_link.call_action",
+            kind: "execute",
+            rawInput: {
+              server: "wanta_link",
+              tool: "call_action",
+              arguments: { service: "posthog", action: "list_projects" },
+            },
+          })
+          await turn.requestPermission({ toolCallId: "call-link" }, permissionOptions)
+          return { stopReason: "end_turn" }
+        },
       },
-    })
+      "codex",
+      async () => [{ headers: {}, name: "wanta_link", url: "http://127.0.0.1/mcp" }],
+    )
     await harness.adapter.send(promptInput())
     const asked = await harness.waitFor((event) => event.event === "permissionAsked")
     const request = eventData(asked, "permissionAsked").request

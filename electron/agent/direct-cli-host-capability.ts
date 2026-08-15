@@ -30,7 +30,7 @@ const directArgsSchema = z
   .refine((args) => !args.some(hasControlLineCharacter), {
     message: "Direct-provider arguments cannot contain control-line characters.",
   })
-  .refine((args) => !forbiddenCommands.has(args[0]?.trim().toLowerCase() ?? ""), {
+  .refine((args) => !args.some((arg) => forbiddenCommands.has(arg.trim().toLowerCase())), {
     message: "Direct-provider administration is host-only.",
   })
 

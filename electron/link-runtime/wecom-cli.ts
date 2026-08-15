@@ -364,10 +364,14 @@ export class WecomCliManager {
 }
 
 function assertAgentCommand(args: string[]): void {
-  const command = args[0]?.trim().toLowerCase()
+  const normalized = args.map((arg) => arg.trim().toLowerCase())
+  const command = normalized.find((arg) => arg && !arg.startsWith("-"))
   if (!command) throw new Error("A WeCom CLI command is required.")
-  if (["auth", "config", "completion", "init", "update", "upgrade"].includes(command)) {
-    throw new Error(`WeCom CLI administration is not available to agents: ${command}`)
+  const forbidden = normalized.find((arg) =>
+    ["auth", "config", "completion", "init", "update", "upgrade"].includes(arg),
+  )
+  if (forbidden) {
+    throw new Error(`WeCom CLI administration is not available to agents: ${forbidden}`)
   }
 }
 

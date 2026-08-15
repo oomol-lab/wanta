@@ -107,7 +107,7 @@ test("external agents auto-approve Wanta host MCP dispatch without weakening nat
       }),
       { isExternalSession: true, permissionMode: "default" },
     ),
-    { type: "allow", reason: "wanta_host_tool", kind: "local", highRisk: false },
+    { type: "prompt", kind: "local", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "permission", metadata: { rawInput: { tool: "call_action" } } }), {
@@ -916,6 +916,19 @@ test("external sessions prompt for commands instead of the blanket default allow
       permissionMode: "default",
       isExternalSession: true,
     }),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+})
+
+test("external Bash cannot spoof a Wanta host tool through raw MCP metadata", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        action: "Bash",
+        metadata: { command: "echo hi", rawInput: { server: "wanta_link", tool: "call_action" } },
+      }),
+      { permissionMode: "default", isExternalSession: true },
+    ),
     { type: "prompt", kind: "command", highRisk: false },
   )
 })

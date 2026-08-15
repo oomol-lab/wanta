@@ -26,3 +26,13 @@ test("HostQuestionBroker rejects pending calls when their session is removed", a
   broker.cancelSession("session-1")
   await expect(result).rejects.toThrow(/session ended/)
 })
+
+test("HostQuestionBroker removes a request when the UI handler throws", async () => {
+  const broker = new HostQuestionBroker()
+  broker.setAskedHandler(() => {
+    throw new Error("renderer unavailable")
+  })
+  const result = broker.ask("session-1", [{ header: "Scope", question: "Which scope?", options: [] }])
+  await expect(result).rejects.toThrow(/renderer unavailable/)
+  expect(broker.requests()).toEqual([])
+})

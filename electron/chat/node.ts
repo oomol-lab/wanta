@@ -1533,6 +1533,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     const generation = this.generations.get(sessionId)
     generation?.controller.abort()
+    this.deps.hostQuestions?.cancelSession(sessionId)
     const messageId = this.activeAssistantMessages.get(sessionId)
     const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
     const stoppedAt = Date.now()

@@ -451,8 +451,9 @@ async function acquireActionSlot(state: ActionProbeState): Promise<void> {
 }
 
 function releaseActionSlot(state: ActionProbeState): void {
-  state.active -= 1
-  state.waiters.shift()?.()
+  const next = state.waiters.shift()
+  if (next) next()
+  else state.active -= 1
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

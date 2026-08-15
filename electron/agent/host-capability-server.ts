@@ -39,7 +39,9 @@ export class HostCapabilityServer {
   public constructor(options: HostCapabilityServerOptions) {
     this.options = options
     this.assertToolNamesUnique()
-    this.server = createServer((request, response) => void this.handle(request, response))
+    this.server = createServer((request, response) => {
+      void this.handle(request, response).catch(() => respondTransportError(response))
+    })
   }
 
   public async issue(context: HostCapabilityContext): Promise<HostMcpServer> {
@@ -183,17 +185,13 @@ export class HostCapabilityServer {
     const token = bearerToken(request.headers.authorization)
     const session = token ? this.sessions.get(token) : undefined
     if (request.url !== "/mcp" || !session) {
-      response.writeHead(404, { "cache-control": "no-store", "content-type": "application/json" })
-      response.end(JSON.stringify({ error: "Not found." }))
+      respondJson(response, 404, { error: "Not found." })
       return
     }
     try {
       await session.transport.handleRequest(request, response)
     } catch {
-      if (!response.headersSent) {
-        response.writeHead(500, { "cache-control": "no-store", "content-type": "application/json" })
-      }
-      if (!response.writableEnded) response.end(JSON.stringify({ error: "Host capability request failed." }))
+      respondTransportError(response)
     }
   }
 
@@ -204,6 +202,22 @@ export class HostCapabilityServer {
     this.tokenBySessionId.delete(session.lease.sessionId)
     session.lease.revoke()
     await session.mcp.close().catch(() => undefined)
+  }
+}
+
+function respondTransportError(response: ServerResponse): void {
+  respondJson(response, 500, { error: "Host capability request failed." })
+}
+
+function respondJson(response: ServerResponse, status: number, body: unknown): void {
+  if (response.destroyed || response.writableEnded) return
+  try {
+    if (!response.headersSent) {
+      response.writeHead(status, { "cache-control": "no-store", "content-type": "application/json" })
+    }
+    response.end(JSON.stringify(body))
+  } catch {
+    response.destroy()
   }
 }
 

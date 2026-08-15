@@ -25,7 +25,12 @@ export class HostQuestionBroker {
     const request: ChatQuestionRequest = { id: `host-question-${randomUUID()}`, questions, sessionId }
     return new Promise((resolve, reject) => {
       this.pending.set(request.id, { reject, request, resolve })
-      this.onAsked?.(request)
+      try {
+        this.onAsked?.(request)
+      } catch (error) {
+        this.pending.delete(request.id)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
     })
   }
 

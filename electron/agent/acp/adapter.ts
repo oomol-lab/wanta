@@ -957,7 +957,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const session: AcpSessionState = {
       wantaSessionId: input.sessionId,
       acpSessionId: response.sessionId,
-      translator: createAcpSessionTranslator(input.sessionId),
+      translator: createAcpSessionTranslator(input.sessionId, new Set(mcpServers.map((server) => server.name))),
       initialModeId: modes?.currentModeId,
       availableModeIds: (modes?.availableModes ?? []).map((mode) => mode.id),
       configSelects,

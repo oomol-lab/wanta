@@ -7,6 +7,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promi
 import os from "node:os"
 import path from "node:path"
 import { afterEach, expect, test, vi } from "vitest"
+import { HostQuestionBroker } from "../agent/host-question-broker.ts"
 import { OpencodeAgentAdapter } from "../agent/opencode-adapter.ts"
 import { resolveRuntimeCapabilities } from "../runtime/common.ts"
 import { ExpiringTrustedPathRegistry } from "../trusted-path-registry.ts"
@@ -799,6 +800,21 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
     properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant" } },
   })
   assert.equal(events.at(-1)?.event, "messageStarted")
+})
+
+test("stopGeneration cancels pending host questions for the session", async () => {
+  const bridge = createBridgeAgent()
+  const hostQuestions = new HostQuestionBroker()
+  hostQuestions.setAskedHandler(() => undefined)
+  const service = new ChatServiceImpl(bridge.agent, { hostQuestions })
+  const pending = hostQuestions
+    .ask("session-1", [{ header: "Scope", question: "Which scope?", options: [] }])
+    .catch((error: unknown) => error)
+
+  await service.stopGeneration("session-1")
+
+  await expect(pending).resolves.toMatchObject({ message: expect.stringMatching(/session ended/) })
+  expect(hostQuestions.requests()).toEqual([])
 })
 
 test("compaction shows lifecycle activity without exposing internal messages", async () => {

@@ -576,10 +576,12 @@ export class LarkCliManager {
 }
 
 function assertAgentCommand(args: string[]): void {
-  const command = args[0]?.trim().toLowerCase()
+  const normalized = args.map((arg) => arg.trim().toLowerCase())
+  const command = normalized.find((arg) => arg && !arg.startsWith("-"))
   if (!command) throw new Error("A Lark CLI command is required.")
-  if (["auth", "config", "completion", "update", "upgrade"].includes(command)) {
-    throw new Error(`Lark CLI administration is not available to agents: ${command}`)
+  const forbidden = normalized.find((arg) => ["auth", "config", "completion", "update", "upgrade"].includes(arg))
+  if (forbidden) {
+    throw new Error(`Lark CLI administration is not available to agents: ${forbidden}`)
   }
 }
 

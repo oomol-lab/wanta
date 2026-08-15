@@ -61,16 +61,19 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {}
 }
 
-function toolProjection(snapshot: ToolCallSnapshot): { input: Record<string, unknown>; tool: string } {
+function toolProjection(
+  snapshot: ToolCallSnapshot,
+  wantaHostServerNames: ReadonlySet<string>,
+): { input: Record<string, unknown>; tool: string } {
   const rawInput = asRecord(snapshot.rawInput)
-  if (isWantaHostServer(rawInput["server"]) && typeof rawInput["tool"] === "string") {
+  if (
+    typeof rawInput["server"] === "string" &&
+    wantaHostServerNames.has(rawInput["server"]) &&
+    typeof rawInput["tool"] === "string"
+  ) {
     return { tool: rawInput["tool"], input: asRecord(rawInput["arguments"]) }
   }
   return { tool: snapshot.name ?? snapshot.kind ?? "other", input: rawInput }
-}
-
-function isWantaHostServer(value: unknown): boolean {
-  return typeof value === "string" && /^wanta_[a-z0-9_-]+$/u.test(value)
 }
 
 /**
@@ -98,7 +101,10 @@ function toolOutputText(snapshot: ToolCallSnapshot): string {
   return ""
 }
 
-export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTranslator {
+export function createAcpSessionTranslator(
+  wantaSessionId: string,
+  wantaHostServerNames: ReadonlySet<string> = new Set(),
+): AcpSessionTranslator {
   const seed = ++translatorSeq
   let messageSeq = 0
   /** Message the next chunk/tool call belongs to when the agent omits messageId. */
@@ -149,7 +155,7 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
   }
 
   function startedEvent(toolCallId: string, snapshot: ToolCallSnapshot): AgentEvent {
-    const projection = toolProjection(snapshot)
+    const projection = toolProjection(snapshot, wantaHostServerNames)
     return {
       event: "toolCallStarted",
       data: {
@@ -166,7 +172,7 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
   }
 
   function resultEvent(toolCallId: string, snapshot: ToolCallSnapshot, acpStatus: "completed" | "failed"): AgentEvent {
-    const projection = toolProjection(snapshot)
+    const projection = toolProjection(snapshot, wantaHostServerNames)
     const tool = projection.tool
     const text = toolOutputText(snapshot)
     const base = {
@@ -276,7 +282,9 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
       const snapshot = toolCallsById.get(toolCallId)
       if (!snapshot) return undefined
       const rawInput = asRecord(snapshot.rawInput)
-      return isWantaHostServer(rawInput["server"]) && typeof rawInput["tool"] === "string"
+      return typeof rawInput["server"] === "string" &&
+        wantaHostServerNames.has(rawInput["server"]) &&
+        typeof rawInput["tool"] === "string"
         ? rawInput["tool"]
         : undefined
     },
@@ -284,16 +292,19 @@ export function createAcpSessionTranslator(wantaSessionId: string): AcpSessionTr
     translate(update: SessionUpdate): AgentEvent[] {
       switch (update.sessionUpdate) {
         case "agent_message_chunk":
-          if (
-            update.content.type === "text" &&
-            update.content.text.startsWith(
-              "Warning: Skill descriptions were shortened to fit the skills context budget.",
-            )
-          ) {
-            // codex-acp projects Codex runtime notices onto the assistant text
-            // channel. This is neither the model's answer nor actionable in a
-            // Wanta task, so do not persist or render it as chat content.
-            return []
+          if (update.content.type === "text") {
+            const warning = "Warning: Skill descriptions were shortened to fit the skills context budget."
+            if (update.content.text.startsWith(warning)) {
+              const newline = update.content.text.indexOf("\n")
+              const remainder = newline >= 0 ? update.content.text.slice(newline + 1).replace(/^\s+/u, "") : ""
+              if (remainder) {
+                return translateChunk({ ...update, content: { ...update.content, text: remainder } }, "text")
+              }
+              // codex-acp projects Codex runtime notices onto the assistant text
+              // channel. This is neither the model's answer nor actionable in a
+              // Wanta task, so do not persist or render it as chat content.
+              return []
+            }
           }
           return translateChunk(update, "text")
         case "agent_thought_chunk":

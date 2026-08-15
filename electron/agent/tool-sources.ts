@@ -13,15 +13,40 @@ const HOST_CAPABILITY_TOKEN = String(process.env.WANTA_HOST_CAPABILITY_TOKEN || 
 
 async function callHostCapability(capability, toolName, input, context) {
   if (!HOST_CAPABILITY_URL || !HOST_CAPABILITY_TOKEN) return null
-  const response = await fetch(HOST_CAPABILITY_URL + "/v1/invoke", {
-    method: "POST",
-    headers: { authorization: "Bearer " + HOST_CAPABILITY_TOKEN, "content-type": "application/json" },
-    body: JSON.stringify({ capability: capability, tool: toolName, input: input, sessionId: context.sessionID }),
-    signal: context.abort,
-  })
-  const payload = await response.json()
-  if (!response.ok) throw new Error(payload && payload.error ? payload.error : "Host capability call failed.")
-  return payload.result
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10 * 1000)
+  const abort = () => controller.abort(context.abort && context.abort.reason)
+  context.abort && context.abort.addEventListener("abort", abort, { once: true })
+  try {
+    const response = await fetch(HOST_CAPABILITY_URL + "/v1/invoke", {
+      method: "POST",
+      headers: { authorization: "Bearer " + HOST_CAPABILITY_TOKEN, "content-type": "application/json" },
+      body: JSON.stringify({ capability: capability, tool: toolName, input: input, sessionId: context.sessionID }),
+      signal: controller.signal,
+    })
+    let payload
+    try {
+      payload = await response.json()
+    } catch {
+      return null
+    }
+    if (!response.ok) {
+      if (payload && typeof payload.error === "string" && payload.error) {
+        const error = new Error(payload.error)
+        error.name = "WantaHostCapabilityError"
+        throw error
+      }
+      return null
+    }
+    return payload && typeof payload.result === "string" ? payload.result : null
+  } catch (error) {
+    if (error && error.name === "WantaHostCapabilityError") throw error
+    if (context.abort && context.abort.aborted) throw error
+    return null
+  } finally {
+    clearTimeout(timeout)
+    context.abort && context.abort.removeEventListener("abort", abort)
+  }
 }
 `
 
@@ -524,10 +549,11 @@ async function acquireActionSlot(state) {
 }
 
 function releaseActionSlot(state) {
-  state.active -= 1
   const next = state.waiters.shift()
   if (next) {
     next()
+  } else {
+    state.active -= 1
   }
 }
 

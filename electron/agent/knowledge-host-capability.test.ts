@@ -1,4 +1,4 @@
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { HostCapabilityKernel } from "./host-capability.ts"
 import { createKnowledgeHostCapability } from "./knowledge-host-capability.ts"
 
@@ -44,4 +44,20 @@ test("knowledge capability rejects paths outside Wanta's managed library", async
       },
     ),
   ).rejects.toThrow(/stay within wikg:\/\/lib/)
+})
+
+test("knowledge capability rejects a cursor that could become a CLI option", async () => {
+  const run = vi.fn(() => Promise.resolve(""))
+  const kernel = new HostCapabilityKernel()
+  kernel.register(createKnowledgeHostCapability({ run }))
+
+  await expect(
+    kernel.execute(
+      "knowledge",
+      "knowledge_next",
+      { bindings: {}, sessionId: "session-1" },
+      { cursor: "--output=/tmp/leak" },
+    ),
+  ).rejects.toThrow()
+  expect(run).not.toHaveBeenCalled()
 })

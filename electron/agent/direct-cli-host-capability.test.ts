@@ -67,6 +67,13 @@ test("direct CLI host capability rejects administration and unsafe argv before d
     kernel.execute("direct_cli", "call_direct_provider", context, {
       provider: "lark",
       skillId: "lark-calendar",
+      args: ["--json", "auth", "status"],
+    }),
+  ).rejects.toThrow(/administration is host-only/)
+  await expect(
+    kernel.execute("direct_cli", "call_direct_provider", context, {
+      provider: "lark",
+      skillId: "lark-calendar",
       args: ["calendar", "list\nconfig"],
     }),
   ).rejects.toThrow(/control-line characters/)

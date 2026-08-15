@@ -17,7 +17,11 @@ export class HostCapabilityInvokeServer {
   private readonly contexts = new Map<string, HostCapabilityContext>()
   private readonly allowed: ReadonlySet<string>
   private readonly token = randomBytes(32).toString("base64url")
-  private readonly server = createServer((request, response) => void this.handle(request, response))
+  private readonly server = createServer((request, response) => {
+    void this.handle(request, response).catch(() =>
+      respond(response, 500, { error: "Host capability request failed." }),
+    )
+  })
   private connectionValue: HostCapabilityInvokeConnection | undefined
   private startPromise: Promise<HostCapabilityInvokeConnection> | undefined
 
@@ -109,6 +113,13 @@ function requiredString(value: unknown): string {
 }
 
 function respond(response: ServerResponse, status: number, body: unknown): void {
-  response.writeHead(status, { "cache-control": "no-store", "content-type": "application/json" })
-  response.end(JSON.stringify(body))
+  if (response.destroyed || response.writableEnded) return
+  try {
+    if (!response.headersSent) {
+      response.writeHead(status, { "cache-control": "no-store", "content-type": "application/json" })
+    }
+    response.end(JSON.stringify(body))
+  } catch {
+    response.destroy()
+  }
 }

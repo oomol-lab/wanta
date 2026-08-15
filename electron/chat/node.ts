@@ -1,3 +1,4 @@
+import type { ChatAgentBackend } from "../agent/contract/chat-backend.ts"
 import type { AgentConnectionStatus } from "../agent/contract/event.ts"
 import type { ExternalAgentKind } from "../agent/contract/profile.ts"
 import type { ChatEmit } from "../agent/event-translator.ts"
@@ -165,6 +166,27 @@ async function removeUnsubmittedTurnDirectories(
   })
 }
 
+async function createManagedTurnDirectoryPair(
+  createArtifactDir: () => Promise<string>,
+  createProcessDir: () => Promise<string>,
+  remember: { artifactDir: (value: string) => void; processDir: (value: string) => void },
+): Promise<void> {
+  const [artifactResult, processResult] = await Promise.allSettled([createArtifactDir(), createProcessDir()])
+  if (artifactResult.status === "fulfilled" && artifactResult.value) remember.artifactDir(artifactResult.value)
+  if (processResult.status === "fulfilled" && processResult.value) remember.processDir(processResult.value)
+  const errors = [artifactResult, processResult]
+    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    .map((result) => result.reason)
+  if (errors.length === 1) throw errors[0]
+  if (errors.length > 1) throw new AggregateError(errors, "Failed to create turn directories")
+  if (artifactResult.status !== "fulfilled" || !artifactResult.value) {
+    throw new Error("Artifact directory creation returned an empty path")
+  }
+  if (processResult.status !== "fulfilled" || !processResult.value) {
+    throw new Error("Process directory creation returned an empty path")
+  }
+}
+
 /** 仅放行 http/https 的外开 URL，避免渲染层诱导主进程打开 file:// 或自定义协议。 */
 function ensureExternalHttpUrl(rawUrl: string): string {
   const url = new URL(rawUrl)
@@ -274,6 +296,11 @@ interface ChatServiceDeps {
   onOomolAuthRequired?: () => Promise<void> | void
   /** 权限模式由 ChatService 统一提交，避免 renderer 分别写运行态与会话元数据。 */
   onPermissionModeChanged?: (sessionId: string, permissionMode: AgentPermissionMode) => Promise<void> | void
+  /** Persist agent-native model/effort choices with the owning Wanta session. */
+  onExternalSessionSelectionChanged?: (
+    sessionId: string,
+    patch: { modelId?: string | null; effortId?: string | null },
+  ) => Promise<void> | void
   /** 正常完成且产物已收尾后通知主进程 attention 域；停止和错误路径不触发。 */
   onSessionCompleted?: (input: { teamId: string; runId: string; sessionId: string }) => Promise<void> | void
 }
@@ -446,19 +473,39 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async setExternalSessionModel(req: SetExternalSessionModelRequest): Promise<void> {
-    await this.externalAdapterFor(req.sessionId).send({
+    const adapter = this.externalAdapterFor(req.sessionId)
+    const previous = adapter.sessionSelection(req.sessionId).modelId
+    await adapter.send({
       type: "set-model",
       sessionId: req.sessionId,
       ...(req.modelId ? { modelId: req.modelId } : {}),
     })
+    try {
+      await this.deps.onExternalSessionSelectionChanged?.(req.sessionId, { modelId: req.modelId ?? null })
+    } catch (error) {
+      await adapter
+        .send({ type: "set-model", sessionId: req.sessionId, ...(previous ? { modelId: previous } : {}) })
+        .catch(() => undefined)
+      throw error
+    }
   }
 
   public async setExternalSessionEffort(req: SetExternalSessionEffortRequest): Promise<void> {
-    await this.externalAdapterFor(req.sessionId).send({
+    const adapter = this.externalAdapterFor(req.sessionId)
+    const previous = adapter.sessionSelection(req.sessionId).effortId
+    await adapter.send({
       type: "set-effort",
       sessionId: req.sessionId,
       ...(req.effortId ? { effortId: req.effortId } : {}),
     })
+    try {
+      await this.deps.onExternalSessionSelectionChanged?.(req.sessionId, { effortId: req.effortId ?? null })
+    } catch (error) {
+      await adapter
+        .send({ type: "set-effort", sessionId: req.sessionId, ...(previous ? { effortId: previous } : {}) })
+        .catch(() => undefined)
+      throw error
+    }
   }
 
   public async getExternalSessionSelection(sessionId: string): Promise<{ modelId?: string; effortId?: string }> {
@@ -479,7 +526,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   /** Resolve the backend that owns a session id (kernel or an external adapter). */
-  private chatBackendFor(sessionId: string): OpencodeAgentAdapter | ExternalAgentAdapter | null {
+  private chatBackendFor(sessionId: string): ChatAgentBackend | null {
     const kind = externalAgentKindForSessionId(sessionId)
     if (kind) {
       return this.externalAgents.get(kind) ?? null
@@ -488,25 +535,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   /**
-   * Best-effort projection of a permission mode onto the session's adapter.
-   * Backends without the capability (the kernel) are a silent no-op; failures
-   * never block the caller because enforcement stays agent-side anyway.
+   * Project the host-visible permission mode onto the native agent before a
+   * turn starts. Native enforcement is the security boundary, so a failed
+   * projection must fail closed instead of running under a stale mode.
    */
   private async projectPermissionMode(sessionId: string, mode: AgentPermissionMode): Promise<void> {
     const backend = this.chatBackendFor(sessionId)
-    if (!backend || !("applyPermissionMode" in backend) || !backend.applyPermissionMode) {
+    if (!backend?.applyPermissionMode) {
       return
     }
-    try {
-      await backend.applyPermissionMode(sessionId, mode)
-    } catch (error) {
-      logDiagnostic(
-        "chat-service",
-        "failed to project permission mode onto external agent",
-        { error, kind: externalAgentKindForSessionId(sessionId), sessionId },
-        "warn",
-      )
-    }
+    await backend.applyPermissionMode(sessionId, mode)
   }
 
   public setAgentStatus(status: AgentRuntimeStatus): void {
@@ -1231,6 +1269,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return generation
   }
 
+  private beginChatTurn(req: SendMessageRequest, userMessageId: string): SessionGeneration {
+    const generation = this.beginSessionGeneration(req.sessionId, userMessageId)
+    this.createActiveRun(req, generation)
+    this.userStops.delete(req.sessionId)
+    this.connectionFailedSessions.delete(req.sessionId)
+    this.clearMessageErrorSignatures(req.sessionId)
+    this.emitSessionActivity(req.sessionId)
+    return generation
+  }
+
   /** session.idle 不带 message/generation id；用本轮用户消息核对历史，避免旧 idle 结束刚重试的新轮次。 */
   private async completeSessionGeneration(
     emit: (event: string, data: unknown) => Promise<void>,
@@ -1611,6 +1659,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async sendMessage(req: SendMessageRequest): Promise<void> {
+    if (!req.text.trim()) {
+      throw new Error("Message text is empty.")
+    }
     const externalKind = externalAgentKindForSessionId(req.sessionId)
     if (externalKind) {
       return this.sendExternalMessage(req, externalKind)
@@ -1652,13 +1703,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           ),
         )
       }
-      generation = this.beginSessionGeneration(req.sessionId, userMessageId)
-      this.createActiveRun(req, generation)
+      generation = this.beginChatTurn(req, userMessageId)
       const activeGeneration = generation
-      this.userStops.delete(req.sessionId)
-      this.connectionFailedSessions.delete(req.sessionId)
-      this.clearMessageErrorSignatures(req.sessionId)
-      this.emitSessionActivity(req.sessionId)
       const knowledgeBaseIds = (req.contextMentions ?? []).flatMap((mention) =>
         mention.kind === "knowledge" && mention.id.trim() ? [mention.id.trim()] : [],
       )
@@ -1681,17 +1727,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
       })
       const artifactProjectRoot = execution.artifactProjectRoot
-      const [artifactDirectoryResult, processDirectoryResult] = await Promise.allSettled([
-        this.agent.createArtifactDir(req.sessionId, artifactProjectRoot),
-        this.agent.createProcessDir(req.sessionId),
-      ])
-      if (artifactDirectoryResult.status === "fulfilled") artifactDir = artifactDirectoryResult.value
-      if (processDirectoryResult.status === "fulfilled") processDir = processDirectoryResult.value
-      const directoryErrors = [artifactDirectoryResult, processDirectoryResult]
-        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-        .map((result) => result.reason)
-      if (directoryErrors.length === 1) throw directoryErrors[0]
-      if (directoryErrors.length > 1) throw new AggregateError(directoryErrors, "Failed to create turn directories")
+      await createManagedTurnDirectoryPair(
+        () => this.agent!.createArtifactDir(req.sessionId, artifactProjectRoot),
+        () => this.agent!.createProcessDir(req.sessionId),
+        {
+          artifactDir: (value) => (artifactDir = value),
+          processDir: (value) => (processDir = value),
+        },
+      )
       if (!artifactDir || !processDir) throw new Error("Turn directory creation returned an empty path")
       if (!this.isCurrentGeneration(req.sessionId, activeGeneration.id) || activeGeneration.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
@@ -1835,10 +1878,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (req.attachments?.length && !adapter.profile.inputs.attachments) {
       throw new Error("Attachments are not supported for this agent yet.")
     }
-    // Main is the IPC boundary; a blank prompt must never spawn an agent turn.
-    if (!req.text.trim()) {
-      throw new Error("Message text is empty.")
-    }
     // Same trust boundary as the kernel path: attachment paths cross the IPC
     // boundary, so only picker-authorized or previously trusted paths may be
     // recorded and handed to the agent. Asserted BEFORE the single-generation
@@ -1854,14 +1893,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       req.permissionModeVersion,
     )
     const userMessageId = createOpencodeMessageId()
-    const generation = this.beginSessionGeneration(req.sessionId, userMessageId)
+    const generation = this.beginChatTurn(req, userMessageId)
     let artifactDir: string | undefined
     let processDir: string | undefined
-    this.createActiveRun(req, generation)
-    this.userStops.delete(req.sessionId)
-    this.connectionFailedSessions.delete(req.sessionId)
-    this.clearMessageErrorSignatures(req.sessionId)
-    this.emitSessionActivity(req.sessionId)
     try {
       const teamName = teamNameFromRequest(req)
       const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
@@ -1879,17 +1913,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
       })
       const artifactProjectRoot = execution.artifactProjectRoot
-      const [artifactDirectoryResult, processDirectoryResult] = await Promise.allSettled([
-        directories.createArtifactDir(req.sessionId, artifactProjectRoot),
-        directories.createProcessDir(req.sessionId),
-      ])
-      if (artifactDirectoryResult.status === "fulfilled") artifactDir = artifactDirectoryResult.value
-      if (processDirectoryResult.status === "fulfilled") processDir = processDirectoryResult.value
-      const directoryErrors = [artifactDirectoryResult, processDirectoryResult]
-        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-        .map((result) => result.reason)
-      if (directoryErrors.length === 1) throw directoryErrors[0]
-      if (directoryErrors.length > 1) throw new AggregateError(directoryErrors, "Failed to create turn directories")
+      await createManagedTurnDirectoryPair(
+        () => directories.createArtifactDir(req.sessionId, artifactProjectRoot),
+        () => directories.createProcessDir(req.sessionId),
+        {
+          artifactDir: (value) => (artifactDir = value),
+          processDir: (value) => (processDir = value),
+        },
+      )
       if (!artifactDir || !processDir) throw new Error("Turn directory creation returned an empty path")
       if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, generation.id)
@@ -1925,6 +1956,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.discardTrustedAttachmentPaths(req.attachments)
       }
       await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
+      if (req.agentModelId || req.agentEffortId) {
+        await this.deps.onExternalSessionSelectionChanged?.(req.sessionId, {
+          ...(req.agentModelId ? { modelId: req.agentModelId } : {}),
+          ...(req.agentEffortId ? { effortId: req.agentEffortId } : {}),
+        })
+      }
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
       this.scheduleGenerationSubmitWatchdog(req.sessionId, generation.id)
       void adapter

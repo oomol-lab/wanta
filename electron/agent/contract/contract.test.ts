@@ -1,4 +1,5 @@
 import type { AcpTransport } from "../acp/adapter.ts"
+import type { AcpAgentKind } from "../acp/registry.ts"
 import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
 import type { AgentManager } from "../manager.ts"
 import type { AgentEvent } from "./event.ts"
@@ -19,7 +20,7 @@ import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { AcpAgentAdapter } from "../acp/adapter.ts"
-import { ACP_AGENT_REGISTRY } from "../acp/registry.ts"
+import { ACP_AGENT_KINDS, ACP_AGENT_REGISTRY } from "../acp/registry.ts"
 import { ClaudeCodeAgentAdapter } from "../claude/adapter.ts"
 import { mintExternalSessionId } from "../external/session-id.ts"
 import { OpencodeAgentAdapter } from "../opencode-adapter.ts"
@@ -50,6 +51,8 @@ interface AdapterContractHarness {
   /** Text parts of the session transcript, for adapters serving history from their own recorder. */
   transcriptTexts?: () => Promise<string[]>
   effects: {
+    attachmentObserved: () => boolean
+    modeObserved: () => boolean
     promptCount: () => number
     cancelCount: () => number
     permissionSettledCount: () => number
@@ -76,7 +79,14 @@ function createOpencodeHarness(): Promise<AdapterContractHarness> {
   let nativeListener:
     | ((event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void)
     | undefined
-  const prompt = vi.fn(async () => undefined)
+  let attachmentObserved = false
+  let modeObserved = false
+  const prompt = vi.fn(
+    async (_sessionId: string, _text: string, options?: { attachments?: Array<{ path: string }>; mode?: string }) => {
+      attachmentObserved ||= options?.attachments?.[0]?.path === "/tmp/input.txt"
+      modeObserved ||= options?.mode === "plan"
+    },
+  )
   const cancel = vi.fn(async () => undefined)
   const permissionReply = vi.fn(async () => undefined)
   const questionAnswer = vi.fn(async () => undefined)
@@ -159,6 +169,8 @@ function createOpencodeHarness(): Promise<AdapterContractHarness> {
       })
     },
     effects: {
+      attachmentObserved: () => attachmentObserved,
+      modeObserved: () => modeObserved,
       promptCount: () => prompt.mock.calls.length,
       cancelCount: () => cancel.mock.calls.length,
       permissionSettledCount: () => permissionReply.mock.calls.length,
@@ -335,6 +347,11 @@ async function createClaudeHarness(): Promise<AdapterContractHarness> {
       )
     },
     effects: {
+      attachmentObserved: () =>
+        queries.some((fake) =>
+          fake.promptMessages.some((message) => JSON.stringify(message).includes("/tmp/input.txt")),
+        ),
+      modeObserved: () => false,
       promptCount: () => queries.reduce((total, fake) => total + fake.promptMessages.length, 0),
       cancelCount: () => queries.reduce((total, fake) => total + fake.interrupt.mock.calls.length, 0),
       permissionSettledCount: () => permissionSettled,
@@ -348,11 +365,12 @@ async function createClaudeHarness(): Promise<AdapterContractHarness> {
 
 // ── ACP fixture: in-process fake agent over cross-wired streams ──
 
-async function createAcpHarness(): Promise<AdapterContractHarness> {
+async function createAcpHarness(kind: AcpAgentKind): Promise<AdapterContractHarness> {
   const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-contract-acp-"))
   let promptCount = 0
   let cancelCount = 0
   let disposed = false
+  let attachmentObserved = false
   const permissionResponses: RequestPermissionResponse[] = []
   let bridge:
     | {
@@ -368,6 +386,7 @@ async function createAcpHarness(): Promise<AdapterContractHarness> {
     .onRequest("session/set_mode", () => ({}))
     .onRequest("session/prompt", ({ params, client }) => {
       promptCount += 1
+      attachmentObserved ||= JSON.stringify(params.prompt).includes("input.txt")
       bridge = {
         sendUpdate: async (update) => {
           await client.notify("session/update", { sessionId: params.sessionId, update })
@@ -416,20 +435,20 @@ async function createAcpHarness(): Promise<AdapterContractHarness> {
     }
   }
   const adapter = new AcpAgentAdapter({
-    kind: "codex",
-    registration: ACP_AGENT_REGISTRY["codex"],
+    kind,
+    registration: ACP_AGENT_REGISTRY[kind],
     probe: () =>
       Promise.resolve({
-        kind: "codex",
-        displayName: "Gemini CLI",
-        binary: { status: "detected", path: "/fake/codex-acp", version: "1.1.14" },
+        kind,
+        displayName: ACP_AGENT_REGISTRY[kind].displayName,
+        binary: { status: "detected", path: `/fake/${kind}`, version: "1.0.0" },
         login: { status: "logged_in" },
-        loginHint: ACP_AGENT_REGISTRY["codex"].loginHint,
+        loginHint: ACP_AGENT_REGISTRY[kind].loginHint,
       } satisfies ExternalAgentRuntimeStatus),
     scratchRootDir,
     connect,
   })
-  const sessionId = mintExternalSessionId("codex")
+  const sessionId = mintExternalSessionId(kind)
   let permissionSeq = 0
   const ensureTurn = async (): Promise<NonNullable<typeof bridge>> => {
     if (!bridge) {
@@ -479,6 +498,8 @@ async function createAcpHarness(): Promise<AdapterContractHarness> {
       )
     },
     effects: {
+      attachmentObserved: () => attachmentObserved,
+      modeObserved: () => false,
       promptCount: () => promptCount,
       cancelCount: () => cancelCount,
       permissionSettledCount: () => permissionResponses.length,
@@ -493,7 +514,7 @@ async function createAcpHarness(): Promise<AdapterContractHarness> {
 const adapterFixtures: Array<{ kind: AgentKind; create: () => Promise<AdapterContractHarness> }> = [
   { kind: "opencode", create: createOpencodeHarness },
   { kind: "claude-code", create: createClaudeHarness },
-  { kind: "codex", create: createAcpHarness },
+  ...ACP_AGENT_KINDS.map((kind) => ({ kind, create: () => createAcpHarness(kind) })),
 ]
 
 async function startHarness(create: () => Promise<AdapterContractHarness>): Promise<{
@@ -532,6 +553,17 @@ async function observedPermissionRequestId(events: AgentEvent[]): Promise<string
 }
 
 describe.each(adapterFixtures)("agent adapter contract: $kind", ({ kind, create }) => {
+  test("prompt requires a started lifecycle", async () => {
+    const harness = await create()
+    pendingCleanups.push(async () => {
+      await harness.adapter.stop().catch(() => undefined)
+      await harness.cleanup?.()
+    })
+    await expect(
+      harness.adapter.send({ type: "prompt", sessionId: harness.sessionId, text: "too early" }),
+    ).rejects.toThrow(`${kind}: adapter is not started`)
+  })
+
   test("profile declaration matches the handled input surface", async () => {
     const { harness } = await startHarness(create)
     const profile = AGENT_PROFILES[kind]
@@ -544,6 +576,27 @@ describe.each(adapterFixtures)("agent adapter contract: $kind", ({ kind, create 
     expect(harness.adapter.supportsInput("set-model")).toBe(profile.inputs.setModel)
     expect(harness.adapter.supportsInput("set-effort")).toBe(profile.inputs.setEffort)
     expect(profile.permissionModes.length).toBeGreaterThan(0)
+  })
+
+  test("declared prompt-field capabilities are consumed", async () => {
+    const { harness } = await startHarness(create)
+    await harness.adapter.send({
+      type: "prompt",
+      sessionId: harness.sessionId,
+      text: "inspect the attachment",
+      ...(harness.adapter.profile.inputs.attachments
+        ? {
+            attachments: [
+              { id: "attachment-1", name: "input.txt", mime: "text/plain", path: "/tmp/input.txt", size: 1 },
+            ],
+          }
+        : {}),
+      ...(harness.adapter.profile.inputs.modes ? { mode: "plan" as const } : {}),
+    })
+    await vi.waitFor(() => {
+      if (harness.adapter.profile.inputs.attachments) expect(harness.effects.attachmentObserved()).toBe(true)
+      if (harness.adapter.profile.inputs.modes) expect(harness.effects.modeObserved()).toBe(true)
+    })
   })
 
   test("onEvent delivers schema-valid translated events", async () => {

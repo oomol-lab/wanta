@@ -763,6 +763,26 @@ test("edge8: prompt-borne model/effort ids are forwarded verbatim and never kill
   assert.equal((await service.getMessages(sessionId)).filter((message) => message.role === "assistant").length, 2)
 })
 
+test("external model and effort choices are persisted per session", async () => {
+  const persisted: Array<{ sessionId: string; patch: { modelId?: string | null; effortId?: string | null } }> = []
+  const { service } = createHarness(["claude-code"], {
+    onExternalSessionSelectionChanged: (sessionId, patch) => {
+      persisted.push({ sessionId, patch })
+    },
+  })
+  const sessionId = mintExternalSessionId("claude-code")
+
+  await service.setExternalSessionModel({ sessionId, modelId: "sonnet" })
+  await service.setExternalSessionEffort({ sessionId, effortId: "high" })
+  await service.setExternalSessionModel({ sessionId })
+
+  assert.deepEqual(persisted, [
+    { sessionId, patch: { modelId: "sonnet" } },
+    { sessionId, patch: { effortId: "high" } },
+    { sessionId, patch: { modelId: null } },
+  ])
+})
+
 test("external turns receive the same Wanta team and Link identity instead of falling back to a default workspace", async () => {
   const { service, adapters } = createHarness(["codex"])
   service.setLinkRuntime("oomol")

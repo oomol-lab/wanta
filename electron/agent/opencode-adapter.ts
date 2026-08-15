@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatPermissionRequest, ChatQuestionRequest } from "../chat/common.ts"
 import type { GenerateSessionTitleRequest, SessionInfo } from "../session/common.ts"
+import type { ChatAgentBackend } from "./contract/chat-backend.ts"
 import type {
   AgentSendOptions,
   CancelAgentInput,
@@ -22,7 +23,7 @@ import { translateOpencodeEvent } from "./event-translator.ts"
 // class — they are not part of the AgentAdapter contract, and future external
 // adapters must not be forced to fake them.
 
-export class OpencodeAgentAdapter extends BaseAgentAdapter {
+export class OpencodeAgentAdapter extends BaseAgentAdapter implements ChatAgentBackend {
   public readonly kind = "opencode"
   public readonly profile = AGENT_PROFILES.opencode
 

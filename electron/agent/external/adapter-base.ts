@@ -1,4 +1,5 @@
 import type { AgentPermissionMode, ChatMessage, ChatPermissionRequest, ChatQuestionRequest } from "../../chat/common.ts"
+import type { ChatAgentBackend } from "../contract/chat-backend.ts"
 import type { AgentEvent } from "../contract/event.ts"
 import type { AgentInput, AgentSendOptions } from "../contract/input.ts"
 import type { ExternalAgentRuntimeStatus } from "./probe.ts"
@@ -22,7 +23,7 @@ export interface ExternalAgentAdapterOptions {
   transcriptDir?: string
 }
 
-export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
+export abstract class ExternalAgentAdapter extends BaseAgentAdapter implements ChatAgentBackend {
   private readonly transcript = new ExternalTranscriptRecorder()
   private readonly pendingPermissionRequests = new Map<string, ChatPermissionRequest>()
   private readonly transcriptStore: ExternalTranscriptStore | undefined

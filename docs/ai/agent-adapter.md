@@ -13,6 +13,12 @@ OpenCode kernel, Claude Code, ACP agents — sits behind one interface,
 - `start()` / `stop()` — lifecycle
 - `profile` — static capability declaration (`AGENT_PROFILES` in `contract/profile.ts`)
 
+`ChatAgentBackend` in `contract/chat-backend.ts` is the composed host-facing
+surface used by the chat service after session routing. It adds history and
+pending-interaction reads without putting OpenCode-only deep features into the
+protocol adapter contract. External native adapters normally extend
+`ExternalAgentAdapter`, which supplies the transcript-backed implementation.
+
 There are deliberately **no per-feature methods** (`prompt()`, `setModel()`, ...).
 A new kind of interaction is a new variant on `AgentInput` or `AgentEvent`.
 
@@ -73,7 +79,9 @@ External agents build on `electron/agent/external/`:
   is declared per agent in `AgentProfile.permissionModes` and projected onto
   the agent's own approval policy (Claude SDK permission modes, including the
   `auto` classifier mode; ACP session modes via the registry's
-  `permissionModeMap`). Enforcement is always agent-side.
+  `permissionModeMap`). Enforcement is always agent-side. Applying a declared
+  mode is fail-closed: a missing or rejected native mode blocks the turn rather
+  than silently continuing under a stale, potentially broader mode.
 - **Native permission ownership is agent-side, host capability permission is
   host-side**: the external agent's CLI decides WHEN native file, shell, and
   network work needs approval, and Wanta relays those asks to the user. The one
@@ -115,7 +123,8 @@ External agents build on `electron/agent/external/`:
   `ExternalAgentRuntimeStatus.catalog` and the UI renders them verbatim; a
   `warmCatalog()` pass (throwaway ACP session closed right away, or an idle
   Claude query) fills the catalog before the first user session so draft-time
-  pickers show the real lists.
+  pickers show the real lists. Per-session choices are also stored in Wanta's
+  session metadata so they survive renderer reloads and full app restarts.
 - **Attachments**: delivered as file references the agent resolves with its
   own tools and permission model — never inlined into the payload. The ACP
   adapter appends one `resource_link` block per attachment (baseline prompt
@@ -167,7 +176,9 @@ External agents build on `electron/agent/external/`:
 Record<AgentKind, AgentProfile>` on `AGENT_PROFILES` breaks the build until
    the new profile row exists. Declare only capabilities the adapter genuinely
    implements.
-2. Implement the adapter extending `BaseAgentAdapter`:
+2. Implement the native adapter by extending `ExternalAgentAdapter` (or by
+   implementing `ChatAgentBackend` directly when another host component owns
+   transcript and pending-interaction reads):
    - required hooks: `handleStart`, `handleStop`, `handlePrompt`, `handleCancel`
    - override optional hooks only for declared capabilities
    - translate native events in a stateless translator module (pattern:

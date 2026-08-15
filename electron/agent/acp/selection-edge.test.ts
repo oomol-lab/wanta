@@ -544,7 +544,9 @@ describe("acp selection: permission-mode projection", () => {
     await harness.adapter.send(promptInput())
     await harness.waitFor((event) => event.event === "messageCompleted")
     // codex maps full_access -> agent-full-access, which this session lacks.
-    await expect(harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "full_access")).resolves.toBeUndefined()
+    await expect(harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "full_access")).rejects.toThrow(
+      /permission mode "full_access" is not available/u,
+    )
     expect(harness.fake.setModeRequests).toHaveLength(0)
   })
 

@@ -640,11 +640,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
   }
 
-  /**
-   * Best-effort projection of Wanta's permission mode onto the agent's session
-   * modes via the registry's mode map; entries the live session does not
-   * advertise are skipped.
-   */
+  /** Project Wanta's permission mode onto the native ACP session, fail closed. */
   public override async applyPermissionMode(sessionId: string, mode: AgentPermissionMode): Promise<void> {
     const modeMap = this.options.registration.permissionModeMap
     if (!modeMap) {
@@ -653,6 +649,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     // The chat layer projects the mode BEFORE the first prompt creates the
     // session; stash it so createAcpSession can apply it, or the whole first
     // turn would run under the agent's own default mode.
+    const previous = this.desiredPermissionModes.get(sessionId)
     this.desiredPermissionModes.set(sessionId, mode)
     const session = this.sessionsByWantaId.get(sessionId)
     if (!session) {
@@ -661,11 +658,13 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const mapped = modeMap[mode]
     const targetModeId = mapped ?? (mode === "default" ? session.initialModeId : undefined)
     if (!targetModeId || !session.availableModeIds.includes(targetModeId)) {
-      return
+      this.restoreDesiredPermissionMode(sessionId, previous, mode)
+      throw new Error(`${this.kind}: permission mode "${mode}" is not available in this session`)
     }
     const handle = this.connectionHandle
     if (!handle || handle.lost) {
-      return
+      this.restoreDesiredPermissionMode(sessionId, previous, mode)
+      throw new Error(`${this.kind}: cannot apply permission mode while the ACP connection is unavailable`)
     }
     try {
       await handle.connection.agent.request("session/set_mode", {
@@ -673,13 +672,25 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
         modeId: targetModeId,
       })
     } catch (error) {
+      this.restoreDesiredPermissionMode(sessionId, previous, mode)
       logDiagnostic(
         "acp-adapter",
         "session/set_mode failed",
         { adapter: this.kind, modeId: targetModeId, error: errorMessage(error) },
         "warn",
       )
+      throw error
     }
+  }
+
+  private restoreDesiredPermissionMode(
+    sessionId: string,
+    previous: AgentPermissionMode | undefined,
+    attempted: AgentPermissionMode,
+  ): void {
+    if (this.desiredPermissionModes.get(sessionId) !== attempted) return
+    if (previous === undefined) this.desiredPermissionModes.delete(sessionId)
+    else this.desiredPermissionModes.set(sessionId, previous)
   }
 
   private signInRequiredMessage(): string {
@@ -983,20 +994,28 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
     this.sessionsByWantaId.set(input.sessionId, session)
     this.wantaIdByAcpId.set(response.sessionId, input.sessionId)
-    // Choices made before the session existed apply before the first prompt;
-    // failures are logged inside and must not fail session creation.
-    const desired = this.desiredSelections.get(input.sessionId)
-    if (desired?.model !== undefined) {
-      await this.setConfigValue(handle, session, "model", desired.model).catch(() => undefined)
+    try {
+      // Agent-native selection remains advisory; a rejected catalog choice
+      // falls back to the agent default. Permission mode is different: it is
+      // an enforcement boundary and must apply before the first prompt.
+      const desired = this.desiredSelections.get(input.sessionId)
+      if (desired?.model !== undefined) {
+        await this.setConfigValue(handle, session, "model", desired.model).catch(() => undefined)
+      }
+      if (desired?.effort !== undefined) {
+        await this.setConfigValue(handle, session, "effort", desired.effort).catch(() => undefined)
+      }
+      const desiredMode = this.desiredPermissionModes.get(input.sessionId)
+      if (desiredMode !== undefined) await this.applyPermissionMode(input.sessionId, desiredMode)
+      return session
+    } catch (error) {
+      this.sessionsByWantaId.delete(input.sessionId)
+      this.wantaIdByAcpId.delete(response.sessionId)
+      await handle.connection.agent
+        .request("session/close" as never, { sessionId: response.sessionId } as never)
+        .catch(() => undefined)
+      throw error
     }
-    if (desired?.effort !== undefined) {
-      await this.setConfigValue(handle, session, "effort", desired.effort).catch(() => undefined)
-    }
-    const desiredMode = this.desiredPermissionModes.get(input.sessionId)
-    if (desiredMode !== undefined) {
-      await this.applyPermissionMode(input.sessionId, desiredMode).catch(() => undefined)
-    }
-    return session
   }
 
   private async hostMcpServers(input: PromptAgentInput): Promise<McpServer[]> {

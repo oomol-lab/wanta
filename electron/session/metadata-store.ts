@@ -12,6 +12,8 @@ export interface SessionMetadata {
   scope?: SessionScope
   projectId?: string
   permissionMode?: SessionPermissionMode
+  agentModelId?: string
+  agentEffortId?: string
   knowledgeBaseIds?: string[]
   pinnedAt?: number
   archivedAt?: number
@@ -60,6 +62,12 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
     if (permissionMode) {
       next.permissionMode = permissionMode
     }
+    if (typeof source.agentModelId === "string" && source.agentModelId.trim()) {
+      next.agentModelId = source.agentModelId.trim()
+    }
+    if (typeof source.agentEffortId === "string" && source.agentEffortId.trim()) {
+      next.agentEffortId = source.agentEffortId.trim()
+    }
     // Do not restore legacy Wanta-owned knowledge registry references from disk. WikiGraph
     // default-lib archive ids are applied only from the current runtime/session context after the
     // user selects them again.
@@ -73,6 +81,8 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
       next.scope ||
       next.projectId ||
       next.permissionMode ||
+      next.agentModelId ||
+      next.agentEffortId ||
       next.knowledgeBaseIds ||
       next.pinnedAt ||
       next.archivedAt
@@ -101,6 +111,12 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
     if (permissionMode) {
       next.permissionMode = permissionMode
     }
+    if (typeof entry.agentModelId === "string" && entry.agentModelId.trim()) {
+      next.agentModelId = entry.agentModelId.trim()
+    }
+    if (typeof entry.agentEffortId === "string" && entry.agentEffortId.trim()) {
+      next.agentEffortId = entry.agentEffortId.trim()
+    }
     const knowledgeBaseIds = normalizeKnowledgeBaseIds(entry.knowledgeBaseIds)
     if (knowledgeBaseIds) next.knowledgeBaseIds = knowledgeBaseIds
     if (validTimestamp(entry.pinnedAt)) {
@@ -113,6 +129,8 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
       next.scope ||
       next.projectId ||
       next.permissionMode ||
+      next.agentModelId ||
+      next.agentEffortId ||
       next.knowledgeBaseIds ||
       next.pinnedAt ||
       next.archivedAt

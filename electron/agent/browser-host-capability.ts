@@ -1,11 +1,12 @@
 import type { BrowserControlRequest, BrowserControlResult } from "../browser/node.ts"
 import type { HostCapability, HostCapabilityContext } from "./host-capability.ts"
 
-import { readFile } from "node:fs/promises"
+import { readFile, stat } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { z } from "zod"
 
 export const BROWSER_CAPABILITY_ID = "browser"
+const MAX_SCREENSHOT_BYTES = 16 * 1024 * 1024
 
 export interface BrowserCapabilityExecutor {
   execute(request: BrowserControlRequest, signal?: AbortSignal): Promise<BrowserControlResult>
@@ -95,14 +96,21 @@ function screenshotTool(browser: BrowserCapabilityExecutor): HostCapability["too
     description:
       "Capture the visible integrated-browser page as an image for visual inspection. Use browser_read for ordinary interaction and refs.",
     inputSchema: z.object({ fullPage: z.boolean().optional() }),
-    execute: async (context, input) => {
-      const result = await browser.execute({
-        action: "screenshot",
-        sessionId: context.sessionId,
-        fullPage: input.fullPage === true,
-      })
+    execute: async (context, input, signal) => {
+      const result = await browser.execute(
+        {
+          action: "screenshot",
+          sessionId: context.sessionId,
+          fullPage: input.fullPage === true,
+        },
+        signal,
+      )
       if (!("fileUrl" in result)) throw new Error("Browser screenshot did not return an image file.")
-      const data = (await readFile(fileURLToPath(result.fileUrl))).toString("base64")
+      const screenshotPath = fileURLToPath(result.fileUrl)
+      if ((await stat(screenshotPath)).size > MAX_SCREENSHOT_BYTES) {
+        throw new Error("Browser screenshot exceeds the 16 MiB host capability limit.")
+      }
+      const data = (await readFile(screenshotPath)).toString("base64")
       const text = JSON.stringify({ title: result.title, url: result.url })
       return {
         text,
@@ -126,7 +134,9 @@ function tool(
     name,
     description,
     inputSchema,
-    execute: async (context, input) => ({ text: JSON.stringify(await browser.execute(request(context, input))) }),
+    execute: async (context, input, signal) => ({
+      text: JSON.stringify(await browser.execute(request(context, input), signal)),
+    }),
   }
 }
 

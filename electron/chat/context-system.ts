@@ -11,34 +11,38 @@ function quoted(value: string): string {
 
 /** Host-owned Link identity shared by every agent runtime. */
 export function buildLinkRuntimeSystem(runtime: ActiveLinkRuntime, teamName: string | undefined): string | undefined {
-  if (runtime === "none") {
-    return undefined
+  switch (runtime) {
+    case "none":
+      return undefined
+    case "openconnector":
+      return [
+        "Wanta Link runtime for this turn: OpenConnector.",
+        "- Wanta owns the active connection identity; preserve it across every Link call.",
+        "- When the `wanta_link` MCP tools are present, use them for Link work and do not invoke the raw `oo` CLI; inspect_action is required before call_action.",
+        "- Raw `oo connector apps` and `oo connector run` calls must omit `--team` and `--personal`.",
+        "- An authorization error applies only to the exact runtime and selector used by that call; do not claim a different workspace is disconnected.",
+      ].join("\n")
+    case "oomol": {
+      const normalizedTeamName = teamName?.trim()
+      if (!normalizedTeamName) {
+        return [
+          "Wanta Link runtime for this turn: OOMOL, but no team workspace identity is available.",
+          "- Do not run `oo connector apps` or `oo connector run` without an explicit Wanta-provided team selector.",
+          "- Explain that the workspace identity is unavailable instead of falling back to a personal or default workspace.",
+        ].join("\n")
+      }
+      return [
+        `Current-turn Wanta Link workspace: team ${quoted(normalizedTeamName)}.`,
+        "- When the `wanta_link` MCP tools are present, use them for Link work and do not invoke the raw `oo` CLI; inspect_action is required before call_action.",
+        `- Every raw \`oo connector apps\` or \`oo connector run\` call must preserve the selector \`--team ${quoted(normalizedTeamName)}\`.`,
+        "- Never omit, replace, or change that selector after an error, and never retry in a personal or default workspace.",
+        "- `app_not_found` or `connection_required` from a call without this exact selector does not prove that the current Wanta team is disconnected.",
+        "- Wanta-provided Link tools own workspace binding, authorization signaling, and credential redaction.",
+      ].join("\n")
+    }
+    default:
+      return runtime satisfies never
   }
-  if (runtime === "openconnector") {
-    return [
-      "Wanta Link runtime for this turn: OpenConnector.",
-      "- Wanta owns the active connection identity; preserve it across every Link call.",
-      "- When the `wanta_link` MCP tools are present, use them for Link work and do not invoke the raw `oo` CLI; inspect_action is required before call_action.",
-      "- Raw `oo connector apps` and `oo connector run` calls must omit `--team` and `--personal`.",
-      "- An authorization error applies only to the exact runtime and selector used by that call; do not claim a different workspace is disconnected.",
-    ].join("\n")
-  }
-  const normalizedTeamName = teamName?.trim()
-  if (!normalizedTeamName) {
-    return [
-      "Wanta Link runtime for this turn: OOMOL, but no team workspace identity is available.",
-      "- Do not run `oo connector apps` or `oo connector run` without an explicit Wanta-provided team selector.",
-      "- Explain that the workspace identity is unavailable instead of falling back to a personal or default workspace.",
-    ].join("\n")
-  }
-  return [
-    `Current-turn Wanta Link workspace: team ${quoted(normalizedTeamName)}.`,
-    "- When the `wanta_link` MCP tools are present, use them for Link work and do not invoke the raw `oo` CLI; inspect_action is required before call_action.",
-    `- Every raw \`oo connector apps\` or \`oo connector run\` call must preserve the selector \`--team ${quoted(normalizedTeamName)}\`.`,
-    "- Never omit, replace, or change that selector after an error, and never retry in a personal or default workspace.",
-    "- `app_not_found` or `connection_required` from a call without this exact selector does not prove that the current Wanta team is disconnected.",
-    "- Wanta-provided Link tools own workspace binding, authorization signaling, and credential redaction.",
-  ].join("\n")
 }
 
 export function buildContextMentionsSystem(mentions: ChatContextMention[] | undefined): string | undefined {

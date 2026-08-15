@@ -51,6 +51,7 @@ export class SkillRegistry {
 
   public async snapshot(): Promise<SkillRegistrySnapshot> {
     const entries = new Map<string, SkillRegistryEntry>()
+    const seenIds = new Set<string>()
     const diagnostics: SkillDiagnostic[] = []
     for (const sourceDefinition of this.sources) {
       const { root } = sourceDefinition
@@ -62,7 +63,7 @@ export class SkillRegistry {
       }
       for (const child of children.sort((left, right) => left.name.localeCompare(right.name))) {
         if (!child.isDirectory()) continue
-        if (entries.has(child.name)) {
+        if (seenIds.has(child.name)) {
           diagnostics.push({
             code: "duplicate_id",
             severity: "warning",
@@ -71,6 +72,7 @@ export class SkillRegistry {
           })
           continue
         }
+        seenIds.add(child.name)
         const skillRoot = path.join(root, child.name)
         try {
           const source = await readBoundedFile(path.join(skillRoot, "SKILL.md"))

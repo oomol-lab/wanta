@@ -472,8 +472,16 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       throw error instanceof Error ? error : new Error(message)
     }
     let session: AcpSessionState
+    if (this.sessionsByWantaId.has(input.sessionId)) {
+      try {
+        await this.options.hostMcpServers?.(input)
+      } catch (error) {
+        const message = `${displayName} could not refresh host capabilities: ${errorMessage(error)}`
+        this.emit({ event: "agentError", data: { sessionId: input.sessionId, message } })
+        throw new Error(message)
+      }
+    }
     try {
-      if (this.sessionsByWantaId.has(input.sessionId)) await this.options.hostMcpServers?.(input)
       session = await this.ensureAcpSession(handle, input)
     } catch (error) {
       const message = this.isAuthRequiredError(error)

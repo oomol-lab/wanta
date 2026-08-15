@@ -72,8 +72,9 @@ export function createLinkHostCapability(capability: LinkCapability): HostCapabi
 }
 
 function linkContext(context: HostCapabilityContext): LinkCapabilityContext {
+  const runtime = hostCapabilityBinding<LinkCapabilityRuntime>(context, LINK_RUNTIME_BINDING)
   return {
-    runtime: hostCapabilityBinding<LinkCapabilityRuntime>(context, LINK_RUNTIME_BINDING),
+    ...(runtime ? { runtime } : {}),
     sessionId: context.sessionId,
     ...(context.teamName ? { teamName: context.teamName } : {}),
   }

@@ -69,6 +69,8 @@ test("built-in invoke and external MCP transports execute the same Link capabili
   try {
     const external = await client.callTool({ name: "list_apps", arguments: { service: "posthog" } })
     expect(external.content).toEqual([{ type: "text", text: builtIn.result }])
+    expect(builtIn.result).not.toContain("secret")
+    expect(JSON.stringify(external.content)).not.toContain("secret")
     expect(JSON.parse(builtIn.result)).toMatchObject({
       args: ["connector", "apps", "posthog", "--team", "Analytics Team", "--json"],
     })

@@ -114,6 +114,14 @@ test("buildExternalPermissionModeSystem preserves agent-native enforcement", () 
   assert.match(fullAccessPrompt, /Login, credentials, passkeys, and CAPTCHA remain manual/)
 })
 
+test("buildExternalPermissionModeSystem omits integrated browser guidance when unavailable", () => {
+  const defaultPrompt = buildExternalPermissionModeSystem("default", false)
+  const fullAccessPrompt = buildExternalPermissionModeSystem("full_access", false)
+
+  assert.doesNotMatch(defaultPrompt, /wanta_browser|integrated browser|visible browser/)
+  assert.doesNotMatch(fullAccessPrompt, /wanta_browser|integrated browser|visible browser/)
+})
+
 test("buildPermissionModeSystem describes full access", () => {
   const prompt = buildPermissionModeSystem("full_access", true)
 

@@ -265,3 +265,18 @@ test("HostCapabilityServer exposes Link tools through an authenticated loopback 
     await server.dispose()
   }
 })
+
+test("Link host capability uses the LinkCapability fallback runtime when no binding exists", async () => {
+  const { calls, capability } = oomolHarness()
+  const kernel = new HostCapabilityKernel()
+  kernel.register(createLinkHostCapability(capability))
+
+  await kernel.execute(
+    LINK_CAPABILITY_ID,
+    "list_apps",
+    { bindings: {}, sessionId: "session-1", teamName: "Analytics Team" },
+    { service: "posthog" },
+  )
+
+  expect(calls[0]?.args).toEqual(["connector", "apps", "posthog", "--team", "Analytics Team", "--json"])
+})

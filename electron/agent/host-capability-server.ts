@@ -144,7 +144,8 @@ export class HostCapabilityServer {
         inputSchema: tool.inputSchema,
         ...(tool.annotations ? { annotations: tool.annotations } : {}),
       },
-      async (input) => mcpResult(await this.options.kernel.execute(capabilityId, tool.name, lease.context(), input)),
+      async (input, extra) =>
+        mcpResult(await this.options.kernel.execute(capabilityId, tool.name, lease.context(), input, extra.signal)),
     )
   }
 

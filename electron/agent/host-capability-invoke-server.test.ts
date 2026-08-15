@@ -31,6 +31,18 @@ test("sidecar invoke transport binds the registered Wanta session context", asyn
     body: JSON.stringify({ capability: "test", tool: "whoami", sessionId: "session-1", input: {} }),
   })
   expect(await response.json()).toEqual({ result: "team-a" })
+  const unauthorized = await fetch(`${connection.url}/v1/invoke`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ capability: "test", tool: "whoami", sessionId: "session-1", input: {} }),
+  })
+  expect(unauthorized.status).toBe(404)
+  const unexposed = await fetch(`${connection.url}/v1/invoke`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${connection.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ capability: "private", tool: "whoami", sessionId: "session-1", input: {} }),
+  })
+  expect(unexposed.status).toBe(400)
   server.disableSession("session-1")
   const disabled = await fetch(`${connection.url}/v1/invoke`, {
     method: "POST",

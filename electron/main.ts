@@ -232,6 +232,27 @@ const sessionMetadataStore = new SessionMetadataStore(app.getPath("userData"))
 const externalSessionStore = new ExternalSessionStore(app.getPath("userData"))
 let activeLinkCapabilityRuntime: LinkCapabilityRuntime | null = null
 let activeLinkCapabilityScope: string | null = null
+let directRuntimeCache:
+  | Promise<
+      readonly [
+        Awaited<ReturnType<LarkCliManager["agentRuntime"]>>,
+        Awaited<ReturnType<WecomCliManager["agentRuntime"]>>,
+        Awaited<ReturnType<DingTalkCliManager["agentRuntime"]>>,
+      ]
+    >
+  | undefined
+
+function directRuntimes() {
+  directRuntimeCache ??= Promise.all([
+    larkCliManager.agentRuntime(),
+    wecomCliManager.agentRuntime(),
+    dingTalkCliManager.agentRuntime(),
+  ] as const).catch((error: unknown) => {
+    directRuntimeCache = undefined
+    throw error
+  })
+  return directRuntimeCache
+}
 const linkCapability = new LinkCapability({
   ooBinPath,
   runtime: () => activeLinkCapabilityRuntime,
@@ -248,11 +269,7 @@ hostCapabilityKernel.register(createQuestionHostCapability(hostQuestionBroker))
 hostCapabilityKernel.register(
   createDirectCliHostCapability({
     connected: async () => {
-      const runtimes = await Promise.all([
-        larkCliManager.agentRuntime(),
-        wecomCliManager.agentRuntime(),
-        dingTalkCliManager.agentRuntime(),
-      ])
+      const runtimes = await directRuntimes()
       return (["lark", "wecom", "dingtalk"] as DirectCliProvider[]).filter((_provider, index) =>
         Boolean(runtimes[index]),
       )
@@ -297,14 +314,15 @@ const browserCapabilityServer = new HostCapabilityServer({
   name: "wanta_browser",
   version: "1.0.0",
 })
-const skillRegistry = new SkillRegistry([
+const baseSkillSources = [
   {
     id: "wanta-managed",
-    kind: "managed",
+    kind: "managed" as const,
     root: path.join(app.getPath("userData"), "agent", "workspace", ".opencode", "skills"),
   },
-  { id: "wanta-bundled", kind: "bundled", root: bundledSkillsDir },
-])
+  { id: "wanta-bundled", kind: "bundled" as const, root: bundledSkillsDir },
+]
+const skillRegistry = new SkillRegistry(baseSkillSources)
 const skillCapabilityServer = new HostCapabilityServer({
   capabilityIds: [SKILL_CAPABILITY_ID],
   instructions: "Skill files are host-owned and immutable to the agent. Use only the current-turn snapshot.",
@@ -342,11 +360,7 @@ const externalAgents = createExternalAgents({
   resourcesPath: process.resourcesPath,
   scratchRootDir: path.join(app.getPath("userData"), "agent-external"),
   hostMcpServers: async (input) => {
-    const [larkRuntime, wecomRuntime, dingTalkRuntime] = await Promise.all([
-      larkCliManager.agentRuntime(),
-      wecomCliManager.agentRuntime(),
-      dingTalkCliManager.agentRuntime(),
-    ])
+    const [larkRuntime, wecomRuntime, dingTalkRuntime] = await directRuntimes()
     const directSkillSources = [
       ...(larkRuntime ? [{ id: "direct-lark", kind: "connection" as const, root: larkRuntime.skillsDir }] : []),
       ...(wecomRuntime ? [{ id: "direct-wecom", kind: "connection" as const, root: wecomRuntime.skillsDir }] : []),
@@ -356,15 +370,7 @@ const externalAgents = createExternalAgents({
     ]
     const skillSnapshot =
       directSkillSources.length > 0
-        ? await new SkillRegistry([
-            {
-              id: "wanta-managed",
-              kind: "managed",
-              root: path.join(app.getPath("userData"), "agent", "workspace", ".opencode", "skills"),
-            },
-            { id: "wanta-bundled", kind: "bundled", root: bundledSkillsDir },
-            ...directSkillSources,
-          ]).snapshot()
+        ? await new SkillRegistry([...baseSkillSources, ...directSkillSources]).snapshot()
         : await skillRegistry.snapshot()
     const context = {
       bindings: {},
@@ -515,20 +521,29 @@ const linkRuntimeManager = new LinkRuntimeManager({
 const larkCliManager = new LarkCliManager({
   bundledBinaryPath: bundledLarkCliBinPath,
   bundledSkillsDir: bundledLarkSkillsDir,
-  onRuntimeChanged: () => agentRefreshScheduler.schedule("Lark CLI runtime changed", 0),
+  onRuntimeChanged: () => {
+    directRuntimeCache = undefined
+    return agentRefreshScheduler.schedule("Lark CLI runtime changed", 0)
+  },
   openExternalUrl,
   rootDir: path.join(app.getPath("userData"), "lark-cli"),
 })
 const wecomCliManager = new WecomCliManager({
   binaryPath: bundledWecomCliBinPath,
-  onRuntimeChanged: () => agentRefreshScheduler.schedule("WeCom CLI connection changed", 0),
+  onRuntimeChanged: () => {
+    directRuntimeCache = undefined
+    return agentRefreshScheduler.schedule("WeCom CLI connection changed", 0)
+  },
   openExternalUrl,
   rootDir: path.join(app.getPath("userData"), "wecom-cli"),
   skillsDir: bundledWecomSkillsDir,
 })
 const dingTalkCliManager = new DingTalkCliManager({
   binaryPath: bundledDingTalkCliBinPath,
-  onRuntimeChanged: () => agentRefreshScheduler.schedule("DingTalk CLI connection changed", 0),
+  onRuntimeChanged: () => {
+    directRuntimeCache = undefined
+    return agentRefreshScheduler.schedule("DingTalk CLI connection changed", 0)
+  },
   openExternalUrl,
   rootDir: path.join(app.getPath("userData"), "dingtalk-cli"),
   skillsDir: bundledDingTalkSkillsDir,

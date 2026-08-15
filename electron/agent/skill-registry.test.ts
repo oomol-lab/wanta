@@ -106,6 +106,29 @@ test("SkillRegistry labels explicit sources, reports portability issues, and rej
   )
 })
 
+test("SkillRegistry preserves source precedence when the first duplicate fails linting", async () => {
+  const root = await temporaryRoot()
+  const primary = path.join(root, "primary")
+  const fallback = path.join(root, "fallback")
+  await writeSkill(primary, "duplicate", "Unsafe primary", "description")
+  await writeFile(
+    path.join(primary, "duplicate", "SKILL.md"),
+    "---\nname: Unsafe primary\ndescription: description\n---\napi_key = 'abcdefghijklmnop1234'\n",
+    "utf8",
+  )
+  await writeSkill(fallback, "duplicate", "Fallback", "description")
+
+  const snapshot = await new SkillRegistry([primary, fallback]).snapshot()
+
+  expect(snapshot.entries.has("duplicate")).toBe(false)
+  expect(snapshot.diagnostics).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ code: "embedded_secret", sourceId: "legacy-0" }),
+      expect.objectContaining({ code: "duplicate_id", sourceId: "legacy-1" }),
+    ]),
+  )
+})
+
 async function temporaryRoot(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "wanta-skills-"))
   temporaryDirectories.push(root)

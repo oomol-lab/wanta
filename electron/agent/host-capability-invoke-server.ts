@@ -1,7 +1,7 @@
 import type { HostCapabilityContext } from "./host-capability.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 
-import { randomBytes } from "node:crypto"
+import { randomBytes, timingSafeEqual } from "node:crypto"
 import { createServer } from "node:http"
 import { HostCapabilityKernel } from "./host-capability.ts"
 
@@ -69,11 +69,7 @@ export class HostCapabilityInvokeServer {
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    if (
-      request.method !== "POST" ||
-      request.url !== "/v1/invoke" ||
-      request.headers.authorization !== `Bearer ${this.token}`
-    ) {
+    if (request.method !== "POST" || request.url !== "/v1/invoke" || !this.authorized(request.headers.authorization)) {
       respond(response, 404, { error: "Not found." })
       return
     }
@@ -85,12 +81,26 @@ export class HostCapabilityInvokeServer {
       if (!this.allowed.has(capability)) throw new Error("Host capability is not exposed to the sidecar.")
       const context = this.contexts.get(sessionId)
       if (!context) throw new Error("Wanta host capability context is unavailable for this session.")
-      const result = await this.kernel.execute(capability, tool, context, body.input ?? {})
+      const signal = requestSignal(request)
+      const result = await this.kernel.execute(capability, tool, context, body.input ?? {}, signal)
       respond(response, 200, { result: result.text })
     } catch (error) {
       respond(response, 400, { error: error instanceof Error ? error.message : String(error) })
     }
   }
+
+  private authorized(header: string | undefined): boolean {
+    const expected = Buffer.from(`Bearer ${this.token}`)
+    const actual = Buffer.from(header ?? "")
+    return actual.length === expected.length && timingSafeEqual(actual, expected)
+  }
+}
+
+function requestSignal(request: IncomingMessage): AbortSignal {
+  const controller = new AbortController()
+  if (request.aborted || request.destroyed) controller.abort()
+  else request.once("aborted", () => controller.abort())
+  return controller.signal
 }
 
 async function readBody(request: IncomingMessage): Promise<Record<string, unknown>> {

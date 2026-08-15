@@ -28,7 +28,11 @@ export interface HostToolDefinition {
   /** MCP-native safety hints; host enforcement never relies on these hints. */
   annotations?: ToolAnnotations
   inputSchema: z.ZodObject
-  execute: (context: HostCapabilityContext, input: Record<string, unknown>) => Promise<HostToolResult>
+  execute: (
+    context: HostCapabilityContext,
+    input: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) => Promise<HostToolResult>
 }
 
 export interface HostCapability {
@@ -87,6 +91,7 @@ export class HostCapabilityKernel {
     toolName: string,
     context: HostCapabilityContext,
     input: unknown,
+    signal?: AbortSignal,
   ): Promise<HostToolResult> {
     const capability = this.capability(capabilityId)
     const tool = capability.tools.find((candidate) => candidate.name === toolName)
@@ -98,7 +103,7 @@ export class HostCapabilityKernel {
       throw new Error(`Invalid input for ${capabilityId}.${toolName}: ${parsed.error.message}`)
     }
     try {
-      const result = await tool.execute(context, parsed.data as Record<string, unknown>)
+      const result = await tool.execute(context, parsed.data as Record<string, unknown>, signal)
       this.audit(capabilityId, toolName, context, startedAt, "success")
       return result
     } catch (error) {

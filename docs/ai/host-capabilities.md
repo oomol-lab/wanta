@@ -181,10 +181,10 @@ remain the business-schema authority because their command sets ship with
 their versioned Skills. Wanta's
 persisted transcript is the history source of truth: Claude resumes natively,
 while ACP agents receive a bounded context rebuild when native loading is not
-available. `AgentProfile.hostCapabilities` declares this parity surface
-separately from honest agent-native input flags. The normal suite covers the
-shared contracts, transports, scope switches, runtime revocation, and restart
-paths.
+available. Host capability availability is resolved dynamically from Wanta's
+active runtimes and settings rather than duplicated as static per-agent flags.
+The normal suite covers the shared contracts, transports, scope switches,
+runtime revocation, and restart paths.
 
 ## Acceptance contract
 

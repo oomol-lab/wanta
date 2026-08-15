@@ -659,6 +659,23 @@ describe("AcpAgentAdapter turn lifecycle edges", () => {
     expect(harness.fake.promptRequests).toHaveLength(1)
   })
 
+  test("a session deleted while session/new is in flight is never registered or prompted", async () => {
+    const gate = deferred<void>()
+    const harness = await createHarness({
+      newSession: () => gate.promise.then(() => ({ sessionId: "acp-session-deleted" })),
+    })
+    const sendPromise = harness.adapter.send(promptInput("delete me"))
+    await vi.waitFor(() => expect(harness.fake.newSessionRequests).toHaveLength(1))
+
+    harness.adapter.forgetSession(WANTA_SESSION_ID)
+    gate.resolve()
+
+    await expect(sendPromise).rejects.toThrow(/session was deleted while being created/u)
+    expect(harness.fake.promptRequests).toHaveLength(0)
+    const sessions = (harness.adapter as unknown as { sessionsByWantaId: Map<string, unknown> }).sessionsByWantaId
+    expect(sessions.has(WANTA_SESSION_ID)).toBe(false)
+  })
+
   test("connection loss while session creation is in flight rejects the send and the next prompt reconnects", async () => {
     let newSessionCalls = 0
     const gate = deferred<void>()

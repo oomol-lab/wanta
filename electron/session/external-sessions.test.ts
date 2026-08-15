@@ -46,9 +46,9 @@ function externalStore(initial = new Map<string, ExternalSessionRecord>()): {
   }
 }
 
-test("external sessions are created without the kernel, listed, and carry their agent kind", async () => {
+test("external sessions are created and listed when no kernel adapter exists", async () => {
   const external = externalStore()
-  const service = new SessionServiceImpl(agentWithSessions([]), {
+  const service = new SessionServiceImpl(null, {
     externalSessionStore: external.store,
     metadataStore: metadataStore(),
   })
@@ -66,6 +66,25 @@ test("external sessions are created without the kernel, listed, and carry their 
     sessions.map((session) => ({ id: session.id, agentKind: session.agentKind })),
     [{ id: created.id, agentKind: "claude-code" }],
   )
+})
+
+test("external archived sessions and projects remain available when no kernel adapter exists", async () => {
+  const external = externalStore()
+  const service = new SessionServiceImpl(null, {
+    externalSessionStore: external.store,
+    metadataStore: metadataStore(),
+  })
+
+  const created = await service.create({ agentKind: "codex", scope: localScope })
+  await service.archive(created.id)
+
+  assert.deepEqual(await service.list({ scope: localScope }), [])
+  assert.equal((await service.listArchived({ scope: localScope }))[0]?.id, created.id)
+  assert.equal((await service.unarchive(created.id))?.id, created.id)
+  assert.deepEqual(await service.removeMany({ ids: [created.id], scope: localScope }), {
+    failures: [],
+    succeededIds: [created.id],
+  })
 })
 
 test("external sessions rename and remove without touching the kernel", async () => {

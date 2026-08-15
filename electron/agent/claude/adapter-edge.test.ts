@@ -190,6 +190,23 @@ function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => voi
 }
 
 describe("ClaudeCodeAgentAdapter turn lifecycle edges", () => {
+  it("closes a native session that finishes creating after the host deleted it", async () => {
+    const commandPathGate = deferred<string>()
+    const commandPath = vi.fn(() => commandPathGate.promise)
+    const { adapter, calls } = await createHarness({ commandPath })
+    const sendPromise = adapter.send({ type: "prompt", sessionId, text: "delete me", messageId: "user-1" })
+    await vi.waitFor(() => expect(commandPath).toHaveBeenCalledTimes(1))
+
+    adapter.forgetSession(sessionId)
+    commandPathGate.resolve("/fake/path-bin")
+
+    await expect(sendPromise).rejects.toThrow(/session was deleted while being created/u)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].fake.close).toHaveBeenCalledTimes(1)
+    expect(calls[0].fake.promptMessages).toHaveLength(0)
+    expect(sessionsOf(adapter).has(sessionId)).toBe(false)
+  })
+
   it("cancel mid-turn interrupts the query, completion settles once, and the same query serves the next prompt", async () => {
     const { adapter, events, calls } = await createHarness()
     await adapter.send({ type: "prompt", sessionId, text: "first", messageId: "user-1" })

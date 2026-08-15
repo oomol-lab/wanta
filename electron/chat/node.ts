@@ -4,6 +4,7 @@ import type { ChatEmit } from "../agent/event-translator.ts"
 import type { ExternalAgentAdapter } from "../agent/external/adapter-base.ts"
 import type { ExternalAgentRuntimeStatus } from "../agent/external/probe.ts"
 import type { HostQuestionBroker } from "../agent/host-question-broker.ts"
+import type { ManagedTurnDirectories } from "../agent/managed-turn-directories.ts"
 import type { OpencodeAgentAdapter } from "../agent/opencode-adapter.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
@@ -248,6 +249,7 @@ function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): s
 interface ChatServiceDeps {
   browserAvailable?: () => boolean
   hostQuestions?: HostQuestionBroker
+  managedTurnDirectories?: ManagedTurnDirectories
   createArtifactResourceUrl?: (item: { mime: string; modifiedAt: number; path: string; size: number }) => {
     expiresAt: number
     url: string
@@ -533,6 +535,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   /** 会话永久删除后释放运行态索引，并删除授权/停止 overlay。 */
   public async forgetSession(sessionId: string): Promise<void> {
+    this.generations.get(sessionId)?.controller.abort()
     this.turnOutputs.delete(sessionId)
     this.turnOutputs.clearPending(sessionId)
     this.clearSessionGeneration(sessionId)
@@ -1852,6 +1855,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     )
     const userMessageId = createOpencodeMessageId()
     const generation = this.beginSessionGeneration(req.sessionId, userMessageId)
+    let artifactDir: string | undefined
+    let processDir: string | undefined
     this.createActiveRun(req, generation)
     this.userStops.delete(req.sessionId)
     this.connectionFailedSessions.delete(req.sessionId)
@@ -1867,6 +1872,50 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (trustedProjectRoot) {
         this.trustedAccess.setProjectRoot(req.sessionId, trustedProjectRoot)
       }
+      const directories = this.deps.managedTurnDirectories
+      if (!directories) throw new Error("Managed turn directories are not configured.")
+      const execution = resolveChatTurnExecution({
+        requestedMode: req.mode,
+        ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
+      })
+      const artifactProjectRoot = execution.artifactProjectRoot
+      const [artifactDirectoryResult, processDirectoryResult] = await Promise.allSettled([
+        directories.createArtifactDir(req.sessionId, artifactProjectRoot),
+        directories.createProcessDir(req.sessionId),
+      ])
+      if (artifactDirectoryResult.status === "fulfilled") artifactDir = artifactDirectoryResult.value
+      if (processDirectoryResult.status === "fulfilled") processDir = processDirectoryResult.value
+      const directoryErrors = [artifactDirectoryResult, processDirectoryResult]
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => result.reason)
+      if (directoryErrors.length === 1) throw directoryErrors[0]
+      if (directoryErrors.length > 1) throw new AggregateError(directoryErrors, "Failed to create turn directories")
+      if (!artifactDir || !processDir) throw new Error("Turn directory creation returned an empty path")
+      if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
+        this.clearSessionGeneration(req.sessionId, generation.id)
+        await removeUnsubmittedTurnDirectories(artifactDir, processDir)
+        return
+      }
+      const project = await this.projectBaseline(req.projectContext)
+      const artifactBaseline = await captureArtifactSessionBaseline(
+        directories.artifactSessionDir(req.sessionId, artifactProjectRoot),
+        artifactDir,
+      ).catch((error: unknown) => {
+        console.warn("[wanta] failed to capture external artifact session baseline", error)
+        return null
+      })
+      this.turnOutputs.enqueue(req.sessionId, artifactDir, processDir)
+      this.turnOutputs.set(generation.id, {
+        artifactRoot: artifactDir,
+        processRoot: processDir,
+        createdAt: Date.now(),
+        generationId: generation.id,
+        requestText: req.text,
+        ...(artifactBaseline ? { artifactBaseline } : {}),
+        ...(project.baseline ? { projectBaseline: project.baseline } : {}),
+        ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
+        ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
+      })
       if (req.attachments?.length) {
         // Same display path as the kernel: the store record is what getMessages
         // folds back onto the synthesized user turn.
@@ -1887,6 +1936,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             messageId: userMessageId,
             ...(req.attachments?.length ? { attachments: req.attachments } : {}),
             ...(trustedProjectRoot ? { outputProjectRoot: trustedProjectRoot } : {}),
+            artifactDir,
+            processDir,
             ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
             ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
             ...(teamName ? { teamName } : {}),
@@ -1911,6 +1962,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           }
         })
         .catch((error: unknown) => {
+          this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
+          this.turnOutputs.delete(req.sessionId, generation.id)
+          void removeUnsubmittedTurnDirectories(artifactDir, processDir)
           if (req.attachments?.length) {
             // The prompt never reached the agent; a record without a user turn
             // would resurface as an orphaned attachment bubble on reload.
@@ -1932,6 +1986,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           )
         })
     } catch (error) {
+      this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
+      this.turnOutputs.delete(req.sessionId, generation.id)
+      await removeUnsubmittedTurnDirectories(artifactDir, processDir)
       this.clearSessionGeneration(req.sessionId, generation.id)
       throw error
     }
@@ -2070,7 +2127,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
     await finalizeTurnOutputArtifacts({
       active,
-      getMessages: () => this.agent?.getMessages(sessionId) ?? Promise.resolve([]),
+      getMessages: () => this.chatBackendFor(sessionId)?.getMessages(sessionId) ?? Promise.resolve([]),
       messageId: resolvedMessageId,
       publishArtifactBundle: (bundle) => this.publishArtifactBundle(bundle),
       publishTurnOutput: async (record) => {

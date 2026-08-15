@@ -58,6 +58,7 @@ import { HostQuestionBroker } from "./agent/host-question-broker.ts"
 import { createKnowledgeHostCapability, KNOWLEDGE_CAPABILITY_ID } from "./agent/knowledge-host-capability.ts"
 import { LinkCapability } from "./agent/link-capability.ts"
 import { createLinkHostCapability, LINK_CAPABILITY_ID, LINK_RUNTIME_BINDING } from "./agent/link-host-capability.ts"
+import { ManagedTurnDirectories } from "./agent/managed-turn-directories.ts"
 import { AgentManager } from "./agent/manager.ts"
 import { OpencodeAgentAdapter } from "./agent/opencode-adapter.ts"
 import { createQuestionHostCapability, QUESTION_CAPABILITY_ID } from "./agent/question-host-capability.ts"
@@ -420,9 +421,11 @@ const externalAgents = createExternalAgents({
 })
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 团队作用域同步，
 // 经 ChatService.setAgentTeam → onSetAgentTeam 回调（渲染层切 workspace 时调用）。
+const managedTurnDirectories = new ManagedTurnDirectories(path.join(app.getPath("userData"), "agent"))
 const chatService = new ChatServiceImpl(null, {
   browserAvailable: () => settingsStore.read().browserEnabled !== false,
   hostQuestions: hostQuestionBroker,
+  managedTurnDirectories,
   bugReportRuntime: {
     appCommit: typeof __APP_COMMIT__ === "string" ? __APP_COMMIT__ : "unknown",
     appVersion: app.getVersion(),
@@ -456,6 +459,12 @@ const sessionService = new SessionServiceImpl(null, {
   metadataStore: sessionMetadataStore,
   onSessionArchived: (sessionId) => attentionService.removeSession(sessionId),
   onSessionRemoved: async (sessionId) => {
+    // Calling the async cleanup starts synchronously and aborts the turn before
+    // an in-flight native session creation can dispatch its first prompt.
+    const chatCleanup = chatService.forgetSession(sessionId).catch((error: unknown) => {
+      console.warn("[wanta] failed to clear removed session chat state", error)
+      logMainError("failed to clear removed session chat state", error, { sessionId })
+    })
     const externalKind = externalAgentKindForSessionId(sessionId)
     if (externalKind) {
       externalAgents.get(externalKind)?.forgetSession(sessionId)
@@ -471,10 +480,7 @@ const sessionService = new SessionServiceImpl(null, {
     builtInHostInvokeServer.disableSession(sessionId)
     hostQuestionBroker.cancelSession(sessionId)
     await browserManager.removeSession(sessionId)
-    await chatService.forgetSession(sessionId).catch((error: unknown) => {
-      console.warn("[wanta] failed to clear removed session chat state", error)
-      logMainError("failed to clear removed session chat state", error, { sessionId })
-    })
+    await chatCleanup
     const [artifactBundles, turnOutputs] = await Promise.all([artifactBundleStore.read(), turnOutputStore.read()])
     await removeSessionOutputDirectories({
       agentRoot: path.join(app.getPath("userData"), "agent"),

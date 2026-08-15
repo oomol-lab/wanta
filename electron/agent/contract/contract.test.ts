@@ -752,6 +752,49 @@ class MinimalAdapter extends BaseAgentAdapter {
   protected async handleCancel(_input: CancelAgentInput, _options?: AgentSendOptions): Promise<void> {}
 }
 
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
+
+class LifecycleAdapter extends MinimalAdapter {
+  public startCalls = 0
+  public stopCalls = 0
+  public emitToolDuringStop = false
+  private readonly startGate: Promise<void> | undefined
+
+  public constructor(startGate?: Promise<void>) {
+    super()
+    this.startGate = startGate
+  }
+
+  protected override async handleStart(): Promise<void> {
+    this.startCalls += 1
+    await this.startGate
+  }
+
+  protected override async handleStop(): Promise<void> {
+    this.stopCalls += 1
+    if (this.emitToolDuringStop) {
+      this.emit({
+        event: "toolCallStarted",
+        data: {
+          sessionId: "s",
+          messageId: "m",
+          partId: "p",
+          callId: "c",
+          tool: "bash",
+          status: "running",
+          input: {},
+        },
+      })
+    }
+  }
+}
+
 describe("BaseAgentAdapter defaults", () => {
   test("optional capabilities default to a named rejection and honest supportsInput", async () => {
     const adapter = new MinimalAdapter()
@@ -772,6 +815,33 @@ describe("BaseAgentAdapter defaults", () => {
     await expect(
       adapter.send({ type: "question-response", sessionId: "s", requestId: "r", outcome: { kind: "rejected" } }),
     ).rejects.toThrow("opencode: question-response is not supported")
+  })
+
+  test("concurrent start calls share one initialization and stop cannot be overwritten by a late start", async () => {
+    const gate = deferred()
+    const adapter = new LifecycleAdapter(gate.promise)
+    const firstStart = adapter.start()
+    const secondStart = adapter.start()
+    expect(adapter.startCalls).toBe(1)
+    const stop = adapter.stop()
+    gate.resolve()
+
+    await Promise.all([firstStart, secondStart, stop])
+    expect(adapter.startCalls).toBe(1)
+    expect(adapter.stopCalls).toBe(1)
+    await expect(adapter.start()).rejects.toThrow("opencode: adapter cannot restart after stop")
+  })
+
+  test("stop performs a final sweep for interactions emitted during native shutdown", async () => {
+    const adapter = new LifecycleAdapter()
+    adapter.emitToolDuringStop = true
+    const events: AgentEvent[] = []
+    adapter.onEvent((event) => events.push(event))
+    await adapter.start()
+    await adapter.stop()
+
+    expect(events.filter((event) => event.event === "toolCallStarted")).toHaveLength(1)
+    expect(events.filter((event) => event.event === "toolCallResult")).toHaveLength(1)
   })
 })
 

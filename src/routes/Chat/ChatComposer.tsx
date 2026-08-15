@@ -20,6 +20,7 @@ import { ArrowRight, BrainCircuit, Bug, Server, X } from "lucide-react"
 import * as React from "react"
 import { AGENT_PROFILES, isExternalAgentKind } from "../../../electron/agent/contract/profile.ts"
 import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
+import { agentRuntimeReadyForSubmission } from "./agent-control-options.ts"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import { composerModeControlsDisabled } from "./composer-controls.ts"
 import {
@@ -311,9 +312,15 @@ export function ChatComposer({
   const composerTurnState: ChatTurnState = activePendingQuestion ? { chatStatus: "ready", status: "idle" } : turnState
   const composerWillQueueMessage = activePendingQuestion ? false : willQueueMessage
   const initialSendPending = turnState.status === "submitting" && turnState.initialSendPending
-  const submitBlocked = submitDisabled || initialSendPending
+  const displayedExternalAgent = React.useMemo(
+    () => externalAgentsState.agents.find((agent) => agent.kind === agentKind),
+    [agentKind, externalAgentsState.agents],
+  )
+  const agentRuntimeReady = agentRuntimeReadyForSubmission(agentKind, displayedExternalAgent)
+  const submitBlocked = submitDisabled || !agentRuntimeReady || initialSendPending
   const composerDisabled =
     submitDisabled ||
+    !agentRuntimeReady ||
     (voiceEnabled && voiceInput.busy) ||
     initialSendPending ||
     answeringQuestion ||
@@ -685,10 +692,6 @@ export function ChatComposer({
   ) : null
   // Probed sign-in hint for the displayed agent; only an explicit logged_out
   // state shows guidance (finding by kind naturally skips the built-in agent).
-  const displayedExternalAgent = React.useMemo(
-    () => externalAgentsState.agents.find((agent) => agent.kind === agentKind),
-    [agentKind, externalAgentsState.agents],
-  )
   const displayedAgentProfile = AGENT_PROFILES[agentKind]
   const agentLoginNotice =
     displayedExternalAgent?.login.status === "logged_out" ? (

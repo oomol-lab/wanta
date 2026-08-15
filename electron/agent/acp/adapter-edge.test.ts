@@ -59,6 +59,7 @@ interface FakeAgent {
   fireExit: (code: number | null) => void
   newSessionRequests: NewSessionRequest[]
   promptRequests: PromptRequest[]
+  closedSessionIds: string[]
   cancelledSessionIds: string[]
   permissionResponses: RequestPermissionResponse[]
 }
@@ -70,6 +71,7 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
   const exitCallbackGroups: Array<Array<(info: { code: number | null }) => void>> = []
   const newSessionRequests: NewSessionRequest[] = []
   const promptRequests: PromptRequest[] = []
+  const closedSessionIds: string[] = []
   const cancelledSessionIds: string[] = []
   const permissionResponses: RequestPermissionResponse[] = []
 
@@ -108,6 +110,14 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
         cancelled,
       })
     })
+    .onRequest(
+      "session/close",
+      (params: unknown) => params as { sessionId: string },
+      ({ params }) => {
+        closedSessionIds.push(params.sessionId)
+        return {}
+      },
+    )
     .onNotification("session/cancel", ({ params }) => {
       cancelledSessionIds.push(params.sessionId)
       for (const resolve of cancelResolvers.splice(0)) {
@@ -144,6 +154,7 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
     },
     newSessionRequests,
     promptRequests,
+    closedSessionIds,
     cancelledSessionIds,
     permissionResponses,
   }
@@ -672,6 +683,7 @@ describe("AcpAgentAdapter turn lifecycle edges", () => {
 
     await expect(sendPromise).rejects.toThrow(/session was deleted while being created/u)
     expect(harness.fake.promptRequests).toHaveLength(0)
+    expect(harness.fake.closedSessionIds).toEqual(["acp-session-deleted"])
     const sessions = (harness.adapter as unknown as { sessionsByWantaId: Map<string, unknown> }).sessionsByWantaId
     expect(sessions.has(WANTA_SESSION_ID)).toBe(false)
   })

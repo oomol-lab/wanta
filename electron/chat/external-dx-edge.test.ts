@@ -270,6 +270,47 @@ test("external turns receive managed output directories and finalize against the
   )
 })
 
+test("external plan turns keep the registered project read-only and use managed output directories", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "wanta-external-plan-project-"))
+  const { service, adapters } = createHarness(["claude-code"], {
+    projectStore: {
+      read: async () =>
+        new Map([
+          [
+            "project-1",
+            {
+              id: "project-1",
+              name: "Project",
+              path: projectRoot,
+              createdAt: 1,
+              updatedAt: 1,
+              scope: localScope,
+            },
+          ],
+        ]),
+    },
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+
+  await service.sendMessage(
+    sendRequest(sessionId, "inspect the project", {
+      mode: "plan",
+      projectContext: { id: "project-1", name: "Project", path: projectRoot },
+    }),
+  )
+  await waitForCondition(() => adapter.prompts.length === 1, "external plan prompt")
+
+  const prompt = adapter.prompts[0]
+  assert.equal(prompt?.outputProjectRoot, undefined)
+  assert.ok(prompt?.artifactDir)
+  assert.equal(prompt.artifactDir.startsWith(projectRoot), false)
+
+  adapter.completeAssistantTurn(sessionId, "assistant-plan", "done")
+  await waitForTurnCompletion(service)
+})
+
 test("edge1: attachment send into an external session records the attachment and forwards it to the adapter", async () => {
   const record = vi.fn(async () => undefined)
   const removeMessage = vi.fn(async () => undefined)

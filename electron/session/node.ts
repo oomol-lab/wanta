@@ -1314,9 +1314,6 @@ export class SessionServiceImpl
   }
 
   private async broadcastChanged(reason: string): Promise<void> {
-    if (!this.agent) {
-      return
-    }
     await this.send("sessionsChanged", { reason })
   }
 

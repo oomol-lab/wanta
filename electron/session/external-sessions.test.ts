@@ -4,7 +4,7 @@ import type { ExternalSessionRecord, ExternalSessionStore } from "./external-sto
 import type { SessionMetadata, SessionMetadataStore } from "./metadata-store.ts"
 
 import assert from "node:assert/strict"
-import { test } from "vitest"
+import { test, vi } from "vitest"
 import { SessionServiceImpl } from "./node.ts"
 
 const localScope = {
@@ -52,6 +52,8 @@ test("external sessions are created and listed when no kernel adapter exists", a
     externalSessionStore: external.store,
     metadataStore: metadataStore(),
   })
+  const send = vi.fn(async () => undefined)
+  ;(service as unknown as { send: typeof send }).send = send
 
   const created = await service.create({ agentKind: "claude-code", scope: localScope, title: "Claude session" })
 
@@ -60,6 +62,9 @@ test("external sessions are created and listed when no kernel adapter exists", a
   assert.equal(created.title, "Claude session")
   assert.equal(created.scope?.kind, "local")
   assert.equal(external.current().has(created.id), true)
+  await vi.waitFor(() => {
+    assert.deepEqual(send.mock.calls, [["sessionsChanged", { reason: "create session" }]])
+  })
 
   const sessions = await service.list({ scope: localScope })
   assert.deepEqual(
@@ -85,6 +90,7 @@ test("external archived sessions and projects remain available when no kernel ad
     failures: [],
     succeededIds: [created.id],
   })
+  assert.equal(external.current().has(created.id), false)
 })
 
 test("external sessions rename and remove without touching the kernel", async () => {

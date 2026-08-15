@@ -1935,7 +1935,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             text: req.text,
             messageId: userMessageId,
             ...(req.attachments?.length ? { attachments: req.attachments } : {}),
-            ...(trustedProjectRoot ? { outputProjectRoot: trustedProjectRoot } : {}),
+            ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
             artifactDir,
             processDir,
             ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),

@@ -421,7 +421,8 @@ const externalAgents = createExternalAgents({
 })
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 团队作用域同步，
 // 经 ChatService.setAgentTeam → onSetAgentTeam 回调（渲染层切 workspace 时调用）。
-const managedTurnDirectories = new ManagedTurnDirectories(path.join(app.getPath("userData"), "agent"))
+const agentRootDir = path.join(app.getPath("userData"), "agent")
+const managedTurnDirectories = new ManagedTurnDirectories(agentRootDir)
 const chatService = new ChatServiceImpl(null, {
   browserAvailable: () => settingsStore.read().browserEnabled !== false,
   hostQuestions: hostQuestionBroker,
@@ -483,7 +484,7 @@ const sessionService = new SessionServiceImpl(null, {
     await chatCleanup
     const [artifactBundles, turnOutputs] = await Promise.all([artifactBundleStore.read(), turnOutputStore.read()])
     await removeSessionOutputDirectories({
-      agentRoot: path.join(app.getPath("userData"), "agent"),
+      agentRoot: agentRootDir,
       artifactBundles: artifactBundles.get(sessionId)?.values(),
       sessionId,
       turnOutputs: turnOutputs.get(sessionId)?.values(),

@@ -25,6 +25,10 @@ export class PermissionState {
     return this.modes.get(sessionId) ?? "default"
   }
 
+  public modeVersion(sessionId: string): number | undefined {
+    return this.modeVersions.get(sessionId)
+  }
+
   public setMode(sessionId: string, mode: AgentPermissionMode, version?: number): boolean {
     if (typeof version === "number") {
       const currentVersion = this.modeVersions.get(sessionId) ?? 0

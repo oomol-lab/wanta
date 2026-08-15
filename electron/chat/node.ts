@@ -320,6 +320,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   /** External (BYOA) adapters, app-lifetime, keyed by agent kind. */
   private externalAgents: ReadonlyMap<ExternalAgentKind, ExternalAgentAdapter> = new Map()
   private externalAgentUnsubscribes: Array<() => void> = []
+  /** Per-session/axis tails keep native selection, persistence, and rollback ordered. */
+  private readonly externalSelectionMutationTails = new Map<string, Promise<void>>()
+  /** Permission changes serialize so a duplicate same-mode request can retry a failed projection. */
+  private readonly permissionModeMutationTails = new Map<string, Promise<void>>()
+  /** Ownership token for async permission persistence/projection and rollback. */
+  private readonly permissionModeMutationTokens = new Map<string, number>()
   private readonly userStops = new UserStopTracker()
   private emittedMessageErrors = new Map<string, Set<string>>()
   private readonly generations = new GenerationRegistry()
@@ -473,39 +479,63 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async setExternalSessionModel(req: SetExternalSessionModelRequest): Promise<void> {
-    const adapter = this.externalAdapterFor(req.sessionId)
-    const previous = adapter.sessionSelection(req.sessionId).modelId
-    await adapter.send({
-      type: "set-model",
-      sessionId: req.sessionId,
-      ...(req.modelId ? { modelId: req.modelId } : {}),
+    await this.runExternalSelectionMutation(req.sessionId, "model", async () => {
+      const adapter = this.externalAdapterFor(req.sessionId)
+      const previous = adapter.sessionSelection(req.sessionId).modelId
+      await adapter.send({
+        type: "set-model",
+        sessionId: req.sessionId,
+        ...(req.modelId ? { modelId: req.modelId } : {}),
+      })
+      try {
+        await this.deps.onExternalSessionSelectionChanged?.(req.sessionId, { modelId: req.modelId ?? null })
+      } catch (error) {
+        await adapter
+          .send({ type: "set-model", sessionId: req.sessionId, ...(previous ? { modelId: previous } : {}) })
+          .catch(() => undefined)
+        throw error
+      }
     })
-    try {
-      await this.deps.onExternalSessionSelectionChanged?.(req.sessionId, { modelId: req.modelId ?? null })
-    } catch (error) {
-      await adapter
-        .send({ type: "set-model", sessionId: req.sessionId, ...(previous ? { modelId: previous } : {}) })
-        .catch(() => undefined)
-      throw error
-    }
   }
 
   public async setExternalSessionEffort(req: SetExternalSessionEffortRequest): Promise<void> {
-    const adapter = this.externalAdapterFor(req.sessionId)
-    const previous = adapter.sessionSelection(req.sessionId).effortId
-    await adapter.send({
-      type: "set-effort",
-      sessionId: req.sessionId,
-      ...(req.effortId ? { effortId: req.effortId } : {}),
+    await this.runExternalSelectionMutation(req.sessionId, "effort", async () => {
+      const adapter = this.externalAdapterFor(req.sessionId)
+      const previous = adapter.sessionSelection(req.sessionId).effortId
+      await adapter.send({
+        type: "set-effort",
+        sessionId: req.sessionId,
+        ...(req.effortId ? { effortId: req.effortId } : {}),
+      })
+      try {
+        await this.deps.onExternalSessionSelectionChanged?.(req.sessionId, { effortId: req.effortId ?? null })
+      } catch (error) {
+        await adapter
+          .send({ type: "set-effort", sessionId: req.sessionId, ...(previous ? { effortId: previous } : {}) })
+          .catch(() => undefined)
+        throw error
+      }
     })
-    try {
-      await this.deps.onExternalSessionSelectionChanged?.(req.sessionId, { effortId: req.effortId ?? null })
-    } catch (error) {
-      await adapter
-        .send({ type: "set-effort", sessionId: req.sessionId, ...(previous ? { effortId: previous } : {}) })
-        .catch(() => undefined)
-      throw error
-    }
+  }
+
+  private runExternalSelectionMutation(
+    sessionId: string,
+    axis: "model" | "effort",
+    mutation: () => Promise<void>,
+  ): Promise<void> {
+    const key = `${sessionId}\0${axis}`
+    const previous = this.externalSelectionMutationTails.get(key) ?? Promise.resolve()
+    let next!: Promise<void>
+    next = previous
+      .catch(() => undefined)
+      .then(mutation)
+      .finally(() => {
+        if (this.externalSelectionMutationTails.get(key) === next) {
+          this.externalSelectionMutationTails.delete(key)
+        }
+      })
+    this.externalSelectionMutationTails.set(key, next)
+    return next
   }
 
   public async getExternalSessionSelection(sessionId: string): Promise<{ modelId?: string; effortId?: string }> {
@@ -2530,6 +2560,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async setPermissionMode(req: SetChatPermissionModeRequest): Promise<void> {
+    const previous = this.permissionModeMutationTails.get(req.sessionId) ?? Promise.resolve()
+    let next!: Promise<void>
+    next = previous
+      .catch(() => undefined)
+      .then(() => this.applyPermissionModeMutation(req))
+      .finally(() => {
+        if (this.permissionModeMutationTails.get(req.sessionId) === next) {
+          this.permissionModeMutationTails.delete(req.sessionId)
+        }
+      })
+    this.permissionModeMutationTails.set(req.sessionId, next)
+    return next
+  }
+
+  private async applyPermissionModeMutation(req: SetChatPermissionModeRequest): Promise<void> {
     const previousMode = this.sessionPermissionMode(req.sessionId)
     if (!this.setSessionPermissionModeValue(req.sessionId, req.permissionMode, req.version)) {
       return
@@ -2537,22 +2582,47 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (previousMode === req.permissionMode) {
       return
     }
+    const mutationToken = (this.permissionModeMutationTokens.get(req.sessionId) ?? 0) + 1
+    this.permissionModeMutationTokens.set(req.sessionId, mutationToken)
+    const ownsMutation = (): boolean =>
+      this.permissionModeMutationTokens.get(req.sessionId) === mutationToken &&
+      this.sessionPermissionMode(req.sessionId) === req.permissionMode &&
+      (req.version === undefined || this.permissions.modeVersion(req.sessionId) === req.version)
     try {
       await this.deps.onPermissionModeChanged?.(req.sessionId, req.permissionMode)
     } catch (error) {
       // 仅回滚仍由本次请求持有的运行态；不能覆盖等待期间抵达的更新版本。
-      if (this.sessionPermissionMode(req.sessionId) === req.permissionMode) {
+      if (ownsMutation()) {
         this.setSessionPermissionModeValue(req.sessionId, previousMode)
       }
       throw error
     }
     // 持久化等待期间可能已有更新版本接管该会话，旧请求不得继续改子会话或自动批准权限。
-    if (this.sessionPermissionMode(req.sessionId) !== req.permissionMode) {
+    if (!ownsMutation()) {
       return
     }
     // Sessions with an adapter-side mode get it projected immediately
-    // (mid-run switches must not wait for the next prompt); best effort.
-    await this.projectPermissionMode(req.sessionId, req.permissionMode)
+    // (mid-run switches must not wait for the next prompt). If native
+    // enforcement rejects it, restore host memory and persisted metadata so
+    // the same user choice remains retryable.
+    try {
+      await this.projectPermissionMode(req.sessionId, req.permissionMode)
+    } catch (error) {
+      if (ownsMutation()) {
+        this.setSessionPermissionModeValue(req.sessionId, previousMode)
+        await Promise.resolve(this.deps.onPermissionModeChanged?.(req.sessionId, previousMode)).catch(
+          (rollbackError: unknown) => {
+            logDiagnostic(
+              "chat-service",
+              "failed to persist permission mode rollback",
+              { error: rollbackError, sessionId: req.sessionId },
+              "error",
+            )
+          },
+        )
+      }
+      throw error
+    }
     const affectedSessionIds = [req.sessionId]
     for (const childSessionId of this.subagentSessions.trustedChildSessionIds(req.sessionId)) {
       if (this.setSessionPermissionModeValue(childSessionId, req.permissionMode, req.version)) {

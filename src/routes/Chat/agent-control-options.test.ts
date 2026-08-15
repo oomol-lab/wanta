@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 import { AGENT_PROFILES, EXTERNAL_AGENT_KINDS } from "../../../electron/agent/contract/profile.ts"
 import {
   agentPickerTriggerLabel,
+  agentRuntimeReadyForSubmission,
   buildAgentOptionRows,
   buildAgentPickerRows,
   composerCapabilitiesForProfile,
@@ -18,6 +19,7 @@ const labels = {
 }
 
 const externalKind = EXTERNAL_AGENT_KINDS[0]!
+const otherExternalKind = EXTERNAL_AGENT_KINDS.find((kind) => kind !== externalKind)!
 
 function externalStatus(overrides: Partial<ExternalAgentRuntimeStatus>): ExternalAgentRuntimeStatus {
   return {
@@ -50,6 +52,34 @@ describe("composerCapabilitiesForProfile", () => {
         modelRoutingEnabled: false,
       })
     }
+  })
+})
+
+describe("agentRuntimeReadyForSubmission", () => {
+  it("does not gate the built-in agent on an external runtime probe", () => {
+    expect(agentRuntimeReadyForSubmission("opencode", undefined)).toBe(true)
+  })
+
+  it("allows detected external agents with logged-in or fail-open unknown auth", () => {
+    expect(agentRuntimeReadyForSubmission(externalKind, externalStatus({}))).toBe(true)
+    expect(agentRuntimeReadyForSubmission(externalKind, externalStatus({ login: { status: "unknown" } }))).toBe(true)
+  })
+
+  it("blocks unavailable, mismatched, and explicitly logged-out external runtimes", () => {
+    expect(agentRuntimeReadyForSubmission(externalKind, undefined)).toBe(false)
+    expect(agentRuntimeReadyForSubmission(externalKind, externalStatus({ binary: { status: "not_found" } }))).toBe(
+      false,
+    )
+    expect(
+      agentRuntimeReadyForSubmission(
+        externalKind,
+        externalStatus({ binary: { status: "error", message: "probe failed" } }),
+      ),
+    ).toBe(false)
+    expect(agentRuntimeReadyForSubmission(externalKind, externalStatus({ login: { status: "logged_out" } }))).toBe(
+      false,
+    )
+    expect(agentRuntimeReadyForSubmission(otherExternalKind, externalStatus({}))).toBe(false)
   })
 })
 

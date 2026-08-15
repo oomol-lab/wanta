@@ -1,7 +1,7 @@
 import type { AgentKind, AgentProfile } from "../../../electron/agent/contract/profile.ts"
 import type { ExternalAgentCatalogOption, ExternalAgentRuntimeStatus } from "../../../electron/agent/external/status.ts"
 
-import { AGENT_PROFILES } from "../../../electron/agent/contract/profile.ts"
+import { AGENT_PROFILES, isExternalAgentKind } from "../../../electron/agent/contract/profile.ts"
 
 // Pure helpers behind the composer agent picker and capability gating. All
 // behavior derives from AGENT_PROFILES declarations and probed runtime status,
@@ -23,6 +23,15 @@ export function composerCapabilitiesForProfile(profile: AgentProfile): ComposerA
     attachmentsEnabled: profile.inputs.attachments,
     modelRoutingEnabled: profile.modelSource === "wanta",
   }
+}
+
+/** Whether the selected agent's currently probed runtime can accept a new turn. */
+export function agentRuntimeReadyForSubmission(
+  kind: AgentKind,
+  status: ExternalAgentRuntimeStatus | undefined,
+): boolean {
+  if (!isExternalAgentKind(kind)) return true
+  return status?.kind === kind && status.binary.status === "detected" && status.login.status !== "logged_out"
 }
 
 export interface AgentPickerRow {

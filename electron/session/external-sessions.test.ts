@@ -4,7 +4,7 @@ import type { ExternalSessionRecord, ExternalSessionStore } from "./external-sto
 import type { SessionMetadata, SessionMetadataStore } from "./metadata-store.ts"
 
 import assert from "node:assert/strict"
-import { test } from "vitest"
+import { test, vi } from "vitest"
 import { SessionServiceImpl } from "./node.ts"
 
 const localScope = {
@@ -46,12 +46,14 @@ function externalStore(initial = new Map<string, ExternalSessionRecord>()): {
   }
 }
 
-test("external sessions are created without the kernel, listed, and carry their agent kind", async () => {
+test("external sessions are created and listed when no kernel adapter exists", async () => {
   const external = externalStore()
-  const service = new SessionServiceImpl(agentWithSessions([]), {
+  const service = new SessionServiceImpl(null, {
     externalSessionStore: external.store,
     metadataStore: metadataStore(),
   })
+  const send = vi.fn(async () => undefined)
+  ;(service as unknown as { send: typeof send }).send = send
 
   const created = await service.create({ agentKind: "claude-code", scope: localScope, title: "Claude session" })
 
@@ -60,12 +62,35 @@ test("external sessions are created without the kernel, listed, and carry their 
   assert.equal(created.title, "Claude session")
   assert.equal(created.scope?.kind, "local")
   assert.equal(external.current().has(created.id), true)
+  await vi.waitFor(() => {
+    assert.deepEqual(send.mock.calls, [["sessionsChanged", { reason: "create session" }]])
+  })
 
   const sessions = await service.list({ scope: localScope })
   assert.deepEqual(
     sessions.map((session) => ({ id: session.id, agentKind: session.agentKind })),
     [{ id: created.id, agentKind: "claude-code" }],
   )
+})
+
+test("external archived sessions and projects remain available when no kernel adapter exists", async () => {
+  const external = externalStore()
+  const service = new SessionServiceImpl(null, {
+    externalSessionStore: external.store,
+    metadataStore: metadataStore(),
+  })
+
+  const created = await service.create({ agentKind: "codex", scope: localScope })
+  await service.archive(created.id)
+
+  assert.deepEqual(await service.list({ scope: localScope }), [])
+  assert.equal((await service.listArchived({ scope: localScope }))[0]?.id, created.id)
+  assert.equal((await service.unarchive(created.id))?.id, created.id)
+  assert.deepEqual(await service.removeMany({ ids: [created.id], scope: localScope }), {
+    failures: [],
+    succeededIds: [created.id],
+  })
+  assert.equal(external.current().has(created.id), false)
 })
 
 test("external sessions rename and remove without touching the kernel", async () => {

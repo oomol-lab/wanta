@@ -730,10 +730,14 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     // handleStop copies and clears `sessions` before tearing them down, so a
     // stop that landed during the awaits above would never see this session:
     // close it here instead of leaving an orphaned subprocess behind.
-    if (!this.isStarted) {
+    if (!this.isStarted || this.isSessionForgotten(sessionId)) {
       inputQueue.end()
       this.closeQuery(session)
-      throw new Error(`${this.kind}: adapter stopped while creating the session`)
+      throw new Error(
+        this.isSessionForgotten(sessionId)
+          ? `${this.kind}: session was deleted while being created`
+          : `${this.kind}: adapter stopped while creating the session`,
+      )
     }
     this.sessions.set(sessionId, session)
     session.loop = this.runQueryLoop(session)

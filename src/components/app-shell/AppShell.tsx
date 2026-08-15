@@ -906,12 +906,14 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const needsDefaultSessionSelection =
     sessionsSettledForCurrentScope && !isDraftSession && !selectedSessionId && selectableSidebarSessions.length > 0
   const agentStartupError =
-    agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
+    modelRoutingEnabled && agentStatus.status === "error"
+      ? resolveUserFacingError(agentStatus.message, { area: "agent" })
+      : null
   // Agents that own their models must not be gated by the built-in kernel's
   // missing-model state; treat that state as ready for them.
   const kernelModelRequired = agentStatus.status === "model_required"
   const modelRequired = kernelModelRequired && modelRoutingEnabled
-  const chatReady = ready || (kernelModelRequired && !modelRoutingEnabled)
+  const chatReady = modelRoutingEnabled ? ready : true
   const workspaceStartupError = workspaceActivationState.status === "failed" ? workspaceActivationState.error : null
   const startupError = agentStartupError ?? workspaceStartupError ?? sessionSnapshotError
   const retryWorkspaceActivation = React.useCallback(() => {

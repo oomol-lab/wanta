@@ -37,7 +37,7 @@ A new kind of interaction is a new variant on `AgentInput` or `AgentEvent`.
    can hang on a dead agent. Adapters route all emissions through
    `BaseAgentAdapter.emit()` so the sweep bookkeeping stays automatic.
 6. **UI is capability-driven.** Model selector, BYOK panel, login prompts, and
-   history behavior derive from `AgentProfile` plus reflected events. Never
+   prompt controls derive from `AgentProfile` plus reflected events. Never
    write `if (agent === "...")` in UI or chat logic.
 7. **Host capabilities stay host-owned; deep adapter features stay concrete.**
    Link workspace identity, selected context, response policy, redaction, and

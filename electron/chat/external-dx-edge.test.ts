@@ -24,6 +24,7 @@ import { test, vi } from "vitest"
 import { AGENT_PROFILES } from "../agent/contract/profile.ts"
 import { ExternalAgentAdapter } from "../agent/external/adapter-base.ts"
 import { externalAgentKindForSessionId, mintExternalSessionId } from "../agent/external/session-id.ts"
+import { ManagedTurnDirectories } from "../agent/managed-turn-directories.ts"
 import { SessionServiceImpl } from "../session/node.ts"
 import { ChatServiceImpl } from "./node.ts"
 
@@ -198,7 +199,10 @@ function createHarness(
   events: CapturedEvent[]
   adapters: Map<ExternalAgentKind, FakeExternalAdapter>
 } {
-  const service = new ChatServiceImpl(null, { ...deps })
+  const service = new ChatServiceImpl(null, {
+    managedTurnDirectories: new ManagedTurnDirectories(path.join(os.tmpdir(), `wanta-external-dx-${randomUUID()}`)),
+    ...deps,
+  })
   // Override the transport before setExternalAgents: the bridge captures
   // this.send once when the adapters are registered.
   const events = captureServiceEvents(service)
@@ -245,6 +249,67 @@ async function createProbeAttachment(): Promise<ChatAttachment> {
   await writeFile(filePath, "probe", "utf8")
   return { id: "att-1", name: "notes.md", mime: "text/markdown", size: 5, path: filePath }
 }
+
+test("external turns receive managed output directories and finalize against their own transcript", async () => {
+  const { service, adapters } = createHarness()
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const getMessages = vi.spyOn(adapter, "getMessages")
+  const sessionId = mintExternalSessionId("claude-code")
+
+  await service.sendMessage(sendRequest(sessionId, "create an output"))
+  const prompt = adapter.prompts[0]
+  assert.ok(prompt?.artifactDir)
+  assert.ok(prompt.processDir)
+
+  adapter.completeAssistantTurn(sessionId, "reply-managed", "done")
+  await waitForTurnCompletion(service)
+  assert.equal(
+    getMessages.mock.calls.some(([id]) => id === sessionId),
+    true,
+  )
+})
+
+test("external plan turns keep the registered project read-only and use managed output directories", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "wanta-external-plan-project-"))
+  const { service, adapters } = createHarness(["claude-code"], {
+    projectStore: {
+      read: async () =>
+        new Map([
+          [
+            "project-1",
+            {
+              id: "project-1",
+              name: "Project",
+              path: projectRoot,
+              createdAt: 1,
+              updatedAt: 1,
+              scope: localScope,
+            },
+          ],
+        ]),
+    },
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+
+  await service.sendMessage(
+    sendRequest(sessionId, "inspect the project", {
+      mode: "plan",
+      projectContext: { id: "project-1", name: "Project", path: projectRoot },
+    }),
+  )
+  await waitForCondition(() => adapter.prompts.length === 1, "external plan prompt")
+
+  const prompt = adapter.prompts[0]
+  assert.equal(prompt?.outputProjectRoot, undefined)
+  assert.ok(prompt?.artifactDir)
+  assert.equal(prompt.artifactDir.startsWith(projectRoot), false)
+
+  adapter.completeAssistantTurn(sessionId, "assistant-plan", "done")
+  await waitForTurnCompletion(service)
+})
 
 test("edge1: attachment send into an external session records the attachment and forwards it to the adapter", async () => {
   const record = vi.fn(async () => undefined)

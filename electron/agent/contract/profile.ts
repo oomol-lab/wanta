@@ -26,10 +26,6 @@ export interface AgentInputCapabilityFlags {
   attachments: boolean
   /** Wanta build/plan modes. */
   modes: boolean
-  /** Wanta reasoning-level selection. */
-  reasoningLevels: boolean
-  /** Per-turn system prompt tail injection. */
-  systemPrompt: boolean
   /** Settling permissionAsked events via permission-response inputs. */
   permissionResponse: boolean
   /** Settling questionAsked events via question-response inputs. */
@@ -42,23 +38,6 @@ export interface AgentInputCapabilityFlags {
 
 /** Canonical display order of the normalized permission modes. */
 export const AGENT_PERMISSION_MODE_ORDER: readonly AgentPermissionMode[] = AGENT_PERMISSION_MODES
-
-/** What the agent can do about past sessions. */
-export interface AgentHistoryCapabilities {
-  list: boolean
-  read: boolean
-  resume: boolean
-}
-
-export interface AgentHostCapabilities {
-  browser: boolean
-  directProviders: boolean
-  knowledge: boolean
-  link: boolean
-  managedOutputs: boolean
-  question: boolean
-  skills: boolean
-}
 
 /**
  * Who owns model selection for this agent. "wanta" means the Wanta model
@@ -81,9 +60,6 @@ export interface AgentProfile {
   modelSource: AgentModelSource
   auth: AgentAuthMode
   inputs: AgentInputCapabilityFlags
-  history: AgentHistoryCapabilities
-  /** Wanta-owned capabilities available independently of the selected agent engine. */
-  hostCapabilities: AgentHostCapabilities
   /** Normalized permission modes this agent supports, in display order. */
   permissionModes: readonly AgentPermissionMode[]
 }
@@ -97,24 +73,10 @@ export interface AgentProfile {
 const externalAgentInputs: AgentInputCapabilityFlags = {
   attachments: true,
   modes: false,
-  reasoningLevels: false,
-  systemPrompt: false,
   permissionResponse: true,
   questionResponse: false,
   setModel: false,
   setEffort: false,
-}
-
-/** Wanta lists, reads, and restores external-agent tasks from its persisted transcript. */
-const externalAgentHistory: AgentHistoryCapabilities = { list: true, read: true, resume: true }
-const wantaHostCapabilities: AgentHostCapabilities = {
-  browser: true,
-  directProviders: true,
-  knowledge: true,
-  link: true,
-  managedOutputs: true,
-  question: true,
-  skills: true,
 }
 
 function acpAgentProfiles(): Record<AcpAgentKind, AgentProfile> {
@@ -132,8 +94,6 @@ function acpAgentProfiles(): Record<AcpAgentKind, AgentProfile> {
         setModel: registration.selection?.model ?? false,
         setEffort: registration.selection?.effort ?? false,
       },
-      history: externalAgentHistory,
-      hostCapabilities: wantaHostCapabilities,
       // No mode map = the agent keeps its own approval flow; "default" is the
       // only declarable stance (single-mode agents render no picker).
       permissionModes: registration.permissionModeMap
@@ -153,15 +113,11 @@ export const AGENT_PROFILES = {
     inputs: {
       attachments: true,
       modes: true,
-      reasoningLevels: true,
-      systemPrompt: true,
       permissionResponse: true,
       questionResponse: true,
       setModel: false,
       setEffort: false,
     },
-    history: { list: true, read: true, resume: true },
-    hostCapabilities: wantaHostCapabilities,
     permissionModes: ["default", "full_access"],
   },
   "claude-code": {
@@ -170,8 +126,6 @@ export const AGENT_PROFILES = {
     modelSource: "agent",
     auth: { kind: "agent-cli", loginCommand: "Run `claude` in a terminal and sign in, then retry." },
     inputs: { ...externalAgentInputs, setModel: true, setEffort: true },
-    history: externalAgentHistory,
-    hostCapabilities: wantaHostCapabilities,
     // Mapped 1:1 onto SDK permission modes (auto = the CLI's classifier mode,
     // full_access = bypassPermissions).
     permissionModes: ["default", "accept_edits", "plan", "auto", "full_access"],

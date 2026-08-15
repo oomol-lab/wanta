@@ -149,20 +149,17 @@ export class SessionServiceImpl
   public async list(req: SessionScopeRequest): Promise<SessionInfo[]> {
     const agent = this.agent
     const revision = this.runtimeRevision
-    if (!agent) {
-      return []
-    }
     await Promise.all([
       this.ensureActivityLoaded(),
       this.ensureMetadataLoaded(),
       this.ensureProjectsLoaded(),
       this.ensureExternalLoaded(),
     ])
-    if (!this.runtimeMatches(agent, revision)) {
+    if (this.runtimeRevision !== revision) {
       return []
     }
-    const sessions = await agent.listSessions()
-    if (!this.runtimeMatches(agent, revision)) {
+    const sessions = agent ? await agent.listSessions() : []
+    if (this.runtimeRevision !== revision || (agent && this.agent !== agent)) {
       return []
     }
     return this.mergeLocalState(
@@ -176,20 +173,17 @@ export class SessionServiceImpl
   public async listArchived(req: SessionScopeRequest): Promise<SessionInfo[]> {
     const agent = this.agent
     const revision = this.runtimeRevision
-    if (!agent) {
-      return []
-    }
     await Promise.all([
       this.ensureActivityLoaded(),
       this.ensureMetadataLoaded(),
       this.ensureProjectsLoaded(),
       this.ensureExternalLoaded(),
     ])
-    if (!this.runtimeMatches(agent, revision)) {
+    if (this.runtimeRevision !== revision) {
       return []
     }
-    const sessions = await agent.listSessions()
-    if (!this.runtimeMatches(agent, revision)) {
+    const sessions = agent ? await agent.listSessions() : []
+    if (this.runtimeRevision !== revision || (agent && this.agent !== agent)) {
       return []
     }
     return this.mergeLocalState(
@@ -201,13 +195,9 @@ export class SessionServiceImpl
   }
 
   public async listProjects(req: SessionScopeRequest): Promise<SessionProject[]> {
-    const agent = this.agent
     const revision = this.runtimeRevision
-    if (!agent) {
-      return []
-    }
     await this.ensureProjectsLoaded()
-    if (!this.runtimeMatches(agent, revision)) {
+    if (this.runtimeRevision !== revision) {
       return []
     }
     const requestedScope = normalizeRequestedSessionScope(req.scope)
@@ -716,10 +706,9 @@ export class SessionServiceImpl
   }
 
   private async unarchiveMutation(id: string, revision: number): Promise<SessionInfo | null> {
-    const agent = this.requireAgent()
     await this.ensureMetadataLoaded(revision)
     await this.ensureProjectsLoaded(revision)
-    this.assertRuntimeMatches(agent, revision)
+    this.assertRevisionMatches(revision)
     const current = this.sessionMetadata.get(id)
     if (!current) {
       return null
@@ -747,7 +736,7 @@ export class SessionServiceImpl
     } else {
       await this.commitMetadata(nextMetadata)
     }
-    this.assertRuntimeMatches(agent, revision)
+    this.assertRevisionMatches(revision)
     const restored = await this.resolveSession(id, "active")
     this.broadcastChangedBestEffort("unarchive session")
     return restored
@@ -762,10 +751,10 @@ export class SessionServiceImpl
   }
 
   private async removeManyMutation(req: BatchSessionRequest, revision: number): Promise<BatchSessionResult> {
-    const agent = this.requireAgent()
+    const agent = this.agent
     await this.ensureActivityLoaded(revision)
     await this.ensureMetadataLoaded(revision)
-    this.assertRuntimeMatches(agent, revision)
+    this.assertRevisionMatches(revision)
     const scope = normalizeRequestedSessionScope(req.scope)
     const ids = normalizeBatchSessionIds(req.ids)
     const candidates: string[] = []
@@ -790,7 +779,7 @@ export class SessionServiceImpl
     const runtimeChange: { error?: unknown } = {}
     const deleteNextCandidate = async (): Promise<void> => {
       while (!Object.hasOwn(runtimeChange, "error")) {
-        if (!this.runtimeMatches(agent, revision)) {
+        if (this.runtimeRevision !== revision || (agent && this.agent !== agent)) {
           runtimeChange.error = this.runtimeChangedError()
           return
         }
@@ -803,15 +792,16 @@ export class SessionServiceImpl
           if (isExternalSessionId(id)) {
             externalRemovedIds.add(id)
           } else {
+            if (!agent) throw new Error("Agent not configured (sign in first)")
             await agent.deleteSession(id)
           }
-          if (!this.runtimeMatches(agent, revision)) {
+          if (this.runtimeRevision !== revision || (agent && this.agent !== agent)) {
             runtimeChange.error = this.runtimeChangedError()
             return
           }
           succeededIdSet.add(id)
         } catch (error) {
-          if (!this.runtimeMatches(agent, revision)) {
+          if (this.runtimeRevision !== revision || (agent && this.agent !== agent)) {
             runtimeChange.error = error
             return
           }
@@ -1182,16 +1172,19 @@ export class SessionServiceImpl
   }
 
   private async resolveSession(id: string, visibility: "active" | "archived"): Promise<SessionInfo | null> {
-    if (!this.agent) {
-      return null
-    }
+    const agent = this.agent
+    const revision = this.runtimeRevision
     await this.ensureActivityLoaded()
     await this.ensureMetadataLoaded()
     await this.ensureProjectsLoaded()
     await this.ensureExternalLoaded()
+    if (this.runtimeRevision !== revision) return null
     const session = isExternalSessionId(id)
       ? this.externalSessionInfos().find((item) => item.id === id)
-      : (await this.agent.listSessions()).find((item) => item.id === id)
+      : agent
+        ? (await agent.listSessions()).find((item) => item.id === id)
+        : undefined
+    if (this.runtimeRevision !== revision || (agent && this.agent !== agent)) return null
     if (!session) {
       return null
     }
@@ -1321,9 +1314,6 @@ export class SessionServiceImpl
   }
 
   private async broadcastChanged(reason: string): Promise<void> {
-    if (!this.agent) {
-      return
-    }
     await this.send("sessionsChanged", { reason })
   }
 

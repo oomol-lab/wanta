@@ -17,8 +17,9 @@ import { chatAttachmentSchema } from "./event.ts"
 
 /**
  * One user turn. Everything the built-in kernel needs travels in the input;
- * adapters ignore fields their agent has no concept for only when the profile
- * declares so (silent degradation is forbidden by the adapter contract).
+ * Prompt-field support is composed by the chat layer from the selected
+ * profile; independent interactions remain explicit input variants so an
+ * adapter cannot silently drop them.
  */
 export interface PromptAgentInput {
   type: "prompt"

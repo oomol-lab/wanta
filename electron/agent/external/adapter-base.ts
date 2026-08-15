@@ -198,6 +198,11 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter {
     return this.sessionsWithDiskHistory.has(sessionId) || this.transcript.messageCount(sessionId) > 0
   }
 
+  /** Whether the host permanently deleted this session while native setup was still in flight. */
+  protected isSessionForgotten(sessionId: string): boolean {
+    return this.forgottenSessions.has(sessionId)
+  }
+
   /** Bounded host transcript used when a native runtime cannot load its own previous session. */
   protected restoredConversationContext(sessionId: string, maxCharacters = 100_000): string | undefined {
     const serialized: string[] = []

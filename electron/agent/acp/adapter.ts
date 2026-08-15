@@ -959,6 +959,16 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const cwd = input.outputProjectRoot ?? (await this.ensureScratchDir(input.sessionId))
     const mcpServers = await this.hostMcpServers(input)
     const response = await handle.connection.agent.request("session/new", { cwd, mcpServers })
+    if (!this.isStarted || this.isSessionForgotten(input.sessionId)) {
+      await handle.connection.agent
+        .request("session/close" as never, { sessionId: response.sessionId } as never)
+        .catch(() => undefined)
+      throw new Error(
+        this.isSessionForgotten(input.sessionId)
+          ? `${this.kind}: session was deleted while being created`
+          : `${this.kind}: adapter stopped while creating the session`,
+      )
+    }
     const modes = response.modes ?? undefined
     const configSelects = parseSessionSelects(response)
     this.updateCatalogFromSelects(configSelects)

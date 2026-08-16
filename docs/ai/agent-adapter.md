@@ -88,11 +88,13 @@ External agents build on `electron/agent/external/`:
   evaluated by the same Wanta local-access policy used for the built-in kernel.
   Ordinary operations are answered automatically; protected or consequential
   boundaries reach the user. Switching agents must not change the decision for
-  the same normalized operation, permission mode, and host context. Dispatch to
-  a generated `wanta_*` MCP server is also auto-approved at the transport layer:
-  Wanta auto-approves that redundant ACP transport prompt because the call
-  enters the same host-owned capability kernel used directly by OpenCode,
-  where identity, credentials, validation, and auditing are already enforced.
+  the same normalized operation, permission mode, and host context. A
+  non-sensitive, non-high-risk dispatch to a generated `wanta_*` MCP server is
+  also auto-approved at the transport layer: Wanta auto-approves that redundant
+  ACP transport prompt because the call enters the same host-owned capability
+  kernel used directly by OpenCode, where identity, credentials, validation,
+  and auditing are already enforced. Sensitive or high-risk host-tool requests
+  still continue through the shared prompt-or-deny policy.
   Claude's native `Skill` discovery tool is also auto-approved because it only
   loads local instructions; any file, shell, or network operation instructed
   by that Skill remains subject to Claude's normal permission flow. Claude MCP

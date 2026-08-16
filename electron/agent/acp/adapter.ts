@@ -447,17 +447,25 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     if (options?.signal?.aborted) {
       return
     }
-    // Draft-time choices ride the first prompt; createAcpSession applies them.
-    if (input.agentModelId !== undefined || input.agentEffortId !== undefined) {
-      const desired = this.desiredSelections.get(input.sessionId) ?? {}
+    const previousSelection = { ...this.desiredSelections.get(input.sessionId) }
+    const appliedAxes: Array<keyof AcpConfigSelects> = []
+    try {
       if (input.agentModelId !== undefined) {
-        desired.model = input.agentModelId
+        await this.applyConfigSelection(input.sessionId, "model", input.agentModelId)
+        appliedAxes.push("model")
       }
       if (input.agentEffortId !== undefined) {
-        desired.effort = input.agentEffortId
+        await this.applyConfigSelection(input.sessionId, "effort", input.agentEffortId)
+        appliedAxes.push("effort")
       }
-      this.desiredSelections.set(input.sessionId, desired)
+      await this.dispatchPrompt(input, options)
+    } catch (error) {
+      await this.restorePromptSelections(input.sessionId, previousSelection, appliedAxes)
+      throw error
     }
+  }
+
+  private async dispatchPrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
     const restoreContext =
       !this.sessionsByWantaId.has(input.sessionId) && this.hasPersistedHistory(input.sessionId)
         ? this.restoredConversationContext(input.sessionId)
@@ -507,6 +515,25 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     })
     this.trackTurn(session, turn, promptPromise, options?.signal)
     // Resolve on dispatch (submission ack); completion arrives as messageCompleted.
+  }
+
+  private async restorePromptSelections(
+    sessionId: string,
+    previous: { model?: string; effort?: string },
+    appliedAxes: Array<keyof AcpConfigSelects>,
+  ): Promise<void> {
+    for (const axis of appliedAxes.reverse()) {
+      try {
+        await this.applyConfigSelection(sessionId, axis, previous[axis])
+      } catch (error) {
+        logDiagnostic(
+          "acp-adapter",
+          "failed to restore prompt-borne selection",
+          { adapter: this.kind, axis, error: errorMessage(error), sessionId },
+          "error",
+        )
+      }
+    }
   }
 
   protected async handleCancel(input: CancelAgentInput, options?: AgentSendOptions): Promise<void> {

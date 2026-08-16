@@ -487,6 +487,26 @@ describe("acp selection: warmCatalog edges", () => {
 })
 
 describe("acp selection: prompt-borne selections", () => {
+  test("prompt-borne selections are applied to an existing session before dispatch", async () => {
+    const harness = await createHarness({
+      newSession: () => ({ sessionId: "acp-session-1", configOptions: MODEL_EFFORT_CONFIG_OPTIONS }) as never,
+    })
+    await harness.adapter.send(promptInput("first"))
+    await harness.waitFor((event) => event.event === "messageCompleted")
+
+    await harness.adapter.send({
+      ...promptInput("second"),
+      agentModelId: "gpt-b",
+      agentEffortId: "high",
+    })
+    await harness.waitFor((event) => event.event === "messageCompleted" && harness.fake.promptRequests.length === 2)
+
+    expect(harness.fake.setConfigOptionRequests.slice(-2)).toEqual([
+      { sessionId: "acp-session-1", configId: "model", value: "gpt-b" },
+      { sessionId: "acp-session-1", configId: "reasoning_effort", value: "high" },
+    ])
+  })
+
   test("a failing prompt-borne model apply rejects before dispatch and clears the rejected stash", async () => {
     const harness = await createHarness({
       newSession: () => modelsShape("m1", ["m1", "m2"]),
@@ -509,6 +529,36 @@ describe("acp selection: prompt-borne selections", () => {
       "model selection is not available in this session",
     )
     expect(harness.fake.promptRequests).toHaveLength(0)
+  })
+
+  test("a later prompt-borne axis rejection restores the earlier axis", async () => {
+    const harness = await createHarness({
+      newSession: () => ({ sessionId: "acp-session-1", configOptions: MODEL_EFFORT_CONFIG_OPTIONS }) as never,
+      setConfigOption: (params) => {
+        if (params.configId === "reasoning_effort" && params.value === "high") {
+          throw new Error("effort refused")
+        }
+        return { configOptions: [] }
+      },
+    })
+    await harness.adapter.send(promptInput("first"))
+    await harness.waitFor((event) => event.event === "messageCompleted")
+
+    await expect(
+      harness.adapter.send({
+        ...promptInput("second"),
+        agentModelId: "gpt-b",
+        agentEffortId: "high",
+      }),
+    ).rejects.toThrow()
+
+    expect(harness.fake.promptRequests).toHaveLength(1)
+    expect(harness.fake.setConfigOptionRequests.slice(-3)).toEqual([
+      { sessionId: "acp-session-1", configId: "model", value: "gpt-b" },
+      { sessionId: "acp-session-1", configId: "reasoning_effort", value: "high" },
+      { sessionId: "acp-session-1", configId: "model", value: "gpt-a" },
+    ])
+    expect(harness.adapter.sessionSelection(WANTA_SESSION_ID)).toEqual({})
   })
 })
 

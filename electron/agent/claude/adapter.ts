@@ -287,20 +287,35 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     if (options?.signal?.aborted) {
       return
     }
-    // Draft-time model/effort choices ride the first prompt. They must apply
-    // before dispatch so persisted/UI state never claims a rejected choice.
-    if (input.agentModelId !== undefined) {
-      if (!this.catalog.models.some((model) => model.id === input.agentModelId)) {
-        throw new Error(`claude-code: unknown model "${input.agentModelId}"`)
+    const previousModel = this.desiredModels.get(input.sessionId)
+    const previousEffort = this.desiredEfforts.get(input.sessionId)
+    let modelApplied = false
+    let effortApplied = false
+    try {
+      // Draft-time model/effort choices ride the first prompt. They must apply
+      // before dispatch so persisted/UI state never claims a rejected choice.
+      if (input.agentModelId !== undefined) {
+        if (!this.catalog.models.some((model) => model.id === input.agentModelId)) {
+          throw new Error(`claude-code: unknown model "${input.agentModelId}"`)
+        }
+        await this.applyModel(input.sessionId, input.agentModelId)
+        modelApplied = true
       }
-      await this.applyModel(input.sessionId, input.agentModelId)
-    }
-    if (input.agentEffortId !== undefined) {
-      if (!isClaudeEffortId(input.agentEffortId)) {
-        throw new Error(`claude-code: unknown effort "${input.agentEffortId}"`)
+      if (input.agentEffortId !== undefined) {
+        if (!isClaudeEffortId(input.agentEffortId)) {
+          throw new Error(`claude-code: unknown effort "${input.agentEffortId}"`)
+        }
+        await this.applyEffort(input.sessionId, input.agentEffortId)
+        effortApplied = true
       }
-      await this.applyEffort(input.sessionId, input.agentEffortId)
+      await this.dispatchPrompt(input, options)
+    } catch (error) {
+      await this.restorePromptSelections(input.sessionId, previousModel, previousEffort, modelApplied, effortApplied)
+      throw error
     }
+  }
+
+  private async dispatchPrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
     if (this.sessions.has(input.sessionId)) await this.hostMcpServers?.(input)
     const session = await this.ensureSession(input)
     if (options?.signal?.aborted) {
@@ -322,6 +337,35 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       parent_tool_use_id: null,
       session_id: session.sessionUuid,
     })
+  }
+
+  private async restorePromptSelections(
+    sessionId: string,
+    previousModel: string | undefined,
+    previousEffort: ClaudeEffortId | undefined,
+    modelApplied: boolean,
+    effortApplied: boolean,
+  ): Promise<void> {
+    if (effortApplied) {
+      await this.applyEffort(sessionId, previousEffort).catch((error: unknown) => {
+        logDiagnostic(
+          "claude-code-adapter",
+          "failed to restore prompt-borne effort",
+          { error: errorMessage(error), sessionId },
+          "error",
+        )
+      })
+    }
+    if (modelApplied) {
+      await this.applyModel(sessionId, previousModel).catch((error: unknown) => {
+        logDiagnostic(
+          "claude-code-adapter",
+          "failed to restore prompt-borne model",
+          { error: errorMessage(error), sessionId },
+          "error",
+        )
+      })
+    }
   }
 
   protected async handleCancel(input: CancelAgentInput): Promise<void> {

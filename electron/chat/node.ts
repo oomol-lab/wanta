@@ -322,6 +322,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private externalAgentUnsubscribes: Array<() => void> = []
   /** Per-session/axis tails keep native selection, persistence, and rollback ordered. */
   private readonly externalSelectionMutationTails = new Map<string, Promise<void>>()
+  /** Latest successfully persisted mutation owner per axis. */
+  private readonly externalSelectionMutationTokens = new Map<string, number>()
+  /** Monotonic token source; reservations are distinct even when an earlier mutation fails. */
+  private readonly externalSelectionMutationSequences = new Map<string, number>()
   /** Permission changes serialize so a duplicate same-mode request can retry a failed projection. */
   private readonly permissionModeMutationTails = new Map<string, Promise<void>>()
   /** Ownership token for async permission persistence/projection and rollback. */
@@ -523,13 +527,48 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     sessionId: string,
     axis: "model" | "effort",
     mutation: () => Promise<void>,
-  ): Promise<void> {
+  ): Promise<number> {
     const key = `${sessionId}\0${axis}`
+    const token = (this.externalSelectionMutationSequences.get(key) ?? 0) + 1
+    this.externalSelectionMutationSequences.set(key, token)
     const previous = this.externalSelectionMutationTails.get(key) ?? Promise.resolve()
     let next!: Promise<void>
     next = previous
       .catch(() => undefined)
-      .then(mutation)
+      .then(async () => {
+        await mutation()
+        this.externalSelectionMutationTokens.set(key, token)
+      })
+      .finally(() => {
+        if (this.externalSelectionMutationTails.get(key) === next) {
+          this.externalSelectionMutationTails.delete(key)
+        }
+      })
+    this.externalSelectionMutationTails.set(key, next)
+    return next.then(() => token)
+  }
+
+  private runExternalSelectionRollback(
+    sessionId: string,
+    axis: "model" | "effort",
+    ownerToken: number,
+    mutation: () => Promise<void>,
+  ): Promise<void> {
+    const key = `${sessionId}\0${axis}`
+    const rollbackToken = (this.externalSelectionMutationSequences.get(key) ?? 0) + 1
+    this.externalSelectionMutationSequences.set(key, rollbackToken)
+    const previous = this.externalSelectionMutationTails.get(key) ?? Promise.resolve()
+    let next!: Promise<void>
+    next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        // Check after earlier queued updates settle: a successful newer value
+        // owns the axis, while a failed newer mutation must not suppress the
+        // rollback of the still-persisted prompt value.
+        if (this.externalSelectionMutationTokens.get(key) !== ownerToken) return
+        await mutation()
+        this.externalSelectionMutationTokens.set(key, rollbackToken)
+      })
       .finally(() => {
         if (this.externalSelectionMutationTails.get(key) === next) {
           this.externalSelectionMutationTails.delete(key)
@@ -617,6 +656,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.compactingSessions.delete(sessionId)
     this.permissions.deleteSession(sessionId)
     this.permissionModeMutationTokens.delete(sessionId)
+    this.externalSelectionMutationTokens.delete(`${sessionId}\0model`)
+    this.externalSelectionMutationTokens.delete(`${sessionId}\0effort`)
+    this.externalSelectionMutationSequences.delete(`${sessionId}\0model`)
+    this.externalSelectionMutationSequences.delete(`${sessionId}\0effort`)
     this.trustedAccess.deleteSession(sessionId)
     const messageIds = this.managedUserMessageIdsBySession.get(sessionId)
     for (const messageId of messageIds ?? []) {
@@ -1930,7 +1973,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const userMessageId = createOpencodeMessageId()
     const generation = this.beginChatTurn(req, userMessageId)
     const previousSelection = adapter.sessionSelection(req.sessionId)
-    let selectionPersistedForSubmit = false
+    const promptSelectionOwners: Partial<Record<"model" | "effort", number>> = {}
     let artifactDir: string | undefined
     let processDir: string | undefined
     try {
@@ -1993,12 +2036,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.discardTrustedAttachmentPaths(req.attachments)
       }
       await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
-      if (req.agentModelId || req.agentEffortId) {
-        await this.deps.onExternalSessionSelectionChanged?.(req.sessionId, {
-          ...(req.agentModelId ? { modelId: req.agentModelId } : {}),
-          ...(req.agentEffortId ? { effortId: req.agentEffortId } : {}),
+      if (req.agentModelId) {
+        promptSelectionOwners.model = await this.runExternalSelectionMutation(req.sessionId, "model", async () => {
+          await this.deps.onExternalSessionSelectionChanged?.(req.sessionId, { modelId: req.agentModelId })
         })
-        selectionPersistedForSubmit = true
+      }
+      if (req.agentEffortId) {
+        promptSelectionOwners.effort = await this.runExternalSelectionMutation(req.sessionId, "effort", async () => {
+          await this.deps.onExternalSessionSelectionChanged?.(req.sessionId, { effortId: req.agentEffortId })
+        })
       }
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
       this.scheduleGenerationSubmitWatchdog(req.sessionId, generation.id)
@@ -2037,22 +2083,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           }
         })
         .catch(async (error: unknown) => {
-          if (selectionPersistedForSubmit) {
-            const rollback = {
-              ...(req.agentModelId ? { modelId: previousSelection.modelId ?? null } : {}),
-              ...(req.agentEffortId ? { effortId: previousSelection.effortId ?? null } : {}),
-            }
-            await Promise.resolve(this.deps.onExternalSessionSelectionChanged?.(req.sessionId, rollback)).catch(
-              (rollbackError: unknown) => {
-                logDiagnostic(
-                  "chat-service",
-                  "failed to roll back rejected prompt selection",
-                  { error: rollbackError, sessionId: req.sessionId },
-                  "error",
-                )
-              },
-            )
-          }
+          await this.rollbackPromptSelectionPersistence(req.sessionId, promptSelectionOwners, previousSelection)
           this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
           this.turnOutputs.delete(req.sessionId, generation.id)
           void removeUnsubmittedTurnDirectories(artifactDir, processDir)
@@ -2077,12 +2108,40 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           )
         })
     } catch (error) {
+      await this.rollbackPromptSelectionPersistence(req.sessionId, promptSelectionOwners, previousSelection)
       this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
       this.turnOutputs.delete(req.sessionId, generation.id)
       await removeUnsubmittedTurnDirectories(artifactDir, processDir)
       this.clearSessionGeneration(req.sessionId, generation.id)
       throw error
     }
+  }
+
+  private async rollbackPromptSelectionPersistence(
+    sessionId: string,
+    owners: Partial<Record<"model" | "effort", number>>,
+    previous: { modelId?: string; effortId?: string },
+  ): Promise<void> {
+    const rollbacks: Promise<void>[] = []
+    if (owners.model !== undefined) {
+      rollbacks.push(
+        this.runExternalSelectionRollback(sessionId, "model", owners.model, async () => {
+          await this.deps.onExternalSessionSelectionChanged?.(sessionId, { modelId: previous.modelId ?? null })
+        }),
+      )
+      delete owners.model
+    }
+    if (owners.effort !== undefined) {
+      rollbacks.push(
+        this.runExternalSelectionRollback(sessionId, "effort", owners.effort, async () => {
+          await this.deps.onExternalSessionSelectionChanged?.(sessionId, { effortId: previous.effortId ?? null })
+        }),
+      )
+      delete owners.effort
+    }
+    await Promise.all(rollbacks).catch((error: unknown) => {
+      logDiagnostic("chat-service", "failed to roll back rejected prompt selection", { error, sessionId }, "error")
+    })
   }
 
   private async rollbackUnsubmittedUserAttachments(

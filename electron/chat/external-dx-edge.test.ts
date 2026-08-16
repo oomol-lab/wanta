@@ -67,6 +67,8 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
   public readonly permissionModes: Array<{ sessionId: string; mode: AgentPermissionMode }> = []
   /** When set, the next prompt throws this error instead of dispatching. */
   public failNextPrompt: Error | undefined
+  /** Optional fence used to race a rejected prompt against a newer selection. */
+  public promptFailureBarrier: Promise<void> | undefined
   /** When set, the next native permission-mode projection rejects. */
   public failNextPermissionMode: Error | undefined
   private readonly modelSelections = new Map<string, string>()
@@ -89,6 +91,8 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
     if (this.failNextPrompt) {
       const error = this.failNextPrompt
       this.failNextPrompt = undefined
+      await this.promptFailureBarrier
+      this.promptFailureBarrier = undefined
       throw error
     }
     this.prompts.push(input)
@@ -829,13 +833,34 @@ test("a rejected prompt-borne selection is rolled back in session metadata", asy
   adapter.failNextPrompt = new Error("model rejected")
 
   await service.sendMessage(sendRequest(sessionId, "use this model", { agentModelId: "sonnet", agentEffortId: "high" }))
-  await waitForCondition(() => persisted.length === 2, "prompt selection rollback")
+  await waitForCondition(() => persisted.length === 4, "prompt selection rollback")
 
-  assert.deepEqual(persisted, [
-    { modelId: "sonnet", effortId: "high" },
-    { modelId: null, effortId: null },
-  ])
+  assert.deepEqual(persisted, [{ modelId: "sonnet" }, { effortId: "high" }, { modelId: null }, { effortId: null }])
   await waitForCondition(() => !service.hasActiveGeneration(), "failed prompt cleanup")
+})
+
+test("a rejected prompt rollback cannot overwrite a newer model selection", async () => {
+  const persisted: Array<{ modelId?: string | null; effortId?: string | null }> = []
+  const { service, adapters } = createHarness(["claude-code"], {
+    onExternalSessionSelectionChanged: (_sessionId, patch) => {
+      persisted.push(patch)
+    },
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+  let releasePromptFailure!: () => void
+  adapter.promptFailureBarrier = new Promise<void>((resolve) => (releasePromptFailure = resolve))
+  adapter.failNextPrompt = new Error("prompt rejected")
+
+  await service.sendMessage(sendRequest(sessionId, "use sonnet", { agentModelId: "sonnet" }))
+  await waitForCondition(() => persisted.length === 1, "prompt selection persistence")
+  await service.setExternalSessionModel({ sessionId, modelId: "haiku" })
+  releasePromptFailure()
+  await waitForCondition(() => !service.hasActiveGeneration(), "rejected prompt cleanup")
+
+  assert.deepEqual(persisted, [{ modelId: "sonnet" }, { modelId: "haiku" }])
+  assert.deepEqual(adapter.sessionSelection(sessionId), { modelId: "haiku" })
 })
 
 test("external model and effort updates stay ordered when persistence overlaps", async () => {

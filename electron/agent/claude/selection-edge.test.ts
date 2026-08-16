@@ -382,6 +382,26 @@ describe("claude selection: prompt-borne selections", () => {
     expect(adapter.sessionSelection(sessionId)).toEqual({})
   })
 
+  it("a later effort rejection restores a prompt-borne live model change", async () => {
+    const { adapter, calls } = await createHarness()
+    await adapter.send({ type: "prompt", sessionId, text: "hello" })
+    calls[0]!.fake.applyFlagSettings.mockRejectedValueOnce(new Error("effort rejected"))
+
+    await expect(
+      adapter.send({
+        type: "prompt",
+        sessionId,
+        text: "again",
+        agentModelId: "sonnet",
+        agentEffortId: "high",
+      }),
+    ).rejects.toThrow("effort rejected")
+
+    expect(calls[0]!.fake.setModel.mock.calls).toEqual([["sonnet"], [undefined]])
+    expect(calls[0]!.fake.promptMessages).toHaveLength(1)
+    expect(adapter.sessionSelection(sessionId)).toEqual({})
+  })
+
   it("an unknown prompt-borne effort id is rejected loudly", async () => {
     const { adapter, calls } = await createHarness()
     await expect(adapter.send({ type: "prompt", sessionId, text: "hello", agentEffortId: "ultra" })).rejects.toThrow(

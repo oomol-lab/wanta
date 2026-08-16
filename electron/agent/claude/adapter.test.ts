@@ -699,9 +699,9 @@ describe("ClaudeCodeAgentAdapter", () => {
 
   it("threads prompt-borne agent model and effort into query creation", async () => {
     const { adapter, calls } = await createHarness()
-    await adapter.send({ type: "prompt", sessionId, text: "hi", agentModelId: "opus", agentEffortId: "high" })
+    await adapter.send({ type: "prompt", sessionId, text: "hi", agentModelId: "sonnet", agentEffortId: "high" })
     expect(calls).toHaveLength(1)
-    expect(calls[0]?.options.model).toBe("opus")
+    expect(calls[0]?.options.model).toBe("sonnet")
     expect(calls[0]?.options.effort).toBe("high")
   })
 

@@ -447,17 +447,25 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     if (options?.signal?.aborted) {
       return
     }
-    // Draft-time choices ride the first prompt; createAcpSession applies them.
-    if (input.agentModelId !== undefined || input.agentEffortId !== undefined) {
-      const desired = this.desiredSelections.get(input.sessionId) ?? {}
+    const previousSelection = { ...this.desiredSelections.get(input.sessionId) }
+    const appliedAxes: Array<keyof AcpConfigSelects> = []
+    try {
       if (input.agentModelId !== undefined) {
-        desired.model = input.agentModelId
+        await this.applyConfigSelection(input.sessionId, "model", input.agentModelId)
+        appliedAxes.push("model")
       }
       if (input.agentEffortId !== undefined) {
-        desired.effort = input.agentEffortId
+        await this.applyConfigSelection(input.sessionId, "effort", input.agentEffortId)
+        appliedAxes.push("effort")
       }
-      this.desiredSelections.set(input.sessionId, desired)
+      await this.dispatchPrompt(input, options)
+    } catch (error) {
+      await this.restorePromptSelections(input.sessionId, previousSelection, appliedAxes)
+      throw error
     }
+  }
+
+  private async dispatchPrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
     const restoreContext =
       !this.sessionsByWantaId.has(input.sessionId) && this.hasPersistedHistory(input.sessionId)
         ? this.restoredConversationContext(input.sessionId)
@@ -507,6 +515,25 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     })
     this.trackTurn(session, turn, promptPromise, options?.signal)
     // Resolve on dispatch (submission ack); completion arrives as messageCompleted.
+  }
+
+  private async restorePromptSelections(
+    sessionId: string,
+    previous: { model?: string; effort?: string },
+    appliedAxes: Array<keyof AcpConfigSelects>,
+  ): Promise<void> {
+    for (const axis of appliedAxes.reverse()) {
+      try {
+        await this.applyConfigSelection(sessionId, axis, previous[axis])
+      } catch (error) {
+        logDiagnostic(
+          "acp-adapter",
+          "failed to restore prompt-borne selection",
+          { adapter: this.kind, axis, error: errorMessage(error), sessionId },
+          "error",
+        )
+      }
+    }
   }
 
   protected async handleCancel(input: CancelAgentInput, options?: AgentSendOptions): Promise<void> {
@@ -1005,15 +1032,14 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     this.sessionsByWantaId.set(input.sessionId, session)
     this.wantaIdByAcpId.set(response.sessionId, input.sessionId)
     try {
-      // Agent-native selection remains advisory; a rejected catalog choice
-      // falls back to the agent default. Permission mode is different: it is
-      // an enforcement boundary and must apply before the first prompt.
+      // A rejected catalog choice must fail before the prompt is dispatched
+      // so Wanta never persists or displays a model the agent did not accept.
       const desired = this.desiredSelections.get(input.sessionId)
       if (desired?.model !== undefined) {
-        await this.setConfigValue(handle, session, "model", desired.model).catch(() => undefined)
+        await this.applyDesiredSelectionAtCreation(handle, session, desired, "model", desired.model)
       }
       if (desired?.effort !== undefined) {
-        await this.setConfigValue(handle, session, "effort", desired.effort).catch(() => undefined)
+        await this.applyDesiredSelectionAtCreation(handle, session, desired, "effort", desired.effort)
       }
       const desiredMode = this.desiredPermissionModes.get(input.sessionId)
       if (desiredMode !== undefined) await this.applyPermissionMode(input.sessionId, desiredMode)
@@ -1049,7 +1075,24 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }))
   }
 
-  /** Apply one axis over the select's wire channel; tolerates agents without that option. */
+  private async applyDesiredSelectionAtCreation(
+    handle: AcpConnectionHandle,
+    session: AcpSessionState,
+    desired: { model?: string; effort?: string },
+    axis: keyof AcpConfigSelects,
+    value: string,
+  ): Promise<void> {
+    try {
+      await this.setConfigValue(handle, session, axis, value)
+    } catch (error) {
+      // The session metadata rollback is owned by ChatService. Clear the live
+      // adapter stash here as well so retry cannot resurrect a rejected value.
+      if (desired[axis] === value) delete desired[axis]
+      throw error
+    }
+  }
+
+  /** Apply one axis over the select's wire channel; reject capability drift loudly. */
   private async setConfigValue(
     handle: AcpConnectionHandle,
     session: AcpSessionState,
@@ -1058,7 +1101,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   ): Promise<void> {
     const select = session.configSelects[axis]
     if (!select) {
-      return
+      throw new Error(`${this.kind}: ${axis} selection is not available in this session`)
     }
     try {
       if (select.via === "set_model") {

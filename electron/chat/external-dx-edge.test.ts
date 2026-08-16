@@ -67,6 +67,8 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
   public readonly permissionModes: Array<{ sessionId: string; mode: AgentPermissionMode }> = []
   /** When set, the next prompt throws this error instead of dispatching. */
   public failNextPrompt: Error | undefined
+  /** Optional fence used to race a rejected prompt against a newer selection. */
+  public promptFailureBarrier: Promise<void> | undefined
   /** When set, the next native permission-mode projection rejects. */
   public failNextPermissionMode: Error | undefined
   private readonly modelSelections = new Map<string, string>()
@@ -89,6 +91,8 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
     if (this.failNextPrompt) {
       const error = this.failNextPrompt
       this.failNextPrompt = undefined
+      await this.promptFailureBarrier
+      this.promptFailureBarrier = undefined
       throw error
     }
     this.prompts.push(input)
@@ -837,6 +841,49 @@ test("external model and effort choices are persisted per session", async () => 
   ])
 })
 
+test("a rejected prompt-borne selection is rolled back in session metadata", async () => {
+  const persisted: Array<{ modelId?: string | null; effortId?: string | null }> = []
+  const { service, adapters } = createHarness(["claude-code"], {
+    onExternalSessionSelectionChanged: (_sessionId, patch) => {
+      persisted.push(patch)
+    },
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+  adapter.failNextPrompt = new Error("model rejected")
+
+  await service.sendMessage(sendRequest(sessionId, "use this model", { agentModelId: "sonnet", agentEffortId: "high" }))
+  await waitForCondition(() => persisted.length === 4, "prompt selection rollback")
+
+  assert.deepEqual(persisted, [{ modelId: "sonnet" }, { effortId: "high" }, { modelId: null }, { effortId: null }])
+  await waitForCondition(() => !service.hasActiveGeneration(), "failed prompt cleanup")
+})
+
+test("a rejected prompt rollback cannot overwrite a newer model selection", async () => {
+  const persisted: Array<{ modelId?: string | null; effortId?: string | null }> = []
+  const { service, adapters } = createHarness(["claude-code"], {
+    onExternalSessionSelectionChanged: (_sessionId, patch) => {
+      persisted.push(patch)
+    },
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+  let releasePromptFailure!: () => void
+  adapter.promptFailureBarrier = new Promise<void>((resolve) => (releasePromptFailure = resolve))
+  adapter.failNextPrompt = new Error("prompt rejected")
+
+  await service.sendMessage(sendRequest(sessionId, "use sonnet", { agentModelId: "sonnet" }))
+  await waitForCondition(() => persisted.length === 1, "prompt selection persistence")
+  await service.setExternalSessionModel({ sessionId, modelId: "haiku" })
+  releasePromptFailure()
+  await waitForCondition(() => !service.hasActiveGeneration(), "rejected prompt cleanup")
+
+  assert.deepEqual(persisted, [{ modelId: "sonnet" }, { modelId: "haiku" }])
+  assert.deepEqual(adapter.sessionSelection(sessionId), { modelId: "haiku" })
+})
+
 test("external model and effort updates stay ordered when persistence overlaps", async () => {
   let releaseModelPersistence!: () => void
   let releaseEffortPersistence!: () => void
@@ -941,38 +988,18 @@ test("external turns receive the same Wanta team and Link identity instead of fa
 })
 
 // ---------------------------------------------------------------------------
-// Edge 5b: external permission asks always surface, even for malformed uuids
+// Edge 5b: malformed external ids fail closed before adapter routing
 // ---------------------------------------------------------------------------
 
-test("edge5b: a malformed external session uuid still surfaces the agent's permission request as a prompt", async () => {
-  // External permission policy is pass-through: the agent's CLI decided the
-  // action needs explicit approval, so the ask must reach the user as a card
-  // and never be answered automatically. The external check keys off
-  // externalAgentKindForSessionId (is this an external session at all), never
-  // off whether any session detail happens to be derivable, so a junk uuid
-  // fails closed to the same prompt.
-  const { service, events, adapters } = createHarness(["codex"])
+test("edge5b: a malformed external session uuid is never routed to an adapter", async () => {
+  const { service, adapters } = createHarness(["codex"])
   const codex = adapters.get("codex")
   assert.ok(codex)
-  // Valid kind prefix, junk uuid: routes to the codex adapter everywhere.
   const malformedSessionId = "wanta-ext:codex:legacy-imported-session"
 
-  await service.sendMessage(sendRequest(malformedSessionId, "run something"))
-  assert.equal(codex.prompts.length, 1)
-  codex.askPermission(malformedSessionId, "perm-malformed")
-  await waitForCondition(
-    () =>
-      sessionEvents(events, malformedSessionId).some(
-        (entry) => entry.event === "permissionAsked" || entry.event === "permissionReplied",
-      ),
-    "permission settlement",
+  await assert.rejects(
+    service.sendMessage(sendRequest(malformedSessionId, "run something")),
+    /Invalid or unsupported external agent session/,
   )
-
-  // Desired behavior (fails today): the request surfaces to the user...
-  assert.ok(
-    sessionEvents(events, malformedSessionId).some((entry) => entry.event === "permissionAsked"),
-    "permission request must reach the renderer as a prompt",
-  )
-  // ...and is never answered automatically on the user's behalf.
-  assert.equal(codex.permissionResponses.length, 0)
+  assert.equal(codex.prompts.length, 0)
 })

@@ -56,11 +56,19 @@ test("OpenCode, Claude, and ACP agents share the guarded OOCLI allow path", () =
   }
 })
 
-test("external-agent OOCLI parity stays narrow and fails closed", () => {
+test("OOCLI parity stays narrow and fails closed for every agent", () => {
+  for (const command of ["oo auth login", "oo connector logout", "oo connector apps --connector-token secret"]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        isExternalSession: true,
+        linkRuntime: "oomol",
+        permissionMode: "default",
+      }).type,
+      "deny",
+      command,
+    )
+  }
   for (const command of [
-    "oo auth login",
-    "oo connector logout",
-    "oo connector apps --connector-token secret",
     'oo connector run "posthog" --action "list_projects" --json | tee /tmp/projects.json',
     'oo connector run "posthog" --action "list_projects" --json && echo done',
     'oo connector run "posthog" --action "list_projects" --json > /tmp/projects.json',
@@ -81,28 +89,35 @@ test("external-agent OOCLI parity stays narrow and fails closed", () => {
       isExternalSession: true,
       permissionMode: "default",
     }),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
   )
 })
 
-test("external-agent oo_cli auto-approve requires an active Link runtime, not the truthy 'none'", () => {
-  // "none" is the production default when no Link runtime is connected and is a
-  // truthy string; it must NOT satisfy the oo_cli gate, or a BYOA agent could run
-  // the user's own unguarded oo binary with no approval card.
+test("safe OOCLI classification is agent-independent even without an active Link runtime", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({ metadata: { command: "oo connector run gmail --action send_email --json" } }),
       { isExternalSession: true, linkRuntime: "none", permissionMode: "default" },
     ),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
   )
-  // With a real runtime the same command still auto-approves (parity preserved).
+  // A real runtime produces the same Wanta decision.
   assert.equal(
     evaluateLocalAccessRequest(
       permission({ metadata: { command: "oo connector run gmail --action send_email --json" } }),
       { isExternalSession: true, linkRuntime: "oomol", permissionMode: "default" },
     ).type,
     "allow",
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: { command: "oo connector apps --json" },
+        resources: ["/Users/example/.ssh/id_rsa"],
+      }),
+      { isExternalSession: true, linkRuntime: "oomol", permissionMode: "default" },
+    ),
+    { type: "prompt", kind: "command", highRisk: false },
   )
 })
 
@@ -128,14 +143,14 @@ test("external agents auto-approve Wanta host MCP dispatch without weakening nat
       }),
       { isExternalSession: true, permissionMode: "default" },
     ),
-    { type: "prompt", kind: "local", highRisk: false },
+    { type: "allow", reason: "default_local", kind: "local", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "permission", metadata: { rawInput: { tool: "call_action" } } }), {
       isExternalSession: true,
       permissionMode: "default",
     }),
-    { type: "prompt", kind: "local", highRisk: false },
+    { type: "allow", reason: "default_local", kind: "local", highRisk: false },
   )
 })
 
@@ -164,7 +179,7 @@ test("local access policy allows direct and standard wrapped oo commands under O
         linkRuntime: "openconnector",
         permissionMode: "full_access",
       }),
-      { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
+      { type: "allow", reason: "full_access", kind: "command", highRisk: false },
       command,
     )
   }
@@ -180,7 +195,7 @@ test("local access policy allows direct and standard wrapped oo commands under O
       linkRuntime: "openconnector",
       permissionMode: "default",
     }),
-    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+    { type: "prompt", kind: "command", highRisk: false },
   )
   for (const command of ["oo connector apps --json 2>&1", "oo connector apps --json 2>&1 | head -80"]) {
     assert.deepEqual(
@@ -901,25 +916,23 @@ test("local access policy keeps project dev grants compatible but prompts unsafe
   )
 })
 
-// External (BYOA) sessions: permission policy is owned by the agent's own
-// CLI (linkcode-style pass-through). Every ask the agent surfaces reaches the
-// user; the only automatic answers are the user's explicit session grants.
+// External (BYOA) sessions use the same Wanta policy as the built-in kernel.
+// Native CLIs retain their sandbox/enforcement boundary; Wanta owns whether an
+// interactive request interrupts the user.
 
 const EXTERNAL_ROOT = path.join("/tmp", "wanta-agent-external", "claude-code", "uuid-1")
 
-test("external sessions prompt for file writes even inside the scratch cwd", () => {
-  // The agent asking means its own policy wants explicit approval; Wanta must
-  // not answer on its behalf, not even inside the session's working directory.
+test("external sessions auto-approve ordinary file writes like OpenCode", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "Write", resources: [path.join(EXTERNAL_ROOT, "hello.txt")] }), {
       permissionMode: "default",
       isExternalSession: true,
     }),
-    { type: "prompt", kind: "edit", highRisk: false },
+    { type: "allow", reason: "default_local", kind: "edit", highRisk: false },
   )
 })
 
-test("external sessions prompt for edits inside the trusted project root", () => {
+test("external sessions auto-approve trusted-project edits like OpenCode", () => {
   const projectRoot = path.join("/tmp", "my-project")
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "Edit", resources: [path.join(projectRoot, "src", "index.ts")] }), {
@@ -927,21 +940,21 @@ test("external sessions prompt for edits inside the trusted project root", () =>
       isExternalSession: true,
       trustedProjectRoot: projectRoot,
     }),
-    { type: "prompt", kind: "edit", highRisk: false },
+    { type: "allow", reason: "trusted_project", kind: "edit", highRisk: false },
   )
 })
 
-test("external sessions prompt for commands instead of the blanket default allow", () => {
+test("external sessions auto-approve ordinary commands like OpenCode", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "Bash", metadata: { command: "echo hi > ~/anywhere" } }), {
       permissionMode: "default",
       isExternalSession: true,
     }),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })
 
-test("external Bash cannot spoof a Wanta host tool through raw MCP metadata", () => {
+test("external Bash metadata cannot change the shared ordinary-command decision reason", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({
@@ -950,19 +963,17 @@ test("external Bash cannot spoof a Wanta host tool through raw MCP metadata", ()
       }),
       { permissionMode: "default", isExternalSession: true },
     ),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })
 
-test("external sessions prompt even in full access mode", () => {
-  // full_access projects onto the agent's own bypass mode, so the agent stops
-  // asking on its own; an ask that still arrives is surfaced, never answered.
+test("external sessions share OpenCode full-access auto-approval", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "Bash", metadata: { command: "echo hi" } }), {
       permissionMode: "full_access",
       isExternalSession: true,
     }),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "full_access", kind: "command", highRisk: false },
   )
 })
 
@@ -1006,12 +1017,29 @@ test("external session grants cannot cross sensitive or high-risk boundaries", (
   )
 })
 
-test("external sessions with no resolvable context still fail closed to a prompt", () => {
+test("external sessions with no project context share OpenCode default-local behavior", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "Write", resources: ["/tmp/anywhere.txt"] }), {
       permissionMode: "default",
       isExternalSession: true,
     }),
-    { type: "prompt", kind: "edit", highRisk: false },
+    { type: "allow", reason: "default_local", kind: "edit", highRisk: false },
   )
+})
+
+test("built-in and external sessions receive identical decisions for normalized local operations", () => {
+  const root = path.join("/tmp", "permission-parity-project")
+  const requests = [
+    permission({ action: "Write", resources: [path.join(root, "src", "new.ts")] }),
+    permission({ action: "Bash", metadata: { command: "pnpm test" } }),
+    permission({ action: "Read", resources: ["/Users/someone/.ssh/id_rsa"] }),
+    permission({ action: "Bash", metadata: { command: "git push origin main" } }),
+  ]
+  for (const request of requests) {
+    const shared = { permissionMode: "default" as const, trustedProjectRoot: root }
+    assert.deepEqual(
+      evaluateLocalAccessRequest(request, { ...shared, isExternalSession: true }),
+      evaluateLocalAccessRequest(request, shared),
+    )
+  }
 })

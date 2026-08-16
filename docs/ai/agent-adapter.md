@@ -82,10 +82,14 @@ External agents build on `electron/agent/external/`:
   `permissionModeMap`). Enforcement is always agent-side. Applying a declared
   mode is fail-closed: a missing or rejected native mode blocks the turn rather
   than silently continuing under a stale, potentially broader mode.
-- **Native permission ownership is agent-side, host capability permission is
-  host-side**: the external agent's CLI decides WHEN native file, shell, and
-  network work needs approval, and Wanta relays those asks to the user. The one
-  deliberate exception is dispatch to a generated `wanta_*` MCP server:
+- **Native enforcement is agent-side; user-visible approval semantics are
+  host-owned**: an external CLI keeps its sandbox and decides when it needs an
+  interactive native permission response. Every such request is normalized and
+  evaluated by the same Wanta local-access policy used for the built-in kernel.
+  Ordinary operations are answered automatically; protected or consequential
+  boundaries reach the user. Switching agents must not change the decision for
+  the same normalized operation, permission mode, and host context. Dispatch to
+  a generated `wanta_*` MCP server is also auto-approved at the transport layer:
   Wanta auto-approves that redundant ACP transport prompt because the call
   enters the same host-owned capability kernel used directly by OpenCode,
   where identity, credentials, validation, and auditing are already enforced.
@@ -105,9 +109,11 @@ External agents build on `electron/agent/external/`:
   policy: Wanta MCP capabilities take precedence over CLI examples, so the raw
   CLI remains a fallback rather than an agent-specific primary transport.
   Explicit session grants still never cross sensitive-resource or high-risk
-  boundaries. The kernel's other blanket defaults (`default_local` /
-  `default_command`, trusted-project allows, host-side `full_access`) continue
-  to apply only to built-in kernel sessions.
+  boundaries. The shared defaults (`default_local` / `default_command`,
+  trusted-project allows, and host-side `full_access`) apply to every adapter.
+  External sessions also register Wanta's stable artifact/process roots with
+  their native runtime so ordinary managed-output writes do not create a
+  redundant sandbox escalation.
 - **Transcript persistence**: every emitted event is folded into
   `ExternalTranscriptRecorder` and mirrored to one JSON file per session under
   `<scratchRoot>/<kind>/transcripts/` (atomic replace, debounced writes,

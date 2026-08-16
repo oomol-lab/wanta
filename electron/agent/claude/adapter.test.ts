@@ -322,6 +322,22 @@ describe("ClaudeCodeAgentAdapter", () => {
     expect(calls[0].options.cwd).toBe(scratchRootDir)
   })
 
+  it("passes stable host-authorized directories to the native CLI", async () => {
+    const { adapter, calls, scratchRootDir } = await createHarness()
+    const projectRoot = path.join(scratchRootDir, "project")
+    const artifactRoot = path.join(scratchRootDir, "artifacts")
+    const processRoot = path.join(scratchRootDir, "process")
+    await adapter.send({
+      type: "prompt",
+      sessionId,
+      text: "create a file",
+      workingDirectory: projectRoot,
+      additionalDirectories: [projectRoot, artifactRoot, processRoot, artifactRoot],
+    })
+    expect(calls[0].options.cwd).toBe(projectRoot)
+    expect(calls[0].options.additionalDirectories).toEqual([artifactRoot, processRoot])
+  })
+
   it("does nothing when the prompt signal is already aborted", async () => {
     const { adapter, calls } = await createHarness()
     const controller = new AbortController()

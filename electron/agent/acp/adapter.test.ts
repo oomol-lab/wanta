@@ -403,6 +403,23 @@ describe("AcpAgentAdapter", () => {
     ])
   })
 
+  test("registers the host working directory and stable managed roots on session creation", async () => {
+    const harness = await createHarness()
+    const projectRoot = path.join(harness.scratchRootDir, "project")
+    const artifactRoot = path.join(harness.scratchRootDir, "artifacts", WANTA_SESSION_ID)
+    const processRoot = path.join(harness.scratchRootDir, "process", WANTA_SESSION_ID)
+    await harness.adapter.send({
+      type: "prompt",
+      sessionId: WANTA_SESSION_ID,
+      text: "create a file",
+      workingDirectory: projectRoot,
+      additionalDirectories: [projectRoot, artifactRoot, processRoot, artifactRoot],
+    })
+
+    expect(harness.fake.newSessionRequests[0]?.cwd).toBe(projectRoot)
+    expect(harness.fake.newSessionRequests[0]?.additionalDirectories).toEqual([artifactRoot, processRoot])
+  })
+
   test("registers Wanta host MCP servers on the external ACP session", async () => {
     const harness = await createHarness({}, "codex", async () => [
       {

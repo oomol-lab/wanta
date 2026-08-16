@@ -2002,6 +2002,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         },
       )
       if (!artifactDir || !processDir) throw new Error("Turn directory creation returned an empty path")
+      const additionalDirectories = [
+        directories.artifactSessionDir(req.sessionId, artifactProjectRoot),
+        directories.processSessionDir(req.sessionId),
+      ]
       if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, generation.id)
         await removeUnsubmittedTurnDirectories(artifactDir, processDir)
@@ -2056,6 +2060,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             text: req.text,
             messageId: userMessageId,
             ...(req.attachments?.length ? { attachments: req.attachments } : {}),
+            ...(artifactProjectRoot ? { workingDirectory: artifactProjectRoot } : {}),
+            additionalDirectories,
             ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
             artifactDir,
             processDir,

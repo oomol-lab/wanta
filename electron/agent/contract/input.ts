@@ -37,6 +37,10 @@ export interface PromptAgentInput {
   system?: string
   /** Managed output directories assigned by the chat layer for this turn. */
   artifactDir?: string
+  /** Host-selected project cwd. Kept separate from artifact placement. */
+  workingDirectory?: string
+  /** Stable host-authorized local roots available in addition to the cwd. */
+  additionalDirectories?: string[]
   outputProjectRoot?: string
   processDir?: string
   /**
@@ -131,6 +135,8 @@ const promptInputSchema = z.object({
   teamName: z.string().optional(),
   system: z.string().optional(),
   artifactDir: z.string().optional(),
+  workingDirectory: z.string().optional(),
+  additionalDirectories: z.array(z.string().min(1)).optional(),
   outputProjectRoot: z.string().optional(),
   processDir: z.string().optional(),
   // Same floor as the dedicated set-model/set-effort inputs: an empty id would

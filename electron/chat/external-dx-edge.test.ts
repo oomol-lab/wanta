@@ -206,8 +206,8 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
     const request: ChatPermissionRequest = {
       id: requestId,
       sessionId,
-      action: "write_file",
-      resources: [`/fake/${requestId}.txt`],
+      action: "read_file",
+      resources: [`/Users/example/.ssh/${requestId}`],
     }
     this.nativePendingPermissionIds.add(requestId)
     this.emit({ event: "permissionAsked", data: { sessionId, request } })
@@ -298,6 +298,11 @@ test("external turns receive managed output directories and finalize against the
   const prompt = adapter.prompts[0]
   assert.ok(prompt?.artifactDir)
   assert.ok(prompt.processDir)
+  assert.equal(prompt.additionalDirectories?.length, 2)
+  assert.equal(
+    prompt.additionalDirectories?.every((root) => path.isAbsolute(root)),
+    true,
+  )
 
   adapter.completeAssistantTurn(sessionId, "reply-managed", "done")
   await waitForTurnCompletion(service)
@@ -341,6 +346,7 @@ test("external plan turns keep the registered project read-only and use managed 
 
   const prompt = adapter.prompts[0]
   assert.equal(prompt?.outputProjectRoot, undefined)
+  assert.equal(prompt?.workingDirectory, undefined)
   assert.ok(prompt?.artifactDir)
   assert.equal(prompt.artifactDir.startsWith(projectRoot), false)
 
@@ -980,7 +986,7 @@ test("external turns receive the same Wanta team and Link identity instead of fa
   assert.match(codex.prompts[0]?.system ?? "", /Current-turn Wanta Link workspace: team "OOMOL-Internal"/)
   assert.match(codex.prompts[0]?.system ?? "", /--team "OOMOL-Internal"/)
   assert.match(codex.prompts[0]?.system ?? "", /Team-configured skills for the active workspace/)
-  assert.match(codex.prompts[0]?.system ?? "", /Default Access through the external agent's native permission policy/)
+  assert.match(codex.prompts[0]?.system ?? "", /Default Access with Wanta's shared approval policy/)
   assert.match(codex.prompts[0]?.system ?? "", /application interface language: Simplified Chinese/)
 
   codex.completeAssistantTurn(sessionId, "reply", "done")

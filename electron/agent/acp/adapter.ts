@@ -1004,9 +1004,16 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   }
 
   private async createAcpSession(handle: AcpConnectionHandle, input: PromptAgentInput): Promise<AcpSessionState> {
-    const cwd = input.outputProjectRoot ?? (await this.ensureScratchDir(input.sessionId))
+    const cwd = input.workingDirectory ?? input.outputProjectRoot ?? (await this.ensureScratchDir(input.sessionId))
     const mcpServers = await this.hostMcpServers(input)
-    const response = await handle.connection.agent.request("session/new", { cwd, mcpServers })
+    const additionalDirectories = [...new Set(input.additionalDirectories ?? [])].filter(
+      (directory) => directory !== cwd,
+    )
+    const response = await handle.connection.agent.request("session/new", {
+      cwd,
+      ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
+      mcpServers,
+    })
     if (!this.isStarted || this.isSessionForgotten(input.sessionId)) {
       await handle.connection.agent
         .request("session/close" as never, { sessionId: response.sessionId } as never)

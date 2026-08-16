@@ -12,11 +12,16 @@ The target split is:
 | Owner         | Responsibilities                                                                                                                                                             |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Wanta host    | session identity, team/workspace scope, Link connections, browser and knowledge services, artifacts, redaction, authorization signals, audit records, and normalized tool UI |
-| Agent adapter | native session lifecycle, model/effort selection, reasoning loop, native local-tool permissions, and translation to/from the normalized adapter contract                     |
+| Agent adapter | native session lifecycle, model/effort selection, reasoning loop, native local-tool enforcement, and translation to/from the normalized adapter contract                     |
 | Model         | intent understanding, planning, tool choice, synthesis, and response generation                                                                                              |
 
 Agent-native behavior is not expected to be identical. Host capability
 identity, business safety, and result semantics are expected to be identical.
+For local interactive permissions, Wanta also owns the user-visible decision:
+the same normalized operation, permission mode, and host context must produce
+the same allow/prompt/deny result for every adapter. Native sandboxes remain a
+defense-in-depth execution boundary and may fail an operation they cannot
+support, but they do not define a separate Wanta approval experience.
 
 ## Runtime-context contract
 

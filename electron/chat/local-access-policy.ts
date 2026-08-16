@@ -2,7 +2,7 @@ import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
 import type { AgentPermissionMode, ChatPermissionRequest, LocalPermissionPromptReason } from "./common.ts"
 import type { PermissionRequestKind, SessionPermissionGrant } from "./permission-request.ts"
 
-import { openConnectorCommandPolicy } from "../agent/oo-command-permission.ts"
+import { isOoCliCommand, openConnectorCommandPolicy } from "../agent/oo-command-permission.ts"
 import { isLowConsequenceCleanupCommand } from "./bounded-cleanup.ts"
 import {
   createSessionPermissionGrant,
@@ -60,11 +60,10 @@ export type LocalAccessDecision =
 export interface LocalAccessPolicyContext {
   activeGenerationId?: string
   /**
-   * The request comes from an external (BYOA) agent session. Permission policy
-   * for those sessions is owned by the agent's own CLI: it decides when to
-   * ask, and Wanta relays every ask to the user instead of answering through
-   * host-side policy. Must be derived from the session id's kind, never from
-   * whether a scratch root could be resolved.
+   * The request comes from an external (BYOA) agent session. This only affects
+   * transport-specific duplicate approvals (for example Wanta MCP dispatch).
+   * It must never change Wanta's user-visible local permission policy: the
+   * same normalized operation receives the same decision for every agent.
    */
   isExternalSession?: boolean
   linkRuntime?: ActiveLinkRuntime
@@ -72,13 +71,6 @@ export interface LocalAccessPolicyContext {
   sessionGrants?: readonly SessionPermissionGrant[]
   taskProcessRoot?: string
   trustedProjectRoot?: string
-}
-
-// "none" is a valid ActiveLinkRuntime value and is truthy, so a bare truthiness
-// check would treat "no Link runtime" as active and auto-approve oo_cli parity
-// commands. Only a real runtime backs a Wanta-owned Link transport.
-function hasActiveLinkRuntime(linkRuntime: ActiveLinkRuntime | undefined): boolean {
-  return linkRuntime === "oomol" || linkRuntime === "openconnector"
 }
 
 export function localAccessPromptReason(request: ChatPermissionRequest): LocalPermissionPromptReason {
@@ -124,6 +116,7 @@ export function evaluateLocalAccessRequest(
 ): LocalAccessDecision {
   const kind = permissionRequestKind(request)
   const highRisk = isHighRiskPermissionRequest(request)
+  const command = kind === "command" ? permissionCommand(request) : undefined
   // Wanta host MCP tools are the external-agent transport for the same
   // capability kernel that OpenCode invokes directly. Their identity,
   // credentials, validation, and audit boundary remain host-owned; do not add
@@ -140,45 +133,10 @@ export function evaluateLocalAccessRequest(
   // host MCP path. Apply the same narrow command classifier to every adapter
   // so switching from OpenCode to Claude/Codex does not add a redundant shell
   // approval. Unknown shell composition, sensitive resources, and high-risk
-  // commands continue into the external agent's native permission flow.
-  if (
-    context.isExternalSession &&
-    hasActiveLinkRuntime(context.linkRuntime) &&
-    isOoCliPermissionRequest(request) &&
-    !permissionRequestHasSensitiveResource(request) &&
-    !highRisk
-  ) {
-    return { type: "allow", reason: "oo_cli", kind, highRisk }
-  }
-  if (context.isExternalSession) {
-    // linkcode-style pass-through: the external agent's own CLI policy decides
-    // WHEN to ask (its native permission modes: acceptEdits, auto classifier,
-    // sandbox levels, ...), and Wanta relays every ask to the user instead of
-    // answering through host-side policy. The only automatic answers are the
-    // user's own explicit "allow for this session" grants, and even those
-    // cannot cross credential boundaries or approve high-risk commands.
-    if (permissionRequestHasSensitiveResource(request) || highRisk) {
-      return { type: "prompt", kind, highRisk }
-    }
-    if (
-      hasMatchingNarrowSessionGrant(
-        request,
-        context.sessionGrants,
-        context.trustedProjectRoot,
-        context.activeGenerationId,
-      ) ||
-      hasMatchingGenericSessionGrant(request, context.sessionGrants)
-    ) {
-      return { type: "allow", reason: "session_grant", kind, highRisk }
-    }
-    return { type: "prompt", kind, highRisk }
-  }
+  // commands continue through the shared Wanta permission flow.
   const openConnectorPolicy =
-    context.linkRuntime === "openconnector" && kind === "command"
-      ? openConnectorCommandPolicy(permissionCommand(request) ?? request.resources.join(" "))
-      : null
+    kind === "command" ? openConnectorCommandPolicy(command ?? request.resources.join(" ")) : null
   if (openConnectorPolicy === "deny") return { type: "deny", kind, highRisk }
-  if (openConnectorPolicy === "allow") return { type: "allow", reason: "oo_cli", kind, highRisk }
   if (context.permissionMode === "full_access") {
     return { type: "allow", reason: "full_access", kind, highRisk }
   }
@@ -187,7 +145,6 @@ export function evaluateLocalAccessRequest(
   if (permissionRequestHasSensitiveResource(request)) {
     return { type: "prompt", kind, highRisk }
   }
-  const command = kind === "command" ? permissionCommand(request) : undefined
   if (
     highRisk &&
     command &&
@@ -201,6 +158,11 @@ export function evaluateLocalAccessRequest(
   if (highRisk) {
     return { type: "prompt", kind, highRisk }
   }
+  if (isOoCliPermissionRequest(request)) return { type: "allow", reason: "oo_cli", kind, highRisk }
+  // The Wanta policy is agent-independent: an unclassified/compound oo command
+  // never falls through to the blanket ordinary-command allow path, regardless
+  // of which CLI surfaced it.
+  if (command && isOoCliCommand(command)) return { type: "prompt", kind, highRisk }
   if (
     (context.taskProcessRoot &&
       (isTaskScopedPythonDependencyInstallRequest(request, context.taskProcessRoot) ||
@@ -226,9 +188,6 @@ export function evaluateLocalAccessRequest(
   }
   if (permissionRequestNeedsDefaultPrompt(request)) {
     return { type: "prompt", kind, highRisk }
-  }
-  if (hasActiveLinkRuntime(context.linkRuntime) && isOoCliPermissionRequest(request)) {
-    return { type: "allow", reason: "oo_cli", kind, highRisk }
   }
   if (context.trustedProjectRoot && projectPermissionRequestInsideRoot(request, context.trustedProjectRoot)) {
     return { type: "allow", reason: "trusted_project", kind, highRisk }

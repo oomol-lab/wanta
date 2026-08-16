@@ -738,7 +738,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     // (verified against 2.1.226: resume replays nothing and keeps the same id).
     const startMode =
       this.nativeStartOverride.get(sessionId) ?? (this.hasPersistedHistory(sessionId) ? "resume" : "fresh")
-    let cwd = input.outputProjectRoot
+    let cwd = input.workingDirectory ?? input.outputProjectRoot
     if (!cwd) {
       cwd = path.join(this.scratchRootDir, sessionUuid)
       await mkdir(cwd, { recursive: true })
@@ -753,6 +753,11 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       prompt: inputQueue,
       options: {
         cwd,
+        ...(input.additionalDirectories?.length
+          ? {
+              additionalDirectories: [...new Set(input.additionalDirectories)].filter((directory) => directory !== cwd),
+            }
+          : {}),
         pathToClaudeCodeExecutable: status.binary.path,
         // Options.env REPLACES the subprocess env entirely (verified against
         // sdk.d.ts 0.3.226), so the current env is spread in explicitly.

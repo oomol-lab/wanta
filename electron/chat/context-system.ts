@@ -216,9 +216,9 @@ export function buildExternalPermissionModeSystem(
     return lines.join("\n")
   }
   const lines = [
-    "Permission mode for this turn: Default Access through the external agent's native permission policy.",
+    "Permission mode for this turn: Default Access with Wanta's shared approval policy and the external agent's native enforcement.",
     "- Use local tools normally when they are useful; do not ask for conversational confirmation before the native runtime requests it.",
-    "- If the native runtime emits a permission request, Wanta will surface that exact request to the user and will not silently answer it on the agent's behalf.",
+    "- Wanta applies the same local permission policy to every agent. Ordinary shell, file, project, and managed-output operations are approved automatically; only protected or consequential boundaries should interrupt the user.",
     "- Wanta-managed business capabilities separately enforce their own confirmation, identity, and data-safety rules.",
   ]
   if (browserAvailable) {

@@ -26,6 +26,11 @@ export class ManagedTurnDirectories {
     return this.createTurnDir("process", sessionId)
   }
 
+  /** Stable parent of every process directory created for this session. */
+  public processSessionDir(sessionId: string): string {
+    return this.sessionTurnRoot("process", sessionId)
+  }
+
   private async createTurnDir(kind: "artifacts" | "process", sessionId: string): Promise<string> {
     const root = this.sessionTurnRoot(kind, sessionId)
     await mkdir(root, { recursive: true })

@@ -953,6 +953,46 @@ test("forgetSession waits for pending selection persistence and removes its muta
   }
 })
 
+test("a prompt failure after session deletion cannot enqueue a late selection rollback", async () => {
+  const persisted: Array<{ modelId?: string | null; effortId?: string | null }> = []
+  const { service, adapters } = createHarness(["claude-code"], {
+    onExternalSessionSelectionChanged: (_sessionId, patch) => {
+      persisted.push(patch)
+    },
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+  let releasePromptFailure!: () => void
+  adapter.promptFailureBarrier = new Promise<void>((resolve) => (releasePromptFailure = resolve))
+  adapter.failNextPrompt = new Error("prompt rejected after deletion")
+
+  await service.sendMessage(sendRequest(sessionId, "use sonnet", { agentModelId: "sonnet" }))
+  await waitForCondition(() => persisted.length === 1, "prompt selection persistence")
+  // Prompt selection persistence has settled, so deletion observes an idle
+  // queue. The native prompt rejection is deliberately released afterwards.
+  await service.forgetSession(sessionId)
+  releasePromptFailure()
+  await waitForCondition(() => adapter.promptFailureBarrier === undefined, "late prompt rejection")
+
+  assert.deepEqual(persisted, [{ modelId: "sonnet" }])
+  await assert.rejects(
+    service.setExternalSessionModel({ sessionId, modelId: "haiku" }),
+    /external agent session was deleted/u,
+  )
+  const internals = service as unknown as {
+    externalSelectionMutationTails: Map<string, Promise<void>>
+    externalSelectionMutationTokens: Map<string, number>
+    externalSelectionMutationSequences: Map<string, number>
+  }
+  for (const axis of ["model", "effort"] as const) {
+    const key = `${sessionId}\0${axis}`
+    assert.equal(internals.externalSelectionMutationTails.has(key), false)
+    assert.equal(internals.externalSelectionMutationTokens.has(key), false)
+    assert.equal(internals.externalSelectionMutationSequences.has(key), false)
+  }
+})
+
 test("external model and effort updates stay ordered when persistence overlaps", async () => {
   let releaseModelPersistence!: () => void
   let releaseEffortPersistence!: () => void

@@ -326,6 +326,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private readonly externalSelectionMutationTokens = new Map<string, number>()
   /** Monotonic token source; reservations are distinct even when an earlier mutation fails. */
   private readonly externalSelectionMutationSequences = new Map<string, number>()
+  /** Permanent tombstones: external session UUIDs are never reused after deletion. */
+  private readonly deletedExternalSelectionSessions = new Set<string>()
   /** Permission changes serialize so a duplicate same-mode request can retry a failed projection. */
   private readonly permissionModeMutationTails = new Map<string, Promise<void>>()
   /** Ownership token for async permission persistence/projection and rollback. */
@@ -528,6 +530,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     axis: "model" | "effort",
     mutation: () => Promise<void>,
   ): Promise<number> {
+    if (this.deletedExternalSelectionSessions.has(sessionId)) {
+      return Promise.reject(new Error("The external agent session was deleted."))
+    }
     const key = `${sessionId}\0${axis}`
     const token = (this.externalSelectionMutationSequences.get(key) ?? 0) + 1
     this.externalSelectionMutationSequences.set(key, token)
@@ -554,6 +559,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     ownerToken: number,
     mutation: () => Promise<void>,
   ): Promise<void> {
+    // A rejected prompt may finish after forgetSession observed an idle queue.
+    // Its rollback no longer owns any durable state and must stay a no-op.
+    if (this.deletedExternalSelectionSessions.has(sessionId)) return Promise.resolve()
     const key = `${sessionId}\0${axis}`
     const rollbackToken = (this.externalSelectionMutationSequences.get(key) ?? 0) + 1
     this.externalSelectionMutationSequences.set(key, rollbackToken)
@@ -661,6 +669,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   /** 会话永久删除后释放运行态索引，并删除授权/停止 overlay。 */
   public async forgetSession(sessionId: string): Promise<void> {
+    this.deletedExternalSelectionSessions.add(sessionId)
     this.generations.get(sessionId)?.controller.abort()
     const selectionMutationsSettled = this.settleExternalSelectionMutations(sessionId)
     this.turnOutputs.delete(sessionId)

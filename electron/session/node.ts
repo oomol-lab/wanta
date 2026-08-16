@@ -27,7 +27,7 @@ import type { IConnectionService } from "@oomol/connection"
 import { ConnectionService } from "@oomol/connection"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
-import { isExternalAgentKind } from "../agent/contract/profile.ts"
+import { EXTERNAL_AGENT_KINDS, isExternalAgentKind } from "../agent/contract/profile.ts"
 import {
   externalAgentKindForSessionId,
   isExternalSessionId,
@@ -217,7 +217,10 @@ export class SessionServiceImpl
   }
 
   private async createMutation(req: CreateSessionRequest, revision: number): Promise<SessionInfo> {
-    if (req.agentKind && isExternalAgentKind(req.agentKind)) {
+    // Only a REGISTERED external kind mints an external session id; isExternalAgentKind
+    // alone is `!== "opencode"`, so RPC-erased junk (unknown or prototype-chain kinds)
+    // must not reach mintExternalSessionId. Unknown kinds fall through to the kernel.
+    if (req.agentKind && isExternalAgentKind(req.agentKind) && EXTERNAL_AGENT_KINDS.includes(req.agentKind)) {
       return this.createExternalMutation(req, req.agentKind, revision)
     }
     const agent = this.agent

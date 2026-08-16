@@ -45,6 +45,8 @@ export function parseExternalSessionIdentity(sessionId: string): ExternalSession
 }
 
 export function isAgentKind(kind: string): kind is AgentKind {
+  // Own-property check only: `in` walks the prototype chain, so inherited
+  // Object.prototype keys must never be accepted as registered agent kinds.
   return Object.hasOwn(AGENT_PROFILES, kind)
 }
 

@@ -89,6 +89,7 @@ function translateResultUsage(
   sessionId: string,
   message: SDKMessage,
   lastApiUsage: Record<string, unknown> | undefined,
+  lastApiModel: string | undefined,
 ): AgentEvent | null {
   const frame = message as {
     usage?: Record<string, unknown>
@@ -100,9 +101,20 @@ function translateResultUsage(
   const cacheRead = numberOrZero(usage?.["cache_read_input_tokens"])
   const cacheWrite = numberOrZero(usage?.["cache_creation_input_tokens"])
   const total = input + output + cacheRead + cacheWrite
-  let contextWindow = 0
-  for (const entry of Object.values(frame.modelUsage ?? {})) {
-    contextWindow = Math.max(contextWindow, numberOrZero(entry.contextWindow))
+  // modelUsage is CUMULATIVE and spans every model the pipeline touched (main
+  // loop, subagents, compaction). Occupancy comes from the main-loop frame, so
+  // the window must be that same model's — Math.max over all entries would keep
+  // a larger stale window after a mid-session downswitch (e.g. 1M -> 200k) and
+  // silently under-report the meter. Fall back to the max only when the
+  // main-loop model is unknown or absent from modelUsage (the SDK may report a
+  // frame model alias not equal to the modelUsage key).
+  const modelUsage = frame.modelUsage ?? {}
+  const mainLoopWindow = lastApiModel ? numberOrZero(modelUsage[lastApiModel]?.contextWindow) : 0
+  let contextWindow = mainLoopWindow
+  if (contextWindow <= 0) {
+    for (const entry of Object.values(modelUsage)) {
+      contextWindow = Math.max(contextWindow, numberOrZero(entry.contextWindow))
+    }
   }
   if (total <= 0 && contextWindow <= 0) {
     return null
@@ -136,6 +148,8 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
   const deliveredBlockCounts = new Map<string, number>()
   /** Per-call usage of the latest MAIN-LOOP assistant frame (context occupancy source). */
   let lastApiUsage: Record<string, unknown> | undefined
+  /** Model of the latest MAIN-LOOP assistant frame (context-window source; may change mid-session). */
+  let lastApiModel: string | undefined
 
   function ensureAssistantMessageStarted(messageId: string, events: AgentEvent[]): void {
     if (startedAssistantMessages.has(messageId)) {
@@ -238,6 +252,8 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
     const frameUsage = (message.message as { usage?: unknown }).usage
     if (message.parent_tool_use_id === null && frameUsage && typeof frameUsage === "object") {
       lastApiUsage = frameUsage as Record<string, unknown>
+      const frameModel = (message.message as { model?: unknown }).model
+      lastApiModel = typeof frameModel === "string" ? frameModel : undefined
     }
     // The CLI emits one complete assistant message PER content block, all
     // sharing the same API message id, so a block's true index is its offset
@@ -341,8 +357,9 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
         // receive further complete-message frames.
         deliveredBlockCounts.clear()
         const events: AgentEvent[] = []
-        const usageEvent = translateResultUsage(sessionId, message, lastApiUsage)
+        const usageEvent = translateResultUsage(sessionId, message, lastApiUsage, lastApiModel)
         lastApiUsage = undefined
+        lastApiModel = undefined
         if (usageEvent) {
           // Usage precedes completion so the transcript's completion flush
           // already carries it.

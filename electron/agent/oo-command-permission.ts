@@ -167,6 +167,62 @@ function shellWrapperCommand(command: string): ShellWrapper {
   return { kind: "command", command: wrappedCommand }
 }
 
+// oo global flags that may precede the subcommand. Kept in sync with
+// oo-guard-core.ts connectorCommandIndex so a leading `--debug` / `--lang zh`
+// can never smuggle a forbidden subcommand past forbiddenOoMutation.
+const ooGlobalFlagWithValue = "--lang"
+const ooGlobalBooleanFlags = new Set(["--debug", "-h", "--help", "-V", "--version"])
+
+/** Advance past oo global flags (commander accepts them before AND between subcommands). */
+function skipOoGlobalFlags(tokens: readonly string[], start: number): number {
+  let index = start
+  while (index < tokens.length) {
+    const arg = tokens[index] ?? ""
+    if (arg === ooGlobalFlagWithValue) {
+      index += 2
+      continue
+    }
+    if (arg.startsWith(`${ooGlobalFlagWithValue}=`) || ooGlobalBooleanFlags.has(arg)) {
+      index += 1
+      continue
+    }
+    break
+  }
+  return index
+}
+
+/** Tokens of a single `oo ...` command after skipping leading global flags, or null if not a bare oo call. */
+function ooSubcommandTokens(command: string): string[] | null {
+  const words = shellWords(command.trim())
+  if (!words || !isOoExecutable(words[0] ?? "")) {
+    return null
+  }
+  return words.slice(skipOoGlobalFlags(words, 1))
+}
+
+/**
+ * Whether a single `oo` invocation mutates host-managed connector auth or
+ * configuration. Unlike the regex forbiddenOoMutation this is flag-aware, so
+ * `oo --lang zh connector logout` and `oo connector --lang zh logout` (global
+ * flags may sit before AND between subcommands) are still denied.
+ */
+export function isForbiddenOoMutationCommand(command: string): boolean {
+  const tokens = ooSubcommandTokens(command)
+  if (!tokens || tokens.length === 0) {
+    return false
+  }
+  const subcommand = tokens[0]
+  if (subcommand === "auth" || subcommand === "login" || subcommand === "logout" || subcommand === "config") {
+    return true
+  }
+  if (subcommand !== "connector") {
+    return false
+  }
+  // Global flags can also appear between `connector` and its subcommand.
+  const connectorSubcommand = tokens[skipOoGlobalFlags(tokens, 1)]
+  return connectorSubcommand === "login" || connectorSubcommand === "logout"
+}
+
 export function isPureOoCliCommand(command: string): boolean {
   const trimmed = command.trim()
   if (!trimmed || hasUnsafeShellSyntax(trimmed)) {
@@ -201,6 +257,7 @@ export function openConnectorCommandPolicy(command: string): "allow" | "deny" | 
       isEnvironmentDump(current) ||
       linkEnvironmentAssignment.test(current) ||
       forbiddenOoMutation.test(current) ||
+      isForbiddenOoMutationCommand(current) ||
       (ooCommandSegment.test(current) && forbiddenOoOption.test(current))
     ) {
       return "deny"

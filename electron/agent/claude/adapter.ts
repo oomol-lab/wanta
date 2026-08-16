@@ -145,14 +145,37 @@ function salientResources(toolInput: Record<string, unknown>): string[] {
   return resources
 }
 
+// Wanta host tool names are snake_case identifiers: a lowercase letter start,
+// single `_` separators, no leading/trailing/double underscore. Validating the
+// tool segment against this grammar is what makes the server attribution exact:
+// `mcp__<server>__<tool>` is ambiguous by string alone (a foreign server named
+// `<registered>_` yields `mcp__<registered>___<tool>`, indistinguishable from
+// `<registered>` with tool `_<tool>`), and only the registered server produces
+// a grammar-valid tail, so a `_`-prefixed or `__`-bearing tail is rejected.
+const WANTA_HOST_TOOL_NAME = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/u
+
 /**
  * Claude exposes Wanta MCP calls as `mcp__<server>__<tool>`. Keep this
  * deliberately narrow so only tools from Wanta's generated host servers can
  * skip the redundant external-agent transport prompt.
  */
-function wantaHostToolName(toolName: string): string | undefined {
-  const match = /^mcp__wanta_[a-z0-9_-]+__([a-z0-9_-]+)$/u.exec(toolName)
-  return match?.[1]
+function wantaHostToolName(toolName: string, hostServerNames: ReadonlySet<string>): string | undefined {
+  // Trust the tool only when its MCP server was actually registered for THIS
+  // session by Wanta — never the `wanta_*` name shape alone. A foreign MCP
+  // server (from project/user/plugin config the CLI also loads), whether named
+  // `wanta_helper`, `wanta_skills__evil`, or `wanta_skills_`, must not inherit
+  // the host-tool auto-approve. Mirrors the ACP translator's registration check.
+  for (const name of hostServerNames) {
+    const prefix = `mcp__${name}__`
+    if (!toolName.startsWith(prefix)) {
+      continue
+    }
+    const tool = toolName.slice(prefix.length)
+    if (WANTA_HOST_TOOL_NAME.test(tool)) {
+      return tool
+    }
+  }
+  return undefined
 }
 
 function sdkPermissionMode(
@@ -722,6 +745,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     }
     const commandPathValue = await this.commandPath()
     const hostMcpServers = await this.hostMcpServers?.(input)
+    const hostServerNames = new Set((hostMcpServers ?? []).map((server) => server.name))
     const inputQueue = new AsyncInputQueue<SDKUserMessage>()
     const abortController = new AbortController()
     const stderrTail: string[] = []
@@ -751,7 +775,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         allowDangerouslySkipPermissions: true,
         includePartialMessages: true,
         ...(startMode === "resume" ? { resume: sessionUuid } : { sessionId: sessionUuid }),
-        canUseTool: this.createCanUseTool(sessionId),
+        canUseTool: this.createCanUseTool(sessionId, hostServerNames),
         stderr: (data: string) => {
           stderrTail.push(data)
           if (stderrTail.length > MAX_STDERR_CHUNKS) {
@@ -870,7 +894,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
    * permission-response round trip. The returned promise stays parked until
    * the user replies, the prompt is aborted by the SDK, or the adapter stops.
    */
-  private createCanUseTool(sessionId: string): CanUseTool {
+  private createCanUseTool(sessionId: string, hostServerNames: ReadonlySet<string>): CanUseTool {
     return (toolName, toolInput, opts) => {
       // `Skill` only loads Claude's local Skill instructions. It is a
       // read-only discovery operation, not a shell/file mutation, and should
@@ -880,7 +904,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         return Promise.resolve({ behavior: "allow", updatedInput: toolInput })
       }
       const requestId = opts.requestId ?? opts.toolUseID
-      const wantaHostTool = wantaHostToolName(toolName)
+      const wantaHostTool = wantaHostToolName(toolName, hostServerNames)
       const request: ChatPermissionRequest = {
         id: requestId,
         sessionId,

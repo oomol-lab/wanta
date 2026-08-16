@@ -74,6 +74,13 @@ export interface LocalAccessPolicyContext {
   trustedProjectRoot?: string
 }
 
+// "none" is a valid ActiveLinkRuntime value and is truthy, so a bare truthiness
+// check would treat "no Link runtime" as active and auto-approve oo_cli parity
+// commands. Only a real runtime backs a Wanta-owned Link transport.
+function hasActiveLinkRuntime(linkRuntime: ActiveLinkRuntime | undefined): boolean {
+  return linkRuntime === "oomol" || linkRuntime === "openconnector"
+}
+
 export function localAccessPromptReason(request: ChatPermissionRequest): LocalPermissionPromptReason {
   if (permissionRequestHasSensitiveResource(request)) return "sensitive_resource"
   if (isHighRiskPermissionRequest(request)) return "high_risk_command"
@@ -136,7 +143,7 @@ export function evaluateLocalAccessRequest(
   // commands continue into the external agent's native permission flow.
   if (
     context.isExternalSession &&
-    context.linkRuntime &&
+    hasActiveLinkRuntime(context.linkRuntime) &&
     isOoCliPermissionRequest(request) &&
     !permissionRequestHasSensitiveResource(request) &&
     !highRisk
@@ -220,7 +227,7 @@ export function evaluateLocalAccessRequest(
   if (permissionRequestNeedsDefaultPrompt(request)) {
     return { type: "prompt", kind, highRisk }
   }
-  if (context.linkRuntime && isOoCliPermissionRequest(request)) {
+  if (hasActiveLinkRuntime(context.linkRuntime) && isOoCliPermissionRequest(request)) {
     return { type: "allow", reason: "oo_cli", kind, highRisk }
   }
   if (context.trustedProjectRoot && projectPermissionRequestInsideRoot(request, context.trustedProjectRoot)) {

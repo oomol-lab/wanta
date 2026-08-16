@@ -942,6 +942,14 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   const runtimeVersionAtStart = agentRuntimeVersion
   const runtimeModels = await modelsStore.runtimeModels()
   const runtime = resolveAgentRuntime(account, runtimeModels.selected, runtimeModels.customModels)
+  // On a cross-account switch, drop the previous account's team BEFORE it is
+  // baked into linkRuntime (and thus the new sidecar's oo identity/team-scope);
+  // otherwise a personal-workspace account inherits the old team and defeats the
+  // oo-guard fail-closed check. The renderer re-asserts the team after login.
+  // The later reset at the account-switch branch below stays for attention state.
+  if (appliedAccount && appliedAccount.id !== account?.id) {
+    activeAgentTeamName = undefined
+  }
   const linkRuntime =
     (await linkRuntimeManager.selectedRuntime()) === "oomol"
       ? account

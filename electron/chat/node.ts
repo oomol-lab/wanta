@@ -578,6 +578,24 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return next
   }
 
+  private async settleExternalSelectionMutations(sessionId: string): Promise<void> {
+    for (const axis of ["model", "effort"] as const) {
+      const key = `${sessionId}\0${axis}`
+      // A mutation can enqueue another mutation while the current tail is
+      // settling. Re-read the tail until the axis is genuinely idle, then the
+      // deletion cleanup can remove its bookkeeping without a late callback
+      // recreating tokens for the deleted session.
+      for (;;) {
+        const tail = this.externalSelectionMutationTails.get(key)
+        if (!tail) break
+        await tail.catch(() => undefined)
+      }
+      this.externalSelectionMutationTails.delete(key)
+      this.externalSelectionMutationTokens.delete(key)
+      this.externalSelectionMutationSequences.delete(key)
+    }
+  }
+
   public async getExternalSessionSelection(sessionId: string): Promise<{ modelId?: string; effortId?: string }> {
     return this.externalAdapterFor(sessionId).sessionSelection(sessionId)
   }
@@ -644,6 +662,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   /** 会话永久删除后释放运行态索引，并删除授权/停止 overlay。 */
   public async forgetSession(sessionId: string): Promise<void> {
     this.generations.get(sessionId)?.controller.abort()
+    const selectionMutationsSettled = this.settleExternalSelectionMutations(sessionId)
     this.turnOutputs.delete(sessionId)
     this.turnOutputs.clearPending(sessionId)
     this.clearSessionGeneration(sessionId)
@@ -656,10 +675,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.compactingSessions.delete(sessionId)
     this.permissions.deleteSession(sessionId)
     this.permissionModeMutationTokens.delete(sessionId)
-    this.externalSelectionMutationTokens.delete(`${sessionId}\0model`)
-    this.externalSelectionMutationTokens.delete(`${sessionId}\0effort`)
-    this.externalSelectionMutationSequences.delete(`${sessionId}\0model`)
-    this.externalSelectionMutationSequences.delete(`${sessionId}\0effort`)
     this.trustedAccess.deleteSession(sessionId)
     const messageIds = this.managedUserMessageIdsBySession.get(sessionId)
     for (const messageId of messageIds ?? []) {
@@ -667,6 +682,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.internalAttachmentPathsByMessage.delete(messageId)
     }
     this.managedUserMessageIdsBySession.delete(sessionId)
+    await selectionMutationsSettled
     await this.outputPersistence.removeSession(sessionId)
   }
 
@@ -1972,7 +1988,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     )
     const userMessageId = createOpencodeMessageId()
     const generation = this.beginChatTurn(req, userMessageId)
-    const previousSelection = adapter.sessionSelection(req.sessionId)
+    const previousSelection: { modelId: string | undefined; effortId: string | undefined } = {
+      modelId: undefined,
+      effortId: undefined,
+    }
     const promptSelectionOwners: Partial<Record<"model" | "effort", number>> = {}
     let artifactDir: string | undefined
     let processDir: string | undefined
@@ -2038,11 +2057,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
       if (req.agentModelId) {
         promptSelectionOwners.model = await this.runExternalSelectionMutation(req.sessionId, "model", async () => {
+          previousSelection.modelId = adapter.sessionSelection(req.sessionId).modelId
           await this.deps.onExternalSessionSelectionChanged?.(req.sessionId, { modelId: req.agentModelId })
         })
       }
       if (req.agentEffortId) {
         promptSelectionOwners.effort = await this.runExternalSelectionMutation(req.sessionId, "effort", async () => {
+          previousSelection.effortId = adapter.sessionSelection(req.sessionId).effortId
           await this.deps.onExternalSessionSelectionChanged?.(req.sessionId, { effortId: req.agentEffortId })
         })
       }
@@ -2120,7 +2141,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private async rollbackPromptSelectionPersistence(
     sessionId: string,
     owners: Partial<Record<"model" | "effort", number>>,
-    previous: { modelId?: string; effortId?: string },
+    previous: { modelId: string | undefined; effortId: string | undefined },
   ): Promise<void> {
     const rollbacks: Promise<void>[] = []
     if (owners.model !== undefined) {

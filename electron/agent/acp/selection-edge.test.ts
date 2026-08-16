@@ -649,6 +649,36 @@ describe("acp selection: prompt-borne selections", () => {
     ])
     expect(harness.adapter.sessionSelection(WANTA_SESSION_ID)).toEqual({})
   })
+
+  test("an earlier prompt failure does not restore over a newer model selection", async () => {
+    let rejectEffort: ((error: Error) => void) | undefined
+    const harness = await createHarness({
+      newSession: () => ({ sessionId: "acp-session-1", configOptions: MODEL_EFFORT_CONFIG_OPTIONS }) as never,
+      setConfigOption: (params) => {
+        if (params.configId === "reasoning_effort" && params.value === "high") {
+          return new Promise((_resolve, reject) => {
+            rejectEffort = reject
+          })
+        }
+        return { configOptions: MODEL_EFFORT_CONFIG_OPTIONS }
+      },
+    })
+    await harness.adapter.send(promptInput())
+    await harness.waitFor((event) => event.event === "messageCompleted")
+
+    const failedPrompt = harness.adapter.send({
+      ...promptInput("prompt with stale model"),
+      agentModelId: "gpt-b",
+      agentEffortId: "high",
+    })
+    await vi.waitFor(() => expect(rejectEffort).toBeDefined())
+    await harness.adapter.send({ type: "set-model", sessionId: WANTA_SESSION_ID, modelId: "gpt-a" })
+
+    rejectEffort?.(new Error("effort rejected"))
+    await expect(failedPrompt).rejects.toThrow()
+    expect(harness.adapter.sessionSelection(WANTA_SESSION_ID)).toEqual({ modelId: "gpt-a" })
+    expect(harness.fake.promptRequests).toHaveLength(1)
+  })
 })
 
 describe("acp selection: permission-mode projection", () => {

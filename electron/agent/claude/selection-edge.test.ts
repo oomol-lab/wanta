@@ -402,6 +402,34 @@ describe("claude selection: prompt-borne selections", () => {
     expect(adapter.sessionSelection(sessionId)).toEqual({})
   })
 
+  it("an earlier prompt failure does not restore over a newer model selection", async () => {
+    const { adapter, calls } = await createHarness()
+    await adapter.send({ type: "prompt", sessionId, text: "hello" })
+
+    let rejectEffort: ((error: Error) => void) | undefined
+    calls[0]!.fake.applyFlagSettings.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectEffort = reject
+        }),
+    )
+    const failedPrompt = adapter.send({
+      type: "prompt",
+      sessionId,
+      text: "prompt with stale model",
+      agentModelId: "sonnet",
+      agentEffortId: "high",
+    })
+    await vi.waitFor(() => expect(rejectEffort).toBeDefined())
+    await adapter.send({ type: "set-model", sessionId, modelId: "haiku" })
+
+    rejectEffort?.(new Error("effort rejected"))
+    await expect(failedPrompt).rejects.toThrow("effort rejected")
+    expect(adapter.sessionSelection(sessionId)).toEqual({ modelId: "haiku" })
+    expect(calls[0]!.fake.setModel.mock.calls).toEqual([["sonnet"], ["haiku"]])
+    expect(calls[0]!.fake.promptMessages).toHaveLength(1)
+  })
+
   it("an unknown prompt-borne effort id is rejected loudly", async () => {
     const { adapter, calls } = await createHarness()
     await expect(adapter.send({ type: "prompt", sessionId, text: "hello", agentEffortId: "ultra" })).rejects.toThrow(

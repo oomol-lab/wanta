@@ -22,6 +22,12 @@ the same normalized operation, permission mode, and host context must produce
 the same allow/prompt/deny result for every adapter. Native sandboxes remain a
 defense-in-depth execution boundary and may fail an operation they cannot
 support, but they do not define a separate Wanta approval experience.
+The built-in OpenCode behavior before BYOA is the Default Access compatibility
+floor: adapter normalization must not introduce a new prompt for an operation
+that the same host policy previously treated as ordinary. Shared behavior may
+become more permissive for first-party capabilities, but only existing
+sensitive-resource, credential, and consequential-operation boundaries may
+make it stricter.
 
 ## Runtime-context contract
 

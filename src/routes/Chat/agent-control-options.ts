@@ -37,7 +37,13 @@ export function agentRuntimeReadyForSubmission(
 export interface AgentPickerRow {
   kind: AgentKind
   label: string
-  /** Detected binary version, when known. */
+  /**
+   * Brand identity for the row icon. The built-in row uses Wanta's own mark:
+   * showing the OpenCode brand there would read as the user's locally
+   * installed OpenCode, which Wanta neither probes nor drives.
+   */
+  iconHost: string
+  /** Detected binary version; engine attribution for the built-in row. */
   sublabel?: string
   /** Caption line: "not detected" or a sign-in hint. */
   hint?: string
@@ -48,7 +54,8 @@ export interface AgentPickerRow {
 
 export interface AgentPickerRowLabels {
   builtIn: string
-  builtInVersion: string
+  /** Bundled engine attribution, e.g. "OpenCode 1.18.10". */
+  builtInEngine: string
   loginRequired: (hint: string) => string
   notDetected: string
 }
@@ -63,12 +70,13 @@ export function buildAgentPickerRows(
   labels: AgentPickerRowLabels,
 ): AgentPickerRow[] {
   const rows: AgentPickerRow[] = [
-    { kind: "opencode", label: labels.builtIn, selectable: true, sublabel: labels.builtInVersion },
+    { kind: "opencode", iconHost: "wanta", label: labels.builtIn, selectable: true, sublabel: labels.builtInEngine },
   ]
   for (const status of options) {
     const detected = status.binary.status === "detected"
     rows.push({
       kind: status.kind,
+      iconHost: status.kind,
       label: status.displayName,
       ...(status.binary.status === "detected" && status.binary.version ? { sublabel: status.binary.version } : {}),
       ...(detected

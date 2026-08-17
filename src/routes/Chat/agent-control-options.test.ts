@@ -13,7 +13,7 @@ import {
 
 const labels = {
   builtIn: "Built-in Agent",
-  builtInVersion: "1.18.10",
+  builtInEngine: "OpenCode 1.18.10",
   loginRequired: (hint: string) => `Sign-in required: ${hint}`,
   notDetected: "Not detected",
 }
@@ -84,15 +84,24 @@ describe("agentRuntimeReadyForSubmission", () => {
 })
 
 describe("buildAgentPickerRows", () => {
-  it("puts the selectable built-in agent first", () => {
+  it("puts the selectable built-in agent first under Wanta's own brand", () => {
     const rows = buildAgentPickerRows([], labels)
-    expect(rows).toEqual([{ kind: "opencode", label: "Built-in Agent", selectable: true, sublabel: "1.18.10" }])
+    expect(rows).toEqual([
+      {
+        kind: "opencode",
+        iconHost: "wanta",
+        label: "Built-in Agent",
+        selectable: true,
+        sublabel: "OpenCode 1.18.10",
+      },
+    ])
   })
 
   it("marks detected agents selectable with their version", () => {
     const rows = buildAgentPickerRows([externalStatus({})], labels)
     expect(rows[1]).toMatchObject({
       kind: externalKind,
+      iconHost: externalKind,
       label: AGENT_PROFILES[externalKind].displayName,
       selectable: true,
       sublabel: "2.1.0",

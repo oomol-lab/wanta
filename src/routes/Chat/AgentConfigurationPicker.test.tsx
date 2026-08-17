@@ -119,13 +119,13 @@ describe("AgentConfigurationPicker", () => {
 
     expect(menu).not.toBeNull()
     expect(host.contains(menu)).toBe(false)
-    expect(menu?.textContent).toContain("OpenCode")
+    expect(menu?.textContent).toContain("Built-in Agent")
     expect(menu?.textContent).toContain("Auto")
     expect(menu?.textContent).toContain("Default")
     const rootRows = [...(menu?.querySelectorAll<HTMLButtonElement>("button") ?? [])].map(
       (button) => button.textContent,
     )
-    expect(rootRows).toEqual(["ModelAuto", "ReasoningDefault", "AgentOpenCode"])
+    expect(rootRows).toEqual(["ModelAuto", "ReasoningDefault", "AgentBuilt-in Agent"])
     expect(rootRows).toHaveLength(3)
     for (const row of menu?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []) {
       expect(row.getAttribute("aria-haspopup")).toBe("menu")
@@ -139,7 +139,7 @@ describe("AgentConfigurationPicker", () => {
     const onSelectAgentKind = vi.fn()
     await renderPicker({ onSelectAgentKind })
 
-    await hoverButton("OpenCode")
+    await hoverButton("Built-in Agent")
     expect(document.body.textContent).toContain("Codex")
     await act(async () => buttonWithText("Codex")?.click())
 
@@ -150,14 +150,14 @@ describe("AgentConfigurationPicker", () => {
     const onSelectAgentKind = vi.fn()
     await renderPicker({ onSelectAgentKind })
 
-    await hoverButton("OpenCode")
+    await hoverButton("Built-in Agent")
     const claude = buttonWithText("Claude Code")
     const codex = buttonWithText("Codex")
     const grok = buttonWithText("Grok")
     expect(claude?.disabled).toBe(false)
     expect(codex?.disabled).toBe(false)
     expect(grok?.disabled).toBe(true)
-    expect(buttonWithTexts("OpenCode", __OPENCODE_VERSION__)).toBeDefined()
+    expect(buttonWithTexts("Built-in Agent", `OpenCode ${__OPENCODE_VERSION__}`)).toBeDefined()
     expect(buttonWithTexts("Claude Code", "2.0.0")).toBeDefined()
     expect(buttonWithTexts("Codex", "1.0.0")).toBeDefined()
     expect(buttonWithTexts("Grok", "Not detected")).toBeDefined()

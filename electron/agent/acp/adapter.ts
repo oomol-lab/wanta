@@ -448,19 +448,19 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       return
     }
     const previousSelection = { ...this.desiredSelections.get(input.sessionId) }
-    const appliedAxes: Array<keyof AcpConfigSelects> = []
+    const appliedSelections: Partial<Record<keyof AcpConfigSelects, string>> = {}
     try {
       if (input.agentModelId !== undefined) {
         await this.applyConfigSelection(input.sessionId, "model", input.agentModelId)
-        appliedAxes.push("model")
+        appliedSelections.model = input.agentModelId
       }
       if (input.agentEffortId !== undefined) {
         await this.applyConfigSelection(input.sessionId, "effort", input.agentEffortId)
-        appliedAxes.push("effort")
+        appliedSelections.effort = input.agentEffortId
       }
       await this.dispatchPrompt(input, options)
     } catch (error) {
-      await this.restorePromptSelections(input.sessionId, previousSelection, appliedAxes)
+      await this.restorePromptSelections(input.sessionId, previousSelection, appliedSelections)
       throw error
     }
   }
@@ -520,9 +520,14 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   private async restorePromptSelections(
     sessionId: string,
     previous: { model?: string; effort?: string },
-    appliedAxes: Array<keyof AcpConfigSelects>,
+    applied: Partial<Record<keyof AcpConfigSelects, string>>,
   ): Promise<void> {
-    for (const axis of appliedAxes.reverse()) {
+    const appliedAxes = (Object.keys(applied) as Array<keyof AcpConfigSelects>).reverse()
+    for (const axis of appliedAxes) {
+      // A picker or newer prompt may have changed this axis while the failed
+      // prompt was still setting up. Only the prompt's own value may be
+      // restored; otherwise this rollback would clobber the newer selection.
+      if (this.desiredSelections.get(sessionId)?.[axis] !== applied[axis]) continue
       try {
         await this.applyConfigSelection(sessionId, axis, previous[axis])
       } catch (error) {

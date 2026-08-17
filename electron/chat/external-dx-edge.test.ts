@@ -69,6 +69,9 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
   public failNextPrompt: Error | undefined
   /** Optional fence used to race a rejected prompt against a newer selection. */
   public promptFailureBarrier: Promise<void> | undefined
+  /** Optional fence used to pause a turn before prompt selections persist. */
+  public permissionModeBarrier: Promise<void> | undefined
+  public permissionModeBarrierEntries = 0
   /** When set, the next native permission-mode projection rejects. */
   public failNextPermissionMode: Error | undefined
   private readonly modelSelections = new Map<string, string>()
@@ -163,6 +166,9 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
   }
 
   public override async applyPermissionMode(sessionId: string, mode: AgentPermissionMode): Promise<void> {
+    this.permissionModeBarrierEntries += 1
+    await this.permissionModeBarrier
+    this.permissionModeBarrier = undefined
     if (this.failNextPermissionMode) {
       const error = this.failNextPermissionMode
       this.failNextPermissionMode = undefined
@@ -888,6 +894,109 @@ test("a rejected prompt rollback cannot overwrite a newer model selection", asyn
 
   assert.deepEqual(persisted, [{ modelId: "sonnet" }, { modelId: "haiku" }])
   assert.deepEqual(adapter.sessionSelection(sessionId), { modelId: "haiku" })
+})
+
+test("prompt rollback captures a direct selection that completed before prompt persistence", async () => {
+  const persisted: Array<{ modelId?: string | null; effortId?: string | null }> = []
+  const { service, adapters } = createHarness(["claude-code"], {
+    onExternalSessionSelectionChanged: (_sessionId, patch) => {
+      persisted.push(patch)
+    },
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+  let releasePermissionMode!: () => void
+  adapter.permissionModeBarrier = new Promise<void>((resolve) => (releasePermissionMode = resolve))
+  adapter.failNextPrompt = new Error("prompt rejected")
+
+  const prompt = service.sendMessage(sendRequest(sessionId, "use sonnet", { agentModelId: "sonnet" }))
+  await waitForCondition(() => adapter.permissionModeBarrierEntries === 1, "permission-mode projection barrier")
+  await service.setExternalSessionModel({ sessionId, modelId: "haiku" })
+  releasePermissionMode()
+  await prompt
+  await waitForCondition(() => !service.hasActiveGeneration(), "rejected prompt cleanup")
+
+  assert.deepEqual(persisted, [{ modelId: "haiku" }, { modelId: "sonnet" }, { modelId: "haiku" }])
+  assert.deepEqual(adapter.sessionSelection(sessionId), { modelId: "haiku" })
+})
+
+test("forgetSession waits for pending selection persistence and removes its mutation bookkeeping", async () => {
+  let releasePersistence!: () => void
+  const persistenceBarrier = new Promise<void>((resolve) => (releasePersistence = resolve))
+  let persistenceStarted = false
+  const { service } = createHarness(["claude-code"], {
+    onExternalSessionSelectionChanged: async (_sessionId, patch) => {
+      if (patch.modelId === "sonnet") {
+        persistenceStarted = true
+        await persistenceBarrier
+      }
+    },
+  })
+  const sessionId = mintExternalSessionId("claude-code")
+  const selection = service.setExternalSessionModel({ sessionId, modelId: "sonnet" })
+  await waitForCondition(() => persistenceStarted, "pending selection persistence")
+
+  let deletionSettled = false
+  const deletion = service.forgetSession(sessionId).then(() => {
+    deletionSettled = true
+  })
+  await Promise.resolve()
+  assert.equal(deletionSettled, false)
+  releasePersistence()
+  await Promise.all([selection, deletion])
+
+  const internals = service as unknown as {
+    externalSelectionMutationTails: Map<string, Promise<void>>
+    externalSelectionMutationTokens: Map<string, number>
+    externalSelectionMutationSequences: Map<string, number>
+  }
+  for (const axis of ["model", "effort"] as const) {
+    const key = `${sessionId}\0${axis}`
+    assert.equal(internals.externalSelectionMutationTails.has(key), false)
+    assert.equal(internals.externalSelectionMutationTokens.has(key), false)
+    assert.equal(internals.externalSelectionMutationSequences.has(key), false)
+  }
+})
+
+test("a prompt failure after session deletion cannot enqueue a late selection rollback", async () => {
+  const persisted: Array<{ modelId?: string | null; effortId?: string | null }> = []
+  const { service, adapters } = createHarness(["claude-code"], {
+    onExternalSessionSelectionChanged: (_sessionId, patch) => {
+      persisted.push(patch)
+    },
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+  let releasePromptFailure!: () => void
+  adapter.promptFailureBarrier = new Promise<void>((resolve) => (releasePromptFailure = resolve))
+  adapter.failNextPrompt = new Error("prompt rejected after deletion")
+
+  await service.sendMessage(sendRequest(sessionId, "use sonnet", { agentModelId: "sonnet" }))
+  await waitForCondition(() => persisted.length === 1, "prompt selection persistence")
+  // Prompt selection persistence has settled, so deletion observes an idle
+  // queue. The native prompt rejection is deliberately released afterwards.
+  await service.forgetSession(sessionId)
+  releasePromptFailure()
+  await waitForCondition(() => adapter.promptFailureBarrier === undefined, "late prompt rejection")
+
+  assert.deepEqual(persisted, [{ modelId: "sonnet" }])
+  await assert.rejects(
+    service.setExternalSessionModel({ sessionId, modelId: "haiku" }),
+    /external agent session was deleted/u,
+  )
+  const internals = service as unknown as {
+    externalSelectionMutationTails: Map<string, Promise<void>>
+    externalSelectionMutationTokens: Map<string, number>
+    externalSelectionMutationSequences: Map<string, number>
+  }
+  for (const axis of ["model", "effort"] as const) {
+    const key = `${sessionId}\0${axis}`
+    assert.equal(internals.externalSelectionMutationTails.has(key), false)
+    assert.equal(internals.externalSelectionMutationTokens.has(key), false)
+    assert.equal(internals.externalSelectionMutationSequences.has(key), false)
+  }
 })
 
 test("external model and effort updates stay ordered when persistence overlaps", async () => {

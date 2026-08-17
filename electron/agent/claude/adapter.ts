@@ -333,7 +333,15 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       }
       await this.dispatchPrompt(input, options)
     } catch (error) {
-      await this.restorePromptSelections(input.sessionId, previousModel, previousEffort, modelApplied, effortApplied)
+      await this.restorePromptSelections(
+        input.sessionId,
+        previousModel,
+        previousEffort,
+        input.agentModelId,
+        input.agentEffortId,
+        modelApplied,
+        effortApplied,
+      )
       throw error
     }
   }
@@ -366,10 +374,12 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     sessionId: string,
     previousModel: string | undefined,
     previousEffort: ClaudeEffortId | undefined,
+    appliedModel: string | undefined,
+    appliedEffort: string | undefined,
     modelApplied: boolean,
     effortApplied: boolean,
   ): Promise<void> {
-    if (effortApplied) {
+    if (effortApplied && this.desiredEfforts.get(sessionId) === appliedEffort) {
       await this.applyEffort(sessionId, previousEffort).catch((error: unknown) => {
         logDiagnostic(
           "claude-code-adapter",
@@ -379,7 +389,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         )
       })
     }
-    if (modelApplied) {
+    if (modelApplied && this.desiredModels.get(sessionId) === appliedModel) {
       await this.applyModel(sessionId, previousModel).catch((error: unknown) => {
         logDiagnostic(
           "claude-code-adapter",

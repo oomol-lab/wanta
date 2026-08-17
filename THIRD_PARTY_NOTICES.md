@@ -19,6 +19,15 @@ Wanta is not a fork of OpenCode. It embeds the pinned OpenCode runtime and build
 security isolation, model configuration, permissions, sessions, Connector tools, and artifact UI
 around it.
 
+## Codex ACP Bridge
+
+Wanta packages `@agentclientprotocol/codex-acp@1.1.14` as the local ACP bridge used to connect a
+user-installed Codex CLI to the common external-agent adapter.
+
+Source: [agentclientprotocol/codex-acp](https://github.com/agentclientprotocol/codex-acp).
+License: Apache License 2.0. Copyright 2025 JetBrains s.r.o. The complete license text is included
+in this repository's [`LICENSE`](LICENSE) file.
+
 ## oo CLI and Bundled Skills
 
 Wanta downloads and packages `@oomol-lab/oo-cli@1.7.1` platform binaries from the public npm

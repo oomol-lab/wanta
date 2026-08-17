@@ -10,6 +10,7 @@ import { chmodSync, copyFileSync, mkdirSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { buildAgentToolRuntime } from "./build-agent-tool-runtime.ts"
+import { bundleCodexAcp } from "./codex-acp.ts"
 import { dingTalkCliBinaryName, downloadDingTalkCliBinary, exportDingTalkCliSkills } from "./dingtalk-cli.ts"
 import { downloadLarkCliBinary, exportLarkCliSkills, larkCliBinaryName } from "./lark-cli.ts"
 import { downloadOoBinary, ooExecutableName } from "./oo-cli.ts"
@@ -38,6 +39,11 @@ bundle(
   path.join(repoRoot, "node_modules", "opencode-ai", "bin", "opencode.exe"),
   `opencode${exe}`,
 )
+
+// Codex 通过 ACP bridge 接入。开发态从 node_modules/.bin 解析；打包态必须把同版本的
+// 自包含 JS bundle 和启动 shim 放进 Resources/bin，不能依赖构建机的 pnpm shim。
+const bundledCodexAcp = bundleCodexAcp(binDir, platform)
+console.log(`[wanta] bundled codex-acp: ${path.basename(bundledCodexAcp.entryPath)}@${bundledCodexAcp.version}`)
 
 // oo 不再依赖 node_modules：确保 .oo-bin/ 已就绪（缺失则下载当前平台的二进制）后复制。
 const ooSrc = await downloadOoBinary()

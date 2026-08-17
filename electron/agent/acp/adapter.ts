@@ -32,9 +32,11 @@ import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { Readable, Writable } from "node:stream"
 import { pathToFileURL } from "node:url"
+import { resolveUserCommandPath } from "../../command-path.ts"
 import { errorMessage, logDiagnostic } from "../../diagnostics-log.ts"
 import { AGENT_PROFILES } from "../contract/profile.ts"
 import { ExternalAgentAdapter } from "../external/adapter-base.ts"
+import { externalExecutableNeedsShell } from "../external/executable.ts"
 import { externalAgentPromptText } from "../external/prompt.ts"
 import { externalSessionUuid } from "../external/session-id.ts"
 import { createAcpSessionTranslator } from "./translator.ts"
@@ -886,9 +888,13 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       const detail = status.binary.status === "error" ? ` (${status.binary.message})` : ""
       throw new Error(`${registration.displayName} CLI was not found on this machine${detail}.`)
     }
+    // Finder/desktop launches do not inherit the user's shell PATH. Reuse the
+    // recovered PATH so the bridge can find both Node and the user's agent CLI.
+    const pathEnv = await resolveUserCommandPath()
     const child = spawn(status.binary.path, [...registration.acpArgs], {
       stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
+      env: { ...process.env, PATH: pathEnv, WANTA_NODE_RUNTIME: process.execPath },
+      shell: externalExecutableNeedsShell(status.binary.path),
     })
     if (!child.stdin || !child.stdout) {
       child.kill()

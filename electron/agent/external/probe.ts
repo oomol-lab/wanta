@@ -11,6 +11,7 @@ import { resolveUserCommandPath } from "../../command-path.ts"
 import { errorMessage, logDiagnosticOnChange } from "../../diagnostics-log.ts"
 import { ACP_AGENT_REGISTRY } from "../acp/registry.ts"
 import { AGENT_PROFILES, agentLoginHint } from "../contract/profile.ts"
+import { externalExecutableNeedsShell } from "./executable.ts"
 
 // BYOA runtime probing: binary detection (PATH scan + --version verification)
 // and best-effort login-state detection, exposed to the UI as a resource.
@@ -57,7 +58,8 @@ async function probeBinary(
     const { stdout } = await execFileAsync(detected.executablePath, [...versionArgs], {
       timeout: versionProbeTimeoutMs,
       maxBuffer: 64 * 1024,
-      env: { ...env, PATH: pathEnv },
+      env: { ...env, PATH: pathEnv, WANTA_NODE_RUNTIME: process.execPath },
+      shell: externalExecutableNeedsShell(detected.executablePath),
     })
     const firstLine = stdout
       .split(/\r?\n/u)

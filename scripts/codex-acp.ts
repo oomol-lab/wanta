@@ -52,7 +52,7 @@ export function bundleCodexAcp(
       [
         "#!/bin/sh",
         'script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
-        'node_runtime=${WANTA_NODE_RUNTIME:-node}',
+        "node_runtime=${WANTA_NODE_RUNTIME:-node}",
         'ELECTRON_RUN_AS_NODE=1 exec "$node_runtime" "$script_dir/codex-acp.js" "$@"',
         "",
       ].join("\n"),

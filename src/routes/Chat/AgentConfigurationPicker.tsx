@@ -270,14 +270,14 @@ export function AgentConfigurationPicker({
   const agentRows = React.useMemo(
     () =>
       buildAgentPickerRows(externalAgents, {
-        builtIn: t("chat.agentOpenCode"),
-        builtInVersion: __OPENCODE_VERSION__,
+        builtIn: t("chat.agentBuiltIn"),
+        builtInEngine: `OpenCode ${__OPENCODE_VERSION__}`,
         loginRequired: (hint) => t("chat.agentLoginRequired", { hint }),
         notDetected: t("chat.agentNotDetected"),
       }),
     [externalAgents, t],
   )
-  const selectedAgentLabel = agentPickerTriggerLabel(agentKind, t("chat.agentOpenCode"))
+  const selectedAgentLabel = agentPickerTriggerLabel(agentKind, t("chat.agentBuiltIn"))
   const wantaModelItems = React.useMemo(() => buildModelMenuItems(modelCatalog, t("chat.modelAdd")), [modelCatalog, t])
   const wantaModel = selectedModelSummary(modelCatalog)
   const wantaReasoningLevels = React.useMemo(() => selectedModelReasoningLevels(modelCatalog), [modelCatalog])
@@ -347,7 +347,7 @@ export function AgentConfigurationPicker({
               disabled={!row.selectable}
               icon={
                 <AgentIcon
-                  host={row.kind}
+                  host={row.iconHost}
                   className="size-5 border-0 bg-transparent [&_.oo-entity-icon-image]:size-5"
                 />
               }

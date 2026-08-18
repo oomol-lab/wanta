@@ -735,3 +735,10 @@ describe("summarizeTurnProcess", () => {
     expect(shouldShowPlainTurnActivity(process)).toBe(false)
   })
 })
+
+describe("shouldShowTurnProcess", () => {
+  it("shows the process disclosure from the first classified narration before a tool arrives", () => {
+    expect(shouldShowTurnProcess({ activity: null, tools: [] }, true)).toBe(true)
+    expect(shouldShowTurnProcess({ activity: null, tools: [] }, false)).toBe(false)
+  })
+})

@@ -166,6 +166,19 @@ export class LinkCapability {
         return errorResult(errorCode ?? "action_failed", this.redact(message, runtime), {
           action,
           service,
+          ...(errorCode === "POLICY_DENIED"
+            ? {
+                authorizationState: "action_denied",
+                policyOrigin: "connector_or_provider",
+                workspaceVerified: Boolean(connectionName),
+                connectionSelection: connectionName
+                  ? { mode: "explicit", name: connectionName, verified: true }
+                  : { mode: "workspace_default", verified: false },
+                guidance:
+                  "The active Wanta workspace was applied successfully. A connected app does not guarantee permission for this action; verify the provider credential scopes and target resource membership. The available error does not identify whether the connector policy or upstream provider denied the request.",
+              }
+            : {}),
+          ...(connectionName ? { connectionName } : {}),
           workspace: workspaceMetadata(runtime),
         })
       }

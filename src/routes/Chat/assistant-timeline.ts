@@ -16,7 +16,6 @@ export interface AssistantTimelineSegment {
   blocks: AssistantTimelineBlock[]
 }
 
-const progressTextMaxLength = 240
 const codexSkillBudgetWarningPrefix = "Warning: Skill descriptions were shortened to fit the skills context budget."
 
 function isSuppressedAgentRuntimeNotice(block: RenderBlock): boolean {
@@ -35,14 +34,6 @@ function isToolCallFinishReason(reason: string | undefined): boolean {
   return reason === "tool-calls" || reason === "tool_calls" || reason === "tool-use" || reason === "tool_use"
 }
 
-function hasStructuredResponseText(text: string): boolean {
-  return (
-    /(^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|```|~~~)/u.test(text) ||
-    /(^|\n)\s*\|[^\n]+\|\s*(?:\n|$)/u.test(text) ||
-    /!\[[^\]]*\]\(|\[[^\]]+\]\([^\s)]+/u.test(text)
-  )
-}
-
 function messageToolParts(message: ChatMessage): ChatMessagePart[] {
   return message.parts.filter((part) => part.kind === "tool")
 }
@@ -53,7 +44,7 @@ function textBelongsToProcess(
   activeAssistantMessageId: string | undefined,
 ): boolean {
   const text = part.text?.trim() ?? ""
-  if (!text || text.length > progressTextMaxLength || hasStructuredResponseText(text)) {
+  if (!text) {
     return false
   }
 
@@ -70,11 +61,10 @@ function textBelongsToProcess(
   if (tools.length > 0) {
     return true
   }
-  // ACP agents can stream a short progress sentence before announcing the
-  // tool call that follows it. Keep that still-active narration in the
-  // process disclosure from its first chunk so it does not first render as a
-  // standalone answer and then jump into "Processing" when the tool arrives.
-  // A text-only answer becomes a response as soon as the turn completes.
+  // Keep all still-active narration in the process disclosure until the
+  // adapter supplies a terminal finish reason. This is deliberately based on
+  // turn lifecycle rather than prose length or Markdown shape: a detailed
+  // progress report is still progress while the agent continues using tools.
   if (message.id === activeAssistantMessageId) {
     return true
   }
@@ -108,15 +98,47 @@ export function segmentAssistantTimeline(
   messages: ChatMessage[],
   options: { activeAssistantMessageId?: string } = {},
 ): AssistantTimelineSegment[] {
-  const segments: AssistantTimelineSegment[] = []
-  for (const item of assistantTimelineBlocks(messages)) {
-    const kind = blockSegmentKind(item, options.activeAssistantMessageId)
-    const current = segments.at(-1)
-    if (current?.kind === kind) {
-      current.blocks.push(item)
-      continue
+  const blocks = assistantTimelineBlocks(messages)
+  const classified = blocks.map((item) => ({ item, kind: blockSegmentKind(item, options.activeAssistantMessageId) }))
+  const hasIncompleteTool = classified.some(
+    ({ item, kind }) =>
+      kind === "process" && item.block.kind === "tools" && item.block.parts.some((part) => part.status !== "completed"),
+  )
+
+  // Some adapters can finish a turn immediately after a tool-use step without
+  // emitting a separate stop message. Once the turn is settled, preserve the
+  // last narrated result as the visible outcome instead of leaving the user
+  // with process activity only.
+  if (
+    options.activeAssistantMessageId === undefined &&
+    !hasIncompleteTool &&
+    !classified.some(
+      ({ item, kind }) => kind === "response" && (item.block.kind === "text" || item.block.kind === "attachment"),
+    )
+  ) {
+    const fallbackIndex = classified.findLastIndex(
+      ({ item, kind }) => kind === "process" && item.block.kind === "text" && Boolean(item.block.part.text?.trim()),
+    )
+    if (fallbackIndex >= 0 && classified[fallbackIndex]) {
+      classified[fallbackIndex].kind = "response"
     }
-    segments.push({ kind, key: blockKey(item), blocks: [item] })
+  }
+
+  // Render one stable process disclosure per user turn. Agent loops commonly
+  // alternate narration and tools several times; mirroring those alternations
+  // as separate disclosures makes settled content appear to be regenerated.
+  // Bucketing retains the order inside each lane without constraining the
+  // agent's native loop or rewriting its transcript.
+  const processBlocks = classified.filter(({ kind }) => kind === "process").map(({ item }) => item)
+  const responseBlocks = classified.filter(({ kind }) => kind === "response").map(({ item }) => item)
+  const segments: AssistantTimelineSegment[] = []
+  if (processBlocks.length > 0) {
+    const first = processBlocks[0]
+    segments.push({ kind: "process", key: first ? blockKey(first) : "process", blocks: processBlocks })
+  }
+  if (responseBlocks.length > 0) {
+    const first = responseBlocks[0]
+    segments.push({ kind: "response", key: first ? blockKey(first) : "response", blocks: responseBlocks })
   }
   return segments
 }

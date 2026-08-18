@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { isAudioOnlyMediaRequest, isTrustedRendererUrl } from "./media-permission-policy.ts"
+import {
+  isAllowedMainWindowSubframeNavigation,
+  isAudioOnlyMediaRequest,
+  isTrustedRendererUrl,
+} from "./media-permission-policy.ts"
 
 describe("isAudioOnlyMediaRequest", () => {
   it("allows microphone-only requests and rejects broader media access", () => {
@@ -29,5 +33,15 @@ describe("isTrustedRendererUrl", () => {
     expect(isTrustedRendererUrl("file:///app/dist/%2e%2e/untrusted.html", undefined, "file:///app/dist/")).toBe(false)
     expect(isTrustedRendererUrl("https://example.test/index.html", undefined, "file:///app/dist/")).toBe(false)
     expect(isTrustedRendererUrl(undefined, undefined, "file:///app/dist/")).toBe(false)
+  })
+})
+
+describe("isAllowedMainWindowSubframeNavigation", () => {
+  it("allows initial inline-frame documents and blocks navigations away from their injected policy", () => {
+    expect(isAllowedMainWindowSubframeNavigation("about:blank")).toBe(true)
+    expect(isAllowedMainWindowSubframeNavigation("about:srcdoc")).toBe(true)
+    expect(isAllowedMainWindowSubframeNavigation("https://example.test/")).toBe(false)
+    expect(isAllowedMainWindowSubframeNavigation("data:text/html,escaped")).toBe(false)
+    expect(isAllowedMainWindowSubframeNavigation("file:///tmp/untrusted.html")).toBe(false)
   })
 })

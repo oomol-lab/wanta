@@ -141,6 +141,77 @@ describe("LinkCapability", () => {
     expect(result).not.toContain("secret-session-token")
   })
 
+  test("distinguishes a verified workspace from an action-level policy denial", async () => {
+    const execute: LinkCommandExecutor = vi.fn(async (_command, args) => {
+      if (args[1] === "apps") {
+        return {
+          stdout: JSON.stringify({ apps: [{ connectionName: "analytics", status: "active" }] }),
+          stderr: "",
+        }
+      }
+      throw Object.assign(new Error("connector failed"), {
+        stderr: "Connector action run_query returned HTTP 403 (errorCode: POLICY_DENIED): access denied by policy",
+      })
+    })
+    const capability = new LinkCapability({
+      execute,
+      ooBinPath: "/fake/oo",
+      runtime: () => ({ linkRuntime: { kind: "oomol", sessionToken: "secret-session-token" } }),
+      storeDir: "/private/wanta/link",
+    })
+
+    const result = JSON.parse(
+      await capability.callAction(
+        { sessionId: "session-1", teamName: "Analytics Team" },
+        { action: "run_query", connectionName: "analytics", service: "posthog" },
+      ),
+    ) as Record<string, unknown>
+
+    expect(result).toMatchObject({
+      status: "error",
+      errorCode: "POLICY_DENIED",
+      service: "posthog",
+      action: "run_query",
+      connectionName: "analytics",
+      authorizationState: "action_denied",
+      policyOrigin: "connector_or_provider",
+      workspaceVerified: true,
+      connectionSelection: { mode: "explicit", name: "analytics", verified: true },
+      workspace: { runtime: "oomol", teamName: "Analytics Team" },
+    })
+    expect(String(result["guidance"])).toContain("does not guarantee permission")
+  })
+
+  test("does not report the uninspected default connection as workspace-verified", async () => {
+    const execute: LinkCommandExecutor = vi.fn(async () => {
+      throw Object.assign(new Error("connector failed"), {
+        stderr: "Connector action run_query returned HTTP 403 (errorCode: POLICY_DENIED): access denied by policy",
+      })
+    })
+    const capability = new LinkCapability({
+      execute,
+      ooBinPath: "/fake/oo",
+      runtime: () => ({ linkRuntime: { kind: "oomol", sessionToken: "secret-session-token" } }),
+      storeDir: "/private/wanta/link",
+    })
+
+    const result = JSON.parse(
+      await capability.callAction(
+        { sessionId: "session-1", teamName: "Analytics Team" },
+        { action: "run_query", service: "posthog" },
+      ),
+    ) as Record<string, unknown>
+
+    expect(result).toMatchObject({
+      status: "error",
+      errorCode: "POLICY_DENIED",
+      workspaceVerified: false,
+      connectionSelection: { mode: "workspace_default", verified: false },
+      workspace: { runtime: "oomol", teamName: "Analytics Team" },
+    })
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
   test("coalesces concurrent authorization probes and blocks repeated calls to the same connection", async () => {
     let release: (() => void) | undefined
     const execute: LinkCommandExecutor = vi.fn(

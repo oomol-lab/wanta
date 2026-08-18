@@ -103,7 +103,11 @@ import { DingTalkCliManager } from "./link-runtime/dingtalk-cli.ts"
 import { LarkCliManager } from "./link-runtime/lark-cli.ts"
 import { LinkRuntimeManager, LinkRuntimeServiceImpl } from "./link-runtime/node.ts"
 import { WecomCliManager } from "./link-runtime/wecom-cli.ts"
-import { isAudioOnlyMediaRequest, isTrustedRendererUrl } from "./media-permission-policy.ts"
+import {
+  isAllowedMainWindowSubframeNavigation,
+  isAudioOnlyMediaRequest,
+  isTrustedRendererUrl,
+} from "./media-permission-policy.ts"
 import { ModelCredentialStore } from "./models/credential-store.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
@@ -1362,6 +1366,11 @@ function createMainWindow(): void {
     if (!isTrustedRendererUrl(url, viteDevServerUrl, rendererBaseUrl)) {
       event.preventDefault()
       openExternalUrl(url)
+    }
+  })
+  mainWindow.webContents.on("will-frame-navigate", (event) => {
+    if (!event.isMainFrame && !isAllowedMainWindowSubframeNavigation(event.url)) {
+      event.preventDefault()
     }
   })
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {

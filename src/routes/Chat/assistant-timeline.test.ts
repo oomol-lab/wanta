@@ -137,7 +137,7 @@ describe("assistantTimelineBlocks", () => {
     expect(segmentAssistantTimeline([active]).map((segment) => segment.kind)).toEqual(["response"])
   })
 
-  it("keeps a long structured plan visible before later tools", () => {
+  it("keeps a long structured plan in the single process disclosure while tools continue", () => {
     const plan = [
       "## Selection plan",
       "",
@@ -151,9 +151,12 @@ describe("assistantTimelineBlocks", () => {
       message("a3", [textPart("final", "The report is ready.")], "stop"),
     ])
 
-    expect(segments.map((segment) => segment.kind)).toEqual(["response", "process", "response"])
+    expect(segments.map((segment) => segment.kind)).toEqual(["process", "response"])
     expect(segments[0]?.blocks.map(({ block }) => (block.kind === "text" ? block.part.partId : block.kind))).toEqual([
       "plan",
+      "tools",
+      "progress",
+      "tools",
     ])
     expect(timelineHasVisibleOutcome(segments)).toBe(true)
   })
@@ -167,8 +170,8 @@ describe("assistantTimelineBlocks", () => {
       ),
     ])
 
-    expect(segments.map((segment) => segment.kind)).toEqual(["response", "process"])
-    expect(textFromTimelineBlocks(segments[0]?.blocks ?? [])).toBe("I need you to confirm the target Notion page.")
+    expect(segments.map((segment) => segment.kind)).toEqual(["process", "response"])
+    expect(textFromTimelineBlocks(segments[1]?.blocks ?? [])).toBe("I need you to confirm the target Notion page.")
   })
 
   it("does not hide a substantive answer followed by a trailing save tool", () => {
@@ -177,7 +180,18 @@ describe("assistantTimelineBlocks", () => {
       message("a1", [textPart("answer", answer), toolPart("save")], "tool-calls"),
     ])
 
-    expect(segments.map((segment) => segment.kind)).toEqual(["response", "process"])
+    expect(segments.map((segment) => segment.kind)).toEqual(["process", "response"])
+    expect(textFromTimelineBlocks(segments[1]?.blocks ?? [])).toBe(answer)
+  })
+
+  it("does not promote process narration after a failed tool into a successful-looking outcome", () => {
+    const failedTool = { ...toolPart("proxy"), status: "error" as const, error: "The user rejected permission." }
+    const segments = segmentAssistantTimeline([
+      message("a1", [textPart("progress", "I will try the provider proxy."), failedTool], "tool-calls"),
+    ])
+
+    expect(segments.map((segment) => segment.kind)).toEqual(["process"])
+    expect(timelineHasVisibleOutcome(segments)).toBe(false)
   })
 
   it("keeps a short stop response visible even when its message contains a tool", () => {
@@ -188,19 +202,34 @@ describe("assistantTimelineBlocks", () => {
     expect(segments.map((segment) => segment.kind)).toEqual(["process", "response"])
   })
 
-  it("groups only adjacent process blocks and preserves their chronology", () => {
+  it("uses one process disclosure for the whole turn and preserves lane chronology", () => {
     const segments = segmentAssistantTimeline([
       message("a1", [textPart("progress-1", "Checking data."), toolPart("tool-1")], "tool-calls"),
       message("a2", [textPart("answer", "## Interim result\n\nUseful result")], "stop"),
       message("a3", [textPart("progress-2", "Saving the result."), toolPart("tool-2")], "tool-calls"),
     ])
 
-    expect(segments.map((segment) => segment.kind)).toEqual(["process", "response", "process"])
+    expect(segments.map((segment) => segment.kind)).toEqual(["process", "response"])
+    expect(
+      segments[0]?.blocks.map(({ block }) =>
+        block.kind === "tools" ? block.parts.map((part) => part.partId).join(",") : block.part.partId,
+      ),
+    ).toEqual(["progress-1", "tool-1", "progress-2", "tool-2"])
+  })
+
+  it("does not promote active structured narration to a response before the turn settles", () => {
+    const active = message("a1", [
+      textPart("report", "## Data quality\n\n- YouTube complete\n- Reddit needs a narrower query"),
+    ])
+
+    expect(segmentAssistantTimeline([active], { activeAssistantMessageId: active.id }).map(({ kind }) => kind)).toEqual(
+      ["process"],
+    )
   })
 
   it("reconstructs process messages without unrelated response parts", () => {
     const source = message("a1", [textPart("progress", "Checking data."), toolPart("tool-1")], "tool-calls")
-    const processBlocks = segmentAssistantTimeline([source])[0]?.blocks ?? []
+    const processBlocks = segmentAssistantTimeline([source], { activeAssistantMessageId: source.id })[0]?.blocks ?? []
 
     expect(assistantMessagesFromTimelineBlocks(processBlocks)).toEqual([source])
   })

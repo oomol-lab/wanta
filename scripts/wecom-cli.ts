@@ -12,8 +12,9 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
 const maxDownloadBytes = 128 * 1024 * 1024
 
-export const WECOM_CLI_VERSION = "0.1.9"
-export const WECOM_CLI_GIT_HEAD = "72e14f7695f34d28f1ff23ea504ddd2210a87c13"
+export const WECOM_CLI_VERSION = "1.1.0"
+export const WECOM_CLI_GIT_HEAD = "889c555c527b26aa4ffece9bb03f0ec624bfa0b1"
+export const WECOM_CLI_SOURCE_COMMIT = "cd0480e0e4013c99cc9e7bb4a3247ec949a052d8"
 export const localWecomCliBinDir = path.join(repoRoot, ".wecom-cli-bin")
 export const bundledWecomSkillsDir = path.join(repoRoot, "resources", "wecom-skills")
 
@@ -167,7 +168,7 @@ export function safeSkillPath(value: string): boolean {
 }
 
 export async function exportWecomCliSkills(outputRoot: string = bundledWecomSkillsDir): Promise<string> {
-  const commit = WECOM_CLI_GIT_HEAD
+  const commit = WECOM_CLI_SOURCE_COMMIT
   const expectedMarker = `${WECOM_CLI_VERSION}@${commit}`
   try {
     if ((await readFile(path.join(outputRoot, ".version"), "utf-8")).trim() === expectedMarker) return outputRoot

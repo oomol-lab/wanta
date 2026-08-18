@@ -8,7 +8,7 @@ export function htmlPreviewSandbox(scriptsEnabled: boolean): string {
 
 export function htmlPreviewHasScripts(source: string): boolean {
   return (
-    /<script[\s>]/iu.test(source) ||
+    /<script[\s/>]/iu.test(source) ||
     /\son[a-z]+\s*=/iu.test(source) ||
     /\s(?:href|src|action|formaction|xlink:href)\s*=\s*(?:["']\s*)?javascript\s*:/iu.test(source)
   )

@@ -104,6 +104,7 @@ describe("htmlPreviewSrcDoc", () => {
 
   it("detects script elements and inline event handlers", () => {
     expect(htmlPreviewHasScripts("<script type=module></script>")).toBe(true)
+    expect(htmlPreviewHasScripts("<script/>run()</script>")).toBe(true)
     expect(htmlPreviewHasScripts('<button onclick="run()">Run</button>')).toBe(true)
     expect(htmlPreviewHasScripts('<a href="  javascript:run()">Run</a>')).toBe(true)
     expect(htmlPreviewHasScripts("<main>Static report</main>")).toBe(false)

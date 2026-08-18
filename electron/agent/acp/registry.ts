@@ -38,6 +38,15 @@ export interface AcpAgentRegistration {
    * for npm-distributed ACP bridges such as codex-acp.
    */
   bundledBinName?: string
+  /**
+   * Optional native CLI launched by the ACP bridge. Wanta resolves it from the
+   * recovered desktop PATH and passes the absolute path through this env var,
+   * so a packaged bridge never depends on an omitted node_modules tree.
+   */
+  runtimeExecutable?: {
+    cliCommands: readonly string[]
+    envVar: string
+  }
 }
 
 export const ACP_AGENT_REGISTRY = {
@@ -55,6 +64,7 @@ export const ACP_AGENT_REGISTRY = {
     selection: { model: true, effort: true },
     loginMarkerPath: ".codex/auth.json",
     bundledBinName: "codex-acp",
+    runtimeExecutable: { cliCommands: ["codex"], envVar: "CODEX_PATH" },
   },
   grok: {
     displayName: "Grok",

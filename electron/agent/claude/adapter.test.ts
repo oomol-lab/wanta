@@ -703,6 +703,21 @@ describe("ClaudeCodeAgentAdapter", () => {
     expect(errorEvent?.data.message).toBe("process exited with code 1")
   })
 
+  it("adds bounded subprocess stderr detail to a generic process failure", async () => {
+    const { adapter, events, calls } = await createHarness()
+    await adapter.send({ type: "prompt", sessionId, text: "hello" })
+    calls[0].options.stderr?.("Error: failed to load Claude runtime dependency\n")
+    calls[0].fake.fail(new Error("Claude Code process exited with code 1"))
+
+    await vi.waitFor(() => expect(events.some((event) => event.event === "agentError")).toBe(true))
+    const errorEvent = events.find(
+      (event): event is Extract<AgentEvent, { event: "agentError" }> => event.event === "agentError",
+    )
+    expect(errorEvent?.data.message).toBe(
+      "Claude Code process exited with code 1. Claude subprocess: Error: failed to load Claude runtime dependency",
+    )
+  })
+
   it("caches the runtime probe for 30 seconds", async () => {
     const { adapter, probe } = await createHarness()
     await adapter.runtimeStatus()

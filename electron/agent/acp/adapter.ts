@@ -32,6 +32,7 @@ import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { Readable, Writable } from "node:stream"
 import { pathToFileURL } from "node:url"
+import { detectCliExecutable } from "../../agents/catalog.ts"
 import { resolveUserCommandPath } from "../../command-path.ts"
 import { errorMessage, logDiagnostic } from "../../diagnostics-log.ts"
 import { AGENT_PROFILES } from "../contract/profile.ts"
@@ -39,6 +40,7 @@ import { ExternalAgentAdapter } from "../external/adapter-base.ts"
 import { externalExecutableNeedsShell } from "../external/executable.ts"
 import { externalAgentPromptText } from "../external/prompt.ts"
 import { externalSessionUuid } from "../external/session-id.ts"
+import { appendStderrTail, subprocessFailureSummary } from "../external/subprocess-diagnostics.ts"
 import { createAcpSessionTranslator } from "./translator.ts"
 
 // Generic ACP agent adapter (BYOA phase 2).
@@ -68,6 +70,8 @@ export interface AcpTransport {
   stream: Stream
   dispose: () => void
   onExit?: (cb: (info: { code: number | null }) => void) => void
+  /** Best-effort subprocess failure detail captured without mixing stderr into ACP stdout. */
+  failureDetail?: () => string | undefined
 }
 
 export interface AcpAdapterOptions {
@@ -93,6 +97,38 @@ interface AcpConnectionHandle {
   dispose: () => void
   /** Set once the connection is torn down so loss handling runs exactly once. */
   lost: boolean
+}
+
+/** Resolve bridge-specific native executables without adding per-agent branches. */
+export async function acpSubprocessEnvironment(
+  registration: AcpAgentRegistration,
+  pathEnv: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<NodeJS.ProcessEnv> {
+  const subprocessEnv: NodeJS.ProcessEnv = {
+    ...env,
+    PATH: pathEnv,
+    WANTA_NODE_RUNTIME: process.execPath,
+  }
+  const runtime = registration.runtimeExecutable
+  if (!runtime) {
+    return subprocessEnv
+  }
+
+  const configuredPath = env[runtime.envVar]?.trim()
+  if (configuredPath) {
+    subprocessEnv[runtime.envVar] = configuredPath
+    return subprocessEnv
+  }
+
+  const detected = await detectCliExecutable(runtime.cliCommands, { env, pathEnv })
+  if (!detected) {
+    throw new Error(
+      `${registration.displayName} CLI was not found on this machine. Install it or set ${runtime.envVar} to its executable path.`,
+    )
+  }
+  subprocessEnv[runtime.envVar] = detected.executablePath
+  return subprocessEnv
 }
 
 /** In-flight prompt marker; settled exactly once by resolve/reject/loss. */
@@ -854,8 +890,12 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
       })
     } catch (error) {
+      const failureDetail = transport.failureDetail?.()
       this.teardownHandle(handle)
-      throw new Error(`${displayName} failed to initialize the ACP connection: ${errorMessage(error)}`)
+      throw new Error(
+        `${displayName} failed to initialize the ACP connection: ${errorMessage(error)}` +
+          (failureDetail ? `. ACP subprocess: ${failureDetail}` : ""),
+      )
     }
     if (initialize.protocolVersion !== PROTOCOL_VERSION) {
       this.teardownHandle(handle)
@@ -891,18 +931,22 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     // Finder/desktop launches do not inherit the user's shell PATH. Reuse the
     // recovered PATH so the bridge can find both Node and the user's agent CLI.
     const pathEnv = await resolveUserCommandPath()
+    const subprocessEnv = await acpSubprocessEnvironment(registration, pathEnv)
     const child = spawn(status.binary.path, [...registration.acpArgs], {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, PATH: pathEnv, WANTA_NODE_RUNTIME: process.execPath },
+      env: subprocessEnv,
       shell: externalExecutableNeedsShell(status.binary.path),
     })
     if (!child.stdin || !child.stdout) {
       child.kill()
       throw new Error(`${registration.displayName} subprocess did not expose stdio pipes.`)
     }
-    // ACP traffic is stdout-only; stderr must be drained so the CLI never
-    // blocks on a full pipe.
-    child.stderr?.resume()
+    // ACP traffic is stdout-only. Keep a bounded stderr tail for diagnostics
+    // while continuously draining the pipe so a noisy CLI cannot block.
+    let stderrTail = ""
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      stderrTail = appendStderrTail(stderrTail, chunk.toString())
+    })
     // Node web-stream declarations are structurally compatible with the DOM
     // globals the SDK types reference, but nominally distinct; cast once here.
     const stream = ndJsonStream(
@@ -911,16 +955,25 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     )
     const exitCallbacks: Array<(info: { code: number | null }) => void> = []
     let exited = false
+    let disposed = false
     const fireExit = (code: number | null): void => {
       if (exited) {
         return
       }
       exited = true
+      if (!disposed && (code !== 0 || stderrTail.trim())) {
+        logDiagnostic(
+          "acp-adapter",
+          "ACP subprocess exited",
+          { adapter: this.kind, code, stderrTail: stderrTail.trim() },
+          code === 0 ? "warn" : "error",
+        )
+      }
       for (const callback of exitCallbacks) {
         callback({ code })
       }
     }
-    child.once("exit", (code) => fireExit(code))
+    child.once("close", (code) => fireExit(code))
     child.once("error", (error) => {
       logDiagnostic("acp-adapter", "ACP subprocess error", { adapter: this.kind, error: errorMessage(error) }, "error")
       fireExit(null)
@@ -929,9 +982,11 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       stream,
       dispose: () => {
         if (!exited) {
+          disposed = true
           child.kill()
         }
       },
+      failureDetail: () => subprocessFailureSummary(stderrTail),
       onExit: (callback) => {
         exitCallbacks.push(callback)
       },

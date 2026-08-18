@@ -5,22 +5,22 @@ import { resolveLarkCliTarget } from "./lark-cli.ts"
 test("resolveLarkCliTarget maps supported platforms and architectures to release assets", () => {
   assert.deepEqual(resolveLarkCliTarget("darwin", "x64"), {
     archiveKind: "tar.gz",
-    assetName: "lark-cli-1.0.81-darwin-amd64.tar.gz",
+    assetName: "lark-cli-1.0.87-darwin-amd64.tar.gz",
     binaryName: "lark-cli",
   })
   assert.deepEqual(resolveLarkCliTarget("darwin", "arm64"), {
     archiveKind: "tar.gz",
-    assetName: "lark-cli-1.0.81-darwin-arm64.tar.gz",
+    assetName: "lark-cli-1.0.87-darwin-arm64.tar.gz",
     binaryName: "lark-cli",
   })
   assert.deepEqual(resolveLarkCliTarget("linux", "riscv64"), {
     archiveKind: "tar.gz",
-    assetName: "lark-cli-1.0.81-linux-riscv64.tar.gz",
+    assetName: "lark-cli-1.0.87-linux-riscv64.tar.gz",
     binaryName: "lark-cli",
   })
   assert.deepEqual(resolveLarkCliTarget("win32", "arm64"), {
     archiveKind: "zip",
-    assetName: "lark-cli-1.0.81-windows-arm64.zip",
+    assetName: "lark-cli-1.0.87-windows-arm64.zip",
     binaryName: "lark-cli.exe",
   })
 })

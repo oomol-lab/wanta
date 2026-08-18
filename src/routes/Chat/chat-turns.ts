@@ -502,8 +502,12 @@ export function summarizeTurnProcess(
   }
 }
 
-export function shouldShowTurnProcess(process: Pick<ChatTurnProcess, "activity" | "tools">): boolean {
+export function shouldShowTurnProcess(
+  process: Pick<ChatTurnProcess, "activity" | "tools">,
+  hasProcessSegment = false,
+): boolean {
   return (
+    hasProcessSegment ||
     process.tools.length > 0 ||
     process.activity?.phase === "retrying" ||
     process.activity?.phase === "compacting" ||

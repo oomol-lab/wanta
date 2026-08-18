@@ -345,6 +345,13 @@ export const enMessages = {
   "chat.processNeedsAction": "Needs attention",
   "chat.processError": "Some steps did not complete",
   "chat.processStopped": "Stopped",
+  "chat.turnOutcomeCompleted": "Processing completed.",
+  "chat.turnOutcomeCompletedWithIssues":
+    "Processing ended, but some steps did not complete. Expand the process for details, then retry.",
+  "chat.turnOutcomeNeedsAction":
+    "Processing is paused until you complete the required authorization or connection step.",
+  "chat.turnOutcomeError": "Processing did not complete. Expand the process to review the error, then retry.",
+  "chat.turnOutcomeStopped": "Processing stopped before all steps completed.",
   "chat.reasoningTitle": "Processing",
   "chat.copyCode": "Copy code",
   "chat.openExternalLink": "Open external link?",

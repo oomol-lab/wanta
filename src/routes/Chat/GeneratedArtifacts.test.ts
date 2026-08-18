@@ -59,18 +59,28 @@ describe("htmlPreviewSrcDoc", () => {
     const result = htmlPreviewSrcDoc(source)
 
     expect(result.toLowerCase().startsWith("<!doctype html>")).toBe(true)
-    expect(result).toContain("<head>")
     expect(result).toContain('http-equiv="Content-Security-Policy"')
-    expect(result.indexOf("<head>")).toBeGreaterThan(result.toLowerCase().indexOf("<!doctype html>"))
+    expect(result.indexOf('http-equiv="Content-Security-Policy"')).toBeLessThan(result.indexOf("<html>"))
   })
 
-  it("injects preview head content into existing head elements", () => {
+  it("emits preview policy before existing head content", () => {
     const source =
       '<!doctype html><html><head><title>x</title></head><body><img src="https://example.com/x.png"></body></html>'
     const result = htmlPreviewSrcDoc(source)
 
-    expect(result).toContain('<head><meta http-equiv="Content-Security-Policy"')
+    expect(result.indexOf('http-equiv="Content-Security-Policy"')).toBeLessThan(result.indexOf("<head>"))
     expect(result).toContain("<title>x</title>")
+  })
+
+  it("emits preview policy before malformed leading scripts and links", () => {
+    const source =
+      '<script>fetch("https://example.test/leak")</script><link rel="stylesheet" href="https://example.test/x.css"><html><head><title>x</title></head><body></body></html>'
+    const result = htmlPreviewSrcDoc(source)
+    const policyIndex = result.indexOf('http-equiv="Content-Security-Policy"')
+
+    expect(policyIndex).toBeGreaterThanOrEqual(0)
+    expect(policyIndex).toBeLessThan(result.indexOf("<script>"))
+    expect(policyIndex).toBeLessThan(result.indexOf("<link"))
   })
 
   it("allows inline scripts while keeping network, frames, forms, and objects blocked", () => {
@@ -95,6 +105,7 @@ describe("htmlPreviewSrcDoc", () => {
   it("detects script elements and inline event handlers", () => {
     expect(htmlPreviewHasScripts("<script type=module></script>")).toBe(true)
     expect(htmlPreviewHasScripts('<button onclick="run()">Run</button>')).toBe(true)
+    expect(htmlPreviewHasScripts('<a href="  javascript:run()">Run</a>')).toBe(true)
     expect(htmlPreviewHasScripts("<main>Static report</main>")).toBe(false)
   })
 })

@@ -33,3 +33,7 @@ function isFileUrlInsideDirectory(requestingUrl: string, rendererBaseUrl: string
 export function isAudioOnlyMediaRequest(mediaTypes: ReadonlyArray<string> | undefined): boolean {
   return Boolean(mediaTypes?.length && mediaTypes.every((mediaType) => mediaType === "audio"))
 }
+
+export function isAllowedMainWindowSubframeNavigation(url: string): boolean {
+  return url === "about:blank" || url === "about:srcdoc"
+}

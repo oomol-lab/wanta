@@ -7,7 +7,11 @@ export function htmlPreviewSandbox(scriptsEnabled: boolean): string {
 }
 
 export function htmlPreviewHasScripts(source: string): boolean {
-  return /<script[\s>]/iu.test(source) || /\son[a-z]+\s*=/iu.test(source)
+  return (
+    /<script[\s>]/iu.test(source) ||
+    /\son[a-z]+\s*=/iu.test(source) ||
+    /\s(?:href|src|action|formaction|xlink:href)\s*=\s*(?:["']\s*)?javascript\s*:/iu.test(source)
+  )
 }
 
 function htmlPreviewHeadPrelude(scriptsEnabled: boolean): string {
@@ -21,20 +25,10 @@ function htmlPreviewHeadPrelude(scriptsEnabled: boolean): string {
 export function htmlPreviewSrcDoc(source: string, options: HtmlPreviewOptions = {}): string {
   const prelude = htmlPreviewHeadPrelude(options.scriptsEnabled ?? true)
   const { body, doctype } = splitHtmlPreviewDoctype(source)
-
-  if (/<head[\s>]/i.test(body)) {
-    return `${doctype}${body.replace(/<head([^>]*)>/i, `<head$1>${prelude}`)}`
-  }
-
-  if (/<html[\s>]/i.test(body)) {
-    return `${doctype}${body.replace(/<html([^>]*)>/i, `<html$1><head>${prelude}</head>`)}`
-  }
-
-  if (/<body[\s>]/i.test(body)) {
-    return `${doctype}<html><head>${prelude}</head>${body}</html>`
-  }
-
-  return `${doctype}<html><head>${prelude}</head><body>${body}</body></html>`
+  // A meta-delivered CSP only protects content parsed after the meta element.
+  // Emit it before every untrusted source token; Chromium will place these
+  // head-only elements into the document head before parsing the supplied HTML.
+  return `${doctype}${prelude}${body}`
 }
 
 function splitHtmlPreviewDoctype(source: string): { body: string; doctype: string } {

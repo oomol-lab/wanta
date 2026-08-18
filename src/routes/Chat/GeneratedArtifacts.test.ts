@@ -6,7 +6,7 @@ import type { TranslateFn } from "@/i18n/i18n"
 import * as React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
+import { htmlPreviewHasScripts, htmlPreviewSandbox, htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 import { artifactGroupDisplayItem, artifactKindLabel, isVideoArtifact } from "./artifact-metadata.ts"
 import { buildArtifactPaletteItems } from "./composer-palette-items.ts"
 import { GeneratedArtifactsShelf } from "./GeneratedArtifacts.tsx"
@@ -71,6 +71,31 @@ describe("htmlPreviewSrcDoc", () => {
 
     expect(result).toContain('<head><meta http-equiv="Content-Security-Policy"')
     expect(result).toContain("<title>x</title>")
+  })
+
+  it("allows inline scripts while keeping network, frames, forms, and objects blocked", () => {
+    const result = htmlPreviewSrcDoc("<html><body><script>document.body.dataset.ready='1'</script></body></html>")
+
+    expect(result).toContain("script-src 'unsafe-inline'")
+    expect(result).toContain("connect-src 'none'")
+    expect(result).toContain("frame-src 'none'")
+    expect(result).toContain("object-src 'none'")
+    expect(result).toContain("form-action 'none'")
+    expect(htmlPreviewSandbox(true)).toBe("allow-scripts")
+    expect(htmlPreviewSandbox(true)).not.toContain("allow-same-origin")
+  })
+
+  it("supports a static fallback that disables scripts", () => {
+    const result = htmlPreviewSrcDoc("<script>document.write('dynamic')</script>", { scriptsEnabled: false })
+
+    expect(result).toContain("script-src 'none'")
+    expect(htmlPreviewSandbox(false)).toBe("")
+  })
+
+  it("detects script elements and inline event handlers", () => {
+    expect(htmlPreviewHasScripts("<script type=module></script>")).toBe(true)
+    expect(htmlPreviewHasScripts('<button onclick="run()">Run</button>')).toBe(true)
+    expect(htmlPreviewHasScripts("<main>Static report</main>")).toBe(false)
   })
 })
 

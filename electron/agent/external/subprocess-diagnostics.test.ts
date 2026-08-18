@@ -14,6 +14,16 @@ describe("subprocess diagnostics", () => {
     ).toBe("Error: Cannot find module 'runtime'")
   })
 
+  test("recognizes a Node error with a bracketed error code", () => {
+    expect(
+      subprocessFailureSummary(
+        "node:internal/modules/esm/resolve:999\n" +
+          "Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'runtime'\n" +
+          "Node.js v24.16.0\n",
+      ),
+    ).toBe("Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'runtime'")
+  })
+
   test("falls back to the final non-empty line", () => {
     expect(subprocessFailureSummary("warning\nprocess stopped\n")).toBe("process stopped")
   })

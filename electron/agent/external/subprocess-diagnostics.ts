@@ -11,5 +11,8 @@ export function subprocessFailureSummary(stderrTail: string): string | undefined
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter(Boolean)
-  return lines.find((line) => /^(?:Error|TypeError|ReferenceError|SyntaxError):/u.test(line)) ?? lines.at(-1)
+  return (
+    lines.find((line) => /^(?:Error|TypeError|ReferenceError|SyntaxError)(?:\s+\[[^\]]+\])?:/u.test(line)) ??
+    lines.at(-1)
+  )
 }

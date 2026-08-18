@@ -171,6 +171,7 @@ export async function probeExternalAgent(
     kind,
     binaryStatus: status.binary.status,
     ...(status.binary.status === "detected" ? { version: status.binary.version ?? null } : {}),
+    ...(status.binary.status === "error" ? { binaryError: status.binary.message } : {}),
     loginStatus: status.login.status,
   })
   return status

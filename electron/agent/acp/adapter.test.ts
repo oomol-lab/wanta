@@ -44,6 +44,8 @@ interface FakePromptTurn {
 
 interface FakeAgentBehavior {
   initialize?: Partial<InitializeResponse>
+  initializeError?: Error
+  failureDetail?: string
   /** Override session/new; may throw (for auth_required scenarios). */
   newSession?: (params: NewSessionRequest) => NewSessionResponse
   /** Drive a prompt turn; defaults to an immediate end_turn. */
@@ -79,7 +81,12 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
   const permissionResponses: RequestPermissionResponse[] = []
 
   const app = agent({ name: "fake-acp-agent" })
-    .onRequest("initialize", () => ({ protocolVersion: PROTOCOL_VERSION, ...behavior.initialize }))
+    .onRequest("initialize", () => {
+      if (behavior.initializeError) {
+        throw behavior.initializeError
+      }
+      return { protocolVersion: PROTOCOL_VERSION, ...behavior.initialize }
+    })
     .onRequest("session/new", ({ params }) => {
       newSessionRequests.push(params)
       if (behavior.newSession) {
@@ -158,6 +165,7 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
         dispose: () => {
           agentConnection.close()
         },
+        failureDetail: behavior.failureDetail ? () => behavior.failureDetail : undefined,
         onExit: (callback) => {
           exitCallbacks.push(callback)
         },
@@ -623,6 +631,27 @@ describe("AcpAgentAdapter", () => {
     expect(message).toContain(`${PROTOCOL_VERSION}`)
     expect(harness.fake.newSessionRequests).toHaveLength(0)
   })
+
+  test.each(["codex", "grok"] as const)(
+    "%s initialize failure includes the captured subprocess detail",
+    async (kind) => {
+      const registration = ACP_AGENT_REGISTRY[kind]
+      const harness = await createHarness(
+        {
+          initializeError: new Error("ACP connection closed"),
+          failureDetail: "Error: native ACP process failed during startup",
+        },
+        kind,
+      )
+
+      await expect(harness.adapter.send(promptInput())).rejects.toThrow(
+        "ACP subprocess: Error: native ACP process failed during startup",
+      )
+      const error = await harness.waitFor((event) => event.event === "agentError")
+      expect(eventData(error, "agentError").message).toContain(registration.displayName)
+      expect(eventData(error, "agentError").message).toContain("native ACP process failed during startup")
+    },
+  )
 
   test("an unknown permission requestId is rejected loudly", async () => {
     const harness = await createHarness()

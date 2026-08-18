@@ -28,6 +28,7 @@ import { AGENT_PROFILES, agentLoginHint } from "../contract/profile.ts"
 import { ExternalAgentAdapter } from "../external/adapter-base.ts"
 import { externalAgentPromptText } from "../external/prompt.ts"
 import { externalSessionUuid } from "../external/session-id.ts"
+import { appendStderrTail, subprocessFailureSummary } from "../external/subprocess-diagnostics.ts"
 import { createClaudeTurnTranslator, isLocalCommandText } from "./translator.ts"
 
 // Claude Code native adapter (BYOA phase 1).
@@ -41,7 +42,6 @@ import { createClaudeTurnTranslator, isLocalCommandText } from "./translator.ts"
 // `allowDangerouslySkipPermissions: true` at query creation.
 
 const PROBE_CACHE_TTL_MS = 30_000
-const MAX_STDERR_CHUNKS = 40
 const LOGIN_HINT = agentLoginHint("claude-code")
 
 export interface ClaudeCodeAdapterOptions {
@@ -114,7 +114,7 @@ interface ClaudeSessionState {
   inputQueue: AsyncInputQueue<SDKUserMessage>
   queryHandle: Query
   /** Bounded ring buffer of recent subprocess stderr chunks for diagnostics. */
-  stderrTail: string[]
+  stderrTail: string
   loop: Promise<void>
   /** How the native CLI session was started; drives the retry fallback. */
   startMode: "fresh" | "resume"
@@ -758,7 +758,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     const hostServerNames = new Set((hostMcpServers ?? []).map((server) => server.name))
     const inputQueue = new AsyncInputQueue<SDKUserMessage>()
     const abortController = new AbortController()
-    const stderrTail: string[] = []
+    let stderrTail = ""
     const queryHandle = this.queryFn({
       prompt: inputQueue,
       options: {
@@ -792,10 +792,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         ...(startMode === "resume" ? { resume: sessionUuid } : { sessionId: sessionUuid }),
         canUseTool: this.createCanUseTool(sessionId, hostServerNames),
         stderr: (data: string) => {
-          stderrTail.push(data)
-          if (stderrTail.length > MAX_STDERR_CHUNKS) {
-            stderrTail.shift()
-          }
+          stderrTail = appendStderrTail(stderrTail, data)
         },
         abortController,
       },
@@ -805,7 +802,9 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       sessionUuid,
       inputQueue,
       queryHandle,
-      stderrTail,
+      get stderrTail() {
+        return stderrTail
+      },
       loop: Promise.resolve(),
       startMode,
     }
@@ -858,12 +857,14 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       }
     } catch (error) {
       const raw = errorMessage(error)
-      const message = isAuthenticationFailureMessage(raw) ? `${raw} ${LOGIN_HINT}` : raw
+      const stderrSummary = subprocessFailureSummary(session.stderrTail)
+      const detail = stderrSummary && !raw.includes(stderrSummary) ? `. Claude subprocess: ${stderrSummary}` : ""
+      const message = isAuthenticationFailureMessage(raw) ? `${raw} ${LOGIN_HINT}` : `${raw}${detail}`
       // A startup failure means the start mode itself was wrong (resume of a
       // vanished CLI session, or a fresh start rejected as duplicate); flip it
       // so the user's retry takes the other path instead of dead-ending.
       if (!receivedAnyMessage) {
-        const failureText = raw + session.stderrTail.join("")
+        const failureText = raw + session.stderrTail
         if (session.startMode === "resume") {
           this.nativeStartOverride.set(session.sessionId, "fresh")
         } else if (/already in use/iu.test(failureText)) {
@@ -874,7 +875,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       logDiagnostic(
         "claude-code-adapter",
         "query loop failed",
-        { sessionId: session.sessionId, error: raw, stderrTail: session.stderrTail.join("") },
+        { sessionId: session.sessionId, error: raw, stderrTail: session.stderrTail },
         "error",
       )
     } finally {

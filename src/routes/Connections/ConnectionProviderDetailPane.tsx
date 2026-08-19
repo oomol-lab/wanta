@@ -92,6 +92,7 @@ export function ProviderDetail({
   progressLabel,
   reopenPollingLabel,
   provider,
+  selectedAppId,
   showCloseButton = false,
 }: {
   accessContext?: ConnectionAccessContext
@@ -117,6 +118,7 @@ export function ProviderDetail({
   progressLabel?: string
   reopenPollingLabel?: string
   provider: ConnectionProviderSummary
+  selectedAppId?: string | null
   showCloseButton?: boolean
 }) {
   const t = useT()
@@ -178,6 +180,7 @@ export function ProviderDetail({
               onDisconnect={onDisconnect}
               polling={polling}
               provider={provider}
+              selectedAppId={selectedAppId}
               reconnectBlocked
             />
           ) : null
@@ -199,6 +202,7 @@ export function ProviderDetail({
             progressLabel={progressLabel}
             reopenPollingLabel={reopenPollingLabel}
             provider={provider}
+            selectedAppId={selectedAppId}
           />
         )}
       </section>
@@ -302,6 +306,7 @@ function ConnectionPanel({
   progressLabel,
   reopenPollingLabel,
   provider,
+  selectedAppId,
 }: {
   accessContext?: ConnectionAccessContext
   actionsPending?: boolean
@@ -323,6 +328,7 @@ function ConnectionPanel({
   progressLabel?: string
   reopenPollingLabel?: string
   provider: ConnectionProviderSummary
+  selectedAppId?: string | null
 }) {
   const t = useT()
   const [selectedAuthType, setSelectedAuthType] = React.useState<Exclude<ConnectionAuthType, null> | null>(
@@ -447,6 +453,7 @@ function ConnectionPanel({
           onDisconnect={onDisconnect}
           polling={polling}
           provider={provider}
+          selectedAppId={selectedAppId}
           reconnectBlocked={authorizationBlocked}
         />
       ) : null}

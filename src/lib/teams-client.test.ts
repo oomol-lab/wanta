@@ -10,6 +10,7 @@ import {
   isTeamMemberLimitError,
   listCreatedTeams,
   listMyTeams,
+  listTeamConnectionApps,
   listTeamMembers,
   listTeamProviderOptions,
   listUserSummaries,
@@ -45,6 +46,39 @@ describe("teams-client", () => {
     await listTeamProviderOptions("acme")
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("returns normalized Connection Apps in the requested team scope", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        data: [
+          {
+            alias: "Work",
+            authType: "oauth2",
+            id: "app-2",
+            isDefault: false,
+            service: "github",
+            status: "active",
+          },
+          {
+            authType: "api_key",
+            id: "app-1",
+            isDefault: true,
+            service: "airtable",
+            status: "reauth_required",
+          },
+          { id: "missing-service" },
+        ],
+      }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(listTeamConnectionApps(" acme ")).resolves.toMatchObject([
+      { id: "app-1", service: "airtable", status: "reauth_required" },
+      { alias: "Work", id: "app-2", service: "github", status: "active" },
+    ])
+    const [, init] = fetchMock.mock.calls[0] ?? []
+    expect(new Headers(init?.headers).get("x-oo-team-name")).toBe("acme")
   })
 
   it("creates teams through the console API team endpoint", async () => {

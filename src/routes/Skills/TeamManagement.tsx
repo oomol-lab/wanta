@@ -1,5 +1,6 @@
 import type { PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { BusyAction } from "./team-management-model.ts"
+import type { MemberConnectionAccessDelta } from "./team-member-connection-access-model.ts"
 import type { ProviderSkillRecommendationsState } from "@/hooks/useProviderSkillRecommendations"
 import type { UseTeamSkills } from "@/hooks/useTeamSkills"
 import type { UseTeamWorkspace } from "@/hooks/useTeamWorkspace"
@@ -20,6 +21,7 @@ import {
 import { SkillDetailContent } from "./SkillDetailContent.tsx"
 import { SkillManagementSheet } from "./SkillUiParts.tsx"
 import { buildTeamMemberViews } from "./team-management-model.ts"
+import { applyMemberConnectionAccessDelta } from "./team-member-connection-access-model.ts"
 import {
   EmptyTeamsState,
   TeamManagementSkeleton,
@@ -43,6 +45,8 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
 import { useAppI18n } from "@/i18n"
+import { invalidateTeamDetailsResource } from "@/lib/team-details-resource"
+import { getTeamAppAccessSnapshot, listTeamConnectionApps, updateTeamAppAccess } from "@/lib/teams-client"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
 import { useRegistrySkillUpdate } from "@/routes/Skills/use-registry-skill-update"
 import { useTeamDetails } from "@/routes/Skills/use-team-details"
@@ -53,11 +57,13 @@ import { useTeamSkillActions } from "@/routes/Skills/use-team-skill-actions"
 
 export function TeamManagementRoute({
   connectedProvidersLoading = false,
+  onOpenConnection,
   teamSkills,
   providerSkillRecommendationsState,
   workspace,
 }: {
   connectedProvidersLoading?: boolean
+  onOpenConnection: (target: { appId: string; service: string }) => void
   teamSkills?: UseTeamSkills
   providerSkillRecommendationsState: ProviderSkillRecommendationsState
   workspace: UseTeamWorkspace
@@ -160,12 +166,15 @@ export function TeamManagementRoute({
   const providerSkillRecommendations = providerSkillRecommendationsState.recommendations
   const canManage = activeWorkspace.canManage
   const {
+    appAccessState,
+    connectionAppsState,
     membersState,
     refresh: refreshDetails,
     reload,
     summariesState,
   } = useTeamDetails({
     activeAccountId,
+    canManage,
     selectedTeam,
   })
   const {
@@ -256,6 +265,20 @@ export function TeamManagementRoute({
     setAddMemberOpen,
     setBusyAction,
   })
+  const saveMemberConnectionAccess = React.useCallback(
+    async (delta: MemberConnectionAccessDelta) => {
+      if (!selectedTeam || !canManage) throw new Error(t("teams.memberConnectionAccessReadOnly"))
+      const [latest, apps] = await Promise.all([
+        getTeamAppAccessSnapshot(selectedTeam.id),
+        listTeamConnectionApps(selectedTeam.name, { forceRefresh: true }),
+      ])
+      const next = applyMemberConnectionAccessDelta(latest.access, apps, delta)
+      await updateTeamAppAccess(selectedTeam.id, next, { etag: latest.etag })
+      invalidateTeamDetailsResource(activeAccountId, selectedTeam.id)
+      await reload()
+    },
+    [activeAccountId, canManage, reload, selectedTeam, t],
+  )
   return (
     <>
       <div className="h-full min-h-0 overflow-hidden px-3 py-3">
@@ -349,6 +372,12 @@ export function TeamManagementRoute({
                         actorUserId={activeAccountId}
                         busyAction={busyAction}
                         canManage={canManage}
+                        connectionAccess={{
+                          access: appAccessState.data,
+                          apps: connectionAppsState.data,
+                          error: appAccessState.error ?? connectionAppsState.error,
+                          loading: appAccessState.status === "loading" || connectionAppsState.status === "loading",
+                        }}
                         members={memberViews}
                         membersComplete={membersComplete}
                         membersError={membersError}
@@ -358,8 +387,11 @@ export function TeamManagementRoute({
                         onAddMember={() => setAddMemberOpen(true)}
                         onDisableMembers={memberActions.disableMembers}
                         onEnableMembers={memberActions.enableMembers}
+                        onOpenConnection={onOpenConnection}
                         onRemoveMember={memberActions.removeMember}
                         onRetryMembers={() => void reload()}
+                        onRetryConnectionAccess={() => void reload()}
+                        onSaveMemberConnectionAccess={saveMemberConnectionAccess}
                         onUpdateMemberRole={memberActions.updateMemberRole}
                       />
                     </div>

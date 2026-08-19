@@ -88,6 +88,7 @@ interface ConnectionsPanelProps {
   onConnectionReady?: (target: { service: string; connectionName?: string }) => void
   presentation?: "drawer" | "page"
   requestedFilter?: ConnectionCatalogFilter
+  selectedAppId?: string | null
   selectedService?: string | null
 }
 
@@ -114,6 +115,7 @@ export function ConnectionsPanel({
   onConnectionReady,
   presentation = "page",
   requestedFilter,
+  selectedAppId,
   selectedService,
 }: ConnectionsPanelProps) {
   const t = useT()
@@ -685,6 +687,7 @@ export function ConnectionsPanel({
             progressLabel={selectedProviderProgressLabel}
             reopenPollingLabel={reopenSelectedProviderPollingLabel}
             provider={selectedProvider}
+            selectedAppId={selectedAppId}
             showCloseButton
           />
         ) : (
@@ -834,6 +837,7 @@ export function ConnectionsPanel({
               progressLabel={selectedProviderProgressLabel}
               reopenPollingLabel={reopenSelectedProviderPollingLabel}
               provider={selectedProvider}
+              selectedAppId={selectedAppId}
             />
           </SplitViewMobileDetailPane>
         ) : null}
@@ -867,6 +871,7 @@ export function ConnectionsPanel({
               progressLabel={selectedProviderProgressLabel}
               reopenPollingLabel={reopenSelectedProviderPollingLabel}
               provider={selectedProvider}
+              selectedAppId={selectedAppId}
             />
           </SplitViewDesktopDetailPane>
         ) : null}

@@ -37,6 +37,7 @@ export function ConnectionAccountsList({
   onDisconnect,
   polling,
   provider,
+  selectedAppId,
   reconnectBlocked,
 }: {
   accessContext?: ConnectionAccessContext
@@ -51,6 +52,7 @@ export function ConnectionAccountsList({
   onDisconnect: (target: DisconnectTarget) => void
   polling: string | null
   provider: ConnectionProviderSummary
+  selectedAppId?: string | null
   reconnectBlocked?: boolean
 }) {
   const t = useT()
@@ -76,6 +78,7 @@ export function ConnectionAccountsList({
           onDisconnect={onDisconnect}
           polling={polling}
           provider={provider}
+          selectedAppId={selectedAppId}
           reconnectBlocked={Boolean(reconnectBlocked)}
           servicePolling={servicePolling}
         />
@@ -95,6 +98,7 @@ function ConnectionAccountItem({
   onDisconnect,
   polling,
   provider,
+  selectedAppId,
   reconnectBlocked,
   servicePolling,
 }: {
@@ -112,6 +116,7 @@ function ConnectionAccountItem({
   onDisconnect: (target: DisconnectTarget) => void
   polling: string | null
   provider: ConnectionProviderSummary
+  selectedAppId?: string | null
   reconnectBlocked: boolean
   servicePolling: boolean
 }) {
@@ -148,6 +153,10 @@ function ConnectionAccountItem({
     setAliasEditing(false)
     setAliasBusy(false)
   }, [app.id, app.alias, app.isDefault])
+
+  React.useEffect(() => {
+    if (accessContext && selectedAppId === app.id) setAccessOpen(true)
+  }, [accessContext, app.id, selectedAppId])
 
   async function saveAlias() {
     if (!aliasDirty || aliasDisabled) return

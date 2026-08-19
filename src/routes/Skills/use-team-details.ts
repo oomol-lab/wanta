@@ -1,11 +1,16 @@
-import type { Team, TeamMember, TeamUserSummary } from "../../../electron/teams/common.ts"
+import type { ConnectionAppSummary } from "../../../electron/connections/common.ts"
+import type { Team, TeamAppAccess, TeamMember, TeamUserSummary } from "../../../electron/teams/common.ts"
 import type { LoadState } from "./team-management-model.ts"
 
 import * as React from "react"
 import { errorState, loadState, loadingState, readyState, uniqueStrings } from "./team-management-model.ts"
 import {
   getCachedTeamMembers,
+  getCachedTeamAppAccess,
+  getCachedTeamConnectionApps,
   getCachedTeamUserSummaries,
+  getTeamAppAccessResource,
+  getTeamConnectionAppsResource,
   getTeamMembersResource,
   getTeamUserSummariesResource,
 } from "@/lib/team-details-resource"
@@ -21,17 +26,25 @@ function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
 
 export function useTeamDetails({
   activeAccountId,
+  canManage,
   selectedTeam,
 }: {
   activeAccountId: string | undefined
+  canManage: boolean
   selectedTeam: Team | null
 }) {
   const [membersState, setMembersState] = React.useState<LoadState<TeamMember[]>>(() => loadState([]))
   const [summariesState, setSummariesState] = React.useState<LoadState<Record<string, TeamUserSummary>>>(() =>
     loadState({}),
   )
+  const [appAccessState, setAppAccessState] = React.useState<LoadState<TeamAppAccess | null>>(() => loadState(null))
+  const [connectionAppsState, setConnectionAppsState] = React.useState<LoadState<ConnectionAppSummary[]>>(() =>
+    loadState([]),
+  )
   const detailsRequestId = React.useRef(0)
+  const permissionsRequestId = React.useRef(0)
   const detailsTeamIdRef = React.useRef<string | null>(null)
+  const permissionsTeamIdRef = React.useRef<string | null>(null)
   const activeAccountIdRef = React.useRef(activeAccountId)
   const latestActiveAccountIdRef = React.useRef(activeAccountId)
   const selectedTeamIdRef = React.useRef(selectedTeam?.id ?? null)
@@ -40,10 +53,65 @@ export function useTeamDetails({
 
   const reset = React.useCallback(() => {
     detailsRequestId.current += 1
+    permissionsRequestId.current += 1
     detailsTeamIdRef.current = null
+    permissionsTeamIdRef.current = null
     setMembersState(loadState([]))
     setSummariesState(loadState({}))
+    setAppAccessState(loadState(null))
+    setConnectionAppsState(loadState([]))
   }, [])
+
+  const loadPermissions = React.useCallback(
+    async (team: Team, options: { forceRefresh?: boolean } = {}) => {
+      if (!canManage) {
+        permissionsRequestId.current += 1
+        permissionsTeamIdRef.current = null
+        setAppAccessState(readyState(null))
+        setConnectionAppsState(readyState([]))
+        return
+      }
+      if (latestActiveAccountIdRef.current !== activeAccountId || selectedTeamIdRef.current !== team.id) return
+
+      const requestId = permissionsRequestId.current + 1
+      permissionsRequestId.current = requestId
+      const resourceAccountId = activeAccountId ?? "anonymous"
+      const cachedAccess = options.forceRefresh ? null : getCachedTeamAppAccess(resourceAccountId, team.id)
+      const cachedApps = options.forceRefresh
+        ? null
+        : getCachedTeamConnectionApps(resourceAccountId, team.id, team.name)
+      const preserveCurrentData = permissionsTeamIdRef.current === team.id
+      permissionsTeamIdRef.current = null
+      setAppAccessState((current) =>
+        cachedAccess
+          ? readyState(cachedAccess)
+          : loadingState(preserveCurrentData && current.data ? current : loadState(null)),
+      )
+      setConnectionAppsState((current) =>
+        cachedApps
+          ? readyState(cachedApps)
+          : loadingState(preserveCurrentData && current.data.length > 0 ? current : loadState([])),
+      )
+
+      const [accessResult, appsResult] = await Promise.all([
+        settle(getTeamAppAccessResource(resourceAccountId, team.id, { forceRefresh: options.forceRefresh })),
+        settle(
+          getTeamConnectionAppsResource(resourceAccountId, team.id, team.name, {
+            forceRefresh: options.forceRefresh,
+          }),
+        ),
+      ])
+      if (permissionsRequestId.current !== requestId) return
+      setAppAccessState((current) =>
+        accessResult.ok ? readyState(accessResult.value) : errorState(current, accessResult.error),
+      )
+      setConnectionAppsState((current) =>
+        appsResult.ok ? readyState(appsResult.value) : errorState(current, appsResult.error),
+      )
+      permissionsTeamIdRef.current = team.id
+    },
+    [activeAccountId, canManage],
+  )
 
   const load = React.useCallback(
     async (team: Team, options: { forceRefresh?: boolean } = {}) => {
@@ -114,13 +182,17 @@ export function useTeamDetails({
   React.useEffect(() => {
     if (!selectedTeam) {
       detailsRequestId.current += 1
+      permissionsRequestId.current += 1
       detailsTeamIdRef.current = null
+      permissionsTeamIdRef.current = null
       setMembersState(loadState([]))
       setSummariesState(loadState({}))
+      setAppAccessState(loadState(null))
+      setConnectionAppsState(loadState([]))
       return
     }
-    void load(selectedTeam)
-  }, [load, selectedTeam?.id, selectedTeam?.name])
+    void Promise.all([load(selectedTeam), loadPermissions(selectedTeam)])
+  }, [load, loadPermissions, selectedTeam?.id, selectedTeam?.name])
 
   const reload = React.useCallback(async () => {
     if (
@@ -128,9 +200,12 @@ export function useTeamDetails({
       latestActiveAccountIdRef.current === activeAccountId &&
       selectedTeamIdRef.current === selectedTeam.id
     ) {
-      await load(selectedTeam, { forceRefresh: true })
+      await Promise.all([
+        load(selectedTeam, { forceRefresh: true }),
+        loadPermissions(selectedTeam, { forceRefresh: true }),
+      ])
     }
-  }, [activeAccountId, load, selectedTeam])
+  }, [activeAccountId, load, loadPermissions, selectedTeam])
 
   const refresh = React.useCallback(async () => {
     if (
@@ -138,11 +213,13 @@ export function useTeamDetails({
       latestActiveAccountIdRef.current === activeAccountId &&
       selectedTeamIdRef.current === selectedTeam.id
     ) {
-      await load(selectedTeam)
+      await Promise.all([load(selectedTeam), loadPermissions(selectedTeam)])
     }
-  }, [activeAccountId, load, selectedTeam])
+  }, [activeAccountId, load, loadPermissions, selectedTeam])
 
   return {
+    appAccessState,
+    connectionAppsState,
     membersState,
     refresh,
     reload,

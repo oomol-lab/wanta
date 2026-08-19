@@ -1,3 +1,4 @@
+import type { ConnectionAppSummary } from "../../electron/connections/common.ts"
 import type {
   CreateTeamRequest,
   EditableTeamMemberRole,
@@ -15,6 +16,7 @@ import type {
   UploadTeamAvatarResponse,
 } from "../../electron/teams/common.ts"
 
+import { normalizeApp } from "../../electron/connections/summary.ts"
 import { getConnectionApps, getConnectionProviders } from "@/lib/connections-client"
 import { apiBaseUrl, teamControlBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
@@ -575,4 +577,17 @@ export async function listTeamProviderOptions(teamName: string): Promise<TeamPro
     Array.isArray(apps.data) ? apps.data : [],
     Array.isArray(providers.data) ? providers.data : [],
   )
+}
+
+export async function listTeamConnectionApps(
+  teamName: string,
+  options: { forceRefresh?: boolean } = {},
+): Promise<ConnectionAppSummary[]> {
+  const normalized = teamName.trim()
+  if (!normalized) return []
+  const result = await getConnectionApps({ manageable: true, teamName: normalized }, options)
+  return result.data
+    .map(normalizeApp)
+    .filter((app): app is ConnectionAppSummary => Boolean(app))
+    .sort((left, right) => left.service.localeCompare(right.service) || left.id.localeCompare(right.id))
 }

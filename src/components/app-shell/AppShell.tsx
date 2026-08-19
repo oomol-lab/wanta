@@ -637,6 +637,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [accountId, canManageWorkspaceConnections, teamWorkspace.activeWorkspace.team],
   )
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
+  const [selectedConnectionAppId, setSelectedConnectionAppId] = React.useState<string | null>(null)
   const [connectionCatalogFilter, setConnectionCatalogFilter] = React.useState<ConnectionCatalogFilter>({ kind: "all" })
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
@@ -1351,11 +1352,23 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         return next
       })
       setSelectedService(null)
+      setSelectedConnectionAppId(null)
       setConnectionCatalogFilter(normalizeConnectionCatalogFilter(filter))
       setRoute("connections")
       void connections.refresh({}, { silent: true })
     },
     [activeComposerDraftKey, cancelRetryForDrawer, connections.refresh],
+  )
+
+  const handleOpenTeamConnection = React.useCallback(
+    ({ appId, service }: { appId: string; service: string }): void => {
+      setSelectedService(service)
+      setSelectedConnectionAppId(appId)
+      setConnectionCatalogFilter({ kind: "all" })
+      setRoute("connections")
+      void connections.refresh({}, { silent: true })
+    },
+    [connections.refresh],
   )
 
   const handleOpenChatConnectionProvider = React.useCallback(
@@ -2197,6 +2210,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                       canManageConnections={canManageWorkspaceConnections}
                       connections={connections}
                       requestedFilter={connectionCatalogFilter}
+                      selectedAppId={selectedConnectionAppId}
                       selectedService={selectedService}
                     />
                   </div>
@@ -2222,6 +2236,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
               ) : route === "teams" && oomolEnabled ? (
                 <TeamManagementRoute
                   connectedProvidersLoading={activeProvidersLoading}
+                  onOpenConnection={handleOpenTeamConnection}
                   teamSkills={teamSkills}
                   providerSkillRecommendationsState={providerSkillRecommendations}
                   workspace={teamWorkspace}

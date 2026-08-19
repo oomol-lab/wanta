@@ -2,7 +2,11 @@ import { mkdtemp, rm, truncate, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { understandAttachedImages, readBoundedRegularFile } from "./image-understanding.ts"
+import {
+  isImageUrlContentSchemaMismatch,
+  understandAttachedImages,
+  readBoundedRegularFile,
+} from "./image-understanding.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -92,6 +96,43 @@ describe("understandAttachedImages", () => {
     } finally {
       await rm(directory, { force: true, recursive: true })
     }
+  })
+
+  it("records safe error metadata for an image protocol mismatch without exposing the provider body", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-image-understanding-provider-error-"))
+    const imagePath = path.join(directory, "screen.png")
+    await writeFile(imagePath, "image bytes")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("unknown variant `image_url`, expected `text`", {
+            status: 400,
+            statusText: "Bad Request",
+            headers: { "x-request-id": "image-request-123" },
+          }),
+      ),
+    )
+
+    try {
+      await expect(
+        understandAttachedImages(
+          [{ id: "image-1", mime: "image/png", name: "screen.png", path: imagePath, size: 11 }],
+          "describe it",
+          "session-token",
+        ),
+      ).rejects.toThrow("provider rejected image_url content; request id image-request-123")
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it("recognizes only the gateway image-url schema mismatch", () => {
+    expect(
+      isImageUrlContentSchemaMismatch(new Error("Failed to deserialize: unknown variant `image_url`, expected `text`")),
+    ).toBe(true)
+    expect(isImageUrlContentSchemaMismatch(new Error("image_url request timed out"))).toBe(false)
+    expect(isImageUrlContentSchemaMismatch(new Error("unknown variant `audio_url`, expected `text`"))).toBe(false)
   })
 
   it("rejects an image that expands after attachment planning", async () => {

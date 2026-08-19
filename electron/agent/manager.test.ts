@@ -933,6 +933,52 @@ describe("AgentManager", () => {
     }
   })
 
+  it("retries a rejected direct image input as a text-only turn", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "wanta-image-input-protocol-fallback-"))
+    const imagePath = path.join(directory, "photo.png")
+    await writeFile(imagePath, "test image")
+    const promptAsync = vi
+      .fn()
+      .mockResolvedValueOnce({
+        error: "Failed to deserialize the JSON body: unknown variant `image_url`, expected `text`",
+      })
+      .mockResolvedValueOnce({ data: true })
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { session: { promptAsync } } }
+    manager.buildAuthorizedSystem = async () => undefined
+
+    try {
+      await manager.promptStreaming("session-1", "what is shown?", {
+        attachments: [{ id: "image-1", mime: "image/png", name: "photo.png", path: imagePath, size: 10 }],
+        model: { kind: "builtin", id: "qwen3.7-plus" },
+        teamName: "acme",
+      })
+
+      expect(promptAsync).toHaveBeenCalledTimes(2)
+      const first = promptAsync.mock.calls[0]?.[0] as { parts: Array<{ mime?: string; type: string }> }
+      const retry = promptAsync.mock.calls[1]?.[0] as {
+        parts: Array<{ metadata?: Record<string, unknown>; mime?: string; text?: string; type: string }>
+      }
+      expect(first.parts).toContainEqual(expect.objectContaining({ mime: "image/png", type: "file" }))
+      expect(retry.parts).not.toContainEqual(expect.objectContaining({ mime: "image/png", type: "file" }))
+      expect(retry.parts).toContainEqual(
+        expect.objectContaining({
+          metadata: { wantaPurpose: "image-understanding", wantaVisibility: "internal" },
+          text: expect.stringContaining("rejected the standard image input format"),
+          type: "text",
+        }),
+      )
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("resolves without prompting the model when image understanding is aborted", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "wanta-image-understanding-abort-"))
     const imagePath = path.join(directory, "photo.png")

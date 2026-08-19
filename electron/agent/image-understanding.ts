@@ -94,7 +94,10 @@ export async function understandAttachedImages(
     signal: requestSignal,
   })
   if (!response.ok) {
-    throw new Error(`image understanding request failed: ${response.status} ${response.statusText}`)
+    const detail = await providerErrorDetail(response)
+    throw new Error(
+      `image understanding request failed: ${response.status} ${response.statusText}` + (detail ? `: ${detail}` : ""),
+    )
   }
 
   const payload = (await response.json()) as ImageUnderstandingPayload
@@ -108,6 +111,39 @@ export async function understandAttachedImages(
     )
   }
   return normalized
+}
+
+/**
+ * Some OpenAI-compatible gateways advertise a visual model but only deserialize
+ * text content. Keep this narrow so unrelated provider failures are never retried.
+ */
+export function isImageUrlContentSchemaMismatch(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  const normalized = message.toLowerCase()
+  return (
+    normalized.includes("image_url") &&
+    (normalized.includes("unknown variant") || normalized.includes("unsupported content type")) &&
+    normalized.includes("text")
+  )
+}
+
+async function providerErrorDetail(response: Response): Promise<string | undefined> {
+  const body = await response.text()
+  const requestId =
+    response.headers.get("x-request-id") ?? response.headers.get("request-id") ?? requestIdFromBody(body)
+  const details: string[] = []
+  if (isImageUrlContentSchemaMismatch(body)) {
+    details.push("provider rejected image_url content")
+  }
+  if (requestId) {
+    details.push(`request id ${requestId}`)
+  }
+  return details.length > 0 ? details.join("; ") : undefined
+}
+
+function requestIdFromBody(body: string): string | undefined {
+  const match = body.match(/request[ _-]?id\s*[:=]\s*([a-z0-9_-]{8,200})/i)
+  return match?.[1]
 }
 
 function normalizeJsonObject(value: string): string | undefined {

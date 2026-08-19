@@ -37,11 +37,12 @@ type MarkdownImageProps = ComponentProps<"img"> & {
 
 interface LocalImagePreviewCacheEntry {
   expiresAt?: number
-  url: string | null
+  url: string
 }
 
 const localImagePreviewUrlByPath = new Map<string, LocalImagePreviewCacheEntry>()
 const localImagePreviewRefreshMarginMs = 60_000
+export const localImagePreviewRetryDelaysMs = [250, 750, 1_500] as const
 const imageViewerMinScale = 0.1
 const imageViewerMaxScale = 4
 const imageViewerScaleStep = 0.1
@@ -50,6 +51,10 @@ const mouseWheelZoomDelta = 0.12
 
 export function attachmentPreviewSource(result: AttachmentPreviewResult): string | null {
   return result.resourceUrl ?? result.dataUrl
+}
+
+export function localImagePreviewRetryDelay(retry: number): number | null {
+  return localImagePreviewRetryDelaysMs[retry] ?? null
 }
 
 interface ImageViewerSize {
@@ -253,6 +258,10 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
   const dragRef = useRef<ImageViewerDragState | null>(null)
 
   useEffect(() => {
+    setPreviewRetry(0)
+  }, [localPath])
+
+  useEffect(() => {
     if (!localPath) {
       setPreviewUrl(null)
       return
@@ -265,6 +274,18 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
     localImagePreviewUrlByPath.delete(localPath)
     setPreviewUrl(null)
     let cancelled = false
+    let retryTimer: number | null = null
+    const scheduleRetry = (): void => {
+      const delay = localImagePreviewRetryDelay(previewRetry)
+      if (delay === null) {
+        return
+      }
+      retryTimer = window.setTimeout(() => {
+        if (!cancelled) {
+          setPreviewRetry((value) => value + 1)
+        }
+      }, delay)
+    }
     void chatService
       .invoke("getAttachmentPreview", { path: localPath, mime: "application/octet-stream" })
       .then((result) => {
@@ -272,6 +293,12 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
           return
         }
         const nextUrl = attachmentPreviewSource(result)
+        if (!nextUrl) {
+          localImagePreviewUrlByPath.delete(localPath)
+          setPreviewUrl(null)
+          scheduleRetry()
+          return
+        }
         localImagePreviewUrlByPath.set(localPath, { expiresAt: result.resourceExpiresAt, url: nextUrl })
         setPreviewUrl(nextUrl)
       })
@@ -279,13 +306,14 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
         if (!cancelled) {
           localImagePreviewUrlByPath.delete(localPath)
           setPreviewUrl(null)
-          if (previewRetry < 1) {
-            setPreviewRetry((value) => value + 1)
-          }
+          scheduleRetry()
         }
       })
     return () => {
       cancelled = true
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer)
+      }
     }
   }, [chatService, localPath, previewRetry])
 
@@ -298,7 +326,7 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
   const previewTitle = alt || downloadName
   const handlePreviewError: MarkdownImageProps["onError"] = (event) => {
     props.onError?.(event)
-    if (!localPath || previewRetry >= 1) {
+    if (!localPath || localImagePreviewRetryDelay(previewRetry) === null) {
       return
     }
     localImagePreviewUrlByPath.delete(localPath)

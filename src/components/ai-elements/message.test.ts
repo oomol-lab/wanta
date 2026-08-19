@@ -9,6 +9,7 @@ import {
   clampImageViewerOffset,
   imageViewerFitScale,
   imageViewerWheelAction,
+  localImagePreviewRetryDelay,
   localImagePathFromSrc,
   MarkdownImage,
   panImageViewerState,
@@ -254,6 +255,13 @@ describe("MarkdownImage", () => {
       }),
     ).toBe("wanta-artifact://resource/image")
     expect(attachmentPreviewSource({ dataUrl: "data:image/png;base64,AAAA" })).toBe("data:image/png;base64,AAAA")
+  })
+
+  it("retries temporarily unavailable local previews with bounded backoff", () => {
+    expect(localImagePreviewRetryDelay(0)).toBe(250)
+    expect(localImagePreviewRetryDelay(1)).toBe(750)
+    expect(localImagePreviewRetryDelay(2)).toBe(1_500)
+    expect(localImagePreviewRetryDelay(3)).toBeNull()
   })
 
   it("decodes percent-encoded local paths from markdown image URLs", () => {

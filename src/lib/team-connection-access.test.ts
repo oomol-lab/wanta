@@ -26,10 +26,7 @@ describe("team connection access", () => {
   })
 
   it("does not treat a user role without its App role as a restricted grant", () => {
-    const parsed = parseTeamConnectionAccess(
-      { "user::alice": { roles: ["connector-app:app-github"] } },
-      [github],
-    )
+    const parsed = parseTeamConnectionAccess({ "user::alice": { roles: ["connector-app:app-github"] } }, [github])
     expect(parsed).toMatchObject({
       apps: [{ actionAccess: { mode: "unrestricted" }, memberAccess: { mode: "team" }, mode: "default" }],
       ok: true,

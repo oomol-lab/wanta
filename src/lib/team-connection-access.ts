@@ -223,7 +223,8 @@ function writeAppUsers(access: TeamAppAccess, appId: string, userIds: string[]):
 
 function removeLegacyUserConnectorRules(access: TeamAppAccess): void {
   for (const [subject, config] of Object.entries(access)) {
-    if (!subject.startsWith(userSubjectPrefix) || !isPlainObject(config) || !Object.hasOwn(config, "connector")) continue
+    if (!subject.startsWith(userSubjectPrefix) || !isPlainObject(config) || !Object.hasOwn(config, "connector"))
+      continue
     const { connector: _connector, ...rest } = config
     if (Object.keys(rest).length > 0) access[subject] = rest
     else delete access[subject]

@@ -153,9 +153,7 @@ function invalidateWorkspaceApps(workspace: ConnectionWorkspace, appId?: string)
     const path = key.slice(prefix.length)
     return (
       path === appsPath ||
-      (appId
-        ? path === `${appsPath}/by-id/${encodeURIComponent(appId)}`
-        : path.startsWith(`${appsPath}/by-id/`))
+      (appId ? path === `${appsPath}/by-id/${encodeURIComponent(appId)}` : path.startsWith(`${appsPath}/by-id/`))
     )
   })
 }
@@ -473,7 +471,10 @@ export async function getConnectionAppDetail(
   appId: string,
   workspace: ConnectionWorkspace,
 ): Promise<ConnectionAppDetail> {
-  const result = await getConnector<RawApp>(`${connectionAppsPath(workspace)}/by-id/${encodeURIComponent(appId)}`, workspace)
+  const result = await getConnector<RawApp>(
+    `${connectionAppsPath(workspace)}/by-id/${encodeURIComponent(appId)}`,
+    workspace,
+  )
   const app = normalizeConnectionAppDetail(result.data)
   if (!app) {
     throw new Error(`Connection app ${appId} is not available`)
@@ -674,13 +675,17 @@ export async function connectProvider(input: ConnectionConnectInput, workspace: 
 
 export async function disconnectProvider(service: string, workspace: ConnectionWorkspace): Promise<void> {
   requireConnectionManagement(workspace)
-  await requestConnector(`${connectionAppsPath(workspace)}/${encodeURIComponent(service)}`, workspace, { method: "DELETE" })
+  await requestConnector(`${connectionAppsPath(workspace)}/${encodeURIComponent(service)}`, workspace, {
+    method: "DELETE",
+  })
   invalidateWorkspaceApps(workspace)
 }
 
 export async function disconnectAccount(appId: string, workspace: ConnectionWorkspace): Promise<void> {
   requireConnectionManagement(workspace)
-  await requestConnector(`${connectionAppsPath(workspace)}/by-id/${encodeURIComponent(appId)}`, workspace, { method: "DELETE" })
+  await requestConnector(`${connectionAppsPath(workspace)}/by-id/${encodeURIComponent(appId)}`, workspace, {
+    method: "DELETE",
+  })
   invalidateWorkspaceApps(workspace, appId)
 }
 

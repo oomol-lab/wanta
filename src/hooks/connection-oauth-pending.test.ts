@@ -80,9 +80,18 @@ describe("connection OAuth pending key", () => {
   })
 
   it("separates services and team workspaces", () => {
-    const firstTeamGmail = createOAuthPendingKey({ manageable: false, teamName: "team-name" }, { authType: "oauth2", service: "gmail" })
-    const firstTeamSlack = createOAuthPendingKey({ manageable: false, teamName: "team-name" }, { authType: "oauth2", service: "slack" })
-    const secondTeamGmail = createOAuthPendingKey({ manageable: false, teamName: "acme" }, { authType: "oauth2", service: "gmail" })
+    const firstTeamGmail = createOAuthPendingKey(
+      { manageable: false, teamName: "team-name" },
+      { authType: "oauth2", service: "gmail" },
+    )
+    const firstTeamSlack = createOAuthPendingKey(
+      { manageable: false, teamName: "team-name" },
+      { authType: "oauth2", service: "slack" },
+    )
+    const secondTeamGmail = createOAuthPendingKey(
+      { manageable: false, teamName: "acme" },
+      { authType: "oauth2", service: "gmail" },
+    )
 
     expect(firstTeamGmail).not.toBe(firstTeamSlack)
     expect(firstTeamGmail).not.toBe(secondTeamGmail)

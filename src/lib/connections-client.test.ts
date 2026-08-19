@@ -35,10 +35,9 @@ describe("connections-client", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getActiveConnectionAppIdsForService("gmail", { manageable: false, teamName: "team-name" })).resolves.toEqual([
-      "app-1",
-      "app-2",
-    ])
+    await expect(
+      getActiveConnectionAppIdsForService("gmail", { manageable: false, teamName: "team-name" }),
+    ).resolves.toEqual(["app-1", "app-2"])
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps")
@@ -151,9 +150,9 @@ describe("connections-client", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(
-      getConnectionExecutionLogs({ appId: "app-1", limit: 12 }, managementWorkspace),
-    ).resolves.toMatchObject({ items: [{ id: "exec-1", service: "gmail" }] })
+    await expect(getConnectionExecutionLogs({ appId: "app-1", limit: 12 }, managementWorkspace)).resolves.toMatchObject(
+      { items: [{ id: "exec-1", service: "gmail" }] },
+    )
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/connections/by-id/app-1/executions?limit=12")
   })
@@ -193,12 +192,14 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getConnectionCatalogSummary({ manageable: false, teamName: "read-only-team" })).resolves.toMatchObject({
-      apps: [],
-      appsStatus: "forbidden",
-      providerCount: 1,
-      providers: [{ displayName: "Gmail", service: "gmail", status: "available" }],
-    })
+    await expect(getConnectionCatalogSummary({ manageable: false, teamName: "read-only-team" })).resolves.toMatchObject(
+      {
+        apps: [],
+        appsStatus: "forbidden",
+        providerCount: 1,
+        providers: [{ displayName: "Gmail", service: "gmail", status: "available" }],
+      },
+    )
   })
 
   it("keeps the provider catalog visible when team apps are temporarily unavailable", async () => {
@@ -217,10 +218,12 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getConnectionCatalogSummary({ manageable: false, teamName: "read-only-team" })).resolves.toMatchObject({
-      appsStatus: "unavailable",
-      providers: [{ displayName: "Slack", service: "slack" }],
-    })
+    await expect(getConnectionCatalogSummary({ manageable: false, teamName: "read-only-team" })).resolves.toMatchObject(
+      {
+        appsStatus: "unavailable",
+        providers: [{ displayName: "Slack", service: "slack" }],
+      },
+    )
   })
 
   it("preserves provider response diagnostics when the public catalog fails", async () => {

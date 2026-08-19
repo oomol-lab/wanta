@@ -27,7 +27,11 @@ const state: BrowserPageState = {
   },
 }
 
-function panelElement(browserService: ConnectionClientService<BrowserService>, maximized = false): React.ReactElement {
+function panelElement(
+  browserService: ConnectionClientService<BrowserService>,
+  maximized = false,
+  windowControlsOnRight = true,
+): React.ReactElement {
   return React.createElement(
     I18nContext.Provider,
     {
@@ -42,14 +46,17 @@ function panelElement(browserService: ConnectionClientService<BrowserService>, m
       maximized,
       sessionId: "session-1",
       state,
+      windowControlsOnRight,
       onClose: () => undefined,
       onToggleMaximized: () => undefined,
     }),
   )
 }
 
-function renderPanel(maximized = false): string {
-  return renderToStaticMarkup(panelElement({} as ConnectionClientService<BrowserService>, maximized))
+function renderPanel(maximized = false, windowControlsOnRight = true): string {
+  return renderToStaticMarkup(
+    panelElement({} as ConnectionClientService<BrowserService>, maximized, windowControlsOnRight),
+  )
 }
 
 async function renderInteractivePanel(invoke: ReturnType<typeof vi.fn>): Promise<Root> {
@@ -245,6 +252,11 @@ describe("BrowserPanel titlebar drag regions", () => {
     expect(html).toMatch(/oo-titlebar[^"]*\[-webkit-app-region:drag\]/u)
     expect(html.match(/\[-webkit-app-region:no-drag\]/gu)).toHaveLength(7)
     expect(html).toMatch(/<form class="[^"]*\[-webkit-app-region:no-drag\]/u)
+  })
+
+  it("reserves the native window-control area only while it owns the window edge", () => {
+    expect(renderPanel()).toContain("oo-titlebar-window-controls")
+    expect(renderPanel(false, false)).not.toContain("oo-titlebar-window-controls")
   })
 
   it("keeps compact controls usable and reveals manual zoom when maximized", () => {

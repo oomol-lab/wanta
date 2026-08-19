@@ -25,6 +25,7 @@ interface BrowserPanelProps {
   maximized: boolean
   sessionId: string
   state: BrowserPageState
+  windowControlsOnRight: boolean
   onClose: () => void
   onToggleMaximized: () => void
 }
@@ -41,6 +42,7 @@ export function BrowserPanel({
   maximized,
   sessionId,
   state,
+  windowControlsOnRight,
   onClose,
   onToggleMaximized,
 }: BrowserPanelProps) {
@@ -192,7 +194,12 @@ export function BrowserPanel({
 
   return (
     <section className="flex h-full min-h-0 flex-col border-l border-border bg-background">
-      <div className="oo-titlebar oo-toolbar flex h-[var(--app-titlebar-height)] shrink-0 items-center gap-1 border-b border-border px-2 [-webkit-app-region:drag]">
+      <div
+        className={cn(
+          "oo-titlebar oo-browser-titlebar oo-toolbar flex h-[var(--app-titlebar-height)] shrink-0 items-center gap-1 border-b border-border px-2 [-webkit-app-region:drag]",
+          windowControlsOnRight && "oo-titlebar-window-controls",
+        )}
+      >
         <button
           type="button"
           className={toolbarButtonClass}

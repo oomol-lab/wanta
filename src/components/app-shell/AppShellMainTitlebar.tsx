@@ -107,6 +107,7 @@ export const AppShellMainTitlebar = React.memo(function AppShellMainTitlebar({
   titlebarEditable,
   titlebarBreadcrumbs,
   titlebarTitle,
+  windowControlsOnRight,
   workspace,
 }: {
   activeSession: SessionInfo | null
@@ -132,10 +133,16 @@ export const AppShellMainTitlebar = React.memo(function AppShellMainTitlebar({
   titlebarEditable: boolean
   titlebarBreadcrumbs?: TitlebarBreadcrumb[]
   titlebarTitle: string
+  windowControlsOnRight: boolean
   workspace: WorkspaceSelection
 }) {
   return (
-    <header className="oo-titlebar oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] min-w-0 items-center overflow-hidden border-b [-webkit-app-region:drag]">
+    <header
+      className={cn(
+        "oo-titlebar oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] min-w-0 items-center overflow-hidden border-b [-webkit-app-region:drag]",
+        windowControlsOnRight && "oo-titlebar-window-controls",
+      )}
+    >
       <div className="oo-titlebar-collapsed-controls shrink-0 items-center gap-3">
         <div className="oo-titlebar-control-spacer shrink-0" />
         <SidebarTitlebarActions

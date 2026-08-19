@@ -13,6 +13,7 @@ import {
   clampArtifactsPanelWidthForLayout,
   readStoredArtifactsPanelWidth,
   readStoredBrowserPanelWidth,
+  RIGHT_PANEL_RESIZE_SASH_WIDTH_PX,
 } from "./app-shell-model.ts"
 import {
   artifactPanelSelection,
@@ -119,7 +120,7 @@ export function useArtifactsPanelState({
   const applyArtifactsPanelShellWidth = React.useCallback((width: number): void => {
     const element = artifactsPanelShellRef.current
     if (element) {
-      element.style.width = `${width}px`
+      element.style.width = `${width + RIGHT_PANEL_RESIZE_SASH_WIDTH_PX}px`
     }
   }, [])
 

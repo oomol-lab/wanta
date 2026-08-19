@@ -57,6 +57,7 @@ function renderPanel(initialRole: "process" | "project_change"): string {
           onCollapse: () => undefined,
           onToggleMaximized: () => undefined,
           selection: { initialRole, record },
+          windowControlsOnRight: true,
         }),
       ),
     ),

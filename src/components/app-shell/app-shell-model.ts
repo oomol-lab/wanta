@@ -36,6 +36,7 @@ export const CHAT_CONNECTION_DRAWER_WIDTH = "min(31.5rem, 38vw)"
 export const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
 export const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
 export const ARTIFACTS_PANEL_COLLAPSE_THRESHOLD_PX = ARTIFACTS_PANEL_MIN_WIDTH_PX / 2
+export const RIGHT_PANEL_RESIZE_SASH_WIDTH_PX = 8
 export const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "wanta.artifactsPanelWidth"
 export const BROWSER_PANEL_DEFAULT_WIDTH_PX = 480
 export const BROWSER_PANEL_WIDTH_STORAGE_KEY = "wanta.browserPanelWidth"
@@ -325,7 +326,7 @@ export function clampArtifactsPanelWidth(width: number): number {
 
 export function artifactsPanelMaxWidth(appWidth: number, sidebarWidth: number, sidebarCollapsed: boolean): number {
   const sidebarTrackWidth = sidebarCollapsed ? 0 : sidebarWidth
-  const maxWidth = Math.floor(appWidth - sidebarTrackWidth - CHAT_AREA_MIN_WIDTH_PX)
+  const maxWidth = Math.floor(appWidth - sidebarTrackWidth - CHAT_AREA_MIN_WIDTH_PX - RIGHT_PANEL_RESIZE_SASH_WIDTH_PX)
   return Math.max(ARTIFACTS_PANEL_MIN_WIDTH_PX, maxWidth)
 }
 

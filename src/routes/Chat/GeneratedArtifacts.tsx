@@ -56,6 +56,7 @@ interface GeneratedArtifactsProps {
 interface ArtifactsPanelProps {
   maximized: boolean
   selection: ArtifactSelection | null
+  windowControlsOnRight: boolean
   onCollapse: () => void
   onToggleMaximized: () => void
 }
@@ -288,7 +289,13 @@ export function GeneratedArtifacts({ groups, onOpen, onAvailable }: GeneratedArt
   )
 }
 
-export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaximized }: ArtifactsPanelProps) {
+export function ArtifactsPanel({
+  maximized,
+  selection,
+  windowControlsOnRight,
+  onCollapse,
+  onToggleMaximized,
+}: ArtifactsPanelProps) {
   const t = useT()
   const chatService = useChatService()
   const { openPath, showInFolder } = useArtifactFileActions()
@@ -543,7 +550,12 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
         }}
         onShowInFolder={showInFolder}
       />
-      <header className="oo-titlebar oo-artifacts-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b [-webkit-app-region:drag]">
+      <header
+        className={cn(
+          "oo-titlebar oo-artifacts-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b [-webkit-app-region:drag]",
+          windowControlsOnRight && "oo-titlebar-window-controls",
+        )}
+      >
         <div className="oo-text-title min-w-0 truncate">{selectedPack?.title ?? t("artifacts.title")}</div>
         <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
           {selectedItem ? (

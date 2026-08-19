@@ -23,7 +23,8 @@ const localImageDisplayInstructions = [
   localImageDisplayInstructionsStart,
   "## Wanta local image delivery",
   "",
-  "For every successfully saved image in `local_paths`, include exactly one Markdown image in the final reply using its absolute local path: `![Generated image](/absolute/path/to/output.png)`.",
+  "For each generated image result, include exactly one Markdown image in the final reply using its absolute local path: `![Generated image](/absolute/path/to/output.png)`.",
+  "If `local_paths` contains multiple successfully saved image paths, use the first path only and do not emit additional Markdown images.",
   "Do not report a saved local image only as plain text, and do not claim that Wanta cannot preview it. This is the same Wanta image-preview path on macOS and Windows.",
   localImageDisplayInstructionsEnd,
 ].join("\n")

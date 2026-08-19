@@ -20,7 +20,7 @@
 | 5    | 右侧面板开关会被最小化、最大化、关闭按钮挤压                      | 开关靠近 Windows 原生窗口控制区                                                           | 已修复                      | 开关移至“充值/用量”按钮右侧、右侧面板分割线左侧                                                                 |
 | 6    | 拖拽右侧面板时，分割线视觉位置与实际边界不一致                    | Grid 布局与拖拽时冻结内容宽度组合，使内容尺寸可脱离面板壳层                               | 已修复                      | 改为明确的 Flex 布局，分割线和 8px 拖拽命中区是同一个真实布局边界                                               |
 | 7    | 右侧面板打开后，分割线区域无法拖拽                                | 拖拽命中区可能被内容尺寸覆盖                                                              | 已修复                      | 分割线作为主内容和右侧内容之间独立的 8px Flex 子项，不受右侧内容覆盖                                            |
-| 8    | 本地生成图片有时没有立即显示预览                                  | Windows runner 的本地结果未被明确要求以 Markdown 图片回传；此前错误地在产物架补了一张预览 | 已修复，待 Windows 实机回归 | 保留 macOS 的单一 Markdown 图片预览；私有 runtime skill 要求 Windows 对 `local_paths` 用相同路径回传            |
+| 8    | 本地生成图片有时没有立即显示预览                                  | Windows runner 的本地结果未被明确要求以 Markdown 图片回传；此前错误地在产物架补了一张预览 | 已修复，待 Windows 实机回归 | 保留 macOS 的单一 Markdown 图片预览；多条 `local_paths` 时仅使用第一条回传，避免重复预览                        |
 | 9    | `--team` 不被 oo CLI 识别；`OO_API_KEY` 下 `oo team use` 不持久化 | `--team` 与 API Key 下的默认团队持久化不属于 GPT Image 2 runner 所用 oo 命令的可用契约    | 已修复 Wanta 侧引导         | 私有 GPT Image 2 runtime skill 明确禁止该 runner 的原始 `--team`，并要求该场景用 `OO_TEAM_ID` 或 `OO_TEAM_NAME` |
 
 ## Windows 标题栏设计

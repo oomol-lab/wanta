@@ -484,6 +484,8 @@ export class OpencodeSidecar {
       // opencode 的工具子进程会各自 setsid 逃逸出本组，改由 opencode 自身 dispose + OS 进程树兜底回收）。
       // Windows 无进程组语义（回收走 taskkill /T）。
       detached: process.platform !== "win32",
+      // Do not create a visible console when the packaged app starts the runtime on Windows.
+      windowsHide: true,
     })
     this.proc = proc
 

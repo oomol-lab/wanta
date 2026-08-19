@@ -149,6 +149,7 @@ describe("OpencodeSidecar", () => {
     for (const [name, value] of Object.entries(inheritedVariables)) vi.stubEnv(name, value)
 
     let spawnedEnvironment: NodeJS.ProcessEnv | undefined
+    let spawnOptions: SpawnOptionsWithoutStdio | undefined
     const proc = new EventEmitter() as ChildProcessWithoutNullStreams
     const stdout = new PassThrough()
     proc.stdin = new PassThrough()
@@ -156,6 +157,7 @@ describe("OpencodeSidecar", () => {
     proc.stderr = new PassThrough()
     const spawnProcess = vi.fn((_command: string, _args: string[], options: SpawnOptionsWithoutStdio) => {
       spawnedEnvironment = options.env
+      spawnOptions = options
       queueMicrotask(() => stdout.write("listening on http://127.0.0.1:4096\n"))
       return proc
     })
@@ -179,6 +181,7 @@ describe("OpencodeSidecar", () => {
         LARKSUITE_CLI_CONFIG_DIR: "/private/lark/config",
         WANTA_LARK_CLI_BIN: "/managed/lark-cli",
       })
+      expect(spawnOptions).toMatchObject({ windowsHide: true })
       for (const name of Object.keys(inheritedVariables)) {
         if (name === "LARKSUITE_CLI_CONFIG_DIR" || name === "WANTA_LARK_CLI_BIN") continue
         expect(spawnedEnvironment).not.toHaveProperty(name)

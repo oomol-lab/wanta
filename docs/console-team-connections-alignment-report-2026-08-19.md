@@ -30,7 +30,7 @@ Wanta 的团队成员增删、角色、禁用和 `app-access` 的 ETag 并发控
 | 08-17/18 | `36e3a79` 及后续整理                                                                                                     | 成员范围与 Action 范围解耦，加入“全团队/指定成员”“无限制/Action 白名单”“坏策略失败关闭”等完整语义（28 文件，+2670/-940）。 | 这是当前应实现的权限模型。                                      |
 | 08-19    | [#290](https://github.com/oomol/console.oomol.com/pull/290)                                                              | 管理者读 `/v1/connections`；普通成员读 `/v1/apps`；缓存按角色/工作空间隔离。                                               | Wanta 需要按团队角色分流端点，避免可见性和管理能力混淆。        |
 
-值得注意的是，08-12 之后的一大组权限改动是直接进入 `main` 的提交，而不是一个完整 PR。因此对齐应以当前 `main` 和 [connection-app-access-plan.md](../../console.oomol.com/docs/connection-app-access-plan.md) 的语义为准，而不是仅按 PR 标题判断。
+值得注意的是，08-12 之后的一大组权限改动是直接进入 `main` 的提交，而不是一个完整 PR。因此对齐应以 console 当前 `main` 和其 [connection-app-access-plan.md](https://github.com/oomol/console.oomol.com/blob/main/docs/connection-app-access-plan.md) 的语义为准，而不是仅按 PR 标题判断。
 
 ## 当前权威契约
 
@@ -185,12 +185,12 @@ Wanta 现有的写入会创建类似下面的旧文档：
 
 ## 证据位置
 
-- console 的当前策略规格：`/Users/wushuang/code/console.oomol.com/docs/connection-app-access-plan.md`
-- console 团队 API 与 ETag：`/Users/wushuang/code/console.oomol.com/src/api/teams.ts`
-- console scope header：`/Users/wushuang/code/console.oomol.com/src/api/request-scope.ts`
-- console 管理/成员端点分流：`/Users/wushuang/code/console.oomol.com/src/api/connections.ts`、`src/pages/connections-scope.ts`
-- console App access parser/writer：`/Users/wushuang/code/console.oomol.com/src/pages/team-connector-access-policy.ts`
-- Wanta 当前连接 client：`/Users/wushuang/code/wanta/src/lib/connections-client.ts`
-- Wanta 当前团队 client：`/Users/wushuang/code/wanta/src/lib/teams-client.ts`
-- Wanta 当前旧 Provider grant parser/writer：`/Users/wushuang/code/wanta/src/routes/Skills/team-provider-access.ts`
-- Wanta 角色默认权限判断：`/Users/wushuang/code/wanta/src/lib/team-permissions.ts`
+- console 的当前策略规格：[docs/connection-app-access-plan.md](https://github.com/oomol/console.oomol.com/blob/main/docs/connection-app-access-plan.md)
+- console 团队 API 与 ETag：[src/api/teams.ts](https://github.com/oomol/console.oomol.com/blob/main/src/api/teams.ts)
+- console scope header：[src/api/request-scope.ts](https://github.com/oomol/console.oomol.com/blob/main/src/api/request-scope.ts)
+- console 管理/成员端点分流：[src/api/connections.ts](https://github.com/oomol/console.oomol.com/blob/main/src/api/connections.ts) 和 [src/pages/connections-scope.ts](https://github.com/oomol/console.oomol.com/blob/main/src/pages/connections-scope.ts)
+- console App access parser/writer：[src/pages/team-connector-access-policy.ts](https://github.com/oomol/console.oomol.com/blob/main/src/pages/team-connector-access-policy.ts)
+- Wanta 当前连接 client：[src/lib/connections-client.ts](../src/lib/connections-client.ts)
+- Wanta 当前团队 client：[src/lib/teams-client.ts](../src/lib/teams-client.ts)
+- Wanta 当前旧 Provider grant parser/writer：[src/routes/Skills/team-provider-access.ts](../src/routes/Skills/team-provider-access.ts)
+- Wanta 角色默认权限判断：[src/lib/team-permissions.ts](../src/lib/team-permissions.ts)

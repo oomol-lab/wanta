@@ -303,6 +303,7 @@
 
   .oo-main-titlebar {
     --oo-titlebar-edge-padding: 1rem;
+
     gap: 0.75rem;
     padding-right: var(--oo-titlebar-edge-padding);
     padding-left: 1rem;
@@ -310,18 +311,21 @@
 
   .oo-page-titlebar {
     --oo-titlebar-edge-padding: 1rem;
+
     padding-right: var(--oo-titlebar-edge-padding);
     padding-left: calc(var(--traffic-light-space) + 1rem);
   }
 
   .oo-artifacts-titlebar {
     --oo-titlebar-edge-padding: 0.75rem;
+
     padding-right: var(--oo-titlebar-edge-padding);
     padding-left: 0.75rem;
   }
 
   .oo-browser-titlebar {
     --oo-titlebar-edge-padding: 0.5rem;
+
     padding-right: var(--oo-titlebar-edge-padding);
   }
 

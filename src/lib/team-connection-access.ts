@@ -172,6 +172,9 @@ function parseRoleRule(
   const rules = scopedRules.length > 0 ? scopedRules : config.connector
   if (rules.length !== 1 || !isPlainObject(rules[0])) return null
   const rule = rules[0]
+  if (scopedRules.length > 0 && (!isStringArray(rule.app) || rule.app.length !== 1 || rule.app[0] !== app.id)) {
+    return null
+  }
   if (rule.method !== "POST" || rule.provider !== app.service) return null
   if (rule.requireRole !== undefined && typeof rule.requireRole !== "boolean") return null
   const memberAccess: ConnectionMemberAccess =

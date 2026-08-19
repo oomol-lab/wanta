@@ -33,6 +33,27 @@ describe("team connection access", () => {
     })
   })
 
+  it("rejects a Connector rule scoped to a different App", () => {
+    const slack = { id: "app-slack", service: "slack" }
+
+    expect(
+      parseTeamConnectionAccess(
+        {
+          "role::connector-app:app-github": {
+            connector: [{ app: ["app-slack"], method: "POST", provider: "github", requireRole: true }],
+          },
+        },
+        [github, slack],
+      ),
+    ).toMatchObject({
+      apps: [
+        { appId: "app-github", mode: "invalid" },
+        { appId: "app-slack", mode: "default" },
+      ],
+      ok: true,
+    })
+  })
+
   it("writes selected members separately from a restricted Action allowlist", () => {
     const withMembers = setTeamConnectionMemberAccess({}, github, { mode: "selected", userIds: ["bob", "alice"] })
     const next = setTeamConnectionActionAccess(withMembers, github, {

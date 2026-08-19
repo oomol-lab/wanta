@@ -1306,6 +1306,8 @@ export const enMessages = {
   "connections.accessInvalidTitle": "Invalid connection access",
   "connections.accessInvalidDescription":
     "This connection policy cannot be parsed safely. A team administrator must repair it before use.",
+  "connections.accessConcurrencyUnavailable":
+    "The Connection access version could not be verified. Refresh and try again to avoid overwriting another administrator's changes.",
   "connections.accessRepair": "Repair access",
   "connections.accessRepairTitle": "Restore default connection access?",
   "connections.accessRepairDescription":

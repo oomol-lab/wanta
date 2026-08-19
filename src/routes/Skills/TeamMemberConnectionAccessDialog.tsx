@@ -14,6 +14,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import {
   filterMemberConnectionAccessItems,
+  MemberConnectionAccessError,
   projectMemberConnectionAccess,
 } from "./team-member-connection-access-model.ts"
 import { TeamUserAvatar } from "./TeamUserAvatar.tsx"
@@ -33,6 +34,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
+import { teamErrorMessage } from "@/routes/Skills/team-errors"
 
 export interface TeamMemberConnectionAccessData {
   access: TeamAppAccess | null
@@ -113,7 +115,7 @@ export function TeamMemberConnectionAccessDialog({
       setConfirmOpen(false)
       setEditing(false)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
+      toast.error(memberConnectionAccessErrorMessage(error, t))
     } finally {
       setSaving(false)
     }
@@ -303,7 +305,7 @@ function AccessFilters({
     { count: projection.summary.invalidCount, label: t("teams.memberConnectionFilterInvalid"), value: "invalid" },
   ]
   return (
-    <div className="flex min-w-0 flex-wrap gap-1" aria-label={t("teams.memberConnectionFilterLabel")}>
+    <div role="group" className="flex min-w-0 flex-wrap gap-1" aria-label={t("teams.memberConnectionFilterLabel")}>
       {filters.map((item) => (
         <Button
           key={item.value}
@@ -446,6 +448,15 @@ function actionScopeLabel(item: MemberConnectionAccessItem, t: ReturnType<typeof
   return t("teams.memberConnectionActionsSelected", { count: item.actionCount ?? 0 })
 }
 
+function memberConnectionAccessErrorMessage(error: unknown, t: ReturnType<typeof useAppI18n>["t"]): string {
+  if (!(error instanceof MemberConnectionAccessError)) return teamErrorMessage(error, t)
+  if (error.code === "invalidPolicy") return t("teams.memberConnectionAccessInvalidPolicy")
+  if (error.code === "conflictingDelta") return t("teams.memberConnectionAccessConflictingDelta")
+  if (error.code === "unavailable") return t("teams.memberConnectionAccessUnavailable")
+  if (error.code === "teamInherited") return t("teams.memberConnectionAccessTeamInherited")
+  return t("teams.memberConnectionAccessConcurrencyUnavailable")
+}
+
 export function MemberConnectionAccessButton({
   disabled,
   loading,
@@ -459,7 +470,7 @@ export function MemberConnectionAccessButton({
 }) {
   const { t } = useAppI18n()
   const summary = projection?.ok ? projection.summary : null
-  const invalid = !projection?.ok || Boolean(summary?.invalidCount)
+  const invalid = !loading && (!projection?.ok || Boolean(summary?.invalidCount))
   const explicit = Boolean(summary?.explicitCount)
   const effective = Boolean(summary?.effectiveCount)
   const label = loading

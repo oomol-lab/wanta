@@ -124,6 +124,7 @@ function ConnectionAccountItem({
   const supportsManagedAccount = supportsManagedConnectionAccountActions(provider)
   const managedAccountActions = canManageConnections && supportsManagedAccount
   const [accessOpen, setAccessOpen] = React.useState(false)
+  const handledSelectedAppIdRef = React.useRef<string | null>(null)
   const [aliasDraft, setAliasDraft] = React.useState(app.alias ?? "")
   const [aliasEditing, setAliasEditing] = React.useState(false)
   const [aliasBusy, setAliasBusy] = React.useState(false)
@@ -155,7 +156,13 @@ function ConnectionAccountItem({
   }, [app.id, app.alias, app.isDefault])
 
   React.useEffect(() => {
-    if (accessContext && selectedAppId === app.id) setAccessOpen(true)
+    if (selectedAppId !== app.id) {
+      handledSelectedAppIdRef.current = null
+      return
+    }
+    if (!accessContext || handledSelectedAppIdRef.current === selectedAppId) return
+    handledSelectedAppIdRef.current = selectedAppId
+    setAccessOpen(true)
   }, [accessContext, app.id, selectedAppId])
 
   async function saveAlias() {

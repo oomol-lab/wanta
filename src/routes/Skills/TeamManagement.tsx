@@ -21,7 +21,7 @@ import {
 import { SkillDetailContent } from "./SkillDetailContent.tsx"
 import { SkillManagementSheet } from "./SkillUiParts.tsx"
 import { buildTeamMemberViews } from "./team-management-model.ts"
-import { applyMemberConnectionAccessDelta } from "./team-member-connection-access-model.ts"
+import { applyMemberConnectionAccessDelta, MemberConnectionAccessError } from "./team-member-connection-access-model.ts"
 import {
   EmptyTeamsState,
   TeamManagementSkeleton,
@@ -272,6 +272,7 @@ export function TeamManagementRoute({
         getTeamAppAccessSnapshot(selectedTeam.id),
         listTeamConnectionApps(selectedTeam.name, { forceRefresh: true }),
       ])
+      if (!latest.etag) throw new MemberConnectionAccessError("concurrencyUnavailable")
       const next = applyMemberConnectionAccessDelta(latest.access, apps, delta)
       await updateTeamAppAccess(selectedTeam.id, next, { etag: latest.etag })
       invalidateTeamDetailsResource(activeAccountId, selectedTeam.id)

@@ -181,6 +181,12 @@ export const skillsMessages = {
     "teams.memberConnectionAccessSaving": "保存中",
     "teams.memberConnectionAccessSaveSuccess": "成员连接权限已保存",
     "teams.memberConnectionAccessReadOnly": "当前账号不能修改团队连接权限。",
+    "teams.memberConnectionAccessInvalidPolicy": "团队连接权限配置无法安全解析，请刷新后重试。",
+    "teams.memberConnectionAccessConflictingDelta": "同一个连接不能同时新增和移除授权。",
+    "teams.memberConnectionAccessUnavailable": "目标连接已不可用或权限模式已发生变化，请刷新后重试。",
+    "teams.memberConnectionAccessTeamInherited": "随团队继承的连接不能按单个成员修改，请前往连接页面调整。",
+    "teams.memberConnectionAccessConcurrencyUnavailable":
+      "无法确认连接权限版本，请刷新后重试，避免覆盖其他管理员的修改。",
     "teams.skillGuideTitle": "团队 Skill",
     "teams.skillGuideDescription": "团队推荐是团队共享配置，系统推荐来自已连接服务；安装状态仅表示当前设备是否已安装。",
     "teams.skillGuideLoading": "加载中",
@@ -662,6 +668,15 @@ export const skillsMessages = {
     "teams.memberConnectionAccessSaving": "Saving",
     "teams.memberConnectionAccessSaveSuccess": "Member Connection access saved",
     "teams.memberConnectionAccessReadOnly": "This account cannot change Team Connection access.",
+    "teams.memberConnectionAccessInvalidPolicy":
+      "The Team Connection policy cannot be interpreted safely. Refresh and try again.",
+    "teams.memberConnectionAccessConflictingDelta": "The same Connection cannot be granted and removed in one update.",
+    "teams.memberConnectionAccessUnavailable":
+      "The target Connection is unavailable or its access mode changed. Refresh and try again.",
+    "teams.memberConnectionAccessTeamInherited":
+      "Team-inherited Connections cannot be changed for one member. Configure the Connection instead.",
+    "teams.memberConnectionAccessConcurrencyUnavailable":
+      "The Connection access version could not be verified. Refresh and try again to avoid overwriting another administrator's changes.",
     "teams.skillGuideTitle": "Team Skills",
     "teams.skillGuideDescription":
       "Team recommendations are shared team settings; system recommendations come from connected services; install status applies only to this device.",

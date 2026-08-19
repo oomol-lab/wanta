@@ -50,6 +50,23 @@ export interface MemberConnectionAccessDelta {
   userId: string
 }
 
+export type MemberConnectionAccessErrorCode =
+  | "invalidPolicy"
+  | "conflictingDelta"
+  | "unavailable"
+  | "teamInherited"
+  | "concurrencyUnavailable"
+
+export class MemberConnectionAccessError extends Error {
+  constructor(
+    readonly code: MemberConnectionAccessErrorCode,
+    readonly appId?: string,
+  ) {
+    super(code)
+    this.name = "MemberConnectionAccessError"
+  }
+}
+
 export function applyMemberConnectionAccessDelta(
   access: TeamAppAccess,
   apps: ConnectionAppSummary[],
@@ -59,14 +76,14 @@ export function applyMemberConnectionAccessDelta(
     access,
     apps.map((app) => ({ id: app.id, service: app.service })),
   )
-  if (!parsed.ok) throw new Error("Invalid Team Connection policy")
+  if (!parsed.ok) throw new MemberConnectionAccessError("invalidPolicy")
 
   const appsById = new Map(apps.map((app) => [app.id, app]))
   const accessByAppId = new Map(parsed.apps.map((app) => [app.appId, app]))
   const additions = new Set(delta.addAppIds)
   const removals = new Set(delta.removeAppIds)
   if ([...additions].some((appId) => removals.has(appId))) {
-    throw new Error("A Connection cannot be added and removed in the same update")
+    throw new MemberConnectionAccessError("conflictingDelta")
   }
 
   let next = access
@@ -77,10 +94,10 @@ export function applyMemberConnectionAccessDelta(
     const app = appsById.get(appId)
     const appAccess = accessByAppId.get(appId)
     if (!app || !appAccess || appAccess.mode === "invalid") {
-      throw new Error(`Connection access is unavailable: ${appId}`)
+      throw new MemberConnectionAccessError("unavailable", appId)
     }
     if (appAccess.memberAccess.mode !== "selected") {
-      throw new Error(`Team-inherited Connection access cannot be changed per member: ${appId}`)
+      throw new MemberConnectionAccessError("teamInherited", appId)
     }
     const userIds = new Set(appAccess.memberAccess.userIds)
     if (shouldAdd) userIds.add(delta.userId)

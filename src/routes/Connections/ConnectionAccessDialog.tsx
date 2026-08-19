@@ -1,5 +1,6 @@
 import type { ConnectionActionCatalogItem, ConnectionAppSummary } from "../../../electron/connections/common.ts"
 import type { Team, TeamAppAccess, TeamMember, TeamUserSummary } from "../../../electron/teams/common.ts"
+import type { MessageKey } from "@/i18n/i18n"
 import type { ConnectionActionAccess, ConnectionAppAccess, ConnectionMemberAccess } from "@/lib/team-connection-access"
 
 import { AlertTriangle, ChevronDown, ChevronRight, RotateCcw, Search, ShieldCheck, Users } from "lucide-react"
@@ -35,6 +36,7 @@ import {
 } from "@/lib/team-connection-access"
 import { invalidateTeamDetailsResource } from "@/lib/team-details-resource"
 import { getTeamAppAccessSnapshot, listTeamMembers, listUserSummaries, updateTeamAppAccess } from "@/lib/teams-client"
+import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
 export interface ConnectionAccessContext {
@@ -80,59 +82,62 @@ export function ConnectionAccessDialog({
   const [repairOpen, setRepairOpen] = React.useState(false)
   const requestIdRef = React.useRef(0)
 
-  const load = React.useCallback(async () => {
-    const requestId = requestIdRef.current + 1
-    requestIdRef.current = requestId
-    setLoadingAccess(true)
-    setLoadingActions(true)
-    setLoadingMembers(context.canManage)
-    setAccessError(null)
-    setActionsError(null)
-    setMembersError(null)
+  const load = React.useCallback(
+    async ({ forceRefreshActions = false }: { forceRefreshActions?: boolean } = {}) => {
+      const requestId = requestIdRef.current + 1
+      requestIdRef.current = requestId
+      setLoadingAccess(true)
+      setLoadingActions(true)
+      setLoadingMembers(context.canManage)
+      setAccessError(null)
+      setActionsError(null)
+      setMembersError(null)
 
-    const accessPromise = getTeamAppAccessSnapshot(context.team.id)
-      .then((value) => {
-        if (requestIdRef.current === requestId) setSnapshot(value)
-      })
-      .catch((error: unknown) => {
-        if (requestIdRef.current === requestId) setAccessError(errorMessage(error))
-      })
-      .finally(() => {
-        if (requestIdRef.current === requestId) setLoadingAccess(false)
-      })
+      const accessPromise = getTeamAppAccessSnapshot(context.team.id)
+        .then((value) => {
+          if (requestIdRef.current === requestId) setSnapshot(value)
+        })
+        .catch((error: unknown) => {
+          if (requestIdRef.current === requestId) setAccessError(errorMessage(error, t))
+        })
+        .finally(() => {
+          if (requestIdRef.current === requestId) setLoadingAccess(false)
+        })
 
-    const actionsPromise = getConnectionActions(app.service, { forceRefresh: true })
-      .then((value) => {
-        if (requestIdRef.current === requestId) setActions(normalizeActions(value.data))
-      })
-      .catch((error: unknown) => {
-        if (requestIdRef.current === requestId) setActionsError(errorMessage(error))
-      })
-      .finally(() => {
-        if (requestIdRef.current === requestId) setLoadingActions(false)
-      })
+      const actionsPromise = getConnectionActions(app.service, { forceRefresh: forceRefreshActions })
+        .then((value) => {
+          if (requestIdRef.current === requestId) setActions(normalizeActions(value.data))
+        })
+        .catch((error: unknown) => {
+          if (requestIdRef.current === requestId) setActionsError(errorMessage(error, t))
+        })
+        .finally(() => {
+          if (requestIdRef.current === requestId) setLoadingActions(false)
+        })
 
-    const membersPromise = context.canManage
-      ? listTeamMembers(context.team.id)
-          .then(async (value) => {
-            if (requestIdRef.current !== requestId) return
-            setMembers(value)
-            const userIds = uniqueStrings(value.map((member) => member.user_id))
-            if (userIds.length > 0) {
-              const loadedSummaries = await listUserSummaries(userIds)
-              if (requestIdRef.current === requestId) setSummaries(loadedSummaries)
-            }
-          })
-          .catch((error: unknown) => {
-            if (requestIdRef.current === requestId) setMembersError(errorMessage(error))
-          })
-          .finally(() => {
-            if (requestIdRef.current === requestId) setLoadingMembers(false)
-          })
-      : Promise.resolve()
+      const membersPromise = context.canManage
+        ? listTeamMembers(context.team.id)
+            .then(async (value) => {
+              if (requestIdRef.current !== requestId) return
+              setMembers(value)
+              const userIds = uniqueStrings(value.map((member) => member.user_id))
+              if (userIds.length > 0) {
+                const loadedSummaries = await listUserSummaries(userIds)
+                if (requestIdRef.current === requestId) setSummaries(loadedSummaries)
+              }
+            })
+            .catch((error: unknown) => {
+              if (requestIdRef.current === requestId) setMembersError(errorMessage(error, t))
+            })
+            .finally(() => {
+              if (requestIdRef.current === requestId) setLoadingMembers(false)
+            })
+        : Promise.resolve()
 
-    await Promise.all([accessPromise, actionsPromise, membersPromise])
-  }, [app.service, context.canManage, context.team.id])
+      await Promise.all([accessPromise, actionsPromise, membersPromise])
+    },
+    [app.service, context.canManage, context.team.id, t],
+  )
 
   React.useEffect(() => {
     if (!open) return
@@ -157,26 +162,26 @@ export function ConnectionAccessDialog({
     (parsed && !parsed.ok ? t("connections.accessInvalidDescription") : null) ??
     (appAccess?.mode === "invalid" ? t("connections.accessInvalidDescription") : null)
 
-  async function mutate(
-    kind: Exclude<BusyMutation, null>,
-    transform: (access: TeamAppAccess, current: ConnectionAppAccess) => TeamAppAccess,
-  ) {
+  async function mutate(kind: Exclude<BusyMutation, null>, transform: (access: TeamAppAccess) => TeamAppAccess) {
     if (!context.canManage || busy) return
     setBusy(kind)
     try {
       const latest = await getTeamAppAccessSnapshot(context.team.id)
       const latestParsed = parseTeamConnectionAccess(latest.access, [{ id: app.id, service: app.service }])
-      if (!latestParsed.ok) throw new Error(t("connections.accessInvalidDescription"))
+      if (!latestParsed.ok) throw new ConnectionAccessError("connections.accessInvalidDescription")
       const current = latestParsed.apps.find((item) => item.appId === app.id)
-      if (!current || current.mode === "invalid") throw new Error(t("connections.accessInvalidDescription"))
-      const updated = await updateTeamAppAccess(context.team.id, transform(latestParsed.access, current), {
+      if (!current || current.mode === "invalid") {
+        throw new ConnectionAccessError("connections.accessInvalidDescription")
+      }
+      if (!latest.etag) throw new ConnectionAccessError("connections.accessConcurrencyUnavailable")
+      const updated = await updateTeamAppAccess(context.team.id, transform(latestParsed.access), {
         etag: latest.etag,
       })
       invalidateTeamDetailsResource(context.accountId, context.team.id)
       setSnapshot({ access: updated })
       toast.success(t("connections.accessSaved"))
     } catch (error) {
-      toast.error(errorMessage(error))
+      toast.error(errorMessage(error, t))
     } finally {
       setBusy(null)
     }
@@ -187,6 +192,7 @@ export function ConnectionAccessDialog({
     setBusy("repair")
     try {
       const latest = await getTeamAppAccessSnapshot(context.team.id)
+      if (!latest.etag) throw new ConnectionAccessError("connections.accessConcurrencyUnavailable")
       const updated = await updateTeamAppAccess(context.team.id, restoreTeamConnectionDefaults(latest.access, app.id), {
         etag: latest.etag,
       })
@@ -195,7 +201,7 @@ export function ConnectionAccessDialog({
       setRepairOpen(false)
       toast.success(t("connections.accessDefaultsRestored"))
     } catch (error) {
-      toast.error(errorMessage(error))
+      toast.error(errorMessage(error, t))
     } finally {
       setBusy(null)
     }
@@ -250,7 +256,7 @@ export function ConnectionAccessDialog({
               canManage={context.canManage}
               error={actionsError}
               loading={loadingActions}
-              onRetry={() => void load()}
+              onRetry={() => void load({ forceRefreshActions: true })}
               onSave={(actionAccess) =>
                 mutate("action", (access) =>
                   setTeamConnectionActionAccess(access, { id: app.id, service: app.service }, actionAccess),
@@ -885,6 +891,14 @@ function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)))
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+class ConnectionAccessError extends Error {
+  constructor(readonly messageKey: MessageKey) {
+    super(messageKey)
+    this.name = "ConnectionAccessError"
+  }
+}
+
+function errorMessage(error: unknown, t: ReturnType<typeof useT>): string {
+  if (error instanceof ConnectionAccessError) return t(error.messageKey)
+  return userFacingErrorDescription(resolveUserFacingError(error, { area: "connections" }), t)
 }

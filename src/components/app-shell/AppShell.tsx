@@ -1422,6 +1422,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     clearRetries()
     setChatConnectionDrawers({})
     setSelectedService(null)
+    setSelectedConnectionAppId(null)
     setConnectionCatalogFilter({ kind: "all" })
     setSelectedSessionId(null)
     setIsDraftSession(false)

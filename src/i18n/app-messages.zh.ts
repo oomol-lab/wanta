@@ -1248,6 +1248,7 @@ export const zhCNMessages = {
   "connections.accessDefaultsRestored": "已恢复默认连接权限",
   "connections.accessInvalidTitle": "连接权限配置异常",
   "connections.accessInvalidDescription": "当前连接权限无法安全解析，请由团队管理员修复后再使用。",
+  "connections.accessConcurrencyUnavailable": "无法确认连接权限版本，请刷新后重试，避免覆盖其他管理员的修改。",
   "connections.accessRepair": "修复权限",
   "connections.accessRepairTitle": "恢复默认连接权限？",
   "connections.accessRepairDescription": "这会删除该连接的受管角色和成员引用，并恢复为全团队可访问、全部 Action 可用。",

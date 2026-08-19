@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 import {
   applyMemberConnectionAccessDelta,
   filterMemberConnectionAccessItems,
+  MemberConnectionAccessError,
   projectMemberConnectionAccess,
 } from "./team-member-connection-access-model.ts"
 
@@ -175,13 +176,47 @@ describe("applyMemberConnectionAccessDelta", () => {
   })
 
   it("rejects a per-member change to Team-inherited access", () => {
+    expect(() => {
+      try {
+        applyMemberConnectionAccessDelta({}, [github], {
+          addAppIds: [],
+          removeAppIds: ["app-github"],
+          userId: "alice",
+        })
+      } catch (error) {
+        expect(error).toBeInstanceOf(MemberConnectionAccessError)
+        expect(error).toMatchObject({ appId: "app-github", code: "teamInherited" })
+        throw error
+      }
+    }).toThrow(MemberConnectionAccessError)
+  })
+
+  it("returns stable error codes for conflicting and unavailable Apps", () => {
     expect(() =>
       applyMemberConnectionAccessDelta({}, [github], {
-        addAppIds: [],
+        addAppIds: ["app-github"],
         removeAppIds: ["app-github"],
         userId: "alice",
       }),
-    ).toThrow("Team-inherited Connection access cannot be changed per member")
+    ).toThrow(expect.objectContaining({ code: "conflictingDelta" }))
+
+    expect(() =>
+      applyMemberConnectionAccessDelta({}, [github], {
+        addAppIds: [],
+        removeAppIds: ["missing-app"],
+        userId: "alice",
+      }),
+    ).toThrow(expect.objectContaining({ appId: "missing-app", code: "unavailable" }))
+  })
+
+  it("returns a stable error code for a malformed Team policy", () => {
+    expect(() =>
+      applyMemberConnectionAccessDelta({ "user::alice": { roles: "connector-app:app-github" } } as never, [github], {
+        addAppIds: [],
+        removeAppIds: [],
+        userId: "alice",
+      }),
+    ).toThrow(expect.objectContaining({ code: "invalidPolicy" }))
   })
 })
 

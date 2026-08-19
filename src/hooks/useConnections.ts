@@ -184,7 +184,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
 
   const beginAction = React.useCallback((): ConnectionActionContext | null => {
     const currentWorkspace = effectiveWorkspace.current
-    if (!currentWorkspace) {
+    if (!currentWorkspace || !currentWorkspace.manageable) {
       return null
     }
     const generation = workspaceGeneration.current
@@ -641,6 +641,9 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     const currentWorkspace = effectiveWorkspace.current
     if (!currentWorkspace) {
       return Promise.reject(new Error("Workspace is still loading."))
+    }
+    if (!currentWorkspace.manageable) {
+      return Promise.reject(new Error("Connection management is not allowed in this team."))
     }
     return getConnectionExecutionLogs(request, currentWorkspace)
   }, [])

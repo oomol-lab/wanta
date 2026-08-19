@@ -14,6 +14,8 @@ import {
 } from "./connections-client.ts"
 import { consoleBaseUrl } from "./domain.ts"
 
+const managementWorkspace = { manageable: true, teamName: "team-name" } as const
+
 describe("connections-client", () => {
   afterEach(() => {
     clearConnectorCache()
@@ -33,7 +35,7 @@ describe("connections-client", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getActiveConnectionAppIdsForService("gmail", { teamName: "team-name" })).resolves.toEqual([
+    await expect(getActiveConnectionAppIdsForService("gmail", { manageable: false, teamName: "team-name" })).resolves.toEqual([
       "app-1",
       "app-2",
     ])
@@ -46,11 +48,38 @@ describe("connections-client", () => {
     const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ data: [] }))
     vi.stubGlobal("fetch", fetchMock)
 
-    await getActiveConnectionAppIdsForService("gmail", { teamName: "acme-corp" })
+    await getActiveConnectionAppIdsForService("gmail", { manageable: false, teamName: "acme-corp" })
 
     const [, init] = fetchMock.mock.calls[0] ?? []
     const headers = new Headers(init?.headers)
-    expect(headers.get("x-oo-organization-name")).toBe("acme-corp")
+    expect(headers.get("x-oo-team-name")).toBe("acme-corp")
+    expect(headers.has("x-oo-organization-name")).toBe(false)
+  })
+
+  it("separates management connections from policy-visible member apps", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/v1/connections")) {
+        return Response.json({ data: [{ id: "managed", service: "github", status: "active" }] })
+      }
+      if (url.includes("/v1/apps")) {
+        return Response.json({ data: [{ id: "visible", service: "github", status: "active" }] })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getActiveConnectionAppIdsForService("github", managementWorkspace)).resolves.toEqual(["managed"])
+    await expect(
+      getActiveConnectionAppIdsForService("github", { manageable: false, teamName: "team-name" }),
+    ).resolves.toEqual(["visible"])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects connection mutations from a policy-visible member workspace", async () => {
+    await expect(
+      connectProvider({ authType: "no_auth", service: "github" }, { manageable: false, teamName: "team-name" }),
+    ).rejects.toThrow("Connection management is not allowed")
   })
 
   it("loads connection app details through the by-id endpoint", async () => {
@@ -67,11 +96,11 @@ describe("connections-client", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getConnectionAppDetail("app-1", { teamName: "team-name" })).resolves.toMatchObject({
+    await expect(getConnectionAppDetail("app-1", { manageable: false, teamName: "team-name" })).resolves.toMatchObject({
       id: "app-1",
       credentialFields: [{ key: "roleArn", label: "Role ARN", displayValue: "role-a", secret: false }],
     })
-    await expect(getConnectionAppDetail("app-1", { teamName: "team-name" })).resolves.toMatchObject({
+    await expect(getConnectionAppDetail("app-1", { manageable: false, teamName: "team-name" })).resolves.toMatchObject({
       id: "app-1",
     })
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1")
@@ -91,7 +120,7 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    const summary = await getConnectionCatalogSummary({ teamName: "team-name" })
+    const summary = await getConnectionCatalogSummary({ manageable: false, teamName: "team-name" })
 
     expect(summary.providers.map((provider) => provider.service)).toEqual(["gmail"])
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(
@@ -123,10 +152,10 @@ describe("connections-client", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     await expect(
-      getConnectionExecutionLogs({ appId: "app-1", limit: 12 }, { teamName: "team-name" }),
+      getConnectionExecutionLogs({ appId: "app-1", limit: 12 }, managementWorkspace),
     ).resolves.toMatchObject({ items: [{ id: "exec-1", service: "gmail" }] })
 
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1/executions?limit=12")
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/connections/by-id/app-1/executions?limit=12")
   })
 
   it("loads provider detail without rereading apps or usage", async () => {
@@ -164,7 +193,7 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getConnectionCatalogSummary({ teamName: "read-only-team" })).resolves.toMatchObject({
+    await expect(getConnectionCatalogSummary({ manageable: false, teamName: "read-only-team" })).resolves.toMatchObject({
       apps: [],
       appsStatus: "forbidden",
       providerCount: 1,
@@ -188,7 +217,7 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getConnectionCatalogSummary({ teamName: "read-only-team" })).resolves.toMatchObject({
+    await expect(getConnectionCatalogSummary({ manageable: false, teamName: "read-only-team" })).resolves.toMatchObject({
       appsStatus: "unavailable",
       providers: [{ displayName: "Slack", service: "slack" }],
     })
@@ -210,7 +239,7 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getConnectionCatalogSummary({ teamName: "team-name" })).rejects.toMatchObject({
+    await expect(getConnectionCatalogSummary({ manageable: false, teamName: "team-name" })).rejects.toMatchObject({
       apiMessage: "Provider index is rebuilding",
       code: "catalog_unavailable",
       message: expect.stringContaining("Provider index is rebuilding"),
@@ -226,7 +255,7 @@ describe("connections-client", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await startOAuthConnect({ authType: "oauth2", service: "figma" }, { teamName: "team-name" })
+    await startOAuthConnect({ authType: "oauth2", service: "figma" }, managementWorkspace)
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
     expect(body.returnUri).toBe(`${consoleBaseUrl}/app-connections/callback?protocol=wanta-local`)
@@ -245,7 +274,7 @@ describe("connections-client", () => {
         extra: { scopes: ["tweet.read", "users.read"] },
         secretExtra: { appBearerToken: "secret" },
       },
-      { teamName: "team-name" },
+      managementWorkspace,
     )
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
@@ -266,12 +295,12 @@ describe("connections-client", () => {
         extra: { workspace: "prod" },
         service: "ably",
       },
-      { teamName: "team-name" },
+      managementWorkspace,
     )
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
     expect(body).toEqual({ apiKey: "secret", comment: "developer role", extra: { workspace: "prod" } })
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1/connect/api-key")
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/connections/by-id/app-1/connect/api-key")
   })
 
   it("keeps the global provider catalog cached after a workspace connection mutation", async () => {
@@ -279,7 +308,7 @@ describe("connections-client", () => {
     let providerReads = 0
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
-      if (url.endsWith("/v1/apps") && (!init?.method || init.method === "GET")) {
+      if (url.endsWith("/v1/connections") && (!init?.method || init.method === "GET")) {
         appReads += 1
         return Response.json({ data: [] })
       }
@@ -287,13 +316,13 @@ describe("connections-client", () => {
         providerReads += 1
         return Response.json({ data: [{ authTypes: ["no_auth"], service: "demo" }] })
       }
-      if (url.includes("/v1/apps/demo/connect/no-auth")) {
+      if (url.includes("/v1/connections/demo/connect/no-auth")) {
         return Response.json({ data: {} })
       }
       throw new Error(`Unexpected URL: ${url}`)
     })
     vi.stubGlobal("fetch", fetchMock)
-    const workspace = { teamName: "team-name" }
+    const workspace = managementWorkspace
 
     await getConnectionCatalogSummary(workspace)
     await connectProvider({ authType: "no_auth", service: "demo" }, workspace)
@@ -307,18 +336,18 @@ describe("connections-client", () => {
     const detailReads = new Map<string, number>()
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
-      const appId = /\/v1\/apps\/by-id\/(app-[12])/.exec(url)?.[1]
+      const appId = /\/v1\/connections\/by-id\/(app-[12])/.exec(url)?.[1]
       if (appId && (!init?.method || init.method === "GET")) {
         detailReads.set(appId, (detailReads.get(appId) ?? 0) + 1)
         return Response.json({ data: { id: appId, service: "demo", status: "active" } })
       }
-      if (url.includes("/v1/apps/demo/connect/no-auth")) {
+      if (url.includes("/v1/connections/demo/connect/no-auth")) {
         return Response.json({ data: {} })
       }
       throw new Error(`Unexpected URL: ${url}`)
     })
     vi.stubGlobal("fetch", fetchMock)
-    const workspace = { teamName: "team-name" }
+    const workspace = managementWorkspace
 
     await Promise.all([getConnectionAppDetail("app-1", workspace), getConnectionAppDetail("app-2", workspace)])
     await Promise.all([getConnectionAppDetail("app-1", workspace), getConnectionAppDetail("app-2", workspace)])
@@ -347,13 +376,13 @@ describe("connections-client", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     const [first, second] = await Promise.all([
-      startOAuthConnect({ authType: "oauth2", service: "gmail" }, { teamName: "team-name" }),
-      startOAuthConnect({ authType: "oauth2", service: "gmail" }, { teamName: "team-name" }),
+      startOAuthConnect({ authType: "oauth2", service: "gmail" }, managementWorkspace),
+      startOAuthConnect({ authType: "oauth2", service: "gmail" }, managementWorkspace),
     ])
 
     expect(first).toEqual(second)
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/gmail/connect")
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/connections/gmail/connect")
   })
 
   it("keeps OAuth start requests with different app IDs separate", async () => {
@@ -363,13 +392,13 @@ describe("connections-client", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     await Promise.all([
-      startOAuthConnect({ appId: "app-1", authType: "oauth2", service: "gmail" }, { teamName: "team-name" }),
-      startOAuthConnect({ appId: "app-2", authType: "oauth2", service: "gmail" }, { teamName: "team-name" }),
+      startOAuthConnect({ appId: "app-1", authType: "oauth2", service: "gmail" }, managementWorkspace),
+      startOAuthConnect({ appId: "app-2", authType: "oauth2", service: "gmail" }, managementWorkspace),
     ])
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1/connect")
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/v1/apps/by-id/app-2/connect")
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/connections/by-id/app-1/connect")
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/v1/connections/by-id/app-2/connect")
   })
 
   it("deduplicates force-refresh requests within the same refresh generation", async () => {
@@ -387,8 +416,8 @@ describe("connections-client", () => {
 
     const request = { forceRefresh: true, refreshGeneration: "workspace:team:team-name:refresh-1" }
     await Promise.all([
-      getConnectionSummary({ teamName: "team-name" }, request),
-      getConnectionSummary({ teamName: "team-name" }, request),
+      getConnectionSummary({ manageable: false, teamName: "team-name" }, request),
+      getConnectionSummary({ manageable: false, teamName: "team-name" }, request),
     ])
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -438,14 +467,14 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    const first = getActiveConnectionAppIdsForService("gmail", { teamName: "team-name" })
-    const second = getActiveConnectionAppIdsForService("gmail", { teamName: "team-name" })
+    const first = getActiveConnectionAppIdsForService("gmail", { manageable: false, teamName: "team-name" })
+    const second = getActiveConnectionAppIdsForService("gmail", { manageable: false, teamName: "team-name" })
     resolveSecondApps(Response.json({ data: [{ id: "new-app", service: "gmail", status: "active" }] }))
     await expect(second).resolves.toEqual(["new-app"])
     resolveFirstApps(Response.json({ data: [{ id: "old-app", service: "gmail", status: "active" }] }))
     await expect(first).resolves.toEqual(["old-app"])
 
-    const summary = await getConnectionSummary({ teamName: "team-name" })
+    const summary = await getConnectionSummary({ manageable: false, teamName: "team-name" })
     expect(summary.apps.map((app) => app.id)).toEqual(["new-app"])
     expect(appsRequestCount).toBe(2)
   })

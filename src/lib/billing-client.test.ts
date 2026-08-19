@@ -92,10 +92,10 @@ describe("billing-client", () => {
       const url = urlOf(input)
       paths.push(url.pathname)
       if (url.pathname === "/v1/balance/available") {
-        expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
+        expect(new Headers(init?.headers).get("x-oo-team-name")).toBeNull()
       } else if (url.hostname === "insight.oomol.com") {
         // Team usage now scopes via the /v2/stats/team/:teamId/* path, not the legacy org-name header.
-        expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
+        expect(new Headers(init?.headers).get("x-oo-team-name")).toBeNull()
         expect(url.pathname).toMatch(/^\/v2\/stats\/(billing|metering)$/)
       }
       if (url.pathname === "/v1/balance/available") {
@@ -288,7 +288,7 @@ describe("billing-client", () => {
 
   it("reads wrapped balance payloads for payment-required recovery", async () => {
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
-      expect(new Headers(init?.headers).get("x-oo-organization-name")).toBeNull()
+      expect(new Headers(init?.headers).get("x-oo-team-name")).toBeNull()
       return Response.json({
         data: {
           items: [
@@ -504,7 +504,7 @@ describe("billing-client", () => {
   })
 
   it("adapts the V2 team stats series (no subject) into the usage DTO", async () => {
-    const statsRequests: { path: string; granularity: string | null; hasOrgHeader: boolean }[] = []
+    const statsRequests: { path: string; granularity: string | null; hasTeamHeader: boolean }[] = []
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = urlOf(input)
       if (url.pathname === "/v1/balance/available") {
@@ -514,7 +514,7 @@ describe("billing-client", () => {
         statsRequests.push({
           path: url.pathname,
           granularity: url.searchParams.get("granularity"),
-          hasOrgHeader: new Headers(init?.headers).get("x-oo-organization-name") !== null,
+          hasTeamHeader: new Headers(init?.headers).get("x-oo-team-name") !== null,
         })
       }
       if (url.pathname === "/v2/stats/billing") {
@@ -580,7 +580,7 @@ describe("billing-client", () => {
     // Both team stats calls hit the path-scoped V2 route with daily granularity and no org-name header.
     expect(statsRequests.map((request) => request.path).sort()).toEqual(["/v2/stats/billing", "/v2/stats/metering"])
     expect(statsRequests.every((request) => request.granularity === "daily")).toBe(true)
-    expect(statsRequests.some((request) => request.hasOrgHeader)).toBe(false)
+    expect(statsRequests.some((request) => request.hasTeamHeader)).toBe(false)
   })
 
   it("requests stats using the user's whole-hour timezone offset", async () => {

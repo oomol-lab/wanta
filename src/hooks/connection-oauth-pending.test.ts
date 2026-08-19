@@ -69,7 +69,7 @@ describe("connection OAuth pending key", () => {
   })
 
   it("deduplicates OAuth requests by workspace, service, and target app", () => {
-    const workspace = { teamName: "team-name" } as const
+    const workspace = { manageable: false, teamName: "team-name" } as const
 
     expect(createOAuthPendingKey(workspace, { appId: "app-1", authType: "oauth2", service: "gmail" })).toBe(
       createOAuthPendingKey(workspace, { appId: "app-1", authType: "oauth2", service: "gmail" }),
@@ -80,17 +80,17 @@ describe("connection OAuth pending key", () => {
   })
 
   it("separates services and team workspaces", () => {
-    const firstTeamGmail = createOAuthPendingKey({ teamName: "team-name" }, { authType: "oauth2", service: "gmail" })
-    const firstTeamSlack = createOAuthPendingKey({ teamName: "team-name" }, { authType: "oauth2", service: "slack" })
-    const secondTeamGmail = createOAuthPendingKey({ teamName: "acme" }, { authType: "oauth2", service: "gmail" })
+    const firstTeamGmail = createOAuthPendingKey({ manageable: false, teamName: "team-name" }, { authType: "oauth2", service: "gmail" })
+    const firstTeamSlack = createOAuthPendingKey({ manageable: false, teamName: "team-name" }, { authType: "oauth2", service: "slack" })
+    const secondTeamGmail = createOAuthPendingKey({ manageable: false, teamName: "acme" }, { authType: "oauth2", service: "gmail" })
 
     expect(firstTeamGmail).not.toBe(firstTeamSlack)
     expect(firstTeamGmail).not.toBe(secondTeamGmail)
   })
 
   it("shares workspace and polling key formatting helpers", () => {
-    expect(connectionWorkspaceKey({ teamName: "team-name" })).toBe("team:team-name")
-    expect(connectionWorkspaceKey({ teamName: "acme" })).toBe("team:acme")
+    expect(connectionWorkspaceKey({ manageable: false, teamName: "team-name" })).toBe("team:team-name:runtime")
+    expect(connectionWorkspaceKey({ manageable: true, teamName: "acme" })).toBe("team:acme:management")
     expect(createConnectionPollingKey("gmail")).toBe("gmail")
     expect(createConnectionPollingKey("gmail", "app-1")).toBe("gmail\0app-1")
     expect(isConnectionPollingTarget("gmail\0app-1", "gmail", "app-1")).toBe(true)
@@ -100,7 +100,7 @@ describe("connection OAuth pending key", () => {
   })
 
   it("stores pending OAuth operations until they expire", () => {
-    const workspace = { teamName: "team-name" } as const
+    const workspace = { manageable: false, teamName: "team-name" } as const
     const operation = createOAuthPendingOperation(
       workspace,
       { appId: "app-1", authType: "oauth2", service: "gmail" },
@@ -117,14 +117,14 @@ describe("connection OAuth pending key", () => {
       existingActiveAppIds: ["app-0"],
       pollingKey: "gmail\0app-1",
       service: "gmail",
-      workspaceKey: "team:team-name",
+      workspaceKey: "team:team-name:runtime",
     })
     expect(readOAuthPendingOperation(operation.key, operation.expiresAt, storage)).toBeNull()
   })
 
   it("keeps only one pending OAuth operation per workspace", () => {
-    const teamName = { teamName: "team-name" } as const
-    const team = { teamName: "acme" } as const
+    const teamName = { manageable: false, teamName: "team-name" } as const
+    const team = { manageable: false, teamName: "acme" } as const
     const first = createOAuthPendingOperation(teamName, { authType: "oauth2", service: "gmail" }, 1, 1_000)
     const second = createOAuthPendingOperation(teamName, { authType: "oauth2", service: "slack" }, 2, 2_000)
     const otherWorkspace = createOAuthPendingOperation(team, { authType: "oauth2", service: "gmail" }, 3, 3_000)
@@ -139,7 +139,7 @@ describe("connection OAuth pending key", () => {
 
   it("resolves the newly connected OAuth account after polling resumes", () => {
     const operation = createOAuthPendingOperation(
-      { teamName: "team-name" },
+      { manageable: false, teamName: "team-name" },
       { authType: "oauth2", service: "gmail" },
       1,
       1_000,
@@ -154,13 +154,13 @@ describe("connection OAuth pending key", () => {
     ).toEqual({
       connectionName: "new",
       service: "gmail",
-      workspaceKey: "team:team-name",
+      workspaceKey: "team:team-name:runtime",
     })
   })
 
   it("resolves the requested account when OAuth reconnects", () => {
     const operation = createOAuthPendingOperation(
-      { teamName: "team-name" },
+      { manageable: false, teamName: "team-name" },
       { appId: "target", authType: "oauth2", service: "gmail" },
       1,
       1_000,
@@ -174,7 +174,7 @@ describe("connection OAuth pending key", () => {
     ).toEqual({
       connectionName: "target",
       service: "gmail",
-      workspaceKey: "team:team-name",
+      workspaceKey: "team:team-name:runtime",
     })
   })
 })

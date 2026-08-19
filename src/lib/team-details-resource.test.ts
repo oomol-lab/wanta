@@ -54,8 +54,8 @@ describe("team-details-resource", () => {
     const teamHeaders: string[] = []
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
-      if (url.endsWith("/v1/apps")) {
-        const teamName = new Headers(init?.headers).get("x-oo-organization-name") ?? ""
+      if (url.endsWith("/v1/connections")) {
+        const teamName = new Headers(init?.headers).get("x-oo-team-name") ?? ""
         teamHeaders.push(teamName)
         return Response.json({ data: [{ service: teamName, status: "active" }] })
       }

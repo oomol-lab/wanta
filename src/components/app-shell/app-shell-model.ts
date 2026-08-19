@@ -49,6 +49,20 @@ export const NO_DRAFT_PROJECT_ID = "__no_project__"
 
 export { connectionWorkspaceKey as connectionWorkspaceSwitchKey } from "@/lib/connection-workspace"
 
+export function showArtifactsPanelToggle(
+  route: Route,
+  hasPanelSelection: boolean,
+  artifactsPanelVisible: boolean,
+  platform: NodeJS.Platform | undefined,
+): boolean {
+  if (route !== "chat" || !hasPanelSelection) {
+    return false
+  }
+
+  // Windows keeps the control in the main titlebar, immediately before the panel divider.
+  return platform === "win32" || !artifactsPanelVisible
+}
+
 export interface RecommendedSkillIdentity {
   packageName?: string
   skillName: string

@@ -261,7 +261,8 @@ describe("MarkdownImage", () => {
     expect(localImagePreviewRetryDelay(0)).toBe(250)
     expect(localImagePreviewRetryDelay(1)).toBe(750)
     expect(localImagePreviewRetryDelay(2)).toBe(1_500)
-    expect(localImagePreviewRetryDelay(3)).toBeNull()
+    expect(localImagePreviewRetryDelay(3)).toBe(3_000)
+    expect(localImagePreviewRetryDelay(4)).toBeNull()
   })
 
   it("decodes percent-encoded local paths from markdown image URLs", () => {

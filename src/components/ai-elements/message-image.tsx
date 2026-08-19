@@ -42,7 +42,7 @@ interface LocalImagePreviewCacheEntry {
 
 const localImagePreviewUrlByPath = new Map<string, LocalImagePreviewCacheEntry>()
 const localImagePreviewRefreshMarginMs = 60_000
-export const localImagePreviewRetryDelaysMs = [250, 750, 1_500] as const
+export const localImagePreviewRetryDelaysMs = [250, 750, 1_500, 3_000] as const
 const imageViewerMinScale = 0.1
 const imageViewerMaxScale = 4
 const imageViewerScaleStep = 0.1

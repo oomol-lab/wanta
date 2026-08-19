@@ -62,7 +62,7 @@ import { buildLocalMachineSkillDeletePlan } from "./delete-plan.ts"
 import { ExternalSkillRuntimeSynchronizer } from "./external-runtime-sync.ts"
 import { normalizeSkillId, removeSkillDirectoryIfSafe } from "./file-operations.ts"
 import { SkillFileWatcher } from "./file-watcher.ts"
-import { ensureWindowsGptImage2RunnerCompatibility } from "./gpt-image-2-windows-runtime-fix.ts"
+import { ensureGptImage2RuntimeCompatibility } from "./gpt-image-2-windows-runtime-fix.ts"
 import { SkillInventoryCache } from "./inventory-cache.ts"
 import { mergeInstalledSkillSnapshots, readSkillCoverageAgents } from "./inventory-snapshot.ts"
 import { buildSummary, groupInstalledSkills } from "./inventory.ts"
@@ -563,7 +563,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       const now = new Date().toISOString()
 
       if (isRuntimeSkillInstalled(inventory, request.skillId)) {
-        await ensureWindowsGptImage2RunnerCompatibility(path.join(this.getSharedAgentSkillRoot(), request.skillId))
+        await ensureGptImage2RuntimeCompatibility(path.join(this.getSharedAgentSkillRoot(), request.skillId))
         installStore = upsertDefaultSkillInstallRecord(installStore, {
           ...request,
           installedAt: existingRecord?.installedAt ?? now,

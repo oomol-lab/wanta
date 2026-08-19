@@ -48,6 +48,7 @@ import {
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
+  showArtifactsPanelToggle,
   workspaceActivationHasFailed,
   workspaceSelectionSwitchKey,
 } from "./app-shell-model.ts"
@@ -657,7 +658,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     })
   const {
     artifactSelection,
-    artifactsPanelContentRef,
     artifactsPanelIsMaximized,
     artifactsPanelMaxWidthState,
     artifactsPanelOpen,
@@ -1938,7 +1938,13 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [activeKnowledgeBases, activeQueuedMessages.length, handleToggleKnowledgeBaseReference, knowledgeLibrary.items],
   )
   const handleOpenTeams = React.useCallback(() => setRoute("teams"), [])
-  const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible
+  // Keep the same titlebar affordance available to close an already open panel.
+  const showArtifactsToggle = showArtifactsPanelToggle(
+    route,
+    hasPanelSelection,
+    artifactsPanelVisible,
+    globalThis.wanta?.platform,
+  )
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
   const showBrowserToggle = route === "chat" && browserState !== null
@@ -2360,7 +2366,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
 
         <AppShellRightPanel
           artifactSelection={artifactSelection}
-          artifactsPanelContentRef={artifactsPanelContentRef}
           artifactsPanelIsMaximized={artifactsPanelIsMaximized}
           artifactsPanelMaxWidthState={artifactsPanelMaxWidthState}
           artifactsPanelShellRef={artifactsPanelShellRef}

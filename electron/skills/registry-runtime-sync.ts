@@ -5,7 +5,7 @@ import { access, readdir } from "node:fs/promises"
 import path from "node:path"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { assertCanReplaceSharedSkillTarget, normalizeSkillId, replaceDirectory } from "./file-operations.ts"
-import { ensureWindowsGptImage2RunnerCompatibility } from "./gpt-image-2-windows-runtime-fix.ts"
+import { ensureGptImage2RuntimeCompatibility } from "./gpt-image-2-windows-runtime-fix.ts"
 import { readManifestStore, replaceManifestRecords, writeManifestStore } from "./manifest.ts"
 import { isSkillRemovedByUser } from "./removed-store.ts"
 import { assertSafeResetPaths } from "./reset.ts"
@@ -104,7 +104,7 @@ export class RegistrySkillRuntimeSynchronizer {
     assertSafeResetPaths(sourcePath, targetPath)
     await assertCanReplaceSharedSkillTarget(targetPath, options)
     await replaceDirectory(sourcePath, targetPath)
-    await ensureWindowsGptImage2RunnerCompatibility(targetPath)
+    await ensureGptImage2RuntimeCompatibility(targetPath)
     await this.refreshManifest([targetPath])
   }
 

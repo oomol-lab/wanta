@@ -13,6 +13,7 @@ import type {
   ConnectionCatalogFilter,
   DisconnectTarget,
 } from "./connection-route-model.ts"
+import type { ConnectionAccessContext } from "./ConnectionAccessDialog.tsx"
 import type { UseConnections } from "@/hooks/useConnections"
 
 import { ArrowLeft, X } from "lucide-react"
@@ -79,6 +80,7 @@ import { cn } from "@/lib/utils"
 export type { ConnectionAuthIntent } from "./connection-route-model.ts"
 
 interface ConnectionsPanelProps {
+  accessContext?: ConnectionAccessContext
   authIntent?: ConnectionAuthIntent | null
   canManageConnections: boolean
   connections: UseConnections
@@ -86,6 +88,7 @@ interface ConnectionsPanelProps {
   onConnectionReady?: (target: { service: string; connectionName?: string }) => void
   presentation?: "drawer" | "page"
   requestedFilter?: ConnectionCatalogFilter
+  selectedAppId?: string | null
   selectedService?: string | null
 }
 
@@ -104,6 +107,7 @@ interface DirectProviderBinding {
 }
 
 export function ConnectionsPanel({
+  accessContext,
   authIntent,
   canManageConnections,
   connections,
@@ -111,6 +115,7 @@ export function ConnectionsPanel({
   onConnectionReady,
   presentation = "page",
   requestedFilter,
+  selectedAppId,
   selectedService,
 }: ConnectionsPanelProps) {
   const t = useT()
@@ -663,6 +668,7 @@ export function ConnectionsPanel({
       <div className="h-full min-h-0 overflow-y-auto px-3 py-3">
         {selectedProvider ? (
           <ProviderDetail
+            accessContext={accessContext}
             authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
             busy={selectedProviderBusy}
             detail={selectedProviderDetail}
@@ -681,6 +687,7 @@ export function ConnectionsPanel({
             progressLabel={selectedProviderProgressLabel}
             reopenPollingLabel={reopenSelectedProviderPollingLabel}
             provider={selectedProvider}
+            selectedAppId={selectedAppId}
             showCloseButton
           />
         ) : (
@@ -811,6 +818,7 @@ export function ConnectionsPanel({
               </Button>
             </div>
             <ProviderDetail
+              accessContext={accessContext}
               authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
               busy={selectedProviderBusy}
               detail={selectedProviderDetail}
@@ -829,6 +837,7 @@ export function ConnectionsPanel({
               progressLabel={selectedProviderProgressLabel}
               reopenPollingLabel={reopenSelectedProviderPollingLabel}
               provider={selectedProvider}
+              selectedAppId={selectedAppId}
             />
           </SplitViewMobileDetailPane>
         ) : null}
@@ -843,6 +852,7 @@ export function ConnectionsPanel({
             )}
           >
             <ProviderDetail
+              accessContext={accessContext}
               authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
               busy={selectedProviderBusy}
               detail={selectedProviderDetail}
@@ -861,6 +871,7 @@ export function ConnectionsPanel({
               progressLabel={selectedProviderProgressLabel}
               reopenPollingLabel={reopenSelectedProviderPollingLabel}
               provider={selectedProvider}
+              selectedAppId={selectedAppId}
             />
           </SplitViewDesktopDetailPane>
         ) : null}

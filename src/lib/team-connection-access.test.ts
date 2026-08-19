@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  hasTeamConnectionAppAccess,
   parseTeamConnectionAccess,
   restoreTeamConnectionDefaults,
   setTeamConnectionActionAccess,
@@ -33,7 +34,7 @@ describe("team connection access", () => {
     })
   })
 
-  it("rejects a Connector rule scoped to a different App", () => {
+  it("uses the role subject as the App identity when the redundant nested app differs", () => {
     const slack = { id: "app-slack", service: "slack" }
 
     expect(
@@ -47,7 +48,7 @@ describe("team connection access", () => {
       ),
     ).toMatchObject({
       apps: [
-        { appId: "app-github", mode: "invalid" },
+        { appId: "app-github", memberAccess: { mode: "selected", userIds: [] }, mode: "configured" },
         { appId: "app-slack", mode: "default" },
       ],
       ok: true,
@@ -84,6 +85,24 @@ describe("team connection access", () => {
       apps: [{ actionAccess: { actionNames: [], mode: "restricted" }, memberAccess: { mode: "team" } }],
       ok: true,
     })
+  })
+
+  it("does not grant managers implicit access in selected-member mode", () => {
+    const parsed = parseTeamConnectionAccess(
+      {
+        "role::connector-app:app-github": {
+          connector: [{ method: "POST", provider: "github", requireRole: true }],
+        },
+        "user::alice": { roles: ["connector-app:app-github"] },
+      },
+      [github],
+    )
+    if (!parsed.ok) throw new Error("Expected a valid policy")
+    const app = parsed.apps[0]
+    if (!app) throw new Error("Expected an App policy")
+
+    expect(hasTeamConnectionAppAccess(app, "alice")).toBe(true)
+    expect(hasTeamConnectionAppAccess(app, "team-admin")).toBe(false)
   })
 
   it("removes legacy user connector rules when writing the current contract", () => {

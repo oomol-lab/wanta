@@ -1,6 +1,13 @@
+import type { ConnectionAppSummary } from "../../electron/connections/common.ts"
 import type { TeamAppAccess, TeamMember, TeamProviderOption, TeamUserSummary } from "../../electron/teams/common.ts"
 
-import { getTeamAppAccess, listTeamMembers, listTeamProviderOptions, listUserSummaries } from "./teams-client.ts"
+import {
+  getTeamAppAccess,
+  listTeamConnectionApps,
+  listTeamMembers,
+  listTeamProviderOptions,
+  listUserSummaries,
+} from "./teams-client.ts"
 
 const teamDetailsStaleMs = 60_000
 
@@ -19,6 +26,10 @@ function resourceKey(accountId: string, teamId: string, resource: string): strin
 
 function providerOptionsResourceKey(accountId: string, teamId: string, teamName: string): string {
   return resourceKey(accountId, teamId, `provider-options:${teamName.trim()}`)
+}
+
+function connectionAppsResourceKey(accountId: string, teamId: string, teamName: string): string {
+  return resourceKey(accountId, teamId, `connection-apps:${teamName.trim()}`)
 }
 
 function isFresh<T>(entry: ResourceEntry<T>): entry is ResourceEntry<T> & { data: T } {
@@ -100,6 +111,14 @@ export function getCachedTeamAppAccess(accountId: string, teamId: string): TeamA
   return readCached(resourceKey(accountId, teamId, "app-access"))
 }
 
+export function getCachedTeamConnectionApps(
+  accountId: string,
+  teamId: string,
+  teamName: string,
+): ConnectionAppSummary[] | null {
+  return readCached(connectionAppsResourceKey(accountId, teamId, teamName))
+}
+
 export function getCachedTeamUserSummaries(
   accountId: string,
   teamId: string,
@@ -138,6 +157,19 @@ export function getTeamAppAccessResource(
   return loadResource(
     resourceKey(accountId, teamId, "app-access"),
     () => getTeamAppAccess(teamId),
+    options.forceRefresh,
+  )
+}
+
+export function getTeamConnectionAppsResource(
+  accountId: string,
+  teamId: string,
+  teamName: string,
+  options: TeamDetailsResourceOptions = {},
+): Promise<ConnectionAppSummary[]> {
+  return loadResource(
+    connectionAppsResourceKey(accountId, teamId, teamName),
+    () => listTeamConnectionApps(teamName, { forceRefresh: options.forceRefresh }),
     options.forceRefresh,
   )
 }

@@ -1,5 +1,6 @@
 import type {
   ConnectionConnectInput,
+  ConnectionActionCatalogItem,
   ConnectionAppDetail,
   ConnectionExecutionLogRequest,
   ConnectionExecutionLogSummary,
@@ -429,6 +430,14 @@ export function getConnectionProviders(
   options: ConnectorReadOptions = {},
 ): Promise<{ data: RawProvider[]; meta: unknown }> {
   return getConnector<RawProvider[]>("/v1/providers", null, options)
+}
+
+export function getConnectionActions(
+  service: string,
+  options: ConnectorReadOptions = {},
+): Promise<{ data: ConnectionActionCatalogItem[]; meta: unknown }> {
+  const search = new URLSearchParams({ service }).toString()
+  return getConnector<ConnectionActionCatalogItem[]>(`/v1/actions?${search}`, null, options)
 }
 
 export async function getConnectionSummary(

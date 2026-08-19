@@ -44,7 +44,6 @@ import {
   projectContextControlsDisabled,
   resolveNotificationTeam,
   routeAvailableForRuntime,
-  resolveTeamProviderOptionsAvailability,
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
@@ -604,23 +603,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const activeProviders = connectionSummaryMatchesWorkspace
     ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
     : EMPTY_CONNECTION_PROVIDERS
-  const teamProviderOptionsAvailability = resolveTeamProviderOptionsAvailability({
-    appsStatus: connections.summary?.appsStatus,
-    summaryMatchesWorkspace: connectionSummaryMatchesWorkspace,
-    workspaceActivationFailed: workspaceActivationHasFailed(workspaceActivationState),
-  })
-  const activeTeamProviderOptions = React.useMemo(
-    () =>
-      teamProviderOptionsAvailability === "ready"
-        ? activeProviders
-            .filter((provider) => provider.apps.some((app) => app.status !== "disconnected"))
-            .map((provider) => ({ label: provider.displayName, service: provider.service }))
-            .sort((left, right) => left.label.localeCompare(right.label))
-        : teamProviderOptionsAvailability === "pending"
-          ? undefined
-          : null,
-    [activeProviders, teamProviderOptionsAvailability],
-  )
   const {
     entryVisible: teamSkillEntryVisible,
     pendingInstallCount: recommendedSkillPendingInstallCount,
@@ -642,7 +624,20 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       ? undefined
       : null
   const canManageWorkspaceConnections = teamWorkspace.activeWorkspace.canManage
+  const connectionAccessContext = React.useMemo(
+    () =>
+      teamWorkspace.activeWorkspace.team
+        ? {
+            accountId,
+            canManage: canManageWorkspaceConnections,
+            currentUserId: accountId,
+            team: teamWorkspace.activeWorkspace.team,
+          }
+        : undefined,
+    [accountId, canManageWorkspaceConnections, teamWorkspace.activeWorkspace.team],
+  )
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
+  const [selectedConnectionAppId, setSelectedConnectionAppId] = React.useState<string | null>(null)
   const [connectionCatalogFilter, setConnectionCatalogFilter] = React.useState<ConnectionCatalogFilter>({ kind: "all" })
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
@@ -1357,11 +1352,23 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         return next
       })
       setSelectedService(null)
+      setSelectedConnectionAppId(null)
       setConnectionCatalogFilter(normalizeConnectionCatalogFilter(filter))
       setRoute("connections")
       void connections.refresh({}, { silent: true })
     },
     [activeComposerDraftKey, cancelRetryForDrawer, connections.refresh],
+  )
+
+  const handleOpenTeamConnection = React.useCallback(
+    ({ appId, service }: { appId: string; service: string }): void => {
+      setSelectedService(service)
+      setSelectedConnectionAppId(appId)
+      setConnectionCatalogFilter({ kind: "all" })
+      setRoute("connections")
+      void connections.refresh({}, { silent: true })
+    },
+    [connections.refresh],
   )
 
   const handleOpenChatConnectionProvider = React.useCallback(
@@ -1415,6 +1422,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     clearRetries()
     setChatConnectionDrawers({})
     setSelectedService(null)
+    setSelectedConnectionAppId(null)
     setConnectionCatalogFilter({ kind: "all" })
     setSelectedSessionId(null)
     setIsDraftSession(false)
@@ -2199,9 +2207,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                 ) : oomolLinkActive ? (
                   <div className="h-full min-h-0 p-0">
                     <ConnectionsPanel
+                      accessContext={connectionAccessContext}
                       canManageConnections={canManageWorkspaceConnections}
                       connections={connections}
                       requestedFilter={connectionCatalogFilter}
+                      selectedAppId={selectedConnectionAppId}
                       selectedService={selectedService}
                     />
                   </div>
@@ -2227,8 +2237,8 @@ export function AppShell({ auth }: { auth: UseAuth }) {
               ) : route === "teams" && oomolEnabled ? (
                 <TeamManagementRoute
                   connectedProvidersLoading={activeProvidersLoading}
+                  onOpenConnection={handleOpenTeamConnection}
                   teamSkills={teamSkills}
-                  providerOptions={activeTeamProviderOptions}
                   providerSkillRecommendationsState={providerSkillRecommendations}
                   workspace={teamWorkspace}
                 />
@@ -2350,6 +2360,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                     />
                   </div>
                   <AppShellConnectionDrawer
+                    accessContext={connectionAccessContext}
                     authIntent={chatConnectionAuthIntent}
                     canManageConnections={oomolLinkActive && canManageWorkspaceConnections}
                     connections={connections}

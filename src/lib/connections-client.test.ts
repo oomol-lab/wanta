@@ -4,6 +4,7 @@ import {
   connectProvider,
   getActiveConnectionAppIdsForService,
   getConnectionAppDetail,
+  getConnectionActions,
   getConnectionCatalogSummary,
   getConnectionExecutionLogs,
   getConnectionProviderDetail,
@@ -104,6 +105,32 @@ describe("connections-client", () => {
     })
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1")
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("loads the global Action catalog for a provider without a Team header", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        data: [
+          {
+            description: "List issues",
+            id: "github.list_issues",
+            name: "list_issues",
+            operationType: "read",
+            providerPermissions: [],
+            requiredScopes: [],
+            service: "github",
+          },
+        ],
+      }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getConnectionActions("github")).resolves.toMatchObject({
+      data: [{ name: "list_issues", operationType: "read" }],
+    })
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/actions?service=github")
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has("x-oo-team-name")).toBe(false)
   })
 
   it("returns the provider catalog without requesting usage", async () => {

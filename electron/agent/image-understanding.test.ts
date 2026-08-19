@@ -115,13 +115,15 @@ describe("understandAttachedImages", () => {
     )
 
     try {
-      await expect(
-        understandAttachedImages(
-          [{ id: "image-1", mime: "image/png", name: "screen.png", path: imagePath, size: 11 }],
-          "describe it",
-          "session-token",
-        ),
-      ).rejects.toThrow("provider rejected image_url content; request id image-request-123")
+      const error = await understandAttachedImages(
+        [{ id: "image-1", mime: "image/png", name: "screen.png", path: imagePath, size: 11 }],
+        "describe it",
+        "session-token",
+      ).catch((failure: unknown) => failure)
+      expect(error).toBeInstanceOf(Error)
+      const message = (error as Error).message
+      expect(message).toContain("provider rejected image_url content; request id image-request-123")
+      expect(message).not.toContain("unknown variant `image_url`, expected `text`")
     } finally {
       await rm(directory, { force: true, recursive: true })
     }

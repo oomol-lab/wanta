@@ -6,9 +6,9 @@ import type { ExternalAgentRuntimeStatus } from "./probe.ts"
 
 import { logDiagnostic } from "../../diagnostics-log.ts"
 import { BaseAgentAdapter } from "../contract/adapter.ts"
+import { redactExternalAgentEvent } from "./transcript-redaction.ts"
 import { ExternalTranscriptStore } from "./transcript-store.ts"
 import { ExternalTranscriptRecorder } from "./transcript.ts"
-import { redactExternalAgentEvent } from "./transcript-redaction.ts"
 
 // Shared skeleton for external (BYOA) adapters. On top of the contract base it
 // provides the chat-layer backend surface the built-in kernel gets from the

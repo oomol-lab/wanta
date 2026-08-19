@@ -55,12 +55,7 @@ export class ExternalTranscriptStore {
         }
         const redactedMessages = redactExternalMessages(messages)
         if (JSON.stringify(redactedMessages) !== JSON.stringify(messages)) {
-          logDiagnostic(
-            "external-transcript",
-            "redacted legacy transcript credentials",
-            { sessionId },
-            "warn",
-          )
+          logDiagnostic("external-transcript", "redacted legacy transcript credentials", { sessionId }, "warn")
           await atomicWriteText(this.filePath(sessionId), JSON.stringify({ version: 1, messages: redactedMessages }))
         }
         return redactedMessages

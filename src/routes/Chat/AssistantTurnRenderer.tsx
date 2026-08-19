@@ -361,9 +361,7 @@ export function AssistantBlock({
                 part={part}
                 provider={service ? providerByService.get(service) : undefined}
                 live={liveTools}
-                recovered={
-                  recoverSafeToolErrors && part.status === "error" && part.userImpact === "none"
-                }
+                recovered={recoverSafeToolErrors && part.status === "error" && part.userImpact === "none"}
                 shimmer={part.partId === settlingToolPartId}
                 settling={part.partId === settlingToolPartId}
                 showAuthorizationPrompt={showAuthorizationPrompt}

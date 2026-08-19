@@ -96,10 +96,7 @@ export class ExternalTranscriptRecorder {
         return
       }
       case "messagePartRemoved": {
-        this.sessions
-          .get(safeEvent.data.sessionId)
-          ?.get(safeEvent.data.messageId)
-          ?.parts.delete(safeEvent.data.partId)
+        this.sessions.get(safeEvent.data.sessionId)?.get(safeEvent.data.messageId)?.parts.delete(safeEvent.data.partId)
         return
       }
       case "messageCompleted": {

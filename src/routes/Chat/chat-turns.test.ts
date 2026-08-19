@@ -756,12 +756,9 @@ describe("inheritTurnProcessTiming", () => {
       },
     ])[0]!
     const enclosing = summarizeTurnProcess(turn, null, undefined, { hasVisibleOutcome: true })
-    const scoped = summarizeTurnProcess(
-      { ...turn, assistants: [turn.assistants[0]!] },
-      null,
-      undefined,
-      { hasVisibleOutcome: true },
-    )
+    const scoped = summarizeTurnProcess({ ...turn, assistants: [turn.assistants[0]!] }, null, undefined, {
+      hasVisibleOutcome: true,
+    })
 
     expect(scoped.endedAt).toBeUndefined()
     expect(inheritTurnProcessTiming(scoped, enclosing)).toMatchObject({ startedAt: 1_000, endedAt: 61_000 })

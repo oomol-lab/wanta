@@ -4,8 +4,7 @@ import type { AgentEvent } from "../contract/event.ts"
 import { isSensitiveConnectorKey, redactConnectorOutput } from "../oo-guard-core.ts"
 
 const embeddedJsonStringField = /("([A-Za-z][A-Za-z0-9_-]*)"\s*:\s*)"(?:\\.|[^"\\])*"/gu
-const embeddedEscapedJsonStringField =
-  /(\\+"([A-Za-z][A-Za-z0-9_-]*)\\+"\s*:\s*)\\+"[^"\\]*\\+"/gu
+const embeddedEscapedJsonStringField = /(\\+"([A-Za-z][A-Za-z0-9_-]*)\\+"\s*:\s*)\\+"[^"\\]*\\+"/gu
 const sensitiveTextHint =
   /(?:access[_-]?token|api[_-]?(?:key|token)|authorization|bearer\s|client[_-]?secret|cookie|credential|password|personal[_-]?api[_-]?key|refresh[_-]?token|secret[_-]?api[_-]?token)/iu
 

@@ -78,10 +78,13 @@ describe("OOMOL connector workspace guard", () => {
       ]),
       ["connector", "schema", "posthog", "--", "--team", "payload-value"],
     )
-    assert.deepEqual(
-      stripIdentityIndependentWorkspaceSelectors(["connector", "run", "posthog", "--team", "team-a"]),
-      ["connector", "run", "posthog", "--team", "team-a"],
-    )
+    assert.deepEqual(stripIdentityIndependentWorkspaceSelectors(["connector", "run", "posthog", "--team", "team-a"]), [
+      "connector",
+      "run",
+      "posthog",
+      "--team",
+      "team-a",
+    ])
   })
 
   test("parses documented global options and inserts selectors before the argument terminator", () => {

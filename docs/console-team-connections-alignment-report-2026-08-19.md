@@ -172,16 +172,16 @@ Wanta 现有的写入会创建类似下面的旧文档：
 
 ## 建议联调用例
 
-| 用例                                         | 期望                                                                                       |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| 未配置任何 App role                          | creator/admin/member 都能在 `/v1/apps` 看见 App；管理者在 `/v1/connections` 看见并可管理。 |
-| `requireRole: true` 且成员列表为空           | 所有人都不可见/不可调用该 App，包括 creator/admin。                                        |
-| `requireRole: true`，只给普通成员 Alice role | 只有 Alice 在成员端点可见；管理员仍可通过管理端点配置，但不因为角色自动取得运行权限。      |
-| `requireRole: false`，`actions` 缺失         | 全团队可见；所有 Action、Proxy、MCP tool_call 可用。                                       |
-| `requireRole: false`，`actions: []`          | 全团队可见，但不能调用任何 Action，且 Proxy/MCP tool_call 禁用。                           |
-| policy role 损坏                             | 普通成员不可访问；管理者看到 repair/invalid 状态；其他 App 正常。                          |
-| 旧 `user.connector` 写入                     | 迁移时删除或标记，不得把它解释为限制性授权。                                               |
-| 同一成员先是 admin 后降为 member             | 缓存切换到 runtime surface，不能继续展示管理列表、凭证或执行记录。                         |
+| 用例                                         | 期望                                                                                            |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 未配置任何 App role                          | creator/admin 在 `/v1/connections` 看见并可管理；member 在 `/v1/apps` 看见 policy-visible App。 |
+| `requireRole: true` 且成员列表为空           | 所有人都不可见/不可调用该 App，包括 creator/admin。                                             |
+| `requireRole: true`，只给普通成员 Alice role | 只有 Alice 在成员端点可见；管理员仍可通过管理端点配置，但不因为角色自动取得运行权限。           |
+| `requireRole: false`，`actions` 缺失         | 全团队可见；所有 Action、Proxy、MCP tool_call 可用。                                            |
+| `requireRole: false`，`actions: []`          | 全团队可见，但不能调用任何 Action，且 Proxy/MCP tool_call 禁用。                                |
+| policy role 损坏                             | 普通成员不可访问；管理者看到 repair/invalid 状态；其他 App 正常。                               |
+| 旧 `user.connector` 写入                     | 迁移时删除或标记，不得把它解释为限制性授权。                                                    |
+| 同一成员先是 admin 后降为 member             | 缓存切换到 runtime surface，不能继续展示管理列表、凭证或执行记录。                              |
 
 ## 证据位置
 

@@ -1,17 +1,10 @@
-import type {
-  EditableTeamMemberRole,
-  Team,
-  TeamAppAccess,
-  TeamMember,
-  TeamRole,
-} from "../../../electron/teams/common.ts"
-import type { BusyAction, MemberSearchState, ProviderAccessForm, ProviderGrantView } from "./team-management-model.ts"
+import type { EditableTeamMemberRole, Team, TeamMember, TeamRole } from "../../../electron/teams/common.ts"
+import type { BusyAction, MemberSearchState } from "./team-management-model.ts"
 
 import * as React from "react"
 import { toast } from "sonner"
 import { teamErrorMessage } from "./team-errors.ts"
-import { errorMessage, initialProviderAccessForm, uniqueStrings } from "./team-management-model.ts"
-import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./team-provider-access.ts"
+import { errorMessage, uniqueStrings } from "./team-management-model.ts"
 import { useAppI18n } from "@/i18n"
 import { invalidateTeamDetailsResource } from "@/lib/team-details-resource"
 import { canChangeTeamMemberRole } from "@/lib/team-permissions"
@@ -19,32 +12,24 @@ import {
   addTeamMember,
   disableTeamMembers,
   enableTeamMembers,
-  getTeamAppAccessSnapshot,
   isTeamMemberLimitError,
   removeTeamMember,
-  updateTeamAppAccess,
   updateTeamMemberRole,
 } from "@/lib/teams-client"
 
 interface TeamMemberActionsOptions {
   activeAccountId: string | undefined
   actorRole: TeamRole | null
-  busyAction: BusyAction | null
   canManage: boolean
   memberInput: string
   memberSearch: MemberSearchState
-  providerAccessMutationError: string | null
-  providerOptionsError: string | null
-  providerAccessForm: ProviderAccessForm
   reloadDetails: () => Promise<void>
   resetMemberSearch: () => void
   selectedTeam: Team | null
   selectedSearchUserId: string | null
   setAddMemberError: React.Dispatch<React.SetStateAction<string | null>>
   setAddMemberOpen: React.Dispatch<React.SetStateAction<boolean>>
-  setAppAccessForTeam: (accountId: string | undefined, teamId: string, access: TeamAppAccess) => void
   setBusyAction: React.Dispatch<React.SetStateAction<BusyAction | null>>
-  setProviderAccessForm: React.Dispatch<React.SetStateAction<ProviderAccessForm>>
 }
 
 interface MemberActionOperation {
@@ -55,22 +40,16 @@ interface MemberActionOperation {
 export function useTeamMemberActions({
   activeAccountId,
   actorRole,
-  busyAction,
   canManage,
   memberInput,
   memberSearch,
-  providerAccessMutationError,
-  providerOptionsError,
-  providerAccessForm,
   reloadDetails,
   resetMemberSearch,
   selectedTeam,
   selectedSearchUserId,
   setAddMemberError,
   setAddMemberOpen,
-  setAppAccessForTeam,
   setBusyAction,
-  setProviderAccessForm,
 }: TeamMemberActionsOptions) {
   const { t } = useAppI18n()
   const actionSequenceRef = React.useRef(0)
@@ -244,30 +223,6 @@ export function useTeamMemberActions({
     [activeAccountId, beginOperation, canManage, finishOperation, operationIsCurrent, reloadDetails, selectedTeam, t],
   )
 
-  const openGrantProviderAccess = React.useCallback(
-    (userId?: string) => {
-      setProviderAccessForm({ allProviders: false, mode: "create", open: true, providers: [], userId: userId ?? "" })
-    },
-    [setProviderAccessForm],
-  )
-
-  const openEditProviderAccess = React.useCallback(
-    (grant: ProviderGrantView) => {
-      setProviderAccessForm({
-        allProviders: grant.allProviders,
-        mode: "edit",
-        open: true,
-        providers: grant.providers.map((provider) => provider.service),
-        userId: grant.userId,
-      })
-    },
-    [setProviderAccessForm],
-  )
-
-  const closeProviderAccess = React.useCallback(() => {
-    if (busyAction !== "saveProviderAccess") setProviderAccessForm(initialProviderAccessForm)
-  }, [busyAction, setProviderAccessForm])
-
   const enableMembers = React.useCallback(
     (userIds: string[]) => updateMembersStatus(userIds, false),
     [updateMembersStatus],
@@ -278,112 +233,11 @@ export function useTeamMemberActions({
     [updateMembersStatus],
   )
 
-  const saveProviderAccess = React.useCallback(
-    async (event: React.FormEvent) => {
-      event.preventDefault()
-      if (!selectedTeam || !canManage || providerAccessMutationError || providerOptionsError) return
-      const userId = providerAccessForm.userId.trim()
-      if (!userId) return void toast.error(t("teams.memberRequired"))
-      if (!providerAccessForm.allProviders && providerAccessForm.providers.length === 0) {
-        return void toast.error(t("teams.providerRequired"))
-      }
-
-      const operation = beginOperation("saveProviderAccess")
-      try {
-        const snapshot = await getTeamAppAccessSnapshot(selectedTeam.id)
-        const parsed = parseProviderGrants(snapshot.access)
-        if (!parsed.ok) {
-          if (operationIsCurrent(operation)) toast.error(t("teams.providerAccessLoadFailed"))
-          return
-        }
-        const existingGrant = parsed.grants.find((grant) => grant.userId === userId)
-        const allProviders =
-          providerAccessForm.mode === "create"
-            ? providerAccessForm.allProviders || Boolean(existingGrant?.allProviders)
-            : providerAccessForm.allProviders
-        const providers =
-          providerAccessForm.mode === "create" && existingGrant && !allProviders
-            ? uniqueStrings([...existingGrant.providers, ...providerAccessForm.providers]).sort()
-            : providerAccessForm.providers
-        const updated = await updateTeamAppAccess(
-          selectedTeam.id,
-          setProviderGrant(parsed.access, userId, providers, allProviders),
-          { etag: snapshot.etag },
-        )
-        invalidateTeamDetailsResource(activeAccountId, selectedTeam.id)
-        if (!operationIsCurrent(operation)) return
-        setAppAccessForTeam(activeAccountId, selectedTeam.id, updated)
-        setProviderAccessForm(initialProviderAccessForm)
-        toast.success(t("teams.providerAccessSaveSuccess"))
-      } catch (error) {
-        if (operationIsCurrent(operation)) toast.error(teamErrorMessage(error, t))
-      } finally {
-        finishOperation(operation)
-      }
-    },
-    [
-      activeAccountId,
-      beginOperation,
-      canManage,
-      finishOperation,
-      operationIsCurrent,
-      providerAccessMutationError,
-      providerOptionsError,
-      providerAccessForm,
-      selectedTeam,
-      setAppAccessForTeam,
-      setProviderAccessForm,
-      t,
-    ],
-  )
-
-  const revokeProviderAccess = React.useCallback(
-    async (grant: ProviderGrantView) => {
-      if (!selectedTeam || !canManage || providerAccessMutationError) return
-      const operation = beginOperation(`revokeProviderAccess:${grant.userId}`)
-      try {
-        const snapshot = await getTeamAppAccessSnapshot(selectedTeam.id)
-        const parsed = parseProviderGrants(snapshot.access)
-        if (!parsed.ok) {
-          if (operationIsCurrent(operation)) toast.error(t("teams.providerAccessLoadFailed"))
-          return
-        }
-        const updated = await updateTeamAppAccess(selectedTeam.id, removeProviderGrant(parsed.access, grant.userId), {
-          etag: snapshot.etag,
-        })
-        invalidateTeamDetailsResource(activeAccountId, selectedTeam.id)
-        if (!operationIsCurrent(operation)) return
-        setAppAccessForTeam(activeAccountId, selectedTeam.id, updated)
-        toast.success(t("teams.providerAccessRevokeSuccess"))
-      } catch (error) {
-        if (operationIsCurrent(operation)) toast.error(teamErrorMessage(error, t))
-      } finally {
-        finishOperation(operation)
-      }
-    },
-    [
-      activeAccountId,
-      beginOperation,
-      canManage,
-      finishOperation,
-      operationIsCurrent,
-      providerAccessMutationError,
-      selectedTeam,
-      setAppAccessForTeam,
-      t,
-    ],
-  )
-
   return {
     addMember,
-    closeProviderAccess,
     disableMembers,
     enableMembers,
-    openEditProviderAccess,
-    openGrantProviderAccess,
     removeMember,
-    revokeProviderAccess,
-    saveProviderAccess,
     updateMemberRole,
   }
 }

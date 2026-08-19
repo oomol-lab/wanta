@@ -1,7 +1,7 @@
 import type { EditableTeamMemberRole, TeamMember, TeamRole } from "../../../electron/teams/common.ts"
-import type { BusyAction, MemberView, ProviderGrantView } from "./team-management-model.ts"
+import type { BusyAction, MemberView } from "./team-management-model.ts"
 
-import { MoreHorizontalIcon, PencilIcon, ShieldCheckIcon, Trash2Icon, UserCheckIcon, UserXIcon } from "lucide-react"
+import { MoreHorizontalIcon, Trash2Icon, UserCheckIcon, UserXIcon } from "lucide-react"
 import * as React from "react"
 import { TeamUserAvatar } from "./TeamUserAvatar.tsx"
 import { hasMemberStatus, isBulkEditableMember, useMemberStatusSelection } from "./use-member-status-selection.ts"
@@ -18,69 +18,42 @@ import {
   ConfirmDialogHeader,
   ConfirmDialogTitle,
 } from "@/components/ui/confirm-dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useClipboardCopy } from "@/hooks/useClipboardCopy"
 import { useAppI18n } from "@/i18n"
-import { canChangeTeamMemberRole, teamRoleHasDefaultConnectionAccess, teamRoleLabelKey } from "@/lib/team-permissions"
+import { canChangeTeamMemberRole, teamRoleLabelKey } from "@/lib/team-permissions"
 import { cn } from "@/lib/utils"
 
 export function MembersTable({
-  appAccessLoading,
   actorRole,
   actorUserId,
   busyAction,
   canManage,
-  grantsByUserId,
   members,
-  onEditProviderAccess,
   onDisableMembers,
   onEnableMembers,
-  onGrantProviderAccess,
   onRemoveMember,
-  onRevokeProviderAccess,
   onUpdateMemberRole,
-  providerAccessMutationError,
-  providerOptionsError,
-  providerOptionsLoading,
-  showProviderAccess,
 }: {
-  appAccessLoading: boolean
   actorRole: TeamRole | null
   actorUserId: string | undefined
   busyAction: BusyAction | null
   canManage: boolean
-  grantsByUserId: Map<string, ProviderGrantView>
   members: MemberView[]
   onDisableMembers: (userIds: string[]) => void
-  onEditProviderAccess: (grant: ProviderGrantView) => void
   onEnableMembers: (userIds: string[]) => void
-  onGrantProviderAccess: (userId: string) => void
   onRemoveMember: (member: TeamMember) => Promise<void>
-  onRevokeProviderAccess: (grant: ProviderGrantView) => Promise<void>
   onUpdateMemberRole: (member: TeamMember, role: EditableTeamMemberRole) => Promise<void>
-  providerAccessMutationError: string | null
-  providerOptionsError: string | null
-  providerOptionsLoading: boolean
-  showProviderAccess: boolean
 }) {
   const { t } = useAppI18n()
   const [removeTarget, setRemoveTarget] = React.useState<MemberView | null>(null)
-  const [revokeTarget, setRevokeTarget] = React.useState<ProviderGrantView | null>(null)
   const [roleChangeTarget, setRoleChangeTarget] = React.useState<{
     member: MemberView
     role: EditableTeamMemberRole
   } | null>(null)
   const removeTargetBusy = removeTarget ? busyAction === `remove:${removeTarget.user_id}` : false
-  const revokeTargetBusy = revokeTarget ? busyAction === `revokeProviderAccess:${revokeTarget.userId}` : false
   const roleChangeTargetBusy = roleChangeTarget
     ? busyAction === `updateMemberRole:${roleChangeTarget.member.user_id}`
     : false
@@ -129,38 +102,6 @@ export function MembersTable({
             }}
           >
             {t("teams.removeMember")}
-          </ConfirmDialogAction>
-        </ConfirmDialogFooter>
-      </ConfirmDialogContent>
-    </ConfirmDialog>
-  )
-
-  const revokeConfirmDialog = (
-    <ConfirmDialog
-      open={Boolean(revokeTarget)}
-      onOpenChange={(open) => {
-        if (!open && !revokeTargetBusy) {
-          setRevokeTarget(null)
-        }
-      }}
-    >
-      <ConfirmDialogContent>
-        <ConfirmDialogHeader>
-          <ConfirmDialogTitle>{t("teams.revokeProviderAccessConfirmTitle")}</ConfirmDialogTitle>
-          <ConfirmDialogDescription>{t("teams.revokeProviderAccessConfirmDescription")}</ConfirmDialogDescription>
-        </ConfirmDialogHeader>
-        <ConfirmDialogFooter>
-          <ConfirmDialogCancel disabled={revokeTargetBusy}>{t("common.cancel")}</ConfirmDialogCancel>
-          <ConfirmDialogAction
-            disabled={revokeTargetBusy || !revokeTarget}
-            onClick={(event) => {
-              if (revokeTarget) {
-                event.preventDefault()
-                void onRevokeProviderAccess(revokeTarget).finally(() => setRevokeTarget(null))
-              }
-            }}
-          >
-            {t("teams.revokeProviderAccess")}
           </ConfirmDialogAction>
         </ConfirmDialogFooter>
       </ConfirmDialogContent>
@@ -233,9 +174,7 @@ export function MembersTable({
       ) : null}
       <div className="divide-y">
         {members.map((member) => {
-          const grant = grantsByUserId.get(member.user_id) ?? null
           const canRemove = canManage && member.role !== "creator"
-          const canManageProviderAccess = showProviderAccess && member.role === "member"
           const canUpdateRole =
             member.role !== "creator" &&
             canChangeTeamMemberRole({
@@ -245,10 +184,7 @@ export function MembersTable({
               member,
             })
           const selectable = isBulkEditableMember(member)
-          const accessDisabled = appAccessLoading || bulkBusy || Boolean(providerAccessMutationError)
-          const accessEditDisabled = accessDisabled || providerOptionsLoading || Boolean(providerOptionsError)
           const removeBusy = busyAction === `remove:${member.user_id}`
-          const revokeBusy = grant ? busyAction === `revokeProviderAccess:${grant.userId}` : false
           const roleUpdateBusy = busyAction === `updateMemberRole:${member.user_id}`
           return (
             <div
@@ -273,48 +209,15 @@ export function MembersTable({
                     canUpdate={canUpdateRole}
                     disabled={bulkBusy || roleUpdateBusy}
                     member={member}
-                    showDefaultAccess={showProviderAccess}
                     onChange={(role) => setRoleChangeTarget({ member, role })}
                   />
                   {showStatusColumn ? <MemberStatusBadge member={member} /> : null}
-                  {canManageProviderAccess ? (
-                    <ProviderAccessSummary
-                      allProvidersLabel={t("teams.allProviders")}
-                      grant={grant}
-                      loading={appAccessLoading}
-                      notAuthorizedLabel={
-                        providerAccessMutationError ? t("teams.providerAccessUnavailable") : t("teams.notAuthorized")
-                      }
-                    />
-                  ) : null}
                 </CompactMemberIdentity>
               </div>
 
               <div className="flex min-w-0 items-center justify-end gap-2">
-                {canRemove && canManageProviderAccess && !grant && !appAccessLoading ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 shrink-0 px-2"
-                    disabled={accessEditDisabled}
-                    onClick={() => onGrantProviderAccess(member.user_id)}
-                  >
-                    <ShieldCheckIcon className="size-3.5" />
-                    {t("teams.grantProviderAccessAction")}
-                  </Button>
-                ) : null}
                 {canRemove ? (
-                  <MemberActionsMenu
-                    editProviderAccessDisabled={accessEditDisabled || busyAction === "saveProviderAccess" || revokeBusy}
-                    removeDisabled={bulkBusy || removeBusy}
-                    revokeProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
-                    onEditProviderAccess={
-                      grant && canManageProviderAccess ? () => onEditProviderAccess(grant) : undefined
-                    }
-                    onRemove={() => setRemoveTarget(member)}
-                    onRevokeProviderAccess={grant && canManageProviderAccess ? () => setRevokeTarget(grant) : undefined}
-                  />
+                  <MemberActionsMenu removeDisabled={bulkBusy || removeBusy} onRemove={() => setRemoveTarget(member)} />
                 ) : null}
               </div>
             </div>
@@ -322,7 +225,6 @@ export function MembersTable({
         })}
       </div>
       {removeConfirmDialog}
-      {revokeConfirmDialog}
       {roleChangeConfirmDialog}
     </>
   )
@@ -333,19 +235,14 @@ function MemberRoleControl({
   disabled,
   member,
   onChange,
-  showDefaultAccess,
 }: {
   canUpdate: boolean
   disabled: boolean
   member: MemberView
   onChange: (role: EditableTeamMemberRole) => void
-  showDefaultAccess: boolean
 }) {
   const { t } = useAppI18n()
-  const label =
-    teamRoleHasDefaultConnectionAccess(member.role) && showDefaultAccess
-      ? t("teams.roleDefaultAccessCompact", { role: t(teamRoleLabelKey(member.role)) })
-      : t(teamRoleLabelKey(member.role))
+  const label = t(teamRoleLabelKey(member.role))
 
   if (!canUpdate || member.role === "creator") {
     return <Badge variant="secondary">{label}</Badge>
@@ -568,27 +465,9 @@ function CopyValueButton({ ariaLabel, copiedLabel, value }: { ariaLabel: string;
   )
 }
 
-function MemberActionsMenu({
-  editProviderAccessDisabled = false,
-  onEditProviderAccess,
-  onRemove,
-  onRevokeProviderAccess,
-  removeDisabled = false,
-  revokeProviderAccessDisabled = false,
-}: {
-  editProviderAccessDisabled?: boolean
-  onEditProviderAccess?: () => void
-  onRemove?: () => void
-  onRevokeProviderAccess?: () => void
-  removeDisabled?: boolean
-  revokeProviderAccessDisabled?: boolean
-}) {
+function MemberActionsMenu({ onRemove, removeDisabled = false }: { onRemove?: () => void; removeDisabled?: boolean }) {
   const { t } = useAppI18n()
-  const hasProviderActions = Boolean(onEditProviderAccess || onRevokeProviderAccess)
-  const disabled =
-    (!onEditProviderAccess || editProviderAccessDisabled) &&
-    (!onRevokeProviderAccess || revokeProviderAccessDisabled) &&
-    (!onRemove || removeDisabled)
+  const disabled = !onRemove || removeDisabled
 
   return (
     <DropdownMenu>
@@ -605,23 +484,6 @@ function MemberActionsMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={6} className="w-44">
-        {onEditProviderAccess ? (
-          <DropdownMenuItem disabled={editProviderAccessDisabled} onSelect={onEditProviderAccess}>
-            <PencilIcon className="size-4" />
-            {t("teams.editProviderAccessAction")}
-          </DropdownMenuItem>
-        ) : null}
-        {onRevokeProviderAccess ? (
-          <DropdownMenuItem
-            variant="destructive"
-            disabled={revokeProviderAccessDisabled}
-            onSelect={onRevokeProviderAccess}
-          >
-            <Trash2Icon className="size-4" />
-            {t("teams.revokeProviderAccess")}
-          </DropdownMenuItem>
-        ) : null}
-        {hasProviderActions && onRemove ? <DropdownMenuSeparator /> : null}
         {onRemove ? (
           <DropdownMenuItem variant="destructive" disabled={removeDisabled} onSelect={onRemove}>
             <Trash2Icon className="size-4" />
@@ -630,40 +492,5 @@ function MemberActionsMenu({
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
-  )
-}
-
-function ProviderAccessSummary({
-  allProvidersLabel,
-  grant,
-  loading,
-  notAuthorizedLabel,
-}: {
-  allProvidersLabel: string
-  grant: ProviderGrantView | null
-  loading: boolean
-  notAuthorizedLabel: string
-}) {
-  if (loading) {
-    return <Skeleton className="h-6 w-28 rounded-md" />
-  }
-  if (!grant) {
-    return <Badge variant="secondary">{notAuthorizedLabel}</Badge>
-  }
-  if (grant.allProviders) {
-    return <Badge variant="secondary">{allProvidersLabel}</Badge>
-  }
-
-  const visibleProviders = grant.providers.slice(0, 1)
-  const hiddenProviderCount = grant.providers.length - visibleProviders.length
-  return (
-    <div className="flex min-w-0 flex-wrap gap-2" title={grant.providers.map((provider) => provider.label).join(", ")}>
-      {visibleProviders.map((provider) => (
-        <Badge key={provider.service} variant="secondary" className="max-w-full" title={provider.service}>
-          <span className="truncate">{provider.label}</span>
-        </Badge>
-      ))}
-      {hiddenProviderCount > 0 ? <Badge variant="secondary">+{hiddenProviderCount}</Badge> : null}
-    </div>
   )
 }

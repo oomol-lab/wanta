@@ -1,22 +1,12 @@
-import type {
-  Team,
-  TeamAppAccess,
-  TeamMember,
-  TeamProviderOption,
-  TeamUserSummary,
-} from "../../../electron/teams/common.ts"
+import type { Team, TeamMember, TeamUserSummary } from "../../../electron/teams/common.ts"
 import type { LoadState } from "./team-management-model.ts"
 
 import * as React from "react"
 import { errorState, loadState, loadingState, readyState, uniqueStrings } from "./team-management-model.ts"
 import {
-  getCachedTeamAppAccess,
   getCachedTeamMembers,
-  getCachedTeamProviderOptions,
   getCachedTeamUserSummaries,
-  getTeamAppAccessResource,
   getTeamMembersResource,
-  getTeamProviderOptionsResource,
   getTeamUserSummariesResource,
 } from "@/lib/team-details-resource"
 
@@ -31,23 +21,15 @@ function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
 
 export function useTeamDetails({
   activeAccountId,
-  canManage,
-  providerOptions,
   selectedTeam,
 }: {
   activeAccountId: string | undefined
-  canManage: boolean
-  providerOptions?: TeamProviderOption[] | null
   selectedTeam: Team | null
 }) {
   const [membersState, setMembersState] = React.useState<LoadState<TeamMember[]>>(() => loadState([]))
   const [summariesState, setSummariesState] = React.useState<LoadState<Record<string, TeamUserSummary>>>(() =>
     loadState({}),
   )
-  const [providerOptionsState, setProviderOptionsState] = React.useState<LoadState<TeamProviderOption[]>>(() =>
-    loadState([]),
-  )
-  const [appAccessState, setAppAccessState] = React.useState<LoadState<TeamAppAccess | null>>(() => loadState(null))
   const detailsRequestId = React.useRef(0)
   const detailsTeamIdRef = React.useRef<string | null>(null)
   const activeAccountIdRef = React.useRef(activeAccountId)
@@ -61,12 +43,10 @@ export function useTeamDetails({
     detailsTeamIdRef.current = null
     setMembersState(loadState([]))
     setSummariesState(loadState({}))
-    setProviderOptionsState(loadState([]))
-    setAppAccessState(loadState(null))
   }, [])
 
   const load = React.useCallback(
-    async (team: Team, canManageDetails: boolean, options: { forceRefresh?: boolean } = {}) => {
+    async (team: Team, options: { forceRefresh?: boolean } = {}) => {
       if (latestActiveAccountIdRef.current !== activeAccountId || selectedTeamIdRef.current !== team.id) {
         return
       }
@@ -80,13 +60,6 @@ export function useTeamDetails({
       const cachedSummaries = options.forceRefresh
         ? null
         : getCachedTeamUserSummaries(resourceAccountId, team.id, cachedSummaryUserIds)
-      const cachedProviderOptions = Array.isArray(providerOptions)
-        ? providerOptions
-        : canManageDetails && !options.forceRefresh
-          ? getCachedTeamProviderOptions(resourceAccountId, team.id, team.name)
-          : null
-      const cachedAppAccess =
-        canManageDetails && !options.forceRefresh ? getCachedTeamAppAccess(resourceAccountId, team.id) : null
       const preserveCurrentData = detailsTeamIdRef.current === team.id
       detailsRequestId.current = requestId
       detailsTeamIdRef.current = null
@@ -96,47 +69,10 @@ export function useTeamDetails({
       setSummariesState((current) =>
         cachedSummaries ? readyState(cachedSummaries) : loadingState(preserveCurrentData ? current : loadState({})),
       )
-      setProviderOptionsState(
-        canManageDetails
-          ? cachedProviderOptions
-            ? readyState(cachedProviderOptions)
-            : (current) => loadingState(preserveCurrentData ? current : loadState([]))
-          : loadState([]),
-      )
-      setAppAccessState(
-        canManageDetails
-          ? cachedAppAccess
-            ? readyState(cachedAppAccess)
-            : (current) => loadingState(preserveCurrentData ? current : loadState(null))
-          : loadState(null),
-      )
 
       const membersRequest = settle(
         getTeamMembersResource(resourceAccountId, team.id, { forceRefresh: options.forceRefresh }),
       )
-      const providerOptionsRequest =
-        canManageDetails && !Array.isArray(providerOptions)
-          ? settle(
-              getTeamProviderOptionsResource(resourceAccountId, team.id, team.name, {
-                forceRefresh: options.forceRefresh,
-              }),
-            )
-          : Promise.resolve<AsyncResult<TeamProviderOption[]>>({ ok: true, value: providerOptions ?? [] })
-      const appAccessRequest = canManageDetails
-        ? settle(
-            getTeamAppAccessResource(resourceAccountId, team.id, {
-              forceRefresh: options.forceRefresh,
-            }),
-          )
-        : Promise.resolve<AsyncResult<TeamAppAccess | null>>({ ok: true, value: null })
-      const providerOptionsTask = providerOptionsRequest.then((result) => {
-        if (!canManageDetails || detailsRequestId.current !== requestId) return
-        setProviderOptionsState((current) => (result.ok ? readyState(result.value) : errorState(current, result.error)))
-      })
-      const appAccessTask = appAccessRequest.then((result) => {
-        if (!canManageDetails || detailsRequestId.current !== requestId) return
-        setAppAccessState((current) => (result.ok ? readyState(result.value) : errorState(current, result.error)))
-      })
       const membersResult = await membersRequest
       if (detailsRequestId.current !== requestId) return
 
@@ -162,11 +98,10 @@ export function useTeamDetails({
       setSummariesState((current) =>
         summariesResult.ok ? readyState(summariesResult.value) : errorState(current, summariesResult.error),
       )
-      await Promise.all([providerOptionsTask, appAccessTask])
       if (detailsRequestId.current !== requestId) return
       detailsTeamIdRef.current = team.id
     },
-    [activeAccountId, providerOptions],
+    [activeAccountId],
   )
 
   React.useEffect(() => {
@@ -182,12 +117,10 @@ export function useTeamDetails({
       detailsTeamIdRef.current = null
       setMembersState(loadState([]))
       setSummariesState(loadState({}))
-      setProviderOptionsState(loadState([]))
-      setAppAccessState(loadState(null))
       return
     }
-    void load(selectedTeam, canManage)
-  }, [canManage, load, selectedTeam?.id, selectedTeam?.name])
+    void load(selectedTeam)
+  }, [load, selectedTeam?.id, selectedTeam?.name])
 
   const reload = React.useCallback(async () => {
     if (
@@ -195,9 +128,9 @@ export function useTeamDetails({
       latestActiveAccountIdRef.current === activeAccountId &&
       selectedTeamIdRef.current === selectedTeam.id
     ) {
-      await load(selectedTeam, canManage, { forceRefresh: true })
+      await load(selectedTeam, { forceRefresh: true })
     }
-  }, [activeAccountId, canManage, load, selectedTeam])
+  }, [activeAccountId, load, selectedTeam])
 
   const refresh = React.useCallback(async () => {
     if (
@@ -205,26 +138,14 @@ export function useTeamDetails({
       latestActiveAccountIdRef.current === activeAccountId &&
       selectedTeamIdRef.current === selectedTeam.id
     ) {
-      await load(selectedTeam, canManage)
+      await load(selectedTeam)
     }
-  }, [activeAccountId, canManage, load, selectedTeam])
-
-  const setAppAccessForTeam = React.useCallback(
-    (accountId: string | undefined, teamId: string, access: TeamAppAccess): void => {
-      if (latestActiveAccountIdRef.current === accountId && selectedTeamIdRef.current === teamId) {
-        setAppAccessState(readyState(access))
-      }
-    },
-    [],
-  )
+  }, [activeAccountId, load, selectedTeam])
 
   return {
-    appAccessState,
     membersState,
-    providerOptionsState,
     refresh,
     reload,
-    setAppAccessForTeam,
     summariesState,
   }
 }

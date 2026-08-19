@@ -46,6 +46,11 @@ export type ConnectionAccessParseResult =
   | { access: TeamAppAccess; apps: ConnectionAppAccess[]; ok: true }
   | { access: TeamAppAccess | null; issues: ConnectionAccessIssue[]; ok: false }
 
+export function hasTeamConnectionAppAccess(appAccess: ConnectionAppAccess, userId: string): boolean {
+  if (appAccess.mode === "invalid") return false
+  return appAccess.memberAccess.mode === "team" || appAccess.memberAccess.userIds.includes(userId)
+}
+
 /**
  * Parses the current connector contract. A malformed rule is scoped to its App and never becomes
  * a broader Team grant. Historical user.connector rules are intentionally ignored.
@@ -172,9 +177,7 @@ function parseRoleRule(
   const rules = scopedRules.length > 0 ? scopedRules : config.connector
   if (rules.length !== 1 || !isPlainObject(rules[0])) return null
   const rule = rules[0]
-  if (scopedRules.length > 0 && (!isStringArray(rule.app) || rule.app.length !== 1 || rule.app[0] !== app.id)) {
-    return null
-  }
+  // The role subject is authoritative for App identity. The nested app field is redundant legacy data.
   if (rule.method !== "POST" || rule.provider !== app.service) return null
   if (rule.requireRole !== undefined && typeof rule.requireRole !== "boolean") return null
   const memberAccess: ConnectionMemberAccess =

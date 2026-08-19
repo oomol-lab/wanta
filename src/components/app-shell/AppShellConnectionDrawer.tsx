@@ -1,5 +1,6 @@
 import type { UseConnections } from "@/hooks/useConnections"
 import type { ConnectionAuthIntent } from "@/routes/Connections/connection-route-model.ts"
+import type { ConnectionAccessContext } from "@/routes/Connections/ConnectionAccessDialog.tsx"
 
 import * as React from "react"
 import { CHAT_CONNECTION_DRAWER_WIDTH } from "./app-shell-model.ts"
@@ -22,6 +23,7 @@ function ConnectionDrawerLoadingFallback() {
 
 export const AppShellConnectionDrawer = React.memo(function AppShellConnectionDrawer({
   authIntent,
+  accessContext,
   canManageConnections,
   connections,
   onClose,
@@ -29,6 +31,7 @@ export const AppShellConnectionDrawer = React.memo(function AppShellConnectionDr
   selectedService,
   visible,
 }: {
+  accessContext?: ConnectionAccessContext
   authIntent: ConnectionAuthIntent | null
   canManageConnections: boolean
   connections: UseConnections
@@ -49,6 +52,7 @@ export const AppShellConnectionDrawer = React.memo(function AppShellConnectionDr
       {visible ? (
         <React.Suspense fallback={<ConnectionDrawerLoadingFallback />}>
           <ConnectionsPanel
+            accessContext={accessContext}
             authIntent={authIntent}
             canManageConnections={canManageConnections}
             connections={connections}

@@ -102,6 +102,16 @@ export interface ConnectionExecutionLogSummary {
   nextCursor?: string
 }
 
+export interface ConnectionActionCatalogItem {
+  description: string
+  id: string
+  name: string
+  operationType: "destructive" | "read" | "write"
+  providerPermissions: string[]
+  requiredScopes: string[]
+  service: string
+}
+
 export interface ConnectionExecutionLogRequest {
   appId: string
   cursor?: string

@@ -6,6 +6,7 @@ import type {
 } from "../../../electron/connections/common.ts"
 import type { ConnectionErrorNotice } from "./connection-error-display.ts"
 import type { ConnectionAuthIntent, DisconnectTarget } from "./connection-route-model.ts"
+import type { ConnectionAccessContext } from "./ConnectionAccessDialog.tsx"
 import type { UseConnections } from "@/hooks/useConnections"
 
 import { AlertCircle, ExternalLink, KeyRound, Plug, X } from "lucide-react"
@@ -72,6 +73,7 @@ export function EmptyList({ summary, hasQuery }: { summary: ConnectionSummary | 
 }
 
 export function ProviderDetail({
+  accessContext,
   actionsBlocked,
   actionsPending,
   authIntent,
@@ -92,6 +94,7 @@ export function ProviderDetail({
   provider,
   showCloseButton = false,
 }: {
+  accessContext?: ConnectionAccessContext
   actionsBlocked?: boolean
   actionsPending?: boolean
   authIntent?: ConnectionAuthIntent | null
@@ -164,8 +167,23 @@ export function ProviderDetail({
         ) : null}
         {authIntent ? <ConnectionAuthIntentNotice authIntent={authIntent} provider={provider} /> : null}
         {!canManageConnections ? <ReadOnlyConnectionNotice /> : null}
-        {actionsBlocked ? null : (
+        {actionsBlocked ? (
+          !canManageConnections && provider.apps.length > 0 ? (
+            <ConnectionAccountsList
+              accessContext={accessContext}
+              busy={busy}
+              canManageConnections={false}
+              connections={connections}
+              onConnect={onConnect}
+              onDisconnect={onDisconnect}
+              polling={polling}
+              provider={provider}
+              reconnectBlocked
+            />
+          ) : null
+        ) : (
           <ConnectionPanel
+            accessContext={accessContext}
             authIntent={authIntent}
             busy={busy}
             connections={connections}
@@ -268,6 +286,7 @@ function ConnectionAuthIntentNotice({
 }
 
 function ConnectionPanel({
+  accessContext,
   actionsPending,
   authIntent,
   busy,
@@ -284,6 +303,7 @@ function ConnectionPanel({
   reopenPollingLabel,
   provider,
 }: {
+  accessContext?: ConnectionAccessContext
   actionsPending?: boolean
   authIntent?: ConnectionAuthIntent | null
   busy: UseConnections["busy"]
@@ -419,7 +439,9 @@ function ConnectionPanel({
 
       {provider.apps.length > 0 ? (
         <ConnectionAccountsList
+          accessContext={accessContext}
           busy={busy}
+          canManageConnections
           connections={connections}
           onConnect={onConnect}
           onDisconnect={onDisconnect}

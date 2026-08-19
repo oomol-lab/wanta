@@ -171,15 +171,17 @@ export const AppShellMainTitlebar = React.memo(function AppShellMainTitlebar({
           />
         )}
       </div>
-      <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+      <div className="oo-main-titlebar-actions ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         <AppUpdateTitlebarEntry update={appUpdate} />
         {onViewBilling ? (
-          <BillingUsagePopover
-            cacheScope={billingCacheScope}
-            sharedConnectorCount={sharedConnectorCount}
-            workspace={workspace}
-            onViewDetails={onViewBilling}
-          />
+          <div className="oo-main-titlebar-billing-entry flex shrink-0">
+            <BillingUsagePopover
+              cacheScope={billingCacheScope}
+              sharedConnectorCount={sharedConnectorCount}
+              workspace={workspace}
+              onViewDetails={onViewBilling}
+            />
+          </div>
         ) : null}
         {showBrowserToggle ? (
           <button
@@ -188,7 +190,7 @@ export const AppShellMainTitlebar = React.memo(function AppShellMainTitlebar({
             aria-label={browserToggleLabel}
             aria-pressed={browserPanelOpen}
             className={cn(
-              "oo-toolbar-button flex size-8 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground",
+              "oo-main-titlebar-browser-toggle oo-toolbar-button flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground",
               browserPanelOpen && "bg-accent text-foreground",
             )}
             onClick={onBrowserToggle}
@@ -203,7 +205,7 @@ export const AppShellMainTitlebar = React.memo(function AppShellMainTitlebar({
             aria-label={artifactsToggleLabel}
             aria-pressed={artifactsPanelOpen}
             className={cn(
-              "oo-toolbar-button flex size-8 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground",
+              "oo-main-titlebar-artifacts-toggle oo-toolbar-button flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground",
               artifactsPanelOpen && "bg-accent text-foreground",
             )}
             onClick={onArtifactsToggle}

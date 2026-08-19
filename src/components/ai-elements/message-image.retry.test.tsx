@@ -7,7 +7,7 @@ import * as React from "react"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, expect, test, vi } from "vitest"
-import { MarkdownImage } from "./message-image.tsx"
+import { localImagePreviewRetryDelay, MarkdownImage } from "./message-image.tsx"
 import { AppContext } from "@/components/AppContext"
 import { I18nContext, translate } from "@/i18n/i18n"
 
@@ -80,4 +80,10 @@ test("retries a missing local preview instead of caching the empty result", asyn
   expect(host.querySelector("img")?.getAttribute("src")).toBe("wanta-resource://artifact/image")
 
   act(() => root.unmount())
+})
+
+test("keeps retrying a temporarily unavailable local image for a bounded window", () => {
+  expect(localImagePreviewRetryDelay(0)).toBe(250)
+  expect(localImagePreviewRetryDelay(3)).toBe(3_000)
+  expect(localImagePreviewRetryDelay(4)).toBeNull()
 })

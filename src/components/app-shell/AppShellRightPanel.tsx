@@ -18,7 +18,6 @@ const TurnOutputsPanel = React.lazy(() =>
 
 export const AppShellRightPanel = React.memo(function AppShellRightPanel({
   artifactSelection,
-  artifactsPanelContentRef,
   artifactsPanelIsMaximized,
   artifactsPanelMaxWidthState,
   artifactsPanelShellRef,
@@ -38,7 +37,6 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
   visibleRightPanelWidth,
 }: {
   artifactSelection: ArtifactSelection | null
-  artifactsPanelContentRef: React.RefObject<HTMLDivElement | null>
   artifactsPanelIsMaximized: boolean
   artifactsPanelMaxWidthState: number | null
   artifactsPanelShellRef: React.RefObject<HTMLDivElement | null>
@@ -63,8 +61,7 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
     <div
       ref={artifactsPanelShellRef}
       className={cn(
-        "oo-artifacts-panel-shell grid min-h-0",
-        artifactsPanelIsMaximized ? "grid-cols-1" : "grid-cols-[var(--right-panel-resize-sash-width)_minmax(0,1fr)]",
+        "oo-artifacts-panel-shell flex min-h-0",
         artifactsPanelIsMaximized ? "min-w-0 flex-1 shrink" : "shrink-0",
         artifactsPanelIsMaximized && "oo-artifacts-panel-maximized",
         (isArtifactsPanelResizing || browserPanelVisible) && !isArtifactsPanelDragCollapsed
@@ -93,15 +90,12 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
           aria-valuenow={visibleRightPanelWidth}
           title={t("aria.resizeRightPanel")}
           tabIndex={rightPanelVisible ? 0 : -1}
-          className="oo-artifacts-panel-resize-handle"
+          className="oo-artifacts-panel-resize-handle shrink-0"
           onPointerDown={handleArtifactsPanelResizeStart}
           onKeyDown={handleArtifactsPanelResizeKeyDown}
         />
       ) : null}
-      <div
-        ref={artifactsPanelContentRef}
-        className={cn("h-full min-w-0 overflow-hidden", !artifactsPanelIsMaximized && "col-start-2")}
-      >
+      <div className="h-full min-w-0 flex-1 overflow-hidden">
         {browserPanelVisible && browserState ? (
           <BrowserPanel
             browserService={browserService}

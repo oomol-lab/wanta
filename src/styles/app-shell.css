@@ -274,6 +274,7 @@
     -webkit-app-region: no-drag;
     position: relative;
     z-index: 30;
+    width: var(--right-panel-resize-sash-width);
     cursor: ew-resize;
     touch-action: none;
     outline: none;
@@ -370,6 +371,21 @@
     opacity: 0;
     visibility: hidden;
     transition-delay: 0ms;
+  }
+
+  :root[data-platform="win32"] .oo-main-titlebar-browser-toggle,
+  :root[data-dev-window-controls="windows"] .oo-main-titlebar-browser-toggle {
+    order: 1;
+  }
+
+  :root[data-platform="win32"] .oo-main-titlebar-billing-entry,
+  :root[data-dev-window-controls="windows"] .oo-main-titlebar-billing-entry {
+    order: 2;
+  }
+
+  :root[data-platform="win32"] .oo-main-titlebar-artifacts-toggle,
+  :root[data-dev-window-controls="windows"] .oo-main-titlebar-artifacts-toggle {
+    order: 3;
   }
 
   .oo-toolbar-button {

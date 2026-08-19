@@ -49,6 +49,7 @@ import {
 } from "./agent/binaries.ts"
 import { BROWSER_CAPABILITY_ID, createBrowserHostCapability } from "./agent/browser-host-capability.ts"
 import { createDirectCliHostCapability, DIRECT_CLI_CAPABILITY_ID } from "./agent/direct-cli-host-capability.ts"
+import { memoizeExternalCommandEnvironment } from "./agent/external/command-environment.ts"
 import { createExternalAgents } from "./agent/external/create.ts"
 import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
 import { HostCapabilityInvokeServer } from "./agent/host-capability-invoke-server.ts"
@@ -359,23 +360,22 @@ const directCliCapabilityServer = new HostCapabilityServer({
   version: "1.0.0",
 })
 const externalAgentRootDir = path.join(app.getPath("userData"), "agent-external")
-let externalAgentCommandEnvironmentPromise: Promise<NodeJS.ProcessEnv> | undefined
-function externalAgentCommandEnvironment(): Promise<NodeJS.ProcessEnv> {
-  externalAgentCommandEnvironmentPromise ??= Promise.all([
+const externalAgentCommandEnvironment = memoizeExternalCommandEnvironment(async () => {
+  const [userPath, managedOoBinPath] = await Promise.all([
     resolveUserCommandPath({ preferredDirectories: [path.dirname(ooBinPath)] }),
     ensureOoGuardCommandBin({
       binDir: path.join(externalAgentRootDir, "bin"),
       nodeBin: process.execPath,
       ooGuardCliPath,
     }),
-  ]).then(([userPath, managedOoBinPath]) => ({
+  ])
+  return {
     ...process.env,
     PATH: mergePathValues([path.dirname(managedOoBinPath), userPath]),
     WANTA_OO_BIN: managedOoBinPath,
     WANTA_REAL_OO_BIN: ooBinPath,
-  }))
-  return externalAgentCommandEnvironmentPromise.then((environment) => ({ ...environment }))
-}
+  }
+})
 // External (BYOA) adapters are app-lifetime and independent of the OOMOL account
 // runtime: their models and auth belong to the agent CLIs themselves. Host
 // capabilities are issued per Wanta session and keep identity in main.

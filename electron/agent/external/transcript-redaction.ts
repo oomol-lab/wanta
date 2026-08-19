@@ -7,10 +7,11 @@ const embeddedJsonStringField = /("([A-Za-z][A-Za-z0-9_-]*)"\s*:\s*)"(?:\\.|[^"\
 const embeddedEscapedJsonStringField = /(\\+"([A-Za-z][A-Za-z0-9_-]*)\\+"\s*:\s*)\\+"[^"\\]*\\+"/gu
 const sensitiveTextHint =
   /(?:access[_-]?token|api[_-]?(?:key|token)|authorization|bearer\s|client[_-]?secret|cookie|credential|password|personal[_-]?api[_-]?key|refresh[_-]?token|secret[_-]?api[_-]?token)/iu
+const bearerToken = /(\bbearer\s+)[^\s,;]+/giu
 
 function redactTranscriptString(value: string): string {
   if (!sensitiveTextHint.test(value)) return value
-  return redactConnectorOutput(value)
+  return redactConnectorOutput(value.replace(bearerToken, "$1[redacted]"))
     .replace(embeddedJsonStringField, (match, prefix: string, key: string) =>
       isSensitiveConnectorKey(key) ? `${prefix}"[redacted]"` : match,
     )

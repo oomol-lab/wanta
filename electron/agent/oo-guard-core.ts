@@ -141,7 +141,7 @@ export function stripIdentityIndependentWorkspaceSelectors(args: readonly string
   while (index < commandArgsEnd) {
     const arg = args[index] ?? ""
     if (["--team", "--organization", "--org"].includes(arg)) {
-      index += 2
+      index += args[index + 1] === "--" ? 1 : 2
       continue
     }
     if (

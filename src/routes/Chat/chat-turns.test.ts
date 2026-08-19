@@ -762,5 +762,15 @@ describe("inheritTurnProcessTiming", () => {
 
     expect(scoped.endedAt).toBeUndefined()
     expect(inheritTurnProcessTiming(scoped, enclosing)).toMatchObject({ startedAt: 1_000, endedAt: 61_000 })
+
+    const scopedWithTiming = { ...scoped, startedAt: 2_000, endedAt: 50_000 }
+    expect(inheritTurnProcessTiming(scopedWithTiming, { startedAt: 5_000, endedAt: 40_000 })).toMatchObject({
+      startedAt: 2_000,
+      endedAt: 50_000,
+    })
+    expect(inheritTurnProcessTiming(scopedWithTiming, { startedAt: 500, endedAt: 70_000 })).toMatchObject({
+      startedAt: 500,
+      endedAt: 70_000,
+    })
   })
 })

@@ -24,7 +24,7 @@ describe("external transcript credential boundary", () => {
             command: `oo connector run posthog --data '{"personal_api_key":"secret-json"}'`,
           },
           output: `Script completed\n{"data":{"api_token":"secret-output","nested":{"client_secret":"secret"}}}`,
-          error: "Request failed with Authorization: Bearer raw-header-secret",
+          error: "Request failed with Authorization: Bearer raw-header-secret; X-API-Key: raw-api-key-secret",
           metadata: {
             rawInput: { authorization: "Bearer secret" },
             formatted_output: String.raw`{\"api_token\":\"escaped-secret\"}`,
@@ -42,6 +42,7 @@ describe("external transcript credential boundary", () => {
     expect(part?.output).toContain('"api_token":"[redacted]"')
     expect(part?.output).toContain('"client_secret":"[redacted]"')
     expect(part?.error).not.toContain("raw-header-secret")
+    expect(part?.error).not.toContain("raw-api-key-secret")
     expect(part?.error).toContain("[redacted]")
     expect(part?.metadata).toEqual({
       rawInput: { authorization: "[redacted]" },

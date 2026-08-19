@@ -79,6 +79,15 @@ describe("OOMOL connector workspace guard", () => {
       ["connector", "schema", "posthog", "--", "--team", "payload-value"],
     )
     assert.deepEqual(
+      stripIdentityIndependentWorkspaceSelectors(["connector", "schema", "posthog", "--team", "--action", "run_query"]),
+      ["connector", "schema", "posthog", "--action", "run_query"],
+    )
+    assert.deepEqual(stripIdentityIndependentWorkspaceSelectors(["connector", "schema", "posthog", "--org"]), [
+      "connector",
+      "schema",
+      "posthog",
+    ])
+    assert.deepEqual(
       stripIdentityIndependentWorkspaceSelectors([
         "connector",
         "schema",

@@ -57,6 +57,7 @@ function renderPanel(initialRole: "process" | "project_change"): string {
           onCollapse: () => undefined,
           onToggleMaximized: () => undefined,
           selection: { initialRole, record },
+          windowControlsOnRight: true,
         }),
       ),
     ),
@@ -67,6 +68,7 @@ describe("TurnOutputsPanel", () => {
   it("renders a shared role switch when project changes and process files both exist", () => {
     const html = renderPanel("project_change")
 
+    expect(html).toContain("oo-titlebar-window-controls")
     expect(html).toContain('role="tablist"')
     expect(html).toContain("变更")
     expect(html).toContain("过程文件")

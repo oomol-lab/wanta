@@ -403,7 +403,7 @@ function billingScopeHeaders(scope?: BillingRequestScope): HeadersInit | undefin
   if (!scope?.teamName.trim()) {
     return undefined
   }
-  return { "x-oo-organization-name": scope.teamName }
+  return { "x-oo-team-name": scope.teamName }
 }
 
 function fetchAuthenticatedJson(url: URL, scope?: BillingRequestScope, signal?: AbortSignal): Promise<unknown> {

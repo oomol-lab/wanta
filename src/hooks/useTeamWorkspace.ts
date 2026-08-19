@@ -388,8 +388,10 @@ export function useTeamWorkspace(accountId: string | undefined): UseTeamWorkspac
     }
   }, [accountId, teamAvatarPreviewUrls, overview, selectedTeam, selectedTeamId])
   const connectionWorkspace = React.useMemo<ConnectionWorkspace | null>(() => {
-    return selectedTeam?.name ? { teamName: selectedTeam.name } : null
-  }, [selectedTeam?.name, selectedTeamId])
+    return selectedTeam?.name
+      ? { manageable: teamCanManage(overview, selectedTeam), teamName: selectedTeam.name }
+      : null
+  }, [overview, selectedTeam, selectedTeam?.name, selectedTeamId])
 
   const selectTeam = React.useCallback((teamId: string) => {
     setSelectedTeamId(teamId)

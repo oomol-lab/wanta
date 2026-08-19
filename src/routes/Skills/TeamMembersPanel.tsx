@@ -149,7 +149,9 @@ export function TeamDetailPanel({
   providerOptionsLoading: boolean
 }) {
   const { t } = useAppI18n()
-  const showProviderAccess = canManage
+  // The legacy user/provider editor writes user.connector rules, which the current connector
+  // contract ignores. Keep it unavailable until the App ID policy editor is wired in.
+  const showProviderAccess = false
 
   if (!team) {
     return (

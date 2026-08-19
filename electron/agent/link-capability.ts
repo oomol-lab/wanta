@@ -262,7 +262,7 @@ export class LinkCapability {
       runtime.linkRuntime.kind === "openconnector" ? runtime.linkRuntime.runtimeToken : runtime.linkRuntime.sessionToken
     if (token) headers.authorization = `Bearer ${token}`
     if (runtime.linkRuntime.kind === "oomol" && runtime.linkRuntime.teamName) {
-      headers["x-oo-organization-name"] = runtime.linkRuntime.teamName
+      headers["x-oo-team-name"] = runtime.linkRuntime.teamName
     }
     try {
       const response = await fetchSameOriginJson(url, headers)

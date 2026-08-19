@@ -24,7 +24,7 @@ import {
   normalizeOAuthClientConfig,
   normalizeProvider,
 } from "../../electron/connections/summary.ts"
-import { connectionWorkspaceKey } from "@/lib/connection-workspace"
+import { connectionWorkspaceKey, isConnectionManagementWorkspace } from "@/lib/connection-workspace"
 import { connectorBaseUrl, consoleBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -133,16 +133,27 @@ function invalidateConnectorReadCache(predicate: (cacheKey: string) => boolean):
   }
 }
 
+function connectionAppsPath(workspace: ConnectionWorkspace): string {
+  return isConnectionManagementWorkspace(workspace) ? "/v1/connections" : "/v1/apps"
+}
+
+function requireConnectionManagement(workspace: ConnectionWorkspace): void {
+  if (!isConnectionManagementWorkspace(workspace)) {
+    throw new Error("Connection management is not allowed in this team.")
+  }
+}
+
 function invalidateWorkspaceApps(workspace: ConnectionWorkspace, appId?: string): void {
   const prefix = `${connectionWorkspaceKey(workspace)}:`
+  const appsPath = connectionAppsPath(workspace)
   invalidateConnectorReadCache((key) => {
     if (!key.startsWith(prefix)) {
       return false
     }
     const path = key.slice(prefix.length)
     return (
-      path === "/v1/apps" ||
-      (appId ? path === `/v1/apps/by-id/${encodeURIComponent(appId)}` : path.startsWith("/v1/apps/by-id/"))
+      path === appsPath ||
+      (appId ? path === `${appsPath}/by-id/${encodeURIComponent(appId)}` : path.startsWith(`${appsPath}/by-id/`))
     )
   })
 }
@@ -170,7 +181,7 @@ function connectorOAuthReturnProtocol(): string {
 }
 
 function workspaceHeaders(workspace: ConnectionWorkspace): Record<string, string> {
-  return { "x-oo-organization-name": workspace.teamName }
+  return { "x-oo-team-name": workspace.teamName }
 }
 
 function clampExecutionLogLimit(value: number | undefined): number {
@@ -410,7 +421,7 @@ export function getConnectionApps(
   workspace: ConnectionWorkspace,
   options: ConnectorReadOptions = {},
 ): Promise<{ data: RawApp[]; meta: unknown }> {
-  return getConnector<RawApp[]>("/v1/apps", workspace, options)
+  return getConnector<RawApp[]>(connectionAppsPath(workspace), workspace, options)
 }
 
 /** Provider 是全局公共目录，跨 workspace 复用条件请求缓存。 */
@@ -431,7 +442,7 @@ export async function getActiveConnectionAppIdsForService(
   service: string,
   workspace: ConnectionWorkspace,
 ): Promise<string[]> {
-  const appsResult = await getConnector<RawApp[]>("/v1/apps", workspace, { forceRefresh: true })
+  const appsResult = await getConnector<RawApp[]>(connectionAppsPath(workspace), workspace, { forceRefresh: true })
   return appsResult.data
     .filter((app) => app.service === service && app.status === "active")
     .map((app) => asString(app.id))
@@ -460,7 +471,10 @@ export async function getConnectionAppDetail(
   appId: string,
   workspace: ConnectionWorkspace,
 ): Promise<ConnectionAppDetail> {
-  const result = await getConnector<RawApp>(`/v1/apps/by-id/${encodeURIComponent(appId)}`, workspace)
+  const result = await getConnector<RawApp>(
+    `${connectionAppsPath(workspace)}/by-id/${encodeURIComponent(appId)}`,
+    workspace,
+  )
   const app = normalizeConnectionAppDetail(result.data)
   if (!app) {
     throw new Error(`Connection app ${appId} is not available`)
@@ -472,6 +486,7 @@ export async function getConnectionExecutionLogs(
   request: ConnectionExecutionLogRequest,
   workspace: ConnectionWorkspace,
 ): Promise<ConnectionExecutionLogSummary> {
+  requireConnectionManagement(workspace)
   const appId = request.appId.trim()
   if (!appId) {
     return { items: [] }
@@ -484,7 +499,7 @@ export async function getConnectionExecutionLogs(
     searchParams.set("status", request.status)
   }
   const result = await getConnector<unknown>(
-    `/v1/apps/by-id/${encodeURIComponent(appId)}/executions?${searchParams.toString()}`,
+    `${connectionAppsPath(workspace)}/by-id/${encodeURIComponent(appId)}/executions?${searchParams.toString()}`,
     workspace,
     { forceRefresh: true },
   )
@@ -502,6 +517,7 @@ function oauthConnectInFlightKey(
   // 只有完整请求相同才合并，避免重连或 connect-only 字段串用授权 URL。
   return JSON.stringify({
     appId: input.appId ?? null,
+    authorizationScopes: input.authorizationScopes ?? null,
     extra: input.extra ?? null,
     secretExtra: input.secretExtra ?? null,
     service: input.service,
@@ -514,6 +530,7 @@ export async function startOAuthConnect(
   input: Extract<ConnectionConnectInput, { authType: "oauth2" }>,
   workspace: ConnectionWorkspace,
 ): Promise<OAuthConnectStart> {
+  requireConnectionManagement(workspace)
   const inFlightKey = oauthConnectInFlightKey(input, workspace)
   const inFlight = oauthConnectInFlight.get(inFlightKey)
   if (inFlight) {
@@ -531,11 +548,15 @@ async function requestOAuthConnect(
   workspace: ConnectionWorkspace,
 ): Promise<OAuthConnectStart> {
   const service = encodeURIComponent(input.service)
-  const path = input.appId ? `/v1/apps/by-id/${encodeURIComponent(input.appId)}/connect` : `/v1/apps/${service}/connect`
+  const appsPath = connectionAppsPath(workspace)
+  const path = input.appId
+    ? `${appsPath}/by-id/${encodeURIComponent(input.appId)}/connect`
+    : `${appsPath}/${service}/connect`
   const result = await requestConnector<{ authorizationUrl?: unknown }>(path, workspace, {
     method: "POST",
     body: JSON.stringify({
       returnUri: createConnectorOAuthReturnUri(consoleBaseUrl, connectorOAuthReturnProtocol()),
+      authorizationScopes: input.authorizationScopes,
       extra: input.extra,
       secretExtra: input.secretExtra,
     }),
@@ -607,12 +628,14 @@ export async function upsertOAuthClientConfig(
 
 /** 非 oauth 连接（api_key / custom_credential / federated / no_auth）：POST 即完成。 */
 export async function connectProvider(input: ConnectionConnectInput, workspace: ConnectionWorkspace): Promise<void> {
+  requireConnectionManagement(workspace)
   const service = encodeURIComponent(input.service)
+  const appsPath = connectionAppsPath(workspace)
   switch (input.authType) {
     case "api_key": {
       const path = input.appId
-        ? `/v1/apps/by-id/${encodeURIComponent(input.appId)}/connect/api-key`
-        : `/v1/apps/${service}/connect/api-key`
+        ? `${appsPath}/by-id/${encodeURIComponent(input.appId)}/connect/api-key`
+        : `${appsPath}/${service}/connect/api-key`
       await requestConnector(path, workspace, {
         method: "POST",
         body: JSON.stringify({ apiKey: input.apiKey, comment: input.comment, extra: input.extra }),
@@ -621,8 +644,8 @@ export async function connectProvider(input: ConnectionConnectInput, workspace: 
     }
     case "custom_credential": {
       const path = input.appId
-        ? `/v1/apps/by-id/${encodeURIComponent(input.appId)}/connect/custom-credential`
-        : `/v1/apps/${service}/connect/custom-credential`
+        ? `${appsPath}/by-id/${encodeURIComponent(input.appId)}/connect/custom-credential`
+        : `${appsPath}/${service}/connect/custom-credential`
       await requestConnector(path, workspace, {
         method: "POST",
         body: JSON.stringify({ values: input.values, comment: input.comment }),
@@ -631,8 +654,8 @@ export async function connectProvider(input: ConnectionConnectInput, workspace: 
     }
     case "federated": {
       const path = input.appId
-        ? `/v1/apps/by-id/${encodeURIComponent(input.appId)}/connect/federated`
-        : `/v1/apps/${service}/connect/federated`
+        ? `${appsPath}/by-id/${encodeURIComponent(input.appId)}/connect/federated`
+        : `${appsPath}/${service}/connect/federated`
       await requestConnector(path, workspace, {
         method: "POST",
         body: JSON.stringify(createFederatedConnectBody(input)),
@@ -640,7 +663,7 @@ export async function connectProvider(input: ConnectionConnectInput, workspace: 
       break
     }
     case "no_auth": {
-      await requestConnector(`/v1/apps/${service}/connect/no-auth`, workspace, { method: "POST" })
+      await requestConnector(`${appsPath}/${service}/connect/no-auth`, workspace, { method: "POST" })
       break
     }
     case "oauth2": {
@@ -651,17 +674,24 @@ export async function connectProvider(input: ConnectionConnectInput, workspace: 
 }
 
 export async function disconnectProvider(service: string, workspace: ConnectionWorkspace): Promise<void> {
-  await requestConnector(`/v1/apps/${encodeURIComponent(service)}`, workspace, { method: "DELETE" })
+  requireConnectionManagement(workspace)
+  await requestConnector(`${connectionAppsPath(workspace)}/${encodeURIComponent(service)}`, workspace, {
+    method: "DELETE",
+  })
   invalidateWorkspaceApps(workspace)
 }
 
 export async function disconnectAccount(appId: string, workspace: ConnectionWorkspace): Promise<void> {
-  await requestConnector(`/v1/apps/by-id/${encodeURIComponent(appId)}`, workspace, { method: "DELETE" })
+  requireConnectionManagement(workspace)
+  await requestConnector(`${connectionAppsPath(workspace)}/by-id/${encodeURIComponent(appId)}`, workspace, {
+    method: "DELETE",
+  })
   invalidateWorkspaceApps(workspace, appId)
 }
 
 export async function updateAlias(appId: string, alias: string, workspace: ConnectionWorkspace): Promise<void> {
-  await requestConnector(`/v1/apps/by-id/${encodeURIComponent(appId)}`, workspace, {
+  requireConnectionManagement(workspace)
+  await requestConnector(`${connectionAppsPath(workspace)}/by-id/${encodeURIComponent(appId)}`, workspace, {
     method: "PATCH",
     body: JSON.stringify({ alias: alias.trim() === "" ? null : alias.trim() }),
   })

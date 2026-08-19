@@ -2171,6 +2171,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
             titlebarEditable={titlebarEditable}
             titlebarBreadcrumbs={titlebarBreadcrumbs}
             titlebarTitle={titlebarTitle}
+            windowControlsOnRight={!rightPanelVisible}
             workspace={teamWorkspace.activeWorkspace}
             onArtifactsToggle={handleArtifactsToggle}
             onBrowserToggle={handleBrowserToggle}

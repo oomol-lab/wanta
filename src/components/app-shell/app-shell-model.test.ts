@@ -13,6 +13,7 @@ import {
   isWorkspaceSwitchPending,
   newSessionComposerDraftKey,
   newSessionComposerDraftKeyForScopeKey,
+  RIGHT_PANEL_RESIZE_SASH_WIDTH_PX,
   resolveNewSessionTarget,
   resolveNotificationTeam,
   routeAvailableForRuntime,
@@ -63,6 +64,10 @@ describe("artifacts panel drag layout", () => {
       width: ARTIFACTS_PANEL_MIN_WIDTH_PX,
     })
     expect(artifactsPanelDragLayout(0, maxWidth)).toEqual({ collapsed: true, width: 0 })
+  })
+
+  test("keeps the resize sash outside the right panel content width", () => {
+    expect(artifactsPanelMaxWidth(1_000, 0, true)).toBe(1_000 - 420 - RIGHT_PANEL_RESIZE_SASH_WIDTH_PX)
   })
 })
 

@@ -45,6 +45,7 @@ interface TurnOutputsPanelProps {
   onCollapse: () => void
   onToggleMaximized: () => void
   selection: TurnOutputSelection | null
+  windowControlsOnRight: boolean
 }
 
 function roleFiles(record: TurnOutputRecord, role: TurnOutputFileRole): TurnOutputFile[] {
@@ -139,7 +140,13 @@ function useTurnFileActions(): {
   )
 }
 
-export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, selection }: TurnOutputsPanelProps) {
+export function TurnOutputsPanel({
+  maximized,
+  onCollapse,
+  onToggleMaximized,
+  selection,
+  windowControlsOnRight,
+}: TurnOutputsPanelProps) {
   const t = useT()
   const MaximizeIcon = maximized ? Minimize2 : Maximize2
   const initialRole = selection?.initialRole ?? "project_change"
@@ -222,7 +229,12 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
         maximized && "border-l-0",
       )}
     >
-      <header className="oo-titlebar oo-artifacts-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b [-webkit-app-region:drag]">
+      <header
+        className={cn(
+          "oo-titlebar oo-artifacts-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b [-webkit-app-region:drag]",
+          windowControlsOnRight && "oo-titlebar-window-controls",
+        )}
+      >
         <div className="oo-text-title min-w-0 truncate">
           {t(activeRole === "process" ? "turnOutputs.processDetails" : "turnOutputs.panelTitle")}
         </div>

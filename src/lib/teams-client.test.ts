@@ -31,7 +31,7 @@ describe("teams-client", () => {
   it("reuses connector apps and provider reads for team options", async () => {
     const fetchMock = vi.fn<typeof fetch>(async (input) => {
       const url = String(input)
-      if (url.endsWith("/v1/apps")) {
+      if (url.endsWith("/v1/connections")) {
         return Response.json({ data: [{ service: "gmail", status: "active" }] })
       }
       if (url.endsWith("/v1/providers")) {
@@ -47,7 +47,7 @@ describe("teams-client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it("creates teams through the console API org endpoint", async () => {
+  it("creates teams through the console API team endpoint", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({ avatar: "", creator_user_id: "user-1", id: "team-1", name: "acme" }),
     )
@@ -56,12 +56,12 @@ describe("teams-client", () => {
     await expect(createTeam({ teamName: " acme " })).resolves.toMatchObject({ id: "team-1", name: "acme" })
 
     const [url, init] = fetchMock.mock.calls[0] ?? []
-    expect(String(url)).toContain("/v1/orgs")
+    expect(String(url)).toContain("/v1/teams")
     expect(init?.method).toBe("POST")
     expect(JSON.parse(String(init?.body))).toEqual({ org_name: "acme" })
   })
 
-  it("updates team names and avatars through the console API org endpoint", async () => {
+  it("updates team names and avatars through the console API team endpoint", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({
         avatar: "https://img.example/avatar.png",
@@ -77,7 +77,7 @@ describe("teams-client", () => {
     ).resolves.toMatchObject({ avatar: "https://img.example/avatar.png", name: "acme" })
 
     const [url, init] = fetchMock.mock.calls[0] ?? []
-    expect(String(url)).toContain("/v1/orgs/team-1")
+    expect(String(url)).toContain("/v1/teams/team-1")
     expect(init?.method).toBe("PUT")
     expect(JSON.parse(String(init?.body))).toEqual({
       avatar: "https://img.example/avatar.png",
@@ -96,7 +96,7 @@ describe("teams-client", () => {
 
     const [url, init] = fetchMock.mock.calls[0] ?? []
     const headers = new Headers(init?.headers)
-    expect(String(url)).toContain("/v1/orgs/team-1/avatar")
+    expect(String(url)).toContain("/v1/teams/team-1/avatar")
     expect(init?.method).toBe("POST")
     expect(init?.body).toBeInstanceOf(FormData)
     expect(headers.get("content-type")).toBeNull()

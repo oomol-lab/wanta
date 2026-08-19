@@ -62,13 +62,13 @@ describe("applyOomolCors", () => {
     const result = applyOomolCors({
       method: "OPTIONS",
       origin: "http://localhost:5273",
-      requestedHeaders: "x-oo-organization-name,content-type",
+      requestedHeaders: "x-oo-team-name,content-type",
       responseHeaders: {},
     })
     expect(result.statusLine).toBe("HTTP/1.1 200 OK")
     expect(result.responseHeaders["Access-Control-Allow-Methods"]?.[0]).toContain("POST")
     // 回显 Access-Control-Request-Headers，确保任意自定义请求头都能通过预检。
-    expect(result.responseHeaders["Access-Control-Allow-Headers"]).toEqual(["x-oo-organization-name,content-type"])
+    expect(result.responseHeaders["Access-Control-Allow-Headers"]).toEqual(["x-oo-team-name,content-type"])
     expect(result.responseHeaders["Access-Control-Max-Age"]).toEqual(["600"])
   })
 
@@ -79,7 +79,7 @@ describe("applyOomolCors", () => {
       requestedHeaders: undefined,
       responseHeaders: {},
     })
-    expect(result.responseHeaders["Access-Control-Allow-Headers"]?.[0]).toContain("x-oo-organization-name")
+    expect(result.responseHeaders["Access-Control-Allow-Headers"]?.[0]).toContain("x-oo-team-name")
   })
 
   it("strips any server-sent CORS headers to avoid duplicate-header CORS failures", () => {

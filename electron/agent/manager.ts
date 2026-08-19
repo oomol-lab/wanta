@@ -1364,7 +1364,7 @@ export class AgentManager {
       const response = await fetch(`${connectorBaseUrl}/v1/apps`, {
         headers: {
           Authorization: `Bearer ${this.options.linkRuntime.sessionToken}`,
-          ...(normalizedTeamName ? { "x-oo-organization-name": normalizedTeamName } : {}),
+          ...(normalizedTeamName ? { "x-oo-team-name": normalizedTeamName } : {}),
         },
         signal: requestSignal.signal,
       })

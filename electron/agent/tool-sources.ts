@@ -233,7 +233,7 @@ async function providerAuthTypes(sessionID) {
       headers.authorization = "Bearer " + token
     }
     if (identity.teamName) {
-      headers["x-oo-organization-name"] = identity.teamName
+      headers["x-oo-team-name"] = identity.teamName
     }
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 10 * 1000)

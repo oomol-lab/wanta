@@ -29,7 +29,7 @@ function summary(workspace: ConnectionWorkspace): ConnectionSummary {
 }
 
 test("connectionsStateReducer clears old summary while workspace sync starts", () => {
-  const previousSummary = summary({ teamName: "team-name" })
+  const previousSummary = summary({ manageable: false, teamName: "team-name" })
   const loadedState = connectionsStateReducer(initialConnectionsState, {
     summary: previousSummary,
     type: "summarySet",
@@ -56,7 +56,7 @@ test("connectionsStateReducer clears old summary while workspace sync starts", (
 
 test("partial app refresh keeps confirmed connections for the same workspace", () => {
   const current = {
-    ...summary({ teamName: "acme" }),
+    ...summary({ manageable: false, teamName: "acme" }),
     apps: [
       {
         authType: "oauth2" as const,
@@ -71,7 +71,7 @@ test("partial app refresh keeps confirmed connections for the same workspace", (
     connectedProviderCount: 1,
   }
   const next = {
-    ...summary({ teamName: "acme" }),
+    ...summary({ manageable: false, teamName: "acme" }),
     appsStatus: "unavailable" as const,
     updatedAt: "2026-07-17T00:00:00.000Z",
   }
@@ -84,8 +84,8 @@ test("partial app refresh keeps confirmed connections for the same workspace", (
 })
 
 test("partial app refresh does not reuse data from another workspace", () => {
-  const current = summary({ teamName: "old-team" })
-  const next = { ...summary({ teamName: "new-team" }), appsStatus: "forbidden" as const }
+  const current = summary({ manageable: false, teamName: "old-team" })
+  const next = { ...summary({ manageable: false, teamName: "new-team" }), appsStatus: "forbidden" as const }
 
   assert.equal(preserveConnectionSummaryOnPartialRefresh(current, next), next)
 })
@@ -128,7 +128,7 @@ test("connectionsStateReducer resets state while workspace is pending", () => {
       actionError: error,
       busy: "connect",
       polling: "provider",
-      summary: summary({ teamName: "team-name" }),
+      summary: summary({ manageable: false, teamName: "team-name" }),
       summaryError: error,
       summaryWorkspaceKey: "team:team-name",
     },
@@ -139,7 +139,7 @@ test("connectionsStateReducer resets state while workspace is pending", () => {
 })
 
 test("connectionsStateReducer records workspace sync failures as summary failures", () => {
-  const previousSummary = summary({ teamName: "team-a" })
+  const previousSummary = summary({ manageable: false, teamName: "team-a" })
   const next = connectionsStateReducer(
     {
       ...initialConnectionsState,
@@ -158,7 +158,7 @@ test("connectionsStateReducer records workspace sync failures as summary failure
 })
 
 test("connectionsStateReducer clears hidden previous summaries when refresh fails for a new workspace", () => {
-  const previousSummary = summary({ teamName: "team-name" })
+  const previousSummary = summary({ manageable: false, teamName: "team-name" })
   const next = connectionsStateReducer(
     {
       ...initialConnectionsState,
@@ -174,7 +174,7 @@ test("connectionsStateReducer clears hidden previous summaries when refresh fail
 })
 
 test("connectionsStateReducer keeps current summaries visible when refresh fails for the same workspace", () => {
-  const currentSummary = summary({ teamName: "acme" })
+  const currentSummary = summary({ manageable: false, teamName: "acme" })
   const next = connectionsStateReducer(
     {
       ...initialConnectionsState,
@@ -214,19 +214,19 @@ test("connectionsStateReducer records synced workspace scope", () => {
 
 test("connectionsStateReducer derives summary workspace keys consistently", () => {
   const teamName = connectionsStateReducer(initialConnectionsState, {
-    summary: summary({ teamName: "team-name" }),
+    summary: summary({ manageable: false, teamName: "team-name" }),
     type: "refreshSucceeded",
   })
   const team = connectionsStateReducer(
     { ...initialConnectionsState, summaryError: error },
     {
-      summary: summary({ teamName: "acme" }),
+      summary: summary({ manageable: false, teamName: "acme" }),
       type: "summarySet",
     },
   )
 
-  assert.equal(teamName.summaryWorkspaceKey, "team:team-name")
+  assert.equal(teamName.summaryWorkspaceKey, "team:team-name:runtime")
   assert.equal(teamName.summaryError, null)
-  assert.equal(team.summaryWorkspaceKey, "team:acme")
+  assert.equal(team.summaryWorkspaceKey, "team:acme:runtime")
   assert.equal(team.summaryError, null)
 })

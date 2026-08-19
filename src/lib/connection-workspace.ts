@@ -1,5 +1,9 @@
 import type { ConnectionWorkspace } from "../../electron/connections/common.ts"
 
 export function connectionWorkspaceKey(workspace: ConnectionWorkspace): string {
-  return `team:${workspace.teamName}`
+  return `team:${workspace.teamName}:${workspace.manageable ? "management" : "runtime"}`
+}
+
+export function isConnectionManagementWorkspace(workspace: ConnectionWorkspace): boolean {
+  return workspace.manageable === true
 }

@@ -93,6 +93,15 @@ function sameWorkspace(workspace: ConnectionWorkspace | null, key: string): bool
   return workspace ? connectionWorkspaceKey(workspace) === key : key === "pending"
 }
 
+export function connectionManagementActionUnavailableMessage(workspace: ConnectionWorkspace | null): string | null {
+  if (!workspace) return "Workspace is still loading."
+  return workspace.manageable ? null : "Connection management is not allowed in this team."
+}
+
+function hasManagementWorkspace(workspace: ConnectionWorkspace | null): workspace is ConnectionWorkspace {
+  return workspace?.manageable === true
+}
+
 function isOAuthOperationConnectedFromActiveAppIds(
   activeAppIds: readonly string[],
   operation: OAuthPendingOperation,
@@ -184,7 +193,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
 
   const beginAction = React.useCallback((): ConnectionActionContext | null => {
     const currentWorkspace = effectiveWorkspace.current
-    if (!currentWorkspace) {
+    if (!hasManagementWorkspace(currentWorkspace)) {
       return null
     }
     const generation = workspaceGeneration.current
@@ -426,6 +435,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         dispatch({ type: "actionErrorSet", error: resolveConnectionError("Workspace is still loading.", operation) })
         return false
       }
+      if (!currentWorkspace.manageable) {
+        dispatch({
+          type: "actionErrorSet",
+          error: resolveConnectionError("Connection management is not allowed in this team.", operation),
+        })
+        return false
+      }
 
       if (input.authType === "oauth2") {
         const duplicateOAuthKey = createOAuthPendingKey(currentWorkspace, input)
@@ -444,7 +460,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
 
       const action = beginAction()
       if (!action) {
-        dispatch({ type: "actionErrorSet", error: resolveConnectionError("Workspace is still loading.", operation) })
+        dispatch({
+          type: "actionErrorSet",
+          error: resolveConnectionError(
+            connectionManagementActionUnavailableMessage(effectiveWorkspace.current) ?? "Workspace is still loading.",
+            operation,
+          ),
+        })
         return false
       }
       const { actionId } = action
@@ -545,7 +567,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       if (!action) {
         dispatch({
           type: "actionErrorSet",
-          error: resolveConnectionError("Workspace is still loading.", operation),
+          error: resolveConnectionError(
+            connectionManagementActionUnavailableMessage(effectiveWorkspace.current) ?? "Workspace is still loading.",
+            operation,
+          ),
         })
         return false
       }
@@ -641,6 +666,9 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     const currentWorkspace = effectiveWorkspace.current
     if (!currentWorkspace) {
       return Promise.reject(new Error("Workspace is still loading."))
+    }
+    if (!currentWorkspace.manageable) {
+      return Promise.reject(new Error("Connection management is not allowed in this team."))
     }
     return getConnectionExecutionLogs(request, currentWorkspace)
   }, [])

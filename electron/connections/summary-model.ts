@@ -1,6 +1,6 @@
 import type { ConnectionSummary, ConnectionWorkspace } from "./common.ts"
 
-const defaultConnectionWorkspace: ConnectionWorkspace = { teamName: "unavailable" }
+const defaultConnectionWorkspace: ConnectionWorkspace = { manageable: false, teamName: "unavailable" }
 
 export function createEmptyConnectionSummary(
   workspace: ConnectionWorkspace = defaultConnectionWorkspace,

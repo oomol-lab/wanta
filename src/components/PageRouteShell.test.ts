@@ -20,4 +20,5 @@ it("renders supplied titlebar actions inside the page header", () => {
   const action = html.indexOf('data-titlebar-action="update"')
   expect(action).toBeGreaterThanOrEqual(0)
   expect(action).toBeLessThan(headerEnd)
+  expect(html).toContain("oo-titlebar-window-controls")
 })

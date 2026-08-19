@@ -58,9 +58,12 @@ function toolStatusLabel(t: TranslateFn, status: ToolStatus | undefined): string
   }
 }
 
-function toolPartStatusLabel(t: TranslateFn, part: ChatMessagePart, stopped = false): string {
+function toolPartStatusLabel(t: TranslateFn, part: ChatMessagePart, stopped = false, recovered = false): string {
   if (stopped) {
     return t("chat.toolStatusStopped")
+  }
+  if (recovered) {
+    return t("chat.toolStatusRecovered")
   }
   if (part.tool === "question" && (part.status === "pending" || part.status === "running")) {
     return t("chat.toolStatusWaitingForAnswer")
@@ -176,10 +179,12 @@ function ToolActionIcon({ part }: { part: ChatMessagePart }) {
 function ToolStepIcon({
   part,
   provider,
+  recovered = false,
   stopped = false,
 }: {
   part: ChatMessagePart
   provider?: ConnectionProvider
+  recovered?: boolean
   stopped?: boolean
 }) {
   if (isWikigraphKnowledgeActivityPart(part) && part.status !== "error" && !stopped) {
@@ -188,7 +193,7 @@ function ToolStepIcon({
   if (provider && part.status !== "error" && !stopped) {
     return <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
   }
-  if (part.status === "error" || stopped) {
+  if ((part.status === "error" && !recovered) || stopped) {
     return <ToolStatusIcon status={part.status} stopped={stopped} />
   }
   return <ToolActionIcon part={part} />
@@ -242,6 +247,7 @@ export function ToolActivityStep({
   live = true,
   shimmer = false,
   settling = false,
+  recovered = false,
   showAuthorizationPrompt = true,
   onAuthorize,
 }: {
@@ -250,6 +256,7 @@ export function ToolActivityStep({
   live?: boolean
   shimmer?: boolean
   settling?: boolean
+  recovered?: boolean
   showAuthorizationPrompt?: boolean
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
@@ -264,7 +271,9 @@ export function ToolActivityStep({
   const [detailsVisible, setDetailsVisible] = React.useState(false)
   const outputPreviewRef = React.useRef<{ output: string; text: string; truncated: boolean } | null>(null)
   const statusText =
-    settling && part.status === "completed" ? t("chat.toolStatusFinalizing") : toolPartStatusLabel(t, part, stopped)
+    settling && part.status === "completed"
+      ? t("chat.toolStatusFinalizing")
+      : toolPartStatusLabel(t, part, stopped, recovered)
   const active = live && activePart
   const showShimmer = active || shimmer
   const displayLine = toolDisplayLine(t, part)
@@ -313,7 +322,7 @@ export function ToolActivityStep({
         className="flex size-5 shrink-0 items-center justify-center"
         title={provider ? `${provider.displayName} · ${statusText}` : statusText}
       >
-        <ToolStepIcon part={part} provider={provider} stopped={stopped} />
+        <ToolStepIcon part={part} provider={provider} recovered={recovered} stopped={stopped} />
       </span>
       <div className="w-0 max-w-full min-w-0 flex-1 overflow-hidden">
         {showShimmer ? (

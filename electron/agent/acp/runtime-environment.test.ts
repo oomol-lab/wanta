@@ -34,6 +34,21 @@ describe("ACP subprocess environment", () => {
     expect(env.CODEX_PATH).toBe("/custom/codex")
   })
 
+  test("preserves the shared managed command environment for every ACP agent", async () => {
+    const env = await acpSubprocessEnvironment(ACP_AGENT_REGISTRY.grok, "/managed/bin:/user/bin", {
+      PATH: "/stale/bin",
+      WANTA_OO_BIN: "/managed/bin/oo",
+      WANTA_REAL_OO_BIN: "/real/bin/oo",
+    })
+
+    expect(env).toMatchObject({
+      PATH: "/managed/bin:/user/bin",
+      WANTA_OO_BIN: "/managed/bin/oo",
+      WANTA_REAL_OO_BIN: "/real/bin/oo",
+      WANTA_NODE_RUNTIME: process.execPath,
+    })
+  })
+
   test("fails clearly when the bridge runtime is unavailable", async () => {
     await expect(acpSubprocessEnvironment(ACP_AGENT_REGISTRY.codex, "", {})).rejects.toThrow(
       "Codex CLI was not found on this machine",

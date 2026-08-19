@@ -8,6 +8,7 @@ import type {
 
 import { agentLoginHint } from "../contract/profile.ts"
 import { numberOrZero } from "../event-translator.ts"
+import { classifyToolFailure } from "../tool-failure.ts"
 
 // Claude Agent SDK message -> normalized AgentEvent translation (BYOA phase 1).
 //
@@ -312,7 +313,7 @@ export function createClaudeTurnTranslator(sessionId: string): ClaudeTurnTransla
           tool: record?.tool ?? "tool",
           status,
           input: record?.input ?? {},
-          ...(status === "error" ? { error: text } : { output: text }),
+          ...(status === "error" ? { error: text, ...classifyToolFailure(text) } : { output: text }),
         },
       })
     }

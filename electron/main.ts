@@ -61,6 +61,7 @@ import { createLinkHostCapability, LINK_CAPABILITY_ID, LINK_RUNTIME_BINDING } fr
 import { ManagedTurnDirectories } from "./agent/managed-turn-directories.ts"
 import { AgentManager } from "./agent/manager.ts"
 import { OpencodeAgentAdapter } from "./agent/opencode-adapter.ts"
+import { ensureOoGuardCommandBin } from "./agent/oo-guard-bin.ts"
 import { createQuestionHostCapability, QUESTION_CAPABILITY_ID } from "./agent/question-host-capability.ts"
 import { AgentRetirementPool } from "./agent/retirement.ts"
 import {
@@ -96,6 +97,7 @@ import { UserAttachmentStore } from "./chat/user-attachments.ts"
 import { registerClipboardHandler } from "./clipboard-handler.ts"
 import { parseConnectionOAuthCallback } from "./connections/domain.ts"
 import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./diagnostics-log.ts"
+import { mergePathValues, resolveUserCommandPath } from "./command-path.ts"
 import { GitServiceImpl } from "./git/node.ts"
 import { KnowledgeServiceImpl } from "./knowledge/node.ts"
 import { WikiGraphQueryRunner } from "./knowledge/query-runner.ts"
@@ -356,6 +358,24 @@ const directCliCapabilityServer = new HostCapabilityServer({
   name: "wanta_direct",
   version: "1.0.0",
 })
+const externalAgentRootDir = path.join(app.getPath("userData"), "agent-external")
+let externalAgentCommandEnvironmentPromise: Promise<NodeJS.ProcessEnv> | undefined
+function externalAgentCommandEnvironment(): Promise<NodeJS.ProcessEnv> {
+  externalAgentCommandEnvironmentPromise ??= Promise.all([
+    resolveUserCommandPath({ preferredDirectories: [path.dirname(ooBinPath)] }),
+    ensureOoGuardCommandBin({
+      binDir: path.join(externalAgentRootDir, "bin"),
+      nodeBin: process.execPath,
+      ooGuardCliPath,
+    }),
+  ]).then(([userPath, managedOoBinPath]) => ({
+    ...process.env,
+    PATH: mergePathValues([path.dirname(managedOoBinPath), userPath]),
+    WANTA_OO_BIN: managedOoBinPath,
+    WANTA_REAL_OO_BIN: ooBinPath,
+  }))
+  return externalAgentCommandEnvironmentPromise.then((environment) => ({ ...environment }))
+}
 // External (BYOA) adapters are app-lifetime and independent of the OOMOL account
 // runtime: their models and auth belong to the agent CLIs themselves. Host
 // capabilities are issued per Wanta session and keep identity in main.
@@ -363,7 +383,8 @@ const externalAgents = createExternalAgents({
   appRoot,
   isPackaged: app.isPackaged,
   resourcesPath: process.resourcesPath,
-  scratchRootDir: path.join(app.getPath("userData"), "agent-external"),
+  scratchRootDir: externalAgentRootDir,
+  commandEnvironment: externalAgentCommandEnvironment,
   hostMcpServers: async (input) => {
     const [larkRuntime, wecomRuntime, dingTalkRuntime] = await directRuntimes()
     const directSkillSources = [
@@ -420,6 +441,17 @@ const externalAgents = createExternalAgents({
     } else {
       linkCapabilityServer.disableSession(input.sessionId)
     }
+    logDiagnostic(
+      "host-capability",
+      "manifest issued",
+      {
+        linkRegistered: servers.some((server) => server.name === "wanta_link"),
+        servers: servers.map((server) => server.name),
+        sessionId: input.sessionId,
+        ...(input.messageId ? { turnId: input.messageId } : {}),
+      },
+      "trace",
+    )
     return servers
   },
 })

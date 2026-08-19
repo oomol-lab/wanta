@@ -33,8 +33,9 @@ export function buildLinkRuntimeSystem(runtime: ActiveLinkRuntime, teamName: str
       }
       return [
         `Current-turn Wanta Link workspace: team ${quoted(normalizedTeamName)}.`,
-        "- When the `wanta_link` MCP tools are present, use them for Link work and do not invoke the raw `oo` CLI; inspect_action is required before call_action.",
+        "- The `wanta_link` MCP tools are the required transport for Link work; inspect_action is required before call_action. Do not invoke the raw `oo` CLI: Wanta rejects `oo connector apps`, `run`, and `proxy` shell calls while this capability is active.",
         `- Every raw \`oo connector apps\` or \`oo connector run\` call must preserve the selector \`--team ${quoted(normalizedTeamName)}\`.`,
+        "- Raw `oo connector schema` and `oo connector search` calls never accept workspace selectors such as `--team` or `--personal`.",
         "- Never omit, replace, or change that selector after an error, and never retry in a personal or default workspace.",
         "- `app_not_found` or `connection_required` from a call without this exact selector does not prove that the current Wanta team is disconnected.",
         "- Wanta-provided Link tools own workspace binding, authorization signaling, and credential redaction.",

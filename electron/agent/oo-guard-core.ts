@@ -1,4 +1,5 @@
 const connectorCommandsRequiringWorkspace = new Set(["apps", "run"])
+const connectorCommandsIgnoringWorkspace = new Set(["schema", "search"])
 const sensitiveConnectorKeys = new Set([
   "access_token",
   "api_key",
@@ -118,6 +119,45 @@ export function bindOomolWorkspace(args: readonly string[], teamName: string): s
   const terminatorIndex = args.indexOf("--")
   if (terminatorIndex < 0) return [...args, "--team", normalizedTeamName]
   return [...args.slice(0, terminatorIndex), "--team", normalizedTeamName, ...args.slice(terminatorIndex)]
+}
+
+/**
+ * Schema/search are provider-contract discovery operations, not workspace
+ * business calls. Agents sometimes over-generalize the apps/run team rule and
+ * append a selector that these CLI subcommands do not accept. Normalize that
+ * deterministic transport detail in the managed shim instead of making the
+ * model recover from an avoidable parse error.
+ */
+export function stripIdentityIndependentWorkspaceSelectors(args: readonly string[]): string[] {
+  const connectorIndex = connectorCommandIndex(args)
+  if (connectorIndex < 0 || !connectorCommandsIgnoringWorkspace.has(args[connectorIndex + 1] ?? "")) {
+    return [...args]
+  }
+  const commandArgsStart = connectorIndex + 2
+  const terminatorIndex = args.indexOf("--", commandArgsStart)
+  const commandArgsEnd = terminatorIndex < 0 ? args.length : terminatorIndex
+  const normalized = args.slice(0, commandArgsStart)
+  let index = commandArgsStart
+  while (index < commandArgsEnd) {
+    const arg = args[index] ?? ""
+    if (["--team", "--organization", "--org"].includes(arg)) {
+      index += 2
+      continue
+    }
+    if (
+      arg === "--personal" ||
+      arg.startsWith("--team=") ||
+      arg.startsWith("--organization=") ||
+      arg.startsWith("--org=")
+    ) {
+      index += 1
+      continue
+    }
+    normalized.push(arg)
+    index += 1
+  }
+  if (terminatorIndex >= 0) normalized.push(...args.slice(terminatorIndex))
+  return normalized
 }
 
 export interface WorkspaceTeamScope {

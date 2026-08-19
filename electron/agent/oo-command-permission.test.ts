@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { isOoCliCommand, isPureOoCliCommand, openConnectorCommandPolicy } from "./oo-command-permission.ts"
+import {
+  connectorBusinessCliTransport,
+  isOoCliCommand,
+  isPureOoCliCommand,
+  openConnectorCommandPolicy,
+} from "./oo-command-permission.ts"
 
 test("isPureOoCliCommand allows single oo CLI invocations", () => {
   assert.equal(isPureOoCliCommand('oo search "秘塔搜索 metaso search" --json'), true)
@@ -41,6 +46,20 @@ test("OpenConnector policy allows built-in oo operations and standard shell wrap
   assert.equal(openConnectorCommandPolicy("oo connector apps --json 2>&1 | head -80"), null)
   assert.equal(openConnectorCommandPolicy("zsh -c 'cd /tmp && oo connector apps --json'"), null)
   assert.equal(openConnectorCommandPolicy("bash script.sh"), null)
+})
+
+test("detects bare and managed connector business transports across shell composition", () => {
+  assert.equal(connectorBusinessCliTransport('oo connector run "posthog" --action list_projects --json'), "bare")
+  assert.equal(
+    connectorBusinessCliTransport('"$WANTA_OO_BIN" connector apps posthog --json 2>&1 | head -20'),
+    "managed",
+  )
+  assert.equal(
+    connectorBusinessCliTransport("zsh -lc 'cd /tmp && oo --lang zh connector proxy posthog --method GET'"),
+    "bare",
+  )
+  assert.equal(connectorBusinessCliTransport("oo connector schema posthog.run_query --json"), null)
+  assert.equal(connectorBusinessCliTransport("echo 'oo connector run posthog'"), null)
 })
 
 test("OpenConnector policy keeps credential and runtime boundary protections", () => {

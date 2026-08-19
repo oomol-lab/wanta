@@ -85,6 +85,8 @@ export interface AcpAdapterOptions {
   transcriptDir?: string
   /** Host-owned MCP capabilities resolved for the concrete Wanta session. */
   hostMcpServers?: HostMcpServerProvider
+  /** Shared Wanta-managed subprocess environment, including guarded command shims. */
+  commandEnvironment?: () => Promise<NodeJS.ProcessEnv>
   /**
    * Test seam: produce a connected ACP stream plus a dispose fn. The default
    * spawns the probed binary with registration.acpArgs over stdio.
@@ -930,8 +932,10 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
     // Finder/desktop launches do not inherit the user's shell PATH. Reuse the
     // recovered PATH so the bridge can find both Node and the user's agent CLI.
-    const pathEnv = await resolveUserCommandPath()
-    const subprocessEnv = await acpSubprocessEnvironment(registration, pathEnv)
+    const baseEnvironment = this.options.commandEnvironment
+      ? await this.options.commandEnvironment()
+      : { ...process.env, PATH: await resolveUserCommandPath() }
+    const subprocessEnv = await acpSubprocessEnvironment(registration, baseEnvironment.PATH ?? "", baseEnvironment)
     const child = spawn(status.binary.path, [...registration.acpArgs], {
       stdio: ["pipe", "pipe", "pipe"],
       env: subprocessEnv,

@@ -13,7 +13,7 @@ test("buildLinkRuntimeSystem binds raw OOMOL calls to the exact team", () => {
 
   assert.match(prompt, /Current-turn Wanta Link workspace: team "Team \\"Quoted\\""/)
   assert.match(prompt, /`wanta_link` MCP tools/)
-  assert.match(prompt, /do not invoke the raw `oo` CLI/)
+  assert.match(prompt, /Do not invoke the raw `oo` CLI/)
   assert.match(prompt, /--team "Team \\"Quoted\\""/)
   assert.match(prompt, /never retry in a personal or default workspace/i)
   assert.match(prompt, /does not prove that the current Wanta team is disconnected/)

@@ -6,6 +6,7 @@ import {
   isConnectorBusinessCommand,
   redactConnectorOutput,
   resolveGuardWorkspaceTeam,
+  stripIdentityIndependentWorkspaceSelectors,
 } from "./oo-guard-core.ts"
 
 describe("OOMOL connector workspace guard", () => {
@@ -39,6 +40,48 @@ describe("OOMOL connector workspace guard", () => {
     ])
     assert.equal(hasWorkspaceSelector(["connector", "apps", "--personal"]), true)
     assert.equal(isConnectorBusinessCommand(["connector", "search", "posthog"]), false)
+  })
+
+  test("removes model-added workspace selectors from schema and search", () => {
+    assert.deepEqual(
+      stripIdentityIndependentWorkspaceSelectors([
+        "connector",
+        "schema",
+        "posthog",
+        "--action",
+        "run_query",
+        "--team",
+        "OOMOL-Internal",
+      ]),
+      ["connector", "schema", "posthog", "--action", "run_query"],
+    )
+    assert.deepEqual(
+      stripIdentityIndependentWorkspaceSelectors([
+        "--lang=zh",
+        "connector",
+        "search",
+        "posthog query",
+        "--personal",
+        "--organization=ignored",
+      ]),
+      ["--lang=zh", "connector", "search", "posthog query"],
+    )
+    assert.deepEqual(
+      stripIdentityIndependentWorkspaceSelectors([
+        "connector",
+        "schema",
+        "posthog",
+        "--team=ignored",
+        "--",
+        "--team",
+        "payload-value",
+      ]),
+      ["connector", "schema", "posthog", "--", "--team", "payload-value"],
+    )
+    assert.deepEqual(
+      stripIdentityIndependentWorkspaceSelectors(["connector", "run", "posthog", "--team", "team-a"]),
+      ["connector", "run", "posthog", "--team", "team-a"],
+    )
   })
 
   test("parses documented global options and inserts selectors before the argument terminator", () => {

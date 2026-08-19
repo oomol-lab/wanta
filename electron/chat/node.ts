@@ -73,6 +73,7 @@ import { copyFile, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { ActivityMetrics } from "../activity-metrics.ts"
+import { connectorBusinessCliTransport } from "../agent/oo-command-permission.ts"
 import { externalAgentKindForSessionId, isExternalSessionId } from "../agent/external/session-id.ts"
 import { createOpencodeMessageId } from "../agent/opencode-id.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
@@ -111,6 +112,7 @@ import {
 import { directoryArtifacts, fileArtifact, localArtifactItem, readArtifactPack } from "./local-artifacts.ts"
 import { OutputPersistence } from "./output-persistence.ts"
 import { PermissionDiagnostics } from "./permission-diagnostics.ts"
+import { permissionCommand } from "./permission-request.ts"
 import { PermissionState } from "./permission-state.ts"
 import { attachmentPreview, localArtifactPreview } from "./previews.ts"
 import { detectResponseLanguage } from "./response-language.ts"
@@ -1164,6 +1166,22 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     if (!this.permissions.beginAutomaticReply(request.sessionId, request.id)) {
       return true
+    }
+    if (decision.type === "deny") {
+      const transport = connectorBusinessCliTransport(permissionCommand(request) ?? "")
+      if (transport && this.activeLinkRuntime !== "none") {
+        logDiagnostic(
+          "host-capability",
+          "raw link cli blocked",
+          {
+            runtime: this.activeLinkRuntime,
+            sessionId: displaySessionId,
+            subagent: displaySessionId !== request.sessionId,
+            transport,
+          },
+          "info",
+        )
+      }
     }
     void this.answerAutomaticPermission(request, decision.type === "deny" ? "reject" : "once")
       .then(() => {

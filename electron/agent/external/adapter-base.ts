@@ -8,6 +8,7 @@ import { logDiagnostic } from "../../diagnostics-log.ts"
 import { BaseAgentAdapter } from "../contract/adapter.ts"
 import { ExternalTranscriptStore } from "./transcript-store.ts"
 import { ExternalTranscriptRecorder } from "./transcript.ts"
+import { redactExternalAgentEvent } from "./transcript-redaction.ts"
 
 // Shared skeleton for external (BYOA) adapters. On top of the contract base it
 // provides the chat-layer backend surface the built-in kernel gets from the
@@ -87,18 +88,19 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter implements C
   }
 
   protected override emit(event: AgentEvent): void {
-    const sessionId = "sessionId" in event.data ? event.data.sessionId : undefined
+    const safeEvent = redactExternalAgentEvent(event)
+    const sessionId = "sessionId" in safeEvent.data ? safeEvent.data.sessionId : undefined
     if (typeof sessionId === "string" && this.forgottenSessions.has(sessionId)) {
       return
     }
-    this.transcript.record(event)
-    if (event.event === "permissionAsked") {
-      this.pendingPermissionRequests.set(event.data.request.id, event.data.request)
-    } else if (event.event === "permissionReplied") {
-      this.pendingPermissionRequests.delete(event.data.requestId)
+    this.transcript.record(safeEvent)
+    if (safeEvent.event === "permissionAsked") {
+      this.pendingPermissionRequests.set(safeEvent.data.request.id, safeEvent.data.request)
+    } else if (safeEvent.event === "permissionReplied") {
+      this.pendingPermissionRequests.delete(safeEvent.data.requestId)
     }
-    super.emit(event)
-    this.scheduleTranscriptSave(event)
+    super.emit(safeEvent)
+    this.scheduleTranscriptSave(safeEvent)
   }
 
   public override async send(input: AgentInput, options?: AgentSendOptions): Promise<void> {

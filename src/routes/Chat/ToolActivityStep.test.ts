@@ -9,7 +9,13 @@ import { groupedToolActivityParts, groupedWikigraphToolActivityBlocks } from "./
 
 function renderToolActivityStep(
   part: ChatMessagePart,
-  options: { live?: boolean; shimmer?: boolean; settling?: boolean; showAuthorizationPrompt?: boolean } = {},
+  options: {
+    live?: boolean
+    recovered?: boolean
+    shimmer?: boolean
+    settling?: boolean
+    showAuthorizationPrompt?: boolean
+  } = {},
 ): string {
   return renderToStaticMarkup(
     React.createElement(
@@ -24,6 +30,7 @@ function renderToolActivityStep(
       React.createElement(ToolActivityStep, {
         part,
         live: options.live,
+        recovered: options.recovered,
         shimmer: options.shimmer,
         settling: options.settling,
         showAuthorizationPrompt: options.showAuthorizationPrompt,
@@ -32,6 +39,26 @@ function renderToolActivityStep(
     ),
   )
 }
+
+it("presents a safe failed attempt as automatically handled when the turn recovered", () => {
+  const html = renderToolActivityStep(
+    {
+      kind: "tool",
+      partId: "tool-failed",
+      callId: "call-failed",
+      tool: "execute",
+      status: "error",
+      error: "zsh: parse error near ')'",
+      failureKind: "input",
+      userImpact: "none",
+    },
+    { recovered: true },
+  )
+
+  expect(html).toContain("已自动处理")
+  expect(html).not.toContain("未完成")
+  expect(html).not.toContain("lucide-circle-alert")
+})
 
 function shimmerClassFor(html: string, text: string): string {
   const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")

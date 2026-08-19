@@ -138,7 +138,11 @@ const startedAdapters: ClaudeCodeAgentAdapter[] = []
 
 async function createHarness(
   status: ExternalAgentRuntimeStatus = detectedStatus(),
-  extras: { hostMcpServers?: ClaudeCodeAdapterOptions["hostMcpServers"]; transcriptDir?: string } = {},
+  extras: {
+    commandEnvironment?: ClaudeCodeAdapterOptions["commandEnvironment"]
+    hostMcpServers?: ClaudeCodeAdapterOptions["hostMcpServers"]
+    transcriptDir?: string
+  } = {},
 ) {
   const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-claude-adapter-test-"))
   scratchDirs.push(scratchRootDir)
@@ -148,6 +152,7 @@ async function createHarness(
     probe,
     scratchRootDir,
     commandPath: () => Promise.resolve("/fake/path-bin"),
+    commandEnvironment: extras.commandEnvironment,
     queryFn,
     hostMcpServers: extras.hostMcpServers,
     ...(extras.transcriptDir ? { transcriptDir: extras.transcriptDir } : {}),
@@ -201,6 +206,24 @@ describe("ClaudeCodeAgentAdapter", () => {
     await adapter.send({ type: "prompt", sessionId, text: "again" })
     expect(calls).toHaveLength(1)
     await vi.waitFor(() => expect(calls[0].fake.promptMessages).toHaveLength(2))
+  })
+
+  it("uses the same Wanta-managed command environment as ACP agents", async () => {
+    const { adapter, calls } = await createHarness(detectedStatus(), {
+      commandEnvironment: async () => ({
+        PATH: "/managed/bin:/user/bin",
+        WANTA_OO_BIN: "/managed/bin/oo",
+        WANTA_REAL_OO_BIN: "/real/bin/oo",
+      }),
+    })
+
+    await adapter.send({ type: "prompt", sessionId, text: "hello" })
+
+    expect(calls[0].options.env).toMatchObject({
+      PATH: "/managed/bin:/user/bin",
+      WANTA_OO_BIN: "/managed/bin/oo",
+      WANTA_REAL_OO_BIN: "/real/bin/oo",
+    })
   })
 
   it("appends attachments as a path-note text block the CLI resolves itself", async () => {

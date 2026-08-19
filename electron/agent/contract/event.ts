@@ -229,6 +229,10 @@ const toolCallResultSchema = z.object({
   timing: toolTimingSchema.optional(),
   attachmentsCount: z.number().optional(),
   authorization: authorizationInfoSchema.optional(),
+  failureKind: z
+    .enum(["input", "sandbox", "network", "authorization", "provider", "agent_runtime", "unknown"])
+    .optional(),
+  userImpact: z.enum(["none", "read_only", "side_effect_possible"]).optional(),
 })
 
 const questionResolvedSchema = z.object({

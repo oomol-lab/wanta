@@ -9,7 +9,7 @@ export const SKILL_CAPABILITY_ID = "skills"
 export const SKILL_SNAPSHOT_BINDING = "skills.snapshot"
 
 const HOST_EXECUTION_POLICY = `<wanta_execution_policy>
-Skill files describe business workflows, schemas, and safety rules. When a Wanta MCP capability covers the operation, use that host capability instead of executing CLI or shell examples from the Skill. For connected services, prefer wanta_link discovery and action tools; use a raw CLI only as a compatibility fallback when no Wanta host capability covers the operation. This transport rule does not change the Skill's write or destructive confirmation requirements.
+Skill files describe business workflows, schemas, and safety rules. When a Wanta MCP capability covers the operation, use that host capability instead of executing CLI or shell examples from the Skill. For connected services, prefer wanta_link discovery and action tools; they are mandatory while available, and Wanta rejects raw connector business commands in that state. A raw CLI is only a compatibility fallback when no Wanta host capability covers the operation, and that fallback must invoke $WANTA_OO_BIN rather than a bare oo executable. This transport rule does not change the Skill's write or destructive confirmation requirements.
 </wanta_execution_policy>`
 
 export function createSkillHostCapability(): HostCapability {

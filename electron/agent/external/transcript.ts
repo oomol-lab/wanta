@@ -1,6 +1,8 @@
 import type { ChatMessage, ChatMessagePart, ChatTokenUsage } from "../../chat/common.ts"
 import type { AgentEvent } from "../contract/event.ts"
 
+import { redactExternalAgentEvent, redactExternalMessages } from "./transcript-redaction.ts"
+
 // In-memory transcript built from the adapter's own contract events. External
 // agents have no queryable server history, so this recorder is what backs
 // getMessages(), turn-completion verification, and session reloads within one
@@ -21,81 +23,89 @@ export class ExternalTranscriptRecorder {
   private readonly latestAssistantIds = new Map<string, string>()
 
   public record(event: AgentEvent): void {
-    switch (event.event) {
+    const safeEvent = redactExternalAgentEvent(event)
+    switch (safeEvent.event) {
       case "messageStarted": {
-        const entry = this.ensureMessage(event.data.sessionId, event.data.messageId, event.data.role)
-        if (event.data.finishReason !== undefined) {
-          entry.message.finishReason = event.data.finishReason
+        const entry = this.ensureMessage(safeEvent.data.sessionId, safeEvent.data.messageId, safeEvent.data.role)
+        if (safeEvent.data.finishReason !== undefined) {
+          entry.message.finishReason = safeEvent.data.finishReason
         }
-        if (event.data.completedAt !== undefined) {
-          entry.message.completedAt = event.data.completedAt
+        if (safeEvent.data.completedAt !== undefined) {
+          entry.message.completedAt = safeEvent.data.completedAt
         }
         return
       }
       case "messageDelta": {
-        if (event.data.synthetic === true) {
+        if (safeEvent.data.synthetic === true) {
           return
         }
-        const entry = this.ensureMessage(event.data.sessionId, event.data.messageId, "assistant")
-        this.upsertPart(entry, { kind: "text", partId: event.data.partId, text: event.data.text })
+        const entry = this.ensureMessage(safeEvent.data.sessionId, safeEvent.data.messageId, "assistant")
+        this.upsertPart(entry, { kind: "text", partId: safeEvent.data.partId, text: safeEvent.data.text })
         return
       }
       case "messageReasoningDelta": {
-        const entry = this.ensureMessage(event.data.sessionId, event.data.messageId, "assistant")
-        this.upsertPart(entry, { kind: "reasoning", partId: event.data.partId, text: event.data.text })
+        const entry = this.ensureMessage(safeEvent.data.sessionId, safeEvent.data.messageId, "assistant")
+        this.upsertPart(entry, { kind: "reasoning", partId: safeEvent.data.partId, text: safeEvent.data.text })
         return
       }
       case "messageAttachment": {
-        const entry = this.ensureMessage(event.data.sessionId, event.data.messageId, "assistant")
+        const entry = this.ensureMessage(safeEvent.data.sessionId, safeEvent.data.messageId, "assistant")
         this.upsertPart(entry, {
           kind: "attachment",
-          partId: event.data.partId,
-          attachment: event.data.attachment,
+          partId: safeEvent.data.partId,
+          attachment: safeEvent.data.attachment,
         })
         return
       }
       case "toolCallStarted": {
-        const entry = this.ensureMessage(event.data.sessionId, event.data.messageId, "assistant")
+        const entry = this.ensureMessage(safeEvent.data.sessionId, safeEvent.data.messageId, "assistant")
         this.upsertPart(entry, {
           kind: "tool",
-          partId: event.data.partId,
-          callId: event.data.callId,
-          tool: event.data.tool,
-          status: event.data.status,
-          input: event.data.input,
-          ...(event.data.title ? { title: event.data.title } : {}),
-          ...(event.data.metadata ? { metadata: event.data.metadata } : {}),
-          ...(event.data.timing ? { timing: event.data.timing } : {}),
+          partId: safeEvent.data.partId,
+          callId: safeEvent.data.callId,
+          tool: safeEvent.data.tool,
+          status: safeEvent.data.status,
+          input: safeEvent.data.input,
+          ...(safeEvent.data.title ? { title: safeEvent.data.title } : {}),
+          ...(safeEvent.data.metadata ? { metadata: safeEvent.data.metadata } : {}),
+          ...(safeEvent.data.timing ? { timing: safeEvent.data.timing } : {}),
         })
         return
       }
       case "toolCallResult": {
-        const entry = this.ensureMessage(event.data.sessionId, event.data.messageId, "assistant")
+        const entry = this.ensureMessage(safeEvent.data.sessionId, safeEvent.data.messageId, "assistant")
         this.upsertPart(entry, {
           kind: "tool",
-          partId: event.data.partId,
-          callId: event.data.callId,
-          tool: event.data.tool,
-          status: event.data.status,
-          input: event.data.input,
-          ...(event.data.output !== undefined ? { output: event.data.output } : {}),
-          ...(event.data.error !== undefined ? { error: event.data.error } : {}),
-          ...(event.data.title ? { title: event.data.title } : {}),
-          ...(event.data.metadata ? { metadata: event.data.metadata } : {}),
-          ...(event.data.timing ? { timing: event.data.timing } : {}),
-          ...(event.data.attachmentsCount !== undefined ? { attachmentsCount: event.data.attachmentsCount } : {}),
-          ...(event.data.authorization ? { authorization: event.data.authorization } : {}),
+          partId: safeEvent.data.partId,
+          callId: safeEvent.data.callId,
+          tool: safeEvent.data.tool,
+          status: safeEvent.data.status,
+          input: safeEvent.data.input,
+          ...(safeEvent.data.output !== undefined ? { output: safeEvent.data.output } : {}),
+          ...(safeEvent.data.error !== undefined ? { error: safeEvent.data.error } : {}),
+          ...(safeEvent.data.title ? { title: safeEvent.data.title } : {}),
+          ...(safeEvent.data.metadata ? { metadata: safeEvent.data.metadata } : {}),
+          ...(safeEvent.data.timing ? { timing: safeEvent.data.timing } : {}),
+          ...(safeEvent.data.attachmentsCount !== undefined
+            ? { attachmentsCount: safeEvent.data.attachmentsCount }
+            : {}),
+          ...(safeEvent.data.authorization ? { authorization: safeEvent.data.authorization } : {}),
+          ...(safeEvent.data.failureKind ? { failureKind: safeEvent.data.failureKind } : {}),
+          ...(safeEvent.data.userImpact ? { userImpact: safeEvent.data.userImpact } : {}),
         })
         return
       }
       case "messagePartRemoved": {
-        this.sessions.get(event.data.sessionId)?.get(event.data.messageId)?.parts.delete(event.data.partId)
+        this.sessions
+          .get(safeEvent.data.sessionId)
+          ?.get(safeEvent.data.messageId)
+          ?.parts.delete(safeEvent.data.partId)
         return
       }
       case "messageCompleted": {
         // The turn-completion check reads finishReason/completedAt off the
         // latest assistant message, so completion must be materialized here.
-        const assistant = this.latestAssistant(event.data.sessionId)
+        const assistant = this.latestAssistant(safeEvent.data.sessionId)
         if (assistant && assistant.message.completedAt === undefined) {
           assistant.message.completedAt = Date.now()
           assistant.message.finishReason ??= "stop"
@@ -105,11 +115,11 @@ export class ExternalTranscriptRecorder {
       case "usageUpdated": {
         // The usage meter reads tokenUsage off the latest assistant message,
         // mirroring where the kernel history path carries it.
-        const assistant = this.latestAssistant(event.data.sessionId)
+        const assistant = this.latestAssistant(safeEvent.data.sessionId)
         if (assistant) {
-          assistant.message.tokenUsage = event.data.tokenUsage
+          assistant.message.tokenUsage = safeEvent.data.tokenUsage
         } else {
-          this.pendingUsage.set(event.data.sessionId, event.data.tokenUsage)
+          this.pendingUsage.set(safeEvent.data.sessionId, safeEvent.data.tokenUsage)
         }
         return
       }
@@ -134,7 +144,7 @@ export class ExternalTranscriptRecorder {
       return
     }
     const entries = new Map<string, TranscriptMessage>()
-    for (const message of messages) {
+    for (const message of redactExternalMessages(messages)) {
       entries.set(message.id, {
         message: { ...message, parts: [] },
         parts: new Map(message.parts.map((part) => [part.partId, part])),

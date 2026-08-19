@@ -18,6 +18,10 @@ function isOoExecutable(word: string): boolean {
   return word === "oo" || word === "$WANTA_OO_BIN" || word === "${WANTA_OO_BIN}"
 }
 
+function isManagedOoExecutable(word: string): boolean {
+  return word === "$WANTA_OO_BIN" || word === "${WANTA_OO_BIN}"
+}
+
 const credentialEnvironmentReference = /\b(?:OO_CONNECTOR_TOKEN|OO_API_KEY)\b/u
 const environmentDumpCommand = /^(?:env|printenv|set|export|declare\s+-x|typeset\s+-x)(?:\s|$)/u
 const linkEnvironmentAssignment = /\b(?:OO_CONNECTOR_URL|OO_ENDPOINT|OO_CONFIG_DIR|OO_DATA_DIR)\s*=/u
@@ -198,6 +202,37 @@ function ooSubcommandTokens(command: string): string[] | null {
     return null
   }
   return words.slice(skipOoGlobalFlags(words, 1))
+}
+
+export type ConnectorBusinessCliTransport = "bare" | "managed"
+
+/**
+ * Detect Link business operations anywhere in a native shell request. This is
+ * intentionally independent of the strict auto-allow parser: even a pipeline
+ * or sequence that would fall through to the ordinary command policy must not
+ * bypass the host-capability transport gate when Wanta Link is active.
+ */
+export function connectorBusinessCliTransport(command: string): ConnectorBusinessCliTransport | null {
+  let current = command.trim()
+  for (let depth = 0; depth < maxShellWrapperDepth; depth += 1) {
+    const words = shellWords(current)
+    if (words) {
+      for (let index = 0; index < words.length; index += 1) {
+        const executable = words[index] ?? ""
+        if (!isOoExecutable(executable)) continue
+        let cursor = skipOoGlobalFlags(words, index + 1)
+        if (words[cursor] !== "connector") continue
+        cursor = skipOoGlobalFlags(words, cursor + 1)
+        if (["apps", "run", "proxy"].includes(words[cursor] ?? "")) {
+          return isManagedOoExecutable(executable) ? "managed" : "bare"
+        }
+      }
+    }
+    const wrapper = shellWrapperCommand(current)
+    if (wrapper.kind !== "command") return null
+    current = wrapper.command
+  }
+  return null
 }
 
 /**

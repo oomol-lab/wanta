@@ -49,6 +49,7 @@ import {
 } from "./agent/binaries.ts"
 import { BROWSER_CAPABILITY_ID, createBrowserHostCapability } from "./agent/browser-host-capability.ts"
 import { createDirectCliHostCapability, DIRECT_CLI_CAPABILITY_ID } from "./agent/direct-cli-host-capability.ts"
+import { memoizeExternalCommandEnvironment } from "./agent/external/command-environment.ts"
 import { createExternalAgents } from "./agent/external/create.ts"
 import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
 import { HostCapabilityInvokeServer } from "./agent/host-capability-invoke-server.ts"
@@ -60,6 +61,7 @@ import { LinkCapability } from "./agent/link-capability.ts"
 import { createLinkHostCapability, LINK_CAPABILITY_ID, LINK_RUNTIME_BINDING } from "./agent/link-host-capability.ts"
 import { ManagedTurnDirectories } from "./agent/managed-turn-directories.ts"
 import { AgentManager } from "./agent/manager.ts"
+import { ensureOoGuardCommandBin } from "./agent/oo-guard-bin.ts"
 import { OpencodeAgentAdapter } from "./agent/opencode-adapter.ts"
 import { createQuestionHostCapability, QUESTION_CAPABILITY_ID } from "./agent/question-host-capability.ts"
 import { AgentRetirementPool } from "./agent/retirement.ts"
@@ -94,6 +96,7 @@ import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
 import { TurnOutputStore } from "./chat/turn-outputs.ts"
 import { UserAttachmentStore } from "./chat/user-attachments.ts"
 import { registerClipboardHandler } from "./clipboard-handler.ts"
+import { mergePathValues, resolveUserCommandPath } from "./command-path.ts"
 import { parseConnectionOAuthCallback } from "./connections/domain.ts"
 import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./diagnostics-log.ts"
 import { GitServiceImpl } from "./git/node.ts"
@@ -356,6 +359,23 @@ const directCliCapabilityServer = new HostCapabilityServer({
   name: "wanta_direct",
   version: "1.0.0",
 })
+const externalAgentRootDir = path.join(app.getPath("userData"), "agent-external")
+const externalAgentCommandEnvironment = memoizeExternalCommandEnvironment(async () => {
+  const [userPath, managedOoBinPath] = await Promise.all([
+    resolveUserCommandPath({ preferredDirectories: [path.dirname(ooBinPath)] }),
+    ensureOoGuardCommandBin({
+      binDir: path.join(externalAgentRootDir, "bin"),
+      nodeBin: process.execPath,
+      ooGuardCliPath,
+    }),
+  ])
+  return {
+    ...process.env,
+    PATH: mergePathValues([path.dirname(managedOoBinPath), userPath]),
+    WANTA_OO_BIN: managedOoBinPath,
+    WANTA_REAL_OO_BIN: ooBinPath,
+  }
+})
 // External (BYOA) adapters are app-lifetime and independent of the OOMOL account
 // runtime: their models and auth belong to the agent CLIs themselves. Host
 // capabilities are issued per Wanta session and keep identity in main.
@@ -363,7 +383,8 @@ const externalAgents = createExternalAgents({
   appRoot,
   isPackaged: app.isPackaged,
   resourcesPath: process.resourcesPath,
-  scratchRootDir: path.join(app.getPath("userData"), "agent-external"),
+  scratchRootDir: externalAgentRootDir,
+  commandEnvironment: externalAgentCommandEnvironment,
   hostMcpServers: async (input) => {
     const [larkRuntime, wecomRuntime, dingTalkRuntime] = await directRuntimes()
     const directSkillSources = [
@@ -420,6 +441,17 @@ const externalAgents = createExternalAgents({
     } else {
       linkCapabilityServer.disableSession(input.sessionId)
     }
+    logDiagnostic(
+      "host-capability",
+      "manifest issued",
+      {
+        linkRegistered: servers.some((server) => server.name === "wanta_link"),
+        servers: servers.map((server) => server.name),
+        sessionId: input.sessionId,
+        ...(input.messageId ? { turnId: input.messageId } : {}),
+      },
+      "trace",
+    )
     return servers
   },
 })

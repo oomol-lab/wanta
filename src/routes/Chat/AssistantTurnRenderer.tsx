@@ -197,6 +197,7 @@ export function TurnProcessActivity({
               providerByService={providerByService}
               settlingToolPartId={settlingPartId}
               liveTools={live}
+              recoverSafeToolErrors={process.hasVisibleOutcome && !process.hasBlockingError}
               showAuthorizationPrompt={false}
               onAuthorize={onAuthorize}
               onRecover={onRecover}
@@ -305,6 +306,7 @@ export function AssistantBlock({
   providerByService,
   settlingToolPartId,
   liveTools = true,
+  recoverSafeToolErrors = false,
   showAuthorizationPrompt = true,
   onAuthorize,
   onRecover,
@@ -318,6 +320,7 @@ export function AssistantBlock({
   providerByService: Map<string, ConnectionProvider>
   settlingToolPartId?: string
   liveTools?: boolean
+  recoverSafeToolErrors?: boolean
   showAuthorizationPrompt?: boolean
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onRecover?: (kind: ChatErrorKind) => Promise<void> | void
@@ -358,6 +361,7 @@ export function AssistantBlock({
                 part={part}
                 provider={service ? providerByService.get(service) : undefined}
                 live={liveTools}
+                recovered={recoverSafeToolErrors && part.status === "error" && part.userImpact === "none"}
                 shimmer={part.partId === settlingToolPartId}
                 settling={part.partId === settlingToolPartId}
                 showAuthorizationPrompt={showAuthorizationPrompt}

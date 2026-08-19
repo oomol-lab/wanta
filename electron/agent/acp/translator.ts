@@ -1,6 +1,8 @@
 import type { AgentEvent } from "../contract/event.ts"
 import type { ContentBlock, SessionUpdate, ToolCallContent } from "@agentclientprotocol/sdk"
 
+import { classifyToolFailure } from "../tool-failure.ts"
+
 // ACP session/update -> AgentEvent translation (BYOA phase 2).
 //
 // One translator instance per Wanta session, created by AcpAgentAdapter when
@@ -192,7 +194,12 @@ export function createAcpSessionTranslator(
     }
     return {
       event: "toolCallResult",
-      data: { ...base, status: "error", error: text || `${snapshot.title ?? tool} failed` },
+      data: {
+        ...base,
+        status: "error",
+        error: text || `${snapshot.title ?? tool} failed`,
+        ...classifyToolFailure(text || `${snapshot.title ?? tool} failed`),
+      },
     }
   }
 

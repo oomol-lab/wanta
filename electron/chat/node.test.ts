@@ -3372,7 +3372,7 @@ test("pure oo permissions are approved in the main process", async () => {
   )
 })
 
-test("OpenConnector direct oo commands are approved in the main process", async () => {
+test("OpenConnector direct oo commands are rejected in favor of Host Link", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)
   service.setLinkRuntime("openconnector")
@@ -3390,7 +3390,7 @@ test("OpenConnector direct oo commands are approved in the main process", async 
   })
 
   await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
-  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "reject"]])
   assert.equal(
     events.some((event) => event.event === "permissionAsked"),
     false,

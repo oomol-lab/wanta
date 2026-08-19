@@ -5,6 +5,7 @@ import path from "node:path"
 import { atomicWriteText } from "../../atomic-file.ts"
 import { logDiagnostic } from "../../diagnostics-log.ts"
 import { externalSessionUuid } from "./session-id.ts"
+import { redactExternalMessages } from "./transcript-redaction.ts"
 
 // On-disk persistence for external agent transcripts. External agents have no
 // queryable server history, so the recorder's flattened snapshot is the only
@@ -52,7 +53,12 @@ export class ExternalTranscriptStore {
             "warn",
           )
         }
-        return messages
+        const redactedMessages = redactExternalMessages(messages)
+        if (JSON.stringify(redactedMessages) !== JSON.stringify(messages)) {
+          logDiagnostic("external-transcript", "redacted legacy transcript credentials", { sessionId }, "warn")
+          await atomicWriteText(this.filePath(sessionId), JSON.stringify({ version: 1, messages: redactedMessages }))
+        }
+        return redactedMessages
       }
       logDiagnostic("external-transcript", "unrecognized transcript file shape", { sessionId }, "error")
     } catch (error) {
@@ -64,7 +70,7 @@ export class ExternalTranscriptStore {
   }
 
   public async save(sessionId: string, messages: ChatMessage[]): Promise<void> {
-    const payload: TranscriptFile = { version: 1, messages }
+    const payload: TranscriptFile = { version: 1, messages: redactExternalMessages(messages) }
     await atomicWriteText(this.filePath(sessionId), JSON.stringify(payload))
   }
 

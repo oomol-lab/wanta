@@ -55,6 +55,8 @@ export interface ClaudeCodeAdapterOptions {
   hostMcpServers?: HostMcpServerProvider
   /** Resolves the merged user PATH for the subprocess env (electron/command-path.ts resolveUserCommandPath by default). */
   commandPath?: () => Promise<string>
+  /** Shared Wanta-managed subprocess environment, including guarded command shims. */
+  commandEnvironment?: () => Promise<NodeJS.ProcessEnv>
   /** Test seam: the SDK query function. Defaults to the real `query` from @anthropic-ai/claude-agent-sdk. */
   queryFn?: typeof query
 }
@@ -253,6 +255,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
   private readonly probe: () => Promise<ExternalAgentRuntimeStatus>
   private readonly scratchRootDir: string
   private readonly commandPath: () => Promise<string>
+  private readonly commandEnvironment?: () => Promise<NodeJS.ProcessEnv>
   private readonly hostMcpServers?: HostMcpServerProvider
   private readonly queryFn: typeof query
 
@@ -280,8 +283,14 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     this.probe = options.probe
     this.scratchRootDir = options.scratchRootDir
     this.commandPath = options.commandPath ?? (() => resolveUserCommandPath())
+    this.commandEnvironment = options.commandEnvironment
     this.hostMcpServers = options.hostMcpServers
     this.queryFn = options.queryFn ?? query
+  }
+
+  private async subprocessEnvironment(): Promise<NodeJS.ProcessEnv> {
+    if (this.commandEnvironment) return await this.commandEnvironment()
+    return { ...process.env, PATH: await this.commandPath() }
   }
 
   protected async handleStart(): Promise<void> {
@@ -665,14 +674,14 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     }
     const cwd = path.join(this.scratchRootDir, "warmup")
     await mkdir(cwd, { recursive: true })
-    const commandPathValue = await this.commandPath()
+    const subprocessEnvironment = await this.subprocessEnvironment()
     const inputQueue = new AsyncInputQueue<SDKUserMessage>()
     const handle = this.queryFn({
       prompt: inputQueue,
       options: {
         cwd,
         pathToClaudeCodeExecutable: status.binary.path,
-        env: { ...process.env, PATH: commandPathValue },
+        env: subprocessEnvironment,
       },
     })
     try {
@@ -753,7 +762,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
       cwd = path.join(this.scratchRootDir, sessionUuid)
       await mkdir(cwd, { recursive: true })
     }
-    const commandPathValue = await this.commandPath()
+    const subprocessEnvironment = await this.subprocessEnvironment()
     const hostMcpServers = await this.hostMcpServers?.(input)
     const hostServerNames = new Set((hostMcpServers ?? []).map((server) => server.name))
     const inputQueue = new AsyncInputQueue<SDKUserMessage>()
@@ -771,7 +780,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
         pathToClaudeCodeExecutable: status.binary.path,
         // Options.env REPLACES the subprocess env entirely (verified against
         // sdk.d.ts 0.3.226), so the current env is spread in explicitly.
-        env: { ...process.env, PATH: commandPathValue },
+        env: subprocessEnvironment,
         ...(hostMcpServers?.length
           ? {
               mcpServers: Object.fromEntries(

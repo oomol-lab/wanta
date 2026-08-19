@@ -15,7 +15,7 @@ function permission(overrides: Partial<ChatPermissionRequest>): ChatPermissionRe
   }
 }
 
-test("local access policy allows ordinary commands in default mode", () => {
+test("local access policy allows ordinary commands and gates Link business CLI in default mode", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "npm test" } }), { permissionMode: "default" }),
     { type: "allow", reason: "default_command", kind: "command", highRisk: false },
@@ -25,11 +25,11 @@ test("local access policy allows ordinary commands in default mode", () => {
       linkRuntime: "oomol",
       permissionMode: "default",
     }),
-    { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
+    { type: "deny", kind: "command", highRisk: false },
   )
 })
 
-test("OpenCode, Claude, and ACP agents share the guarded OOCLI allow path", () => {
+test("OpenCode, Claude, and ACP agents share the Host Link transport gate", () => {
   const command =
     'oo connector run "posthog" --action "list_projects" --data \'{}\' --json --team "OOMOL-Internal" 2>&1 | head -100'
   const requests = [
@@ -39,8 +39,7 @@ test("OpenCode, Claude, and ACP agents share the guarded OOCLI allow path", () =
   ]
 
   assert.deepEqual(evaluateLocalAccessRequest(requests[0]!, { linkRuntime: "oomol", permissionMode: "default" }), {
-    type: "allow",
-    reason: "oo_cli",
+    type: "deny",
     kind: "command",
     highRisk: false,
   })
@@ -51,12 +50,12 @@ test("OpenCode, Claude, and ACP agents share the guarded OOCLI allow path", () =
         linkRuntime: "oomol",
         permissionMode: "default",
       }),
-      { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
+      { type: "deny", kind: "command", highRisk: false },
     )
   }
 })
 
-test("OOCLI parity preserves hard denials without making ordinary compound commands stricter", () => {
+test("OOCLI parity preserves hard denials and blocks compound Link business commands", () => {
   for (const command of ["oo auth login", "oo connector logout", "oo connector apps --connector-token secret"]) {
     assert.equal(
       evaluateLocalAccessRequest(permission({ metadata: { command } }), {
@@ -79,7 +78,7 @@ test("OOCLI parity preserves hard denials without making ordinary compound comma
         linkRuntime: "oomol",
         permissionMode: "default",
       }),
-      { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+      { type: "deny", kind: "command", highRisk: false },
       command,
     )
   }
@@ -92,7 +91,7 @@ test("OOCLI parity preserves hard denials without making ordinary compound comma
       }),
       { isExternalSession: true, linkRuntime: "oomol", permissionMode: "default" },
     ),
-    { type: "prompt", kind: "command", highRisk: true },
+    { type: "deny", kind: "command", highRisk: true },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector apps --json | head -20" } }), {
@@ -111,7 +110,7 @@ test("OOCLI parity preserves hard denials without making ordinary compound comma
         linkRuntime: "oomol",
         permissionMode: "default",
       }),
-      { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+      { type: "deny", kind: "command", highRisk: false },
     )
   }
 })
@@ -124,13 +123,13 @@ test("safe OOCLI classification is agent-independent even without an active Link
     ),
     { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
   )
-  // A real runtime produces the same Wanta decision.
+  // An active runtime requires the Host Link transport.
   assert.equal(
     evaluateLocalAccessRequest(
       permission({ metadata: { command: "oo connector run gmail --action send_email --json" } }),
       { isExternalSession: true, linkRuntime: "oomol", permissionMode: "default" },
     ).type,
-    "allow",
+    "deny",
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(
@@ -140,7 +139,7 @@ test("safe OOCLI classification is agent-independent even without an active Link
       }),
       { isExternalSession: true, linkRuntime: "oomol", permissionMode: "default" },
     ),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "deny", kind: "command", highRisk: false },
   )
 })
 
@@ -187,7 +186,7 @@ test("local access policy allows pure oo commands without a renderer prompt", ()
   )
 })
 
-test("local access policy allows direct and standard wrapped oo commands under OpenConnector", () => {
+test("local access policy blocks direct and standard wrapped business oo commands under OpenConnector", () => {
   for (const command of [
     "oo connector apps --json",
     "bash -c 'oo connector apps --json'",
@@ -202,7 +201,7 @@ test("local access policy allows direct and standard wrapped oo commands under O
         linkRuntime: "openconnector",
         permissionMode: "full_access",
       }),
-      { type: "allow", reason: "full_access", kind: "command", highRisk: false },
+      { type: "deny", kind: "command", highRisk: false },
       command,
     )
   }
@@ -211,14 +210,14 @@ test("local access policy allows direct and standard wrapped oo commands under O
       linkRuntime: "openconnector",
       permissionMode: "default",
     }),
-    { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
+    { type: "deny", kind: "command", highRisk: false },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "zsh -c 'cd /tmp && oo connector apps --json'" } }), {
       linkRuntime: "openconnector",
       permissionMode: "default",
     }),
-    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+    { type: "deny", kind: "command", highRisk: false },
   )
   for (const command of ["oo connector apps --json 2>&1", "oo connector apps --json 2>&1 | head -80"]) {
     assert.deepEqual(
@@ -226,7 +225,7 @@ test("local access policy allows direct and standard wrapped oo commands under O
         linkRuntime: "openconnector",
         permissionMode: "default",
       }),
-      { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
+      { type: "deny", kind: "command", highRisk: false },
       command,
     )
   }

@@ -20,6 +20,8 @@ export interface CreateExternalAgentsOptions {
   /** Private root for per-session scratch working directories. */
   scratchRootDir: string
   hostMcpServers?: HostMcpServerProvider
+  /** Shared Wanta-managed subprocess environment for every external adapter. */
+  commandEnvironment?: () => Promise<NodeJS.ProcessEnv>
 }
 
 export function createExternalAgents(
@@ -38,6 +40,7 @@ export function createExternalAgents(
       scratchRootDir: path.join(options.scratchRootDir, "claude-code"),
       transcriptDir: path.join(options.scratchRootDir, "claude-code", "transcripts"),
       hostMcpServers: options.hostMcpServers,
+      commandEnvironment: options.commandEnvironment,
     }),
   )
   for (const kind of ACP_AGENT_KINDS) {
@@ -50,6 +53,7 @@ export function createExternalAgents(
         scratchRootDir: path.join(options.scratchRootDir, kind),
         transcriptDir: path.join(options.scratchRootDir, kind, "transcripts"),
         hostMcpServers: options.hostMcpServers,
+        commandEnvironment: options.commandEnvironment,
       }),
     )
   }

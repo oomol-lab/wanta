@@ -31,6 +31,7 @@ import { shouldRenderConnectionSuggestion } from "./assistant-turn-renderer-mode
 import { TurnProcessActivity } from "./AssistantTurnRenderer.tsx"
 import {
   activityForChatTurn,
+  inheritTurnProcessTiming,
   latestAssistantMessage,
   retrySourceFromTurn,
   shouldAppendTurnProcessActivity,
@@ -266,7 +267,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
               ...turn,
               assistants: assistantMessagesFromTimelineBlocks(segment.blocks),
             }
-            const segmentProcess =
+            const scopedSegmentProcess =
               segment.blocks.length === 0
                 ? process
                 : summarizeTurnProcess(
@@ -275,6 +276,10 @@ const ChatTurnView = React.memo(function ChatTurnView({
                     isLastProcess ? activeAssistantMessageId : undefined,
                     { hasVisibleOutcome },
                   )
+            const segmentProcess =
+              isLastProcess && segment.blocks.length > 0
+                ? inheritTurnProcessTiming(scopedSegmentProcess, process)
+                : scopedSegmentProcess
             const ownsTurnActions = isLastProcess && segmentIndex === lastSegmentIndex
             const processLive = isLastProcess && turnIsActive
             return (

@@ -171,6 +171,8 @@ export function useChatEventBuffer(
         timing: event.timing,
         attachmentsCount: event.attachmentsCount,
         authorization: event.authorization,
+        failureKind: event.failureKind,
+        userImpact: event.userImpact,
         ...(cancelled ? { cancelled: true } : {}),
       })
     },

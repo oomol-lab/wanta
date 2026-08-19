@@ -112,6 +112,15 @@ export interface ToolCallStartedEvent {
   metadata?: Record<string, unknown>
   timing?: ToolTiming
 }
+export type ToolFailureKind =
+  | "input"
+  | "sandbox"
+  | "network"
+  | "authorization"
+  | "provider"
+  | "agent_runtime"
+  | "unknown"
+export type ToolUserImpact = "none" | "read_only" | "side_effect_possible"
 export interface ToolCallResultEvent {
   sessionId: string
   messageId: string
@@ -127,6 +136,8 @@ export interface ToolCallResultEvent {
   timing?: ToolTiming
   attachmentsCount?: number
   authorization?: AuthorizationInfo
+  failureKind?: ToolFailureKind
+  userImpact?: ToolUserImpact
 }
 export interface ChatQuestionOption {
   label: string
@@ -359,6 +370,8 @@ export interface ChatMessagePart {
   timing?: ToolTiming
   attachmentsCount?: number
   authorization?: AuthorizationInfo
+  failureKind?: ToolFailureKind
+  userImpact?: ToolUserImpact
   cancelled?: boolean
 }
 export interface ChatMessage {

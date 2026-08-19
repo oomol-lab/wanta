@@ -206,6 +206,7 @@ describe("createClaudeTurnTranslator", () => {
           status: "error",
           input: { file_path: "/x" },
           error: "no such file",
+          failureKind: "unknown",
         },
       },
     ])

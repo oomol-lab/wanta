@@ -8,6 +8,7 @@ import {
   chatTurnProcessStatus,
   chatTurnInputKey,
   groupChatTurns,
+  inheritTurnProcessTiming,
   isLiveTurnProcess,
   latestAssistantMessage,
   retrySourceFromTurn,
@@ -740,5 +741,36 @@ describe("shouldShowTurnProcess", () => {
   it("shows the process disclosure from the first classified narration before a tool arrives", () => {
     expect(shouldShowTurnProcess({ activity: null, tools: [] }, true)).toBe(true)
     expect(shouldShowTurnProcess({ activity: null, tools: [] }, false)).toBe(false)
+  })
+})
+
+describe("inheritTurnProcessTiming", () => {
+  it("restores the enclosing turn completion time for a process-only segment", () => {
+    const turn = groupChatTurns([
+      { ...message("u1000", "user", [text("u-text", "analyze")]), createdAt: 1_000 },
+      { ...message("a2000", "assistant", [tool("tool-1")]), createdAt: 2_000 },
+      {
+        ...message("a3000", "assistant", [text("answer", "done")]),
+        createdAt: 3_000,
+        completedAt: 61_000,
+      },
+    ])[0]!
+    const enclosing = summarizeTurnProcess(turn, null, undefined, { hasVisibleOutcome: true })
+    const scoped = summarizeTurnProcess({ ...turn, assistants: [turn.assistants[0]!] }, null, undefined, {
+      hasVisibleOutcome: true,
+    })
+
+    expect(scoped.endedAt).toBeUndefined()
+    expect(inheritTurnProcessTiming(scoped, enclosing)).toMatchObject({ startedAt: 1_000, endedAt: 61_000 })
+
+    const scopedWithTiming = { ...scoped, startedAt: 2_000, endedAt: 50_000 }
+    expect(inheritTurnProcessTiming(scopedWithTiming, { startedAt: 5_000, endedAt: 40_000 })).toMatchObject({
+      startedAt: 2_000,
+      endedAt: 50_000,
+    })
+    expect(inheritTurnProcessTiming(scopedWithTiming, { startedAt: 500, endedAt: 70_000 })).toMatchObject({
+      startedAt: 500,
+      endedAt: 70_000,
+    })
   })
 })

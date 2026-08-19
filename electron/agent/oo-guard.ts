@@ -8,6 +8,7 @@ import {
   isConnectorBusinessCommand,
   redactConnectorOutput,
   resolveGuardWorkspaceTeam,
+  stripIdentityIndependentWorkspaceSelectors,
 } from "./oo-guard-core.ts"
 
 const maxCapturedOutputBytes = 32 * 1024 * 1024
@@ -87,7 +88,7 @@ async function main(): Promise<void> {
   if (!command) {
     throw new Error("WANTA_REAL_OO_BIN is required for the managed oo command.")
   }
-  const originalArgs = process.argv.slice(2)
+  const originalArgs = stripIdentityIndependentWorkspaceSelectors(process.argv.slice(2))
   const needsOomolBinding =
     process.env.WANTA_LINK_RUNTIME === "oomol" &&
     isConnectorBusinessCommand(originalArgs) &&

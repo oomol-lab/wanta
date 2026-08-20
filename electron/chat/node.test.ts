@@ -973,6 +973,50 @@ test("an indeterminate idle check does not complete the active generation", asyn
   service.dispose()
 })
 
+test("a tool-call finish reason does not complete the user turn", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "research" })
+  const userMessageId = bridge.promptStreaming.mock.calls[0]?.[2]?.messageId as string
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-tools", sessionID: "session-1", role: "assistant" } },
+  })
+  bridge.getMessages.mockResolvedValue([
+    { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+    {
+      id: "assistant-tools",
+      role: "assistant",
+      createdAt: 2,
+      completedAt: 3,
+      finishReason: "tool-calls",
+      parts: [],
+    },
+  ])
+
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await new Promise((resolve) => setTimeout(resolve, 175))
+
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(events.filter((event) => event.event === "messageCompleted").length, 0)
+
+  bridge.getMessages.mockResolvedValue([
+    { id: userMessageId, role: "user", createdAt: 1, parts: [] },
+    { id: "assistant-final", role: "assistant", createdAt: 4, completedAt: 5, finishReason: "stop", parts: [] },
+  ])
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-final", sessionID: "session-1", role: "assistant" } },
+  })
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await waitForCondition(() => !service.hasActiveGeneration())
+
+  assert.equal(events.filter((event) => event.event === "messageCompleted").length, 1)
+})
+
 test("an idle generation fails recoverably when completion cannot be verified before the retry deadline", async () => {
   vi.useFakeTimers()
   const bridge = createBridgeAgent()
@@ -3372,7 +3416,7 @@ test("pure oo permissions are approved in the main process", async () => {
   )
 })
 
-test("OpenConnector direct oo commands are rejected in favor of Host Link", async () => {
+test("OpenConnector direct oo commands are automatically allowed", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)
   service.setLinkRuntime("openconnector")
@@ -3390,7 +3434,7 @@ test("OpenConnector direct oo commands are rejected in favor of Host Link", asyn
   })
 
   await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
-  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "reject"]])
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
   assert.equal(
     events.some((event) => event.event === "permissionAsked"),
     false,

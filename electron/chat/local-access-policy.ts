@@ -2,7 +2,7 @@ import type { ActiveLinkRuntime } from "../link-runtime/common.ts"
 import type { AgentPermissionMode, ChatPermissionRequest, LocalPermissionPromptReason } from "./common.ts"
 import type { PermissionRequestKind, SessionPermissionGrant } from "./permission-request.ts"
 
-import { connectorBusinessCliTransport, openConnectorCommandPolicy } from "../agent/oo-command-permission.ts"
+import { openConnectorCommandPolicy } from "../agent/oo-command-permission.ts"
 import { isLowConsequenceCleanupCommand } from "./bounded-cleanup.ts"
 import {
   createSessionPermissionGrant,
@@ -199,14 +199,6 @@ export function evaluateLocalAccessRequest(
 ): LocalAccessDecision {
   const kind = permissionRequestKind(request)
   const highRisk = isHighRiskPermissionRequest(request)
-  const connectorTransport = kind === "command" ? connectorBusinessCliTransport(permissionCommand(request) ?? "") : null
-  // Link identity, credentials, validation, redaction, and auditing are
-  // host-owned. Once a Link runtime is active, every agent must use the same
-  // Wanta capability instead of selecting a raw shell transport. This gate is
-  // deliberately adapter-neutral and applies even in Full Access mode.
-  if (connectorTransport && context.linkRuntime && context.linkRuntime !== "none") {
-    return { type: "deny", kind, highRisk }
-  }
   // This is deliberately the only adapter-specific policy branch, and it can
   // only make an external-agent decision more permissive. All other requests
   // go through the baseline that powered the built-in OpenCode experience;

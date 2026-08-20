@@ -1460,7 +1460,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const assistant =
       activeAssistant ??
       (userIndex >= 0 ? messages.slice(userIndex + 1).find((message) => message.role === "assistant") : undefined)
-    return Boolean(assistant?.finishReason || assistant?.completedAt !== undefined)
+    if (!assistant) return false
+    const finishReason = assistant.finishReason?.trim().toLowerCase().replaceAll("_", "-")
+    // A completed tool-call message is only one step in the agent loop. Some
+    // runtimes briefly emit session.idle after a rejected or failed tool; do
+    // not turn that transient boundary into a completed user turn before the
+    // agent produces a terminal response.
+    if (["tool-calls", "tool-use"].includes(finishReason ?? "")) return false
+    return Boolean(finishReason || assistant.completedAt !== undefined)
   }
 
   private scheduleCompletionRetry(

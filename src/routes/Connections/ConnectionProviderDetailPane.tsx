@@ -1,4 +1,5 @@
 import type {
+  ConnectionAppSummary,
   ConnectionAuthType,
   ConnectionProviderDetail,
   ConnectionProviderSummary,
@@ -87,12 +88,12 @@ export function ProviderDetail({
   onClose,
   onConnect,
   onDisconnect,
+  onOpenAccess,
   onReopenPolling,
   polling,
   progressLabel,
   reopenPollingLabel,
   provider,
-  selectedAppId,
   showCloseButton = false,
 }: {
   accessContext?: ConnectionAccessContext
@@ -113,12 +114,12 @@ export function ProviderDetail({
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
+  onOpenAccess: (app: ConnectionAppSummary) => void
   onReopenPolling?: () => void
   polling: string | null
   progressLabel?: string
   reopenPollingLabel?: string
   provider: ConnectionProviderSummary
-  selectedAppId?: string | null
   showCloseButton?: boolean
 }) {
   const t = useT()
@@ -178,9 +179,9 @@ export function ProviderDetail({
               connections={connections}
               onConnect={onConnect}
               onDisconnect={onDisconnect}
+              onOpenAccess={onOpenAccess}
               polling={polling}
               provider={provider}
-              selectedAppId={selectedAppId}
               reconnectBlocked
             />
           ) : null
@@ -197,12 +198,12 @@ export function ProviderDetail({
             onCancelPolling={onCancelPolling}
             onConnect={onConnect}
             onDisconnect={onDisconnect}
+            onOpenAccess={onOpenAccess}
             onReopenPolling={onReopenPolling}
             polling={polling}
             progressLabel={progressLabel}
             reopenPollingLabel={reopenPollingLabel}
             provider={provider}
-            selectedAppId={selectedAppId}
           />
         )}
       </section>
@@ -301,12 +302,12 @@ function ConnectionPanel({
   onCancelPolling,
   onConnect,
   onDisconnect,
+  onOpenAccess,
   onReopenPolling,
   polling,
   progressLabel,
   reopenPollingLabel,
   provider,
-  selectedAppId,
 }: {
   accessContext?: ConnectionAccessContext
   actionsPending?: boolean
@@ -323,12 +324,12 @@ function ConnectionPanel({
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
+  onOpenAccess: (app: ConnectionAppSummary) => void
   onReopenPolling?: () => void
   polling: string | null
   progressLabel?: string
   reopenPollingLabel?: string
   provider: ConnectionProviderSummary
-  selectedAppId?: string | null
 }) {
   const t = useT()
   const [selectedAuthType, setSelectedAuthType] = React.useState<Exclude<ConnectionAuthType, null> | null>(
@@ -451,9 +452,9 @@ function ConnectionPanel({
           connections={connections}
           onConnect={onConnect}
           onDisconnect={onDisconnect}
+          onOpenAccess={onOpenAccess}
           polling={polling}
           provider={provider}
-          selectedAppId={selectedAppId}
           reconnectBlocked={authorizationBlocked}
         />
       ) : null}

@@ -16,7 +16,6 @@ import {
   normalizeConnectionAliasInput,
   supportsManagedConnectionAccountActions,
 } from "./connection-route-model.ts"
-import { ConnectionAccessDialog } from "./ConnectionAccessDialog.tsx"
 import { AccountExecutionLogsButton } from "./ConnectionExecutionLogs.tsx"
 import { authTypeLabel } from "./shared.ts"
 import { Loader } from "@/components/ai-elements/loader"
@@ -35,9 +34,9 @@ export function ConnectionAccountsList({
   connections,
   onConnect,
   onDisconnect,
+  onOpenAccess,
   polling,
   provider,
-  selectedAppId,
   reconnectBlocked,
 }: {
   accessContext?: ConnectionAccessContext
@@ -50,9 +49,9 @@ export function ConnectionAccountsList({
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
+  onOpenAccess: (app: ConnectionAppSummary) => void
   polling: string | null
   provider: ConnectionProviderSummary
-  selectedAppId?: string | null
   reconnectBlocked?: boolean
 }) {
   const t = useT()
@@ -76,9 +75,9 @@ export function ConnectionAccountsList({
           index={index}
           onConnect={onConnect}
           onDisconnect={onDisconnect}
+          onOpenAccess={onOpenAccess}
           polling={polling}
           provider={provider}
-          selectedAppId={selectedAppId}
           reconnectBlocked={Boolean(reconnectBlocked)}
           servicePolling={servicePolling}
         />
@@ -96,9 +95,9 @@ function ConnectionAccountItem({
   index,
   onConnect,
   onDisconnect,
+  onOpenAccess,
   polling,
   provider,
-  selectedAppId,
   reconnectBlocked,
   servicePolling,
 }: {
@@ -114,17 +113,15 @@ function ConnectionAccountItem({
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
+  onOpenAccess: (app: ConnectionAppSummary) => void
   polling: string | null
   provider: ConnectionProviderSummary
-  selectedAppId?: string | null
   reconnectBlocked: boolean
   servicePolling: boolean
 }) {
   const t = useT()
   const supportsManagedAccount = supportsManagedConnectionAccountActions(provider)
   const managedAccountActions = canManageConnections && supportsManagedAccount
-  const [accessOpen, setAccessOpen] = React.useState(false)
-  const handledSelectedAppIdRef = React.useRef<string | null>(null)
   const [aliasDraft, setAliasDraft] = React.useState(app.alias ?? "")
   const [aliasEditing, setAliasEditing] = React.useState(false)
   const [aliasBusy, setAliasBusy] = React.useState(false)
@@ -154,16 +151,6 @@ function ConnectionAccountItem({
     setAliasEditing(false)
     setAliasBusy(false)
   }, [app.id, app.alias, app.isDefault])
-
-  React.useEffect(() => {
-    if (selectedAppId !== app.id) {
-      handledSelectedAppIdRef.current = null
-      return
-    }
-    if (!accessContext || handledSelectedAppIdRef.current === selectedAppId) return
-    handledSelectedAppIdRef.current = selectedAppId
-    setAccessOpen(true)
-  }, [accessContext, app.id, selectedAppId])
 
   async function saveAlias() {
     if (!aliasDirty || aliasDisabled) return
@@ -276,7 +263,7 @@ function ConnectionAccountItem({
               variant="outline"
               size="sm"
               className={accountActionButtonClassName}
-              onClick={() => setAccessOpen(true)}
+              onClick={() => onOpenAccess(app)}
             >
               <ShieldCheck className="size-3.5" />
               {t(canManageConnections ? "connections.manageAccess" : "connections.viewAccess")}
@@ -320,14 +307,6 @@ function ConnectionAccountItem({
           ) : null}
         </div>
       </article>
-      {accessContext ? (
-        <ConnectionAccessDialog
-          app={app}
-          context={accessContext}
-          open={accessOpen}
-          onClose={() => setAccessOpen(false)}
-        />
-      ) : null}
     </>
   )
 }

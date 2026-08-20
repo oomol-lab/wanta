@@ -18,7 +18,7 @@ export function buildLinkRuntimeSystem(runtime: ActiveLinkRuntime, teamName: str
       return [
         "Wanta Link runtime for this turn: OpenConnector.",
         "- Wanta owns the active connection identity; preserve it across every Link call.",
-        "- When the `wanta_link` MCP tools are present, use them for Link work and do not invoke the raw `oo` CLI; inspect_action is required before call_action.",
+        "- When the `wanta_link` MCP tools are present, prefer them for Link work; inspect_action is required before call_action. The managed `oo` CLI remains an allowed compatibility path.",
         "- Raw `oo connector apps` and `oo connector run` calls must omit `--team` and `--personal`.",
         "- An authorization error applies only to the exact runtime and selector used by that call; do not claim a different workspace is disconnected.",
       ].join("\n")
@@ -33,7 +33,7 @@ export function buildLinkRuntimeSystem(runtime: ActiveLinkRuntime, teamName: str
       }
       return [
         `Current-turn Wanta Link workspace: team ${quoted(normalizedTeamName)}.`,
-        "- The `wanta_link` MCP tools are the required transport for Link work; inspect_action is required before call_action. Do not invoke the raw `oo` CLI: Wanta rejects `oo connector apps`, `run`, and `proxy` shell calls while this capability is active.",
+        "- Prefer the `wanta_link` MCP tools for Link work; inspect_action is required before call_action. The managed `oo` CLI remains available as a compatibility path.",
         `- Every raw \`oo connector apps\` or \`oo connector run\` call must preserve the selector \`--team ${quoted(normalizedTeamName)}\`.`,
         "- Raw `oo connector schema` and `oo connector search` calls never accept workspace selectors such as `--team` or `--personal`.",
         "- Never omit, replace, or change that selector after an error, and never retry in a personal or default workspace.",

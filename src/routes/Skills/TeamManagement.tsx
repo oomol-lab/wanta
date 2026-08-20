@@ -1,5 +1,6 @@
+import type { ConnectionProviderSummary } from "../../../electron/connections/common.ts"
 import type { PublicSkillPackage } from "../../../electron/skills/common.ts"
-import type { BusyAction } from "./team-management-model.ts"
+import type { BusyAction, MemberView } from "./team-management-model.ts"
 import type { MemberConnectionAccessDelta } from "./team-member-connection-access-model.ts"
 import type { ProviderSkillRecommendationsState } from "@/hooks/useProviderSkillRecommendations"
 import type { UseTeamSkills } from "@/hooks/useTeamSkills"
@@ -28,6 +29,7 @@ import {
   TeamSkillGuidePanel,
   TeamSwitcherPanel,
 } from "./TeamManagementPanels.tsx"
+import { TeamMemberConnectionAccessPanel } from "./TeamMemberConnectionAccessDialog.tsx"
 import {
   AddMemberDialog,
   CreateTeamDialog,
@@ -55,13 +57,20 @@ import { useTeamMemberActions } from "@/routes/Skills/use-team-member-actions"
 import { useTeamMemberSearch } from "@/routes/Skills/use-team-member-search"
 import { useTeamSkillActions } from "@/routes/Skills/use-team-skill-actions"
 
+type TeamManagementOverlay =
+  | { kind: "none" }
+  | { kind: "settings" }
+  | { kind: "memberConnectionAccess"; member: MemberView }
+
 export function TeamManagementRoute({
+  connectionProviders,
   connectedProvidersLoading = false,
   onOpenConnection,
   teamSkills,
   providerSkillRecommendationsState,
   workspace,
 }: {
+  connectionProviders: ConnectionProviderSummary[]
   connectedProvidersLoading?: boolean
   onOpenConnection: (target: { appId: string; service: string }) => void
   teamSkills?: UseTeamSkills
@@ -85,7 +94,7 @@ export function TeamManagementRoute({
   const [busyAction, setBusyAction] = React.useState<BusyAction | null>(null)
   const [addMemberOpen, setAddMemberOpen] = React.useState(false)
   const [addMemberError, setAddMemberError] = React.useState<string | null>(null)
-  const [teamSettingsOpen, setTeamSettingsOpen] = React.useState(false)
+  const [overlay, setOverlay] = React.useState<TeamManagementOverlay>({ kind: "none" })
   const [managedSkillId, setManagedSkillId] = React.useState<string | null>(null)
   const [selectedPackage, setSelectedPackage] = React.useState<PublicSkillPackage | null>(null)
   const [managedSkillError, setManagedSkillError] = React.useState<{ cause: unknown; skillId: string } | null>(null)
@@ -211,7 +220,7 @@ export function TeamManagementRoute({
     setBusyAction(null)
     setAddMemberOpen(false)
     setAddMemberError(null)
-    setTeamSettingsOpen(false)
+    setOverlay({ kind: "none" })
     setManagedSkillId(null)
     setManagedSkillError(null)
     setSelectedPackage(null)
@@ -241,8 +250,12 @@ export function TeamManagementRoute({
       return
     }
     teamForms.edit.close()
-    setTeamSettingsOpen(false)
+    setOverlay({ kind: "none" })
   }, [busyAction, teamForms.edit])
+
+  const openMemberConnectionAccess = React.useCallback((member: MemberView) => {
+    setOverlay({ kind: "memberConnectionAccess", member })
+  }, [])
 
   const handleSelectTeamWorkspace = React.useCallback(
     (teamId: string) => {
@@ -310,7 +323,7 @@ export function TeamManagementRoute({
                   selectedTeamId={selectedTeamId}
                   onCreate={teamForms.create.openDialog}
                   onAddMember={() => setAddMemberOpen(true)}
-                  onOpenSettings={() => setTeamSettingsOpen(true)}
+                  onOpenSettings={() => setOverlay({ kind: "settings" })}
                   onRemoteAvatarLoad={clearTeamAvatarPreview}
                   onSelect={handleSelectTeamWorkspace}
                 />
@@ -346,56 +359,82 @@ export function TeamManagementRoute({
                 ) : null}
                 {selectedTeam ? (
                   <TeamSettingsSheet
-                    open={teamSettingsOpen}
-                    title={t(canManage ? "teams.teamSettings" : "teams.viewMembers")}
+                    open={overlay.kind !== "none"}
+                    title={
+                      overlay.kind === "memberConnectionAccess"
+                        ? t("teams.memberConnectionAccessTitle")
+                        : t(canManage ? "teams.teamSettings" : "teams.viewMembers")
+                    }
+                    onBack={
+                      overlay.kind === "memberConnectionAccess" ? () => setOverlay({ kind: "settings" }) : undefined
+                    }
                     onClose={closeTeamSettings}
                   >
-                    <div className="grid min-w-0 gap-3">
-                      {canManage ? (
-                        <TeamProfileSettingsPanel
-                          avatar={teamForms.edit.avatar}
-                          avatarFile={teamForms.edit.avatarFile}
-                          busy={busyAction === "updateTeam"}
-                          editing={teamForms.edit.open}
-                          name={teamForms.edit.name}
-                          nameError={teamForms.edit.nameError}
-                          team={selectedTeam}
-                          onAvatarChange={teamForms.edit.setAvatar}
-                          onAvatarFileChange={teamForms.edit.changeAvatarFile}
-                          onClose={teamForms.edit.close}
-                          onEdit={() => teamForms.edit.openDialog(selectedTeam)}
-                          onNameChange={teamForms.edit.setName}
-                          onSubmit={teamForms.edit.submit}
-                        />
-                      ) : null}
-                      <TeamDetailPanel
-                        actorRole={activeWorkspace.role}
-                        actorUserId={activeAccountId}
-                        busyAction={busyAction}
-                        canManage={canManage}
-                        connectionAccess={{
+                    {overlay.kind === "memberConnectionAccess" ? (
+                      <TeamMemberConnectionAccessPanel
+                        data={{
                           access: appAccessState.data,
                           apps: connectionAppsState.data,
                           error: appAccessState.error ?? connectionAppsState.error,
                           loading: appAccessState.status === "loading" || connectionAppsState.status === "loading",
+                          providers: connectionProviders,
                         }}
-                        members={memberViews}
-                        membersComplete={membersComplete}
-                        membersError={membersError}
-                        membersForbidden={membersForbidden}
-                        membersLoading={membersState.status === "loading"}
-                        team={selectedTeam}
-                        onAddMember={() => setAddMemberOpen(true)}
-                        onDisableMembers={memberActions.disableMembers}
-                        onEnableMembers={memberActions.enableMembers}
-                        onOpenConnection={onOpenConnection}
-                        onRemoveMember={memberActions.removeMember}
-                        onRetryMembers={() => void reload()}
-                        onRetryConnectionAccess={() => void reload()}
-                        onSaveMemberConnectionAccess={saveMemberConnectionAccess}
-                        onUpdateMemberRole={memberActions.updateMemberRole}
+                        member={overlay.member}
+                        onClose={() => setOverlay({ kind: "settings" })}
+                        onOpenConnection={(target) => {
+                          setOverlay({ kind: "none" })
+                          onOpenConnection(target)
+                        }}
+                        onRetry={() => void reload()}
+                        onSave={saveMemberConnectionAccess}
                       />
-                    </div>
+                    ) : (
+                      <div className="grid min-w-0 gap-3">
+                        {canManage ? (
+                          <TeamProfileSettingsPanel
+                            avatar={teamForms.edit.avatar}
+                            avatarFile={teamForms.edit.avatarFile}
+                            busy={busyAction === "updateTeam"}
+                            editing={teamForms.edit.open}
+                            name={teamForms.edit.name}
+                            nameError={teamForms.edit.nameError}
+                            team={selectedTeam}
+                            onAvatarChange={teamForms.edit.setAvatar}
+                            onAvatarFileChange={teamForms.edit.changeAvatarFile}
+                            onClose={teamForms.edit.close}
+                            onEdit={() => teamForms.edit.openDialog(selectedTeam)}
+                            onNameChange={teamForms.edit.setName}
+                            onSubmit={teamForms.edit.submit}
+                          />
+                        ) : null}
+                        <TeamDetailPanel
+                          actorRole={activeWorkspace.role}
+                          actorUserId={activeAccountId}
+                          busyAction={busyAction}
+                          canManage={canManage}
+                          connectionAccess={{
+                            access: appAccessState.data,
+                            apps: connectionAppsState.data,
+                            error: appAccessState.error ?? connectionAppsState.error,
+                            loading: appAccessState.status === "loading" || connectionAppsState.status === "loading",
+                            providers: connectionProviders,
+                          }}
+                          members={memberViews}
+                          membersComplete={membersComplete}
+                          membersError={membersError}
+                          membersForbidden={membersForbidden}
+                          membersLoading={membersState.status === "loading"}
+                          team={selectedTeam}
+                          onAddMember={() => setAddMemberOpen(true)}
+                          onDisableMembers={memberActions.disableMembers}
+                          onEnableMembers={memberActions.enableMembers}
+                          onOpenMemberConnectionAccess={openMemberConnectionAccess}
+                          onRemoveMember={memberActions.removeMember}
+                          onRetryMembers={() => void reload()}
+                          onUpdateMemberRole={memberActions.updateMemberRole}
+                        />
+                      </div>
+                    )}
                   </TeamSettingsSheet>
                 ) : null}
               </>

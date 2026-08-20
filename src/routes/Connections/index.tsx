@@ -1,4 +1,5 @@
 import type {
+  ConnectionAppSummary,
   ConnectionAuthType,
   ConnectionAppDetail,
   ConnectionConnectInput,
@@ -32,6 +33,7 @@ import {
   matchesProviderQuery,
   shouldShowConnectionState,
 } from "./connection-route-model.ts"
+import { ConnectionAccessDialog } from "./ConnectionAccessDialog.tsx"
 import {
   ConnectionDrawerSkeleton,
   ConnectionListToolbar,
@@ -153,9 +155,11 @@ export function ConnectionsPanel({
     oauthClientConfig?: ConnectionUserOAuthClientConfigSummary | null
   } | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState<DisconnectTarget | null>(null)
+  const [accessApp, setAccessApp] = React.useState<ConnectionAppSummary | null>(null)
   const detailCloseTimerRef = React.useRef<number | null>(null)
   const connectionActionRequestIdRef = React.useRef(0)
   const detailWorkspaceKeyRef = React.useRef<string | null>(summaryWorkspaceKey)
+  const handledSelectedAccessAppIdRef = React.useRef<string | null>(null)
   const listPaneRef = React.useRef<HTMLDivElement | null>(null)
 
   const larkCliProvider = React.useMemo(
@@ -330,6 +334,17 @@ export function ConnectionsPanel({
   const selectedProvider = selectedProviderService
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
+  React.useEffect(() => {
+    if (!selectedAppId) {
+      handledSelectedAccessAppIdRef.current = null
+      return
+    }
+    if (!accessContext || handledSelectedAccessAppIdRef.current === selectedAppId) return
+    const app = selectedProvider?.apps.find((item) => item.id === selectedAppId)
+    if (!app) return
+    handledSelectedAccessAppIdRef.current = selectedAppId
+    setAccessApp(app)
+  }, [accessContext, selectedAppId, selectedProvider])
   const selectedDirectProvider = selectedProvider ? directProviderByService[selectedProvider.service] : undefined
   const selectedProviderIsDirect = selectedDirectProvider !== undefined
   const selectedProviderActionsEnabled = selectedProviderIsDirect ? true : connectionActionsEnabled
@@ -385,7 +400,14 @@ export function ConnectionsPanel({
     connectionActionRequestIdRef.current += 1
     setDialog(null)
     setConfirmDisconnect(null)
+    setAccessApp(null)
+    handledSelectedAccessAppIdRef.current = null
   }, [summaryWorkspaceKey])
+
+  const accessDialog =
+    accessContext && accessApp ? (
+      <ConnectionAccessDialog app={accessApp} context={accessContext} open onClose={() => setAccessApp(null)} />
+    ) : null
 
   React.useEffect(() => {
     if (connectionActionsEnabled) return
@@ -682,12 +704,12 @@ export function ConnectionsPanel({
             onClose={onClose ?? closeDetail}
             onConnect={connectProvider}
             onDisconnect={requestDisconnectTarget}
+            onOpenAccess={setAccessApp}
             onReopenPolling={reopenSelectedProviderPolling}
             polling={selectedProviderPolling}
             progressLabel={selectedProviderProgressLabel}
             reopenPollingLabel={reopenSelectedProviderPollingLabel}
             provider={selectedProvider}
-            selectedAppId={selectedAppId}
             showCloseButton
           />
         ) : (
@@ -735,6 +757,7 @@ export function ConnectionsPanel({
           onClose={() => setConfirmDisconnect(null)}
           onConfirm={confirmDisconnectTarget}
         />
+        {accessDialog}
       </div>
     )
   }
@@ -832,12 +855,12 @@ export function ConnectionsPanel({
               onClose={closeDetail}
               onConnect={connectProvider}
               onDisconnect={requestDisconnectTarget}
+              onOpenAccess={setAccessApp}
               onReopenPolling={reopenSelectedProviderPolling}
               polling={selectedProviderPolling}
               progressLabel={selectedProviderProgressLabel}
               reopenPollingLabel={reopenSelectedProviderPollingLabel}
               provider={selectedProvider}
-              selectedAppId={selectedAppId}
             />
           </SplitViewMobileDetailPane>
         ) : null}
@@ -866,12 +889,12 @@ export function ConnectionsPanel({
               onClose={closeDetail}
               onConnect={connectProvider}
               onDisconnect={requestDisconnectTarget}
+              onOpenAccess={setAccessApp}
               onReopenPolling={reopenSelectedProviderPolling}
               polling={selectedProviderPolling}
               progressLabel={selectedProviderProgressLabel}
               reopenPollingLabel={reopenSelectedProviderPollingLabel}
               provider={selectedProvider}
-              selectedAppId={selectedAppId}
             />
           </SplitViewDesktopDetailPane>
         ) : null}
@@ -896,6 +919,7 @@ export function ConnectionsPanel({
         onClose={() => setConfirmDisconnect(null)}
         onConfirm={confirmDisconnectTarget}
       />
+      {accessDialog}
     </SplitViewRoot>
   )
 }

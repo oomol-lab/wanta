@@ -1,4 +1,4 @@
-import { XIcon } from "lucide-react"
+import { ArrowLeftIcon, XIcon } from "lucide-react"
 import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { useAppI18n } from "@/i18n"
@@ -24,11 +24,13 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 
 export function TeamSettingsSheet({
   children,
+  onBack,
   onClose,
   open,
   title,
 }: {
   children: React.ReactNode
+  onBack?: () => void
   onClose: () => void
   open: boolean
   title: string
@@ -116,7 +118,14 @@ export function TeamSettingsSheet({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="oo-border-divider flex min-w-0 items-center justify-between gap-2 border-b px-3 py-2">
-          <div className="oo-text-label min-w-0 truncate">{title}</div>
+          <div className="flex min-w-0 items-center gap-1">
+            {onBack ? (
+              <Button type="button" variant="ghost" size="icon" aria-label={t("browser.back")} onClick={onBack}>
+                <ArrowLeftIcon className="size-4" />
+              </Button>
+            ) : null}
+            <div className="oo-text-label min-w-0 truncate">{title}</div>
+          </div>
           <Button type="button" variant="ghost" size="icon" aria-label={t("common.close")} onClick={onClose}>
             <XIcon className="size-4" />
           </Button>

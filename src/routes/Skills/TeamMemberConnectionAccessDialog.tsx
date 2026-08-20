@@ -48,14 +48,12 @@ export interface TeamMemberConnectionAccessData {
 export function TeamMemberConnectionAccessPanel({
   data,
   member,
-  onClose,
   onOpenConnection,
   onRetry,
   onSave,
 }: {
   data: TeamMemberConnectionAccessData
   member: MemberView
-  onClose: () => void
   onOpenConnection: (target: { appId: string; service: string }) => void
   onRetry: () => void
   onSave: (delta: MemberConnectionAccessDelta) => Promise<void>
@@ -198,38 +196,33 @@ export function TeamMemberConnectionAccessPanel({
             )}
           </>
         ) : null}
-        <div className="oo-border-divider flex shrink-0 justify-end gap-2 border-t pt-3">
-          {editing ? (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={saving}
-                onClick={() => {
-                  setDraftAppIds(new Set(explicitAppIds))
-                  setEditing(false)
-                }}
-              >
-                {t("common.cancel")}
-              </Button>
-              <Button type="button" disabled={!hasChanges || saving} onClick={() => setConfirmOpen(true)}>
-                {t("common.save")}
-              </Button>
-            </>
-          ) : (
-            <>
-              {hasEditableConnections ? (
-                <Button type="button" variant="outline" onClick={() => setEditing(true)}>
-                  <Pencil className="size-3.5" />
-                  {t("teams.memberConnectionAccessEdit")}
+        {editing || hasEditableConnections ? (
+          <div className="oo-border-divider flex shrink-0 justify-end gap-2 border-t pt-3">
+            {editing ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={saving}
+                  onClick={() => {
+                    setDraftAppIds(new Set(explicitAppIds))
+                    setEditing(false)
+                  }}
+                >
+                  {t("common.cancel")}
                 </Button>
-              ) : null}
-              <Button type="button" variant="outline" onClick={onClose}>
-                {t("common.close")}
+                <Button type="button" disabled={!hasChanges || saving} onClick={() => setConfirmOpen(true)}>
+                  {t("common.save")}
+                </Button>
+              </>
+            ) : (
+              <Button type="button" variant="outline" onClick={() => setEditing(true)}>
+                <Pencil className="size-3.5" />
+                {t("teams.memberConnectionAccessEdit")}
               </Button>
-            </>
-          )}
-        </div>
+            )}
+          </div>
+        ) : null}
       </div>
       <ConfirmDialog open={confirmOpen} onOpenChange={(open) => !saving && setConfirmOpen(open)}>
         <ConfirmDialogContent overlayClassName="oo-modal-backdrop-nested">

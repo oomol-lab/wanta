@@ -1,12 +1,11 @@
 import type { EditableTeamMemberRole, TeamMember, TeamRole } from "../../../electron/teams/common.ts"
 import type { BusyAction, MemberView } from "./team-management-model.ts"
-import type { MemberConnectionAccessDelta } from "./team-member-connection-access-model.ts"
 import type { TeamMemberConnectionAccessData } from "./TeamMemberConnectionAccessDialog.tsx"
 
 import { MoreHorizontalIcon, Trash2Icon, UserCheckIcon, UserXIcon } from "lucide-react"
 import * as React from "react"
 import { projectTeamMemberConnectionAccess } from "./team-member-connection-access-model.ts"
-import { MemberConnectionAccessButton, TeamMemberConnectionAccessDialog } from "./TeamMemberConnectionAccessDialog.tsx"
+import { MemberConnectionAccessButton } from "./TeamMemberConnectionAccessDialog.tsx"
 import { TeamUserAvatar } from "./TeamUserAvatar.tsx"
 import { hasMemberStatus, isBulkEditableMember, useMemberStatusSelection } from "./use-member-status-selection.ts"
 import { CopyIconButton } from "@/components/CopyIconButton"
@@ -37,9 +36,7 @@ export function MembersTable({
   canManage,
   members,
   connectionAccess,
-  onOpenConnection,
-  onRetryConnectionAccess,
-  onSaveMemberConnectionAccess,
+  onOpenMemberConnectionAccess,
   onDisableMembers,
   onEnableMembers,
   onRemoveMember,
@@ -51,9 +48,7 @@ export function MembersTable({
   canManage: boolean
   members: MemberView[]
   connectionAccess: TeamMemberConnectionAccessData
-  onOpenConnection: (target: { appId: string; service: string }) => void
-  onRetryConnectionAccess: () => void
-  onSaveMemberConnectionAccess: (delta: MemberConnectionAccessDelta) => Promise<void>
+  onOpenMemberConnectionAccess: (member: MemberView) => void
   onDisableMembers: (userIds: string[]) => void
   onEnableMembers: (userIds: string[]) => void
   onRemoveMember: (member: TeamMember) => Promise<void>
@@ -61,7 +56,6 @@ export function MembersTable({
 }) {
   const { t } = useAppI18n()
   const [removeTarget, setRemoveTarget] = React.useState<MemberView | null>(null)
-  const [connectionAccessTarget, setConnectionAccessTarget] = React.useState<MemberView | null>(null)
   const [roleChangeTarget, setRoleChangeTarget] = React.useState<{
     member: MemberView
     role: EditableTeamMemberRole
@@ -246,7 +240,7 @@ export function MembersTable({
                         ? (connectionProjections.byUserId.get(member.user_id) ?? null)
                         : connectionProjections
                     }
-                    onClick={() => setConnectionAccessTarget(member)}
+                    onClick={() => onOpenMemberConnectionAccess(member)}
                   />
                 ) : null}
                 {canRemove ? (
@@ -259,14 +253,6 @@ export function MembersTable({
       </div>
       {removeConfirmDialog}
       {roleChangeConfirmDialog}
-      <TeamMemberConnectionAccessDialog
-        data={connectionAccess}
-        member={connectionAccessTarget}
-        onClose={() => setConnectionAccessTarget(null)}
-        onOpenConnection={onOpenConnection}
-        onRetry={onRetryConnectionAccess}
-        onSave={onSaveMemberConnectionAccess}
-      />
     </>
   )
 }

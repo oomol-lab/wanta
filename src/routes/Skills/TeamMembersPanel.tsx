@@ -1,6 +1,5 @@
 import type { EditableTeamMemberRole, Team, TeamMember, TeamRole } from "../../../electron/teams/common.ts"
 import type { BusyAction, MemberView } from "./team-management-model.ts"
-import type { MemberConnectionAccessDelta } from "./team-member-connection-access-model.ts"
 import type { TeamMemberConnectionAccessData } from "./TeamMemberConnectionAccessDialog.tsx"
 
 import { PlusIcon, RefreshCwIcon, UsersIcon } from "lucide-react"
@@ -106,11 +105,9 @@ export function TeamDetailPanel({
   onAddMember,
   onDisableMembers,
   onEnableMembers,
-  onOpenConnection,
+  onOpenMemberConnectionAccess,
   onRemoveMember,
   onRetryMembers,
-  onRetryConnectionAccess,
-  onSaveMemberConnectionAccess,
   onUpdateMemberRole,
   team,
 }: {
@@ -127,11 +124,9 @@ export function TeamDetailPanel({
   onAddMember: () => void
   onDisableMembers: (userIds: string[]) => void
   onEnableMembers: (userIds: string[]) => void
-  onOpenConnection: (target: { appId: string; service: string }) => void
+  onOpenMemberConnectionAccess: (member: MemberView) => void
   onRemoveMember: (member: TeamMember) => Promise<void>
   onRetryMembers: () => void
-  onRetryConnectionAccess: () => void
-  onSaveMemberConnectionAccess: (delta: MemberConnectionAccessDelta) => Promise<void>
   onUpdateMemberRole: (member: TeamMember, role: EditableTeamMemberRole) => Promise<void>
   team: Team | null
 }) {
@@ -189,10 +184,8 @@ export function TeamDetailPanel({
                 members={members}
                 onDisableMembers={onDisableMembers}
                 onEnableMembers={onEnableMembers}
-                onOpenConnection={onOpenConnection}
+                onOpenMemberConnectionAccess={onOpenMemberConnectionAccess}
                 onRemoveMember={onRemoveMember}
-                onRetryConnectionAccess={onRetryConnectionAccess}
-                onSaveMemberConnectionAccess={onSaveMemberConnectionAccess}
                 onUpdateMemberRole={onUpdateMemberRole}
               />
             </>

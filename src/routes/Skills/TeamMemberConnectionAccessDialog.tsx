@@ -1,4 +1,4 @@
-import type { ConnectionAppSummary } from "../../../electron/connections/common.ts"
+import type { ConnectionAppSummary, ConnectionProviderSummary } from "../../../electron/connections/common.ts"
 import type { TeamAppAccess } from "../../../electron/teams/common.ts"
 import type { MemberView } from "./team-management-model.ts"
 import type {
@@ -30,10 +30,10 @@ import {
   ConfirmDialogHeader,
   ConfirmDialogTitle,
 } from "@/components/ui/confirm-dialog"
-import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
+import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 import { teamErrorMessage } from "@/routes/Skills/team-errors"
 
 export interface TeamMemberConnectionAccessData {
@@ -41,9 +41,10 @@ export interface TeamMemberConnectionAccessData {
   apps: ConnectionAppSummary[]
   error: string | null
   loading: boolean
+  providers: ConnectionProviderSummary[]
 }
 
-export function TeamMemberConnectionAccessDialog({
+export function TeamMemberConnectionAccessPanel({
   data,
   member,
   onClose,
@@ -52,7 +53,7 @@ export function TeamMemberConnectionAccessDialog({
   onSave,
 }: {
   data: TeamMemberConnectionAccessData
-  member: MemberView | null
+  member: MemberView
   onClose: () => void
   onOpenConnection: (target: { appId: string; service: string }) => void
   onRetry: () => void
@@ -65,6 +66,10 @@ export function TeamMemberConnectionAccessDialog({
   const [draftAppIds, setDraftAppIds] = React.useState<Set<string>>(() => new Set())
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
+  const providersByService = React.useMemo(
+    () => new Map(data.providers.map((provider) => [provider.service, provider])),
+    [data.providers],
+  )
   const projection = React.useMemo(
     () => (member && data.access ? projectMemberConnectionAccess(data.access, data.apps, member.user_id) : null),
     [data.access, data.apps, member],
@@ -86,9 +91,9 @@ export function TeamMemberConnectionAccessDialog({
         .filter((appId) => !baseline.has(appId))
         .sort(),
       removeAppIds: explicitAppIds.filter((appId) => !draftAppIds.has(appId)).sort(),
-      userId: member?.user_id ?? "",
+      userId: member.user_id,
     }
-  }, [draftAppIds, explicitAppIds, member?.user_id])
+  }, [draftAppIds, explicitAppIds, member.user_id])
   const hasChanges = delta.addAppIds.length > 0 || delta.removeAppIds.length > 0
   const hasEditableConnections = Boolean(
     projection?.ok && projection.items.some((item) => item.provenance === "explicit" || item.provenance === "none"),
@@ -100,7 +105,7 @@ export function TeamMemberConnectionAccessDialog({
     setEditing(false)
     setConfirmOpen(false)
     setSaving(false)
-  }, [member?.user_id])
+  }, [member.user_id])
 
   React.useEffect(() => {
     if (!editing) setDraftAppIds(new Set(explicitAppIds))
@@ -123,15 +128,69 @@ export function TeamMemberConnectionAccessDialog({
 
   return (
     <>
-      <Dialog
-        open={Boolean(member)}
-        onClose={saving ? () => undefined : onClose}
-        title={t("teams.memberConnectionAccessTitle")}
-        description={t("teams.memberConnectionAccessDescription")}
-        className="max-w-3xl"
-        contentClassName="grid gap-3"
-        footer={
-          editing ? (
+      <div className="grid gap-3">
+        <div className="oo-text-caption text-muted-foreground">{t("teams.memberConnectionAccessDescription")}</div>
+        <MemberHeader member={member} projection={projection} />
+        {data.loading && !data.access ? (
+          <AccessListSkeleton />
+        ) : data.error ? (
+          <AccessLoadError error={data.error} onRetry={onRetry} />
+        ) : projection && !projection.ok ? (
+          <AccessLoadError error={t("teams.memberConnectionAccessInvalid")} onRetry={onRetry} />
+        ) : projection?.ok ? (
+          <>
+            {editing ? (
+              <div className="oo-text-caption rounded-md border bg-muted/30 px-3 py-2 text-muted-foreground">
+                {t("teams.memberConnectionAccessEditHint")}
+              </div>
+            ) : null}
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+              <div className="relative min-w-0">
+                <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  className="pl-8"
+                  placeholder={t("teams.memberConnectionAccessSearch")}
+                  aria-label={t("teams.memberConnectionAccessSearch")}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </div>
+              <AccessFilters filter={filter} projection={projection} onChange={setFilter} />
+            </div>
+            {visibleItems.length > 0 ? (
+              <div className="max-h-[46vh] overflow-y-auto rounded-md border">
+                <div className="divide-y">
+                  {visibleItems.map((item) => (
+                    <ConnectionAccessRow
+                      key={item.appId}
+                      checked={draftAppIds.has(item.appId)}
+                      editing={editing}
+                      item={item}
+                      provider={item.service ? providersByService.get(item.service) : undefined}
+                      onCheckedChange={(checked) =>
+                        setDraftAppIds((current) => {
+                          const next = new Set(current)
+                          if (checked) next.add(item.appId)
+                          else next.delete(item.appId)
+                          return next
+                        })
+                      }
+                      onOpenConnection={onOpenConnection}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="oo-text-caption flex min-h-28 items-center justify-center rounded-md border border-dashed px-4 text-center text-muted-foreground">
+                {projection.items.length === 0
+                  ? t("teams.memberConnectionAccessEmpty")
+                  : t("teams.memberConnectionAccessNoMatches")}
+              </div>
+            )}
+          </>
+        ) : null}
+        <div className="oo-border-divider flex justify-end gap-2 border-t pt-3">
+          {editing ? (
             <>
               <Button
                 type="button"
@@ -160,72 +219,9 @@ export function TeamMemberConnectionAccessDialog({
                 {t("common.close")}
               </Button>
             </>
-          )
-        }
-      >
-        {member ? (
-          <>
-            <MemberHeader member={member} projection={projection} />
-            {data.loading && !data.access ? (
-              <AccessListSkeleton />
-            ) : data.error ? (
-              <AccessLoadError error={data.error} onRetry={onRetry} />
-            ) : projection && !projection.ok ? (
-              <AccessLoadError error={t("teams.memberConnectionAccessInvalid")} onRetry={onRetry} />
-            ) : projection?.ok ? (
-              <>
-                {editing ? (
-                  <div className="oo-text-caption rounded-md border bg-muted/30 px-3 py-2 text-muted-foreground">
-                    {t("teams.memberConnectionAccessEditHint")}
-                  </div>
-                ) : null}
-                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                  <div className="relative min-w-0">
-                    <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={query}
-                      className="pl-8"
-                      placeholder={t("teams.memberConnectionAccessSearch")}
-                      aria-label={t("teams.memberConnectionAccessSearch")}
-                      onChange={(event) => setQuery(event.target.value)}
-                    />
-                  </div>
-                  <AccessFilters filter={filter} projection={projection} onChange={setFilter} />
-                </div>
-                {visibleItems.length > 0 ? (
-                  <div className="max-h-[46vh] overflow-y-auto rounded-md border">
-                    <div className="divide-y">
-                      {visibleItems.map((item) => (
-                        <ConnectionAccessRow
-                          key={item.appId}
-                          checked={draftAppIds.has(item.appId)}
-                          editing={editing}
-                          item={item}
-                          onCheckedChange={(checked) =>
-                            setDraftAppIds((current) => {
-                              const next = new Set(current)
-                              if (checked) next.add(item.appId)
-                              else next.delete(item.appId)
-                              return next
-                            })
-                          }
-                          onOpenConnection={onOpenConnection}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="oo-text-caption flex min-h-28 items-center justify-center rounded-md border border-dashed px-4 text-center text-muted-foreground">
-                    {projection.items.length === 0
-                      ? t("teams.memberConnectionAccessEmpty")
-                      : t("teams.memberConnectionAccessNoMatches")}
-                  </div>
-                )}
-              </>
-            ) : null}
-          </>
-        ) : null}
-      </Dialog>
+          )}
+        </div>
+      </div>
       <ConfirmDialog open={confirmOpen} onOpenChange={(open) => !saving && setConfirmOpen(open)}>
         <ConfirmDialogContent>
           <ConfirmDialogHeader>
@@ -328,12 +324,14 @@ function ConnectionAccessRow({
   checked,
   editing,
   item,
+  provider,
   onCheckedChange,
   onOpenConnection,
 }: {
   checked: boolean
   editing: boolean
   item: MemberConnectionAccessItem
+  provider?: ConnectionProviderSummary
   onCheckedChange: (checked: boolean) => void
   onOpenConnection: (target: { appId: string; service: string }) => void
 }) {
@@ -357,9 +355,7 @@ function ConnectionAccessRow({
           onChange={(event) => onCheckedChange(event.currentTarget.checked)}
         />
       ) : null}
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-muted text-xs font-semibold text-muted-foreground uppercase">
-        {(item.service ?? item.label).slice(0, 1)}
-      </span>
+      <ProviderIcon iconUrl={provider?.iconUrl} displayName={provider?.displayName ?? item.service ?? item.label} />
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="oo-text-control min-w-0 truncate font-medium">{item.label}</span>

@@ -2236,6 +2236,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                 />
               ) : route === "teams" && oomolEnabled ? (
                 <TeamManagementRoute
+                  connectionProviders={activeProviders}
                   connectedProvidersLoading={activeProvidersLoading}
                   onOpenConnection={handleOpenTeamConnection}
                   teamSkills={teamSkills}

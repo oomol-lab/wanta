@@ -45,6 +45,7 @@ interface TurnOutputsPanelProps {
   onCollapse: () => void
   onToggleMaximized: () => void
   selection: TurnOutputSelection | null
+  showCollapseButton?: boolean
   windowControlsOnRight: boolean
 }
 
@@ -145,6 +146,7 @@ export function TurnOutputsPanel({
   onCollapse,
   onToggleMaximized,
   selection,
+  showCollapseButton = true,
   windowControlsOnRight,
 }: TurnOutputsPanelProps) {
   const t = useT()
@@ -249,15 +251,17 @@ export function TurnOutputsPanel({
           >
             <MaximizeIcon className="size-4" />
           </button>
-          <button
-            type="button"
-            title={t("artifacts.collapse")}
-            aria-label={t("artifacts.collapse")}
-            className="oo-toolbar-button flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
-            onClick={onCollapse}
-          >
-            <PanelRightClose className="size-4" />
-          </button>
+          {showCollapseButton ? (
+            <button
+              type="button"
+              title={t("artifacts.collapse")}
+              aria-label={t("artifacts.collapse")}
+              className="oo-toolbar-button flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
+              onClick={onCollapse}
+            >
+              <PanelRightClose className="size-4" />
+            </button>
+          ) : null}
         </div>
       </header>
 

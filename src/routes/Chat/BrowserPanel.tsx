@@ -26,6 +26,7 @@ interface BrowserPanelProps {
   sessionId: string
   state: BrowserPageState
   windowControlsOnRight: boolean
+  showCloseButton?: boolean
   onClose: () => void
   onToggleMaximized: () => void
 }
@@ -43,6 +44,7 @@ export function BrowserPanel({
   sessionId,
   state,
   windowControlsOnRight,
+  showCloseButton = true,
   onClose,
   onToggleMaximized,
 }: BrowserPanelProps) {
@@ -292,15 +294,17 @@ export function BrowserPanel({
         >
           <ExternalLink className="size-4" />
         </button>
-        <button
-          type="button"
-          className={toolbarButtonClass}
-          title={t("browser.close")}
-          aria-label={t("browser.close")}
-          onClick={onClose}
-        >
-          <X className="size-4" />
-        </button>
+        {showCloseButton ? (
+          <button
+            type="button"
+            className={toolbarButtonClass}
+            title={t("browser.close")}
+            aria-label={t("browser.close")}
+            onClick={onClose}
+          >
+            <X className="size-4" />
+          </button>
+        ) : null}
       </div>
       <div ref={browserSlotRef} className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
         {previewDataUrl ? (

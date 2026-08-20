@@ -56,6 +56,7 @@ interface GeneratedArtifactsProps {
 interface ArtifactsPanelProps {
   maximized: boolean
   selection: ArtifactSelection | null
+  showCollapseButton?: boolean
   windowControlsOnRight: boolean
   onCollapse: () => void
   onToggleMaximized: () => void
@@ -292,6 +293,7 @@ export function GeneratedArtifacts({ groups, onOpen, onAvailable }: GeneratedArt
 export function ArtifactsPanel({
   maximized,
   selection,
+  showCollapseButton = true,
   windowControlsOnRight,
   onCollapse,
   onToggleMaximized,
@@ -590,15 +592,17 @@ export function ArtifactsPanel({
           >
             <MaximizeIcon className="size-4" />
           </button>
-          <button
-            type="button"
-            title={t("artifacts.collapse")}
-            aria-label={t("artifacts.collapse")}
-            className="oo-toolbar-button flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
-            onClick={onCollapse}
-          >
-            <PanelRightClose className="size-4" />
-          </button>
+          {showCollapseButton ? (
+            <button
+              type="button"
+              title={t("artifacts.collapse")}
+              aria-label={t("artifacts.collapse")}
+              className="oo-toolbar-button flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
+              onClick={onCollapse}
+            >
+              <PanelRightClose className="size-4" />
+            </button>
+          ) : null}
         </div>
       </header>
 

@@ -5,7 +5,11 @@ import type { CustomRenderer, CustomRendererProps, StreamdownProps } from "strea
 import { CheckIcon, CopyIcon } from "lucide-react"
 import { isValidElement, lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
-import { extractLocalImagePaths, normalizeLocalImageMarkdown } from "../../../electron/chat/markdown-images.ts"
+import {
+  extractLocalImagePaths,
+  normalizeLocalImageMarkdown,
+  stripLocalImageMarkdown,
+} from "../../../electron/chat/markdown-images.ts"
 import {
   CodeBlock,
   CodeBlockActions,
@@ -398,19 +402,11 @@ function localImageAltText(value: string): string {
 function extractLocalImagePreviews(markdown: string): LocalImagePreview[] {
   const previews: LocalImagePreview[] = []
   for (const candidate of extractLocalImagePaths(markdown)) {
-    if (
-      candidate &&
-      !hasValidMarkdownImageReference(markdown, candidate) &&
-      !previews.some((preview) => preview.path === candidate)
-    ) {
+    if (candidate && !previews.some((preview) => preview.path === candidate)) {
       previews.push({ path: candidate, alt: localImageAltText(candidate) })
     }
   }
   return previews
-}
-
-function hasValidMarkdownImageReference(markdown: string, path: string): boolean {
-  return markdown.includes(`](<${path}>)`) || (!/\s/.test(path) && markdown.includes(`](${path})`))
 }
 
 export function normalizeSingleLocalPathCodeFences(markdown: string): string {
@@ -565,7 +561,7 @@ export const MessageResponse = memo(
   }: MessageResponseProps) => {
     const visibleChildren = useSmoothedText(typeof children === "string" ? children : "", smooth)
     const sourceChildren = typeof children === "string" && smooth ? visibleChildren : children
-    const responseChildren =
+    const normalizedChildren =
       typeof sourceChildren === "string"
         ? normalizeMermaidMarkdown(
             normalizeUnlabeledCodeFences(
@@ -573,7 +569,10 @@ export const MessageResponse = memo(
             ),
           )
         : sourceChildren
-    const localImagePreviews = typeof responseChildren === "string" ? extractLocalImagePreviews(responseChildren) : []
+    const localImagePreviews =
+      typeof normalizedChildren === "string" ? extractLocalImagePreviews(normalizedChildren) : []
+    const responseChildren =
+      typeof normalizedChildren === "string" ? stripLocalImageMarkdown(normalizedChildren) : normalizedChildren
     const defaultRenderers = useMemo(
       () => messageResponseRenderers(typeof responseChildren === "string" ? responseChildren : ""),
       [responseChildren],

@@ -38,7 +38,7 @@ const record: TurnOutputRecord = {
   summary: { additions: 10, changedFileCount: 1, deletions: 1, processFileCount: 1 },
 }
 
-function renderPanel(initialRole: "process" | "project_change"): string {
+function renderPanel(initialRole: "process" | "project_change", showCollapseButton = true): string {
   return renderToStaticMarkup(
     React.createElement(
       AppContext.Provider,
@@ -57,6 +57,7 @@ function renderPanel(initialRole: "process" | "project_change"): string {
           onCollapse: () => undefined,
           onToggleMaximized: () => undefined,
           selection: { initialRole, record },
+          showCollapseButton,
           windowControlsOnRight: true,
         }),
       ),
@@ -65,6 +66,11 @@ function renderPanel(initialRole: "process" | "project_change"): string {
 }
 
 describe("TurnOutputsPanel", () => {
+  it("can hide the panel-local collapse button on Windows", () => {
+    expect(renderPanel("project_change", false)).not.toContain('aria-label="收起成果"')
+    expect(renderPanel("project_change", true)).toContain('aria-label="收起成果"')
+  })
+
   it("renders a shared role switch when project changes and process files both exist", () => {
     const html = renderPanel("project_change")
 

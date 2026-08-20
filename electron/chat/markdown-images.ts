@@ -6,6 +6,10 @@ const localMarkdownImagePattern = new RegExp(
 )
 const markdownImagePattern =
   /!\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|([^\s)<]+))(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?\s*\)/gi
+const renderedLocalMarkdownImagePattern = new RegExp(
+  `!\\[([^\\]\\n]*)\\]\\(\\s*(?:<(${absoluteLocalPathStartSource}[^>\\n]*?\\.${imageExtensionSource})>|(${absoluteLocalPathStartSource}[^\\s)<]*?\\.${imageExtensionSource}))(?:\\s+(?:"[^"\\n]*"|'[^'\\n]*'|\\([^\\)\\n]*\\)))?\\s*\\)`,
+  "gi",
+)
 const localImagePathPattern = new RegExp(
   `(?:(?<![A-Za-z0-9])(?:file:\\/\\/|[A-Za-z]:[\\\\/])|(?<![:/])\\/)[^<>"'\\u0060，。；：、\\n]*?\\.${imageExtensionSource}(?=$|[\\s<>"'\\u0060，。；：、,;:!?)\\]])`,
   "gi",
@@ -122,6 +126,17 @@ function normalizeLocalImageProse(markdown: string): string {
 
 export function normalizeLocalImageMarkdown(markdown: string): string {
   return mapMarkdownProse(markdown, normalizeLocalImageProse)
+}
+
+/**
+ * Local images are loaded through Wanta's trusted preview service instead of the Markdown
+ * renderer's URL pipeline. The latter treats Windows drive letters as URL schemes and blocks
+ * `C:\\...` (as well as `file:///C:/...`) before the custom image component can resolve the file.
+ */
+export function stripLocalImageMarkdown(markdown: string): string {
+  return mapMarkdownProse(markdown, (prose) =>
+    prose.replace(renderedLocalMarkdownImagePattern, (_match, alt: string) => alt.trim()),
+  )
 }
 
 export function extractMarkdownImageSources(markdown: string): string[] {

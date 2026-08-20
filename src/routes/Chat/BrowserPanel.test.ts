@@ -31,6 +31,7 @@ function panelElement(
   browserService: ConnectionClientService<BrowserService>,
   maximized = false,
   windowControlsOnRight = true,
+  showCloseButton = true,
 ): React.ReactElement {
   return React.createElement(
     I18nContext.Provider,
@@ -47,15 +48,16 @@ function panelElement(
       sessionId: "session-1",
       state,
       windowControlsOnRight,
+      showCloseButton,
       onClose: () => undefined,
       onToggleMaximized: () => undefined,
     }),
   )
 }
 
-function renderPanel(maximized = false, windowControlsOnRight = true): string {
+function renderPanel(maximized = false, windowControlsOnRight = true, showCloseButton = true): string {
   return renderToStaticMarkup(
-    panelElement({} as ConnectionClientService<BrowserService>, maximized, windowControlsOnRight),
+    panelElement({} as ConnectionClientService<BrowserService>, maximized, windowControlsOnRight, showCloseButton),
   )
 }
 
@@ -246,6 +248,11 @@ describe("BrowserPanel native view visibility", () => {
 })
 
 describe("BrowserPanel titlebar drag regions", () => {
+  it("can hide the panel-local close button on Windows", () => {
+    expect(renderPanel(false, true, false)).not.toContain('aria-label="关闭浏览器"')
+    expect(renderPanel(false, true, true)).toContain('aria-label="关闭浏览器"')
+  })
+
   it("makes toolbar whitespace draggable while keeping every control interactive", () => {
     const html = renderPanel()
 

@@ -1,5 +1,10 @@
 import { expect, test } from "vitest"
-import { extractLocalImagePaths, extractMarkdownImageSources, normalizeLocalImageMarkdown } from "./markdown-images.ts"
+import {
+  extractLocalImagePaths,
+  extractMarkdownImageSources,
+  normalizeLocalImageMarkdown,
+  stripLocalImageMarkdown,
+} from "./markdown-images.ts"
 
 test("normalizeLocalImageMarkdown wraps local image paths containing spaces", () => {
   const path =
@@ -23,6 +28,14 @@ test("normalizeLocalImageMarkdown supports Windows paths and excludes home-relat
     String.raw`![image](<C:\Users\me\output files\image.png>)`,
   )
   expect(normalizeLocalImageMarkdown("![image](~/output files/image.png)")).toBe("![image](~/output files/image.png)")
+})
+
+test("stripLocalImageMarkdown routes local images around the Markdown URL pipeline", () => {
+  expect(stripLocalImageMarkdown(String.raw`Result: ![Windows](C:\Users\me\output.png)`)).toBe("Result: Windows")
+  expect(stripLocalImageMarkdown("Result: ![macOS](</Users/me/output files/image.png>)")).toBe("Result: macOS")
+  expect(stripLocalImageMarkdown("![remote](https://example.com/image.png)")).toBe(
+    "![remote](https://example.com/image.png)",
+  )
 })
 
 test("markdown image helpers ignore fenced and indented code", () => {

@@ -380,7 +380,7 @@ export function TeamManagementRoute({
                           providers: connectionProviders,
                         }}
                         member={overlay.member}
-                        onClose={() => setOverlay({ kind: "settings" })}
+                        onClose={closeTeamSettings}
                         onOpenConnection={(target) => {
                           setOverlay({ kind: "none" })
                           onOpenConnection(target)

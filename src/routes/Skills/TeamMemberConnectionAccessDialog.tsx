@@ -129,15 +129,23 @@ export function TeamMemberConnectionAccessPanel({
 
   return (
     <>
-      <div className="grid gap-3">
-        <div className="oo-text-caption text-muted-foreground">{t("teams.memberConnectionAccessDescription")}</div>
+      <div className="flex h-full min-h-0 flex-col gap-3">
+        <div className="oo-text-caption shrink-0 text-muted-foreground">
+          {t("teams.memberConnectionAccessDescription")}
+        </div>
         <MemberHeader member={member} projection={projection} />
         {data.loading && !data.access ? (
-          <AccessListSkeleton />
+          <div className="min-h-0 flex-1 overflow-auto">
+            <AccessListSkeleton />
+          </div>
         ) : data.error ? (
-          <AccessLoadError error={data.error} onRetry={onRetry} />
+          <div className="min-h-0 flex-1 overflow-auto">
+            <AccessLoadError error={data.error} onRetry={onRetry} />
+          </div>
         ) : projection && !projection.ok ? (
-          <AccessLoadError error={t("teams.memberConnectionAccessInvalid")} onRetry={onRetry} />
+          <div className="min-h-0 flex-1 overflow-auto">
+            <AccessLoadError error={t("teams.memberConnectionAccessInvalid")} onRetry={onRetry} />
+          </div>
         ) : projection?.ok ? (
           <>
             {editing ? (
@@ -145,7 +153,7 @@ export function TeamMemberConnectionAccessPanel({
                 {t("teams.memberConnectionAccessEditHint")}
               </div>
             ) : null}
-            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <div className="grid shrink-0 gap-2">
               <div className="relative min-w-0">
                 <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -159,7 +167,7 @@ export function TeamMemberConnectionAccessPanel({
               <AccessFilters filter={filter} projection={projection} onChange={setFilter} />
             </div>
             {visibleItems.length > 0 ? (
-              <div className="max-h-[46vh] overflow-y-auto rounded-md border">
+              <div className="min-h-0 flex-1 overflow-y-auto rounded-md border">
                 <div className="divide-y">
                   {visibleItems.map((item) => (
                     <ConnectionAccessRow
@@ -182,7 +190,7 @@ export function TeamMemberConnectionAccessPanel({
                 </div>
               </div>
             ) : (
-              <div className="oo-text-caption flex min-h-28 items-center justify-center rounded-md border border-dashed px-4 text-center text-muted-foreground">
+              <div className="oo-text-caption flex min-h-28 flex-1 items-center justify-center rounded-md border border-dashed px-4 text-center text-muted-foreground">
                 {projection.items.length === 0
                   ? t("teams.memberConnectionAccessEmpty")
                   : t("teams.memberConnectionAccessNoMatches")}
@@ -190,7 +198,7 @@ export function TeamMemberConnectionAccessPanel({
             )}
           </>
         ) : null}
-        <div className="oo-border-divider flex justify-end gap-2 border-t pt-3">
+        <div className="oo-border-divider flex shrink-0 justify-end gap-2 border-t pt-3">
           {editing ? (
             <>
               <Button

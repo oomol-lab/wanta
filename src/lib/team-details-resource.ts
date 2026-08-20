@@ -44,13 +44,14 @@ function entryFor<T>(key: string): ResourceEntry<T> {
   }
   const entry: ResourceEntry<T> = { data: null, listeners: new Set(), loadedAt: 0, promise: null }
   resourceCache.set(key, entry as ResourceEntry<unknown>)
-  pruneResourceCache()
+  pruneResourceCache(key)
   return entry
 }
 
-function pruneResourceCache(): void {
+function pruneResourceCache(protectedKey?: string): void {
   if (resourceCache.size <= teamDetailsMaxEntries) return
   for (const [key, entry] of resourceCache) {
+    if (key === protectedKey) continue
     if (entry.listeners.size > 0 || entry.promise) continue
     resourceCache.delete(key)
     if (resourceCache.size <= teamDetailsMaxEntries) return

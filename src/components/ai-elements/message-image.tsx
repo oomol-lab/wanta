@@ -124,7 +124,7 @@ export function localImagePathFromSrc(src: string | undefined): string | null {
   const value = src?.trim()
   if (value?.startsWith(localImagePreviewMarkerPrefix)) {
     try {
-      return decodeURIComponent(value.slice(localImagePreviewMarkerPrefix.length))
+      return localImagePathFromSrc(decodeURIComponent(value.slice(localImagePreviewMarkerPrefix.length)))
     } catch {
       return null
     }

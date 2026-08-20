@@ -122,11 +122,28 @@ function clearConnectorReadCache(): void {
 function setConnectorCacheEntry(cacheKey: string, entry: ConnectorCacheEntry): void {
   connectorGetCache.delete(cacheKey)
   connectorGetCache.set(cacheKey, entry)
+  pruneConnectorCache(cacheKey)
+}
+
+function pruneConnectorCache(protectedKey?: string): void {
   while (connectorGetCache.size > connectorGetCacheMaxEntries) {
-    const oldestKey = connectorGetCache.keys().next().value
-    if (!oldestKey) break
-    connectorGetCache.delete(oldestKey)
-    if (!connectorGetInFlight.has(oldestKey)) connectorGetRequestVersions.delete(oldestKey)
+    let evicted = false
+    for (const oldestKey of connectorGetCache.keys()) {
+      if (oldestKey === protectedKey || connectorGetInFlight.has(oldestKey)) continue
+      connectorGetCache.delete(oldestKey)
+      connectorGetRequestVersions.delete(oldestKey)
+      evicted = true
+      break
+    }
+    if (!evicted) break
+  }
+}
+
+export function connectorCacheEntryCountsForTest(): { cache: number; inFlight: number; versions: number } {
+  return {
+    cache: connectorGetCache.size,
+    inFlight: connectorGetInFlight.size,
+    versions: connectorGetRequestVersions.size,
   }
 }
 
@@ -340,6 +357,8 @@ async function getConnector<T>(
       connectorGetInFlight.get(cacheKey)?.promise === trackedRequest
     ) {
       connectorGetInFlight.delete(cacheKey)
+      if (!connectorGetCache.has(cacheKey)) connectorGetRequestVersions.delete(cacheKey)
+      pruneConnectorCache()
     }
   })
   connectorGetInFlight.set(cacheKey, {
@@ -368,7 +387,7 @@ async function fetchConnectorGet<T>(
 
   if (response.status === 304 && cached) {
     if (connectorReadCacheGeneration === generation && connectorGetRequestVersions.get(cacheKey) === requestVersion) {
-      cached.fetchedAt = Date.now()
+      setConnectorCacheEntry(cacheKey, { ...cached, fetchedAt: Date.now() })
     }
     return { data: cached.data as T, meta: cached.meta }
   }

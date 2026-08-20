@@ -7,7 +7,7 @@ const localMarkdownImagePattern = new RegExp(
 const markdownImagePattern =
   /!\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|([^\s)<]+))(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?\s*\)/gi
 const renderedLocalMarkdownImagePattern = new RegExp(
-  `!\\[([^\\]\\n]*)\\]\\(\\s*(?:<(${absoluteLocalPathStartSource}[^>\\n]*?\\.${imageExtensionSource})>|(${absoluteLocalPathStartSource}[^\\s)<]*?\\.${imageExtensionSource}))(?:\\s+(?:"[^"\\n]*"|'[^'\\n]*'|\\([^\\)\\n]*\\)))?\\s*\\)`,
+  `!\\[([^\\]\\n]*)\\]\\(\\s*(?:<(${absoluteLocalPathStartSource}[^>\\n]*?\\.${imageExtensionSource})>|(${absoluteLocalPathStartSource}[^\\s)<]*?\\.${imageExtensionSource}))(\\s+(?:"[^"\\n]*"|'[^'\\n]*'|\\([^\\)\\n]*\\)))?\\s*\\)`,
   "gi",
 )
 export const localImagePreviewMarkerPrefix = "https://wanta.local/__local-image__/"
@@ -134,8 +134,8 @@ export function rewriteLocalImageMarkdown(markdown: string): string {
   return mapMarkdownProse(markdown, (prose) =>
     prose.replace(
       renderedLocalMarkdownImagePattern,
-      (_match, alt: string, bracketedPath?: string, barePath?: string) =>
-        `![${alt}](${localImagePreviewMarkerPrefix}${encodeURIComponent((bracketedPath ?? barePath ?? "").trim())})`,
+      (_match, alt: string, bracketedPath?: string, barePath?: string, title = "") =>
+        `![${alt}](${localImagePreviewMarkerPrefix}${encodeURIComponent((bracketedPath ?? barePath ?? "").trim())}${title})`,
     ),
   )
 }

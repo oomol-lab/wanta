@@ -43,6 +43,15 @@ test("rewriteLocalImageMarkdown preserves placement with a renderer-safe marker"
   )
 })
 
+test("rewriteLocalImageMarkdown preserves optional image titles", () => {
+  expect(rewriteLocalImageMarkdown(String.raw`![quoted](C:\Users\me\image.png "Preview")`)).toBe(
+    `![quoted](${localImagePreviewMarkerPrefix}C%3A%5CUsers%5Cme%5Cimage.png "Preview")`,
+  )
+  expect(rewriteLocalImageMarkdown(`![parenthesized](/tmp/image.png (Preview))`)).toBe(
+    `![parenthesized](${localImagePreviewMarkerPrefix}%2Ftmp%2Fimage.png (Preview))`,
+  )
+})
+
 test("markdown image helpers ignore fenced and indented code", () => {
   const markdown = [
     "![real](/Users/me/output files/real.png)",

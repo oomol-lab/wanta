@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   clearConnectorCache,
+  connectorCacheEntryCountsForTest,
   connectProvider,
   getActiveConnectionAppIdsForService,
   getConnectionAppDetail,
@@ -20,6 +21,7 @@ const managementWorkspace = { manageable: true, teamName: "team-name" } as const
 describe("connections-client", () => {
   afterEach(() => {
     clearConnectorCache()
+    vi.useRealTimers()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
@@ -131,6 +133,57 @@ describe("connections-client", () => {
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/actions?service=github")
     expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has("x-oo-team-name")).toBe(false)
+  })
+
+  it("bounds cache versions after an evicted request rejects", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      if (String(input).includes("service=rejected")) throw new Error("request failed")
+      return Response.json({ data: [] })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    for (let index = 0; index < 260; index += 1) {
+      await getConnectionActions(`service-${index}`)
+    }
+    await expect(getConnectionActions("rejected")).rejects.toThrow("request failed")
+
+    const counts = connectorCacheEntryCountsForTest()
+    expect(counts.cache).toBeLessThanOrEqual(256)
+    expect(counts.inFlight).toBe(0)
+    expect(counts.versions).toBe(counts.cache)
+  })
+
+  it("keeps an in-flight cached entry attached when a 304 response arrives after pruning", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-20T00:00:00Z"))
+    let resolveRefresh: ((response: Response) => void) | undefined
+    let targetRequests = 0
+    const fetchMock = vi.fn<typeof fetch>((input) => {
+      if (String(input).includes("service=target")) {
+        targetRequests += 1
+        if (targetRequests === 1) {
+          return Promise.resolve(Response.json({ data: [] }, { headers: { etag: '"target-v1"' } }))
+        }
+        return new Promise<Response>((resolve) => {
+          resolveRefresh = resolve
+        })
+      }
+      return Promise.resolve(Response.json({ data: [] }))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await getConnectionActions("target")
+    vi.setSystemTime(new Date("2026-08-20T00:01:00Z"))
+    const refresh = getConnectionActions("target")
+    for (let index = 0; index < 260; index += 1) {
+      await getConnectionActions(`other-${index}`)
+    }
+    resolveRefresh?.(new Response(null, { status: 304 }))
+    await refresh
+    await getConnectionActions("target")
+
+    expect(targetRequests).toBe(2)
+    vi.useRealTimers()
   })
 
   it("returns the provider catalog without requesting usage", async () => {

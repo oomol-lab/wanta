@@ -6,6 +6,11 @@ const localMarkdownImagePattern = new RegExp(
 )
 const markdownImagePattern =
   /!\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|([^\s)<]+))(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?\s*\)/gi
+const renderedLocalMarkdownImagePattern = new RegExp(
+  `!\\[([^\\]\\n]*)\\]\\(\\s*(?:<(${absoluteLocalPathStartSource}[^>\\n]*?\\.${imageExtensionSource})>|(${absoluteLocalPathStartSource}[^\\s)<]*?\\.${imageExtensionSource}))(\\s+(?:"[^"\\n]*"|'[^'\\n]*'|\\([^\\)\\n]*\\)))?\\s*\\)`,
+  "gi",
+)
+export const localImagePreviewMarkerPrefix = "https://wanta.local/__local-image__/"
 const localImagePathPattern = new RegExp(
   `(?:(?<![A-Za-z0-9])(?:file:\\/\\/|[A-Za-z]:[\\\\/])|(?<![:/])\\/)[^<>"'\\u0060，。；：、\\n]*?\\.${imageExtensionSource}(?=$|[\\s<>"'\\u0060，。；：、,;:!?)\\]])`,
   "gi",
@@ -122,6 +127,17 @@ function normalizeLocalImageProse(markdown: string): string {
 
 export function normalizeLocalImageMarkdown(markdown: string): string {
   return mapMarkdownProse(markdown, normalizeLocalImageProse)
+}
+
+/** Rewrites local destinations to an HTTPS-shaped marker so Streamdown keeps the image in place. */
+export function rewriteLocalImageMarkdown(markdown: string): string {
+  return mapMarkdownProse(markdown, (prose) =>
+    prose.replace(
+      renderedLocalMarkdownImagePattern,
+      (_match, alt: string, bracketedPath?: string, barePath?: string, title = "") =>
+        `![${alt}](${localImagePreviewMarkerPrefix}${encodeURIComponent((bracketedPath ?? barePath ?? "").trim())}${title})`,
+    ),
+  )
 }
 
 export function extractMarkdownImageSources(markdown: string): string[] {

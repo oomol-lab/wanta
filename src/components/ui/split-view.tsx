@@ -2,6 +2,24 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 type SplitViewPane = "detail" | "list"
+const desktopSplitViewQuery = "(min-width: 960px)"
+
+function subscribeDesktopSplitView(listener: () => void): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => undefined
+  const media = window.matchMedia(desktopSplitViewQuery)
+  media.addEventListener("change", listener)
+  return () => media.removeEventListener("change", listener)
+}
+
+function desktopSplitViewSnapshot(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia(desktopSplitViewQuery).matches
+    : false
+}
+
+export function useDesktopSplitView(): boolean {
+  return React.useSyncExternalStore(subscribeDesktopSplitView, desktopSplitViewSnapshot, () => false)
+}
 
 interface SplitViewRootProps extends React.ComponentProps<"section"> {
   narrowPane: SplitViewPane

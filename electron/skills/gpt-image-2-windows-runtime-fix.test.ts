@@ -22,9 +22,7 @@ describe("GPT Image 2 Windows runtime compatibility", () => {
     expect(patched).toContain("do not pass `--team`")
     expect(patched).toContain("`OO_TEAM_ID` or `OO_TEAM_NAME`")
     expect(patched).toContain("`oo team use` does not persist")
-    expect(patched).toContain("For each generated image result, include exactly one Markdown image")
-    expect(patched).toContain("use the first path only and do not emit additional Markdown images")
-    expect(patched).toContain("same Wanta image-preview path on macOS and Windows")
+    expect(patched).not.toContain("Wanta local image delivery")
     expect(patchGptImage2RuntimeInstructions(patched)).toBe(patched)
   })
 
@@ -76,7 +74,22 @@ describe("GPT Image 2 Windows runtime compatibility", () => {
     await expect(readFile(path.join(skillPath, "SKILL.md"), "utf8")).resolves.toContain(
       "`OO_TEAM_ID` or `OO_TEAM_NAME`",
     )
-    await expect(readFile(path.join(skillPath, "SKILL.md"), "utf8")).resolves.toContain("Markdown image")
+    await expect(readFile(path.join(skillPath, "SKILL.md"), "utf8")).resolves.not.toContain("Markdown image")
+  })
+
+  it("removes the obsolete first-image-only runtime override", () => {
+    const patched = patchGptImage2RuntimeInstructions(
+      [
+        "# GPT Image 2",
+        "",
+        "<!-- wanta-gpt-image-2-local-image-display:start -->",
+        "Use the first path only.",
+        "<!-- wanta-gpt-image-2-local-image-display:end -->",
+      ].join("\n"),
+    )
+
+    expect(patched).not.toContain("Use the first path only")
+    expect(patched).not.toContain("wanta-gpt-image-2-local-image-display")
   })
 
   it("applies team guidance on every platform but leaves non-Windows runners unchanged", async () => {

@@ -38,6 +38,7 @@ import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 const connectorRequestTimeoutMs = 20_000
 const connectorGetCacheMs = 30_000
+const connectorGetCacheMaxEntries = 256
 const oauthClientConfigCacheMs = 5 * 60_000
 
 const executionLogDefaultLimit = 12
@@ -116,6 +117,34 @@ function clearConnectorReadCache(): void {
   connectorGetCache.clear()
   connectorGetInFlight.clear()
   connectorGetRequestVersions.clear()
+}
+
+function setConnectorCacheEntry(cacheKey: string, entry: ConnectorCacheEntry): void {
+  connectorGetCache.delete(cacheKey)
+  connectorGetCache.set(cacheKey, entry)
+  pruneConnectorCache(cacheKey)
+}
+
+function pruneConnectorCache(protectedKey?: string): void {
+  while (connectorGetCache.size > connectorGetCacheMaxEntries) {
+    let evicted = false
+    for (const oldestKey of connectorGetCache.keys()) {
+      if (oldestKey === protectedKey || connectorGetInFlight.has(oldestKey)) continue
+      connectorGetCache.delete(oldestKey)
+      connectorGetRequestVersions.delete(oldestKey)
+      evicted = true
+      break
+    }
+    if (!evicted) break
+  }
+}
+
+export function connectorCacheEntryCountsForTest(): { cache: number; inFlight: number; versions: number } {
+  return {
+    cache: connectorGetCache.size,
+    inFlight: connectorGetInFlight.size,
+    versions: connectorGetRequestVersions.size,
+  }
 }
 
 function invalidateConnectorReadCache(predicate: (cacheKey: string) => boolean): void {
@@ -305,6 +334,8 @@ async function getConnector<T>(
   const cached = connectorGetCache.get(cacheKey)
   const now = Date.now()
   if (!options.forceRefresh && cached && now - cached.fetchedAt < connectorGetCacheMs) {
+    connectorGetCache.delete(cacheKey)
+    connectorGetCache.set(cacheKey, cached)
     return { data: cached.data as T, meta: cached.meta }
   }
   const inFlight = connectorGetInFlight.get(cacheKey)
@@ -326,6 +357,8 @@ async function getConnector<T>(
       connectorGetInFlight.get(cacheKey)?.promise === trackedRequest
     ) {
       connectorGetInFlight.delete(cacheKey)
+      if (!connectorGetCache.has(cacheKey)) connectorGetRequestVersions.delete(cacheKey)
+      pruneConnectorCache()
     }
   })
   connectorGetInFlight.set(cacheKey, {
@@ -354,7 +387,7 @@ async function fetchConnectorGet<T>(
 
   if (response.status === 304 && cached) {
     if (connectorReadCacheGeneration === generation && connectorGetRequestVersions.get(cacheKey) === requestVersion) {
-      cached.fetchedAt = Date.now()
+      setConnectorCacheEntry(cacheKey, { ...cached, fetchedAt: Date.now() })
     }
     return { data: cached.data as T, meta: cached.meta }
   }
@@ -366,7 +399,7 @@ async function fetchConnectorGet<T>(
 
   const result = unwrapConnectorEnvelope<T>(payload)
   if (connectorReadCacheGeneration === generation && connectorGetRequestVersions.get(cacheKey) === requestVersion) {
-    connectorGetCache.set(cacheKey, {
+    setConnectorCacheEntry(cacheKey, {
       data: result.data,
       etag: asString(response.headers.get("etag")),
       fetchedAt: Date.now(),

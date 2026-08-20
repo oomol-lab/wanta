@@ -285,7 +285,7 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    left: calc((var(--right-panel-resize-sash-width) - 2px) / 2);
+    right: 0;
     width: 2px;
     background: transparent;
     transition: background-color 120ms ease-out;

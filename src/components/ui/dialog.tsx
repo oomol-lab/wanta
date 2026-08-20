@@ -38,12 +38,12 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
   })
 }
 
-function isPortalKeyboardOwner(target: EventTarget | null): boolean {
+export function isPortalKeyboardOwner(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
     Boolean(
       target.closest(
-        '[data-slot="select-content"], [data-slot="dropdown-menu-content"], [data-slot="popover-content"]',
+        '[data-slot="select-content"], [data-slot="dropdown-menu-content"], [data-slot="popover-content"], [data-slot="confirm-dialog-content"], [data-slot="confirm-dialog-overlay"]',
       ),
     )
   )

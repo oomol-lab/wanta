@@ -279,6 +279,20 @@ describe("MarkdownImage", () => {
     expect(localImagePathFromSrc("FILE:///Users/me/output%20files/image.png")).toBe("/Users/me/output files/image.png")
   })
 
+  it("decodes renderer-safe local image markers", () => {
+    expect(
+      localImagePathFromSrc("https://wanta.local/__local-image__/C%3A%5CUsers%5Cme%5Coutput%20files%5Cimage.png"),
+    ).toBe(String.raw`C:\Users\me\output files\image.png`)
+  })
+
+  it("normalizes file URLs decoded from local image markers", () => {
+    expect(
+      localImagePathFromSrc(
+        "https://wanta.local/__local-image__/file%3A%2F%2F%2FC%3A%2FUsers%2Fme%2Foutput%2520files%2Fimage.png",
+      ),
+    ).toBe("C:/Users/me/output files/image.png")
+  })
+
   it("does not treat home-relative image paths as absolute local paths", () => {
     expect(localImagePathFromSrc("~/output/image.png")).toBeNull()
   })

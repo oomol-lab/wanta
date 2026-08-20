@@ -2393,6 +2393,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
           rightPanelVisible={rightPanelVisible}
           setArtifactsPanelMaximizedState={setArtifactsPanelMaximizedState}
           setArtifactsPanelOpen={setArtifactsPanelOpen}
+          showPanelCloseButton={globalThis.wanta?.platform !== "win32"}
           turnOutputSelection={turnOutputSelection}
           visibleRightPanelWidth={visibleRightPanelWidth}
         />

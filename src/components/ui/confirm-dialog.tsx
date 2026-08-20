@@ -30,10 +30,14 @@ function ConfirmDialogOverlay({ className, ...props }: React.ComponentProps<type
   )
 }
 
-function ConfirmDialogContent({ className, ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
+function ConfirmDialogContent({
+  className,
+  overlayClassName,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Content> & { overlayClassName?: string }) {
   return (
     <ConfirmDialogPortal>
-      <ConfirmDialogOverlay />
+      <ConfirmDialogOverlay className={overlayClassName} />
       <AlertDialogPrimitive.Content
         data-slot="confirm-dialog-content"
         className={cn(

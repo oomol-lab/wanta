@@ -1,5 +1,11 @@
 import { expect, test } from "vitest"
-import { extractLocalImagePaths, extractMarkdownImageSources, normalizeLocalImageMarkdown } from "./markdown-images.ts"
+import {
+  extractLocalImagePaths,
+  extractMarkdownImageSources,
+  localImagePreviewMarkerPrefix,
+  normalizeLocalImageMarkdown,
+  rewriteLocalImageMarkdown,
+} from "./markdown-images.ts"
 
 test("normalizeLocalImageMarkdown wraps local image paths containing spaces", () => {
   const path =
@@ -23,6 +29,27 @@ test("normalizeLocalImageMarkdown supports Windows paths and excludes home-relat
     String.raw`![image](<C:\Users\me\output files\image.png>)`,
   )
   expect(normalizeLocalImageMarkdown("![image](~/output files/image.png)")).toBe("![image](~/output files/image.png)")
+})
+
+test("rewriteLocalImageMarkdown preserves placement with a renderer-safe marker", () => {
+  expect(rewriteLocalImageMarkdown(String.raw`Result: ![Windows](C:\Users\me\output.png)`)).toBe(
+    `Result: ![Windows](${localImagePreviewMarkerPrefix}C%3A%5CUsers%5Cme%5Coutput.png)`,
+  )
+  expect(rewriteLocalImageMarkdown("Result: ![macOS](</Users/me/output files/image.png>)")).toBe(
+    `Result: ![macOS](${localImagePreviewMarkerPrefix}%2FUsers%2Fme%2Foutput%20files%2Fimage.png)`,
+  )
+  expect(rewriteLocalImageMarkdown("![remote](https://example.com/image.png)")).toBe(
+    "![remote](https://example.com/image.png)",
+  )
+})
+
+test("rewriteLocalImageMarkdown preserves optional image titles", () => {
+  expect(rewriteLocalImageMarkdown(String.raw`![quoted](C:\Users\me\image.png "Preview")`)).toBe(
+    `![quoted](${localImagePreviewMarkerPrefix}C%3A%5CUsers%5Cme%5Cimage.png "Preview")`,
+  )
+  expect(rewriteLocalImageMarkdown(`![parenthesized](/tmp/image.png (Preview))`)).toBe(
+    `![parenthesized](${localImagePreviewMarkerPrefix}%2Ftmp%2Fimage.png (Preview))`,
+  )
 })
 
 test("markdown image helpers ignore fenced and indented code", () => {

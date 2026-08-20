@@ -54,6 +54,7 @@ import {
   SplitViewListPane,
   SplitViewMobileDetailPane,
   SplitViewRoot,
+  useDesktopSplitView,
 } from "@/components/ui/split-view"
 import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
 import {
@@ -121,6 +122,7 @@ export function ConnectionsPanel({
   selectedService,
 }: ConnectionsPanelProps) {
   const t = useT()
+  const desktopSplitView = useDesktopSplitView()
   const {
     actionError,
     busy,
@@ -832,7 +834,7 @@ export function ConnectionsPanel({
           </div>
         </SplitViewListPane>
 
-        {selectedProvider ? (
+        {selectedProvider && !desktopSplitView ? (
           <SplitViewMobileDetailPane narrowPane={narrowPane}>
             <div className="mb-2">
               <Button variant="ghost" size="sm" onClick={closeDetail}>
@@ -865,7 +867,7 @@ export function ConnectionsPanel({
           </SplitViewMobileDetailPane>
         ) : null}
 
-        {selectedProvider ? (
+        {selectedProvider && desktopSplitView ? (
           <SplitViewDesktopDetailPane
             className={cn(
               "pt-4 transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none",

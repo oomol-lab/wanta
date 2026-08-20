@@ -33,6 +33,7 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
   rightPanelVisible,
   setArtifactsPanelMaximizedState,
   setArtifactsPanelOpen,
+  showPanelCloseButton,
   turnOutputSelection,
   visibleRightPanelWidth,
 }: {
@@ -52,6 +53,7 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
   rightPanelVisible: boolean
   setArtifactsPanelMaximizedState: (maximized: boolean) => void
   setArtifactsPanelOpen: React.Dispatch<React.SetStateAction<boolean>>
+  showPanelCloseButton: boolean
   turnOutputSelection: TurnOutputSelection | null
   visibleRightPanelWidth: number
 }) {
@@ -103,6 +105,7 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
             sessionId={browserState.sessionId}
             state={browserState}
             windowControlsOnRight
+            showCloseButton={showPanelCloseButton}
             onClose={onCloseBrowser}
             onToggleMaximized={() => setArtifactsPanelMaximizedState(!artifactsPanelIsMaximized)}
           />
@@ -113,6 +116,7 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
                 maximized={artifactsPanelIsMaximized}
                 selection={turnOutputSelection}
                 windowControlsOnRight
+                showCollapseButton={showPanelCloseButton}
                 onCollapse={() => {
                   setArtifactsPanelOpen(false)
                   setArtifactsPanelMaximizedState(false)
@@ -124,6 +128,7 @@ export const AppShellRightPanel = React.memo(function AppShellRightPanel({
                 maximized={artifactsPanelIsMaximized}
                 selection={artifactSelection}
                 windowControlsOnRight
+                showCollapseButton={showPanelCloseButton}
                 onCollapse={() => {
                   setArtifactsPanelOpen(false)
                   setArtifactsPanelMaximizedState(false)

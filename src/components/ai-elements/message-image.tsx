@@ -24,6 +24,7 @@ import { ContextMenu as ContextMenuPrimitive } from "radix-ui"
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
+import { localImagePreviewMarkerPrefix } from "../../../electron/chat/markdown-images.ts"
 import { useChatService } from "@/components/AppContext"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useT } from "@/i18n/i18n"
@@ -35,13 +36,6 @@ type MarkdownImageProps = ComponentProps<"img"> & {
   node?: unknown
 }
 
-interface LocalImagePreviewCacheEntry {
-  expiresAt?: number
-  url: string
-}
-
-const localImagePreviewUrlByPath = new Map<string, LocalImagePreviewCacheEntry>()
-const localImagePreviewRefreshMarginMs = 60_000
 export const localImagePreviewRetryDelaysMs = [250, 750, 1_500, 3_000] as const
 const imageViewerMinScale = 0.1
 const imageViewerMaxScale = 4
@@ -128,6 +122,13 @@ function decodeLocalImagePath(value: string): string {
 
 export function localImagePathFromSrc(src: string | undefined): string | null {
   const value = src?.trim()
+  if (value?.startsWith(localImagePreviewMarkerPrefix)) {
+    try {
+      return localImagePathFromSrc(decodeURIComponent(value.slice(localImagePreviewMarkerPrefix.length)))
+    } catch {
+      return null
+    }
+  }
   if (!value || /^(?:https?:|data:|blob:|wanta:|wanta-local:)/i.test(value)) {
     return null
   }
@@ -239,15 +240,7 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
   const chatService = useChatService()
   const localPath = typeof src === "string" ? localImagePathFromSrc(src) : null
   const originalSrc = typeof src === "string" ? src : undefined
-  const [previewUrl, setPreviewUrl] = useState<string | null>(() => {
-    if (!localPath) {
-      return null
-    }
-    const cached = localImagePreviewUrlByPath.get(localPath)
-    return cached && (!cached.expiresAt || cached.expiresAt > Date.now() + localImagePreviewRefreshMarginMs)
-      ? cached.url
-      : null
-  })
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewRetry, setPreviewRetry] = useState(0)
   const [isViewerOpen, setIsViewerOpen] = useState(false)
   const [stageSize, setStageSize] = useState<ImageViewerSize | null>(null)
@@ -266,12 +259,6 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
       setPreviewUrl(null)
       return
     }
-    const cached = localImagePreviewUrlByPath.get(localPath)
-    if (cached && (!cached.expiresAt || cached.expiresAt > Date.now() + localImagePreviewRefreshMarginMs)) {
-      setPreviewUrl(cached.url)
-      return
-    }
-    localImagePreviewUrlByPath.delete(localPath)
     setPreviewUrl(null)
     let cancelled = false
     let retryTimer: number | null = null
@@ -294,19 +281,15 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
         }
         const nextUrl = attachmentPreviewSource(result)
         if (!nextUrl) {
-          localImagePreviewUrlByPath.delete(localPath)
           setPreviewUrl(null)
           scheduleRetry()
           return
         }
-        localImagePreviewUrlByPath.set(localPath, { expiresAt: result.resourceExpiresAt, url: nextUrl })
         setPreviewUrl(nextUrl)
       })
       .catch(() => {
         if (!cancelled) {
-          localImagePreviewUrlByPath.delete(localPath)
           setPreviewUrl(null)
-          scheduleRetry()
         }
       })
     return () => {
@@ -329,7 +312,6 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
     if (!localPath || localImagePreviewRetryDelay(previewRetry) === null) {
       return
     }
-    localImagePreviewUrlByPath.delete(localPath)
     setPreviewUrl(null)
     setPreviewRetry((value) => value + 1)
   }

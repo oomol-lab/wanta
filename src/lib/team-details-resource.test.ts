@@ -34,6 +34,30 @@ describe("team-details-resource", () => {
     expect(getCachedTeamMembers("account-1", "team-1")).toEqual(first)
   })
 
+  it("keeps a newly inserted pending resource when older entries are protected", async () => {
+    const unsubscribes = Array.from({ length: 256 }, (_, index) =>
+      subscribeTeamMembersResource("account-1", `protected-${index}`, () => undefined),
+    )
+    let resolveRequest: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn<typeof fetch>(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveRequest = resolve
+        }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const first = getTeamMembersResource("account-1", "new-team")
+    const second = getTeamMembersResource("account-1", "new-team")
+
+    expect(second).toBe(first)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    resolveRequest?.(Response.json({ members: [{ role: "member", user_id: "user-1" }] }))
+    await expect(first).resolves.toEqual([{ role: "member", user_id: "user-1" }])
+    expect(getCachedTeamMembers("account-1", "new-team")).toEqual([{ role: "member", user_id: "user-1" }])
+    unsubscribes.forEach((unsubscribe) => unsubscribe())
+  })
+
   it("keeps account scopes isolated and refetches after targeted invalidation", async () => {
     let requestCount = 0
     const fetchMock = vi.fn<typeof fetch>(async () => {

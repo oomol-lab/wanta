@@ -10,6 +10,7 @@ import {
 } from "./teams-client.ts"
 
 const teamDetailsStaleMs = 60_000
+const teamDetailsMaxEntries = 256
 
 interface ResourceEntry<T> {
   data: T | null
@@ -43,7 +44,17 @@ function entryFor<T>(key: string): ResourceEntry<T> {
   }
   const entry: ResourceEntry<T> = { data: null, listeners: new Set(), loadedAt: 0, promise: null }
   resourceCache.set(key, entry as ResourceEntry<unknown>)
+  pruneResourceCache()
   return entry
+}
+
+function pruneResourceCache(): void {
+  if (resourceCache.size <= teamDetailsMaxEntries) return
+  for (const [key, entry] of resourceCache) {
+    if (entry.listeners.size > 0 || entry.promise) continue
+    resourceCache.delete(key)
+    if (resourceCache.size <= teamDetailsMaxEntries) return
+  }
 }
 
 function readCached<T>(key: string): T | null {

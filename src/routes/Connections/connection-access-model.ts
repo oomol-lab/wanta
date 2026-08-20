@@ -25,6 +25,16 @@ export function updateActionSelection(
   return uniqueSorted(Array.from(next))
 }
 
+export function connectionAccessSaveDisabled(input: {
+  busy: boolean
+  dirty: boolean
+  error: boolean
+  loading: boolean
+  requiresCatalog: boolean
+}): boolean {
+  return !input.dirty || input.busy || (input.requiresCatalog && (input.loading || input.error))
+}
+
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort()
 }

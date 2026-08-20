@@ -6,10 +6,45 @@ import {
   filterMemberConnectionAccessItems,
   MemberConnectionAccessError,
   projectMemberConnectionAccess,
+  projectTeamMemberConnectionAccessSummaries,
 } from "./team-member-connection-access-model.ts"
 
 const github = app("app-github", "github", "Work GitHub")
 const slack = app("app-slack", "slack", "Support Slack")
+
+describe("projectTeamMemberConnectionAccessSummaries", () => {
+  it("computes member summaries without materializing every member-App item", () => {
+    const projected = projectTeamMemberConnectionAccessSummaries(
+      {
+        "role::connector-app:app-github": {
+          connector: [{ method: "POST", provider: "github", requireRole: true }],
+        },
+        "user::alice": { roles: ["connector-app:app-github"] },
+      },
+      [github, slack],
+      ["alice", "bob"],
+    )
+
+    expect(projected.ok).toBe(true)
+    if (!projected.ok) return
+    expect(projected.byUserId.get("alice")).toEqual({
+      effectiveCount: 2,
+      explicitCount: 1,
+      invalidCount: 0,
+      noneCount: 0,
+      teamCount: 1,
+      totalCount: 2,
+    })
+    expect(projected.byUserId.get("bob")).toEqual({
+      effectiveCount: 1,
+      explicitCount: 0,
+      invalidCount: 0,
+      noneCount: 1,
+      teamCount: 1,
+      totalCount: 2,
+    })
+  })
+})
 
 describe("projectMemberConnectionAccess", () => {
   it("distinguishes inherited, explicit, and unavailable Connections", () => {

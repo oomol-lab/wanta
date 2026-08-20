@@ -2,8 +2,9 @@ import { expect, test } from "vitest"
 import {
   extractLocalImagePaths,
   extractMarkdownImageSources,
+  localImagePreviewMarkerPrefix,
   normalizeLocalImageMarkdown,
-  stripLocalImageMarkdown,
+  rewriteLocalImageMarkdown,
 } from "./markdown-images.ts"
 
 test("normalizeLocalImageMarkdown wraps local image paths containing spaces", () => {
@@ -30,10 +31,14 @@ test("normalizeLocalImageMarkdown supports Windows paths and excludes home-relat
   expect(normalizeLocalImageMarkdown("![image](~/output files/image.png)")).toBe("![image](~/output files/image.png)")
 })
 
-test("stripLocalImageMarkdown routes local images around the Markdown URL pipeline", () => {
-  expect(stripLocalImageMarkdown(String.raw`Result: ![Windows](C:\Users\me\output.png)`)).toBe("Result: Windows")
-  expect(stripLocalImageMarkdown("Result: ![macOS](</Users/me/output files/image.png>)")).toBe("Result: macOS")
-  expect(stripLocalImageMarkdown("![remote](https://example.com/image.png)")).toBe(
+test("rewriteLocalImageMarkdown preserves placement with a renderer-safe marker", () => {
+  expect(rewriteLocalImageMarkdown(String.raw`Result: ![Windows](C:\Users\me\output.png)`)).toBe(
+    `Result: ![Windows](${localImagePreviewMarkerPrefix}C%3A%5CUsers%5Cme%5Coutput.png)`,
+  )
+  expect(rewriteLocalImageMarkdown("Result: ![macOS](</Users/me/output files/image.png>)")).toBe(
+    `Result: ![macOS](${localImagePreviewMarkerPrefix}%2FUsers%2Fme%2Foutput%20files%2Fimage.png)`,
+  )
+  expect(rewriteLocalImageMarkdown("![remote](https://example.com/image.png)")).toBe(
     "![remote](https://example.com/image.png)",
   )
 })

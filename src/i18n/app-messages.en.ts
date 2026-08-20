@@ -1313,6 +1313,12 @@ export const enMessages = {
   "connections.accessRepairDescription":
     "This removes the managed role and member references for this connection, restoring Team access and unrestricted Actions.",
   "connections.accessRestoreDefaults": "Restore defaults",
+  "connections.accessEmptyConfirmTitle": "Save access with no allowed targets?",
+  "connections.accessEmptyMembersConfirmDescription":
+    "No Team member will be able to use this connection until member access is granted again.",
+  "connections.accessEmptyActionsConfirmDescription":
+    "No Action will be callable through this connection until Action access is granted again.",
+  "connections.accessEmptyConfirmAction": "Save empty access",
   "connections.memberAccessTitle": "Member access",
   "connections.memberAccessTeamSummary": "Available to the whole Team",
   "connections.memberAccessSelectedSummary": "Available to {count} selected members",

@@ -6,6 +6,7 @@ import type {
   MemberConnectionAccessFilter,
   MemberConnectionAccessItem,
   MemberConnectionAccessProjection,
+  MemberConnectionAccessSummary,
   MemberConnectionProvenance,
 } from "./team-member-connection-access-model.ts"
 
@@ -223,7 +224,7 @@ export function TeamMemberConnectionAccessPanel({
         </div>
       </div>
       <ConfirmDialog open={confirmOpen} onOpenChange={(open) => !saving && setConfirmOpen(open)}>
-        <ConfirmDialogContent>
+        <ConfirmDialogContent overlayClassName="oo-modal-backdrop-nested">
           <ConfirmDialogHeader>
             <ConfirmDialogTitle>{t("teams.memberConnectionAccessConfirmTitle")}</ConfirmDialogTitle>
             <ConfirmDialogDescription>
@@ -455,18 +456,19 @@ function memberConnectionAccessErrorMessage(error: unknown, t: ReturnType<typeof
 
 export function MemberConnectionAccessButton({
   disabled,
+  invalid: invalidProjection,
   loading,
-  projection,
+  summary,
   onClick,
 }: {
   disabled: boolean
+  invalid: boolean
   loading: boolean
-  projection: MemberConnectionAccessProjection | null
+  summary: MemberConnectionAccessSummary | null
   onClick: () => void
 }) {
   const { t } = useAppI18n()
-  const summary = projection?.ok ? projection.summary : null
-  const invalid = !loading && (!projection?.ok || Boolean(summary?.invalidCount))
+  const invalid = !loading && (invalidProjection || Boolean(summary?.invalidCount))
   const explicit = Boolean(summary?.explicitCount)
   const effective = Boolean(summary?.effectiveCount)
   const label = loading

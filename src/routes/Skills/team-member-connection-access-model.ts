@@ -44,6 +44,10 @@ export type TeamMemberConnectionAccessProjection =
   | { byUserId: Map<string, Extract<MemberConnectionAccessProjection, { ok: true }>>; ok: true }
   | { issues: ConnectionAccessIssue[]; ok: false }
 
+export type TeamMemberConnectionAccessSummaries =
+  | { byUserId: Map<string, MemberConnectionAccessSummary>; ok: true }
+  | { issues: ConnectionAccessIssue[]; ok: false }
+
 export interface MemberConnectionAccessDelta {
   addAppIds: string[]
   removeAppIds: string[]
@@ -173,6 +177,48 @@ export function projectTeamMemberConnectionAccess(
     }),
   )
   return { byUserId, ok: true }
+}
+
+export function projectTeamMemberConnectionAccessSummaries(
+  access: TeamAppAccess,
+  apps: ConnectionAppSummary[],
+  userIds: string[],
+): TeamMemberConnectionAccessSummaries {
+  const parsed = parseTeamConnectionAccess(
+    access,
+    apps.map((app) => ({ id: app.id, service: app.service })),
+  )
+  if (!parsed.ok) return { issues: parsed.issues, ok: false }
+
+  const uniqueUserIds = Array.from(new Set(userIds))
+  const invalidCount = parsed.apps.filter((app) => app.mode === "invalid").length
+  const teamCount = parsed.apps.filter((app) => app.mode !== "invalid" && app.memberAccess.mode === "team").length
+  const selectedAppUserIds = parsed.apps.flatMap((app) =>
+    app.mode !== "invalid" && app.memberAccess.mode === "selected" ? [app.memberAccess.userIds] : [],
+  )
+  const summaries = new Map(
+    uniqueUserIds.map((userId) => [
+      userId,
+      {
+        effectiveCount: teamCount,
+        explicitCount: 0,
+        invalidCount,
+        noneCount: selectedAppUserIds.length,
+        teamCount,
+        totalCount: parsed.apps.length,
+      },
+    ]),
+  )
+  for (const selectedUserIds of selectedAppUserIds) {
+    for (const userId of selectedUserIds) {
+      const summary = summaries.get(userId)
+      if (!summary) continue
+      summary.effectiveCount += 1
+      summary.explicitCount += 1
+      summary.noneCount -= 1
+    }
+  }
+  return { byUserId: summaries, ok: true }
 }
 
 export function filterMemberConnectionAccessItems(

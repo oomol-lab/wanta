@@ -79,6 +79,10 @@
     background: var(--oo-modal-backdrop);
   }
 
+  .oo-modal-backdrop-nested {
+    background: transparent;
+  }
+
   .oo-modal-surface {
     border-color: var(--oo-overlay-border);
     background: var(--popover);

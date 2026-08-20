@@ -7,6 +7,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, RotateCcw, Search, ShieldChec
 import * as React from "react"
 import { toast } from "sonner"
 import {
+  connectionAccessSaveDisabled,
   defaultRestrictedActionNames,
   unavailableActionNames,
   updateActionSelection,
@@ -34,8 +35,12 @@ import {
   setTeamConnectionActionAccess,
   setTeamConnectionMemberAccess,
 } from "@/lib/team-connection-access"
-import { invalidateTeamDetailsResource } from "@/lib/team-details-resource"
-import { getTeamAppAccessSnapshot, listTeamMembers, listUserSummaries, updateTeamAppAccess } from "@/lib/teams-client"
+import {
+  getTeamMembersResource,
+  getTeamUserSummariesResource,
+  invalidateTeamDetailsResource,
+} from "@/lib/team-details-resource"
+import { getTeamAppAccessSnapshot, updateTeamAppAccess } from "@/lib/teams-client"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
@@ -53,6 +58,9 @@ interface AccessSnapshot {
 
 type BusyMutation = "action" | "member" | "repair" | null
 type OperationType = ConnectionActionCatalogItem["operationType"]
+type EmptyAccessConfirmation =
+  | { access: Extract<ConnectionMemberAccess, { mode: "selected" }>; kind: "member" }
+  | { access: Extract<ConnectionActionAccess, { mode: "restricted" }>; kind: "action" }
 
 const operationTypes: OperationType[] = ["read", "write", "destructive"]
 
@@ -80,6 +88,7 @@ export function ConnectionAccessDialog({
   const [loadingMembers, setLoadingMembers] = React.useState(false)
   const [busy, setBusy] = React.useState<BusyMutation>(null)
   const [repairOpen, setRepairOpen] = React.useState(false)
+  const [emptyAccessConfirmation, setEmptyAccessConfirmation] = React.useState<EmptyAccessConfirmation | null>(null)
   const requestIdRef = React.useRef(0)
 
   const load = React.useCallback(
@@ -115,14 +124,15 @@ export function ConnectionAccessDialog({
           if (requestIdRef.current === requestId) setLoadingActions(false)
         })
 
+      const resourceAccountId = context.accountId ?? "anonymous"
       const membersPromise = context.canManage
-        ? listTeamMembers(context.team.id)
+        ? getTeamMembersResource(resourceAccountId, context.team.id)
             .then(async (value) => {
               if (requestIdRef.current !== requestId) return
               setMembers(value)
               const userIds = uniqueStrings(value.map((member) => member.user_id))
               if (userIds.length > 0) {
-                const loadedSummaries = await listUserSummaries(userIds)
+                const loadedSummaries = await getTeamUserSummariesResource(resourceAccountId, context.team.id, userIds)
                 if (requestIdRef.current === requestId) setSummaries(loadedSummaries)
               }
             })
@@ -136,7 +146,7 @@ export function ConnectionAccessDialog({
 
       await Promise.all([accessPromise, actionsPromise, membersPromise])
     },
-    [app.service, context.canManage, context.team.id, t],
+    [app.service, context.accountId, context.canManage, context.team.id, t],
   )
 
   React.useEffect(() => {
@@ -146,6 +156,8 @@ export function ConnectionAccessDialog({
     setMembers([])
     setSummaries({})
     setBusy(null)
+    setRepairOpen(false)
+    setEmptyAccessConfirmation(null)
     void load()
     return () => {
       requestIdRef.current += 1
@@ -236,38 +248,53 @@ export function ConnectionAccessDialog({
           <div className="grid gap-4">
             <MemberAccessSection
               access={appAccess}
-              busy={busy === "member"}
+              busy={busy !== null}
+              saving={busy === "member"}
               canManage={context.canManage}
               currentUserId={context.currentUserId}
               error={membersError}
               loading={loadingMembers}
               members={members}
               summaries={summaries}
-              onSave={(memberAccess) =>
-                mutate("member", (access) =>
+              onSave={(memberAccess) => {
+                if (memberAccess.mode === "selected" && memberAccess.userIds.length === 0) {
+                  setEmptyAccessConfirmation({ access: memberAccess, kind: "member" })
+                  return Promise.resolve()
+                }
+                return mutate("member", (access) =>
                   setTeamConnectionMemberAccess(access, { id: app.id, service: app.service }, memberAccess),
                 )
-              }
+              }}
             />
             <ActionAccessSection
               access={appAccess}
               actions={actions}
-              busy={busy === "action"}
+              busy={busy !== null}
+              saving={busy === "action"}
               canManage={context.canManage}
               error={actionsError}
               loading={loadingActions}
               onRetry={() => void load({ forceRefreshActions: true })}
-              onSave={(actionAccess) =>
-                mutate("action", (access) =>
+              onSave={(actionAccess) => {
+                if (actionAccess.mode === "restricted" && actionAccess.actionNames.length === 0) {
+                  setEmptyAccessConfirmation({ access: actionAccess, kind: "action" })
+                  return Promise.resolve()
+                }
+                return mutate("action", (access) =>
                   setTeamConnectionActionAccess(access, { id: app.id, service: app.service }, actionAccess),
                 )
-              }
+              }}
             />
           </div>
         ) : null}
       </Dialog>
-      <ConfirmDialog open={repairOpen} onOpenChange={setRepairOpen}>
-        <ConfirmDialogContent>
+      <ConfirmDialog
+        open={repairOpen}
+        onOpenChange={(nextOpen) => {
+          if (nextOpen || busy !== "repair") setRepairOpen(nextOpen)
+        }}
+      >
+        <ConfirmDialogContent overlayClassName="oo-modal-backdrop-nested">
           <ConfirmDialogHeader>
             <ConfirmDialogTitle>{t("connections.accessRepairTitle")}</ConfirmDialogTitle>
             <ConfirmDialogDescription>{t("connections.accessRepairDescription")}</ConfirmDialogDescription>
@@ -277,6 +304,48 @@ export function ConnectionAccessDialog({
             <ConfirmDialogAction variant="destructive" disabled={busy === "repair"} onClick={() => void repair()}>
               {busy === "repair" ? <Loader size={16} /> : null}
               {t("connections.accessRestoreDefaults")}
+            </ConfirmDialogAction>
+          </ConfirmDialogFooter>
+        </ConfirmDialogContent>
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={emptyAccessConfirmation !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && !busy) setEmptyAccessConfirmation(null)
+        }}
+      >
+        <ConfirmDialogContent overlayClassName="oo-modal-backdrop-nested">
+          <ConfirmDialogHeader>
+            <ConfirmDialogTitle>{t("connections.accessEmptyConfirmTitle")}</ConfirmDialogTitle>
+            <ConfirmDialogDescription>
+              {t(
+                emptyAccessConfirmation?.kind === "member"
+                  ? "connections.accessEmptyMembersConfirmDescription"
+                  : "connections.accessEmptyActionsConfirmDescription",
+              )}
+            </ConfirmDialogDescription>
+          </ConfirmDialogHeader>
+          <ConfirmDialogFooter>
+            <ConfirmDialogCancel disabled={Boolean(busy)}>{t("common.cancel")}</ConfirmDialogCancel>
+            <ConfirmDialogAction
+              variant="destructive"
+              disabled={Boolean(busy) || !emptyAccessConfirmation}
+              onClick={() => {
+                const confirmation = emptyAccessConfirmation
+                setEmptyAccessConfirmation(null)
+                if (!confirmation) return
+                if (confirmation.kind === "member") {
+                  void mutate("member", (access) =>
+                    setTeamConnectionMemberAccess(access, { id: app.id, service: app.service }, confirmation.access),
+                  )
+                } else {
+                  void mutate("action", (access) =>
+                    setTeamConnectionActionAccess(access, { id: app.id, service: app.service }, confirmation.access),
+                  )
+                }
+              }}
+            >
+              {t("connections.accessEmptyConfirmAction")}
             </ConfirmDialogAction>
           </ConfirmDialogFooter>
         </ConfirmDialogContent>
@@ -294,6 +363,7 @@ function MemberAccessSection({
   loading,
   members,
   onSave,
+  saving,
   summaries,
 }: {
   access: Exclude<ConnectionAppAccess, { mode: "invalid" }>
@@ -304,6 +374,7 @@ function MemberAccessSection({
   loading: boolean
   members: TeamMember[]
   onSave: (access: ConnectionMemberAccess) => Promise<void>
+  saving: boolean
   summaries: Record<string, TeamUserSummary>
 }) {
   const t = useT()
@@ -357,12 +428,14 @@ function MemberAccessSection({
           <div className="grid grid-cols-2 gap-2">
             <ModeButton
               active={mode === "team"}
+              disabled={busy}
               description={t("connections.memberAccessTeamDescription")}
               label={t("connections.memberAccessTeam")}
               onClick={() => setMode("team")}
             />
             <ModeButton
               active={mode === "selected"}
+              disabled={busy || loading}
               description={t("connections.memberAccessSelectedDescription")}
               label={t("connections.memberAccessSelected")}
               onClick={() => setMode("selected")}
@@ -375,6 +448,7 @@ function MemberAccessSection({
                   <Search className="oo-icon-muted pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
                   <Input
                     value={query}
+                    disabled={busy}
                     className="pl-8"
                     placeholder={t("connections.memberSearch")}
                     onChange={(event) => setQuery(event.target.value)}
@@ -394,6 +468,7 @@ function MemberAccessSection({
                     <CheckboxRow
                       key={member.user_id}
                       checked={selectedSet.has(member.user_id)}
+                      disabled={busy}
                       label={memberLabel(member.user_id, summaries)}
                       secondary={member.disable ? t("teams.memberDisabled") : member.role}
                       onChange={(checked) => setSelected(toggleString(selected, member.user_id, checked))}
@@ -403,6 +478,7 @@ function MemberAccessSection({
                     <CheckboxRow
                       key={userId}
                       checked
+                      disabled={busy}
                       label={userId}
                       secondary={t("connections.memberUnavailable")}
                       onChange={(checked) => setSelected(toggleString(selected, userId, checked))}
@@ -423,10 +499,16 @@ function MemberAccessSection({
           <div className="flex justify-end">
             <Button
               size="sm"
-              disabled={!dirty || busy || (mode === "selected" && Boolean(error))}
+              disabled={connectionAccessSaveDisabled({
+                busy,
+                dirty,
+                error: Boolean(error),
+                loading,
+                requiresCatalog: mode === "selected",
+              })}
               onClick={() => void onSave(mode === "team" ? { mode: "team" } : { mode: "selected", userIds: selected })}
             >
-              {busy ? <Loader size={16} /> : <ShieldCheck className="size-4" />}
+              {saving ? <Loader size={16} /> : <ShieldCheck className="size-4" />}
               {t("connections.memberAccessSave")}
             </Button>
           </div>
@@ -445,6 +527,7 @@ function ActionAccessSection({
   loading,
   onRetry,
   onSave,
+  saving,
 }: {
   access: Exclude<ConnectionAppAccess, { mode: "invalid" }>
   actions: ConnectionActionCatalogItem[]
@@ -454,6 +537,7 @@ function ActionAccessSection({
   loading: boolean
   onRetry: () => void
   onSave: (access: ConnectionActionAccess) => Promise<void>
+  saving: boolean
 }) {
   const t = useT()
   const initial = access.actionAccess
@@ -506,12 +590,14 @@ function ActionAccessSection({
         <div className="grid grid-cols-2 gap-2">
           <ModeButton
             active={mode === "unrestricted"}
+            disabled={busy}
             description={t("connections.actionAccessUnrestrictedDescription")}
             label={t("connections.actionAccessUnrestricted")}
             onClick={() => selectMode("unrestricted")}
           />
           <ModeButton
             active={mode === "restricted"}
+            disabled={busy || loading}
             description={t("connections.actionAccessRestrictedDescription")}
             label={t("connections.actionAccessRestricted")}
             onClick={() => selectMode("restricted")}
@@ -526,6 +612,7 @@ function ActionAccessSection({
               <Search className="oo-icon-muted pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
               <Input
                 value={query}
+                disabled={busy}
                 className="pl-8"
                 placeholder={t("connections.actionSearch")}
                 onChange={(event) => setQuery(event.target.value)}
@@ -553,7 +640,7 @@ function ActionAccessSection({
                   <ActionGroup
                     key={operationType}
                     actions={groupActions}
-                    canManage={canManage}
+                    canManage={canManage && !busy}
                     expanded={expanded.has(operationType)}
                     operationType={operationType}
                     selected={selectedSet}
@@ -578,7 +665,7 @@ function ActionAccessSection({
                     <CheckboxRow
                       key={name}
                       checked
-                      disabled={!canManage}
+                      disabled={!canManage || busy}
                       label={name}
                       secondary={t("connections.actionUnavailable")}
                       onChange={(checked) => setSelected(toggleString(selected, name, checked))}
@@ -598,14 +685,20 @@ function ActionAccessSection({
         <div className="flex justify-end">
           <Button
             size="sm"
-            disabled={!dirty || busy || (mode === "restricted" && Boolean(error))}
+            disabled={connectionAccessSaveDisabled({
+              busy,
+              dirty,
+              error: Boolean(error),
+              loading,
+              requiresCatalog: mode === "restricted",
+            })}
             onClick={() =>
               void onSave(
                 mode === "unrestricted" ? { mode: "unrestricted" } : { mode: "restricted", actionNames: selected },
               )
             }
           >
-            {busy ? <Loader size={16} /> : <ShieldCheck className="size-4" />}
+            {saving ? <Loader size={16} /> : <ShieldCheck className="size-4" />}
             {t("connections.actionAccessSave")}
           </Button>
         </div>
@@ -690,11 +783,13 @@ function ActionGroup({
 function ModeButton({
   active,
   description,
+  disabled,
   label,
   onClick,
 }: {
   active: boolean
   description: string
+  disabled?: boolean
   label: string
   onClick: () => void
 }) {
@@ -702,9 +797,11 @@ function ModeButton({
     <button
       type="button"
       aria-pressed={active}
+      disabled={disabled}
       className={cn(
         "grid min-h-20 gap-1 rounded-md border px-3 py-2 text-left",
         active ? "border-foreground bg-muted/50" : "hover:bg-muted/30",
+        disabled && "cursor-not-allowed opacity-60",
       )}
       onClick={onClick}
     >

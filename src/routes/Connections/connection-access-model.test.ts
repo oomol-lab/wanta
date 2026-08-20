@@ -2,10 +2,31 @@ import type { ConnectionActionCatalogItem } from "../../../electron/connections/
 
 import { describe, expect, it } from "vitest"
 import {
+  connectionAccessSaveDisabled,
   defaultRestrictedActionNames,
   unavailableActionNames,
   updateActionSelection,
 } from "./connection-access-model.ts"
+
+describe("connectionAccessSaveDisabled", () => {
+  it("blocks catalog-dependent saves until the catalog finishes loading", () => {
+    expect(
+      connectionAccessSaveDisabled({ busy: false, dirty: true, error: false, loading: true, requiresCatalog: true }),
+    ).toBe(true)
+    expect(
+      connectionAccessSaveDisabled({ busy: false, dirty: true, error: false, loading: false, requiresCatalog: true }),
+    ).toBe(false)
+  })
+
+  it("allows catalog-independent modes but blocks every concurrent mutation", () => {
+    expect(
+      connectionAccessSaveDisabled({ busy: false, dirty: true, error: true, loading: true, requiresCatalog: false }),
+    ).toBe(false)
+    expect(
+      connectionAccessSaveDisabled({ busy: true, dirty: true, error: false, loading: false, requiresCatalog: false }),
+    ).toBe(true)
+  })
+})
 
 const actions: ConnectionActionCatalogItem[] = [
   action("list_issues", "read"),

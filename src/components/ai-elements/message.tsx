@@ -7,8 +7,9 @@ import { isValidElement, lazy, memo, Suspense, useEffect, useMemo, useRef, useSt
 import { toast } from "sonner"
 import {
   extractLocalImagePaths,
+  extractMarkdownImageSources,
   normalizeLocalImageMarkdown,
-  stripLocalImageMarkdown,
+  rewriteLocalImageMarkdown,
 } from "../../../electron/chat/markdown-images.ts"
 import {
   CodeBlock,
@@ -401,8 +402,9 @@ function localImageAltText(value: string): string {
 
 function extractLocalImagePreviews(markdown: string): LocalImagePreview[] {
   const previews: LocalImagePreview[] = []
+  const embeddedSources = new Set(extractMarkdownImageSources(markdown))
   for (const candidate of extractLocalImagePaths(markdown)) {
-    if (candidate && !previews.some((preview) => preview.path === candidate)) {
+    if (candidate && !embeddedSources.has(candidate) && !previews.some((preview) => preview.path === candidate)) {
       previews.push({ path: candidate, alt: localImageAltText(candidate) })
     }
   }
@@ -572,7 +574,7 @@ export const MessageResponse = memo(
     const localImagePreviews =
       typeof normalizedChildren === "string" ? extractLocalImagePreviews(normalizedChildren) : []
     const responseChildren =
-      typeof normalizedChildren === "string" ? stripLocalImageMarkdown(normalizedChildren) : normalizedChildren
+      typeof normalizedChildren === "string" ? rewriteLocalImageMarkdown(normalizedChildren) : normalizedChildren
     const defaultRenderers = useMemo(
       () => messageResponseRenderers(typeof responseChildren === "string" ? responseChildren : ""),
       [responseChildren],

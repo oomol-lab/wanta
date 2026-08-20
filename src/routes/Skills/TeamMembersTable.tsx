@@ -4,7 +4,7 @@ import type { TeamMemberConnectionAccessData } from "./TeamMemberConnectionAcces
 
 import { MoreHorizontalIcon, Trash2Icon, UserCheckIcon, UserXIcon } from "lucide-react"
 import * as React from "react"
-import { projectTeamMemberConnectionAccess } from "./team-member-connection-access-model.ts"
+import { projectTeamMemberConnectionAccessSummaries } from "./team-member-connection-access-model.ts"
 import { MemberConnectionAccessButton } from "./TeamMemberConnectionAccessDialog.tsx"
 import { TeamUserAvatar } from "./TeamUserAvatar.tsx"
 import { hasMemberStatus, isBulkEditableMember, useMemberStatusSelection } from "./use-member-status-selection.ts"
@@ -62,7 +62,7 @@ export function MembersTable({
   } | null>(null)
   const connectionProjections = React.useMemo(() => {
     if (!connectionAccess.access) return null
-    return projectTeamMemberConnectionAccess(
+    return projectTeamMemberConnectionAccessSummaries(
       connectionAccess.access,
       connectionAccess.apps,
       members.map((member) => member.user_id),
@@ -235,10 +235,9 @@ export function MembersTable({
                   <MemberConnectionAccessButton
                     disabled={bulkBusy}
                     loading={connectionAccess.loading}
-                    projection={
-                      connectionProjections?.ok
-                        ? (connectionProjections.byUserId.get(member.user_id) ?? null)
-                        : connectionProjections
+                    invalid={connectionProjections?.ok === false}
+                    summary={
+                      connectionProjections?.ok ? (connectionProjections.byUserId.get(member.user_id) ?? null) : null
                     }
                     onClick={() => onOpenMemberConnectionAccess(member)}
                   />

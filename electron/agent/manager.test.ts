@@ -487,6 +487,8 @@ describe("AgentManager", () => {
     expect(system).toContain("both are required for every final generated image")
     expect(system).toContain("keep that preview visible")
     expect(system).toContain("Wanta can materialize the same image")
+    expect(system).toContain("use the local path for the inline Markdown image")
+    expect(system).toContain("do not make it the primary preview")
     expect(system).toContain("replace every embedded output path")
     expect(system).not.toContain("Do not present a remote")
   })

@@ -15,6 +15,7 @@ import {
   EllipsisIcon,
   ExternalLinkIcon,
   FolderOpenIcon,
+  ImageOffIcon,
   MinusIcon,
   PlusIcon,
   SaveIcon,
@@ -242,6 +243,7 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
   const originalSrc = typeof src === "string" ? src : undefined
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewRetry, setPreviewRetry] = useState(0)
+  const [failedExternalSrc, setFailedExternalSrc] = useState<string | null>(null)
   const [isViewerOpen, setIsViewerOpen] = useState(false)
   const [stageSize, setStageSize] = useState<ImageViewerSize | null>(null)
   const [imageSize, setImageSize] = useState<ImageViewerSize | null>(null)
@@ -253,6 +255,10 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
   useEffect(() => {
     setPreviewRetry(0)
   }, [localPath])
+
+  useEffect(() => {
+    setFailedExternalSrc(null)
+  }, [originalSrc])
 
   useEffect(() => {
     if (!localPath) {
@@ -307,13 +313,33 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
   const visibleSrc = localPath ? previewUrl : originalSrc
   const downloadName = imageFileName(localPath ?? originalSrc)
   const previewTitle = alt || downloadName
+  const externalPreviewFailed = Boolean(!localPath && originalSrc && failedExternalSrc === originalSrc)
   const handlePreviewError: MarkdownImageProps["onError"] = (event) => {
     props.onError?.(event)
-    if (!localPath || localImagePreviewRetryDelay(previewRetry) === null) {
+    if (!localPath) {
+      if (originalSrc) {
+        setFailedExternalSrc(originalSrc)
+      }
+      return
+    }
+    if (localImagePreviewRetryDelay(previewRetry) === null) {
       return
     }
     setPreviewUrl(null)
     setPreviewRetry((value) => value + 1)
+  }
+
+  if (externalPreviewFailed) {
+    return (
+      <div
+        className="oo-markdown-image-unavailable"
+        role="status"
+        aria-label={t("chat.imagePreview.unavailable", { name: previewTitle })}
+      >
+        <ImageOffIcon aria-hidden="true" />
+        <span>{t("chat.imagePreview.unavailable", { name: previewTitle })}</span>
+      </div>
+    )
   }
 
   if (!visibleSrc) {

@@ -39,7 +39,11 @@ function appContext(chatService: { invoke: ReturnType<typeof vi.fn> }): AppConte
   } as AppContextValue
 }
 
-async function renderImage(invoke: ReturnType<typeof vi.fn>): Promise<{ host: HTMLDivElement; root: Root }> {
+async function renderImage(
+  invoke: ReturnType<typeof vi.fn>,
+  src = String.raw`C:\Users\Cheerego\artifact.png`,
+  alt = "artifact",
+): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
@@ -49,7 +53,7 @@ async function renderImage(invoke: ReturnType<typeof vi.fn>): Promise<{ host: HT
         value={{ locale: "zh-CN", setLocale: () => undefined, t: (key, vars) => translate("zh-CN", key, vars) }}
       >
         <AppContext.Provider value={appContext({ invoke })}>
-          <MarkdownImage src={String.raw`C:\Users\Cheerego\artifact.png`} alt="artifact" />
+          <MarkdownImage src={src} alt={alt} />
         </AppContext.Provider>
       </I18nContext.Provider>,
     )
@@ -125,6 +129,22 @@ test("does not retry rejected local paths", async () => {
   })
 
   expect(invoke).toHaveBeenCalledTimes(1)
+  act(() => root.unmount())
+})
+
+test("replaces a failed remote preview with a visible error state", async () => {
+  const invoke = vi.fn()
+  const { host, root } = await renderImage(invoke, "https://example.com/expired-output.png", "generated output")
+  const image = host.querySelector("img")
+
+  expect(image).not.toBeNull()
+  await act(async () => {
+    image?.dispatchEvent(new Event("error"))
+  })
+
+  expect(host.querySelector("img")).toBeNull()
+  expect(host.querySelector('[role="status"]')?.textContent).toBe("图片预览不可用：generated output")
+  expect(invoke).not.toHaveBeenCalled()
   act(() => root.unmount())
 })
 

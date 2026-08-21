@@ -673,6 +673,30 @@
     background: transparent;
   }
 
+  .oo-markdown-image-unavailable {
+    display: flex;
+    width: fit-content;
+    max-width: min(100%, 20rem);
+    min-height: 4.5rem;
+    align-items: center;
+    gap: 0.625rem;
+    margin: 0.75rem 0;
+    border: 1px dashed var(--oo-border-subtle);
+    border-radius: 8px;
+    background: var(--muted);
+    padding: 0.875rem 1rem;
+    color: var(--muted-foreground);
+    font-size: var(--oo-font-caption);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .oo-markdown-image-unavailable svg {
+    width: 1.125rem;
+    height: 1.125rem;
+    flex: none;
+  }
+
   .oo-markdown-image-open {
     display: block;
     margin: 0;

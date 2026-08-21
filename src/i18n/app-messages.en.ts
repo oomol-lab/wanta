@@ -401,6 +401,7 @@ export const enMessages = {
   "chat.imagePreview.saved": "Image saved",
   "chat.imagePreview.showInFolder": "Show in folder",
   "chat.imagePreview.localFile": "Local file",
+  "chat.imagePreview.unavailable": "Image preview unavailable: {name}",
   "chat.imagePreview.zoomIn": "Zoom in",
   "chat.imagePreview.zoomOut": "Zoom out",
   "chat.likeMessage": "Good response",

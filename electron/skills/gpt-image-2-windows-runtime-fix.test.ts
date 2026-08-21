@@ -22,7 +22,10 @@ describe("GPT Image 2 Windows runtime compatibility", () => {
     expect(patched).toContain("do not pass `--team`")
     expect(patched).toContain("`OO_TEAM_ID` or `OO_TEAM_NAME`")
     expect(patched).toContain("`oo team use` does not persist")
-    expect(patched).not.toContain("Wanta local image delivery")
+    expect(patched).toContain("Wanta local image delivery")
+    expect(patched).toContain("use those saved local files for inline previews instead of matching `remote_urls`")
+    expect(patched).toContain("one Markdown image per final image selected for inline display")
+    expect(patched).toContain("Do not arbitrarily limit a multi-image result to its first path")
     expect(patchGptImage2RuntimeInstructions(patched)).toBe(patched)
   })
 
@@ -74,10 +77,12 @@ describe("GPT Image 2 Windows runtime compatibility", () => {
     await expect(readFile(path.join(skillPath, "SKILL.md"), "utf8")).resolves.toContain(
       "`OO_TEAM_ID` or `OO_TEAM_NAME`",
     )
-    await expect(readFile(path.join(skillPath, "SKILL.md"), "utf8")).resolves.not.toContain("Markdown image")
+    await expect(readFile(path.join(skillPath, "SKILL.md"), "utf8")).resolves.toContain(
+      "one Markdown image per final image selected for inline display",
+    )
   })
 
-  it("removes the obsolete first-image-only runtime override", () => {
+  it("replaces the obsolete first-image-only runtime override with ordered local delivery", () => {
     const patched = patchGptImage2RuntimeInstructions(
       [
         "# GPT Image 2",
@@ -89,7 +94,9 @@ describe("GPT Image 2 Windows runtime compatibility", () => {
     )
 
     expect(patched).not.toContain("Use the first path only")
-    expect(patched).not.toContain("wanta-gpt-image-2-local-image-display")
+    expect(patched).toContain("Do not arbitrarily limit a multi-image result to its first path")
+    expect(patched.match(/wanta-gpt-image-2-local-image-display:start/g)).toHaveLength(1)
+    expect(patched.match(/wanta-gpt-image-2-local-image-display:end/g)).toHaveLength(1)
   })
 
   it("applies team guidance on every platform but leaves non-Windows runners unchanged", async () => {

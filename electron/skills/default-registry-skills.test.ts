@@ -3,7 +3,14 @@ import { defaultRegistrySkillSetVersion, defaultRegistrySkills } from "./default
 
 describe("default Registry Skills", () => {
   it("installs the public social research adapter through the Registry runtime", () => {
-    expect(defaultRegistrySkillSetVersion).toBe(3)
+    expect(defaultRegistrySkillSetVersion).toBe(4)
+    expect(defaultRegistrySkills).toContainEqual({
+      category: "image-generation",
+      enabled: true,
+      minimumVersion: "1.1.2",
+      packageName: "@zjxuyunshi/gpt-image-2",
+      skillId: "gpt-image-2",
+    })
     expect(defaultRegistrySkills).toContainEqual({
       category: "other",
       enabled: true,

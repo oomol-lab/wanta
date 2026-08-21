@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { semanticVersionIsBefore } from "./semantic-version.ts"
 
 const gptImage2SkillId = "gpt-image-2"
 const runnerPath = path.join("scripts", "run_image.js")
@@ -8,6 +9,7 @@ const teamScopeInstructionsStart = "<!-- wanta-gpt-image-2-team-scope:start -->"
 const teamScopeInstructionsEnd = "<!-- wanta-gpt-image-2-team-scope:end -->"
 const localImageDisplayInstructionsStart = "<!-- wanta-gpt-image-2-local-image-display:start -->"
 const localImageDisplayInstructionsEnd = "<!-- wanta-gpt-image-2-local-image-display:end -->"
+const nativeWindowsRunnerVersion = "1.1.2"
 
 const teamScopeInstructions = [
   teamScopeInstructionsStart,
@@ -17,18 +19,6 @@ const teamScopeInstructions = [
   "When authentication uses `OO_API_KEY`, `oo team use` does not persist a default team. Set `OO_TEAM_ID` or `OO_TEAM_NAME` in the environment for that command instead.",
   "This guidance applies to direct `oo` calls only and does not change Wanta-managed connector workspace selection.",
   teamScopeInstructionsEnd,
-].join("\n")
-
-const localImageDisplayInstructions = [
-  localImageDisplayInstructionsStart,
-  "## Wanta local image delivery",
-  "",
-  "When the runner returns non-empty `local_paths`, use those saved local files for inline previews instead of matching `remote_urls`.",
-  "Include one Markdown image per final image selected for inline display, preserving `local_paths` order: `![Generated image](<absolute-local-path>)`.",
-  "On Windows, keep drive-letter paths in `C:/...` or `C:\\...` form. Never add a leading slash such as `/C:/...` in the Markdown destination.",
-  "Do not arbitrarily limit a multi-image result to its first path. Follow Wanta's artifact output contract when deciding whether a large image set should be inlined or left to the artifact browser.",
-  "Use a remote URL for the inline preview only when no corresponding local path was saved successfully.",
-  localImageDisplayInstructionsEnd,
 ].join("\n")
 
 const localizedSavedPathMatch = "output.match(/(?:Saved to|已保存到|保存至)\\s*[:：]\\s*(.+)/u);"
@@ -55,22 +45,25 @@ export function patchWindowsGptImage2Runner(source: string): string {
     )
 }
 
-/** Adds Wanta-specific, supported team-selection guidance to the private skill copy. */
+/** Keeps only Wanta-specific team guidance; image delivery is native in gpt-image-2 1.1.2+. */
 export function patchGptImage2RuntimeInstructions(source: string): string {
   const lineEnding = source.includes("\r\n") ? "\r\n" : "\n"
-  return appendRuntimeInstructions(
-    appendRuntimeInstructions(
-      source,
-      teamScopeInstructionsStart,
-      teamScopeInstructionsEnd,
-      teamScopeInstructions,
-      lineEnding,
-    ),
+  const withoutLegacyImageInstructions = removeRuntimeInstructions(
+    source,
     localImageDisplayInstructionsStart,
     localImageDisplayInstructionsEnd,
-    localImageDisplayInstructions,
+  )
+  return appendRuntimeInstructions(
+    withoutLegacyImageInstructions,
+    teamScopeInstructionsStart,
+    teamScopeInstructionsEnd,
+    teamScopeInstructions,
     lineEnding,
   )
+}
+
+function removeRuntimeInstructions(source: string, start: string, end: string): string {
+  return source.replace(new RegExp(`${start}[\\s\\S]*?${end}(?:\\r?\\n)?`, "u"), "")
 }
 
 function appendRuntimeInstructions(
@@ -88,23 +81,27 @@ function appendRuntimeInstructions(
   return `${withoutExistingInstructions}${lineEnding}${lineEnding}${instructions.replaceAll("\n", lineEnding)}${lineEnding}`
 }
 
-async function patchInstructions(skillPath: string): Promise<boolean> {
+function skillVersionFromInstructions(source: string): string | undefined {
+  return /^\s*version:\s*['"]?([^\s'"]+)/mu.exec(source)?.[1]
+}
+
+async function patchInstructions(skillPath: string): Promise<{ instructionsPatched: boolean; skillVersion?: string }> {
   const filePath = path.join(skillPath, skillInstructionsPath)
   let source: string
   try {
     source = await readFile(filePath, "utf8")
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return false
+      return { instructionsPatched: false }
     }
     throw error
   }
   const patched = patchGptImage2RuntimeInstructions(source)
   if (patched === source) {
-    return false
+    return { instructionsPatched: false, skillVersion: skillVersionFromInstructions(source) }
   }
   await writeFile(filePath, patched, "utf8")
-  return true
+  return { instructionsPatched: true, skillVersion: skillVersionFromInstructions(source) }
 }
 
 /** Applies the compatibility fix only to Wanta's private runtime copy. */
@@ -116,8 +113,8 @@ export async function ensureGptImage2RuntimeCompatibility(
     return false
   }
 
-  const instructionsPatched = await patchInstructions(skillPath)
-  if (platform !== "win32") {
+  const { instructionsPatched, skillVersion } = await patchInstructions(skillPath)
+  if (platform !== "win32" || !semanticVersionIsBefore(skillVersion, nativeWindowsRunnerVersion)) {
     return instructionsPatched
   }
 

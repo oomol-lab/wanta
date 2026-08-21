@@ -320,6 +320,13 @@ describe("MarkdownImage", () => {
     ).toBe("C:/Users/me/output files/image.png")
   })
 
+  it("removes a mistaken leading slash from Windows drive paths", () => {
+    expect(localImagePathFromSrc("/C:/Users/me/output%20files/image.png")).toBe("C:/Users/me/output files/image.png")
+    expect(
+      localImagePathFromSrc("https://wanta.local/__local-image__/%2FC%3A%2FUsers%2Fme%2Foutput%2520files%2Fimage.png"),
+    ).toBe("C:/Users/me/output files/image.png")
+  })
+
   it("does not treat home-relative image paths as absolute local paths", () => {
     expect(localImagePathFromSrc("~/output/image.png")).toBeNull()
   })

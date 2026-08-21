@@ -282,3 +282,20 @@ test("keeps a Windows Markdown image at its authored position", async () => {
   expect(invoke).toHaveBeenCalledTimes(1)
   act(() => root.unmount())
 })
+
+test("repairs a leading slash before a Windows drive in Markdown images", async () => {
+  const invoke = vi
+    .fn()
+    .mockResolvedValue({ resourceExpiresAt: Date.now() + 120_000, resourceUrl: "wanta-resource://inline" })
+  const { host, root } = await renderResponse(
+    "before ![artifact](</C:/Users/Cheerego/output%20files/artifact.png>) after",
+    invoke,
+  )
+
+  expect(invoke).toHaveBeenCalledWith("getAttachmentPreview", {
+    path: "C:/Users/Cheerego/output files/artifact.png",
+    mime: "application/octet-stream",
+  })
+  expect(host.querySelector('img[src="wanta-resource://inline"]')).not.toBeNull()
+  act(() => root.unmount())
+})

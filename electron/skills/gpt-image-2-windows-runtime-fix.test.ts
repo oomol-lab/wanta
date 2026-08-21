@@ -26,6 +26,7 @@ describe("GPT Image 2 Windows runtime compatibility", () => {
     expect(patched).toContain("use those saved local files for inline previews instead of matching `remote_urls`")
     expect(patched).toContain("one Markdown image per final image selected for inline display")
     expect(patched).toContain("Do not arbitrarily limit a multi-image result to its first path")
+    expect(patched).toContain("Never add a leading slash such as `/C:/...`")
     expect(patchGptImage2RuntimeInstructions(patched)).toBe(patched)
   })
 
@@ -43,9 +44,18 @@ describe("GPT Image 2 Windows runtime compatibility", () => {
     )
 
     expect(patched).toContain("spawn(command, cmdArgs, { env, windowsHide: true });")
-    expect(patched).toContain("/(?:Saved to:|已保存到[:：]|保存至[:：])\\s*(.+)/u")
+    expect(patched).toContain("/(?:Saved to|已保存到|保存至)\\s*[:：]\\s*(.+)/u")
     expect(patched).toContain('if (typeof first === "string" && first.endsWith(".js")) {')
     expect(patched).not.toContain('path.basename(first) === "run_image.js"')
+  })
+
+  it("upgrades the previous localized download parser", () => {
+    const patched = patchWindowsGptImage2Runner(
+      "const match = output.match(/(?:Saved to:|已保存到[:：]|保存至[:：])\\s*(.+)/u);",
+    )
+
+    expect(patched).toContain("/(?:Saved to|已保存到|保存至)\\s*[:：]\\s*(.+)/u")
+    expect(patchWindowsGptImage2Runner(patched)).toBe(patched)
   })
 
   it("patches only the private Windows runtime copy and is idempotent", async () => {

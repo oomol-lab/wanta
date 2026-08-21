@@ -25,10 +25,13 @@ const localImageDisplayInstructions = [
   "",
   "When the runner returns non-empty `local_paths`, use those saved local files for inline previews instead of matching `remote_urls`.",
   "Include one Markdown image per final image selected for inline display, preserving `local_paths` order: `![Generated image](<absolute-local-path>)`.",
+  "On Windows, keep drive-letter paths in `C:/...` or `C:\\...` form. Never add a leading slash such as `/C:/...` in the Markdown destination.",
   "Do not arbitrarily limit a multi-image result to its first path. Follow Wanta's artifact output contract when deciding whether a large image set should be inlined or left to the artifact browser.",
   "Use a remote URL for the inline preview only when no corresponding local path was saved successfully.",
   localImageDisplayInstructionsEnd,
 ].join("\n")
+
+const localizedSavedPathMatch = "output.match(/(?:Saved to|已保存到|保存至)\\s*[:：]\\s*(.+)/u);"
 
 /**
  * The default GPT Image 2 runner starts short-lived `oo` commands while a
@@ -38,7 +41,8 @@ const localImageDisplayInstructions = [
 export function patchWindowsGptImage2Runner(source: string): string {
   return source
     .replace("spawn(command, cmdArgs, { env });", "spawn(command, cmdArgs, { env, windowsHide: true });")
-    .replace("output.match(/Saved to:\\s*(.+)/);", "output.match(/(?:Saved to:|已保存到[:：]|保存至[:：])\\s*(.+)/u);")
+    .replace("output.match(/Saved to:\\s*(.+)/);", localizedSavedPathMatch)
+    .replace("output.match(/(?:Saved to:|已保存到[:：]|保存至[:：])\\s*(.+)/u);", localizedSavedPathMatch)
     .replace(
       [
         "if (",

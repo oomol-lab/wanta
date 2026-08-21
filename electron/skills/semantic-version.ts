@@ -4,7 +4,10 @@ interface ParsedSemanticVersion {
 }
 
 function parseSemanticVersion(value: string): ParsedSemanticVersion | null {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(value.trim())
+  const match =
+    /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+      value.trim(),
+    )
   if (!match) {
     return null
   }

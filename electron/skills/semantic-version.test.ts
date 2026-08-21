@@ -20,6 +20,8 @@ describe("semanticVersionIsBefore", () => {
     ["1.0.0-alpha", "1.0.0-alpha.1", true],
     ["1.0.0-alpha.1", "1.0.0-alpha", false],
     ["1.1.2+build.99", "1.1.2+build.1", false],
+    ["1.1.2-alpha..1", "1.1.2-alpha.1", true],
+    ["1.1.2+build..1", "1.1.2", true],
   ])("compares %s against minimum %s", (current, minimum, expected) => {
     expect(semanticVersionIsBefore(current, minimum)).toBe(expected)
   })

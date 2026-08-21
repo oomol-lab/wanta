@@ -8,7 +8,7 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, expect, test, vi } from "vitest"
 import { rewriteLocalImageMarkdown } from "../../../electron/chat/markdown-images.ts"
-import { localImagePreviewRetryDelay, MarkdownImage } from "./message-image.tsx"
+import { ImageViewerModal, localImagePreviewRetryDelay, MarkdownImage } from "./message-image.tsx"
 import { MessageStreamdown } from "./message-streamdown.tsx"
 import { AppContext } from "@/components/AppContext"
 import { ThemeContext } from "@/components/theme-context"
@@ -43,6 +43,35 @@ async function renderImage(
   invoke: ReturnType<typeof vi.fn>,
   src = String.raw`C:\Users\Cheerego\artifact.png`,
   alt = "artifact",
+): Promise<{
+  host: HTMLDivElement
+  rerender: (nextSrc: string, nextAlt?: string) => Promise<void>
+  root: Root
+}> {
+  const host = document.createElement("div")
+  document.body.append(host)
+  const root = createRoot(host)
+  const rerender = async (nextSrc: string, nextAlt = alt): Promise<void> => {
+    await act(async () => {
+      root.render(
+        <I18nContext.Provider
+          value={{ locale: "zh-CN", setLocale: () => undefined, t: (key, vars) => translate("zh-CN", key, vars) }}
+        >
+          <AppContext.Provider value={appContext({ invoke })}>
+            <MarkdownImage src={nextSrc} alt={nextAlt} />
+          </AppContext.Provider>
+        </I18nContext.Provider>,
+      )
+      await Promise.resolve()
+    })
+  }
+  await rerender(src)
+  return { host, rerender, root }
+}
+
+async function renderViewerModal(
+  invoke: ReturnType<typeof vi.fn>,
+  onError: NonNullable<React.ComponentProps<"img">["onError"]>,
 ): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div")
   document.body.append(host)
@@ -53,7 +82,14 @@ async function renderImage(
         value={{ locale: "zh-CN", setLocale: () => undefined, t: (key, vars) => translate("zh-CN", key, vars) }}
       >
         <AppContext.Provider value={appContext({ invoke })}>
-          <MarkdownImage src={src} alt={alt} />
+          <ImageViewerModal
+            alt="attachment"
+            localPath="/tmp/attachment.png"
+            onClose={() => undefined}
+            onError={onError}
+            src="wanta-resource://attachment/preview"
+            title="attachment"
+          />
         </AppContext.Provider>
       </I18nContext.Provider>,
     )
@@ -148,6 +184,24 @@ test("replaces a failed remote preview with a visible error state", async () => 
   act(() => root.unmount())
 })
 
+test("clears a failed remote preview when the source changes", async () => {
+  const invoke = vi.fn()
+  const { host, rerender, root } = await renderImage(invoke, "https://example.com/expired-output.png", "first output")
+
+  await act(async () => {
+    host.querySelector("img")?.dispatchEvent(new Event("error"))
+  })
+  expect(host.querySelector('[role="status"]')?.textContent).toBe("图片预览不可用：first output")
+
+  await rerender("https://example.com/replacement-output.png", "replacement output")
+
+  expect(host.querySelector('[role="status"]')).toBeNull()
+  expect(host.querySelector("img")?.getAttribute("src")).toBe("https://example.com/replacement-output.png")
+  expect(host.querySelector("img")?.getAttribute("alt")).toBe("replacement output")
+  expect(invoke).not.toHaveBeenCalled()
+  act(() => root.unmount())
+})
+
 test("replaces a remote preview that fails only after opening the viewer", async () => {
   const invoke = vi.fn()
   const { host, root } = await renderImage(invoke, "https://example.com/expiring-output.png", "generated output")
@@ -165,6 +219,31 @@ test("replaces a remote preview that fails only after opening the viewer", async
   expect(document.body.querySelector(".oo-markdown-image-viewer")).toBeNull()
   expect(host.querySelector("img")).toBeNull()
   expect(host.querySelector('[role="status"]')?.textContent).toBe("图片预览不可用：generated output")
+  expect(invoke).not.toHaveBeenCalled()
+  act(() => root.unmount())
+})
+
+test("renders an unavailable state when a standalone viewer image fails", async () => {
+  const invoke = vi.fn()
+  const onError = vi.fn()
+  const { root } = await renderViewerModal(invoke, onError)
+  const viewerImage = document.body.querySelector<HTMLImageElement>(".oo-markdown-image-viewer-image")
+  expect(viewerImage).not.toBeNull()
+
+  await act(async () => {
+    viewerImage?.dispatchEvent(new Event("error"))
+  })
+
+  expect(onError).toHaveBeenCalledTimes(1)
+  expect(document.body.querySelector(".oo-markdown-image-viewer")).not.toBeNull()
+  expect(
+    document.body
+      .querySelector(".oo-markdown-image-viewer-image")
+      ?.closest(".oo-markdown-image-viewer-center")
+      ?.classList.contains("hidden"),
+  ).toBe(true)
+  expect(document.body.querySelector('[role="status"]')?.textContent).toBe("图片预览不可用：attachment")
+  expect(document.body.querySelector(".oo-markdown-image-viewer-zoom")).toBeNull()
   expect(invoke).not.toHaveBeenCalled()
   act(() => root.unmount())
 })

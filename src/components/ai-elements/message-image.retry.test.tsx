@@ -148,6 +148,27 @@ test("replaces a failed remote preview with a visible error state", async () => 
   act(() => root.unmount())
 })
 
+test("replaces a remote preview that fails only after opening the viewer", async () => {
+  const invoke = vi.fn()
+  const { host, root } = await renderImage(invoke, "https://example.com/expiring-output.png", "generated output")
+
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>(".oo-markdown-image-open")?.click()
+  })
+  const viewerImage = document.body.querySelector<HTMLImageElement>(".oo-markdown-image-viewer-image")
+  expect(viewerImage).not.toBeNull()
+
+  await act(async () => {
+    viewerImage?.dispatchEvent(new Event("error"))
+  })
+
+  expect(document.body.querySelector(".oo-markdown-image-viewer")).toBeNull()
+  expect(host.querySelector("img")).toBeNull()
+  expect(host.querySelector('[role="status"]')?.textContent).toBe("图片预览不可用：generated output")
+  expect(invoke).not.toHaveBeenCalled()
+  act(() => root.unmount())
+})
+
 test("revalidates the local path when a preview remounts", async () => {
   const firstInvoke = vi
     .fn()

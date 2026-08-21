@@ -376,6 +376,7 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
               imageSize={imageSize}
               localPath={localPath}
               onClose={() => setIsViewerOpen(false)}
+              onError={handlePreviewError}
               setImageSize={setImageSize}
               setStageSize={setStageSize}
               setViewerState={setViewerState}
@@ -400,6 +401,7 @@ interface ImageViewerProps {
   imageSize: ImageViewerSize | null
   localPath?: string | null
   onClose: () => void
+  onError?: MarkdownImageProps["onError"]
   setImageSize: Dispatch<SetStateAction<ImageViewerSize | null>>
   setStageSize: Dispatch<SetStateAction<ImageViewerSize | null>>
   setViewerState: Dispatch<SetStateAction<ImageViewerState>>
@@ -622,6 +624,7 @@ function ImageViewer({
   imageSize,
   localPath,
   onClose,
+  onError,
   setImageSize,
   setStageSize,
   setViewerState,
@@ -795,6 +798,7 @@ function ImageViewer({
                 className="oo-markdown-image-viewer-image"
                 draggable={false}
                 decoding="async"
+                onError={onError}
                 onLoad={(event) => {
                   setImageSize({
                     height: event.currentTarget.naturalHeight,

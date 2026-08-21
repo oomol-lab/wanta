@@ -19,6 +19,17 @@ const teamScopeInstructions = [
   teamScopeInstructionsEnd,
 ].join("\n")
 
+const localImageDisplayInstructions = [
+  localImageDisplayInstructionsStart,
+  "## Wanta local image delivery",
+  "",
+  "When the runner returns non-empty `local_paths`, use those saved local files for inline previews instead of matching `remote_urls`.",
+  "Include one Markdown image per final image selected for inline display, preserving `local_paths` order: `![Generated image](<absolute-local-path>)`.",
+  "Do not arbitrarily limit a multi-image result to its first path. Follow Wanta's artifact output contract when deciding whether a large image set should be inlined or left to the artifact browser.",
+  "Use a remote URL for the inline preview only when no corresponding local path was saved successfully.",
+  localImageDisplayInstructionsEnd,
+].join("\n")
+
 /**
  * The default GPT Image 2 runner starts short-lived `oo` commands while a
  * Windows agent turn is running. Keep the consoles hidden, accept localized
@@ -44,16 +55,18 @@ export function patchWindowsGptImage2Runner(source: string): string {
 export function patchGptImage2RuntimeInstructions(source: string): string {
   const lineEnding = source.includes("\r\n") ? "\r\n" : "\n"
   return appendRuntimeInstructions(
-    removeRuntimeInstructions(source, localImageDisplayInstructionsStart, localImageDisplayInstructionsEnd),
-    teamScopeInstructionsStart,
-    teamScopeInstructionsEnd,
-    teamScopeInstructions,
+    appendRuntimeInstructions(
+      source,
+      teamScopeInstructionsStart,
+      teamScopeInstructionsEnd,
+      teamScopeInstructions,
+      lineEnding,
+    ),
+    localImageDisplayInstructionsStart,
+    localImageDisplayInstructionsEnd,
+    localImageDisplayInstructions,
     lineEnding,
   )
-}
-
-function removeRuntimeInstructions(source: string, start: string, end: string): string {
-  return source.replace(new RegExp(`${start}[\\s\\S]*?${end}(?:\\r?\\n)?`, "u"), "")
 }
 
 function appendRuntimeInstructions(

@@ -383,6 +383,7 @@ export const zhCNMessages = {
   "chat.imagePreview.saved": "图片已保存",
   "chat.imagePreview.showInFolder": "在文件夹中显示",
   "chat.imagePreview.localFile": "本地文件",
+  "chat.imagePreview.unavailable": "图片预览不可用：{name}",
   "chat.imagePreview.zoomIn": "放大",
   "chat.imagePreview.zoomOut": "缩小",
   "chat.likeMessage": "赞",

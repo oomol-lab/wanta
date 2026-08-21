@@ -53,6 +53,7 @@ import {
   upsertDefaultSkillInstallRecord,
 } from "./default-install-store.ts"
 import {
+  defaultRegistrySkillNeedsUpdate,
   isRuntimeSkillInstalled,
   normalizeDefaultRegistrySkillRequest,
   runtimeErrorMessage,
@@ -302,15 +303,29 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   public async updateRegistrySkill(request: UpdateRegistrySkillRequest): Promise<SkillInventory> {
     return this.enqueueSkillMutation(async () => {
-      const result = await this.runOoCommand(createUpdateRegistrySkillArgs(request), {
-        rejectOnFailure: false,
-      })
-      assertOoSkillOperationResult(result, "skills.update")
-      await this.enqueueRuntimeSync(() => this.registryRuntimeSynchronizer.syncUpdated(request))
+      await this.updateRegistrySkillTarget(request)
       this.notifyRuntimeSkillsChanged("update-registry-skill")
 
       return this.readAndPublishSkillInventory()
     })
+  }
+
+  private async updateRegistrySkillTarget(request: UpdateRegistrySkillRequest): Promise<void> {
+    const result = await this.runOoCommand(createUpdateRegistrySkillArgs(request), {
+      rejectOnFailure: false,
+    })
+    assertOoSkillOperationResult(result, "skills.update")
+    await this.enqueueRuntimeSync(() => this.registryRuntimeSynchronizer.syncUpdated(request))
+  }
+
+  private async refreshDefaultRegistrySkillTarget(request: { packageName: string; skillId: string }): Promise<void> {
+    await this.repairCachedRegistrySkillSource(request)
+    await this.enqueueRuntimeSync(() =>
+      this.registryRuntimeSynchronizer.syncSkill(request.skillId, {
+        force: true,
+        packageName: request.packageName,
+      }),
+    )
   }
 
   public async executeCliUpdate(): Promise<SkillVersionReport> {
@@ -563,10 +578,38 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       const now = new Date().toISOString()
 
       if (isRuntimeSkillInstalled(inventory, request.skillId)) {
+        const needsUpdate = defaultRegistrySkillNeedsUpdate(inventory, spec)
+        if (needsUpdate) {
+          try {
+            await this.refreshDefaultRegistrySkillTarget(request)
+            this.notifyRuntimeSkillsChanged("update-default-registry-skill")
+            inventory = await this.readAndPublishSkillInventory()
+          } catch (error) {
+            const message = runtimeErrorMessage(error)
+            console.warn("[wanta] failed to update default registry skill:", {
+              error: message,
+              minimumVersion: spec.minimumVersion,
+              packageName: request.packageName,
+              skillId: request.skillId,
+            })
+            installStore = upsertDefaultSkillInstallRecord(installStore, {
+              ...request,
+              installedAt: existingRecord?.installedAt ?? now,
+              lastAttemptAt: now,
+              lastError: message,
+              status: "failed",
+              updatedAt: now,
+            })
+            await store.write(installStore)
+            await ensureGptImage2RuntimeCompatibility(path.join(this.getSharedAgentSkillRoot(), request.skillId))
+            continue
+          }
+        }
         await ensureGptImage2RuntimeCompatibility(path.join(this.getSharedAgentSkillRoot(), request.skillId))
         installStore = upsertDefaultSkillInstallRecord(installStore, {
           ...request,
           installedAt: existingRecord?.installedAt ?? now,
+          ...(needsUpdate ? { lastAttemptAt: now } : {}),
           status: "installed",
           updatedAt: now,
         })

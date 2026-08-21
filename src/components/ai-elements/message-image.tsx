@@ -121,6 +121,10 @@ function decodeLocalImagePath(value: string): string {
     .join("")
 }
 
+function normalizeWindowsDrivePath(value: string): string {
+  return /^\/[A-Za-z]:[\\/]/.test(value) ? value.slice(1) : value
+}
+
 export function localImagePathFromSrc(src: string | undefined): string | null {
   const value = src?.trim()
   if (value?.startsWith(localImagePreviewMarkerPrefix)) {
@@ -137,13 +141,13 @@ export function localImagePathFromSrc(src: string | undefined): string | null {
     try {
       const url = new URL(value)
       const decoded = decodeURIComponent(url.pathname)
-      return /^\/[A-Za-z]:[\\/]/.test(decoded) ? decoded.slice(1) : decoded
+      return normalizeWindowsDrivePath(decoded)
     } catch {
       return null
     }
   }
   if (/^(?:[\\/]|[A-Za-z]:[\\/])/.test(value)) {
-    return decodeLocalImagePath(value)
+    return normalizeWindowsDrivePath(decodeLocalImagePath(value))
   }
   return null
 }

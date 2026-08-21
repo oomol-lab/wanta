@@ -1744,6 +1744,7 @@ export function buildArtifactSystem(artifactDir: string | undefined, outputProje
     "- Persist every final generated image into this directory. If a tool returns only a remote, data-backed, or temporary preview, keep the preview reference intact so Wanta can materialize the same image during turn finalization. Do not describe it as a saved local file until persistence succeeds.",
     "- When a generated image has both a successfully saved local path and a matching remote or temporary preview, use the local path for the inline Markdown image. Keep the remote reference only as recovery metadata; do not make it the primary preview.",
     "- When the final deliverable is one to four image files and inline viewing helps the user, include Markdown image references in the final response using their absolute local paths, for example ![short title](</absolute/path/image.png>).",
+    "- On Windows, use drive-letter paths such as C:/Users/name/output.png or C:\\Users\\name\\output.png without an extra leading slash. Never emit /C:/Users/... as a local Markdown image destination.",
     "- If only a provider-backed image preview is available, keep that preview visible in the final response instead of omitting it. Wanta will materialize supported preview sources and independently report persistence failures.",
     "- When there are many images, such as crawled or downloaded image sets, do not inline every image in the final response. Summarize the set and rely on the artifact browser.",
     "- Do not reuse output folders from earlier turns or other chats.",

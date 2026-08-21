@@ -20,7 +20,7 @@ import {
   CodeBlockTitle,
 } from "./code-block.tsx"
 import { incompleteMermaidLanguage, normalizeMermaidMarkdown } from "./mermaid-policy.ts"
-import { MarkdownImage } from "./message-image.tsx"
+import { localImagePathFromSrc, MarkdownImage } from "./message-image.tsx"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useT } from "@/i18n/i18n"
@@ -400,11 +400,25 @@ function localImageAltText(value: string): string {
   return normalized.split(/[\\/]/).pop() || "image"
 }
 
-function extractLocalImagePreviews(markdown: string): LocalImagePreview[] {
+function localImageIdentity(value: string): string {
+  const localPath = localImagePathFromSrc(value)
+  if (!localPath) {
+    return value
+  }
+  const normalizedSeparators = localPath.replaceAll("\\", "/")
+  return normalizedSeparators.replace(/^([A-Z]):\//, (_match, drive: string) => `${drive.toLowerCase()}:/`)
+}
+
+export function extractLocalImagePreviews(markdown: string): LocalImagePreview[] {
   const previews: LocalImagePreview[] = []
-  const embeddedSources = new Set(extractMarkdownImageSources(markdown))
+  const embeddedSources = new Set(extractMarkdownImageSources(markdown).map(localImageIdentity))
   for (const candidate of extractLocalImagePaths(markdown)) {
-    if (candidate && !embeddedSources.has(candidate) && !previews.some((preview) => preview.path === candidate)) {
+    const identity = localImageIdentity(candidate)
+    if (
+      candidate &&
+      !embeddedSources.has(identity) &&
+      !previews.some((preview) => localImageIdentity(preview.path) === identity)
+    ) {
       previews.push({ path: candidate, alt: localImageAltText(candidate) })
     }
   }
@@ -581,10 +595,10 @@ export const MessageResponse = memo(
     )
     return (
       // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。
-      <Suspense fallback={<div className={cn("size-full whitespace-pre-wrap", className)}>{responseChildren}</div>}>
+      <Suspense fallback={<div className={cn("w-full whitespace-pre-wrap", className)}>{responseChildren}</div>}>
         <>
           <Streamdown
-            className={cn("oo-message-response size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
+            className={cn("oo-message-response w-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
             components={{
               ...messageResponseComponents,
               inlineCode: MarkdownInlineCode,

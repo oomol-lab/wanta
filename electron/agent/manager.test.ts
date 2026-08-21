@@ -489,6 +489,7 @@ describe("AgentManager", () => {
     expect(system).toContain("Wanta can materialize the same image")
     expect(system).toContain("use the local path for the inline Markdown image")
     expect(system).toContain("do not make it the primary preview")
+    expect(system).toContain("Never emit /C:/Users/...")
     expect(system).toContain("replace every embedded output path")
     expect(system).not.toContain("Do not present a remote")
   })

@@ -18,6 +18,7 @@ import {
 import { MessageStreamdown } from "./message-streamdown.tsx"
 import {
   compactLocalPath,
+  extractLocalImagePreviews,
   markdownCodeLanguage,
   markdownCodeRendererLanguages,
   markdownCodeText,
@@ -220,6 +221,32 @@ describe("normalizeLocalImageMarkdown", () => {
     expect(normalizeLocalImageMarkdown("![image](https://example.com/output image.png)")).toBe(
       "![image](https://example.com/output image.png)",
     )
+  })
+})
+
+describe("extractLocalImagePreviews", () => {
+  it("does not append a duplicate preview when an encoded Markdown image is repeated as a decoded path", () => {
+    const encodedPath = "/Users/me/Library/Application%20Support/wanta/agent/artifacts/turn/cute-cat.png"
+    const decodedPath = "/Users/me/Library/Application Support/wanta/agent/artifacts/turn/cute-cat.png"
+    const markdown = [`![generated cat](${encodedPath})`, "", "Saved to:", `\`${decodedPath}\``].join("\n")
+
+    expect(extractLocalImagePreviews(markdown)).toEqual([])
+  })
+
+  it("deduplicates equivalent Windows path separators", () => {
+    const markdown = [
+      String.raw`![generated](C:\Users\me\output%20files\image.png)`,
+      "",
+      String.raw`C:/Users/me/output files/image.png`,
+    ].join("\n")
+
+    expect(extractLocalImagePreviews(markdown)).toEqual([])
+  })
+
+  it("still appends a preview for a standalone local image path", () => {
+    expect(extractLocalImagePreviews("Saved to `/Users/me/output/image.png`")).toEqual([
+      { path: "/Users/me/output/image.png", alt: "image.png" },
+    ])
   })
 })
 

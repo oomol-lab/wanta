@@ -427,6 +427,19 @@ test("default access auto-approves direct Python requirements in bounded task or
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({
+        metadata: {
+          command:
+            `python3 -m venv "${processRoot}/.wanta-python" && ` +
+            `"${processRoot}/.wanta-python/bin/python" -m pip install openpyxl -q && echo OK`,
+        },
+      }),
+      { permissionMode: "default", taskProcessRoot: processRoot },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
         metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install fitz` },
       }),
       { permissionMode: "default", taskProcessRoot: processRoot },
@@ -500,6 +513,7 @@ test("bounded Python bootstrap approval preserves the nearest protected boundari
     `python3 -m venv "${processRoot}/other" && "${environment}/bin/python" -m pip install python-docx`,
     `python3 -m venv "${environment}" && python3 -m pip install python-docx`,
     `"${environment}/bin/python" -m pip install python-docx > /tmp/install.log`,
+    `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && echo "$HOME"`,
   ]
   for (const command of promptCommands) {
     assert.deepEqual(

@@ -412,7 +412,35 @@ function boundedPythonInstallCommand(
     }
     body = possibleBootstrap.right
   }
-  return { body, ...(directory ? { directory } : {}) }
+  return { body: commandWithoutSafeSuccessMarker(body), ...(directory ? { directory } : {}) }
+}
+
+/**
+ * A success marker is commonly appended to a generated environment bootstrap
+ * so a calling agent can distinguish a completed install from command output.
+ * It has no side effect beyond stdout, so it should not make an otherwise
+ * bounded task-local installation require approval. Keep this deliberately
+ * narrow: variable expansion, additional shell syntax, and every other
+ * trailing command remain visible to the normal risk policy.
+ */
+function commandWithoutSafeSuccessMarker(command: string): string {
+  const segments = topLevelShellSegments(command)
+  if (
+    segments.length !== 2 ||
+    segments[0]?.operatorAfter !== "and" ||
+    !isLiteralSuccessMarker(segments[1]?.text ?? "")
+  ) {
+    return command
+  }
+  return segments[0]?.text ?? command
+}
+
+function isLiteralSuccessMarker(command: string): boolean {
+  const words = shellWords(command)
+  if (!words || shellCommandName(words[0]) !== "echo" || words.length !== 2) {
+    return false
+  }
+  return ["ok", "done", "success"].includes((words[1] ?? "").toLowerCase())
 }
 
 function scopedPythonDependencyInstall(

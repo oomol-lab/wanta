@@ -146,11 +146,12 @@ test("managed Python dependency installs are narrow enough for a task approval",
     ),
     { packages: ["weasyprint"] },
   )
+  const directPipCommand = `${processRoot}/.wanta-python/bin/pip install weasyprint`
   assert.deepEqual(
     managedPythonDependencyInstall(
       permission({
         metadata: {
-          command: `${processRoot}/.wanta-python/bin/pip install weasyprint 2>&1 | tail -5`,
+          command: `${directPipCommand} 2>&1 | tail -5`,
         },
       }),
       processRoot,
@@ -256,6 +257,19 @@ test("managed Python dependency installs are narrow enough for a task approval",
     assert.equal(
       managedPythonDependencyInstall(
         permission({ metadata: { command: `${command} ${protectedArguments}` } }),
+        processRoot,
+      ),
+      null,
+      protectedArguments,
+    )
+  }
+  for (const protectedArguments of [
+    "--build-constraint build-constraints.txt",
+    "--requirements-from-script package.py",
+  ]) {
+    assert.equal(
+      managedPythonDependencyInstall(
+        permission({ metadata: { command: `${directPipCommand} ${protectedArguments}` } }),
         processRoot,
       ),
       null,

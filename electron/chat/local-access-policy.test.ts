@@ -475,6 +475,19 @@ test("default access auto-approves direct Python requirements in bounded task or
     ),
     { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
   )
+  for (const command of [
+    `${processRoot}/.wanta-python/bin/pip install fitz --build-constraint build-constraints.txt`,
+    `${processRoot}/.wanta-python/bin/pip install fitz --requirements-from-script package.py`,
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        permissionMode: "default",
+        taskProcessRoot: processRoot,
+      }),
+      { type: "prompt", kind: "command", highRisk: false },
+      command,
+    )
+  }
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({

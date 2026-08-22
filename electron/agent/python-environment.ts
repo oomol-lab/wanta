@@ -22,8 +22,18 @@ function environmentPythonExecutables(environmentDir: string, platform = process
     : [`${normalized}/bin/python`, `${normalized}/bin/python3`]
 }
 
+function environmentPipExecutables(environmentDir: string, platform = process.platform): string[] {
+  const normalized = environmentDir.replace(/\\/g, "/").replace(/\/+$/u, "")
+  return platform === "win32" ? [`${normalized}/Scripts/pip.exe`] : [`${normalized}/bin/pip`, `${normalized}/bin/pip3`]
+}
+
 export function managedPythonExecutables(processDir: string, platform = process.platform): string[] {
   return environmentPythonExecutables(managedPythonEnvironmentPath(processDir), platform)
+}
+
+/** Package installers belonging to Wanta's private per-task environment. */
+export function managedPythonPipExecutables(processDir: string, platform = process.platform): string[] {
+  return environmentPipExecutables(managedPythonEnvironmentPath(processDir), platform)
 }
 
 export function managedPythonExecutable(processDir: string, platform = process.platform): string {
@@ -38,6 +48,12 @@ export function projectPythonExecutables(projectDir: string, platform = process.
   )
 }
 
+export function projectPythonPipExecutables(projectDir: string, platform = process.platform): string[] {
+  return PROJECT_PYTHON_ENV_DIRNAMES.flatMap((environmentName) =>
+    environmentPipExecutables(joinPath(projectDir, environmentName), platform),
+  )
+}
+
 export function isManagedPythonExecutable(executable: string): boolean {
   const slashNormalized = executable.replace(/\\/g, "/").replace(/\/+$/u, "")
   const normalized = /^[A-Za-z]:\//u.test(slashNormalized) ? slashNormalized.toLowerCase() : slashNormalized
@@ -45,5 +61,15 @@ export function isManagedPythonExecutable(executable: string): boolean {
     normalized.endsWith(`/${WANTA_MANAGED_PYTHON_ENV_DIRNAME}/bin/python`) ||
     normalized.endsWith(`/${WANTA_MANAGED_PYTHON_ENV_DIRNAME}/bin/python3`) ||
     normalized.endsWith(`/${WANTA_MANAGED_PYTHON_ENV_DIRNAME}/scripts/python.exe`)
+  )
+}
+
+export function isManagedPythonPipExecutable(executable: string): boolean {
+  const slashNormalized = executable.replace(/\\/g, "/").replace(/\/+$/u, "")
+  const normalized = /^[A-Za-z]:\//u.test(slashNormalized) ? slashNormalized.toLowerCase() : slashNormalized
+  return (
+    normalized.endsWith(`/${WANTA_MANAGED_PYTHON_ENV_DIRNAME}/bin/pip`) ||
+    normalized.endsWith(`/${WANTA_MANAGED_PYTHON_ENV_DIRNAME}/bin/pip3`) ||
+    normalized.endsWith(`/${WANTA_MANAGED_PYTHON_ENV_DIRNAME}/scripts/pip.exe`)
   )
 }

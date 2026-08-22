@@ -3,9 +3,12 @@ import type { ChatPermissionRequest } from "./common.ts"
 import { openConnectorCommandPolicy } from "../agent/oo-command-permission.ts"
 import {
   isManagedPythonExecutable,
+  isManagedPythonPipExecutable,
   managedPythonEnvironmentPath,
   managedPythonExecutables,
+  managedPythonPipExecutables,
   projectPythonExecutables,
+  projectPythonPipExecutables,
 } from "../agent/python-environment.ts"
 import { commandRequiresConfirmation } from "./command-risk.ts"
 import {
@@ -208,6 +211,7 @@ const protectedPipInstallOptions = new Set([
   "-r",
   "-t",
   "--break-system-packages",
+  "--build-constraint",
   "--config-file",
   "--constraint",
   "--default-index",
@@ -219,6 +223,7 @@ const protectedPipInstallOptions = new Set([
   "--index-url",
   "--prefix",
   "--requirement",
+  "--requirements-from-script",
   "--root",
   "--target",
   "--trusted-host",
@@ -307,6 +312,7 @@ function resolvedDirectory(directory: string, workingDirectory?: string): string
 function pythonInstallArguments(
   words: readonly string[],
   executableAllowed: (executable: string, workingDirectory?: string) => boolean,
+  pipExecutableAllowed: (executable: string, workingDirectory?: string) => boolean,
   workingDirectory?: string,
 ): readonly string[] | null {
   const executable = words[0] ?? ""
@@ -317,6 +323,12 @@ function pythonInstallArguments(
     words[3] === "install"
   ) {
     return words.slice(4)
+  }
+  if (
+    pipExecutableAllowed(resolvedExecutable(executable, workingDirectory), workingDirectory) &&
+    words[1] === "install"
+  ) {
+    return words.slice(2)
   }
   if (shellCommandName(executable) !== "uv") {
     return null
@@ -448,6 +460,7 @@ function isLiteralSuccessMarker(command: string): boolean {
 function scopedPythonDependencyInstall(
   request: ChatPermissionRequest,
   executableAllowed: (executable: string, workingDirectory?: string) => boolean,
+  pipExecutableAllowed: (executable: string, workingDirectory?: string) => boolean,
   directoryAllowed: (directory: string) => boolean = () => true,
 ): ManagedPythonDependencyInstall | null {
   if (permissionRequestKind(request) !== "command") {
@@ -469,7 +482,7 @@ function scopedPythonDependencyInstall(
   if (!words) {
     return null
   }
-  const installWords = pythonInstallArguments(words, executableAllowed, boundedCommand.directory)
+  const installWords = pythonInstallArguments(words, executableAllowed, pipExecutableAllowed, boundedCommand.directory)
   const packages = installWords ? managedPythonPackageNames(installWords) : null
   return packages ? { packages } : null
 }
@@ -486,12 +499,19 @@ export function managedPythonDependencyInstall(
   const allowedExecutables = processRoot
     ? new Set(managedPythonExecutables(processRoot).map(normalizedExecutable))
     : undefined
+  const allowedPipExecutables = processRoot
+    ? new Set(managedPythonPipExecutables(processRoot).map(normalizedExecutable))
+    : undefined
   return scopedPythonDependencyInstall(
     request,
     (executable) =>
       allowedExecutables
         ? allowedExecutables.has(normalizedExecutable(executable))
         : isManagedPythonExecutable(executable),
+    (executable) =>
+      allowedPipExecutables
+        ? allowedPipExecutables.has(normalizedExecutable(executable))
+        : isManagedPythonPipExecutable(executable),
     processRoot
       ? (directory) =>
           normalizedExecutable(directory) === normalizedExecutable(processRoot) ||
@@ -512,10 +532,12 @@ export function isProjectScopedPythonDependencyInstallRequest(
   projectRoot: string,
 ): boolean {
   const allowedExecutables = new Set(projectPythonExecutables(projectRoot).map(normalizedExecutable))
+  const allowedPipExecutables = new Set(projectPythonPipExecutables(projectRoot).map(normalizedExecutable))
   return Boolean(
     scopedPythonDependencyInstall(
       request,
       (executable) => allowedExecutables.has(normalizedExecutable(executable)),
+      (executable) => allowedPipExecutables.has(normalizedExecutable(executable)),
       (directory) => normalizedExecutable(directory) === normalizedExecutable(projectRoot),
     ),
   )

@@ -146,6 +146,18 @@ test("managed Python dependency installs are narrow enough for a task approval",
     ),
     { packages: ["weasyprint"] },
   )
+  const directPipCommand = `${processRoot}/.wanta-python/bin/pip install weasyprint`
+  assert.deepEqual(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: {
+          command: `${directPipCommand} 2>&1 | tail -5`,
+        },
+      }),
+      processRoot,
+    ),
+    { packages: ["weasyprint"] },
+  )
   assert.deepEqual(
     managedPythonDependencyInstall(
       permission({
@@ -251,6 +263,19 @@ test("managed Python dependency installs are narrow enough for a task approval",
       protectedArguments,
     )
   }
+  for (const protectedArguments of [
+    "--build-constraint build-constraints.txt",
+    "--requirements-from-script package.py",
+  ]) {
+    assert.equal(
+      managedPythonDependencyInstall(
+        permission({ metadata: { command: `${directPipCommand} ${protectedArguments}` } }),
+        processRoot,
+      ),
+      null,
+      protectedArguments,
+    )
+  }
   assert.equal(
     managedPythonDependencyInstall(permission({ metadata: { command: `${command} && rm -rf /tmp/x` } }), processRoot),
     null,
@@ -265,6 +290,28 @@ test("managed Python dependency installs are narrow enough for a task approval",
       "/Users/example/code/customer-project",
     ),
     true,
+  )
+  assert.equal(
+    isProjectScopedPythonDependencyInstallRequest(
+      permission({
+        metadata: {
+          command: "/Users/example/code/customer-project/.venv/bin/pip install --compile pandas",
+        },
+      }),
+      "/Users/example/code/customer-project",
+    ),
+    true,
+  )
+  assert.equal(
+    isProjectScopedPythonDependencyInstallRequest(
+      permission({
+        metadata: {
+          command: "/Users/example/code/other-project/.venv/bin/pip install pandas",
+        },
+      }),
+      "/Users/example/code/customer-project",
+    ),
+    false,
   )
   assert.equal(
     isProjectScopedPythonDependencyInstallRequest(

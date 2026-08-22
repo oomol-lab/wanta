@@ -28,6 +28,7 @@ import type {
   ChatMessage,
   ChatPermissionRequest,
   ChatQuestionRequest,
+  ChatTurnOutcomeKind,
   ChatRunWorkspace,
   ChatSessionSnapshot,
   ChatService,
@@ -848,6 +849,18 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         activeToolPartIds: [...partIds],
         phase: "tool_running",
       })
+      logDiagnostic(
+        "chat-turn",
+        "tool started",
+        {
+          adapter: this.agentAdapterForDiagnostic(translated.data.sessionId),
+          callId: translated.data.callId,
+          generationId: this.generations.get(translated.data.sessionId)?.id,
+          sessionId: translated.data.sessionId,
+          tool: translated.data.tool,
+        },
+        "info",
+      )
       const childSessionId = taskChildSessionId(translated.data)
       if (childSessionId) {
         this.subagentSessions.remember(translated.data.sessionId, childSessionId)
@@ -869,6 +882,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         activeToolPartIds: partIds ? [...partIds] : [],
         phase: partIds && partIds.size > 0 ? "tool_running" : "thinking",
       })
+      logDiagnostic(
+        "chat-turn",
+        "tool finished",
+        {
+          adapter: this.agentAdapterForDiagnostic(translated.data.sessionId),
+          callId: translated.data.callId,
+          failureKind: translated.data.failureKind,
+          generationId: this.generations.get(translated.data.sessionId)?.id,
+          sessionId: translated.data.sessionId,
+          status: translated.data.status,
+          tool: translated.data.tool,
+          userImpact: translated.data.userImpact,
+        },
+        translated.data.status === "completed" ? "info" : "warn",
+      )
       const childSessionId = taskChildSessionId(translated.data)
       if (childSessionId) {
         this.subagentSessions.forget(translated.data.sessionId, childSessionId)
@@ -1186,6 +1214,19 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     void this.answerAutomaticPermission(request, decision.type === "deny" ? "reject" : "once")
       .then(() => {
         if (decision.type === "allow") this.rememberTrustedPermissionResources(request.sessionId, request)
+        logDiagnostic(
+          "chat-turn",
+          "permission automatically replied",
+          {
+            adapter: this.agentAdapterForDiagnostic(displaySessionId),
+            decision: decision.type,
+            generationId: activeGenerationId,
+            permissionKind: decision.kind,
+            requestId: request.id,
+            sessionId: displaySessionId,
+          },
+          "info",
+        )
         this.sendBestEffort(
           emit,
           "permissionReplied",
@@ -1394,7 +1435,63 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.connectionFailedSessions.delete(req.sessionId)
     this.clearMessageErrorSignatures(req.sessionId)
     this.emitSessionActivity(req.sessionId)
+    logDiagnostic(
+      "chat-turn",
+      "turn started",
+      {
+        adapter: this.agentAdapterForDiagnostic(req.sessionId),
+        generationId: generation.id,
+        sessionId: req.sessionId,
+        workspaceKind: req.scope.kind,
+      },
+      "info",
+    )
     return generation
+  }
+
+  /** Keep diagnostics joinable without recording user prompts, tool payloads, or tool output. */
+  private agentAdapterForDiagnostic(sessionId: string): string {
+    return externalAgentKindForSessionId(sessionId) ?? "opencode"
+  }
+
+  private logTurnOutcome(
+    sessionId: string,
+    kind: ChatTurnOutcomeKind,
+    options: { generationId?: string; messageId?: string; reason?: string } = {},
+  ): void {
+    logDiagnostic(
+      "chat-turn",
+      "turn outcome",
+      {
+        adapter: this.agentAdapterForDiagnostic(sessionId),
+        generationId: options.generationId,
+        kind,
+        messageId: options.messageId,
+        reason: options.reason,
+        sessionId,
+      },
+      kind === "completed" || kind === "cancelled" ? "info" : "warn",
+    )
+  }
+
+  private emitTurnOutcome(
+    emit: (event: string, data: unknown) => Promise<void>,
+    sessionId: string,
+    kind: ChatTurnOutcomeKind,
+    options: { generationId?: string; messageId?: string; reason?: string } = {},
+  ): void {
+    this.logTurnOutcome(sessionId, kind, options)
+    this.sendBestEffort(
+      emit,
+      "turnOutcome",
+      {
+        sessionId,
+        kind,
+        ...(options.messageId ? { messageId: options.messageId } : {}),
+        ...(options.reason ? { reason: options.reason } : {}),
+      },
+      { messageId: options.messageId, sessionId },
+    )
   }
 
   /** session.idle 不带 message/generation id；用本轮用户消息核对历史，避免旧 idle 结束刚重试的新轮次。 */
@@ -1426,6 +1523,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.activeToolParts.delete(sessionId)
       this.activeRuns.delete(sessionId, generation.id)
       this.emitSessionActivity(sessionId)
+      this.emitTurnOutcome(emit, sessionId, "completed", { generationId: generation.id, messageId })
       this.sendBestEffort(emit, "messageCompleted", { sessionId }, { sessionId })
       if (completedRun?.workspace.kind === "team") {
         void Promise.resolve(
@@ -1644,12 +1742,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   ): Promise<void> {
     const messageId = this.activeAssistantMessages.get(sessionId)
     const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
+    const generationId = this.generations.get(sessionId)?.id
     const interruptedAt = Date.now()
     await this.stopSessionGeneration(sessionId, {
       abortAgent: options.abortAgent,
       reason: "system",
       throwOnAbortFailure: false,
     })
+    const outcomeKind = reason === "runtime_error" ? "failed" : "interrupted"
+    this.emitTurnOutcome(emit, sessionId, outcomeKind, { generationId, messageId, reason })
     this.sendBestEffort(
       emit,
       "generationInterrupted",
@@ -1708,6 +1809,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     const generation = this.generations.get(sessionId)
+    const generationId = generation?.id
     generation?.controller.abort()
     this.deps.hostQuestions?.cancelSession(sessionId)
     const messageId = this.activeAssistantMessages.get(sessionId)
@@ -1738,6 +1840,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.activeAssistantMessages.delete(sessionId)
     this.activeToolParts.delete(sessionId)
     if (options.reason === "user") {
+      this.logTurnOutcome(sessionId, "cancelled", { generationId, messageId })
+      await this.send("turnOutcome", {
+        sessionId,
+        kind: "cancelled",
+        ...(messageId ? { messageId } : {}),
+      }).catch((error: unknown) => {
+        console.warn("[wanta] failed to emit turn outcome:", error)
+        logDiagnostic("chat-service", "failed to emit turn outcome", { error, sessionId }, "warn")
+      })
       await this.send("generationStopped", {
         sessionId,
         ...(messageId ? { messageId, partIds, stoppedAt } : {}),
@@ -1969,15 +2080,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             return
           }
           const messageId = this.activeAssistantMessages.get(req.sessionId)
+          const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
+          this.emitTurnOutcome(emit, req.sessionId, "failed", {
+            generationId: promptGeneration.id,
+            messageId,
+            reason: "prompt_dispatch_failed",
+          })
           this.clearSessionGeneration(req.sessionId, promptGeneration.id)
           this.activeAssistantMessages.delete(req.sessionId)
           this.activeToolParts.delete(req.sessionId)
-          this.emitMessageError(
-            this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
-            req.sessionId,
-            errorMessage(error),
-            messageId,
-          )
+          this.emitMessageError(emit, req.sessionId, errorMessage(error), messageId)
         })
     } catch (error) {
       if (generation) {
@@ -2158,15 +2270,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             return
           }
           const messageId = this.activeAssistantMessages.get(req.sessionId)
+          const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
+          this.emitTurnOutcome(emit, req.sessionId, "failed", {
+            generationId: generation.id,
+            messageId,
+            reason: "prompt_dispatch_failed",
+          })
           this.clearSessionGeneration(req.sessionId, generation.id)
           this.activeAssistantMessages.delete(req.sessionId)
           this.activeToolParts.delete(req.sessionId)
-          this.emitMessageError(
-            this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
-            req.sessionId,
-            errorMessage(error),
-            messageId,
-          )
+          this.emitMessageError(emit, req.sessionId, errorMessage(error), messageId)
         })
     } catch (error) {
       await this.rollbackPromptSelectionPersistence(req.sessionId, promptSelectionOwners, previousSelection)

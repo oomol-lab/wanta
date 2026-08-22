@@ -949,6 +949,11 @@ test("a late idle from a stopped generation does not complete the retried genera
   await waitForCondition(() => !service.hasActiveGeneration())
 
   assert.equal(service.hasActiveGeneration(), false)
+  assert.deepEqual(events.filter((event) => event.event === "turnOutcome").at(-1)?.data, {
+    sessionId: "session-1",
+    kind: "completed",
+    messageId: "assistant-2",
+  })
   assert.equal(events.filter((event) => event.event === "messageCompleted").length, 1)
 })
 
@@ -1631,6 +1636,26 @@ test("late prompt rejection does not clear the replacement generation output", a
   }
 })
 
+test("a rejected OpenCode prompt emits a failed turn outcome", async () => {
+  const bridge = createBridgeAgent()
+  bridge.promptStreaming.mockRejectedValueOnce(new Error("prompt rejected"))
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "hello" })
+  await waitForCondition(() => events.some((event) => event.event === "messageError"))
+
+  assert.equal(service.hasActiveGeneration(), false)
+  assert.ok(
+    events.some(
+      (event) =>
+        event.event === "turnOutcome" &&
+        (event.data as { kind?: string; reason?: string }).kind === "failed" &&
+        (event.data as { kind?: string; reason?: string }).reason === "prompt_dispatch_failed",
+    ),
+  )
+})
+
 test("agent errors from multiple opencode channels produce one message error per send", async () => {
   const bridge = createBridgeAgent()
   let rejectPrompt: ((error: Error) => void) | undefined
@@ -1965,6 +1990,14 @@ test("sendMessage releases a submitted turn when OpenCode never accepts it", asy
 
   assert.equal(bridge.abort.mock.calls.length, 1)
   assert.ok(events.some((event) => event.event === "generationInterrupted"))
+  assert.ok(
+    events.some(
+      (event) =>
+        event.event === "turnOutcome" &&
+        (event.data as { kind?: string; reason?: string }).kind === "interrupted" &&
+        (event.data as { kind?: string; reason?: string }).reason === "submit_timeout",
+    ),
+  )
   assert.equal(
     events.some((event) => event.event === "generationStopped"),
     false,

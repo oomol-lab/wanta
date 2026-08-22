@@ -735,6 +735,15 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
         setActivity(e.sessionId, undefined)
         void reload(e.sessionId)
       }),
+      chatService.serverEvents.on("turnOutcome", (e) => {
+        removeAnsweredPendingQuestions(e.sessionId)
+        if (e.kind === "completed" || e.kind === "cancelled") {
+          setStatus(e.sessionId, "ready")
+        } else {
+          setStatus(e.sessionId, "error")
+        }
+        setActivity(e.sessionId, undefined)
+      }),
       chatService.serverEvents.on("messageError", (e) => {
         removeAnsweredPendingQuestions(e.sessionId)
         flushPendingToolParts()

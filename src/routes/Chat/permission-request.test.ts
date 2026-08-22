@@ -150,6 +150,17 @@ test("managed Python dependency installs are narrow enough for a task approval",
     managedPythonDependencyInstall(
       permission({
         metadata: {
+          command: `${processRoot}/.wanta-python/bin/pip install weasyprint 2>&1 | tail -5`,
+        },
+      }),
+      processRoot,
+    ),
+    { packages: ["weasyprint"] },
+  )
+  assert.deepEqual(
+    managedPythonDependencyInstall(
+      permission({
+        metadata: {
           command: `uv --no-progress pip install --python=${processRoot}/.wanta-python/bin/python pypdf 2>&1 | tail -5`,
         },
       }),
@@ -265,6 +276,28 @@ test("managed Python dependency installs are narrow enough for a task approval",
       "/Users/example/code/customer-project",
     ),
     true,
+  )
+  assert.equal(
+    isProjectScopedPythonDependencyInstallRequest(
+      permission({
+        metadata: {
+          command: "/Users/example/code/customer-project/.venv/bin/pip install --compile pandas",
+        },
+      }),
+      "/Users/example/code/customer-project",
+    ),
+    true,
+  )
+  assert.equal(
+    isProjectScopedPythonDependencyInstallRequest(
+      permission({
+        metadata: {
+          command: "/Users/example/code/other-project/.venv/bin/pip install pandas",
+        },
+      }),
+      "/Users/example/code/customer-project",
+    ),
+    false,
   )
   assert.equal(
     isProjectScopedPythonDependencyInstallRequest(

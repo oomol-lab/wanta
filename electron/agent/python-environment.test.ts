@@ -2,10 +2,13 @@ import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
   isManagedPythonExecutable,
+  isManagedPythonPipExecutable,
   managedPythonEnvironmentPath,
   managedPythonExecutable,
   managedPythonExecutables,
+  managedPythonPipExecutables,
   projectPythonExecutables,
+  projectPythonPipExecutables,
 } from "./python-environment.ts"
 
 test("managed Python environment paths stay inside the task process directory", () => {
@@ -25,6 +28,10 @@ test("managed Python environment paths stay inside the task process directory", 
     "/tmp/wanta-process/task-1/.wanta-python/bin/python",
     "/tmp/wanta-process/task-1/.wanta-python/bin/python3",
   ])
+  assert.deepEqual(managedPythonPipExecutables(processDir, "linux"), [
+    "/tmp/wanta-process/task-1/.wanta-python/bin/pip",
+    "/tmp/wanta-process/task-1/.wanta-python/bin/pip3",
+  ])
 })
 
 test("selected projects expose only their conventional virtual-environment interpreters", () => {
@@ -38,6 +45,12 @@ test("selected projects expose only their conventional virtual-environment inter
     "C:/code/customer-project/.venv/Scripts/python.exe",
     "C:/code/customer-project/venv/Scripts/python.exe",
   ])
+  assert.deepEqual(projectPythonPipExecutables("/Users/example/code/customer-project", "darwin"), [
+    "/Users/example/code/customer-project/.venv/bin/pip",
+    "/Users/example/code/customer-project/.venv/bin/pip3",
+    "/Users/example/code/customer-project/venv/bin/pip",
+    "/Users/example/code/customer-project/venv/bin/pip3",
+  ])
 })
 
 test("managed Python executable recognition requires the dedicated virtual environment", () => {
@@ -47,4 +60,8 @@ test("managed Python executable recognition requires the dedicated virtual envir
   assert.equal(isManagedPythonExecutable("c:\\TMP\\TASK\\.wanta-python\\SCRIPTS\\PYTHON.EXE"), true)
   assert.equal(isManagedPythonExecutable("/usr/bin/python3"), false)
   assert.equal(isManagedPythonExecutable("/tmp/task/.wanta-python/bin/pip"), false)
+  assert.equal(isManagedPythonPipExecutable("/tmp/task/.wanta-python/bin/pip"), true)
+  assert.equal(isManagedPythonPipExecutable("/tmp/task/.wanta-python/bin/pip3"), true)
+  assert.equal(isManagedPythonPipExecutable("C:\\tmp\\task\\.wanta-python\\Scripts\\pip.exe"), true)
+  assert.equal(isManagedPythonPipExecutable("/usr/bin/pip3"), false)
 })

@@ -424,6 +424,23 @@ test("default access auto-approves direct Python requirements in bounded task or
     ),
     { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
   )
+  // Keep the complete command shape emitted by the built-in agent covered:
+  // create the task-private environment, install with its exact interpreter,
+  // then cap output for the tool result. The pipe is output-only and must not
+  // turn this bounded operation back into a dependency confirmation.
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: {
+          command:
+            `python3 -m venv "${processRoot}/.wanta-python" && ` +
+            `"${processRoot}/.wanta-python/bin/python" -m pip install -q matplotlib 2>&1 | tail -2`,
+        },
+      }),
+      { permissionMode: "default", taskProcessRoot: processRoot },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
   for (const marker of ["OK", "done", "success"]) {
     assert.deepEqual(
       evaluateLocalAccessRequest(
@@ -452,6 +469,15 @@ test("default access auto-approves direct Python requirements in bounded task or
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({
+        metadata: { command: `${processRoot}/.wanta-python/bin/pip install fitz` },
+      }),
+      { permissionMode: "default", taskProcessRoot: processRoot },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
         metadata: { command: "/tmp/other/.wanta-python/bin/python -m pip install pandas" },
       }),
       { permissionMode: "default", taskProcessRoot: processRoot },
@@ -460,6 +486,7 @@ test("default access auto-approves direct Python requirements in bounded task or
   )
   for (const command of [
     `${projectRoot}/.venv/bin/python -m pip install --compile 'pandas>=2'`,
+    `${projectRoot}/.venv/bin/pip install --compile 'pandas>=2'`,
     `${projectRoot}/venv/bin/python3 -m pip install --use-feature fast-deps weasyprint`,
     `uv pip install --python ${projectRoot}/.venv/bin/python pypdf`,
     `uv pip install --python=${projectRoot}/venv/bin/python3 reportlab`,

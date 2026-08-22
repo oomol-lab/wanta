@@ -424,19 +424,22 @@ test("default access auto-approves direct Python requirements in bounded task or
     ),
     { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
   )
-  assert.deepEqual(
-    evaluateLocalAccessRequest(
-      permission({
-        metadata: {
-          command:
-            `python3 -m venv "${processRoot}/.wanta-python" && ` +
-            `"${processRoot}/.wanta-python/bin/python" -m pip install openpyxl -q && echo OK`,
-        },
-      }),
-      { permissionMode: "default", taskProcessRoot: processRoot },
-    ),
-    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
-  )
+  for (const marker of ["OK", "done", "success"]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(
+        permission({
+          metadata: {
+            command:
+              `python3 -m venv "${processRoot}/.wanta-python" && ` +
+              `"${processRoot}/.wanta-python/bin/python" -m pip install openpyxl -q && echo ${marker}`,
+          },
+        }),
+        { permissionMode: "default", taskProcessRoot: processRoot },
+      ),
+      { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+      marker,
+    )
+  }
   assert.deepEqual(
     evaluateLocalAccessRequest(
       permission({
@@ -514,6 +517,8 @@ test("bounded Python bootstrap approval preserves the nearest protected boundari
     `python3 -m venv "${environment}" && python3 -m pip install python-docx`,
     `"${environment}/bin/python" -m pip install python-docx > /tmp/install.log`,
     `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && echo "$HOME"`,
+    `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && echo OK &&`,
+    `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && ./echo OK`,
   ]
   for (const command of promptCommands) {
     assert.deepEqual(

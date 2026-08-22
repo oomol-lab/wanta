@@ -427,7 +427,9 @@ function commandWithoutSafeSuccessMarker(command: string): string {
   const segments = topLevelShellSegments(command)
   if (
     segments.length !== 2 ||
+    !segments[0]?.text ||
     segments[0]?.operatorAfter !== "and" ||
+    segments[1]?.operatorAfter !== undefined ||
     !isLiteralSuccessMarker(segments[1]?.text ?? "")
   ) {
     return command
@@ -437,7 +439,7 @@ function commandWithoutSafeSuccessMarker(command: string): string {
 
 function isLiteralSuccessMarker(command: string): boolean {
   const words = shellWords(command)
-  if (!words || shellCommandName(words[0]) !== "echo" || words.length !== 2) {
+  if (!words || words[0] !== "echo" || words.length !== 2) {
     return false
   }
   return ["ok", "done", "success"].includes((words[1] ?? "").toLowerCase())

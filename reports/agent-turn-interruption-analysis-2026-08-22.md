@@ -178,8 +178,9 @@ vitest:
   src/hooks/useChat.test.ts
   electron/agent/acp/adapter.test.ts
   electron/agent/acp/adapter-edge.test.ts
+  electron/chat/external-dx-edge.test.ts
 
-4 files passed, 187 tests passed
+5 files passed, 212 tests passed
 ```
 
 - 同时执行 `git diff --check`，通过。
@@ -188,8 +189,8 @@ vitest:
 
 已在 `electron/agent/acp/adapter.ts` 落地第一道 ACP 终态保护，目标是先消除已被 transcript 证明的“工具错误后静默完成”路径：
 
-1. 每个 ACP turn 现在追踪未收口的 tool call、最近一个 tool result，以及该 result 后是否出现了新的 assistant text。
-2. ACP `session/prompt` 返回 `end_turn` 时，若仍有进行中的 tool，或最后一个 tool 已 error 且之后没有自然语言收口，adapter 不再发 `messageCompleted`，而是发出明确的 `agentError`：`<Agent> stopped after a tool call without producing a final response.`。
+1. 每个 ACP turn 现在追踪未收口的 tool call，以及持久的 `failedToolNeedsExplanation` 标记。任一 tool result 为 error 时设置该标记；即使后续 tool 成功，它也会保留，直到出现非空 assistant text 为用户解释失败原因。
+2. ACP `session/prompt` 返回 `end_turn` 时，若仍有进行中的 tool，或 `failedToolNeedsExplanation` 仍为 true，adapter 不再发 `messageCompleted`，而是发出明确的 `agentError`：`<Agent> stopped after a tool call without producing a final response.`。
 3. `cancelled` 保持原有的独立完成确认路径，避免用户主动停止后 UI 卡在 streaming。
 4. 非 `end_turn` 的 ACP stop reason（例如 token/turn 限制或 refusal）也不再伪装为成功完成，而会走明确错误。
 
@@ -197,6 +198,7 @@ vitest:
 
 - PostHog 风格的 `tool_call -> failed -> end_turn`，必须产生错误且不得完成；
 - `tool_call -> failed -> final assistant text -> end_turn`，允许正常完成；
+- `tool_call -> failed -> later successful tool -> end_turn` 仍必须产生错误，确保成功 fallback 不会掩盖未解释的失败；
 - 原有 Wanta Link permission correlation fixture 现在补齐 tool result，符合真实 ACP 生命周期。
 
 第二步已新增主进程权威事件 `turnOutcome`，把用户回合的终态明确区分为：

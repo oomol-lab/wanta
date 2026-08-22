@@ -68,11 +68,13 @@ status=error
 2. **把“一个工具步骤结束”误判成“用户回合结束”。**
    旧逻辑只要看到 `finishReason` 或 `completedAt` 即返回完成。当前逻辑已在 `electron/chat/node.ts:1464` 排除规范化后的 `tool-calls` / `tool-use`，并在不足以确认最终答复时以指数退避重试；重试耗尽后会显式发出 `generationInterrupted` 和错误消息，而不是悄悄 ready。
 
-## 当前代码仍存在的风险
+## 修复前代码基线中的风险
+
+> 本节记录的是 `10d0c026` 实施前、用于定位事故的代码与行为基线；它不是当前分支的状态描述。后文“本轮实施”记录了相应修复。为避免今后源码移动导致误导，本节不再引用当前文件行号。
 
 ### P0：ACP 完成事件没有表达“是否真正给出最终答复”
 
-`AcpAgentAdapter.trackTurn()` 在 ACP 的 `prompt` promise 正常 resolve 后，无条件发送 `messageCompleted`（`electron/agent/acp/adapter.ts:833`）。它没有读取或映射 `PromptResponse.stopReason`，也没有验证这次回合是否包含 terminal assistant text / terminal native outcome。
+当时，`AcpAgentAdapter.trackTurn()` 在 ACP 的 `prompt` promise 正常 resolve 后，无条件发送 `messageCompleted`。它没有读取或映射 `PromptResponse.stopReason`，也没有验证这次回合是否包含 terminal assistant text / terminal native outcome。
 
 与此同时，`ExternalTranscriptRecorder` 收到这个事件时，会把**最近一个 assistant message**直接补成：
 
@@ -81,15 +83,15 @@ completedAt = Date.now()
 finishReason = "stop"
 ```
 
-位置：`electron/agent/external/transcript.ts:102`。这会抹平“正常最终回答”“最后一步是工具调用”“Agent 在工具错误后错误 resolve”之间的差别。随后 `currentTurnIsComplete()` 看到 `stop` 就会放行（`electron/chat/node.ts:1446`）。
+这会抹平“正常最终回答”“最后一步是工具调用”“Agent 在工具错误后错误 resolve”之间的差别；当时的 Chat 完成检查会把这样的 `stop` 放行。
 
-这是当前最可能继续制造“没有后续回答但界面已完成”的机制，特别影响 Codex/ACP，而不完全等同于 `0de0c0be` 已修复的 OpenCode `session.idle` 路径。
+这是修复前最可能继续制造“没有后续回答但界面已完成”的机制，特别影响 Codex/ACP，而不完全等同于 `0de0c0be` 已修复的 OpenCode `session.idle` 路径。
 
 ### P1：UI 的成功态过早且没有“无 final answer”保护
 
-renderer 收到 `messageCompleted` 后立即把 session 状态设为 `ready`，并 reload 历史（`src/hooks/useChat.ts:731`）。它不检查 reload 后本轮是否至少有一个用户可读的 final text，也不保留“工具失败后未收口”的状态。
+当时 renderer 收到 `messageCompleted` 后立即把 session 状态设为 `ready` 并 reload 历史。它不检查 reload 后本轮是否至少有一个用户可读的 final text，也不保留“工具失败后未收口”的状态。
 
-因此，后端即使有一个语义可疑的完成事件，UI 仍会把它表现成自然结束，正是截图最令人困惑的观感。
+因此，修复前后端即使有一个语义可疑的完成事件，UI 仍会把它表现成自然结束，正是截图最令人困惑的观感。
 
 ### P1：可观测性不能还原根因
 

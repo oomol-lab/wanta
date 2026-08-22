@@ -1636,6 +1636,26 @@ test("late prompt rejection does not clear the replacement generation output", a
   }
 })
 
+test("a rejected OpenCode prompt emits a failed turn outcome", async () => {
+  const bridge = createBridgeAgent()
+  bridge.promptStreaming.mockRejectedValueOnce(new Error("prompt rejected"))
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+
+  await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "hello" })
+  await waitForCondition(() => events.some((event) => event.event === "messageError"))
+
+  assert.equal(service.hasActiveGeneration(), false)
+  assert.ok(
+    events.some(
+      (event) =>
+        event.event === "turnOutcome" &&
+        (event.data as { kind?: string; reason?: string }).kind === "failed" &&
+        (event.data as { kind?: string; reason?: string }).reason === "prompt_dispatch_failed",
+    ),
+  )
+})
+
 test("agent errors from multiple opencode channels produce one message error per send", async () => {
   const bridge = createBridgeAgent()
   let rejectPrompt: ((error: Error) => void) | undefined

@@ -138,10 +138,8 @@ export async function acpSubprocessEnvironment(
 interface AcpTurn {
   /** ACP tool calls still open when the native prompt request resolves. */
   activeToolCallIds: Set<string>
-  /** A terminal tool result arrived after which the agent has not narrated again. */
-  lastToolResult?: "completed" | "error"
-  /** Human-facing assistant text observed after `lastToolResult`. */
-  textAfterLastToolResult: boolean
+  /** An errored tool has not yet received a user-facing assistant explanation. */
+  failedToolNeedsExplanation: boolean
   settled: boolean
 }
 
@@ -554,7 +552,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     this.emitUserTurn(input)
     session.translator.noteTurnStarted()
     session.cancelling = false
-    const turn: AcpTurn = { activeToolCallIds: new Set(), settled: false, textAfterLastToolResult: false }
+    const turn: AcpTurn = { activeToolCallIds: new Set(), failedToolNeedsExplanation: false, settled: false }
     session.activeTurn = turn
     const promptPromise = handle.connection.agent.request("session/prompt", {
       sessionId: session.acpSessionId,
@@ -855,8 +853,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
           this.emit({ event: "messageCompleted", data: { sessionId: wantaSessionId } })
           return
         }
-        const incompleteToolTurn =
-          turn.activeToolCallIds.size > 0 || (turn.lastToolResult === "error" && !turn.textAfterLastToolResult)
+        const incompleteToolTurn = turn.activeToolCallIds.size > 0 || turn.failedToolNeedsExplanation
         if (response.stopReason !== "end_turn" || incompleteToolTurn) {
           const message = incompleteToolTurn
             ? `${this.options.registration.displayName} stopped after a tool call without producing a final response.`
@@ -868,10 +865,9 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
             {
               adapter: this.kind,
               activeToolCallCount: turn.activeToolCallIds.size,
-              lastToolResult: turn.lastToolResult,
+              failedToolNeedsExplanation: turn.failedToolNeedsExplanation,
               outcome: incompleteToolTurn ? "failed" : "interrupted",
               stopReason: response.stopReason,
-              textAfterLastToolResult: turn.textAfterLastToolResult,
               sessionId: wantaSessionId,
             },
             "warn",
@@ -886,7 +882,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
             outcome: "completed",
             sessionId: wantaSessionId,
             stopReason: response.stopReason,
-            textAfterLastToolResult: turn.textAfterLastToolResult,
+            failedToolNeedsExplanation: turn.failedToolNeedsExplanation,
           },
           "info",
         )
@@ -1338,17 +1334,16 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       switch (event.event) {
         case "toolCallStarted":
           turn.activeToolCallIds.add(event.data.callId)
-          turn.lastToolResult = undefined
-          turn.textAfterLastToolResult = false
           break
         case "toolCallResult":
           turn.activeToolCallIds.delete(event.data.callId)
-          turn.lastToolResult = event.data.status
-          turn.textAfterLastToolResult = false
+          if (event.data.status === "error") {
+            turn.failedToolNeedsExplanation = true
+          }
           break
         case "messageDelta":
-          if (event.data.text.trim() && turn.lastToolResult !== undefined) {
-            turn.textAfterLastToolResult = true
+          if (event.data.text.trim()) {
+            turn.failedToolNeedsExplanation = false
           }
           break
         default:

@@ -1474,6 +1474,26 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     )
   }
 
+  private emitTurnOutcome(
+    emit: (event: string, data: unknown) => Promise<void>,
+    sessionId: string,
+    kind: ChatTurnOutcomeKind,
+    options: { generationId?: string; messageId?: string; reason?: string } = {},
+  ): void {
+    this.logTurnOutcome(sessionId, kind, options)
+    this.sendBestEffort(
+      emit,
+      "turnOutcome",
+      {
+        sessionId,
+        kind,
+        ...(options.messageId ? { messageId: options.messageId } : {}),
+        ...(options.reason ? { reason: options.reason } : {}),
+      },
+      { messageId: options.messageId, sessionId },
+    )
+  }
+
   /** session.idle 不带 message/generation id；用本轮用户消息核对历史，避免旧 idle 结束刚重试的新轮次。 */
   private async completeSessionGeneration(
     emit: (event: string, data: unknown) => Promise<void>,
@@ -1503,13 +1523,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.activeToolParts.delete(sessionId)
       this.activeRuns.delete(sessionId, generation.id)
       this.emitSessionActivity(sessionId)
-      this.logTurnOutcome(sessionId, "completed", { generationId: generation.id, messageId })
-      this.sendBestEffort(
-        emit,
-        "turnOutcome",
-        { sessionId, kind: "completed", ...(messageId ? { messageId } : {}) },
-        { messageId, sessionId },
-      )
+      this.emitTurnOutcome(emit, sessionId, "completed", { generationId: generation.id, messageId })
       this.sendBestEffort(emit, "messageCompleted", { sessionId }, { sessionId })
       if (completedRun?.workspace.kind === "team") {
         void Promise.resolve(
@@ -1736,18 +1750,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       throwOnAbortFailure: false,
     })
     const outcomeKind = reason === "runtime_error" ? "failed" : "interrupted"
-    this.logTurnOutcome(sessionId, outcomeKind, { generationId, messageId, reason })
-    this.sendBestEffort(
-      emit,
-      "turnOutcome",
-      {
-        sessionId,
-        kind: outcomeKind,
-        ...(messageId ? { messageId } : {}),
-        reason,
-      },
-      { messageId, sessionId },
-    )
+    this.emitTurnOutcome(emit, sessionId, outcomeKind, { generationId, messageId, reason })
     this.sendBestEffort(
       emit,
       "generationInterrupted",
@@ -2077,15 +2080,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             return
           }
           const messageId = this.activeAssistantMessages.get(req.sessionId)
+          const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
+          this.emitTurnOutcome(emit, req.sessionId, "failed", {
+            generationId: promptGeneration.id,
+            messageId,
+            reason: "prompt_dispatch_failed",
+          })
           this.clearSessionGeneration(req.sessionId, promptGeneration.id)
           this.activeAssistantMessages.delete(req.sessionId)
           this.activeToolParts.delete(req.sessionId)
-          this.emitMessageError(
-            this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
-            req.sessionId,
-            errorMessage(error),
-            messageId,
-          )
+          this.emitMessageError(emit, req.sessionId, errorMessage(error), messageId)
         })
     } catch (error) {
       if (generation) {
@@ -2266,15 +2270,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             return
           }
           const messageId = this.activeAssistantMessages.get(req.sessionId)
+          const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
+          this.emitTurnOutcome(emit, req.sessionId, "failed", {
+            generationId: generation.id,
+            messageId,
+            reason: "prompt_dispatch_failed",
+          })
           this.clearSessionGeneration(req.sessionId, generation.id)
           this.activeAssistantMessages.delete(req.sessionId)
           this.activeToolParts.delete(req.sessionId)
-          this.emitMessageError(
-            this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
-            req.sessionId,
-            errorMessage(error),
-            messageId,
-          )
+          this.emitMessageError(emit, req.sessionId, errorMessage(error), messageId)
         })
     } catch (error) {
       await this.rollbackPromptSelectionPersistence(req.sessionId, promptSelectionOwners, previousSelection)

@@ -442,6 +442,47 @@ describe("AcpAgentAdapter", () => {
     expect(harness.events.some((event) => event.event === "agentError")).toBe(false)
   })
 
+  test("does not let a later successful tool hide an unexplained failed tool", async () => {
+    const harness = await createHarness({
+      prompt: async (turn) => {
+        await turn.sendUpdate({
+          sessionUpdate: "tool_call",
+          toolCallId: "call-posthog",
+          title: "PostHog list projects",
+          kind: "execute",
+          status: "in_progress",
+          rawInput: { service: "posthog", action: "list_projects" },
+        })
+        await turn.sendUpdate({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "call-posthog",
+          status: "failed",
+          content: [{ type: "content", content: { type: "text", text: "connection unavailable" } }],
+        })
+        await turn.sendUpdate({
+          sessionUpdate: "tool_call",
+          toolCallId: "call-fallback",
+          title: "Read cached project list",
+          kind: "read",
+          status: "in_progress",
+          rawInput: { path: "/tmp/projects.json" },
+        })
+        await turn.sendUpdate({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "call-fallback",
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: "cached projects" } }],
+        })
+        return { stopReason: "end_turn" }
+      },
+    })
+
+    await harness.adapter.send(promptInput())
+    await harness.waitFor((event) => event.event === "agentError")
+
+    expect(harness.events.some((event) => event.event === "messageCompleted")).toBe(false)
+  })
+
   test("attachments ride the prompt as resource_link blocks after the text", async () => {
     const harness = await createHarness()
     await harness.adapter.send({

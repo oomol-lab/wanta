@@ -412,7 +412,7 @@ test("edge1b: a failed attachment send rolls the display record back", async () 
     removeMessage,
   } as unknown as UserAttachmentStore
   const attachment = await createProbeAttachment()
-  const { service, adapters } = createHarness(["claude-code"], {
+  const { service, adapters, events } = createHarness(["claude-code"], {
     userAttachmentStore: attachmentStore,
     trustedAttachmentPaths: new Set([attachment.path]),
   })
@@ -425,6 +425,14 @@ test("edge1b: a failed attachment send rolls the display record back", async () 
   await waitForCondition(() => removeMessage.mock.calls.length === 1, "attachment record rollback")
   assert.equal(record.mock.calls.length, 1)
   assert.equal(service.hasActiveGeneration(), false)
+  assert.ok(
+    sessionEvents(events, sessionId).some(
+      (event) =>
+        event.event === "turnOutcome" &&
+        (event.data as { kind?: string; reason?: string }).kind === "failed" &&
+        (event.data as { kind?: string; reason?: string }).reason === "prompt_dispatch_failed",
+    ),
+  )
 })
 
 test("edge1c: an attachment path the user never authorized is rejected at the IPC boundary", async () => {

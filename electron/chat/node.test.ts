@@ -949,6 +949,11 @@ test("a late idle from a stopped generation does not complete the retried genera
   await waitForCondition(() => !service.hasActiveGeneration())
 
   assert.equal(service.hasActiveGeneration(), false)
+  assert.deepEqual(events.filter((event) => event.event === "turnOutcome").at(-1)?.data, {
+    sessionId: "session-1",
+    kind: "completed",
+    messageId: "assistant-2",
+  })
   assert.equal(events.filter((event) => event.event === "messageCompleted").length, 1)
 })
 
@@ -1965,6 +1970,14 @@ test("sendMessage releases a submitted turn when OpenCode never accepts it", asy
 
   assert.equal(bridge.abort.mock.calls.length, 1)
   assert.ok(events.some((event) => event.event === "generationInterrupted"))
+  assert.ok(
+    events.some(
+      (event) =>
+        event.event === "turnOutcome" &&
+        (event.data as { kind?: string; reason?: string }).kind === "interrupted" &&
+        (event.data as { kind?: string; reason?: string }).reason === "submit_timeout",
+    ),
+  )
   assert.equal(
     events.some((event) => event.event === "generationStopped"),
     false,

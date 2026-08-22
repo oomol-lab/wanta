@@ -223,6 +223,19 @@ export interface SetChatPermissionModeRequest {
 export interface MessageCompletedEvent {
   sessionId: string
 }
+/**
+ * Authoritative host-side terminal outcome for a user turn. `messageCompleted`
+ * remains the legacy successful-completion notification; consumers that need
+ * to distinguish stop, failure, and interruption should use this event.
+ */
+export type ChatTurnOutcomeKind = "completed" | "cancelled" | "failed" | "interrupted"
+export interface TurnOutcomeEvent {
+  sessionId: string
+  kind: ChatTurnOutcomeKind
+  messageId?: string
+  /** Stable host or adapter reason, safe to log and display as diagnostics. */
+  reason?: string
+}
 /** Cumulative token usage snapshot reported by an external agent mid-turn or at completion. */
 export interface UsageUpdatedEvent {
   sessionId: string
@@ -903,6 +916,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     permissionAsked: PermissionAskedEvent
     permissionReplied: PermissionResolvedEvent
     messageCompleted: MessageCompletedEvent
+    turnOutcome: TurnOutcomeEvent
     messagePartRemoved: MessagePartRemovedEvent
     messageError: MessageErrorEvent
     generationStopped: GenerationStoppedEvent

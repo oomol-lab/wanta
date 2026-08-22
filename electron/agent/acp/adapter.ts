@@ -1,4 +1,5 @@
 import type { AgentPermissionMode, ChatPermissionReply, ChatPermissionRequest } from "../../chat/common.ts"
+import type { AgentEvent } from "../contract/event.ts"
 import type {
   AgentSendOptions,
   CancelAgentInput,
@@ -135,6 +136,12 @@ export async function acpSubprocessEnvironment(
 
 /** In-flight prompt marker; settled exactly once by resolve/reject/loss. */
 interface AcpTurn {
+  /** ACP tool calls still open when the native prompt request resolves. */
+  activeToolCallIds: Set<string>
+  /** A terminal tool result arrived after which the agent has not narrated again. */
+  lastToolResult?: "completed" | "error"
+  /** Human-facing assistant text observed after `lastToolResult`. */
+  textAfterLastToolResult: boolean
   settled: boolean
 }
 
@@ -547,7 +554,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     this.emitUserTurn(input)
     session.translator.noteTurnStarted()
     session.cancelling = false
-    const turn: AcpTurn = { settled: false }
+    const turn: AcpTurn = { activeToolCallIds: new Set(), settled: false, textAfterLastToolResult: false }
     session.activeTurn = turn
     const promptPromise = handle.connection.agent.request("session/prompt", {
       sessionId: session.acpSessionId,
@@ -831,10 +838,58 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       return true
     }
     promptPromise.then(
-      () => {
+      (response) => {
         if (!settle()) {
           return
         }
+        // User cancellation already has its own `generationStopped` path in
+        // ChatService. Preserve the historic completion acknowledgement here
+        // so a cancelled ACP request cannot leave the renderer streaming.
+        if (session.cancelling || response.stopReason === "cancelled") {
+          logDiagnostic(
+            "acp-adapter",
+            "prompt settled",
+            { adapter: this.kind, outcome: "cancelled", sessionId: wantaSessionId, stopReason: response.stopReason },
+            "info",
+          )
+          this.emit({ event: "messageCompleted", data: { sessionId: wantaSessionId } })
+          return
+        }
+        const incompleteToolTurn =
+          turn.activeToolCallIds.size > 0 || (turn.lastToolResult === "error" && !turn.textAfterLastToolResult)
+        if (response.stopReason !== "end_turn" || incompleteToolTurn) {
+          const message = incompleteToolTurn
+            ? `${this.options.registration.displayName} stopped after a tool call without producing a final response.`
+            : `${this.options.registration.displayName} stopped before completing the turn (${response.stopReason}).`
+          this.emit({ event: "agentError", data: { sessionId: wantaSessionId, message } })
+          logDiagnostic(
+            "acp-adapter",
+            "prompt settled without a terminal assistant response",
+            {
+              adapter: this.kind,
+              activeToolCallCount: turn.activeToolCallIds.size,
+              lastToolResult: turn.lastToolResult,
+              outcome: incompleteToolTurn ? "failed" : "interrupted",
+              stopReason: response.stopReason,
+              textAfterLastToolResult: turn.textAfterLastToolResult,
+              sessionId: wantaSessionId,
+            },
+            "warn",
+          )
+          return
+        }
+        logDiagnostic(
+          "acp-adapter",
+          "prompt settled",
+          {
+            adapter: this.kind,
+            outcome: "completed",
+            sessionId: wantaSessionId,
+            stopReason: response.stopReason,
+            textAfterLastToolResult: turn.textAfterLastToolResult,
+          },
+          "info",
+        )
         this.emit({ event: "messageCompleted", data: { sessionId: wantaSessionId } })
       },
       (error: unknown) => {
@@ -1265,8 +1320,40 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       )
       return
     }
+    this.observeTurnEvents(session.activeTurn, events)
     for (const event of events) {
       this.emit(event)
+    }
+  }
+
+  /**
+   * ACP's prompt response only tells us that the native request stopped. It
+   * does not prove the user received a final answer. Keep the minimum turn
+   * evidence necessary to reject the dangerous case observed in production:
+   * an error/pending tool followed by `end_turn` and no narration.
+   */
+  private observeTurnEvents(turn: AcpTurn | undefined, events: readonly AgentEvent[]): void {
+    if (!turn) return
+    for (const event of events) {
+      switch (event.event) {
+        case "toolCallStarted":
+          turn.activeToolCallIds.add(event.data.callId)
+          turn.lastToolResult = undefined
+          turn.textAfterLastToolResult = false
+          break
+        case "toolCallResult":
+          turn.activeToolCallIds.delete(event.data.callId)
+          turn.lastToolResult = event.data.status
+          turn.textAfterLastToolResult = false
+          break
+        case "messageDelta":
+          if (event.data.text.trim() && turn.lastToolResult !== undefined) {
+            turn.textAfterLastToolResult = true
+          }
+          break
+        default:
+          break
+      }
     }
   }
 

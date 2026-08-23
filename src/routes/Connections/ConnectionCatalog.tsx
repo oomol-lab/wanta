@@ -4,6 +4,7 @@ import type {
   ConnectionAuthFilter,
   ConnectionCatalogFilter,
   ConnectionCategoryFilter,
+  ConnectionDiscoveryCategory,
 } from "./connection-route-model.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
@@ -63,8 +64,10 @@ export function ConnectionListToolbar({
   availableToolsCount,
   categoryFilters,
   connectedCount,
+  discoveryCategory,
   directlyAvailableCount,
   loading,
+  managedConnectionCount,
   onAuthFilterChange,
   onFilterChange,
   onQueryChange,
@@ -72,9 +75,11 @@ export function ConnectionListToolbar({
   onSortModeChange,
   query,
   resultCount,
+  searchPlaceholder,
   showConnectionState,
   sortMode,
   totalCount,
+  view,
 }: {
   activeFilter: ConnectionCatalogFilter
   authFilter: ConnectionAuthFilter
@@ -82,8 +87,10 @@ export function ConnectionListToolbar({
   availableToolsCount: number
   categoryFilters: ConnectionCategoryFilter[]
   connectedCount: number
+  discoveryCategory: ConnectionDiscoveryCategory | null
   directlyAvailableCount: number
   loading: boolean
+  managedConnectionCount: number
   onAuthFilterChange: (filter: ConnectionAuthFilter) => void
   onFilterChange: (filter: ConnectionCatalogFilter) => void
   onQueryChange: (query: string) => void
@@ -91,21 +98,28 @@ export function ConnectionListToolbar({
   onSortModeChange: (mode: ConnectionProviderSortMode) => void
   query: string
   resultCount: number
+  searchPlaceholder: string
   showConnectionState: boolean
   sortMode: ConnectionProviderSortMode
   totalCount: number
+  view: "discover" | "manage"
 }) {
   const t = useT()
   const filterRowRef = React.useRef<HTMLDivElement | null>(null)
   const filterMeasurementRef = React.useRef<HTMLDivElement | null>(null)
   const [visibleCategoryCount, setVisibleCategoryCount] = React.useState(categoryFilterLimit)
   const selectedCategory = activeFilter.kind === "category" ? activeFilter.category : null
-  const visibleCategoryFilters = selectVisibleCategoryFilters(categoryFilters, selectedCategory, visibleCategoryCount)
+  const categoryDetail = view === "discover" && discoveryCategory !== null
+  const showCategoryFilters = view === "discover" && !categoryDetail
+  const visibleCategoryFilters = showCategoryFilters
+    ? selectVisibleCategoryFilters(categoryFilters, selectedCategory, visibleCategoryCount)
+    : []
   const overflowCategoryFilters = categoryFilters.filter(
     (filter) => !visibleCategoryFilters.some((visibleFilter) => visibleFilter.label === filter.label),
   )
   const filterValue = getFilterValue(activeFilter)
-  const hasFilters = activeFilter.kind !== "all" || authFilter !== "all" || query.trim().length > 0
+  const hasFilters =
+    activeFilter.kind !== (view === "manage" ? "managed" : "all") || authFilter !== "all" || query.trim().length > 0
 
   React.useLayoutEffect(() => {
     const filterRow = filterRowRef.current
@@ -122,6 +136,7 @@ export function ConnectionListToolbar({
     const updateVisibleCategoryCount = () => {
       const availableWidth = (filterRow.firstElementChild as HTMLElement | null)?.clientWidth ?? filterRow.clientWidth
       const allWidth = getMeasurement("all")
+      const managedWidth = getMeasurement("managed")
       const availableToolsWidth = getMeasurement("available-tools")
       const connectedWidth = getMeasurement("connected")
       const attentionWidth = getMeasurement("attention")
@@ -130,13 +145,14 @@ export function ConnectionListToolbar({
       const categoryWidths = categoryFilters.map((_, index) => getMeasurement(`category-${index}`))
       if (
         !availableWidth ||
-        allWidth === null ||
+        (view === "discover" && allWidth === null) ||
+        (view === "manage" && managedWidth === null) ||
         availableToolsWidth === null ||
         connectedWidth === null ||
         attentionWidth === null ||
         directlyAvailableWidth === null ||
         moreWidth === null ||
-        categoryWidths.some((width) => width === null)
+        (showCategoryFilters && categoryWidths.some((width) => width === null))
       ) {
         return
       }
@@ -148,11 +164,10 @@ export function ConnectionListToolbar({
       )
       const nextCount = getFittingCategoryFilterCount({
         availableWidth,
-        baseFilterWidths: [
-          allWidth,
-          ...(showConnectionState ? [availableToolsWidth, connectedWidth, attentionWidth] : []),
-          directlyAvailableWidth,
-        ],
+        baseFilterWidths:
+          view === "manage"
+            ? [managedWidth ?? 0, ...(showConnectionState ? [connectedWidth ?? 0, attentionWidth ?? 0] : [])]
+            : [allWidth ?? 0, availableToolsWidth ?? 0, directlyAvailableWidth ?? 0],
         categoryFilterWidths,
         filters: categoryFilters,
         gap,
@@ -178,9 +193,11 @@ export function ConnectionListToolbar({
     connectedCount,
     directlyAvailableCount,
     loading,
+    managedConnectionCount,
     selectedCategory,
     showConnectionState,
     totalCount,
+    view,
   ])
 
   return (
@@ -190,7 +207,7 @@ export function ConnectionListToolbar({
           <SearchField
             className="min-w-48 flex-1"
             value={query}
-            placeholder={t("connections.searchProviders")}
+            placeholder={searchPlaceholder}
             onChange={(event) => onQueryChange(event.currentTarget.value)}
           />
           <ProviderSortMenu mode={sortMode} onChange={onSortModeChange} />
@@ -214,8 +231,27 @@ export function ConnectionListToolbar({
               }
             }}
           >
-            <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
-            {showConnectionState ? (
+            {view === "manage" ? (
+              <>
+                <FilterToggleItem
+                  count={loading ? null : managedConnectionCount}
+                  label={t("connections.filterMyConnections")}
+                  value="managed"
+                />
+                <FilterToggleItem
+                  count={loading ? null : connectedCount}
+                  label={t("connections.filterConnected")}
+                  value="connected"
+                />
+                {showConnectionState ? (
+                  <FilterToggleItem
+                    count={loading ? null : attentionCount}
+                    label={t("connections.needsAttention")}
+                    value="attention"
+                  />
+                ) : null}
+              </>
+            ) : categoryDetail ? (
               <>
                 <FilterToggleItem
                   count={loading ? null : availableToolsCount}
@@ -223,24 +259,26 @@ export function ConnectionListToolbar({
                   value="available-tools"
                 />
                 <FilterToggleItem
-                  count={loading ? null : connectedCount}
-                  label={t("connections.filterConnected")}
-                  value="connected"
+                  count={loading ? null : directlyAvailableCount}
+                  label={t("connections.filterDirectlyAvailable")}
+                  value="directly-available"
                 />
               </>
-            ) : null}
-            <FilterToggleItem
-              count={loading ? null : directlyAvailableCount}
-              label={t("connections.filterDirectlyAvailable")}
-              value="directly-available"
-            />
-            {showConnectionState ? (
-              <FilterToggleItem
-                count={loading ? null : attentionCount}
-                label={t("connections.needsAttention")}
-                value="attention"
-              />
-            ) : null}
+            ) : (
+              <>
+                <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
+                <FilterToggleItem
+                  count={loading ? null : availableToolsCount}
+                  label={t("connections.filterAvailableTools")}
+                  value="available-tools"
+                />
+                <FilterToggleItem
+                  count={loading ? null : directlyAvailableCount}
+                  label={t("connections.filterDirectlyAvailable")}
+                  value="directly-available"
+                />
+              </>
+            )}
             {visibleCategoryFilters.map((filter) => (
               <FilterToggleItem
                 key={filter.label}
@@ -252,7 +290,7 @@ export function ConnectionListToolbar({
           </ToggleGroup>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {overflowCategoryFilters.length > 0 ? (
+          {showCategoryFilters && overflowCategoryFilters.length > 0 ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -280,7 +318,10 @@ export function ConnectionListToolbar({
             </DropdownMenu>
           ) : null}
           <span className="oo-text-micro oo-text-muted whitespace-nowrap">
-            {t("connections.showingProviders", { count: resultCount, total: totalCount })}
+            {t("connections.showingProviders", {
+              count: resultCount,
+              total: view === "manage" ? managedConnectionCount : totalCount,
+            })}
           </span>
           {hasFilters ? (
             <Button
@@ -300,6 +341,13 @@ export function ConnectionListToolbar({
         <ToggleGroup type="single" variant="default" size="sm" spacing={1} className="flex w-max flex-nowrap gap-1">
           <span data-filter-measure="all">
             <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
+          </span>
+          <span data-filter-measure="managed">
+            <FilterToggleItem
+              count={loading ? null : managedConnectionCount}
+              label={t("connections.filterMyConnections")}
+              value="managed"
+            />
           </span>
           <span data-filter-measure="available-tools">
             <FilterToggleItem

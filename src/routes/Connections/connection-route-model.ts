@@ -44,6 +44,78 @@ export const categoryMessageKeysByRawLabel: Record<string, MessageKey> = {
 
 export const crossBorderEcommerceCategory = "Cross-Border Ecommerce"
 
+/**
+ * Stable, task-led groups for the discovery experience. These deliberately
+ * sit above Connector's raw catalog labels: users decide what they want to
+ * accomplish, while the catalog remains free to expose more precise tags.
+ */
+export const connectionDiscoveryCategories = [
+  {
+    key: "ai",
+    rawLabels: ["AI"],
+    featuredServices: ["openai", "anthropic", "gemini", "deepseek"],
+    titleKey: "connections.discovery.aiTitle",
+    descriptionKey: "connections.discovery.aiDescription",
+  },
+  {
+    key: "cross-border-ecommerce",
+    rawLabels: [crossBorderEcommerceCategory],
+    featuredServices: ["shopify", "17track", "aftership", "shippo"],
+    titleKey: "connections.discovery.crossBorderTitle",
+    descriptionKey: "connections.discovery.crossBorderDescription",
+  },
+  {
+    key: "communication",
+    rawLabels: ["Communication", "Social"],
+    featuredServices: ["slack", "gmail", "discord", "telegram"],
+    titleKey: "connections.discovery.communicationTitle",
+    descriptionKey: "connections.discovery.communicationDescription",
+  },
+  {
+    key: "knowledge",
+    rawLabels: ["Documentation", "Design & Media"],
+    featuredServices: ["notion", "googledrive", "googledocs", "dropbox"],
+    titleKey: "connections.discovery.knowledgeTitle",
+    descriptionKey: "connections.discovery.knowledgeDescription",
+  },
+  {
+    key: "productivity",
+    rawLabels: ["Productivity", "Efficiency"],
+    featuredServices: ["asana", "jira", "trello", "clickup"],
+    titleKey: "connections.discovery.productivityTitle",
+    descriptionKey: "connections.discovery.productivityDescription",
+  },
+  {
+    key: "marketing",
+    rawLabels: ["Marketing"],
+    featuredServices: ["hubspot", "mailchimp", "googleads", "googleanalytics"],
+    titleKey: "connections.discovery.marketingTitle",
+    descriptionKey: "connections.discovery.marketingDescription",
+  },
+  {
+    key: "data-storage",
+    rawLabels: ["Data & Analytics", "Storage"],
+    featuredServices: ["googlebigquery", "databricks", "algolia", "mongodb"],
+    titleKey: "connections.discovery.dataStorageTitle",
+    descriptionKey: "connections.discovery.dataStorageDescription",
+  },
+  {
+    key: "developer",
+    rawLabels: ["Developer Tools", "Security & Identity"],
+    featuredServices: ["github", "gitlab", "vercel", "cloudflareworker"],
+    titleKey: "connections.discovery.developerTitle",
+    descriptionKey: "connections.discovery.developerDescription",
+  },
+] as const satisfies readonly {
+  descriptionKey: MessageKey
+  featuredServices: readonly string[]
+  key: string
+  rawLabels: readonly string[]
+  titleKey: MessageKey
+}[]
+
+export type ConnectionDiscoveryCategory = (typeof connectionDiscoveryCategories)[number]["key"]
+
 const crossBorderEcommerceServices = new Set(
   [
     "17track",
@@ -87,7 +159,9 @@ export type ConnectionCatalogFilter =
   | { kind: "available-tools" }
   | { kind: "category"; category: string }
   | { kind: "connected" }
+  | { kind: "discovery-category"; category: ConnectionDiscoveryCategory }
   | { kind: "directly-available" }
+  | { kind: "managed" }
 
 export type ConnectionAuthFilter = "all" | Exclude<ConnectionAuthType, null>
 
@@ -137,6 +211,14 @@ export function isConnected(provider: ConnectionProviderSummary): boolean {
 
 export function isDirectlyAvailableProvider(provider: ConnectionProviderSummary): boolean {
   return provider.status === "connected" && isConnectionlessNoAuthProvider(provider)
+}
+
+export function isManagedConnection(provider: ConnectionProviderSummary): boolean {
+  return (
+    isConnected(provider) ||
+    provider.status === "needs_attention" ||
+    (provider.executionMode === "direct" && provider.status === "connected")
+  )
 }
 
 export function shouldLoadProviderDetail(provider: ConnectionProviderSummary): boolean {
@@ -321,6 +403,24 @@ export function getProviderCategoryRawLabels(provider: ConnectionProviderSummary
   return labels.length > 0 ? labels : [uncategorizedCategoryValue]
 }
 
+export function getConnectionDiscoveryCategory(
+  key: ConnectionDiscoveryCategory,
+): (typeof connectionDiscoveryCategories)[number] {
+  const category = connectionDiscoveryCategories.find((item) => item.key === key)
+  if (!category) {
+    throw new Error(`Unknown connection discovery category: ${key}`)
+  }
+  return category
+}
+
+export function matchesConnectionDiscoveryCategory(
+  provider: ConnectionProviderSummary,
+  category: ConnectionDiscoveryCategory,
+): boolean {
+  const rawLabels = new Set(getProviderCategoryRawLabels(provider))
+  return getConnectionDiscoveryCategory(category).rawLabels.some((label) => rawLabels.has(label))
+}
+
 function normalizeProviderCategoryLabel(label: string): string {
   const normalizedLabel = label.trim()
   const normalized = normalizedLabel.toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, "-")
@@ -470,7 +570,8 @@ export function parseFilterValue(value: string): ConnectionCatalogFilter | null 
     value === "available-tools" ||
     value === "connected" ||
     value === "attention" ||
-    value === "directly-available"
+    value === "directly-available" ||
+    value === "managed"
   ) {
     return { kind: value }
   }
@@ -558,10 +659,14 @@ export function matchesProviderFilter(provider: ConnectionProviderSummary, filte
       return isConnected(provider) || isDirectlyAvailableProvider(provider)
     case "connected":
       return isConnected(provider)
+    case "managed":
+      return isManagedConnection(provider)
     case "attention":
       return provider.status === "needs_attention"
     case "directly-available":
       return isDirectlyAvailableProvider(provider)
+    case "discovery-category":
+      return matchesConnectionDiscoveryCategory(provider, filter.category)
     case "category":
       return getProviderCategoryRawLabels(provider).includes(filter.category)
   }

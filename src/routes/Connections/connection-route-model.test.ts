@@ -19,6 +19,8 @@ import {
   getProviderStatusTone,
   isConnected,
   isDirectlyAvailableProvider,
+  isManagedConnection,
+  matchesConnectionDiscoveryCategory,
   matchesProviderFilter,
   normalizeConnectionCatalogFilter,
   normalizeConnectionAliasInput,
@@ -175,6 +177,36 @@ test("available tools filter combines connected and directly available providers
   assert.equal(matchesProviderFilter(directlyAvailable, { kind: "available-tools" }), true)
   assert.equal(matchesProviderFilter(provider({ status: "available" }), { kind: "available-tools" }), false)
   assert.equal(matchesProviderFilter(provider({ status: "needs_attention" }), { kind: "available-tools" }), false)
+})
+
+test("my connections excludes ordinary no-setup providers while retaining configured direct connections", () => {
+  const noSetup = provider({ actionKind: "no_auth", authTypes: ["no_auth"], status: "connected" })
+  const directConnection = provider({
+    actionKind: "oauth2",
+    authTypes: ["oauth2"],
+    executionMode: "direct",
+    service: "lark-cli",
+    status: "connected",
+  })
+  const attention = provider({ status: "needs_attention" })
+
+  assert.equal(isManagedConnection(noSetup), false)
+  assert.equal(isManagedConnection(directConnection), true)
+  assert.equal(isManagedConnection(attention), true)
+  assert.equal(matchesProviderFilter(noSetup, { kind: "managed" }), false)
+  assert.equal(matchesProviderFilter(directConnection, { kind: "managed" }), true)
+})
+
+test("discovery categories combine raw catalog labels into task-led groups", () => {
+  const documentation = provider({ categoryLabels: ["Documentation"], service: "notion" })
+  const storage = provider({ categoryLabels: ["Storage"], service: "dropbox" })
+  const social = provider({ categoryLabels: ["Social"], service: "linkedin" })
+
+  assert.equal(matchesConnectionDiscoveryCategory(documentation, "knowledge"), true)
+  assert.equal(matchesConnectionDiscoveryCategory(storage, "data-storage"), true)
+  assert.equal(matchesConnectionDiscoveryCategory(social, "communication"), true)
+  assert.equal(matchesProviderFilter(storage, { kind: "discovery-category", category: "data-storage" }), true)
+  assert.equal(matchesProviderFilter(storage, { kind: "discovery-category", category: "developer" }), false)
 })
 
 test("cross-border ecommerce providers receive a stable catalog category", () => {

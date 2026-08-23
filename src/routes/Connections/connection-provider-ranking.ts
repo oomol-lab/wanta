@@ -63,7 +63,7 @@ export function compareConnectionProviders(
 }
 
 const recommendedConnectionServicePriorityMap = new Map(
-  recommendedConnectionServicePriority.map((service, index) => [compactServiceValue(service), index]),
+  recommendedConnectionServicePriority.map((service, index) => [compactConnectionService(service), index]),
 )
 
 export function compareConnectionProvidersByRecommendation(
@@ -86,7 +86,7 @@ function compareProviderNames(left: ConnectionProviderSummary, right: Connection
 }
 
 export function getRecommendedConnectionServicePriority(service: string): number {
-  return recommendedConnectionServicePriorityMap.get(compactServiceValue(service)) ?? Number.MAX_SAFE_INTEGER
+  return recommendedConnectionServicePriorityMap.get(compactConnectionService(service)) ?? Number.MAX_SAFE_INTEGER
 }
 
 function getConnectionProviderStatusWeight(provider: ConnectionProviderSummary): number {
@@ -99,6 +99,6 @@ function getConnectionProviderStatusWeight(provider: ConnectionProviderSummary):
   return 2
 }
 
-function compactServiceValue(value: string): string {
+export function compactConnectionService(value: string): string {
   return value.toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, "")
 }

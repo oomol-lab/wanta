@@ -62,13 +62,28 @@ function ProviderStatusBadge({
   )
 }
 
-export function EmptyList({ summary, hasQuery }: { summary: ConnectionSummary | null; hasQuery: boolean }) {
+export function EmptyList({
+  hasQuery,
+  onDiscover,
+  summary,
+}: {
+  hasQuery: boolean
+  onDiscover?: () => void
+  summary: ConnectionSummary | null
+}) {
   const t = useT()
   const state = getEmptyState(summary, t)
   return (
     <section className="grid gap-1 rounded-lg border bg-muted/30 px-3 py-3">
       <div className="oo-text-label">{hasQuery ? t("connections.emptySearch") : state.title}</div>
       <div className="oo-text-caption oo-text-muted">{hasQuery ? t("connections.noMatch") : state.description}</div>
+      {onDiscover ? (
+        <div className="mt-2">
+          <Button type="button" variant="outline" size="sm" onClick={onDiscover}>
+            {t("connections.discoverConnections")}
+          </Button>
+        </div>
+      ) : null}
     </section>
   )
 }

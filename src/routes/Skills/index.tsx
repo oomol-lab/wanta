@@ -764,9 +764,7 @@ export function SkillsRoute({
             isSignedIn={cloudEnabled}
             locale={locale}
             maintainerAccount={
-              discoveryFilter === "mine" && authResource.data?.status === "authenticated"
-                ? authResource.data.account
-                : undefined
+              cloudEnabled && authResource.data?.status === "authenticated" ? authResource.data.account : undefined
             }
             next={activePackageCatalog.next}
             packages={filteredPublicPackages}

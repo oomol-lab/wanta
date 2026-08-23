@@ -42,9 +42,17 @@ export function SkillPackageMaintainers({ account, packageName, version }: Skill
   const [error, setError] = React.useState<string | null>(null)
   const [inviteOpen, setInviteOpen] = React.useState(false)
   const requestIdRef = React.useRef(0)
+  const activeRequestRef = React.useRef<AbortController | null>(null)
+
+  const abortActiveRequest = React.useCallback(() => {
+    activeRequestRef.current?.abort()
+    activeRequestRef.current = null
+  }, [])
 
   const loadMaintainers = React.useCallback(() => {
+    abortActiveRequest()
     const controller = new AbortController()
+    activeRequestRef.current = controller
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
     setLoading(true)
@@ -62,14 +70,17 @@ export function SkillPackageMaintainers({ account, packageName, version }: Skill
         }
       })
       .finally(() => {
-        if (requestId === requestIdRef.current) {
+        if (requestId === requestIdRef.current && activeRequestRef.current === controller) {
+          activeRequestRef.current = null
           setLoading(false)
         }
       })
-    return () => controller.abort()
-  }, [packageName, version])
+  }, [abortActiveRequest, packageName, version])
 
-  React.useEffect(() => loadMaintainers(), [loadMaintainers])
+  React.useEffect(() => {
+    loadMaintainers()
+    return abortActiveRequest
+  }, [abortActiveRequest, loadMaintainers])
 
   const maintainers = detail?.maintainers ?? []
   const canInvite = maintainers.some((maintainer) => maintainer.id === account.id) && Boolean(account.username)

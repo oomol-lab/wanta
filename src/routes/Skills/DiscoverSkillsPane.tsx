@@ -1,3 +1,4 @@
+import type { AuthAccountSummary } from "../../../electron/auth/common.ts"
 import type { PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { ProviderSkillRecommendation } from "./provider-skill-recommendations.ts"
 import type { DiscoverSkillFilter, ManagedSkillGroupById } from "./skill-route-model.ts"
@@ -34,6 +35,7 @@ interface DiscoverSkillsPaneProps {
   isLoading: boolean
   isLoadingMore: boolean
   isSignedIn: boolean
+  maintainerAccount?: AuthAccountSummary
   canInstall: boolean
   locale: string
   next: string | null
@@ -87,6 +89,7 @@ export function DiscoverSkillsPane({
   isLoading,
   isLoadingMore,
   isSignedIn,
+  maintainerAccount,
   canInstall,
   locale,
   next,
@@ -194,6 +197,7 @@ export function DiscoverSkillsPane({
           canInstall={canInstall}
           groupById={groupById}
           locale={locale}
+          maintainerAccount={maintainerAccount}
           pkg={selectedPackage}
           onClose={onClosePackage}
           onInstall={onInstall}

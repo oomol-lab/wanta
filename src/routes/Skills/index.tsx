@@ -676,6 +676,8 @@ export function SkillsRoute({
     inventoryInitialLoading: inventoryResource.isInitialLoading,
     isRemovingSkill,
     isSkillLinkedToTeam: selectedSkillLinkedToActiveTeam,
+    maintainerAccount:
+      cloudEnabled && authResource.data?.status === "authenticated" ? authResource.data.account : undefined,
     openSkillFolder,
     publishSkill: setPublishDialogSkill,
     publishingSkillId,
@@ -761,6 +763,9 @@ export function SkillsRoute({
             isLoadingMore={isPublicPackageLoadingMore}
             isSignedIn={cloudEnabled}
             locale={locale}
+            maintainerAccount={
+              cloudEnabled && authResource.data?.status === "authenticated" ? authResource.data.account : undefined
+            }
             next={activePackageCatalog.next}
             packages={filteredPublicPackages}
             providerRecommendations={cloudEnabled ? installableProviderSkillRecommendations : []}

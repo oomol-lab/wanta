@@ -88,6 +88,8 @@ export type { ConnectionAuthIntent } from "./connection-route-model.ts"
 
 type ConnectionsView = "discover" | "manage"
 
+const connectionViews: readonly ConnectionsView[] = ["manage", "discover"]
+
 interface ConnectionsPanelProps {
   accessContext?: ConnectionAccessContext
   authIntent?: ConnectionAuthIntent | null
@@ -313,6 +315,7 @@ export function ConnectionsPanel({
       userSelectedViewWorkspaceRef.current = summaryWorkspaceKey
       if (nextView === view) return
       setView(nextView)
+      setDiscoveryCategory(null)
       setQuery("")
       setAuthFilter("all")
       setSortMode("recommended")
@@ -321,6 +324,30 @@ export function ConnectionsPanel({
       setNarrowPane("list")
     },
     [summaryWorkspaceKey, view],
+  )
+  const handleViewTabKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      const currentIndex = connectionViews.indexOf(view)
+      const nextView =
+        event.key === "ArrowRight"
+          ? connectionViews[(currentIndex + 1) % connectionViews.length]
+          : event.key === "ArrowLeft"
+            ? connectionViews[(currentIndex - 1 + connectionViews.length) % connectionViews.length]
+            : event.key === "Home"
+              ? connectionViews[0]
+              : event.key === "End"
+                ? connectionViews.at(-1)
+                : undefined
+
+      if (!nextView) return
+
+      event.preventDefault()
+      selectView(nextView)
+      window.requestAnimationFrame(() => {
+        document.getElementById(`connections-${nextView}-tab`)?.focus()
+      })
+    },
+    [selectView, view],
   )
   const larkCliBusy: UseConnections["busy"] =
     larkCli.state?.phase === "disconnecting"
@@ -597,6 +624,7 @@ export function ConnectionsPanel({
   React.useEffect(() => {
     if (
       !discoveryCategory ||
+      providers.length === 0 ||
       providers.some((provider) => matchesConnectionDiscoveryCategory(provider, discoveryCategory))
     ) {
       return
@@ -898,9 +926,11 @@ export function ConnectionsPanel({
               role="tab"
               aria-controls="connections-catalog"
               aria-selected={view === "manage"}
+              tabIndex={view === "manage" ? 0 : -1}
               variant="ghost"
               size="sm"
               onClick={() => selectView("manage")}
+              onKeyDown={handleViewTabKeyDown}
               className={cn(
                 "-mb-px h-8 rounded-none border-b-2 border-transparent px-2.5 text-muted-foreground hover:bg-transparent hover:text-foreground",
                 view === "manage" && "border-foreground text-foreground",
@@ -915,9 +945,11 @@ export function ConnectionsPanel({
               role="tab"
               aria-controls="connections-catalog"
               aria-selected={view === "discover"}
+              tabIndex={view === "discover" ? 0 : -1}
               variant="ghost"
               size="sm"
               onClick={() => selectView("discover")}
+              onKeyDown={handleViewTabKeyDown}
               className={cn(
                 "-mb-px h-8 rounded-none border-b-2 border-transparent px-2.5 text-muted-foreground hover:bg-transparent hover:text-foreground",
                 view === "discover" && "border-foreground text-foreground",
@@ -966,7 +998,14 @@ export function ConnectionsPanel({
         desktopLayout={selectedProvider ? "default" : "single"}
         className="motion-reduce:transition-none min-[960px]:transition-[grid-template-columns] min-[960px]:duration-200 min-[960px]:ease-out"
       >
-        <SplitViewListPane id="connections-catalog" ref={listPaneRef} narrowPane={narrowPane} className="pt-3">
+        <SplitViewListPane
+          id="connections-catalog"
+          role="tabpanel"
+          aria-labelledby={view === "manage" ? "connections-manage-tab" : "connections-discover-tab"}
+          ref={listPaneRef}
+          narrowPane={narrowPane}
+          className="pt-3"
+        >
           <div className="grid gap-3">
             {view === "discover" && discoveryCategory ? (
               <ConnectionDiscoveryCategoryHeader

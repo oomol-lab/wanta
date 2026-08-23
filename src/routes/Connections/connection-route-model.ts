@@ -80,7 +80,7 @@ export const connectionDiscoveryCategories = [
   },
   {
     key: "productivity",
-    rawLabels: ["Productivity", "Efficiency"],
+    rawLabels: ["Productivity", "Efficiency", "Finance"],
     featuredServices: ["asana", "jira", "trello", "clickup"],
     titleKey: "connections.discovery.productivityTitle",
     descriptionKey: "connections.discovery.productivityDescription",
@@ -94,7 +94,7 @@ export const connectionDiscoveryCategories = [
   },
   {
     key: "data-storage",
-    rawLabels: ["Data & Analytics", "Storage"],
+    rawLabels: ["Data & Analytics", "Storage", "Maps & Location"],
     featuredServices: ["googlebigquery", "databricks", "algolia", "mongodb"],
     titleKey: "connections.discovery.dataStorageTitle",
     descriptionKey: "connections.discovery.dataStorageDescription",

@@ -253,6 +253,7 @@ export function ConnectionListToolbar({
               </>
             ) : categoryDetail ? (
               <>
+                <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
                 <FilterToggleItem
                   count={loading ? null : availableToolsCount}
                   label={t("connections.filterAvailableTools")}

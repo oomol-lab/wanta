@@ -189,22 +189,35 @@ test("my connections excludes ordinary no-setup providers while retaining config
     status: "connected",
   })
   const attention = provider({ status: "needs_attention" })
+  const directNoAuth = provider({
+    actionKind: "no_auth",
+    authTypes: ["no_auth"],
+    executionMode: "direct",
+    service: "wecom-cli",
+    status: "connected",
+  })
 
   assert.equal(isManagedConnection(noSetup), false)
   assert.equal(isManagedConnection(directConnection), true)
   assert.equal(isManagedConnection(attention), true)
+  assert.equal(isManagedConnection(directNoAuth), true)
   assert.equal(matchesProviderFilter(noSetup, { kind: "managed" }), false)
   assert.equal(matchesProviderFilter(directConnection, { kind: "managed" }), true)
+  assert.equal(matchesProviderFilter(directNoAuth, { kind: "managed" }), true)
 })
 
 test("discovery categories combine raw catalog labels into task-led groups", () => {
   const documentation = provider({ categoryLabels: ["Documentation"], service: "notion" })
   const storage = provider({ categoryLabels: ["Storage"], service: "dropbox" })
   const social = provider({ categoryLabels: ["Social"], service: "linkedin" })
+  const finance = provider({ categoryLabels: ["Finance"], service: "stripe" })
+  const maps = provider({ categoryLabels: ["Maps & Location"], service: "maps" })
 
   assert.equal(matchesConnectionDiscoveryCategory(documentation, "knowledge"), true)
   assert.equal(matchesConnectionDiscoveryCategory(storage, "data-storage"), true)
   assert.equal(matchesConnectionDiscoveryCategory(social, "communication"), true)
+  assert.equal(matchesConnectionDiscoveryCategory(finance, "productivity"), true)
+  assert.equal(matchesConnectionDiscoveryCategory(maps, "data-storage"), true)
   assert.equal(matchesProviderFilter(storage, { kind: "discovery-category", category: "data-storage" }), true)
   assert.equal(matchesProviderFilter(storage, { kind: "discovery-category", category: "developer" }), false)
 })

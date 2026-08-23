@@ -1,3 +1,4 @@
+import type { AuthAccountSummary } from "../../../electron/auth/common.ts"
 import type {
   ManagedSkillGroup,
   ManagedSkillHostCoverage,
@@ -26,6 +27,7 @@ import {
   skillDocumentPreviewSource,
 } from "./skill-route-model.ts"
 import { SkillErrorNotice } from "./SkillErrorNotice.tsx"
+import { SkillPackageMaintainers } from "./SkillPackageMaintainers.tsx"
 import { AgentIcon } from "@/components/AgentIcon"
 import { MessageResponse } from "@/components/ai-elements/message"
 import { useSkillService } from "@/components/AppContext"
@@ -147,6 +149,7 @@ export interface SkillDetailContentProps {
   inventoryInitialLoading: boolean
   isRemovingSkill: boolean
   isSkillLinkedToTeam: boolean
+  maintainerAccount?: AuthAccountSummary
   openSkillFolder: (pathname: string) => void
   publishSkill: (skill: ManagedSkillGroup) => void
   publishingSkillId: string | null
@@ -168,6 +171,7 @@ export function SkillDetailContent({
   inventoryInitialLoading,
   isRemovingSkill,
   isSkillLinkedToTeam,
+  maintainerAccount,
   openSkillFolder,
   publishSkill,
   publishingSkillId,
@@ -199,6 +203,7 @@ export function SkillDetailContent({
         publishingSkillId={publishingSkillId}
         isRemovingSkill={isRemovingSkill}
         isSkillLinkedToTeam={isSkillLinkedToTeam}
+        maintainerAccount={maintainerAccount}
         requestRemoveSkill={requestRemoveSkill}
         requestTeamLink={requestTeamLink}
         selectedSkill={selectedSkill}
@@ -224,6 +229,7 @@ interface SkillPeekProps {
   publishSkill: (skill: ManagedSkillGroup) => void
   publishingSkillId: string | null
   isSkillLinkedToTeam: boolean
+  maintainerAccount?: AuthAccountSummary
   requestRemoveSkill: (skill: ManagedSkillGroup) => void
   requestTeamLink: (skill: ManagedSkillGroup) => void
   selectedSkill: ManagedSkillGroup
@@ -244,6 +250,7 @@ function SkillPeek({
   publishSkill,
   publishingSkillId,
   isSkillLinkedToTeam,
+  maintainerAccount,
   requestRemoveSkill,
   requestTeamLink,
   selectedSkill,
@@ -516,6 +523,14 @@ function SkillPeek({
             ))}
           </div>
         </InspectorInsetCard>
+      ) : null}
+
+      {maintainerAccount && selectedSkill.packageName?.trim() && selectedSkill.version?.trim() ? (
+        <SkillPackageMaintainers
+          account={maintainerAccount}
+          packageName={selectedSkill.packageName}
+          version={selectedSkill.version}
+        />
       ) : null}
 
       <InspectorInsetCard className="flex flex-col gap-2 px-3 py-3">

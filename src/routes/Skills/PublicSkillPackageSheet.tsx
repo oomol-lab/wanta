@@ -1,3 +1,4 @@
+import type { AuthAccountSummary } from "../../../electron/auth/common.ts"
 import type { PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { ManagedSkillGroupById } from "./skill-route-model.ts"
 
@@ -13,6 +14,7 @@ import {
   getPublicSkillInstallState,
   getPublicSkillInstallStateLabel,
 } from "./skill-route-model.ts"
+import { SkillPackageMaintainers } from "./SkillPackageMaintainers.tsx"
 import { SkillIconFrame, SkillManagementSheet } from "./SkillUiParts.tsx"
 import { AppIcons } from "@/components/AppIcons"
 import { InspectorCard, InspectorInsetCard } from "@/components/InspectorPanel"
@@ -28,6 +30,7 @@ interface PublicSkillPackageSheetProps {
   groupById: ManagedSkillGroupById
   installingKey: string | null
   locale: string
+  maintainerAccount?: AuthAccountSummary
   onClose: () => void
   onInstall: (pkg: PublicSkillPackage, skillName?: string) => void
   onOpenManagedSkill: (skillName: string) => void
@@ -40,6 +43,7 @@ export function PublicSkillPackageSheet({
   groupById,
   installingKey,
   locale,
+  maintainerAccount,
   onClose,
   onInstall,
   onOpenManagedSkill,
@@ -58,6 +62,7 @@ export function PublicSkillPackageSheet({
         groupById={groupById}
         installingKey={installingKey}
         locale={locale}
+        maintainerAccount={maintainerAccount}
         pkg={pkg}
         onInstall={onInstall}
         onOpenManagedSkill={onOpenManagedSkill}
@@ -73,6 +78,7 @@ interface PublicSkillPackageDetailProps {
   groupById: ManagedSkillGroupById
   installingKey: string | null
   locale: string
+  maintainerAccount?: AuthAccountSummary
   onInstall: (pkg: PublicSkillPackage, skillName?: string) => void
   onOpenManagedSkill: (skillName: string) => void
   pkg: PublicSkillPackage
@@ -85,6 +91,7 @@ function PublicSkillPackageDetail({
   groupById,
   installingKey,
   locale,
+  maintainerAccount,
   onInstall,
   onOpenManagedSkill,
   pkg,
@@ -194,6 +201,9 @@ function PublicSkillPackageDetail({
           ) : null}
         </div>
       </InspectorInsetCard>
+      {maintainerAccount ? (
+        <SkillPackageMaintainers account={maintainerAccount} packageName={pkg.name} version={pkg.version} />
+      ) : null}
     </aside>
   )
 }

@@ -52,9 +52,11 @@ A new kind of interaction is a new variant on `AgentInput` or `AgentEvent`.
    Agent-native depth (server-side sessions, title generation, native history,
    and artifact/process support not declared by a profile) stays on the concrete
    adapter and is never faked. See `host-capabilities.md`.
-8. **Credential red lines.** External agents authenticate through their own CLI
-   login (`auth: { kind: "agent-cli" }`); Wanta stores no subscription secrets.
-   BYOK keys keep the existing `safeStorage` rules (see docs/conventions.md).
+8. **Credential red lines.** Agent-owned runtimes authenticate through their own
+   CLI login (`auth: { kind: "agent-cli" }`). A Wanta-routed harness receives
+   only an opaque, session-scoped loopback token; Wanta account tokens and BYOK
+   keys stay in Electron main. BYOK keys keep the existing `safeStorage` rules
+   (see docs/conventions.md).
 
 ## Event/input vocabulary
 
@@ -98,8 +100,8 @@ External agents build on `electron/agent/external/`:
   still continue through the shared prompt-or-deny policy.
   Claude's native Skills and subagents remain owned by Claude inside the ACP
   bridge; their file, shell, network, and permission operations still reach the
-  same Wanta policy and Host MCP boundary as other external agents.
-  The guarded `oo` CLI compatibility path is classified by the same shared
+  same Wanta policy boundary as other external agents.
+  The guarded `oo` CLI Connector path is classified by the same shared
   command policy for OpenCode, Claude, and ACP agents. A single `oo` command
   receives a fast-path allow when it includes only the shared bounded output
   suffixes (`head`/`tail` or stderr descriptor duplication). Other ordinary
@@ -108,8 +110,8 @@ External agents build on `electron/agent/external/`:
   never make `oo` stricter merely because it is present. Sensitive paths,
   high-risk operations, credential/configuration overrides, and authentication
   commands remain protected. Loaded Skills also receive a host execution
-  policy: Wanta MCP capabilities take precedence over CLI examples, so the raw
-  CLI remains a fallback rather than an agent-specific primary transport.
+  policy: connected-service work follows the Skill's schema/run workflow through
+  Wanta's managed `oo` command; MCP stays reserved for Wanta-native capabilities.
   Explicit session grants still never cross sensitive-resource or high-risk
   boundaries. The shared defaults (`default_local` / `default_command`,
   trusted-project allows, and host-side `full_access`) apply to every adapter.
@@ -121,7 +123,8 @@ External agents build on `electron/agent/external/`:
   `<scratchRoot>/<kind>/transcripts/` (atomic replace, debounced writes,
   immediate flush on turn completion/stop, lazy rehydration on view or first
   prompt, deleted with the session).
-- **Model/effort selection**: `set-model` / `set-effort` input variants (plus
+- **Model/effort selection**: registry entries declare `modelSource`. For
+  `agent`, `set-model` / `set-effort` input variants (plus
   `agentModelId`/`agentEffortId` on the session-creating prompt). The ACP
   adapter prefers v1.3 session config options (`session/set_config_option`,
   categories `model` / `thought_level`) and falls back to the unstable `models`
@@ -130,7 +133,18 @@ External agents build on `electron/agent/external/`:
   `ExternalAgentRuntimeStatus.catalog` and the UI renders them verbatim; a
   `warmCatalog()` pass (a throwaway ACP session closed right away) fills the catalog before the first user session so draft-time
   pickers show the real lists. Per-session choices are also stored in Wanta's
-  session metadata so they survive renderer reloads and full app restarts.
+  session metadata so they survive renderer reloads and full app restarts. For
+  `wanta`, the ordinary Wanta model/reasoning choice is carried on every prompt;
+  agent-native model pickers are disabled.
+- **Claude Code model route**: Claude Code is a Wanta-routed harness. Electron
+  main exposes an authenticated loopback implementation of Anthropic Messages
+  (`/v1/messages`, `/v1/messages/count_tokens`, `/v1/models`) and translates it
+  to the selected built-in or BYOK OpenAI-compatible/Responses route. ACP
+  `session/new._meta.claudeCode.options` injects the loopback endpoint, opaque
+  token, and stable model alias at the programmatic settings tier, so user
+  Claude settings cannot restore another provider endpoint. The lease's actual
+  upstream route is updated before each prompt, allowing model changes without
+  replacing Claude's native session, Skills, subagents, plan loop, or settings.
 - **Attachments**: delivered as ACP `resource_link` blocks that the agent
   resolves with its own tools and permission model — never inlined into the payload.
   Display rides the kernel's `userAttachmentStore` record keyed by the
@@ -139,17 +153,19 @@ External agents build on `electron/agent/external/`:
   selected context, project context, permission guidance, and response-language
   policy through the normalized prompt input. ACP adapters translate
   the dynamic tail into a delimited first text block while transcript display
-  preserves the original user text. This remains a guidance transport; Wanta
-  MCP carries executable host capabilities and enforces identity independently
-  of whether the agent follows the prompt.
+  preserves the original user text. This remains a guidance transport; Wanta's
+  guarded command and host-capability layers enforce identity independently of
+  whether the agent follows the prompt.
 - **Usage reporting**: adapters emit `usageUpdated` (normalized
   `ChatTokenUsage` + optional `contextWindow`) from ACP `usage_update`. The recorder attaches it to the
   latest assistant message, which is what lights the composer context meter.
 - **Probing** (`external/probe.ts`): PATH scan (reusing
   `electron/agents/catalog.ts` + `resolveUserCommandPath`) with `--version`
   verification, plus fail-open login detection (Claude: `~/.claude.json`
-  `oauthAccount` key presence only — no secret is ever read; ACP agents: config
-  marker files). Exposed to the renderer via the chat service
+  `oauthAccount` key presence only — no secret is ever read; agent-owned ACP
+  agents: config marker files). Login status gates only `agent-cli` profiles;
+  a Wanta-routed harness is gated by its binary and Wanta model availability.
+  Exposed to the renderer via the chat service
   `getExternalAgents` invoke.
 - **Sessions** (`electron/session/external-store.ts`): Wanta-owned records
   replace `agent.listSessions()` for external sessions; scope/pin/archive stay
@@ -161,15 +177,16 @@ External agents build on `electron/agent/external/`:
   `claude` binary into `CLAUDE_CODE_EXECUTABLE`; the bridge pins its Claude
   Agent SDK. ACP is version-negotiated at `initialize` (`PROTOCOL_VERSION`),
   and a mismatch is a hard error.
-- **Credential red line**: Wanta stores no subscription secrets. Login state is
-  observed, never managed; the login hint tells the user to sign in with the
-  agent's own CLI.
+- **Credential red line**: Wanta stores no third-party agent subscription
+  secrets. Agent-owned login state is observed, never managed. Wanta-routed
+  harnesses never ask for an agent token and never receive the selected model's
+  real credential.
 
 ## Checklist: adding a new agent
 
 0. **ACP-speaking agent?** Then it is ONE registration entry in
    `electron/agent/acp/registry.ts` (command, ACP args, login hint, optional
-   `permissionModeMap` and `selection` capability flags) — the profile is
+   `permissionModeMap`, `modelSource`, and `selection` capability flags) — the profile is
    derived, the generic `AcpAgentAdapter` picks it up, and `external/create.ts`
    instantiates it automatically. No new code branches are allowed anywhere.
    Only continue with the steps below for a NATIVE (non-ACP) adapter.

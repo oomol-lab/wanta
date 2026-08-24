@@ -2232,6 +2232,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
             artifactDir,
             processDir,
+            ...(req.model ? { model: req.model } : {}),
+            ...(req.reasoningLevel ? { reasoningLevel: req.reasoningLevel } : {}),
             ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
             ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
             ...(teamName ? { teamName } : {}),

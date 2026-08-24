@@ -168,6 +168,36 @@ describe("tool display", () => {
     })
   })
 
+  it("renders managed OOCLI connector commands with the same business labels as built-in tools", () => {
+    const t = (key: string, vars?: Record<string, string | number>) => `${key}:${vars?.detail ?? ""}`
+    const run = {
+      kind: "tool" as const,
+      partId: "run",
+      tool: "execute",
+      status: "completed" as const,
+      input: { command: 'oo connector run "posthog" --action "run_query" --data \'{}\' --json' },
+    }
+    const schema = {
+      kind: "tool" as const,
+      partId: "schema",
+      tool: "execute",
+      status: "completed" as const,
+      input: { command: 'oo connector schema "posthog.run_query" --json' },
+    }
+
+    expect(toolDisplayLine(t, run)).toEqual({
+      title: "chat.toolCallGeneric:",
+      detail: "posthog · run_query",
+      detailKind: "text",
+    })
+    expect(toolActionSummary(t, run)).toBe("chat.toolCall:posthog · run_query")
+    expect(toolDisplayLine(t, schema)).toEqual({
+      title: "chat.toolInspectGeneric:",
+      detail: "posthog · run_query",
+      detailKind: "text",
+    })
+  })
+
   it("uses operation-specific knowledge query labels", () => {
     const t = (key: string) => key
     const expected = {

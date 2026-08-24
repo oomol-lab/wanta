@@ -2,6 +2,7 @@ import type { AuthorizationInfo, ChatMessagePart } from "../../../electron/chat/
 import type { TranslateFn } from "@/i18n/i18n"
 
 import { parseAuthorizationSignal } from "../../../electron/chat/authorization-signal.ts"
+import { parseConnectorCliInvocation } from "./connector-cli.ts"
 import { compactPathDetail, compactToolDetail } from "./tool-activity.ts"
 import { isWgKnowledgeShellCommand } from "./wg-shell-detection.ts"
 
@@ -24,7 +25,7 @@ export function parseToolAuthorization(part: ChatMessagePart): AuthorizationInfo
   if (part.status !== "completed") {
     return null
   }
-  if (part.tool === "call_action") {
+  if (part.tool === "call_action" || parseConnectorCliInvocation(str(part.input?.command))?.operation === "run") {
     return parseAuthorizationSignal(part.output)
   }
   return null
@@ -188,6 +189,19 @@ export function toolDisplayLine(t: TranslateFn, part: ChatMessagePart): ToolDisp
   if (isWikigraphKnowledgeActivityPart(part)) {
     return { title: t("chat.toolBashQueryKnowledge") }
   }
+  const cli = parseConnectorCliInvocation(str(input.command))
+  if (cli) {
+    const detail = [cli.service, cli.action ?? cli.query].filter(Boolean).join(" · ")
+    const title =
+      cli.operation === "run"
+        ? t("chat.toolCallGeneric")
+        : cli.operation === "schema"
+          ? t("chat.toolInspectGeneric")
+          : cli.operation === "apps"
+            ? t("chat.toolListAppsGeneric")
+            : t("chat.toolSearchGeneric")
+    return { title, ...(detail ? { detail, detailKind: "text" as const } : {}) }
+  }
   switch (part.tool) {
     case "list_apps": {
       const service = str(input.service)
@@ -309,6 +323,14 @@ export function toolActionSummary(t: TranslateFn, part: ChatMessagePart): string
   const fallbackDetail = part.title || part.tool || "tool"
   if (isWikigraphKnowledgeActivityPart(part)) {
     return t("chat.toolBashQueryKnowledge")
+  }
+  const cli = parseConnectorCliInvocation(str(input.command))
+  if (cli) {
+    const detail = [cli.service, cli.action ?? cli.query].filter(Boolean).join(" · ")
+    if (cli.operation === "run") return detail ? t("chat.toolCall", { detail }) : t("chat.toolCallGeneric")
+    if (cli.operation === "schema") return detail ? t("chat.toolInspect", { detail }) : t("chat.toolInspectGeneric")
+    if (cli.operation === "apps") return t("chat.toolListAppsGeneric")
+    return detail ? t("chat.toolSearch", { detail }) : t("chat.toolSearchGeneric")
   }
   switch (part.tool) {
     case "list_apps": {

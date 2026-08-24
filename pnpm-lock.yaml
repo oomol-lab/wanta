@@ -8,9 +8,18 @@ importers:
 
   .:
     dependencies:
+      '@ai-sdk/openai':
+        specifier: 3.0.88
+        version: 3.0.88(zod@4.4.3)
+      '@ai-sdk/openai-compatible':
+        specifier: 2.0.62
+        version: 2.0.62(zod@4.4.3)
       '@opencode-ai/sdk':
         specifier: 1.18.10
         version: 1.18.10
+      ai:
+        specifier: 6.0.202
+        version: 6.0.202(zod@4.4.3)
       diff:
         specifier: 9.0.0
         version: 9.0.0
@@ -105,9 +114,6 @@ importers:
       '@vitejs/plugin-react':
         specifier: 6.0.2
         version: 6.0.2(vite@8.0.16(@types/node@24.13.2)(jiti@2.7.0)(yaml@2.9.0))
-      ai:
-        specifier: 6.0.202
-        version: 6.0.202(zod@4.4.3)
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1

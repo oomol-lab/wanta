@@ -1,3 +1,5 @@
+import type { AcpAgentRegistration } from "../acp/registry.ts"
+import type { PromptAgentInput } from "../contract/input.ts"
 import type { ExternalAgentKind } from "../contract/profile.ts"
 import type { ExternalAgentAdapter } from "./adapter-base.ts"
 import type { HostMcpServerProvider } from "./host-mcp.ts"
@@ -20,6 +22,12 @@ export interface CreateExternalAgentsOptions {
   hostMcpServers?: HostMcpServerProvider
   /** Shared Wanta-managed subprocess environment for every external adapter. */
   commandEnvironment?: () => Promise<NodeJS.ProcessEnv>
+  /** Host-owned model route hooks used by declaratively Wanta-routed registrations. */
+  wantaModelRouter?: {
+    onForgetSession: (sessionId: string) => void
+    preparePrompt: (input: PromptAgentInput) => Promise<void>
+    sessionMeta: (input: PromptAgentInput) => Promise<Record<string, unknown> | undefined>
+  }
 }
 
 export function createExternalAgents(
@@ -32,16 +40,25 @@ export function createExternalAgents(
   const probeOptions = { extraBinDirectories }
   const agents = new Map<ExternalAgentKind, ExternalAgentAdapter>()
   for (const kind of ACP_AGENT_KINDS) {
+    const registration: AcpAgentRegistration = ACP_AGENT_REGISTRY[kind]
+    const modelRouter = registration.modelSource === "wanta" ? options.wantaModelRouter : undefined
     agents.set(
       kind,
       new AcpAgentAdapter({
         kind,
-        registration: ACP_AGENT_REGISTRY[kind],
+        registration,
         probe: () => probeExternalAgent(kind, probeOptions),
         scratchRootDir: path.join(options.scratchRootDir, kind),
         transcriptDir: path.join(options.scratchRootDir, kind, "transcripts"),
         hostMcpServers: options.hostMcpServers,
         commandEnvironment: options.commandEnvironment,
+        ...(modelRouter
+          ? {
+              onForgetSession: modelRouter.onForgetSession,
+              preparePrompt: modelRouter.preparePrompt,
+              sessionMeta: modelRouter.sessionMeta,
+            }
+          : {}),
       }),
     )
   }

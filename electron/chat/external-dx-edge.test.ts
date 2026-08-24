@@ -299,10 +299,17 @@ test("external turns receive managed output directories and finalize against the
   const getMessages = vi.spyOn(adapter, "getMessages")
   const sessionId = mintExternalSessionId("claude-code")
 
-  await service.sendMessage(sendRequest(sessionId, "create an output"))
+  await service.sendMessage(
+    sendRequest(sessionId, "create an output", {
+      model: { kind: "builtin", id: "gpt-5.6-sol" },
+      reasoningLevel: "high",
+    }),
+  )
   const prompt = adapter.prompts[0]
   assert.ok(prompt?.artifactDir)
   assert.ok(prompt.processDir)
+  assert.deepEqual(prompt.model, { kind: "builtin", id: "gpt-5.6-sol" })
+  assert.equal(prompt.reasoningLevel, "high")
   assert.equal(prompt.additionalDirectories?.length, 2)
   assert.equal(
     prompt.additionalDirectories?.every((root) => path.isAbsolute(root)),
@@ -869,12 +876,12 @@ test("edge8: prompt-borne model/effort ids are forwarded verbatim and never kill
 
 test("external model and effort choices are persisted per session", async () => {
   const persisted: Array<{ sessionId: string; patch: { modelId?: string | null; effortId?: string | null } }> = []
-  const { service } = createHarness(["claude-code"], {
+  const { service } = createHarness(["codex"], {
     onExternalSessionSelectionChanged: (sessionId, patch) => {
       persisted.push({ sessionId, patch })
     },
   })
-  const sessionId = mintExternalSessionId("claude-code")
+  const sessionId = mintExternalSessionId("codex")
 
   await service.setExternalSessionModel({ sessionId, modelId: "sonnet" })
   await service.setExternalSessionEffort({ sessionId, effortId: "high" })
@@ -889,14 +896,14 @@ test("external model and effort choices are persisted per session", async () => 
 
 test("a rejected prompt-borne selection is rolled back in session metadata", async () => {
   const persisted: Array<{ modelId?: string | null; effortId?: string | null }> = []
-  const { service, adapters } = createHarness(["claude-code"], {
+  const { service, adapters } = createHarness(["codex"], {
     onExternalSessionSelectionChanged: (_sessionId, patch) => {
       persisted.push(patch)
     },
   })
-  const adapter = adapters.get("claude-code")
+  const adapter = adapters.get("codex")
   assert.ok(adapter)
-  const sessionId = mintExternalSessionId("claude-code")
+  const sessionId = mintExternalSessionId("codex")
   adapter.failNextPrompt = new Error("model rejected")
 
   await service.sendMessage(sendRequest(sessionId, "use this model", { agentModelId: "sonnet", agentEffortId: "high" }))
@@ -908,14 +915,14 @@ test("a rejected prompt-borne selection is rolled back in session metadata", asy
 
 test("a rejected prompt rollback cannot overwrite a newer model selection", async () => {
   const persisted: Array<{ modelId?: string | null; effortId?: string | null }> = []
-  const { service, adapters } = createHarness(["claude-code"], {
+  const { service, adapters } = createHarness(["codex"], {
     onExternalSessionSelectionChanged: (_sessionId, patch) => {
       persisted.push(patch)
     },
   })
-  const adapter = adapters.get("claude-code")
+  const adapter = adapters.get("codex")
   assert.ok(adapter)
-  const sessionId = mintExternalSessionId("claude-code")
+  const sessionId = mintExternalSessionId("codex")
   let releasePromptFailure!: () => void
   adapter.promptFailureBarrier = new Promise<void>((resolve) => (releasePromptFailure = resolve))
   adapter.failNextPrompt = new Error("prompt rejected")
@@ -932,14 +939,14 @@ test("a rejected prompt rollback cannot overwrite a newer model selection", asyn
 
 test("prompt rollback captures a direct selection that completed before prompt persistence", async () => {
   const persisted: Array<{ modelId?: string | null; effortId?: string | null }> = []
-  const { service, adapters } = createHarness(["claude-code"], {
+  const { service, adapters } = createHarness(["codex"], {
     onExternalSessionSelectionChanged: (_sessionId, patch) => {
       persisted.push(patch)
     },
   })
-  const adapter = adapters.get("claude-code")
+  const adapter = adapters.get("codex")
   assert.ok(adapter)
-  const sessionId = mintExternalSessionId("claude-code")
+  const sessionId = mintExternalSessionId("codex")
   let releasePermissionMode!: () => void
   adapter.permissionModeBarrier = new Promise<void>((resolve) => (releasePermissionMode = resolve))
   adapter.failNextPrompt = new Error("prompt rejected")
@@ -959,7 +966,7 @@ test("forgetSession waits for pending selection persistence and removes its muta
   let releasePersistence!: () => void
   const persistenceBarrier = new Promise<void>((resolve) => (releasePersistence = resolve))
   let persistenceStarted = false
-  const { service } = createHarness(["claude-code"], {
+  const { service } = createHarness(["codex"], {
     onExternalSessionSelectionChanged: async (_sessionId, patch) => {
       if (patch.modelId === "sonnet") {
         persistenceStarted = true
@@ -967,7 +974,7 @@ test("forgetSession waits for pending selection persistence and removes its muta
       }
     },
   })
-  const sessionId = mintExternalSessionId("claude-code")
+  const sessionId = mintExternalSessionId("codex")
   const selection = service.setExternalSessionModel({ sessionId, modelId: "sonnet" })
   await waitForCondition(() => persistenceStarted, "pending selection persistence")
 
@@ -995,14 +1002,14 @@ test("forgetSession waits for pending selection persistence and removes its muta
 
 test("a prompt failure after session deletion cannot enqueue a late selection rollback", async () => {
   const persisted: Array<{ modelId?: string | null; effortId?: string | null }> = []
-  const { service, adapters } = createHarness(["claude-code"], {
+  const { service, adapters } = createHarness(["codex"], {
     onExternalSessionSelectionChanged: (_sessionId, patch) => {
       persisted.push(patch)
     },
   })
-  const adapter = adapters.get("claude-code")
+  const adapter = adapters.get("codex")
   assert.ok(adapter)
-  const sessionId = mintExternalSessionId("claude-code")
+  const sessionId = mintExternalSessionId("codex")
   let releasePromptFailure!: () => void
   adapter.promptFailureBarrier = new Promise<void>((resolve) => (releasePromptFailure = resolve))
   adapter.failNextPrompt = new Error("prompt rejected after deletion")
@@ -1039,16 +1046,16 @@ test("external model and effort updates stay ordered when persistence overlaps",
   const modelPersistence = new Promise<void>((resolve) => (releaseModelPersistence = resolve))
   const effortPersistence = new Promise<void>((resolve) => (releaseEffortPersistence = resolve))
   const persisted: Array<{ modelId?: string | null; effortId?: string | null }> = []
-  const { service, adapters } = createHarness(["claude-code"], {
+  const { service, adapters } = createHarness(["codex"], {
     onExternalSessionSelectionChanged: async (_sessionId, patch) => {
       persisted.push(patch)
       if (patch.modelId === "first-model") await modelPersistence
       if (patch.effortId === "first-effort") await effortPersistence
     },
   })
-  const adapter = adapters.get("claude-code")
+  const adapter = adapters.get("codex")
   assert.ok(adapter)
-  const sessionId = mintExternalSessionId("claude-code")
+  const sessionId = mintExternalSessionId("codex")
 
   const firstModel = service.setExternalSessionModel({ sessionId, modelId: "first-model" })
   const secondModel = service.setExternalSessionModel({ sessionId, modelId: "second-model" })

@@ -2,7 +2,7 @@ import type { SessionUpdate } from "@agentclientprotocol/sdk"
 
 import { describe, expect, test } from "vitest"
 import { agentEventIssues } from "../contract/event.ts"
-import { createAcpSessionTranslator } from "./translator.ts"
+import { createAcpSessionTranslator, sanitizeAcpMessages } from "./translator.ts"
 
 // Unit tests for the ACP session/update -> AgentEvent mapping. Synthetic
 // message ids are minted from a process-global sequence, so assertions capture
@@ -145,6 +145,113 @@ describe("agent_message_chunk", () => {
       { event: "messageDelta", data: { delta: "Actual answer.", text: "Actual answer." } },
     ])
   })
+
+  test("projects context compaction as lifecycle activity instead of assistant text", () => {
+    const translator = createAcpSessionTranslator(SESSION_ID)
+    translator.noteTurnStarted()
+    expect(translator.translate(textChunk("Compacting..."))).toEqual([
+      { event: "assistantActivity", data: { sessionId: SESSION_ID, phase: "compacting" } },
+    ])
+    expect(translator.translate(textChunk("\n\nCompacting completed."))).toEqual([
+      { event: "assistantActivity", data: { sessionId: SESSION_ID, phase: "resuming" } },
+    ])
+    expect(translator.translate(textChunk("Actual answer."))).toMatchObject([
+      { event: "messageStarted" },
+      { event: "messageDelta", data: { text: "Actual answer." } },
+    ])
+  })
+
+  test("preserves real narration appended after a compaction notice", () => {
+    const translator = createAcpSessionTranslator(SESSION_ID)
+    translator.noteTurnStarted()
+    expect(translator.translate(textChunk("Compacting...\n\nCompacting completed.\n\nContinuing now."))).toMatchObject([
+      { event: "assistantActivity", data: { phase: "resuming" } },
+      { event: "messageStarted" },
+      { event: "messageDelta", data: { text: "Continuing now.", delta: "Continuing now." } },
+    ])
+  })
+})
+
+describe("persisted compaction notices", () => {
+  test("removes lifecycle-only messages and strips a lifecycle prefix from mixed text", () => {
+    expect(
+      sanitizeAcpMessages([
+        {
+          id: "status-only",
+          role: "assistant",
+          createdAt: 1,
+          parts: [{ kind: "text", partId: "status-only:text", text: "Compacting...\n\nCompacting completed." }],
+        },
+        {
+          id: "mixed",
+          role: "assistant",
+          createdAt: 2,
+          parts: [
+            {
+              kind: "text",
+              partId: "mixed:text",
+              text: "Compacting...\n\nCompacting completed.\n\nVisible answer.",
+            },
+          ],
+        },
+        {
+          id: "legacy-mcp",
+          role: "assistant",
+          createdAt: 3,
+          parts: [
+            {
+              kind: "tool",
+              partId: "legacy-call",
+              callId: "legacy-call",
+              tool: "other",
+              title: "mcp__wanta_link__call_action",
+              status: "completed",
+              input: { service: "posthog", action: "run_query" },
+            },
+          ],
+        },
+        {
+          id: "legacy-startup",
+          role: "assistant",
+          createdAt: 4,
+          parts: [
+            {
+              kind: "tool",
+              partId: "startup-call",
+              callId: "startup-call",
+              tool: "other",
+              title: "mcp__wanta_browser__startup",
+              status: "pending",
+              input: {},
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      {
+        id: "mixed",
+        role: "assistant",
+        createdAt: 2,
+        parts: [{ kind: "text", partId: "mixed:text", text: "Visible answer." }],
+      },
+      {
+        id: "legacy-mcp",
+        role: "assistant",
+        createdAt: 3,
+        parts: [
+          {
+            kind: "tool",
+            partId: "legacy-call",
+            callId: "legacy-call",
+            tool: "call_action",
+            title: "mcp__wanta_link__call_action",
+            status: "completed",
+            input: { service: "posthog", action: "run_query" },
+          },
+        ],
+      },
+    ])
+  })
 })
 
 describe("agent_thought_chunk", () => {
@@ -256,6 +363,66 @@ describe("tool_call lifecycle", () => {
     })
     expect(translator.wantaHostToolForCall("call-link")).toBe("call_action")
     expect(translator.wantaHostToolForCall("missing")).toBeUndefined()
+  })
+
+  test("normalizes claude-agent-acp native MCP names to the same Wanta tool vocabulary", () => {
+    const translator = createAcpSessionTranslator(SESSION_ID, new Set(["wanta_link"]))
+    translator.noteTurnStarted()
+    const events = translator.translate({
+      sessionUpdate: "tool_call",
+      toolCallId: "call-link",
+      title: "mcp__wanta_link__call_action",
+      kind: "other",
+      rawInput: { service: "posthog", action: "run_query", params: { project_id: 1 } },
+    })
+    expect(events.at(-1)).toMatchObject({
+      event: "toolCallStarted",
+      data: {
+        tool: "call_action",
+        input: { service: "posthog", action: "run_query", params: { project_id: 1 } },
+      },
+    })
+    expect(translator.wantaHostToolForCall("call-link")).toBe("call_action")
+  })
+
+  test("turns a native Wanta Skill MCP title into the existing human skill label", () => {
+    const translator = createAcpSessionTranslator(SESSION_ID, new Set(["wanta_skills"]))
+    translator.noteTurnStarted()
+    const events = translator.translate({
+      sessionUpdate: "tool_call",
+      toolCallId: "load-skill",
+      title: "mcp__wanta_skills__load_skill",
+      kind: "other",
+      status: "in_progress",
+      rawInput: { skillId: "oo-posthog" },
+    })
+    expect(events.at(-1)).toMatchObject({
+      event: "toolCallStarted",
+      data: { tool: "load_skill", title: "Loaded skill: oo-posthog", input: { skillId: "oo-posthog" } },
+    })
+  })
+
+  test("drops Wanta MCP startup probes instead of creating unfinished tool steps", () => {
+    const translator = createAcpSessionTranslator(SESSION_ID, new Set(["wanta_browser"]))
+    translator.noteTurnStarted()
+    expect(
+      translator.translate({
+        sessionUpdate: "tool_call",
+        toolCallId: "startup-browser",
+        title: "mcp__wanta_browser__startup",
+        kind: "other",
+        status: "in_progress",
+        rawInput: {},
+      }),
+    ).toEqual([])
+    expect(
+      translator.translate({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "startup-browser",
+        status: "failed",
+        rawOutput: "connection closed",
+      }),
+    ).toEqual([])
   })
 
   test("does not trust an agent-supplied Wanta-like MCP server name", () => {

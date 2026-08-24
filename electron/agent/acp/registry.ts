@@ -17,6 +17,8 @@ export interface AcpAgentRegistration {
   versionArgs: readonly string[]
   /** User guidance when the agent reports authentication is required. */
   loginHint: string
+  /** Model/auth owner. Omitted means the external agent owns both through its CLI. */
+  modelSource?: "agent" | "wanta"
   /**
    * Wanta permission modes this agent supports, each mapped to the ACP session
    * mode id applied via session/set_mode. Key order defines the profile's
@@ -57,7 +59,10 @@ export const ACP_AGENT_REGISTRY = {
     cliCommands: ["claude-agent-acp"],
     acpArgs: [],
     versionArgs: ["--version"],
-    loginHint: "Run `claude` in a terminal and sign in, then retry.",
+    loginHint: "Check the selected Wanta model and its credential, then retry.",
+    // Claude Code supplies the coding harness; Wanta supplies the selected
+    // model and credential through a session-scoped Anthropic-compatible route.
+    modelSource: "wanta",
     // claude-agent-acp 0.70.0 exposes the Claude Code modes with these stable
     // wire ids; availability (notably auto/full access) is still checked
     // against the concrete session before Wanta applies a requested mode.
@@ -68,8 +73,7 @@ export const ACP_AGENT_REGISTRY = {
       auto: "auto",
       full_access: "bypassPermissions",
     },
-    selection: { model: true, effort: true },
-    loginProbe: "claude-cli",
+    selection: { model: false, effort: false },
     bundledBinName: "claude-agent-acp",
     runtimeExecutable: { cliCommands: ["claude"], envVar: "CLAUDE_CODE_EXECUTABLE" },
   },

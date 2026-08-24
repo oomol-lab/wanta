@@ -47,9 +47,8 @@ export const AGENT_PERMISSION_MODE_ORDER: readonly AgentPermissionMode[] = AGENT
 export type AgentModelSource = "wanta" | "agent"
 
 /**
- * How the agent authenticates. Wanta never stores subscription secrets for
- * external agents: "agent-cli" delegates entirely to the agent's own login
- * (for example `claude login`), and Wanta only reflects the observed state.
+ * How the agent authenticates. An external harness may use Wanta's account or
+ * BYOK model route without receiving the underlying provider credential.
  */
 export type AgentAuthMode = { kind: "wanta-account" } | { kind: "agent-cli"; loginCommand: string }
 
@@ -65,7 +64,8 @@ export interface AgentProfile {
 }
 
 /**
- * External agents own their models, auth, and native base prompts. ACP has no
+ * External agents own their native base prompts. Each registration declares
+ * whether model/auth routing stays agent-owned or uses Wanta. ACP has no
  * portable dynamic system-prompt field, so Wanta's per-turn host context uses
  * a delimited compatibility block while host capabilities enforce identity
  * outside the prompt. Attachments are delivered as file references.
@@ -87,8 +87,11 @@ function acpAgentProfiles(): Record<AcpAgentKind, AgentProfile> {
     profiles[kind] = {
       kind,
       displayName: registration.displayName,
-      modelSource: "agent",
-      auth: { kind: "agent-cli", loginCommand: registration.loginHint },
+      modelSource: registration.modelSource ?? "agent",
+      auth:
+        registration.modelSource === "wanta"
+          ? { kind: "wanta-account" }
+          : { kind: "agent-cli", loginCommand: registration.loginHint },
       inputs: {
         ...externalAgentInputs,
         setModel: registration.selection?.model ?? false,

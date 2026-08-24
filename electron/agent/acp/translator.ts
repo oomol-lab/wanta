@@ -1,3 +1,4 @@
+import type { AssistantActivityPhase, ChatMessage } from "../../chat/common.ts"
 import type { AgentEvent } from "../contract/event.ts"
 import type { ContentBlock, SessionUpdate, ToolCallContent } from "@agentclientprotocol/sdk"
 
@@ -44,6 +45,60 @@ interface ToolCallSnapshot {
  */
 let translatorSeq = 0
 
+interface AcpCompactionStatus {
+  phase: Extract<AssistantActivityPhase, "compacting" | "resuming" | "retrying">
+  remainder: string
+}
+
+/**
+ * claude-agent-acp 0.70 projects Claude's context-compaction lifecycle onto
+ * ordinary agent_message_chunk text. Recover the lifecycle signal here so it
+ * follows the same assistantActivity path as OpenCode instead of becoming a
+ * persisted assistant paragraph. A remainder is preserved defensively in case
+ * an agent appends real narration to the same chunk.
+ */
+export function extractAcpCompactionStatus(text: string): AcpCompactionStatus | undefined {
+  let remainder = text.trimStart()
+  let phase: AcpCompactionStatus["phase"] | undefined
+  if (remainder.startsWith("Compacting...")) {
+    phase = "compacting"
+    remainder = remainder.slice("Compacting...".length).trimStart()
+  }
+  if (remainder.startsWith("Compacting completed.")) {
+    phase = "resuming"
+    remainder = remainder.slice("Compacting completed.".length).trimStart()
+  } else if (remainder.startsWith("Compacting failed")) {
+    phase = "retrying"
+    const newline = remainder.indexOf("\n")
+    remainder = newline >= 0 ? remainder.slice(newline + 1).trimStart() : ""
+  }
+  return phase ? { phase, remainder } : undefined
+}
+
+/** Remove lifecycle-only text already persisted by older ACP translations. */
+export function sanitizeAcpMessages(
+  messages: ChatMessage[],
+  wantaHostServerNames: ReadonlySet<string> = new Set(),
+): ChatMessage[] {
+  return messages.flatMap((message) => {
+    const parts = message.parts.flatMap((part) => {
+      if (part.kind === "text" && typeof part.text === "string") {
+        const status = extractAcpCompactionStatus(part.text)
+        return status ? (status.remainder ? [{ ...part, text: status.remainder }] : []) : [part]
+      }
+      if (part.kind === "tool" && part.tool === "other") {
+        const tool = nativeWantaMcpToolName(part.title, wantaHostServerNames)
+        if (tool === "startup") return []
+        if (!tool) return [part]
+        const title = normalizedAcpToolTitle(tool, asRecord(part.input), part.title)
+        return [{ ...part, tool, ...(title ? { title } : {}) }]
+      }
+      return [part]
+    })
+    return parts.length > 0 ? [{ ...message, parts }] : []
+  })
+}
+
 function contentBlockText(block: ContentBlock): string {
   switch (block.type) {
     case "text":
@@ -63,6 +118,26 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {}
 }
 
+/**
+ * ACP bridges expose MCP calls in two shapes. codex-acp uses the generic
+ * `{server, tool, arguments}` envelope, while claude-agent-acp names the native
+ * tool `mcp__<server>__<tool>` and sends its arguments directly. Normalize the
+ * latter so both agents reach the same host-tool UI vocabulary.
+ */
+function nativeWantaMcpToolName(
+  value: string | undefined,
+  wantaHostServerNames: ReadonlySet<string>,
+): string | undefined {
+  if (!value) return undefined
+  for (const serverName of wantaHostServerNames) {
+    const prefix = `mcp__${serverName}__`
+    if (value.startsWith(prefix) && value.length > prefix.length) return value.slice(prefix.length)
+  }
+  // Historical transcripts are hydrated before a native session has supplied
+  // its concrete server set. Wanta-owned MCP names are stable and reserved.
+  return value.match(/^mcp__wanta_[a-z0-9_]+__(.+)$/iu)?.[1]
+}
+
 function toolProjection(
   snapshot: ToolCallSnapshot,
   wantaHostServerNames: ReadonlySet<string>,
@@ -75,7 +150,22 @@ function toolProjection(
   ) {
     return { tool: rawInput["tool"], input: asRecord(rawInput["arguments"]) }
   }
+  const nativeTool = nativeWantaMcpToolName(snapshot.name ?? snapshot.title, wantaHostServerNames)
+  if (nativeTool) {
+    return { tool: nativeTool, input: rawInput }
+  }
   return { tool: snapshot.name ?? snapshot.kind ?? "other", input: rawInput }
+}
+
+function normalizedAcpToolTitle(
+  tool: string,
+  input: Record<string, unknown>,
+  fallback: string | undefined,
+): string | undefined {
+  if (tool === "load_skill" && typeof input["skillId"] === "string") {
+    return `Loaded skill: ${input["skillId"]}`
+  }
+  return fallback
 }
 
 /**
@@ -117,6 +207,8 @@ export function createAcpSessionTranslator(
   const toolCallsById = new Map<string, ToolCallSnapshot>()
   /** Ids whose completed/failed result was emitted; later updates are dropped. */
   const terminalToolCallIds = new Set<string>()
+  /** MCP bridge startup probes are runtime health, never user-requested tools. */
+  const ignoredStartupToolCallIds = new Set<string>()
 
   function mintMessageId(): string {
     messageSeq += 1
@@ -158,6 +250,7 @@ export function createAcpSessionTranslator(
 
   function startedEvent(toolCallId: string, snapshot: ToolCallSnapshot): AgentEvent {
     const projection = toolProjection(snapshot, wantaHostServerNames)
+    const title = normalizedAcpToolTitle(projection.tool, projection.input, snapshot.title)
     return {
       event: "toolCallStarted",
       data: {
@@ -168,7 +261,7 @@ export function createAcpSessionTranslator(
         tool: projection.tool,
         input: projection.input,
         status: "running",
-        ...(snapshot.title !== undefined ? { title: snapshot.title } : {}),
+        ...(title !== undefined ? { title } : {}),
       },
     }
   }
@@ -176,6 +269,7 @@ export function createAcpSessionTranslator(
   function resultEvent(toolCallId: string, snapshot: ToolCallSnapshot, acpStatus: "completed" | "failed"): AgentEvent {
     const projection = toolProjection(snapshot, wantaHostServerNames)
     const tool = projection.tool
+    const title = normalizedAcpToolTitle(tool, projection.input, snapshot.title)
     const text = toolOutputText(snapshot)
     const base = {
       sessionId: wantaSessionId,
@@ -184,7 +278,7 @@ export function createAcpSessionTranslator(
       callId: toolCallId,
       tool,
       input: projection.input,
-      ...(snapshot.title !== undefined ? { title: snapshot.title } : {}),
+      ...(title !== undefined ? { title } : {}),
     }
     if (acpStatus === "completed") {
       return {
@@ -224,7 +318,19 @@ export function createAcpSessionTranslator(
    */
   function handleToolCall(update: ToolCallLike, announce: boolean): AgentEvent[] {
     const events: AgentEvent[] = []
+    if (ignoredStartupToolCallIds.has(update.toolCallId)) {
+      if (update.status === "completed" || update.status === "failed")
+        ignoredStartupToolCallIds.delete(update.toolCallId)
+      return events
+    }
     if (terminalToolCallIds.has(update.toolCallId)) {
+      return events
+    }
+    if (
+      announce &&
+      nativeWantaMcpToolName(update.name ?? update.title ?? undefined, wantaHostServerNames) === "startup"
+    ) {
+      ignoredStartupToolCallIds.add(update.toolCallId)
       return events
     }
     const snapshot = toolCallsById.get(update.toolCallId) ?? adoptSnapshot(update.toolCallId, events)
@@ -289,17 +395,38 @@ export function createAcpSessionTranslator(
       const snapshot = toolCallsById.get(toolCallId)
       if (!snapshot) return undefined
       const rawInput = asRecord(snapshot.rawInput)
-      return typeof rawInput["server"] === "string" &&
+      const envelopeTool =
+        typeof rawInput["server"] === "string" &&
         wantaHostServerNames.has(rawInput["server"]) &&
         typeof rawInput["tool"] === "string"
-        ? rawInput["tool"]
-        : undefined
+          ? rawInput["tool"]
+          : undefined
+      return envelopeTool ?? nativeWantaMcpToolName(snapshot.name ?? snapshot.title, wantaHostServerNames)
     },
 
     translate(update: SessionUpdate): AgentEvent[] {
       switch (update.sessionUpdate) {
         case "agent_message_chunk":
           if (update.content.type === "text") {
+            const compaction = extractAcpCompactionStatus(update.content.text)
+            if (compaction) {
+              // A compaction is a context boundary, not part of the preceding
+              // answer. Rotate before any real narration that shares the chunk.
+              currentMessageId = undefined
+              const activity: AgentEvent = {
+                event: "assistantActivity",
+                data: { sessionId: wantaSessionId, phase: compaction.phase },
+              }
+              return compaction.remainder
+                ? [
+                    activity,
+                    ...translateChunk(
+                      { ...update, content: { ...update.content, text: compaction.remainder } },
+                      "text",
+                    ),
+                  ]
+                : [activity]
+            }
             const warning = "Warning: Skill descriptions were shortened to fit the skills context budget."
             if (update.content.text.startsWith(warning)) {
               const newline = update.content.text.indexOf("\n")

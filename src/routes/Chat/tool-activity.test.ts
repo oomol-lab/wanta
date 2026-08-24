@@ -108,6 +108,14 @@ describe("classifyToolPart", () => {
     expect(classifyToolPart(toolPart("tool-6", { tool: "todo_write" }))).toBe("task")
     expect(classifyToolPart(toolPart("tool-7", { tool: "unknown", title: "Loaded skill: pdf" }))).toBe("skill")
     expect(classifyToolPart(toolPart("tool-8", { tool: "unknown" }))).toBe("custom")
+    expect(
+      classifyToolPart(
+        toolPart("tool-9", {
+          tool: "execute",
+          input: { command: 'oo connector run "posthog" --action "run_query" --data \'{}\'' },
+        }),
+      ),
+    ).toBe("connector")
   })
 
   it("summarizes a single category or mixed category", () => {

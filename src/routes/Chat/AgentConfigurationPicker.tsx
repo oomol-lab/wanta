@@ -305,12 +305,14 @@ export function AgentConfigurationPicker({
   const effortLabel = modelRoutingEnabled ? wantaReasoningLabel : externalEfforts.selectedLabel
   const modelVisible = modelRoutingEnabled || agentModelSelectionEnabled
   const effortVisible = modelRoutingEnabled ? wantaReasoningLevels.length > 0 : agentEffortSelectionEnabled
-  const triggerParts = modelRoutingEnabled
-    ? [modelLabel, effortLabel]
-    : agentModelSelectionEnabled
-      ? [modelLabel, effortVisible && agentEffortId ? effortLabel : null, selectedAgentLabel]
-      : [selectedAgentLabel, effortVisible && agentEffortId ? effortLabel : null]
+  // Agent and model are independent axes. Always lead with the selected
+  // harness so Wanta-routed agents (notably Claude Code) never look identical
+  // to the built-in agent after the menu closes.
+  const triggerParts = agentModelSelectionEnabled
+    ? [selectedAgentLabel, modelLabel, effortVisible && agentEffortId ? effortLabel : null]
+    : [selectedAgentLabel, modelVisible ? modelLabel : null, effortVisible ? effortLabel : null]
   const triggerLabel = triggerParts.filter(Boolean).join(" · ") || selectedAgentLabel
+  const triggerIconHost = agentKind === "opencode" ? "wanta" : agentKind
 
   const onOpenRef = React.useRef(onAgentPickerOpen)
   React.useEffect(() => {
@@ -533,11 +535,14 @@ export function AgentConfigurationPicker({
         aria-expanded={open}
         aria-haspopup="menu"
         disabled={composerDisabled}
-        className="oo-composer-model-button h-8 max-w-[15rem] min-w-0 shrink rounded-full px-2"
+        className="oo-composer-model-button h-8 max-w-[18rem] min-w-0 shrink rounded-full px-2"
         onClick={toggleMenu}
         onKeyDown={handleTriggerKeyDown}
       >
-        <Brain className="size-4 shrink-0" />
+        <AgentIcon
+          host={triggerIconHost}
+          className="size-4 shrink-0 border-0 bg-transparent [&_.oo-entity-icon-image]:size-4"
+        />
         <span className="oo-composer-model-text min-w-0 flex-1 truncate text-left">{triggerLabel}</span>
         <ChevronDown
           className={cn("oo-composer-control-chevron size-3.5 shrink-0 transition-transform", open && "rotate-180")}

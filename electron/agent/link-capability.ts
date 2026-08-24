@@ -2,7 +2,7 @@ import type { LinkRuntime } from "../runtime/agent-runtime.ts"
 
 import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { promisify } from "node:util"
 import { connectorBaseUrl, consoleBaseUrl } from "../domain.ts"
@@ -85,6 +85,11 @@ interface CachedActionSchema {
 interface ActionPolicyBlock {
   errorCode: "POLICY_DENIED"
   expiresAt: number
+}
+
+interface PayloadArgument {
+  argument: string
+  temporaryPath?: string
 }
 
 interface AuthorizationResult {
@@ -216,56 +221,60 @@ export class LinkCapability {
       "--action",
       action,
       "--data",
-      payloadArg,
+      payloadArg.argument,
       ...(connectionName ? ["--connection-name", connectionName] : []),
       ...workspaceArgs(runtime),
       "--json",
     ]
-    const output = await this.runCoordinatedAction(context, runtime, service, action, connectionName, async () => {
-      try {
-        return await this.runCommand(args, runtime)
-      } catch (error) {
-        const message = commandErrorMessage(error)
-        const errorCode = parseConnectorErrorCode(message)
-        if (errorCode && AUTH_BLOCKING_ERROR_CODES.has(errorCode)) {
-          const authUrl = authorizationUrl(runtime.linkRuntime, service)
-          return JSON.stringify({
-            status: "authorization_required",
-            service,
+    try {
+      const output = await this.runCoordinatedAction(context, runtime, service, action, connectionName, async () => {
+        try {
+          return await this.runCommand(args, runtime)
+        } catch (error) {
+          const message = commandErrorMessage(error)
+          const errorCode = parseConnectorErrorCode(message)
+          if (errorCode && AUTH_BLOCKING_ERROR_CODES.has(errorCode)) {
+            const authUrl = authorizationUrl(runtime.linkRuntime, service)
+            return JSON.stringify({
+              status: "authorization_required",
+              service,
+              action,
+              errorCode,
+              ...(authUrl ? { authUrl } : {}),
+              message: this.redact(message, runtime),
+              workspace: workspaceMetadata(runtime),
+            })
+          }
+          return errorResult(errorCode ?? "action_failed", this.redact(message, runtime), {
             action,
-            errorCode,
-            ...(authUrl ? { authUrl } : {}),
-            message: this.redact(message, runtime),
+            service,
+            ...(errorCode === "POLICY_DENIED"
+              ? {
+                  authorizationState: "action_denied",
+                  policyOrigin: "connector_or_provider",
+                  workspaceVerified: Boolean(connectionName),
+                  connectionSelection: connectionName
+                    ? { mode: "explicit", name: connectionName, verified: true }
+                    : { mode: "workspace_default", verified: false },
+                  guidance:
+                    "The active Wanta workspace was applied successfully. A connected app does not guarantee permission for this action; verify the provider credential scopes and target resource membership. The available error does not identify whether the connector policy or upstream provider denied the request.",
+                }
+              : {}),
+            ...(connectionName ? { connectionName } : {}),
             workspace: workspaceMetadata(runtime),
           })
         }
-        return errorResult(errorCode ?? "action_failed", this.redact(message, runtime), {
-          action,
-          service,
-          ...(errorCode === "POLICY_DENIED"
-            ? {
-                authorizationState: "action_denied",
-                policyOrigin: "connector_or_provider",
-                workspaceVerified: Boolean(connectionName),
-                connectionSelection: connectionName
-                  ? { mode: "explicit", name: connectionName, verified: true }
-                  : { mode: "workspace_default", verified: false },
-                guidance:
-                  "The active Wanta workspace was applied successfully. A connected app does not guarantee permission for this action; verify the provider credential scopes and target resource membership. The available error does not identify whether the connector policy or upstream provider denied the request.",
-              }
-            : {}),
-          ...(connectionName ? { connectionName } : {}),
-          workspace: workspaceMetadata(runtime),
-        })
-      }
-    })
-    this.auditAction(context, {
-      action,
-      ...actionOutcome(output),
-      schemaValidated,
-      service,
-    })
-    return output
+      })
+      this.auditAction(context, {
+        action,
+        ...actionOutcome(output),
+        schemaValidated,
+        service,
+      })
+      return output
+    } finally {
+      await removeTemporaryPayload(payloadArg.temporaryPath)
+    }
   }
 
   private async enrichSearchOutput(
@@ -508,12 +517,14 @@ export class LinkCapability {
     return this.actionSchemas.has(actionId)
   }
 
-  private async payloadArgument(payload: string, processDir: string | undefined): Promise<string> {
-    if (Buffer.byteLength(payload, "utf8") <= INLINE_PAYLOAD_MAX_BYTES || !processDir?.trim()) return payload
+  private async payloadArgument(payload: string, processDir: string | undefined): Promise<PayloadArgument> {
+    if (Buffer.byteLength(payload, "utf8") <= INLINE_PAYLOAD_MAX_BYTES || !processDir?.trim()) {
+      return { argument: payload }
+    }
     await mkdir(processDir, { recursive: true })
     const payloadPath = path.join(processDir, `link-payload-${randomUUID()}.json`)
     await writeFile(payloadPath, payload, { encoding: "utf8", mode: 0o600 })
-    return `@${payloadPath}`
+    return { argument: `@${payloadPath}`, temporaryPath: payloadPath }
   }
 
   private auditAction(
@@ -811,6 +822,14 @@ function commandErrorMessage(error: unknown): string {
 
 function errorResult(errorCode: string, message: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({ status: "error", errorCode, message, ...extra })
+}
+
+async function removeTemporaryPayload(payloadPath: string | undefined): Promise<void> {
+  if (!payloadPath) return
+  // Payload cleanup is best-effort. A completed connector result must not be
+  // replaced by a filesystem cleanup error; turn-directory cleanup remains a
+  // secondary safety net if the process exits between dispatch and removal.
+  await rm(payloadPath, { force: true }).catch(() => undefined)
 }
 
 function actionOutcome(output: string): Pick<LinkActionAuditRecord, "errorCode" | "httpStatus" | "outcome"> {

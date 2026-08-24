@@ -2,7 +2,7 @@ import type { LinkActionAuditRecord, LinkCommandExecutor } from "./link-capabili
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { describe, expect, test, vi } from "vitest"
@@ -140,20 +140,43 @@ describe("LinkCapability", () => {
     expect(calls).toHaveLength(1)
   })
 
-  test("writes a large structured payload to the host-owned process directory", async () => {
+  test("uses and removes managed large-payload files after dispatch, errors, and skipped actions", async () => {
     const processDir = await mkdtemp(path.join(tmpdir(), "wanta-link-payload-"))
-    const { calls, capability } = oomolHarness()
+    let runCount = 0
+    const { calls, capability } = oomolHarness(() => {
+      runCount += 1
+      if (runCount === 2) {
+        throw Object.assign(new Error("connector failed"), {
+          stderr: "Connector action list_projects returned HTTP 403 (errorCode: POLICY_DENIED): denied",
+        })
+      }
+      return JSON.stringify({ ok: true })
+    })
     const payload = { query: "x".repeat(9 * 1024) }
     try {
       await capability.callAction(
         { processDir, sessionId: "session-1", teamName: "Analytics Team" },
         { action: "run_query", params: payload, service: "posthog" },
       )
+      await capability.callAction(
+        { processDir, sessionId: "session-1", teamName: "Analytics Team" },
+        { action: "list_projects", params: payload, service: "posthog" },
+      )
+      await capability.callAction(
+        { processDir, sessionId: "session-1", teamName: "Analytics Team" },
+        { action: "list_projects", params: payload, service: "posthog" },
+      )
 
-      const dataIndex = calls[0]?.args.indexOf("--data") ?? -1
-      const data = dataIndex >= 0 ? calls[0]?.args[dataIndex + 1] : undefined
-      expect(data).toMatch(/^@\/.*link-payload-[0-9a-f-]+\.json$/u)
-      expect(await readFile(String(data).slice(1), "utf8")).toBe(JSON.stringify(payload))
+      const payloadArguments = calls.map((call) => {
+        const dataIndex = call.args.indexOf("--data")
+        return dataIndex >= 0 ? call.args[dataIndex + 1] : undefined
+      })
+      expect(payloadArguments).toHaveLength(2)
+      for (const data of payloadArguments) {
+        expect(data).toMatch(/^@\/.*link-payload-[0-9a-f-]+\.json$/u)
+        await expect(readFile(String(data).slice(1), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      }
+      expect(await readdir(processDir)).toEqual([])
     } finally {
       await rm(processDir, { force: true, recursive: true })
     }

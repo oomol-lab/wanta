@@ -1,4 +1,5 @@
 import type { DirectCliProvider } from "./agent/direct-cli-host-capability.ts"
+import type { HostMcpServerProvider } from "./agent/external/host-mcp.ts"
 import type { LinkCapabilityRuntime } from "./agent/link-capability.ts"
 import type { AppCommand } from "./app-command.ts"
 import type { AppLocale } from "./app-locale.ts"
@@ -381,13 +382,14 @@ const externalAgentCommandEnvironment = memoizeExternalCommandEnvironment(async 
 // External (BYOA) adapters are app-lifetime and independent of the OOMOL account
 // runtime: their models and auth belong to the agent CLIs themselves. Host
 // capabilities are issued per Wanta session and keep identity in main.
-const externalAgents = createExternalAgents({
-  appRoot,
-  isPackaged: app.isPackaged,
-  resourcesPath: process.resourcesPath,
-  scratchRootDir: externalAgentRootDir,
-  commandEnvironment: externalAgentCommandEnvironment,
-  hostMcpServers: async (input) => {
+const externalHostMcpServers: HostMcpServerProvider = async (input) => {
+  // Capability issuance contains several awaits. Capture the Link scope first
+  // and only return a manifest if every advertised capability belongs to that
+  // exact snapshot; otherwise an external agent could receive Skill guidance
+  // claiming wanta_link exists without receiving the matching Link server.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const linkRuntimeSnapshot = activeLinkCapabilityRuntime
+    const linkScopeSnapshot = activeLinkCapabilityScope
     const [larkRuntime, wecomRuntime, dingTalkRuntime] = await directRuntimes()
     const directSkillSources = [
       ...(larkRuntime ? [{ id: "direct-lark", kind: "connection" as const, root: larkRuntime.skillsDir }] : []),
@@ -414,26 +416,33 @@ const externalAgents = createExternalAgents({
       ...(input.artifactDir ? { artifactDir: input.artifactDir } : {}),
       ...(input.processDir ? { processDir: input.processDir } : {}),
     }
-    const servers = []
-    servers.push(
+    const linkServer = linkRuntimeSnapshot
+      ? await linkCapabilityServer.issue({
+          ...context,
+          bindings: { ...context.bindings, [LINK_RUNTIME_BINDING]: linkRuntimeSnapshot },
+        })
+      : undefined
+    if (!linkServer) linkCapabilityServer.disableSession(input.sessionId)
+
+    const servers = [
       await skillCapabilityServer.issue({
         ...context,
         bindings: {
           ...context.bindings,
-          [SKILL_LINK_MCP_AVAILABLE_BINDING]: Boolean(activeLinkCapabilityRuntime),
+          [SKILL_LINK_MCP_AVAILABLE_BINDING]: Boolean(linkServer),
           [SKILL_SNAPSHOT_BINDING]: skillSnapshot,
         },
       }),
-    )
-    servers.push(await knowledgeCapabilityServer.issue(context))
-    servers.push(await questionCapabilityServer.issue(context))
+      await knowledgeCapabilityServer.issue(context),
+      await questionCapabilityServer.issue(context),
+    ]
     if (directSkillSources.length > 0) {
       servers.push(
         await directCliCapabilityServer.issue({
           ...context,
           bindings: {
             ...context.bindings,
-            [SKILL_LINK_MCP_AVAILABLE_BINDING]: Boolean(activeLinkCapabilityRuntime),
+            [SKILL_LINK_MCP_AVAILABLE_BINDING]: Boolean(linkServer),
             [SKILL_SNAPSHOT_BINDING]: skillSnapshot,
           },
         }),
@@ -446,21 +455,16 @@ const externalAgents = createExternalAgents({
     } else {
       browserCapabilityServer.disableSession(input.sessionId)
     }
-    if (activeLinkCapabilityRuntime) {
-      servers.push(
-        await linkCapabilityServer.issue({
-          ...context,
-          bindings: { ...context.bindings, [LINK_RUNTIME_BINDING]: activeLinkCapabilityRuntime },
-        }),
-      )
-    } else {
-      linkCapabilityServer.disableSession(input.sessionId)
+    if (linkServer) servers.push(linkServer)
+
+    if (activeLinkCapabilityScope !== linkScopeSnapshot || activeLinkCapabilityRuntime !== linkRuntimeSnapshot) {
+      continue
     }
     logDiagnostic(
       "host-capability",
       "manifest issued",
       {
-        linkRegistered: servers.some((server) => server.name === "wanta_link"),
+        linkRegistered: Boolean(linkServer),
         servers: servers.map((server) => server.name),
         sessionId: input.sessionId,
         ...(input.messageId ? { turnId: input.messageId } : {}),
@@ -468,7 +472,16 @@ const externalAgents = createExternalAgents({
       "trace",
     )
     return servers
-  },
+  }
+  throw new Error("Wanta Link runtime changed while issuing host capabilities. Retry the request.")
+}
+const externalAgents = createExternalAgents({
+  appRoot,
+  isPackaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  scratchRootDir: externalAgentRootDir,
+  commandEnvironment: externalAgentCommandEnvironment,
+  hostMcpServers: externalHostMcpServers,
 })
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 团队作用域同步，
 // 经 ChatService.setAgentTeam → onSetAgentTeam 回调（渲染层切 workspace 时调用）。

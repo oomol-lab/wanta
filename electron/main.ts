@@ -59,6 +59,7 @@ import { memoizeExternalCommandEnvironment } from "./agent/external/command-envi
 import { createExternalAgents } from "./agent/external/create.ts"
 import { ExternalOoScopeStore } from "./agent/external/oo-scope-store.ts"
 import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
+import { GrokModelGateway } from "./agent/grok-model-gateway.ts"
 import { HostCapabilityInvokeServer } from "./agent/host-capability-invoke-server.ts"
 import { HostCapabilityServer } from "./agent/host-capability-server.ts"
 import { HOST_CAPABILITY_AUDIT_BINDING, HostCapabilityKernel } from "./agent/host-capability.ts"
@@ -363,9 +364,10 @@ const directCliCapabilityServer = new HostCapabilityServer({
 const externalAgentRootDir = path.join(app.getPath("userData"), "agent-external")
 const externalOoScopeStore = new ExternalOoScopeStore(path.join(externalAgentRootDir, "oo-team-scope.json"))
 const claudeModelGateway = new ClaudeModelGateway()
+const grokModelGateway = new GrokModelGateway()
 let claudeModelAccount: AuthRuntimeAccount | null = null
 
-async function claudeRouteFor(input: { model?: ModelChoice; reasoningLevel?: WantaReasoningLevel }) {
+async function wantaRouteFor(input: { model?: ModelChoice; reasoningLevel?: WantaReasoningLevel }) {
   const runtimeModels = await modelsStore.runtimeModels()
   return resolveClaudeModelRoute({
     accountSessionToken: claudeModelAccount?.sessionToken,
@@ -395,13 +397,13 @@ function claudeRoutingEnvironment(descriptor: {
   }
 }
 
-const wantaModelRouter = {
+const claudeModelRouter = {
   onForgetSession: (sessionId: string): void => claudeModelGateway.revokeSession(sessionId),
   preparePrompt: async (input: PromptAgentInput): Promise<void> => {
-    await claudeModelGateway.issue(input.sessionId, await claudeRouteFor(input))
+    await claudeModelGateway.issue(input.sessionId, await wantaRouteFor(input))
   },
   sessionMeta: async (input: PromptAgentInput): Promise<Record<string, unknown>> => {
-    const descriptor = await claudeModelGateway.issue(input.sessionId, await claudeRouteFor(input))
+    const descriptor = await claudeModelGateway.issue(input.sessionId, await wantaRouteFor(input))
     const env = claudeRoutingEnvironment(descriptor)
     return {
       claudeCode: {
@@ -414,6 +416,22 @@ const wantaModelRouter = {
           settings: { apiKeyHelper: "", env, model: descriptor.model },
         },
       },
+    }
+  },
+}
+const grokModelRouter = {
+  onForgetSession: (sessionId: string): void => grokModelGateway.revokeSession(sessionId),
+  preparePrompt: async (input: PromptAgentInput): Promise<void> => {
+    grokModelGateway.prepare(input.sessionId, await wantaRouteFor(input))
+  },
+  sessionMeta: async (): Promise<undefined> => undefined,
+  commandEnvironment: async (): Promise<NodeJS.ProcessEnv> => {
+    const descriptor = await grokModelGateway.descriptor()
+    return {
+      XAI_API_KEY: descriptor.token,
+      GROK_XAI_API_BASE_URL: descriptor.baseUrl,
+      GROK_MODELS_BASE_URL: descriptor.baseUrl,
+      GROK_MODELS_LIST_URL: `${descriptor.baseUrl}/models`,
     }
   },
 }
@@ -511,7 +529,7 @@ const externalAgents = createExternalAgents({
   scratchRootDir: externalAgentRootDir,
   commandEnvironment: externalAgentCommandEnvironment,
   hostMcpServers: externalHostMcpServers,
-  wantaModelRouter,
+  wantaModelRouters: { "claude-code": claudeModelRouter, grok: grokModelRouter },
 })
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 团队作用域同步，
 // 经 ChatService.setAgentTeam → onSetAgentTeam 回调（渲染层切 workspace 时调用）。
@@ -897,6 +915,7 @@ function reapAgentForShutdown(): Promise<void> {
     })
     await runBoundedShutdownStep("dispose built-in host invoke server", () => builtInHostInvokeServer.dispose())
     await runBoundedShutdownStep("dispose Claude model gateway", () => claudeModelGateway.dispose())
+    await runBoundedShutdownStep("dispose Grok model gateway", () => grokModelGateway.dispose())
     hostQuestionBroker.dispose()
     await runBoundedShutdownStep("dispose spreadsheet preview worker", () => spreadsheetPreviewWorker.dispose())
     await runBoundedShutdownStep("dispose browser control server", () => browserControlServer.dispose())

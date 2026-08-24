@@ -19,6 +19,8 @@ export interface AcpAgentRegistration {
   loginHint: string
   /** Model/auth owner. Omitted means the external agent owns both through its CLI. */
   modelSource?: "agent" | "wanta"
+  /** Wanta-routed agents with process-wide provider configuration serialize turns to keep routes isolated. */
+  modelRouteScope?: "session" | "process"
   /**
    * Wanta permission modes this agent supports, each mapped to the ACP session
    * mode id applied via session/set_mode. Key order defines the profile's
@@ -35,7 +37,7 @@ export interface AcpAgentRegistration {
   /** Config file (relative to $HOME) whose presence suggests a completed login. */
   loginMarkerPath?: string
   /** Optional native-runtime login probe when a marker alone cannot authoritatively establish auth state. */
-  loginProbe?: "claude-cli" | "grok-cli"
+  loginProbe?: "claude-cli"
   /**
    * Managed binary name resolved from node_modules/.bin in dev (and bundled
    * resources in packaged builds) when the CLI is not on the user PATH. Used
@@ -101,14 +103,13 @@ export const ACP_AGENT_REGISTRY = {
     // session/close, standard permission requests).
     acpArgs: ["agent", "stdio"],
     versionArgs: ["--version"],
-    loginHint: "Run `grok login` in a terminal to sign in, then retry.",
+    loginHint: "Check the selected Wanta model and its credential, then retry.",
+    // Grok supplies the coding harness; Wanta supplies the selected model and
+    // credential through an authenticated OpenAI-compatible loopback route.
+    modelSource: "wanta",
+    modelRouteScope: "process",
     // grok advertises no ACP session modes; approvals round-trip per request.
-    selection: { model: true, effort: false },
-    loginMarkerPath: ".grok/auth.json",
-    // grok 1.0.5 exits successfully from `models` even while printing an
-    // explicit unauthenticated diagnostic, so use the CLI output as the
-    // authority and keep the marker only as a fail-open fallback.
-    loginProbe: "grok-cli",
+    selection: { model: false, effort: false },
   },
 } as const satisfies Record<string, AcpAgentRegistration>
 

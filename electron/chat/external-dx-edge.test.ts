@@ -859,26 +859,21 @@ test("edge7b: prototype-chain kind segments are not valid external kinds (in-ope
 })
 
 // ---------------------------------------------------------------------------
-// Edge 8: model/effort knobs against an agent that declares setEffort false
+// Edge 8: Wanta-routed Grok uses host model choices, not native model knobs
 // ---------------------------------------------------------------------------
 
-test("edge8: prompt-borne model/effort ids are forwarded verbatim and never kill the turn; direct set-effort rejects with a named error", async () => {
+test("edge8: Grok receives the selected Wanta model and rejects native model/effort mutations", async () => {
   const { service, events, adapters } = createHarness(["grok"])
   const grok = adapters.get("grok")
   assert.ok(grok)
-  assert.equal(grok.profile.inputs.setModel, true)
+  assert.equal(grok.profile.modelSource, "wanta")
+  assert.equal(grok.profile.inputs.setModel, false)
   assert.equal(grok.profile.inputs.setEffort, false)
   const sessionId = mintExternalSessionId("grok")
 
-  // The chat layer forwards both knobs on the prompt (chat/node.ts:1859-1860);
-  // the contract schema accepts them regardless of profile flags, and the
-  // adapter owns the decision. The turn must run to completion.
-  await service.sendMessage(
-    sendRequest(sessionId, "with knobs", { agentModelId: "grok-4-fast", agentEffortId: "high" }),
-  )
+  await service.sendMessage(sendRequest(sessionId, "with Wanta model", { model: { kind: "builtin", id: "oopilot" } }))
   assert.equal(grok.prompts.length, 1)
-  assert.equal(grok.prompts[0]?.agentModelId, "grok-4-fast")
-  assert.equal(grok.prompts[0]?.agentEffortId, "high")
+  assert.deepEqual(grok.prompts[0]?.model, { kind: "builtin", id: "oopilot" })
   grok.completeAssistantTurn(sessionId, "reply-knobs", "answered")
   await waitForTurnCompletion(service)
   assert.deepEqual(
@@ -886,12 +881,10 @@ test("edge8: prompt-borne model/effort ids are forwarded verbatim and never kill
     [],
   )
 
-  // The supported axis works through the dedicated invoke...
-  await service.setExternalSessionModel({ sessionId, modelId: "grok-4-fast" })
-  assert.equal(grok.setModels.length, 1)
-
-  // ...the undeclared axis rejects with the contract's named error and does
-  // not poison the session for later turns.
+  await assert.rejects(
+    service.setExternalSessionModel({ sessionId, modelId: "grok-4-fast" }),
+    /set-model is not supported/,
+  )
   await assert.rejects(service.setExternalSessionEffort({ sessionId, effortId: "high" }), /set-effort is not supported/)
   await service.sendMessage(sendRequest(sessionId, "after rejection"))
   assert.equal(grok.prompts.length, 2)

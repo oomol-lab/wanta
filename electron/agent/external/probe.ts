@@ -92,13 +92,6 @@ export function parseClaudeAuthStatus(raw: string): ExternalAgentLoginProbe | un
   return undefined
 }
 
-export function parseGrokAuthStatus(raw: string): ExternalAgentLoginProbe | undefined {
-  if (/\byou are not authenticated\b|\bno auth credentials\b/iu.test(raw)) {
-    return { status: "logged_out" }
-  }
-  return undefined
-}
-
 async function probeClaudeCliLogin(
   executablePath: string,
   pathEnv: string,
@@ -116,29 +109,6 @@ async function probeClaudeCliLogin(
     const stdout =
       error && typeof error === "object" && "stdout" in error && typeof error.stdout === "string" ? error.stdout : ""
     return parseClaudeAuthStatus(stdout)
-  }
-}
-
-async function probeGrokCliLogin(
-  executablePath: string,
-  pathEnv: string,
-  options: ExternalAgentProbeOptions,
-): Promise<ExternalAgentLoginProbe | undefined> {
-  const env = options.env ?? process.env
-  try {
-    const { stdout, stderr } = await execFileAsync(executablePath, ["models"], {
-      timeout: versionProbeTimeoutMs,
-      maxBuffer: 64 * 1024,
-      env: { ...env, PATH: pathEnv },
-      shell: externalExecutableNeedsShell(executablePath),
-    })
-    return parseGrokAuthStatus(`${stdout}\n${stderr}`) ?? { status: "logged_in" }
-  } catch (error) {
-    const stdout =
-      error && typeof error === "object" && "stdout" in error && typeof error.stdout === "string" ? error.stdout : ""
-    const stderr =
-      error && typeof error === "object" && "stderr" in error && typeof error.stderr === "string" ? error.stderr : ""
-    return parseGrokAuthStatus(`${stdout}\n${stderr}`)
   }
 }
 
@@ -184,7 +154,6 @@ async function probeLoginMarker(
 
 async function probeRegisteredLogin(
   registration: AcpAgentRegistration,
-  executablePath: string | undefined,
   pathEnv: string,
   options: ExternalAgentProbeOptions,
 ): Promise<ExternalAgentLoginProbe> {
@@ -200,12 +169,6 @@ async function probeRegisteredLogin(
     const native = detected ? await probeClaudeCliLogin(detected.executablePath, pathEnv, options) : undefined
     return native ?? probeClaudeLogin(options)
   }
-  if (registration.loginProbe === "grok-cli" && executablePath) {
-    const native = await probeGrokCliLogin(executablePath, pathEnv, options)
-    if (native) {
-      return native
-    }
-  }
   return probeLoginMarker(registration.loginMarkerPath, options)
 }
 
@@ -218,12 +181,7 @@ export async function probeExternalAgent(
   const pathEnv = await probeCommandPath(options)
   const registration = ACP_AGENT_REGISTRY[kind]
   const binary = await probeBinary(registration.cliCommands, registration.versionArgs, options, pathEnv)
-  const login = await probeRegisteredLogin(
-    registration,
-    binary.status === "detected" ? binary.path : undefined,
-    pathEnv,
-    options,
-  )
+  const login = await probeRegisteredLogin(registration, pathEnv, options)
   const status: ExternalAgentRuntimeStatus = { kind, displayName: profile.displayName, binary, login, loginHint }
   logDiagnosticOnChange(`byoa-probe:${kind}`, "byoa-probe", "external agent probe", {
     kind,

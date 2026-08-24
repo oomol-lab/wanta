@@ -328,6 +328,44 @@ describe("AcpAgentAdapter", () => {
     expect(onForgetSession).toHaveBeenCalledWith(WANTA_SESSION_ID)
   })
 
+  test("serializes turns for a process-scoped Wanta model route", async () => {
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    let promptCount = 0
+    const preparePrompt = vi.fn(async () => undefined)
+    const harness = await createHarness(
+      {
+        prompt: async (_turn) => {
+          promptCount += 1
+          if (promptCount === 1) await firstBlocked
+          return { stopReason: "end_turn" }
+        },
+      },
+      "grok",
+      undefined,
+      undefined,
+      { preparePrompt, sessionMeta: async () => undefined, onForgetSession: () => undefined },
+    )
+    const first = harness.adapter.send(promptInput("first"))
+    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(1))
+    const second = harness.adapter.send({
+      ...promptInput("second"),
+      sessionId: "wanta-session-2",
+      messageId: "user-2",
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(preparePrompt).toHaveBeenCalledTimes(1)
+    expect(harness.fake.promptRequests).toHaveLength(1)
+
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(preparePrompt).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(2))
+  })
+
   test("streams a full turn: user synthesis, chunks, tool pair, completion", async () => {
     const harness = await createHarness({
       prompt: async (turn) => {

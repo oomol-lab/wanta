@@ -381,6 +381,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   private catalogWarmup: Promise<void> | undefined
   private permissionSeq = 0
   private probeCache: { at: number; promise: Promise<ExternalAgentRuntimeStatus> } | undefined
+  private processRouteTail: Promise<void> = Promise.resolve()
 
   constructor(options: AcpAdapterOptions) {
     super(options.transcriptDir ? { transcriptDir: options.transcriptDir } : {})
@@ -502,6 +503,35 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   }
 
   protected async handlePrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
+    if (this.options.registration.modelRouteScope === "process") {
+      const previous = this.processRouteTail.catch(() => undefined)
+      let release!: () => void
+      this.processRouteTail = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      await previous
+      let completionTracked = false
+      try {
+        if (!options?.signal?.aborted)
+          await this.handlePromptNow(input, options, (completion) => {
+            completionTracked = true
+            void completion.finally(release)
+          })
+      } catch (error) {
+        release()
+        throw error
+      }
+      if (!completionTracked) release()
+      return
+    }
+    await this.handlePromptNow(input, options)
+  }
+
+  private async handlePromptNow(
+    input: PromptAgentInput,
+    options?: AgentSendOptions,
+    onCompletion?: (completion: Promise<void>) => void,
+  ): Promise<void> {
     if (options?.signal?.aborted) {
       return
     }
@@ -516,14 +546,18 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
         await this.applyConfigSelection(input.sessionId, "effort", input.agentEffortId)
         appliedSelections.effort = input.agentEffortId
       }
-      await this.dispatchPrompt(input, options)
+      await this.dispatchPrompt(input, options, onCompletion)
     } catch (error) {
       await this.restorePromptSelections(input.sessionId, previousSelection, appliedSelections)
       throw error
     }
   }
 
-  private async dispatchPrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
+  private async dispatchPrompt(
+    input: PromptAgentInput,
+    options?: AgentSendOptions,
+    onCompletion?: (completion: Promise<void>) => void,
+  ): Promise<void> {
     const restoreContext =
       !this.sessionsByWantaId.has(input.sessionId) && this.hasPersistedHistory(input.sessionId)
         ? this.restoredConversationContext(input.sessionId)
@@ -574,8 +608,10 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
         restoredContext: restoreContext,
       }),
     })
-    this.trackTurn(session, turn, promptPromise, options?.signal)
-    // Resolve on dispatch (submission ack); completion arrives as messageCompleted.
+    const completion = this.trackTurn(session, turn, promptPromise, options?.signal)
+    onCompletion?.(completion)
+    // Session-scoped routes resolve on dispatch. Process-scoped routes hold the
+    // queue until completion so another session cannot replace the live model.
   }
 
   private async restorePromptSelections(
@@ -834,7 +870,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     turn: AcpTurn,
     promptPromise: Promise<PromptResponse>,
     signal?: AbortSignal,
-  ): void {
+  ): Promise<void> {
     const wantaSessionId = session.wantaSessionId
     const onAbort = (): void => {
       void this.cancelSession(wantaSessionId)
@@ -851,7 +887,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       }
       return true
     }
-    promptPromise.then(
+    return promptPromise.then(
       (response) => {
         if (!settle()) {
           return

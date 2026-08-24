@@ -31,7 +31,8 @@ export function agentRuntimeReadyForSubmission(
   status: ExternalAgentRuntimeStatus | undefined,
 ): boolean {
   if (!isExternalAgentKind(kind)) return true
-  return status?.kind === kind && status.binary.status === "detected" && status.login.status !== "logged_out"
+  if (status?.kind !== kind || status.binary.status !== "detected") return false
+  return AGENT_PROFILES[kind].auth.kind === "wanta-account" || status.login.status !== "logged_out"
 }
 
 export interface AgentPickerRow {
@@ -74,13 +75,14 @@ export function buildAgentPickerRows(
   ]
   for (const status of options) {
     const detected = status.binary.status === "detected"
+    const cliOwnsAuth = AGENT_PROFILES[status.kind].auth.kind === "agent-cli"
     rows.push({
       kind: status.kind,
       iconHost: status.kind,
       label: status.displayName,
       ...(status.binary.status === "detected" && status.binary.version ? { sublabel: status.binary.version } : {}),
       ...(detected
-        ? status.login.status === "logged_out"
+        ? cliOwnsAuth && status.login.status === "logged_out"
           ? { hint: labels.loginRequired(status.loginHint) }
           : {}
         : { hint: labels.notDetected }),

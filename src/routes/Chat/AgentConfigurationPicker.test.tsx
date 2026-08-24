@@ -99,7 +99,10 @@ function buttonWithTexts(...texts: string[]): HTMLButtonElement | undefined {
 }
 
 async function hoverButton(text: string) {
-  await act(async () => buttonWithText(text)?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })))
+  const menuItem = [...document.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')].find((button) =>
+    button.textContent?.includes(text),
+  )
+  await act(async () => menuItem?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })))
 }
 
 afterEach(() => {
@@ -113,6 +116,16 @@ afterEach(() => {
 })
 
 describe("AgentConfigurationPicker", () => {
+  it("keeps the selected agent visible in the closed trigger even when Wanta owns the model", async () => {
+    const builtIn = await renderPicker()
+    expect(builtIn.trigger?.textContent).toBe("Built-in Agent · Auto · Default")
+    expect(builtIn.trigger?.querySelector('[title="wanta"]')).not.toBeNull()
+
+    const claude = await renderPicker({ agentKind: "claude-code" })
+    expect(claude.trigger?.textContent).toBe("Claude Code · Auto · Default")
+    expect(claude.trigger?.querySelector('[title="claude-code"]')).not.toBeNull()
+  })
+
   it("groups agent, Wanta model, and reasoning in one portaled panel", async () => {
     const { host } = await renderPicker()
     const menu = document.querySelector<HTMLElement>('[role="menu"][aria-label="Agent configuration"]')

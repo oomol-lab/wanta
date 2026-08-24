@@ -1,3 +1,4 @@
+import type { AcpAgentRegistration } from "../acp/registry.ts"
 import type { ExternalAgentKind } from "../contract/profile.ts"
 import type { ExternalAgentBinaryProbe, ExternalAgentLoginProbe, ExternalAgentRuntimeStatus } from "./status.ts"
 
@@ -151,6 +152,26 @@ async function probeLoginMarker(
   return (await pathExists(path.join(home, markerPath))) ? { status: "logged_in" } : { status: "unknown" }
 }
 
+async function probeRegisteredLogin(
+  registration: AcpAgentRegistration,
+  pathEnv: string,
+  options: ExternalAgentProbeOptions,
+): Promise<ExternalAgentLoginProbe> {
+  if (registration.loginProbe === "claude-cli") {
+    const runtime = registration.runtimeExecutable
+    const detected = runtime
+      ? await detectCliExecutable(runtime.cliCommands, {
+          env: options.env ?? process.env,
+          homeDirectory: options.homeDirectory,
+          pathEnv,
+        })
+      : undefined
+    const native = detected ? await probeClaudeCliLogin(detected.executablePath, pathEnv, options) : undefined
+    return native ?? probeClaudeLogin(options)
+  }
+  return probeLoginMarker(registration.loginMarkerPath, options)
+}
+
 export async function probeExternalAgent(
   kind: ExternalAgentKind,
   options: ExternalAgentProbeOptions = {},
@@ -158,14 +179,9 @@ export async function probeExternalAgent(
   const profile = AGENT_PROFILES[kind]
   const loginHint = agentLoginHint(kind)
   const pathEnv = await probeCommandPath(options)
-  const registration = kind === "claude-code" ? undefined : ACP_AGENT_REGISTRY[kind]
-  const binary = registration
-    ? await probeBinary(registration.cliCommands, registration.versionArgs, options, pathEnv)
-    : await probeBinary(["claude"], ["--version"], options, pathEnv)
-  const login = registration
-    ? await probeLoginMarker(registration.loginMarkerPath, options)
-    : ((binary.status === "detected" ? await probeClaudeCliLogin(binary.path, pathEnv, options) : undefined) ??
-      (await probeClaudeLogin(options)))
+  const registration = ACP_AGENT_REGISTRY[kind]
+  const binary = await probeBinary(registration.cliCommands, registration.versionArgs, options, pathEnv)
+  const login = await probeRegisteredLogin(registration, pathEnv, options)
   const status: ExternalAgentRuntimeStatus = { kind, displayName: profile.displayName, binary, login, loginHint }
   logDiagnosticOnChange(`byoa-probe:${kind}`, "byoa-probe", "external agent probe", {
     kind,

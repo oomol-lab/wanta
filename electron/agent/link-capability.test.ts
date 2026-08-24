@@ -443,6 +443,23 @@ describe("LinkCapability", () => {
     )
 
     expect(maxActive).toBe(2)
+
+    // A drained queue must return every handed-off slot. The previous counter
+    // implementation leaked once per waiter: the first burst completed, but a
+    // later call parked forever because no active call remained to wake it.
+    await expect(
+      Promise.race([
+        capability.callAction(context, {
+          action: "run_query",
+          params: { projectId: "after-drain" },
+          service: "posthog",
+        }),
+        new Promise<never>((_resolve, reject) =>
+          setTimeout(() => reject(new Error("post-drain action slot was never released")), 250),
+        ),
+      ]),
+    ).resolves.toBe(JSON.stringify({ data: { ok: true } }))
+    expect(execute).toHaveBeenCalledTimes(9)
   })
 })
 

@@ -9,11 +9,11 @@ data-safety policy, or UI semantics.
 
 The target split is:
 
-| Owner         | Responsibilities                                                                                                                                                             |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Wanta host    | session identity, team/workspace scope, Link connections, browser and knowledge services, artifacts, redaction, authorization signals, audit records, and normalized tool UI |
-| Agent adapter | native session lifecycle, model/effort selection, reasoning loop, native local-tool enforcement, and translation to/from the normalized adapter contract                     |
-| Model         | intent understanding, planning, tool choice, synthesis, and response generation                                                                                              |
+| Owner         | Responsibilities                                                                                                                                                                                                                                    |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wanta host    | session identity, team/workspace scope, Link connections, browser and knowledge services, artifacts, redaction, authorization signals, audit records, normalized tool UI, and model routing when the selected harness declares `modelSource: wanta` |
+| Agent adapter | native session lifecycle, agent-owned model/effort selection when declared, reasoning loop, native local-tool enforcement, and translation to/from the normalized adapter contract                                                                  |
+| Model         | intent understanding, planning, tool choice, synthesis, and response generation                                                                                                                                                                     |
 
 Agent-native behavior is not expected to be identical. Host capability
 identity, business safety, and result semantics are expected to be identical.
@@ -43,36 +43,29 @@ Every turn receives the same host-owned context before adapter translation:
 OpenCode receives this context through its dynamic system tail, custom tools,
 and managed sidecar environment. External agents receive the shared
 dynamic context as a delimited host-context block because ACP has no portable
-per-turn system-prompt field and Claude's system prompt is fixed at session
-creation. The recorded user message remains the original user text.
+per-turn system-prompt field. The recorded user message remains the original user text.
 
 ## Capability transport
 
-The transport for external-agent host capabilities is Wanta MCP:
+Capability ownership and transport are separate decisions. Wanta owns identity,
+workspace, credentials, validation, redaction, authorization, and audit
+semantics regardless of the wire used by an agent.
 
-1. Wanta exposes narrow Link, browser, Skill, knowledge, question, and direct-provider tools.
-2. Each tool resolves Wanta session identity in the host, not in the model.
-3. Link calls bind the active workspace before reaching Connector.
-4. Credentials remain in Wanta; agents receive only capability-scoped access.
-5. Results are redacted and normalized before reaching the agent and renderer.
-6. The same tool result produces the same authorization CTA and audit record
-   for every adapter.
+- External coding agents use the Wanta-managed `oo` CLI for Connector discovery
+  and actions. This preserves their native command workflow and avoids eagerly
+  loading the Link catalog as MCP tools.
+- MCP is reserved for stateful Wanta-native capabilities without an equivalent
+  managed CLI, such as the integrated browser, structured questions, knowledge,
+  current-turn Skill snapshots, and isolated direct-provider runtimes.
+- OpenCode keeps its in-process host invoke path.
+- Every transport normalizes into the same tool UI and permission vocabulary.
 
-ACP adapters will receive these servers in `session/new.mcpServers`. Native
-adapters will use their supported MCP/tool registration mechanism. OpenCode's
-existing custom tools remain the session-aware compatibility transport for its
-multiplexed sidecar.
-
-Raw CLIs remain a fallback, not the primary business API. Every agent runtime
-that can execute `oo` must use a Wanta-managed guard. The guard must fail closed
+Every agent runtime that can execute `oo` must use a Wanta-managed guard. The guard must fail closed
 when it cannot resolve an unambiguous session workspace, preserve explicit
 selectors, reject cross-workspace fallback, and redact connector output.
-Loaded Skill instructions carry the same transport override for every external
-adapter: when a Wanta host capability covers the requested operation, the
-agent must use that capability instead of copying a CLI example into its native
-shell. If an agent still selects the guarded `oo` compatibility path, the
-shared permission classifier—not an adapter-specific rule—decides whether the
-single command is safe to run without a redundant approval card.
+Loaded Skill instructions keep Connector work on that managed CLI. The shared
+permission classifier—not an adapter-specific rule—decides whether a command is
+safe to run without a redundant approval card.
 
 ## Kernel contract
 
@@ -94,7 +87,7 @@ changes, and permanently revoked when a task is deleted or the app exits. A
 lease can never change its Wanta session identity.
 
 `HostCapabilityServer` is the authenticated loopback MCP transport over that
-kernel. It owns no business logic. ACP, Claude, and future transports receive
+kernel. It owns no business logic. ACP and future transports receive
 only its opaque bearer capability; real provider credentials remain in
 Electron main. OpenCode retains its guarded compatibility tools where the
 sidecar needs session-aware dispatch.
@@ -113,7 +106,8 @@ Delivered:
 
 ### Phase 2: Wanta MCP capability server
 
-Delivered foundation and Link frontend:
+Historical foundation (the Link-over-MCP choice below was later superseded by
+the managed-CLI transport policy above):
 
 - A generic `HostCapabilityKernel`, per-session `HostCapabilityLease`, and
   authenticated `HostCapabilityServer` now own registration, validation,
@@ -123,7 +117,7 @@ Delivered foundation and Link frontend:
 - The host exposes an authenticated loopback MCP endpoint. External agents see
   only an opaque session capability; OOMOL/OpenConnector credentials remain in
   Electron main.
-- ACP and Claude sessions register the same four tools: `list_apps`,
+- External ACP sessions register the same four tools: `list_apps`,
   `search_actions`, `inspect_action`, and `call_action`.
 - Tool events normalize back to the existing connector UI vocabulary, so
   authorization overlays do not depend on an agent-specific MCP name.
@@ -132,19 +126,17 @@ Delivered foundation and Link frontend:
 
 OpenCode's four generated tools now prefer the session-aware host invoke
 transport and therefore execute the same `LinkCapability` implementation as
-ACP and Claude. The guarded raw-CLI code remains only as a startup-compatibility
+external ACP agents. The guarded raw-CLI code remains only as a startup-compatibility
 fallback when the host transport is absent; it preserves the same four-tool
 contract and fails closed on ambiguous workspace identity.
 
 ### Phase 3: guarded Link parity
 
-Delivered behind a compatibility fallback: every agent's primary path uses the
-same host Link implementation. Authorization enrichment, first-call probing,
-same-target authorization blocking, and bounded concurrent action calls live
-in `LinkCapability`, not in one adapter. Both transports bind the exact
-workspace, validate selected connections, redact output, and fail closed
-instead of falling back to another identity. OpenCode's former raw-CLI path is
-retained temporarily for startup compatibility and is not the source of truth.
+The shared governance boundary remains delivered, but external coding agents
+now reach Connector through the guarded OOCLI rather than an eagerly injected
+`wanta_link` MCP server. OpenCode continues to use the in-process host Link
+implementation. Both paths preserve workspace identity, redact output, and fail
+closed instead of falling back to another identity.
 
 ### Phase 4: Skill registry and task snapshots
 
@@ -189,9 +181,8 @@ through Wanta-managed isolated runtimes. Calls must name an active
 provider-matching Skill from the same turn; bounded argv validation rejects
 administration, control-line injection, and oversized requests. Provider CLIs
 remain the business-schema authority because their command sets ship with
-their versioned Skills. Wanta's
-persisted transcript is the history source of truth: Claude resumes natively,
-while ACP agents receive a bounded context rebuild when native loading is not
+their versioned Skills. Wanta's persisted transcript is the history source of
+truth; ACP agents receive a bounded context rebuild when native loading is not
 available. Host capability availability is resolved dynamically from Wanta's
 active runtimes and settings rather than duplicated as static per-agent flags.
 The normal suite covers the shared contracts, transports, scope switches,

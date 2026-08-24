@@ -20,8 +20,8 @@ import { z } from "zod"
 // Normalized agent event contract (BYOA phase 0).
 //
 // AgentEvent is the single outbound channel of every AgentAdapter: each adapter
-// translates its native protocol (OpenCode SSE, Claude Agent SDK messages, ACP
-// session/update notifications, ...) into this discriminated union. The variants
+// translates its protocol (OpenCode SSE or ACP session/update notifications)
+// into this discriminated union. The variants
 // were promoted from the former ChatEmit union in event-translator.ts, so the
 // chat event bridge consumes them unchanged; payload types stay shared with the
 // IPC contract in electron/chat/common.ts on purpose (the UI vocabulary is the

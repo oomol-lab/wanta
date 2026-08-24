@@ -83,7 +83,7 @@ describe("ComposerModeControls", () => {
     const html = renderControls({ agentModesEnabled: true, modelRoutingEnabled: true })
     expect(html).toContain(agentModeLabel)
     expect(html).toContain(agentConfigurationLabel)
-    expect(html).toContain("Auto · Default")
+    expect(html).toContain("Built-in Agent · Auto · Default")
   })
 
   it("orders mode and permission before the combined configuration trigger", () => {
@@ -110,7 +110,7 @@ describe("ComposerModeControls", () => {
       modelRoutingEnabled: false,
     })
     expect(html).toContain(agentConfigurationLabel)
-    expect(html).toContain("Default · Claude Code")
+    expect(html).toContain("Claude Code · Default")
     expect(html).not.toContain(modelPickerLabel)
   })
 
@@ -122,7 +122,7 @@ describe("ComposerModeControls", () => {
   it("keeps a model-only Wanta configuration in the combined trigger", () => {
     const html = renderControls({ modelCatalog: noReasoningCatalog })
     expect(html).toContain(agentConfigurationLabel)
-    expect(html).toContain("GPT 5.6 Sol · Default")
+    expect(html).toContain("Built-in Agent · GPT 5.6 Sol · Default")
     expect(html).not.toContain(reasoningPickerLabel)
   })
 

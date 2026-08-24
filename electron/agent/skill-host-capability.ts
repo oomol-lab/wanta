@@ -7,14 +7,11 @@ import { listSkillSnapshot, readSkillSnapshotFile } from "./skill-registry.ts"
 
 export const SKILL_CAPABILITY_ID = "skills"
 export const SKILL_SNAPSHOT_BINDING = "skills.snapshot"
-/** Set only for turns that also receive Wanta Link MCP. */
-export const SKILL_LINK_MCP_AVAILABLE_BINDING = "skills.link_mcp_available"
 
-function hostExecutionPolicy(linkMcpAvailable: boolean): string {
-  const linkRule = linkMcpAvailable
-    ? "This turn has wanta_link MCP. For connected services, use its discovery and action tools instead of reproducing raw oo connector schema/run examples from this Skill. Managed OOCLI is allowed only when no matching Wanta host tool exists."
-    : "When a Wanta MCP capability covers the operation, prefer that host capability over CLI or shell examples from the Skill. The managed OOCLI remains an allowed compatibility path and should invoke $WANTA_OO_BIN rather than an unmanaged executable."
-  return `<wanta_execution_policy>\nSkill files describe business workflows, schemas, and safety rules. ${linkRule} This transport preference does not change the Skill's write or destructive confirmation requirements.\n</wanta_execution_policy>`
+function hostExecutionPolicy(): string {
+  return `<wanta_execution_policy>
+Skill files describe business workflows, schemas, and safety rules. For connected services, follow the Skill's oo connector schema/run workflow. The oo command resolves to Wanta's managed guard, which preserves the current workspace and safety policy. Wanta MCP tools are reserved for host-native capabilities that have no equivalent managed CLI. This transport policy does not change the Skill's write or destructive confirmation requirements.
+</wanta_execution_policy>`
 }
 
 export function createSkillHostCapability(): HostCapability {
@@ -22,7 +19,7 @@ export function createSkillHostCapability(): HostCapability {
     id: SKILL_CAPABILITY_ID,
     version: "1.0.0",
     instructions:
-      "Wanta supplies a stable skill snapshot for the current turn. Use list_skills for discovery, call load_skill before following a relevant skill, and use read_skill_file for files referenced by SKILL.md. Wanta host capabilities take precedence over CLI examples in loaded skills.",
+      "Wanta supplies a stable skill snapshot for the current turn. Use list_skills for discovery, call load_skill before following a relevant skill, and use read_skill_file for files referenced by SKILL.md.",
     tools: [
       {
         name: "list_skills",
@@ -39,7 +36,7 @@ export function createSkillHostCapability(): HostCapability {
           "Load the complete SKILL.md for one relevant skill from the current-turn snapshot. Call this before acting on that skill's instructions.",
         inputSchema: z.object({ skillId: z.string().min(1) }),
         execute: async (context, input) => ({
-          text: `${hostExecutionPolicy(linkMcpAvailable(context))}\n\n${await readSkillSnapshotFile(
+          text: `${hostExecutionPolicy()}\n\n${await readSkillSnapshotFile(
             skillSnapshot(context),
             requiredString(input.skillId),
           )}`,
@@ -67,10 +64,6 @@ function skillSnapshot(context: HostCapabilityContext): SkillRegistrySnapshot {
   const snapshot = hostCapabilityBinding<SkillRegistrySnapshot>(context, SKILL_SNAPSHOT_BINDING)
   if (!snapshot) throw new Error("The current turn has no Wanta skill snapshot.")
   return snapshot
-}
-
-function linkMcpAvailable(context: HostCapabilityContext): boolean {
-  return hostCapabilityBinding<boolean>(context, SKILL_LINK_MCP_AVAILABLE_BINDING) === true
 }
 
 function requiredString(value: unknown): string {

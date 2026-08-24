@@ -7,7 +7,6 @@ import path from "node:path"
 import { expect, test } from "vitest"
 import { AcpAgentAdapter } from "../acp/adapter.ts"
 import { ACP_AGENT_REGISTRY } from "../acp/registry.ts"
-import { ClaudeCodeAgentAdapter } from "../claude/adapter.ts"
 import { probeExternalAgent } from "./probe.ts"
 import { mintExternalSessionId } from "./session-id.ts"
 
@@ -93,18 +92,22 @@ function expectUsableOutcome(outcome: SmokeOutcome, loginHint: string): void {
 }
 
 test.runIf(enabled)(
-  "claude-code adapter completes a real turn with the installed CLI",
+  "claude-code adapter completes a real ACP turn via claude-agent-acp",
   { timeout: 180_000 },
   async () => {
     const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-byoa-smoke-claude-"))
-    const adapter = new ClaudeCodeAgentAdapter({
-      probe: () => probeExternalAgent("claude-code"),
+    const registration = ACP_AGENT_REGISTRY["claude-code"]
+    const probeOptions = { extraBinDirectories: [path.join(process.cwd(), "node_modules", ".bin")] }
+    const adapter = new AcpAgentAdapter({
+      kind: "claude-code",
+      registration,
+      probe: () => probeExternalAgent("claude-code", probeOptions),
       scratchRootDir,
     })
     try {
       const status = await adapter.runtimeStatus()
       if (status.binary.status !== "detected") {
-        console.warn("[byoa-smoke] claude binary not detected; smoke degraded to probe-only")
+        console.warn("[byoa-smoke] claude-agent-acp bridge not detected; smoke degraded to probe-only")
         return
       }
       const outcome = await runSmokeTurn(

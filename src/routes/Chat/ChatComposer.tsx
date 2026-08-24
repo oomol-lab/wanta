@@ -694,7 +694,7 @@ export function ChatComposer({
   // state shows guidance (finding by kind naturally skips the built-in agent).
   const displayedAgentProfile = AGENT_PROFILES[agentKind]
   const agentLoginNotice =
-    displayedExternalAgent?.login.status === "logged_out" ? (
+    displayedAgentProfile.auth.kind === "agent-cli" && displayedExternalAgent?.login.status === "logged_out" ? (
       <p className="oo-text-caption px-1 text-muted-foreground">
         {t("chat.agentLoginRequired", { hint: displayedExternalAgent.loginHint })}
       </p>

@@ -211,6 +211,7 @@ async function createHarness(
   kind: keyof typeof ACP_AGENT_REGISTRY = "codex",
   hostMcpServers?: AcpAdapterOptions["hostMcpServers"],
   transcriptDir?: string,
+  adapterHooks: Pick<AcpAdapterOptions, "onForgetSession" | "preparePrompt" | "sessionMeta"> = {},
 ): Promise<AdapterHarness> {
   const fake = createFakeAgent(behavior)
   const registration = ACP_AGENT_REGISTRY[kind]
@@ -232,6 +233,7 @@ async function createHarness(
     connect: fake.connect,
     hostMcpServers,
     transcriptDir,
+    ...adapterHooks,
   })
   await adapter.start()
   startedAdapters.push(adapter)
@@ -301,6 +303,31 @@ describe("AcpAgentAdapter", () => {
     await harness.adapter.runtimeStatus()
     await harness.adapter.runtimeStatus()
     expect(harness.probe).toHaveBeenCalledTimes(1)
+  })
+
+  test("forwards host model metadata per session and refreshes its route before each prompt", async () => {
+    const preparePrompt = vi.fn(async () => undefined)
+    const sessionMeta = vi.fn(async () => ({
+      claudeCode: { options: { env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:1234" } } },
+    }))
+    const onForgetSession = vi.fn()
+    const harness = await createHarness({}, "claude-code", undefined, undefined, {
+      onForgetSession,
+      preparePrompt,
+      sessionMeta,
+    })
+
+    const input = { ...promptInput(), model: { kind: "builtin", id: "oopilot" } as const }
+    await harness.adapter.send(input)
+    await harness.waitFor((event) => event.event === "messageCompleted")
+
+    expect(preparePrompt).toHaveBeenCalledWith(input)
+    expect(sessionMeta).toHaveBeenCalledWith(input)
+    expect(harness.fake.newSessionRequests[0]?._meta).toEqual({
+      claudeCode: { options: { env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:1234" } } },
+    })
+    harness.adapter.forgetSession(WANTA_SESSION_ID)
+    expect(onForgetSession).toHaveBeenCalledWith(WANTA_SESSION_ID)
   })
 
   test("streams a full turn: user synthesis, chunks, tool pair, completion", async () => {
@@ -572,26 +599,6 @@ describe("AcpAgentAdapter", () => {
       expect.objectContaining({ kind: "text", text: "query PostHog" }),
     ])
   })
-
-  test.each(["codex", "grok"] as const)(
-    "includes the external Link contract once for %s when wanta_link is registered",
-    async (kind) => {
-      const harness = await createHarness({}, kind, async () => [
-        { headers: { Authorization: "Bearer opaque-token" }, name: "wanta_link", url: "http://127.0.0.1:4321/mcp" },
-      ])
-      await harness.adapter.send({ type: "prompt", sessionId: WANTA_SESSION_ID, text: "query PostHog" })
-      await harness.waitFor((event) => event.event === "messageCompleted")
-
-      const first = harness.fake.promptRequests[0]?.prompt[0]
-      expect(first && "text" in first ? first.text : "").toContain('<wanta_link_capability_contract version="1">')
-      expect(first && "text" in first ? first.text : "").toContain("Do not run oo auth login")
-
-      await harness.adapter.send({ type: "prompt", sessionId: WANTA_SESSION_ID, text: "continue" })
-      await harness.waitFor(() => harness.fake.promptRequests.length === 2)
-      const second = harness.fake.promptRequests[1]?.prompt[0]
-      expect(second && "text" in second ? second.text : "").not.toContain("wanta_link_capability_contract")
-    },
-  )
 
   test("restores persisted Wanta conversation context when ACP cannot load a native session", async () => {
     const transcriptDir = await mkdtemp(path.join(os.tmpdir(), "wanta-acp-transcripts-"))

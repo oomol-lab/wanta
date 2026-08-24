@@ -4,11 +4,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, expect, test } from "vitest"
 import { HostCapabilityKernel } from "./host-capability.ts"
-import {
-  createSkillHostCapability,
-  SKILL_LINK_MCP_AVAILABLE_BINDING,
-  SKILL_SNAPSHOT_BINDING,
-} from "./skill-host-capability.ts"
+import { createSkillHostCapability, SKILL_SNAPSHOT_BINDING } from "./skill-host-capability.ts"
 import { listSkillSnapshot, readSkillSnapshotFile, SkillRegistry } from "./skill-registry.ts"
 
 const temporaryDirectories: string[] = []
@@ -60,14 +56,14 @@ test("skill host tools load complete instructions and keep referenced files insi
   const kernel = new HostCapabilityKernel()
   kernel.register(createSkillHostCapability())
   const context = {
-    bindings: { [SKILL_LINK_MCP_AVAILABLE_BINDING]: true, [SKILL_SNAPSHOT_BINDING]: snapshot },
+    bindings: { [SKILL_SNAPSHOT_BINDING]: snapshot },
     sessionId: "session-1",
   }
 
   const loadedSkill = (await kernel.execute("skills", "load_skill", context, { skillId: "alpha" })).text
   expect(loadedSkill).toContain("<wanta_execution_policy>")
-  expect(loadedSkill).toContain("This turn has wanta_link MCP")
-  expect(loadedSkill).toContain("instead of reproducing raw oo connector schema/run examples")
+  expect(loadedSkill).toContain("follow the Skill's oo connector schema/run workflow")
+  expect(loadedSkill).toContain("Wanta's managed guard")
   expect(loadedSkill).toContain("# Alpha")
   expect(
     (await kernel.execute("skills", "read_skill_file", context, { skillId: "alpha", path: "references/guide.md" }))

@@ -1,10 +1,13 @@
+import type { PromptAgentInput } from "./agent/contract/input.ts"
 import type { DirectCliProvider } from "./agent/direct-cli-host-capability.ts"
 import type { HostMcpServerProvider } from "./agent/external/host-mcp.ts"
 import type { LinkCapabilityRuntime } from "./agent/link-capability.ts"
+import type { WantaReasoningLevel } from "./agent/reasoning.ts"
 import type { AppCommand } from "./app-command.ts"
 import type { AppLocale } from "./app-locale.ts"
 import type { AuthRuntimeAccount } from "./auth/store.ts"
 import type { BrowserControlConnection } from "./browser/control-server.ts"
+import type { ModelChoice } from "./models/common.ts"
 import type { AppUpdateState } from "./update/common.ts"
 
 import { ConnectionServer } from "@oomol/connection"
@@ -49,6 +52,8 @@ import {
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
 import { BROWSER_CAPABILITY_ID, createBrowserHostCapability } from "./agent/browser-host-capability.ts"
+import { ClaudeModelGateway } from "./agent/claude-model-gateway.ts"
+import { resolveClaudeModelRoute } from "./agent/claude-model-route.ts"
 import { createDirectCliHostCapability, DIRECT_CLI_CAPABILITY_ID } from "./agent/direct-cli-host-capability.ts"
 import { memoizeExternalCommandEnvironment } from "./agent/external/command-environment.ts"
 import { createExternalAgents } from "./agent/external/create.ts"
@@ -69,7 +74,6 @@ import { AgentRetirementPool } from "./agent/retirement.ts"
 import {
   createSkillHostCapability,
   SKILL_CAPABILITY_ID,
-  SKILL_LINK_MCP_AVAILABLE_BINDING,
   SKILL_SNAPSHOT_BINDING,
 } from "./agent/skill-host-capability.ts"
 import { SkillRegistry } from "./agent/skill-registry.ts"
@@ -292,13 +296,6 @@ hostCapabilityKernel.register(
     },
   }),
 )
-const linkCapabilityServer = new HostCapabilityServer({
-  capabilityIds: [LINK_CAPABILITY_ID],
-  instructions: "Wanta host capabilities are session-scoped. Never infer or replace their account identity.",
-  kernel: hostCapabilityKernel,
-  name: "wanta_link",
-  version: "1.0.0",
-})
 const builtInHostInvokeServer = new HostCapabilityInvokeServer(hostCapabilityKernel, [LINK_CAPABILITY_ID])
 const sessionProjectStore = new SessionProjectStore(app.getPath("userData"))
 const artifactBundleStore = new ArtifactBundleStore(app.getPath("userData"))
@@ -363,6 +360,61 @@ const directCliCapabilityServer = new HostCapabilityServer({
   version: "1.0.0",
 })
 const externalAgentRootDir = path.join(app.getPath("userData"), "agent-external")
+const claudeModelGateway = new ClaudeModelGateway()
+let claudeModelAccount: AuthRuntimeAccount | null = null
+
+async function claudeRouteFor(input: { model?: ModelChoice; reasoningLevel?: WantaReasoningLevel }) {
+  const runtimeModels = await modelsStore.runtimeModels()
+  return resolveClaudeModelRoute({
+    accountSessionToken: claudeModelAccount?.sessionToken,
+    choice: input.model ?? runtimeModels.selected,
+    customModels: runtimeModels.customModels,
+    reasoningLevel: input.reasoningLevel,
+  })
+}
+
+function claudeRoutingEnvironment(descriptor: {
+  baseUrl: string
+  model: string
+  token: string
+}): Record<string, string> {
+  return {
+    ANTHROPIC_API_KEY: "",
+    ANTHROPIC_AUTH_TOKEN: descriptor.token,
+    ANTHROPIC_BASE_URL: descriptor.baseUrl,
+    ANTHROPIC_BEDROCK_BASE_URL: "",
+    ANTHROPIC_CUSTOM_HEADERS: "",
+    ANTHROPIC_CUSTOM_MODEL_OPTION: descriptor.model,
+    ANTHROPIC_MODEL: descriptor.model,
+    ANTHROPIC_VERTEX_BASE_URL: "",
+    CLAUDE_CODE_OAUTH_TOKEN: "",
+    CLAUDE_CODE_USE_BEDROCK: "0",
+    CLAUDE_CODE_USE_VERTEX: "0",
+  }
+}
+
+const wantaModelRouter = {
+  onForgetSession: (sessionId: string): void => claudeModelGateway.revokeSession(sessionId),
+  preparePrompt: async (input: PromptAgentInput): Promise<void> => {
+    await claudeModelGateway.issue(input.sessionId, await claudeRouteFor(input))
+  },
+  sessionMeta: async (input: PromptAgentInput): Promise<Record<string, unknown>> => {
+    const descriptor = await claudeModelGateway.issue(input.sessionId, await claudeRouteFor(input))
+    const env = claudeRoutingEnvironment(descriptor)
+    return {
+      claudeCode: {
+        options: {
+          env,
+          model: descriptor.model,
+          // Programmatic settings outrank user/project settings. Mirroring the
+          // route here prevents ~/.claude/settings.json from restoring another
+          // endpoint while all other Claude Code habits remain loaded.
+          settings: { apiKeyHelper: "", env, model: descriptor.model },
+        },
+      },
+    }
+  },
+}
 const externalAgentCommandEnvironment = memoizeExternalCommandEnvironment(async () => {
   const [userPath, managedOoBinPath] = await Promise.all([
     resolveUserCommandPath({ preferredDirectories: [path.dirname(ooBinPath)] }),
@@ -379,111 +431,74 @@ const externalAgentCommandEnvironment = memoizeExternalCommandEnvironment(async 
     WANTA_REAL_OO_BIN: ooBinPath,
   }
 })
-// External (BYOA) adapters are app-lifetime and independent of the OOMOL account
-// runtime: their models and auth belong to the agent CLIs themselves. Host
+// External adapters are app-lifetime. Agent-owned registrations keep CLI auth;
+// Wanta-routed harnesses resolve the current account/BYOK route per turn. Host
 // capabilities are issued per Wanta session and keep identity in main.
 const externalHostMcpServers: HostMcpServerProvider = async (input) => {
-  // Capability issuance contains several awaits. Capture the Link scope first
-  // and only return a manifest if every advertised capability belongs to that
-  // exact snapshot; otherwise an external agent could receive Skill guidance
-  // claiming wanta_link exists without receiving the matching Link server.
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const linkRuntimeSnapshot = activeLinkCapabilityRuntime
-    const linkScopeSnapshot = activeLinkCapabilityScope
-    const linkScopeIsCurrent = (): boolean =>
-      activeLinkCapabilityScope === linkScopeSnapshot && activeLinkCapabilityRuntime === linkRuntimeSnapshot
-    const [larkRuntime, wecomRuntime, dingTalkRuntime] = await directRuntimes()
-    const directSkillSources = [
-      ...(larkRuntime ? [{ id: "direct-lark", kind: "connection" as const, root: larkRuntime.skillsDir }] : []),
-      ...(wecomRuntime ? [{ id: "direct-wecom", kind: "connection" as const, root: wecomRuntime.skillsDir }] : []),
-      ...(dingTalkRuntime
-        ? [{ id: "direct-dingtalk", kind: "connection" as const, root: dingTalkRuntime.skillsDir }]
-        : []),
-    ]
-    const skillSnapshot =
-      directSkillSources.length > 0
-        ? await new SkillRegistry([...baseSkillSources, ...directSkillSources]).snapshot()
-        : await skillRegistry.snapshot()
-    const context = {
-      bindings: {
-        [HOST_CAPABILITY_AUDIT_BINDING]: {
-          agentKind: externalAgentKindForSessionId(input.sessionId) ?? "external",
-          transport: "host_mcp",
-        },
+  const [larkRuntime, wecomRuntime, dingTalkRuntime] = await directRuntimes()
+  const directSkillSources = [
+    ...(larkRuntime ? [{ id: "direct-lark", kind: "connection" as const, root: larkRuntime.skillsDir }] : []),
+    ...(wecomRuntime ? [{ id: "direct-wecom", kind: "connection" as const, root: wecomRuntime.skillsDir }] : []),
+    ...(dingTalkRuntime
+      ? [{ id: "direct-dingtalk", kind: "connection" as const, root: dingTalkRuntime.skillsDir }]
+      : []),
+  ]
+  const skillSnapshot =
+    directSkillSources.length > 0
+      ? await new SkillRegistry([...baseSkillSources, ...directSkillSources]).snapshot()
+      : await skillRegistry.snapshot()
+  const context = {
+    bindings: {
+      [HOST_CAPABILITY_AUDIT_BINDING]: {
+        agentKind: externalAgentKindForSessionId(input.sessionId) ?? "external",
+        transport: "host_mcp",
       },
+    },
+    sessionId: input.sessionId,
+    ...(input.messageId ? { turnId: input.messageId } : {}),
+    ...(input.teamName ? { teamName: input.teamName } : {}),
+    ...(input.outputProjectRoot ? { projectRoot: input.outputProjectRoot } : {}),
+    ...(input.artifactDir ? { artifactDir: input.artifactDir } : {}),
+    ...(input.processDir ? { processDir: input.processDir } : {}),
+  }
+  // External coding agents use Wanta's guarded OOCLI for Connector work.
+  // MCP stays limited to stateful Wanta-native capabilities.
+  const servers = [
+    await skillCapabilityServer.issue({
+      ...context,
+      bindings: { ...context.bindings, [SKILL_SNAPSHOT_BINDING]: skillSnapshot },
+    }),
+    await knowledgeCapabilityServer.issue(context),
+    await questionCapabilityServer.issue(context),
+  ]
+  if (directSkillSources.length > 0) {
+    servers.push(
+      await directCliCapabilityServer.issue({
+        ...context,
+        bindings: { ...context.bindings, [SKILL_SNAPSHOT_BINDING]: skillSnapshot },
+      }),
+    )
+  } else {
+    directCliCapabilityServer.disableSession(input.sessionId)
+  }
+  if (settingsStore.read().browserEnabled !== false) {
+    servers.push(await browserCapabilityServer.issue(context))
+  } else {
+    browserCapabilityServer.disableSession(input.sessionId)
+  }
+  logDiagnostic(
+    "host-capability",
+    "manifest issued",
+    {
+      connectorTransport: "guarded_oo_cli",
+      linkRegistered: false,
+      servers: servers.map((server) => server.name),
       sessionId: input.sessionId,
       ...(input.messageId ? { turnId: input.messageId } : {}),
-      ...(input.teamName ? { teamName: input.teamName } : {}),
-      ...(input.outputProjectRoot ? { projectRoot: input.outputProjectRoot } : {}),
-      ...(input.artifactDir ? { artifactDir: input.artifactDir } : {}),
-      ...(input.processDir ? { processDir: input.processDir } : {}),
-    }
-    if (!linkScopeIsCurrent()) continue
-    let linkServer
-    if (linkRuntimeSnapshot) {
-      try {
-        linkServer = await linkCapabilityServer.issue(
-          {
-            ...context,
-            bindings: { ...context.bindings, [LINK_RUNTIME_BINDING]: linkRuntimeSnapshot },
-          },
-          { isCurrent: linkScopeIsCurrent },
-        )
-      } catch (error) {
-        if (!linkScopeIsCurrent()) continue
-        throw error
-      }
-    }
-    if (!linkServer) linkCapabilityServer.disableSession(input.sessionId)
-
-    const servers = [
-      await skillCapabilityServer.issue({
-        ...context,
-        bindings: {
-          ...context.bindings,
-          [SKILL_LINK_MCP_AVAILABLE_BINDING]: Boolean(linkServer),
-          [SKILL_SNAPSHOT_BINDING]: skillSnapshot,
-        },
-      }),
-      await knowledgeCapabilityServer.issue(context),
-      await questionCapabilityServer.issue(context),
-    ]
-    if (directSkillSources.length > 0) {
-      servers.push(
-        await directCliCapabilityServer.issue({
-          ...context,
-          bindings: {
-            ...context.bindings,
-            [SKILL_LINK_MCP_AVAILABLE_BINDING]: Boolean(linkServer),
-            [SKILL_SNAPSHOT_BINDING]: skillSnapshot,
-          },
-        }),
-      )
-    } else {
-      directCliCapabilityServer.disableSession(input.sessionId)
-    }
-    if (settingsStore.read().browserEnabled !== false) {
-      servers.push(await browserCapabilityServer.issue(context))
-    } else {
-      browserCapabilityServer.disableSession(input.sessionId)
-    }
-    if (linkServer) servers.push(linkServer)
-
-    if (!linkScopeIsCurrent()) continue
-    logDiagnostic(
-      "host-capability",
-      "manifest issued",
-      {
-        linkRegistered: Boolean(linkServer),
-        servers: servers.map((server) => server.name),
-        sessionId: input.sessionId,
-        ...(input.messageId ? { turnId: input.messageId } : {}),
-      },
-      "trace",
-    )
-    return servers
-  }
-  throw new Error("Wanta Link runtime changed while issuing host capabilities. Retry the request.")
+    },
+    "trace",
+  )
+  return servers
 }
 const externalAgents = createExternalAgents({
   appRoot,
@@ -492,6 +507,7 @@ const externalAgents = createExternalAgents({
   scratchRootDir: externalAgentRootDir,
   commandEnvironment: externalAgentCommandEnvironment,
   hostMcpServers: externalHostMcpServers,
+  wantaModelRouter,
 })
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 团队作用域同步，
 // 经 ChatService.setAgentTeam → onSetAgentTeam 回调（渲染层切 workspace 时调用）。
@@ -547,7 +563,6 @@ const sessionService = new SessionServiceImpl(null, {
       externalAgents.get(externalKind)?.forgetSession(sessionId)
     }
     await Promise.all([
-      linkCapabilityServer.revokeSession(sessionId),
       browserCapabilityServer.revokeSession(sessionId),
       skillCapabilityServer.revokeSession(sessionId),
       knowledgeCapabilityServer.revokeSession(sessionId),
@@ -865,7 +880,6 @@ function reapAgentForShutdown(): Promise<void> {
     })
     await runBoundedShutdownStep("dispose host capability servers", async () => {
       await Promise.all([
-        linkCapabilityServer.dispose(),
         browserCapabilityServer.dispose(),
         skillCapabilityServer.dispose(),
         knowledgeCapabilityServer.dispose(),
@@ -874,6 +888,7 @@ function reapAgentForShutdown(): Promise<void> {
       ])
     })
     await runBoundedShutdownStep("dispose built-in host invoke server", () => builtInHostInvokeServer.dispose())
+    await runBoundedShutdownStep("dispose Claude model gateway", () => claudeModelGateway.dispose())
     hostQuestionBroker.dispose()
     await runBoundedShutdownStep("dispose spreadsheet preview worker", () => spreadsheetPreviewWorker.dispose())
     await runBoundedShutdownStep("dispose browser control server", () => browserControlServer.dispose())
@@ -1015,6 +1030,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   runtimeInitialized = true
   const runtimeVersionAtStart = agentRuntimeVersion
   const runtimeModels = await modelsStore.runtimeModels()
+  claudeModelAccount = account
   const runtime = resolveAgentRuntime(account, runtimeModels.selected, runtimeModels.customModels)
   // On a cross-account switch, drop the previous account's team BEFORE it is
   // baked into linkRuntime (and thus the new sidecar's oo identity/team-scope);
@@ -1039,7 +1055,6 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
           .slice(0, 16)}`
     : null
   if (nextLinkCapabilityScope !== activeLinkCapabilityScope) {
-    linkCapabilityServer.disableAll()
     builtInHostInvokeServer.disableAll()
   }
   activeLinkCapabilityScope = nextLinkCapabilityScope

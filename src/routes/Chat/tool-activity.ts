@@ -1,6 +1,7 @@
 import type { ChatMessagePart } from "../../../electron/chat/common.ts"
 import type { MessageKey, TranslateFn } from "@/i18n/i18n"
 
+import { parseConnectorCliInvocation } from "./connector-cli.ts"
 import { isActiveToolPart } from "./tool-state.ts"
 
 export type ToolCategory = "connector" | "shell" | "file" | "web" | "task" | "skill" | "custom" | "mixed"
@@ -129,6 +130,9 @@ export function toolActivityTitle(
 }
 
 export function classifyToolPart(part: ChatMessagePart): ToolCategory {
+  if (parseConnectorCliInvocation(typeof part.input?.command === "string" ? part.input.command : "")) {
+    return "connector"
+  }
   switch (part.tool) {
     case "list_apps":
     case "search_actions":

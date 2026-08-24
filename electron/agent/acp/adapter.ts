@@ -1,4 +1,4 @@
-import type { AgentPermissionMode, ChatPermissionReply, ChatPermissionRequest } from "../../chat/common.ts"
+import type { AgentPermissionMode, ChatMessage, ChatPermissionReply, ChatPermissionRequest } from "../../chat/common.ts"
 import type { AgentEvent } from "../contract/event.ts"
 import type {
   AgentSendOptions,
@@ -42,7 +42,7 @@ import { externalExecutableNeedsShell } from "../external/executable.ts"
 import { externalAgentPromptText } from "../external/prompt.ts"
 import { externalSessionUuid } from "../external/session-id.ts"
 import { appendStderrTail, subprocessFailureSummary } from "../external/subprocess-diagnostics.ts"
-import { createAcpSessionTranslator } from "./translator.ts"
+import { createAcpSessionTranslator, sanitizeAcpMessages } from "./translator.ts"
 
 // Generic ACP agent adapter (BYOA phase 2).
 //
@@ -88,6 +88,12 @@ export interface AcpAdapterOptions {
   hostMcpServers?: HostMcpServerProvider
   /** Shared Wanta-managed subprocess environment, including guarded command shims. */
   commandEnvironment?: () => Promise<NodeJS.ProcessEnv>
+  /** Optional per-session ACP metadata supplied by a host-owned model router. */
+  sessionMeta?: (input: PromptAgentInput) => Promise<Record<string, unknown> | undefined>
+  /** Refresh a mutable host-owned model route before every native prompt. */
+  preparePrompt?: (input: PromptAgentInput) => Promise<void>
+  /** Release host-owned state when Wanta permanently deletes a session. */
+  onForgetSession?: (sessionId: string) => void
   /**
    * Test seam: produce a connected ACP stream plus a dispose fn. The default
    * spawns the probed binary with registration.acpArgs over stdio.
@@ -147,8 +153,6 @@ interface AcpSessionState {
   wantaSessionId: string
   acpSessionId: string
   translator: AcpSessionTranslator
-  /** Emit the stable external Link contract on the first prompt only. */
-  linkCapabilityContractPending: boolean
   /** Mode the session started in; restored on permission mode "default". */
   initialModeId?: string
   availableModeIds: readonly string[]
@@ -328,13 +332,8 @@ function requestErrorCode(error: unknown): number | undefined {
  * which need a capability declaration), so the agent resolves the file with
  * its own tools regardless of what it advertised at initialize.
  */
-function promptContentBlocks(
-  input: PromptAgentInput,
-  options: { includeLinkCapabilityContract: boolean; restoredContext?: string },
-): ContentBlock[] {
-  const text = externalAgentPromptText(input, {
-    includeLinkCapabilityContract: options.includeLinkCapabilityContract,
-  })
+function promptContentBlocks(input: PromptAgentInput, options: { restoredContext?: string }): ContentBlock[] {
+  const text = externalAgentPromptText(input)
   const blocks: ContentBlock[] = [
     { type: "text", text: options.restoredContext ? `${options.restoredContext}\n\n${text}` : text },
   ]
@@ -485,6 +484,10 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     this.disposeConnection()
   }
 
+  protected override sanitizeRestoredMessages(messages: ChatMessage[]): ChatMessage[] {
+    return sanitizeAcpMessages(messages)
+  }
+
   protected override handleForgetSession(sessionId: string): void {
     this.desiredSelections.delete(sessionId)
     this.desiredPermissionModes.delete(sessionId)
@@ -495,6 +498,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
     // The session is gone; settle its parked resolvers without re-emitting.
     this.settlePendingPermissions((pending) => pending.wantaSessionId === sessionId, false)
+    this.options.onForgetSession?.(sessionId)
   }
 
   protected async handlePrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
@@ -525,6 +529,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
         ? this.restoredConversationContext(input.sessionId)
         : undefined
     const displayName = this.options.registration.displayName
+    await this.options.preparePrompt?.(input)
     let handle: AcpConnectionHandle
     try {
       handle = await this.ensureConnection()
@@ -566,11 +571,9 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const promptPromise = handle.connection.agent.request("session/prompt", {
       sessionId: session.acpSessionId,
       prompt: promptContentBlocks(input, {
-        includeLinkCapabilityContract: session.linkCapabilityContractPending,
         restoredContext: restoreContext,
       }),
     })
-    session.linkCapabilityContractPending = false
     this.trackTurn(session, turn, promptPromise, options?.signal)
     // Resolve on dispatch (submission ack); completion arrives as messageCompleted.
   }
@@ -1024,11 +1027,13 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const exitCallbacks: Array<(info: { code: number | null }) => void> = []
     let exited = false
     let disposed = false
+    let forceKillTimer: ReturnType<typeof setTimeout> | undefined
     const fireExit = (code: number | null): void => {
       if (exited) {
         return
       }
       exited = true
+      if (forceKillTimer) clearTimeout(forceKillTimer)
       if (!disposed && (code !== 0 || stderrTail.trim())) {
         logDiagnostic(
           "acp-adapter",
@@ -1051,7 +1056,13 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       dispose: () => {
         if (!exited) {
           disposed = true
-          child.kill()
+          child.kill("SIGTERM")
+          // ACP bridges may own a long-running native agent and ignore or
+          // delay SIGTERM while forwarding shutdown. Keep the timer referenced
+          // so tests and app teardown cannot leave an orphaned bridge behind.
+          forceKillTimer = setTimeout(() => {
+            if (!exited) child.kill("SIGKILL")
+          }, 2_000)
         }
       },
       failureDetail: () => subprocessFailureSummary(stderrTail),
@@ -1143,10 +1154,12 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const additionalDirectories = [...new Set(input.additionalDirectories ?? [])].filter(
       (directory) => directory !== cwd,
     )
+    const sessionMeta = await this.options.sessionMeta?.(input)
     const response = await handle.connection.agent.request("session/new", {
       cwd,
       ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
       mcpServers,
+      ...(sessionMeta ? { _meta: sessionMeta } : {}),
     })
     if (!this.isStarted || this.isSessionForgotten(input.sessionId)) {
       await handle.connection.agent
@@ -1164,7 +1177,6 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const session: AcpSessionState = {
       wantaSessionId: input.sessionId,
       acpSessionId: response.sessionId,
-      linkCapabilityContractPending: mcpServers.some((server) => server.name === "wanta_link"),
       translator: createAcpSessionTranslator(input.sessionId, new Set(mcpServers.map((server) => server.name))),
       initialModeId: modes?.currentModeId,
       availableModeIds: (modes?.availableModes ?? []).map((mode) => mode.id),

@@ -155,13 +155,15 @@ export default defineConfig(({ command, mode }) => {
                   "wanta-wg": path.join(dirname, "electron/knowledge/wg.ts"),
                   "wanta-oo-guard": path.join(dirname, "electron/agent/oo-guard.ts"),
                 },
-                // @opencode-ai/sdk 依赖 cross-spawn（CJS require("child_process")）、electron-updater 走
-                // CJS 动态 require，playwright-core 需要保留其运行时模块结构，都不能打进 ESM 主进程包；
+                // AI SDK / @opencode-ai/sdk 依赖含 CJS 动态 require，electron-updater 走 CJS 动态
+                // require，playwright-core 需要保留其运行时模块结构，都不能打进 ESM 主进程包；
                 // 外部化后由 Node 运行时解析（electron-builder 随 dependencies 打包）。正则覆盖子路径导入
                 // （如 @opencode-ai/sdk/v2/client）——精确字符串匹配不会命中子路径，否则 v2 client 会被
                 // 错误内联进主进程包。
                 external: [
+                  /^@ai-sdk\//,
                   /^@opencode-ai\/sdk(\/|$)/,
+                  /^ai(\/|$)/,
                   /^playwright-core(\/|$)/,
                   /^wiki-graph(\/|$)/,
                   /^wiki-graph-core(\/|$)/,

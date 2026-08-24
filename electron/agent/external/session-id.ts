@@ -61,7 +61,7 @@ export function externalAgentKindForSessionId(sessionId: string): ExternalAgentK
 /**
  * The stable per-session UUID embedded in an external session id. Adapters may
  * reuse it as their native session identity when the agent allows caller-chosen
- * ids (Claude Code does), keeping the mapping deterministic across restarts.
+ * ids, keeping routing deterministic across restarts.
  * Strictly validated: session ids arrive over IPC and this value is used in
  * file paths, so anything that is not a plain UUID is rejected.
  */

@@ -444,9 +444,11 @@ const AUTH_BLOCKING = new Set([
 
 const ACTION_PROBE_CACHE_MS = 5 * 1000
 const CONNECTION_BLOCK_MS = 10 * 1000
+const ACTION_POLICY_BLOCK_MS = 10 * 60 * 1000
 const MAX_PARALLEL_ACTION_CALLS = 2
 const actionProbeStates = new Map()
 const connectionBlocks = new Map()
+const actionPolicyBlocks = new Map()
 
 function pruneExpiredRuntimeState(now = Date.now()) {
   for (const [key, state] of actionProbeStates) {
@@ -456,6 +458,9 @@ function pruneExpiredRuntimeState(now = Date.now()) {
   }
   for (const [key, block] of connectionBlocks) {
     if (now >= block.expiresAt) connectionBlocks.delete(key)
+  }
+  for (const [key, block] of actionPolicyBlocks) {
+    if (now >= block.expiresAt) actionPolicyBlocks.delete(key)
   }
 }
 
@@ -509,6 +514,17 @@ function authorizationResult(output) {
   }
 }
 
+function actionPolicyResult(output) {
+  try {
+    const parsed = JSON.parse(output || "{}")
+    return parsed && parsed.status === "error" && parsed.errorCode === "POLICY_DENIED"
+      ? { errorCode: "POLICY_DENIED" }
+      : null
+  } catch {
+    return null
+  }
+}
+
 function currentConnectionBlock(key) {
   const block = connectionBlocks.get(key)
   if (!block) {
@@ -532,10 +548,40 @@ function skippedForConnectionBlock(args, block) {
   })
 }
 
+function currentActionPolicyBlock(key) {
+  const block = actionPolicyBlocks.get(key)
+  if (!block) return null
+  if (Date.now() >= block.expiresAt) {
+    actionPolicyBlocks.delete(key)
+    return null
+  }
+  return block
+}
+
+function skippedForActionPolicyBlock(args, block) {
+  return JSON.stringify({
+    status: "skipped",
+    reason: "action_denied_cached",
+    service: args.service,
+    action: args.action,
+    errorCode: block.errorCode,
+    authorizationState: "action_denied",
+    policyOrigin: "connector_or_provider",
+    message: "The active workspace and connection already reported that this action was denied by connector or provider policy; it was skipped to avoid an unproductive retry.",
+  })
+}
+
 function markConnectionBlock(key, output) {
   const authorization = authorizationResult(output)
   if (authorization) {
     connectionBlocks.set(key, { authorization: authorization, expiresAt: Date.now() + CONNECTION_BLOCK_MS })
+  }
+}
+
+function markActionPolicyBlock(key, output) {
+  const policy = actionPolicyResult(output)
+  if (policy) {
+    actionPolicyBlocks.set(key, { ...policy, expiresAt: Date.now() + ACTION_POLICY_BLOCK_MS })
   }
 }
 
@@ -564,8 +610,13 @@ async function runLimitedAction(state, connectionKey, args, call) {
     if (blocked) {
       return skippedForConnectionBlock(args, blocked)
     }
+    const policyBlocked = currentActionPolicyBlock(connectionKey + ":" + args.action)
+    if (policyBlocked) {
+      return skippedForActionPolicyBlock(args, policyBlocked)
+    }
     const output = await call()
     markConnectionBlock(connectionKey, output)
+    markActionPolicyBlock(connectionKey + ":" + args.action, output)
     return output
   } finally {
     releaseActionSlot(state)
@@ -582,6 +633,10 @@ async function runCoordinatedAction(sessionID, identity, connectionName, args, c
   }
 
   const actionKey = connectionKey + ":" + args.action
+  const policyBlocked = currentActionPolicyBlock(actionKey)
+  if (policyBlocked) {
+    return skippedForActionPolicyBlock(args, policyBlocked)
+  }
   const now = Date.now()
   let state = actionProbeStates.get(actionKey)
   if (!state || now - state.createdAt >= ACTION_PROBE_CACHE_MS) {
@@ -592,6 +647,7 @@ async function runCoordinatedAction(sessionID, identity, connectionName, args, c
     try {
       const output = await probePromise
       markConnectionBlock(connectionKey, output)
+      markActionPolicyBlock(actionKey, output)
       return output
     } finally {
       state.probePromise = null
@@ -604,13 +660,17 @@ async function runCoordinatedAction(sessionID, identity, connectionName, args, c
     if (probeAuthorization) {
       return skippedForConnectionBlock(args, { authorization: probeAuthorization })
     }
+    const probePolicy = actionPolicyResult(probeOutput)
+    if (probePolicy) {
+      return skippedForActionPolicyBlock(args, probePolicy)
+    }
   }
   return await runLimitedAction(state, connectionKey, args, call)
 }
 
 export default tool({
   description:
-    "Execute one selected Link action using the inspected contract. params is the action input JSON described by inspect_action. For an explicitly selected account, connectionName is the exact active-runtime value returned by list_apps; omit it to use the default connection. The runtime validates account identity, probes repeated same-target calls, and limits their concurrency. Structured outcomes are authoritative: authorization_required means the target is blocked pending access; skipped with reason connection_blocked belongs to that same incident; other errors describe action or runtime failures. Wanta groups matching authorization outcomes into one inline connection prompt.",
+    "Execute one selected Link action using the inspected contract. params is the action input JSON described by inspect_action. For an explicitly selected account, connectionName is the exact active-runtime value returned by list_apps; omit it to use the default connection. The runtime validates account identity, probes repeated same-target calls, and limits their concurrency. Structured outcomes are authoritative: authorization_required means the target is blocked pending access; skipped with reason connection_blocked belongs to that same incident; skipped with reason action_denied_cached means the same action was already forbidden and must not be retried; other errors describe action or runtime failures. Wanta groups matching authorization outcomes into one inline connection prompt.",
   args: {
     service: tool.schema.string().describe("Service slug, e.g. 'hackernews'"),
     action: tool.schema.string().describe("Action name, e.g. 'get_top_stories'"),

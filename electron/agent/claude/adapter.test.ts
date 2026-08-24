@@ -278,6 +278,11 @@ describe("ClaudeCodeAgentAdapter", () => {
         alwaysLoad: true,
       },
     })
+    await vi.waitFor(() => expect(calls[0].fake.promptMessages).toHaveLength(1))
+    const content = calls[0].fake.promptMessages[0]?.message.content
+    expect(Array.isArray(content) ? content[0] : undefined).toEqual(
+      expect.objectContaining({ type: "text", text: expect.stringContaining("wanta_link_capability_contract") }),
+    )
   })
 
   it("places dynamic Wanta host context before the user request", async () => {

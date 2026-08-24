@@ -113,6 +113,8 @@ class AsyncInputQueue<T> implements AsyncIterable<T> {
 interface ClaudeSessionState {
   sessionId: string
   sessionUuid: string
+  /** Emit the stable external Link contract on the first prompt only. */
+  linkCapabilityContractPending: boolean
   inputQueue: AsyncInputQueue<SDKUserMessage>
   queryHandle: Query
   /** Bounded ring buffer of recent subprocess stderr chunks for diagnostics. */
@@ -365,7 +367,15 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     // Attachments ride as a separate text block of path references: the CLI's
     // own file tools resolve them (Read handles images too), which keeps large
     // files out of the prompt payload and inside the agent's permission model.
-    const content: Array<{ type: "text"; text: string }> = [{ type: "text", text: externalAgentPromptText(input) }]
+    const content: Array<{ type: "text"; text: string }> = [
+      {
+        type: "text",
+        text: externalAgentPromptText(input, {
+          includeLinkCapabilityContract: session.linkCapabilityContractPending,
+        }),
+      },
+    ]
+    session.linkCapabilityContractPending = false
     if (input.attachments?.length) {
       content.push({ type: "text", text: attachmentPathNote(input.attachments) })
     }
@@ -809,6 +819,7 @@ export class ClaudeCodeAgentAdapter extends ExternalAgentAdapter {
     const session: ClaudeSessionState = {
       sessionId,
       sessionUuid,
+      linkCapabilityContractPending: hostServerNames.has("wanta_link"),
       inputQueue,
       queryHandle,
       get stderrTail() {

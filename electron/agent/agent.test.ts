@@ -500,6 +500,7 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /inline connection prompt/)
   assert.match(WANTA_SYSTEM_PROMPT, /instead of manual navigation instructions/)
   assert.match(WANTA_SYSTEM_PROMPT, /FAILED_PRECONDITION/)
+  assert.match(WANTA_SYSTEM_PROMPT, /POLICY_DENIED means the active workspace and connection were applied/)
   assert.match(WANTA_SYSTEM_PROMPT, /connectionName/)
   assert.match(WANTA_SYSTEM_PROMPT, /Account identity is workspace-scoped and verified rather than inferred/)
   assert.match(WANTA_SYSTEM_PROMPT, /connection_blocked outcomes as one blocked provider target/)

@@ -7,10 +7,15 @@ import { listSkillSnapshot, readSkillSnapshotFile } from "./skill-registry.ts"
 
 export const SKILL_CAPABILITY_ID = "skills"
 export const SKILL_SNAPSHOT_BINDING = "skills.snapshot"
+/** Set only for turns that also receive Wanta Link MCP. */
+export const SKILL_LINK_MCP_AVAILABLE_BINDING = "skills.link_mcp_available"
 
-const HOST_EXECUTION_POLICY = `<wanta_execution_policy>
-Skill files describe business workflows, schemas, and safety rules. When a Wanta MCP capability covers the operation, prefer that host capability over CLI or shell examples from the Skill. For connected services, prefer wanta_link discovery and action tools. The managed OOCLI remains an allowed compatibility path and should invoke $WANTA_OO_BIN rather than an unmanaged executable. This transport preference does not change the Skill's write or destructive confirmation requirements.
-</wanta_execution_policy>`
+function hostExecutionPolicy(linkMcpAvailable: boolean): string {
+  const linkRule = linkMcpAvailable
+    ? "This turn has wanta_link MCP. For connected services, use its discovery and action tools instead of reproducing raw oo connector schema/run examples from this Skill. Managed OOCLI is allowed only when no matching Wanta host tool exists."
+    : "When a Wanta MCP capability covers the operation, prefer that host capability over CLI or shell examples from the Skill. The managed OOCLI remains an allowed compatibility path and should invoke $WANTA_OO_BIN rather than an unmanaged executable."
+  return `<wanta_execution_policy>\nSkill files describe business workflows, schemas, and safety rules. ${linkRule} This transport preference does not change the Skill's write or destructive confirmation requirements.\n</wanta_execution_policy>`
+}
 
 export function createSkillHostCapability(): HostCapability {
   return {
@@ -34,7 +39,7 @@ export function createSkillHostCapability(): HostCapability {
           "Load the complete SKILL.md for one relevant skill from the current-turn snapshot. Call this before acting on that skill's instructions.",
         inputSchema: z.object({ skillId: z.string().min(1) }),
         execute: async (context, input) => ({
-          text: `${HOST_EXECUTION_POLICY}\n\n${await readSkillSnapshotFile(
+          text: `${hostExecutionPolicy(linkMcpAvailable(context))}\n\n${await readSkillSnapshotFile(
             skillSnapshot(context),
             requiredString(input.skillId),
           )}`,
@@ -62,6 +67,10 @@ function skillSnapshot(context: HostCapabilityContext): SkillRegistrySnapshot {
   const snapshot = hostCapabilityBinding<SkillRegistrySnapshot>(context, SKILL_SNAPSHOT_BINDING)
   if (!snapshot) throw new Error("The current turn has no Wanta skill snapshot.")
   return snapshot
+}
+
+function linkMcpAvailable(context: HostCapabilityContext): boolean {
+  return hostCapabilityBinding<boolean>(context, SKILL_LINK_MCP_AVAILABLE_BINDING) === true
 }
 
 function requiredString(value: unknown): string {

@@ -1,8 +1,8 @@
-import type { HostCapability, HostCapabilityContext } from "./host-capability.ts"
+import type { HostCapability, HostCapabilityAuditMetadata, HostCapabilityContext } from "./host-capability.ts"
 import type { LinkCapabilityContext, LinkCapabilityRuntime } from "./link-capability.ts"
 
 import { z } from "zod"
-import { hostCapabilityBinding } from "./host-capability.ts"
+import { HOST_CAPABILITY_AUDIT_BINDING, hostCapabilityBinding } from "./host-capability.ts"
 import { LinkCapability } from "./link-capability.ts"
 
 export const LINK_CAPABILITY_ID = "link"
@@ -73,10 +73,14 @@ export function createLinkHostCapability(capability: LinkCapability): HostCapabi
 
 function linkContext(context: HostCapabilityContext): LinkCapabilityContext {
   const runtime = hostCapabilityBinding<LinkCapabilityRuntime>(context, LINK_RUNTIME_BINDING)
+  const audit = hostCapabilityBinding<HostCapabilityAuditMetadata>(context, HOST_CAPABILITY_AUDIT_BINDING)
   return {
+    ...(audit?.agentKind ? { agentKind: audit.agentKind } : {}),
     ...(runtime ? { runtime } : {}),
     sessionId: context.sessionId,
+    ...(context.processDir ? { processDir: context.processDir } : {}),
     ...(context.teamName ? { teamName: context.teamName } : {}),
+    ...(audit?.transport ? { transport: audit.transport } : {}),
   }
 }
 

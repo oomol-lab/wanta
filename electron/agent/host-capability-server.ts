@@ -24,6 +24,16 @@ export interface HostCapabilityServerOptions {
   version: string
 }
 
+/**
+ * Optional synchronous guard for a caller whose host scope may change while
+ * capability issuance awaits loopback setup. The guard is checked immediately
+ * before any lease update, so a stale caller cannot reactivate a disabled
+ * session lease.
+ */
+export interface HostCapabilityIssueOptions {
+  isCurrent?: () => boolean
+}
+
 /** Authenticated loopback MCP transport for one or more host capabilities. */
 export class HostCapabilityServer {
   private connectionValue: { url: string } | null = null
@@ -44,14 +54,19 @@ export class HostCapabilityServer {
     })
   }
 
-  public async issue(context: HostCapabilityContext): Promise<HostMcpServer> {
+  public async issue(
+    context: HostCapabilityContext,
+    issueOptions: HostCapabilityIssueOptions = {},
+  ): Promise<HostMcpServer> {
     if (this.disposed) throw new Error(`Host MCP server "${this.options.name}" has been disposed.`)
     if (this.revokedSessionIds.has(context.sessionId)) {
       throw new Error("Host capability session has been revoked.")
     }
+    this.assertIssueCurrent(issueOptions)
     const existingToken = this.tokenBySessionId.get(context.sessionId)
     const existing = existingToken ? this.sessions.get(existingToken) : undefined
     if (existing) {
+      this.assertIssueCurrent(issueOptions)
       existing.lease.update(context)
       return existing.descriptor
     }
@@ -61,21 +76,34 @@ export class HostCapabilityServer {
       const token = this.tokenBySessionId.get(context.sessionId)
       const session = token ? this.sessions.get(token) : undefined
       if (!session) throw new Error("Host capability session disappeared while it was being issued.")
+      this.assertIssueCurrent(issueOptions)
       session.lease.update(context)
       return descriptor
     }
-    const issuance = this.issueNew(context).finally(() => this.issuingBySessionId.delete(context.sessionId))
+    const issuance = this.issueNew(context, issueOptions).finally(() =>
+      this.issuingBySessionId.delete(context.sessionId),
+    )
     this.issuingBySessionId.set(context.sessionId, issuance)
     return issuance
   }
 
-  private async issueNew(context: HostCapabilityContext): Promise<HostMcpServer> {
+  private async issueNew(
+    context: HostCapabilityContext,
+    issueOptions: HostCapabilityIssueOptions,
+  ): Promise<HostMcpServer> {
     const connection = await this.connection()
+    this.assertIssueCurrent(issueOptions)
     const token = randomBytes(32).toString("base64url")
     const lease = new HostCapabilityLease(context)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: randomUUID })
     const mcp = this.createMcp(lease)
     await mcp.connect(transport)
+    try {
+      this.assertIssueCurrent(issueOptions)
+    } catch (error) {
+      await mcp.close().catch(() => undefined)
+      throw error
+    }
     const descriptor: HostMcpServer = {
       name: this.options.name,
       url: `${connection.url}/mcp`,
@@ -84,6 +112,12 @@ export class HostCapabilityServer {
     this.sessions.set(token, { descriptor, lease, mcp, transport })
     this.tokenBySessionId.set(context.sessionId, token)
     return descriptor
+  }
+
+  private assertIssueCurrent(issueOptions: HostCapabilityIssueOptions): void {
+    if (issueOptions.isCurrent && !issueOptions.isCurrent()) {
+      throw new Error("Host capability scope changed while issuing the session.")
+    }
   }
 
   public disableSession(sessionId: string): void {

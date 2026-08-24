@@ -147,6 +147,8 @@ interface AcpSessionState {
   wantaSessionId: string
   acpSessionId: string
   translator: AcpSessionTranslator
+  /** Emit the stable external Link contract on the first prompt only. */
+  linkCapabilityContractPending: boolean
   /** Mode the session started in; restored on permission mode "default". */
   initialModeId?: string
   availableModeIds: readonly string[]
@@ -326,9 +328,16 @@ function requestErrorCode(error: unknown): number | undefined {
  * which need a capability declaration), so the agent resolves the file with
  * its own tools regardless of what it advertised at initialize.
  */
-function promptContentBlocks(input: PromptAgentInput, restoredContext?: string): ContentBlock[] {
-  const text = externalAgentPromptText(input)
-  const blocks: ContentBlock[] = [{ type: "text", text: restoredContext ? `${restoredContext}\n\n${text}` : text }]
+function promptContentBlocks(
+  input: PromptAgentInput,
+  options: { includeLinkCapabilityContract: boolean; restoredContext?: string },
+): ContentBlock[] {
+  const text = externalAgentPromptText(input, {
+    includeLinkCapabilityContract: options.includeLinkCapabilityContract,
+  })
+  const blocks: ContentBlock[] = [
+    { type: "text", text: options.restoredContext ? `${options.restoredContext}\n\n${text}` : text },
+  ]
   for (const attachment of input.attachments ?? []) {
     const target = attachment.agentPath?.trim() || attachment.path
     blocks.push({
@@ -556,8 +565,12 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     session.activeTurn = turn
     const promptPromise = handle.connection.agent.request("session/prompt", {
       sessionId: session.acpSessionId,
-      prompt: promptContentBlocks(input, restoreContext),
+      prompt: promptContentBlocks(input, {
+        includeLinkCapabilityContract: session.linkCapabilityContractPending,
+        restoredContext: restoreContext,
+      }),
     })
+    session.linkCapabilityContractPending = false
     this.trackTurn(session, turn, promptPromise, options?.signal)
     // Resolve on dispatch (submission ack); completion arrives as messageCompleted.
   }
@@ -1151,6 +1164,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const session: AcpSessionState = {
       wantaSessionId: input.sessionId,
       acpSessionId: response.sessionId,
+      linkCapabilityContractPending: mcpServers.some((server) => server.name === "wanta_link"),
       translator: createAcpSessionTranslator(input.sessionId, new Set(mcpServers.map((server) => server.name))),
       initialModeId: modes?.currentModeId,
       availableModeIds: (modes?.availableModes ?? []).map((mode) => mode.id),

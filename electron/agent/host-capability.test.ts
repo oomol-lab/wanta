@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest"
 import { z } from "zod"
 import { HostCapabilityLease } from "./host-capability-lease.ts"
 import { HostCapabilityServer } from "./host-capability-server.ts"
-import { HostCapabilityKernel } from "./host-capability.ts"
+import { HOST_CAPABILITY_AUDIT_BINDING, HostCapabilityKernel } from "./host-capability.ts"
 
 const context = {
   bindings: {},
@@ -21,16 +21,22 @@ describe("HostCapabilityKernel", () => {
       tools: [{ name: "echo", description: "Echo", inputSchema: z.object({ value: z.string() }), execute }],
     })
 
-    await expect(kernel.execute("fixture", "echo", context, { value: "ok" })).resolves.toEqual({ text: "ok" })
+    const observedContext = {
+      ...context,
+      bindings: { [HOST_CAPABILITY_AUDIT_BINDING]: { agentKind: "codex", transport: "host_mcp" as const } },
+    }
+    await expect(kernel.execute("fixture", "echo", observedContext, { value: "ok" })).resolves.toEqual({ text: "ok" })
     await expect(kernel.execute("fixture", "echo", context, { value: 42 })).rejects.toThrow("Invalid input")
     expect(execute).toHaveBeenCalledTimes(1)
     expect(onAudit).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         capability: "fixture",
+        agentKind: "codex",
         outcome: "success",
         sessionId: "session-1",
         tool: "echo",
+        transport: "host_mcp",
         turnId: "turn-1",
       }),
     )
@@ -87,6 +93,30 @@ test("HostCapabilityServer revokes an issuance that is still starting", async ()
     await server.revokeSession(context.sessionId)
     await expect(issuance).resolves.toBeTruthy()
     await expect(server.issue(context)).rejects.toThrow("has been revoked")
+  } finally {
+    await server.dispose()
+  }
+})
+
+test("HostCapabilityServer does not reactivate a disabled lease when its issuance guard is stale", async () => {
+  const kernel = new HostCapabilityKernel()
+  kernel.register({ id: "empty", version: "1", tools: [] })
+  const server = new HostCapabilityServer({ capabilityIds: ["empty"], kernel, name: "empty", version: "1" })
+  try {
+    await server.issue(context)
+    server.disableSession(context.sessionId)
+    const internal = server as unknown as {
+      sessions: Map<string, { lease: HostCapabilityLease }>
+      tokenBySessionId: Map<string, string>
+    }
+    const token = internal.tokenBySessionId.get(context.sessionId)
+    const lease = token ? internal.sessions.get(token)?.lease : undefined
+    expect(lease?.snapshot().status).toBe("disabled")
+
+    await expect(server.issue({ ...context, turnId: "stale-turn" }, { isCurrent: () => false })).rejects.toThrow(
+      "scope changed",
+    )
+    expect(lease?.snapshot().status).toBe("disabled")
   } finally {
     await server.dispose()
   }

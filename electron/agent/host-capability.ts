@@ -11,6 +11,14 @@ export interface HostCapabilityContext {
   bindings: Readonly<Record<string, unknown>>
 }
 
+/** Optional metadata used for privacy-safe transport diagnostics. */
+export const HOST_CAPABILITY_AUDIT_BINDING = "host.audit"
+
+export interface HostCapabilityAuditMetadata {
+  agentKind?: string
+  transport?: "host_invoke" | "host_mcp"
+}
+
 export interface HostToolResult {
   text: string
   /** Optional MCP-native rich content. `text` remains the portable fallback and sidecar result. */
@@ -43,11 +51,13 @@ export interface HostCapability {
 }
 
 export interface HostCapabilityAuditRecord {
+  agentKind?: string
   capability: string
   durationMs: number
   outcome: "error" | "success" | "validation_error"
   sessionId: string
   tool: string
+  transport?: HostCapabilityAuditMetadata["transport"]
   turnId?: string
 }
 
@@ -119,12 +129,15 @@ export class HostCapabilityKernel {
     startedAt: number,
     outcome: HostCapabilityAuditRecord["outcome"],
   ): void {
+    const metadata = hostCapabilityBinding<HostCapabilityAuditMetadata>(context, HOST_CAPABILITY_AUDIT_BINDING)
     this.options.onAudit?.({
+      ...(typeof metadata?.agentKind === "string" ? { agentKind: metadata.agentKind } : {}),
       capability,
       durationMs: Math.max(0, performance.now() - startedAt),
       outcome,
       sessionId: context.sessionId,
       tool,
+      ...(metadata?.transport ? { transport: metadata.transport } : {}),
       ...(context.turnId ? { turnId: context.turnId } : {}),
     })
   }

@@ -15,6 +15,7 @@ const actionNamePattern = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u
 const servicePattern = /^[a-z0-9][a-z0-9_-]*$/u
 const ACTION_PROBE_CACHE_MS = 5_000
 const ACTION_SCHEMA_CACHE_MS = 5 * 60_000
+const ACTION_POLICY_BLOCK_MS = 10 * 60_000
 const INLINE_PAYLOAD_MAX_BYTES = 8 * 1024
 const AUTHORIZATION_CACHE_MS = 5_000
 const CONNECTION_BLOCK_MS = 10_000
@@ -51,7 +52,7 @@ export interface LinkActionAuditRecord {
   agentKind?: string
   errorCode?: string
   httpStatus?: number
-  outcome: "authorization_required" | "completed" | "error" | "local_validation_error"
+  outcome: "action_denied" | "authorization_required" | "completed" | "error" | "local_validation_error"
   retryCount: 0
   schemaValidated: boolean
   service: string
@@ -81,6 +82,11 @@ interface CachedActionSchema {
   schema: Record<string, unknown>
 }
 
+interface ActionPolicyBlock {
+  errorCode: "POLICY_DENIED"
+  expiresAt: number
+}
+
 interface AuthorizationResult {
   errorCode?: string
   status: "authorization_required"
@@ -88,6 +94,8 @@ interface AuthorizationResult {
 
 export class LinkCapability {
   private readonly actionProbeStates = new Map<string, ActionProbeState>()
+  /** Action-level provider/policy denials must not trigger retry loops. */
+  private readonly actionPolicyBlocks = new Map<string, ActionPolicyBlock>()
   /** Schemas seen through inspectActions, used to reject obvious bad params locally. */
   private readonly actionSchemas = new Map<string, CachedActionSchema>()
   private readonly authorizationCache = new Map<string, { createdAt: number; services: Set<string> | null }>()
@@ -378,6 +386,8 @@ export class LinkCapability {
     const blocked = this.currentConnectionBlock(connectionKey)
     if (blocked) return skippedForConnectionBlock(service, action, blocked.authorization)
     const actionKey = `${connectionKey}:${action}`
+    const policyBlocked = this.currentActionPolicyBlock(actionKey)
+    if (policyBlocked) return skippedForActionPolicyBlock(service, action, policyBlocked)
     const now = Date.now()
     let state = this.actionProbeStates.get(actionKey)
     if (!state || now - state.createdAt >= ACTION_PROBE_CACHE_MS) {
@@ -388,6 +398,7 @@ export class LinkCapability {
       try {
         const output = await probePromise
         this.markConnectionBlock(connectionKey, output)
+        this.markActionPolicyBlock(actionKey, output)
         return output
       } finally {
         state.probePromise = null
@@ -397,13 +408,18 @@ export class LinkCapability {
       const output = await state.probePromise
       const authorization = parseAuthorizationResult(output)
       if (authorization) return skippedForConnectionBlock(service, action, authorization)
+      const policy = parseActionPolicyBlock(output)
+      if (policy) return skippedForActionPolicyBlock(service, action, policy)
     }
     await acquireActionSlot(state)
     try {
       const currentBlock = this.currentConnectionBlock(connectionKey)
       if (currentBlock) return skippedForConnectionBlock(service, action, currentBlock.authorization)
+      const currentPolicyBlock = this.currentActionPolicyBlock(actionKey)
+      if (currentPolicyBlock) return skippedForActionPolicyBlock(service, action, currentPolicyBlock)
       const output = await call()
       this.markConnectionBlock(connectionKey, output)
+      this.markActionPolicyBlock(actionKey, output)
       return output
     } finally {
       releaseActionSlot(state)
@@ -425,6 +441,21 @@ export class LinkCapability {
     if (authorization) this.connectionBlocks.set(key, { authorization, expiresAt: Date.now() + CONNECTION_BLOCK_MS })
   }
 
+  private currentActionPolicyBlock(key: string): ActionPolicyBlock | null {
+    const block = this.actionPolicyBlocks.get(key)
+    if (!block) return null
+    if (Date.now() >= block.expiresAt) {
+      this.actionPolicyBlocks.delete(key)
+      return null
+    }
+    return block
+  }
+
+  private markActionPolicyBlock(key: string, output: string): void {
+    const block = parseActionPolicyBlock(output)
+    if (block) this.actionPolicyBlocks.set(key, { ...block, expiresAt: Date.now() + ACTION_POLICY_BLOCK_MS })
+  }
+
   private pruneRuntimeState(now = Date.now()): void {
     for (const [key, state] of this.actionProbeStates) {
       if (!state.probePromise && state.active === 0 && now - state.createdAt >= ACTION_PROBE_CACHE_MS) {
@@ -433,6 +464,9 @@ export class LinkCapability {
     }
     for (const [key, block] of this.connectionBlocks) {
       if (now >= block.expiresAt) this.connectionBlocks.delete(key)
+    }
+    for (const [key, block] of this.actionPolicyBlocks) {
+      if (now >= block.expiresAt) this.actionPolicyBlocks.delete(key)
     }
     for (const [key, cached] of this.actionSchemas) {
       if (now >= cached.expiresAt) this.actionSchemas.delete(key)
@@ -579,6 +613,17 @@ function parseAuthorizationResult(output: string): AuthorizationResult | null {
   }
 }
 
+function parseActionPolicyBlock(output: string): Omit<ActionPolicyBlock, "expiresAt"> | null {
+  try {
+    const value = JSON.parse(output) as unknown
+    return isRecord(value) && value["status"] === "error" && value["errorCode"] === "POLICY_DENIED"
+      ? { errorCode: "POLICY_DENIED" }
+      : null
+  } catch {
+    return null
+  }
+}
+
 function skippedForConnectionBlock(service: string, action: string, authorization: AuthorizationResult): string {
   return JSON.stringify({
     status: "skipped",
@@ -588,6 +633,24 @@ function skippedForConnectionBlock(service: string, action: string, authorizatio
     ...(authorization.errorCode ? { errorCode: authorization.errorCode } : {}),
     message:
       "A matching Link call already reported an authorization block; this call was skipped to avoid duplicate connector requests.",
+  })
+}
+
+function skippedForActionPolicyBlock(
+  service: string,
+  action: string,
+  block: Pick<ActionPolicyBlock, "errorCode">,
+): string {
+  return JSON.stringify({
+    status: "skipped",
+    reason: "action_denied_cached",
+    service,
+    action,
+    errorCode: block.errorCode,
+    authorizationState: "action_denied",
+    policyOrigin: "connector_or_provider",
+    message:
+      "The active workspace and connection already reported that this action was denied by connector or provider policy; it was skipped to avoid an unproductive retry.",
   })
 }
 
@@ -768,8 +831,11 @@ function actionOutcome(output: string): Pick<LinkActionAuditRecord, "errorCode" 
       return {
         ...(errorCode ? { errorCode } : {}),
         ...(httpStatus ? { httpStatus: Number(httpStatus) } : {}),
-        outcome: "error",
+        outcome: errorCode === "POLICY_DENIED" ? "action_denied" : "error",
       }
+    }
+    if (result["status"] === "skipped" && result["reason"] === "action_denied_cached") {
+      return { errorCode: "POLICY_DENIED", outcome: "action_denied" }
     }
   } catch {
     // A connector's non-JSON success response is still a completed action.

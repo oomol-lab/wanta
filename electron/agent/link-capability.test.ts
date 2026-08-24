@@ -310,6 +310,37 @@ describe("LinkCapability", () => {
     expect(execute).toHaveBeenCalledTimes(1)
   })
 
+  test("blocks repeated action-level policy denials without blocking independent actions", async () => {
+    const execute: LinkCommandExecutor = vi.fn(async () => {
+      throw Object.assign(new Error("connector failed"), {
+        stderr: "Connector action run_query returned HTTP 403 (errorCode: POLICY_DENIED): access denied by policy",
+      })
+    })
+    const capability = new LinkCapability({
+      execute,
+      ooBinPath: "/fake/oo",
+      runtime: () => ({ linkRuntime: { kind: "oomol", sessionToken: "secret-session-token" } }),
+      storeDir: "/private/wanta/link",
+    })
+    const context = { sessionId: "session-1", teamName: "Analytics Team" }
+    const denied = { action: "run_query", service: "posthog" }
+
+    expect(JSON.parse(await capability.callAction(context, denied))).toMatchObject({
+      status: "error",
+      errorCode: "POLICY_DENIED",
+    })
+    expect(JSON.parse(await capability.callAction(context, denied))).toMatchObject({
+      status: "skipped",
+      reason: "action_denied_cached",
+      errorCode: "POLICY_DENIED",
+      authorizationState: "action_denied",
+    })
+    expect(execute).toHaveBeenCalledTimes(1)
+
+    await capability.callAction(context, { action: "list_projects", service: "posthog" })
+    expect(execute).toHaveBeenCalledTimes(2)
+  })
+
   test("coalesces concurrent authorization probes and blocks repeated calls to the same connection", async () => {
     let release: (() => void) | undefined
     const execute: LinkCommandExecutor = vi.fn(

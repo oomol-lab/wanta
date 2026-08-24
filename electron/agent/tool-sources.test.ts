@@ -405,6 +405,34 @@ describe("call_action embedded runtime", () => {
     expect(second.status).toBe("authorization_required")
   })
 
+  it("skips a repeated action after an action-level policy denial without blocking other actions", async () => {
+    let calls = 0
+    const runtime = loadCallActionTool(async () => {
+      calls += 1
+      const error = new Error("connector failed") as Error & { stderr: string }
+      error.stderr = "Request failed (errorCode: POLICY_DENIED): action denied"
+      throw error
+    })
+
+    const first = JSON.parse(
+      await runtime.execute({ service: "posthog", action: "run_query" }, { sessionID: "session-1" }),
+    ) as { errorCode?: string; status?: string }
+    const repeated = JSON.parse(
+      await runtime.execute({ service: "posthog", action: "run_query" }, { sessionID: "session-1" }),
+    ) as { errorCode?: string; reason?: string; status?: string }
+
+    expect(first).toMatchObject({ status: "error", errorCode: "POLICY_DENIED" })
+    expect(repeated).toMatchObject({
+      status: "skipped",
+      reason: "action_denied_cached",
+      errorCode: "POLICY_DENIED",
+    })
+    expect(calls).toBe(1)
+
+    await runtime.execute({ service: "posthog", action: "list_projects" }, { sessionID: "session-1" })
+    expect(calls).toBe(2)
+  })
+
   it("limits matching fan-out calls after the canary succeeds", async () => {
     let active = 0
     let maxActive = 0

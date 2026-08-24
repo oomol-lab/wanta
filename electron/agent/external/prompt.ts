@@ -18,6 +18,7 @@ When the wanta_link MCP server is available, use it as the primary transport for
 - Do not reproduce raw oo connector schema/run examples from Skills while wanta_link is available. A managed OOCLI is only a compatibility fallback when no matching host tool is available.
 - connector schema and connector search are identity-independent and never accept --team or --personal. connector apps and connector run are workspace-bound and must not be used to change identity.
 - If a Link result reports authorization_required, connection_blocked, scope_missing, or credential_expired, stop retries for that target and let Wanta present the connection flow. Do not run oo auth login or connector login from this session.
+- POLICY_DENIED means the active workspace and connection were applied, but this action or its provider resource is forbidden. Do not wait, retry, switch connection, or ask the user to reconnect; explain the action-level permission limitation.
 </wanta_link_capability_contract>`
 
 export interface ExternalAgentPromptOptions {

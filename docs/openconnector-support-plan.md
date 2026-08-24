@@ -78,8 +78,8 @@ Connector availability is still incorrectly derived from the OOMOL runtime:
 
 The bundled oo CLI is sufficient for the first implementation:
 
-- scripts/oo-cli.ts pins oo CLI 1.7.1.
-- oo 1.7.1 supports a self-hosted connector via connector login and the
+- scripts/oo-cli.ts pins oo CLI 1.7.7.
+- oo 1.7.7 supports a self-hosted connector via connector login and the
   OO_CONNECTOR_URL / OO_CONNECTOR_TOKEN environment variables.
 - The OpenConnector runtime exposes compatible apps, action search, action
   metadata, action execution, and provider metadata endpoints.
@@ -275,7 +275,7 @@ remains model_required and advertises no executable Link tools.
 - If the schema cache is not endpoint-aware, partition the Agent OO_DATA_DIR by
   a stable hash of the backend and normalized endpoint. Prefer this over a
   broad cache clear or refresh on every runtime switch.
-- Keep oo CLI pinned at the verified 1.7.1 version; upgrades still require real OOMOL and
+- Keep oo CLI pinned at the verified 1.7.7 version; upgrades still require real OOMOL and
   OpenConnector runtime smoke tests.
 
 ### Verification
@@ -313,7 +313,7 @@ npm test
   authorization, probe, and circuit-breaker keys.
 - Final quality gates passed: `ts-check`, `lint`, `format`, and 1,790 tests in
   252 files.
-- The current packaged CLI is 1.7.1; its version, parser contract, and bundled Skill export passed
+- The current packaged CLI is 1.7.7; its version, parser contract, and bundled Skill export passed
   the upgrade checks. The real OpenConnector call recorded below is explicitly the pre-upgrade 1.5.1
   baseline.
 - Real smoke used the sibling OpenConnector with a temporary data directory on

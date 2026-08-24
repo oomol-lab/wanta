@@ -5,10 +5,18 @@
     "correctness": "error"
   },
   "rules": {
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
     "import/consistent-type-specifier-style": ["error", "prefer-top-level"],
     "react/exhaustive-deps": "off",
+    "react/globals": "off",
+    "react/immutability": "off",
     "react/only-export-components": "error",
-    "react/rules-of-hooks": "error"
+    "react/preserve-manual-memoization": "off",
+    "react/purity": "off",
+    "react/refs": "off",
+    "react/rules-of-hooks": "error",
+    "react/set-state-in-effect": "off",
+    "react/static-components": "off"
   },
   "env": {
     "builtin": true

@@ -134,11 +134,11 @@ export default function ArtifactPdfPreview({
     })
     resizeObserver.observe(scrollContainer)
 
-    const task: PDFDocumentLoadingTask = pdfjs.getDocument(source)
+    const task: PDFDocumentLoadingTask = pdfjs.getDocument({ url: source })
     void task.promise
       .then((document: PDFDocumentProxy) => {
         if (cancelled) {
-          void document.destroy()
+          void task.destroy()
           return
         }
         setNumPages(document.numPages)

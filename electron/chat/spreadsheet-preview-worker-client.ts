@@ -68,7 +68,7 @@ export class SpreadsheetPreviewWorkerClient {
       resourceLimits: { maxOldGenerationSizeMb: 192, maxYoungGenerationSizeMb: 32 },
     })
     worker.on("message", (response: SpreadsheetPreviewWorkerResponse) => this.handleResponse(response))
-    worker.on("error", (error) => this.handleWorkerFailure(error))
+    worker.on("error", (error) => this.handleWorkerFailure(error instanceof Error ? error : new Error(String(error))))
     worker.on("exit", (code) => {
       if (!this.disposed && code !== 0 && this.worker === worker) {
         this.handleWorkerFailure(new Error(`Spreadsheet preview worker exited with code ${code}`))

@@ -180,15 +180,13 @@ async function createHarness(behavior: FakeAgentBehavior = {}): Promise<AdapterH
   const kind = "codex" as const
   const registration = ACP_AGENT_REGISTRY[kind]
   const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "acp-adapter-edge-test-"))
-  const probe = vi.fn(
-    async (): Promise<ExternalAgentRuntimeStatus> => ({
-      kind,
-      displayName: registration.displayName,
-      binary: { status: "detected", path: "/fake/bin/agent", version: "1.0.0" },
-      login: { status: "unknown" },
-      loginHint: registration.loginHint,
-    }),
-  )
+  const probe = vi.fn(async (): Promise<ExternalAgentRuntimeStatus> => ({
+    kind,
+    displayName: registration.displayName,
+    binary: { status: "detected", path: "/fake/bin/agent", version: "1.0.0" },
+    login: { status: "unknown" },
+    loginHint: registration.loginHint,
+  }))
   const adapter = new AcpAgentAdapter({
     kind,
     registration,

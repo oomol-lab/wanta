@@ -148,7 +148,7 @@ export default defineConfig(({ command, mode }) => {
           vite: {
             define: buildDefines,
             build: {
-              rollupOptions: {
+              rolldownOptions: {
                 input: {
                   main: path.join(dirname, "electron/main.ts"),
                   "spreadsheet-preview-worker": path.join(dirname, "electron/chat/spreadsheet-preview-worker.ts"),
@@ -164,6 +164,7 @@ export default defineConfig(({ command, mode }) => {
                   /^@ai-sdk\//,
                   /^@opencode-ai\/sdk(\/|$)/,
                   /^ai(\/|$)/,
+                  /^fsevents(\/|$)/,
                   /^playwright-core(\/|$)/,
                   /^wiki-graph(\/|$)/,
                   /^wiki-graph-core(\/|$)/,
@@ -179,7 +180,7 @@ export default defineConfig(({ command, mode }) => {
           vite: {
             define: buildDefines,
             build: {
-              rollupOptions: {
+              rolldownOptions: {
                 output: {
                   entryFileNames: "preload.js",
                 },

@@ -9,7 +9,7 @@ import {
   listChapters,
   listWikiGraphLibraryArchives as listWikiGraphLibraryArchivesWithSDK,
   parseWikiGraphLibraryUri,
-  readArchiveIndexSettings,
+  readSearchIndexCapabilityStatus,
   rebindWikiGraphLibrary,
   removeWikiGraphLibraryArchive as removeWikiGraphLibraryArchiveWithSDK,
   moveWikiGraphLibraryArchive as moveWikiGraphLibraryArchiveWithSDK,
@@ -460,7 +460,7 @@ async function validateImportedArchive(archivePath: string): Promise<void> {
   })
   await file.readDocument(async (document) => {
     await listChapters(document)
-    await readArchiveIndexSettings(document)
+    await readSearchIndexCapabilityStatus(document)
     await isArchiveSearchIndexCurrent(document)
   })
 }
@@ -601,7 +601,7 @@ export async function readWikiGraphIndex(runtime: WikiGraphRuntime, id: string):
   const file = await preparedDocumentArchiveFile(runtime, id)
   return await withRuntime(runtime, "Failed to read WikiGraph index state", async () => {
     return await file.readDocument(async (document) => {
-      await readArchiveIndexSettings(document)
+      await readSearchIndexCapabilityStatus(document)
       const ftsCurrent = await isArchiveSearchIndexCurrent(document)
       return {
         current: ftsCurrent,

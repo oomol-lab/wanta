@@ -145,9 +145,7 @@ type WorkspaceScope =
     }
 
 type ModelRuntimeState =
-  | { status: "model_required" }
-  | { status: "ready"; selected: ModelChoice }
-  | { status: "error"; message: string }
+  { status: "model_required" } | { status: "ready"; selected: ModelChoice } | { status: "error"; message: string }
 
 interface RuntimeCapabilities {
   localAgent: boolean

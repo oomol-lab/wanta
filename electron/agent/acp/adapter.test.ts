@@ -216,15 +216,13 @@ async function createHarness(
   const fake = createFakeAgent(behavior)
   const registration = ACP_AGENT_REGISTRY[kind]
   const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "acp-adapter-test-"))
-  const probe = vi.fn(
-    async (): Promise<ExternalAgentRuntimeStatus> => ({
-      kind,
-      displayName: registration.displayName,
-      binary: { status: "detected", path: "/fake/bin/agent", version: "1.0.0" },
-      login: { status: "unknown" },
-      loginHint: registration.loginHint,
-    }),
-  )
+  const probe = vi.fn(async (): Promise<ExternalAgentRuntimeStatus> => ({
+    kind,
+    displayName: registration.displayName,
+    binary: { status: "detected", path: "/fake/bin/agent", version: "1.0.0" },
+    login: { status: "unknown" },
+    loginHint: registration.loginHint,
+  }))
   const adapter = new AcpAgentAdapter({
     kind,
     registration,

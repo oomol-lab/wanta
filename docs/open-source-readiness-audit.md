@@ -7,7 +7,7 @@
 ## 1. 审计结论
 
 当前仓库的开源核心、公共安装链和默认二进制准备已经可重复验证。两个 IPC 包已从公共 npm 匿名安装；
-oo CLI 1.7.1 及其内置 Skills 由 MIT 授权覆盖，不再是发布阻塞。正式公开发布的剩余工作集中在完整传递依赖
+oo CLI 1.7.7 及其内置 Skills 由 MIT 授权覆盖，不再是发布阻塞。正式公开发布的剩余工作集中在完整传递依赖
 报告、OOMOL 自有 IPC 包的 license metadata、商标/品牌政策确认、Git 历史 secret scan 和跨平台 release
 验证。
 
@@ -51,14 +51,14 @@ oo CLI 1.7.1 及其内置 Skills 由 MIT 授权覆盖，不再是发布阻塞。
   - postinstall 再通过 oo 导出 Skills 到被 gitignore 的 `resources/skills/`；
   - dev 的 `predev` 当前要求 oo 存在；
   - 默认官方和社区打包都会把 oo 与四个内置 Skills 放入应用资源；
-  - `@oomol-lab/oo-cli@1.7.1` 及对应平台包在公共 npm 声明 MIT，并指向公开
+  - `@oomol-lab/oo-cli@1.7.7` 及对应平台包在公共 npm 声明 MIT，并指向公开
     `oomol-lab/oo-cli` 仓库；内置 Skills 属于同一 MIT 分发内容。
 - 处理：`THIRD_PARTY_NOTICES.md` 记录 oo CLI、四个内置 Skills、版本、来源和 MIT 许可；它们不再列为
   发布阻塞项。
 - 工程方向：默认 `postinstall` 下载 oo，默认平台构建将其连同 Skills 打包；local runtime 不生成 oo 环境、
   不注册 Connector tools。OOMOL 或兼容自部署 OpenConnector runtime 才实际使用这条通道。
 - 验收结果：fresh clone 无需预装 oo 即可由 `pnpm install` 准备完整开发环境；`prepare:binaries` 已确认
-  默认打包包含可执行 oo 1.7.1；local runtime 不实际调用 oo；第三方声明已落盘。
+  默认打包包含可执行 oo 1.7.7；local runtime 不实际调用 oo；第三方声明已落盘。
 
 ### 2.4 OOMOL 登录门控已解除
 
@@ -74,8 +74,8 @@ oo CLI 1.7.1 及其内置 Skills 由 MIT 授权覆盖，不再是发布阻塞。
 
 | 组件                                 | 当前版本 | 包声明许可证 | 备注                                 |
 | ------------------------------------ | -------- | ------------ | ------------------------------------ |
-| `opencode-ai`                        | 1.18.10  | MIT          | Wanta Agent engine；随包分发 sidecar |
-| `@opencode-ai/sdk`                   | 1.18.10  | MIT          | 与 OpenCode 三包版本锁定策略保持一致 |
+| `opencode-ai`                        | 1.18.21  | MIT          | Wanta Agent engine；随包分发 sidecar |
+| `@opencode-ai/sdk`                   | 1.18.21  | MIT          | 与 OpenCode 三包版本锁定策略保持一致 |
 | `wiki-graph`                         | 0.4.0    | Apache-2.0   | 仓库指向 OOMOL 的公开 GitHub 项目    |
 | `wiki-graph-core`                    | 0.4.0    | Apache-2.0   | WikiGraph SDK runtime                |
 | `@univerjs/core`                     | 0.25.1   | Apache-2.0   | Univer 完整工作簿能力必须保留        |

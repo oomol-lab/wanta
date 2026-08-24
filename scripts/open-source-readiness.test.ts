@@ -33,7 +33,7 @@ describe("open-source installation contract", () => {
     expect(manifest.homepage).toBe("https://wanta.ai/")
     expect(manifest.bugs?.url).toBe("https://github.com/oomol-lab/wanta/issues")
     expect(manifest.engines?.node).toBe(">=22.22.2")
-    expect(manifest.packageManager).toBe("pnpm@11.21.0")
+    expect(manifest.packageManager).toBe("pnpm@11.23.0")
   })
 
   test("does not depend on a repository-local private npm registry", () => {
@@ -63,15 +63,15 @@ describe("open-source installation contract", () => {
     const notices = readFileSync(path.join(repoRoot, "THIRD_PARTY_NOTICES.md"), "utf8")
     const builderConfig = readFileSync(path.join(repoRoot, "electron-builder.ts"), "utf8")
 
-    expect(manifest.devDependencies?.["opencode-ai"]).toBe("1.18.10")
-    expect(manifest.devDependencies?.["@opencode-ai/plugin"]).toBe("1.18.10")
-    expect(manifest.dependencies?.["@opencode-ai/sdk"]).toBe("1.18.10")
+    expect(manifest.devDependencies?.["opencode-ai"]).toBe("1.18.21")
+    expect(manifest.devDependencies?.["@opencode-ai/plugin"]).toBe("1.18.21")
+    expect(manifest.dependencies?.["@opencode-ai/sdk"]).toBe("1.18.21")
     expect(readme).toContain("Agent Engine: OpenCode")
-    expect(readme).toContain("opencode-ai@1.18.10")
-    expect(notices).toContain("@opencode-ai/sdk@1.18.10")
-    expect(notices).toContain("@agentclientprotocol/codex-acp@1.1.14")
+    expect(readme).toContain("opencode-ai@1.18.21")
+    expect(notices).toContain("@opencode-ai/sdk@1.18.21")
+    expect(notices).toContain("@agentclientprotocol/codex-acp@1.6.2")
     expect(notices).toContain("@agentclientprotocol/claude-agent-acp@0.70.0")
-    expect(notices).toContain("@oomol-lab/oo-cli@1.7.1")
+    expect(notices).toContain("@oomol-lab/oo-cli@1.7.7")
     for (const fileName of ["LICENSE", "NOTICE", "TRADEMARKS.md", "THIRD_PARTY_NOTICES.md"]) {
       expect(existsSync(path.join(repoRoot, fileName))).toBe(true)
       expect(builderConfig).toContain(`from: "${fileName}"`)

@@ -151,7 +151,7 @@ vi.mock("wiki-graph-core", () => {
       return sdk.archives
     },
     parseWikiGraphLibraryUri: (uri: string) => (uri.startsWith("wikg://lib") ? { kind: "mock", uri } : undefined),
-    readArchiveIndexSettings: async () => sdk.indexSettings,
+    readSearchIndexCapabilityStatus: async () => sdk.indexSettings,
     rebindWikiGraphLibrary: async (input: unknown) => {
       sdk.calls.rebind.push(input)
       return { archives: sdk.archives, library: {} }

@@ -219,6 +219,26 @@ describe("LinkCapability", () => {
     expect(JSON.stringify(diagnostics)).not.toContain("invalid query")
   })
 
+  test("does not let a diagnostic callback failure alter a successful action result", async () => {
+    const execute: LinkCommandExecutor = vi.fn(async () => ({ stderr: "", stdout: JSON.stringify({ ok: true }) }))
+    const guarded = new LinkCapability({
+      execute,
+      onActionAudit: () => {
+        throw new Error("diagnostics unavailable")
+      },
+      ooBinPath: "/fake/oo",
+      runtime: () => ({ linkRuntime: { kind: "oomol", sessionToken: "secret-session-token" } }),
+      storeDir: "/private/wanta/link",
+    })
+
+    await expect(
+      guarded.callAction(
+        { agentKind: "codex", sessionId: "session-1", teamName: "Analytics Team", transport: "host_mcp" },
+        { action: "list_projects", service: "posthog" },
+      ),
+    ).resolves.toBe(JSON.stringify({ ok: true }))
+  })
+
   test("validates an explicit connection name against the active workspace", async () => {
     const { calls, capability } = oomolHarness((args) =>
       args[1] === "apps"

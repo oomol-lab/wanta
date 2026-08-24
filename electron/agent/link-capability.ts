@@ -531,12 +531,16 @@ export class LinkCapability {
     context: LinkCapabilityContext,
     record: Omit<LinkActionAuditRecord, "agentKind" | "retryCount" | "transport">,
   ): void {
-    this.options.onActionAudit?.({
-      ...record,
-      ...(context.agentKind ? { agentKind: context.agentKind } : {}),
-      retryCount: 0,
-      ...(context.transport ? { transport: context.transport } : {}),
-    })
+    try {
+      this.options.onActionAudit?.({
+        ...record,
+        ...(context.agentKind ? { agentKind: context.agentKind } : {}),
+        retryCount: 0,
+        ...(context.transport ? { transport: context.transport } : {}),
+      })
+    } catch {
+      // Audit delivery must never change a completed Link action result.
+    }
   }
 
   private workspaceKey(context: LinkCapabilityContext, runtime: LinkCapabilityRuntime): string {

@@ -97,3 +97,27 @@ test("HostCapabilityServer revokes an issuance that is still starting", async ()
     await server.dispose()
   }
 })
+
+test("HostCapabilityServer does not reactivate a disabled lease when its issuance guard is stale", async () => {
+  const kernel = new HostCapabilityKernel()
+  kernel.register({ id: "empty", version: "1", tools: [] })
+  const server = new HostCapabilityServer({ capabilityIds: ["empty"], kernel, name: "empty", version: "1" })
+  try {
+    await server.issue(context)
+    server.disableSession(context.sessionId)
+    const internal = server as unknown as {
+      sessions: Map<string, { lease: HostCapabilityLease }>
+      tokenBySessionId: Map<string, string>
+    }
+    const token = internal.tokenBySessionId.get(context.sessionId)
+    const lease = token ? internal.sessions.get(token)?.lease : undefined
+    expect(lease?.snapshot().status).toBe("disabled")
+
+    await expect(server.issue({ ...context, turnId: "stale-turn" }, { isCurrent: () => false })).rejects.toThrow(
+      "scope changed",
+    )
+    expect(lease?.snapshot().status).toBe("disabled")
+  } finally {
+    await server.dispose()
+  }
+})

@@ -390,6 +390,8 @@ const externalHostMcpServers: HostMcpServerProvider = async (input) => {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const linkRuntimeSnapshot = activeLinkCapabilityRuntime
     const linkScopeSnapshot = activeLinkCapabilityScope
+    const linkScopeIsCurrent = (): boolean =>
+      activeLinkCapabilityScope === linkScopeSnapshot && activeLinkCapabilityRuntime === linkRuntimeSnapshot
     const [larkRuntime, wecomRuntime, dingTalkRuntime] = await directRuntimes()
     const directSkillSources = [
       ...(larkRuntime ? [{ id: "direct-lark", kind: "connection" as const, root: larkRuntime.skillsDir }] : []),
@@ -416,12 +418,22 @@ const externalHostMcpServers: HostMcpServerProvider = async (input) => {
       ...(input.artifactDir ? { artifactDir: input.artifactDir } : {}),
       ...(input.processDir ? { processDir: input.processDir } : {}),
     }
-    const linkServer = linkRuntimeSnapshot
-      ? await linkCapabilityServer.issue({
-          ...context,
-          bindings: { ...context.bindings, [LINK_RUNTIME_BINDING]: linkRuntimeSnapshot },
-        })
-      : undefined
+    if (!linkScopeIsCurrent()) continue
+    let linkServer
+    if (linkRuntimeSnapshot) {
+      try {
+        linkServer = await linkCapabilityServer.issue(
+          {
+            ...context,
+            bindings: { ...context.bindings, [LINK_RUNTIME_BINDING]: linkRuntimeSnapshot },
+          },
+          { isCurrent: linkScopeIsCurrent },
+        )
+      } catch (error) {
+        if (!linkScopeIsCurrent()) continue
+        throw error
+      }
+    }
     if (!linkServer) linkCapabilityServer.disableSession(input.sessionId)
 
     const servers = [
@@ -457,9 +469,7 @@ const externalHostMcpServers: HostMcpServerProvider = async (input) => {
     }
     if (linkServer) servers.push(linkServer)
 
-    if (activeLinkCapabilityScope !== linkScopeSnapshot || activeLinkCapabilityRuntime !== linkRuntimeSnapshot) {
-      continue
-    }
+    if (!linkScopeIsCurrent()) continue
     logDiagnostic(
       "host-capability",
       "manifest issued",

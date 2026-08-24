@@ -54,7 +54,7 @@ import { createExternalAgents } from "./agent/external/create.ts"
 import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
 import { HostCapabilityInvokeServer } from "./agent/host-capability-invoke-server.ts"
 import { HostCapabilityServer } from "./agent/host-capability-server.ts"
-import { HostCapabilityKernel } from "./agent/host-capability.ts"
+import { HOST_CAPABILITY_AUDIT_BINDING, HostCapabilityKernel } from "./agent/host-capability.ts"
 import { HostQuestionBroker } from "./agent/host-question-broker.ts"
 import { createKnowledgeHostCapability, KNOWLEDGE_CAPABILITY_ID } from "./agent/knowledge-host-capability.ts"
 import { LinkCapability } from "./agent/link-capability.ts"
@@ -68,6 +68,7 @@ import { AgentRetirementPool } from "./agent/retirement.ts"
 import {
   createSkillHostCapability,
   SKILL_CAPABILITY_ID,
+  SKILL_LINK_MCP_AVAILABLE_BINDING,
   SKILL_SNAPSHOT_BINDING,
 } from "./agent/skill-host-capability.ts"
 import { SkillRegistry } from "./agent/skill-registry.ts"
@@ -262,6 +263,7 @@ function directRuntimes() {
   return directRuntimeCache
 }
 const linkCapability = new LinkCapability({
+  onActionAudit: (record) => logDiagnostic("link-capability", "action dispatch", { ...record }),
   ooBinPath,
   runtime: () => activeLinkCapabilityRuntime,
   storeDir: path.join(app.getPath("userData"), "agent-external", "link-oo-store"),
@@ -399,7 +401,12 @@ const externalAgents = createExternalAgents({
         ? await new SkillRegistry([...baseSkillSources, ...directSkillSources]).snapshot()
         : await skillRegistry.snapshot()
     const context = {
-      bindings: {},
+      bindings: {
+        [HOST_CAPABILITY_AUDIT_BINDING]: {
+          agentKind: externalAgentKindForSessionId(input.sessionId) ?? "external",
+          transport: "host_mcp",
+        },
+      },
       sessionId: input.sessionId,
       ...(input.messageId ? { turnId: input.messageId } : {}),
       ...(input.teamName ? { teamName: input.teamName } : {}),
@@ -411,7 +418,11 @@ const externalAgents = createExternalAgents({
     servers.push(
       await skillCapabilityServer.issue({
         ...context,
-        bindings: { [SKILL_SNAPSHOT_BINDING]: skillSnapshot },
+        bindings: {
+          ...context.bindings,
+          [SKILL_LINK_MCP_AVAILABLE_BINDING]: Boolean(activeLinkCapabilityRuntime),
+          [SKILL_SNAPSHOT_BINDING]: skillSnapshot,
+        },
       }),
     )
     servers.push(await knowledgeCapabilityServer.issue(context))
@@ -420,7 +431,11 @@ const externalAgents = createExternalAgents({
       servers.push(
         await directCliCapabilityServer.issue({
           ...context,
-          bindings: { [SKILL_SNAPSHOT_BINDING]: skillSnapshot },
+          bindings: {
+            ...context.bindings,
+            [SKILL_LINK_MCP_AVAILABLE_BINDING]: Boolean(activeLinkCapabilityRuntime),
+            [SKILL_SNAPSHOT_BINDING]: skillSnapshot,
+          },
         }),
       )
     } else {
@@ -435,7 +450,7 @@ const externalAgents = createExternalAgents({
       servers.push(
         await linkCapabilityServer.issue({
           ...context,
-          bindings: { [LINK_RUNTIME_BINDING]: activeLinkCapabilityRuntime },
+          bindings: { ...context.bindings, [LINK_RUNTIME_BINDING]: activeLinkCapabilityRuntime },
         }),
       )
     } else {
@@ -1113,7 +1128,10 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
         return
       }
       builtInHostInvokeServer.update({
-        bindings: { [LINK_RUNTIME_BINDING]: activeLinkCapabilityRuntime },
+        bindings: {
+          [HOST_CAPABILITY_AUDIT_BINDING]: { agentKind: "opencode", transport: "host_invoke" },
+          [LINK_RUNTIME_BINDING]: activeLinkCapabilityRuntime,
+        },
         sessionId: input.sessionId,
         ...(input.messageId ? { turnId: input.messageId } : {}),
         ...(input.teamName ? { teamName: input.teamName } : {}),

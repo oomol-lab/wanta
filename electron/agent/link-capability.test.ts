@@ -1,7 +1,10 @@
-import type { LinkCommandExecutor } from "./link-capability.ts"
+import type { LinkActionAuditRecord, LinkCommandExecutor } from "./link-capability.ts"
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
 import { describe, expect, test, vi } from "vitest"
 import { HostCapabilityServer } from "./host-capability-server.ts"
 import { HostCapabilityKernel } from "./host-capability.ts"
@@ -96,6 +99,101 @@ describe("LinkCapability", () => {
     ])
     expect(calls[1].env["OO_API_KEY"]).toBe("secret-session-token")
     expect(calls[1].env["WANTA_TEAM_NAME"]).toBe("Analytics Team")
+  })
+
+  test("rejects cached contract violations locally before dispatching the connector action", async () => {
+    const { calls, capability } = oomolHarness((args) => {
+      if (args[1] !== "schema") return JSON.stringify({ ok: true })
+      return JSON.stringify({
+        inputSchema: {
+          additionalProperties: false,
+          properties: {
+            limit: { type: "integer" },
+            project_id: { type: "integer" },
+          },
+          required: ["project_id"],
+          type: "object",
+        },
+        name: "list_projects",
+      })
+    })
+    const context = { sessionId: "session-1", teamName: "Analytics Team" }
+
+    await capability.inspectActions(context, ["posthog.list_projects"])
+    const result = JSON.parse(
+      await capability.callAction(context, {
+        action: "list_projects",
+        params: { unexpected: true },
+        service: "posthog",
+      }),
+    ) as Record<string, unknown>
+
+    expect(result).toMatchObject({
+      status: "error",
+      errorCode: "invalid_action_params",
+      service: "posthog",
+      action: "list_projects",
+    })
+    expect(result["invalidFields"]).toEqual(
+      expect.arrayContaining(["params.project_id: required", "params.unexpected: unknown field"]),
+    )
+    expect(calls).toHaveLength(1)
+  })
+
+  test("writes a large structured payload to the host-owned process directory", async () => {
+    const processDir = await mkdtemp(path.join(tmpdir(), "wanta-link-payload-"))
+    const { calls, capability } = oomolHarness()
+    const payload = { query: "x".repeat(9 * 1024) }
+    try {
+      await capability.callAction(
+        { processDir, sessionId: "session-1", teamName: "Analytics Team" },
+        { action: "run_query", params: payload, service: "posthog" },
+      )
+
+      const dataIndex = calls[0]?.args.indexOf("--data") ?? -1
+      const data = dataIndex >= 0 ? calls[0]?.args[dataIndex + 1] : undefined
+      expect(data).toMatch(/^@\/.*link-payload-[0-9a-f-]+\.json$/u)
+      expect(await readFile(String(data).slice(1), "utf8")).toBe(JSON.stringify(payload))
+    } finally {
+      await rm(processDir, { force: true, recursive: true })
+    }
+  })
+
+  test("emits metadata-only Link diagnostics for an external MCP action", async () => {
+    const diagnostics: LinkActionAuditRecord[] = []
+    const execute: LinkCommandExecutor = vi.fn(async () => {
+      throw Object.assign(new Error("connector failed"), {
+        stderr: "Connector action run_query returned HTTP 400 (errorCode: invalid_input): invalid query",
+      })
+    })
+    const capability = new LinkCapability({
+      execute,
+      onActionAudit: (record) => diagnostics.push(record),
+      ooBinPath: "/fake/oo",
+      runtime: () => ({ linkRuntime: { kind: "oomol", sessionToken: "secret-session-token" } }),
+      storeDir: "/private/wanta/link",
+    })
+
+    await capability.callAction(
+      { agentKind: "codex", sessionId: "session-1", teamName: "Analytics Team", transport: "host_mcp" },
+      { action: "run_query", params: { query: "invalid" }, service: "posthog" },
+    )
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        action: "run_query",
+        agentKind: "codex",
+        errorCode: "invalid_input",
+        httpStatus: 400,
+        outcome: "error",
+        retryCount: 0,
+        schemaValidated: false,
+        service: "posthog",
+        transport: "host_mcp",
+      }),
+    ])
+    expect(JSON.stringify(diagnostics)).not.toContain("secret-session-token")
+    expect(JSON.stringify(diagnostics)).not.toContain("invalid query")
   })
 
   test("validates an explicit connection name against the active workspace", async () => {

@@ -1,6 +1,9 @@
 import type { LinkRuntime } from "../runtime/agent-runtime.ts"
 
 import { execFile } from "node:child_process"
+import { randomUUID } from "node:crypto"
+import { mkdir, writeFile } from "node:fs/promises"
+import path from "node:path"
 import { promisify } from "node:util"
 import { connectorBaseUrl, consoleBaseUrl } from "../domain.ts"
 import { redactConnectorOutput } from "./oo-guard-core.ts"
@@ -11,15 +14,22 @@ const actionIdPattern = /^[a-z0-9][a-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9_-]*$/u
 const actionNamePattern = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u
 const servicePattern = /^[a-z0-9][a-z0-9_-]*$/u
 const ACTION_PROBE_CACHE_MS = 5_000
+const ACTION_SCHEMA_CACHE_MS = 5 * 60_000
+const INLINE_PAYLOAD_MAX_BYTES = 8 * 1024
 const AUTHORIZATION_CACHE_MS = 5_000
 const CONNECTION_BLOCK_MS = 10_000
 const MAX_PARALLEL_ACTION_CALLS = 2
 const PROVIDER_AUTH_TYPES_CACHE_MS = 30_000
 
 export interface LinkCapabilityContext {
+  agentKind?: string
+  /** Wanta transport used for this call; retained only in metadata diagnostics. */
+  transport?: "host_invoke" | "host_mcp"
   runtime?: LinkCapabilityRuntime | null
   sessionId: string
   teamName?: string
+  /** Host-owned directory for temporary payloads; never model-provided. */
+  processDir?: string
 }
 
 export interface LinkCapabilityRuntime {
@@ -28,10 +38,24 @@ export interface LinkCapabilityRuntime {
 }
 
 export interface LinkCapabilityOptions {
+  /** Metadata-only action diagnostics; payloads, credentials, and outputs are never included. */
+  onActionAudit?: (record: LinkActionAuditRecord) => void
   execute?: LinkCommandExecutor
   ooBinPath: string
   runtime: () => LinkCapabilityRuntime | null
   storeDir: string
+}
+
+export interface LinkActionAuditRecord {
+  action: string
+  agentKind?: string
+  errorCode?: string
+  httpStatus?: number
+  outcome: "authorization_required" | "completed" | "error" | "local_validation_error"
+  retryCount: 0
+  schemaValidated: boolean
+  service: string
+  transport?: "host_invoke" | "host_mcp"
 }
 
 export type LinkCommandExecutor = (
@@ -52,6 +76,11 @@ interface ActionProbeState {
   waiters: Array<() => void>
 }
 
+interface CachedActionSchema {
+  expiresAt: number
+  schema: Record<string, unknown>
+}
+
 interface AuthorizationResult {
   errorCode?: string
   status: "authorization_required"
@@ -59,6 +88,8 @@ interface AuthorizationResult {
 
 export class LinkCapability {
   private readonly actionProbeStates = new Map<string, ActionProbeState>()
+  /** Schemas seen through inspectActions, used to reject obvious bad params locally. */
+  private readonly actionSchemas = new Map<string, CachedActionSchema>()
   private readonly authorizationCache = new Map<string, { createdAt: number; services: Set<string> | null }>()
   private readonly connectionBlocks = new Map<string, { authorization: AuthorizationResult; expiresAt: number }>()
   private readonly options: LinkCapabilityOptions
@@ -102,7 +133,13 @@ export class LinkCapability {
     }
     const runtime = this.requireRuntime(context)
     // Schema metadata is identity-independent. Never add --team/--personal.
-    return this.run(["connector", "schema", ...normalizedActions, "--json"], runtime, "schema_lookup_failed")
+    const output = await this.run(
+      ["connector", "schema", ...normalizedActions, "--json"],
+      runtime,
+      "schema_lookup_failed",
+    )
+    this.rememberActionSchemas(normalizedActions, output)
+    return output
   }
 
   public async callAction(
@@ -114,12 +151,34 @@ export class LinkCapability {
     if (!servicePattern.test(service) || !actionNamePattern.test(action)) {
       return errorResult("invalid_action", "service and action must use connector slug identifiers.")
     }
+    const schemaValidated = this.hasCachedActionSchema(`${service}.${action}`)
+    const invalidFields = this.validateCachedActionParams(`${service}.${action}`, input.params ?? {})
+    if (invalidFields.length > 0) {
+      this.auditAction(context, {
+        action,
+        outcome: "local_validation_error",
+        schemaValidated,
+        service,
+      })
+      return errorResult(
+        "invalid_action_params",
+        "params do not match the action contract previously returned by inspect_action.",
+        { action, invalidFields, service },
+      )
+    }
     const runtime = this.requireRuntime(context)
     const connectionName = input.connectionName?.trim()
     if (connectionName) {
       const inventory = await this.listApps(context, service)
       const names = connectionNames(inventory)
       if (!names) {
+        this.auditAction(context, {
+          action,
+          errorCode: "connection_inventory_unavailable",
+          outcome: "error",
+          schemaValidated,
+          service,
+        })
         return errorResult(
           "connection_inventory_unavailable",
           "The selected connectionName could not be verified in the active workspace.",
@@ -127,12 +186,21 @@ export class LinkCapability {
         )
       }
       if (!names.has(connectionName)) {
+        this.auditAction(context, {
+          action,
+          errorCode: "invalid_connection_name",
+          outcome: "error",
+          schemaValidated,
+          service,
+        })
         return errorResult("invalid_connection_name", "connectionName must exactly match list_apps.", {
           action,
           service,
         })
       }
     }
+    const payload = JSON.stringify(input.params ?? {})
+    const payloadArg = await this.payloadArgument(payload, context.processDir)
     const args = [
       "connector",
       "run",
@@ -140,12 +208,12 @@ export class LinkCapability {
       "--action",
       action,
       "--data",
-      JSON.stringify(input.params ?? {}),
+      payloadArg,
       ...(connectionName ? ["--connection-name", connectionName] : []),
       ...workspaceArgs(runtime),
       "--json",
     ]
-    return this.runCoordinatedAction(context, runtime, service, action, connectionName, async () => {
+    const output = await this.runCoordinatedAction(context, runtime, service, action, connectionName, async () => {
       try {
         return await this.runCommand(args, runtime)
       } catch (error) {
@@ -183,6 +251,13 @@ export class LinkCapability {
         })
       }
     })
+    this.auditAction(context, {
+      action,
+      ...actionOutcome(output),
+      schemaValidated,
+      service,
+    })
+    return output
   }
 
   private async enrichSearchOutput(
@@ -359,6 +434,64 @@ export class LinkCapability {
     for (const [key, block] of this.connectionBlocks) {
       if (now >= block.expiresAt) this.connectionBlocks.delete(key)
     }
+    for (const [key, cached] of this.actionSchemas) {
+      if (now >= cached.expiresAt) this.actionSchemas.delete(key)
+    }
+  }
+
+  private rememberActionSchemas(actions: readonly string[], output: string): void {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(output) as unknown
+    } catch {
+      return
+    }
+    const candidates = Array.isArray(parsed) ? parsed : [parsed]
+    const now = Date.now()
+    for (const [index, candidate] of candidates.entries()) {
+      if (!isRecord(candidate) || !isRecord(candidate["inputSchema"])) continue
+      const namedAction = typeof candidate["name"] === "string" ? candidate["name"] : undefined
+      const requested = actions[index]
+      const actionId =
+        requested && (!namedAction || requested.endsWith(`.${namedAction}`))
+          ? requested
+          : namedAction
+            ? actions.find((value) => value.endsWith(`.${namedAction}`))
+            : undefined
+      if (!actionId) continue
+      this.actionSchemas.set(actionId, { expiresAt: now + ACTION_SCHEMA_CACHE_MS, schema: candidate["inputSchema"] })
+    }
+  }
+
+  private validateCachedActionParams(actionId: string, params: Record<string, unknown>): string[] {
+    this.pruneRuntimeState()
+    const cached = this.actionSchemas.get(actionId)
+    return cached ? validateJsonSchema(cached.schema, params) : []
+  }
+
+  private hasCachedActionSchema(actionId: string): boolean {
+    this.pruneRuntimeState()
+    return this.actionSchemas.has(actionId)
+  }
+
+  private async payloadArgument(payload: string, processDir: string | undefined): Promise<string> {
+    if (Buffer.byteLength(payload, "utf8") <= INLINE_PAYLOAD_MAX_BYTES || !processDir?.trim()) return payload
+    await mkdir(processDir, { recursive: true })
+    const payloadPath = path.join(processDir, `link-payload-${randomUUID()}.json`)
+    await writeFile(payloadPath, payload, { encoding: "utf8", mode: 0o600 })
+    return `@${payloadPath}`
+  }
+
+  private auditAction(
+    context: LinkCapabilityContext,
+    record: Omit<LinkActionAuditRecord, "agentKind" | "retryCount" | "transport">,
+  ): void {
+    this.options.onActionAudit?.({
+      ...record,
+      ...(context.agentKind ? { agentKind: context.agentKind } : {}),
+      retryCount: 0,
+      ...(context.transport ? { transport: context.transport } : {}),
+    })
   }
 
   private workspaceKey(context: LinkCapabilityContext, runtime: LinkCapabilityRuntime): string {
@@ -469,6 +602,87 @@ function releaseActionSlot(state: ActionProbeState): void {
   else state.active -= 1
 }
 
+/**
+ * Deliberately small JSON Schema validator for cached connector input schemas.
+ * The connector remains the authority for advanced constructs ($ref, format,
+ * conditionals); this catches deterministic model mistakes locally without
+ * risking a false rejection of a schema feature Wanta does not implement.
+ */
+function validateJsonSchema(schema: Record<string, unknown>, value: unknown, path = "params", depth = 0): string[] {
+  if (depth > 20) return []
+  const alternatives = Array.isArray(schema["anyOf"])
+    ? schema["anyOf"].filter(isRecord)
+    : Array.isArray(schema["oneOf"])
+      ? schema["oneOf"].filter(isRecord)
+      : []
+  if (alternatives.length > 0) {
+    const results = alternatives.map((alternative) => validateJsonSchema(alternative, value, path, depth + 1))
+    return results.some((issues) => issues.length === 0) ? [] : (results[0] ?? [])
+  }
+  const types = schemaTypes(schema["type"])
+  if (types.length > 0 && !types.some((type) => matchesJsonType(type, value))) {
+    return [`${path}: expected ${types.join(" or ")}`]
+  }
+  if (Array.isArray(schema["enum"]) && !schema["enum"].some((item) => Object.is(item, value))) {
+    return [`${path}: value is not an allowed enum member`]
+  }
+  if (isRecord(value)) {
+    const issues: string[] = []
+    const required = Array.isArray(schema["required"])
+      ? schema["required"].filter((field): field is string => typeof field === "string")
+      : []
+    for (const field of required) if (!Object.hasOwn(value, field)) issues.push(`${path}.${field}: required`)
+    const properties = isRecord(schema["properties"]) ? schema["properties"] : {}
+    if (schema["additionalProperties"] === false) {
+      for (const field of Object.keys(value))
+        if (!Object.hasOwn(properties, field)) issues.push(`${path}.${field}: unknown field`)
+    }
+    for (const [field, fieldSchema] of Object.entries(properties)) {
+      if (Object.hasOwn(value, field) && isRecord(fieldSchema)) {
+        issues.push(...validateJsonSchema(fieldSchema, value[field], `${path}.${field}`, depth + 1))
+      }
+    }
+    return issues
+  }
+  if (Array.isArray(value) && isRecord(schema["items"])) {
+    return value.flatMap((item, index) =>
+      validateJsonSchema(schema["items"] as Record<string, unknown>, item, `${path}[${index}]`, depth + 1),
+    )
+  }
+  if (typeof value === "string") {
+    if (typeof schema["minLength"] === "number" && value.length < schema["minLength"]) return [`${path}: too short`]
+    if (typeof schema["maxLength"] === "number" && value.length > schema["maxLength"]) return [`${path}: too long`]
+  }
+  return []
+}
+
+function schemaTypes(value: unknown): string[] {
+  if (typeof value === "string") return [value]
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
+}
+
+function matchesJsonType(type: string, value: unknown): boolean {
+  switch (type) {
+    case "array":
+      return Array.isArray(value)
+    case "boolean":
+      return typeof value === "boolean"
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value)
+    case "null":
+      return value === null
+    case "number":
+      return typeof value === "number" && Number.isFinite(value)
+    case "object":
+      return isRecord(value)
+    case "string":
+      return typeof value === "string"
+    default:
+      // Unknown JSON-Schema extensions remain connector-owned.
+      return true
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
@@ -534,4 +748,31 @@ function commandErrorMessage(error: unknown): string {
 
 function errorResult(errorCode: string, message: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({ status: "error", errorCode, message, ...extra })
+}
+
+function actionOutcome(output: string): Pick<LinkActionAuditRecord, "errorCode" | "httpStatus" | "outcome"> {
+  try {
+    const result = JSON.parse(output) as unknown
+    if (!isRecord(result)) return { outcome: "completed" }
+    const errorCode = typeof result["errorCode"] === "string" ? result["errorCode"] : undefined
+    const message = typeof result["message"] === "string" ? result["message"] : ""
+    const httpStatus = message.match(/\bHTTP\s+(\d{3})\b/iu)?.[1]
+    if (result["status"] === "authorization_required") {
+      return {
+        ...(errorCode ? { errorCode } : {}),
+        ...(httpStatus ? { httpStatus: Number(httpStatus) } : {}),
+        outcome: "authorization_required",
+      }
+    }
+    if (result["status"] === "error") {
+      return {
+        ...(errorCode ? { errorCode } : {}),
+        ...(httpStatus ? { httpStatus: Number(httpStatus) } : {}),
+        outcome: "error",
+      }
+    }
+  } catch {
+    // A connector's non-JSON success response is still a completed action.
+  }
+  return { outcome: "completed" }
 }

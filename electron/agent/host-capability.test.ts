@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest"
 import { z } from "zod"
 import { HostCapabilityLease } from "./host-capability-lease.ts"
 import { HostCapabilityServer } from "./host-capability-server.ts"
-import { HostCapabilityKernel } from "./host-capability.ts"
+import { HOST_CAPABILITY_AUDIT_BINDING, HostCapabilityKernel } from "./host-capability.ts"
 
 const context = {
   bindings: {},
@@ -21,16 +21,22 @@ describe("HostCapabilityKernel", () => {
       tools: [{ name: "echo", description: "Echo", inputSchema: z.object({ value: z.string() }), execute }],
     })
 
-    await expect(kernel.execute("fixture", "echo", context, { value: "ok" })).resolves.toEqual({ text: "ok" })
+    const observedContext = {
+      ...context,
+      bindings: { [HOST_CAPABILITY_AUDIT_BINDING]: { agentKind: "codex", transport: "host_mcp" as const } },
+    }
+    await expect(kernel.execute("fixture", "echo", observedContext, { value: "ok" })).resolves.toEqual({ text: "ok" })
     await expect(kernel.execute("fixture", "echo", context, { value: 42 })).rejects.toThrow("Invalid input")
     expect(execute).toHaveBeenCalledTimes(1)
     expect(onAudit).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         capability: "fixture",
+        agentKind: "codex",
         outcome: "success",
         sessionId: "session-1",
         tool: "echo",
+        transport: "host_mcp",
         turnId: "turn-1",
       }),
     )

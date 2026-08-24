@@ -573,6 +573,23 @@ describe("AcpAgentAdapter", () => {
     ])
   })
 
+  test("includes the external Link contract once when wanta_link is registered", async () => {
+    const harness = await createHarness({}, "codex", async () => [
+      { headers: { Authorization: "Bearer opaque-token" }, name: "wanta_link", url: "http://127.0.0.1:4321/mcp" },
+    ])
+    await harness.adapter.send({ type: "prompt", sessionId: WANTA_SESSION_ID, text: "query PostHog" })
+    await harness.waitFor((event) => event.event === "messageCompleted")
+
+    const first = harness.fake.promptRequests[0]?.prompt[0]
+    expect(first && "text" in first ? first.text : "").toContain('<wanta_link_capability_contract version="1">')
+    expect(first && "text" in first ? first.text : "").toContain("Do not run oo auth login")
+
+    await harness.adapter.send({ type: "prompt", sessionId: WANTA_SESSION_ID, text: "continue" })
+    await harness.waitFor(() => harness.fake.promptRequests.length === 2)
+    const second = harness.fake.promptRequests[1]?.prompt[0]
+    expect(second && "text" in second ? second.text : "").not.toContain("wanta_link_capability_contract")
+  })
+
   test("restores persisted Wanta conversation context when ACP cannot load a native session", async () => {
     const transcriptDir = await mkdtemp(path.join(os.tmpdir(), "wanta-acp-transcripts-"))
     await writeFile(

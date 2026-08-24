@@ -32,6 +32,8 @@ export interface AcpAgentRegistration {
   selection?: { model: boolean; effort: boolean }
   /** Config file (relative to $HOME) whose presence suggests a completed login. */
   loginMarkerPath?: string
+  /** Optional native-runtime login probe when the ACP bridge is not itself the credential authority. */
+  loginProbe?: "claude-cli"
   /**
    * Managed binary name resolved from node_modules/.bin in dev (and bundled
    * resources in packaged builds) when the CLI is not on the user PATH. Used
@@ -50,6 +52,27 @@ export interface AcpAgentRegistration {
 }
 
 export const ACP_AGENT_REGISTRY = {
+  "claude-code": {
+    displayName: "Claude Code",
+    cliCommands: ["claude-agent-acp"],
+    acpArgs: [],
+    versionArgs: ["--version"],
+    loginHint: "Run `claude` in a terminal and sign in, then retry.",
+    // claude-agent-acp 0.70.0 exposes the Claude Code modes with these stable
+    // wire ids; availability (notably auto/full access) is still checked
+    // against the concrete session before Wanta applies a requested mode.
+    permissionModeMap: {
+      default: "default",
+      accept_edits: "acceptEdits",
+      plan: "plan",
+      auto: "auto",
+      full_access: "bypassPermissions",
+    },
+    selection: { model: true, effort: true },
+    loginProbe: "claude-cli",
+    bundledBinName: "claude-agent-acp",
+    runtimeExecutable: { cliCommands: ["claude"], envVar: "CLAUDE_CODE_EXECUTABLE" },
+  },
   codex: {
     displayName: "Codex",
     cliCommands: ["codex-acp"],

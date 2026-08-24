@@ -16,8 +16,9 @@ OpenCode kernel, Claude Code, ACP agents — sits behind one interface,
 `ChatAgentBackend` in `contract/chat-backend.ts` is the composed host-facing
 surface used by the chat service after session routing. It adds history and
 pending-interaction reads without putting OpenCode-only deep features into the
-protocol adapter contract. External native adapters normally extend
-`ExternalAgentAdapter`, which supplies the transcript-backed implementation.
+protocol adapter contract. Shipping external agents, including Claude Code,
+are registry-backed ACP agents built on `ExternalAgentAdapter`; Claude uses the
+pinned `@agentclientprotocol/claude-agent-acp` bridge over the official Claude Agent SDK.
 
 There are deliberately **no per-feature methods** (`prompt()`, `setModel()`, ...).
 A new kind of interaction is a new variant on `AgentInput` or `AgentEvent`.
@@ -70,16 +71,16 @@ External agents build on `electron/agent/external/`:
 - **Session identity & routing**: external session ids are
   `wanta-ext:<kind>:<uuid>` (`external/session-id.ts`). The chat layer routes
   every session-scoped operation with a pure id parse (`chatBackendFor`), never
-  a kind lookup table. Claude Code reuses the embedded uuid as its native
-  session id; ACP agents keep an in-memory wanta-id -> native-id map.
+  a kind lookup table. ACP agents keep an in-memory Wanta-id -> native-id map;
+  Wanta's persisted transcript is the restart-safe history boundary.
 - **`ExternalAgentAdapter`** (`external/adapter-base.ts`): transcript-backed
   `getMessages`, pending-permission queries, `forgetSession`, and the optional
   `applyPermissionMode` capability. Wanta's normalized permission-mode
   vocabulary (`default | read_only | accept_edits | plan | auto | full_access`)
   is declared per agent in `AgentProfile.permissionModes` and projected onto
-  the agent's own approval policy (Claude SDK permission modes, including the
-  `auto` classifier mode; ACP session modes via the registry's
-  `permissionModeMap`). Enforcement is always agent-side. Applying a declared
+  the agent's own approval policy through ACP session modes and the registry's
+  `permissionModeMap` (Claude includes its classifier-backed `auto` mode).
+  Enforcement is always agent-side. Applying a declared
   mode is fail-closed: a missing or rejected native mode blocks the turn rather
   than silently continuing under a stale, potentially broader mode.
 - **Native enforcement is agent-side; user-visible approval semantics are
@@ -95,13 +96,9 @@ External agents build on `electron/agent/external/`:
   kernel used directly by OpenCode, where identity, credentials, validation,
   and auditing are already enforced. Sensitive or high-risk host-tool requests
   still continue through the shared prompt-or-deny policy.
-  Claude's native `Skill` discovery tool is also auto-approved because it only
-  loads local instructions; any file, shell, or network operation instructed
-  by that Skill remains subject to Claude's normal permission flow. Claude MCP
-  permission names must be correlated from `mcp__wanta_*__<tool>` into the
-  same host-owned marker used by ACP. Every Claude SDK allow result preserves
-  the original tool input as `updatedInput`, as required by the paired runtime
-  validator.
+  Claude's native Skills and subagents remain owned by Claude inside the ACP
+  bridge; their file, shell, network, and permission operations still reach the
+  same Wanta policy and Host MCP boundary as other external agents.
   The guarded `oo` CLI compatibility path is classified by the same shared
   command policy for OpenCode, Claude, and ACP agents. A single `oo` command
   receives a fast-path allow when it includes only the shared bounded output
@@ -125,34 +122,28 @@ External agents build on `electron/agent/external/`:
   immediate flush on turn completion/stop, lazy rehydration on view or first
   prompt, deleted with the session).
 - **Model/effort selection**: `set-model` / `set-effort` input variants (plus
-  `agentModelId`/`agentEffortId` on the session-creating prompt). Claude maps
-  them to SDK `model`/`effort` options and live `setModel`/flag settings; the
-  ACP adapter prefers v1.3 session config options (`session/set_config_option`,
+  `agentModelId`/`agentEffortId` on the session-creating prompt). The ACP
+  adapter prefers v1.3 session config options (`session/set_config_option`,
   categories `model` / `thought_level`) and falls back to the unstable `models`
   state + `session/set_model` that shipping agents (codex-acp 1.1.14, grok 1.0)
   actually implement. Available options surface on
   `ExternalAgentRuntimeStatus.catalog` and the UI renders them verbatim; a
-  `warmCatalog()` pass (throwaway ACP session closed right away, or an idle
-  Claude query) fills the catalog before the first user session so draft-time
+  `warmCatalog()` pass (a throwaway ACP session closed right away) fills the catalog before the first user session so draft-time
   pickers show the real lists. Per-session choices are also stored in Wanta's
   session metadata so they survive renderer reloads and full app restarts.
-- **Attachments**: delivered as file references the agent resolves with its
-  own tools and permission model — never inlined into the payload. The ACP
-  adapter appends one `resource_link` block per attachment (baseline prompt
-  capability, so no capability negotiation is needed); the Claude adapter
-  appends a path-note text block (the CLI's Read tool handles images too).
+- **Attachments**: delivered as ACP `resource_link` blocks that the agent
+  resolves with its own tools and permission model — never inlined into the payload.
   Display rides the kernel's `userAttachmentStore` record keyed by the
   synthesized user message id.
 - **Host turn context**: Wanta passes the active Link workspace, team skills,
   selected context, project context, permission guidance, and response-language
-  policy through the normalized prompt input. ACP and Claude adapters translate
+  policy through the normalized prompt input. ACP adapters translate
   the dynamic tail into a delimited first text block while transcript display
   preserves the original user text. This remains a guidance transport; Wanta
   MCP carries executable host capabilities and enforces identity independently
   of whether the agent follows the prompt.
 - **Usage reporting**: adapters emit `usageUpdated` (normalized
-  `ChatTokenUsage` + optional `contextWindow`) — Claude from result-frame
-  usage/modelUsage, ACP from `usage_update`. The recorder attaches it to the
+  `ChatTokenUsage` + optional `contextWindow`) from ACP `usage_update`. The recorder attaches it to the
   latest assistant message, which is what lights the composer context meter.
 - **Probing** (`external/probe.ts`): PATH scan (reusing
   `electron/agents/catalog.ts` + `resolveUserCommandPath`) with `--version`
@@ -165,12 +156,11 @@ External agents build on `electron/agent/external/`:
   in the shared metadata overlay. Transcripts persist across restarts as
   Wanta's own event record; importing agent-side history files stays a
   non-goal.
-- **Version pairing**: `@anthropic-ai/claude-agent-sdk` is pinned in
-  package.json and declares its paired CLI version (`claudeCodeVersion` in the
-  package manifest). The adapter drives the USER'S detected `claude` binary via
-  `pathToClaudeCodeExecutable`; probe results expose both versions so a drift is
-  visible instead of silent. ACP is version-negotiated at `initialize`
-  (`PROTOCOL_VERSION`), and a mismatch is a hard error.
+- **Version pairing**: `@agentclientprotocol/claude-agent-acp` is pinned and
+  bundled as a self-contained JS bridge. Wanta resolves the USER'S detected
+  `claude` binary into `CLAUDE_CODE_EXECUTABLE`; the bridge pins its Claude
+  Agent SDK. ACP is version-negotiated at `initialize` (`PROTOCOL_VERSION`),
+  and a mismatch is a hard error.
 - **Credential red line**: Wanta stores no subscription secrets. Login state is
   observed, never managed; the login hint tells the user to sign in with the
   agent's own CLI.

@@ -27,8 +27,7 @@ export interface ExternalAgentPromptOptions {
 }
 
 /**
- * ACP has no portable per-turn system-prompt field, and Claude's SDK system
- * prompt is fixed when a session starts. Carry Wanta's dynamic host context in
+ * ACP has no portable per-turn system-prompt field. Carry Wanta's dynamic host context in
  * a clearly delimited first text block while keeping the recorded user turn
  * unchanged. The context is host-authored and must precede the user request.
  */

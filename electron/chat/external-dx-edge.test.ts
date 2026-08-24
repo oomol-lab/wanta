@@ -33,7 +33,7 @@ import { ChatServiceImpl } from "./node.ts"
 // resolution, plus the session-removal composition wired in electron/main.ts
 // (SessionServiceImpl.remove -> adapter.forgetSession + chatService.forgetSession).
 //
-// The adapter layer itself (claude/acp adapters, transcript store) is covered by
+// The adapter layer itself (ACP adapters and transcript store) is covered by
 // the earlier *-edge.test.ts campaign; these tests deliberately sit one layer up
 // and drive ChatServiceImpl through a scripted ExternalAgentAdapter that mimics
 // the observable behavior of the real adapters (user-turn echo, transcript-backed
@@ -49,9 +49,8 @@ const localScope = {
  * Scripted external adapter. Mirrors the real adapters where the chat service
  * can observe the difference:
  * - handlePrompt echoes the user turn (messageStarted + messageDelta), like the
- *   Claude adapter does (adapter.ts:284-299), and records the input.
- * - handlePermissionResponse resolves known ids and throws the same named error
- *   the Claude adapter uses for unknown ids.
+ *   external adapter base does, and records the input.
+ * - handlePermissionResponse resolves known ids and throws a named error for unknown ids.
  * - handleSetModel/handleSetEffort are gated on the profile flags exactly like
  *   the generic ACP adapter (acp/adapter.ts:529-541).
  * Assistant progress is driven explicitly by each test via emit helpers.

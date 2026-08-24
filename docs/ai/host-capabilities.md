@@ -43,8 +43,7 @@ Every turn receives the same host-owned context before adapter translation:
 OpenCode receives this context through its dynamic system tail, custom tools,
 and managed sidecar environment. External agents receive the shared
 dynamic context as a delimited host-context block because ACP has no portable
-per-turn system-prompt field and Claude's system prompt is fixed at session
-creation. The recorded user message remains the original user text.
+per-turn system-prompt field. The recorded user message remains the original user text.
 
 ## Capability transport
 
@@ -94,7 +93,7 @@ changes, and permanently revoked when a task is deleted or the app exits. A
 lease can never change its Wanta session identity.
 
 `HostCapabilityServer` is the authenticated loopback MCP transport over that
-kernel. It owns no business logic. ACP, Claude, and future transports receive
+kernel. It owns no business logic. ACP and future transports receive
 only its opaque bearer capability; real provider credentials remain in
 Electron main. OpenCode retains its guarded compatibility tools where the
 sidecar needs session-aware dispatch.
@@ -123,7 +122,7 @@ Delivered foundation and Link frontend:
 - The host exposes an authenticated loopback MCP endpoint. External agents see
   only an opaque session capability; OOMOL/OpenConnector credentials remain in
   Electron main.
-- ACP and Claude sessions register the same four tools: `list_apps`,
+- External ACP sessions register the same four tools: `list_apps`,
   `search_actions`, `inspect_action`, and `call_action`.
 - Tool events normalize back to the existing connector UI vocabulary, so
   authorization overlays do not depend on an agent-specific MCP name.
@@ -132,7 +131,7 @@ Delivered foundation and Link frontend:
 
 OpenCode's four generated tools now prefer the session-aware host invoke
 transport and therefore execute the same `LinkCapability` implementation as
-ACP and Claude. The guarded raw-CLI code remains only as a startup-compatibility
+external ACP agents. The guarded raw-CLI code remains only as a startup-compatibility
 fallback when the host transport is absent; it preserves the same four-tool
 contract and fails closed on ambiguous workspace identity.
 
@@ -189,9 +188,8 @@ through Wanta-managed isolated runtimes. Calls must name an active
 provider-matching Skill from the same turn; bounded argv validation rejects
 administration, control-line injection, and oversized requests. Provider CLIs
 remain the business-schema authority because their command sets ship with
-their versioned Skills. Wanta's
-persisted transcript is the history source of truth: Claude resumes natively,
-while ACP agents receive a bounded context rebuild when native loading is not
+their versioned Skills. Wanta's persisted transcript is the history source of
+truth; ACP agents receive a bounded context rebuild when native loading is not
 available. Host capability availability is resolved dynamically from Wanta's
 active runtimes and settings rather than duplicated as static per-agent flags.
 The normal suite covers the shared contracts, transports, scope switches,

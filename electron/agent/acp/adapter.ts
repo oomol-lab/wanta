@@ -1024,11 +1024,13 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const exitCallbacks: Array<(info: { code: number | null }) => void> = []
     let exited = false
     let disposed = false
+    let forceKillTimer: ReturnType<typeof setTimeout> | undefined
     const fireExit = (code: number | null): void => {
       if (exited) {
         return
       }
       exited = true
+      if (forceKillTimer) clearTimeout(forceKillTimer)
       if (!disposed && (code !== 0 || stderrTail.trim())) {
         logDiagnostic(
           "acp-adapter",
@@ -1051,7 +1053,13 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       dispose: () => {
         if (!exited) {
           disposed = true
-          child.kill()
+          child.kill("SIGTERM")
+          // ACP bridges may own a long-running native agent and ignore or
+          // delay SIGTERM while forwarding shutdown. Keep the timer referenced
+          // so tests and app teardown cannot leave an orphaned bridge behind.
+          forceKillTimer = setTimeout(() => {
+            if (!exited) child.kill("SIGKILL")
+          }, 2_000)
         }
       },
       failureDetail: () => subprocessFailureSummary(stderrTail),

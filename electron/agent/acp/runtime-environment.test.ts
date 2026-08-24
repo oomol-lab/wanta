@@ -26,6 +26,20 @@ describe("ACP subprocess environment", () => {
     expect(env.WANTA_NODE_RUNTIME).toBe(process.execPath)
   })
 
+  test.runIf(process.platform !== "win32")("injects the user's Claude CLI path for the Claude ACP bridge", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "wanta-acp-runtime-"))
+    temporaryDirectories.push(directory)
+    const claudePath = path.join(directory, "claude")
+    await writeFile(claudePath, "#!/bin/sh\nexit 0\n", "utf8")
+    await chmod(claudePath, 0o755)
+
+    const env = await acpSubprocessEnvironment(ACP_AGENT_REGISTRY["claude-code"], directory, {})
+
+    expect(env.CLAUDE_CODE_EXECUTABLE).toBe(claudePath)
+    expect(env.PATH).toBe(directory)
+    expect(env.WANTA_NODE_RUNTIME).toBe(process.execPath)
+  })
+
   test("preserves an explicit bridge runtime override", async () => {
     const env = await acpSubprocessEnvironment(ACP_AGENT_REGISTRY.codex, "", {
       CODEX_PATH: "/custom/codex",

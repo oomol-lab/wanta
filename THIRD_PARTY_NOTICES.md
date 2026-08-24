@@ -28,6 +28,16 @@ Source: [agentclientprotocol/codex-acp](https://github.com/agentclientprotocol/c
 License: Apache License 2.0. Copyright 2025 JetBrains s.r.o. The complete license text is included
 in this repository's [`LICENSE`](LICENSE) file.
 
+## Claude Agent ACP Bridge
+
+Wanta packages `@agentclientprotocol/claude-agent-acp@0.70.0` as the sole Claude Code transport.
+The bridge exposes the official Claude Agent SDK over ACP while continuing to launch the user's
+own Claude Code executable and native configuration.
+
+Source: [agentclientprotocol/claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp).
+License: Apache License 2.0. Copyright Zed Industries and contributors. The complete license text
+is included in this repository's [`LICENSE`](LICENSE) file.
+
 ## oo CLI and Bundled Skills
 
 Wanta downloads and packages `@oomol-lab/oo-cli@1.7.1` platform binaries from the public npm

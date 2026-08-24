@@ -670,8 +670,14 @@ function skippedForActionPolicyBlock(
 }
 
 async function acquireActionSlot(state: ActionProbeState): Promise<void> {
-  if (state.active >= MAX_PARALLEL_ACTION_CALLS) await new Promise<void>((resolve) => state.waiters.push(resolve))
-  state.active += 1
+  if (state.active < MAX_PARALLEL_ACTION_CALLS) {
+    state.active += 1
+    return
+  }
+  // releaseActionSlot hands an occupied slot directly to one waiter. Do not
+  // increment `active` after waking: doing so leaks the count once per queued
+  // call and can leave a later call parked forever after the queue drains.
+  await new Promise<void>((resolve) => state.waiters.push(resolve))
 }
 
 function releaseActionSlot(state: ActionProbeState): void {

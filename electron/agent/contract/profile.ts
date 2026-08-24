@@ -12,8 +12,8 @@ import { ACP_AGENT_REGISTRY } from "../acp/registry.ts"
 // from these declarations and from reflected adapter events — never from
 // `if (agent === "...")` branches.
 
-/** Closed set of integrated agents: built-in kernel, native adapters, and ACP registry entries. */
-export type AgentKind = "opencode" | "claude-code" | AcpAgentKind
+/** Closed set of integrated agents: built-in kernel plus registry-backed ACP agents. */
+export type AgentKind = "opencode" | AcpAgentKind
 
 /**
  * Which optional parts of the input contract the adapter genuinely honors.
@@ -119,16 +119,6 @@ export const AGENT_PROFILES = {
       setEffort: false,
     },
     permissionModes: ["default", "full_access"],
-  },
-  "claude-code": {
-    kind: "claude-code",
-    displayName: "Claude Code",
-    modelSource: "agent",
-    auth: { kind: "agent-cli", loginCommand: "Run `claude` in a terminal and sign in, then retry." },
-    inputs: { ...externalAgentInputs, setModel: true, setEffort: true },
-    // Mapped 1:1 onto SDK permission modes (auto = the CLI's classifier mode,
-    // full_access = bypassPermissions).
-    permissionModes: ["default", "accept_edits", "plan", "auto", "full_access"],
   },
   ...acpAgentProfiles(),
 } satisfies Record<AgentKind, AgentProfile> as Record<AgentKind, AgentProfile>

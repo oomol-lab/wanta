@@ -2,13 +2,11 @@ import type { AgentEvent } from "../contract/event.ts"
 import type { AgentSendOptions, CancelAgentInput, PromptAgentInput } from "../contract/input.ts"
 import type { ExternalAgentAdapterOptions } from "./adapter-base.ts"
 import type { ExternalAgentRuntimeStatus } from "./status.ts"
-import type { Options, Query, SDKMessage, SDKUserMessage, query } from "@anthropic-ai/claude-agent-sdk"
 
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { ClaudeCodeAgentAdapter } from "../claude/adapter.ts"
 import { AGENT_PROFILES } from "../contract/profile.ts"
 import { ExternalAgentAdapter } from "./adapter-base.ts"
 import { externalSessionUuid } from "./session-id.ts"
@@ -44,7 +42,7 @@ function sleep(ms: number): Promise<void> {
 class FakeExternalAdapter extends ExternalAgentAdapter {
   public readonly kind = "claude-code"
   public readonly profile = AGENT_PROFILES["claude-code"]
-  /** Mimic the Claude adapter: a prompt synthesizes the user turn via emit(). */
+  /** Mimic an external adapter: a prompt synthesizes the user turn via emit(). */
   public promptEmitsUserTurn = false
   private promptSeq = 0
 
@@ -331,190 +329,7 @@ describe("empty and empty-ish transcript files", () => {
   })
 })
 
-// ─── 3. Overwrite protection with the real Claude sanitizer in the path ─────
-
-// Minimal fake SDK query: async-iterable frame stream with a push() control
-// and stubbed control methods, mirroring electron/agent/claude/adapter.test.ts.
-interface FakeQueryHandle {
-  push: (message: SDKMessage) => void
-  end: () => void
-}
-
-function createFakeQueryFn(): { queryFn: typeof query; handles: FakeQueryHandle[] } {
-  const handles: FakeQueryHandle[] = []
-  const queryFn = vi.fn((params: { prompt: string | AsyncIterable<SDKUserMessage>; options?: Options }): Query => {
-    const buffered: SDKMessage[] = []
-    const waiters: Array<(result: IteratorResult<SDKMessage>) => void> = []
-    let ended = false
-    const push = (message: SDKMessage): void => {
-      const waiter = waiters.shift()
-      if (waiter) {
-        waiter({ value: message, done: false })
-        return
-      }
-      buffered.push(message)
-    }
-    const end = (): void => {
-      ended = true
-      for (const waiter of waiters.splice(0)) {
-        waiter({ value: undefined, done: true })
-      }
-    }
-    if (typeof params.prompt !== "string") {
-      const prompt = params.prompt
-      void (async () => {
-        // Drain the streaming input like the real transport would.
-        for await (const _message of prompt) {
-          void _message
-        }
-      })()
-    }
-    handles.push({ push, end })
-    return {
-      [Symbol.asyncIterator]: () => ({
-        next: (): Promise<IteratorResult<SDKMessage>> => {
-          if (buffered.length > 0) {
-            return Promise.resolve({ value: buffered.shift() as SDKMessage, done: false })
-          }
-          if (ended) {
-            return Promise.resolve({ value: undefined, done: true })
-          }
-          return new Promise((resolve) => {
-            waiters.push(resolve)
-          })
-        },
-      }),
-      interrupt: vi.fn(() => Promise.resolve()),
-      setPermissionMode: vi.fn(() => Promise.resolve()),
-      close: vi.fn(() => {
-        end()
-      }),
-    } as unknown as Query
-  })
-  return { queryFn: queryFn as unknown as typeof query, handles }
-}
-
-function claudeDetectedStatus(): ExternalAgentRuntimeStatus {
-  return {
-    kind: "claude-code",
-    displayName: "Claude Code",
-    binary: { status: "detected", path: "/fake/claude" },
-    login: { status: "logged_in" },
-    loginHint: "",
-  }
-}
-
-async function makeClaudeAdapter(transcriptDir: string): Promise<{
-  adapter: ClaudeCodeAgentAdapter
-  handles: FakeQueryHandle[]
-}> {
-  const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-claude-edge-scratch-"))
-  cleanups.push(scratchRootDir)
-  const { queryFn, handles } = createFakeQueryFn()
-  const adapter = new ClaudeCodeAgentAdapter({
-    probe: () => Promise.resolve(claudeDetectedStatus()),
-    scratchRootDir,
-    transcriptDir,
-    commandPath: () => Promise.resolve("/fake/path-bin"),
-    queryFn,
-  })
-  await adapter.start()
-  startedAdapters.push(adapter)
-  return { adapter, handles }
-}
-
-const NOISE_TEXT = "<local-command-stdout>Set model to Sonnet</local-command-stdout>"
-
-describe("hydrate-before-prompt guard with sanitizeRestoredMessages (real Claude adapter)", () => {
-  it("preserves real history and scrubs noise when prompting a restored session", async () => {
-    const transcriptDir = await makeTranscriptDir()
-    const sessionId = sessionIdFor("cccccccc-cccc-4ccc-8ccc-cccccccccccc")
-    await writeTranscriptFile(
-      transcriptDir,
-      sessionId,
-      validTranscriptJson([
-        userMessage("old-u1", "hello"),
-        assistantMessage("old-a1", "hi"),
-        userMessage("old-noise", NOISE_TEXT),
-      ]),
-    )
-
-    const { adapter, handles } = await makeClaudeAdapter(transcriptDir)
-    // First interaction with the restored session is a PROMPT, not a view.
-    await adapter.send({ type: "prompt", sessionId, text: "continue" })
-    const handle = handles[0]
-    expect(handle).toBeDefined()
-    handle.push({
-      type: "assistant",
-      message: { id: "msg-new", content: [{ type: "text", text: "new reply" }] },
-    } as never)
-    handle.push({ type: "result", subtype: "success", is_error: false, result: "done" } as never)
-
-    // messageCompleted flushes immediately; wait for the write to land.
-    await vi.waitFor(async () => {
-      const parsed = (await readTranscriptJson(transcriptDir, sessionId)) as { messages: Array<{ id: string }> }
-      expect(parsed.messages.some((message) => message.id === "msg-new")).toBe(true)
-    })
-    await adapter.stop()
-
-    const parsed = (await readTranscriptJson(transcriptDir, sessionId)) as {
-      messages: Array<{ id: string; parts: Array<{ text?: string }> }>
-    }
-    const ids = parsed.messages.map((message) => message.id)
-    // Prior REAL history survives; noise is not resurrected; the new turn is kept.
-    expect(ids).toContain("old-u1")
-    expect(ids).toContain("old-a1")
-    expect(ids).not.toContain("old-noise")
-    expect(ids).toContain("msg-new")
-    const texts = parsed.messages.flatMap((message) => message.parts.map((part) => part.text ?? ""))
-    expect(texts).toContain("continue")
-    expect(texts.some((text) => text.includes("<local-command-stdout>"))).toBe(false)
-  })
-
-  it("keeps the new turn when the sanitizer drops EVERY restored message", async () => {
-    const transcriptDir = await makeTranscriptDir()
-    const sessionId = sessionIdFor("dddddddd-dddd-4ddd-8ddd-dddddddddddd")
-    await writeTranscriptFile(
-      transcriptDir,
-      sessionId,
-      validTranscriptJson([
-        userMessage("noise-1", NOISE_TEXT),
-        userMessage("noise-2", "<command-name>/model</command-name>"),
-      ]),
-    )
-
-    const { adapter, handles } = await makeClaudeAdapter(transcriptDir)
-    await adapter.send({ type: "prompt", sessionId, text: "fresh start" })
-    const handle = handles[0]
-    expect(handle).toBeDefined()
-    handle.push({
-      type: "assistant",
-      message: { id: "msg-fresh", content: [{ type: "text", text: "fresh reply" }] },
-    } as never)
-    handle.push({ type: "result", subtype: "success", is_error: false, result: "done" } as never)
-
-    await vi.waitFor(async () => {
-      const parsed = (await readTranscriptJson(transcriptDir, sessionId)) as { messages: Array<{ id: string }> }
-      expect(parsed.messages.some((message) => message.id === "msg-fresh")).toBe(true)
-    })
-    await adapter.stop()
-
-    const parsed = (await readTranscriptJson(transcriptDir, sessionId)) as {
-      messages: Array<{ id: string; role: string; parts: Array<{ text?: string }> }>
-    }
-    const ids = parsed.messages.map((message) => message.id)
-    // The new user turn must NOT be lost and the dropped noise must NOT return.
-    expect(ids).not.toContain("noise-1")
-    expect(ids).not.toContain("noise-2")
-    expect(ids).toContain("msg-fresh")
-    const userTexts = parsed.messages
-      .filter((message) => message.role === "user")
-      .flatMap((message) => message.parts.map((part) => part.text ?? ""))
-    expect(userTexts).toEqual(["fresh start"])
-  })
-})
-
-// ─── 4. forgetSession / stop races ──────────────────────────────────────────
+// ─── 3. forgetSession / stop races ──────────────────────────────────────────
 
 describe("forgetSession and stop() races", () => {
   it("forgetSession cancels a pending debounced save and deletes the file", async () => {

@@ -65,6 +65,7 @@ import { createAcpSessionTranslator, sanitizeAcpMessages } from "./translator.ts
 const ACP_AUTH_REQUIRED_CODE = -32000
 const ACP_REQUEST_CANCELLED_CODE = -32800
 const PROBE_CACHE_TTL_MS = 30_000
+const PROCESS_ROUTE_QUEUE_TIMEOUT_MS = 45_000
 
 /** Test seam: a connected ACP wire plus subprocess lifecycle hooks. */
 export interface AcpTransport {
@@ -94,6 +95,8 @@ export interface AcpAdapterOptions {
   preparePrompt?: (input: PromptAgentInput) => Promise<void>
   /** Release host-owned state when Wanta permanently deletes a session. */
   onForgetSession?: (sessionId: string) => void
+  /** Test seam for the process-scoped model-route queue deadline. */
+  processRouteQueueTimeoutMs?: number
   /**
    * Test seam: produce a connected ACP stream plus a dispose fn. The default
    * spawns the probed binary with registration.acpArgs over stdio.
@@ -506,10 +509,16 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     if (this.options.registration.modelRouteScope === "process") {
       const previous = this.processRouteTail.catch(() => undefined)
       let release!: () => void
-      this.processRouteTail = new Promise<void>((resolve) => {
+      const current = new Promise<void>((resolve) => {
         release = resolve
       })
-      await previous
+      this.processRouteTail = previous.then(() => current)
+      const acquired = await this.waitForProcessRoute(previous, input.sessionId)
+      if (!acquired) {
+        release()
+        this.disposeConnection()
+        throw new Error(`${this.options.registration.displayName} model route remained busy; please retry.`)
+      }
       let completionTracked = false
       try {
         if (!options?.signal?.aborted)
@@ -525,6 +534,28 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       return
     }
     await this.handlePromptNow(input, options)
+  }
+
+  private async waitForProcessRoute(previous: Promise<void>, sessionId: string): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<false>((resolve) => {
+      timer = setTimeout(
+        () => resolve(false),
+        this.options.processRouteQueueTimeoutMs ?? PROCESS_ROUTE_QUEUE_TIMEOUT_MS,
+      )
+      timer.unref?.()
+    })
+    const acquired = await Promise.race([previous.then(() => true as const), timeout])
+    if (timer) clearTimeout(timer)
+    if (!acquired) {
+      logDiagnostic(
+        "acp-adapter",
+        "process model route queue exceeded its deadline",
+        { adapter: this.kind, sessionId },
+        "warn",
+      )
+    }
+    return acquired
   }
 
   private async handlePromptNow(
@@ -602,6 +633,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     session.cancelling = false
     const turn: AcpTurn = { activeToolCallIds: new Set(), failedToolNeedsExplanation: false, settled: false }
     session.activeTurn = turn
+    options?.onDispatch?.()
     const promptPromise = handle.connection.agent.request("session/prompt", {
       sessionId: session.acpSessionId,
       prompt: promptContentBlocks(input, {

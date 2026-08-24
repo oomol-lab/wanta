@@ -13,10 +13,11 @@ export class ToolStartDiagnostics {
 
   public first(sessionId: string, generationId: string | undefined, callId: string): boolean {
     let generation = this.generations.get(sessionId)
-    if (!generation || generation.generationId !== generationId) {
+    if (!generation) {
       generation = { callIds: new Set(), generationId }
       this.generations.set(sessionId, generation)
     }
+    if (generation.generationId !== generationId) return false
     if (generation.callIds.has(callId)) return false
     generation.callIds.add(callId)
     return true

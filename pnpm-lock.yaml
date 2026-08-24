@@ -46,7 +46,7 @@ importers:
         specifier: 0.70.0
         version: 0.70.0(@anthropic-ai/sdk@0.116.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.30.0(supports-color@7.2.0)(zod@4.4.3))
       '@agentclientprotocol/codex-acp':
-        specifier: ^1.6.2
+        specifier: 1.6.2
         version: 1.6.2
       '@agentclientprotocol/sdk':
         specifier: ^1.4.0

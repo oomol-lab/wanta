@@ -105,6 +105,10 @@ External agents build on `electron/agent/external/`:
   policy for OpenCode, Claude, and ACP agents. A bare OOMOL business command is
   bound only when all currently running external turns agree on one team;
   ambiguous or missing workspace identity fails closed. A single `oo` command
+  from an external agent crosses an authenticated loopback execution boundary;
+  Electron main retains the real CLI path and in-memory turn scope, and the
+  boundary accepts only connector apps/run/schema/search operations. The agent
+  never receives the real CLI path or a writable scope file. A single `oo` command
   receives a fast-path allow when it includes only the shared bounded output
   suffixes (`head`/`tail` or stderr descriptor duplication). Other ordinary
   pipelines, sequences, and file redirections fall through to the same

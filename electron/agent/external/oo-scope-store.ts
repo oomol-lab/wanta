@@ -1,53 +1,42 @@
-import { mkdir } from "node:fs/promises"
-import path from "node:path"
-import { atomicWriteText } from "../../atomic-file.ts"
-
 export type ExternalOoRuntime = "none" | "oomol" | "openconnector"
+
+interface ActiveExternalTurn {
+  runtime: ExternalOoRuntime
+  teamName: string
+}
 
 /** Running external turns whose shared OO guard must resolve one safe workspace. */
 export class ExternalOoScopeStore {
-  private readonly filePathValue: string
   private runtime: ExternalOoRuntime = "none"
-  private readonly sessionTeams = new Map<string, string>()
-  private writeTail: Promise<void> = Promise.resolve()
-
-  public constructor(filePath: string) {
-    this.filePathValue = filePath
-  }
-
-  public get filePath(): string {
-    return this.filePathValue
-  }
+  private readonly activeTurns = new Map<string, ActiveExternalTurn>()
 
   public activate(sessionId: string, runtime: ExternalOoRuntime, teamName: string | undefined): Promise<void> {
     this.runtime = runtime
-    this.sessionTeams.set(sessionId, teamName?.trim() ?? "")
-    return this.write()
+    this.activeTurns.set(sessionId, { runtime, teamName: teamName?.trim() ?? "" })
+    return Promise.resolve()
   }
 
   public deactivate(sessionId: string): Promise<void> {
-    this.sessionTeams.delete(sessionId)
-    return this.write()
+    this.activeTurns.delete(sessionId)
+    return Promise.resolve()
   }
 
   public setRuntime(runtime: ExternalOoRuntime): Promise<void> {
-    if (runtime !== this.runtime) this.sessionTeams.clear()
     this.runtime = runtime
-    return this.write()
+    return Promise.resolve()
   }
 
-  private write(): Promise<void> {
-    const content = `${JSON.stringify({
+  public snapshot(): {
+    external: true
+    runtime: ExternalOoRuntime
+    sessionRuntimes: Record<string, ExternalOoRuntime>
+    sessionTeams: Record<string, string>
+  } {
+    return {
       external: true,
       runtime: this.runtime,
-      sessionTeams: Object.fromEntries(this.sessionTeams),
-    })}\n`
-    this.writeTail = this.writeTail
-      .catch(() => undefined)
-      .then(async () => {
-        await mkdir(path.dirname(this.filePathValue), { recursive: true })
-        await atomicWriteText(this.filePathValue, content)
-      })
-    return this.writeTail
+      sessionRuntimes: Object.fromEntries([...this.activeTurns].map(([sessionId, turn]) => [sessionId, turn.runtime])),
+      sessionTeams: Object.fromEntries([...this.activeTurns].map(([sessionId, turn]) => [sessionId, turn.teamName])),
+    }
   }
 }

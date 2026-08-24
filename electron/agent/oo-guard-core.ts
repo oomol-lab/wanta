@@ -91,6 +91,14 @@ export function isConnectorBusinessCommand(args: readonly string[]): boolean {
   return connectorIndex >= 0 && connectorCommandsRequiringWorkspace.has(args[connectorIndex + 1] ?? "")
 }
 
+/** Commands exposed by the privileged external-agent OO execution boundary. */
+export function isManagedExternalOoCommand(args: readonly string[]): boolean {
+  const connectorIndex = connectorCommandIndex(args)
+  if (connectorIndex < 0) return false
+  const command = args[connectorIndex + 1] ?? ""
+  return connectorCommandsRequiringWorkspace.has(command) || connectorCommandsIgnoringWorkspace.has(command)
+}
+
 export function hasWorkspaceSelector(args: readonly string[]): boolean {
   const connectorIndex = connectorCommandIndex(args)
   if (connectorIndex < 0) return false
@@ -155,7 +163,7 @@ function stripBusinessWorkspaceSelectors(args: readonly string[]): string[] {
 /** Bind the shared external OO shim only from currently running Wanta turns. */
 export function bindExternalConnectorWorkspace(args: readonly string[], scope: WorkspaceTeamScope): string[] {
   if (!isConnectorBusinessCommand(args)) return [...args]
-  const runtime = scope.runtime
+  const runtime = resolveExternalGuardRuntime(scope)
   if (runtime === "openconnector") return stripBusinessWorkspaceSelectors(args)
   if (runtime !== "oomol") {
     throw new Error("Wanta cannot run an external connector command without an active Link runtime.")
@@ -208,6 +216,25 @@ export interface WorkspaceTeamScope {
   runtime?: unknown
   teamName?: unknown
   sessionTeams?: unknown
+  sessionRuntimes?: unknown
+}
+
+function resolveExternalGuardRuntime(scope: WorkspaceTeamScope): "oomol" | "openconnector" {
+  if (!scope.sessionRuntimes || typeof scope.sessionRuntimes !== "object") {
+    throw new Error("Wanta cannot run an external connector command without a running Link-scoped turn.")
+  }
+  const activeRuntimes = Object.values(scope.sessionRuntimes)
+  if (
+    activeRuntimes.length === 0 ||
+    activeRuntimes.some((runtime) => runtime !== "oomol" && runtime !== "openconnector")
+  ) {
+    throw new Error("Wanta cannot run an external connector command without a running Link-scoped turn.")
+  }
+  const uniqueRuntimes = new Set(activeRuntimes)
+  if (uniqueRuntimes.size !== 1 || !uniqueRuntimes.has(scope.runtime)) {
+    throw new Error("Wanta cannot route external connector commands across a Link runtime change.")
+  }
+  return activeRuntimes[0] as "oomol" | "openconnector"
 }
 
 /** External commands have no process-local session id, so every running turn must agree. */

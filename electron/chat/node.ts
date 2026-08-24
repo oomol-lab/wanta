@@ -2250,7 +2250,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         })
       }
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
-      this.scheduleGenerationSubmitWatchdog(req.sessionId, generation.id)
+      let dispatchAcknowledged = false
       void adapter
         .send(
           {
@@ -2278,7 +2278,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               buildResponseLanguageSystem(req.appLocale, detectResponseLanguage(req.text)),
             ),
           },
-          { signal: generation.controller.signal },
+          {
+            signal: generation.controller.signal,
+            onDispatch: () => {
+              if (dispatchAcknowledged) return
+              dispatchAcknowledged = true
+              if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted)
+                return
+              this.scheduleGenerationSubmitWatchdog(req.sessionId, generation.id)
+            },
+          },
         )
         .then(() => {
           if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) return

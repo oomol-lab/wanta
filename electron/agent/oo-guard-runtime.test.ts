@@ -1,15 +1,20 @@
+import type { WorkspaceTeamScope } from "./oo-guard-core.ts"
+
 import { execFile } from "node:child_process"
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 import { afterEach, describe, expect, test } from "vitest"
+import { ExternalOoGuardServer } from "./external/oo-guard-server.ts"
 
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
+const servers: ExternalOoGuardServer[] = []
 const guardPath = path.resolve("electron/agent/oo-guard.ts")
 
 afterEach(async () => {
+  await Promise.all(servers.splice(0).map((server) => server.dispose()))
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })))
 })
 
@@ -17,16 +22,16 @@ async function fixture(scope: unknown): Promise<{ env: NodeJS.ProcessEnv }> {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-oo-guard-runtime-"))
   roots.push(root)
   const realOo = path.join(root, "real-oo")
-  const scopePath = path.join(root, "scope.json")
   await writeFile(realOo, '#!/bin/sh\nprintf "%s\\n" "$@"\n', "utf8")
   await chmod(realOo, 0o755)
-  await writeFile(scopePath, JSON.stringify(scope), "utf8")
+  const server = new ExternalOoGuardServer({ command: realOo, scope: () => scope as WorkspaceTeamScope })
+  servers.push(server)
+  const descriptor = await server.descriptor()
   return {
     env: {
       ...process.env,
-      WANTA_EXTERNAL_OO_SCOPE: "1",
-      WANTA_REAL_OO_BIN: realOo,
-      WANTA_TEAM_SCOPE_PATH: scopePath,
+      WANTA_OO_GUARD_TOKEN: descriptor.token,
+      WANTA_OO_GUARD_URL: descriptor.url,
     },
   }
 }
@@ -44,6 +49,7 @@ describe("external OO guard runtime", () => {
     const { env } = await fixture({
       external: true,
       runtime: "oomol",
+      sessionRuntimes: { "session-a": "oomol" },
       sessionTeams: { "session-a": "OOMOL-Internal" },
     })
 
@@ -66,6 +72,7 @@ describe("external OO guard runtime", () => {
     const { env } = await fixture({
       external: true,
       runtime: "oomol",
+      sessionRuntimes: { "session-a": "oomol", "session-b": "oomol" },
       sessionTeams: { "session-a": "Team A", "session-b": "Team B" },
     })
 
@@ -75,9 +82,27 @@ describe("external OO guard runtime", () => {
   })
 
   test("removes OOMOL selectors under OpenConnector", async () => {
-    const { env } = await fixture({ external: true, runtime: "openconnector", sessionTeams: {} })
+    const { env } = await fixture({
+      external: true,
+      runtime: "openconnector",
+      sessionRuntimes: { "session-a": "openconnector" },
+      sessionTeams: { "session-a": "" },
+    })
 
     const output = await runGuard(["connector", "apps", "posthog", "--team", "ignored", "--personal", "--json"], env)
     expect(output.trim().split("\n")).toEqual(["connector", "apps", "posthog", "--json"])
+  })
+
+  test("rejects runtime-administration commands at the privileged boundary", async () => {
+    const { env } = await fixture({
+      external: true,
+      runtime: "oomol",
+      sessionRuntimes: { "session-a": "oomol" },
+      sessionTeams: { "session-a": "Team A" },
+    })
+
+    await expect(runGuard(["logout"], env)).rejects.toMatchObject({
+      stderr: expect.stringContaining("Only managed connector discovery and action commands are allowed"),
+    })
   })
 })

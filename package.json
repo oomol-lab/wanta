@@ -57,7 +57,7 @@
   },
   "devDependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.70.0",
-    "@agentclientprotocol/codex-acp": "^1.6.2",
+    "@agentclientprotocol/codex-acp": "1.6.2",
     "@agentclientprotocol/sdk": "^1.4.0",
     "@electron-internal/extract-zip": "1.0.5",
     "@electron/get": "5.1.0",

@@ -7,7 +7,7 @@
 - **Node >= 22.22.2** (matches the minimum of the pinned OpenCode dependency chain; PR CI pins
   Node 24, release CI pins Node 22 in all four jobs that set up Node — compute-version,
   release-mac, release-win, create-release; the fifth job, refresh-cdn-cache, installs no Node at
-  all). pnpm `9.14.4` through Corepack + `pnpm-lock.yaml`.
+  all). pnpm `11.23.0` through Corepack + `pnpm-lock.yaml`.
 - **All dependency sources are public**: `@oomol/connection` / `@oomol/connection-electron-adapter`
   are published to the public registry (`registry.npmjs.org`); `corepack pnpm install` **needs no token or
   `.npmrc`** — since the repo went open source, a fresh clone and an external fork's CI both
@@ -192,7 +192,7 @@ corepack pnpm run build:mac     # = build:app + prepare:binaries + electron-buil
   output `release/${version}`; files only dist + dist-electron (excluding map/d.ts, **no electron/
   sources or tests**); extraResources include `resources/bin → bin`, `resources/skills → skills`,
   and `resources/agent-tool-runtime → agent-tool-runtime`; the `sqlite3` native module is unpacked
-  from asar (used by the exactly pinned `wiki-graph@0.4.0` / `wiki-graph-core@0.4.0` runtime);
+  from asar (used by the exactly pinned `wiki-graph@0.5.0` / `wiki-graph-core@0.5.0` runtime);
   afterPack
   `scripts/electron-builder-after-pack.cjs` (deletes the ~20MB LICENSES.chromium.html; the hook is
   .cjs because electron-builder's require hook does not support .ts). mac dmg+zip arm64; win nsis

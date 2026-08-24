@@ -65,6 +65,10 @@ guard binds a bare OOMOL business command only when all currently running
 external turns agree on one team, and fails closed when their workspaces differ
 or no team identity is available. It preserves the active runtime boundary,
 rejects cross-workspace fallback, and redacts connector output.
+External agents receive only an authenticated loopback guard descriptor;
+Electron main retains the real OO executable path and the in-memory per-turn
+runtime/team scope. The boundary rejects runtime-administration commands and
+accepts only connector apps/run/schema/search operations.
 Loaded Skill instructions keep Connector work on that managed CLI. The shared
 permission classifier—not an adapter-specific rule—decides whether a command is
 safe to run without a redundant approval card.

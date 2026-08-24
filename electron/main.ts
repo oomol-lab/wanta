@@ -57,6 +57,7 @@ import { resolveClaudeModelRoute } from "./agent/claude-model-route.ts"
 import { createDirectCliHostCapability, DIRECT_CLI_CAPABILITY_ID } from "./agent/direct-cli-host-capability.ts"
 import { memoizeExternalCommandEnvironment } from "./agent/external/command-environment.ts"
 import { createExternalAgents } from "./agent/external/create.ts"
+import { ExternalOoGuardServer } from "./agent/external/oo-guard-server.ts"
 import { ExternalOoScopeStore } from "./agent/external/oo-scope-store.ts"
 import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
 import { GrokModelGateway } from "./agent/grok-model-gateway.ts"
@@ -362,7 +363,11 @@ const directCliCapabilityServer = new HostCapabilityServer({
   version: "1.0.0",
 })
 const externalAgentRootDir = path.join(app.getPath("userData"), "agent-external")
-const externalOoScopeStore = new ExternalOoScopeStore(path.join(externalAgentRootDir, "oo-team-scope.json"))
+const externalOoScopeStore = new ExternalOoScopeStore()
+const externalOoGuardServer = new ExternalOoGuardServer({
+  command: ooBinPath,
+  scope: () => externalOoScopeStore.snapshot(),
+})
 const claudeModelGateway = new ClaudeModelGateway()
 const grokModelGateway = new GrokModelGateway()
 let claudeModelAccount: AuthRuntimeAccount | null = null
@@ -436,21 +441,23 @@ const grokModelRouter = {
   },
 }
 const externalAgentCommandEnvironment = memoizeExternalCommandEnvironment(async () => {
-  const [userPath, managedOoBinPath] = await Promise.all([
-    resolveUserCommandPath({ preferredDirectories: [path.dirname(ooBinPath)] }),
+  const [userPath, managedOoBinPath, guard] = await Promise.all([
+    resolveUserCommandPath(),
     ensureOoGuardCommandBin({
       binDir: path.join(externalAgentRootDir, "bin"),
       nodeBin: process.execPath,
       ooGuardCliPath,
     }),
+    externalOoGuardServer.descriptor(),
   ])
   return {
     ...process.env,
     PATH: mergePathValues([path.dirname(managedOoBinPath), userPath]),
     WANTA_OO_BIN: managedOoBinPath,
-    WANTA_REAL_OO_BIN: ooBinPath,
-    WANTA_EXTERNAL_OO_SCOPE: "1",
-    WANTA_TEAM_SCOPE_PATH: externalOoScopeStore.filePath,
+    WANTA_OO_GUARD_TOKEN: guard.token,
+    WANTA_OO_GUARD_URL: guard.url,
+    WANTA_REAL_OO_BIN: undefined,
+    WANTA_TEAM_SCOPE_PATH: undefined,
   }
 })
 // External adapters are app-lifetime. Agent-owned registrations keep CLI auth;
@@ -916,6 +923,7 @@ function reapAgentForShutdown(): Promise<void> {
     await runBoundedShutdownStep("dispose built-in host invoke server", () => builtInHostInvokeServer.dispose())
     await runBoundedShutdownStep("dispose Claude model gateway", () => claudeModelGateway.dispose())
     await runBoundedShutdownStep("dispose Grok model gateway", () => grokModelGateway.dispose())
+    await runBoundedShutdownStep("dispose external OO guard server", () => externalOoGuardServer.dispose())
     hostQuestionBroker.dispose()
     await runBoundedShutdownStep("dispose spreadsheet preview worker", () => spreadsheetPreviewWorker.dispose())
     await runBoundedShutdownStep("dispose browser control server", () => browserControlServer.dispose())

@@ -1,5 +1,5 @@
 import type { ClaudeModelRoute } from "./claude-model-gateway.ts"
-import type { ModelMessage, ToolSet } from "ai"
+import type { ModelMessage, TextStreamPart, ToolSet } from "ai"
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
 
 import { jsonSchema, streamText, tool } from "ai"
@@ -287,26 +287,10 @@ function parseArguments(value: string | undefined): unknown {
   }
 }
 
-type GatewayStreamPart =
-  | { type: "text-delta" | "reasoning-delta"; id: string; text: string }
-  | { type: "tool-input-start"; id: string; toolName: string }
-  | { type: "tool-input-delta"; id: string; delta: string }
-  | { type: "tool-call"; toolCallId: string; toolName: string; input: unknown }
-  | {
-      type: "finish"
-      finishReason: string
-      totalUsage: { inputTokens?: number; outputTokens?: number }
-    }
-  | { type: "error"; error: unknown }
-  | {
-      type: "text-start" | "text-end" | "reasoning-start" | "reasoning-end" | "tool-input-end" | "start"
-      id?: string
-    }
-
 async function streamChatCompletion(
   response: ServerResponse,
   route: ClaudeModelRoute,
-  stream: AsyncIterable<unknown>,
+  stream: AsyncIterable<TextStreamPart<ToolSet>>,
 ): Promise<void> {
   response.writeHead(200, {
     "cache-control": "no-cache, no-store",
@@ -318,8 +302,7 @@ async function streamChatCompletion(
   const toolIndexes = new Map<string, number>()
   writeChunk(response, id, created, route.modelId, { role: "assistant" }, null)
   try {
-    for await (const raw of stream) {
-      const part = raw as GatewayStreamPart
+    for await (const part of stream) {
       if (part.type === "text-delta") writeChunk(response, id, created, route.modelId, { content: part.text }, null)
       if (part.type === "reasoning-delta")
         writeChunk(response, id, created, route.modelId, { reasoning_content: part.text }, null)
@@ -419,7 +402,11 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
     if (size > MAX_REQUEST_BYTES) throw new Error("Grok model request is too large.")
     chunks.push(buffer)
   }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown
+  } catch {
+    throw new Error("Grok model request is not valid JSON.")
+  }
 }
 
 function asChatCompletionRequest(value: unknown): ChatCompletionRequest {

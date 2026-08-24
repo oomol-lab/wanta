@@ -211,7 +211,10 @@ async function createHarness(
   kind: keyof typeof ACP_AGENT_REGISTRY = "codex",
   hostMcpServers?: AcpAdapterOptions["hostMcpServers"],
   transcriptDir?: string,
-  adapterHooks: Pick<AcpAdapterOptions, "onForgetSession" | "preparePrompt" | "sessionMeta"> = {},
+  adapterHooks: Pick<
+    AcpAdapterOptions,
+    "onForgetSession" | "preparePrompt" | "processRouteQueueTimeoutMs" | "sessionMeta"
+  > = {},
 ): Promise<AdapterHarness> {
   const fake = createFakeAgent(behavior)
   const registration = ACP_AGENT_REGISTRY[kind]
@@ -335,6 +338,7 @@ describe("AcpAgentAdapter", () => {
     })
     let promptCount = 0
     const preparePrompt = vi.fn(async () => undefined)
+    const secondDispatched = vi.fn()
     const harness = await createHarness(
       {
         prompt: async (_turn) => {
@@ -350,20 +354,46 @@ describe("AcpAgentAdapter", () => {
     )
     const first = harness.adapter.send(promptInput("first"))
     await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(1))
-    const second = harness.adapter.send({
-      ...promptInput("second"),
-      sessionId: "wanta-session-2",
-      messageId: "user-2",
-    })
+    const second = harness.adapter.send(
+      {
+        ...promptInput("second"),
+        sessionId: "wanta-session-2",
+        messageId: "user-2",
+      },
+      { onDispatch: secondDispatched },
+    )
 
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(preparePrompt).toHaveBeenCalledTimes(1)
     expect(harness.fake.promptRequests).toHaveLength(1)
+    expect(secondDispatched).not.toHaveBeenCalled()
 
     releaseFirst()
     await Promise.all([first, second])
     expect(preparePrompt).toHaveBeenCalledTimes(2)
+    expect(secondDispatched).toHaveBeenCalledTimes(1)
     await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(2))
+  })
+
+  test("fails a queued process route after a bounded wait and tears down the wedged runtime", async () => {
+    const harness = await createHarness(
+      { prompt: async () => await new Promise<PromptResponse>(() => undefined) },
+      "grok",
+      undefined,
+      undefined,
+      {
+        onForgetSession: () => undefined,
+        preparePrompt: async () => undefined,
+        processRouteQueueTimeoutMs: 20,
+        sessionMeta: async () => undefined,
+      },
+    )
+    await harness.adapter.send(promptInput("first"))
+    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(1))
+
+    await expect(
+      harness.adapter.send({ ...promptInput("second"), sessionId: "wanta-session-2", messageId: "user-2" }),
+    ).rejects.toThrow(/model route remained busy/u)
   })
 
   test("streams a full turn: user synthesis, chunks, tool pair, completion", async () => {

@@ -30,4 +30,14 @@ describe("ToolStartDiagnostics", () => {
     expect(diagnostics.first("session-1", "generation-2", "call-a")).toBe(true)
     expect(diagnostics.first("session-1", "generation-2", "call-a")).toBe(false)
   })
+
+  test("rejects a stale event without replacing the active generation", () => {
+    const diagnostics = new ToolStartDiagnostics()
+    diagnostics.begin("session-1", "generation-2")
+    expect(diagnostics.first("session-1", "generation-2", "call-a")).toBe(true)
+
+    expect(diagnostics.first("session-1", "generation-1", "stale-call")).toBe(false)
+    expect(diagnostics.first("session-1", "generation-2", "call-a")).toBe(false)
+    expect(diagnostics.first("session-1", "generation-2", "call-b")).toBe(true)
+  })
 })

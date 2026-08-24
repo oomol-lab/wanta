@@ -8,17 +8,16 @@ import {
   buildResponseLanguageSystem,
 } from "./context-system.ts"
 
-test("buildLinkRuntimeSystem prefers structured Link tools and binds raw OOMOL fallback to the exact team", () => {
+test("buildLinkRuntimeSystem binds raw OOMOL calls to the exact team", () => {
   const prompt = buildLinkRuntimeSystem("oomol", 'Team "Quoted"') ?? ""
 
   assert.match(prompt, /Current-turn Wanta Link workspace: team "Team \\"Quoted\\""/)
-  assert.match(prompt, /Prefer the session-scoped Wanta Link tools/)
-  assert.match(prompt, /inspect_action before execution/)
-  assert.match(prompt, /Do not use raw `oo connector` commands when Wanta Link tools are available/)
+  assert.match(prompt, /Wanta-managed `oo connector schema` \/ `oo connector run` CLI workflow/)
   assert.match(prompt, /--team "Team \\"Quoted\\""/)
+  assert.match(prompt, /guard also binds a missing selector/)
   assert.match(prompt, /--data @<absolute-path>/)
   assert.match(prompt, /hide its exit status/)
-  assert.match(prompt, /never retry in a personal or default workspace/i)
+  assert.match(prompt, /never retry in a personal, default, or different team workspace/i)
   assert.match(prompt, /does not prove that the current Wanta team is disconnected/)
 })
 
@@ -34,8 +33,7 @@ test("buildLinkRuntimeSystem keeps OpenConnector free of OOMOL selectors", () =>
   const prompt = buildLinkRuntimeSystem("openconnector", "ignored-team") ?? ""
 
   assert.match(prompt, /OpenConnector/)
-  assert.match(prompt, /Prefer the session-scoped Wanta Link tools/)
-  assert.match(prompt, /Do not use raw `oo connector` commands when Wanta Link tools are available/)
+  assert.match(prompt, /Wanta-managed `oo connector schema` \/ `oo connector run` CLI workflow/)
   assert.match(prompt, /must omit `--team` and `--personal`/)
   assert.match(prompt, /--data @<absolute-path>/)
   assert.doesNotMatch(prompt, /ignored-team/)

@@ -120,6 +120,7 @@ import { detectResponseLanguage } from "./response-language.ts"
 import { applyStoppedGenerations } from "./stopped-generations.ts"
 import { ChatStreamEventBuffer } from "./stream-event-buffer.ts"
 import { SubagentSessions } from "./subagent-sessions.ts"
+import { ToolStartDiagnostics } from "./tool-start-diagnostics.ts"
 import { TrustedLocalAccess } from "./trusted-local-access.ts"
 import { resolveChatTurnExecution } from "./turn-execution.ts"
 import {
@@ -304,6 +305,12 @@ interface ChatServiceDeps {
     sessionId: string,
     patch: { modelId?: string | null; effortId?: string | null },
   ) => Promise<void> | void
+  /** Keep the guarded external OOCLI scope limited to currently running turns. */
+  onExternalTurnScopeChanged?: (input: {
+    active: boolean
+    sessionId: string
+    teamName?: string
+  }) => Promise<void> | void
   /** 正常完成且产物已收尾后通知主进程 attention 域；停止和错误路径不触发。 */
   onSessionCompleted?: (input: { teamId: string; runId: string; sessionId: string }) => Promise<void> | void
 }
@@ -348,6 +355,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private readonly turnOutputs: TurnOutputRegistry
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
+  private readonly toolStartDiagnostics = new ToolStartDiagnostics()
   private internalMessageIds = new Set<string>()
   private compactingSessions = new Set<string>()
   private connectionFailedSessions = new Set<string>()
@@ -431,6 +439,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.turnOutputs.clear()
     this.activeAssistantMessages.clear()
     this.activeToolParts.clear()
+    this.toolStartDiagnostics.reset()
     this.connectionFailedSessions.clear()
     this.trustedAccess.clear()
     this.subagentSessions.clear()
@@ -680,6 +689,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.clearSessionGeneration(sessionId)
     this.activeAssistantMessages.delete(sessionId)
     this.activeToolParts.delete(sessionId)
+    this.toolStartDiagnostics.clear(sessionId)
     this.connectionFailedSessions.delete(sessionId)
     this.userStops.delete(sessionId)
     this.emittedMessageErrors.delete(sessionId)
@@ -842,7 +852,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (translated.event === "toolCallStarted") {
       this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
       const partIds = this.activeToolParts.get(translated.data.sessionId) ?? new Set<string>()
-      const firstStart = !partIds.has(translated.data.partId)
       partIds.add(translated.data.partId)
       this.activeToolParts.set(translated.data.sessionId, partIds)
       this.activeRuns.update(translated.data.sessionId, {
@@ -850,7 +859,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         activeToolPartIds: [...partIds],
         phase: "tool_running",
       })
-      if (firstStart) {
+      if (
+        this.toolStartDiagnostics.first(
+          translated.data.sessionId,
+          this.generations.get(translated.data.sessionId)?.id,
+          translated.data.callId,
+        )
+      ) {
         logDiagnostic(
           "chat-turn",
           "tool started",
@@ -1427,6 +1442,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   private beginSessionGeneration(sessionId: string, userMessageId: string): SessionGeneration {
     const { generation, previous } = this.generations.begin(sessionId, userMessageId)
+    this.toolStartDiagnostics.begin(sessionId, generation.id)
     this.removeGenerationPermissionGrants(sessionId, previous?.id)
     return generation
   }
@@ -1630,7 +1646,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.clearInternalMessages(sessionId)
     this.compactingSessions.delete(sessionId)
     if (generation) this.clearCompletionRetry(`${sessionId}\0${generation.id}`)
+    this.toolStartDiagnostics.clear(sessionId, generation?.id)
     this.generations.clear(sessionId, generationId)
+    if (externalAgentKindForSessionId(sessionId)) {
+      void Promise.resolve(this.deps.onExternalTurnScopeChanged?.({ active: false, sessionId })).catch(
+        (error: unknown) => {
+          console.warn("[wanta] failed to clear external OOCLI turn scope", error)
+        },
+      )
+    }
     const childSessionIds = this.subagentSessions.childSessionIds(sessionId)
     this.subagentSessions.forgetAll(sessionId)
     this.forgetSessionPendingPermissionRequests(sessionId)
@@ -2146,6 +2170,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     let processDir: string | undefined
     try {
       const teamName = teamNameFromRequest(req)
+      await this.deps.onExternalTurnScopeChanged?.({
+        active: true,
+        sessionId: req.sessionId,
+        ...(teamName ? { teamName } : {}),
+      })
       const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
       if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, generation.id)

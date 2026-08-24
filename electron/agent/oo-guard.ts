@@ -4,6 +4,7 @@ import { spawn } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import {
   bindOomolWorkspace,
+  bindExternalConnectorWorkspace,
   hasWorkspaceSelector,
   isConnectorBusinessCommand,
   redactConnectorOutput,
@@ -13,11 +14,10 @@ import {
 
 const maxCapturedOutputBytes = 32 * 1024 * 1024
 
-async function currentWorkspaceTeam(): Promise<string> {
+async function currentWorkspaceScope(): Promise<WorkspaceTeamScope> {
   const scopePath = process.env.WANTA_TEAM_SCOPE_PATH?.trim()
-  if (!scopePath) return ""
-  const parsed = JSON.parse(await readFile(scopePath, "utf8")) as WorkspaceTeamScope
-  return resolveGuardWorkspaceTeam(parsed)
+  if (!scopePath) return {}
+  return JSON.parse(await readFile(scopePath, "utf8")) as WorkspaceTeamScope
 }
 
 function appendBounded(chunks: Buffer[], chunk: Buffer, size: number): number {
@@ -89,11 +89,13 @@ async function main(): Promise<void> {
     throw new Error("WANTA_REAL_OO_BIN is required for the managed oo command.")
   }
   const originalArgs = stripIdentityIndependentWorkspaceSelectors(process.argv.slice(2))
-  const needsOomolBinding =
-    process.env.WANTA_LINK_RUNTIME === "oomol" &&
-    isConnectorBusinessCommand(originalArgs) &&
-    !hasWorkspaceSelector(originalArgs)
-  const args = needsOomolBinding ? bindOomolWorkspace(originalArgs, await currentWorkspaceTeam()) : originalArgs
+  const businessCommand = isConnectorBusinessCommand(originalArgs)
+  let args = originalArgs
+  if (businessCommand && process.env.WANTA_EXTERNAL_OO_SCOPE === "1") {
+    args = bindExternalConnectorWorkspace(originalArgs, await currentWorkspaceScope())
+  } else if (businessCommand && process.env.WANTA_LINK_RUNTIME === "oomol" && !hasWorkspaceSelector(originalArgs)) {
+    args = bindOomolWorkspace(originalArgs, resolveGuardWorkspaceTeam(await currentWorkspaceScope()))
+  }
   const exitCode = isConnectorBusinessCommand(args)
     ? await runGuarded(command, args)
     : await runPassthrough(command, args)

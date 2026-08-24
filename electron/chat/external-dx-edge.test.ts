@@ -324,6 +324,32 @@ test("external turns receive managed output directories and finalize against the
   )
 })
 
+test("external turns publish and clear their guarded OOCLI workspace scope", async () => {
+  const scopeChanges = vi.fn(async (_input: { active: boolean; sessionId: string; teamName?: string }) => undefined)
+  const { service, adapters } = createHarness(["claude-code"], {
+    onExternalTurnScopeChanged: scopeChanges,
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+
+  await service.sendMessage({
+    scope: { kind: "team", teamId: "team-id", teamName: "OOMOL-Internal" },
+    sessionId,
+    text: "query PostHog",
+  })
+  await waitForCondition(() => adapter.prompts.length === 1, "external prompt")
+  assert.deepEqual(scopeChanges.mock.calls[0]?.[0], {
+    active: true,
+    sessionId,
+    teamName: "OOMOL-Internal",
+  })
+
+  adapter.completeAssistantTurn(sessionId, "reply-scope", "done")
+  await waitForTurnCompletion(service)
+  assert.deepEqual(scopeChanges.mock.calls.at(-1)?.[0], { active: false, sessionId })
+})
+
 test("an accepted external turn is not interrupted while the model has a slow first response", async () => {
   vi.useFakeTimers()
   try {

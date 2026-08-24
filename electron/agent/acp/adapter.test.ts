@@ -556,44 +556,24 @@ describe("AcpAgentAdapter", () => {
     expect(harness.fake.newSessionRequests[0]?.additionalDirectories).toEqual([artifactRoot, processRoot])
   })
 
-  test.each(Object.keys(ACP_AGENT_REGISTRY) as Array<keyof typeof ACP_AGENT_REGISTRY>)(
-    "registers Wanta host MCP servers on the %s ACP session",
-    async (kind) => {
-      const harness = await createHarness({}, kind, async () => [
-        {
-          name: "wanta_link",
-          url: "http://127.0.0.1:4321/mcp",
-          headers: { Authorization: "Bearer opaque-token" },
-        },
-      ])
-      await harness.adapter.send({ type: "prompt", sessionId: WANTA_SESSION_ID, text: "query PostHog" })
-
-      expect(harness.fake.newSessionRequests[0]?.mcpServers).toEqual([
-        {
-          type: "http",
-          name: "wanta_link",
-          url: "http://127.0.0.1:4321/mcp",
-          headers: [{ name: "Authorization", value: "Bearer opaque-token" }],
-        },
-      ])
-    },
-  )
-
-  test("refreshes Wanta host capability leases before later prompts", async () => {
-    const hostMcpServers = vi.fn(async () => [
+  test("registers Wanta host MCP servers on the external ACP session", async () => {
+    const harness = await createHarness({}, "codex", async () => [
       {
         name: "wanta_link",
         url: "http://127.0.0.1:4321/mcp",
         headers: { Authorization: "Bearer opaque-token" },
       },
     ])
-    const harness = await createHarness({}, "codex", hostMcpServers)
     await harness.adapter.send({ type: "prompt", sessionId: WANTA_SESSION_ID, text: "query PostHog" })
-    await harness.waitFor((event) => event.event === "messageCompleted")
-    await harness.adapter.send({ type: "prompt", sessionId: WANTA_SESSION_ID, text: "query PostHog again" })
 
-    expect(hostMcpServers).toHaveBeenCalledTimes(2)
-    expect(harness.fake.newSessionRequests).toHaveLength(1)
+    expect(harness.fake.newSessionRequests[0]?.mcpServers).toEqual([
+      {
+        type: "http",
+        name: "wanta_link",
+        url: "http://127.0.0.1:4321/mcp",
+        headers: [{ name: "Authorization", value: "Bearer opaque-token" }],
+      },
+    ])
   })
 
   test("Wanta host context precedes the user request without changing transcript text", async () => {

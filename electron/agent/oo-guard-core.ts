@@ -121,6 +121,48 @@ export function bindOomolWorkspace(args: readonly string[], teamName: string): s
   return [...args.slice(0, terminatorIndex), "--team", normalizedTeamName, ...args.slice(terminatorIndex)]
 }
 
+function stripBusinessWorkspaceSelectors(args: readonly string[]): string[] {
+  if (!isConnectorBusinessCommand(args)) return [...args]
+  const connectorIndex = connectorCommandIndex(args)
+  const commandArgsStart = connectorIndex + 2
+  const terminatorIndex = args.indexOf("--", commandArgsStart)
+  const commandArgsEnd = terminatorIndex < 0 ? args.length : terminatorIndex
+  const normalized = args.slice(0, commandArgsStart)
+  let index = commandArgsStart
+  while (index < commandArgsEnd) {
+    const arg = args[index] ?? ""
+    if (["--team", "--organization", "--org"].includes(arg)) {
+      const nextArg = args[index + 1]
+      index += nextArg === undefined || nextArg === "--" || nextArg.startsWith("-") ? 1 : 2
+      continue
+    }
+    if (
+      arg === "--personal" ||
+      arg.startsWith("--team=") ||
+      arg.startsWith("--organization=") ||
+      arg.startsWith("--org=")
+    ) {
+      index += 1
+      continue
+    }
+    normalized.push(arg)
+    index += 1
+  }
+  if (terminatorIndex >= 0) normalized.push(...args.slice(terminatorIndex))
+  return normalized
+}
+
+/** Bind the shared external OO shim only from currently running Wanta turns. */
+export function bindExternalConnectorWorkspace(args: readonly string[], scope: WorkspaceTeamScope): string[] {
+  if (!isConnectorBusinessCommand(args)) return [...args]
+  const runtime = scope.runtime
+  if (runtime === "openconnector") return stripBusinessWorkspaceSelectors(args)
+  if (runtime !== "oomol") {
+    throw new Error("Wanta cannot run an external connector command without an active Link runtime.")
+  }
+  return bindOomolWorkspace(stripBusinessWorkspaceSelectors(args), resolveExternalGuardWorkspaceTeam(scope))
+}
+
 /**
  * Schema/search are provider-contract discovery operations, not workspace
  * business calls. Agents sometimes over-generalize the apps/run team rule and
@@ -162,8 +204,26 @@ export function stripIdentityIndependentWorkspaceSelectors(args: readonly string
 }
 
 export interface WorkspaceTeamScope {
+  external?: unknown
+  runtime?: unknown
   teamName?: unknown
   sessionTeams?: unknown
+}
+
+/** External commands have no process-local session id, so every running turn must agree. */
+export function resolveExternalGuardWorkspaceTeam(scope: WorkspaceTeamScope): string {
+  if (!scope.sessionTeams || typeof scope.sessionTeams !== "object") {
+    throw new Error("Wanta cannot run an external OOMOL connector command without a running team-scoped turn.")
+  }
+  const activeTeams = Object.values(scope.sessionTeams).map((value) => (typeof value === "string" ? value.trim() : ""))
+  if (activeTeams.length === 0 || activeTeams.some((teamName) => !teamName)) {
+    throw new Error("Wanta cannot run an external OOMOL connector command without a running team-scoped turn.")
+  }
+  const uniqueTeams = new Set(activeTeams)
+  if (uniqueTeams.size !== 1) {
+    throw new Error("Wanta cannot route external OOMOL connector commands while running turns use different teams.")
+  }
+  return activeTeams[0] ?? ""
 }
 
 /** Resolve a bare CLI call only when every active session agrees on its workspace. */

@@ -101,10 +101,10 @@ External agents build on `electron/agent/external/`:
   Claude's native Skills and subagents remain owned by Claude inside the ACP
   bridge; their file, shell, network, and permission operations still reach the
   same Wanta policy boundary as other external agents.
-  External ACP agents use the session-scoped `wanta_link` MCP meta-tools for
-  Connector work; OpenCode reaches the same `LinkCapability` through host
-  invoke. The guarded `oo` CLI remains a compatibility fallback and is
-  classified by the same shared command policy for every agent. A single `oo` command
+  The guarded `oo` CLI Connector path is classified by the same shared command
+  policy for OpenCode, Claude, and ACP agents. A bare OOMOL business command is
+  bound only when all currently running external turns agree on one team;
+  ambiguous or missing workspace identity fails closed. A single `oo` command
   receives a fast-path allow when it includes only the shared bounded output
   suffixes (`head`/`tail` or stderr descriptor duplication). Other ordinary
   pipelines, sequences, and file redirections fall through to the same

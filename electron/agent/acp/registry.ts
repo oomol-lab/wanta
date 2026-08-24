@@ -34,8 +34,8 @@ export interface AcpAgentRegistration {
   selection?: { model: boolean; effort: boolean }
   /** Config file (relative to $HOME) whose presence suggests a completed login. */
   loginMarkerPath?: string
-  /** Optional native-runtime login probe when the ACP bridge is not itself the credential authority. */
-  loginProbe?: "claude-cli"
+  /** Optional native-runtime login probe when a marker alone cannot authoritatively establish auth state. */
+  loginProbe?: "claude-cli" | "grok-cli"
   /**
    * Managed binary name resolved from node_modules/.bin in dev (and bundled
    * resources in packaged builds) when the CLI is not on the user PATH. Used
@@ -105,6 +105,10 @@ export const ACP_AGENT_REGISTRY = {
     // grok advertises no ACP session modes; approvals round-trip per request.
     selection: { model: true, effort: false },
     loginMarkerPath: ".grok/auth.json",
+    // grok 1.0.5 exits successfully from `models` even while printing an
+    // explicit unauthenticated diagnostic, so use the CLI output as the
+    // authority and keep the marker only as a fail-open fallback.
+    loginProbe: "grok-cli",
   },
 } as const satisfies Record<string, AcpAgentRegistration>
 

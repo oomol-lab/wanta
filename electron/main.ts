@@ -57,6 +57,7 @@ import { resolveClaudeModelRoute } from "./agent/claude-model-route.ts"
 import { createDirectCliHostCapability, DIRECT_CLI_CAPABILITY_ID } from "./agent/direct-cli-host-capability.ts"
 import { memoizeExternalCommandEnvironment } from "./agent/external/command-environment.ts"
 import { createExternalAgents } from "./agent/external/create.ts"
+import { ExternalOoScopeStore } from "./agent/external/oo-scope-store.ts"
 import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
 import { HostCapabilityInvokeServer } from "./agent/host-capability-invoke-server.ts"
 import { HostCapabilityServer } from "./agent/host-capability-server.ts"
@@ -359,15 +360,8 @@ const directCliCapabilityServer = new HostCapabilityServer({
   name: "wanta_direct",
   version: "1.0.0",
 })
-const linkCapabilityServer = new HostCapabilityServer({
-  capabilityIds: [LINK_CAPABILITY_ID],
-  instructions:
-    "Wanta owns Link workspace identity and credentials. Prefer these structured tools over raw oo connector commands.",
-  kernel: hostCapabilityKernel,
-  name: "wanta_link",
-  version: "1.0.0",
-})
 const externalAgentRootDir = path.join(app.getPath("userData"), "agent-external")
+const externalOoScopeStore = new ExternalOoScopeStore(path.join(externalAgentRootDir, "oo-team-scope.json"))
 const claudeModelGateway = new ClaudeModelGateway()
 let claudeModelAccount: AuthRuntimeAccount | null = null
 
@@ -437,14 +431,14 @@ const externalAgentCommandEnvironment = memoizeExternalCommandEnvironment(async 
     PATH: mergePathValues([path.dirname(managedOoBinPath), userPath]),
     WANTA_OO_BIN: managedOoBinPath,
     WANTA_REAL_OO_BIN: ooBinPath,
+    WANTA_EXTERNAL_OO_SCOPE: "1",
+    WANTA_TEAM_SCOPE_PATH: externalOoScopeStore.filePath,
   }
 })
 // External adapters are app-lifetime. Agent-owned registrations keep CLI auth;
 // Wanta-routed harnesses resolve the current account/BYOK route per turn. Host
 // capabilities are issued per Wanta session and keep identity in main.
 const externalHostMcpServers: HostMcpServerProvider = async (input) => {
-  const linkRuntime = activeLinkCapabilityRuntime
-  const linkScope = activeLinkCapabilityScope
   const [larkRuntime, wecomRuntime, dingTalkRuntime] = await directRuntimes()
   const directSkillSources = [
     ...(larkRuntime ? [{ id: "direct-lark", kind: "connection" as const, root: larkRuntime.skillsDir }] : []),
@@ -471,10 +465,8 @@ const externalHostMcpServers: HostMcpServerProvider = async (input) => {
     ...(input.artifactDir ? { artifactDir: input.artifactDir } : {}),
     ...(input.processDir ? { processDir: input.processDir } : {}),
   }
-  // Every registry-backed ACP agent receives the same session-bound host
-  // capabilities. Link stays a four-tool meta surface rather than eagerly
-  // registering the provider action catalog. Guarded OOCLI remains available
-  // only as a compatibility fallback when this capability is absent.
+  // External coding agents use Wanta's guarded OOCLI for Connector work.
+  // MCP stays limited to stateful Wanta-native capabilities.
   const servers = [
     await skillCapabilityServer.issue({
       ...context,
@@ -483,25 +475,6 @@ const externalHostMcpServers: HostMcpServerProvider = async (input) => {
     await knowledgeCapabilityServer.issue(context),
     await questionCapabilityServer.issue(context),
   ]
-  const linkServer = await linkCapabilityServer.issue(
-    {
-      ...context,
-      bindings: {
-        ...context.bindings,
-        [LINK_RUNTIME_BINDING]: linkRuntime,
-      },
-    },
-    {
-      isCurrent: () => activeLinkCapabilityRuntime === linkRuntime && activeLinkCapabilityScope === linkScope,
-    },
-  )
-  servers.push(linkServer)
-  // Keep the descriptor in session/new even when Link is unavailable so a
-  // later account/runtime activation can refresh the existing ACP session's
-  // lease. The disabled lease fails closed until a turn binds a real runtime.
-  if (!linkRuntime) {
-    linkCapabilityServer.disableSession(input.sessionId)
-  }
   if (directSkillSources.length > 0) {
     servers.push(
       await directCliCapabilityServer.issue({
@@ -521,9 +494,8 @@ const externalHostMcpServers: HostMcpServerProvider = async (input) => {
     "host-capability",
     "manifest issued",
     {
-      connectorTransport: "host_mcp",
-      linkAvailable: Boolean(linkRuntime),
-      linkRegistered: true,
+      connectorTransport: "guarded_oo_cli",
+      linkRegistered: false,
       servers: servers.map((server) => server.name),
       sessionId: input.sessionId,
       ...(input.messageId ? { turnId: input.messageId } : {}),
@@ -574,6 +546,10 @@ const chatService = new ChatServiceImpl(null, {
     sessionService.setPermissionMode({ id: sessionId, permissionMode }),
   onExternalSessionSelectionChanged: (sessionId, patch) =>
     sessionService.setAgentSelection({ id: sessionId, ...patch }),
+  onExternalTurnScopeChanged: ({ active, sessionId, teamName }) =>
+    active
+      ? externalOoScopeStore.activate(sessionId, activeLinkCapabilityRuntime?.linkRuntime.kind ?? "none", teamName)
+      : externalOoScopeStore.deactivate(sessionId),
   onOomolAuthRequired: () => authManager.expireSession().then(() => undefined),
   onSetAgentTeam: handleAgentTeamChanged,
   onSessionCompleted: (input) => attentionService.completeSession(input),
@@ -600,7 +576,6 @@ const sessionService = new SessionServiceImpl(null, {
       knowledgeCapabilityServer.revokeSession(sessionId),
       questionCapabilityServer.revokeSession(sessionId),
       directCliCapabilityServer.revokeSession(sessionId),
-      linkCapabilityServer.revokeSession(sessionId),
     ])
     builtInHostInvokeServer.disableSession(sessionId)
     hostQuestionBroker.cancelSession(sessionId)
@@ -918,7 +893,6 @@ function reapAgentForShutdown(): Promise<void> {
         knowledgeCapabilityServer.dispose(),
         questionCapabilityServer.dispose(),
         directCliCapabilityServer.dispose(),
-        linkCapabilityServer.dispose(),
       ])
     })
     await runBoundedShutdownStep("dispose built-in host invoke server", () => builtInHostInvokeServer.dispose())
@@ -1090,10 +1064,10 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     : null
   if (nextLinkCapabilityScope !== activeLinkCapabilityScope) {
     builtInHostInvokeServer.disableAll()
-    linkCapabilityServer.disableAll()
   }
   activeLinkCapabilityScope = nextLinkCapabilityScope
   activeLinkCapabilityRuntime = linkRuntime ? { accountName: account?.name, linkRuntime } : null
+  await externalOoScopeStore.setRuntime(linkRuntime?.kind ?? "none")
   chatService.setLinkRuntime(linkRuntime?.kind ?? "none")
   // 冷启动 deep-link、模型事件与 auth 广播可能重复触发；运行时身份和配置版本均未变化时短路。
   if (

@@ -1,6 +1,6 @@
 import type { WikiGraphRuntime } from "./runner.ts"
 
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readdir, readFile, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { describe, expect, it, vi, beforeEach } from "vitest"
@@ -42,6 +42,7 @@ const sdk = vi.hoisted(() => {
     failCover: false,
     failGetArchive: undefined as Error | undefined,
     failListChapters: undefined as Error | undefined,
+    failRebindQueue: [] as Error[],
     failUpgradeQueue: [] as Error[],
     ftsCurrent: false,
     indexSettings: { ftsEmbedded: false },
@@ -154,6 +155,8 @@ vi.mock("wiki-graph-core", () => {
     readSearchIndexCapabilityStatus: async () => sdk.indexSettings,
     rebindWikiGraphLibrary: async (input: unknown) => {
       sdk.calls.rebind.push(input)
+      const error = sdk.failRebindQueue.shift()
+      if (error) throw error
       return { archives: sdk.archives, library: {} }
     },
     removeWikiGraphLibraryArchive: async (input: unknown) => {
@@ -276,6 +279,7 @@ beforeEach(() => {
   sdk.failCover = false
   sdk.failGetArchive = undefined
   sdk.failListChapters = undefined
+  sdk.failRebindQueue = []
   sdk.failUpgradeQueue = []
   sdk.ftsCurrent = false
   sdk.indexSettings = { ftsEmbedded: false }
@@ -297,6 +301,25 @@ describe("WikiGraph SDK adapter", () => {
         target: { kind: "mock", uri: "wikg://lib" },
       },
     ])
+  })
+
+  it("preserves legacy coordinator overlays and retries the home upgrade", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-wg-adapter-"))
+    const rt = runtime(dir)
+    const stagingDir = path.join(rt.stateDir, "staging")
+    await mkdir(path.join(stagingDir, "work", "archive-key"), { recursive: true })
+    await writeFile(path.join(stagingDir, "work", "archive-key", "database.db"), "pending coordinator data")
+    sdk.failRebindQueue = [new Error("Cannot upgrade home with non-derived coordinator overlays.")]
+
+    await prepareWikiGraphDefaultLibrary(rt)
+
+    expect(sdk.calls.rebind).toHaveLength(2)
+    const recoveries = await readdir(path.join(rt.stateDir, "recovery"))
+    expect(recoveries).toHaveLength(1)
+    expect(
+      await readFile(path.join(rt.stateDir, "recovery", recoveries[0]!, "work", "archive-key", "database.db"), "utf8"),
+    ).toBe("pending coordinator data")
+    await expect(readdir(stagingDir)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("lists default library archives using SDK publicId as the Wanta-facing id", async () => {

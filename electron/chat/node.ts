@@ -2247,13 +2247,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           { signal: generation.controller.signal },
         )
         .then(() => {
-          if (
-            this.isCurrentGeneration(req.sessionId, generation.id) &&
-            !generation.controller.signal.aborted &&
-            !this.activeAssistantMessages.has(req.sessionId)
-          ) {
-            this.scheduleGenerationStartWatchdog(req.sessionId, generation.id)
-          }
+          if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) return
+          // External adapters resolve send() only after the native runtime has
+          // accepted session/prompt and emitted Wanta's user-turn echo. A slow
+          // model may legitimately take longer than OpenCode's 45s first-event
+          // deadline, so switch to the non-terminal inactivity notice instead
+          // of misclassifying TTFA as a missing runtime acknowledgement.
+          this.generations.clearAcknowledgementWatchdog(req.sessionId)
+          this.scheduleGenerationInactivityWatchdog(req.sessionId)
         })
         .catch(async (error: unknown) => {
           await this.rollbackPromptSelectionPersistence(req.sessionId, promptSelectionOwners, previousSelection)

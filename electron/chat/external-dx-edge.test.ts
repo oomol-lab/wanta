@@ -317,6 +317,33 @@ test("external turns receive managed output directories and finalize against the
   )
 })
 
+test("an accepted external turn is not interrupted while the model has a slow first response", async () => {
+  vi.useFakeTimers()
+  try {
+    const { service, events, adapters } = createHarness()
+    const adapter = adapters.get("claude-code")
+    assert.ok(adapter)
+    const sessionId = mintExternalSessionId("claude-code")
+
+    await service.sendMessage(sendRequest(sessionId, "take time to think"))
+    await Promise.resolve()
+    assert.equal(adapter.prompts.length, 1)
+    assert.equal(service.hasActiveGeneration(), true)
+
+    await vi.advanceTimersByTimeAsync(45_000)
+    assert.equal(service.hasActiveGeneration(), true)
+    assert.equal(adapter.cancels.length, 0)
+    assert.equal(
+      sessionEvents(events, sessionId).some((event) => event.event === "messageError"),
+      false,
+    )
+
+    adapter.completeAssistantTurn(sessionId, "slow-reply", "done")
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 test("external plan turns keep the registered project read-only and use managed output directories", async () => {
   const projectRoot = await mkdtemp(path.join(os.tmpdir(), "wanta-external-plan-project-"))
   const { service, adapters } = createHarness(["claude-code"], {

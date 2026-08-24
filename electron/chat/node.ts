@@ -842,6 +842,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (translated.event === "toolCallStarted") {
       this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
       const partIds = this.activeToolParts.get(translated.data.sessionId) ?? new Set<string>()
+      const firstStart = !partIds.has(translated.data.partId)
       partIds.add(translated.data.partId)
       this.activeToolParts.set(translated.data.sessionId, partIds)
       this.activeRuns.update(translated.data.sessionId, {
@@ -849,18 +850,20 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         activeToolPartIds: [...partIds],
         phase: "tool_running",
       })
-      logDiagnostic(
-        "chat-turn",
-        "tool started",
-        {
-          adapter: this.agentAdapterForDiagnostic(translated.data.sessionId),
-          callId: translated.data.callId,
-          generationId: this.generations.get(translated.data.sessionId)?.id,
-          sessionId: translated.data.sessionId,
-          tool: translated.data.tool,
-        },
-        "info",
-      )
+      if (firstStart) {
+        logDiagnostic(
+          "chat-turn",
+          "tool started",
+          {
+            adapter: this.agentAdapterForDiagnostic(translated.data.sessionId),
+            callId: translated.data.callId,
+            generationId: this.generations.get(translated.data.sessionId)?.id,
+            sessionId: translated.data.sessionId,
+            tool: translated.data.tool,
+          },
+          "info",
+        )
+      }
       const childSessionId = taskChildSessionId(translated.data)
       if (childSessionId) {
         this.subagentSessions.remember(translated.data.sessionId, childSessionId)

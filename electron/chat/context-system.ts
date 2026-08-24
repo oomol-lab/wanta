@@ -18,8 +18,9 @@ export function buildLinkRuntimeSystem(runtime: ActiveLinkRuntime, teamName: str
       return [
         "Wanta Link runtime for this turn: OpenConnector.",
         "- Wanta owns the active connection identity; preserve it across every Link call.",
-        "- Use the Wanta-managed `oo connector schema` / `oo connector run` CLI workflow for connected-service work.",
-        "- Raw `oo connector apps` and `oo connector run` calls must omit `--team` and `--personal`.",
+        "- Prefer the session-scoped Wanta Link tools for connected-service work: search_actions when discovery is needed, inspect_action before execution, and call_action with structured params. Use list_apps only for connection inventory or explicit account selection.",
+        "- Do not use raw `oo connector` commands when Wanta Link tools are available. They are a compatibility fallback only.",
+        "- If raw OOCLI fallback is unavoidable, `oo connector apps` and `oo connector run` must omit `--team` and `--personal`; write complex JSON/query payloads to the current process directory and pass `--data @<absolute-path>` instead of shell-quoting them inline; never pipe an OOCLI request directly into another command in a way that can hide its exit status.",
         "- An authorization error applies only to the exact runtime and selector used by that call; do not claim a different workspace is disconnected.",
       ].join("\n")
     case "oomol": {
@@ -33,9 +34,11 @@ export function buildLinkRuntimeSystem(runtime: ActiveLinkRuntime, teamName: str
       }
       return [
         `Current-turn Wanta Link workspace: team ${quoted(normalizedTeamName)}.`,
-        "- Use the Wanta-managed `oo connector schema` / `oo connector run` CLI workflow for connected-service work.",
-        `- Every raw \`oo connector apps\` or \`oo connector run\` call must preserve the selector \`--team ${quoted(normalizedTeamName)}\`.`,
+        "- Prefer the session-scoped Wanta Link tools for connected-service work: search_actions when discovery is needed, inspect_action before execution, and call_action with structured params. Use list_apps only for connection inventory or explicit account selection.",
+        "- Do not use raw `oo connector` commands when Wanta Link tools are available. They are a compatibility fallback only.",
+        `- If raw OOCLI fallback is unavoidable, every \`oo connector apps\` or \`oo connector run\` call must preserve the selector \`--team ${quoted(normalizedTeamName)}\`.`,
         "- Raw `oo connector schema` and `oo connector search` calls never accept workspace selectors such as `--team` or `--personal`.",
+        "- For raw fallback, write complex JSON/query payloads to the current process directory and pass `--data @<absolute-path>` instead of shell-quoting them inline. Never pipe an OOCLI request directly into another command in a way that can hide its exit status.",
         "- Never omit, replace, or change that selector after an error, and never retry in a personal or default workspace.",
         "- `app_not_found` or `connection_required` from a call without this exact selector does not prove that the current Wanta team is disconnected.",
         "- Wanta-provided Link tools own workspace binding, authorization signaling, and credential redaction.",

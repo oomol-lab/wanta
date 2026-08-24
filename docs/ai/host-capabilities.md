@@ -51,16 +51,18 @@ Capability ownership and transport are separate decisions. Wanta owns identity,
 workspace, credentials, validation, redaction, authorization, and audit
 semantics regardless of the wire used by an agent.
 
-- External coding agents use the Wanta-managed `oo` CLI for Connector discovery
-  and actions. This preserves their native command workflow and avoids eagerly
-  loading the Link catalog as MCP tools.
+- External ACP agents receive the session-scoped `wanta_link` MCP server with
+  four generic meta-tools (`list_apps`, `search_actions`, `inspect_action`, and
+  `call_action`). Provider actions remain dynamically discovered rather than
+  eagerly registered as individual tools. Guarded OOCLI remains a compatibility
+  fallback when the host transport is unavailable.
 - MCP is reserved for stateful Wanta-native capabilities without an equivalent
   managed CLI, such as the integrated browser, structured questions, knowledge,
   current-turn Skill snapshots, and isolated direct-provider runtimes.
 - OpenCode keeps its in-process host invoke path.
 - Every transport normalizes into the same tool UI and permission vocabulary.
 
-Every agent runtime that can execute `oo` must use a Wanta-managed guard. The guard must fail closed
+Every agent runtime that falls back to `oo` must use a Wanta-managed guard. The guard must fail closed
 when it cannot resolve an unambiguous session workspace, preserve explicit
 selectors, reject cross-workspace fallback, and redact connector output.
 Loaded Skill instructions keep Connector work on that managed CLI. The shared
@@ -106,8 +108,7 @@ Delivered:
 
 ### Phase 2: Wanta MCP capability server
 
-Historical foundation (the Link-over-MCP choice below was later superseded by
-the managed-CLI transport policy above):
+Current shared transport foundation:
 
 - A generic `HostCapabilityKernel`, per-session `HostCapabilityLease`, and
   authenticated `HostCapabilityServer` now own registration, validation,
@@ -132,11 +133,12 @@ contract and fails closed on ambiguous workspace identity.
 
 ### Phase 3: guarded Link parity
 
-The shared governance boundary remains delivered, but external coding agents
-now reach Connector through the guarded OOCLI rather than an eagerly injected
-`wanta_link` MCP server. OpenCode continues to use the in-process host Link
-implementation. Both paths preserve workspace identity, redact output, and fail
-closed instead of falling back to another identity.
+External ACP agents reach Connector through the four-tool `wanta_link` MCP
+surface; OpenCode continues to use the in-process host Link implementation.
+Both transports execute the same `LinkCapability`, preserve workspace identity,
+redact output, and fail closed instead of falling back to another identity.
+The guarded OOCLI path remains available only for compatibility and uses the
+same workspace selector and redaction policy.
 
 ### Phase 4: Skill registry and task snapshots
 

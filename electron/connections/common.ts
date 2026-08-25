@@ -112,6 +112,18 @@ export interface ConnectionActionCatalogItem {
   service: string
 }
 
+export interface ConnectionLingxingErpUser {
+  displayName: string | null
+  email: string | null
+  id: string
+  isMaster: boolean | null
+  mobile: string | null
+  roles: string[]
+  sellerPermissions: string[]
+  status: "active" | "disabled" | "unknown"
+  username: string | null
+}
+
 export interface ConnectionExecutionLogRequest {
   appId: string
   cursor?: string

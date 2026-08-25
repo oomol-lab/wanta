@@ -3,6 +3,9 @@ import { skillsMessages } from "./skills-messages.ts"
 export const enMessages = {
   "common.cancel": "Cancel",
   "common.close": "Close",
+  "common.delete": "Delete",
+  "common.edit": "Edit",
+  "common.error": "Something went wrong",
   "common.confirm": "Confirm",
   "common.save": "Save",
   "common.submit": "Submit",
@@ -1328,6 +1331,49 @@ export const enMessages = {
   "connections.viewAccess": "View access",
   "connections.accessTitle": "Connection access",
   "connections.accessDescription": "Configure member and Action access for {name}.",
+  "connections.accessRulesDescription": "Configure the Team default and named permission rules for {name}.",
+  "connections.accessRulesTitle": "Permission rules",
+  "connections.accessRulesHint": "Each member uses one rule. Unassigned members use the Team default.",
+  "connections.accessTeamDefault": "Team default",
+  "connections.accessRemainingMembers": "{count} remaining members",
+  "connections.accessAssignedMembers": "{count} assigned members",
+  "connections.accessAddRule": "Add rule",
+  "connections.accessCreateRule": "Create permission rule",
+  "connections.accessEditRule": "Edit permission rule",
+  "connections.accessRuleName": "Rule name",
+  "connections.accessRuleMembers": "Assigned members",
+  "connections.accessRuleMembersDescription": "Moving a member here removes their assignment from any other rule.",
+  "connections.accessNewRuleDefaultName": "Rule #{count}",
+  "connections.accessDefaultRuleDescription": "This permission applies to every member without a custom rule.",
+  "connections.accessCustomRuleDescription": "Configure the members and Actions that belong to this rule.",
+  "connections.accessDeleteRuleTitle": "Delete this permission rule?",
+  "connections.accessDeleteRuleDescription":
+    "Members assigned to “{name}” will fall back to the Team default, which may expand their access.",
+  "connections.accessRulesRestoreDescription":
+    "This removes the Team default override, all custom rules, member assignments, and provider-specific settings for this Connection.",
+  "connections.accessProviderConfigPreserved":
+    "This rule includes provider-specific data permissions. They are preserved while you edit members or Actions.",
+  "connections.accessLingxingTitle": "Lingxing owner permissions",
+  "connections.accessLingxingDescription": "Limit this rule to data owned by selected Lingxing ERP users.",
+  "connections.accessLingxingAll": "Unrestricted owners",
+  "connections.accessLingxingSelected": "Selected owners",
+  "connections.accessLingxingEmpty": "This Connection returned no Lingxing ERP users.",
+  "connections.accessLingxingLoadFailed": "Lingxing ERP users could not be loaded: {error}",
+  "connections.accessLingxingForbidden":
+    "Lingxing rejected the ERP user request. Grant the configured App ID permission to read ERP users, then retry.",
+  "connections.accessLingxingNotFound": "This Lingxing Connection could not be found.",
+  "connections.accessLingxingNotReady": "This Lingxing Connection is not ready to list ERP users.",
+  "connections.accessLingxingRateLimited": "Lingxing is rate limiting ERP user requests. Try again later.",
+  "connections.accessLingxingUnavailableService": "Lingxing is temporarily unavailable. Try again later.",
+  "connections.accessLingxingResponsibleNames": "Owners: {names}",
+  "connections.accessLingxingNameSeparator": ", ",
+  "connections.accessLingxingNoResponsibleUsers": "No owners allowed",
+  "connections.lingxingAppIdPermissionHelp":
+    "The Lingxing App ID must be allowed to read ERP user accounts before owner permissions can be configured.",
+  "connections.accessLingxingUnavailable": "Saved owner is no longer returned by Lingxing",
+  "connections.accessReadOnlyRuleDescription":
+    "Your effective access is determined by this rule. Ask a Team administrator to change it.",
+  "connections.actionAccessDeniedSummary": "All Actions are blocked",
   "connections.accessSaved": "Connection access saved",
   "connections.accessDefaultsRestored": "Default connection access restored",
   "connections.accessInvalidTitle": "Invalid connection access",
@@ -1335,6 +1381,8 @@ export const enMessages = {
     "This connection policy cannot be parsed safely. A team administrator must repair it before use.",
   "connections.accessConcurrencyUnavailable":
     "The Connection access version could not be verified. Refresh and try again to avoid overwriting another administrator's changes.",
+  "connections.accessConcurrencyConflict":
+    "Another administrator changed this Connection access. The latest policy was reloaded; review it before editing again.",
   "connections.accessRepair": "Repair access",
   "connections.accessRepairTitle": "Restore default connection access?",
   "connections.accessRepairDescription":

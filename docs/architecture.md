@@ -569,12 +569,28 @@ OOMOL connector-management requests **moved wholesale to the renderer**
 this was the poster child for "the main process does too much": during OAuth the summary's multi-way
 fan-out was triggered at high frequency by the 2s poll. The client uses `oomolFetch` (session cookie
 auto-auth, **no `Authorization: Bearer` anymore**); the Apps and detail team resources attach
-the `x-oo-organization-name` header per workspace, while the global `/v1/providers` public catalog
+the `x-oo-team-name` header per workspace, while the global `/v1/providers` public catalog
 attaches no team header. The two read kinds each keep an etag/`if-none-match` + 30s GET cache (saving
 a re-pull of the ~600-provider catalog on every poll), and a permission denial or transient failure
 on the team Apps does not clear the public Provider catalog; the pure functions
 `summary.ts` / `executions.ts` / `federated.ts` / `domain.ts` are imported directly by
-the renderer (merging `/v1/apps` connected + `/v1/providers` catalog → `ConnectionSummary`).
+the renderer (merging the role-selected App surface with `/v1/providers` → `ConnectionSummary`).
+Creators and admins use `/v1/connections` for the management surface; ordinary members use the
+policy-visible `/v1/apps` surface. Cache keys include the workspace and surface so a role change
+cannot reuse management data in a member view.
+
+Team Connection authorization uses only the final multi-rule `app-access` contract. Each
+`role::connector-app:<appId>` contains one Connector rule with `permissionRules`: a `teamDefault`
+grant, named custom `rules`, and member-to-rule `assignments`. Every grant independently owns its
+Action allowlist and optional provider-specific `appAccessConfig`; a member uses exactly one grant,
+with no union against the Team default. The Connection detail is the only editing surface. Team
+member rows manage identity and Team roles only; the former member-centric Connection checkbox
+editor was removed because it cannot represent rule assignment or grant contents. Parsing and
+canonical writes live in `src/lib/team-connection-access.ts`; supported historical single-rule
+`requireRole` plus `user.roles` documents are accepted only as migration input, while malformed or
+unsupported policy shapes fail closed. All saves re-read the policy and write with `If-Match`. Lingxing owner
+scope is the first provider-specific adapter and is stored per grant without coupling its data to
+Action or member edits.
 
 The connection summary reads Apps and Providers only (`appsStatus`: ready/forbidden/unavailable).
 The Connections UI deliberately does not request or display aggregate call counts, because the

@@ -462,7 +462,15 @@ export function ConnectDialog({
   }
 
   const { primary, fields } = getCredentialFields(detail, authType)
-  const allFields = primary ? [primary, ...fields] : fields
+  const sourceFields = primary ? [primary, ...fields] : fields
+  const allFields = sourceFields.map((field) =>
+    detail.service === "lingxing" && field.key === "appId"
+      ? {
+          ...field,
+          description: [field.description, t("connections.lingxingAppIdPermissionHelp")].filter(Boolean).join("\n"),
+        }
+      : field,
+  )
   const missingRequired = allFields.some((field) => field.required && !(values[field.key] ?? "").trim())
 
   const submit = (): void => {

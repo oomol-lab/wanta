@@ -3,12 +3,10 @@ import type { Team, TeamMember, TeamOverview, TeamUserSummary } from "../../../e
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
-  buildGrantViews,
   buildMemberViews,
   buildTeamMemberViews,
   createTeamSkillPackageSet,
   errorState,
-  filterTeamProviderOptions,
   maxTeamNameLength,
   loadState,
   teamCanManage,
@@ -17,7 +15,6 @@ import {
   teamRole,
   teamSkillPackageLinked,
   planProviderSkillRecommendationBulkLinks,
-  providerOptionsWithSelected,
   refreshAfterCommittedTeamMutation,
 } from "./team-management-model.ts"
 import { scopedBusyOperationIsCurrent } from "./use-scoped-busy-action.ts"
@@ -132,7 +129,7 @@ test("team role helpers classify managers, labels, and default connection access
   assert.equal(teamRoleLabelKey("member"), "teams.roleMember")
 })
 
-test("buildMemberViews and buildGrantViews decorate users, status, and provider labels", () => {
+test("buildMemberViews decorates user identity and status", () => {
   const members = buildMemberViews(
     [
       { ...member("user-a"), disable: false },
@@ -146,30 +143,10 @@ test("buildMemberViews and buildGrantViews decorate users, status, and provider 
       } satisfies TeamUserSummary,
     },
   )
-  const grants = buildGrantViews(
-    {
-      "user::user-a": {
-        connector: [{ method: "POST", provider: ["gmail", "unknown"] }],
-      },
-    },
-    members,
-    [{ label: "Gmail", service: "gmail" }],
-  )
-
   assert.equal(members[0]?.displayName, "Alice")
   assert.equal(members[0]?.disable, false)
   assert.equal(members[1]?.disable, true)
   assert.equal(members[0]?.secondaryLabel, "user-a")
-  assert.equal(grants.error, null)
-  assert.deepEqual(grants.grants[0], {
-    allProviders: false,
-    member: members[0],
-    providers: [
-      { label: "Gmail", service: "gmail" },
-      { label: "unknown", service: "unknown" },
-    ],
-    userId: "user-a",
-  })
 })
 
 test("buildTeamMemberViews falls back to creator and preserves the current admin role", () => {
@@ -197,25 +174,6 @@ test("buildTeamMemberViews falls back to creator and preserves the current admin
     ],
   )
   assert.equal(members[1]?.avatar, "https://avatar.example/me.png")
-})
-
-test("providerOptionsWithSelected keeps selected unknown providers visible", () => {
-  assert.deepEqual(providerOptionsWithSelected([{ label: "Slack", service: "slack" }], ["gmail", "slack"]), [
-    { label: "gmail", service: "gmail" },
-    { label: "Slack", service: "slack" },
-  ])
-})
-
-test("filterTeamProviderOptions matches labels and service ids", () => {
-  const options = [
-    { label: "Google Mail", service: "gmail" },
-    { label: "Microsoft Teams", service: "microsoft-teams" },
-  ]
-
-  assert.deepEqual(filterTeamProviderOptions(options, " mail "), [options[0]])
-  assert.deepEqual(filterTeamProviderOptions(options, "MICROSOFT-TEAMS"), [options[1]])
-  assert.deepEqual(filterTeamProviderOptions(options, ""), options)
-  assert.deepEqual(filterTeamProviderOptions(options, "slack"), [])
 })
 
 test("team skill package set normalizes package names", () => {

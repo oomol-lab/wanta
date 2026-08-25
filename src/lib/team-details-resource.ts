@@ -1,13 +1,7 @@
 import type { ConnectionAppSummary } from "../../electron/connections/common.ts"
-import type { TeamAppAccess, TeamMember, TeamProviderOption, TeamUserSummary } from "../../electron/teams/common.ts"
+import type { TeamAppAccess, TeamMember, TeamUserSummary } from "../../electron/teams/common.ts"
 
-import {
-  getTeamAppAccess,
-  listTeamConnectionApps,
-  listTeamMembers,
-  listTeamProviderOptions,
-  listUserSummaries,
-} from "./teams-client.ts"
+import { getTeamAppAccess, listTeamConnectionApps, listTeamMembers, listUserSummaries } from "./teams-client.ts"
 
 const teamDetailsStaleMs = 60_000
 const teamDetailsMaxEntries = 256
@@ -23,10 +17,6 @@ const resourceCache = new Map<string, ResourceEntry<unknown>>()
 
 function resourceKey(accountId: string, teamId: string, resource: string): string {
   return `${accountId}\u0000${teamId}\u0000${resource}`
-}
-
-function providerOptionsResourceKey(accountId: string, teamId: string, teamName: string): string {
-  return resourceKey(accountId, teamId, `provider-options:${teamName.trim()}`)
 }
 
 function connectionAppsResourceKey(accountId: string, teamId: string, teamName: string): string {
@@ -111,14 +101,6 @@ export function subscribeTeamMembersResource(accountId: string, teamId: string, 
   }
 }
 
-export function getCachedTeamProviderOptions(
-  accountId: string,
-  teamId: string,
-  teamName: string,
-): TeamProviderOption[] | null {
-  return readCached(providerOptionsResourceKey(accountId, teamId, teamName))
-}
-
 export function getCachedTeamAppAccess(accountId: string, teamId: string): TeamAppAccess | null {
   return readCached(resourceKey(accountId, teamId, "app-access"))
 }
@@ -146,19 +128,6 @@ export function getTeamMembersResource(
   options: TeamDetailsResourceOptions = {},
 ): Promise<TeamMember[]> {
   return loadResource(resourceKey(accountId, teamId, "members"), () => listTeamMembers(teamId), options.forceRefresh)
-}
-
-export function getTeamProviderOptionsResource(
-  accountId: string,
-  teamId: string,
-  teamName: string,
-  options: TeamDetailsResourceOptions = {},
-): Promise<TeamProviderOption[]> {
-  return loadResource(
-    providerOptionsResourceKey(accountId, teamId, teamName),
-    () => listTeamProviderOptions(teamName),
-    options.forceRefresh,
-  )
 }
 
 export function getTeamAppAccessResource(

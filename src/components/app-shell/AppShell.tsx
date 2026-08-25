@@ -1360,17 +1360,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [activeComposerDraftKey, cancelRetryForDrawer, connections.refresh],
   )
 
-  const handleOpenTeamConnection = React.useCallback(
-    ({ appId, service }: { appId: string; service: string }): void => {
-      setSelectedService(service)
-      setSelectedConnectionAppId(appId)
-      setConnectionCatalogFilter({ kind: "all" })
-      setRoute("connections")
-      void connections.refresh({}, { silent: true })
-    },
-    [connections.refresh],
-  )
-
   const handleOpenChatConnectionProvider = React.useCallback(
     (service: string): void => {
       setRoute("chat")
@@ -2236,9 +2225,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                 />
               ) : route === "teams" && oomolEnabled ? (
                 <TeamManagementRoute
-                  connectionProviders={activeProviders}
                   connectedProvidersLoading={activeProvidersLoading}
-                  onOpenConnection={handleOpenTeamConnection}
                   teamSkills={teamSkills}
                   providerSkillRecommendationsState={providerSkillRecommendations}
                   workspace={teamWorkspace}

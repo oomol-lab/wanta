@@ -33,11 +33,6 @@ export interface TeamUserSearchResult {
   username: string
 }
 
-export interface TeamProviderOption {
-  label: string
-  service: string
-}
-
 export interface TeamOverview {
   accountId: string
   created: Team[]

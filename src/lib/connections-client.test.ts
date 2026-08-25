@@ -8,6 +8,7 @@ import {
   getConnectionActions,
   getConnectionCatalogSummary,
   getConnectionExecutionLogs,
+  getConnectionLingxingErpUsers,
   getConnectionProviderDetail,
   getConnectionSummary,
   listOAuthClientConfigs,
@@ -107,6 +108,21 @@ describe("connections-client", () => {
     })
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1")
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("loads Lingxing ERP users from the scoped management connection", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({ data: [{ id: "erp-1", displayName: "Alice", status: "active" }] }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getConnectionLingxingErpUsers("app-1", managementWorkspace)).resolves.toMatchObject({
+      data: [{ id: "erp-1", displayName: "Alice" }],
+    })
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/connections/by-id/app-1/lingxing/erp-users")
+    const [, init] = fetchMock.mock.calls[0] ?? []
+    expect(new Headers(init?.headers).get("x-oo-team-name")).toBe("team-name")
   })
 
   it("loads the global Action catalog for a provider without a Team header", async () => {

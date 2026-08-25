@@ -579,12 +579,10 @@ const chatService = new ChatServiceImpl(null, {
     // agent's ordinary first `oo connector schema` call before it has had a
     // reason to `cd` into the turn process directory.
     const sessionScratchRoot = externalSessionScratchCwd(externalAgentRootDir, sessionId)
-    return externalOoScopeStore.activate(
-      sessionId,
-      activeLinkCapabilityRuntime?.linkRuntime.kind ?? "none",
-      teamName,
-      [...(cwdRoots ?? []), ...(sessionScratchRoot ? [sessionScratchRoot] : [])],
-    )
+    return externalOoScopeStore.activate(sessionId, activeLinkCapabilityRuntime?.linkRuntime.kind ?? "none", teamName, [
+      ...(cwdRoots ?? []),
+      ...(sessionScratchRoot ? [sessionScratchRoot] : []),
+    ])
   },
   onOomolAuthRequired: () => authManager.expireSession().then(() => undefined),
   onSetAgentTeam: handleAgentTeamChanged,

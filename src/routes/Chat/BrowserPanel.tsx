@@ -345,7 +345,5 @@ export function BrowserPanel({
 }
 
 function sameBrowserBounds(left: BrowserViewBounds | null, right: BrowserViewBounds): boolean {
-  return (
-    left?.height === right.height && left.width === right.width && left.x === right.x && left.y === right.y
-  )
+  return left?.height === right.height && left.width === right.width && left.x === right.x && left.y === right.y
 }

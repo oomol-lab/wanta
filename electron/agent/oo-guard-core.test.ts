@@ -230,10 +230,7 @@ describe("OOMOL connector workspace guard", () => {
       () => resolveExternalGuardCwd(scope, "/Users/wushuang/code/wanta"),
       /outside the active turn's managed working directories/u,
     )
-    assert.throws(
-      () => resolveExternalGuardCwd(scope, "relative"),
-      /without an absolute managed working directory/u,
-    )
+    assert.throws(() => resolveExternalGuardCwd(scope, "relative"), /without an absolute managed working directory/u)
   })
 
   test("keeps OpenConnector business calls free of OOMOL selectors", () => {

@@ -326,7 +326,8 @@ test("external turns receive managed output directories and finalize against the
 
 test("external turns publish and clear their guarded OOCLI workspace scope", async () => {
   const scopeChanges = vi.fn(
-    async (_input: { active: boolean; cwdRoots?: readonly string[]; sessionId: string; teamName?: string }) => undefined,
+    async (_input: { active: boolean; cwdRoots?: readonly string[]; sessionId: string; teamName?: string }) =>
+      undefined,
   )
   const { service, adapters } = createHarness(["claude-code"], {
     onExternalTurnScopeChanged: scopeChanges,

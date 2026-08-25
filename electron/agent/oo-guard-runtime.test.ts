@@ -35,10 +35,9 @@ async function fixture(
     sessionCwdRoots:
       (scope as WorkspaceTeamScope).sessionCwdRoots ??
       Object.fromEntries(
-        Object.keys(((scope as WorkspaceTeamScope).sessionRuntimes ?? {}) as Record<string, unknown>).map((sessionId) => [
-          sessionId,
-          [root],
-        ]),
+        Object.keys(((scope as WorkspaceTeamScope).sessionRuntimes ?? {}) as Record<string, unknown>).map(
+          (sessionId) => [sessionId, [root]],
+        ),
       ),
   }
   const server = new ExternalOoGuardServer({ command: realOo, scope: () => normalizedScope })

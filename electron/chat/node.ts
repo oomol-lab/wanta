@@ -2209,8 +2209,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         active: true,
         sessionId: req.sessionId,
         ...(teamName ? { teamName } : {}),
-        cwdRoots: [artifactDir, processDir, artifactProjectRoot, project.projectRoot].filter(
-          (root): root is string => Boolean(root),
+        cwdRoots: [artifactDir, processDir, artifactProjectRoot, project.projectRoot].filter((root): root is string =>
+          Boolean(root),
         ),
       })
       const artifactBaseline = await captureArtifactSessionBaseline(

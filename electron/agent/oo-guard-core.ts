@@ -243,7 +243,9 @@ export function resolveExternalGuardCwd(scope: WorkspaceTeamScope, cwd: unknown)
     .map((value) => path.resolve(value))
   const isWithinManagedRoot = roots.some((root) => candidate === root || candidate.startsWith(`${root}${path.sep}`))
   if (!isWithinManagedRoot) {
-    throw new Error("Wanta refused an external connector command outside the active turn's managed working directories.")
+    throw new Error(
+      "Wanta refused an external connector command outside the active turn's managed working directories.",
+    )
   }
   return candidate
 }

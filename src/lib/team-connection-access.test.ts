@@ -224,16 +224,13 @@ describe("team connection access v2", () => {
       parsed.apps[0].permissionRules,
       parsed.apps[0].permissionRules.teamDefault,
     )
-    expect(next["role::connector-app:app-lingxing"]?.connector).toMatchObject([
-      {
-        permissionRules: {
-          teamDefault: {
-            appAccessConfig: {
-              users: [{ realname: "Alice", uid: "owner-1", username: "alice" }],
-            },
-          },
-        },
-      },
+    const role = next["role::connector-app:app-lingxing"] as {
+      connector?: Array<{
+        permissionRules?: { teamDefault?: { appAccessConfig?: { users?: unknown } } }
+      }>
+    }
+    expect(role.connector?.[0]?.permissionRules?.teamDefault?.appAccessConfig?.users).toEqual([
+      { realname: "Alice", uid: "owner-1", username: "alice" },
     ])
   })
 

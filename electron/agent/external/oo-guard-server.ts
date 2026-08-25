@@ -1,4 +1,5 @@
 import type { WorkspaceTeamScope } from "../oo-guard-core.ts"
+import type { ChildProcess } from "node:child_process"
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
 
 import { spawn } from "node:child_process"
@@ -28,6 +29,7 @@ export interface ExternalOoGuardServerOptions {
 
 /** Electron-owned execution boundary for the external Agent's managed `oo`. */
 export class ExternalOoGuardServer {
+  private readonly activeChildren = new Set<ChildProcess>()
   private connectionValue: { url: string } | null = null
   private disposed = false
   private readonly server: Server
@@ -50,6 +52,7 @@ export class ExternalOoGuardServer {
 
   public async dispose(): Promise<void> {
     this.disposed = true
+    for (const child of this.activeChildren) terminateChild(child)
     if (!this.server.listening) return
     await new Promise<void>((resolve, reject) => {
       this.server.close((error) => (error ? reject(error) : resolve()))
@@ -102,8 +105,22 @@ export class ExternalOoGuardServer {
     const args = isConnectorBusinessCommand(originalArgs)
       ? bindExternalConnectorWorkspace(originalArgs, this.options.scope())
       : originalArgs
-    const result = await runOo(this.options.command, args, this.options.env ?? process.env)
-    respondJson(response, 200, result)
+    const controller = new AbortController()
+    const abortOnDisconnect = (): void => {
+      if (!response.writableEnded) controller.abort()
+    }
+    request.once("aborted", abortOnDisconnect)
+    response.once("close", abortOnDisconnect)
+    try {
+      const result = await runOo(this.options.command, args, this.options.env ?? process.env, {
+        activeChildren: this.activeChildren,
+        signal: controller.signal,
+      })
+      respondJson(response, 200, result)
+    } finally {
+      request.off("aborted", abortOnDisconnect)
+      response.off("close", abortOnDisconnect)
+    }
   }
 }
 
@@ -111,8 +128,10 @@ async function runOo(
   command: string,
   args: string[],
   env: NodeJS.ProcessEnv,
+  options: { activeChildren: Set<ChildProcess>; signal: AbortSignal },
 ): Promise<{ exitCode: number; stderr: string; stdout: string }> {
   const child = spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
+  options.activeChildren.add(child)
   const stdout: Buffer[] = []
   const stderr: Buffer[] = []
   let stdoutSize = 0
@@ -124,12 +143,9 @@ async function runOo(
     chunks.push(chunk)
     return nextSize
   }
-  const terminate = (): void => {
-    child.kill("SIGTERM")
-    const timer = setTimeout(() => child.kill("SIGKILL"), 5_000)
-    timer.unref()
-    child.once("close", () => clearTimeout(timer))
-  }
+  const terminate = (): void => terminateChild(child)
+  options.signal.addEventListener("abort", terminate, { once: true })
+  if (options.signal.aborted) terminate()
   child.stdout.on("data", (chunk: Buffer) => {
     if (captureError) return
     try {
@@ -148,16 +164,30 @@ async function runOo(
       terminate()
     }
   })
-  const exitCode = await new Promise<number>((resolve, reject) => {
-    child.once("error", reject)
-    child.once("close", (code, signal) => resolve(code ?? (signal ? 1 : 0)))
-  })
+  let exitCode: number
+  try {
+    exitCode = await new Promise<number>((resolve, reject) => {
+      child.once("error", reject)
+      child.once("close", (code, signal) => resolve(code ?? (signal ? 1 : 0)))
+    })
+  } finally {
+    options.signal.removeEventListener("abort", terminate)
+    options.activeChildren.delete(child)
+  }
   if (captureError) throw captureError
   return {
     exitCode,
     stdout: redactConnectorOutput(Buffer.concat(stdout).toString("utf8")),
     stderr: redactConnectorOutput(Buffer.concat(stderr).toString("utf8")),
   }
+}
+
+function terminateChild(child: ChildProcess): void {
+  if (child.killed || child.exitCode !== null || child.signalCode !== null) return
+  child.kill("SIGTERM")
+  const timer = setTimeout(() => child.kill("SIGKILL"), 5_000)
+  timer.unref()
+  child.once("close", () => clearTimeout(timer))
 }
 
 async function readRequest(request: IncomingMessage): Promise<unknown> {

@@ -375,9 +375,16 @@ describe("AcpAgentAdapter", () => {
     await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(2))
   })
 
-  test("fails a queued process route after a bounded wait and tears down the wedged runtime", async () => {
+  test("fails a queued process route, tears down the wedged runtime, and recreates its ACP session", async () => {
+    let promptCount = 0
     const harness = await createHarness(
-      { prompt: async () => await new Promise<PromptResponse>(() => undefined) },
+      {
+        prompt: async () => {
+          promptCount += 1
+          if (promptCount === 1) return await new Promise<PromptResponse>(() => undefined)
+          return { stopReason: "end_turn" }
+        },
+      },
       "grok",
       undefined,
       undefined,
@@ -394,6 +401,12 @@ describe("AcpAgentAdapter", () => {
     await expect(
       harness.adapter.send({ ...promptInput("second"), sessionId: "wanta-session-2", messageId: "user-2" }),
     ).rejects.toThrow(/model route remained busy/u)
+
+    await harness.adapter.send({ ...promptInput("retry"), messageId: "user-retry" })
+    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(2))
+    expect(harness.fake.connectCount()).toBe(2)
+    expect(harness.fake.newSessionRequests).toHaveLength(2)
+    expect(harness.fake.promptRequests[1]?.sessionId).not.toBe(harness.fake.promptRequests[0]?.sessionId)
   })
 
   test("streams a full turn: user synthesis, chunks, tool pair, completion", async () => {

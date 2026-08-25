@@ -1159,9 +1159,13 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     this.connectionHandle = undefined
     this.connectionPromise = undefined
     if (handle) {
-      // Detached first, so loss handling below skips the error broadcast.
-      this.handleConnectionLost(handle)
+      // This is an intentional teardown, so do not broadcast an unexpected
+      // exit. ACP session ids are still connection-scoped and must not survive
+      // into the replacement process.
+      this.teardownHandle(handle)
     }
+    this.sessionsByWantaId.clear()
+    this.wantaIdByAcpId.clear()
   }
 
   /**

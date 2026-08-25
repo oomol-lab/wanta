@@ -4,6 +4,7 @@ import type {
   ConnectionAppDetail,
   ConnectionExecutionLogRequest,
   ConnectionExecutionLogSummary,
+  ConnectionLingxingErpUser,
   ConnectionProviderDetail,
   ConnectionSummary,
   ConnectionUserOAuthClientConfigSummary,
@@ -471,6 +472,19 @@ export function getConnectionActions(
 ): Promise<{ data: ConnectionActionCatalogItem[]; meta: unknown }> {
   const search = new URLSearchParams({ service }).toString()
   return getConnector<ConnectionActionCatalogItem[]>(`/v1/actions?${search}`, null, options)
+}
+
+export function getConnectionLingxingErpUsers(
+  appId: string,
+  workspace: ConnectionWorkspace,
+  options: ConnectorReadOptions = {},
+): Promise<{ data: ConnectionLingxingErpUser[]; meta: unknown }> {
+  requireConnectionManagement(workspace)
+  return getConnector<ConnectionLingxingErpUser[]>(
+    `${connectionAppsPath(workspace)}/by-id/${encodeURIComponent(appId)}/lingxing/erp-users`,
+    workspace,
+    options,
+  )
 }
 
 export async function getConnectionSummary(

@@ -1,8 +1,6 @@
 import type {
   Team,
-  TeamAppAccess,
   TeamMember,
-  TeamProviderOption,
   TeamRole,
   TeamUserSearchResult,
   TeamUserSummary,
@@ -10,7 +8,6 @@ import type {
 import type { RuntimeSkillRemoveTarget } from "./skill-route-model.ts"
 
 export { teamCanManage, teamRole } from "../../lib/team-permissions.ts"
-import { parseProviderGrants } from "./team-provider-access.ts"
 
 export type BusyAction =
   | "add"
@@ -26,7 +23,6 @@ export type BusyAction =
   | `removeSkill:${string}`
   | `updateMemberRole:${string}`
 export type LoadStatus = "idle" | "loading" | "ready" | "error"
-export type ProviderAccessMode = "create" | "edit"
 
 export interface LoadState<T> {
   data: T
@@ -57,21 +53,6 @@ export interface MemberView extends TeamMember {
   displayName: string
   fallback: string
   secondaryLabel: string
-}
-
-export interface ProviderGrantView {
-  allProviders: boolean
-  member: MemberView | null
-  providers: TeamProviderOption[]
-  userId: string
-}
-
-export interface ProviderAccessForm {
-  allProviders: boolean
-  mode: ProviderAccessMode
-  open: boolean
-  providers: string[]
-  userId: string
 }
 
 export interface MemberSearchState {
@@ -107,14 +88,6 @@ export const minimumMemberSearchLength = 2
 
 const teamNamePattern = /^[A-Za-z0-9._'-]+$/
 
-export const initialProviderAccessForm: ProviderAccessForm = {
-  allProviders: false,
-  mode: "create",
-  open: false,
-  providers: [],
-  userId: "",
-}
-
 export function loadState<T>(data: T): LoadState<T> {
   return { data, error: null, errorStatus: null, status: "idle" }
 }
@@ -148,17 +121,6 @@ export function isConflictError(error: unknown): boolean {
 
 export function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values))
-}
-
-export function filterTeamProviderOptions(options: readonly TeamProviderOption[], query: string): TeamProviderOption[] {
-  const normalizedQuery = query.trim().toLowerCase()
-  if (!normalizedQuery) {
-    return [...options]
-  }
-  return options.filter(
-    (option) =>
-      option.label.toLowerCase().includes(normalizedQuery) || option.service.toLowerCase().includes(normalizedQuery),
-  )
 }
 
 export function teamSkillPackageKey(packageName: string): string {
@@ -292,42 +254,4 @@ export function buildTeamMemberViews({
   }
 
   return buildMemberViews(nextMembers, fallbackSummaries)
-}
-
-export function buildGrantViews(
-  appAccess: TeamAppAccess | null,
-  members: MemberView[],
-  providerOptions: TeamProviderOption[],
-): { error: string | null; grants: ProviderGrantView[] } {
-  if (!appAccess) {
-    return { error: null, grants: [] }
-  }
-
-  const parsed = parseProviderGrants(appAccess)
-  if (!parsed.ok) {
-    return { error: parsed.error.message, grants: [] }
-  }
-
-  const labelByService = new Map(providerOptions.map((provider) => [provider.service, provider.label]))
-  const memberByUserId = new Map(members.map((member) => [member.user_id, member]))
-  return {
-    error: null,
-    grants: parsed.grants.map((grant) => ({
-      allProviders: grant.allProviders,
-      member: memberByUserId.get(grant.userId) ?? null,
-      providers: grant.providers.map((service) => ({ service, label: labelByService.get(service) ?? service })),
-      userId: grant.userId,
-    })),
-  }
-}
-
-export function providerOptionsWithSelected(
-  options: TeamProviderOption[],
-  selectedProviders: string[],
-): TeamProviderOption[] {
-  const seen = new Set(options.map((option) => option.service))
-  const unknown = selectedProviders
-    .filter((service) => !seen.has(service))
-    .map((service) => ({ service, label: service }))
-  return [...options, ...unknown].sort((left, right) => left.label.localeCompare(right.label))
 }

@@ -7,7 +7,6 @@ import type {
   TeamMember,
   TeamMemberRequest,
   TeamOverview,
-  TeamProviderOption,
   TeamUserSearchResult,
   TeamUserSummary,
   UpdateTeamMembersStatusRequest,
@@ -17,7 +16,7 @@ import type {
 } from "../../electron/teams/common.ts"
 
 import { normalizeApp } from "../../electron/connections/summary.ts"
-import { getConnectionApps, getConnectionProviders } from "@/lib/connections-client"
+import { getConnectionApps } from "@/lib/connections-client"
 import { apiBaseUrl, teamControlBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
 import { sortSystemCreatedTeamFirst } from "@/lib/team-overview"
@@ -32,16 +31,6 @@ interface TeamsEnvelope {
 
 interface TeamMembersEnvelope {
   members?: unknown
-}
-
-interface RawConnectorApp {
-  service?: unknown
-  status?: unknown
-}
-
-interface RawConnectorProvider {
-  displayName?: unknown
-  service?: unknown
 }
 
 interface RequestOptions extends RequestInit {
@@ -213,27 +202,6 @@ function normalizeUserSearchResults(value: unknown): TeamUserSearchResult[] {
     return []
   }
   return value.map(normalizeUserSearchResult).filter((item): item is TeamUserSearchResult => Boolean(item))
-}
-
-function normalizeProviderOptions(apps: RawConnectorApp[], providers: RawConnectorProvider[]): TeamProviderOption[] {
-  const providerLabelByService = new Map(
-    providers
-      .map((provider) => {
-        const service = asString(provider.service)
-        return service ? ([service, asString(provider.displayName) ?? service] as const) : undefined
-      })
-      .filter((item): item is readonly [string, string] => Boolean(item)),
-  )
-  const connectedServices = new Set<string>()
-  for (const app of apps) {
-    const service = asString(app.service)
-    if (service && app.status !== "disconnected") {
-      connectedServices.add(service)
-    }
-  }
-  return Array.from(connectedServices)
-    .map((service) => ({ service, label: providerLabelByService.get(service) ?? service }))
-    .sort((left, right) => left.label.localeCompare(right.label))
 }
 
 function normalizeAppAccess(value: unknown): TeamAppAccess {
@@ -562,21 +530,6 @@ export async function updateTeamAppAccess(
     }),
   )
   return updated
-}
-
-export async function listTeamProviderOptions(teamName: string): Promise<TeamProviderOption[]> {
-  const normalized = teamName.trim()
-  if (!normalized) {
-    return []
-  }
-  const [apps, providers] = await Promise.all([
-    getConnectionApps({ manageable: true, teamName: normalized }),
-    getConnectionProviders(),
-  ])
-  return normalizeProviderOptions(
-    Array.isArray(apps.data) ? apps.data : [],
-    Array.isArray(providers.data) ? providers.data : [],
-  )
 }
 
 export async function listTeamConnectionApps(

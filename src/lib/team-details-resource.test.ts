@@ -3,10 +3,8 @@ import {
   clearTeamDetailsResources,
   getCachedTeamMembers,
   getCachedTeamConnectionApps,
-  getCachedTeamProviderOptions,
   getTeamMembersResource,
   getTeamConnectionAppsResource,
-  getTeamProviderOptionsResource,
   invalidateTeamDetailsResource,
   subscribeTeamMembersResource,
 } from "./team-details-resource.ts"
@@ -74,36 +72,6 @@ describe("team-details-resource", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(refreshed).toEqual([{ role: "member", user_id: "user-3" }])
     expect(getCachedTeamMembers("account-2", "team-1")).toEqual([{ role: "member", user_id: "user-2" }])
-  })
-
-  it("isolates provider-option caches and in-flight reads by team name", async () => {
-    const teamHeaders: string[] = []
-    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
-      const url = String(input)
-      if (url.endsWith("/v1/connections")) {
-        const teamName = new Headers(init?.headers).get("x-oo-team-name") ?? ""
-        teamHeaders.push(teamName)
-        return Response.json({ data: [{ service: teamName, status: "active" }] })
-      }
-      if (url.endsWith("/v1/providers")) {
-        return Response.json({ data: [] })
-      }
-      throw new Error(`Unexpected URL: ${url}`)
-    })
-    vi.stubGlobal("fetch", fetchMock)
-
-    const first = getTeamProviderOptionsResource("account-1", "team-1", "before-rename")
-    const renamed = getTeamProviderOptionsResource("account-1", "team-1", "after-rename")
-
-    expect(first).not.toBe(renamed)
-    await Promise.all([first, renamed])
-    expect(teamHeaders).toEqual(["before-rename", "after-rename"])
-    expect(getCachedTeamProviderOptions("account-1", "team-1", "before-rename")).toEqual([
-      { label: "before-rename", service: "before-rename" },
-    ])
-    expect(getCachedTeamProviderOptions("account-1", "team-1", "after-rename")).toEqual([
-      { label: "after-rename", service: "after-rename" },
-    ])
   })
 
   it("shares normalized Connection App reads and keeps renamed team scopes isolated", async () => {

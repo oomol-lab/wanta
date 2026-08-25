@@ -1,11 +1,8 @@
 import type { EditableTeamMemberRole, TeamMember, TeamRole } from "../../../electron/teams/common.ts"
 import type { BusyAction, MemberView } from "./team-management-model.ts"
-import type { TeamMemberConnectionAccessData } from "./TeamMemberConnectionAccessDialog.tsx"
 
 import { MoreHorizontalIcon, Trash2Icon, UserCheckIcon, UserXIcon } from "lucide-react"
 import * as React from "react"
-import { projectTeamMemberConnectionAccessSummaries } from "./team-member-connection-access-model.ts"
-import { MemberConnectionAccessButton } from "./TeamMemberConnectionAccessDialog.tsx"
 import { TeamUserAvatar } from "./TeamUserAvatar.tsx"
 import { hasMemberStatus, isBulkEditableMember, useMemberStatusSelection } from "./use-member-status-selection.ts"
 import { CopyIconButton } from "@/components/CopyIconButton"
@@ -35,8 +32,6 @@ export function MembersTable({
   busyAction,
   canManage,
   members,
-  connectionAccess,
-  onOpenMemberConnectionAccess,
   onDisableMembers,
   onEnableMembers,
   onRemoveMember,
@@ -47,8 +42,6 @@ export function MembersTable({
   busyAction: BusyAction | null
   canManage: boolean
   members: MemberView[]
-  connectionAccess: TeamMemberConnectionAccessData
-  onOpenMemberConnectionAccess: (member: MemberView) => void
   onDisableMembers: (userIds: string[]) => void
   onEnableMembers: (userIds: string[]) => void
   onRemoveMember: (member: TeamMember) => Promise<void>
@@ -60,14 +53,6 @@ export function MembersTable({
     member: MemberView
     role: EditableTeamMemberRole
   } | null>(null)
-  const connectionProjections = React.useMemo(() => {
-    if (!connectionAccess.access) return null
-    return projectTeamMemberConnectionAccessSummaries(
-      connectionAccess.access,
-      connectionAccess.apps,
-      members.map((member) => member.user_id),
-    )
-  }, [connectionAccess.access, connectionAccess.apps, members])
   const removeTargetBusy = removeTarget ? busyAction === `remove:${removeTarget.user_id}` : false
   const roleChangeTargetBusy = roleChangeTarget
     ? busyAction === `updateMemberRole:${roleChangeTarget.member.user_id}`
@@ -231,17 +216,6 @@ export function MembersTable({
               </div>
 
               <div className="flex min-w-0 items-center justify-end gap-2">
-                {canManage ? (
-                  <MemberConnectionAccessButton
-                    disabled={bulkBusy}
-                    loading={connectionAccess.loading}
-                    invalid={connectionProjections?.ok === false}
-                    summary={
-                      connectionProjections?.ok ? (connectionProjections.byUserId.get(member.user_id) ?? null) : null
-                    }
-                    onClick={() => onOpenMemberConnectionAccess(member)}
-                  />
-                ) : null}
                 {canRemove ? (
                   <MemberActionsMenu removeDisabled={bulkBusy || removeBusy} onRemove={() => setRemoveTarget(member)} />
                 ) : null}

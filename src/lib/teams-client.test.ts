@@ -12,7 +12,6 @@ import {
   listMyTeams,
   listTeamConnectionApps,
   listTeamMembers,
-  listTeamProviderOptions,
   listUserSummaries,
   removeTeamMember,
   TeamRequestError,
@@ -27,25 +26,6 @@ describe("teams-client", () => {
   afterEach(() => {
     clearConnectorCache()
     vi.unstubAllGlobals()
-  })
-
-  it("reuses connector apps and provider reads for team options", async () => {
-    const fetchMock = vi.fn<typeof fetch>(async (input) => {
-      const url = String(input)
-      if (url.endsWith("/v1/connections")) {
-        return Response.json({ data: [{ service: "gmail", status: "active" }] })
-      }
-      if (url.endsWith("/v1/providers")) {
-        return Response.json({ data: [{ displayName: "Gmail", service: "gmail" }] })
-      }
-      throw new Error(`Unexpected URL: ${url}`)
-    })
-    vi.stubGlobal("fetch", fetchMock)
-
-    await listTeamProviderOptions("acme")
-    await listTeamProviderOptions("acme")
-
-    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it("returns normalized Connection Apps in the requested team scope", async () => {

@@ -27,10 +27,14 @@ import {
 import * as React from "react"
 import { toast } from "sonner"
 import {
+  canRestoreConnectionAccess,
+  createConnectionPermissionRuleGrant,
   defaultRestrictedActionNames,
+  isConnectionAccessConflict,
   unavailableActionNames,
   updateActionSelection,
 } from "./connection-access-model.ts"
+import { localizeConnectionActions } from "./connection-action-localization.ts"
 import { Loader } from "@/components/ai-elements/loader"
 import { Button } from "@/components/ui/button"
 import {
@@ -45,8 +49,8 @@ import {
 } from "@/components/ui/confirm-dialog"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { useT } from "@/i18n/i18n"
-import { getConnectionActions, getConnectionLingxingErpUsers } from "@/lib/connections-client"
+import { useI18n, useT } from "@/i18n/i18n"
+import { ConnectorRequestError, getConnectionActions, getConnectionLingxingErpUsers } from "@/lib/connections-client"
 import {
   createConnectionPermissionRuleId,
   getConnectionPermissionGrant,
@@ -102,12 +106,14 @@ export function ConnectionAccessDialog({
   onClose: () => void
   open: boolean
 }) {
-  const t = useT()
+  const { locale, t } = useI18n()
   const [snapshot, setSnapshot] = React.useState<AccessSnapshot | null>(null)
   const [actions, setActions] = React.useState<ConnectionActionCatalogItem[]>([])
   const [members, setMembers] = React.useState<TeamMember[]>([])
   const [lingxingUsers, setLingxingUsers] = React.useState<ConnectionLingxingErpUser[]>([])
   const [lingxingError, setLingxingError] = React.useState<string | null>(null)
+  const [lingxingLoading, setLingxingLoading] = React.useState(false)
+  const [lingxingLoaded, setLingxingLoaded] = React.useState(false)
   const [summaries, setSummaries] = React.useState<Record<string, TeamUserSummary>>({})
   const [error, setError] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(false)
@@ -116,6 +122,7 @@ export function ConnectionAccessDialog({
   const [deleteRule, setDeleteRule] = React.useState<ConnectionPermissionRule | null>(null)
   const [restoreOpen, setRestoreOpen] = React.useState(false)
   const requestIdRef = React.useRef(0)
+  const lingxingRequestIdRef = React.useRef(0)
 
   const load = React.useCallback(async () => {
     const requestId = requestIdRef.current + 1
@@ -125,28 +132,15 @@ export function ConnectionAccessDialog({
     setLingxingError(null)
     try {
       const accountId = context.accountId ?? "anonymous"
-      const [nextSnapshot, nextActions, nextMembers, nextLingxingUsers] = await Promise.all([
+      const [nextSnapshot, nextActions, nextMembers] = await Promise.all([
         getTeamAppAccessSnapshot(context.team.id),
         getConnectionActions(app.service, { forceRefresh: true }),
         context.canManage ? getTeamMembersResource(accountId, context.team.id) : Promise.resolve([]),
-        context.canManage && app.service === "lingxing"
-          ? getConnectionLingxingErpUsers(
-              app.id,
-              { manageable: true, teamName: context.team.name },
-              { forceRefresh: true },
-            )
-              .then((result) => result.data)
-              .catch((cause: unknown) => {
-                if (requestIdRef.current === requestId) setLingxingError(errorMessage(cause, t))
-                return []
-              })
-          : Promise.resolve([]),
       ])
       if (requestIdRef.current !== requestId) return
       setSnapshot(nextSnapshot)
-      setActions(normalizeActions(nextActions.data))
+      setActions(normalizeActions(localizeConnectionActions(app.service, nextActions.data, locale)))
       setMembers(nextMembers)
-      setLingxingUsers(nextLingxingUsers)
       const userIds = uniqueStrings(nextMembers.map((member) => member.user_id))
       if (userIds.length > 0) {
         const nextSummaries = await getTeamUserSummariesResource(accountId, context.team.id, userIds)
@@ -157,15 +151,46 @@ export function ConnectionAccessDialog({
     } finally {
       if (requestIdRef.current === requestId) setLoading(false)
     }
-  }, [app.id, app.service, context.accountId, context.canManage, context.team.id, context.team.name, t])
+  }, [app.id, app.service, context.accountId, context.canManage, context.team.id, context.team.name, locale, t])
+
+  const loadLingxingUsers = React.useCallback(
+    async (force = false) => {
+      if (!context.canManage || app.service !== "lingxing" || lingxingLoading || (!force && lingxingLoaded)) return
+      const requestId = lingxingRequestIdRef.current + 1
+      lingxingRequestIdRef.current = requestId
+      setLingxingError(null)
+      setLingxingLoading(true)
+      try {
+        const result = await getConnectionLingxingErpUsers(
+          app.id,
+          { manageable: true, teamName: context.team.name },
+          { forceRefresh: true },
+        )
+        if (lingxingRequestIdRef.current !== requestId) return
+        setLingxingUsers(result.data)
+        setLingxingLoaded(true)
+      } catch (cause) {
+        if (lingxingRequestIdRef.current === requestId) setLingxingError(lingxingErrorMessage(cause, t))
+      } finally {
+        if (lingxingRequestIdRef.current === requestId) setLingxingLoading(false)
+      }
+    },
+    [app.id, app.service, context.canManage, context.team.name, lingxingLoaded, lingxingLoading, t],
+  )
 
   React.useEffect(() => {
-    if (!open) return
+    if (!open) {
+      lingxingRequestIdRef.current += 1
+      return
+    }
+    lingxingRequestIdRef.current += 1
     setSnapshot(null)
     setActions([])
     setMembers([])
     setLingxingUsers([])
     setLingxingError(null)
+    setLingxingLoading(false)
+    setLingxingLoaded(false)
     setSummaries({})
     setEditor(null)
     setDeleteRule(null)
@@ -184,9 +209,10 @@ export function ConnectionAccessDialog({
             snapshot.access,
             [{ id: app.id, service: app.service }],
             context.canManage ? memberIds : undefined,
+            t("connections.accessNewRuleDefaultName", { count: 1 }),
           )
         : null,
-    [app.id, app.service, context.canManage, memberIds, snapshot],
+    [app.id, app.service, context.canManage, memberIds, snapshot, t],
   )
   const appAccess = parsed?.ok ? (parsed.apps.find((item) => item.appId === app.id) ?? null) : null
   const policyError =
@@ -201,7 +227,12 @@ export function ConnectionAccessDialog({
     setBusy(true)
     try {
       const latest = await getTeamAppAccessSnapshot(context.team.id)
-      const latestParsed = parseTeamConnectionAccess(latest.access, [{ id: app.id, service: app.service }], memberIds)
+      const latestParsed = parseTeamConnectionAccess(
+        latest.access,
+        [{ id: app.id, service: app.service }],
+        memberIds,
+        t("connections.accessNewRuleDefaultName", { count: 1 }),
+      )
       const current = latestParsed.ok ? latestParsed.apps.find((item) => item.appId === app.id) : null
       if (!latestParsed.ok || !current || current.mode === "invalid")
         throw new Error(t("connections.accessInvalidDescription"))
@@ -216,10 +247,44 @@ export function ConnectionAccessDialog({
       setRestoreOpen(false)
       toast.success(t("connections.accessSaved"))
     } catch (cause) {
-      toast.error(errorMessage(cause, t))
+      handleMutationError(cause)
     } finally {
       setBusy(false)
     }
+  }
+
+  async function restoreDefaults() {
+    if (!context.canManage || busy) return
+    setBusy(true)
+    try {
+      const latest = await getTeamAppAccessSnapshot(context.team.id)
+      if (!latest.etag) throw new Error(t("connections.accessConcurrencyUnavailable"))
+      const updated = await updateTeamAppAccess(context.team.id, restoreTeamConnectionDefaults(latest.access, app.id), {
+        etag: latest.etag,
+      })
+      invalidateTeamDetailsResource(context.accountId, context.team.id)
+      setSnapshot({ access: updated })
+      setEditor(null)
+      setDeleteRule(null)
+      setRestoreOpen(false)
+      toast.success(t("connections.accessSaved"))
+    } catch (cause) {
+      handleMutationError(cause)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function handleMutationError(cause: unknown) {
+    if (isConnectionAccessConflict(cause)) {
+      setEditor(null)
+      setDeleteRule(null)
+      setRestoreOpen(false)
+      void load()
+      toast.error(t("connections.accessConcurrencyConflict"))
+      return
+    }
+    toast.error(errorMessage(cause, t))
   }
 
   function saveEditor(next: RuleEditorState) {
@@ -257,7 +322,7 @@ export function ConnectionAccessDialog({
         contentClassName="px-4 py-4"
         footer={
           <div className="flex w-full justify-between gap-2">
-            {context.canManage && appAccess && appAccess.mode !== "invalid" && appAccess.mode === "configured" ? (
+            {canRestoreConnectionAccess(context.canManage, appAccess) ? (
               <Button type="button" variant="outline" disabled={busy} onClick={() => setRestoreOpen(true)}>
                 <RotateCcw className="size-4" />
                 {t("connections.accessRestoreDefaults")}
@@ -284,7 +349,7 @@ export function ConnectionAccessDialog({
               summaries={summaries}
               onCreate={() =>
                 setEditor({
-                  grant: { actionAccess: { mode: "unrestricted" } },
+                  grant: createConnectionPermissionRuleGrant(),
                   kind: "new",
                   name: t("connections.accessNewRuleDefaultName", {
                     count: appAccess.permissionRules.rules.length + 1,
@@ -325,11 +390,15 @@ export function ConnectionAccessDialog({
           busy={busy}
           editor={editor}
           lingxingError={lingxingError}
+          lingxingLoaded={lingxingLoaded}
+          lingxingLoading={lingxingLoading}
           lingxingUsers={lingxingUsers}
           showLingxing={app.service === "lingxing"}
           members={members}
           summaries={summaries}
           onClose={() => setEditor(null)}
+          onLoadLingxing={() => loadLingxingUsers()}
+          onRetryLingxing={() => void loadLingxingUsers(true)}
           onSave={saveEditor}
         />
       ) : null}
@@ -370,11 +439,7 @@ export function ConnectionAccessDialog({
           </ConfirmDialogHeader>
           <ConfirmDialogFooter>
             <ConfirmDialogCancel disabled={busy}>{t("common.cancel")}</ConfirmDialogCancel>
-            <ConfirmDialogAction
-              variant="destructive"
-              disabled={busy}
-              onClick={() => void mutate((access) => restoreTeamConnectionDefaults(access, app.id))}
-            >
+            <ConfirmDialogAction variant="destructive" disabled={busy} onClick={() => void restoreDefaults()}>
               {busy ? <Loader size={16} /> : <RotateCcw className="size-4" />}
               {t("connections.accessRestoreDefaults")}
             </ConfirmDialogAction>
@@ -497,10 +562,14 @@ function PermissionRuleEditor({
   busy,
   editor,
   lingxingError,
+  lingxingLoaded,
+  lingxingLoading,
   lingxingUsers,
   showLingxing,
   members,
   onClose,
+  onLoadLingxing,
+  onRetryLingxing,
   onSave,
   summaries,
 }: {
@@ -508,10 +577,14 @@ function PermissionRuleEditor({
   busy: boolean
   editor: RuleEditorState
   lingxingError: string | null
+  lingxingLoaded: boolean
+  lingxingLoading: boolean
   lingxingUsers: ConnectionLingxingErpUser[]
   showLingxing: boolean
   members: TeamMember[]
   onClose: () => void
+  onLoadLingxing: () => Promise<void>
+  onRetryLingxing: () => void
   onSave: (editor: RuleEditorState) => void
   summaries: Record<string, TeamUserSummary>
 }) {
@@ -524,6 +597,27 @@ function PermissionRuleEditor({
       member.user_id.toLowerCase().includes(query.trim().toLowerCase()),
   )
   const valid = draft.kind === "default" || draft.name.trim().length > 0
+  const lingxingAccess = getConnectionLingxingUserAccess(draft.grant)
+  React.useEffect(() => {
+    if (
+      !showLingxing ||
+      lingxingAccess.mode !== "selected" ||
+      lingxingUsers.length > 0 ||
+      lingxingError ||
+      lingxingLoaded ||
+      lingxingLoading
+    )
+      return
+    void onLoadLingxing()
+  }, [
+    lingxingAccess.mode,
+    lingxingError,
+    lingxingLoaded,
+    lingxingLoading,
+    lingxingUsers.length,
+    onLoadLingxing,
+    showLingxing,
+  ])
   return (
     <Dialog
       open
@@ -610,8 +704,10 @@ function PermissionRuleEditor({
           <LingxingAccessEditor
             busy={busy}
             error={lingxingError}
+            loading={lingxingLoading}
+            onRetry={onRetryLingxing}
             users={lingxingUsers}
-            value={getConnectionLingxingUserAccess(draft.grant)}
+            value={lingxingAccess}
             onChange={(value) =>
               setDraft((current) => ({
                 ...current,
@@ -632,13 +728,17 @@ function PermissionRuleEditor({
 function LingxingAccessEditor({
   busy,
   error,
+  loading,
   onChange,
+  onRetry,
   users,
   value,
 }: {
   busy: boolean
   error: string | null
+  loading: boolean
   onChange: (value: ConnectionLingxingUserAccess) => void
+  onRetry: () => void
   users: ConnectionLingxingErpUser[]
   value: ConnectionLingxingUserAccess
 }) {
@@ -665,14 +765,26 @@ function LingxingAccessEditor({
         />
       </div>
       {error ? (
-        <div className="oo-text-caption flex items-start gap-2 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] p-3">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-          <span>{t("connections.accessLingxingLoadFailed", { error })}</span>
+        <div className="grid gap-2 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] p-3">
+          <div className="oo-text-caption flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+          <div className="flex justify-end">
+            <Button size="sm" variant="outline" disabled={busy} onClick={onRetry}>
+              {t("teams.retry")}
+            </Button>
+          </div>
         </div>
       ) : null}
       {value.mode === "selected" ? (
         <div className="max-h-56 overflow-auto rounded-md border">
-          {users.length === 0 && value.users.length === 0 ? (
+          {loading ? (
+            <div className="oo-text-caption oo-text-muted flex items-center gap-2 p-3">
+              <Loader size={16} />
+              {t("connections.actionLoading")}
+            </div>
+          ) : users.length === 0 && value.users.length === 0 ? (
             <div className="oo-text-caption oo-text-muted p-3">{t("connections.accessLingxingEmpty")}</div>
           ) : (
             <>
@@ -972,13 +1084,25 @@ function grantSummary(
   actions: ConnectionActionCatalogItem[],
   t: ReturnType<typeof useT>,
 ): string {
-  if (grant.actionAccess.mode === "unrestricted") return t("connections.actionAccessUnrestrictedSummary")
-  return grant.actionAccess.actionNames.length === 0
-    ? t("connections.actionAccessDeniedSummary")
-    : t("connections.actionAccessRestrictedSummary", {
-        allowed: grant.actionAccess.actionNames.length,
-        total: actions.length,
-      })
+  const actionSummary =
+    grant.actionAccess.mode === "unrestricted"
+      ? t("connections.actionAccessUnrestrictedSummary")
+      : grant.actionAccess.actionNames.length === 0
+        ? t("connections.actionAccessDeniedSummary")
+        : t("connections.actionAccessRestrictedSummary", {
+            allowed: grant.actionAccess.actionNames.length,
+            total: actions.length,
+          })
+  const lingxingAccess = getConnectionLingxingUserAccess(grant)
+  if (lingxingAccess.mode !== "selected") return actionSummary
+  const names = lingxingAccess.users
+    .map((user) => user.realname || user.username || user.uid)
+    .join(t("connections.accessLingxingNameSeparator"))
+  return `${actionSummary} · ${
+    names
+      ? t("connections.accessLingxingResponsibleNames", { names })
+      : t("connections.accessLingxingNoResponsibleUsers")
+  }`
 }
 
 function normalizeActions(actions: ConnectionActionCatalogItem[]): ConnectionActionCatalogItem[] {
@@ -1026,4 +1150,23 @@ function errorMessage(error: unknown, t: ReturnType<typeof useT>): string {
   if (error instanceof Error && error.message) return error.message
   const resolved = resolveUserFacingError(error)
   return userFacingErrorDescription(resolved, t) ?? t("common.error")
+}
+
+function lingxingErrorMessage(error: unknown, t: ReturnType<typeof useT>): string {
+  if (error instanceof ConnectorRequestError) {
+    const key =
+      error.status === 403
+        ? "connections.accessLingxingForbidden"
+        : error.status === 404
+          ? "connections.accessLingxingNotFound"
+          : error.status === 409
+            ? "connections.accessLingxingNotReady"
+            : error.status === 429
+              ? "connections.accessLingxingRateLimited"
+              : error.status === 502
+                ? "connections.accessLingxingUnavailableService"
+                : null
+    if (key) return t(key)
+  }
+  return t("connections.accessLingxingLoadFailed", { error: errorMessage(error, t) })
 }

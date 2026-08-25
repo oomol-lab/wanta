@@ -2,6 +2,7 @@ import type { TeamAppAccess } from "../../electron/teams/common.ts"
 
 export const connectorAppRolePrefix = "connector-app:"
 const roleSubjectPrefix = "role::"
+const userSubjectPrefix = "user::"
 
 type JSONPrimitive = boolean | number | string | null
 export type JSONValue = JSONPrimitive | JSONValue[] | { [key: string]: JSONValue }
@@ -46,7 +47,7 @@ interface ValidConnectionAppAccess {
 
 export type ConnectionAppAccess =
   | ({ mode: "default" } & ValidConnectionAppAccess)
-  | ({ mode: "configured" } & ValidConnectionAppAccess)
+  | ({ format: "legacy" | "multi"; mode: "configured" } & ValidConnectionAppAccess)
   | { appId: string; issues: ConnectionAccessIssue[]; mode: "invalid"; service: string | null }
 
 export interface ConnectionAccessIssue {
@@ -118,11 +119,12 @@ export function setConnectionLingxingUserAccess(
   }
 }
 
-/** Parses only the final permissionRules contract. Historical requireRole/user.roles documents are invalid. */
+/** Reads legacy and multi-rule policies; every writer emits the canonical multi-rule contract. */
 export function parseTeamConnectionAccess(
   input: unknown,
   availableApps: ConnectionAccessApp[],
   currentMemberIds?: string[],
+  legacyRuleName = "Rule #1",
 ): ConnectionAccessParseResult {
   if (!isPlainObject(input)) return { access: null, issues: [{ code: "invalid-policy" }], ok: false }
 
@@ -143,9 +145,15 @@ export function parseTeamConnectionAccess(
     if (config === undefined) {
       return { appId, mode: "default", permissionRules: unrestrictedPermissionRules(), service: app.service }
     }
-    const parsed = parseConfiguredRole(config, app, memberIdSet)
+    const parsed = parseConfiguredRole(access, config, app, memberIdSet, legacyRuleName)
     return parsed.ok
-      ? { appId, mode: "configured", permissionRules: parsed.value, service: app.service }
+      ? {
+          appId,
+          format: parsed.value.format,
+          mode: "configured",
+          permissionRules: parsed.value.permissionRules,
+          service: app.service,
+        }
       : invalidApp(appId, app.service, "invalid-managed-role")
   }).sort((left, right) => left.appId.localeCompare(right.appId))
 
@@ -157,7 +165,7 @@ export function setConnectionPermissionRules(
   app: ConnectionAccessApp,
   permissionRules: ConnectionPermissionRules,
 ): TeamAppAccess {
-  const normalized = normalizePermissionRules(permissionRules)
+  const normalized = normalizePermissionRules(permissionRules, app.service, `legacy:${app.id}`)
   const next = structuredClone(access)
   const subject = roleSubject(app.id)
   const previous = isPlainObject(next[subject]) ? next[subject] : {}
@@ -176,6 +184,7 @@ export function setConnectionPermissionRules(
       },
     ],
   }
+  removeLegacyAppRoleReferences(next, app.id)
   return next
 }
 
@@ -247,96 +256,189 @@ export function setConnectionRuleAssignments(
 export function restoreTeamConnectionDefaults(access: TeamAppAccess, appId: string): TeamAppAccess {
   const next = structuredClone(access)
   delete next[roleSubject(appId)]
+  removeLegacyAppRoleReferences(next, appId)
   return next
 }
 
 function parseConfiguredRole(
+  access: TeamAppAccess,
   input: unknown,
   app: ConnectionAccessApp,
   memberIds: Set<string> | null,
-): ParseResult<ConnectionPermissionRules> {
+  legacyRuleName: string,
+): ParseResult<{ format: "legacy" | "multi"; permissionRules: ConnectionPermissionRules }> {
   if (!isPlainObject(input) || !Array.isArray(input.connector) || input.connector.length === 0)
     return invalidParseResult
   const rule = input.connector[0]
-  if (!isPlainObject(rule) || rule.method !== "POST" || rule.provider !== app.service) return invalidParseResult
-  if (!Object.hasOwn(rule, "permissionRules") || !isPlainObject(rule.permissionRules)) return invalidParseResult
-  if (Object.hasOwn(rule, "requireRole") || Object.hasOwn(rule, "actions") || Object.hasOwn(rule, "appAccessConfig")) {
-    return invalidParseResult
+  if (!isPlainObject(rule) || Object.hasOwn(rule, "effect")) return invalidParseResult
+  if (Object.hasOwn(rule, "permissionRules")) {
+    const parsed = parsePermissionRules(rule, memberIds, app)
+    return parsed.ok ? { ok: true, value: { format: "multi", permissionRules: parsed.value } } : invalidParseResult
   }
-  return parsePermissionRules(rule.permissionRules, memberIds, app.service)
+  const parsed = parseLegacyRule(access, rule, app, memberIds, legacyRuleName)
+  return parsed.ok ? { ok: true, value: { format: "legacy", permissionRules: parsed.value } } : invalidParseResult
 }
 
 function parsePermissionRules(
-  input: Record<string, unknown>,
+  rule: Record<string, unknown>,
   memberIds: Set<string> | null,
-  service: string,
+  app: ConnectionAccessApp,
 ): ParseResult<ConnectionPermissionRules> {
-  if (!Object.hasOwn(input, "teamDefault") || !Object.hasOwn(input, "rules")) return invalidParseResult
-  if (Object.keys(input).some((key) => key !== "teamDefault" && key !== "rules" && key !== "assignments")) {
+  if (
+    !hasOnlyKeys(rule, ["app", "method", "provider", "permissionRules"]) ||
+    rule.method !== "POST" ||
+    rule.provider !== app.service ||
+    !isPlainObject(rule.permissionRules) ||
+    !hasOnlyKeys(rule.permissionRules, ["teamDefault", "rules", "assignments"]) ||
+    !Object.hasOwn(rule.permissionRules, "teamDefault") ||
+    !Array.isArray(rule.permissionRules.rules)
+  ) {
     return invalidParseResult
   }
-  const teamDefault = parseGrant(input.teamDefault, service)
-  if (!teamDefault.ok || !Array.isArray(input.rules)) return invalidParseResult
+  const permissionRules = rule.permissionRules
+  const teamDefault = parseGrant(permissionRules.teamDefault, app.service, "multi")
+  if (!teamDefault.ok) return invalidParseResult
+  const permissionRuleValues = permissionRules.rules as unknown[]
 
   const rules: ConnectionPermissionRule[] = []
   const ruleIds = new Set<string>()
-  for (const item of input.rules) {
-    if (!isPlainObject(item) || !isNonEmptyString(item.id) || !isNonEmptyString(item.name)) return invalidParseResult
-    if (ruleIds.has(item.id.trim())) return invalidParseResult
-    const grant = parseGrant(item, service, new Set(["id", "name"]))
+  for (const item of permissionRuleValues) {
+    if (!isPlainObject(item) || !hasOnlyKeys(item, ["id", "name", "actions", "appAccessConfig"])) {
+      return invalidParseResult
+    }
+    if (!isNonEmptyString(item.id) || !isNonEmptyString(item.name) || ruleIds.has(item.id)) {
+      return invalidParseResult
+    }
+    const grant = parseGrant(item, app.service, "multi", ["id", "name"])
     if (!grant.ok) return invalidParseResult
-    const id = item.id.trim()
-    ruleIds.add(id)
-    rules.push({ id, name: item.name.trim(), ...grant.value })
+    ruleIds.add(item.id)
+    rules.push({ id: item.id, name: item.name, ...grant.value })
   }
 
   const assignments: Record<string, string> = {}
-  if (isPlainObject(input.assignments)) {
-    for (const [rawUserId, rawRuleId] of Object.entries(input.assignments)) {
-      const userId = rawUserId.trim()
-      if (!userId || !isNonEmptyString(rawRuleId)) continue
-      const ruleId = rawRuleId.trim()
-      if (!ruleIds.has(ruleId) || (memberIds && !memberIds.has(userId))) continue
+  if (isPlainObject(permissionRules.assignments)) {
+    for (const [userId, ruleId] of Object.entries(permissionRules.assignments)) {
+      if (!isNonEmptyString(userId) || !isNonEmptyString(ruleId)) continue
+      if (memberIds && !memberIds.has(userId)) continue
+      if (!ruleIds.has(ruleId)) continue
       assignments[userId] = ruleId
     }
   }
   return { ok: true, value: { assignments, rules, teamDefault: teamDefault.value } }
 }
 
+function parseLegacyRule(
+  access: TeamAppAccess,
+  rule: Record<string, unknown>,
+  app: ConnectionAccessApp,
+  memberIds: Set<string> | null,
+  legacyRuleName: string,
+): ParseResult<ConnectionPermissionRules> {
+  if (
+    !legacyFieldIncludes(rule.method, "POST") ||
+    !legacyFieldIncludes(rule.provider, app.service) ||
+    (Object.hasOwn(rule, "requireRole") && typeof rule.requireRole !== "boolean")
+  ) {
+    return invalidParseResult
+  }
+  const grant = parseGrant(rule, app.service, "legacy")
+  if (!grant.ok) return invalidParseResult
+  if (rule.requireRole !== true) return { ok: true, value: { assignments: {}, rules: [], teamDefault: grant.value } }
+
+  const legacyRuleId = `legacy:${app.id}`
+  const roleName = `${connectorAppRolePrefix}${app.id}`
+  const assignments: Record<string, string> = {}
+  for (const [subject, value] of Object.entries(access)) {
+    if (!subject.startsWith(userSubjectPrefix) || !isPlainObject(value) || !Array.isArray(value.roles)) continue
+    const userId = subject.slice(userSubjectPrefix.length)
+    if (!userId || (memberIds && !memberIds.has(userId))) continue
+    if (value.roles.some((item) => isNonEmptyString(item) && item === roleName)) assignments[userId] = legacyRuleId
+  }
+  return {
+    ok: true,
+    value: {
+      assignments,
+      rules: [{ id: legacyRuleId, name: legacyRuleName, ...grant.value }],
+      teamDefault: { actionAccess: { actionNames: [], mode: "restricted" } },
+    },
+  }
+}
+
 function parseGrant(
   input: unknown,
   service: string,
-  allowedExtra = new Set<string>(),
+  format: "legacy" | "multi",
+  extraKeys: string[] = [],
 ): ParseResult<ConnectionPermissionGrant> {
   if (!isPlainObject(input)) return invalidParseResult
-  if (Object.keys(input).some((key) => key !== "actions" && key !== "appAccessConfig" && !allowedExtra.has(key))) {
+  if (format === "multi" && !hasOnlyKeys(input, [...extraKeys, "actions", "appAccessConfig"])) {
     return invalidParseResult
   }
-  const actionAccess = parseActionAccess(input.actions, Object.hasOwn(input, "actions"))
+  const actionAccess = parseActionAccess(input.actions, Object.hasOwn(input, "actions"), format)
   if (!actionAccess.ok) return invalidParseResult
-  if (Object.hasOwn(input, "appAccessConfig") && !isJsonObject(input.appAccessConfig)) return invalidParseResult
-  if (service === "lingxing" && isPlainObject(input.appAccessConfig) && !isValidLingxingConfig(input.appAccessConfig)) {
-    return invalidParseResult
+  let appAccessConfig: JSONObject | undefined
+  if (Object.hasOwn(input, "appAccessConfig")) {
+    const parsed = parseAppAccessConfig(input.appAccessConfig, service, format)
+    if (!parsed.ok) return invalidParseResult
+    appAccessConfig = parsed.value
   }
   return {
     ok: true,
     value: {
       actionAccess: actionAccess.value,
-      ...(Object.hasOwn(input, "appAccessConfig")
-        ? { appAccessConfig: structuredClone(input.appAccessConfig as JSONObject) }
-        : {}),
+      ...(appAccessConfig === undefined ? {} : { appAccessConfig }),
     },
   }
 }
 
-function parseActionAccess(input: unknown, present: boolean): ParseResult<ConnectionActionAccess> {
+function parseActionAccess(
+  input: unknown,
+  present: boolean,
+  format: "legacy" | "multi",
+): ParseResult<ConnectionActionAccess> {
   if (!present) return { ok: true, value: { mode: "unrestricted" } }
   if (!Array.isArray(input) || input.some((item) => !isNonEmptyString(item) || item.trim() === "*")) {
     return invalidParseResult
   }
   const normalized = input.map((item) => (item as string).trim())
-  if (new Set(normalized).size !== normalized.length) return invalidParseResult
-  return { ok: true, value: { actionNames: normalized.toSorted(), mode: "restricted" } }
+  if (format === "multi" && new Set(normalized).size !== normalized.length) return invalidParseResult
+  return { ok: true, value: { actionNames: sortedUnique(normalized), mode: "restricted" } }
+}
+
+function parseAppAccessConfig(input: unknown, service: string, format: "legacy" | "multi"): ParseResult<JSONObject> {
+  if (service !== "lingxing" || !isPlainObject(input) || !isJsonObject(input)) return invalidParseResult
+  if (!Object.hasOwn(input, "users")) return { ok: true, value: input }
+  if (!Array.isArray(input.users)) return format === "legacy" ? { ok: true, value: input } : invalidParseResult
+  const users: JSONObject[] = []
+  const userIds = new Set<string>()
+  for (const value of input.users) {
+    if (format === "legacy") {
+      if (!isPlainObject(value) || !isJsonObject(value)) continue
+      const uid = normalizeLegacyLingxingUid(value.uid)
+      if (!uid || userIds.has(uid)) continue
+      userIds.add(uid)
+      users.push({ ...value, uid })
+      continue
+    }
+    if (
+      !isPlainObject(value) ||
+      !hasOnlyKeys(value, ["uid", "realname", "username"]) ||
+      !isNonEmptyString(value.uid) ||
+      (value.realname !== undefined && !isNonEmptyString(value.realname)) ||
+      (value.username !== undefined && !isNonEmptyString(value.username))
+    ) {
+      return invalidParseResult
+    }
+    const uid = value.uid.trim()
+    if (userIds.has(uid)) return invalidParseResult
+    userIds.add(uid)
+    users.push({
+      uid,
+      ...(value.realname === undefined ? {} : { realname: value.realname.trim() }),
+      ...(value.username === undefined ? {} : { username: value.username.trim() }),
+    })
+  }
+  return { ok: true, value: { ...input, users } }
 }
 
 function buildGrant(grant: ConnectionPermissionGrant): Record<string, unknown> {
@@ -346,26 +448,50 @@ function buildGrant(grant: ConnectionPermissionGrant): Record<string, unknown> {
   }
 }
 
-function normalizePermissionRules(permissionRules: ConnectionPermissionRules): ConnectionPermissionRules {
-  const rules = permissionRules.rules.map((rule) => ({
-    ...structuredClone(rule),
-    actionAccess:
-      rule.actionAccess.mode === "restricted"
-        ? { actionNames: sortedUnique(rule.actionAccess.actionNames), mode: "restricted" as const }
-        : rule.actionAccess,
-    id: rule.id.trim(),
-    name: rule.name.trim(),
-  }))
-  const ruleIds = new Set(rules.map((rule) => rule.id))
-  if (rules.some((rule) => !rule.id || !rule.name) || ruleIds.size !== rules.length) {
-    throw new Error("Invalid Connection permission rules")
-  }
+function normalizePermissionRules(
+  permissionRules: ConnectionPermissionRules,
+  service: string,
+  legacyRuleId: string,
+): ConnectionPermissionRules {
+  const ruleIds = new Set<string>()
+  const normalizedRuleIds = new Map<string, string>()
+  const rules = permissionRules.rules.map((rule) => {
+    const sourceId = rule.id.trim()
+    const id = sourceId === legacyRuleId ? createConnectionPermissionRuleId() : sourceId
+    const name = rule.name.trim()
+    if (!id || !name || ruleIds.has(id)) throw new Error("Invalid Connection permission rules")
+    ruleIds.add(id)
+    normalizedRuleIds.set(sourceId, id)
+    return { id, name, ...normalizeGrantForWrite(rule, service) }
+  })
   const assignments = Object.fromEntries(
     Object.entries(permissionRules.assignments)
-      .filter(([userId, ruleId]) => Boolean(userId.trim()) && ruleIds.has(ruleId))
-      .map(([userId, ruleId]) => [userId.trim(), ruleId]),
+      .flatMap(([userId, ruleId]) => {
+        const normalizedRuleId = normalizedRuleIds.get(ruleId)
+        return userId.trim() && normalizedRuleId ? [[userId, normalizedRuleId] as const] : []
+      })
+      .sort(([left], [right]) => left.localeCompare(right)),
   )
-  return { assignments, rules, teamDefault: structuredClone(permissionRules.teamDefault) }
+  return { assignments, rules, teamDefault: normalizeGrantForWrite(permissionRules.teamDefault, service) }
+}
+
+function normalizeGrantForWrite(grant: ConnectionPermissionGrant, service: string): ConnectionPermissionGrant {
+  if (service !== "lingxing" && grant.appAccessConfig !== undefined) {
+    throw new Error(`App access config is not supported for ${service}`)
+  }
+  let appAccessConfig = grant.appAccessConfig === undefined ? undefined : structuredClone(grant.appAccessConfig)
+  if (service === "lingxing" && appAccessConfig !== undefined) {
+    const parsed = parseAppAccessConfig(appAccessConfig, service, "multi")
+    if (!parsed.ok) throw new Error("Invalid Lingxing App access config")
+    appAccessConfig = parsed.value
+  }
+  return {
+    actionAccess:
+      grant.actionAccess.mode === "restricted"
+        ? { actionNames: sortedUnique(grant.actionAccess.actionNames), mode: "restricted" }
+        : { mode: "unrestricted" },
+    ...(appAccessConfig === undefined ? {} : { appAccessConfig }),
+  }
 }
 
 function unrestrictedPermissionRules(): ConnectionPermissionRules {
@@ -401,21 +527,6 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0
 }
 
-function isValidLingxingConfig(value: Record<string, unknown>): boolean {
-  if (!Object.hasOwn(value, "users")) return true
-  if (!Array.isArray(value.users)) return false
-  const ids = new Set<string>()
-  for (const user of value.users) {
-    if (!isPlainObject(user) || !isNonEmptyString(user.uid)) return false
-    if (Object.hasOwn(user, "realname") && !isNonEmptyString(user.realname)) return false
-    if (Object.hasOwn(user, "username") && !isNonEmptyString(user.username)) return false
-    const uid = user.uid.trim()
-    if (ids.has(uid)) return false
-    ids.add(uid)
-  }
-  return true
-}
-
 function normalizeLingxingUsers(users: ConnectionLingxingAccessUser[]): ConnectionLingxingAccessUser[] {
   const normalized = new Map<string, ConnectionLingxingAccessUser>()
   for (const user of users) {
@@ -432,4 +543,36 @@ function normalizeLingxingUsers(users: ConnectionLingxingAccessUser[]): Connecti
 
 function sortedUnique(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort()
+}
+
+function removeLegacyAppRoleReferences(access: TeamAppAccess, appId: string): void {
+  const roleName = `${connectorAppRolePrefix}${appId}`
+  for (const [subject, value] of Object.entries(access)) {
+    if (!subject.startsWith(userSubjectPrefix) || !isPlainObject(value)) continue
+    const { roles: _roles, ...rest } = value
+    const roles = Array.isArray(value.roles)
+      ? value.roles.filter((role) => typeof role !== "string" || role !== roleName)
+      : value.roles
+    const nextValue: Record<string, unknown> = { ...rest }
+    if (Array.isArray(roles) ? roles.length > 0 : roles !== undefined) nextValue.roles = roles
+    if (Object.keys(nextValue).length > 0) access[subject] = nextValue
+    else delete access[subject]
+  }
+}
+
+function legacyFieldIncludes(value: unknown, expected: string): boolean {
+  return Array.isArray(value) ? value.includes(expected) : value === expected
+}
+
+function normalizeLegacyLingxingUid(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const normalized = value.trim()
+    return normalized && normalized !== "0" ? normalized : undefined
+  }
+  return typeof value === "number" && Number.isSafeInteger(value) && value !== 0 ? String(value) : undefined
+}
+
+function hasOnlyKeys(input: Record<string, unknown>, keys: string[]): boolean {
+  const allowed = new Set(keys)
+  return Object.keys(input).every((key) => allowed.has(key))
 }

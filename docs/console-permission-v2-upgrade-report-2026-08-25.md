@@ -8,7 +8,7 @@
 
 ## 结论
 
-Wanta 的 Team Connection 权限已经迁移到最终的多规则 `permissionRules` 契约。实现不承担历史格式兼容：只读取和写入最终结构，旧格式或异常结构统一失败关闭，由团队管理员恢复默认后重新配置。
+Wanta 的 Team Connection 权限已经迁移到最终的多规则 `permissionRules` 契约。历史 `requireRole + user.roles` 文档只作为兼容读取和迁移输入；任意写入都会输出最终结构并清理目标 App 的 legacy 角色引用。异常结构统一失败关闭，团队管理员可恢复默认后重新配置。
 
 日常权限编辑入口集中在具体 Connection。Team 成员页只管理成员身份、角色和启停状态，不再维护另一套成员中心 Connection 授权界面。
 
@@ -64,11 +64,12 @@ role::connector-app:<appId>
 
 ## 已完成内容
 
-### v2-only policy adapter
+### canonical v2 policy adapter
 
 `src/lib/team-connection-access.ts` 现在提供：
 
 - 最终契约解析；
+- legacy 契约兼容读取与首次写入迁移；
 - malformed policy 按 App 失败关闭；
 - 当前用户有效 grant 和规则计算；
 - canonical v2 写入；
@@ -79,7 +80,7 @@ role::connector-app:<appId>
 - `appAccessConfig` 无损保留；
 - Lingxing 负责人权限解析和写入。
 
-旧的单规则 reader、writer、成员 role writer 和迁移逻辑均不存在。
+legacy writer 和成员 role writer 均不存在；兼容 reader 只负责将存量文档投影为多规则模型，所有 writer 只输出 canonical v2。
 
 ### Connection 规则管理
 
@@ -147,4 +148,4 @@ x-oo-team-name: <teamName>
 - Connection client 和 Lingxing 端点测试；
 - 完整 Vitest 测试套件。
 
-最终验证结果：355 个测试文件通过、2 个跳过；2795 项测试通过、4 项跳过。
+本轮定向验证 5 个测试文件、66 项测试全部通过；TypeScript、全仓 oxlint、全仓格式检查和 renderer/main/preload 生产构建通过。完整测试套件中 355 个测试文件、2799 项测试通过，另有 `electron/agent/oo-guard-runtime.test.ts` 的既有时序用例在全量并发运行时失败；该用例单独运行时 5 项全部通过，与本轮权限改动无代码关联。

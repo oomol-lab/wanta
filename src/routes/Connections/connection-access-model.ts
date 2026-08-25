@@ -1,4 +1,17 @@
 import type { ConnectionActionCatalogItem } from "../../../electron/connections/common.ts"
+import type { ConnectionAppAccess, ConnectionPermissionGrant } from "@/lib/team-connection-access"
+
+export function createConnectionPermissionRuleGrant(): ConnectionPermissionGrant {
+  return { actionAccess: { actionNames: [], mode: "restricted" } }
+}
+
+export function canRestoreConnectionAccess(canManage: boolean, access: ConnectionAppAccess | null): boolean {
+  return canManage && access !== null && (access.mode === "configured" || access.mode === "invalid")
+}
+
+export function isConnectionAccessConflict(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "status" in error && error.status === 412)
+}
 
 export function defaultRestrictedActionNames(actions: readonly ConnectionActionCatalogItem[]): string[] {
   return uniqueSorted(actions.filter((action) => action.operationType === "read").map((action) => action.name))

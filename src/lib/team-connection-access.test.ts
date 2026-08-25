@@ -15,6 +15,7 @@ import {
 } from "./team-connection-access.ts"
 
 const github = { id: "app-github", service: "github" }
+const lingxing = { id: "app-lingxing", service: "lingxing" }
 const configured = {
   "role::connector-app:app-github": {
     connector: [
@@ -52,12 +53,55 @@ describe("team connection access v2", () => {
     })
   })
 
-  it("rejects the historical requireRole contract instead of migrating it", () => {
+  it("reads the historical requireRole contract and migrates it on write", () => {
     const parsed = parseTeamConnectionAccess(
-      { "role::connector-app:app-github": { connector: [{ method: "POST", provider: "github", requireRole: true }] } },
+      {
+        "role::connector-app:app-github": {
+          connector: [{ actions: ["issues.list"], method: "POST", provider: "github", requireRole: true }],
+        },
+        "user::alice": { roles: ["connector-app:app-github", "other-role"] },
+      },
       [github],
+      ["alice"],
     )
-    expect(parsed).toMatchObject({ apps: [{ appId: "app-github", mode: "invalid" }], ok: true })
+    if (!parsed.ok || parsed.apps[0]?.mode !== "configured") throw new Error("Expected a legacy policy")
+    expect(parsed.apps[0].format).toBe("legacy")
+    expect(getConnectionPermissionGrant(parsed.apps[0], "alice")?.actionAccess).toEqual({
+      actionNames: ["issues.list"],
+      mode: "restricted",
+    })
+
+    const next = setConnectionTeamDefault(
+      parsed.access,
+      github,
+      parsed.apps[0].permissionRules,
+      parsed.apps[0].permissionRules.teamDefault,
+    )
+    const role = (next["role::connector-app:app-github"] as { connector?: Record<string, unknown>[] })?.connector?.[0]
+    expect(role).not.toHaveProperty("requireRole")
+    expect(role).toHaveProperty("permissionRules")
+    expect(next["user::alice"]).toEqual({ roles: ["other-role"] })
+  })
+
+  it("rejects effect and unknown fields in a v2 Connector rule", () => {
+    for (const extra of [{ effect: "deny" }, { unknown: true }]) {
+      const parsed = parseTeamConnectionAccess(
+        {
+          "role::connector-app:app-github": {
+            connector: [
+              {
+                ...extra,
+                method: "POST",
+                permissionRules: { assignments: {}, rules: [], teamDefault: {} },
+                provider: "github",
+              },
+            ],
+          },
+        },
+        [github],
+      )
+      expect(parsed).toMatchObject({ apps: [{ mode: "invalid" }], ok: true })
+    }
   })
 
   it("uses assignments as the only member-to-rule authority", () => {
@@ -92,10 +136,10 @@ describe("team connection access v2", () => {
     expect(hasTeamConnectionAppAccess(parsed.apps[0], "alice")).toBe(false)
   })
 
-  it("preserves appAccessConfig while changing team default Actions", () => {
+  it("preserves Lingxing appAccessConfig while changing team default Actions", () => {
     const parsed = parseTeamConnectionAccess(
       {
-        "role::connector-app:app-github": {
+        "role::connector-app:app-lingxing": {
           connector: [
             {
               method: "POST",
@@ -104,6 +148,31 @@ describe("team connection access v2", () => {
                 rules: [],
                 teamDefault: { appAccessConfig: { scope: { tenant: "one" } } },
               },
+              provider: "lingxing",
+            },
+          ],
+        },
+      },
+      [lingxing],
+    )
+    if (!parsed.ok || parsed.apps[0]?.mode === "invalid" || !parsed.apps[0]) throw new Error("Expected valid")
+    const next = setConnectionTeamDefault(parsed.access, lingxing, parsed.apps[0].permissionRules, {
+      ...parsed.apps[0].permissionRules.teamDefault,
+      actionAccess: { actionNames: [], mode: "restricted" },
+    })
+    expect(next["role::connector-app:app-lingxing"]?.connector).toMatchObject([
+      { permissionRules: { teamDefault: { actions: [], appAccessConfig: { scope: { tenant: "one" } } } } },
+    ])
+  })
+
+  it("rejects appAccessConfig for non-Lingxing providers", () => {
+    const parsed = parseTeamConnectionAccess(
+      {
+        "role::connector-app:app-github": {
+          connector: [
+            {
+              method: "POST",
+              permissionRules: { assignments: {}, rules: [], teamDefault: { appAccessConfig: {} } },
               provider: "github",
             },
           ],
@@ -111,14 +180,7 @@ describe("team connection access v2", () => {
       },
       [github],
     )
-    if (!parsed.ok || parsed.apps[0]?.mode === "invalid" || !parsed.apps[0]) throw new Error("Expected valid")
-    const next = setConnectionTeamDefault(parsed.access, github, parsed.apps[0].permissionRules, {
-      ...parsed.apps[0].permissionRules.teamDefault,
-      actionAccess: { actionNames: [], mode: "restricted" },
-    })
-    expect(next["role::connector-app:app-github"]?.connector).toMatchObject([
-      { permissionRules: { teamDefault: { actions: [], appAccessConfig: { scope: { tenant: "one" } } } } },
-    ])
+    expect(parsed).toMatchObject({ apps: [{ mode: "invalid" }], ok: true })
   })
 
   it("keeps Lingxing unrestricted and empty owner scopes distinct", () => {
@@ -193,8 +255,15 @@ describe("team connection access v2", () => {
   })
 
   it("restores only the selected App to its final unconfigured default", () => {
-    expect(restoreTeamConnectionDefaults({ ...configured, keep: { value: true } }, "app-github")).toEqual({
-      keep: { value: true },
-    })
+    expect(
+      restoreTeamConnectionDefaults(
+        {
+          ...configured,
+          keep: { value: true },
+          "user::alice": { roles: ["connector-app:app-github", "other-role"] },
+        },
+        "app-github",
+      ),
+    ).toEqual({ keep: { value: true }, "user::alice": { roles: ["other-role"] } })
   })
 })

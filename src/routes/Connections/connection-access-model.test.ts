@@ -3,7 +3,10 @@ import type { ConnectionActionCatalogItem } from "../../../electron/connections/
 import { describe, expect, it } from "vitest"
 import {
   connectionAccessSaveDisabled,
+  canRestoreConnectionAccess,
+  createConnectionPermissionRuleGrant,
   defaultRestrictedActionNames,
+  isConnectionAccessConflict,
   unavailableActionNames,
   updateActionSelection,
 } from "./connection-access-model.ts"
@@ -36,6 +39,12 @@ const actions: ConnectionActionCatalogItem[] = [
 ]
 
 describe("connection access action drafts", () => {
+  it("starts a new permission rule denied by default", () => {
+    expect(createConnectionPermissionRuleGrant()).toEqual({
+      actionAccess: { actionNames: [], mode: "restricted" },
+    })
+  })
+
   it("starts a new restricted policy with known read actions", () => {
     expect(defaultRestrictedActionNames(actions)).toEqual(["get_issue", "list_issues"])
   })
@@ -49,6 +58,55 @@ describe("connection access action drafts", () => {
 
     expect(unavailableActionNames(selected, actions)).toEqual(["legacy_action"])
     expect(updateActionSelection(selected, ["get_issue", "list_issues"], false)).toEqual(["legacy_action"])
+  })
+})
+
+describe("connection access recovery", () => {
+  it("offers recovery to managers for configured and invalid policies", () => {
+    expect(
+      canRestoreConnectionAccess(true, {
+        appId: "app-github",
+        issues: [],
+        mode: "invalid",
+        service: "github",
+      }),
+    ).toBe(true)
+    expect(
+      canRestoreConnectionAccess(true, {
+        appId: "app-github",
+        format: "multi",
+        mode: "configured",
+        permissionRules: { assignments: {}, rules: [], teamDefault: { actionAccess: { mode: "unrestricted" } } },
+        service: "github",
+      }),
+    ).toBe(true)
+  })
+
+  it("does not offer recovery to ordinary members or unconfigured Apps", () => {
+    expect(
+      canRestoreConnectionAccess(false, {
+        appId: "app-github",
+        issues: [],
+        mode: "invalid",
+        service: "github",
+      }),
+    ).toBe(false)
+    expect(
+      canRestoreConnectionAccess(true, {
+        appId: "app-github",
+        mode: "default",
+        permissionRules: { assignments: {}, rules: [], teamDefault: { actionAccess: { mode: "unrestricted" } } },
+        service: "github",
+      }),
+    ).toBe(false)
+  })
+})
+
+describe("connection access concurrency", () => {
+  it("recognizes an ETag precondition conflict", () => {
+    expect(isConnectionAccessConflict({ status: 412 })).toBe(true)
+    expect(isConnectionAccessConflict({ status: 409 })).toBe(false)
+    expect(isConnectionAccessConflict(new Error("HTTP 412"))).toBe(false)
   })
 })
 

@@ -1359,6 +1359,17 @@ export const enMessages = {
   "connections.accessLingxingSelected": "Selected owners",
   "connections.accessLingxingEmpty": "This Connection returned no Lingxing ERP users.",
   "connections.accessLingxingLoadFailed": "Lingxing ERP users could not be loaded: {error}",
+  "connections.accessLingxingForbidden":
+    "Lingxing rejected the ERP user request. Grant the configured App ID permission to read ERP users, then retry.",
+  "connections.accessLingxingNotFound": "This Lingxing Connection could not be found.",
+  "connections.accessLingxingNotReady": "This Lingxing Connection is not ready to list ERP users.",
+  "connections.accessLingxingRateLimited": "Lingxing is rate limiting ERP user requests. Try again later.",
+  "connections.accessLingxingUnavailableService": "Lingxing is temporarily unavailable. Try again later.",
+  "connections.accessLingxingResponsibleNames": "Owners: {names}",
+  "connections.accessLingxingNameSeparator": ", ",
+  "connections.accessLingxingNoResponsibleUsers": "No owners allowed",
+  "connections.lingxingAppIdPermissionHelp":
+    "The Lingxing App ID must be allowed to read ERP user accounts before owner permissions can be configured.",
   "connections.accessLingxingUnavailable": "Saved owner is no longer returned by Lingxing",
   "connections.accessReadOnlyRuleDescription":
     "Your effective access is determined by this rule. Ask a Team administrator to change it.",
@@ -1370,6 +1381,8 @@ export const enMessages = {
     "This connection policy cannot be parsed safely. A team administrator must repair it before use.",
   "connections.accessConcurrencyUnavailable":
     "The Connection access version could not be verified. Refresh and try again to avoid overwriting another administrator's changes.",
+  "connections.accessConcurrencyConflict":
+    "Another administrator changed this Connection access. The latest policy was reloaded; review it before editing again.",
   "connections.accessRepair": "Repair access",
   "connections.accessRepairTitle": "Restore default connection access?",
   "connections.accessRepairDescription":

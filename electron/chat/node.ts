@@ -308,6 +308,7 @@ interface ChatServiceDeps {
   /** Keep the guarded external OOCLI scope limited to currently running turns. */
   onExternalTurnScopeChanged?: (input: {
     active: boolean
+    cwdRoots?: readonly string[]
     sessionId: string
     teamName?: string
   }) => Promise<void> | void
@@ -2170,11 +2171,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     let processDir: string | undefined
     try {
       const teamName = teamNameFromRequest(req)
-      await this.deps.onExternalTurnScopeChanged?.({
-        active: true,
-        sessionId: req.sessionId,
-        ...(teamName ? { teamName } : {}),
-      })
       const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
       if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, generation.id)
@@ -2209,6 +2205,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         return
       }
       const project = await this.projectBaseline(req.projectContext)
+      await this.deps.onExternalTurnScopeChanged?.({
+        active: true,
+        sessionId: req.sessionId,
+        ...(teamName ? { teamName } : {}),
+        cwdRoots: [artifactDir, processDir, artifactProjectRoot, project.projectRoot].filter(
+          (root): root is string => Boolean(root),
+        ),
+      })
       const artifactBaseline = await captureArtifactSessionBaseline(
         directories.artifactSessionDir(req.sessionId, artifactProjectRoot),
         artifactDir,

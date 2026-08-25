@@ -58,7 +58,7 @@ import { createDirectCliHostCapability, DIRECT_CLI_CAPABILITY_ID } from "./agent
 import { memoizeExternalCommandEnvironment } from "./agent/external/command-environment.ts"
 import { createExternalAgents } from "./agent/external/create.ts"
 import { ExternalOoGuardServer } from "./agent/external/oo-guard-server.ts"
-import { ExternalOoScopeStore } from "./agent/external/oo-scope-store.ts"
+import { externalSessionScratchCwd, ExternalOoScopeStore } from "./agent/external/oo-scope-store.ts"
 import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
 import { GrokModelGateway } from "./agent/grok-model-gateway.ts"
 import { HostCapabilityInvokeServer } from "./agent/host-capability-invoke-server.ts"
@@ -571,10 +571,21 @@ const chatService = new ChatServiceImpl(null, {
     sessionService.setPermissionMode({ id: sessionId, permissionMode }),
   onExternalSessionSelectionChanged: (sessionId, patch) =>
     sessionService.setAgentSelection({ id: sessionId, ...patch }),
-  onExternalTurnScopeChanged: ({ active, sessionId, teamName }) =>
-    active
-      ? externalOoScopeStore.activate(sessionId, activeLinkCapabilityRuntime?.linkRuntime.kind ?? "none", teamName)
-      : externalOoScopeStore.deactivate(sessionId),
+  onExternalTurnScopeChanged: ({ active, cwdRoots, sessionId, teamName }) => {
+    if (!active) return externalOoScopeStore.deactivate(sessionId)
+    // ACP creates a session with this stable per-session scratch directory as
+    // its default cwd when no project root is selected. It is a Wanta-owned
+    // directory, so include it in the guard scope rather than rejecting the
+    // agent's ordinary first `oo connector schema` call before it has had a
+    // reason to `cd` into the turn process directory.
+    const sessionScratchRoot = externalSessionScratchCwd(externalAgentRootDir, sessionId)
+    return externalOoScopeStore.activate(
+      sessionId,
+      activeLinkCapabilityRuntime?.linkRuntime.kind ?? "none",
+      teamName,
+      [...(cwdRoots ?? []), ...(sessionScratchRoot ? [sessionScratchRoot] : [])],
+    )
+  },
   onOomolAuthRequired: () => authManager.expireSession().then(() => undefined),
   onSetAgentTeam: handleAgentTeamChanged,
   onSessionCompleted: (input) => attentionService.completeSession(input),

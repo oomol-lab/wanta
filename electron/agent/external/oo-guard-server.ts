@@ -10,6 +10,7 @@ import {
   isConnectorBusinessCommand,
   isManagedExternalOoCommand,
   redactConnectorOutput,
+  resolveExternalGuardCwd,
   stripIdentityIndependentWorkspaceSelectors,
 } from "../oo-guard-core.ts"
 
@@ -92,18 +93,21 @@ export class ExternalOoGuardServer {
       respondJson(response, 400, { error: "Managed OO request is missing args." })
       return
     }
-    const rawArgs = (body as { args: unknown[] }).args
+    const input = body as { args: unknown[]; cwd?: unknown }
+    const rawArgs = input.args
     if (rawArgs.some((arg) => typeof arg !== "string")) {
       respondJson(response, 400, { error: "Managed OO request args must be strings." })
       return
     }
+    const scope = this.options.scope()
+    const cwd = resolveExternalGuardCwd(scope, input.cwd)
     const originalArgs = stripIdentityIndependentWorkspaceSelectors(rawArgs as string[])
     if (!isManagedExternalOoCommand(originalArgs)) {
       respondJson(response, 403, { error: "Only managed connector discovery and action commands are allowed." })
       return
     }
     const args = isConnectorBusinessCommand(originalArgs)
-      ? bindExternalConnectorWorkspace(originalArgs, this.options.scope())
+      ? bindExternalConnectorWorkspace(originalArgs, scope)
       : originalArgs
     const controller = new AbortController()
     const abortOnDisconnect = (): void => {
@@ -112,7 +116,7 @@ export class ExternalOoGuardServer {
     request.once("aborted", abortOnDisconnect)
     response.once("close", abortOnDisconnect)
     try {
-      const result = await runOo(this.options.command, args, this.options.env ?? process.env, {
+      const result = await runOo(this.options.command, args, this.options.env ?? process.env, cwd, {
         activeChildren: this.activeChildren,
         signal: controller.signal,
       })
@@ -128,9 +132,10 @@ async function runOo(
   command: string,
   args: string[],
   env: NodeJS.ProcessEnv,
+  cwd: string,
   options: { activeChildren: Set<ChildProcess>; signal: AbortSignal },
 ): Promise<{ exitCode: number; stderr: string; stdout: string }> {
-  const child = spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
+  const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
   options.activeChildren.add(child)
   const stdout: Buffer[] = []
   const stderr: Buffer[] = []

@@ -7,6 +7,7 @@ import {
   isConnectorBusinessCommand,
   isManagedExternalOoCommand,
   redactConnectorOutput,
+  resolveExternalGuardCwd,
   resolveGuardWorkspaceTeam,
   resolveExternalGuardWorkspaceTeam,
   stripIdentityIndependentWorkspaceSelectors,
@@ -219,6 +220,19 @@ describe("OOMOL connector workspace guard", () => {
           sessionTeams: { "session-a": "" },
         }),
       /without a running team-scoped turn/u,
+    )
+  })
+
+  test("accepts only a cwd beneath an active turn's managed roots", () => {
+    const scope = { sessionCwdRoots: { "session-a": ["/managed/process", "/managed/artifacts"] } }
+    assert.equal(resolveExternalGuardCwd(scope, "/managed/process/queries"), "/managed/process/queries")
+    assert.throws(
+      () => resolveExternalGuardCwd(scope, "/Users/wushuang/code/wanta"),
+      /outside the active turn's managed working directories/u,
+    )
+    assert.throws(
+      () => resolveExternalGuardCwd(scope, "relative"),
+      /without an absolute managed working directory/u,
     )
   })
 

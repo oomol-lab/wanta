@@ -1,3 +1,5 @@
+import path from "node:path"
+
 const connectorCommandsRequiringWorkspace = new Set(["apps", "run"])
 const connectorCommandsIgnoringWorkspace = new Set(["schema", "search"])
 const sensitiveConnectorKeys = new Set([
@@ -217,6 +219,33 @@ export interface WorkspaceTeamScope {
   teamName?: unknown
   sessionTeams?: unknown
   sessionRuntimes?: unknown
+  /** Per-running-turn roots from which the shared guard may inherit a cwd. */
+  sessionCwdRoots?: unknown
+}
+
+/**
+ * The external OO shim carries the native shell cwd over loopback. It must
+ * remain inside a root Wanta registered for a currently running turn: the
+ * guard credential is process-scoped, so accepting an arbitrary cwd would
+ * turn this otherwise narrow connector boundary into a filesystem probe.
+ */
+export function resolveExternalGuardCwd(scope: WorkspaceTeamScope, cwd: unknown): string {
+  if (typeof cwd !== "string" || !cwd.trim() || !path.isAbsolute(cwd)) {
+    throw new Error("Wanta cannot run an external connector command without an absolute managed working directory.")
+  }
+  if (!scope.sessionCwdRoots || typeof scope.sessionCwdRoots !== "object") {
+    throw new Error("Wanta cannot run an external connector command without a running managed working directory.")
+  }
+  const candidate = path.resolve(cwd)
+  const roots = Object.values(scope.sessionCwdRoots)
+    .flatMap((value) => (Array.isArray(value) ? value : []))
+    .filter((value): value is string => typeof value === "string" && path.isAbsolute(value))
+    .map((value) => path.resolve(value))
+  const isWithinManagedRoot = roots.some((root) => candidate === root || candidate.startsWith(`${root}${path.sep}`))
+  if (!isWithinManagedRoot) {
+    throw new Error("Wanta refused an external connector command outside the active turn's managed working directories.")
+  }
+  return candidate
 }
 
 function resolveExternalGuardRuntime(scope: WorkspaceTeamScope): "oomol" | "openconnector" {

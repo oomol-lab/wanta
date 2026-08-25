@@ -14,7 +14,10 @@ async function main(): Promise<void> {
   const response = await fetch(url, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ args: process.argv.slice(2) }),
+    // The guarded CLI is a loopback RPC, so the host process would otherwise
+    // inherit Electron main's cwd. Preserve the calling shell's cwd for
+    // ordinary CLI semantics such as `--data @relative-payload.json`.
+    body: JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd() }),
   })
   const body = (await response.json()) as GuardResponse
   if (!response.ok) throw new Error(body.error || `Managed OO request failed with status ${response.status}.`)

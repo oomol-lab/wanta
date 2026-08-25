@@ -1,34 +1,27 @@
-export interface HtmlPreviewOptions {
-  scriptsEnabled?: boolean
+/** Generated HTML artifacts may run only their embedded code in a sandbox. */
+export function htmlPreviewSandbox(): string {
+  return "allow-scripts"
 }
 
-export function htmlPreviewSandbox(scriptsEnabled: boolean): string {
-  return scriptsEnabled ? "allow-scripts" : ""
-}
-
-export function htmlPreviewHasScripts(source: string): boolean {
-  return (
-    /<script[\s/>]/iu.test(source) ||
-    /\son[a-z]+\s*=/iu.test(source) ||
-    /\s(?:href|src|action|formaction|xlink:href)\s*=\s*(?:["']\s*)?javascript\s*:/iu.test(source)
-  )
-}
-
-function htmlPreviewHeadPrelude(scriptsEnabled: boolean): string {
-  const scriptSource = scriptsEnabled ? "'unsafe-inline'" : "'none'"
+function htmlPreviewHeadPrelude(): string {
   return [
-    `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${scriptSource}; connect-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; font-src data:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">`,
+    `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; font-src data:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; navigate-to 'none';">`,
     "<style>html,body{background:transparent;}body{min-width:0;}</style>",
   ].join("")
 }
 
-export function htmlPreviewSrcDoc(source: string, options: HtmlPreviewOptions = {}): string {
-  const prelude = htmlPreviewHeadPrelude(options.scriptsEnabled ?? true)
+export function htmlPreviewSrcDoc(source: string): string {
+  const prelude = htmlPreviewHeadPrelude()
   const { body, doctype } = splitHtmlPreviewDoctype(source)
   // A meta-delivered CSP only protects content parsed after the meta element.
   // Emit it before every untrusted source token; Chromium will place these
   // head-only elements into the document head before parsing the supplied HTML.
-  return `${doctype}${prelude}${body}`
+  return `${doctype}${prelude}${stripMetaRefresh(body)}`
+}
+
+/** Meta refresh is an immediate document navigation, not report interactivity. */
+function stripMetaRefresh(source: string): string {
+  return source.replace(/<meta\b[^>]*\bhttp-equiv\s*=\s*(?:["']\s*)?refresh\s*(?:["'])?[^>]*>/giu, "")
 }
 
 function splitHtmlPreviewDoctype(source: string): { body: string; doctype: string } {

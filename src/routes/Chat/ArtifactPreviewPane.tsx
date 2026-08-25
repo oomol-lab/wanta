@@ -7,10 +7,10 @@ import type {
 import type { LocalArtifactPreviewCache } from "./artifact-preview-cache.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
-import { Code2, Copy, ExternalLink, File, FolderOpen, Info, Music, Package, ShieldCheck } from "lucide-react"
+import { Code2, Copy, ExternalLink, File, FolderOpen, Info, Music, Package } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-import { htmlPreviewHasScripts, htmlPreviewSandbox, htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
+import { htmlPreviewSandbox, htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 import {
   artifactMetaLabel,
   fileSizeLabel,
@@ -632,37 +632,13 @@ export function ArtifactConsumablePreview({
 function ArtifactHtmlPreview({ preview }: { preview: LocalArtifactPreviewResult }) {
   const t = useT()
   const source = preview.text ?? ""
-  const hasScripts = htmlPreviewHasScripts(source)
-  const [scriptsEnabled, setScriptsEnabled] = React.useState(true)
-
-  React.useEffect(() => {
-    setScriptsEnabled(true)
-  }, [source])
 
   return (
     <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">
-      {hasScripts ? (
-        <div className="oo-border-divider flex shrink-0 items-center gap-2 border-b bg-muted/45 px-3 py-2 text-muted-foreground">
-          <ShieldCheck className="size-3.5 shrink-0" />
-          <p className="oo-text-caption min-w-0 flex-1">
-            {t(scriptsEnabled ? "artifacts.htmlScriptsEnabled" : "artifacts.htmlScriptsDisabled")}
-          </p>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 shrink-0 px-2 text-xs"
-            onClick={() => setScriptsEnabled((enabled) => !enabled)}
-          >
-            {t(scriptsEnabled ? "artifacts.disableHtmlScripts" : "artifacts.enableHtmlScripts")}
-          </Button>
-        </div>
-      ) : null}
       <iframe
-        key={scriptsEnabled ? "scripts-enabled" : "scripts-disabled"}
         title={t("artifacts.htmlPreview")}
-        srcDoc={htmlPreviewSrcDoc(source, { scriptsEnabled })}
-        sandbox={htmlPreviewSandbox(scriptsEnabled)}
+        srcDoc={htmlPreviewSrcDoc(source)}
+        sandbox={htmlPreviewSandbox()}
         referrerPolicy="no-referrer"
         className="block h-full min-h-[480px] w-full min-w-0 flex-1 border-0 bg-transparent"
       />

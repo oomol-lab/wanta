@@ -14,6 +14,11 @@ connected service cannot handle.
 
 - Prefer a direct answer, local file tools, or a purpose-built connected action when those already
   provide the requested result.
+- A generated `.html` deliverable in the current artifact directory is a document artifact, not a
+  browser destination. Write it to the artifact directory and let Wanta show its artifact preview;
+  do not start a localhost server or call `browser_navigate` merely to display that report. Use the
+  integrated browser for the artifact only when the user explicitly asks to test it as a live web app
+  or it genuinely needs browser-only runtime behavior.
 - Use the integrated browser for visual or stateful page interaction, including navigation, forms,
   controls, client-rendered content, and the user's existing Wanta browser session.
 - Operate only through Wanta's `browser_*` tools. Do not start a separate browser automation

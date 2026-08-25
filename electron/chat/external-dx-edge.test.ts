@@ -325,7 +325,10 @@ test("external turns receive managed output directories and finalize against the
 })
 
 test("external turns publish and clear their guarded OOCLI workspace scope", async () => {
-  const scopeChanges = vi.fn(async (_input: { active: boolean; sessionId: string; teamName?: string }) => undefined)
+  const scopeChanges = vi.fn(
+    async (_input: { active: boolean; cwdRoots?: readonly string[]; sessionId: string; teamName?: string }) =>
+      undefined,
+  )
   const { service, adapters } = createHarness(["claude-code"], {
     onExternalTurnScopeChanged: scopeChanges,
   })
@@ -339,8 +342,10 @@ test("external turns publish and clear their guarded OOCLI workspace scope", asy
     text: "query PostHog",
   })
   await waitForCondition(() => adapter.prompts.length === 1, "external prompt")
+  const prompt = adapter.prompts[0]
   assert.deepEqual(scopeChanges.mock.calls[0]?.[0], {
     active: true,
+    cwdRoots: [prompt?.artifactDir, prompt?.processDir].filter((root): root is string => Boolean(root)),
     sessionId,
     teamName: "OOMOL-Internal",
   })

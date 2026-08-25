@@ -1,4 +1,7 @@
 import assert from "node:assert/strict"
+import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import { describe, test } from "vitest"
 import {
   bindOomolWorkspace,
@@ -7,6 +10,9 @@ import {
   isConnectorBusinessCommand,
   isManagedExternalOoCommand,
   redactConnectorOutput,
+  externalGuardSessionScope,
+  resolveExternalGuardCwd,
+  resolveExternalGuardCwdBinding,
   resolveGuardWorkspaceTeam,
   resolveExternalGuardWorkspaceTeam,
   stripIdentityIndependentWorkspaceSelectors,
@@ -220,6 +226,40 @@ describe("OOMOL connector workspace guard", () => {
         }),
       /without a running team-scoped turn/u,
     )
+  })
+
+  test("binds a canonical cwd to exactly one active session and rejects symlink escapes", async () => {
+    const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "wanta-oo-guard-core-"))
+    try {
+      const sessionRoot = path.join(temporaryRoot, "session-a")
+      const otherSessionRoot = path.join(temporaryRoot, "session-b")
+      const queryDirectory = path.join(sessionRoot, "queries")
+      const outsideRoot = path.join(temporaryRoot, "outside")
+      await Promise.all([
+        mkdir(queryDirectory, { recursive: true }),
+        mkdir(otherSessionRoot, { recursive: true }),
+        mkdir(outsideRoot, { recursive: true }),
+      ])
+      await symlink(outsideRoot, path.join(sessionRoot, "escape"))
+      const scope = {
+        runtime: "oomol",
+        sessionCwdRoots: { "session-a": [sessionRoot], "session-b": [otherSessionRoot] },
+        sessionRuntimes: { "session-a": "oomol", "session-b": "oomol" },
+        sessionTeams: { "session-a": "Team A", "session-b": "Team B" },
+      }
+
+      const binding = resolveExternalGuardCwdBinding(scope, queryDirectory)
+      assert.deepEqual(binding, { cwd: await realpath(queryDirectory), sessionId: "session-a" })
+      assert.equal(resolveExternalGuardCwd(scope, queryDirectory), await realpath(queryDirectory))
+      assert.deepEqual(externalGuardSessionScope(scope, binding.sessionId).sessionTeams, { "session-a": "Team A" })
+      assert.throws(
+        () => resolveExternalGuardCwd(scope, path.join(sessionRoot, "escape")),
+        /outside the active turn's managed working directories/u,
+      )
+      assert.throws(() => resolveExternalGuardCwd(scope, "relative"), /without an absolute managed working directory/u)
+    } finally {
+      await rm(temporaryRoot, { force: true, recursive: true })
+    }
   })
 
   test("keeps OpenConnector business calls free of OOMOL selectors", () => {

@@ -64,20 +64,10 @@ export function BrowserPanel({
     if (request === previewRequestRef.current) setPreviewDataUrl(preview)
   }, [browserService, sessionId])
 
-  const refreshPreview = React.useCallback((): void => {
-    void capturePreview().catch((cause: unknown) => {
-      reportRendererHandledError("browser", "capture browser modal backdrop preview failed", cause)
-    })
-  }, [capturePreview])
-
   React.useEffect(() => {
     previewRequestRef.current += 1
     setPreviewDataUrl(null)
   }, [sessionId])
-
-  React.useEffect(() => {
-    if (!state.navigation.loading) refreshPreview()
-  }, [refreshPreview, state.navigation.loading, state.navigation.url])
 
   React.useLayoutEffect(() => {
     const slot = browserSlotRef.current
@@ -86,14 +76,25 @@ export function BrowserPanel({
     let frame: number | null = null
     let visibilityRevision = 0
     let visibilityTransition = Promise.resolve()
+    let lastRequestedBounds: BrowserViewBounds | null = null
+    let lastRequestedVisible: boolean | null = null
+    let modalVisible = browserViewIsOccluded()
     const enqueueVisibility = (visible: boolean, bounds?: BrowserViewBounds, captureBeforeHide = true): void => {
+      if (
+        lastRequestedVisible === visible &&
+        (!visible || (bounds !== undefined && sameBrowserBounds(lastRequestedBounds, bounds)))
+      ) {
+        return
+      }
+      lastRequestedVisible = visible
+      lastRequestedBounds = visible && bounds ? bounds : null
       const revision = ++visibilityRevision
       visibilityTransition = visibilityTransition
         .then(async () => {
           if (revision !== visibilityRevision) return
           if (visible && bounds) {
             await browserService.invoke("show", { bounds, sessionId })
-            if (revision === visibilityRevision) refreshPreview()
+            if (revision === visibilityRevision) setPreviewDataUrl(null)
             return
           }
           await browserService.invoke("hide", sessionId)
@@ -108,18 +109,28 @@ export function BrowserPanel({
             visible ? "show browser page failed" : "hide browser page behind renderer surface failed",
             cause,
           )
+          if (revision === visibilityRevision) {
+            lastRequestedVisible = null
+            lastRequestedBounds = null
+          }
         })
     }
     const showBrowser = (): void => {
       frame = null
-      if (browserViewIsOccluded()) return
+      if (browserViewIsOccluded()) {
+        enqueueVisibility(false)
+        return
+      }
       const rect = slot.getBoundingClientRect()
-      if (rect.width < 1 || rect.height < 1) return
+      if (rect.width < 1 || rect.height < 1) {
+        enqueueVisibility(false)
+        return
+      }
       const bounds: BrowserViewBounds = {
-        height: rect.height,
-        width: rect.width,
-        x: rect.x,
-        y: rect.y,
+        height: Math.round(rect.height),
+        width: Math.round(rect.width),
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
       }
       enqueueVisibility(true, bounds)
     }
@@ -135,11 +146,17 @@ export function BrowserPanel({
       if (frame !== null) window.cancelAnimationFrame(frame)
       frame = window.requestAnimationFrame(showBrowser)
     }
+    const handleModalMutation = (): void => {
+      const nextModalVisible = browserViewIsOccluded()
+      if (nextModalVisible === modalVisible) return
+      modalVisible = nextModalVisible
+      scheduleShow()
+    }
 
     scheduleShow()
     const resizeObserver = new ResizeObserver(scheduleShow)
     resizeObserver.observe(slot)
-    const overlayObserver = new MutationObserver(scheduleShow)
+    const overlayObserver = new MutationObserver(handleModalMutation)
     overlayObserver.observe(document.body, {
       attributes: true,
       attributeFilter: ["aria-modal"],
@@ -147,14 +164,20 @@ export function BrowserPanel({
       subtree: true,
     })
     window.addEventListener("resize", scheduleShow)
+    window.addEventListener("scroll", scheduleShow, { capture: true, passive: true })
+    window.visualViewport?.addEventListener("resize", scheduleShow)
+    window.visualViewport?.addEventListener("scroll", scheduleShow)
     return () => {
       resizeObserver.disconnect()
       overlayObserver.disconnect()
       window.removeEventListener("resize", scheduleShow)
+      window.removeEventListener("scroll", scheduleShow, true)
+      window.visualViewport?.removeEventListener("resize", scheduleShow)
+      window.visualViewport?.removeEventListener("scroll", scheduleShow)
       if (frame !== null) window.cancelAnimationFrame(frame)
       enqueueVisibility(false, undefined, false)
     }
-  }, [browserService, capturePreview, refreshPreview, sessionId])
+  }, [browserService, capturePreview, sessionId])
 
   const runNavigationAction = React.useCallback(
     (action: "goBack" | "goForward" | "reload"): void => {
@@ -319,4 +342,8 @@ export function BrowserPanel({
       </div>
     </section>
   )
+}
+
+function sameBrowserBounds(left: BrowserViewBounds | null, right: BrowserViewBounds): boolean {
+  return left?.height === right.height && left.width === right.width && left.x === right.x && left.y === right.y
 }

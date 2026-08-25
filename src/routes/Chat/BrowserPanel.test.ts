@@ -206,7 +206,7 @@ describe("BrowserPanel native view visibility", () => {
     act(() => root.unmount())
   })
 
-  it("ignores a stale preview after a newer capture clears it", async () => {
+  it("does not capture a preview for ordinary native-view layout updates", async () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       bottom: 500,
       height: 400,
@@ -218,31 +218,47 @@ describe("BrowserPanel native view visibility", () => {
       y: 100,
       toJSON: () => undefined,
     })
-    let resolveFirstCapture!: (preview: string) => void
-    const firstCapture = new Promise<string>((resolve) => {
-      resolveFirstCapture = resolve
-    })
-    let captureCount = 0
-    const invoke = vi.fn((action: string) => {
-      if (action === "capturePreview") {
-        captureCount += 1
-        return captureCount === 1 ? firstCapture : Promise.resolve(null)
-      }
-      return Promise.resolve(undefined)
-    })
+    const invoke = vi.fn(async (_action: string) => undefined)
     const root = await renderInteractivePanel(invoke)
 
     await act(async () => {
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
       await Promise.resolve()
     })
-    expect(captureCount).toBeGreaterThanOrEqual(2)
+    expect(invoke).toHaveBeenCalledWith("show", {
+      bounds: { height: 400, width: 500, x: 600, y: 100 },
+      sessionId: "session-1",
+    })
+    expect(invoke.mock.calls.map(([action]) => action)).not.toContain("capturePreview")
 
-    const stalePreview = "data:image/png;base64,c3RhbGU="
-    await act(async () => resolveFirstCapture(stalePreview))
+    act(() => root.unmount())
+  })
 
-    expect(document.querySelector(`img[src="${stalePreview}"]`)).toBeNull()
+  it("ignores ordinary streamed DOM mutations when no modal state changed", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      bottom: 500,
+      height: 400,
+      left: 600,
+      right: 1100,
+      top: 100,
+      width: 500,
+      x: 600,
+      y: 100,
+      toJSON: () => undefined,
+    })
+    const invoke = vi.fn(async (_action: string) => undefined)
+    const root = await renderInteractivePanel(invoke)
+    await act(async () => {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+    })
+    invoke.mockClear()
 
+    await act(async () => {
+      document.body.append(document.createElement("p"))
+      await Promise.resolve()
+    })
+
+    expect(invoke).not.toHaveBeenCalled()
     act(() => root.unmount())
   })
 })

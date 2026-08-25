@@ -10,7 +10,8 @@ import {
   isConnectorBusinessCommand,
   isManagedExternalOoCommand,
   redactConnectorOutput,
-  resolveExternalGuardCwd,
+  externalGuardSessionScope,
+  resolveExternalGuardCwdBinding,
   stripIdentityIndependentWorkspaceSelectors,
 } from "../oo-guard-core.ts"
 
@@ -100,14 +101,15 @@ export class ExternalOoGuardServer {
       return
     }
     const scope = this.options.scope()
-    const cwd = resolveExternalGuardCwd(scope, input.cwd)
+    const binding = resolveExternalGuardCwdBinding(scope, input.cwd)
+    const sessionScope = externalGuardSessionScope(scope, binding.sessionId)
     const originalArgs = stripIdentityIndependentWorkspaceSelectors(rawArgs as string[])
     if (!isManagedExternalOoCommand(originalArgs)) {
       respondJson(response, 403, { error: "Only managed connector discovery and action commands are allowed." })
       return
     }
     const args = isConnectorBusinessCommand(originalArgs)
-      ? bindExternalConnectorWorkspace(originalArgs, scope)
+      ? bindExternalConnectorWorkspace(originalArgs, sessionScope)
       : originalArgs
     const controller = new AbortController()
     const abortOnDisconnect = (): void => {
@@ -116,7 +118,7 @@ export class ExternalOoGuardServer {
     request.once("aborted", abortOnDisconnect)
     response.once("close", abortOnDisconnect)
     try {
-      const result = await runOo(this.options.command, args, this.options.env ?? process.env, cwd, {
+      const result = await runOo(this.options.command, args, this.options.env ?? process.env, binding.cwd, {
         activeChildren: this.activeChildren,
         signal: controller.signal,
       })

@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs"
 import path from "node:path"
 
 const connectorCommandsRequiringWorkspace = new Set(["apps", "run"])
@@ -223,6 +224,11 @@ export interface WorkspaceTeamScope {
   sessionCwdRoots?: unknown
 }
 
+export interface ExternalGuardCwdBinding {
+  cwd: string
+  sessionId: string
+}
+
 /**
  * The external OO shim carries the native shell cwd over loopback. It must
  * remain inside a root Wanta registered for a currently running turn: the
@@ -230,24 +236,72 @@ export interface WorkspaceTeamScope {
  * turn this otherwise narrow connector boundary into a filesystem probe.
  */
 export function resolveExternalGuardCwd(scope: WorkspaceTeamScope, cwd: unknown): string {
+  return resolveExternalGuardCwdBinding(scope, cwd).cwd
+}
+
+/**
+ * A shared external-agent bridge cannot trust an agent-provided session id.
+ * Bind each invocation to exactly one running session by the canonical cwd it
+ * inherited from that session's own managed roots. Overlapping roots fail
+ * closed rather than letting one external turn select another turn's team.
+ */
+export function resolveExternalGuardCwdBinding(scope: WorkspaceTeamScope, cwd: unknown): ExternalGuardCwdBinding {
   if (typeof cwd !== "string" || !cwd.trim() || !path.isAbsolute(cwd)) {
     throw new Error("Wanta cannot run an external connector command without an absolute managed working directory.")
   }
   if (!scope.sessionCwdRoots || typeof scope.sessionCwdRoots !== "object") {
     throw new Error("Wanta cannot run an external connector command without a running managed working directory.")
   }
-  const candidate = path.resolve(cwd)
-  const roots = Object.values(scope.sessionCwdRoots)
-    .flatMap((value) => (Array.isArray(value) ? value : []))
-    .filter((value): value is string => typeof value === "string" && path.isAbsolute(value))
-    .map((value) => path.resolve(value))
-  const isWithinManagedRoot = roots.some((root) => candidate === root || candidate.startsWith(`${root}${path.sep}`))
-  if (!isWithinManagedRoot) {
+  const candidate = canonicalManagedPath(cwd, "working directory")
+  const matchingSessionIds = new Set<string>()
+  for (const [sessionId, rawRoots] of Object.entries(scope.sessionCwdRoots)) {
+    if (!Array.isArray(rawRoots)) continue
+    for (const rawRoot of rawRoots) {
+      if (typeof rawRoot !== "string" || !path.isAbsolute(rawRoot)) continue
+      const root = canonicalManagedPath(rawRoot, "managed working directory root")
+      if (candidate === root || candidate.startsWith(`${root}${path.sep}`)) {
+        matchingSessionIds.add(sessionId)
+      }
+    }
+  }
+  if (matchingSessionIds.size === 0) {
     throw new Error(
       "Wanta refused an external connector command outside the active turn's managed working directories.",
     )
   }
-  return candidate
+  if (matchingSessionIds.size !== 1) {
+    throw new Error("Wanta cannot route an external connector command from a working directory shared by active turns.")
+  }
+  return { cwd: candidate, sessionId: [...matchingSessionIds][0]! }
+}
+
+/** Keep workspace binding scoped to the sole session that owns the canonical cwd. */
+export function externalGuardSessionScope(scope: WorkspaceTeamScope, sessionId: string): WorkspaceTeamScope {
+  const runtime = sessionValue(scope.sessionRuntimes, sessionId, "Link runtime")
+  const teamName = sessionValue(scope.sessionTeams, sessionId, "team workspace")
+  const cwdRoots = sessionValue(scope.sessionCwdRoots, sessionId, "managed working directory roots")
+  return {
+    external: true,
+    runtime: scope.runtime,
+    sessionCwdRoots: { [sessionId]: cwdRoots },
+    sessionRuntimes: { [sessionId]: runtime },
+    sessionTeams: { [sessionId]: teamName },
+  }
+}
+
+function sessionValue(value: unknown, sessionId: string, label: string): unknown {
+  if (!value || typeof value !== "object" || !Object.hasOwn(value, sessionId)) {
+    throw new Error(`Wanta cannot run an external connector command without the owning session's ${label}.`)
+  }
+  return (value as Record<string, unknown>)[sessionId]
+}
+
+function canonicalManagedPath(value: string, label: string): string {
+  try {
+    return realpathSync.native(path.resolve(value))
+  } catch {
+    throw new Error(`Wanta cannot resolve the external connector command ${label}.`)
+  }
 }
 
 function resolveExternalGuardRuntime(scope: WorkspaceTeamScope): "oomol" | "openconnector" {

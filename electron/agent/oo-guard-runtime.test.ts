@@ -109,7 +109,7 @@ describe("external OO guard runtime", () => {
     ])
   })
 
-  test("fails before the real CLI when running turns use different teams", async () => {
+  test("fails before the real CLI when a shared cwd could select different running turns", async () => {
     const { env } = await fixture({
       external: true,
       runtime: "oomol",
@@ -118,7 +118,7 @@ describe("external OO guard runtime", () => {
     })
 
     await expect(runGuard(["connector", "run", "posthog", "--action", "list_projects"], env)).rejects.toMatchObject({
-      stderr: expect.stringContaining("running turns use different teams"),
+      stderr: expect.stringContaining("working directory shared by active turns"),
     })
   })
 

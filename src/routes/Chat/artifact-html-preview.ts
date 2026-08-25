@@ -5,7 +5,7 @@ export function htmlPreviewSandbox(): string {
 
 function htmlPreviewHeadPrelude(): string {
   return [
-    `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; font-src data:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">`,
+    `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; font-src data:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; navigate-to 'none';">`,
     "<style>html,body{background:transparent;}body{min-width:0;}</style>",
   ].join("")
 }
@@ -16,7 +16,12 @@ export function htmlPreviewSrcDoc(source: string): string {
   // A meta-delivered CSP only protects content parsed after the meta element.
   // Emit it before every untrusted source token; Chromium will place these
   // head-only elements into the document head before parsing the supplied HTML.
-  return `${doctype}${prelude}${body}`
+  return `${doctype}${prelude}${stripMetaRefresh(body)}`
+}
+
+/** Meta refresh is an immediate document navigation, not report interactivity. */
+function stripMetaRefresh(source: string): string {
+  return source.replace(/<meta\b[^>]*\bhttp-equiv\s*=\s*(?:["']\s*)?refresh\s*(?:["'])?[^>]*>/giu, "")
 }
 
 function splitHtmlPreviewDoctype(source: string): { body: string; doctype: string } {

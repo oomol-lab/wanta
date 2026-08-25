@@ -2,10 +2,13 @@ import assert from "node:assert/strict"
 import { describe, test } from "vitest"
 import {
   bindOomolWorkspace,
+  bindExternalConnectorWorkspace,
   hasWorkspaceSelector,
   isConnectorBusinessCommand,
+  isManagedExternalOoCommand,
   redactConnectorOutput,
   resolveGuardWorkspaceTeam,
+  resolveExternalGuardWorkspaceTeam,
   stripIdentityIndependentWorkspaceSelectors,
 } from "./oo-guard-core.ts"
 
@@ -40,6 +43,9 @@ describe("OOMOL connector workspace guard", () => {
     ])
     assert.equal(hasWorkspaceSelector(["connector", "apps", "--personal"]), true)
     assert.equal(isConnectorBusinessCommand(["connector", "search", "posthog"]), false)
+    assert.equal(isManagedExternalOoCommand(["connector", "search", "posthog"]), true)
+    assert.equal(isManagedExternalOoCommand(["connector", "run", "posthog"]), true)
+    assert.equal(isManagedExternalOoCommand(["logout"]), false)
   })
 
   test("removes model-added workspace selectors from schema and search", () => {
@@ -165,6 +171,90 @@ describe("OOMOL connector workspace guard", () => {
     assert.throws(
       () => bindOomolWorkspace(["connector", "apps"], resolveGuardWorkspaceTeam({ sessionTeams: { local: "" } })),
       /without an active team workspace/u,
+    )
+  })
+
+  test("binds external OOMOL commands from the running-turn scope", () => {
+    const scope = {
+      external: true,
+      runtime: "oomol",
+      sessionRuntimes: { "session-a": "oomol" },
+      sessionTeams: { "session-a": "Team A" },
+    }
+    assert.equal(resolveExternalGuardWorkspaceTeam(scope), "Team A")
+    assert.deepEqual(bindExternalConnectorWorkspace(["connector", "apps", "posthog", "--json"], scope), [
+      "connector",
+      "apps",
+      "posthog",
+      "--json",
+      "--team",
+      "Team A",
+    ])
+    assert.deepEqual(
+      bindExternalConnectorWorkspace(
+        ["connector", "run", "posthog", "--team", "Wrong Team", "--action", "list_projects"],
+        scope,
+      ),
+      ["connector", "run", "posthog", "--action", "list_projects", "--team", "Team A"],
+    )
+  })
+
+  test("fails closed when concurrent external turns do not share one team", () => {
+    assert.throws(
+      () =>
+        bindExternalConnectorWorkspace(["connector", "run", "posthog"], {
+          external: true,
+          runtime: "oomol",
+          sessionRuntimes: { "session-a": "oomol", "session-b": "oomol" },
+          sessionTeams: { "session-a": "Team A", "session-b": "Team B" },
+        }),
+      /running turns use different teams/u,
+    )
+    assert.throws(
+      () =>
+        bindExternalConnectorWorkspace(["connector", "run", "posthog"], {
+          external: true,
+          runtime: "oomol",
+          sessionRuntimes: { "session-a": "oomol" },
+          sessionTeams: { "session-a": "" },
+        }),
+      /without a running team-scoped turn/u,
+    )
+  })
+
+  test("keeps OpenConnector business calls free of OOMOL selectors", () => {
+    assert.deepEqual(
+      bindExternalConnectorWorkspace(
+        ["connector", "run", "posthog", "--team", "ignored", "--personal", "--action", "list_projects"],
+        {
+          external: true,
+          runtime: "openconnector",
+          sessionRuntimes: { "session-a": "openconnector" },
+          sessionTeams: { "session-a": "" },
+        },
+      ),
+      ["connector", "run", "posthog", "--action", "list_projects"],
+    )
+    assert.deepEqual(
+      bindExternalConnectorWorkspace(["connector", "schema", "posthog", "--action", "list_projects"], {
+        external: true,
+        runtime: "none",
+        sessionTeams: {},
+      }),
+      ["connector", "schema", "posthog", "--action", "list_projects"],
+    )
+  })
+
+  test("fails closed when an active turn predates a Link runtime change", () => {
+    assert.throws(
+      () =>
+        bindExternalConnectorWorkspace(["connector", "run", "posthog"], {
+          external: true,
+          runtime: "openconnector",
+          sessionRuntimes: { "session-a": "oomol" },
+          sessionTeams: { "session-a": "Team A" },
+        }),
+      /across a Link runtime change/u,
     )
   })
 })

@@ -314,20 +314,18 @@ export function buildSkillPaletteItems(
   const teamItems = validatedTeamSkills
     .slice()
     .sort((left, right) => left.name.localeCompare(right.name))
-    .map(
-      (skill): SkillPaletteItem => ({
-        description: skill.description || fallbackDescription,
-        descriptionText: skill.description || fallbackDescription,
-        icon: skillPaletteIcon(skill.icon),
-        ...(skill.icon ? { iconSource: skill.icon } : {}),
-        id: `skill:${skill.id}`,
-        kind: "skill",
-        meta: "team",
-        skillId: skill.id,
-        skillName: skill.name,
-        title: skill.name,
-      }),
-    )
+    .map((skill): SkillPaletteItem => ({
+      description: skill.description || fallbackDescription,
+      descriptionText: skill.description || fallbackDescription,
+      icon: skillPaletteIcon(skill.icon),
+      ...(skill.icon ? { iconSource: skill.icon } : {}),
+      id: `skill:${skill.id}`,
+      kind: "skill",
+      meta: "team",
+      skillId: skill.id,
+      skillName: skill.name,
+      title: skill.name,
+    }))
   const inventoryItems = groups
     .filter((group) => installedSkillHostCount(group) > 0)
     .filter((group) => group.id !== creatorSkillId && group.id !== browserSkillId)
@@ -339,20 +337,18 @@ export function buildSkillPaletteItems(
     })
     .slice()
     .sort((left, right) => left.name.localeCompare(right.name))
-    .map(
-      (group): SkillPaletteItem => ({
-        description: group.description || fallbackDescription,
-        descriptionText: group.description || fallbackDescription,
-        icon: skillPaletteIcon(group.icon),
-        ...(group.icon ? { iconSource: group.icon } : {}),
-        id: `skill:${group.id}`,
-        kind: "skill",
-        meta: skillKindMeta(group),
-        skillId: group.id,
-        skillName: group.name || group.id,
-        title: group.name || group.id,
-      }),
-    )
+    .map((group): SkillPaletteItem => ({
+      description: group.description || fallbackDescription,
+      descriptionText: group.description || fallbackDescription,
+      icon: skillPaletteIcon(group.icon),
+      ...(group.icon ? { iconSource: group.icon } : {}),
+      id: `skill:${group.id}`,
+      kind: "skill",
+      meta: skillKindMeta(group),
+      skillId: group.id,
+      skillName: group.name || group.id,
+      title: group.name || group.id,
+    }))
 
   return [creatorSkillItem, ...browserSkillItems, ...teamItems, ...inventoryItems]
 }

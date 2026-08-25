@@ -27,8 +27,8 @@
   but was vetoed by the user (no appetite for cloud operations, wanted a fast POC); the Claude
   Agent SDK was explicitly ruled out by the user; Pi lost mainly because the approval/permission
   layer would have to be built entirely from scratch, plus its 0.x breaking iteration.
-- **Decision**: spawn the published binary `opencode-ai@1.18.10` as a sidecar; the main process
-  drives it via `@opencode-ai/sdk@1.18.10` over HTTP+SSE; pure-configuration customization
+- **Decision**: spawn the published binary `opencode-ai@1.18.21` as a sidecar; the main process
+  drives it via `@opencode-ai/sdk@1.18.21` over HTTP+SSE; pure-configuration customization
   (full replacement of the custom agent prompt + `.opencode/tools/` custom tools), zero source
   modifications. **Do not use the SDK's `createOpencodeServer`** — spawn it ourselves: the former
   allows no control over binary path/env/cwd, and in production packaging opencode-ai is not in
@@ -38,7 +38,7 @@
   server-related packages were private; `opencode-ai` is a pure bin package); vendoring the
   monorepo carried a heavy maintenance burden (~41 commits/day upstream at the 2026-05 research,
   with no API compatibility promise).
-- **Consequences**: the three packages are pinned at `1.18.10`, floating forbidden; the sidecar
+- **Consequences**: the three packages are pinned at `1.18.21`, floating forbidden; the sidecar
   must run in isolated directories (`XDG_*` pointed at userData, otherwise it reads the global
   `~/.config/opencode` and leaks local machine config); the default system prompt is selected by
   model ID (a coding persona), so it must be fully replaced via the agent `prompt` field.

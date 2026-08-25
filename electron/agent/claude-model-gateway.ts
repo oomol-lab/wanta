@@ -245,7 +245,7 @@ export class ClaudeModelGateway {
   }
 }
 
-function createLanguageModel(route: ClaudeModelRoute): LanguageModel {
+export function createLanguageModel(route: ClaudeModelRoute): LanguageModel {
   if (route.providerKind === "openai-responses") {
     return createOpenAI({ apiKey: route.apiKey, baseURL: route.baseUrl, name: "wanta" }).responses(route.modelId)
   }
@@ -265,7 +265,7 @@ function createLanguageModel(route: ClaudeModelRoute): LanguageModel {
   }).languageModel(route.modelId)
 }
 
-function reasoningProviderOptions(
+export function reasoningProviderOptions(
   route: ClaudeModelRoute,
 ): Record<string, Record<string, JSONValue | undefined>> | undefined {
   const level = route.reasoningLevel
@@ -274,7 +274,7 @@ function reasoningProviderOptions(
   return { [route.providerKind === "openai-responses" ? "openai" : "wanta"]: { reasoningEffort: effort } }
 }
 
-function boundedMaxOutputTokens(requested: number | undefined, configured: number | undefined): number {
+export function boundedMaxOutputTokens(requested: number | undefined, configured: number | undefined): number {
   const requestValue = positiveInteger(requested) ?? 8_192
   return configured ? Math.min(requestValue, configured) : requestValue
 }

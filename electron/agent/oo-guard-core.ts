@@ -91,6 +91,14 @@ export function isConnectorBusinessCommand(args: readonly string[]): boolean {
   return connectorIndex >= 0 && connectorCommandsRequiringWorkspace.has(args[connectorIndex + 1] ?? "")
 }
 
+/** Commands exposed by the privileged external-agent OO execution boundary. */
+export function isManagedExternalOoCommand(args: readonly string[]): boolean {
+  const connectorIndex = connectorCommandIndex(args)
+  if (connectorIndex < 0) return false
+  const command = args[connectorIndex + 1] ?? ""
+  return connectorCommandsRequiringWorkspace.has(command) || connectorCommandsIgnoringWorkspace.has(command)
+}
+
 export function hasWorkspaceSelector(args: readonly string[]): boolean {
   const connectorIndex = connectorCommandIndex(args)
   if (connectorIndex < 0) return false
@@ -119,6 +127,48 @@ export function bindOomolWorkspace(args: readonly string[], teamName: string): s
   const terminatorIndex = args.indexOf("--")
   if (terminatorIndex < 0) return [...args, "--team", normalizedTeamName]
   return [...args.slice(0, terminatorIndex), "--team", normalizedTeamName, ...args.slice(terminatorIndex)]
+}
+
+function stripBusinessWorkspaceSelectors(args: readonly string[]): string[] {
+  if (!isConnectorBusinessCommand(args)) return [...args]
+  const connectorIndex = connectorCommandIndex(args)
+  const commandArgsStart = connectorIndex + 2
+  const terminatorIndex = args.indexOf("--", commandArgsStart)
+  const commandArgsEnd = terminatorIndex < 0 ? args.length : terminatorIndex
+  const normalized = args.slice(0, commandArgsStart)
+  let index = commandArgsStart
+  while (index < commandArgsEnd) {
+    const arg = args[index] ?? ""
+    if (["--team", "--organization", "--org"].includes(arg)) {
+      const nextArg = args[index + 1]
+      index += nextArg === undefined || nextArg === "--" || nextArg.startsWith("-") ? 1 : 2
+      continue
+    }
+    if (
+      arg === "--personal" ||
+      arg.startsWith("--team=") ||
+      arg.startsWith("--organization=") ||
+      arg.startsWith("--org=")
+    ) {
+      index += 1
+      continue
+    }
+    normalized.push(arg)
+    index += 1
+  }
+  if (terminatorIndex >= 0) normalized.push(...args.slice(terminatorIndex))
+  return normalized
+}
+
+/** Bind the shared external OO shim only from currently running Wanta turns. */
+export function bindExternalConnectorWorkspace(args: readonly string[], scope: WorkspaceTeamScope): string[] {
+  if (!isConnectorBusinessCommand(args)) return [...args]
+  const runtime = resolveExternalGuardRuntime(scope)
+  if (runtime === "openconnector") return stripBusinessWorkspaceSelectors(args)
+  if (runtime !== "oomol") {
+    throw new Error("Wanta cannot run an external connector command without an active Link runtime.")
+  }
+  return bindOomolWorkspace(stripBusinessWorkspaceSelectors(args), resolveExternalGuardWorkspaceTeam(scope))
 }
 
 /**
@@ -162,8 +212,45 @@ export function stripIdentityIndependentWorkspaceSelectors(args: readonly string
 }
 
 export interface WorkspaceTeamScope {
+  external?: unknown
+  runtime?: unknown
   teamName?: unknown
   sessionTeams?: unknown
+  sessionRuntimes?: unknown
+}
+
+function resolveExternalGuardRuntime(scope: WorkspaceTeamScope): "oomol" | "openconnector" {
+  if (!scope.sessionRuntimes || typeof scope.sessionRuntimes !== "object") {
+    throw new Error("Wanta cannot run an external connector command without a running Link-scoped turn.")
+  }
+  const activeRuntimes = Object.values(scope.sessionRuntimes)
+  if (
+    activeRuntimes.length === 0 ||
+    activeRuntimes.some((runtime) => runtime !== "oomol" && runtime !== "openconnector")
+  ) {
+    throw new Error("Wanta cannot run an external connector command without a running Link-scoped turn.")
+  }
+  const uniqueRuntimes = new Set(activeRuntimes)
+  if (uniqueRuntimes.size !== 1 || !uniqueRuntimes.has(scope.runtime)) {
+    throw new Error("Wanta cannot route external connector commands across a Link runtime change.")
+  }
+  return activeRuntimes[0] as "oomol" | "openconnector"
+}
+
+/** External commands have no process-local session id, so every running turn must agree. */
+export function resolveExternalGuardWorkspaceTeam(scope: WorkspaceTeamScope): string {
+  if (!scope.sessionTeams || typeof scope.sessionTeams !== "object") {
+    throw new Error("Wanta cannot run an external OOMOL connector command without a running team-scoped turn.")
+  }
+  const activeTeams = Object.values(scope.sessionTeams).map((value) => (typeof value === "string" ? value.trim() : ""))
+  if (activeTeams.length === 0 || activeTeams.some((teamName) => !teamName)) {
+    throw new Error("Wanta cannot run an external OOMOL connector command without a running team-scoped turn.")
+  }
+  const uniqueTeams = new Set(activeTeams)
+  if (uniqueTeams.size !== 1) {
+    throw new Error("Wanta cannot route external OOMOL connector commands while running turns use different teams.")
+  }
+  return activeTeams[0] ?? ""
 }
 
 /** Resolve a bare CLI call only when every active session agrees on its workspace. */

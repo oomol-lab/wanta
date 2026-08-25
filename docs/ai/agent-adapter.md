@@ -101,8 +101,14 @@ External agents build on `electron/agent/external/`:
   Claude's native Skills and subagents remain owned by Claude inside the ACP
   bridge; their file, shell, network, and permission operations still reach the
   same Wanta policy boundary as other external agents.
-  The guarded `oo` CLI Connector path is classified by the same shared
-  command policy for OpenCode, Claude, and ACP agents. A single `oo` command
+  The guarded `oo` CLI Connector path is classified by the same shared command
+  policy for OpenCode, Claude, and ACP agents. A bare OOMOL business command is
+  bound only when all currently running external turns agree on one team;
+  ambiguous or missing workspace identity fails closed. A single `oo` command
+  from an external agent crosses an authenticated loopback execution boundary;
+  Electron main retains the real CLI path and in-memory turn scope, and the
+  boundary accepts only connector apps/run/schema/search operations. The agent
+  never receives the real CLI path or a writable scope file. A single `oo` command
   receives a fast-path allow when it includes only the shared bounded output
   suffixes (`head`/`tail` or stderr descriptor duplication). Other ordinary
   pipelines, sequences, and file redirections fall through to the same
@@ -136,7 +142,8 @@ External agents build on `electron/agent/external/`:
   session metadata so they survive renderer reloads and full app restarts. For
   `wanta`, the ordinary Wanta model/reasoning choice is carried on every prompt;
   agent-native model pickers are disabled.
-- **Claude Code model route**: Claude Code is a Wanta-routed harness. Electron
+- **Wanta model routes for external harnesses**: Claude Code and Grok are
+  Wanta-routed harnesses. Electron
   main exposes an authenticated loopback implementation of Anthropic Messages
   (`/v1/messages`, `/v1/messages/count_tokens`, `/v1/models`) and translates it
   to the selected built-in or BYOK OpenAI-compatible/Responses route. ACP
@@ -145,6 +152,13 @@ External agents build on `electron/agent/external/`:
   Claude settings cannot restore another provider endpoint. The lease's actual
   upstream route is updated before each prompt, allowing model changes without
   replacing Claude's native session, Skills, subagents, plan loop, or settings.
+  Grok receives a separate authenticated OpenAI-compatible loopback endpoint
+  through `XAI_API_KEY` plus the `GROK_*_BASE_URL` environment. Its native model
+  catalog contains one stable Wanta alias and every chat-completions request is
+  translated to the selected Wanta route. Grok's provider configuration is
+  process-scoped, so its turns are serialized across Wanta sessions to prevent
+  one session's model choice from racing another; no xAI login or credential is
+  read or required.
 - **Attachments**: delivered as ACP `resource_link` blocks that the agent
   resolves with its own tools and permission model — never inlined into the payload.
   Display rides the kernel's `userAttachmentStore` record keyed by the
@@ -161,9 +175,8 @@ External agents build on `electron/agent/external/`:
   latest assistant message, which is what lights the composer context meter.
 - **Probing** (`external/probe.ts`): PATH scan (reusing
   `electron/agents/catalog.ts` + `resolveUserCommandPath`) with `--version`
-  verification, plus fail-open login detection (Claude: `~/.claude.json`
-  `oauthAccount` key presence only — no secret is ever read; agent-owned ACP
-  agents: config marker files). Login status gates only `agent-cli` profiles;
+  verification, plus fail-open login detection for agent-owned ACP agents via
+  config marker files. Login status gates only `agent-cli` profiles;
   a Wanta-routed harness is gated by its binary and Wanta model availability.
   Exposed to the renderer via the chat service
   `getExternalAgents` invoke.

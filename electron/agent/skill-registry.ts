@@ -38,11 +38,10 @@ export class SkillRegistry {
   private readonly sources: readonly SkillRegistrySource[]
 
   public constructor(sources: readonly (SkillRegistrySource | string)[]) {
-    const normalized = sources.map(
-      (source, index): SkillRegistrySource =>
-        typeof source === "string"
-          ? { id: `legacy-${index}`, kind: "managed", root: path.resolve(source) }
-          : { ...source, root: path.resolve(source.root) },
+    const normalized = sources.map((source, index): SkillRegistrySource =>
+      typeof source === "string"
+        ? { id: `legacy-${index}`, kind: "managed", root: path.resolve(source) }
+        : { ...source, root: path.resolve(source.root) },
     )
     this.sources = normalized.filter(
       (source, index) => normalized.findIndex((candidate) => candidate.root === source.root) === index,

@@ -57,7 +57,10 @@ import { resolveClaudeModelRoute } from "./agent/claude-model-route.ts"
 import { createDirectCliHostCapability, DIRECT_CLI_CAPABILITY_ID } from "./agent/direct-cli-host-capability.ts"
 import { memoizeExternalCommandEnvironment } from "./agent/external/command-environment.ts"
 import { createExternalAgents } from "./agent/external/create.ts"
+import { ExternalOoGuardServer } from "./agent/external/oo-guard-server.ts"
+import { ExternalOoScopeStore } from "./agent/external/oo-scope-store.ts"
 import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
+import { GrokModelGateway } from "./agent/grok-model-gateway.ts"
 import { HostCapabilityInvokeServer } from "./agent/host-capability-invoke-server.ts"
 import { HostCapabilityServer } from "./agent/host-capability-server.ts"
 import { HOST_CAPABILITY_AUDIT_BINDING, HostCapabilityKernel } from "./agent/host-capability.ts"
@@ -360,10 +363,16 @@ const directCliCapabilityServer = new HostCapabilityServer({
   version: "1.0.0",
 })
 const externalAgentRootDir = path.join(app.getPath("userData"), "agent-external")
+const externalOoScopeStore = new ExternalOoScopeStore()
+const externalOoGuardServer = new ExternalOoGuardServer({
+  command: ooBinPath,
+  scope: () => externalOoScopeStore.snapshot(),
+})
 const claudeModelGateway = new ClaudeModelGateway()
+const grokModelGateway = new GrokModelGateway()
 let claudeModelAccount: AuthRuntimeAccount | null = null
 
-async function claudeRouteFor(input: { model?: ModelChoice; reasoningLevel?: WantaReasoningLevel }) {
+async function wantaRouteFor(input: { model?: ModelChoice; reasoningLevel?: WantaReasoningLevel }) {
   const runtimeModels = await modelsStore.runtimeModels()
   return resolveClaudeModelRoute({
     accountSessionToken: claudeModelAccount?.sessionToken,
@@ -393,13 +402,13 @@ function claudeRoutingEnvironment(descriptor: {
   }
 }
 
-const wantaModelRouter = {
+const claudeModelRouter = {
   onForgetSession: (sessionId: string): void => claudeModelGateway.revokeSession(sessionId),
   preparePrompt: async (input: PromptAgentInput): Promise<void> => {
-    await claudeModelGateway.issue(input.sessionId, await claudeRouteFor(input))
+    await claudeModelGateway.issue(input.sessionId, await wantaRouteFor(input))
   },
   sessionMeta: async (input: PromptAgentInput): Promise<Record<string, unknown>> => {
-    const descriptor = await claudeModelGateway.issue(input.sessionId, await claudeRouteFor(input))
+    const descriptor = await claudeModelGateway.issue(input.sessionId, await wantaRouteFor(input))
     const env = claudeRoutingEnvironment(descriptor)
     return {
       claudeCode: {
@@ -415,20 +424,40 @@ const wantaModelRouter = {
     }
   },
 }
+const grokModelRouter = {
+  onForgetSession: (sessionId: string): void => grokModelGateway.revokeSession(sessionId),
+  preparePrompt: async (input: PromptAgentInput): Promise<void> => {
+    grokModelGateway.prepare(input.sessionId, await wantaRouteFor(input))
+  },
+  sessionMeta: async (): Promise<undefined> => undefined,
+  commandEnvironment: async (): Promise<NodeJS.ProcessEnv> => {
+    const descriptor = await grokModelGateway.descriptor()
+    return {
+      XAI_API_KEY: descriptor.token,
+      GROK_XAI_API_BASE_URL: descriptor.baseUrl,
+      GROK_MODELS_BASE_URL: descriptor.baseUrl,
+      GROK_MODELS_LIST_URL: `${descriptor.baseUrl}/models`,
+    }
+  },
+}
 const externalAgentCommandEnvironment = memoizeExternalCommandEnvironment(async () => {
-  const [userPath, managedOoBinPath] = await Promise.all([
-    resolveUserCommandPath({ preferredDirectories: [path.dirname(ooBinPath)] }),
+  const [userPath, managedOoBinPath, guard] = await Promise.all([
+    resolveUserCommandPath(),
     ensureOoGuardCommandBin({
       binDir: path.join(externalAgentRootDir, "bin"),
       nodeBin: process.execPath,
       ooGuardCliPath,
     }),
+    externalOoGuardServer.descriptor(),
   ])
   return {
     ...process.env,
     PATH: mergePathValues([path.dirname(managedOoBinPath), userPath]),
     WANTA_OO_BIN: managedOoBinPath,
-    WANTA_REAL_OO_BIN: ooBinPath,
+    WANTA_OO_GUARD_TOKEN: guard.token,
+    WANTA_OO_GUARD_URL: guard.url,
+    WANTA_REAL_OO_BIN: undefined,
+    WANTA_TEAM_SCOPE_PATH: undefined,
   }
 })
 // External adapters are app-lifetime. Agent-owned registrations keep CLI auth;
@@ -507,7 +536,7 @@ const externalAgents = createExternalAgents({
   scratchRootDir: externalAgentRootDir,
   commandEnvironment: externalAgentCommandEnvironment,
   hostMcpServers: externalHostMcpServers,
-  wantaModelRouter,
+  wantaModelRouters: { "claude-code": claudeModelRouter, grok: grokModelRouter },
 })
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 团队作用域同步，
 // 经 ChatService.setAgentTeam → onSetAgentTeam 回调（渲染层切 workspace 时调用）。
@@ -542,6 +571,10 @@ const chatService = new ChatServiceImpl(null, {
     sessionService.setPermissionMode({ id: sessionId, permissionMode }),
   onExternalSessionSelectionChanged: (sessionId, patch) =>
     sessionService.setAgentSelection({ id: sessionId, ...patch }),
+  onExternalTurnScopeChanged: ({ active, sessionId, teamName }) =>
+    active
+      ? externalOoScopeStore.activate(sessionId, activeLinkCapabilityRuntime?.linkRuntime.kind ?? "none", teamName)
+      : externalOoScopeStore.deactivate(sessionId),
   onOomolAuthRequired: () => authManager.expireSession().then(() => undefined),
   onSetAgentTeam: handleAgentTeamChanged,
   onSessionCompleted: (input) => attentionService.completeSession(input),
@@ -889,6 +922,8 @@ function reapAgentForShutdown(): Promise<void> {
     })
     await runBoundedShutdownStep("dispose built-in host invoke server", () => builtInHostInvokeServer.dispose())
     await runBoundedShutdownStep("dispose Claude model gateway", () => claudeModelGateway.dispose())
+    await runBoundedShutdownStep("dispose Grok model gateway", () => grokModelGateway.dispose())
+    await runBoundedShutdownStep("dispose external OO guard server", () => externalOoGuardServer.dispose())
     hostQuestionBroker.dispose()
     await runBoundedShutdownStep("dispose spreadsheet preview worker", () => spreadsheetPreviewWorker.dispose())
     await runBoundedShutdownStep("dispose browser control server", () => browserControlServer.dispose())
@@ -1059,6 +1094,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   }
   activeLinkCapabilityScope = nextLinkCapabilityScope
   activeLinkCapabilityRuntime = linkRuntime ? { accountName: account?.name, linkRuntime } : null
+  await externalOoScopeStore.setRuntime(linkRuntime?.kind ?? "none")
   chatService.setLinkRuntime(linkRuntime?.kind ?? "none")
   // 冷启动 deep-link、模型事件与 auth 广播可能重复触发；运行时身份和配置版本均未变化时短路。
   if (

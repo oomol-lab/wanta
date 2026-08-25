@@ -1,4 +1,4 @@
-import type { AcpAgentRegistration } from "../acp/registry.ts"
+import type { AcpAgentKind, AcpAgentRegistration } from "../acp/registry.ts"
 import type { PromptAgentInput } from "../contract/input.ts"
 import type { ExternalAgentKind } from "../contract/profile.ts"
 import type { ExternalAgentAdapter } from "./adapter-base.ts"
@@ -23,11 +23,14 @@ export interface CreateExternalAgentsOptions {
   /** Shared Wanta-managed subprocess environment for every external adapter. */
   commandEnvironment?: () => Promise<NodeJS.ProcessEnv>
   /** Host-owned model route hooks used by declaratively Wanta-routed registrations. */
-  wantaModelRouter?: {
-    onForgetSession: (sessionId: string) => void
-    preparePrompt: (input: PromptAgentInput) => Promise<void>
-    sessionMeta: (input: PromptAgentInput) => Promise<Record<string, unknown> | undefined>
-  }
+  wantaModelRouters?: Partial<Record<AcpAgentKind, WantaModelRouter>>
+}
+
+export interface WantaModelRouter {
+  onForgetSession: (sessionId: string) => void
+  preparePrompt: (input: PromptAgentInput) => Promise<void>
+  sessionMeta: (input: PromptAgentInput) => Promise<Record<string, unknown> | undefined>
+  commandEnvironment?: () => Promise<NodeJS.ProcessEnv>
 }
 
 export function createExternalAgents(
@@ -41,7 +44,7 @@ export function createExternalAgents(
   const agents = new Map<ExternalAgentKind, ExternalAgentAdapter>()
   for (const kind of ACP_AGENT_KINDS) {
     const registration: AcpAgentRegistration = ACP_AGENT_REGISTRY[kind]
-    const modelRouter = registration.modelSource === "wanta" ? options.wantaModelRouter : undefined
+    const modelRouter = registration.modelSource === "wanta" ? options.wantaModelRouters?.[kind] : undefined
     agents.set(
       kind,
       new AcpAgentAdapter({
@@ -51,7 +54,13 @@ export function createExternalAgents(
         scratchRootDir: path.join(options.scratchRootDir, kind),
         transcriptDir: path.join(options.scratchRootDir, kind, "transcripts"),
         hostMcpServers: options.hostMcpServers,
-        commandEnvironment: options.commandEnvironment,
+        commandEnvironment:
+          options.commandEnvironment || modelRouter?.commandEnvironment
+            ? async () => ({
+                ...(await options.commandEnvironment?.()),
+                ...(await modelRouter?.commandEnvironment?.()),
+              })
+            : undefined,
         ...(modelRouter
           ? {
               onForgetSession: modelRouter.onForgetSession,

@@ -105,6 +105,8 @@ export interface AgentSendOptions {
    * must treat an already-aborted signal as "do nothing".
    */
   signal?: AbortSignal
+  /** Called once when a queued prompt reaches the native runtime boundary. */
+  onDispatch?: () => void
 }
 
 const agentModeSchema: z.ZodType<WantaAgentMode> = z.enum(["build", "plan"])

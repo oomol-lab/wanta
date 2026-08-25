@@ -65,6 +65,7 @@ import { createAcpSessionTranslator, sanitizeAcpMessages } from "./translator.ts
 const ACP_AUTH_REQUIRED_CODE = -32000
 const ACP_REQUEST_CANCELLED_CODE = -32800
 const PROBE_CACHE_TTL_MS = 30_000
+const PROCESS_ROUTE_QUEUE_TIMEOUT_MS = 45_000
 
 /** Test seam: a connected ACP wire plus subprocess lifecycle hooks. */
 export interface AcpTransport {
@@ -94,6 +95,8 @@ export interface AcpAdapterOptions {
   preparePrompt?: (input: PromptAgentInput) => Promise<void>
   /** Release host-owned state when Wanta permanently deletes a session. */
   onForgetSession?: (sessionId: string) => void
+  /** Test seam for the process-scoped model-route queue deadline. */
+  processRouteQueueTimeoutMs?: number
   /**
    * Test seam: produce a connected ACP stream plus a dispose fn. The default
    * spawns the probed binary with registration.acpArgs over stdio.
@@ -381,6 +384,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   private catalogWarmup: Promise<void> | undefined
   private permissionSeq = 0
   private probeCache: { at: number; promise: Promise<ExternalAgentRuntimeStatus> } | undefined
+  private processRouteTail: Promise<void> = Promise.resolve()
 
   constructor(options: AcpAdapterOptions) {
     super(options.transcriptDir ? { transcriptDir: options.transcriptDir } : {})
@@ -502,6 +506,63 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   }
 
   protected async handlePrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
+    if (this.options.registration.modelRouteScope === "process") {
+      const previous = this.processRouteTail.catch(() => undefined)
+      let release!: () => void
+      const current = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      this.processRouteTail = previous.then(() => current)
+      const acquired = await this.waitForProcessRoute(previous, input.sessionId)
+      if (!acquired) {
+        release()
+        this.disposeConnection()
+        throw new Error(`${this.options.registration.displayName} model route remained busy; please retry.`)
+      }
+      let completionTracked = false
+      try {
+        if (!options?.signal?.aborted)
+          await this.handlePromptNow(input, options, (completion) => {
+            completionTracked = true
+            void completion.finally(release)
+          })
+      } catch (error) {
+        release()
+        throw error
+      }
+      if (!completionTracked) release()
+      return
+    }
+    await this.handlePromptNow(input, options)
+  }
+
+  private async waitForProcessRoute(previous: Promise<void>, sessionId: string): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<false>((resolve) => {
+      timer = setTimeout(
+        () => resolve(false),
+        this.options.processRouteQueueTimeoutMs ?? PROCESS_ROUTE_QUEUE_TIMEOUT_MS,
+      )
+      timer.unref?.()
+    })
+    const acquired = await Promise.race([previous.then(() => true as const), timeout])
+    if (timer) clearTimeout(timer)
+    if (!acquired) {
+      logDiagnostic(
+        "acp-adapter",
+        "process model route queue exceeded its deadline",
+        { adapter: this.kind, sessionId },
+        "warn",
+      )
+    }
+    return acquired
+  }
+
+  private async handlePromptNow(
+    input: PromptAgentInput,
+    options?: AgentSendOptions,
+    onCompletion?: (completion: Promise<void>) => void,
+  ): Promise<void> {
     if (options?.signal?.aborted) {
       return
     }
@@ -516,14 +577,18 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
         await this.applyConfigSelection(input.sessionId, "effort", input.agentEffortId)
         appliedSelections.effort = input.agentEffortId
       }
-      await this.dispatchPrompt(input, options)
+      await this.dispatchPrompt(input, options, onCompletion)
     } catch (error) {
       await this.restorePromptSelections(input.sessionId, previousSelection, appliedSelections)
       throw error
     }
   }
 
-  private async dispatchPrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
+  private async dispatchPrompt(
+    input: PromptAgentInput,
+    options?: AgentSendOptions,
+    onCompletion?: (completion: Promise<void>) => void,
+  ): Promise<void> {
     const restoreContext =
       !this.sessionsByWantaId.has(input.sessionId) && this.hasPersistedHistory(input.sessionId)
         ? this.restoredConversationContext(input.sessionId)
@@ -568,14 +633,17 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     session.cancelling = false
     const turn: AcpTurn = { activeToolCallIds: new Set(), failedToolNeedsExplanation: false, settled: false }
     session.activeTurn = turn
+    options?.onDispatch?.()
     const promptPromise = handle.connection.agent.request("session/prompt", {
       sessionId: session.acpSessionId,
       prompt: promptContentBlocks(input, {
         restoredContext: restoreContext,
       }),
     })
-    this.trackTurn(session, turn, promptPromise, options?.signal)
-    // Resolve on dispatch (submission ack); completion arrives as messageCompleted.
+    const completion = this.trackTurn(session, turn, promptPromise, options?.signal)
+    onCompletion?.(completion)
+    // Session-scoped routes resolve on dispatch. Process-scoped routes hold the
+    // queue until completion so another session cannot replace the live model.
   }
 
   private async restorePromptSelections(
@@ -834,7 +902,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     turn: AcpTurn,
     promptPromise: Promise<PromptResponse>,
     signal?: AbortSignal,
-  ): void {
+  ): Promise<void> {
     const wantaSessionId = session.wantaSessionId
     const onAbort = (): void => {
       void this.cancelSession(wantaSessionId)
@@ -851,7 +919,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       }
       return true
     }
-    promptPromise.then(
+    return promptPromise.then(
       (response) => {
         if (!settle()) {
           return
@@ -1091,9 +1159,13 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     this.connectionHandle = undefined
     this.connectionPromise = undefined
     if (handle) {
-      // Detached first, so loss handling below skips the error broadcast.
-      this.handleConnectionLost(handle)
+      // This is an intentional teardown, so do not broadcast an unexpected
+      // exit. ACP session ids are still connection-scoped and must not survive
+      // into the replacement process.
+      this.teardownHandle(handle)
     }
+    this.sessionsByWantaId.clear()
+    this.wantaIdByAcpId.clear()
   }
 
   /**

@@ -1,6 +1,7 @@
 import type { BookMeta, ReadonlyDocument, WikiGraphLibraryArchiveRecord } from "wiki-graph-core"
 
-import { chmod, copyFile, mkdir, mkdtemp, readdir, rm, rmdir, stat } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { chmod, copyFile, mkdir, mkdtemp, readdir, rename, rm, rmdir, stat } from "node:fs/promises"
 import path from "node:path"
 import {
   addWikiGraphLibraryArchive as addWikiGraphLibraryArchiveWithSDK,
@@ -9,7 +10,7 @@ import {
   listChapters,
   listWikiGraphLibraryArchives as listWikiGraphLibraryArchivesWithSDK,
   parseWikiGraphLibraryUri,
-  readArchiveIndexSettings,
+  readSearchIndexCapabilityStatus,
   rebindWikiGraphLibrary,
   removeWikiGraphLibraryArchive as removeWikiGraphLibraryArchiveWithSDK,
   moveWikiGraphLibraryArchive as moveWikiGraphLibraryArchiveWithSDK,
@@ -23,6 +24,7 @@ const defaultLibraryPreparationByStateDir = new Map<string, Promise<void>>()
 const archivePreparationByStateAndPath = new Map<string, Promise<void>>()
 const unreadableImportMessage =
   "WANTA_KNOWLEDGE_IMPORT_UNREADABLE: The selected WikiGraph file could not be imported because Wanta cannot make the managed copy readable with the current WikiGraph SDK. The original file was not modified."
+const nonDerivedHomeOverlayError = "Cannot upgrade home with non-derived coordinator overlays."
 
 export interface WikiGraphRuntime {
   managedLibraryDir: string
@@ -311,16 +313,43 @@ export async function prepareWikiGraphDefaultLibrary(runtime: WikiGraphRuntime):
   const preparation = withRuntime(runtime, "Failed to prepare WikiGraph library", async () => {
     await mkdir(runtime.stateDir, { recursive: true })
     await mkdir(runtime.managedLibraryDir, { recursive: true })
-    await rebindWikiGraphLibrary({
-      folderPath: runtime.managedLibraryDir,
-      target: requireLibraryTarget(defaultLibraryUri),
-    })
+    const rebind = async () =>
+      await rebindWikiGraphLibrary({
+        folderPath: runtime.managedLibraryDir,
+        target: requireLibraryTarget(defaultLibraryUri),
+      })
+    try {
+      await rebind()
+    } catch (error) {
+      if (!isNonDerivedHomeOverlayError(error)) throw error
+      await quarantineLegacyCoordinatorState(runtime)
+      console.warn("[wanta] preserved incompatible WikiGraph coordinator state before retrying the home upgrade")
+      await rebind()
+    }
   }).catch((error: unknown) => {
     defaultLibraryPreparationByStateDir.delete(runtime.stateDir)
     throw error
   })
   defaultLibraryPreparationByStateDir.set(runtime.stateDir, preparation)
   return await preparation
+}
+
+function isNonDerivedHomeOverlayError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes(nonDerivedHomeOverlayError)
+}
+
+async function quarantineLegacyCoordinatorState(runtime: WikiGraphRuntime): Promise<void> {
+  const stagingDir = path.join(runtime.stateDir, "staging")
+  const staging = await stat(stagingDir).catch(() => null)
+  if (!staging?.isDirectory()) throw new Error(nonDerivedHomeOverlayError)
+
+  // WikiGraph deliberately refuses to delete database.db overlays because they
+  // may contain uncommitted document state. Move the complete coordinator tree
+  // aside on the same filesystem, then let the SDK recreate derived staging.
+  const recoveryDir = path.join(runtime.stateDir, "recovery")
+  await mkdir(recoveryDir, { recursive: true })
+  const preservedDir = path.join(recoveryDir, `coordinator-overlays-${Date.now()}-${randomUUID()}`)
+  await rename(stagingDir, preservedDir)
 }
 
 export async function listWikiGraphLibraryArchives(runtime: WikiGraphRuntime): Promise<WikiGraphLibraryArchive[]> {
@@ -460,7 +489,7 @@ async function validateImportedArchive(archivePath: string): Promise<void> {
   })
   await file.readDocument(async (document) => {
     await listChapters(document)
-    await readArchiveIndexSettings(document)
+    await readSearchIndexCapabilityStatus(document)
     await isArchiveSearchIndexCurrent(document)
   })
 }
@@ -601,7 +630,7 @@ export async function readWikiGraphIndex(runtime: WikiGraphRuntime, id: string):
   const file = await preparedDocumentArchiveFile(runtime, id)
   return await withRuntime(runtime, "Failed to read WikiGraph index state", async () => {
     return await file.readDocument(async (document) => {
-      await readArchiveIndexSettings(document)
+      await readSearchIndexCapabilityStatus(document)
       const ftsCurrent = await isArchiveSearchIndexCurrent(document)
       return {
         current: ftsCurrent,

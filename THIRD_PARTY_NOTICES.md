@@ -9,9 +9,9 @@ for all transitive build and runtime dependencies remains part of release prepar
 
 Wanta uses [OpenCode](https://github.com/anomalyco/opencode) as its local Agent engine:
 
-- `opencode-ai@1.18.10` — packaged executable and local `opencode serve` sidecar;
-- `@opencode-ai/sdk@1.18.10` — HTTP/SSE client used by the Electron main process;
-- `@opencode-ai/plugin@1.18.10` — tool API bundled into Wanta's Agent tool runtime.
+- `opencode-ai@1.18.21` — packaged executable and local `opencode serve` sidecar;
+- `@opencode-ai/sdk@1.18.21` — HTTP/SSE client used by the Electron main process;
+- `@opencode-ai/plugin@1.18.21` — tool API bundled into Wanta's Agent tool runtime.
 
 License: MIT. Copyright (c) 2025 opencode.
 
@@ -21,7 +21,7 @@ around it.
 
 ## Codex ACP Bridge
 
-Wanta packages `@agentclientprotocol/codex-acp@1.1.14` as the local ACP bridge used to connect a
+Wanta packages `@agentclientprotocol/codex-acp@1.6.2` as the local ACP bridge used to connect a
 user-installed Codex CLI to the common external-agent adapter.
 
 Source: [agentclientprotocol/codex-acp](https://github.com/agentclientprotocol/codex-acp).
@@ -40,7 +40,7 @@ is included in this repository's [`LICENSE`](LICENSE) file.
 
 ## oo CLI and Bundled Skills
 
-Wanta downloads and packages `@oomol-lab/oo-cli@1.7.1` platform binaries from the public npm
+Wanta downloads and packages `@oomol-lab/oo-cli@1.7.7` platform binaries from the public npm
 registry. The default package also contains four Skills exported by that distribution:
 
 - `oo`;
@@ -56,8 +56,8 @@ register Connector tools or inject the oo runtime environment.
 
 ## WeCom CLI and Skills
 
-Wanta packages the official `@wecom/cli@0.1.9` platform binary and the matching `wecomcli-*`
-Skills from source commit `72e14f7695f34d28f1ff23ea504ddd2210a87c13` for the local WeCom Direct
+Wanta packages the official `@wecom/cli@1.1.0` platform binary and the matching `wecomcli-*`
+Skills from source commit `cd0480e0e4013c99cc9e7bb4a3247ec949a052d8` for the local WeCom Direct
 provider.
 
 Source: [WecomTeam/wecom-cli](https://github.com/WecomTeam/wecom-cli). License: MIT. Copyright (c)
@@ -65,7 +65,7 @@ Source: [WecomTeam/wecom-cli](https://github.com/WecomTeam/wecom-cli). License: 
 
 ## DingTalk Workspace CLI and Skills
 
-Wanta packages the official DingTalk Workspace CLI (`dws`) version 1.0.55 and the matching stable
+Wanta packages the official DingTalk Workspace CLI (`dws`) version 1.0.59 and the matching stable
 mono Skill from the same release for the local DingTalk Direct provider.
 
 Source: [DingTalk-Real-AI/dingtalk-workspace-cli](https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli).

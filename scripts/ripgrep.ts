@@ -15,7 +15,7 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
 const localToolBinDir = path.join(repoRoot, ".oo-bin")
 
-export const RIPGREP_VERSION = "14.1.1"
+export const RIPGREP_VERSION = "15.2.0"
 
 interface RipgrepTarget {
   assetName: string

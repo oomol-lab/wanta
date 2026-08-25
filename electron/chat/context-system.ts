@@ -20,6 +20,7 @@ export function buildLinkRuntimeSystem(runtime: ActiveLinkRuntime, teamName: str
         "- Wanta owns the active connection identity; preserve it across every Link call.",
         "- Use the Wanta-managed `oo connector schema` / `oo connector run` CLI workflow for connected-service work.",
         "- Raw `oo connector apps` and `oo connector run` calls must omit `--team` and `--personal`.",
+        "- For complex JSON or query payloads, write valid JSON to the current process directory and pass `--data @<absolute-path>` instead of shell-quoting it inline. Do not pipe an OOCLI request directly into another command in a way that can hide its exit status.",
         "- An authorization error applies only to the exact runtime and selector used by that call; do not claim a different workspace is disconnected.",
       ].join("\n")
     case "oomol": {
@@ -34,9 +35,10 @@ export function buildLinkRuntimeSystem(runtime: ActiveLinkRuntime, teamName: str
       return [
         `Current-turn Wanta Link workspace: team ${quoted(normalizedTeamName)}.`,
         "- Use the Wanta-managed `oo connector schema` / `oo connector run` CLI workflow for connected-service work.",
-        `- Every raw \`oo connector apps\` or \`oo connector run\` call must preserve the selector \`--team ${quoted(normalizedTeamName)}\`.`,
+        `- Every raw \`oo connector apps\` or \`oo connector run\` call must preserve the selector \`--team ${quoted(normalizedTeamName)}\`. The Wanta guard also binds a missing selector when the active external turns agree on this team, and fails closed when they do not.`,
         "- Raw `oo connector schema` and `oo connector search` calls never accept workspace selectors such as `--team` or `--personal`.",
-        "- Never omit, replace, or change that selector after an error, and never retry in a personal or default workspace.",
+        "- For complex JSON or query payloads, write valid JSON to the current process directory and pass `--data @<absolute-path>` instead of shell-quoting it inline. Do not pipe an OOCLI request directly into another command in a way that can hide its exit status.",
+        "- Never omit, replace, enumerate, or change the workspace after an error, and never retry in a personal, default, or different team workspace.",
         "- `app_not_found` or `connection_required` from a call without this exact selector does not prove that the current Wanta team is disconnected.",
         "- Wanta-provided Link tools own workspace binding, authorization signaling, and credential redaction.",
       ].join("\n")

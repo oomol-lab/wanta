@@ -36,8 +36,11 @@ export function useTeamDetails({
   const activeAccountIdRef = React.useRef(activeAccountId)
   const latestActiveAccountIdRef = React.useRef(activeAccountId)
   const selectedTeamIdRef = React.useRef(selectedTeam?.id ?? null)
-  latestActiveAccountIdRef.current = activeAccountId
-  selectedTeamIdRef.current = selectedTeam?.id ?? null
+
+  React.useEffect(() => {
+    latestActiveAccountIdRef.current = activeAccountId
+    selectedTeamIdRef.current = selectedTeam?.id ?? null
+  }, [activeAccountId, selectedTeam?.id])
 
   const reset = React.useCallback(() => {
     requestIdRef.current += 1

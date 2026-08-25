@@ -2,7 +2,7 @@
 
 **完成日期：** 2026-08-25
 
-**Wanta 实施基线：** `main@c9775f26` 之后的当前工作树
+**Wanta 实施基线：** PR #351 完整变更（基于 `main@56526745`，包含 `c9775f26` 初始迁移及后续对齐修复）
 
 **Console 参考基线：** `oomol/console.oomol.com main@cfaaf5e`
 **范围：** Team Connection 权限契约、成员分配、管理 / 成员 API、legacy 迁移、并发写入、Lingxing 数据权限、管理 UI 与错误恢复
@@ -126,6 +126,6 @@ ERP 用户仅在编辑 selected-owner rule 时读取。403 / 404 / 409 / 429 / 5
 - 全仓 oxlint 通过；
 - 全仓格式检查通过；
 - renderer、main、preload 生产构建通过；
-- 5 个定向测试文件、66 项测试全部通过；
+- 5 个定向测试文件、68 项测试全部通过；
 - 完整套件 355 个测试文件、2799 项测试通过，2 个文件 / 4 项测试跳过；
 - `electron/agent/oo-guard-runtime.test.ts` 的一个既有时序用例在全量并发运行时未等到临时 started 文件；该文件单独运行时 5 项全部通过，与本轮权限改动无代码关联。

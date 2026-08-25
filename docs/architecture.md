@@ -586,8 +586,9 @@ Action allowlist and optional provider-specific `appAccessConfig`; a member uses
 with no union against the Team default. The Connection detail is the only editing surface. Team
 member rows manage identity and Team roles only; the former member-centric Connection checkbox
 editor was removed because it cannot represent rule assignment or grant contents. Parsing and
-canonical writes live in `src/lib/team-connection-access.ts`, malformed or historical single-rule
-documents fail closed, and all saves re-read the policy and write with `If-Match`. Lingxing owner
+canonical writes live in `src/lib/team-connection-access.ts`; supported historical single-rule
+`requireRole` plus `user.roles` documents are accepted only as migration input, while malformed or
+unsupported policy shapes fail closed. All saves re-read the policy and write with `If-Match`. Lingxing owner
 scope is the first provider-specific adapter and is stored per grant without coupling its data to
 Action or member edits.
 

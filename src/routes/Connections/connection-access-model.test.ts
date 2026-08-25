@@ -7,6 +7,7 @@ import {
   createConnectionPermissionRuleGrant,
   defaultRestrictedActionNames,
   isConnectionAccessConflict,
+  mergeConnectionRuleAssignments,
   unavailableActionNames,
   updateActionSelection,
 } from "./connection-access-model.ts"
@@ -107,6 +108,28 @@ describe("connection access concurrency", () => {
     expect(isConnectionAccessConflict({ status: 412 })).toBe(true)
     expect(isConnectionAccessConflict({ status: 409 })).toBe(false)
     expect(isConnectionAccessConflict(new Error("HTTP 412"))).toBe(false)
+  })
+})
+
+describe("connection rule assignments", () => {
+  it("preserves assignments for users outside the loaded member list", () => {
+    expect(
+      mergeConnectionRuleAssignments(
+        {
+          "loaded-kept": "other-rule",
+          "loaded-moved": "other-rule",
+          "loaded-removed": "edited-rule",
+          "outside-kept": "edited-rule",
+        },
+        "edited-rule",
+        ["loaded-moved"],
+        ["loaded-kept", "loaded-moved", "loaded-removed"],
+      ),
+    ).toEqual({
+      "loaded-kept": "other-rule",
+      "loaded-moved": "edited-rule",
+      "outside-kept": "edited-rule",
+    })
   })
 })
 

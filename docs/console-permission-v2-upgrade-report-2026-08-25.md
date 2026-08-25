@@ -2,7 +2,7 @@
 
 **完成日期：** 2026-08-25
 
-**Wanta 实施基线：** `main@56526745`
+**Wanta 实施基线：** PR #351 完整变更（基于 `main@56526745`，包含 `c9775f26` 初始迁移及后续对齐修复）
 
 **Console 参考基线：** `oomol/console.oomol.com main@cfaaf5e`
 
@@ -148,4 +148,4 @@ x-oo-team-name: <teamName>
 - Connection client 和 Lingxing 端点测试；
 - 完整 Vitest 测试套件。
 
-本轮定向验证 5 个测试文件、66 项测试全部通过；TypeScript、全仓 oxlint、全仓格式检查和 renderer/main/preload 生产构建通过。完整测试套件中 355 个测试文件、2799 项测试通过，另有 `electron/agent/oo-guard-runtime.test.ts` 的既有时序用例在全量并发运行时失败；该用例单独运行时 5 项全部通过，与本轮权限改动无代码关联。
+本轮定向验证 5 个测试文件、68 项测试全部通过；TypeScript、全仓 oxlint、全仓格式检查和 renderer/main/preload 生产构建通过。完整测试套件中 355 个测试文件、2799 项测试通过，另有 `electron/agent/oo-guard-runtime.test.ts` 的既有时序用例在全量并发运行时失败；该用例单独运行时 5 项全部通过，与本轮权限改动无代码关联。

@@ -417,7 +417,11 @@ function parseAppAccessConfig(input: unknown, service: string, format: "legacy" 
       const uid = normalizeLegacyLingxingUid(value.uid)
       if (!uid || userIds.has(uid)) continue
       userIds.add(uid)
-      users.push({ ...value, uid })
+      users.push({
+        uid,
+        ...(isNonEmptyString(value.realname) ? { realname: value.realname.trim() } : {}),
+        ...(isNonEmptyString(value.username) ? { username: value.username.trim() } : {}),
+      })
       continue
     }
     if (

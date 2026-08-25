@@ -191,6 +191,52 @@ describe("team connection access v2", () => {
     expect(setConnectionLingxingUserAccess(selected, { mode: "all" })).toEqual(grant)
   })
 
+  it("drops legacy Lingxing user keys before writing canonical v2", () => {
+    const parsed = parseTeamConnectionAccess(
+      {
+        "role::connector-app:app-lingxing": {
+          connector: [
+            {
+              appAccessConfig: {
+                users: [
+                  {
+                    id: 42,
+                    name: "Legacy display name",
+                    realname: "Alice",
+                    uid: "owner-1",
+                    username: "alice",
+                  },
+                ],
+              },
+              method: "POST",
+              provider: "lingxing",
+            },
+          ],
+        },
+      },
+      [lingxing],
+    )
+    if (!parsed.ok || parsed.apps[0]?.mode !== "configured") throw new Error("Expected a legacy policy")
+
+    const next = setConnectionTeamDefault(
+      parsed.access,
+      lingxing,
+      parsed.apps[0].permissionRules,
+      parsed.apps[0].permissionRules.teamDefault,
+    )
+    expect(next["role::connector-app:app-lingxing"]?.connector).toMatchObject([
+      {
+        permissionRules: {
+          teamDefault: {
+            appAccessConfig: {
+              users: [{ realname: "Alice", uid: "owner-1", username: "alice" }],
+            },
+          },
+        },
+      },
+    ])
+  })
+
   it("adds, updates, assigns, and removes a named rule canonically", () => {
     const parsed = parseTeamConnectionAccess({}, [github])
     if (!parsed.ok || parsed.apps[0]?.mode === "invalid" || !parsed.apps[0]) throw new Error("Expected valid")

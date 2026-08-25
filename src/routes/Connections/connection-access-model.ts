@@ -13,6 +13,23 @@ export function isConnectionAccessConflict(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "status" in error && error.status === 412)
 }
 
+export function mergeConnectionRuleAssignments(
+  assignments: Record<string, string>,
+  ruleId: string,
+  selectedUserIds: readonly string[],
+  loadedUserIds: readonly string[],
+): Record<string, string> {
+  const loaded = new Set(loadedUserIds)
+  const selected = new Set(selectedUserIds)
+  const next = Object.fromEntries(
+    Object.entries(assignments).filter(
+      ([userId, assignedRuleId]) => !loaded.has(userId) || (assignedRuleId !== ruleId && !selected.has(userId)),
+    ),
+  )
+  for (const userId of selected) next[userId] = ruleId
+  return next
+}
+
 export function defaultRestrictedActionNames(actions: readonly ConnectionActionCatalogItem[]): string[] {
   return uniqueSorted(actions.filter((action) => action.operationType === "read").map((action) => action.name))
 }

@@ -31,6 +31,7 @@ import {
   createConnectionPermissionRuleGrant,
   defaultRestrictedActionNames,
   isConnectionAccessConflict,
+  mergeConnectionRuleAssignments,
   unavailableActionNames,
   updateActionSelection,
 } from "./connection-access-model.ts"
@@ -230,7 +231,7 @@ export function ConnectionAccessDialog({
       const latestParsed = parseTeamConnectionAccess(
         latest.access,
         [{ id: app.id, service: app.service }],
-        memberIds,
+        undefined,
         t("connections.accessNewRuleDefaultName", { count: 1 }),
       )
       const current = latestParsed.ok ? latestParsed.apps.find((item) => item.appId === app.id) : null
@@ -300,13 +301,7 @@ export function ConnectionAccessDialog({
       }
       const nextRules =
         next.kind === "new" ? [...rules.rules, rule] : rules.rules.map((item) => (item.id === rule.id ? rule : item))
-      const selected = new Set(next.userIds)
-      const assignments = Object.fromEntries(
-        Object.entries(rules.assignments).filter(
-          ([userId, assignedRuleId]) => assignedRuleId !== rule.id && !selected.has(userId),
-        ),
-      )
-      for (const userId of next.userIds) assignments[userId] = rule.id
+      const assignments = mergeConnectionRuleAssignments(rules.assignments, rule.id, next.userIds, memberIds)
       return setConnectionPermissionRules(access, app, { ...rules, assignments, rules: nextRules })
     })
   }

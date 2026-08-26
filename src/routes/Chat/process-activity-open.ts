@@ -11,7 +11,7 @@ export function processShouldOpenAutomatically(status: ChatTurnProcessStatus, ha
     status === "running" ||
     status === "retrying" ||
     processRequiresAttention(status) ||
-    ((status === "completed" || status === "completedWithIssues" || status === "stopped") && !hasVisibleOutcome)
+    ((status === "completed" || status === "stopped") && !hasVisibleOutcome)
   )
 }
 

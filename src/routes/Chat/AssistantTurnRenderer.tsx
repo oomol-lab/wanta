@@ -81,8 +81,6 @@ function processStatusText(t: TranslateFn, status: ChatTurnProcessStatus): strin
       return t("chat.processStopped")
     case "completed":
       return t("chat.processCompleted")
-    case "completedWithIssues":
-      return t("chat.processCompletedWithIssues")
   }
 }
 

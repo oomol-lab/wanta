@@ -51,12 +51,6 @@ describe("process activity open state", () => {
 
   it("keeps terminal turns without a visible outcome open", () => {
     expect(processShouldOpenAutomatically("completed", false)).toBe(true)
-    expect(processShouldOpenAutomatically("completedWithIssues", false)).toBe(true)
     expect(processShouldOpenAutomatically("stopped", false)).toBe(true)
-  })
-
-  it("collapses completed work with non-blocking issues when a visible outcome exists", () => {
-    expect(processRequiresAttention("completedWithIssues")).toBe(false)
-    expect(processShouldOpenAutomatically("completedWithIssues", true)).toBe(false)
   })
 })

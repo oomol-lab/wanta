@@ -78,14 +78,7 @@ export function inheritTurnProcessTiming(
   }
 }
 
-export type ChatTurnProcessStatus =
-  | "running"
-  | "completed"
-  | "completedWithIssues"
-  | "retrying"
-  | "needsAction"
-  | "error"
-  | "stopped"
+export type ChatTurnProcessStatus = "running" | "completed" | "retrying" | "needsAction" | "error" | "stopped"
 
 export function groupChatTurns(messages: ChatMessage[]): ChatTurn[] {
   const turns: ChatTurn[] = []
@@ -405,7 +398,7 @@ export function isLiveTurnProcess(
 export function chatTurnProcessStatus(
   process: Pick<
     ChatTurnProcess,
-    "activity" | "hasActiveTool" | "hasAuthorization" | "hasBlockingError" | "hasStoppedTool" | "hasToolError" | "tools"
+    "activity" | "hasActiveTool" | "hasAuthorization" | "hasBlockingError" | "hasStoppedTool" | "tools"
   >,
   live = false,
 ): ChatTurnProcessStatus {
@@ -420,9 +413,6 @@ export function chatTurnProcessStatus(
   }
   if (process.hasBlockingError) {
     return "error"
-  }
-  if (process.hasToolError) {
-    return "completedWithIssues"
   }
   if (process.hasStoppedTool) {
     return "stopped"

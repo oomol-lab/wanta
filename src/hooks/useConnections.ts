@@ -21,6 +21,7 @@ import {
   disconnectAccount as disconnectAccountRequest,
   disconnectProvider as disconnectProviderRequest,
   getActiveConnectionAppIdsForService,
+  getCachedConnectionCatalogSummary,
   getConnectionCatalogSummary,
   getConnectionAppDetail,
   getConnectionExecutionLogs,
@@ -393,6 +394,8 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           return
         }
         dispatch({ type: "workspaceScopeSynced", workspaceKey: key })
+        const cached = getCachedConnectionCatalogSummary(workspace, locale)
+        if (cached) setCurrentSummary(cached)
         void refresh({ forceRefresh: true })
       } catch (error) {
         if (!isCurrentWorkspace(generation, key)) {
@@ -404,16 +407,27 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         dispatch({ type: "workspaceScopeSyncFailed", error: resolved })
       }
     })()
-  }, [chatService, invalidateWorkspaceWork, isCurrentWorkspace, refresh, scopeSyncAttempt, workspace])
+  }, [
+    chatService,
+    invalidateWorkspaceWork,
+    isCurrentWorkspace,
+    locale,
+    refresh,
+    scopeSyncAttempt,
+    setCurrentSummary,
+    workspace,
+  ])
 
   const previousLocaleRef = React.useRef(locale)
   React.useEffect(() => {
     if (previousLocaleRef.current === locale) return
     previousLocaleRef.current = locale
     if (workspace && appliedWorkspaceKey.current === connectionWorkspaceKey(workspace)) {
+      const cached = getCachedConnectionCatalogSummary(workspace, locale)
+      if (cached) setCurrentSummary(cached)
       void refresh({ forceRefresh: true })
     }
-  }, [locale, refresh, workspace])
+  }, [locale, refresh, setCurrentSummary, workspace])
 
   const retryScopeSync = React.useCallback((): void => {
     appliedWorkspaceKey.current = null

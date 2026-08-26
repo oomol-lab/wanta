@@ -27,6 +27,12 @@ import {
   normalizeProvider,
 } from "../../electron/connections/summary.ts"
 import { connectionWorkspaceKey, isConnectionManagementWorkspace } from "@/lib/connection-workspace"
+import {
+  clearPersistentConnectionAppsCache,
+  invalidatePersistentWorkspaceApps,
+  readPersistentConnectorCache,
+  writePersistentConnectorCache,
+} from "@/lib/connections-persistent-cache"
 import { connectorBaseUrl, consoleBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -187,6 +193,7 @@ function invalidateWorkspaceApps(workspace: ConnectionWorkspace, appId?: string)
       (appId ? path === `${appsPath}/by-id/${encodeURIComponent(appId)}` : path.startsWith(`${appsPath}/by-id/`))
     )
   })
+  invalidatePersistentWorkspaceApps(workspace)
 }
 
 function clearOAuthClientConfigsCache(): void {
@@ -199,6 +206,11 @@ export function clearConnectorCache(): void {
   clearConnectorReadCache()
   clearOAuthClientConfigsCache()
   oauthConnectInFlight.clear()
+}
+
+export function clearConnectorAccountCache(): void {
+  clearConnectorCache()
+  clearPersistentConnectionAppsCache()
 }
 
 function asString(value: unknown): string | undefined {
@@ -332,7 +344,14 @@ async function getConnector<T>(
   options: ConnectorReadOptions = {},
 ): Promise<{ data: T; meta: unknown }> {
   const cacheKey = `${workspace ? connectionWorkspaceKey(workspace) : "global"}:${path}`
-  const cached = connectorGetCache.get(cacheKey)
+  let cached = connectorGetCache.get(cacheKey)
+  if (!cached) {
+    const persistent = readPersistentConnectorCache(path, workspace)
+    if (persistent) {
+      cached = { ...persistent, fetchedAt: 0 }
+      setConnectorCacheEntry(cacheKey, cached)
+    }
+  }
   const now = Date.now()
   if (!options.forceRefresh && cached && now - cached.fetchedAt < connectorGetCacheMs) {
     connectorGetCache.delete(cacheKey)
@@ -400,13 +419,15 @@ async function fetchConnectorGet<T>(
 
   const result = unwrapConnectorEnvelope<T>(payload)
   if (connectorReadCacheGeneration === generation && connectorGetRequestVersions.get(cacheKey) === requestVersion) {
-    setConnectorCacheEntry(cacheKey, {
+    const nextEntry = {
       data: result.data,
       etag: asString(response.headers.get("etag")),
       fetchedAt: Date.now(),
       lastModified: asString(response.headers.get("last-modified")),
       meta: result.meta,
-    })
+    }
+    setConnectorCacheEntry(cacheKey, nextEntry)
+    writePersistentConnectorCache(path, workspace, nextEntry)
   }
   return result
 }
@@ -452,6 +473,28 @@ export async function getConnectionCatalogSummary(
   }
 }
 
+export function getCachedConnectionCatalogSummary(
+  workspace: ConnectionWorkspace,
+  locale?: string,
+): ConnectionSummary | null {
+  const providersResult = readPersistentConnectorCache(connectionProvidersPath(locale), null)
+  if (!providersResult) return null
+  const appsResult = readPersistentConnectorCache(connectionAppsPath(workspace), workspace)
+  try {
+    return {
+      ...mergeConnectionSummary({
+        apps: (appsResult?.data as RawApp[] | undefined) ?? [],
+        meta: (appsResult?.meta as RawAppListMeta | null | undefined) ?? null,
+        providers: providersResult.data as RawProvider[],
+        workspace,
+      }),
+      appsStatus: appsResult ? "ready" : "unavailable",
+    }
+  } catch {
+    return null
+  }
+}
+
 /** 供团队详情与连接器目录复用同一份 workspace apps 条件请求缓存。 */
 export function getConnectionApps(
   workspace: ConnectionWorkspace,
@@ -465,8 +508,12 @@ export function getConnectionProviders(
   options: ConnectorReadOptions = {},
   locale?: string,
 ): Promise<{ data: RawProvider[]; meta: unknown }> {
+  return getConnector<RawProvider[]>(connectionProvidersPath(locale), null, options)
+}
+
+function connectionProvidersPath(locale?: string): string {
   const search = locale ? `?${new URLSearchParams({ locale }).toString()}` : ""
-  return getConnector<RawProvider[]>(`/v1/providers${search}`, null, options)
+  return `/v1/providers${search}`
 }
 
 export function getConnectionActions(

@@ -27,7 +27,7 @@ import type { IConnectionService } from "@oomol/connection"
 import { ConnectionService } from "@oomol/connection"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
-import { EXTERNAL_AGENT_KINDS, isExternalAgentKind } from "../agent/contract/profile.ts"
+import { isExternalAgentKind } from "../agent/contract/profile.ts"
 import {
   externalAgentKindForSessionId,
   isExternalSessionId,
@@ -217,22 +217,12 @@ export class SessionServiceImpl
   }
 
   private async createMutation(req: CreateSessionRequest, revision: number): Promise<SessionInfo> {
-    // Only a REGISTERED external kind mints an external session id; isExternalAgentKind
-    // alone is `!== "opencode"`, so RPC-erased junk (unknown or prototype-chain kinds)
-    // must not reach mintExternalSessionId. Unknown kinds fall through to the kernel.
-    if (req.agentKind && isExternalAgentKind(req.agentKind) && EXTERNAL_AGENT_KINDS.includes(req.agentKind)) {
+    if (isExternalAgentKind(req.agentKind)) {
       return this.createExternalMutation(req, req.agentKind, revision)
     }
     if (req.agentKind && req.agentKind !== "opencode") {
-      // Preserve the historical kernel fallback for compatibility, but make
-      // erased/obsolete agent kinds observable before a future fail-closed
-      // migration is considered.
-      logDiagnostic(
-        "session-service",
-        "unregistered agent kind fell back to the built-in agent",
-        { agentKind: req.agentKind },
-        "warn",
-      )
+      logDiagnostic("session-service", "rejected unregistered agent kind", { agentKind: req.agentKind }, "warn")
+      throw new Error(`Unsupported agent kind: ${String(req.agentKind)}`)
     }
     const agent = this.agent
     if (!agent) {

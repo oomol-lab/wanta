@@ -139,6 +139,11 @@ export const EXTERNAL_AGENT_KINDS = (Object.keys(AGENT_PROFILES) as AgentKind[])
   (kind): kind is ExternalAgentKind => kind !== "opencode",
 )
 
-export function isExternalAgentKind(kind: AgentKind): kind is ExternalAgentKind {
-  return kind !== "opencode"
+/** Runtime-safe registry check for persisted, IPC, and renderer-owned values. */
+export function isAgentKind(value: unknown): value is AgentKind {
+  return typeof value === "string" && Object.hasOwn(AGENT_PROFILES, value)
+}
+
+export function isExternalAgentKind(value: unknown): value is ExternalAgentKind {
+  return isAgentKind(value) && value !== "opencode"
 }

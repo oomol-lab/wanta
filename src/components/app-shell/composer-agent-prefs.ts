@@ -1,7 +1,7 @@
 import type { AgentKind } from "../../../electron/agent/contract/profile.ts"
 import type { AgentPermissionMode } from "../../../electron/chat/common.ts"
 
-import { AGENT_PROFILES } from "../../../electron/agent/contract/profile.ts"
+import { AGENT_PROFILES, isAgentKind } from "../../../electron/agent/contract/profile.ts"
 
 // Sticky composer defaults. The most recently selected agent drives future new
 // chats, while model/effort/permission preferences stay separate per agent.
@@ -25,10 +25,6 @@ interface StoredComposerAgentPrefs {
 
 const storageKey = "wanta.composerAgentPrefs"
 export const DEFAULT_COMPOSER_AGENT_KIND: AgentKind = "opencode"
-
-function isAgentKind(value: unknown): value is AgentKind {
-  return typeof value === "string" && Object.hasOwn(AGENT_PROFILES, value)
-}
 
 function readStore(storage: LocalStorageLike | null | undefined): StoredComposerAgentPrefs {
   try {

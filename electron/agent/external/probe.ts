@@ -1,5 +1,5 @@
 import type { AcpAgentRegistration } from "../acp/registry.ts"
-import type { ExternalAgentKind } from "../contract/profile.ts"
+import type { AgentAuthMode, ExternalAgentKind } from "../contract/profile.ts"
 import type { ExternalAgentBinaryProbe, ExternalAgentLoginProbe, ExternalAgentRuntimeStatus } from "./status.ts"
 
 import { execFile } from "node:child_process"
@@ -31,6 +31,38 @@ export interface ExternalAgentProbeOptions {
   homeDirectory?: string
   /** Extra directories searched before PATH (dev node_modules/.bin, bundled Resources/bin). */
   extraBinDirectories?: readonly string[]
+}
+
+export function shouldProbeExternalAgentLogin(auth: AgentAuthMode, binary: ExternalAgentBinaryProbe): boolean {
+  return auth.kind === "agent-cli" && binary.status === "detected"
+}
+
+export type ExternalAgentRuntimeDependencyProbe =
+  | { status: "not_required" }
+  | { status: "detected"; path: string }
+  | { status: "not_found"; message: string }
+
+/** Verify the native CLI delegated to by a packaged ACP bridge. */
+export async function probeRegisteredRuntime(
+  registration: AcpAgentRegistration,
+  pathEnv: string,
+  options: ExternalAgentProbeOptions = {},
+): Promise<ExternalAgentRuntimeDependencyProbe> {
+  const runtime = registration.runtimeExecutable
+  if (!runtime) return { status: "not_required" }
+  const env = options.env ?? process.env
+  const configuredPath = env[runtime.envVar]?.trim()
+  const commands = configuredPath ? [configuredPath] : runtime.cliCommands
+  const detected = await detectCliExecutable(commands, {
+    env,
+    homeDirectory: options.homeDirectory,
+    pathEnv,
+  })
+  if (detected) return { status: "detected", path: detected.executablePath }
+  return {
+    status: "not_found",
+    message: `${registration.displayName} ACP bridge is installed, but its native CLI is missing. Install ${runtime.cliCommands[0] ?? registration.displayName} or set ${runtime.envVar} to a valid executable path.`,
+  }
 }
 
 async function probeCommandPath(options: ExternalAgentProbeOptions): Promise<string> {
@@ -180,8 +212,16 @@ export async function probeExternalAgent(
   const loginHint = agentLoginHint(kind)
   const pathEnv = await probeCommandPath(options)
   const registration = ACP_AGENT_REGISTRY[kind]
-  const binary = await probeBinary(registration.cliCommands, registration.versionArgs, options, pathEnv)
-  const login = await probeRegisteredLogin(registration, pathEnv, options)
+  let binary = await probeBinary(registration.cliCommands, registration.versionArgs, options, pathEnv)
+  if (binary.status === "detected") {
+    const runtime = await probeRegisteredRuntime(registration, pathEnv, options)
+    if (runtime.status === "not_found") {
+      binary = { status: "error", message: runtime.message }
+    }
+  }
+  const login = shouldProbeExternalAgentLogin(profile.auth, binary)
+    ? await probeRegisteredLogin(registration, pathEnv, options)
+    : { status: "unknown" as const }
   const status: ExternalAgentRuntimeStatus = { kind, displayName: profile.displayName, binary, login, loginHint }
   logDiagnosticOnChange(`byoa-probe:${kind}`, "byoa-probe", "external agent probe", {
     kind,

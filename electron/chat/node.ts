@@ -483,17 +483,22 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getExternalAgents(): Promise<ExternalAgentRuntimeStatus[]> {
-    const statuses = await Promise.all(
-      [...this.externalAgents.values()].map(async (adapter) => {
+    return Promise.all(
+      [...this.externalAgents.entries()].map(async ([kind, adapter]) => {
         try {
           return await adapter.runtimeStatus()
         } catch (error) {
-          logDiagnostic("chat-service", "external agent probe failed", { error, kind: adapter.kind }, "warn")
-          return null
+          logDiagnostic("chat-service", "external agent probe failed", { error, kind }, "warn")
+          return {
+            kind,
+            displayName: adapter.profile.displayName,
+            binary: { status: "error", message: errorMessage(error) },
+            login: { status: "unknown" },
+            loginHint: adapter.profile.auth.kind === "agent-cli" ? adapter.profile.auth.loginCommand : "",
+          } satisfies ExternalAgentRuntimeStatus
         }
       }),
     )
-    return statuses.filter((status): status is ExternalAgentRuntimeStatus => Boolean(status))
   }
 
   public async setExternalSessionModel(req: SetExternalSessionModelRequest): Promise<void> {

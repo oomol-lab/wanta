@@ -181,7 +181,8 @@ External agents build on `electron/agent/external/`:
   `ChatTokenUsage` + optional `contextWindow`) from ACP `usage_update`. The recorder attaches it to the
   latest assistant message, which is what lights the composer context meter.
 - **Probing** (`external/probe.ts`): PATH scan (reusing
-  `electron/agents/catalog.ts` + `resolveUserCommandPath`) with `--version`
+  `electron/agents/catalog.ts` + `resolveUserCommandPath`) with `--version`, plus
+  validation of any native CLI delegated to by a packaged ACP bridge
   verification, plus fail-open login detection for agent-owned ACP agents via
   config marker files. Login status gates only `agent-cli` profiles;
   a Wanta-routed harness is gated by its binary and Wanta model availability.

@@ -73,9 +73,8 @@ test("external sessions are created and listed when no kernel adapter exists", a
   )
 })
 
-test("an unregistered agentKind never mints an external session id (create gate)", async () => {
+test("an unregistered agentKind is rejected before any session is created", async () => {
   // RPC types are erased at runtime; a junk kind must not reach mintExternalSessionId.
-  // With no kernel adapter it falls to the kernel path and fails closed instead.
   const external = externalStore()
   const service = new SessionServiceImpl(null, {
     externalSessionStore: external.store,
@@ -83,18 +82,18 @@ test("an unregistered agentKind never mints an external session id (create gate)
   })
   ;(service as unknown as { send: () => Promise<void> }).send = async () => undefined
 
-  await assert.rejects(service.create({ agentKind: "gemini" as never, scope: localScope }), /Agent not configured/)
+  await assert.rejects(service.create({ agentKind: "gemini" as never, scope: localScope }), /Unsupported agent kind/)
   // No wanta-ext:gemini record was persisted.
   assert.equal(external.current().size, 0)
 })
 
-test("an unregistered agentKind preserves the historical built-in fallback when the kernel is available", async () => {
+test("an unregistered agentKind never silently falls back to an available kernel", async () => {
   const external = externalStore()
-  let createdWithTitle: string | undefined
+  let createCalls = 0
   const kernel = {
-    createSession: async (title?: string) => {
-      createdWithTitle = title
-      return { id: "kernel-fallback", title: title ?? "New session", createdAt: 1, updatedAt: 1 }
+    createSession: async () => {
+      createCalls += 1
+      return { id: "kernel-fallback", title: "Unexpected", createdAt: 1, updatedAt: 1 }
     },
     deleteSession: async () => undefined,
     listSessions: async () => [],
@@ -105,10 +104,12 @@ test("an unregistered agentKind preserves the historical built-in fallback when 
   })
   ;(service as unknown as { send: () => Promise<void> }).send = async () => undefined
 
-  const created = await service.create({ agentKind: "gemini" as never, scope: localScope, title: "Legacy fallback" })
+  await assert.rejects(
+    service.create({ agentKind: "gemini" as never, scope: localScope, title: "Must not fall back" }),
+    /Unsupported agent kind/,
+  )
 
-  assert.equal(created.id, "kernel-fallback")
-  assert.equal(createdWithTitle, "Legacy fallback")
+  assert.equal(createCalls, 0)
   assert.equal(external.current().size, 0)
 })
 

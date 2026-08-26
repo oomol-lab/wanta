@@ -1073,6 +1073,12 @@ export const enMessages = {
   "artifacts.persistenceFailedTitle": "Artifact not saved",
   "artifacts.persistenceFailedDescription":
     "The generated result was shown in the response but was not saved as a local file that can be reopened.",
+  "artifacts.declarationInvalidTitle": "Artifact publication declaration is invalid",
+  "artifacts.declarationInvalidDescription":
+    "Wanta did not treat files in the directory as final outputs. Inspect them in execution details and regenerate the artifact.",
+  "artifacts.declarationPartialTitle": "Some artifacts were not published",
+  "artifacts.declarationPartialDescription":
+    "Some declared files were missing, duplicated, or outside the current artifact directory.",
   "artifacts.projectPublishFailedTitle": "Output not saved to the project",
   "artifacts.projectPublishFailedDescription":
     "The output remains available in Wanta, but it could not be copied into the project folder.",

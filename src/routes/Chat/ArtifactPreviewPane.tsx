@@ -207,6 +207,7 @@ export function ArtifactPreview({
       ) : null}
 
       <div
+        key={item.path}
         className={cn(
           "min-h-0 flex-1",
           activeMode === "preview" && preview?.kind === "pdf" ? "overflow-hidden" : "overflow-auto",
@@ -634,13 +635,13 @@ function ArtifactHtmlPreview({ preview }: { preview: LocalArtifactPreviewResult 
   const source = preview.text ?? ""
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">
       <iframe
         title={t("artifacts.htmlPreview")}
         srcDoc={htmlPreviewSrcDoc(source)}
         sandbox={htmlPreviewSandbox()}
         referrerPolicy="no-referrer"
-        className="block h-full min-h-[480px] w-full min-w-0 flex-1 border-0 bg-transparent"
+        className="block h-full min-h-0 w-full min-w-0 flex-1 border-0 bg-transparent"
       />
       {preview.truncated ? (
         <p className="oo-text-caption oo-border-divider border-t px-3 py-2 text-muted-foreground">

@@ -1231,6 +1231,71 @@ test("message completion records intermediate code files left in artifact root",
   }
 })
 
+test("message completion separates declared deliverables from artifact-root process files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-declared-artifact-"))
+  try {
+    const artifactDir = path.join(root, "artifacts")
+    const processDir = path.join(root, "process")
+    await mkdir(artifactDir, { recursive: true })
+    await mkdir(processDir, { recursive: true })
+
+    const bridge = createBridgeAgent()
+    bridge.createArtifactDir.mockResolvedValue(artifactDir)
+    bridge.createProcessDir.mockResolvedValue(processDir)
+    const artifactBundleStore = new ArtifactBundleStore(root)
+    const turnOutputStore = new TurnOutputStore(root)
+    const service = new ChatServiceImpl(bridge.agent, { artifactBundleStore, turnOutputStore })
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+
+    await service.sendMessage({ scope: testTeamScope, sessionId: "session-1", text: "生成一份周报" })
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    const queryPath = path.join(artifactDir, "q_accounts.json")
+    await writeFile(path.join(artifactDir, "weekly-report.html"), "<!doctype html><title>Weekly report</title>")
+    await writeFile(queryPath, JSON.stringify({ results: [1, 2, 3] }))
+    await writeFile(
+      path.join(artifactDir, ".wanta-artifact.json"),
+      JSON.stringify({
+        version: 2,
+        title: "Weekly report",
+        kind: "web_page",
+        display: "single",
+        items: [{ path: "weekly-report.html", role: "primary", order: 1 }],
+      }),
+    )
+
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await waitForCondition(
+      () =>
+        events.some((event) => event.event === "artifactBundleUpdated") &&
+        events.some((event) => event.event === "turnOutputUpdated"),
+    )
+
+    const bundle = (await artifactBundleStore.read()).get("session-1")?.get("assistant-1")
+    assert.equal(bundle?.version, 2)
+    assert.deepEqual(
+      bundle?.items.map((item) => item.name),
+      ["weekly-report.html"],
+    )
+
+    const record = (await turnOutputStore.read()).get("session-1")?.get("assistant-1")
+    assert.equal(record?.artifactProcessRoot, artifactDir)
+    assert.deepEqual(
+      record?.files.map((item) => item.name),
+      ["q_accounts.json"],
+    )
+    assert.equal(
+      (await service.getTurnFileDiff({ sessionId: "session-1", messageId: "assistant-1", path: queryPath })).kind,
+      "text",
+    )
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
 test("message completion treats a standalone HTML report as an artifact without requiring web keywords", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-html-artifact-"))
   try {
@@ -4117,6 +4182,8 @@ test("resolveLocalArtifacts reads artifact pack manifests", async () => {
     sessionId: "session-1",
   })
   assert.ok(bundle)
+  assert.equal(bundle.status, "partial")
+  assert.equal(bundle.failure, "artifact_declaration_partial")
   const records = new Map()
   recordArtifactBundle(records, bundle)
   await artifactBundleStore.write(records)

@@ -121,6 +121,7 @@ export function ImageGalleryPreview({
       }}
     >
       <div
+        key={item.path}
         className={cn(
           "min-h-0 flex-1",
           mode === "preview" && preview?.kind === "pdf" ? "overflow-hidden" : "overflow-auto",

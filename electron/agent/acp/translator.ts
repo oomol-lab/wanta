@@ -2,6 +2,7 @@ import type { AssistantActivityPhase, ChatMessage } from "../../chat/common.ts"
 import type { AgentEvent } from "../contract/event.ts"
 import type { ContentBlock, SessionUpdate, ToolCallContent } from "@agentclientprotocol/sdk"
 
+import { randomUUID } from "node:crypto"
 import { classifyToolFailure } from "../tool-failure.ts"
 
 // ACP session/update -> AgentEvent translation (BYOA phase 2).
@@ -37,13 +38,6 @@ interface ToolCallSnapshot {
   rawOutput?: unknown
   content: ToolCallContent[]
 }
-
-/**
- * Global sequence for synthetic message ids. Translator instances for the same
- * Wanta session can be recreated (agent respawn after a crash), so ids must
- * stay unique across instances or transcript bubbles would merge.
- */
-let translatorSeq = 0
 
 interface AcpCompactionStatus {
   phase: Extract<AssistantActivityPhase, "compacting" | "resuming" | "retrying">
@@ -196,8 +190,11 @@ function toolOutputText(snapshot: ToolCallSnapshot): string {
 export function createAcpSessionTranslator(
   wantaSessionId: string,
   wantaHostServerNames: ReadonlySet<string> = new Set(),
+  syntheticIdNamespace = randomUUID(),
 ): AcpSessionTranslator {
-  const seed = ++translatorSeq
+  // Agent-provided message ids are optional. The fallback must remain unique
+  // after an Electron main restart; a process-local counter would reset and
+  // merge new turn parts into persisted transcript messages from an older run.
   let messageSeq = 0
   /** Message the next chunk/tool call belongs to when the agent omits messageId. */
   let currentMessageId: string | undefined
@@ -212,7 +209,7 @@ export function createAcpSessionTranslator(
 
   function mintMessageId(): string {
     messageSeq += 1
-    return `acp-msg-${seed}-${messageSeq}`
+    return `acp-msg-${syntheticIdNamespace}-${messageSeq}`
   }
 
   function ensureStarted(messageId: string, events: AgentEvent[]): void {

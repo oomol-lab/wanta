@@ -1,7 +1,12 @@
+import type { FileHandle } from "node:fs/promises"
+
 import crypto from "node:crypto"
 
 export interface ArtifactResourceLease {
+  dev: number
   expiresAt: number
+  handle?: FileHandle
+  ino: number
   mime: string
   modifiedAt: number
   path: string
@@ -32,7 +37,7 @@ export class ArtifactResourceLeaseStore {
       if (!oldest) {
         break
       }
-      this.leases.delete(oldest)
+      this.remove(oldest)
     }
     return lease
   }
@@ -44,7 +49,7 @@ export class ArtifactResourceLeaseStore {
       return null
     }
     if (lease.expiresAt <= now) {
-      this.leases.delete(token)
+      this.remove(token)
       return null
     }
     const refreshed = { ...lease, expiresAt: now + this.ttlMs }
@@ -55,14 +60,20 @@ export class ArtifactResourceLeaseStore {
 
   // 清空所有租约，供应用退出时统一释放资源访问能力。
   clear(): void {
-    this.leases.clear()
+    for (const token of this.leases.keys()) this.remove(token)
   }
 
   private removeExpired(now: number): void {
     for (const [token, lease] of this.leases) {
       if (lease.expiresAt <= now) {
-        this.leases.delete(token)
+        this.remove(token)
       }
     }
+  }
+
+  private remove(token: string): void {
+    const lease = this.leases.get(token)
+    this.leases.delete(token)
+    void lease?.handle?.close().catch(() => undefined)
   }
 }

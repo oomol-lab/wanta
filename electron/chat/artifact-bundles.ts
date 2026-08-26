@@ -5,7 +5,9 @@ import type {
   ArtifactItem,
   ArtifactItemOrigin,
   ChatMessage,
+  LocalArtifactEntry,
   LocalArtifactGroup,
+  LocalArtifactPack,
 } from "./common.ts"
 import type { MaterializeAssistantArtifactsOptions } from "./safe-image-source.ts"
 
@@ -17,7 +19,7 @@ import { atomicWriteText } from "../atomic-file.ts"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 import { isOperationalStateArtifact } from "./artifact-file-classification.ts"
 import { mimeFromPath, normalizeLocalPathCandidate } from "./artifacts.ts"
-import { localArtifactItem } from "./local-artifacts.ts"
+import { artifactManifestExists, localArtifactItem, readArtifactPack } from "./local-artifacts.ts"
 import { extractMarkdownImageSources } from "./markdown-images.ts"
 import { dataImage, remoteImage } from "./safe-image-source.ts"
 
@@ -94,6 +96,12 @@ function validBundle(value: unknown): value is ArtifactBundle {
     validText(bundle.sessionId) &&
     validText(bundle.messageId) &&
     validText(bundle.rootPath) &&
+    (bundle.version === undefined || bundle.version === 2) &&
+    (bundle.title === undefined || typeof bundle.title === "string") &&
+    (bundle.summary === undefined || typeof bundle.summary === "string") &&
+    (bundle.classification === undefined ||
+      bundle.classification === "declared" ||
+      bundle.classification === "inferred") &&
     (bundle.status === "ready" || bundle.status === "partial" || bundle.status === "failed") &&
     typeof bundle.createdAt === "number" &&
     Number.isFinite(bundle.createdAt) &&
@@ -105,6 +113,8 @@ function validBundle(value: unknown): value is ArtifactBundle {
     (bundle.totalItems ?? -1) >= 0 &&
     typeof bundle.truncated === "boolean" &&
     (bundle.failure === undefined ||
+      bundle.failure === "artifact_declaration_invalid" ||
+      bundle.failure === "artifact_declaration_partial" ||
       bundle.failure === "generated_preview_not_persisted" ||
       bundle.failure === "generated_preview_persistence_unverified" ||
       bundle.failure === "project_output_publish_failed" ||
@@ -120,10 +130,70 @@ function validBundle(value: unknown): value is ArtifactBundle {
         validText(item.mime) &&
         item.status === "ready" &&
         artifactItemOrigins.has(item.origin) &&
+        (item.role === undefined || item.role === "primary" || item.role === "supporting" || item.role === "summary") &&
+        (item.order === undefined || (typeof item.order === "number" && Number.isFinite(item.order))) &&
+        (item.title === undefined || typeof item.title === "string") &&
+        (item.description === undefined || typeof item.description === "string") &&
         (item.size === undefined || (typeof item.size === "number" && Number.isFinite(item.size) && item.size >= 0)) &&
         (item.modifiedAt === undefined || (typeof item.modifiedAt === "number" && Number.isFinite(item.modifiedAt))),
     )
   )
+}
+
+function declaredArtifactGroup(pack: LocalArtifactPack): LocalArtifactGroup {
+  const items = [...pack.items, ...pack.supporting]
+    .filter((item) => item.role !== "metadata" && item.kind === "file")
+    .sort(
+      (left, right) =>
+        Number(left.role !== "primary") - Number(right.role !== "primary") ||
+        left.order - right.order ||
+        left.name.localeCompare(right.name, undefined, { numeric: true }),
+    )
+  return {
+    root: pack.root,
+    items,
+    totalItems: items.length,
+    truncated: false,
+  }
+}
+
+function declaredArtifactEntry(item: LocalArtifactGroup["items"][number]): LocalArtifactEntry | undefined {
+  if (!("role" in item)) {
+    return undefined
+  }
+  const candidate = item as LocalArtifactEntry
+  return candidate.role === "primary" ||
+    candidate.role === "supporting" ||
+    candidate.role === "summary" ||
+    candidate.role === "metadata"
+    ? candidate
+    : undefined
+}
+
+function invalidDeclaredArtifactBundle(input: {
+  artifactRoot: string
+  completedAt: number
+  createdAt: number
+  messageId: string
+  sessionId: string
+}): ArtifactBundle {
+  return {
+    version: 2,
+    id: stableArtifactId(input.sessionId, input.messageId, "bundle"),
+    sessionId: input.sessionId,
+    messageId: input.messageId,
+    rootPath: input.artifactRoot,
+    classification: "declared",
+    status: "failed",
+    kind: "mixed",
+    display: "file_list",
+    items: [],
+    totalItems: 0,
+    truncated: false,
+    createdAt: input.createdAt,
+    completedAt: input.completedAt,
+    failure: "artifact_declaration_invalid",
+  }
 }
 
 function normalizeArtifactBundles(value: unknown): ArtifactBundles {
@@ -679,11 +749,23 @@ export async function buildArtifactBundle(input: {
   materializedOrigins?: ReadonlyMap<string, ArtifactItemOrigin>
 }): Promise<ArtifactBundle | null> {
   const { artifactRoot, excludedPaths, materializedOrigins = new Map<string, ArtifactItemOrigin>() } = input
-  const group = await managedArtifactGroup(artifactRoot, materializedOrigins, 200, excludedPaths)
+  const [pack, hasDeclaration] = await Promise.all([
+    readArtifactPack(artifactRoot),
+    artifactManifestExists(artifactRoot),
+  ])
+  if (hasDeclaration && !pack) {
+    return invalidDeclaredArtifactBundle(input)
+  }
+  const group = pack
+    ? declaredArtifactGroup(pack)
+    : await managedArtifactGroup(artifactRoot, materializedOrigins, 200, excludedPaths)
   if (!group) {
     return null
   }
-  return buildArtifactBundleFromGroup({ ...input, group })
+  if (pack && group.items.length === 0) {
+    return invalidDeclaredArtifactBundle(input)
+  }
+  return buildArtifactBundleFromGroup({ ...input, group, ...(pack ? { pack } : {}) })
 }
 
 export function buildArtifactBundleFromGroup(input: {
@@ -692,6 +774,7 @@ export function buildArtifactBundleFromGroup(input: {
   createdAt: number
   generatedPreviewCount: number
   group: LocalArtifactGroup
+  pack?: LocalArtifactPack
   messageId: string
   sessionId: string
   materializedOrigins?: ReadonlyMap<string, ArtifactItemOrigin>
@@ -703,6 +786,7 @@ export function buildArtifactBundleFromGroup(input: {
     createdAt,
     generatedPreviewCount,
     group,
+    pack,
     messageId,
     sessionId,
   } = input
@@ -725,25 +809,37 @@ export function buildArtifactBundleFromGroup(input: {
         }
       : null
   }
-  const kind = inferredKind(group)
-  const display = inferredDisplay(kind, group.items.length)
+  const kind = pack?.kind ?? inferredKind(group)
+  const display = pack?.display ?? inferredDisplay(kind, group.items.length)
   // 只计算能追溯到本轮 assistant source 的图片；目录中无关的旧图片不能掩盖物化失败。
   const persistedImageCount = group.items.filter(
     (item) => item.mime.startsWith("image/") && materializedOrigins.has(path.relative(artifactRoot, item.path)),
   ).length
-  const isPartial = generatedPreviewCount > persistedImageCount
-  const items: ArtifactItem[] = group.items.map((item) => ({
-    ...item,
-    id: stableArtifactId(sessionId, messageId, path.relative(artifactRoot, item.path)),
-    status: "ready",
-    origin: materializedOrigins.get(path.relative(artifactRoot, item.path)) ?? "managed_output",
-  }))
+  const generatedPreviewPartial = generatedPreviewCount > persistedImageCount
+  const declarationPartial = Boolean(pack?.rejectedItems)
+  const items: ArtifactItem[] = group.items.map((item) => {
+    const declared = declaredArtifactEntry(item)
+    return {
+      ...item,
+      id: stableArtifactId(sessionId, messageId, path.relative(artifactRoot, item.path)),
+      status: "ready",
+      origin: materializedOrigins.get(path.relative(artifactRoot, item.path)) ?? "managed_output",
+      ...(declared?.role && declared.role !== "metadata" ? { role: declared.role } : {}),
+      ...(typeof declared?.order === "number" ? { order: declared.order } : {}),
+      ...(declared?.title ? { title: declared.title } : {}),
+      ...(declared?.description ? { description: declared.description } : {}),
+    }
+  })
   return {
+    ...(pack ? { version: 2 as const } : {}),
     id: stableArtifactId(sessionId, messageId, "bundle"),
     sessionId,
     messageId,
     rootPath: artifactRoot,
-    status: isPartial ? "partial" : "ready",
+    ...(pack?.title ? { title: pack.title } : {}),
+    ...(pack?.summary ? { summary: pack.summary } : {}),
+    classification: pack ? "declared" : "inferred",
+    status: generatedPreviewPartial || declarationPartial ? "partial" : "ready",
     kind,
     display,
     items,
@@ -751,7 +847,11 @@ export function buildArtifactBundleFromGroup(input: {
     truncated: group.truncated,
     createdAt,
     completedAt,
-    ...(isPartial ? { failure: "generated_preview_persistence_unverified" as const } : {}),
+    ...(declarationPartial
+      ? { failure: "artifact_declaration_partial" as const }
+      : generatedPreviewPartial
+        ? { failure: "generated_preview_persistence_unverified" as const }
+        : {}),
   }
 }
 

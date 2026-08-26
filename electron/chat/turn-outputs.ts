@@ -96,6 +96,7 @@ function normalizeRecord(value: unknown): StoredTurnOutputRecord | null {
   return {
     sessionId: source.sessionId,
     messageId: source.messageId,
+    ...(validString(source.artifactProcessRoot) ? { artifactProcessRoot: source.artifactProcessRoot } : {}),
     ...(validString(source.processRoot) ? { processRoot: source.processRoot } : {}),
     ...(validString(source.projectRoot) ? { projectRoot: source.projectRoot } : {}),
     createdAt: validNumber(source.createdAt) ? source.createdAt : Date.now(),

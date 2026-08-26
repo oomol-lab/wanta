@@ -63,6 +63,7 @@ import type {
   TurnOutputsRequest,
 } from "./common.ts"
 import type { SessionGeneration } from "./generation-registry.ts"
+import type { CreateArtifactResourceUrl } from "./previews.ts"
 import type { StoppedGenerationStore } from "./stopped-generations.ts"
 import type { StoredTurnOutputRecord, TurnOutputRecords, TurnOutputStore } from "./turn-outputs.ts"
 import type { UserAttachmentStore } from "./user-attachments.ts"
@@ -276,10 +277,7 @@ interface ChatServiceDeps {
   browserAvailable?: () => boolean
   hostQuestions?: HostQuestionBroker
   managedTurnDirectories?: ManagedTurnDirectories
-  createArtifactResourceUrl?: (item: { mime: string; modifiedAt: number; path: string; size: number }) => {
-    expiresAt: number
-    url: string
-  }
+  createArtifactResourceUrl?: CreateArtifactResourceUrl
   createSpreadsheetPreview?: (path: string, mime: string, size: number) => Promise<LocalArtifactPreviewResult>
   createArtifactThumbnail?: (path: string) => Promise<LocalArtifactThumbnailResult>
   artifactBundleStore?: ArtifactBundleStore
@@ -1396,6 +1394,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     for (const records of turnOutputs.values()) {
       for (const record of records.values()) {
+        if (record.artifactProcessRoot) {
+          roots.add(record.artifactProcessRoot)
+        }
         if (record.processRoot) {
           roots.add(record.processRoot)
         }
@@ -1422,8 +1423,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return this.trustedAccess.isPathInRoots(filePath, roots)
   }
 
-  private async assertTrustedLocalPath(filePath: string): Promise<void> {
-    await this.trustedAccess.assertPath(filePath)
+  private async assertTrustedLocalPath(filePath: string): Promise<string> {
+    return this.trustedAccess.assertPath(filePath)
   }
 
   private async assertTrustedAttachments(attachments: readonly ChatAttachment[] | undefined): Promise<void> {
@@ -2551,8 +2552,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult> {
-    await this.assertTrustedLocalPath(req.path)
-    return localArtifactPreview(req, this.deps.createArtifactResourceUrl, this.deps.createSpreadsheetPreview)
+    const trustedFile = await this.trustedAccess.assertFile(req.path)
+    return localArtifactPreview(
+      { path: trustedFile.path },
+      this.deps.createArtifactResourceUrl,
+      this.deps.createSpreadsheetPreview,
+      trustedFile,
+    )
   }
 
   public async getLocalArtifactThumbnail(req: LocalArtifactThumbnailRequest): Promise<LocalArtifactThumbnailResult> {
@@ -2609,8 +2615,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!record || !file) {
       return { kind: "missing", path: req.path, mime: "application/octet-stream", additions: 0, deletions: 0 }
     }
-    if (file.role === "process" && (!record.processRoot || !isPathInside(record.processRoot, file.path))) {
-      return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }
+    if (file.role === "process") {
+      const insideManagedProcess = Boolean(record.processRoot && isPathInside(record.processRoot, file.path))
+      const insideManagedArtifacts = Boolean(
+        record.artifactProcessRoot && isPathInside(record.artifactProcessRoot, file.path),
+      )
+      if (!insideManagedProcess && !insideManagedArtifacts) {
+        return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }
+      }
     }
     if (file.role === "project_change" && (!record.projectRoot || !isPathInside(record.projectRoot, file.path))) {
       return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }

@@ -1,6 +1,8 @@
 import type { ChatAttachment, ChatMessage, ChatPermissionRequest } from "./common.ts"
+import type { FileHandle } from "node:fs/promises"
 
-import { realpath } from "node:fs/promises"
+import { constants } from "node:fs"
+import { lstat, open, realpath } from "node:fs/promises"
 import os from "node:os"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { normalizeLocalPathCandidate } from "./artifacts.ts"
@@ -11,6 +13,15 @@ const rootsCacheMs = 1_000
 export interface TrustedLocalAccessOptions {
   loadAdditionalRoots: () => Promise<Iterable<string>>
   trustedAttachmentPaths?: Iterable<string> & { readonly revision?: number }
+}
+
+export interface TrustedLocalFile {
+  dev: number
+  handle: FileHandle
+  ino: number
+  modifiedAt: number
+  path: string
+  size: number
 }
 
 /** 汇总会话明确授权的本地路径，并统一处理 realpath、缓存失效与路径包含校验。 */
@@ -171,12 +182,49 @@ export class TrustedLocalAccess {
   }
 
   public async isPathInRoots(filePath: string, roots: readonly string[]): Promise<boolean> {
-    const target = await realpath(filePath).catch(() => null)
-    return Boolean(target && roots.some((root) => isPathInside(root, target)))
+    return Boolean(await this.resolvePathInRoots(filePath, roots))
   }
 
-  public async assertPath(filePath: string): Promise<void> {
-    if (!(await this.isPathInRoots(filePath, await this.roots()))) {
+  public async resolvePathInRoots(filePath: string, roots: readonly string[]): Promise<string | null> {
+    const target = await realpath(filePath).catch(() => null)
+    return target && roots.some((root) => isPathInside(root, target)) ? target : null
+  }
+
+  public async assertPath(filePath: string): Promise<string> {
+    const target = await this.resolvePathInRoots(filePath, await this.roots())
+    if (!target) {
+      throw new Error("Local path is not available from this conversation.")
+    }
+    return target
+  }
+
+  public async assertFile(filePath: string): Promise<TrustedLocalFile> {
+    const roots = await this.roots()
+    const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0
+    let handle: FileHandle | undefined
+    try {
+      handle = await open(filePath, constants.O_RDONLY | noFollow)
+      const [target, pathInfo, openedInfo] = await Promise.all([realpath(filePath), lstat(filePath), handle.stat()])
+      if (
+        !roots.some((root) => isPathInside(root, target)) ||
+        !pathInfo.isFile() ||
+        pathInfo.isSymbolicLink() ||
+        !openedInfo.isFile() ||
+        pathInfo.dev !== openedInfo.dev ||
+        pathInfo.ino !== openedInfo.ino
+      ) {
+        throw new Error("Local path is not available from this conversation.")
+      }
+      return {
+        dev: openedInfo.dev,
+        handle,
+        ino: openedInfo.ino,
+        modifiedAt: openedInfo.mtimeMs,
+        path: target,
+        size: openedInfo.size,
+      }
+    } catch {
+      await handle?.close().catch(() => undefined)
       throw new Error("Local path is not available from this conversation.")
     }
   }

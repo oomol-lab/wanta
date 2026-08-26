@@ -494,6 +494,15 @@ describe("AgentManager", () => {
     expect(system).not.toContain("Do not present a remote")
   })
 
+  it("separates explicit deliverables from process files", () => {
+    const system = buildArtifactSystem("/tmp/wanta-artifacts/turn")
+
+    expect(system).toContain("machine-review files belong in the managed process directory")
+    expect(system).toContain("write .wanta-artifact.json")
+    expect(system).toContain("publishes only declared primary, summary, and supporting files")
+    expect(system).not.toContain("Do not create a manifest")
+  })
+
   it("tells project turns that managed deliverables are published into the visible project", () => {
     const system = buildArtifactSystem("/tmp/project/.wanta/artifacts/session/turn", "/tmp/project")
 

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, open, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { test } from "vitest"
@@ -95,3 +95,37 @@ test("localArtifactPreview streams large videos through an artifact resource lea
     await rm(directory, { force: true, recursive: true })
   }
 })
+
+test.skipIf(process.platform === "win32")(
+  "localArtifactPreview reads a verified snapshot after a parent-directory replacement without a resource grant",
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "wanta-preview-snapshot-"))
+    try {
+      const artifactDirectory = path.join(root, "artifacts")
+      const movedArtifactDirectory = path.join(root, "artifacts-original")
+      const outsideDirectory = path.join(root, "outside")
+      await Promise.all([mkdir(artifactDirectory), mkdir(outsideDirectory)])
+      const filePath = path.join(artifactDirectory, "report.txt")
+      await writeFile(filePath, "trusted content")
+      await writeFile(path.join(outsideDirectory, "report.txt"), "outside content")
+      const handle = await open(filePath, "r")
+      const info = await stat(filePath)
+
+      await rename(artifactDirectory, movedArtifactDirectory)
+      await symlink(outsideDirectory, artifactDirectory, "dir")
+
+      const preview = await localArtifactPreview({ path: filePath }, undefined, undefined, {
+        dev: info.dev,
+        handle,
+        ino: info.ino,
+        modifiedAt: info.mtimeMs,
+        size: info.size,
+      })
+
+      assert.equal(preview.kind, "text")
+      assert.equal(preview.text, "trusted content")
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  },
+)

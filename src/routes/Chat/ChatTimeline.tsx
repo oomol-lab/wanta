@@ -5,6 +5,7 @@ import type {
   ChatPermissionRequest,
   ChatQuestionRequest,
   ChatMessage,
+  LocalArtifactPack,
   TurnOutputRecord,
 } from "../../../electron/chat/common.ts"
 import type { ChatErrorKind } from "../../../electron/chat/error.ts"
@@ -477,28 +478,52 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     const ageMs = Date.now() - latestAssistant.createdAt
     return ageMs >= 0 && ageMs <= ASSISTANT_TEXT_SMOOTH_WINDOW_MS ? latestAssistant.id : undefined
   }, [activeAssistantMessageId, latestAssistant])
-  const visibleArtifactGroups = React.useMemo<ResolvedArtifactGroup[]>(
-    () =>
-      artifactBundles.map((bundle) => ({
+  const visibleArtifactGroups = React.useMemo<ResolvedArtifactGroup[]>(() => {
+    return artifactBundles.map((bundle) => {
+      const root = {
+        path: bundle.rootPath,
+        name: bundle.rootPath.split(/[\\/]/u).pop() ?? bundle.rootPath,
+        kind: "directory" as const,
+        mime: "inode/directory",
+      }
+      const pack: LocalArtifactPack | undefined =
+        bundle.version === 2 && bundle.title
+          ? {
+              root,
+              title: bundle.title,
+              kind: bundle.kind,
+              display: bundle.display,
+              ...(bundle.summary ? { summary: bundle.summary } : {}),
+              items: bundle.items
+                .filter((item) => item.role === "primary")
+                .map((item, index) => ({ ...item, role: "primary" as const, order: item.order ?? index + 1 })),
+              supporting: bundle.items
+                .filter((item) => item.role !== "primary")
+                .map((item, index) => ({
+                  ...item,
+                  role: item.role ?? ("supporting" as const),
+                  order: item.order ?? index + 1,
+                })),
+              totalItems: bundle.totalItems,
+              truncated: bundle.truncated,
+            }
+          : undefined
+      return {
         display: bundle.display,
         messageId: bundle.messageId,
         kind: bundle.kind,
         group: {
-          root: {
-            path: bundle.rootPath,
-            name: bundle.rootPath.split(/[\\/]/u).pop() ?? bundle.rootPath,
-            kind: "directory" as const,
-            mime: "inode/directory",
-          },
+          root,
           items: bundle.items,
           totalItems: bundle.totalItems,
           truncated: bundle.truncated,
         },
+        ...(pack ? { pack } : {}),
         status: bundle.status,
         ...(bundle.failure ? { failure: bundle.failure } : {}),
-      })),
-    [artifactBundles],
-  )
+      }
+    })
+  }, [artifactBundles])
   const artifactGroupsByMessageId = React.useMemo(() => {
     const byMessageId = new Map<string, ResolvedArtifactGroup[]>()
     for (const group of visibleArtifactGroups) {

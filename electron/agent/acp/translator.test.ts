@@ -294,6 +294,20 @@ describe("agent_thought_chunk", () => {
       },
     ])
   })
+
+  test("synthetic message ids use a restart-safe translator namespace", () => {
+    const firstTranslator = createAcpSessionTranslator(SESSION_ID)
+    const secondTranslator = createAcpSessionTranslator(SESSION_ID)
+    firstTranslator.noteTurnStarted()
+    secondTranslator.noteTurnStarted()
+
+    const firstId = messageIdOf(firstTranslator.translate(textChunk("first"))[0]!)
+    const secondId = messageIdOf(secondTranslator.translate(textChunk("second"))[0]!)
+
+    expect(firstId).toMatch(/^acp-msg-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-1$/u)
+    expect(secondId).toMatch(/^acp-msg-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}-1$/u)
+    expect(secondId).not.toBe(firstId)
+  })
 })
 
 describe("tool_call lifecycle", () => {

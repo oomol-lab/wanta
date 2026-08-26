@@ -8,7 +8,7 @@ const providers = [
     displayName: "Gmail",
     searchAliases: [" Google Mail ", "Gmail", "Google Mail", ""],
     authTypes: ["oauth2" as const],
-    categories: [{ displayName: "Email" }],
+    categories: [{ displayName: "电子邮件", id: "communication" }],
   },
   { service: "quickchart", displayName: "QuickChart", authTypes: ["no_auth" as const] },
   { service: "ably", displayName: "Ably", authTypes: ["api_key" as const] },
@@ -25,7 +25,8 @@ test("merge marks connected providers and computes counts", () => {
   assert.equal(gmail?.status, "connected")
   assert.equal(gmail?.appStatus, "active")
   assert.equal(gmail?.canDisconnect, true)
-  assert.deepEqual(gmail?.categoryLabels, ["Email"])
+  assert.deepEqual(gmail?.categoryIds, ["communication"])
+  assert.deepEqual(gmail?.categoryLabels, ["电子邮件"])
   assert.deepEqual(gmail?.searchAliases, ["Google Mail", "Gmail"])
   assert.equal(gmail?.appCount, 1)
 })

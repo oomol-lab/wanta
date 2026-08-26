@@ -233,6 +233,19 @@ function normalizeCategories(value: unknown): string[] {
     .filter((item): item is string => Boolean(item))
 }
 
+function normalizeCategoryIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [
+    ...new Set(
+      value.flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return []
+        const id = asString((item as RawProviderCategory).id)?.trim()
+        return id ? [id] : []
+      }),
+    ),
+  ]
+}
+
 function normalizeOAuthClientConfigPolicy(value: unknown): ConnectionOAuthClientConfigPolicy {
   return typeof value === "string" && oauthClientConfigPolicies.has(value as ConnectionOAuthClientConfigPolicy)
     ? (value as ConnectionOAuthClientConfigPolicy)
@@ -656,6 +669,7 @@ export function normalizeProvider(
     actionKind: getProviderActionKind(normalizedAuthTypes),
     authTypes: normalizedAuthTypes,
     canDisconnect: manageableApps.length > 0 && !isPureNoAuthProvider,
+    categoryIds: normalizeCategoryIds(item.categories),
     categoryLabels: normalizeCategories(item.categories),
     connectedUpdatedAt: latestUpdatedAt(manageableApps),
     displayName: asString(item.displayName) ?? service,

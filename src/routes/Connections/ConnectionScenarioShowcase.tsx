@@ -18,7 +18,7 @@ import { compareConnectionProvidersByRecommendation, compactConnectionService } 
 import {
   connectionDiscoveryCategories,
   getConnectionDiscoveryCategory,
-  matchesConnectionDiscoveryCategory,
+  resolveConnectionDiscoveryCategory,
 } from "./connection-route-model.ts"
 import { ProviderIcon } from "./ProviderIcon.tsx"
 import { Button } from "@/components/ui/button"
@@ -61,11 +61,8 @@ export function ConnectionScenarioShowcase({
       groups.set(category.key, [])
     }
     for (const provider of providers) {
-      for (const category of connectionDiscoveryCategories) {
-        if (matchesConnectionDiscoveryCategory(provider, category.key)) {
-          groups.get(category.key)?.push(provider)
-        }
-      }
+      const category = resolveConnectionDiscoveryCategory(provider)
+      if (category) groups.get(category)?.push(provider)
     }
     return groups
   }, [providers])

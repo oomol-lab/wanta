@@ -962,7 +962,7 @@ export function ConnectionsPanel({
               />
             ) : null}
             {view === "discover" && !discoveryCategory && !selectedProvider && !normalizedQuery ? (
-              <ConnectionScenarioShowcase providers={catalogProviders} onSelect={selectScenario} />
+              <ConnectionScenarioShowcase providers={providers} onSelect={selectScenario} />
             ) : null}
             {summary?.appsStatus && summary.appsStatus !== "ready" ? (
               <ConnectionStateNotice status={summary.appsStatus} />

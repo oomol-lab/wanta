@@ -15,6 +15,7 @@ import {
   connectionAppDisplayLabel as connectionAppUiDisplayLabel,
   isConnectionlessNoAuthProvider,
 } from "../../../electron/connections/summary.ts"
+import { resolveConnectorBusinessCategory } from "./connection-provider-category.ts"
 import { authTypeLabel } from "./shared.ts"
 
 export const executionLogLimit = 12
@@ -417,8 +418,14 @@ export function matchesConnectionDiscoveryCategory(
   provider: ConnectionProviderSummary,
   category: ConnectionDiscoveryCategory,
 ): boolean {
-  const rawLabels = new Set(getProviderCategoryRawLabels(provider))
-  return getConnectionDiscoveryCategory(category).rawLabels.some((label) => rawLabels.has(label))
+  return resolveConnectionDiscoveryCategory(provider) === category
+}
+
+export function resolveConnectionDiscoveryCategory(
+  provider: ConnectionProviderSummary,
+): ConnectionDiscoveryCategory | null {
+  const category = resolveConnectorBusinessCategory(provider)
+  return category === "docs" ? "knowledge" : category
 }
 
 function normalizeProviderCategoryLabel(label: string): string {

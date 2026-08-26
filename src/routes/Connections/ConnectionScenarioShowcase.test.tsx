@@ -69,7 +69,9 @@ test("empty discovery categories remain available in the stable eight-category l
   const onSelect = vi.fn()
   const root = await render(<ConnectionScenarioShowcase providers={[]} onSelect={onSelect} />)
   const cards = document.querySelectorAll<HTMLButtonElement>('button[aria-label^="View "]')
-  const developerCard = document.querySelector<HTMLButtonElement>('button[aria-label="View Developer & cloud connectors"]')
+  const developerCard = document.querySelector<HTMLButtonElement>(
+    'button[aria-label="View Developer & cloud connectors"]',
+  )
 
   expect(cards).toHaveLength(8)
   expect(developerCard?.textContent).toContain("0")

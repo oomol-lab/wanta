@@ -577,7 +577,15 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         applyBusy(null)
       }
     },
-    [activateOAuthPending, beginAction, chatService, clearActiveOAuthPending, locale, pollOAuthPending, setCurrentSummary],
+    [
+      activateOAuthPending,
+      beginAction,
+      chatService,
+      clearActiveOAuthPending,
+      locale,
+      pollOAuthPending,
+      setCurrentSummary,
+    ],
   )
 
   const runSummaryMutation = React.useCallback(
@@ -671,13 +679,16 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   }, [])
   const clearActionError = React.useCallback(() => dispatch({ type: "actionErrorSet", error: null }), [])
 
-  const getProviderDetail = React.useCallback((svc: string) => {
-    const currentWorkspace = effectiveWorkspace.current
-    if (!currentWorkspace) {
-      return Promise.reject(new Error("Workspace is still loading."))
-    }
-    return getConnectionProviderDetail(svc, locale)
-  }, [locale])
+  const getProviderDetail = React.useCallback(
+    (svc: string) => {
+      const currentWorkspace = effectiveWorkspace.current
+      if (!currentWorkspace) {
+        return Promise.reject(new Error("Workspace is still loading."))
+      }
+      return getConnectionProviderDetail(svc, locale)
+    },
+    [locale],
+  )
   const getAppDetail = React.useCallback((appId: string) => {
     const currentWorkspace = effectiveWorkspace.current
     if (!currentWorkspace) {

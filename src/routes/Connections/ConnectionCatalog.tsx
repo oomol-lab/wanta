@@ -1,9 +1,6 @@
 import type { ConnectionProviderSummary } from "../../../electron/connections/common.ts"
 import type { ConnectionProviderSortMode } from "./connection-provider-ranking.ts"
-import type {
-  ConnectionAuthFilter,
-  ConnectionCatalogFilter,
-} from "./connection-route-model.ts"
+import type { ConnectionAuthFilter, ConnectionCatalogFilter } from "./connection-route-model.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
 import { ArrowUpDown, Filter, X } from "lucide-react"

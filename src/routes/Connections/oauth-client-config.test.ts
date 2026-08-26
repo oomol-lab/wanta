@@ -74,6 +74,33 @@ describe("oauth-client-config", () => {
     ).toBe(false)
   })
 
+  it("opens the dialog for authorization options even when the default client is ready", () => {
+    expect(
+      shouldOpenOAuthClientDialog({
+        providerOAuthClientConfig: {
+          ...twitterOAuthConfig,
+          authorizationOptions: [
+            {
+              defaultSelected: true,
+              description: "Read account details.",
+              id: "account.read",
+              label: "Account",
+              required: true,
+              requires: [],
+              risk: "standard",
+            },
+          ],
+          clientConfigFields: [],
+          clientConfigPolicy: "default_only",
+          configured: true,
+          nextConnectSource: "default",
+          tokenEndpointAuthMethod: "none",
+        },
+        userOAuthClientConfig: null,
+      }),
+    ).toBe(true)
+  })
+
   it("keeps persistent OAuth client fields separate from connect-only fields", () => {
     const clientConfigPayload = buildOAuthClientConfigPayload({
       draft: {

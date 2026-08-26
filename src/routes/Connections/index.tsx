@@ -646,10 +646,15 @@ export function ConnectionsPanel({
               userOAuthClientConfig: oauthClientConfig,
             })
           ) {
+            const appDetail = appId ? await getAppDetail(appId).catch(() => null) : null
+            if (!requestIsCurrent()) {
+              return
+            }
             setDialog({
               detail: loaded,
               authType,
               appId,
+              appDetail,
               connectionName: provider.apps.find((app) => app.id === appId)?.connectionName,
               oauthClientConfig,
             })

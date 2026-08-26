@@ -18,6 +18,7 @@ import {
   buildFederatedCredentialDisplayValues,
   getConnectionAppNote,
 } from "./connection-route-model.ts"
+import { createInitialOAuthAuthorizationOptionIds } from "./oauth-authorization-options.ts"
 import {
   buildOAuthClientConfigPayload,
   buildOAuthConnectPayload,
@@ -28,6 +29,7 @@ import {
   validateOAuthFields,
   validateOAuthPersistentFields,
 } from "./oauth-client-config.ts"
+import { OAuthAuthorizationOptions } from "./OAuthAuthorizationOptions.tsx"
 import { Loader } from "@/components/ai-elements/loader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -249,6 +251,9 @@ export function ConnectDialog({
     }),
   )
   const [oauthBusy, setOAuthBusy] = React.useState<"save" | null>(null)
+  const [authorizationOptionIds, setAuthorizationOptionIds] = React.useState<string[]>(() =>
+    createInitialOAuthAuthorizationOptionIds(detail?.oauthClientConfig?.authorizationOptions, appDetail?.scopes),
+  )
   const [formError, setFormError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -286,14 +291,18 @@ export function ConnectDialog({
     setOAuthDraft(nextDraft)
     setOAuthBaselineDraft(nextDraft)
     setOAuthBusy(null)
+    setAuthorizationOptionIds(
+      createInitialOAuthAuthorizationOptionIds(detail?.oauthClientConfig?.authorizationOptions, appDetail?.scopes),
+    )
     setFormError(null)
-  }, [authType, detail?.oauthClientConfig, detail?.service, oauthClientConfig, open])
+  }, [appDetail?.scopes, authType, detail?.oauthClientConfig, detail?.service, oauthClientConfig, open])
 
   if (!detail || !authType || !isDialogAuthMode(authType)) {
     return null
   }
 
   if (authType === "oauth2") {
+    const authorizationOptions = detail.oauthClientConfig?.authorizationOptions ?? []
     const resolvedProviderOAuthConfig = resolveProviderOAuthClientConfig(
       detail.oauthClientConfig,
       savedOAuthClientConfig,
@@ -352,6 +361,7 @@ export function ConnectDialog({
       onSubmit({
         appId,
         authType: "oauth2",
+        authorizationScopes: authorizationOptions.length > 0 ? authorizationOptionIds : undefined,
         service: detail.service,
         extra: connectPayload.extra,
         secretExtra: connectPayload.secretExtra,
@@ -380,6 +390,14 @@ export function ConnectDialog({
         <div className="grid gap-4">
           {viewModel.blockedReason ? <Notice>{oauthBlockedReasonLabel(viewModel.blockedReason, t)}</Notice> : null}
           {viewModel.persistentDirty ? <Notice>{t("connections.saveOAuthBeforeConnect")}</Notice> : null}
+          {authorizationOptions.length > 0 ? (
+            <OAuthAuthorizationOptions
+              currentScopes={appDetail?.scopes}
+              options={authorizationOptions}
+              selectedIds={authorizationOptionIds}
+              onChange={setAuthorizationOptionIds}
+            />
+          ) : null}
           {viewModel.showPersistentSection ? (
             <section className="grid gap-3 rounded-lg border p-3">
               <h3 className="oo-text-label">{t("connections.oauthClientConfig")}</h3>

@@ -215,11 +215,7 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    const summary = await getConnectionCatalogSummary(
-      { manageable: false, teamName: "team-name" },
-      {},
-      "zh-CN",
-    )
+    const summary = await getConnectionCatalogSummary({ manageable: false, teamName: "team-name" }, {}, "zh-CN")
 
     expect(summary.providers.map((provider) => provider.service)).toEqual(["gmail"])
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(
@@ -376,6 +372,7 @@ describe("connections-client", () => {
       {
         authType: "oauth2",
         service: "twitter",
+        authorizationScopes: ["tweet.read", "users.read"],
         extra: { scopes: ["tweet.read", "users.read"] },
         secretExtra: { appBearerToken: "secret" },
       },
@@ -383,6 +380,7 @@ describe("connections-client", () => {
     )
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(body.authorizationScopes).toEqual(["tweet.read", "users.read"])
     expect(body.extra).toEqual({ scopes: ["tweet.read", "users.read"] })
     expect(body.secretExtra).toEqual({ appBearerToken: "secret" })
   })

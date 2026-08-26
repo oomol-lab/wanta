@@ -1525,6 +1525,18 @@ export const enMessages = {
   "connections.publicOAuthClient": "This OAuth client does not require a client secret.",
   "connections.saveOAuthClient": "Save OAuth client",
   "connections.connectOptions": "Connection options",
+  "connections.oauthAuthorizationOptions": "Authorization access",
+  "connections.oauthAuthorizationOptionsDescription":
+    "Choose what this connection may access. Required access and dependencies stay selected.",
+  "connections.oauthAuthorizationRequired": "Required",
+  "connections.oauthAuthorizationDependency": "Required by selection",
+  "connections.oauthAuthorizationSensitive": "Sensitive",
+  "connections.oauthAuthorizationDestructive": "Destructive",
+  "connections.oauthAuthorizationAdded": "Will add: {options}",
+  "connections.oauthAuthorizationRemoved": "Will remove: {options}",
+  "connections.oauthDestructiveWarningTitle": "Destructive access selected",
+  "connections.oauthDestructiveWarningDescription":
+    "This connection will be able to delete or irreversibly change provider data. Review the selected access before continuing.",
   "connections.savedCredentialValue": "A saved secret value is already configured.",
   "connections.unsupportedConnectionDescription": "This provider needs a dedicated setup form in a later pass.",
   "connections.refreshExecutionLogs": "Refresh logs",

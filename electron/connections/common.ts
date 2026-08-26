@@ -25,6 +25,7 @@ export interface ConnectionAppSummary {
   id: string
   isDefault: boolean
   providerAccountId?: string
+  scopes?: string[]
   service: string
   status: ConnectionAppStatus
   updatedAt: number
@@ -161,6 +162,7 @@ export interface ConnectionOAuthClientConfigFieldDefinition {
 }
 
 export interface ConnectionProviderOAuthClientConfigSummary {
+  authorizationOptions?: ConnectionOAuthAuthorizationOption[]
   clientConfigFields: ConnectionOAuthClientConfigFieldDefinition[]
   clientConfigPolicy: ConnectionOAuthClientConfigPolicy
   configured: boolean
@@ -168,6 +170,16 @@ export interface ConnectionProviderOAuthClientConfigSummary {
   oauthScopes: string[]
   service: string
   tokenEndpointAuthMethod: ConnectionOAuthTokenEndpointAuthMethod
+}
+
+export interface ConnectionOAuthAuthorizationOption {
+  defaultSelected: boolean
+  description: string
+  id: string
+  label: string
+  required: boolean
+  requires: string[]
+  risk: "destructive" | "sensitive" | "standard"
 }
 
 export interface ConnectionUserOAuthClientConfigSummary {

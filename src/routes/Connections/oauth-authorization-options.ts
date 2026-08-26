@@ -50,15 +50,17 @@ export function isOAuthAuthorizationOptionLocked(
 }
 
 export function getOAuthAuthorizationOptionChanges(
+  options: readonly ConnectionOAuthAuthorizationOption[],
   currentScopes: readonly string[] | undefined,
   selectedIds: readonly string[],
 ): { added: string[]; removed: string[] } {
   if (!currentScopes) return { added: [], removed: [] }
   const current = new Set(currentScopes)
   const selected = new Set(selectedIds)
+  const manageable = new Set(options.map((option) => option.id))
   return {
-    added: selectedIds.filter((id) => !current.has(id)),
-    removed: currentScopes.filter((id) => !selected.has(id)),
+    added: selectedIds.filter((id) => manageable.has(id) && !current.has(id)),
+    removed: currentScopes.filter((id) => manageable.has(id) && !selected.has(id)),
   }
 }
 
@@ -84,5 +86,9 @@ function orderedSelectedIds(
   options: readonly ConnectionOAuthAuthorizationOption[],
   selected: ReadonlySet<string>,
 ): string[] {
-  return options.filter((option) => selected.has(option.id)).map((option) => option.id)
+  const manageable = new Set(options.map((option) => option.id))
+  return [
+    ...options.filter((option) => selected.has(option.id)).map((option) => option.id),
+    ...[...selected].filter((id) => !manageable.has(id)),
+  ]
 }

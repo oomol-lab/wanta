@@ -56,4 +56,14 @@ describe("Console-compatible provider categories", () => {
   it("leaves unmatched providers outside the eight discovery cards", () => {
     expect(resolveConnectorBusinessCategory(provider({ displayName: "Weather", service: "weather" }))).toBeNull()
   })
+
+  it("matches short keywords only as complete words", () => {
+    expect(resolveConnectorBusinessCategory(provider({ displayName: "AI assistant", service: "new-ai" }))).toBe("ai")
+    expect(resolveConnectorBusinessCategory(provider({ displayName: "Airtable", service: "new-airtable" }))).toBe(
+      "productivity",
+    )
+    expect(resolveConnectorBusinessCategory(provider({ displayName: "Mailjet", service: "new-mailjet" }))).toBe(
+      "communication",
+    )
+  })
 })

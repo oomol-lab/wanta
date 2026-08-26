@@ -53,56 +53,48 @@ export const crossBorderEcommerceCategory = "Cross-Border Ecommerce"
 export const connectionDiscoveryCategories = [
   {
     key: "ai",
-    rawLabels: ["AI"],
     featuredServices: ["openai", "anthropic", "gemini", "deepseek"],
     titleKey: "connections.discovery.aiTitle",
     descriptionKey: "connections.discovery.aiDescription",
   },
   {
     key: "cross-border-ecommerce",
-    rawLabels: [crossBorderEcommerceCategory],
     featuredServices: ["shopify", "17track", "aftership", "shippo"],
     titleKey: "connections.discovery.crossBorderTitle",
     descriptionKey: "connections.discovery.crossBorderDescription",
   },
   {
     key: "communication",
-    rawLabels: ["Communication", "Social"],
     featuredServices: ["slack", "gmail", "discord", "telegram"],
     titleKey: "connections.discovery.communicationTitle",
     descriptionKey: "connections.discovery.communicationDescription",
   },
   {
     key: "knowledge",
-    rawLabels: ["Documentation", "Design & Media"],
     featuredServices: ["notion", "googledrive", "googledocs", "dropbox"],
     titleKey: "connections.discovery.knowledgeTitle",
     descriptionKey: "connections.discovery.knowledgeDescription",
   },
   {
     key: "productivity",
-    rawLabels: ["Productivity", "Efficiency", "Finance"],
     featuredServices: ["asana", "jira", "trello", "clickup"],
     titleKey: "connections.discovery.productivityTitle",
     descriptionKey: "connections.discovery.productivityDescription",
   },
   {
     key: "marketing",
-    rawLabels: ["Marketing"],
     featuredServices: ["hubspot", "mailchimp", "googleads", "googleanalytics"],
     titleKey: "connections.discovery.marketingTitle",
     descriptionKey: "connections.discovery.marketingDescription",
   },
   {
     key: "data-storage",
-    rawLabels: ["Data & Analytics", "Storage", "Maps & Location"],
     featuredServices: ["googlebigquery", "databricks", "algolia", "mongodb"],
     titleKey: "connections.discovery.dataStorageTitle",
     descriptionKey: "connections.discovery.dataStorageDescription",
   },
   {
     key: "developer",
-    rawLabels: ["Developer Tools", "Security & Identity"],
     featuredServices: ["github", "gitlab", "vercel", "cloudflareworker"],
     titleKey: "connections.discovery.developerTitle",
     descriptionKey: "connections.discovery.developerDescription",
@@ -111,7 +103,6 @@ export const connectionDiscoveryCategories = [
   descriptionKey: MessageKey
   featuredServices: readonly string[]
   key: string
-  rawLabels: readonly string[]
   titleKey: MessageKey
 }[]
 

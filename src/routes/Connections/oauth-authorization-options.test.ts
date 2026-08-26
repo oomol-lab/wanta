@@ -59,9 +59,24 @@ describe("OAuth authorization option state", () => {
   })
 
   it("reports authorization changes for reconnect", () => {
-    expect(getOAuthAuthorizationOptionChanges(["account.read", "documents.read"], ["account.read"])).toEqual({
+    expect(getOAuthAuthorizationOptionChanges(options, ["account.read", "documents.read"], ["account.read"])).toEqual({
       added: [],
       removed: ["documents.read"],
     })
+  })
+
+  it("preserves scopes that are not managed by authorization options", () => {
+    const selected = createInitialOAuthAuthorizationOptionIds(options, ["account.read", "legacy.scope"])
+
+    expect(selected).toEqual(["account.read", "legacy.scope"])
+    expect(getOAuthAuthorizationOptionChanges(options, ["account.read", "legacy.scope"], selected)).toEqual({
+      added: [],
+      removed: [],
+    })
+    expect(updateOAuthAuthorizationOptionIds(options, selected, "documents.read", true)).toEqual([
+      "account.read",
+      "documents.read",
+      "legacy.scope",
+    ])
   })
 })

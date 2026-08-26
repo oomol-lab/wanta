@@ -171,8 +171,15 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const summaryRequestSequence = React.useRef(0)
   const visibleSummaryRequestSequence = React.useRef(0)
   const summaryRef = React.useRef<ConnectionSummary | null>(summary)
+  const localeStateRef = React.useRef({ generation: 0, locale })
   effectiveWorkspace.current = workspace
   summaryRef.current = summary
+
+  React.useLayoutEffect(() => {
+    if (localeStateRef.current.locale !== locale) {
+      localeStateRef.current = { generation: localeStateRef.current.generation + 1, locale }
+    }
+  }, [locale])
 
   const setCurrentSummary = React.useCallback((next: ConnectionSummary): void => {
     dispatch({ type: "summarySet", summary: next })
@@ -180,6 +187,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
 
   const isCurrentWorkspace = React.useCallback((generation: number, key: string): boolean => {
     return workspaceGeneration.current === generation && sameWorkspace(effectiveWorkspace.current, key)
+  }, [])
+
+  const isCurrentLocale = React.useCallback((generation: number): boolean => {
+    return localeStateRef.current.generation === generation
   }, [])
 
   const invalidateWorkspaceWork = React.useCallback((): void => {
@@ -224,6 +235,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       const requestId = summaryRequestSequence.current + 1
       summaryRequestSequence.current = requestId
       const generation = workspaceGeneration.current
+      const localeSnapshot = localeStateRef.current
       const key = connectionWorkspaceKey(currentWorkspace)
       const connectorReadOptions = {
         ...request,
@@ -235,14 +247,23 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         dispatch({ type: "refreshStarted" })
       }
       try {
-        const fetched = await getConnectionCatalogSummary(currentWorkspace, connectorReadOptions, locale)
+        const fetched = await getConnectionCatalogSummary(currentWorkspace, connectorReadOptions, localeSnapshot.locale)
         const next = preserveConnectionSummaryOnPartialRefresh(summaryRef.current, fetched)
-        if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
+        if (
+          summaryRequestSequence.current === requestId &&
+          isCurrentWorkspace(generation, key) &&
+          isCurrentLocale(localeSnapshot.generation)
+        ) {
           dispatch({ type: "refreshSucceeded", summary: next })
+          return next
         }
-        return next
+        return null
       } catch (err) {
-        if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
+        if (
+          summaryRequestSequence.current === requestId &&
+          isCurrentWorkspace(generation, key) &&
+          isCurrentLocale(localeSnapshot.generation)
+        ) {
           if (visibleRefresh) {
             dispatch({ type: "refreshFailed", error: resolveConnectionError(err, "summary"), workspaceKey: key })
           }
@@ -252,13 +273,14 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         if (
           visibleRefresh &&
           visibleSummaryRequestSequence.current === requestId &&
-          isCurrentWorkspace(generation, key)
+          isCurrentWorkspace(generation, key) &&
+          isCurrentLocale(localeSnapshot.generation)
         ) {
           dispatch({ type: "refreshFinished" })
         }
       }
     },
-    [isCurrentWorkspace, locale],
+    [isCurrentLocale, isCurrentWorkspace],
   )
 
   const activateOAuthPending = React.useCallback((operation: OAuthPendingOperation): OAuthPendingOperation => {
@@ -312,17 +334,16 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
             return false
           }
           if (isOAuthOperationConnectedFromActiveAppIds(activeAppIds, operation)) {
+            const localeSnapshot = localeStateRef.current
             const next = await getConnectionSummary(
               currentWorkspace,
               {
                 forceRefresh: true,
                 refreshGeneration: `oauth-complete:${operation.key}:${operation.actionId}`,
               },
-              locale,
+              localeSnapshot.locale,
             )
-            if (!isCurrentOAuth()) {
-              return false
-            }
+            if (!isCurrentOAuth() || !isCurrentLocale(localeSnapshot.generation)) continue
             setCurrentSummary(next)
             connectionReadySequence.current += 1
             setConnectionReadyEvent({
@@ -363,7 +384,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
       }
     },
-    [clearActiveOAuthPending, isCurrentWorkspace, locale, setCurrentSummary],
+    [clearActiveOAuthPending, isCurrentLocale, isCurrentWorkspace, setCurrentSummary],
   )
 
   // workspace 变化（含首帧）：同步 agent 团队作用域 + 重拉摘要。
@@ -393,9 +414,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         if (!isCurrentWorkspace(generation, key)) {
           return
         }
+        const localeSnapshot = localeStateRef.current
         dispatch({ type: "workspaceScopeSynced", workspaceKey: key })
-        const cached = getCachedConnectionCatalogSummary(workspace, locale)
-        if (cached) setCurrentSummary(cached)
+        const cached = getCachedConnectionCatalogSummary(workspace, localeSnapshot.locale)
+        if (cached && isCurrentLocale(localeSnapshot.generation)) setCurrentSummary(cached)
         void refresh({ forceRefresh: true })
       } catch (error) {
         if (!isCurrentWorkspace(generation, key)) {
@@ -410,8 +432,8 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   }, [
     chatService,
     invalidateWorkspaceWork,
+    isCurrentLocale,
     isCurrentWorkspace,
-    locale,
     refresh,
     scopeSyncAttempt,
     setCurrentSummary,
@@ -500,8 +522,8 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       }
       const { actionId } = action
       const isCurrentAction = action.isCurrent
-      const applySummary = (next: ConnectionSummary): void => {
-        if (isCurrentAction()) {
+      const applySummary = (next: ConnectionSummary, localeGeneration: number): void => {
+        if (isCurrentAction() && isCurrentLocale(localeGeneration)) {
           setCurrentSummary(next)
         }
       }
@@ -526,6 +548,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       try {
         if (input.authType !== "oauth2") {
           await connectProvider(input, currentWorkspace)
+          const localeSnapshot = localeStateRef.current
           applySummary(
             await getConnectionSummary(
               currentWorkspace,
@@ -533,8 +556,9 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
                 forceRefresh: true,
                 refreshGeneration: `connect:${connectionWorkspaceKey(currentWorkspace)}:${action.actionId}`,
               },
-              locale,
+              localeSnapshot.locale,
             ),
+            localeSnapshot.generation,
           )
           return isCurrentAction()
         }
@@ -596,7 +620,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       beginAction,
       chatService,
       clearActiveOAuthPending,
-      locale,
+      isCurrentLocale,
       pollOAuthPending,
       setCurrentSummary,
     ],
@@ -620,15 +644,16 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       dispatch({ type: "busySet", busy: actionBusy })
       try {
         await mutate(action.currentWorkspace)
+        const localeSnapshot = localeStateRef.current
         const next = await getConnectionSummary(
           action.currentWorkspace,
           {
             forceRefresh: true,
             refreshGeneration: `${refreshLabel}:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
           },
-          locale,
+          localeSnapshot.locale,
         )
-        if (isCurrentAction()) {
+        if (isCurrentAction() && isCurrentLocale(localeSnapshot.generation)) {
           setCurrentSummary(next)
         }
         return isCurrentAction()
@@ -643,7 +668,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
       }
     },
-    [beginAction, locale, setCurrentSummary],
+    [beginAction, isCurrentLocale, setCurrentSummary],
   )
 
   const disconnect = React.useCallback(

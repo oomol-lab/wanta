@@ -28,7 +28,7 @@ export function OAuthAuthorizationOptions({
   const t = useT()
   const idPrefix = React.useId()
   const selected = new Set(selectedIds)
-  const changes = getOAuthAuthorizationOptionChanges(currentScopes, selectedIds)
+  const changes = getOAuthAuthorizationOptionChanges(options, currentScopes, selectedIds)
   const optionById = new Map(options.map((option) => [option.id, option]))
   const destructiveSelected = options.some((option) => option.risk === "destructive" && selected.has(option.id))
 

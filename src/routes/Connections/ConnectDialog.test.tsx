@@ -119,3 +119,43 @@ test("submits selected OAuth authorization options and warns about destructive a
 
   act(() => root.unmount())
 })
+
+test("preserves unmanaged scopes when reconnecting", async () => {
+  const onSubmit = vi.fn()
+  const root = await render(
+    <ConnectDialog
+      open
+      appId="app-1"
+      appDetail={{
+        authType: "oauth2",
+        createdAt: 0,
+        id: "app-1",
+        isDefault: true,
+        scopes: ["account.read", "legacy.scope"],
+        service: "documents",
+        status: "active",
+        updatedAt: 0,
+      }}
+      authType="oauth2"
+      busy={false}
+      detail={detail}
+      onClose={() => undefined}
+      onOpenUrl={() => undefined}
+      onSubmit={onSubmit}
+    />,
+  )
+  const reconnect = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+    (button) => button.textContent?.trim() === "Reconnect",
+  )
+
+  expect(document.body.textContent).not.toContain("Will remove: legacy.scope")
+  await act(async () => reconnect?.click())
+  expect(onSubmit).toHaveBeenCalledWith(
+    expect.objectContaining({
+      authorizationScopes: ["account.read", "legacy.scope"],
+      authType: "oauth2",
+    }),
+  )
+
+  act(() => root.unmount())
+})

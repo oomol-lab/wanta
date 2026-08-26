@@ -282,7 +282,16 @@ const categoryKeywords: Record<ConnectorBusinessCategory, readonly string[]> = {
   ],
 }
 
-const categoryResolutionOrder = Object.keys(categoryKeywords) as ConnectorBusinessCategory[]
+const categoryResolutionOrder: readonly ConnectorBusinessCategory[] = [
+  "ai",
+  "productivity",
+  "docs",
+  "cross-border-ecommerce",
+  "marketing",
+  "communication",
+  "developer",
+  "data-storage",
+]
 
 export function resolveConnectorBusinessCategory(
   provider: Pick<ConnectionProviderSummary, "categoryIds" | "categoryLabels" | "displayName" | "service">,
@@ -328,7 +337,8 @@ function buildSearchableText(parts: string[]): string {
 
 function matchesKeyword(source: string, keyword: string): boolean {
   const normalized = normalizeSearchValue(keyword)
-  return Boolean(normalized) && source.includes(normalized)
+  if (!normalized) return false
+  return normalized.length > 3 ? source.includes(normalized) : ` ${source} `.includes(` ${normalized} `)
 }
 
 function normalizeSearchValue(value: string): string {

@@ -8,11 +8,20 @@ import type {
   LocalArtifactPackKind,
 } from "./common.ts"
 
-import { readdir, readFile, realpath, stat } from "node:fs/promises"
+import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises"
 import path from "node:path"
 import { mimeFromPath } from "./artifacts.ts"
 
 const artifactManifestFileName = ".wanta-artifact.json"
+
+export async function artifactManifestExists(rootDir: string): Promise<boolean> {
+  try {
+    const info = await lstat(path.join(rootDir, artifactManifestFileName))
+    return info.isFile() && !info.isSymbolicLink()
+  } catch {
+    return false
+  }
+}
 
 const artifactPackKinds = new Set<LocalArtifactPackKind>([
   "image_set",
@@ -43,6 +52,7 @@ interface ArtifactManifestItem {
 }
 
 interface ArtifactManifest {
+  version?: unknown
   title?: unknown
   kind?: unknown
   display?: unknown
@@ -105,7 +115,14 @@ async function resolveArtifactManifestPath(rootDir: string, value: unknown): Pro
     return null
   }
   try {
-    const [realRoot, realResolved] = await Promise.all([realpath(root), realpath(resolved)])
+    const [realRoot, realResolved, resolvedInfo] = await Promise.all([
+      realpath(root),
+      realpath(resolved),
+      lstat(resolved),
+    ])
+    if (resolvedInfo.isSymbolicLink()) {
+      return null
+    }
     if (realResolved !== realRoot && !realResolved.startsWith(`${realRoot}${path.sep}`)) {
       return null
     }
@@ -244,6 +261,9 @@ export async function readArtifactPack(rootDir: string): Promise<LocalArtifactPa
   if (!manifest || typeof manifest !== "object") {
     return null
   }
+  if (manifest.version !== undefined && manifest.version !== 1 && manifest.version !== 2) {
+    return null
+  }
   const seen = new Set<string>()
   const primaryRawItems = manifestItems(manifest.items)
   const fallbackPrimaryItems = primaryRawItems.length > 0 ? [] : primaryPathItems(manifest.primary)
@@ -281,5 +301,14 @@ export async function readArtifactPack(rootDir: string): Promise<LocalArtifactPa
     supporting: normalized.supportingItems,
     totalItems: artifactPackVisibleCount(normalized.primaryItems, normalized.supportingItems),
     truncated: false,
+    ...([...primaryRawItems, ...fallbackPrimaryItems, ...supportingRawItems].length >
+    normalized.primaryItems.length + normalized.supportingItems.length
+      ? {
+          rejectedItems:
+            [...primaryRawItems, ...fallbackPrimaryItems, ...supportingRawItems].length -
+            normalized.primaryItems.length -
+            normalized.supportingItems.length,
+        }
+      : {}),
   }
 }

@@ -170,6 +170,7 @@ export function useLocalArtifactPreview(
   const chatService = useChatService()
   const [preview, setPreview] = React.useState<LocalArtifactPreviewResult | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const [loadedPreviewKey, setLoadedPreviewKey] = React.useState<string | null>(null)
   const [reloadVersion, setReloadVersion] = React.useState(0)
   const reloadAttemptRef = React.useRef<{ count: number; key: string | null }>({ count: 0, key: null })
   const previewKey = item ? artifactPreviewCacheKey(item) : null
@@ -185,23 +186,28 @@ export function useLocalArtifactPreview(
       previewCache.delete(previewKey)
     }
     setPreview(null)
+    setLoadedPreviewKey(null)
     setReloadVersion((value) => value + 1)
   }, [previewCache, previewKey])
 
   React.useEffect(() => {
     if (!item || item.kind !== "file") {
       setPreview(null)
+      setLoadedPreviewKey(null)
       setLoading(false)
       return
     }
     const cached = cachedArtifactPreviewResult(previewCache, item)
     if (cached) {
       setPreview(cached)
+      setLoadedPreviewKey(previewKey)
       setLoading(false)
       return
     }
     let cancelled = false
     const controller = new AbortController()
+    setPreview(null)
+    setLoadedPreviewKey(null)
     setLoading(true)
     void loadCachedArtifactPreview(
       previewCache,
@@ -213,6 +219,7 @@ export function useLocalArtifactPreview(
       .then((result) => {
         if (!cancelled) {
           setPreview(result)
+          setLoadedPreviewKey(previewKey)
         }
       })
       .catch(() => undefined)
@@ -227,5 +234,10 @@ export function useLocalArtifactPreview(
     }
   }, [chatService, item, previewCache, priority, reloadVersion])
 
-  return { loading, preview, reload }
+  const previewMatchesItem = loadedPreviewKey === previewKey
+  return {
+    loading: Boolean(item && item.kind === "file" && (!previewMatchesItem || loading)),
+    preview: previewMatchesItem ? preview : null,
+    reload,
+  }
 }

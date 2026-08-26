@@ -25,8 +25,6 @@ export interface ArtifactBrowseLevel {
   path: string
 }
 
-const artifactListMinHeightPx = 96
-
 export function ArtifactFileStrip({
   baseCrumb,
   browseLevels,
@@ -195,7 +193,7 @@ function ArtifactPanelResizeHandle({
       role="separator"
       aria-label={t("artifacts.resizeFileBrowser")}
       aria-orientation="horizontal"
-      aria-valuemin={artifactListMinHeightPx}
+      aria-valuemin={0}
       aria-valuenow={Math.round(value)}
       tabIndex={0}
       title={t("artifacts.resizeFileBrowser")}

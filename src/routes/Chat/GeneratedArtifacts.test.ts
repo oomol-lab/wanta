@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { htmlPreviewSandbox, htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 import { artifactGroupDisplayItem, artifactKindLabel, isVideoArtifact } from "./artifact-metadata.ts"
+import { artifactListHeightForRatio, artifactListRatioForHeight } from "./artifact-panel-layout.ts"
 import { buildArtifactPaletteItems } from "./composer-palette-items.ts"
 import { GeneratedArtifactsShelf } from "./GeneratedArtifacts.tsx"
 import { I18nContext, translate } from "@/i18n/i18n"
@@ -206,6 +207,19 @@ describe("artifact group display", () => {
         truncated: false,
       }),
     ).toBe(first)
+  })
+})
+
+describe("artifact panel split layout", () => {
+  it("reclamps a stored ratio against every current panel height", () => {
+    expect(artifactListHeightForRatio(0.9, 1_000)).toBe(550)
+    expect(artifactListHeightForRatio(0.9, 600)).toBe(330)
+    expect(artifactListHeightForRatio(0.9, 300)).toBe(80)
+  })
+
+  it("normalizes drag heights before persisting a ratio", () => {
+    expect(artifactListRatioForHeight(900, 1_000)).toBe(0.55)
+    expect(artifactListRatioForHeight(10, 1_000)).toBe(0.096)
   })
 })
 

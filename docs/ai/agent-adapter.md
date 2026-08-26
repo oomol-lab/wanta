@@ -170,6 +170,13 @@ External agents build on `electron/agent/external/`:
   preserves the original user text. This remains a guidance transport; Wanta's
   guarded command and host-capability layers enforce identity independently of
   whether the agent follows the prompt.
+- **Artifact publication**: every adapter receives the same artifact and process
+  roots plus the same explicit publication instructions. Final files are
+  declared with relative paths in `.wanta-artifact.json`; raw responses,
+  temporary scripts, logs, checkpoints, and machine-review data stay in the
+  process root. The chat finalizer validates the declaration and persists the
+  normalized bundle, so adapters never need an artifact-specific method or UI
+  branch.
 - **Usage reporting**: adapters emit `usageUpdated` (normalized
   `ChatTokenUsage` + optional `contextWindow`) from ACP `usage_update`. The recorder attaches it to the
   latest assistant message, which is what lights the composer context meter.

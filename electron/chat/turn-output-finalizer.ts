@@ -101,6 +101,7 @@ export async function finalizeTurnOutput(options: {
     await options.publishTurnOutput({
       sessionId,
       messageId,
+      artifactProcessRoot: active.artifactRoot,
       processRoot: active.processRoot,
       ...(active.projectRoot ? { projectRoot: active.projectRoot } : {}),
       createdAt: active.createdAt,

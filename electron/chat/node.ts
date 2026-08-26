@@ -1396,6 +1396,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     for (const records of turnOutputs.values()) {
       for (const record of records.values()) {
+        if (record.artifactProcessRoot) {
+          roots.add(record.artifactProcessRoot)
+        }
         if (record.processRoot) {
           roots.add(record.processRoot)
         }
@@ -2609,8 +2612,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!record || !file) {
       return { kind: "missing", path: req.path, mime: "application/octet-stream", additions: 0, deletions: 0 }
     }
-    if (file.role === "process" && (!record.processRoot || !isPathInside(record.processRoot, file.path))) {
-      return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }
+    if (file.role === "process") {
+      const insideManagedProcess = Boolean(record.processRoot && isPathInside(record.processRoot, file.path))
+      const insideManagedArtifacts = Boolean(
+        record.artifactProcessRoot && isPathInside(record.artifactProcessRoot, file.path),
+      )
+      if (!insideManagedProcess && !insideManagedArtifacts) {
+        return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }
+      }
     }
     if (file.role === "project_change" && (!record.projectRoot || !isPathInside(record.projectRoot, file.path))) {
       return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }

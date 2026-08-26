@@ -170,6 +170,14 @@ artifact/scratch-process locations and uses the same finalizer. `ask_user`
 bridges a blocking tool call to Wanta's structured-question UI and is cancelled
 on task deletion or shutdown.
 
+Final deliverables use the adapter-independent `.wanta-artifact.json`
+publication declaration. The host resolves and validates only relative,
+non-symbolic-link files inside the current turn's artifact root, persists their
+primary/supporting/summary roles in a versioned artifact bundle, and routes
+undeclared or metadata files to execution details. Turns without a declaration
+retain legacy inference for compatibility; a present but invalid declaration
+fails closed instead of exposing the whole directory as final output.
+
 Wanta intentionally does not expose a second arbitrary-command process manager
 as a host capability. Local subprocess start/stop remains an agent-native tool
 subject to that adapter's permission flow; Wanta owns only the per-turn scratch

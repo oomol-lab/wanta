@@ -614,6 +614,8 @@ export type ArtifactBundleKind = LocalArtifactPackKind
 export type ArtifactBundleDisplay = LocalArtifactDisplayMode
 export type ArtifactBundleStatus = "ready" | "partial" | "failed"
 export type ArtifactBundleFailure =
+  | "artifact_declaration_invalid"
+  | "artifact_declaration_partial"
   | "generated_preview_not_persisted"
   | "generated_preview_persistence_unverified"
   | "project_output_publish_failed"
@@ -640,13 +642,19 @@ export interface LocalArtifactPack {
   supporting: LocalArtifactEntry[]
   totalItems: number
   truncated: boolean
+  rejectedItems?: number
 }
 
 export interface ArtifactBundle {
+  /** Version 2 bundles were built from a host-validated explicit artifact declaration. */
+  version?: 2
   id: string
   sessionId: string
   messageId: string
   rootPath: string
+  title?: string
+  summary?: string
+  classification?: "declared" | "inferred"
   status: ArtifactBundleStatus
   kind: ArtifactBundleKind
   display: ArtifactBundleDisplay
@@ -662,6 +670,10 @@ export interface ArtifactItem extends LocalArtifactItem {
   id: string
   status: ArtifactItemStatus
   origin: ArtifactItemOrigin
+  role?: Exclude<LocalArtifactEntryRole, "metadata">
+  order?: number
+  title?: string
+  description?: string
 }
 
 export interface ArtifactBundlesRequest {
@@ -696,6 +708,8 @@ export interface TurnOutputFile {
 export interface TurnOutputRecord {
   sessionId: string
   messageId: string
+  /** Managed artifact root may also contain explicitly undeclared execution files. */
+  artifactProcessRoot?: string
   processRoot?: string
   projectRoot?: string
   createdAt: number

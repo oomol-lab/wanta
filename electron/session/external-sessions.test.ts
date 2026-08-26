@@ -113,6 +113,26 @@ test("an unregistered agentKind never silently falls back to an available kernel
   assert.equal(external.current().size, 0)
 })
 
+test("an empty agentKind is rejected without invoking an available kernel", async () => {
+  let createCalls = 0
+  const kernel = {
+    createSession: async () => {
+      createCalls += 1
+      return { id: "kernel-fallback", title: "Unexpected", createdAt: 1, updatedAt: 1 }
+    },
+    deleteSession: async () => undefined,
+    listSessions: async () => [],
+  } as unknown as OpencodeAgentAdapter
+  const service = new SessionServiceImpl(kernel, {
+    externalSessionStore: externalStore().store,
+    metadataStore: metadataStore(),
+  })
+  ;(service as unknown as { send: () => Promise<void> }).send = async () => undefined
+
+  await assert.rejects(service.create({ agentKind: "" as never, scope: localScope }), /Unsupported agent kind/)
+  assert.equal(createCalls, 0)
+})
+
 test("external archived sessions and projects remain available when no kernel adapter exists", async () => {
   const external = externalStore()
   const service = new SessionServiceImpl(null, {

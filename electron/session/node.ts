@@ -220,7 +220,7 @@ export class SessionServiceImpl
     if (isExternalAgentKind(req.agentKind)) {
       return this.createExternalMutation(req, req.agentKind, revision)
     }
-    if (req.agentKind && req.agentKind !== "opencode") {
+    if (req.agentKind !== undefined && req.agentKind !== "opencode") {
       logDiagnostic("session-service", "rejected unregistered agent kind", { agentKind: req.agentKind }, "warn")
       throw new Error(`Unsupported agent kind: ${String(req.agentKind)}`)
     }

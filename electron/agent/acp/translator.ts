@@ -190,11 +190,11 @@ function toolOutputText(snapshot: ToolCallSnapshot): string {
 export function createAcpSessionTranslator(
   wantaSessionId: string,
   wantaHostServerNames: ReadonlySet<string> = new Set(),
+  syntheticIdNamespace = randomUUID(),
 ): AcpSessionTranslator {
   // Agent-provided message ids are optional. The fallback must remain unique
   // after an Electron main restart; a process-local counter would reset and
   // merge new turn parts into persisted transcript messages from an older run.
-  const instanceId = randomUUID()
   let messageSeq = 0
   /** Message the next chunk/tool call belongs to when the agent omits messageId. */
   let currentMessageId: string | undefined
@@ -209,7 +209,7 @@ export function createAcpSessionTranslator(
 
   function mintMessageId(): string {
     messageSeq += 1
-    return `acp-msg-${instanceId}-${messageSeq}`
+    return `acp-msg-${syntheticIdNamespace}-${messageSeq}`
   }
 
   function ensureStarted(messageId: string, events: AgentEvent[]): void {

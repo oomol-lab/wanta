@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { test } from "vitest"
@@ -28,6 +28,8 @@ test("artifact resource response streams full and ranged file content", async ()
     const info = await stat(filePath)
     const store = new ArtifactResourceLeaseStore()
     const lease = store.grant({
+      dev: info.dev,
+      ino: info.ino,
       mime: "text/plain",
       modifiedAt: info.mtimeMs,
       path: filePath,
@@ -46,3 +48,37 @@ test("artifact resource response streams full and ranged file content", async ()
     await rm(directory, { force: true, recursive: true })
   }
 })
+
+test.skipIf(process.platform === "win32")(
+  "artifact resource response rejects a parent-directory symlink swap",
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "wanta-resource-swap-"))
+    try {
+      const artifactDirectory = path.join(root, "artifacts")
+      const movedArtifactDirectory = path.join(root, "artifacts-original")
+      const outsideDirectory = path.join(root, "outside")
+      await Promise.all([mkdir(artifactDirectory), mkdir(outsideDirectory)])
+      const filePath = path.join(artifactDirectory, "report.txt")
+      await writeFile(filePath, "safe")
+      await writeFile(path.join(outsideDirectory, "report.txt"), "outside")
+      const info = await stat(filePath)
+      const store = new ArtifactResourceLeaseStore()
+      const lease = store.grant({
+        dev: info.dev,
+        ino: info.ino,
+        mime: "text/plain",
+        modifiedAt: info.mtimeMs,
+        path: filePath,
+        size: info.size,
+      })
+
+      await rename(artifactDirectory, movedArtifactDirectory)
+      await symlink(outsideDirectory, artifactDirectory, "dir")
+
+      const response = await artifactResourceResponse(new Request(artifactResourceUrl(lease.token)), store)
+      assert.equal(response.status, 404)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  },
+)

@@ -296,8 +296,8 @@ describe("agent_thought_chunk", () => {
   })
 
   test("synthetic message ids use a restart-safe translator namespace", () => {
-    const firstTranslator = createAcpSessionTranslator(SESSION_ID)
-    const secondTranslator = createAcpSessionTranslator(SESSION_ID)
+    const firstTranslator = createAcpSessionTranslator(SESSION_ID, undefined, "11111111-1111-4111-8111-111111111111")
+    const secondTranslator = createAcpSessionTranslator(SESSION_ID, undefined, "22222222-2222-4222-8222-222222222222")
     firstTranslator.noteTurnStarted()
     secondTranslator.noteTurnStarted()
 

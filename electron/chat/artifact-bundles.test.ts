@@ -157,6 +157,43 @@ test("buildArtifactBundle publishes only explicitly declared deliverables", asyn
   }
 })
 
+test("buildArtifactBundle reports declared directories as rejected entries", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-declared-directory-"))
+  try {
+    await writeFile(path.join(root, "report.html"), "<!doctype html><title>Report</title>")
+    await mkdir(path.join(root, "support"))
+    await writeFile(
+      path.join(root, ".wanta-artifact.json"),
+      JSON.stringify({
+        version: 2,
+        title: "Report",
+        kind: "web_page",
+        display: "document",
+        items: [{ path: "report.html", role: "primary", order: 1 }],
+        supporting: [{ path: "support", role: "supporting", order: 1 }],
+      }),
+    )
+
+    const bundle = await buildArtifactBundle({
+      artifactRoot: root,
+      completedAt: 2,
+      createdAt: 1,
+      generatedPreviewCount: 0,
+      messageId: "assistant-1",
+      sessionId: "session-1",
+    })
+
+    assert.equal(bundle?.status, "partial")
+    assert.equal(bundle?.failure, "artifact_declaration_partial")
+    assert.deepEqual(
+      bundle?.items.map((item) => item.name),
+      ["report.html"],
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("buildArtifactBundle fails closed for an invalid explicit declaration", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-invalid-declaration-"))
   try {

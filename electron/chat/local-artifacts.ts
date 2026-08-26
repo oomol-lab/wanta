@@ -126,10 +126,10 @@ async function resolveArtifactManifestPath(rootDir: string, value: unknown): Pro
     if (realResolved !== realRoot && !realResolved.startsWith(`${realRoot}${path.sep}`)) {
       return null
     }
+    return realResolved
   } catch {
     return null
   }
-  return resolved
 }
 
 export async function localArtifactItem(filePath: string): Promise<LocalArtifactItem | null> {
@@ -162,7 +162,7 @@ async function artifactManifestEntry(
   }
   seen.add(filePath)
   const item = await localArtifactItem(filePath)
-  if (!item) {
+  if (!item || item.kind !== "file") {
     seen.delete(filePath)
     return null
   }

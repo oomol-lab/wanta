@@ -2,7 +2,7 @@ import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { TurnFileDiffResult } from "./common.ts"
 import type { StoredTurnOutputFile, StoredTurnOutputRecord } from "./turn-outputs.ts"
 
-import { open, readdir } from "node:fs/promises"
+import { open, readdir, realpath } from "node:fs/promises"
 import path from "node:path"
 import { WANTA_MANAGED_PYTHON_ENV_DIRNAME } from "../agent/python-environment.ts"
 import { buildUnifiedDiff, collectGitTurnDiffs } from "../git/turn-diff.ts"
@@ -256,9 +256,12 @@ export async function intermediateArtifactProcessFiles(
     return []
   }
   const visiblePaths = artifactPackVisiblePaths(pack)
+  const resolvedArtifactRoot = await realpath(artifactRoot).catch(() => path.resolve(artifactRoot))
+  const visibleRelativePaths = new Set(
+    [...visiblePaths].map((filePath) => path.relative(resolvedArtifactRoot, filePath)),
+  )
   const relativePaths = (await listProcessFiles(artifactRoot)).filter((relativePath) => {
-    const absolutePath = path.join(artifactRoot, relativePath)
-    if (path.basename(relativePath) === ".wanta-artifact.json" || visiblePaths.has(absolutePath)) {
+    if (path.basename(relativePath) === ".wanta-artifact.json" || visibleRelativePaths.has(relativePath)) {
       return false
     }
     return pack || hasDeclaration ? true : intermediateCodeExtensions.has(fileExtension(relativePath))

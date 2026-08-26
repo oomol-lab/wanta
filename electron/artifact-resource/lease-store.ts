@@ -1,7 +1,9 @@
 import crypto from "node:crypto"
 
 export interface ArtifactResourceLease {
+  dev: number
   expiresAt: number
+  ino: number
   mime: string
   modifiedAt: number
   path: string

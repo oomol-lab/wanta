@@ -52,12 +52,21 @@ export interface ArtifactResourceGrant {
   url: string
 }
 export type CreateArtifactResourceUrl = (item: {
+  dev: number
+  ino: number
   mime: string
   modifiedAt: number
   path: string
   size: number
-}) => ArtifactResourceGrant
+}) => ArtifactResourceGrant | undefined
 export type CreateSpreadsheetPreview = (path: string, mime: string, size: number) => Promise<LocalArtifactPreviewResult>
+
+export interface ArtifactPreviewFileIdentity {
+  dev: number
+  ino: number
+  modifiedAt: number
+  size: number
+}
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -97,9 +106,16 @@ export async function attachmentPreview(
       return { dataUrl: null }
     }
     if (createResourceUrl) {
-      return {
-        dataUrl: null,
-        ...resourceResult(createResourceUrl({ mime, modifiedAt: info.mtimeMs, path: req.path, size: info.size })),
+      const resource = createResourceUrl({
+        dev: info.dev,
+        ino: info.ino,
+        mime,
+        modifiedAt: info.mtimeMs,
+        path: req.path,
+        size: info.size,
+      })
+      if (resource) {
+        return { dataUrl: null, ...resourceResult(resource) }
       }
     }
     const bytes = await readFile(req.path)
@@ -114,15 +130,23 @@ export async function localArtifactPreview(
   req: LocalArtifactPreviewRequest,
   createResourceUrl?: CreateArtifactResourceUrl,
   createSpreadsheetPreview: CreateSpreadsheetPreview = spreadsheetPreview,
+  fileIdentity?: ArtifactPreviewFileIdentity,
 ): Promise<LocalArtifactPreviewResult> {
   const item = await localArtifactItem(req.path)
   if (!item || item.kind !== "file") {
     return { kind: "unsupported", mime: "application/octet-stream", reason: "missing" }
   }
 
-  const size = item.size ?? 0
+  const size = fileIdentity?.size ?? item.size ?? 0
   const requestResource = (): ArtifactResourceGrant | undefined =>
-    createResourceUrl?.({ mime: item.mime, modifiedAt: item.modifiedAt ?? 0, path: item.path, size })
+    createResourceUrl?.({
+      dev: fileIdentity?.dev ?? 0,
+      ino: fileIdentity?.ino ?? 0,
+      mime: item.mime,
+      modifiedAt: fileIdentity?.modifiedAt ?? item.modifiedAt ?? 0,
+      path: item.path,
+      size,
+    })
   if (item.mime.toLowerCase().startsWith("image/")) {
     if (size > attachmentPreviewMaxBytes) {
       return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }

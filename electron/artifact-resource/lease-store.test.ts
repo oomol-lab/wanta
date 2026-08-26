@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "vitest"
 import { ArtifactResourceLeaseStore } from "./lease-store.ts"
 
-const input = { mime: "application/pdf", modifiedAt: 10, path: "/tmp/report.pdf", size: 100 }
+const input = { dev: 1, ino: 1, mime: "application/pdf", modifiedAt: 10, path: "/tmp/report.pdf", size: 100 }
 
 test("artifact resource leases expire and refresh on access", () => {
   const store = new ArtifactResourceLeaseStore(100, 4)

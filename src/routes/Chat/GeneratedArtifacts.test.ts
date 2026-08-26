@@ -8,7 +8,11 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { htmlPreviewSandbox, htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 import { artifactGroupDisplayItem, artifactKindLabel, isVideoArtifact } from "./artifact-metadata.ts"
-import { artifactListHeightForRatio, artifactListRatioForHeight } from "./artifact-panel-layout.ts"
+import {
+  artifactListHeightForRatio,
+  artifactListMinimumHeight,
+  artifactListRatioForHeight,
+} from "./artifact-panel-layout.ts"
 import { buildArtifactPaletteItems } from "./composer-palette-items.ts"
 import { GeneratedArtifactsShelf } from "./GeneratedArtifacts.tsx"
 import { I18nContext, translate } from "@/i18n/i18n"
@@ -215,6 +219,12 @@ describe("artifact panel split layout", () => {
     expect(artifactListHeightForRatio(0.9, 1_000)).toBe(550)
     expect(artifactListHeightForRatio(0.9, 600)).toBe(330)
     expect(artifactListHeightForRatio(0.9, 300)).toBe(80)
+  })
+
+  it("reports the same responsive minimum used by the layout clamp", () => {
+    expect(artifactListMinimumHeight(1_000)).toBe(96)
+    expect(artifactListMinimumHeight(300)).toBe(80)
+    expect(artifactListMinimumHeight(200)).toBe(0)
   })
 
   it("normalizes drag heights before persisting a ratio", () => {

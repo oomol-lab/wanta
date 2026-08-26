@@ -1259,6 +1259,7 @@ test("message completion separates declared deliverables from artifact-root proc
     await writeFile(
       path.join(artifactDir, ".wanta-artifact.json"),
       JSON.stringify({
+        version: 2,
         title: "Weekly report",
         kind: "web_page",
         display: "single",

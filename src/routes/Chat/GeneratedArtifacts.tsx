@@ -23,7 +23,7 @@ import {
   artifactListDefaultRatio,
   artifactListHeightForRatio,
   artifactListMaximumHeight,
-  artifactListMinHeightPx,
+  artifactListMinimumHeight,
   artifactListRatioForHeight,
 } from "./artifact-panel-layout.ts"
 import { resolveArtifactResultPayloads } from "./artifact-resolution.ts"
@@ -348,6 +348,8 @@ export function ArtifactsPanel({
     return () => observer.disconnect()
   }, [])
   const artifactListHeight = artifactListHeightForRatio(artifactListRatio, panelHeight)
+  const artifactListMinHeight = artifactListMinimumHeight(panelHeight)
+  const artifactListMaxHeight = artifactListMaximumHeight(panelHeight)
   const [selectedPath, setSelectedPath] = React.useState<string | null>(fallbackPath)
   const [previewMode, setPreviewMode] = React.useState<ArtifactPreviewMode>("preview")
   const selectedEntry = entries.find((entry) => entry.item.path === selectedPath) ?? entries[0] ?? null
@@ -469,23 +471,21 @@ export function ArtifactsPanel({
     [browseLevels, groups],
   )
 
-  const updateArtifactListHeight = React.useCallback((nextHeight: number): void => {
-    const currentPanelHeight = shellRef.current?.getBoundingClientRect().height ?? 0
-    if (currentPanelHeight <= 0) {
-      return
-    }
-    const ratio = artifactListRatioForHeight(nextHeight, currentPanelHeight)
-    setArtifactListRatio(ratio)
-    saveArtifactListRatio(ratio)
-  }, [])
+  const updateArtifactListHeight = React.useCallback(
+    (nextHeight: number): void => {
+      if (panelHeight <= 0) {
+        return
+      }
+      const ratio = artifactListRatioForHeight(nextHeight, panelHeight)
+      setArtifactListRatio(ratio)
+      saveArtifactListRatio(ratio)
+    },
+    [panelHeight],
+  )
 
   const handleArtifactListResizeStart = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>): void => {
-      if (event.button !== 0) {
-        return
-      }
-      const panelHeight = shellRef.current?.getBoundingClientRect().height ?? 0
-      if (panelHeight <= 0) {
+      if (event.button !== 0 || panelHeight <= 0) {
         return
       }
       const startY = event.clientY
@@ -515,7 +515,7 @@ export function ArtifactsPanel({
       window.addEventListener("pointerup", handlePointerUp)
       window.addEventListener("pointercancel", handlePointerCancel)
     },
-    [artifactListHeight],
+    [artifactListHeight, panelHeight],
   )
 
   const handleArtifactListResizeKeyDown = React.useCallback(
@@ -532,15 +532,15 @@ export function ArtifactsPanel({
       }
       if (event.key === "Home") {
         event.preventDefault()
-        updateArtifactListHeight(artifactListMinHeightPx)
+        updateArtifactListHeight(artifactListMinHeight)
         return
       }
       if (event.key === "End") {
         event.preventDefault()
-        updateArtifactListHeight(artifactListMaximumHeight(shellRef.current?.getBoundingClientRect().height ?? 0))
+        updateArtifactListHeight(artifactListMaxHeight)
       }
     },
-    [artifactListHeight, updateArtifactListHeight],
+    [artifactListHeight, artifactListMaxHeight, artifactListMinHeight, updateArtifactListHeight],
   )
 
   return (
@@ -628,6 +628,8 @@ export function ArtifactsPanel({
               entries={entries}
               group={selectedEntry?.group ?? null}
               listHeight={artifactListHeight}
+              listMaxHeight={artifactListMaxHeight}
+              listMinHeight={artifactListMinHeight}
               previewCache={previewCache}
               mode={previewMode}
               baseCrumb={baseCrumb}
@@ -651,6 +653,8 @@ export function ArtifactsPanel({
                   browseLevels={browseLevels}
                   entries={entries}
                   listHeight={artifactListHeight}
+                  listMaxHeight={artifactListMaxHeight}
+                  listMinHeight={artifactListMinHeight}
                   selectedItem={selectedItem}
                   truncated={activeGroups.some(({ group }) => group.truncated)}
                   onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}

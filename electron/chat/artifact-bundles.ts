@@ -170,6 +170,32 @@ function declaredArtifactEntry(item: LocalArtifactGroup["items"][number]): Local
     : undefined
 }
 
+function invalidDeclaredArtifactBundle(input: {
+  artifactRoot: string
+  completedAt: number
+  createdAt: number
+  messageId: string
+  sessionId: string
+}): ArtifactBundle {
+  return {
+    version: 2,
+    id: stableArtifactId(input.sessionId, input.messageId, "bundle"),
+    sessionId: input.sessionId,
+    messageId: input.messageId,
+    rootPath: input.artifactRoot,
+    classification: "declared",
+    status: "failed",
+    kind: "mixed",
+    display: "file_list",
+    items: [],
+    totalItems: 0,
+    truncated: false,
+    createdAt: input.createdAt,
+    completedAt: input.completedAt,
+    failure: "artifact_declaration_invalid",
+  }
+}
+
 function normalizeArtifactBundles(value: unknown): ArtifactBundles {
   const persisted = value && typeof value === "object" ? (value as PersistedArtifactBundles) : undefined
   const records: ArtifactBundles = new Map()
@@ -728,29 +754,16 @@ export async function buildArtifactBundle(input: {
     artifactManifestExists(artifactRoot),
   ])
   if (hasDeclaration && !pack) {
-    return {
-      version: 2,
-      id: stableArtifactId(input.sessionId, input.messageId, "bundle"),
-      sessionId: input.sessionId,
-      messageId: input.messageId,
-      rootPath: artifactRoot,
-      classification: "declared",
-      status: "failed",
-      kind: "mixed",
-      display: "file_list",
-      items: [],
-      totalItems: 0,
-      truncated: false,
-      createdAt: input.createdAt,
-      completedAt: input.completedAt,
-      failure: "artifact_declaration_invalid",
-    }
+    return invalidDeclaredArtifactBundle(input)
   }
   const group = pack
     ? declaredArtifactGroup(pack)
     : await managedArtifactGroup(artifactRoot, materializedOrigins, 200, excludedPaths)
   if (!group) {
     return null
+  }
+  if (pack && group.items.length === 0) {
+    return invalidDeclaredArtifactBundle(input)
   }
   return buildArtifactBundleFromGroup({ ...input, group, ...(pack ? { pack } : {}) })
 }

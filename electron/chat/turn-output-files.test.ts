@@ -43,6 +43,7 @@ test("explicit artifact declarations route every undeclared file to execution de
     await writeFile(
       path.join(root, ".wanta-artifact.json"),
       JSON.stringify({
+        version: 2,
         title: "Report",
         kind: "web_page",
         display: "single",
@@ -57,6 +58,31 @@ test("explicit artifact declarations route every undeclared file to execution de
       ["build-report.py", "q_accounts.json"],
     )
     assert.ok(files.every((item) => item.role === "process"))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("unversioned artifact declarations fail closed into execution details", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-turn-output-unversioned-"))
+  try {
+    await writeFile(path.join(root, "report.html"), "<!doctype html><title>Report</title>")
+    await writeFile(
+      path.join(root, ".wanta-artifact.json"),
+      JSON.stringify({
+        title: "Report",
+        kind: "web_page",
+        display: "single",
+        items: [{ path: "report.html", role: "primary", order: 1 }],
+      }),
+    )
+
+    const files = await intermediateArtifactProcessFiles(root, "Create a report")
+
+    assert.deepEqual(
+      files.map((item) => item.name),
+      ["report.html"],
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }

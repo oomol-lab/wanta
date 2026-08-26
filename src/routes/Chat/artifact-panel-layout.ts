@@ -7,10 +7,14 @@ const artifactListMaxHeightRatio = 0.55
 
 function clampArtifactListHeight(height: number, panelHeight: number): number {
   const availableAbovePreview = Math.max(0, panelHeight - artifactPreviewMinHeightPx)
-  const effectiveMinHeight = Math.min(artifactListMinHeightPx, availableAbovePreview)
+  const effectiveMinHeight = artifactListMinimumHeight(panelHeight)
   const ratioMax = Math.floor(panelHeight * artifactListMaxHeightRatio)
   const maxHeight = Math.max(effectiveMinHeight, Math.min(availableAbovePreview, ratioMax))
   return Math.min(Math.max(height, effectiveMinHeight), maxHeight)
+}
+
+export function artifactListMinimumHeight(panelHeight: number): number {
+  return Math.min(artifactListMinHeightPx, Math.max(0, panelHeight - artifactPreviewMinHeightPx))
 }
 
 export function artifactListHeightForRatio(ratio: number, panelHeight: number): number {

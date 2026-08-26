@@ -30,6 +30,8 @@ export function ArtifactFileStrip({
   browseLevels,
   entries,
   listHeight,
+  listMaxHeight,
+  listMinHeight,
   onContextMenu,
   onEnterFolder,
   onNavigateBreadcrumb,
@@ -45,6 +47,8 @@ export function ArtifactFileStrip({
   browseLevels: ArtifactBrowseLevel[]
   entries: ArtifactPanelEntry[]
   listHeight: number
+  listMaxHeight: number
+  listMinHeight: number
   onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
   onEnterFolder: (entry: ArtifactPanelEntry) => void
   onNavigateBreadcrumb: (index: number) => void
@@ -96,6 +100,8 @@ export function ArtifactFileStrip({
         ) : null}
       </div>
       <ArtifactPanelResizeHandle
+        maxValue={listMaxHeight}
+        minValue={listMinHeight}
         value={listHeight}
         onDoubleClick={onResizeDoubleClick}
         onKeyDown={onResizeKeyDown}
@@ -176,11 +182,15 @@ function ArtifactBrowserHeader({
 }
 
 function ArtifactPanelResizeHandle({
+  maxValue,
+  minValue,
   onDoubleClick,
   onKeyDown,
   onPointerDown,
   value,
 }: {
+  maxValue: number
+  minValue: number
   onDoubleClick: () => void
   onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
   onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void
@@ -193,7 +203,8 @@ function ArtifactPanelResizeHandle({
       role="separator"
       aria-label={t("artifacts.resizeFileBrowser")}
       aria-orientation="horizontal"
-      aria-valuemin={0}
+      aria-valuemax={Math.round(maxValue)}
+      aria-valuemin={Math.round(minValue)}
       aria-valuenow={Math.round(value)}
       tabIndex={0}
       title={t("artifacts.resizeFileBrowser")}
@@ -255,6 +266,8 @@ export function ImageGalleryPanel({
   entries,
   group,
   listHeight,
+  listMaxHeight,
+  listMinHeight,
   mode,
   onContextMenu,
   onEnterFolder,
@@ -273,6 +286,8 @@ export function ImageGalleryPanel({
   entries: ArtifactPanelEntry[]
   group: LocalArtifactGroup | null
   listHeight: number
+  listMaxHeight: number
+  listMinHeight: number
   mode: ArtifactPreviewMode
   onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
   onEnterFolder: (entry: ArtifactPanelEntry) => void
@@ -323,6 +338,8 @@ export function ImageGalleryPanel({
           </div>
         </div>
         <ArtifactPanelResizeHandle
+          maxValue={listMaxHeight}
+          minValue={listMinHeight}
           value={listHeight}
           onDoubleClick={onResizeDoubleClick}
           onKeyDown={onResizeKeyDown}

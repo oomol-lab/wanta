@@ -16,8 +16,8 @@ const artifactManifestFileName = ".wanta-artifact.json"
 
 export async function artifactManifestExists(rootDir: string): Promise<boolean> {
   try {
-    const info = await lstat(path.join(rootDir, artifactManifestFileName))
-    return info.isFile() && !info.isSymbolicLink()
+    await lstat(path.join(rootDir, artifactManifestFileName))
+    return true
   } catch {
     return false
   }
@@ -252,16 +252,21 @@ export async function readArtifactPack(rootDir: string): Promise<LocalArtifactPa
   if (!root || root.kind !== "directory") {
     return null
   }
+  const manifestPath = path.join(rootDir, artifactManifestFileName)
   let manifest: ArtifactManifest
   try {
-    manifest = JSON.parse(await readFile(path.join(rootDir, artifactManifestFileName), "utf-8")) as ArtifactManifest
+    const manifestInfo = await lstat(manifestPath)
+    if (!manifestInfo.isFile() || manifestInfo.isSymbolicLink()) {
+      return null
+    }
+    manifest = JSON.parse(await readFile(manifestPath, "utf-8")) as ArtifactManifest
   } catch {
     return null
   }
   if (!manifest || typeof manifest !== "object") {
     return null
   }
-  if (manifest.version !== undefined && manifest.version !== 1 && manifest.version !== 2) {
+  if (manifest.version !== 1 && manifest.version !== 2) {
     return null
   }
   const seen = new Set<string>()

@@ -119,6 +119,7 @@ test("buildArtifactBundle publishes only explicitly declared deliverables", asyn
     await writeFile(
       path.join(root, ".wanta-artifact.json"),
       JSON.stringify({
+        version: 2,
         title: "Weekly report",
         kind: "web_page",
         display: "document",
@@ -175,6 +176,100 @@ test("buildArtifactBundle fails closed for an invalid explicit declaration", asy
     assert.equal(bundle?.status, "failed")
     assert.equal(bundle?.failure, "artifact_declaration_invalid")
     assert.deepEqual(bundle?.items, [])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("buildArtifactBundle fails closed for an unversioned declaration", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-unversioned-declaration-"))
+  try {
+    await writeFile(path.join(root, "report.html"), "<!doctype html><title>Report</title>")
+    await writeFile(
+      path.join(root, ".wanta-artifact.json"),
+      JSON.stringify({
+        title: "Report",
+        kind: "web_page",
+        display: "single",
+        items: [{ path: "report.html", role: "primary", order: 1 }],
+      }),
+    )
+
+    const bundle = await buildArtifactBundle({
+      artifactRoot: root,
+      completedAt: 2,
+      createdAt: 1,
+      generatedPreviewCount: 0,
+      messageId: "assistant-1",
+      sessionId: "session-1",
+    })
+
+    assert.equal(bundle?.status, "failed")
+    assert.equal(bundle?.failure, "artifact_declaration_invalid")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("buildArtifactBundle fails closed when a declaration has no publishable files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-empty-declaration-"))
+  try {
+    await writeFile(path.join(root, "query.json"), JSON.stringify({ results: [] }))
+    await writeFile(
+      path.join(root, ".wanta-artifact.json"),
+      JSON.stringify({
+        version: 2,
+        title: "Metadata only",
+        kind: "mixed",
+        display: "file_list",
+        supporting: [{ path: "query.json", role: "metadata", order: 1 }],
+      }),
+    )
+
+    const bundle = await buildArtifactBundle({
+      artifactRoot: root,
+      completedAt: 2,
+      createdAt: 1,
+      generatedPreviewCount: 0,
+      messageId: "assistant-1",
+      sessionId: "session-1",
+    })
+
+    assert.equal(bundle?.status, "failed")
+    assert.equal(bundle?.failure, "artifact_declaration_invalid")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test.skipIf(process.platform === "win32")("buildArtifactBundle rejects a symlinked declaration", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-linked-declaration-"))
+  try {
+    await writeFile(path.join(root, "report.html"), "<!doctype html><title>Report</title>")
+    const declarationTarget = path.join(root, "declaration.json")
+    await writeFile(
+      declarationTarget,
+      JSON.stringify({
+        version: 2,
+        title: "Report",
+        kind: "web_page",
+        display: "single",
+        items: [{ path: "report.html", role: "primary", order: 1 }],
+      }),
+    )
+    await symlink(declarationTarget, path.join(root, ".wanta-artifact.json"))
+
+    const bundle = await buildArtifactBundle({
+      artifactRoot: root,
+      completedAt: 2,
+      createdAt: 1,
+      generatedPreviewCount: 0,
+      messageId: "assistant-1",
+      sessionId: "session-1",
+    })
+
+    assert.equal(bundle?.status, "failed")
+    assert.equal(bundle?.failure, "artifact_declaration_invalid")
   } finally {
     await rm(root, { recursive: true, force: true })
   }

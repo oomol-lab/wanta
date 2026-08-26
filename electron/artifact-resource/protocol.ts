@@ -61,29 +61,33 @@ export function parseSingleByteRange(header: string | null, size: number): ByteR
   return { start, end: Math.min(requestedEnd, size - 1) }
 }
 
-async function openCurrentLease(lease: ArtifactResourceLease): Promise<FileHandle | null> {
+interface OpenedLease {
+  closeAfterUse: boolean
+  handle: FileHandle
+}
+
+async function openCurrentLease(lease: ArtifactResourceLease): Promise<OpenedLease | null> {
   const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0
   let handle: FileHandle | undefined
   try {
-    handle = await open(lease.path, constants.O_RDONLY | noFollow)
-    const [pathInfo, openedInfo] = await Promise.all([lstat(lease.path), handle.stat()])
+    handle = lease.handle ?? (await open(lease.path, constants.O_RDONLY | noFollow))
+    const openedInfo = await handle.stat()
+    const pathInfo = lease.handle ? undefined : await lstat(lease.path)
     if (
-      !pathInfo.isFile() ||
-      pathInfo.isSymbolicLink() ||
+      (pathInfo && (!pathInfo.isFile() || pathInfo.isSymbolicLink())) ||
       !openedInfo.isFile() ||
       openedInfo.dev !== lease.dev ||
       openedInfo.ino !== lease.ino ||
-      pathInfo.dev !== openedInfo.dev ||
-      pathInfo.ino !== openedInfo.ino ||
+      (pathInfo && (pathInfo.dev !== openedInfo.dev || pathInfo.ino !== openedInfo.ino)) ||
       openedInfo.size !== lease.size ||
       openedInfo.mtimeMs !== lease.modifiedAt
     ) {
-      await handle.close()
+      if (!lease.handle) await handle.close()
       return null
     }
-    return handle
+    return { closeAfterUse: !lease.handle, handle }
   } catch {
-    await handle?.close().catch(() => undefined)
+    if (!lease.handle) await handle?.close().catch(() => undefined)
     return null
   }
 }
@@ -114,11 +118,11 @@ export async function artifactResourceResponse(request: Request, store: Artifact
   if (!lease) {
     return new Response(null, { status: 404 })
   }
-  const handle = await openCurrentLease(lease)
-  if (!handle) return new Response(null, { status: 404 })
+  const opened = await openCurrentLease(lease)
+  if (!opened) return new Response(null, { status: 404 })
   const range = parseSingleByteRange(request.headers.get("range"), lease.size)
   if (range === "invalid") {
-    await handle.close()
+    if (opened.closeAfterUse) await opened.handle.close()
     return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${lease.size}` } })
   }
   const start = range?.start ?? 0
@@ -135,9 +139,11 @@ export async function artifactResourceResponse(request: Request, store: Artifact
     headers.set("Content-Range", `bytes ${start}-${end}/${lease.size}`)
   }
   if (request.method === "HEAD" || lease.size === 0) {
-    await handle.close()
+    if (opened.closeAfterUse) await opened.handle.close()
     return new Response(null, { status: range ? 206 : 200, headers })
   }
-  const body = Readable.toWeb(handle.createReadStream({ start, end, autoClose: true })) as ReadableStream<Uint8Array>
+  const body = Readable.toWeb(
+    opened.handle.createReadStream({ start, end, autoClose: opened.closeAfterUse }),
+  ) as ReadableStream<Uint8Array>
   return new Response(body, { status: range ? 206 : 200, headers })
 }

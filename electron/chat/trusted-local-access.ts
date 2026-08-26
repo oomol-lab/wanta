@@ -17,6 +17,7 @@ export interface TrustedLocalAccessOptions {
 
 export interface TrustedLocalFile {
   dev: number
+  handle: FileHandle
   ino: number
   modifiedAt: number
   path: string
@@ -216,15 +217,15 @@ export class TrustedLocalAccess {
       }
       return {
         dev: openedInfo.dev,
+        handle,
         ino: openedInfo.ino,
         modifiedAt: openedInfo.mtimeMs,
         path: target,
         size: openedInfo.size,
       }
     } catch {
-      throw new Error("Local path is not available from this conversation.")
-    } finally {
       await handle?.close().catch(() => undefined)
+      throw new Error("Local path is not available from this conversation.")
     }
   }
 }

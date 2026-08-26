@@ -557,7 +557,7 @@ const chatService = new ChatServiceImpl(null, {
   },
   createArtifactResourceUrl: (item) => {
     const lease = artifactResourceLeaseStore.grant(item)
-    return { expiresAt: lease.expiresAt, url: artifactResourceUrl(lease.token) }
+    return { expiresAt: lease.expiresAt, retainsHandle: Boolean(item.handle), url: artifactResourceUrl(lease.token) }
   },
   createSpreadsheetPreview: (filePath, mime, size) => spreadsheetPreviewWorker.preview(filePath, mime, size),
   artifactBundleStore,

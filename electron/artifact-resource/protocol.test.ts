@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, open, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { test } from "vitest"
@@ -78,6 +78,44 @@ test.skipIf(process.platform === "win32")(
       const response = await artifactResourceResponse(new Request(artifactResourceUrl(lease.token)), store)
       assert.equal(response.status, 404)
     } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  },
+)
+
+test.skipIf(process.platform === "win32")(
+  "artifact resource response streams from a retained verified handle after a parent-directory swap",
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "wanta-resource-handle-"))
+    const store = new ArtifactResourceLeaseStore()
+    try {
+      const artifactDirectory = path.join(root, "artifacts")
+      const movedArtifactDirectory = path.join(root, "artifacts-original")
+      const outsideDirectory = path.join(root, "outside")
+      await Promise.all([mkdir(artifactDirectory), mkdir(outsideDirectory)])
+      const filePath = path.join(artifactDirectory, "report.txt")
+      await writeFile(filePath, "safe")
+      await writeFile(path.join(outsideDirectory, "report.txt"), "outside")
+      const handle = await open(filePath, "r")
+      const info = await handle.stat()
+      const lease = store.grant({
+        dev: info.dev,
+        handle,
+        ino: info.ino,
+        mime: "text/plain",
+        modifiedAt: info.mtimeMs,
+        path: filePath,
+        size: info.size,
+      })
+
+      await rename(artifactDirectory, movedArtifactDirectory)
+      await symlink(outsideDirectory, artifactDirectory, "dir")
+
+      const response = await artifactResourceResponse(new Request(artifactResourceUrl(lease.token)), store)
+      assert.equal(response.status, 200)
+      assert.equal(await response.text(), "safe")
+    } finally {
+      store.clear()
       await rm(root, { force: true, recursive: true })
     }
   },

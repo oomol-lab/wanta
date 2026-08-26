@@ -25,8 +25,8 @@ describe("terminalTurnOutcomeStatus", () => {
     expect(terminalTurnOutcomeStatus(process(), false)).toBe("completed")
   })
 
-  it("reports a terminal turn whose tool steps had issues", () => {
-    expect(terminalTurnOutcomeStatus(process({ hasToolError: true }), false)).toBe("completedWithIssues")
+  it("does not promote historical tool failures into a turn-level warning", () => {
+    expect(terminalTurnOutcomeStatus(process({ hasToolError: true }), false)).toBe("completed")
   })
 
   it("does not duplicate a visible answer or report an active turn", () => {

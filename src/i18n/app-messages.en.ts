@@ -343,14 +343,11 @@ export const enMessages = {
   "chat.liveStatusTool": "Running {action}",
   "chat.processRunning": "Processing",
   "chat.processCompleted": "Process",
-  "chat.processCompletedWithIssues": "Completed after failed attempts",
   "chat.processRetrying": "Retrying",
   "chat.processNeedsAction": "Needs attention",
   "chat.processError": "Some steps did not complete",
   "chat.processStopped": "Stopped",
   "chat.turnOutcomeCompleted": "Processing completed.",
-  "chat.turnOutcomeCompletedWithIssues":
-    "Processing completed after some failed attempts. Expand the process to review recovery details.",
   "chat.turnOutcomeNeedsAction":
     "Processing is paused until you complete the required authorization or connection step.",
   "chat.turnOutcomeError": "Processing did not complete. Expand the process to review the error, then retry.",

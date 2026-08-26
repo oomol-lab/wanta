@@ -13,8 +13,6 @@ export function TurnOutcomeReceipt({ status }: { status: ChatTurnProcessStatus }
     switch (status) {
       case "completed":
         return { Icon: CircleCheck, text: t("chat.turnOutcomeCompleted") }
-      case "completedWithIssues":
-        return { Icon: CircleAlert, text: t("chat.turnOutcomeCompletedWithIssues") }
       case "needsAction":
         return { Icon: CircleAlert, text: t("chat.turnOutcomeNeedsAction") }
       case "error":

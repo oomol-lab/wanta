@@ -11,7 +11,6 @@ export function terminalTurnOutcomeStatus(
     | "hasAuthorization"
     | "hasBlockingError"
     | "hasStoppedTool"
-    | "hasToolError"
     | "hasVisibleOutcome"
     | "tools"
   >,

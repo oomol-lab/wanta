@@ -623,6 +623,7 @@ describe("summarizeTurnProcess", () => {
     expect(process.hasToolError).toBe(true)
     expect(process.hasVisibleOutcome).toBe(true)
     expect(process.hasBlockingError).toBe(false)
+    expect(chatTurnProcessStatus(process)).toBe("completed")
   })
 
   it("keeps tool errors blocking when no visible outcome exists", () => {
@@ -639,6 +640,7 @@ describe("summarizeTurnProcess", () => {
     expect(process.hasToolError).toBe(true)
     expect(process.hasVisibleOutcome).toBe(false)
     expect(process.hasBlockingError).toBe(true)
+    expect(chatTurnProcessStatus(process)).toBe("error")
   })
 
   it("does not let folded progress text downgrade a blocking tool error", () => {

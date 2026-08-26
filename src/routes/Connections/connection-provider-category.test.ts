@@ -66,4 +66,12 @@ describe("Console-compatible provider categories", () => {
       "communication",
     )
   })
+
+  it("matches a short Latin keyword next to CJK characters", () => {
+    expect(
+      resolveConnectorBusinessCategory(
+        provider({ categoryLabels: [], displayName: "AI助手", service: "unlisted-provider" }),
+      ),
+    ).toBe("ai")
+  })
 })

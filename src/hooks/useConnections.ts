@@ -172,14 +172,14 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const visibleSummaryRequestSequence = React.useRef(0)
   const summaryRef = React.useRef<ConnectionSummary | null>(summary)
   const localeStateRef = React.useRef({ generation: 0, locale })
-  effectiveWorkspace.current = workspace
-  summaryRef.current = summary
 
   React.useLayoutEffect(() => {
+    effectiveWorkspace.current = workspace
+    summaryRef.current = summary
     if (localeStateRef.current.locale !== locale) {
       localeStateRef.current = { generation: localeStateRef.current.generation + 1, locale }
     }
-  }, [locale])
+  }, [locale, summary, workspace])
 
   const setCurrentSummary = React.useCallback((next: ConnectionSummary): void => {
     dispatch({ type: "summarySet", summary: next })

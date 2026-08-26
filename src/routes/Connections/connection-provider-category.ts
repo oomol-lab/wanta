@@ -338,7 +338,9 @@ function buildSearchableText(parts: string[]): string {
 function matchesKeyword(source: string, keyword: string): boolean {
   const normalized = normalizeSearchValue(keyword)
   if (!normalized) return false
-  return normalized.length > 3 ? source.includes(normalized) : ` ${source} `.includes(` ${normalized} `)
+  return normalized.length > 3
+    ? source.includes(normalized)
+    : source.split(/[^\p{Script=Latin}\p{N}]+/u).includes(normalized)
 }
 
 function normalizeSearchValue(value: string): string {

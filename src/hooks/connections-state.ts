@@ -51,9 +51,32 @@ export function preserveConnectionSummaryOnPartialRefresh(
   }
 
   // Do not make confirmed accounts appear disconnected when the Apps request fails.
-  return !next.appsStatus || next.appsStatus === "ready"
-    ? next
-    : { ...current, appsStatus: next.appsStatus, updatedAt: next.updatedAt }
+  if (!next.appsStatus || next.appsStatus === "ready") {
+    return next
+  }
+
+  const currentProviders = new Map(current.providers.map((provider) => [provider.service, provider]))
+  return {
+    ...next,
+    apps: current.apps,
+    connectedProviderCount: current.connectedProviderCount,
+    providers: next.providers.map((provider) => {
+      const previous = currentProviders.get(provider.service)
+      if (!previous) return provider
+      return {
+        ...provider,
+        accountLabel: previous.accountLabel,
+        appAuthType: previous.appAuthType,
+        appCount: previous.appCount,
+        appId: previous.appId,
+        apps: previous.apps,
+        appStatus: previous.appStatus,
+        canDisconnect: previous.canDisconnect,
+        connectedUpdatedAt: previous.connectedUpdatedAt,
+        status: previous.status,
+      }
+    }),
+  }
 }
 
 export function connectionsStateReducer(state: ConnectionsState, action: ConnectionsStateAction): ConnectionsState {

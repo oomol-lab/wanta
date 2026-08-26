@@ -747,6 +747,7 @@ test("edge6: removing an external session mid-turn cleans the run and blocks zom
       await chatService.forgetSession(sessionId)
     },
   })
+  ;(sessionService as unknown as { send: () => Promise<void> }).send = async () => undefined
 
   const doomed = await sessionService.create({ agentKind: "claude-code", scope: localScope, title: "doomed" })
   const survivor = await sessionService.create({ agentKind: "claude-code", scope: localScope, title: "survivor" })

@@ -93,7 +93,7 @@ export abstract class ExternalAgentAdapter extends BaseAgentAdapter implements C
     if (typeof sessionId === "string" && this.forgottenSessions.has(sessionId)) {
       return
     }
-    this.transcript.record(safeEvent)
+    this.transcript.recordSafe(safeEvent)
     if (safeEvent.event === "permissionAsked") {
       this.pendingPermissionRequests.set(safeEvent.data.request.id, safeEvent.data.request)
     } else if (safeEvent.event === "permissionReplied") {

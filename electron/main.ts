@@ -59,6 +59,7 @@ import { memoizeExternalCommandEnvironment } from "./agent/external/command-envi
 import { createExternalAgents } from "./agent/external/create.ts"
 import { ExternalOoGuardServer } from "./agent/external/oo-guard-server.ts"
 import { externalSessionScratchCwd, ExternalOoScopeStore } from "./agent/external/oo-scope-store.ts"
+import { memoizePromptPreparation } from "./agent/external/prompt-preparation.ts"
 import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
 import { GrokModelGateway } from "./agent/grok-model-gateway.ts"
 import { HostCapabilityInvokeServer } from "./agent/host-capability-invoke-server.ts"
@@ -402,13 +403,19 @@ function claudeRoutingEnvironment(descriptor: {
   }
 }
 
+const prepareClaudePromptRoute = memoizePromptPreparation(async (input: PromptAgentInput) =>
+  claudeModelGateway.issue(input.sessionId, await wantaRouteFor(input)),
+)
 const claudeModelRouter = {
   onForgetSession: (sessionId: string): void => claudeModelGateway.revokeSession(sessionId),
   preparePrompt: async (input: PromptAgentInput): Promise<void> => {
-    await claudeModelGateway.issue(input.sessionId, await wantaRouteFor(input))
+    await prepareClaudePromptRoute(input)
   },
   sessionMeta: async (input: PromptAgentInput): Promise<Record<string, unknown>> => {
-    const descriptor = await claudeModelGateway.issue(input.sessionId, await wantaRouteFor(input))
+    // First-turn preparation and session metadata consume the exact same route
+    // snapshot. Existing sessions only call preparePrompt; WeakMap ownership
+    // lets each completed PromptAgentInput be collected normally.
+    const descriptor = await prepareClaudePromptRoute(input)
     const env = claudeRoutingEnvironment(descriptor)
     return {
       claudeCode: {

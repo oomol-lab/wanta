@@ -1,6 +1,7 @@
 import type { AgentEvent } from "../contract/event.ts"
 
 import { describe, expect, test } from "vitest"
+import { redactExternalAgentEvent } from "./transcript-redaction.ts"
 import { ExternalTranscriptRecorder } from "./transcript.ts"
 
 describe("external transcript credential boundary", () => {
@@ -48,5 +49,30 @@ describe("external transcript credential boundary", () => {
       rawInput: { authorization: "[redacted]" },
       formatted_output: String.raw`{\"api_token\":\"[redacted]\"}`,
     })
+  })
+
+  test("the adapter-safe recording path is behaviorally identical to recorder-owned redaction", () => {
+    const event: AgentEvent = {
+      event: "toolCallResult",
+      data: {
+        sessionId: "wanta-ext:codex:test",
+        messageId: "assistant-equivalence",
+        partId: "tool-equivalence",
+        callId: "tool-equivalence",
+        tool: "execute",
+        status: "completed",
+        input: { authorization: "Bearer input-secret", nested: { api_key: "nested-secret" } },
+        output: `{"refresh_token":"output-secret"}`,
+      },
+    }
+    const recorderOwned = new ExternalTranscriptRecorder()
+    const adapterOwned = new ExternalTranscriptRecorder()
+
+    recorderOwned.record(event)
+    adapterOwned.recordSafe(redactExternalAgentEvent(event))
+
+    const withoutCreationTime = (recorder: ExternalTranscriptRecorder) =>
+      recorder.messages(event.data.sessionId).map(({ createdAt: _createdAt, ...message }) => message)
+    expect(withoutCreationTime(adapterOwned)).toEqual(withoutCreationTime(recorderOwned))
   })
 })

@@ -223,6 +223,17 @@ export class SessionServiceImpl
     if (req.agentKind && isExternalAgentKind(req.agentKind) && EXTERNAL_AGENT_KINDS.includes(req.agentKind)) {
       return this.createExternalMutation(req, req.agentKind, revision)
     }
+    if (req.agentKind && req.agentKind !== "opencode") {
+      // Preserve the historical kernel fallback for compatibility, but make
+      // erased/obsolete agent kinds observable before a future fail-closed
+      // migration is considered.
+      logDiagnostic(
+        "session-service",
+        "unregistered agent kind fell back to the built-in agent",
+        { agentKind: req.agentKind },
+        "warn",
+      )
+    }
     const agent = this.agent
     if (!agent) {
       throw new Error("Agent not configured (sign in first)")

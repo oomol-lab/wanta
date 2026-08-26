@@ -1,29 +1,12 @@
-import type { WantaReasoningLevel } from "./reasoning.ts"
-import type { JSONValue, ModelMessage, ToolSet } from "ai"
-import type { LanguageModel } from "ai"
+import type { WantaModelRoute } from "./wanta-model-route.ts"
+import type { ModelMessage, ToolSet } from "ai"
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
 
-import { createOpenAI } from "@ai-sdk/openai"
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible"
 import { jsonSchema, streamText, tool } from "ai"
 import { randomBytes, randomUUID } from "node:crypto"
 import { createServer } from "node:http"
 import { errorMessage, logDiagnostic } from "../diagnostics-log.ts"
-
-export type ClaudeGatewayProviderKind = "openai-compatible" | "openai-responses"
-
-/** A credential-bearing route. It never leaves Electron main. */
-export interface ClaudeModelRoute {
-  apiKey: string
-  baseUrl: string
-  contextWindow?: number
-  displayName: string
-  maxOutputTokens?: number
-  modelId: string
-  providerKind: ClaudeGatewayProviderKind
-  reasoningLevel?: WantaReasoningLevel
-  reasoningStyle?: "effort" | "qwen-thinking"
-}
+import { boundedMaxOutputTokens, createLanguageModel, reasoningProviderOptions } from "./wanta-model-route.ts"
 
 export interface ClaudeModelGatewayDescriptor {
   /** Anthropic-compatible API root injected into one Claude Code session. */
@@ -35,7 +18,7 @@ export interface ClaudeModelGatewayDescriptor {
 }
 
 interface GatewayLease {
-  route: ClaudeModelRoute
+  route: WantaModelRoute
   sessionId: string
   token: string
 }
@@ -108,7 +91,7 @@ export class ClaudeModelGateway {
     })
   }
 
-  public async issue(sessionId: string, route: ClaudeModelRoute): Promise<ClaudeModelGatewayDescriptor> {
+  public async issue(sessionId: string, route: WantaModelRoute): Promise<ClaudeModelGatewayDescriptor> {
     if (this.disposed) throw new Error("Claude model gateway has been disposed.")
     const connection = await this.connection()
     const existing = this.leaseBySessionId.get(sessionId)
@@ -122,7 +105,7 @@ export class ClaudeModelGateway {
     return { baseUrl: connection.baseUrl, token: lease.token, model: CLAUDE_GATEWAY_MODEL_ALIAS }
   }
 
-  public update(sessionId: string, route: ClaudeModelRoute): void {
+  public update(sessionId: string, route: WantaModelRoute): void {
     const lease = this.leaseBySessionId.get(sessionId)
     if (!lease) throw new Error("Claude model route has not been issued for this session.")
     lease.route = route
@@ -214,7 +197,7 @@ export class ClaudeModelGateway {
 
   private async complete(
     response: ServerResponse,
-    route: ClaudeModelRoute,
+    route: WantaModelRoute,
     request: AnthropicMessageRequest,
   ): Promise<void> {
     const controller = new AbortController()
@@ -243,44 +226,6 @@ export class ClaudeModelGateway {
     }
     await streamCompletion(response, route, result.fullStream)
   }
-}
-
-export function createLanguageModel(route: ClaudeModelRoute): LanguageModel {
-  if (route.providerKind === "openai-responses") {
-    return createOpenAI({ apiKey: route.apiKey, baseURL: route.baseUrl, name: "wanta" }).responses(route.modelId)
-  }
-  return createOpenAICompatible({
-    apiKey: route.apiKey,
-    baseURL: route.baseUrl,
-    includeUsage: true,
-    name: "wanta",
-    ...(route.reasoningStyle === "qwen-thinking" && route.reasoningLevel !== undefined
-      ? {
-          transformRequestBody: (body: Record<string, unknown>) => ({
-            ...body,
-            enable_thinking: route.reasoningLevel !== "low",
-          }),
-        }
-      : {}),
-  }).languageModel(route.modelId)
-}
-
-export function reasoningProviderOptions(
-  route: ClaudeModelRoute,
-): Record<string, Record<string, JSONValue | undefined>> | undefined {
-  const level = route.reasoningLevel
-  if (!level || level === "default" || route.reasoningStyle === "qwen-thinking") return undefined
-  const effort = level === "max" && route.providerKind === "openai-responses" ? "xhigh" : level
-  return { [route.providerKind === "openai-responses" ? "openai" : "wanta"]: { reasoningEffort: effort } }
-}
-
-export function boundedMaxOutputTokens(requested: number | undefined, configured: number | undefined): number {
-  const requestValue = positiveInteger(requested) ?? 8_192
-  return configured ? Math.min(requestValue, configured) : requestValue
-}
-
-function positiveInteger(value: number | undefined): number | undefined {
-  return Number.isSafeInteger(value) && (value ?? 0) > 0 ? value : undefined
 }
 
 function createTools(definitions: readonly AnthropicTool[]): ToolSet {
@@ -388,7 +333,7 @@ async function collectCompletion(stream: AsyncIterable<unknown>): Promise<Comple
 
 async function streamCompletion(
   response: ServerResponse,
-  route: ClaudeModelRoute,
+  route: WantaModelRoute,
   stream: AsyncIterable<unknown>,
 ): Promise<void> {
   response.writeHead(200, {
@@ -579,7 +524,7 @@ interface StreamingBlocks {
   open: Map<string, { index: number; kind: "text" | "thinking" | "tool" }>
 }
 
-function completionResponse(route: ClaudeModelRoute, events: CompletionEvents): unknown {
+function completionResponse(route: WantaModelRoute, events: CompletionEvents): unknown {
   return {
     id: `msg_${randomUUID().replaceAll("-", "")}`,
     type: "message",

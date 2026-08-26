@@ -88,6 +88,30 @@ test("an unregistered agentKind never mints an external session id (create gate)
   assert.equal(external.current().size, 0)
 })
 
+test("an unregistered agentKind preserves the historical built-in fallback when the kernel is available", async () => {
+  const external = externalStore()
+  let createdWithTitle: string | undefined
+  const kernel = {
+    createSession: async (title?: string) => {
+      createdWithTitle = title
+      return { id: "kernel-fallback", title: title ?? "New session", createdAt: 1, updatedAt: 1 }
+    },
+    deleteSession: async () => undefined,
+    listSessions: async () => [],
+  } as unknown as OpencodeAgentAdapter
+  const service = new SessionServiceImpl(kernel, {
+    externalSessionStore: external.store,
+    metadataStore: metadataStore(),
+  })
+  ;(service as unknown as { send: () => Promise<void> }).send = async () => undefined
+
+  const created = await service.create({ agentKind: "gemini" as never, scope: localScope, title: "Legacy fallback" })
+
+  assert.equal(created.id, "kernel-fallback")
+  assert.equal(createdWithTitle, "Legacy fallback")
+  assert.equal(external.current().size, 0)
+})
+
 test("external archived sessions and projects remain available when no kernel adapter exists", async () => {
   const external = externalStore()
   const service = new SessionServiceImpl(null, {

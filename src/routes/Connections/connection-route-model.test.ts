@@ -22,6 +22,7 @@ import {
   isManagedConnection,
   matchesConnectionDiscoveryCategory,
   matchesProviderFilter,
+  matchesProviderQuery,
   normalizeConnectionCatalogFilter,
   normalizeConnectionAliasInput,
   parseFilterValue,
@@ -239,6 +240,15 @@ test("cross-border ecommerce providers receive a stable catalog category", () =>
     ),
     false,
   )
+})
+
+test("provider search includes localized and legacy aliases", () => {
+  const searchable = provider({ displayName: "Feishu", searchAliases: ["飞书", "Lark"] })
+  const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
+
+  assert.equal(matchesProviderQuery(searchable, "飞书", t), true)
+  assert.equal(matchesProviderQuery(searchable, "lark", t), true)
+  assert.equal(matchesProviderQuery(searchable, "slack", t), false)
 })
 
 test("buildCredentialSummaryDisplayValues keeps only non-secret display values", () => {

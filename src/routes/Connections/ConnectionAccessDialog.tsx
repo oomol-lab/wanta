@@ -135,7 +135,7 @@ export function ConnectionAccessDialog({
       const accountId = context.accountId ?? "anonymous"
       const [nextSnapshot, nextActions, nextMembers] = await Promise.all([
         getTeamAppAccessSnapshot(context.team.id),
-        getConnectionActions(app.service, { forceRefresh: true }),
+        getConnectionActions(app.service, { forceRefresh: true }, locale),
         context.canManage ? getTeamMembersResource(accountId, context.team.id) : Promise.resolve([]),
       ])
       if (requestIdRef.current !== requestId) return

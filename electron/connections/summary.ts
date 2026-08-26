@@ -49,6 +49,7 @@ export interface RawProvider {
   icon?: unknown
   iconUrl?: unknown
   oauthClientConfig?: unknown
+  searchAliases?: unknown
   service?: unknown
 }
 
@@ -168,6 +169,10 @@ function asNumber(value: unknown): number | undefined {
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
+}
+
+function normalizedStringList(value: unknown): string[] {
+  return [...new Set(stringList(value).map((item) => item.trim()).filter(Boolean))]
 }
 
 function normalizeAppStatus(value: unknown): ConnectionAppStatus {
@@ -598,6 +603,7 @@ export function normalizeProvider(
     displayName: asString(item.displayName) ?? service,
     iconUrl: asString(item.iconUrl) ?? asString(item.icon),
     oauthClientConfig: normalizeOAuthClientConfig(item.oauthClientConfig, service),
+    searchAliases: normalizedStringList(item.searchAliases),
   }
 }
 

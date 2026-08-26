@@ -69,29 +69,21 @@ export function ConnectionScenarioShowcase({
     }
     return groups
   }, [providers])
-  const visibleCategories = React.useMemo(
-    () => connectionDiscoveryCategories.filter((category) => (categoryGroups.get(category.key)?.length ?? 0) > 0),
-    [categoryGroups],
-  )
   const featuredProviders = React.useMemo(
     () =>
       new Map(
-        visibleCategories.map((category) => [
+        connectionDiscoveryCategories.map((category) => [
           category.key,
           getFeaturedProviders(categoryGroups.get(category.key) ?? [], category.featuredServices),
         ]),
       ),
-    [categoryGroups, visibleCategories],
+    [categoryGroups],
   )
-
-  if (!visibleCategories.length) {
-    return null
-  }
 
   return (
     <section className="grid">
       <div className="grid min-w-0 grid-cols-1 gap-2 min-[720px]:grid-cols-2 xl:grid-cols-4">
-        {visibleCategories.map((category) => {
+        {connectionDiscoveryCategories.map((category) => {
           const Icon = discoveryCategoryIcons[category.key]
           const categoryProviders = categoryGroups.get(category.key) ?? []
           const providersToShow = featuredProviders.get(category.key) ?? []

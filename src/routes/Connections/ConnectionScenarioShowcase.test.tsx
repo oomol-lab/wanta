@@ -57,8 +57,24 @@ test("category cards navigate into a discovery category instead of acting as tog
   const card = document.querySelector<HTMLButtonElement>('button[aria-label="View AI & models connectors"]')
 
   expect(card?.getAttribute("aria-pressed")).toBeNull()
+  expect(document.querySelectorAll<HTMLButtonElement>('button[aria-label^="View "]')).toHaveLength(8)
+  expect(document.body.textContent).toContain("Developer & cloud")
   await act(async () => card?.click())
   expect(onSelect).toHaveBeenCalledWith("ai")
+
+  act(() => root.unmount())
+})
+
+test("empty discovery categories remain available in the stable eight-category layout", async () => {
+  const onSelect = vi.fn()
+  const root = await render(<ConnectionScenarioShowcase providers={[]} onSelect={onSelect} />)
+  const cards = document.querySelectorAll<HTMLButtonElement>('button[aria-label^="View "]')
+  const developerCard = document.querySelector<HTMLButtonElement>('button[aria-label="View Developer & cloud connectors"]')
+
+  expect(cards).toHaveLength(8)
+  expect(developerCard?.textContent).toContain("0")
+  await act(async () => developerCard?.click())
+  expect(onSelect).toHaveBeenCalledWith("developer")
 
   act(() => root.unmount())
 })

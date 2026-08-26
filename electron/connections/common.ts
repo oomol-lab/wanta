@@ -77,6 +77,8 @@ export interface ConnectionProviderSummary {
   executionMode?: "direct" | "remote"
   iconUrl?: string
   oauthClientConfig?: ConnectionProviderOAuthClientConfigSummary | null
+  /** Localized and legacy names supplied by Connector for catalog search. */
+  searchAliases?: string[]
   service: string
   status: ConnectionProviderStatus
   runtimeVersion?: string

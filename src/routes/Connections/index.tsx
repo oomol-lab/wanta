@@ -24,7 +24,6 @@ import { ConnectDialog } from "./ConnectDialog.tsx"
 import { getConnectionDetailErrorNotice, getConnectionListErrorNotice } from "./connection-error-display.ts"
 import { compareConnectionProviders } from "./connection-provider-ranking.ts"
 import {
-  buildCategoryFilters,
   canMutateConnections,
   detailPaneAnimationMs,
   getConnectionDiscoveryCategory,
@@ -88,7 +87,7 @@ export type { ConnectionAuthIntent } from "./connection-route-model.ts"
 
 type ConnectionsView = "discover" | "manage"
 
-const connectionViews: readonly ConnectionsView[] = ["manage", "discover"]
+const connectionViews: readonly ConnectionsView[] = ["discover", "manage"]
 
 interface ConnectionsPanelProps {
   accessContext?: ConnectionAccessContext
@@ -173,9 +172,7 @@ export function ConnectionsPanel({
   const detailWorkspaceKeyRef = React.useRef<string | null>(summaryWorkspaceKey)
   const handledSelectedAccessAppIdRef = React.useRef<string | null>(null)
   const listPaneRef = React.useRef<HTMLDivElement | null>(null)
-  const initialViewWorkspaceRef = React.useRef<string | null>(null)
   const previousViewWorkspaceRef = React.useRef(summaryWorkspaceKey)
-  const userSelectedViewWorkspaceRef = React.useRef<string | null>(null)
 
   const larkCliProvider = React.useMemo(
     () =>
@@ -244,7 +241,6 @@ export function ConnectionsPanel({
   )
   const deferredQuery = React.useDeferredValue(query)
   const normalizedQuery = deferredQuery.trim().toLowerCase()
-  const categoryFilters = React.useMemo(() => buildCategoryFilters(providers, t), [providers, t])
   const connectedCount = React.useMemo(() => providers.filter(isConnected).length, [providers])
   const attentionCount = React.useMemo(
     () => providers.filter((provider) => provider.status === "needs_attention").length,
@@ -285,34 +281,31 @@ export function ConnectionsPanel({
     () => discoveryProviders.filter(isDirectlyAvailableProvider).length,
     [discoveryProviders],
   )
-
-  const selectScenario = React.useCallback(
-    (category: ConnectionDiscoveryCategory) => {
-      userSelectedViewWorkspaceRef.current = summaryWorkspaceKey
-      setView("discover")
-      setDiscoveryCategory(category)
-      setQuery("")
-      setAuthFilter("all")
-      setSortMode("recommended")
-      setActiveFilter({ kind: "all" })
-      setSelectedProviderService(null)
-      setNarrowPane("list")
-    },
-    [summaryWorkspaceKey],
+  const discoveryConnectedCount = React.useMemo(
+    () => discoveryProviders.filter(isConnected).length,
+    [discoveryProviders],
   )
+
+  const selectScenario = React.useCallback((category: ConnectionDiscoveryCategory) => {
+    setView("discover")
+    setDiscoveryCategory(category)
+    setQuery("")
+    setAuthFilter("all")
+    setSortMode("recommended")
+    setSelectedProviderService(null)
+    setNarrowPane("list")
+  }, [])
   const leaveDiscoveryCategory = React.useCallback(() => {
     setDiscoveryCategory(null)
     setQuery("")
     setAuthFilter("all")
     setSortMode("recommended")
-    setActiveFilter({ kind: "all" })
     setSelectedProviderService(null)
     setNarrowPane("list")
     listPaneRef.current?.scrollTo({ top: 0, behavior: "smooth" })
   }, [])
   const selectView = React.useCallback(
     (nextView: ConnectionsView) => {
-      userSelectedViewWorkspaceRef.current = summaryWorkspaceKey
       if (nextView === view) return
       setView(nextView)
       setDiscoveryCategory(null)
@@ -323,7 +316,7 @@ export function ConnectionsPanel({
       setSelectedProviderService(null)
       setNarrowPane("list")
     },
-    [summaryWorkspaceKey, view],
+    [view],
   )
   const handleViewTabKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -488,8 +481,6 @@ export function ConnectionsPanel({
     }
 
     previousViewWorkspaceRef.current = summaryWorkspaceKey
-    initialViewWorkspaceRef.current = null
-    userSelectedViewWorkspaceRef.current = null
     setView("discover")
     setDiscoveryCategory(null)
     setActiveFilter({ kind: "all" })
@@ -499,27 +490,6 @@ export function ConnectionsPanel({
     setSelectedProviderService(null)
     setNarrowPane("list")
   }, [summaryWorkspaceKey])
-
-  React.useEffect(() => {
-    if (!summary || summaryLoading || initialViewWorkspaceRef.current === summaryWorkspaceKey) {
-      return
-    }
-
-    initialViewWorkspaceRef.current = summaryWorkspaceKey
-    if (userSelectedViewWorkspaceRef.current === summaryWorkspaceKey) {
-      return
-    }
-
-    if (showConnectionState && managedConnectionCount > 0) {
-      setView("manage")
-      setActiveFilter({ kind: "managed" })
-      return
-    }
-
-    setView("discover")
-    setDiscoveryCategory(null)
-    setActiveFilter({ kind: "all" })
-  }, [managedConnectionCount, showConnectionState, summary, summaryLoading, summaryWorkspaceKey])
 
   React.useEffect(() => {
     if (detailWorkspaceKeyRef.current === summaryWorkspaceKey) {
@@ -588,7 +558,6 @@ export function ConnectionsPanel({
       return
     }
 
-    userSelectedViewWorkspaceRef.current = summaryWorkspaceKey
     setView(
       requestedFilter.kind === "attention" || requestedFilter.kind === "connected" || requestedFilter.kind === "managed"
         ? "manage"
@@ -597,7 +566,7 @@ export function ConnectionsPanel({
     setDiscoveryCategory(null)
     setQuery("")
     setActiveFilter(requestedFilter)
-  }, [requestedFilter, summaryWorkspaceKey])
+  }, [requestedFilter])
 
   React.useEffect(() => {
     if (!requestedService) {
@@ -613,35 +582,10 @@ export function ConnectionsPanel({
   React.useEffect(() => clearDetailCloseTimer, [clearDetailCloseTimer])
 
   React.useEffect(() => {
-    if (activeFilter.kind !== "category") {
-      return
-    }
-    if (!categoryFilters.some((filter) => filter.label === activeFilter.category)) {
-      setActiveFilter({ kind: "all" })
-    }
-  }, [activeFilter, categoryFilters])
-
-  React.useEffect(() => {
-    if (
-      !discoveryCategory ||
-      providers.length === 0 ||
-      providers.some((provider) => matchesConnectionDiscoveryCategory(provider, discoveryCategory))
-    ) {
-      return
-    }
-    setDiscoveryCategory(null)
-    setActiveFilter({ kind: "all" })
-  }, [discoveryCategory, providers])
-
-  React.useEffect(() => {
     if (showConnectionState) {
       return
     }
-    if (
-      activeFilter.kind === "available-tools" ||
-      activeFilter.kind === "connected" ||
-      activeFilter.kind === "attention"
-    ) {
+    if (activeFilter.kind === "attention") {
       setActiveFilter({ kind: "all" })
     }
   }, [activeFilter.kind, showConnectionState])
@@ -921,25 +865,6 @@ export function ConnectionsPanel({
             className="flex min-w-0 items-center gap-1 border-b"
           >
             <Button
-              id="connections-manage-tab"
-              type="button"
-              role="tab"
-              aria-controls="connections-catalog"
-              aria-selected={view === "manage"}
-              tabIndex={view === "manage" ? 0 : -1}
-              variant="ghost"
-              size="sm"
-              onClick={() => selectView("manage")}
-              onKeyDown={handleViewTabKeyDown}
-              className={cn(
-                "-mb-px h-8 rounded-none border-b-2 border-transparent px-2.5 text-muted-foreground hover:bg-transparent hover:text-foreground",
-                view === "manage" && "border-foreground text-foreground",
-              )}
-            >
-              {t("connections.myConnections")}
-              <span className="oo-text-micro text-muted-foreground tabular-nums">{managedConnectionCount}</span>
-            </Button>
-            <Button
               id="connections-discover-tab"
               type="button"
               role="tab"
@@ -957,15 +882,32 @@ export function ConnectionsPanel({
             >
               {t("connections.discoverConnections")}
             </Button>
+            <Button
+              id="connections-manage-tab"
+              type="button"
+              role="tab"
+              aria-controls="connections-catalog"
+              aria-selected={view === "manage"}
+              tabIndex={view === "manage" ? 0 : -1}
+              variant="ghost"
+              size="sm"
+              onClick={() => selectView("manage")}
+              onKeyDown={handleViewTabKeyDown}
+              className={cn(
+                "-mb-px h-8 rounded-none border-b-2 border-transparent px-2.5 text-muted-foreground hover:bg-transparent hover:text-foreground",
+                view === "manage" && "border-foreground text-foreground",
+              )}
+            >
+              {t("connections.configuredConnections")}
+              <span className="oo-text-micro text-muted-foreground tabular-nums">{managedConnectionCount}</span>
+            </Button>
           </div>
           <ConnectionListToolbar
             activeFilter={activeFilter}
             authFilter={authFilter}
             attentionCount={attentionCount}
             availableToolsCount={discoveryCategory ? discoveryAvailableToolsCount : availableToolsCount}
-            categoryFilters={categoryFilters}
-            connectedCount={connectedCount}
-            discoveryCategory={discoveryCategory}
+            connectedCount={discoveryCategory ? discoveryConnectedCount : connectedCount}
             directlyAvailableCount={discoveryCategory ? discoveryDirectlyAvailableCount : directlyAvailableCount}
             loading={summaryLoading}
             managedConnectionCount={managedConnectionCount}
@@ -1015,7 +957,7 @@ export function ConnectionsPanel({
               />
             ) : null}
             {view === "discover" && !discoveryCategory && !selectedProvider && !normalizedQuery ? (
-              <ConnectionScenarioShowcase providers={providers} onSelect={selectScenario} />
+              <ConnectionScenarioShowcase providers={catalogProviders} onSelect={selectScenario} />
             ) : null}
             {summary?.appsStatus && summary.appsStatus !== "ready" ? (
               <ConnectionStateNotice status={summary.appsStatus} />

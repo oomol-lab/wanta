@@ -523,6 +523,7 @@ export function matchesProviderQuery(
   return (
     provider.displayName.toLowerCase().includes(normalizedQuery) ||
     provider.service.toLowerCase().includes(normalizedQuery) ||
+    provider.searchAliases?.some((alias) => alias.toLowerCase().includes(normalizedQuery)) ||
     getProviderCategoryRawLabels(provider).some((label) => {
       return (
         label.toLowerCase().includes(normalizedQuery) ||

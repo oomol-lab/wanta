@@ -3,7 +3,13 @@ import { test } from "vitest"
 import { mergeConnectionSummary, normalizeConnectionAppDetail, normalizeFederatedCredentialConfig } from "./summary.ts"
 
 const providers = [
-  { service: "gmail", displayName: "Gmail", authTypes: ["oauth2" as const], categories: [{ displayName: "Email" }] },
+  {
+    service: "gmail",
+    displayName: "Gmail",
+    searchAliases: [" Google Mail ", "Gmail", "Google Mail", ""],
+    authTypes: ["oauth2" as const],
+    categories: [{ displayName: "Email" }],
+  },
   { service: "quickchart", displayName: "QuickChart", authTypes: ["no_auth" as const] },
   { service: "ably", displayName: "Ably", authTypes: ["api_key" as const] },
 ]
@@ -20,6 +26,7 @@ test("merge marks connected providers and computes counts", () => {
   assert.equal(gmail?.appStatus, "active")
   assert.equal(gmail?.canDisconnect, true)
   assert.deepEqual(gmail?.categoryLabels, ["Email"])
+  assert.deepEqual(gmail?.searchAliases, ["Google Mail", "Gmail"])
   assert.equal(gmail?.appCount, 1)
 })
 

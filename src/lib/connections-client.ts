@@ -414,11 +414,12 @@ async function fetchConnectorGet<T>(
 export async function getConnectionCatalogSummary(
   workspace: ConnectionWorkspace,
   options: ConnectorReadOptions = {},
+  locale?: string,
 ): Promise<ConnectionSummary> {
   const [appsResult, providersResult] = await Promise.allSettled([
     getConnectionApps(workspace, options),
     // Provider 是公共发现目录，不应因当前团队的连接管理权限而不可见。
-    getConnectionProviders(options),
+    getConnectionProviders(options, locale),
   ])
   if (providersResult.status === "rejected") {
     throw providersResult.reason
@@ -462,16 +463,20 @@ export function getConnectionApps(
 /** Provider 是全局公共目录，跨 workspace 复用条件请求缓存。 */
 export function getConnectionProviders(
   options: ConnectorReadOptions = {},
+  locale?: string,
 ): Promise<{ data: RawProvider[]; meta: unknown }> {
-  return getConnector<RawProvider[]>("/v1/providers", null, options)
+  const search = locale ? `?${new URLSearchParams({ locale }).toString()}` : ""
+  return getConnector<RawProvider[]>(`/v1/providers${search}`, null, options)
 }
 
 export function getConnectionActions(
   service: string,
   options: ConnectorReadOptions = {},
+  locale?: string,
 ): Promise<{ data: ConnectionActionCatalogItem[]; meta: unknown }> {
-  const search = new URLSearchParams({ service }).toString()
-  return getConnector<ConnectionActionCatalogItem[]>(`/v1/actions?${search}`, null, options)
+  const searchParams = new URLSearchParams({ service })
+  if (locale) searchParams.set("locale", locale)
+  return getConnector<ConnectionActionCatalogItem[]>(`/v1/actions?${searchParams.toString()}`, null, options)
 }
 
 export function getConnectionLingxingErpUsers(
@@ -490,8 +495,9 @@ export function getConnectionLingxingErpUsers(
 export async function getConnectionSummary(
   workspace: ConnectionWorkspace,
   options: ConnectorReadOptions = {},
+  locale?: string,
 ): Promise<ConnectionSummary> {
-  return getConnectionCatalogSummary(workspace, options)
+  return getConnectionCatalogSummary(workspace, options, locale)
 }
 
 export async function getActiveConnectionAppIdsForService(
@@ -505,9 +511,13 @@ export async function getActiveConnectionAppIdsForService(
     .filter((appId): appId is string => Boolean(appId))
 }
 
-export async function getConnectionProviderDetail(service: string): Promise<ConnectionProviderDetail> {
+export async function getConnectionProviderDetail(service: string, locale?: string): Promise<ConnectionProviderDetail> {
   // Provider 详情属于公共目录；账号状态已经由摘要提供，不再为打开详情重复读取整套摘要与 usage。
-  const providerResult = await getConnector<RawProvider>(`/v1/providers/${encodeURIComponent(service)}`, null)
+  const search = locale ? `?${new URLSearchParams({ locale }).toString()}` : ""
+  const providerResult = await getConnector<RawProvider>(
+    `/v1/providers/${encodeURIComponent(service)}${search}`,
+    null,
+  )
   const provider = normalizeProvider(providerResult.data, new Map())
   if (!provider) {
     throw new Error(`Provider ${service} is not available`)

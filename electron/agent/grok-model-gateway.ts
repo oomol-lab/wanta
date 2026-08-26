@@ -1,4 +1,4 @@
-import type { ClaudeModelRoute } from "./claude-model-gateway.ts"
+import type { WantaModelRoute } from "./wanta-model-route.ts"
 import type { ModelMessage, TextStreamPart, ToolSet } from "ai"
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
 
@@ -6,7 +6,7 @@ import { jsonSchema, streamText, tool } from "ai"
 import { randomBytes, randomUUID } from "node:crypto"
 import { createServer } from "node:http"
 import { errorMessage, logDiagnostic } from "../diagnostics-log.ts"
-import { boundedMaxOutputTokens, createLanguageModel, reasoningProviderOptions } from "./claude-model-gateway.ts"
+import { boundedMaxOutputTokens, createLanguageModel, reasoningProviderOptions } from "./wanta-model-route.ts"
 
 const GROK_GATEWAY_MODEL_ALIAS = "wanta-selected-model"
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024
@@ -18,7 +18,7 @@ export interface GrokModelGatewayDescriptor {
 }
 
 interface GrokGatewayRoute {
-  route: ClaudeModelRoute
+  route: WantaModelRoute
   sessionId: string
 }
 
@@ -73,7 +73,7 @@ export class GrokModelGateway {
     })
   }
 
-  public prepare(sessionId: string, route: ClaudeModelRoute): void {
+  public prepare(sessionId: string, route: WantaModelRoute): void {
     if (this.disposed) throw new Error("Grok model gateway has been disposed.")
     this.currentRoute = { route, sessionId }
   }
@@ -166,7 +166,7 @@ export class GrokModelGateway {
 
   private async complete(
     response: ServerResponse,
-    route: ClaudeModelRoute,
+    route: WantaModelRoute,
     request: ChatCompletionRequest,
   ): Promise<void> {
     const controller = new AbortController()
@@ -289,7 +289,7 @@ function parseArguments(value: string | undefined): unknown {
 
 async function streamChatCompletion(
   response: ServerResponse,
-  route: ClaudeModelRoute,
+  route: WantaModelRoute,
   stream: AsyncIterable<TextStreamPart<ToolSet>>,
 ): Promise<void> {
   response.writeHead(200, {

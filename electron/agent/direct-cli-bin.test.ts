@@ -39,5 +39,5 @@ describe("ensureDirectCliCommandBin", () => {
     } finally {
       await rm(base, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 })

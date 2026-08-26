@@ -1,7 +1,7 @@
 import type { ModelChoice } from "../models/common.ts"
 import type { RuntimeCustomModel } from "../models/store.ts"
-import type { ClaudeModelRoute } from "./claude-model-gateway.ts"
 import type { WantaReasoningLevel } from "./reasoning.ts"
+import type { WantaModelRoute } from "./wanta-model-route.ts"
 
 import { llmBaseUrl } from "../domain.ts"
 import { builtinProviderDefinition, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
@@ -15,7 +15,7 @@ export interface ClaudeModelRouteInput {
 }
 
 /** Resolve a public Wanta model choice into a credential-bearing main-process route. */
-export function resolveClaudeModelRoute(input: ClaudeModelRouteInput): ClaudeModelRoute {
+export function resolveClaudeModelRoute(input: ClaudeModelRouteInput): WantaModelRoute {
   if (input.choice.kind === "custom") {
     const model = input.customModels.find((candidate) => candidate.id === input.choice.id)
     if (!model) throw new Error("The selected custom model is unavailable or its API key is missing.")

@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatMessagePart, ChatTokenUsage } from "../../chat/common.ts"
 import type { AgentEvent } from "../contract/event.ts"
+import type { RedactedExternalAgentEvent } from "./transcript-redaction.ts"
 
 import { redactExternalAgentEvent, redactExternalMessages } from "./transcript-redaction.ts"
 
@@ -23,7 +24,11 @@ export class ExternalTranscriptRecorder {
   private readonly latestAssistantIds = new Map<string, string>()
 
   public record(event: AgentEvent): void {
-    const safeEvent = redactExternalAgentEvent(event)
+    this.recordSafe(redactExternalAgentEvent(event))
+  }
+
+  /** Record an event already normalized at the external-adapter trust boundary. */
+  public recordSafe(safeEvent: RedactedExternalAgentEvent): void {
     switch (safeEvent.event) {
       case "messageStarted": {
         const entry = this.ensureMessage(safeEvent.data.sessionId, safeEvent.data.messageId, safeEvent.data.role)

@@ -9,6 +9,9 @@ const sensitiveTextHint =
   /(?:access[_-]?token|api[_-]?(?:key|token)|authorization|bearer\s|client[_-]?secret|cookie|credential|password|personal[_-]?api[_-]?key|refresh[_-]?token|secret[_-]?api[_-]?token)/iu
 const bearerToken = /(\bbearer\s+)[^\s,;]+/giu
 
+declare const redactedExternalAgentEvent: unique symbol
+export type RedactedExternalAgentEvent = AgentEvent & { readonly [redactedExternalAgentEvent]: true }
+
 function redactTranscriptString(value: string): string {
   if (!sensitiveTextHint.test(value)) return value
   return redactConnectorOutput(value.replace(bearerToken, "$1[redacted]"))
@@ -38,8 +41,8 @@ export function redactExternalTranscriptValue<T>(value: T): T {
   ) as T
 }
 
-export function redactExternalAgentEvent(event: AgentEvent): AgentEvent {
-  return redactExternalTranscriptValue(event)
+export function redactExternalAgentEvent(event: AgentEvent): RedactedExternalAgentEvent {
+  return redactExternalTranscriptValue(event) as RedactedExternalAgentEvent
 }
 
 export function redactExternalMessages(messages: readonly ChatMessage[]): ChatMessage[] {

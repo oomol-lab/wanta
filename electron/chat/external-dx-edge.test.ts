@@ -73,6 +73,7 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
   public permissionModeBarrierEntries = 0
   /** When set, the next native permission-mode projection rejects. */
   public failNextPermissionMode: Error | undefined
+  public runtimeStatusError: Error | undefined
   private readonly modelSelections = new Map<string, string>()
   private readonly effortSelections = new Map<string, string>()
   private readonly nativePendingPermissionIds = new Set<string>()
@@ -177,6 +178,7 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
   }
 
   public runtimeStatus(): Promise<ExternalAgentRuntimeStatus> {
+    if (this.runtimeStatusError) return Promise.reject(this.runtimeStatusError)
     return Promise.resolve({
       kind: this.kind,
       displayName: this.profile.displayName,
@@ -279,6 +281,23 @@ async function waitForCondition(condition: () => boolean, label = "condition"): 
 async function waitForTurnCompletion(service: ChatServiceImpl): Promise<void> {
   await waitForCondition(() => !service.hasActiveGeneration(), "generation completion")
 }
+
+test("external agent probe failures remain visible as disabled error rows", async () => {
+  const { service, adapters } = createHarness(["claude-code", "codex"])
+  const failed = adapters.get("codex")
+  if (!failed) assert.fail("codex adapter missing")
+  failed.runtimeStatusError = new Error("probe exploded")
+
+  const statuses = await service.getExternalAgents()
+
+  assert.deepEqual(
+    statuses.map((status) => ({ kind: status.kind, binary: status.binary })),
+    [
+      { kind: "claude-code", binary: { status: "detected", path: "/fake/bin/claude-code" } },
+      { kind: "codex", binary: { status: "error", message: "probe exploded" } },
+    ],
+  )
+})
 
 // ---------------------------------------------------------------------------
 // Edge 1: attachments into an external session
@@ -747,6 +766,7 @@ test("edge6: removing an external session mid-turn cleans the run and blocks zom
       await chatService.forgetSession(sessionId)
     },
   })
+  ;(sessionService as unknown as { send: () => Promise<void> }).send = async () => undefined
 
   const doomed = await sessionService.create({ agentKind: "claude-code", scope: localScope, title: "doomed" })
   const survivor = await sessionService.create({ agentKind: "claude-code", scope: localScope, title: "survivor" })

@@ -1,7 +1,9 @@
-import type { AgentKind, ExternalAgentKind } from "../contract/profile.ts"
+import type { ExternalAgentKind } from "../contract/profile.ts"
 
 import { randomUUID } from "node:crypto"
-import { AGENT_PROFILES, isExternalAgentKind } from "../contract/profile.ts"
+import { isExternalAgentKind } from "../contract/profile.ts"
+
+export { isAgentKind } from "../contract/profile.ts"
 
 // External-agent sessions carry their agent kind inside the session id
 // (`wanta-ext:<kind>:<uuid>`), so routing between the built-in kernel and
@@ -44,15 +46,9 @@ export function parseExternalSessionIdentity(sessionId: string): ExternalSession
   return { kind, uuid }
 }
 
-export function isAgentKind(kind: string): kind is AgentKind {
-  // Own-property check only: `in` walks the prototype chain, so inherited
-  // Object.prototype keys must never be accepted as registered agent kinds.
-  return Object.hasOwn(AGENT_PROFILES, kind)
-}
-
 export function externalAgentKindForSessionId(sessionId: string): ExternalAgentKind | undefined {
   const identity = parseExternalSessionIdentity(sessionId)
-  if (identity && isAgentKind(identity.kind) && isExternalAgentKind(identity.kind)) {
+  if (identity && isExternalAgentKind(identity.kind)) {
     return identity.kind
   }
   return undefined

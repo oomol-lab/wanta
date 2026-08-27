@@ -28,6 +28,12 @@ export default defineConfig(({ mode }) => {
     test: {
       include: ["electron/**/*.test.ts", "src/**/*.test.{ts,tsx}", "scripts/**/*.test.ts"],
       environment: "node",
+      // Node 25+ ships Web Storage unflagged and predefines `localStorage` /
+      // `sessionStorage` on globalThis (the former resolves to undefined without
+      // --localstorage-file). Vitest's happy-dom environment never overrides keys
+      // that already exist on the global, so browser-style tests would see Node's
+      // stub instead of happy-dom's Storage. Start workers without it.
+      execArgv: ["--no-experimental-webstorage"],
     },
   }
 })

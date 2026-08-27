@@ -52,7 +52,7 @@ import { createAcpSessionTranslator, sanitizeAcpMessages } from "./translator.ts
 // multiplexes sessions over it. Wanta session ids map 1:1 to ACP session ids
 // and every emitted event carries the Wanta id.
 //
-// Verified against @agentclientprotocol/sdk@1.3.0 (dist/acp.d.ts,
+// Verified against @agentclientprotocol/sdk@1.4.0 (dist/acp.d.ts,
 // dist/schema/types.gen.d.ts, dist/jsonrpc.js):
 // - `ndJsonStream(output, input)` takes WHATWG web streams; Node child pipes
 //   are wrapped with Writable.toWeb / Readable.toWeb.
@@ -65,7 +65,6 @@ import { createAcpSessionTranslator, sanitizeAcpMessages } from "./translator.ts
 const ACP_AUTH_REQUIRED_CODE = -32000
 const ACP_REQUEST_CANCELLED_CODE = -32800
 const PROBE_CACHE_TTL_MS = 30_000
-const PROCESS_ROUTE_QUEUE_TIMEOUT_MS = 45_000
 
 /** Test seam: a connected ACP wire plus subprocess lifecycle hooks. */
 export interface AcpTransport {
@@ -89,14 +88,6 @@ export interface AcpAdapterOptions {
   hostMcpServers?: HostMcpServerProvider
   /** Shared Wanta-managed subprocess environment, including guarded command shims. */
   commandEnvironment?: () => Promise<NodeJS.ProcessEnv>
-  /** Optional per-session ACP metadata supplied by a host-owned model router. */
-  sessionMeta?: (input: PromptAgentInput) => Promise<Record<string, unknown> | undefined>
-  /** Refresh a mutable host-owned model route before every native prompt. */
-  preparePrompt?: (input: PromptAgentInput) => Promise<void>
-  /** Release host-owned state when Wanta permanently deletes a session. */
-  onForgetSession?: (sessionId: string) => void
-  /** Test seam for the process-scoped model-route queue deadline. */
-  processRouteQueueTimeoutMs?: number
   /**
    * Test seam: produce a connected ACP stream plus a dispose fn. The default
    * spawns the probed binary with registration.acpArgs over stdio.
@@ -384,7 +375,6 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   private catalogWarmup: Promise<void> | undefined
   private permissionSeq = 0
   private probeCache: { at: number; promise: Promise<ExternalAgentRuntimeStatus> } | undefined
-  private processRouteTail: Promise<void> = Promise.resolve()
 
   constructor(options: AcpAdapterOptions) {
     super(options.transcriptDir ? { transcriptDir: options.transcriptDir } : {})
@@ -502,60 +492,10 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
     // The session is gone; settle its parked resolvers without re-emitting.
     this.settlePendingPermissions((pending) => pending.wantaSessionId === sessionId, false)
-    this.options.onForgetSession?.(sessionId)
   }
 
   protected async handlePrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void> {
-    if (this.options.registration.modelRouteScope === "process") {
-      const previous = this.processRouteTail.catch(() => undefined)
-      let release!: () => void
-      const current = new Promise<void>((resolve) => {
-        release = resolve
-      })
-      this.processRouteTail = previous.then(() => current)
-      const acquired = await this.waitForProcessRoute(previous, input.sessionId)
-      if (!acquired) {
-        release()
-        this.disposeConnection()
-        throw new Error(`${this.options.registration.displayName} model route remained busy; please retry.`)
-      }
-      let completionTracked = false
-      try {
-        if (!options?.signal?.aborted)
-          await this.handlePromptNow(input, options, (completion) => {
-            completionTracked = true
-            void completion.finally(release)
-          })
-      } catch (error) {
-        release()
-        throw error
-      }
-      if (!completionTracked) release()
-      return
-    }
     await this.handlePromptNow(input, options)
-  }
-
-  private async waitForProcessRoute(previous: Promise<void>, sessionId: string): Promise<boolean> {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<false>((resolve) => {
-      timer = setTimeout(
-        () => resolve(false),
-        this.options.processRouteQueueTimeoutMs ?? PROCESS_ROUTE_QUEUE_TIMEOUT_MS,
-      )
-      timer.unref?.()
-    })
-    const acquired = await Promise.race([previous.then(() => true as const), timeout])
-    if (timer) clearTimeout(timer)
-    if (!acquired) {
-      logDiagnostic(
-        "acp-adapter",
-        "process model route queue exceeded its deadline",
-        { adapter: this.kind, sessionId },
-        "warn",
-      )
-    }
-    return acquired
   }
 
   private async handlePromptNow(
@@ -594,7 +534,6 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
         ? this.restoredConversationContext(input.sessionId)
         : undefined
     const displayName = this.options.registration.displayName
-    await this.options.preparePrompt?.(input)
     let handle: AcpConnectionHandle
     try {
       handle = await this.ensureConnection()
@@ -1226,12 +1165,10 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const additionalDirectories = [...new Set(input.additionalDirectories ?? [])].filter(
       (directory) => directory !== cwd,
     )
-    const sessionMeta = await this.options.sessionMeta?.(input)
     const response = await handle.connection.agent.request("session/new", {
       cwd,
       ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
       mcpServers,
-      ...(sessionMeta ? { _meta: sessionMeta } : {}),
     })
     if (!this.isStarted || this.isSessionForgotten(input.sessionId)) {
       await handle.connection.agent

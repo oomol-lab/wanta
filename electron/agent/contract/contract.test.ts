@@ -19,7 +19,7 @@ import { OpencodeAgentAdapter } from "../opencode-adapter.ts"
 import { BaseAgentAdapter } from "./adapter.ts"
 import { agentEventIssues } from "./event.ts"
 import { agentInputIssues } from "./input.ts"
-import { AGENT_PROFILES } from "./profile.ts"
+import { AGENT_PROFILES, EXTERNAL_AGENT_KINDS } from "./profile.ts"
 
 // Cross-adapter contract tests: every adapter must satisfy the same lifecycle
 // invariants (event delivery, capability honesty, teardown sweep). New adapters
@@ -359,6 +359,15 @@ async function observedPermissionRequestId(events: AgentEvent[]): Promise<string
   }
   return asked.data.request.id
 }
+
+test("BYOA profiles always use the local agent's account and model catalog", () => {
+  expect(AGENT_PROFILES.opencode.modelSource).toBe("wanta")
+  expect(AGENT_PROFILES.opencode.auth.kind).toBe("wanta-account")
+  for (const kind of EXTERNAL_AGENT_KINDS) {
+    expect(AGENT_PROFILES[kind].modelSource).toBe("agent")
+    expect(AGENT_PROFILES[kind].auth.kind).toBe("agent-cli")
+  }
+})
 
 describe.each(adapterFixtures)("agent adapter contract: $kind", ({ kind, create }) => {
   test("prompt requires a started lifecycle", async () => {

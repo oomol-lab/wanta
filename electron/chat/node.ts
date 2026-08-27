@@ -2274,8 +2274,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
             artifactDir,
             processDir,
-            ...(req.model ? { model: req.model } : {}),
-            ...(req.reasoningLevel ? { reasoningLevel: req.reasoningLevel } : {}),
+            // BYOA owns its account, provider route, model catalog, and effort.
+            // Never forward Wanta/BYOK model selections into a local agent,
+            // even when an older renderer or stale draft includes them.
             ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
             ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
             ...(teamName ? { teamName } : {}),

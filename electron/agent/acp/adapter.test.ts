@@ -211,10 +211,6 @@ async function createHarness(
   kind: keyof typeof ACP_AGENT_REGISTRY = "codex",
   hostMcpServers?: AcpAdapterOptions["hostMcpServers"],
   transcriptDir?: string,
-  adapterHooks: Pick<
-    AcpAdapterOptions,
-    "onForgetSession" | "preparePrompt" | "processRouteQueueTimeoutMs" | "sessionMeta"
-  > = {},
 ): Promise<AdapterHarness> {
   const fake = createFakeAgent(behavior)
   const registration = ACP_AGENT_REGISTRY[kind]
@@ -234,7 +230,6 @@ async function createHarness(
     connect: fake.connect,
     hostMcpServers,
     transcriptDir,
-    ...adapterHooks,
   })
   await adapter.start()
   startedAdapters.push(adapter)
@@ -306,38 +301,12 @@ describe("AcpAgentAdapter", () => {
     expect(harness.probe).toHaveBeenCalledTimes(1)
   })
 
-  test("forwards host model metadata per session and refreshes its route before each prompt", async () => {
-    const preparePrompt = vi.fn(async () => undefined)
-    const sessionMeta = vi.fn(async () => ({
-      claudeCode: { options: { env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:1234" } } },
-    }))
-    const onForgetSession = vi.fn()
-    const harness = await createHarness({}, "claude-code", undefined, undefined, {
-      onForgetSession,
-      preparePrompt,
-      sessionMeta,
-    })
-
-    const input = { ...promptInput(), model: { kind: "builtin", id: "oopilot" } as const }
-    await harness.adapter.send(input)
-    await harness.waitFor((event) => event.event === "messageCompleted")
-
-    expect(preparePrompt).toHaveBeenCalledWith(input)
-    expect(sessionMeta).toHaveBeenCalledWith(input)
-    expect(harness.fake.newSessionRequests[0]?._meta).toEqual({
-      claudeCode: { options: { env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:1234" } } },
-    })
-    harness.adapter.forgetSession(WANTA_SESSION_ID)
-    expect(onForgetSession).toHaveBeenCalledWith(WANTA_SESSION_ID)
-  })
-
-  test("serializes turns for a process-scoped Wanta model route", async () => {
+  test("allows independent local-agent sessions to run concurrently", async () => {
     let releaseFirst!: () => void
     const firstBlocked = new Promise<void>((resolve) => {
       releaseFirst = resolve
     })
     let promptCount = 0
-    const preparePrompt = vi.fn(async () => undefined)
     const secondDispatched = vi.fn()
     const harness = await createHarness(
       {
@@ -348,9 +317,6 @@ describe("AcpAgentAdapter", () => {
         },
       },
       "grok",
-      undefined,
-      undefined,
-      { preparePrompt, sessionMeta: async () => undefined, onForgetSession: () => undefined },
     )
     const first = harness.adapter.send(promptInput("first"))
     await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(1))
@@ -363,50 +329,11 @@ describe("AcpAgentAdapter", () => {
       { onDispatch: secondDispatched },
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(preparePrompt).toHaveBeenCalledTimes(1)
-    expect(harness.fake.promptRequests).toHaveLength(1)
-    expect(secondDispatched).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(2))
+    expect(secondDispatched).toHaveBeenCalledTimes(1)
 
     releaseFirst()
     await Promise.all([first, second])
-    expect(preparePrompt).toHaveBeenCalledTimes(2)
-    expect(secondDispatched).toHaveBeenCalledTimes(1)
-    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(2))
-  })
-
-  test("fails a queued process route, tears down the wedged runtime, and recreates its ACP session", async () => {
-    let promptCount = 0
-    const harness = await createHarness(
-      {
-        prompt: async () => {
-          promptCount += 1
-          if (promptCount === 1) return await new Promise<PromptResponse>(() => undefined)
-          return { stopReason: "end_turn" }
-        },
-      },
-      "grok",
-      undefined,
-      undefined,
-      {
-        onForgetSession: () => undefined,
-        preparePrompt: async () => undefined,
-        processRouteQueueTimeoutMs: 20,
-        sessionMeta: async () => undefined,
-      },
-    )
-    await harness.adapter.send(promptInput("first"))
-    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(1))
-
-    await expect(
-      harness.adapter.send({ ...promptInput("second"), sessionId: "wanta-session-2", messageId: "user-2" }),
-    ).rejects.toThrow(/model route remained busy/u)
-
-    await harness.adapter.send({ ...promptInput("retry"), messageId: "user-retry" })
-    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(2))
-    expect(harness.fake.connectCount()).toBe(2)
-    expect(harness.fake.newSessionRequests).toHaveLength(2)
-    expect(harness.fake.promptRequests[1]?.sessionId).not.toBe(harness.fake.promptRequests[0]?.sessionId)
   })
 
   test("streams a full turn: user synthesis, chunks, tool pair, completion", async () => {

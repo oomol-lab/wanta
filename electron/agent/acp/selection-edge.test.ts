@@ -752,10 +752,11 @@ describe("acp selection: permission-mode projection", () => {
     await harness.waitFor((event) => event.event === "messageCompleted")
     await expect(harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "full_access")).resolves.toBeUndefined()
     expect(harness.fake.setModeRequests).toHaveLength(0)
-    // grok declares no effort selection; the input is rejected loudly, not dropped.
+    // Grok owns its effort selection, but a concrete session that omits the
+    // native option rejects the change instead of silently pretending it took.
     await expect(
       harness.adapter.send({ type: "set-effort", sessionId: WANTA_SESSION_ID, effortId: "high" }),
-    ).rejects.toThrow(/set-effort/u)
+    ).rejects.toThrow(/effort selection is not available/u)
   })
 })
 

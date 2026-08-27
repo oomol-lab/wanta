@@ -19,6 +19,18 @@ const baseProps: ComponentProps<typeof AgentConfigurationPicker> = {
   externalAgents: [
     {
       binary: { path: "/usr/bin/claude", status: "detected", version: "2.0.0" },
+      catalog: {
+        defaultEffortId: "high",
+        defaultModelId: "claude-default",
+        efforts: [
+          { id: "high", label: "High" },
+          { id: "max", label: "Max" },
+        ],
+        models: [
+          { id: "claude-default", label: "Claude Default" },
+          { id: "claude-next", label: "Claude Next" },
+        ],
+      },
       displayName: "Claude Code",
       kind: "claude-code",
       login: { status: "logged_out" },
@@ -116,13 +128,19 @@ afterEach(() => {
 })
 
 describe("AgentConfigurationPicker", () => {
-  it("keeps the selected agent visible in the closed trigger even when Wanta owns the model", async () => {
+  it("keeps the selected agent visible with the model catalog owned by that agent", async () => {
     const builtIn = await renderPicker()
     expect(builtIn.trigger?.textContent).toBe("Built-in Agent · Auto · Default")
     expect(builtIn.trigger?.querySelector('[title="wanta"]')).not.toBeNull()
 
-    const claude = await renderPicker({ agentKind: "claude-code" })
-    expect(claude.trigger?.textContent).toBe("Claude Code · Auto · Default")
+    const claude = await renderPicker({
+      agentCatalog: baseProps.externalAgents[0]?.catalog,
+      agentEffortSelectionEnabled: true,
+      agentKind: "claude-code",
+      agentModelSelectionEnabled: true,
+      modelRoutingEnabled: false,
+    })
+    expect(claude.trigger?.textContent).toBe("Claude Code · Default")
     expect(claude.trigger?.querySelector('[title="claude-code"]')).not.toBeNull()
   })
 

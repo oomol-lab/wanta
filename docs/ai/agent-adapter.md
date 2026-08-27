@@ -52,11 +52,12 @@ A new kind of interaction is a new variant on `AgentInput` or `AgentEvent`.
    Agent-native depth (server-side sessions, title generation, native history,
    and artifact/process support not declared by a profile) stays on the concrete
    adapter and is never faked. See `host-capabilities.md`.
-8. **Credential red lines.** Agent-owned runtimes authenticate through their own
-   CLI login (`auth: { kind: "agent-cli" }`). A Wanta-routed harness receives
-   only an opaque, session-scoped loopback token; Wanta account tokens and BYOK
-   keys stay in Electron main. BYOK keys keep the existing `safeStorage` rules
-   (see docs/conventions.md).
+8. **Credential red lines.** BYOA runtimes authenticate through their own CLI
+   login (`auth: { kind: "agent-cli" }`) and call only their native model
+   provider route. Wanta never injects its account token, BYOK key, base URL,
+   or model alias into an external agent. Wanta account and BYOK model routing
+   belong exclusively to the built-in OpenCode kernel; BYOK keys keep the
+   existing `safeStorage` rules (see docs/conventions.md).
 
 ## Event/input vocabulary
 
@@ -129,36 +130,23 @@ External agents build on `electron/agent/external/`:
   `<scratchRoot>/<kind>/transcripts/` (atomic replace, debounced writes,
   immediate flush on turn completion/stop, lazy rehydration on view or first
   prompt, deleted with the session).
-- **Model/effort selection**: registry entries declare `modelSource`. For
-  `agent`, `set-model` / `set-effort` input variants (plus
-  `agentModelId`/`agentEffortId` on the session-creating prompt). The ACP
+- **Model/effort selection**: the built-in OpenCode kernel uses Wanta's model
+  catalog and BYOK routes. Every BYOA registration uses its native model
+  catalog, account, provider configuration, and selection protocol. External
+  selection is carried by `set-model` / `set-effort` input variants plus
+  `agentModelId`/`agentEffortId` on the session-creating prompt. The ACP
   adapter prefers v1.3 session config options (`session/set_config_option`,
   categories `model` / `thought_level`) and falls back to the unstable `models`
-  state + `session/set_model` that shipping agents (codex-acp 1.1.14, grok 1.0)
+  state + `session/set_model` that shipping agents (codex-acp 1.6.2, grok 1.0.5)
   actually implement. Available options surface on
   `ExternalAgentRuntimeStatus.catalog` and the UI renders them verbatim; a
   `warmCatalog()` pass (a throwaway ACP session closed right away) fills the catalog before the first user session so draft-time
   pickers show the real lists. Per-session choices are also stored in Wanta's
-  session metadata so they survive renderer reloads and full app restarts. For
-  `wanta`, the ordinary Wanta model/reasoning choice is carried on every prompt;
-  agent-native model pickers are disabled.
-- **Wanta model routes for external harnesses**: Claude Code and Grok are
-  Wanta-routed harnesses. Electron
-  main exposes an authenticated loopback implementation of Anthropic Messages
-  (`/v1/messages`, `/v1/messages/count_tokens`, `/v1/models`) and translates it
-  to the selected built-in or BYOK OpenAI-compatible/Responses route. ACP
-  `session/new._meta.claudeCode.options` injects the loopback endpoint, opaque
-  token, and stable model alias at the programmatic settings tier, so user
-  Claude settings cannot restore another provider endpoint. The lease's actual
-  upstream route is updated before each prompt, allowing model changes without
-  replacing Claude's native session, Skills, subagents, plan loop, or settings.
-  Grok receives a separate authenticated OpenAI-compatible loopback endpoint
-  through `XAI_API_KEY` plus the `GROK_*_BASE_URL` environment. Its native model
-  catalog contains one stable Wanta alias and every chat-completions request is
-  translated to the selected Wanta route. Grok's provider configuration is
-  process-scoped, so its turns are serialized across Wanta sessions to prevent
-  one session's model choice from racing another; no xAI login or credential is
-  read or required.
+  session metadata so they survive renderer reloads and full app restarts.
+  Wanta/BYOK `model` and `reasoningLevel` fields are never forwarded to an
+  external adapter, including when a stale renderer sends them. Claude Code,
+  Codex, and Grok therefore show only the catalogs reported by their local
+  runtimes and charge the user's own locally configured account.
 - **Attachments**: delivered as ACP `resource_link` blocks that the agent
   resolves with its own tools and permission model — never inlined into the payload.
   Display rides the kernel's `userAttachmentStore` record keyed by the
@@ -184,8 +172,9 @@ External agents build on `electron/agent/external/`:
   `electron/agents/catalog.ts` + `resolveUserCommandPath`) with `--version`, plus
   validation of any native CLI delegated to by a packaged ACP bridge
   verification, plus fail-open login detection for agent-owned ACP agents via
-  config marker files. Login status gates only `agent-cli` profiles;
-  a Wanta-routed harness is gated by its binary and Wanta model availability.
+  config marker files or native status commands. An explicit logged-out result
+  gates submission; an unknown status remains fail-open so the runtime can be
+  authoritative on first connection.
   Exposed to the renderer via the chat service
   `getExternalAgents` invoke.
 - **Sessions** (`electron/session/external-store.ts`): Wanta-owned records
@@ -199,15 +188,16 @@ External agents build on `electron/agent/external/`:
   Agent SDK. ACP is version-negotiated at `initialize` (`PROTOCOL_VERSION`),
   and a mismatch is a hard error.
 - **Credential red line**: Wanta stores no third-party agent subscription
-  secrets. Agent-owned login state is observed, never managed. Wanta-routed
-  harnesses never ask for an agent token and never receive the selected model's
-  real credential.
+  secrets. Agent-owned login state is observed, never managed. External agent
+  subprocesses inherit the user's native provider configuration; Wanta adds
+  only host-capability guards and runtime paths, never model credentials or
+  provider endpoints.
 
 ## Checklist: adding a new agent
 
 0. **ACP-speaking agent?** Then it is ONE registration entry in
    `electron/agent/acp/registry.ts` (command, ACP args, login hint, optional
-   `permissionModeMap`, `modelSource`, and `selection` capability flags) — the profile is
+   `permissionModeMap` and `selection` capability flags) — the profile is
    derived, the generic `AcpAgentAdapter` picks it up, and `external/create.ts`
    instantiates it automatically. No new code branches are allowed anywhere.
    Only continue with the steps below for a NATIVE (non-ACP) adapter.

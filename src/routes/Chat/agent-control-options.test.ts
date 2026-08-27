@@ -18,7 +18,6 @@ const labels = {
   notDetected: "Not detected",
 }
 
-const wantaRoutedKind = "claude-code" as const
 const externalKind = "codex" as const
 const otherExternalKind = EXTERNAL_AGENT_KINDS.find((kind) => kind !== externalKind)!
 
@@ -46,18 +45,13 @@ describe("composerCapabilitiesForProfile", () => {
     // Attachments are delivered as file references the agent resolves itself,
     // so every external agent supports them; model routing and Wanta modes
     // stay agent-owned.
-    for (const kind of EXTERNAL_AGENT_KINDS.filter((kind) => AGENT_PROFILES[kind].modelSource === "agent")) {
+    for (const kind of EXTERNAL_AGENT_KINDS) {
       expect(composerCapabilitiesForProfile(AGENT_PROFILES[kind])).toEqual({
         agentModesEnabled: false,
         attachmentsEnabled: true,
         modelRoutingEnabled: false,
       })
     }
-    expect(composerCapabilitiesForProfile(AGENT_PROFILES[wantaRoutedKind])).toEqual({
-      agentModesEnabled: false,
-      attachmentsEnabled: true,
-      modelRoutingEnabled: true,
-    })
   })
 })
 
@@ -86,15 +80,6 @@ describe("agentRuntimeReadyForSubmission", () => {
       false,
     )
     expect(agentRuntimeReadyForSubmission(otherExternalKind, externalStatus({}))).toBe(false)
-  })
-
-  it("does not require an agent-CLI login for a Wanta-routed harness", () => {
-    expect(
-      agentRuntimeReadyForSubmission(
-        wantaRoutedKind,
-        externalStatus({ kind: wantaRoutedKind, login: { status: "logged_out" } }),
-      ),
-    ).toBe(true)
   })
 })
 
@@ -135,15 +120,6 @@ describe("buildAgentPickerRows", () => {
       hint: "Sign-in required: Run the agent CLI and sign in.",
       selectable: true,
     })
-  })
-
-  it("does not show an agent login hint for a Wanta-routed harness", () => {
-    const rows = buildAgentPickerRows(
-      [externalStatus({ kind: wantaRoutedKind, login: { status: "logged_out" } })],
-      labels,
-    )
-    expect(rows[1]).toMatchObject({ selectable: true })
-    expect(rows[1]!.hint).toBeUndefined()
   })
 
   it("disables errored probes and surfaces the message as tooltip", () => {

@@ -22,6 +22,8 @@ export type AgentKind = "opencode" | AcpAgentKind
  * cross-adapter contract tests enforce that declaration honesty.
  */
 export interface AgentInputCapabilityFlags {
+  /** Agent-owned authentication through an advertised ACP method. */
+  authenticate: boolean
   /** File/directory attachments on a prompt. */
   attachments: boolean
   /** Wanta build/plan modes. */
@@ -71,6 +73,7 @@ export interface AgentProfile {
  * outside the prompt. Attachments are delivered as file references.
  */
 const externalAgentInputs: AgentInputCapabilityFlags = {
+  authenticate: true,
   attachments: true,
   modes: false,
   permissionResponse: true,
@@ -111,6 +114,7 @@ export const AGENT_PROFILES = {
     modelSource: "wanta",
     auth: { kind: "wanta-account" },
     inputs: {
+      authenticate: false,
       attachments: true,
       modes: true,
       permissionResponse: true,

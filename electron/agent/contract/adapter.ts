@@ -3,6 +3,7 @@ import type { AgentEvent } from "./event.ts"
 import type {
   AgentInput,
   AgentSendOptions,
+  AuthenticateAgentInput,
   CancelAgentInput,
   PermissionResponseAgentInput,
   PromptAgentInput,
@@ -144,6 +145,8 @@ export abstract class BaseAgentAdapter implements AgentAdapter {
       }
     }
     switch (input.type) {
+      case "authenticate":
+        return this.handleAuthenticate(input, options)
       case "prompt":
         return this.handlePrompt(input, options)
       case "cancel":
@@ -176,6 +179,10 @@ export abstract class BaseAgentAdapter implements AgentAdapter {
   /** Whether an input variant is genuinely handled (used by contract tests for declaration honesty). */
   public supportsInput(type: AgentInput["type"]): boolean {
     switch (type) {
+      case "authenticate":
+        return (
+          this.handleAuthenticate !== BaseAgentAdapter.prototype.handleAuthenticate && this.profile.inputs.authenticate
+        )
       case "prompt":
       case "cancel":
         return true
@@ -201,6 +208,10 @@ export abstract class BaseAgentAdapter implements AgentAdapter {
   protected abstract handleStop(): Promise<void>
   protected abstract handlePrompt(input: PromptAgentInput, options?: AgentSendOptions): Promise<void>
   protected abstract handleCancel(input: CancelAgentInput, options?: AgentSendOptions): Promise<void>
+
+  protected handleAuthenticate(_input: AuthenticateAgentInput, _options?: AgentSendOptions): Promise<void> {
+    return this.rejectUnsupportedInput("authenticate")
+  }
 
   protected handlePermissionResponse(_input: PermissionResponseAgentInput, _options?: AgentSendOptions): Promise<void> {
     return this.rejectUnsupportedInput("permission-response")

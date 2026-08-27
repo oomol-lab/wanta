@@ -147,6 +147,13 @@ External agents build on `electron/agent/external/`:
   external adapter, including when a stale renderer sends them. Claude Code,
   Codex, and Grok therefore show only the catalogs reported by their local
   runtimes and charge the user's own locally configured account.
+- **Authentication recovery**: ACP `initialize.authMethods` is normalized into
+  `ExternalAgentRuntimeStatus.authMethods`. Agent-owned methods are invoked by
+  the `authenticate` input variant; Wanta never receives or persists the
+  credential. A static registry command is display/copy-only fallback. Login
+  success invalidates the probe and catalog caches before the renderer refreshes.
+  Runtime readiness may disable prompt submission, but it must never disable
+  the Agent configuration control used to authenticate or switch away.
 - **Attachments**: delivered as ACP `resource_link` blocks that the agent
   resolves with its own tools and permission model — never inlined into the payload.
   Display rides the kernel's `userAttachmentStore` record keyed by the

@@ -43,6 +43,7 @@ interface FakePromptTurn {
 }
 
 interface FakeAgentBehavior {
+  authenticate?: (methodId: string) => Promise<void> | void
   initialize?: Partial<InitializeResponse>
   initializeError?: Error
   failureDetail?: string
@@ -53,6 +54,7 @@ interface FakeAgentBehavior {
 }
 
 interface FakeAgent {
+  authenticateRequests: string[]
   connect: () => Promise<AcpTransport>
   connectCount: () => number
   fireExit: (code: number | null) => void
@@ -79,6 +81,7 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
   const closedSessionIds: string[] = []
   const cancelledSessionIds: string[] = []
   const permissionResponses: RequestPermissionResponse[] = []
+  const authenticateRequests: string[] = []
 
   const app = agent({ name: "fake-acp-agent" })
     .onRequest("initialize", () => {
@@ -94,6 +97,11 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
       }
       sessionSeq += 1
       return { sessionId: `acp-session-${sessionSeq}` }
+    })
+    .onRequest("authenticate", async ({ params }) => {
+      authenticateRequests.push(params.methodId)
+      await behavior.authenticate?.(params.methodId)
+      return {}
     })
     .onRequest("session/set_mode", ({ params }) => {
       setModeRequests.push(params)
@@ -151,6 +159,7 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
     })
 
   return {
+    authenticateRequests,
     connect: async () => {
       connectCount += 1
       const clientToAgent = new TransformStream<AnyMessage, AnyMessage>()
@@ -299,6 +308,48 @@ describe("AcpAgentAdapter", () => {
     await harness.adapter.runtimeStatus()
     await harness.adapter.runtimeStatus()
     expect(harness.probe).toHaveBeenCalledTimes(1)
+  })
+
+  test("surfaces ACP auth methods and delegates authentication to the local agent", async () => {
+    const authenticate = vi.fn()
+    const harness = await createHarness(
+      {
+        authenticate,
+        initialize: {
+          authMethods: [{ id: "grok.com", name: "Grok", description: "Sign in with Grok" }],
+        },
+      },
+      "grok",
+    )
+
+    await harness.adapter.warmCatalog()
+    const status = await harness.adapter.runtimeStatus()
+    expect(status.authMethods).toEqual([
+      { id: "grok.com", name: "Grok", description: "Sign in with Grok", type: "agent" },
+    ])
+    expect(status.loginCommand).toBe("grok login")
+
+    await harness.adapter.send({ type: "authenticate", methodId: "grok.com" })
+    expect(authenticate).toHaveBeenCalledWith("grok.com")
+    expect(harness.fake.authenticateRequests).toEqual(["grok.com"])
+  })
+
+  test("rejects unavailable and terminal-only authentication methods", async () => {
+    const harness = await createHarness(
+      {
+        initialize: {
+          authMethods: [{ id: "terminal", name: "Terminal", type: "terminal", args: ["login"] }],
+        },
+      },
+      "grok",
+    )
+    await harness.adapter.warmCatalog()
+    await expect(harness.adapter.send({ type: "authenticate", methodId: "missing" })).rejects.toThrow(
+      /authentication method "missing" is not available/u,
+    )
+    await expect(harness.adapter.send({ type: "authenticate", methodId: "terminal" })).rejects.toThrow(
+      /terminal authentication is not supported/u,
+    )
   })
 
   test("allows independent local-agent sessions to run concurrently", async () => {

@@ -90,7 +90,14 @@ export interface SetEffortAgentInput {
   effortId?: string
 }
 
+/** Start an agent-owned authentication method advertised during ACP initialize. */
+export interface AuthenticateAgentInput {
+  type: "authenticate"
+  methodId: string
+}
+
 export type AgentInput =
+  | AuthenticateAgentInput
   | PromptAgentInput
   | CancelAgentInput
   | PermissionResponseAgentInput
@@ -185,8 +192,14 @@ const setEffortInputSchema = z.object({
   effortId: z.string().min(1).optional(),
 })
 
+const authenticateInputSchema = z.object({
+  type: z.literal("authenticate"),
+  methodId: z.string().min(1),
+})
+
 /** Compile-time check: schema union and AgentInput must stay in lockstep. */
 export const agentInputSchema: z.ZodType<AgentInput> = z.discriminatedUnion("type", [
+  authenticateInputSchema,
   promptInputSchema,
   cancelInputSchema,
   permissionResponseInputSchema,

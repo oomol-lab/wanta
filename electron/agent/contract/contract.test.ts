@@ -388,6 +388,7 @@ describe.each(adapterFixtures)("agent adapter contract: $kind", ({ kind, create 
     expect(harness.adapter.profile).toBe(profile)
     expect(harness.adapter.supportsInput("prompt")).toBe(true)
     expect(harness.adapter.supportsInput("cancel")).toBe(true)
+    expect(harness.adapter.supportsInput("authenticate")).toBe(profile.inputs.authenticate)
     expect(harness.adapter.supportsInput("permission-response")).toBe(profile.inputs.permissionResponse)
     expect(harness.adapter.supportsInput("question-response")).toBe(profile.inputs.questionResponse)
     expect(harness.adapter.supportsInput("set-model")).toBe(profile.inputs.setModel)
@@ -670,6 +671,7 @@ describe("BaseAgentAdapter defaults", () => {
     const adapter = new MinimalAdapter()
     await adapter.start()
     expect(adapter.supportsInput("permission-response")).toBe(false)
+    expect(adapter.supportsInput("authenticate")).toBe(false)
     expect(adapter.supportsInput("question-response")).toBe(false)
     expect(adapter.supportsInput("set-model")).toBe(false)
     expect(adapter.supportsInput("set-effort")).toBe(false)
@@ -678,6 +680,9 @@ describe("BaseAgentAdapter defaults", () => {
     )
     await expect(adapter.send({ type: "set-effort", sessionId: "s", effortId: "e" })).rejects.toThrow(
       "opencode: set-effort is not supported",
+    )
+    await expect(adapter.send({ type: "authenticate", methodId: "native" })).rejects.toThrow(
+      "opencode: authenticate is not supported",
     )
     await expect(
       adapter.send({ type: "permission-response", sessionId: "s", requestId: "r", reply: "once" }),

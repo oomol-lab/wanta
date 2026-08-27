@@ -79,6 +79,14 @@ describe("ComposerModeControls", () => {
     expect(html).not.toContain(reasoningPickerLabel)
   })
 
+  it("keeps Agent configuration enabled when only the composer runtime is unavailable", () => {
+    const html = renderControls({ agentConfigurationDisabled: false, composerDisabled: true })
+    const trigger = html.match(/<button[^>]*aria-label="Agent configuration"[^>]*>/u)?.[0]
+    expect(trigger).toBeDefined()
+    expect(trigger).not.toContain(' disabled=""')
+    expect(html.match(/<button[^>]*aria-label="Switch mode"[^>]*>/u)?.[0]).toContain(' disabled=""')
+  })
+
   it("keeps Wanta model and reasoning selections inside the combined trigger", () => {
     const html = renderControls({ agentModesEnabled: true, modelRoutingEnabled: true })
     expect(html).toContain(agentModeLabel)

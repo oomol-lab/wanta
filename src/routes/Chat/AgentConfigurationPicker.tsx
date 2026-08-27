@@ -272,7 +272,7 @@ export function AgentConfigurationPicker({
       buildAgentPickerRows(externalAgents, {
         builtIn: t("chat.agentBuiltIn"),
         builtInEngine: `OpenCode ${__OPENCODE_VERSION__}`,
-        loginRequired: (hint) => t("chat.agentLoginRequired", { hint }),
+        loginRequired: () => t("chat.agentLoginRequiredShort"),
         notDetected: t("chat.agentNotDetected"),
       }),
     [externalAgents, t],

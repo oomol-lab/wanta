@@ -17,6 +17,8 @@ export interface AcpAgentRegistration {
   versionArgs: readonly string[]
   /** User guidance when the agent reports authentication is required. */
   loginHint: string
+  /** Static, display-only terminal fallback. Never executed as a shell string. */
+  loginCommand: string
   /**
    * Wanta permission modes this agent supports, each mapped to the ACP session
    * mode id applied via session/set_mode. Key order defines the profile's
@@ -60,6 +62,7 @@ export const ACP_AGENT_REGISTRY = {
     acpArgs: [],
     versionArgs: ["--version"],
     loginHint: "Run `claude login` in a terminal to sign in, then retry.",
+    loginCommand: "claude login",
     // claude-agent-acp 0.70.0 exposes the Claude Code modes with these stable
     // wire ids; availability (notably auto/full access) is still checked
     // against the concrete session before Wanta applies a requested mode.
@@ -84,6 +87,7 @@ export const ACP_AGENT_REGISTRY = {
     acpArgs: [],
     versionArgs: ["--version"],
     loginHint: "Run `codex login` in a terminal to sign in, then retry.",
+    loginCommand: "codex login",
     // codex-acp modes: read-only / agent (workspace-write) / agent-full-access.
     permissionModeMap: { default: "agent", read_only: "read-only", full_access: "agent-full-access" },
     // codex-acp 1.6.2: session/new carries the model config option, followed by
@@ -103,6 +107,7 @@ export const ACP_AGENT_REGISTRY = {
     acpArgs: ["agent", "stdio"],
     versionArgs: ["--version"],
     loginHint: "Run `grok login` in a terminal to sign in, then retry.",
+    loginCommand: "grok login",
     loginProbe: "grok-models",
     catalogProbe: "grok-models",
     // grok advertises no ACP session modes; approvals round-trip per request.

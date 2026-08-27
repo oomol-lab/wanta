@@ -18,6 +18,7 @@ import type {
   AgentPermissionMode,
   ArtifactBundle,
   ArtifactBundlesRequest,
+  AuthenticateExternalAgentRequest,
   AnswerPermissionRequest,
   AnswerQuestionRequest,
   AttachmentPreviewRequest,
@@ -499,6 +500,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
       }),
     )
+  }
+
+  public async authenticateExternalAgent(req: AuthenticateExternalAgentRequest): Promise<ExternalAgentRuntimeStatus> {
+    const adapter = this.externalAgents.get(req.kind)
+    if (!adapter) throw new Error("This agent is not available.")
+    await adapter.send({ type: "authenticate", methodId: req.methodId })
+    return adapter.runtimeStatus()
   }
 
   public async setExternalSessionModel(req: SetExternalSessionModelRequest): Promise<void> {

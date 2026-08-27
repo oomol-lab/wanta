@@ -2,6 +2,7 @@ import type { AgentPermissionMode, ChatMessage, ChatPermissionReply, ChatPermiss
 import type { AgentEvent } from "../contract/event.ts"
 import type {
   AgentSendOptions,
+  AuthenticateAgentInput,
   CancelAgentInput,
   PermissionResponseAgentInput,
   PromptAgentInput,
@@ -11,7 +12,7 @@ import type {
 import type { AgentProfile } from "../contract/profile.ts"
 import type { HostMcpServerProvider } from "../external/host-mcp.ts"
 import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
-import type { ExternalAgentCatalog, ExternalAgentCatalogOption } from "../external/status.ts"
+import type { ExternalAgentAuthMethod, ExternalAgentCatalog, ExternalAgentCatalogOption } from "../external/status.ts"
 import type { AcpAgentKind, AcpAgentRegistration } from "./registry.ts"
 import type { AcpSessionTranslator } from "./translator.ts"
 import type {
@@ -372,6 +373,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   /** Last projected Wanta permission mode per session, applied at creation. */
   private readonly desiredPermissionModes = new Map<string, AgentPermissionMode>()
   private catalog: ExternalAgentCatalog | undefined
+  private authMethods: ExternalAgentAuthMethod[] = []
   private catalogWarmup: Promise<void> | undefined
   private permissionSeq = 0
   private probeCache: { at: number; promise: Promise<ExternalAgentRuntimeStatus> } | undefined
@@ -407,7 +409,12 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   }
 
   private decorateStatus(status: ExternalAgentRuntimeStatus): ExternalAgentRuntimeStatus {
-    return this.catalog ? { ...status, catalog: this.catalog } : status
+    return {
+      ...status,
+      loginCommand: this.options.registration.loginCommand,
+      ...(this.authMethods.length > 0 ? { authMethods: this.authMethods } : {}),
+      ...(this.catalog ? { catalog: this.catalog } : {}),
+    }
   }
 
   /** Merge freshly reported selects into a session, preserving the creation-time reset target. */
@@ -652,6 +659,26 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       return this.rejectUnsupportedInput("set-effort")
     }
     await this.applyConfigSelection(input.sessionId, "effort", input.effortId)
+  }
+
+  protected override async handleAuthenticate(input: AuthenticateAgentInput): Promise<void> {
+    if (!this.profile.inputs.authenticate) {
+      return this.rejectUnsupportedInput("authenticate")
+    }
+    const handle = await this.ensureConnection()
+    const method = this.authMethods.find((candidate) => candidate.id === input.methodId)
+    if (!method) {
+      throw new Error(`${this.kind}: authentication method "${input.methodId}" is not available`)
+    }
+    if (method.type === "terminal") {
+      throw new Error(`${this.kind}: terminal authentication is not supported in Wanta yet`)
+    }
+    await handle.connection.agent.request("authenticate", { methodId: input.methodId })
+    // Authentication changes both the native model catalog and the read-only
+    // login probe. Invalidate both before the renderer refreshes status.
+    this.catalog = undefined
+    this.probeCache = undefined
+    await this.warmCatalog()
   }
 
   /**
@@ -980,6 +1007,17 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
           `but Wanta requires version ${PROTOCOL_VERSION}. Update ${displayName} and retry.`,
       )
     }
+    this.authMethods = (initialize.authMethods ?? []).flatMap((method) => {
+      if (!method || typeof method.id !== "string" || typeof method.name !== "string") return []
+      return [
+        {
+          id: method.id,
+          name: method.name,
+          type: "type" in method && method.type === "terminal" ? ("terminal" as const) : ("agent" as const),
+          ...(typeof method.description === "string" && method.description ? { description: method.description } : {}),
+        },
+      ]
+    })
     // Loss handling is wired before initialize completes, so a subprocess that
     // dies mid-handshake already ran handleConnectionLost against a handle this
     // method had not stored yet. Storing it now would park a dead connection
@@ -1097,6 +1135,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const handle = this.connectionHandle
     this.connectionHandle = undefined
     this.connectionPromise = undefined
+    this.authMethods = []
     if (handle) {
       // This is an intentional teardown, so do not broadcast an unexpected
       // exit. ACP session ids are still connection-scoped and must not survive
@@ -1121,6 +1160,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
     this.connectionHandle = undefined
     this.connectionPromise = undefined
+    this.authMethods = []
     this.settlePendingPermissions(() => true, true)
     const displayName = this.options.registration.displayName
     for (const session of this.sessionsByWantaId.values()) {

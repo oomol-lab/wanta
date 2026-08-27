@@ -293,6 +293,7 @@ export async function probeExternalAgent(
     binary,
     login,
     loginHint,
+    loginCommand: registration.loginCommand,
     ...(catalog ? { catalog } : {}),
   }
   logDiagnosticOnChange(`byoa-probe:${kind}`, "byoa-probe", "external agent probe", {

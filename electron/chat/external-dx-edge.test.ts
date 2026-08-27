@@ -1,6 +1,7 @@
 import type { AgentEvent } from "../agent/contract/event.ts"
 import type {
   AgentSendOptions,
+  AuthenticateAgentInput,
   CancelAgentInput,
   PermissionResponseAgentInput,
   PromptAgentInput,
@@ -59,6 +60,7 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
   public override readonly kind: ExternalAgentKind
   public override readonly profile: AgentProfile
   public readonly prompts: PromptAgentInput[] = []
+  public readonly authentications: AuthenticateAgentInput[] = []
   public readonly cancels: CancelAgentInput[] = []
   public readonly permissionResponses: PermissionResponseAgentInput[] = []
   public readonly setModels: SetModelAgentInput[] = []
@@ -118,6 +120,10 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
 
   protected async handleCancel(input: CancelAgentInput): Promise<void> {
     this.cancels.push(input)
+  }
+
+  protected override async handleAuthenticate(input: AuthenticateAgentInput): Promise<void> {
+    this.authentications.push(input)
   }
 
   protected override async handlePermissionResponse(input: PermissionResponseAgentInput): Promise<void> {
@@ -925,6 +931,17 @@ test("edge8: Grok ignores Wanta models and accepts its native model/effort mutat
   grok.completeAssistantTurn(sessionId, "reply-after", "still native")
   await waitForTurnCompletion(service)
   assert.equal((await service.getMessages(sessionId)).filter((message) => message.role === "assistant").length, 2)
+})
+
+test("external authentication is delegated to the selected local agent", async () => {
+  const { service, adapters } = createHarness(["grok"])
+  const grok = adapters.get("grok")
+  assert.ok(grok)
+
+  const status = await service.authenticateExternalAgent({ kind: "grok", methodId: "grok.com" })
+
+  assert.deepEqual(grok.authentications, [{ type: "authenticate", methodId: "grok.com" }])
+  assert.equal(status.kind, "grok")
 })
 
 test("external model and effort choices are persisted per session", async () => {

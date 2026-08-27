@@ -6,7 +6,7 @@ import { reportRendererHandledError } from "../lib/renderer-diagnostics.ts"
 
 export interface UseExternalAgents {
   agents: ExternalAgentRuntimeStatus[]
-  refresh: () => void
+  refresh: () => Promise<void>
 }
 
 /**
@@ -20,9 +20,9 @@ export function useExternalAgents(): UseExternalAgents {
   const [agents, setAgents] = React.useState<ExternalAgentRuntimeStatus[]>([])
   const requestSequenceRef = React.useRef(0)
 
-  const refresh = React.useCallback((): void => {
+  const refresh = React.useCallback(async (): Promise<void> => {
     const requestId = ++requestSequenceRef.current
-    void chatService
+    await chatService
       .invoke("getExternalAgents")
       .then((next) => {
         if (requestId !== requestSequenceRef.current) {
@@ -36,7 +36,7 @@ export function useExternalAgents(): UseExternalAgents {
   }, [chatService])
 
   React.useEffect(() => {
-    refresh()
+    void refresh()
     return () => {
       // Invalidate in-flight probes on unmount or service change.
       requestSequenceRef.current += 1

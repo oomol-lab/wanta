@@ -18,6 +18,7 @@ import type {
   AgentPermissionMode,
   ArtifactBundle,
   ArtifactBundlesRequest,
+  AuthenticateExternalAgentRequest,
   AnswerPermissionRequest,
   AnswerQuestionRequest,
   AttachmentPreviewRequest,
@@ -501,6 +502,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     )
   }
 
+  public async authenticateExternalAgent(req: AuthenticateExternalAgentRequest): Promise<ExternalAgentRuntimeStatus> {
+    const adapter = this.externalAgents.get(req.kind)
+    if (!adapter) throw new Error("This agent is not available.")
+    await adapter.send({ type: "authenticate", methodId: req.methodId })
+    return adapter.runtimeStatus()
+  }
+
   public async setExternalSessionModel(req: SetExternalSessionModelRequest): Promise<void> {
     await this.runExternalSelectionMutation(req.sessionId, "model", async () => {
       const adapter = this.externalAdapterFor(req.sessionId)
@@ -733,6 +741,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   /** Run one normalized agent event through the bridge pipeline (filtering, folding, watchdogs, broadcast). */
   private processAgentEvent(emit: (event: string, data: unknown) => Promise<void>, translated: ChatEmit): void {
+    if (translated.event === "permissionModeUpdated") {
+      this.setSessionPermissionModeValue(translated.data.sessionId, translated.data.permissionMode)
+      void Promise.resolve(
+        this.deps.onPermissionModeChanged?.(translated.data.sessionId, translated.data.permissionMode),
+      ).catch((error: unknown) => {
+        logDiagnostic(
+          "chat-service",
+          "failed to persist native permission mode update",
+          { error, sessionId: translated.data.sessionId },
+          "warn",
+        )
+      })
+      this.sendBestEffort(emit, translated.event, translated.data, { sessionId: translated.data.sessionId })
+      return
+    }
     if (translated.event === "usageUpdated") {
       // Already folded into the adapter transcript; the usage meter reads it
       // off messages on reload, mirroring the kernel history path.
@@ -2274,8 +2297,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
             artifactDir,
             processDir,
-            ...(req.model ? { model: req.model } : {}),
-            ...(req.reasoningLevel ? { reasoningLevel: req.reasoningLevel } : {}),
+            // BYOA owns its account, provider route, model catalog, and effort.
+            // Never forward Wanta/BYOK model selections into a local agent,
+            // even when an older renderer or stale draft includes them.
             ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
             ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
             ...(teamName ? { teamName } : {}),

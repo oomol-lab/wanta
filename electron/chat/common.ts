@@ -210,6 +210,10 @@ export interface PermissionResolvedEvent {
   sessionId: string
   requestId: string
 }
+export interface PermissionModeUpdatedEvent {
+  sessionId: string
+  permissionMode: AgentPermissionMode
+}
 export interface AnswerPermissionRequest {
   sessionId: string
   requestId: string
@@ -250,6 +254,11 @@ export interface SetExternalSessionModelRequest {
 export interface SetExternalSessionEffortRequest {
   sessionId: string
   effortId?: string
+}
+/** Invoke an authentication method advertised by a local external agent. */
+export interface AuthenticateExternalAgentRequest {
+  kind: ExternalAgentKind
+  methodId: string
 }
 export interface MessagePartRemovedEvent {
   sessionId: string
@@ -929,6 +938,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     questionRejected: QuestionResolvedEvent
     permissionAsked: PermissionAskedEvent
     permissionReplied: PermissionResolvedEvent
+    permissionModeUpdated: PermissionModeUpdatedEvent
     messageCompleted: MessageCompletedEvent
     turnOutcome: TurnOutcomeEvent
     messagePartRemoved: MessagePartRemovedEvent
@@ -973,6 +983,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     getAgentStatus(): Promise<AgentRuntimeStatus>
     getRuntimeCapabilities(): Promise<RuntimeCapabilities>
     getExternalAgents(): Promise<ExternalAgentRuntimeStatus[]>
+    authenticateExternalAgent(req: AuthenticateExternalAgentRequest): Promise<ExternalAgentRuntimeStatus>
     /** Live model/effort switch for an external session; rejects for kernel sessions. */
     setExternalSessionModel(req: SetExternalSessionModelRequest): Promise<void>
     setExternalSessionEffort(req: SetExternalSessionEffortRequest): Promise<void>

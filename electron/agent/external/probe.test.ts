@@ -3,7 +3,12 @@ import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { ACP_AGENT_REGISTRY } from "../acp/registry.ts"
-import { parseClaudeAuthStatus, probeRegisteredRuntime, shouldProbeExternalAgentLogin } from "./probe.ts"
+import {
+  parseClaudeAuthStatus,
+  parseGrokModelsOutput,
+  probeRegisteredRuntime,
+  shouldProbeExternalAgentLogin,
+} from "./probe.ts"
 
 const temporaryDirectories: string[] = []
 
@@ -25,6 +30,32 @@ describe("parseClaudeAuthStatus", () => {
   it("falls back when the command is unsupported or malformed", () => {
     expect(parseClaudeAuthStatus("unknown command: auth")).toBeUndefined()
     expect(parseClaudeAuthStatus(JSON.stringify({ authenticated: true }))).toBeUndefined()
+  })
+})
+
+describe("parseGrokModelsOutput", () => {
+  it("returns the native catalog and explicit logged-out state", () => {
+    expect(
+      parseGrokModelsOutput(
+        "You are not authenticated.\n\nDefault model: grok-4.6\n\nAvailable models:\n  * grok-4.6 (default)\n  - grok-4.5\n",
+      ),
+    ).toEqual({
+      login: { status: "logged_out" },
+      catalog: {
+        defaultModelId: "grok-4.6",
+        efforts: [],
+        models: [
+          { id: "grok-4.6", label: "grok-4.6" },
+          { id: "grok-4.5", label: "grok-4.5" },
+        ],
+      },
+    })
+  })
+
+  it("treats a populated authenticated catalog as logged in", () => {
+    expect(parseGrokModelsOutput("Default model: grok-next\n* grok-next (default)\n").login).toEqual({
+      status: "logged_in",
+    })
   })
 })
 

@@ -1,13 +1,10 @@
-import type { PromptAgentInput } from "./agent/contract/input.ts"
 import type { DirectCliProvider } from "./agent/direct-cli-host-capability.ts"
 import type { HostMcpServerProvider } from "./agent/external/host-mcp.ts"
 import type { LinkCapabilityRuntime } from "./agent/link-capability.ts"
-import type { WantaReasoningLevel } from "./agent/reasoning.ts"
 import type { AppCommand } from "./app-command.ts"
 import type { AppLocale } from "./app-locale.ts"
 import type { AuthRuntimeAccount } from "./auth/store.ts"
 import type { BrowserControlConnection } from "./browser/control-server.ts"
-import type { ModelChoice } from "./models/common.ts"
 import type { AppUpdateState } from "./update/common.ts"
 
 import { ConnectionServer } from "@oomol/connection"
@@ -52,16 +49,12 @@ import {
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
 import { BROWSER_CAPABILITY_ID, createBrowserHostCapability } from "./agent/browser-host-capability.ts"
-import { ClaudeModelGateway } from "./agent/claude-model-gateway.ts"
-import { resolveClaudeModelRoute } from "./agent/claude-model-route.ts"
 import { createDirectCliHostCapability, DIRECT_CLI_CAPABILITY_ID } from "./agent/direct-cli-host-capability.ts"
 import { memoizeExternalCommandEnvironment } from "./agent/external/command-environment.ts"
 import { createExternalAgents } from "./agent/external/create.ts"
 import { ExternalOoGuardServer } from "./agent/external/oo-guard-server.ts"
 import { externalSessionScratchCwd, ExternalOoScopeStore } from "./agent/external/oo-scope-store.ts"
-import { memoizePromptRoutePreparation } from "./agent/external/prompt-preparation.ts"
 import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
-import { GrokModelGateway } from "./agent/grok-model-gateway.ts"
 import { HostCapabilityInvokeServer } from "./agent/host-capability-invoke-server.ts"
 import { HostCapabilityServer } from "./agent/host-capability-server.ts"
 import { HOST_CAPABILITY_AUDIT_BINDING, HostCapabilityKernel } from "./agent/host-capability.ts"
@@ -369,84 +362,6 @@ const externalOoGuardServer = new ExternalOoGuardServer({
   command: ooBinPath,
   scope: () => externalOoScopeStore.snapshot(),
 })
-const claudeModelGateway = new ClaudeModelGateway()
-const grokModelGateway = new GrokModelGateway()
-let claudeModelAccount: AuthRuntimeAccount | null = null
-
-async function wantaRouteFor(input: { model?: ModelChoice; reasoningLevel?: WantaReasoningLevel }) {
-  const runtimeModels = await modelsStore.runtimeModels()
-  return resolveClaudeModelRoute({
-    accountSessionToken: claudeModelAccount?.sessionToken,
-    choice: input.model ?? runtimeModels.selected,
-    customModels: runtimeModels.customModels,
-    reasoningLevel: input.reasoningLevel,
-  })
-}
-
-function claudeRoutingEnvironment(descriptor: {
-  baseUrl: string
-  model: string
-  token: string
-}): Record<string, string> {
-  return {
-    ANTHROPIC_API_KEY: "",
-    ANTHROPIC_AUTH_TOKEN: descriptor.token,
-    ANTHROPIC_BASE_URL: descriptor.baseUrl,
-    ANTHROPIC_BEDROCK_BASE_URL: "",
-    ANTHROPIC_CUSTOM_HEADERS: "",
-    ANTHROPIC_CUSTOM_MODEL_OPTION: descriptor.model,
-    ANTHROPIC_MODEL: descriptor.model,
-    ANTHROPIC_VERTEX_BASE_URL: "",
-    CLAUDE_CODE_OAUTH_TOKEN: "",
-    CLAUDE_CODE_USE_BEDROCK: "0",
-    CLAUDE_CODE_USE_VERTEX: "0",
-  }
-}
-
-const prepareClaudePromptRoute = memoizePromptRoutePreparation(async (input) =>
-  claudeModelGateway.issue(input.sessionId, await wantaRouteFor(input)),
-)
-const claudeModelRouter = {
-  onForgetSession: (sessionId: string): void => claudeModelGateway.revokeSession(sessionId),
-  preparePrompt: async (input: PromptAgentInput): Promise<void> => {
-    await prepareClaudePromptRoute(input)
-  },
-  sessionMeta: async (input: PromptAgentInput): Promise<Record<string, unknown>> => {
-    // First-turn preparation and session metadata consume the exact same route
-    // snapshot. Existing sessions only call preparePrompt; WeakMap ownership
-    // lets each completed PromptAgentInput be collected normally.
-    const descriptor = await prepareClaudePromptRoute(input)
-    const env = claudeRoutingEnvironment(descriptor)
-    return {
-      claudeCode: {
-        options: {
-          env,
-          model: descriptor.model,
-          // Programmatic settings outrank user/project settings. Mirroring the
-          // route here prevents ~/.claude/settings.json from restoring another
-          // endpoint while all other Claude Code habits remain loaded.
-          settings: { apiKeyHelper: "", env, model: descriptor.model },
-        },
-      },
-    }
-  },
-}
-const grokModelRouter = {
-  onForgetSession: (sessionId: string): void => grokModelGateway.revokeSession(sessionId),
-  preparePrompt: async (input: PromptAgentInput): Promise<void> => {
-    grokModelGateway.prepare(input.sessionId, await wantaRouteFor(input))
-  },
-  sessionMeta: async (): Promise<undefined> => undefined,
-  commandEnvironment: async (): Promise<NodeJS.ProcessEnv> => {
-    const descriptor = await grokModelGateway.descriptor()
-    return {
-      XAI_API_KEY: descriptor.token,
-      GROK_XAI_API_BASE_URL: descriptor.baseUrl,
-      GROK_MODELS_BASE_URL: descriptor.baseUrl,
-      GROK_MODELS_LIST_URL: `${descriptor.baseUrl}/models`,
-    }
-  },
-}
 const externalAgentCommandEnvironment = memoizeExternalCommandEnvironment(async () => {
   const [userPath, managedOoBinPath, guard] = await Promise.all([
     resolveUserCommandPath(),
@@ -467,9 +382,9 @@ const externalAgentCommandEnvironment = memoizeExternalCommandEnvironment(async 
     WANTA_TEAM_SCOPE_PATH: undefined,
   }
 })
-// External adapters are app-lifetime. Agent-owned registrations keep CLI auth;
-// Wanta-routed harnesses resolve the current account/BYOK route per turn. Host
-// capabilities are issued per Wanta session and keep identity in main.
+// External adapters are app-lifetime and inherit their local CLI's own account,
+// provider configuration, and model catalog. Host capabilities are issued per
+// Wanta session and keep Wanta identity and credentials in Electron main.
 const externalHostMcpServers: HostMcpServerProvider = async (input) => {
   const [larkRuntime, wecomRuntime, dingTalkRuntime] = await directRuntimes()
   const directSkillSources = [
@@ -543,7 +458,6 @@ const externalAgents = createExternalAgents({
   scratchRootDir: externalAgentRootDir,
   commandEnvironment: externalAgentCommandEnvironment,
   hostMcpServers: externalHostMcpServers,
-  wantaModelRouters: { "claude-code": claudeModelRouter, grok: grokModelRouter },
 })
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 团队作用域同步，
 // 经 ChatService.setAgentTeam → onSetAgentTeam 回调（渲染层切 workspace 时调用）。
@@ -937,8 +851,6 @@ function reapAgentForShutdown(): Promise<void> {
       ])
     })
     await runBoundedShutdownStep("dispose built-in host invoke server", () => builtInHostInvokeServer.dispose())
-    await runBoundedShutdownStep("dispose Claude model gateway", () => claudeModelGateway.dispose())
-    await runBoundedShutdownStep("dispose Grok model gateway", () => grokModelGateway.dispose())
     await runBoundedShutdownStep("dispose external OO guard server", () => externalOoGuardServer.dispose())
     hostQuestionBroker.dispose()
     await runBoundedShutdownStep("dispose spreadsheet preview worker", () => spreadsheetPreviewWorker.dispose())
@@ -1081,7 +993,6 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   runtimeInitialized = true
   const runtimeVersionAtStart = agentRuntimeVersion
   const runtimeModels = await modelsStore.runtimeModels()
-  claudeModelAccount = account
   const runtime = resolveAgentRuntime(account, runtimeModels.selected, runtimeModels.customModels)
   // On a cross-account switch, drop the previous account's team BEFORE it is
   // baked into linkRuntime (and thus the new sidecar's oo identity/team-scope);

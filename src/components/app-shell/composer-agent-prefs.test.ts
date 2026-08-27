@@ -80,11 +80,11 @@ describe("composer agent prefs", () => {
     expect(readStoredAgentComposerPrefs(polluted, "claude-code")).toEqual({})
   })
 
-  it("drops permission modes the agent profile does not declare", () => {
+  it("retains a Grok permission preference declared by its normalized mode map", () => {
     const storage = memoryStorage({
       "wanta.composerAgentPrefs": JSON.stringify({ byAgent: { grok: { permissionMode: "plan" } } }),
     })
-    expect(readStoredAgentComposerPrefs(storage, "grok")).toEqual({})
+    expect(readStoredAgentComposerPrefs(storage, "grok")).toEqual({ permissionMode: "plan" })
   })
 
   it("survives corrupted storage payloads", () => {

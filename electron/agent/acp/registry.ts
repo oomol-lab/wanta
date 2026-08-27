@@ -1,4 +1,5 @@
 import type { AgentPermissionMode } from "../../chat/common.ts"
+import type { WantaAgentMode } from "../mode.ts"
 
 // ACP agent registry (BYOA phase 2).
 //
@@ -17,10 +18,8 @@ export interface AcpAgentRegistration {
   versionArgs: readonly string[]
   /** User guidance when the agent reports authentication is required. */
   loginHint: string
-  /** Model/auth owner. Omitted means the external agent owns both through its CLI. */
-  modelSource?: "agent" | "wanta"
-  /** Wanta-routed agents with process-wide provider configuration serialize turns to keep routes isolated. */
-  modelRouteScope?: "session" | "process"
+  /** Static, display-only terminal fallback. Never executed as a shell string. */
+  loginCommand: string
   /**
    * Wanta permission modes this agent supports, each mapped to the ACP session
    * mode id applied via session/set_mode. Key order defines the profile's
@@ -34,10 +33,14 @@ export interface AcpAgentRegistration {
    * "thought_level"). Drives the profile's setModel/setEffort declarations.
    */
   selection?: { model: boolean; effort: boolean }
+  /** Map Wanta build/plan choices onto a native ACP select option. */
+  workModeMap?: Readonly<Partial<Record<WantaAgentMode, { category: "collaboration_mode"; value: string }>>>
   /** Config file (relative to $HOME) whose presence suggests a completed login. */
   loginMarkerPath?: string
   /** Optional native-runtime login probe when a marker alone cannot authoritatively establish auth state. */
-  loginProbe?: "claude-cli"
+  loginProbe?: "claude-cli" | "grok-models"
+  /** Optional read-only native catalog probe used before ACP session creation. */
+  catalogProbe?: "grok-models"
   /**
    * Managed binary name resolved from node_modules/.bin in dev (and bundled
    * resources in packaged builds) when the CLI is not on the user PATH. Used
@@ -61,10 +64,8 @@ export const ACP_AGENT_REGISTRY = {
     cliCommands: ["claude-agent-acp"],
     acpArgs: [],
     versionArgs: ["--version"],
-    loginHint: "Check the selected Wanta model and its credential, then retry.",
-    // Claude Code supplies the coding harness; Wanta supplies the selected
-    // model and credential through a session-scoped Anthropic-compatible route.
-    modelSource: "wanta",
+    loginHint: "Run `claude login` in a terminal to sign in, then retry.",
+    loginCommand: "claude login",
     // claude-agent-acp 0.70.0 exposes the Claude Code modes with these stable
     // wire ids; availability (notably auto/full access) is still checked
     // against the concrete session before Wanta applies a requested mode.
@@ -75,7 +76,11 @@ export const ACP_AGENT_REGISTRY = {
       auto: "auto",
       full_access: "bypassPermissions",
     },
-    selection: { model: false, effort: false },
+    // claude-agent-acp 0.70.0 exposes native model and effort config options.
+    // The selected model is executed with the user's own Claude Code account
+    // and local provider configuration; Wanta never supplies a model route.
+    selection: { model: true, effort: true },
+    loginProbe: "claude-cli",
     bundledBinName: "claude-agent-acp",
     runtimeExecutable: { cliCommands: ["claude"], envVar: "CLAUDE_CODE_EXECUTABLE" },
   },
@@ -85,12 +90,17 @@ export const ACP_AGENT_REGISTRY = {
     acpArgs: [],
     versionArgs: ["--version"],
     loginHint: "Run `codex login` in a terminal to sign in, then retry.",
+    loginCommand: "codex login",
     // codex-acp modes: read-only / agent (workspace-write) / agent-full-access.
     permissionModeMap: { default: "agent", read_only: "read-only", full_access: "agent-full-access" },
-    // codex-acp 1.1.14: session/new carries the unstable models shape, then a
+    // codex-acp 1.6.2: session/new carries the model config option, followed by
     // config_option_update replaces it with family-level models (category
     // "model") plus a thought_level effort select — both axes are live.
     selection: { model: true, effort: true },
+    workModeMap: {
+      build: { category: "collaboration_mode", value: "default" },
+      plan: { category: "collaboration_mode", value: "plan" },
+    },
     loginMarkerPath: ".codex/auth.json",
     bundledBinName: "codex-acp",
     runtimeExecutable: { cliCommands: ["codex"], envVar: "CODEX_PATH" },
@@ -98,18 +108,29 @@ export const ACP_AGENT_REGISTRY = {
   grok: {
     displayName: "Grok",
     cliCommands: ["grok"],
-    // Verified against grok 1.0.0: `grok agent stdio` speaks full ACP v1
+    // Verified against grok 1.0.5: `grok agent stdio` speaks full ACP v1
     // (initialize, session/new with the unstable models shape, session/set_model,
     // session/close, standard permission requests).
     acpArgs: ["agent", "stdio"],
     versionArgs: ["--version"],
-    loginHint: "Check the selected Wanta model and its credential, then retry.",
-    // Grok supplies the coding harness; Wanta supplies the selected model and
-    // credential through an authenticated OpenAI-compatible loopback route.
-    modelSource: "wanta",
-    modelRouteScope: "process",
-    // grok advertises no ACP session modes; approvals round-trip per request.
-    selection: { model: false, effort: false },
+    loginHint: "Run `grok login` in a terminal to sign in, then retry.",
+    loginCommand: "grok login",
+    loginProbe: "grok-models",
+    catalogProbe: "grok-models",
+    // Candidate ids are intersected with the modes returned by the live Grok
+    // session, so an unavailable or renamed mode is never shown or applied.
+    permissionModeMap: {
+      default: "default",
+      accept_edits: "acceptEdits",
+      plan: "plan",
+      auto: "auto",
+      full_access: "bypassPermissions",
+    },
+    // Permission modes are exposed only after an authenticated session; the
+    // live availableModes intersection above keeps the pre-login UI conservative.
+    // Grok 1.0.5 exposes its account-scoped model and thought-level config
+    // options over ACP. Both selections stay native to the local Grok runtime.
+    selection: { model: true, effort: true },
   },
 } as const satisfies Record<string, AcpAgentRegistration>
 

@@ -1,6 +1,7 @@
 import type { AgentEvent } from "../agent/contract/event.ts"
 import type {
   AgentSendOptions,
+  AuthenticateAgentInput,
   CancelAgentInput,
   PermissionResponseAgentInput,
   PromptAgentInput,
@@ -59,6 +60,7 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
   public override readonly kind: ExternalAgentKind
   public override readonly profile: AgentProfile
   public readonly prompts: PromptAgentInput[] = []
+  public readonly authentications: AuthenticateAgentInput[] = []
   public readonly cancels: CancelAgentInput[] = []
   public readonly permissionResponses: PermissionResponseAgentInput[] = []
   public readonly setModels: SetModelAgentInput[] = []
@@ -118,6 +120,10 @@ class FakeExternalAdapter extends ExternalAgentAdapter {
 
   protected async handleCancel(input: CancelAgentInput): Promise<void> {
     this.cancels.push(input)
+  }
+
+  protected override async handleAuthenticate(input: AuthenticateAgentInput): Promise<void> {
+    this.authentications.push(input)
   }
 
   protected override async handlePermissionResponse(input: PermissionResponseAgentInput): Promise<void> {
@@ -327,8 +333,8 @@ test("external turns receive managed output directories and finalize against the
   const prompt = adapter.prompts[0]
   assert.ok(prompt?.artifactDir)
   assert.ok(prompt.processDir)
-  assert.deepEqual(prompt.model, { kind: "builtin", id: "gpt-5.6-sol" })
-  assert.equal(prompt.reasoningLevel, "high")
+  assert.equal(prompt.model, undefined)
+  assert.equal(prompt.reasoningLevel, undefined)
   assert.equal(prompt.additionalDirectories?.length, 2)
   assert.equal(
     prompt.additionalDirectories?.every((root) => path.isAbsolute(root)),
@@ -884,21 +890,24 @@ test("edge7b: prototype-chain kind segments are not valid external kinds (in-ope
 })
 
 // ---------------------------------------------------------------------------
-// Edge 8: Wanta-routed Grok uses host model choices, not native model knobs
+// Edge 8: local Grok owns its account, catalog, model, and effort
 // ---------------------------------------------------------------------------
 
-test("edge8: Grok receives the selected Wanta model and rejects native model/effort mutations", async () => {
+test("edge8: Grok ignores Wanta models and accepts its native model/effort mutations", async () => {
   const { service, events, adapters } = createHarness(["grok"])
   const grok = adapters.get("grok")
   assert.ok(grok)
-  assert.equal(grok.profile.modelSource, "wanta")
-  assert.equal(grok.profile.inputs.setModel, false)
-  assert.equal(grok.profile.inputs.setEffort, false)
+  assert.equal(grok.profile.modelSource, "agent")
+  assert.equal(grok.profile.auth.kind, "agent-cli")
+  assert.equal(grok.profile.inputs.setModel, true)
+  assert.equal(grok.profile.inputs.setEffort, true)
   const sessionId = mintExternalSessionId("grok")
 
-  await service.sendMessage(sendRequest(sessionId, "with Wanta model", { model: { kind: "builtin", id: "oopilot" } }))
+  await service.sendMessage(
+    sendRequest(sessionId, "ignore stale Wanta model", { model: { kind: "builtin", id: "oopilot" } }),
+  )
   assert.equal(grok.prompts.length, 1)
-  assert.deepEqual(grok.prompts[0]?.model, { kind: "builtin", id: "oopilot" })
+  assert.equal(grok.prompts[0]?.model, undefined)
   grok.completeAssistantTurn(sessionId, "reply-knobs", "answered")
   await waitForTurnCompletion(service)
   assert.deepEqual(
@@ -906,16 +915,33 @@ test("edge8: Grok receives the selected Wanta model and rejects native model/eff
     [],
   )
 
-  await assert.rejects(
-    service.setExternalSessionModel({ sessionId, modelId: "grok-4-fast" }),
-    /set-model is not supported/,
+  await service.setExternalSessionModel({ sessionId, modelId: "grok-4-fast" })
+  await service.setExternalSessionEffort({ sessionId, effortId: "high" })
+  assert.deepEqual(
+    grok.setModels.map(({ modelId }) => modelId),
+    ["grok-4-fast"],
   )
-  await assert.rejects(service.setExternalSessionEffort({ sessionId, effortId: "high" }), /set-effort is not supported/)
-  await service.sendMessage(sendRequest(sessionId, "after rejection"))
+  assert.deepEqual(
+    grok.setEfforts.map(({ effortId }) => effortId),
+    ["high"],
+  )
+  await service.sendMessage(sendRequest(sessionId, "after native selection"))
   assert.equal(grok.prompts.length, 2)
-  grok.completeAssistantTurn(sessionId, "reply-after", "still fine")
+  assert.equal(grok.prompts[1]?.model, undefined)
+  grok.completeAssistantTurn(sessionId, "reply-after", "still native")
   await waitForTurnCompletion(service)
   assert.equal((await service.getMessages(sessionId)).filter((message) => message.role === "assistant").length, 2)
+})
+
+test("external authentication is delegated to the selected local agent", async () => {
+  const { service, adapters } = createHarness(["grok"])
+  const grok = adapters.get("grok")
+  assert.ok(grok)
+
+  const status = await service.authenticateExternalAgent({ kind: "grok", methodId: "grok.com" })
+
+  assert.deepEqual(grok.authentications, [{ type: "authenticate", methodId: "grok.com" }])
+  assert.equal(status.kind, "grok")
 })
 
 test("external model and effort choices are persisted per session", async () => {

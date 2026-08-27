@@ -15,6 +15,7 @@ import { useT } from "@/i18n/i18n"
 const NO_EXTERNAL_AGENTS: ExternalAgentRuntimeStatus[] = []
 
 interface ComposerModeControlsProps {
+  agentConfigurationDisabled?: boolean
   agentCatalog?: ExternalAgentCatalog
   agentEffortId?: string
   agentEffortSelectionEnabled?: boolean
@@ -48,6 +49,7 @@ interface ComposerModeControlsProps {
 }
 
 export function ComposerModeControls({
+  agentConfigurationDisabled = false,
   agentCatalog,
   agentEffortId,
   agentEffortSelectionEnabled = false,
@@ -110,7 +112,7 @@ export function ComposerModeControls({
         agentKind={agentKind}
         agentModelId={agentModelId}
         agentModelSelectionEnabled={agentModelSelectionEnabled}
-        composerDisabled={composerDisabled}
+        composerDisabled={agentConfigurationDisabled}
         externalAgents={externalAgents}
         modelCatalog={modelCatalog}
         modelRequired={modelRequired}

@@ -43,6 +43,7 @@ interface FakePromptTurn {
 }
 
 interface FakeAgentBehavior {
+  authenticate?: (methodId: string) => Promise<void> | void
   initialize?: Partial<InitializeResponse>
   initializeError?: Error
   failureDetail?: string
@@ -53,6 +54,7 @@ interface FakeAgentBehavior {
 }
 
 interface FakeAgent {
+  authenticateRequests: string[]
   connect: () => Promise<AcpTransport>
   connectCount: () => number
   fireExit: (code: number | null) => void
@@ -79,6 +81,7 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
   const closedSessionIds: string[] = []
   const cancelledSessionIds: string[] = []
   const permissionResponses: RequestPermissionResponse[] = []
+  const authenticateRequests: string[] = []
 
   const app = agent({ name: "fake-acp-agent" })
     .onRequest("initialize", () => {
@@ -94,6 +97,11 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
       }
       sessionSeq += 1
       return { sessionId: `acp-session-${sessionSeq}` }
+    })
+    .onRequest("authenticate", async ({ params }) => {
+      authenticateRequests.push(params.methodId)
+      await behavior.authenticate?.(params.methodId)
+      return {}
     })
     .onRequest("session/set_mode", ({ params }) => {
       setModeRequests.push(params)
@@ -151,6 +159,7 @@ function createFakeAgent(behavior: FakeAgentBehavior = {}): FakeAgent {
     })
 
   return {
+    authenticateRequests,
     connect: async () => {
       connectCount += 1
       const clientToAgent = new TransformStream<AnyMessage, AnyMessage>()
@@ -211,10 +220,6 @@ async function createHarness(
   kind: keyof typeof ACP_AGENT_REGISTRY = "codex",
   hostMcpServers?: AcpAdapterOptions["hostMcpServers"],
   transcriptDir?: string,
-  adapterHooks: Pick<
-    AcpAdapterOptions,
-    "onForgetSession" | "preparePrompt" | "processRouteQueueTimeoutMs" | "sessionMeta"
-  > = {},
 ): Promise<AdapterHarness> {
   const fake = createFakeAgent(behavior)
   const registration = ACP_AGENT_REGISTRY[kind]
@@ -234,7 +239,6 @@ async function createHarness(
     connect: fake.connect,
     hostMcpServers,
     transcriptDir,
-    ...adapterHooks,
   })
   await adapter.start()
   startedAdapters.push(adapter)
@@ -306,38 +310,87 @@ describe("AcpAgentAdapter", () => {
     expect(harness.probe).toHaveBeenCalledTimes(1)
   })
 
-  test("forwards host model metadata per session and refreshes its route before each prompt", async () => {
-    const preparePrompt = vi.fn(async () => undefined)
-    const sessionMeta = vi.fn(async () => ({
-      claudeCode: { options: { env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:1234" } } },
-    }))
-    const onForgetSession = vi.fn()
-    const harness = await createHarness({}, "claude-code", undefined, undefined, {
-      onForgetSession,
-      preparePrompt,
-      sessionMeta,
-    })
+  test("surfaces ACP auth methods and delegates authentication to the local agent", async () => {
+    const authenticate = vi.fn()
+    const harness = await createHarness(
+      {
+        authenticate,
+        initialize: {
+          authMethods: [{ id: "grok.com", name: "Grok", description: "Sign in with Grok" }],
+        },
+      },
+      "grok",
+    )
 
-    const input = { ...promptInput(), model: { kind: "builtin", id: "oopilot" } as const }
-    await harness.adapter.send(input)
-    await harness.waitFor((event) => event.event === "messageCompleted")
+    await harness.adapter.warmCatalog()
+    const status = await harness.adapter.runtimeStatus()
+    expect(status.authMethods).toEqual([
+      { id: "grok.com", name: "Grok", description: "Sign in with Grok", type: "agent" },
+    ])
+    expect(status.loginCommand).toBe("grok login")
 
-    expect(preparePrompt).toHaveBeenCalledWith(input)
-    expect(sessionMeta).toHaveBeenCalledWith(input)
-    expect(harness.fake.newSessionRequests[0]?._meta).toEqual({
-      claudeCode: { options: { env: { ANTHROPIC_BASE_URL: "http://127.0.0.1:1234" } } },
-    })
-    harness.adapter.forgetSession(WANTA_SESSION_ID)
-    expect(onForgetSession).toHaveBeenCalledWith(WANTA_SESSION_ID)
+    await harness.adapter.send({ type: "authenticate", methodId: "grok.com" })
+    expect(authenticate).toHaveBeenCalledWith("grok.com")
+    expect(harness.fake.authenticateRequests).toEqual(["grok.com"])
   })
 
-  test("serializes turns for a process-scoped Wanta model route", async () => {
+  test("captures native initialize model context metadata before a session exists", async () => {
+    const harness = await createHarness(
+      {
+        initialize: {
+          _meta: {
+            modelState: {
+              currentModelId: "grok-4.6",
+              availableModels: [
+                {
+                  modelId: "grok-4.6",
+                  name: "Grok 4.6",
+                  _meta: {
+                    totalContextTokens: 500_000,
+                    reasoningEfforts: [{ value: "high", label: "High Effort" }],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+      "grok",
+    )
+
+    await harness.adapter.warmCatalog()
+    const status = await harness.adapter.runtimeStatus()
+    expect(status.catalog).toMatchObject({
+      defaultModelId: "grok-4.6",
+      efforts: [{ id: "high", label: "High Effort" }],
+      models: [{ id: "grok-4.6", label: "Grok 4.6", contextWindow: 500_000 }],
+    })
+  })
+
+  test("rejects unavailable and terminal-only authentication methods", async () => {
+    const harness = await createHarness(
+      {
+        initialize: {
+          authMethods: [{ id: "terminal", name: "Terminal", type: "terminal", args: ["login"] }],
+        },
+      },
+      "grok",
+    )
+    await harness.adapter.warmCatalog()
+    await expect(harness.adapter.send({ type: "authenticate", methodId: "missing" })).rejects.toThrow(
+      /authentication method "missing" is not available/u,
+    )
+    await expect(harness.adapter.send({ type: "authenticate", methodId: "terminal" })).rejects.toThrow(
+      /terminal authentication is not supported/u,
+    )
+  })
+
+  test("allows independent local-agent sessions to run concurrently", async () => {
     let releaseFirst!: () => void
     const firstBlocked = new Promise<void>((resolve) => {
       releaseFirst = resolve
     })
     let promptCount = 0
-    const preparePrompt = vi.fn(async () => undefined)
     const secondDispatched = vi.fn()
     const harness = await createHarness(
       {
@@ -348,9 +401,6 @@ describe("AcpAgentAdapter", () => {
         },
       },
       "grok",
-      undefined,
-      undefined,
-      { preparePrompt, sessionMeta: async () => undefined, onForgetSession: () => undefined },
     )
     const first = harness.adapter.send(promptInput("first"))
     await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(1))
@@ -363,50 +413,11 @@ describe("AcpAgentAdapter", () => {
       { onDispatch: secondDispatched },
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(preparePrompt).toHaveBeenCalledTimes(1)
-    expect(harness.fake.promptRequests).toHaveLength(1)
-    expect(secondDispatched).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(2))
+    expect(secondDispatched).toHaveBeenCalledTimes(1)
 
     releaseFirst()
     await Promise.all([first, second])
-    expect(preparePrompt).toHaveBeenCalledTimes(2)
-    expect(secondDispatched).toHaveBeenCalledTimes(1)
-    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(2))
-  })
-
-  test("fails a queued process route, tears down the wedged runtime, and recreates its ACP session", async () => {
-    let promptCount = 0
-    const harness = await createHarness(
-      {
-        prompt: async () => {
-          promptCount += 1
-          if (promptCount === 1) return await new Promise<PromptResponse>(() => undefined)
-          return { stopReason: "end_turn" }
-        },
-      },
-      "grok",
-      undefined,
-      undefined,
-      {
-        onForgetSession: () => undefined,
-        preparePrompt: async () => undefined,
-        processRouteQueueTimeoutMs: 20,
-        sessionMeta: async () => undefined,
-      },
-    )
-    await harness.adapter.send(promptInput("first"))
-    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(1))
-
-    await expect(
-      harness.adapter.send({ ...promptInput("second"), sessionId: "wanta-session-2", messageId: "user-2" }),
-    ).rejects.toThrow(/model route remained busy/u)
-
-    await harness.adapter.send({ ...promptInput("retry"), messageId: "user-retry" })
-    await vi.waitFor(() => expect(harness.fake.promptRequests).toHaveLength(2))
-    expect(harness.fake.connectCount()).toBe(2)
-    expect(harness.fake.newSessionRequests).toHaveLength(2)
-    expect(harness.fake.promptRequests[1]?.sessionId).not.toBe(harness.fake.promptRequests[0]?.sessionId)
   })
 
   test("streams a full turn: user synthesis, chunks, tool pair, completion", async () => {
@@ -1073,6 +1084,16 @@ describe("AcpAgentAdapter", () => {
             currentModelId: "gpt-5.6-sol[xhigh]",
             availableModels: [{ modelId: "gpt-5.6-sol[xhigh]", name: "GPT-5.6-Sol (xhigh)" }],
           },
+          configOptions: [
+            {
+              id: "reasoning_effort",
+              name: "Reasoning effort",
+              type: "select",
+              category: "thought_level",
+              currentValue: "high",
+              options: [{ value: "high", name: "High" }],
+            },
+          ],
         }) as never,
     })
     await harness.adapter.warmCatalog()
@@ -1082,6 +1103,75 @@ describe("AcpAgentAdapter", () => {
     // A second warm is a no-op once the catalog is populated.
     await harness.adapter.warmCatalog()
     expect(harness.fake.newSessionRequests).toHaveLength(1)
+  })
+
+  test("warmCatalog completes a model-only initialize catalog with session effort options", async () => {
+    const harness = await createHarness({
+      initialize: {
+        _meta: {
+          modelState: {
+            currentModelId: "native-model",
+            availableModels: [{ modelId: "native-model", name: "Native model" }],
+          },
+        },
+      },
+      newSession: () =>
+        ({
+          sessionId: "acp-warm-effort",
+          configOptions: [
+            {
+              id: "effort",
+              name: "Effort",
+              type: "select",
+              category: "thought_level",
+              currentValue: "medium",
+              options: [
+                { value: "low", name: "Low" },
+                { value: "medium", name: "Medium" },
+              ],
+            },
+          ],
+        }) as never,
+    })
+
+    await harness.adapter.warmCatalog()
+
+    const status = await harness.adapter.runtimeStatus()
+    expect(status.catalog?.models.map((model) => model.id)).toEqual(["native-model"])
+    expect(status.catalog?.efforts.map((effort) => effort.id)).toEqual(["low", "medium"])
+    expect(harness.fake.newSessionRequests).toHaveLength(1)
+  })
+
+  test("connection teardown clears permission modes before the next session advertises its own", async () => {
+    let sessionIndex = 0
+    const harness = await createHarness({
+      newSession: () => {
+        sessionIndex += 1
+        return {
+          sessionId: `acp-session-${sessionIndex}`,
+          modes:
+            sessionIndex === 1
+              ? {
+                  currentModeId: "agent",
+                  availableModes: [
+                    { id: "agent", name: "Agent" },
+                    { id: "agent-full-access", name: "Full access" },
+                  ],
+                }
+              : { currentModeId: "agent", availableModes: [{ id: "agent", name: "Agent" }] },
+        }
+      },
+    })
+    await harness.adapter.send(promptInput("first"))
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    expect((await harness.adapter.runtimeStatus()).permissionModes).toEqual(["default", "full_access"])
+
+    harness.fake.fireExit(1)
+    expect((await harness.adapter.runtimeStatus()).permissionModes).toBeUndefined()
+
+    await harness.adapter.send({ ...promptInput("second"), sessionId: "wanta-session-2", messageId: "user-2" })
+    await vi.waitFor(() => expect(harness.fake.newSessionRequests).toHaveLength(2))
+    expect((await harness.adapter.runtimeStatus()).permissionModes).toEqual(["default"])
   })
 
   test("permission modes map onto advertised session modes via the registry map", async () => {

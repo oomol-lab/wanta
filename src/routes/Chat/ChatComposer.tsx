@@ -16,7 +16,7 @@ import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { ArrowRight, BrainCircuit, Bug, Server, X } from "lucide-react"
+import { ArrowRight, BrainCircuit, Bug, Copy, Loader2, LogIn, RefreshCw, Server, X } from "lucide-react"
 import * as React from "react"
 import { AGENT_PROFILES, isExternalAgentKind } from "../../../electron/agent/contract/profile.ts"
 import { AddCustomModelDialog } from "./AddCustomModelDialog.tsx"
@@ -69,11 +69,12 @@ import {
 import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { ErrorNotice } from "@/components/ErrorNotice"
+import { Button } from "@/components/ui/button"
 import { useAppSettings } from "@/hooks/useAppSettings"
 import { useExternalAgents } from "@/hooks/useExternalAgents"
 import { useT } from "@/i18n/i18n"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
-import { resolveUserFacingError } from "@/lib/user-facing-error"
+import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { authTypeLabel } from "@/routes/Connections/shared"
 
@@ -316,6 +317,18 @@ export function ChatComposer({
     () => externalAgentsState.agents.find((agent) => agent.kind === agentKind),
     [agentKind, externalAgentsState.agents],
   )
+  const displayedAgentProfile = AGENT_PROFILES[agentKind]
+  const effectivePermissionModes = isExternalAgentKind(agentKind)
+    ? (displayedExternalAgent?.permissionModes ?? ["default"])
+    : displayedAgentProfile.permissionModes
+  const [authenticatingAgent, setAuthenticatingAgent] = React.useState<AgentKind | null>(null)
+  const [agentAuthError, setAgentAuthError] = React.useState<string | null>(null)
+  const [loginCommandCopied, setLoginCommandCopied] = React.useState(false)
+  React.useEffect(() => {
+    setAgentAuthError(null)
+    setLoginCommandCopied(false)
+    if (displayedExternalAgent?.login.status === "logged_in") setAuthenticatingAgent(null)
+  }, [agentKind, displayedExternalAgent?.login.status])
   const agentRuntimeReady = agentRuntimeReadyForSubmission(agentKind, displayedExternalAgent)
   const submitBlocked = submitDisabled || !agentRuntimeReady || initialSendPending
   const composerDisabled =
@@ -326,6 +339,14 @@ export function ChatComposer({
     answeringQuestion ||
     composerQuestionBlocked
   const composerControlsDisabled = composerModeControlsDisabled({ composerDisabled, modelRequired })
+  // Runtime readiness blocks submission, never the escape hatch used to log in
+  // or select another agent.
+  const agentConfigurationDisabled =
+    submitDisabled ||
+    (voiceEnabled && voiceInput.busy) ||
+    initialSendPending ||
+    answeringQuestion ||
+    composerQuestionBlocked
   const modelCatalog = React.useMemo(
     () => modelCatalogForRuntime(modelCatalogState.catalog, cloudModelsEnabled),
     [cloudModelsEnabled, modelCatalogState.catalog],
@@ -692,13 +713,86 @@ export function ChatComposer({
   ) : null
   // Probed sign-in hint for the displayed agent; only an explicit logged_out
   // state shows guidance (finding by kind naturally skips the built-in agent).
-  const displayedAgentProfile = AGENT_PROFILES[agentKind]
-  const agentLoginNotice =
-    displayedAgentProfile.auth.kind === "agent-cli" && displayedExternalAgent?.login.status === "logged_out" ? (
-      <p className="oo-text-caption px-1 text-muted-foreground">
-        {t("chat.agentLoginRequired", { hint: displayedExternalAgent.loginHint })}
-      </p>
-    ) : null
+  const agentLoginRequired =
+    displayedAgentProfile.auth.kind === "agent-cli" && displayedExternalAgent?.login.status === "logged_out"
+  const nativeAuthMethod = displayedExternalAgent?.authMethods?.find((method) => method.type === "agent")
+  const authenticating = authenticatingAgent === agentKind
+  const authenticateAgent = async (): Promise<void> => {
+    if (!isExternalAgentKind(agentKind) || !nativeAuthMethod || authenticating) return
+    setAuthenticatingAgent(agentKind)
+    setAgentAuthError(null)
+    try {
+      await chatService.invoke("authenticateExternalAgent", { kind: agentKind, methodId: nativeAuthMethod.id })
+      await refreshExternalAgents()
+    } catch (cause) {
+      setAgentAuthError(
+        userFacingErrorDescription(resolveUserFacingError(cause, { area: "auth", preserveMessage: true }), t),
+      )
+    } finally {
+      setAuthenticatingAgent(null)
+    }
+  }
+  const copyLoginCommand = (): void => {
+    const command = displayedExternalAgent?.loginCommand
+    if (!command) return
+    void globalThis.navigator.clipboard
+      .writeText(command)
+      .then(() => setLoginCommandCopied(true))
+      .catch((cause: unknown) => {
+        setAgentAuthError(
+          userFacingErrorDescription(resolveUserFacingError(cause, { area: "auth", preserveMessage: true }), t),
+        )
+      })
+  }
+  const agentLoginNotice = agentLoginRequired ? (
+    <div className="oo-border-divider rounded-xl border bg-muted/35 px-3 py-3">
+      <div className="flex items-start gap-2.5">
+        <LogIn className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <p className="oo-text-label">{t("chat.agentLoginTitle", { agent: displayedExternalAgent.displayName })}</p>
+          <p className="oo-text-caption mt-0.5 text-muted-foreground">
+            {t("chat.agentLoginDescription", { agent: displayedExternalAgent.displayName })}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {nativeAuthMethod ? (
+              <Button type="button" size="sm" disabled={authenticating} onClick={() => void authenticateAgent()}>
+                {authenticating ? <Loader2 className="size-3.5 animate-spin" /> : <LogIn className="size-3.5" />}
+                {authenticating
+                  ? t("chat.agentAuthenticating", { agent: displayedExternalAgent.displayName })
+                  : t("chat.agentLoginAction", { agent: displayedExternalAgent.displayName })}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={authenticating}
+              onClick={() => void refreshExternalAgents()}
+            >
+              <RefreshCw className="size-3.5" />
+              {t("chat.agentRefreshStatus")}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => onSelectAgentKind?.("opencode")}>
+              {t("chat.agentUseBuiltIn")}
+            </Button>
+          </div>
+          {displayedExternalAgent.loginCommand ? (
+            <div className="oo-text-caption mt-2 flex min-w-0 flex-wrap items-center gap-1.5 text-muted-foreground">
+              <span>{t("chat.agentLoginTerminalFallback")}</span>
+              <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">
+                {displayedExternalAgent.loginCommand}
+              </code>
+              <Button type="button" variant="ghost" size="sm" className="h-6 px-1.5" onClick={copyLoginCommand}>
+                <Copy className="size-3" />
+                {loginCommandCopied ? t("chat.agentLoginCommandCopied") : t("chat.agentLoginCommandCopy")}
+              </Button>
+            </div>
+          ) : null}
+          {agentAuthError ? <p className="oo-text-caption mt-2 text-destructive">{agentAuthError}</p> : null}
+        </div>
+      </div>
+    </div>
+  ) : null
   const submitText = draft
   const canSubmit = activePendingQuestion
     ? !submitBlocked && !composerDisabled && attachments.length === 0 && submitText.trim().length > 0
@@ -711,12 +805,18 @@ export function ChatComposer({
       : t("chat.questionComposerPlaceholder")
     : placeholder
   const hasInputAddons = command !== null || attachments.length > 0 || contextMentions.length > 0
-  // The context budget comes from Wanta's own model catalog, which is only
-  // authoritative when the agent routes models through Wanta; agents that bring
-  // their own model must not render a meter fabricated from unrelated limits.
+  // Built-in models use Wanta's budget. BYOA uses only context metadata reported
+  // by that native agent; live usage_update values remain authoritative.
+  const externalContextWindow = React.useMemo(() => {
+    if (modelRoutingEnabled) return undefined
+    const catalog = displayedExternalAgent?.catalog
+    if (!catalog) return undefined
+    const selectedId = agentModelId ?? catalog.defaultModelId
+    return catalog.models.find((model) => model.id === selectedId)?.contextWindow
+  }, [agentModelId, displayedExternalAgent?.catalog, modelRoutingEnabled])
   const contextUsage = React.useMemo(
-    () => buildContextUsageInfo(messages, modelRoutingEnabled ? modelCatalog : null),
-    [messages, modelCatalog, modelRoutingEnabled],
+    () => buildContextUsageInfo(messages, modelRoutingEnabled ? modelCatalog : null, externalContextWindow),
+    [externalContextWindow, messages, modelCatalog, modelRoutingEnabled],
   )
 
   const promptInput = (
@@ -812,6 +912,7 @@ export function ChatComposer({
           onSelectFile={() => composerAttachments.selectAttachments("file")}
         />
         <ComposerTrailingControls
+          agentConfigurationDisabled={agentConfigurationDisabled}
           canSubmit={canSubmit}
           composerDisabled={composerControlsDisabled}
           contextUsage={contextUsage}
@@ -829,7 +930,7 @@ export function ChatComposer({
           externalAgents={externalAgentsState.agents}
           modelRoutingEnabled={modelRoutingEnabled}
           permissionMode={permissionMode}
-          permissionModes={displayedAgentProfile.permissionModes}
+          permissionModes={effectivePermissionModes}
           reasoningLevel={reasoningLevel}
           voiceEnabled={voiceEnabled}
           voiceActive={voiceEnabled && voiceInput.active}

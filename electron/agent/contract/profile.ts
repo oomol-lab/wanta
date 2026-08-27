@@ -22,6 +22,8 @@ export type AgentKind = "opencode" | AcpAgentKind
  * cross-adapter contract tests enforce that declaration honesty.
  */
 export interface AgentInputCapabilityFlags {
+  /** Agent-owned authentication through an advertised ACP method. */
+  authenticate: boolean
   /** File/directory attachments on a prompt. */
   attachments: boolean
   /** Wanta build/plan modes. */
@@ -40,15 +42,15 @@ export interface AgentInputCapabilityFlags {
 export const AGENT_PERMISSION_MODE_ORDER: readonly AgentPermissionMode[] = AGENT_PERMISSION_MODES
 
 /**
- * Who owns model selection for this agent. "wanta" means the Wanta model
- * catalog applies (model selector and BYOK UI visible); "agent" means the
- * agent brings its own models and Wanta must hide model routing UI.
+ * Who owns model selection for this agent. "wanta" is reserved for the
+ * built-in OpenCode kernel (Wanta catalog and BYOK); every BYOA profile is
+ * "agent" and surfaces only the local runtime's native catalog.
  */
 export type AgentModelSource = "wanta" | "agent"
 
 /**
- * How the agent authenticates. An external harness may use Wanta's account or
- * BYOK model route without receiving the underlying provider credential.
+ * How the agent authenticates. BYOA always uses agent-cli; wanta-account is
+ * reserved for the built-in OpenCode model route.
  */
 export type AgentAuthMode = { kind: "wanta-account" } | { kind: "agent-cli"; loginCommand: string }
 
@@ -64,13 +66,14 @@ export interface AgentProfile {
 }
 
 /**
- * External agents own their native base prompts. Each registration declares
- * whether model/auth routing stays agent-owned or uses Wanta. ACP has no
+ * External agents own their native base prompts, model catalog, provider
+ * configuration, and authentication. ACP has no
  * portable dynamic system-prompt field, so Wanta's per-turn host context uses
  * a delimited compatibility block while host capabilities enforce identity
  * outside the prompt. Attachments are delivered as file references.
  */
 const externalAgentInputs: AgentInputCapabilityFlags = {
+  authenticate: true,
   attachments: true,
   modes: false,
   permissionResponse: true,
@@ -87,13 +90,11 @@ function acpAgentProfiles(): Record<AcpAgentKind, AgentProfile> {
     profiles[kind] = {
       kind,
       displayName: registration.displayName,
-      modelSource: registration.modelSource ?? "agent",
-      auth:
-        registration.modelSource === "wanta"
-          ? { kind: "wanta-account" }
-          : { kind: "agent-cli", loginCommand: registration.loginHint },
+      modelSource: "agent",
+      auth: { kind: "agent-cli", loginCommand: registration.loginCommand },
       inputs: {
         ...externalAgentInputs,
+        modes: Boolean(registration.workModeMap),
         setModel: registration.selection?.model ?? false,
         setEffort: registration.selection?.effort ?? false,
       },
@@ -114,6 +115,7 @@ export const AGENT_PROFILES = {
     modelSource: "wanta",
     auth: { kind: "wanta-account" },
     inputs: {
+      authenticate: false,
       attachments: true,
       modes: true,
       permissionResponse: true,
@@ -128,8 +130,7 @@ export const AGENT_PROFILES = {
 
 /** The agent's login-command hint; empty for Wanta-account agents. */
 export function agentLoginHint(kind: AgentKind): string {
-  const auth = AGENT_PROFILES[kind].auth
-  return auth.kind === "agent-cli" ? auth.loginCommand : ""
+  return kind === "opencode" ? "" : ACP_AGENT_REGISTRY[kind].loginHint
 }
 
 /** Agent kinds handled by external adapters (everything except the built-in kernel). */

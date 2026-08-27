@@ -3,17 +3,20 @@
 ## Product contract
 
 Wanta owns product capabilities; the selected agent owns the reasoning loop.
+For BYOA, the selected local agent also owns authentication, provider routing,
+its model catalog, and native model/effort selection. Only the built-in
+OpenCode kernel uses Wanta account or BYOK model routes.
 Switching between OpenCode, Codex, Claude Code, or another adapter must not
 silently switch the user's Wanta identity, Link workspace, selected context,
 data-safety policy, or UI semantics.
 
 The target split is:
 
-| Owner         | Responsibilities                                                                                                                                                                                                                                    |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Wanta host    | session identity, team/workspace scope, Link connections, browser and knowledge services, artifacts, redaction, authorization signals, audit records, normalized tool UI, and model routing when the selected harness declares `modelSource: wanta` |
-| Agent adapter | native session lifecycle, agent-owned model/effort selection when declared, reasoning loop, native local-tool enforcement, and translation to/from the normalized adapter contract                                                                  |
-| Model         | intent understanding, planning, tool choice, synthesis, and response generation                                                                                                                                                                     |
+| Owner         | Responsibilities                                                                                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Wanta host    | session identity, team/workspace scope, Link connections, browser and knowledge services, artifacts, redaction, authorization signals, audit records, normalized tool UI, and built-in OpenCode model/BYOK routing |
+| Agent adapter | native session lifecycle, native account and provider route, native model/effort catalog and selection, reasoning loop, local-tool enforcement, and translation to/from the normalized adapter contract            |
+| Model         | intent understanding, planning, tool choice, synthesis, and response generation; for BYOA, usage is charged by the user's local agent account                                                                      |
 
 Agent-native behavior is not expected to be identical. Host capability
 identity, business safety, and result semantics are expected to be identical.

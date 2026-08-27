@@ -1,3 +1,4 @@
+import type { AgentPermissionMode } from "../../chat/common.ts"
 import type { ExternalAgentKind } from "../contract/profile.ts"
 
 // Pure status vocabulary for external (BYOA) agent probing, shared with the
@@ -14,11 +15,21 @@ export type ExternalAgentLoginProbe =
   | { status: "logged_out" }
   | { status: "unknown" }
 
+/** Safe presentation subset of an ACP authentication method. */
+export interface ExternalAgentAuthMethod {
+  id: string
+  name: string
+  description?: string
+  type: "agent" | "terminal"
+}
+
 /** One selectable agent-native model or effort level. */
 export interface ExternalAgentCatalogOption {
   id: string
   label: string
   description?: string
+  /** Native model context window, when the agent reports it. */
+  contextWindow?: number
 }
 
 /**
@@ -40,6 +51,12 @@ export interface ExternalAgentRuntimeStatus {
   binary: ExternalAgentBinaryProbe
   login: ExternalAgentLoginProbe
   loginHint: string
+  /** Static fallback command owned by Wanta's trusted agent registry. */
+  loginCommand?: string
+  /** Native methods advertised by the connected ACP runtime. */
+  authMethods?: ExternalAgentAuthMethod[]
+  /** Wanta-normalized modes confirmed by a live native session. */
+  permissionModes?: AgentPermissionMode[]
   /** Model/effort options the adapter can currently offer. */
   catalog?: ExternalAgentCatalog
 }

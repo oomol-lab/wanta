@@ -19,6 +19,7 @@ import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { cn } from "@/lib/utils"
 
 interface ComposerTrailingControlsProps {
+  agentConfigurationDisabled?: boolean
   canSubmit: boolean
   composerDisabled: boolean
   contextUsage: ContextUsageInfo | null
@@ -207,6 +208,7 @@ function VoiceRecorderPanel({
 }
 
 export function ComposerTrailingControls({
+  agentConfigurationDisabled = false,
   canSubmit,
   composerDisabled,
   contextUsage,
@@ -349,6 +351,7 @@ export function ComposerTrailingControls({
               </>
             ) : null}
             <ComposerModeControls
+              agentConfigurationDisabled={agentConfigurationDisabled}
               agentCatalog={agentCatalog}
               agentEffortId={agentEffortId}
               agentEffortSelectionEnabled={agentEffortSelectionEnabled}

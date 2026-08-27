@@ -272,7 +272,7 @@ export function AgentConfigurationPicker({
       buildAgentPickerRows(externalAgents, {
         builtIn: t("chat.agentBuiltIn"),
         builtInEngine: `OpenCode ${__OPENCODE_VERSION__}`,
-        loginRequired: (hint) => t("chat.agentLoginRequired", { hint }),
+        loginRequired: () => t("chat.agentLoginRequiredShort"),
         notDetected: t("chat.agentNotDetected"),
       }),
     [externalAgents, t],
@@ -305,9 +305,8 @@ export function AgentConfigurationPicker({
   const effortLabel = modelRoutingEnabled ? wantaReasoningLabel : externalEfforts.selectedLabel
   const modelVisible = modelRoutingEnabled || agentModelSelectionEnabled
   const effortVisible = modelRoutingEnabled ? wantaReasoningLevels.length > 0 : agentEffortSelectionEnabled
-  // Agent and model are independent axes. Always lead with the selected
-  // harness so Wanta-routed agents (notably Claude Code) never look identical
-  // to the built-in agent after the menu closes.
+  // Always lead with the selected runtime. The following model/effort labels
+  // come either from Wanta (built-in OpenCode) or that local BYOA runtime.
   const triggerParts = agentModelSelectionEnabled
     ? [selectedAgentLabel, modelLabel, effortVisible && agentEffortId ? effortLabel : null]
     : [selectedAgentLabel, modelVisible ? modelLabel : null, effortVisible ? effortLabel : null]

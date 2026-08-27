@@ -698,6 +698,9 @@ export function useChat(activeSessionId: string | null, activeRunsRefreshKey?: s
       chatService.serverEvents.on("permissionReplied", (e) => {
         removePendingPermission(e.sessionId, e.requestId)
       }),
+      chatService.serverEvents.on("permissionModeUpdated", (e) => {
+        setLocalPermissionMode(e.sessionId, e.permissionMode)
+      }),
       chatService.serverEvents.on("assistantActivity", (e) => {
         setStatus(e.sessionId, "streaming")
         setActivity(e.sessionId, e)

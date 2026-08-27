@@ -19,7 +19,7 @@ import { OpencodeAgentAdapter } from "../opencode-adapter.ts"
 import { BaseAgentAdapter } from "./adapter.ts"
 import { agentEventIssues } from "./event.ts"
 import { agentInputIssues } from "./input.ts"
-import { AGENT_PROFILES, EXTERNAL_AGENT_KINDS } from "./profile.ts"
+import { AGENT_PROFILES, agentLoginHint, EXTERNAL_AGENT_KINDS } from "./profile.ts"
 
 // Cross-adapter contract tests: every adapter must satisfy the same lifecycle
 // invariants (event delivery, capability honesty, teardown sweep). New adapters
@@ -392,6 +392,8 @@ test("BYOA profiles always use the local agent's account and model catalog", () 
     expect(AGENT_PROFILES[kind].modelSource).toBe("agent")
     expect(AGENT_PROFILES[kind].auth.kind).toBe("agent-cli")
   }
+  expect(AGENT_PROFILES.grok.auth).toEqual({ kind: "agent-cli", loginCommand: "grok login" })
+  expect(agentLoginHint("grok")).toContain("Run `grok login`")
 })
 
 describe.each(adapterFixtures)("agent adapter contract: $kind", ({ kind, create }) => {

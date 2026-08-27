@@ -91,7 +91,7 @@ function acpAgentProfiles(): Record<AcpAgentKind, AgentProfile> {
       kind,
       displayName: registration.displayName,
       modelSource: "agent",
-      auth: { kind: "agent-cli", loginCommand: registration.loginHint },
+      auth: { kind: "agent-cli", loginCommand: registration.loginCommand },
       inputs: {
         ...externalAgentInputs,
         modes: Boolean(registration.workModeMap),
@@ -130,8 +130,7 @@ export const AGENT_PROFILES = {
 
 /** The agent's login-command hint; empty for Wanta-account agents. */
 export function agentLoginHint(kind: AgentKind): string {
-  const auth = AGENT_PROFILES[kind].auth
-  return auth.kind === "agent-cli" ? auth.loginCommand : ""
+  return kind === "opencode" ? "" : ACP_AGENT_REGISTRY[kind].loginHint
 }
 
 /** Agent kinds handled by external adapters (everything except the built-in kernel). */

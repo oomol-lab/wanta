@@ -1084,6 +1084,16 @@ describe("AcpAgentAdapter", () => {
             currentModelId: "gpt-5.6-sol[xhigh]",
             availableModels: [{ modelId: "gpt-5.6-sol[xhigh]", name: "GPT-5.6-Sol (xhigh)" }],
           },
+          configOptions: [
+            {
+              id: "reasoning_effort",
+              name: "Reasoning effort",
+              type: "select",
+              category: "thought_level",
+              currentValue: "high",
+              options: [{ value: "high", name: "High" }],
+            },
+          ],
         }) as never,
     })
     await harness.adapter.warmCatalog()
@@ -1093,6 +1103,75 @@ describe("AcpAgentAdapter", () => {
     // A second warm is a no-op once the catalog is populated.
     await harness.adapter.warmCatalog()
     expect(harness.fake.newSessionRequests).toHaveLength(1)
+  })
+
+  test("warmCatalog completes a model-only initialize catalog with session effort options", async () => {
+    const harness = await createHarness({
+      initialize: {
+        _meta: {
+          modelState: {
+            currentModelId: "native-model",
+            availableModels: [{ modelId: "native-model", name: "Native model" }],
+          },
+        },
+      },
+      newSession: () =>
+        ({
+          sessionId: "acp-warm-effort",
+          configOptions: [
+            {
+              id: "effort",
+              name: "Effort",
+              type: "select",
+              category: "thought_level",
+              currentValue: "medium",
+              options: [
+                { value: "low", name: "Low" },
+                { value: "medium", name: "Medium" },
+              ],
+            },
+          ],
+        }) as never,
+    })
+
+    await harness.adapter.warmCatalog()
+
+    const status = await harness.adapter.runtimeStatus()
+    expect(status.catalog?.models.map((model) => model.id)).toEqual(["native-model"])
+    expect(status.catalog?.efforts.map((effort) => effort.id)).toEqual(["low", "medium"])
+    expect(harness.fake.newSessionRequests).toHaveLength(1)
+  })
+
+  test("connection teardown clears permission modes before the next session advertises its own", async () => {
+    let sessionIndex = 0
+    const harness = await createHarness({
+      newSession: () => {
+        sessionIndex += 1
+        return {
+          sessionId: `acp-session-${sessionIndex}`,
+          modes:
+            sessionIndex === 1
+              ? {
+                  currentModeId: "agent",
+                  availableModes: [
+                    { id: "agent", name: "Agent" },
+                    { id: "agent-full-access", name: "Full access" },
+                  ],
+                }
+              : { currentModeId: "agent", availableModes: [{ id: "agent", name: "Agent" }] },
+        }
+      },
+    })
+    await harness.adapter.send(promptInput("first"))
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    expect((await harness.adapter.runtimeStatus()).permissionModes).toEqual(["default", "full_access"])
+
+    harness.fake.fireExit(1)
+    expect((await harness.adapter.runtimeStatus()).permissionModes).toBeUndefined()
+
+    await harness.adapter.send({ ...promptInput("second"), sessionId: "wanta-session-2", messageId: "user-2" })
+    await vi.waitFor(() => expect(harness.fake.newSessionRequests).toHaveLength(2))
+    expect((await harness.adapter.runtimeStatus()).permissionModes).toEqual(["default"])
   })
 
   test("permission modes map onto advertised session modes via the registry map", async () => {

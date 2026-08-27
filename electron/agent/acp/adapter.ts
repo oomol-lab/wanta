@@ -441,6 +441,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   private authMethods: ExternalAgentAuthMethod[] = []
   private livePermissionModes: AgentPermissionMode[] | undefined
   private catalogWarmup: Promise<void> | undefined
+  private catalogWarmupComplete = false
   private permissionSeq = 0
   private probeCache: { at: number; promise: Promise<ExternalAgentRuntimeStatus> } | undefined
 
@@ -811,6 +812,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     // login probe. Invalidate both before the renderer refreshes status.
     this.catalog = this.initializeCatalog
     this.probeCache = undefined
+    this.catalogWarmupComplete = false
     await this.warmCatalog()
   }
 
@@ -875,10 +877,17 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
    * connection is app-lifetime and reused by real sessions afterwards.
    */
   public override async warmCatalog(): Promise<void> {
-    if (!this.profile.inputs.setModel && !this.profile.inputs.setEffort) {
+    const needsNativeSession =
+      this.profile.inputs.setModel ||
+      this.profile.inputs.setEffort ||
+      this.profile.inputs.modes ||
+      Boolean(this.options.registration.permissionModeMap)
+    if (!needsNativeSession) {
       return
     }
-    if (this.catalog && (this.catalog.models.length > 0 || this.catalog.efforts.length > 0)) {
+    const modelComplete = !this.profile.inputs.setModel || Boolean(this.catalog?.models.length)
+    const effortComplete = !this.profile.inputs.setEffort || Boolean(this.catalog?.efforts.length)
+    if (this.catalogWarmupComplete && modelComplete && effortComplete) {
       return
     }
     this.catalogWarmup ??= this.runCatalogWarmup().finally(() => {
@@ -910,6 +919,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       await handle.connection.agent
         .request("session/close" as never, { sessionId: response.sessionId } as never)
         .catch(() => undefined)
+      this.catalogWarmupComplete = true
     } catch (error) {
       logDiagnostic("acp-adapter", "catalog warmup failed", { adapter: this.kind, error: errorMessage(error) }, "warn")
     }
@@ -1284,6 +1294,8 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     this.connectionHandle = undefined
     this.connectionPromise = undefined
     this.authMethods = []
+    this.livePermissionModes = undefined
+    this.catalogWarmupComplete = false
     if (handle) {
       // This is an intentional teardown, so do not broadcast an unexpected
       // exit. ACP session ids are still connection-scoped and must not survive
@@ -1310,6 +1322,8 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     this.connectionHandle = undefined
     this.connectionPromise = undefined
     this.authMethods = []
+    this.livePermissionModes = undefined
+    this.catalogWarmupComplete = false
     this.settlePendingPermissions(() => true, true)
     const displayName = this.options.registration.displayName
     for (const session of this.sessionsByWantaId.values()) {

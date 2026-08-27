@@ -143,11 +143,11 @@ describe("connections-client", () => {
     )
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getConnectionActions("github")).resolves.toMatchObject({
+    await expect(getConnectionActions("github", {}, "zh-CN")).resolves.toMatchObject({
       data: [{ name: "list_issues", operationType: "read" }],
     })
 
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/actions?service=github")
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/actions?service=github&locale=zh-CN")
     expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has("x-oo-team-name")).toBe(false)
   })
 
@@ -215,7 +215,7 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    const summary = await getConnectionCatalogSummary({ manageable: false, teamName: "team-name" })
+    const summary = await getConnectionCatalogSummary({ manageable: false, teamName: "team-name" }, {}, "zh-CN")
 
     expect(summary.providers.map((provider) => provider.service)).toEqual(["gmail"])
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(
@@ -223,6 +223,7 @@ describe("connections-client", () => {
     )
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/v1/usage/"))).toBe(false)
     const providerRequest = fetchMock.mock.calls.find(([url]) => String(url).includes("/v1/providers"))
+    expect(String(providerRequest?.[0])).toContain("/v1/providers?locale=zh-CN")
     const providerHeaders = new Headers(providerRequest?.[1]?.headers)
     expect(providerHeaders.has("x-oo-organization-name")).toBe(false)
   })
@@ -263,11 +264,12 @@ describe("connections-client", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(getConnectionProviderDetail("github")).resolves.toMatchObject({
+    await expect(getConnectionProviderDetail("github", "zh-CN")).resolves.toMatchObject({
       displayName: "GitHub",
       service: "github",
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/providers/github?locale=zh-CN")
     const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers)
     expect(headers.has("x-oo-organization-name")).toBe(false)
   })
@@ -370,6 +372,7 @@ describe("connections-client", () => {
       {
         authType: "oauth2",
         service: "twitter",
+        authorizationScopes: ["tweet.read", "users.read"],
         extra: { scopes: ["tweet.read", "users.read"] },
         secretExtra: { appBearerToken: "secret" },
       },
@@ -377,6 +380,7 @@ describe("connections-client", () => {
     )
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(body.authorizationScopes).toEqual(["tweet.read", "users.read"])
     expect(body.extra).toEqual({ scopes: ["tweet.read", "users.read"] })
     expect(body.secretExtra).toEqual({ appBearerToken: "secret" })
   })

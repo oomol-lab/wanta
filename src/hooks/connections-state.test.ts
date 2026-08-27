@@ -55,8 +55,13 @@ test("connectionsStateReducer clears old summary while workspace sync starts", (
 })
 
 test("partial app refresh keeps confirmed connections for the same workspace", () => {
-  const current = {
-    ...summary({ manageable: false, teamName: "acme" }),
+  const connectedProvider = {
+    accountLabel: "user@example.com",
+    actionKind: "oauth2" as const,
+    appAuthType: "oauth2" as const,
+    appCount: 1,
+    appId: "app-1",
+    appStatus: "active" as const,
     apps: [
       {
         authType: "oauth2" as const,
@@ -68,18 +73,43 @@ test("partial app refresh keeps confirmed connections for the same workspace", (
         updatedAt: 0,
       },
     ],
+    authTypes: ["oauth2" as const],
+    canDisconnect: true,
+    categoryLabels: [],
+    connectedUpdatedAt: 0,
+    displayName: "Gmail",
+    service: "gmail",
+    status: "connected" as const,
+  }
+  const current = {
+    ...summary({ manageable: false, teamName: "acme" }),
+    apps: connectedProvider.apps,
     connectedProviderCount: 1,
+    providerCount: 1,
+    providers: [connectedProvider],
   }
   const next = {
     ...summary({ manageable: false, teamName: "acme" }),
     appsStatus: "unavailable" as const,
+    providerCount: 1,
+    providers: [
+      {
+        ...connectedProvider,
+        appCount: 0,
+        apps: [],
+        canDisconnect: false,
+        displayName: "Gmail 邮箱",
+        status: "available" as const,
+      },
+    ],
     updatedAt: "2026-07-17T00:00:00.000Z",
   }
 
   assert.deepEqual(preserveConnectionSummaryOnPartialRefresh(current, next), {
-    ...current,
-    appsStatus: "unavailable",
-    updatedAt: next.updatedAt,
+    ...next,
+    apps: current.apps,
+    connectedProviderCount: 1,
+    providers: [{ ...connectedProvider, displayName: "Gmail 邮箱" }],
   })
 })
 

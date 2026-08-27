@@ -54,11 +54,50 @@ test("category cards navigate into a discovery category instead of acting as tog
       onSelect={onSelect}
     />,
   )
-  const card = document.querySelector<HTMLButtonElement>('button[aria-label="View AI & models connectors"]')
+  const card = document.querySelector<HTMLButtonElement>('button[aria-label="View AI & agents connectors"]')
 
   expect(card?.getAttribute("aria-pressed")).toBeNull()
+  expect(document.querySelectorAll<HTMLButtonElement>('button[aria-label^="View "]')).toHaveLength(8)
+  expect(document.body.textContent).toContain("Development & cloud")
   await act(async () => card?.click())
   expect(onSelect).toHaveBeenCalledWith("ai")
+
+  act(() => root.unmount())
+})
+
+test("empty discovery categories remain available in the stable eight-category layout", async () => {
+  const onSelect = vi.fn()
+  const root = await render(<ConnectionScenarioShowcase providers={[]} onSelect={onSelect} />)
+  const cards = document.querySelectorAll<HTMLButtonElement>('button[aria-label^="View "]')
+  const developerCard = document.querySelector<HTMLButtonElement>(
+    'button[aria-label="View Development & cloud connectors"]',
+  )
+
+  expect(cards).toHaveLength(8)
+  expect(developerCard?.textContent).toContain("0")
+  await act(async () => developerCard?.click())
+  expect(onSelect).toHaveBeenCalledWith("developer")
+
+  act(() => root.unmount())
+})
+
+test("category card counts use stable ids when labels are localized", async () => {
+  const root = await render(
+    <ConnectionScenarioShowcase
+      providers={[
+        provider({ categoryIds: ["ai"], categoryLabels: ["人工智能"], service: "openai" }),
+        provider({ categoryIds: ["developer"], categoryLabels: ["开发工具"], service: "github" }),
+      ]}
+      onSelect={() => undefined}
+    />,
+  )
+  const aiCard = document.querySelector<HTMLButtonElement>('button[aria-label="View AI & agents connectors"]')
+  const developerCard = document.querySelector<HTMLButtonElement>(
+    'button[aria-label="View Development & cloud connectors"]',
+  )
+
+  expect(aiCard?.textContent).toContain("1")
+  expect(developerCard?.textContent).toContain("1")
 
   act(() => root.unmount())
 })
@@ -70,7 +109,7 @@ test("category detail exposes an explicit back action", async () => {
     (button) => button.textContent?.trim() === "All categories",
   )
 
-  expect(document.body.textContent).toContain("AI & models")
+  expect(document.body.textContent).toContain("AI & agents")
   expect(document.body.textContent).toContain("175 connectors")
   await act(async () => back?.click())
   expect(onBack).toHaveBeenCalledOnce()

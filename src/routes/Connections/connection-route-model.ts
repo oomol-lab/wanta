@@ -15,6 +15,7 @@ import {
   connectionAppDisplayLabel as connectionAppUiDisplayLabel,
   isConnectionlessNoAuthProvider,
 } from "../../../electron/connections/summary.ts"
+import { resolveConnectorBusinessCategory } from "./connection-provider-category.ts"
 import { authTypeLabel } from "./shared.ts"
 
 export const executionLogLimit = 12
@@ -52,56 +53,48 @@ export const crossBorderEcommerceCategory = "Cross-Border Ecommerce"
 export const connectionDiscoveryCategories = [
   {
     key: "ai",
-    rawLabels: ["AI"],
     featuredServices: ["openai", "anthropic", "gemini", "deepseek"],
     titleKey: "connections.discovery.aiTitle",
     descriptionKey: "connections.discovery.aiDescription",
   },
   {
     key: "cross-border-ecommerce",
-    rawLabels: [crossBorderEcommerceCategory],
     featuredServices: ["shopify", "17track", "aftership", "shippo"],
     titleKey: "connections.discovery.crossBorderTitle",
     descriptionKey: "connections.discovery.crossBorderDescription",
   },
   {
     key: "communication",
-    rawLabels: ["Communication", "Social"],
     featuredServices: ["slack", "gmail", "discord", "telegram"],
     titleKey: "connections.discovery.communicationTitle",
     descriptionKey: "connections.discovery.communicationDescription",
   },
   {
     key: "knowledge",
-    rawLabels: ["Documentation", "Design & Media"],
     featuredServices: ["notion", "googledrive", "googledocs", "dropbox"],
     titleKey: "connections.discovery.knowledgeTitle",
     descriptionKey: "connections.discovery.knowledgeDescription",
   },
   {
     key: "productivity",
-    rawLabels: ["Productivity", "Efficiency", "Finance"],
     featuredServices: ["asana", "jira", "trello", "clickup"],
     titleKey: "connections.discovery.productivityTitle",
     descriptionKey: "connections.discovery.productivityDescription",
   },
   {
     key: "marketing",
-    rawLabels: ["Marketing"],
     featuredServices: ["hubspot", "mailchimp", "googleads", "googleanalytics"],
     titleKey: "connections.discovery.marketingTitle",
     descriptionKey: "connections.discovery.marketingDescription",
   },
   {
     key: "data-storage",
-    rawLabels: ["Data & Analytics", "Storage", "Maps & Location"],
     featuredServices: ["googlebigquery", "databricks", "algolia", "mongodb"],
     titleKey: "connections.discovery.dataStorageTitle",
     descriptionKey: "connections.discovery.dataStorageDescription",
   },
   {
     key: "developer",
-    rawLabels: ["Developer Tools", "Security & Identity"],
     featuredServices: ["github", "gitlab", "vercel", "cloudflareworker"],
     titleKey: "connections.discovery.developerTitle",
     descriptionKey: "connections.discovery.developerDescription",
@@ -110,7 +103,6 @@ export const connectionDiscoveryCategories = [
   descriptionKey: MessageKey
   featuredServices: readonly string[]
   key: string
-  rawLabels: readonly string[]
   titleKey: MessageKey
 }[]
 
@@ -417,8 +409,14 @@ export function matchesConnectionDiscoveryCategory(
   provider: ConnectionProviderSummary,
   category: ConnectionDiscoveryCategory,
 ): boolean {
-  const rawLabels = new Set(getProviderCategoryRawLabels(provider))
-  return getConnectionDiscoveryCategory(category).rawLabels.some((label) => rawLabels.has(label))
+  return resolveConnectionDiscoveryCategory(provider) === category
+}
+
+export function resolveConnectionDiscoveryCategory(
+  provider: ConnectionProviderSummary,
+): ConnectionDiscoveryCategory | null {
+  const category = resolveConnectorBusinessCategory(provider)
+  return category === "docs" ? "knowledge" : category
 }
 
 function normalizeProviderCategoryLabel(label: string): string {
@@ -523,6 +521,7 @@ export function matchesProviderQuery(
   return (
     provider.displayName.toLowerCase().includes(normalizedQuery) ||
     provider.service.toLowerCase().includes(normalizedQuery) ||
+    provider.searchAliases?.some((alias) => alias.toLowerCase().includes(normalizedQuery)) ||
     getProviderCategoryRawLabels(provider).some((label) => {
       return (
         label.toLowerCase().includes(normalizedQuery) ||

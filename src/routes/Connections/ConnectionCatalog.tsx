@@ -1,25 +1,16 @@
 import type { ConnectionProviderSummary } from "../../../electron/connections/common.ts"
 import type { ConnectionProviderSortMode } from "./connection-provider-ranking.ts"
-import type {
-  ConnectionAuthFilter,
-  ConnectionCatalogFilter,
-  ConnectionCategoryFilter,
-  ConnectionDiscoveryCategory,
-} from "./connection-route-model.ts"
+import type { ConnectionAuthFilter, ConnectionCatalogFilter } from "./connection-route-model.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
-import { ArrowUpDown, ChevronDown, Filter, X } from "lucide-react"
+import { ArrowUpDown, Filter, X } from "lucide-react"
 import * as React from "react"
 import {
-  categoryFilterLimit,
-  categoryFilterPrefix,
   getFilterValue,
-  getFittingCategoryFilterCount,
   getProviderCatalogLabel,
   getProviderMeta,
   getProviderStatusTone,
   parseFilterValue,
-  selectVisibleCategoryFilters,
 } from "./connection-route-model.ts"
 import {
   getProviderGridCenteredScrollTop,
@@ -62,9 +53,7 @@ export function ConnectionListToolbar({
   authFilter,
   attentionCount,
   availableToolsCount,
-  categoryFilters,
   connectedCount,
-  discoveryCategory,
   directlyAvailableCount,
   loading,
   managedConnectionCount,
@@ -85,9 +74,7 @@ export function ConnectionListToolbar({
   authFilter: ConnectionAuthFilter
   attentionCount: number
   availableToolsCount: number
-  categoryFilters: ConnectionCategoryFilter[]
   connectedCount: number
-  discoveryCategory: ConnectionDiscoveryCategory | null
   directlyAvailableCount: number
   loading: boolean
   managedConnectionCount: number
@@ -105,100 +92,9 @@ export function ConnectionListToolbar({
   view: "discover" | "manage"
 }) {
   const t = useT()
-  const filterRowRef = React.useRef<HTMLDivElement | null>(null)
-  const filterMeasurementRef = React.useRef<HTMLDivElement | null>(null)
-  const [visibleCategoryCount, setVisibleCategoryCount] = React.useState(categoryFilterLimit)
-  const selectedCategory = activeFilter.kind === "category" ? activeFilter.category : null
-  const categoryDetail = view === "discover" && discoveryCategory !== null
-  const showCategoryFilters = view === "discover" && !categoryDetail
-  const visibleCategoryFilters = showCategoryFilters
-    ? selectVisibleCategoryFilters(categoryFilters, selectedCategory, visibleCategoryCount)
-    : []
-  const overflowCategoryFilters = categoryFilters.filter(
-    (filter) => !visibleCategoryFilters.some((visibleFilter) => visibleFilter.label === filter.label),
-  )
   const filterValue = getFilterValue(activeFilter)
   const hasFilters =
     activeFilter.kind !== (view === "manage" ? "managed" : "all") || authFilter !== "all" || query.trim().length > 0
-
-  React.useLayoutEffect(() => {
-    const filterRow = filterRowRef.current
-    const measurement = filterMeasurementRef.current
-    if (!filterRow || !measurement) {
-      return
-    }
-
-    const getMeasurement = (name: string): number | null => {
-      const element = measurement.querySelector<HTMLElement>(`[data-filter-measure="${name}"]`)
-      return element ? element.getBoundingClientRect().width : null
-    }
-
-    const updateVisibleCategoryCount = () => {
-      const availableWidth = (filterRow.firstElementChild as HTMLElement | null)?.clientWidth ?? filterRow.clientWidth
-      const allWidth = getMeasurement("all")
-      const managedWidth = getMeasurement("managed")
-      const availableToolsWidth = getMeasurement("available-tools")
-      const connectedWidth = getMeasurement("connected")
-      const attentionWidth = getMeasurement("attention")
-      const directlyAvailableWidth = getMeasurement("directly-available")
-      const moreWidth = getMeasurement("more")
-      const categoryWidths = categoryFilters.map((_, index) => getMeasurement(`category-${index}`))
-      if (
-        !availableWidth ||
-        (view === "discover" && allWidth === null) ||
-        (view === "manage" && managedWidth === null) ||
-        availableToolsWidth === null ||
-        connectedWidth === null ||
-        attentionWidth === null ||
-        directlyAvailableWidth === null ||
-        moreWidth === null ||
-        (showCategoryFilters && categoryWidths.some((width) => width === null))
-      ) {
-        return
-      }
-
-      const group = measurement.firstElementChild
-      const gap = group ? Number.parseFloat(window.getComputedStyle(group).gap) || 4 : 4
-      const categoryFilterWidths = new Map(
-        categoryFilters.map((filter, index) => [filter.label, categoryWidths[index] ?? 0]),
-      )
-      const nextCount = getFittingCategoryFilterCount({
-        availableWidth,
-        baseFilterWidths:
-          view === "manage"
-            ? [managedWidth ?? 0, ...(showConnectionState ? [connectedWidth ?? 0, attentionWidth ?? 0] : [])]
-            : [allWidth ?? 0, availableToolsWidth ?? 0, directlyAvailableWidth ?? 0],
-        categoryFilterWidths,
-        filters: categoryFilters,
-        gap,
-        moreCategoriesWidth: moreWidth,
-        selectedCategory,
-      })
-
-      setVisibleCategoryCount((current) => (current === nextCount ? current : nextCount))
-    }
-
-    updateVisibleCategoryCount()
-    if (typeof ResizeObserver === "undefined") {
-      return
-    }
-
-    const observer = new ResizeObserver(updateVisibleCategoryCount)
-    observer.observe(filterRow)
-    return () => observer.disconnect()
-  }, [
-    attentionCount,
-    availableToolsCount,
-    categoryFilters,
-    connectedCount,
-    directlyAvailableCount,
-    loading,
-    managedConnectionCount,
-    selectedCategory,
-    showConnectionState,
-    totalCount,
-    view,
-  ])
 
   return (
     <div className="grid w-full min-w-0 gap-2">
@@ -214,7 +110,7 @@ export function ConnectionListToolbar({
           <ProviderAuthFilterMenu value={authFilter} onChange={onAuthFilterChange} onReset={onReset} />
         </div>
       </div>
-      <div ref={filterRowRef} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
         <div className="oo-connection-filter-row flex min-w-0 items-center overflow-x-auto overflow-y-hidden">
           <ToggleGroup
             type="single"
@@ -251,23 +147,18 @@ export function ConnectionListToolbar({
                   />
                 ) : null}
               </>
-            ) : categoryDetail ? (
-              <>
-                <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
-                <FilterToggleItem
-                  count={loading ? null : availableToolsCount}
-                  label={t("connections.filterAvailableTools")}
-                  value="available-tools"
-                />
-                <FilterToggleItem
-                  count={loading ? null : directlyAvailableCount}
-                  label={t("connections.filterDirectlyAvailable")}
-                  value="directly-available"
-                />
-              </>
             ) : (
               <>
-                <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
+                <FilterToggleItem
+                  count={loading ? null : totalCount}
+                  label={t("connections.filterGeneral")}
+                  value="all"
+                />
+                <FilterToggleItem
+                  count={loading ? null : connectedCount}
+                  label={t("connections.filterConnected")}
+                  value="connected"
+                />
                 <FilterToggleItem
                   count={loading ? null : availableToolsCount}
                   label={t("connections.filterAvailableTools")}
@@ -280,44 +171,9 @@ export function ConnectionListToolbar({
                 />
               </>
             )}
-            {visibleCategoryFilters.map((filter) => (
-              <FilterToggleItem
-                key={filter.label}
-                count={filter.count}
-                label={filter.displayLabel}
-                value={`${categoryFilterPrefix}${filter.label}`}
-              />
-            ))}
           </ToggleGroup>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {showCategoryFilters && overflowCategoryFilters.length > 0 ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 rounded-md transition-[background-color,border-color,box-shadow,transform] active:translate-y-px data-[state=open]:border-[var(--accent-ring)] data-[state=open]:bg-[var(--accent-soft)] data-[state=open]:text-foreground data-[state=open]:shadow-[inset_0_0_0_1px_var(--accent-ring)]"
-                >
-                  {t("connections.moreCategories")}
-                  <ChevronDown className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" sideOffset={8} className="w-56">
-                <DropdownMenuLabel>{t("connections.category")}</DropdownMenuLabel>
-                {overflowCategoryFilters.map((filter) => (
-                  <DropdownMenuItem
-                    key={filter.label}
-                    className="grid grid-cols-[minmax(0,1fr)_auto] gap-3"
-                    onSelect={() => onFilterChange({ kind: "category", category: filter.label })}
-                  >
-                    <span className="truncate">{filter.displayLabel}</span>
-                    <span className="oo-text-muted">{filter.count}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
           <span className="oo-text-micro oo-text-muted whitespace-nowrap">
             {t("connections.showingProviders", {
               count: resultCount,
@@ -337,63 +193,6 @@ export function ConnectionListToolbar({
             </Button>
           ) : null}
         </div>
-      </div>
-      <div ref={filterMeasurementRef} aria-hidden="true" className="pointer-events-none invisible absolute -z-10">
-        <ToggleGroup type="single" variant="default" size="sm" spacing={1} className="flex w-max flex-nowrap gap-1">
-          <span data-filter-measure="all">
-            <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
-          </span>
-          <span data-filter-measure="managed">
-            <FilterToggleItem
-              count={loading ? null : managedConnectionCount}
-              label={t("connections.filterMyConnections")}
-              value="managed"
-            />
-          </span>
-          <span data-filter-measure="available-tools">
-            <FilterToggleItem
-              count={loading ? null : availableToolsCount}
-              label={t("connections.filterAvailableTools")}
-              value="available-tools"
-            />
-          </span>
-          <span data-filter-measure="connected">
-            <FilterToggleItem
-              count={loading ? null : connectedCount}
-              label={t("connections.filterConnected")}
-              value="connected"
-            />
-          </span>
-          <span data-filter-measure="directly-available">
-            <FilterToggleItem
-              count={loading ? null : directlyAvailableCount}
-              label={t("connections.filterDirectlyAvailable")}
-              value="directly-available"
-            />
-          </span>
-          <span data-filter-measure="attention">
-            <FilterToggleItem
-              count={loading ? null : attentionCount}
-              label={t("connections.needsAttention")}
-              value="attention"
-            />
-          </span>
-          {categoryFilters.map((filter, index) => (
-            <span key={filter.label} data-filter-measure={`category-${index}`}>
-              <FilterToggleItem
-                count={filter.count}
-                label={filter.displayLabel}
-                value={`${categoryFilterPrefix}${filter.label}`}
-              />
-            </span>
-          ))}
-          <span data-filter-measure="more">
-            <Button variant="outline" size="sm" className="gap-1.5 rounded-md">
-              {t("connections.moreCategories")}
-              <ChevronDown className="size-4" />
-            </Button>
-          </span>
-        </ToggleGroup>
       </div>
     </div>
   )

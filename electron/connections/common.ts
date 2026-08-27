@@ -25,6 +25,7 @@ export interface ConnectionAppSummary {
   id: string
   isDefault: boolean
   providerAccountId?: string
+  scopes?: string[]
   service: string
   status: ConnectionAppStatus
   updatedAt: number
@@ -66,6 +67,8 @@ export interface ConnectionProviderSummary {
   canDisconnect: boolean
   /** Local Direct providers opt into reconnect only when their runtime can replace an existing identity. */
   canReconnect?: boolean
+  /** Stable Connector category ids used for cross-locale catalog grouping. */
+  categoryIds?: string[]
   categoryLabels: string[]
   /** Renderer-owned copy for a local Direct provider's provider-specific primary action. */
   connectActionLabel?: string
@@ -77,6 +80,8 @@ export interface ConnectionProviderSummary {
   executionMode?: "direct" | "remote"
   iconUrl?: string
   oauthClientConfig?: ConnectionProviderOAuthClientConfigSummary | null
+  /** Localized and legacy names supplied by Connector for catalog search. */
+  searchAliases?: string[]
   service: string
   status: ConnectionProviderStatus
   runtimeVersion?: string
@@ -159,6 +164,7 @@ export interface ConnectionOAuthClientConfigFieldDefinition {
 }
 
 export interface ConnectionProviderOAuthClientConfigSummary {
+  authorizationOptions?: ConnectionOAuthAuthorizationOption[]
   clientConfigFields: ConnectionOAuthClientConfigFieldDefinition[]
   clientConfigPolicy: ConnectionOAuthClientConfigPolicy
   configured: boolean
@@ -166,6 +172,16 @@ export interface ConnectionProviderOAuthClientConfigSummary {
   oauthScopes: string[]
   service: string
   tokenEndpointAuthMethod: ConnectionOAuthTokenEndpointAuthMethod
+}
+
+export interface ConnectionOAuthAuthorizationOption {
+  defaultSelected: boolean
+  description: string
+  id: string
+  label: string
+  required: boolean
+  requires: string[]
+  risk: "destructive" | "sensitive" | "standard"
 }
 
 export interface ConnectionUserOAuthClientConfigSummary {

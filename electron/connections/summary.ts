@@ -12,6 +12,7 @@ import type {
   ConnectionOAuthTokenEndpointAuthMethod,
   ConnectionProviderActionKind,
   ConnectionProviderDetail,
+  ConnectionProviderOAuthClientConfigSummary,
   ConnectionProviderStatus,
   ConnectionProviderSummary,
   ConnectionSummary,
@@ -33,6 +34,7 @@ export interface RawApp {
   id?: unknown
   isDefault?: unknown
   providerAccountId?: unknown
+  scopes?: unknown
   service?: unknown
   status?: unknown
   updatedAt?: unknown
@@ -49,6 +51,7 @@ export interface RawProvider {
   icon?: unknown
   iconUrl?: unknown
   oauthClientConfig?: unknown
+  searchAliases?: unknown
   service?: unknown
 }
 
@@ -67,6 +70,7 @@ interface RawProviderCategory {
 }
 
 interface RawOAuthClientConfig {
+  authorizationOptions?: unknown
   clientConfigFields?: unknown
   clientConfigPolicy?: unknown
   configured?: unknown
@@ -74,6 +78,16 @@ interface RawOAuthClientConfig {
   oauthScopes?: unknown
   service?: unknown
   tokenEndpointAuthMethod?: unknown
+}
+
+interface RawOAuthAuthorizationOption {
+  defaultSelected?: unknown
+  description?: unknown
+  id?: unknown
+  label?: unknown
+  required?: unknown
+  requires?: unknown
+  risk?: unknown
 }
 
 interface RawOAuthClientConfigField {
@@ -170,6 +184,16 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
 }
 
+function normalizedStringList(value: unknown): string[] {
+  return [
+    ...new Set(
+      stringList(value)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ]
+}
+
 function normalizeAppStatus(value: unknown): ConnectionAppStatus {
   return typeof value === "string" && appStatuses.has(value as ConnectionAppStatus)
     ? (value as ConnectionAppStatus)
@@ -209,6 +233,19 @@ function normalizeCategories(value: unknown): string[] {
     .filter((item): item is string => Boolean(item))
 }
 
+function normalizeCategoryIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [
+    ...new Set(
+      value.flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return []
+        const id = asString((item as RawProviderCategory).id)?.trim()
+        return id ? [id] : []
+      }),
+    ),
+  ]
+}
+
 function normalizeOAuthClientConfigPolicy(value: unknown): ConnectionOAuthClientConfigPolicy {
   return typeof value === "string" && oauthClientConfigPolicies.has(value as ConnectionOAuthClientConfigPolicy)
     ? (value as ConnectionOAuthClientConfigPolicy)
@@ -226,6 +263,43 @@ function normalizeOAuthTokenEndpointAuthMethod(value: unknown): ConnectionOAuthT
   return typeof value === "string" && oauthTokenEndpointAuthMethods.has(value as ConnectionOAuthTokenEndpointAuthMethod)
     ? (value as ConnectionOAuthTokenEndpointAuthMethod)
     : "client_secret_post"
+}
+
+function normalizeOAuthAuthorizationOptions(
+  value: unknown,
+): ConnectionProviderOAuthClientConfigSummary["authorizationOptions"] {
+  if (!Array.isArray(value)) return undefined
+
+  const seen = new Set<string>()
+  const options = value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return []
+    const raw = item as RawOAuthAuthorizationOption
+    const id = asString(raw.id)?.trim()
+    const label = asString(raw.label)?.trim()
+    const description = asString(raw.description)?.trim()
+    if (!id || !label || !description || seen.has(id)) return []
+    seen.add(id)
+    const risk: "destructive" | "sensitive" | "standard" =
+      raw.risk === "sensitive" || raw.risk === "destructive" ? raw.risk : "standard"
+    return [
+      {
+        defaultSelected: raw.defaultSelected === true,
+        description,
+        id,
+        label,
+        required: raw.required === true,
+        requires: normalizedStringList(raw.requires).filter((requiredId) => requiredId !== id),
+        risk,
+      },
+    ]
+  })
+
+  if (options.length === 0) return undefined
+  const optionIds = new Set(options.map((option) => option.id))
+  return options.map((option) => ({
+    ...option,
+    requires: option.requires.filter((requiredId) => optionIds.has(requiredId)),
+  }))
 }
 
 function normalizeOAuthClientConfigField(item: unknown): ConnectionOAuthClientConfigFieldDefinition | undefined {
@@ -286,6 +360,7 @@ export function normalizeOAuthClientConfig(
 
   return {
     service,
+    authorizationOptions: normalizeOAuthAuthorizationOptions(config.authorizationOptions),
     clientConfigFields: Array.isArray(config.clientConfigFields)
       ? config.clientConfigFields
           .map((field) => normalizeOAuthClientConfigField(field))
@@ -533,6 +608,7 @@ export function normalizeApp(item: RawApp): ConnectionAppSummary | undefined {
     displayName: asString(item.displayName),
     isDefault: item.isDefault === true,
     providerAccountId: asString(item.providerAccountId),
+    scopes: normalizedStringList(item.scopes),
     status: normalizeAppStatus(item.status),
     updatedAt: asNumber(item.updatedAt) ?? 0,
   }
@@ -593,11 +669,13 @@ export function normalizeProvider(
     actionKind: getProviderActionKind(normalizedAuthTypes),
     authTypes: normalizedAuthTypes,
     canDisconnect: manageableApps.length > 0 && !isPureNoAuthProvider,
+    categoryIds: normalizeCategoryIds(item.categories),
     categoryLabels: normalizeCategories(item.categories),
     connectedUpdatedAt: latestUpdatedAt(manageableApps),
     displayName: asString(item.displayName) ?? service,
     iconUrl: asString(item.iconUrl) ?? asString(item.icon),
     oauthClientConfig: normalizeOAuthClientConfig(item.oauthClientConfig, service),
+    searchAliases: normalizedStringList(item.searchAliases),
   }
 }
 

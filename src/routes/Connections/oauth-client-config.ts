@@ -157,6 +157,9 @@ export function shouldOpenOAuthClientDialog(input: {
   if (!input.providerOAuthClientConfig) {
     return false
   }
+  if (input.providerOAuthClientConfig.authorizationOptions?.length) {
+    return true
+  }
   const emptyDraft = createEmptyOAuthClientConfigDraft()
   const viewModel = buildOAuthConnectViewModel({
     baselineDraft: emptyDraft,

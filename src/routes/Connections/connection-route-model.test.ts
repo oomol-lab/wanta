@@ -22,9 +22,11 @@ import {
   isManagedConnection,
   matchesConnectionDiscoveryCategory,
   matchesProviderFilter,
+  matchesProviderQuery,
   normalizeConnectionCatalogFilter,
   normalizeConnectionAliasInput,
   parseFilterValue,
+  resolveConnectionDiscoveryCategory,
   selectVisibleCategoryFilters,
   shouldShowConnectionState,
   shouldLoadProviderDetail,
@@ -208,10 +210,10 @@ test("my connections excludes ordinary no-setup providers while retaining config
 
 test("discovery categories combine raw catalog labels into task-led groups", () => {
   const documentation = provider({ categoryLabels: ["Documentation"], service: "notion" })
-  const storage = provider({ categoryLabels: ["Storage"], service: "dropbox" })
-  const social = provider({ categoryLabels: ["Social"], service: "linkedin" })
-  const finance = provider({ categoryLabels: ["Finance"], service: "stripe" })
-  const maps = provider({ categoryLabels: ["Maps & Location"], service: "maps" })
+  const storage = provider({ categoryIds: ["data-storage"], categoryLabels: ["存储"], service: "storage-provider" })
+  const social = provider({ categoryIds: ["communication"], categoryLabels: ["社交"], service: "linkedin" })
+  const finance = provider({ categoryIds: ["productivity"], categoryLabels: ["财务"], service: "finance-provider" })
+  const maps = provider({ categoryIds: ["data-storage"], categoryLabels: ["地图"], service: "maps" })
 
   assert.equal(matchesConnectionDiscoveryCategory(documentation, "knowledge"), true)
   assert.equal(matchesConnectionDiscoveryCategory(storage, "data-storage"), true)
@@ -220,6 +222,30 @@ test("discovery categories combine raw catalog labels into task-led groups", () 
   assert.equal(matchesConnectionDiscoveryCategory(maps, "data-storage"), true)
   assert.equal(matchesProviderFilter(storage, { kind: "discovery-category", category: "data-storage" }), true)
   assert.equal(matchesProviderFilter(storage, { kind: "discovery-category", category: "developer" }), false)
+})
+
+test("stable category ids drive one cross-locale discovery category per provider", () => {
+  const localizedDeveloper = provider({
+    categoryIds: ["developer"],
+    categoryLabels: ["开发工具"],
+    service: "github",
+  })
+  const primaryCategoryWins = provider({
+    categoryIds: ["communication", "docs"],
+    categoryLabels: ["沟通协作", "文档与知识"],
+    service: "multi-category",
+  })
+  const crossBorderOverride = provider({
+    categoryIds: ["developer"],
+    categoryLabels: ["开发工具"],
+    service: "shopify_admin",
+  })
+
+  assert.equal(resolveConnectionDiscoveryCategory(localizedDeveloper), "developer")
+  assert.equal(matchesConnectionDiscoveryCategory(localizedDeveloper, "developer"), true)
+  assert.equal(resolveConnectionDiscoveryCategory(primaryCategoryWins), "communication")
+  assert.equal(matchesConnectionDiscoveryCategory(primaryCategoryWins, "knowledge"), false)
+  assert.equal(resolveConnectionDiscoveryCategory(crossBorderOverride), "cross-border-ecommerce")
 })
 
 test("cross-border ecommerce providers receive a stable catalog category", () => {
@@ -239,6 +265,15 @@ test("cross-border ecommerce providers receive a stable catalog category", () =>
     ),
     false,
   )
+})
+
+test("provider search includes localized and legacy aliases", () => {
+  const searchable = provider({ displayName: "Feishu", searchAliases: ["飞书", "Lark"] })
+  const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
+
+  assert.equal(matchesProviderQuery(searchable, "飞书", t), true)
+  assert.equal(matchesProviderQuery(searchable, "lark", t), true)
+  assert.equal(matchesProviderQuery(searchable, "slack", t), false)
 })
 
 test("buildCredentialSummaryDisplayValues keeps only non-secret display values", () => {

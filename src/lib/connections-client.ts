@@ -27,6 +27,12 @@ import {
   normalizeProvider,
 } from "../../electron/connections/summary.ts"
 import { connectionWorkspaceKey, isConnectionManagementWorkspace } from "@/lib/connection-workspace"
+import {
+  clearPersistentConnectionAppsCache,
+  invalidatePersistentWorkspaceApps,
+  readPersistentConnectorCache,
+  writePersistentConnectorCache,
+} from "@/lib/connections-persistent-cache"
 import { connectorBaseUrl, consoleBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -187,6 +193,7 @@ function invalidateWorkspaceApps(workspace: ConnectionWorkspace, appId?: string)
       (appId ? path === `${appsPath}/by-id/${encodeURIComponent(appId)}` : path.startsWith(`${appsPath}/by-id/`))
     )
   })
+  invalidatePersistentWorkspaceApps(workspace)
 }
 
 function clearOAuthClientConfigsCache(): void {
@@ -199,6 +206,11 @@ export function clearConnectorCache(): void {
   clearConnectorReadCache()
   clearOAuthClientConfigsCache()
   oauthConnectInFlight.clear()
+}
+
+export function clearConnectorAccountCache(): void {
+  clearConnectorCache()
+  clearPersistentConnectionAppsCache()
 }
 
 function asString(value: unknown): string | undefined {
@@ -332,7 +344,14 @@ async function getConnector<T>(
   options: ConnectorReadOptions = {},
 ): Promise<{ data: T; meta: unknown }> {
   const cacheKey = `${workspace ? connectionWorkspaceKey(workspace) : "global"}:${path}`
-  const cached = connectorGetCache.get(cacheKey)
+  let cached = connectorGetCache.get(cacheKey)
+  if (!cached) {
+    const persistent = readPersistentConnectorCache(path, workspace)
+    if (persistent) {
+      cached = { ...persistent, fetchedAt: 0 }
+      setConnectorCacheEntry(cacheKey, cached)
+    }
+  }
   const now = Date.now()
   if (!options.forceRefresh && cached && now - cached.fetchedAt < connectorGetCacheMs) {
     connectorGetCache.delete(cacheKey)
@@ -400,13 +419,15 @@ async function fetchConnectorGet<T>(
 
   const result = unwrapConnectorEnvelope<T>(payload)
   if (connectorReadCacheGeneration === generation && connectorGetRequestVersions.get(cacheKey) === requestVersion) {
-    setConnectorCacheEntry(cacheKey, {
+    const nextEntry = {
       data: result.data,
       etag: asString(response.headers.get("etag")),
       fetchedAt: Date.now(),
       lastModified: asString(response.headers.get("last-modified")),
       meta: result.meta,
-    })
+    }
+    setConnectorCacheEntry(cacheKey, nextEntry)
+    writePersistentConnectorCache(path, workspace, nextEntry)
   }
   return result
 }
@@ -414,11 +435,12 @@ async function fetchConnectorGet<T>(
 export async function getConnectionCatalogSummary(
   workspace: ConnectionWorkspace,
   options: ConnectorReadOptions = {},
+  locale?: string,
 ): Promise<ConnectionSummary> {
   const [appsResult, providersResult] = await Promise.allSettled([
     getConnectionApps(workspace, options),
     // Provider 是公共发现目录，不应因当前团队的连接管理权限而不可见。
-    getConnectionProviders(options),
+    getConnectionProviders(options, locale),
   ])
   if (providersResult.status === "rejected") {
     throw providersResult.reason
@@ -451,6 +473,28 @@ export async function getConnectionCatalogSummary(
   }
 }
 
+export function getCachedConnectionCatalogSummary(
+  workspace: ConnectionWorkspace,
+  locale?: string,
+): ConnectionSummary | null {
+  const providersResult = readPersistentConnectorCache(connectionProvidersPath(locale), null)
+  if (!providersResult) return null
+  const appsResult = readPersistentConnectorCache(connectionAppsPath(workspace), workspace)
+  try {
+    return {
+      ...mergeConnectionSummary({
+        apps: (appsResult?.data as RawApp[] | undefined) ?? [],
+        meta: (appsResult?.meta as RawAppListMeta | null | undefined) ?? null,
+        providers: providersResult.data as RawProvider[],
+        workspace,
+      }),
+      appsStatus: appsResult ? "ready" : "unavailable",
+    }
+  } catch {
+    return null
+  }
+}
+
 /** 供团队详情与连接器目录复用同一份 workspace apps 条件请求缓存。 */
 export function getConnectionApps(
   workspace: ConnectionWorkspace,
@@ -462,16 +506,24 @@ export function getConnectionApps(
 /** Provider 是全局公共目录，跨 workspace 复用条件请求缓存。 */
 export function getConnectionProviders(
   options: ConnectorReadOptions = {},
+  locale?: string,
 ): Promise<{ data: RawProvider[]; meta: unknown }> {
-  return getConnector<RawProvider[]>("/v1/providers", null, options)
+  return getConnector<RawProvider[]>(connectionProvidersPath(locale), null, options)
+}
+
+function connectionProvidersPath(locale?: string): string {
+  const search = locale ? `?${new URLSearchParams({ locale }).toString()}` : ""
+  return `/v1/providers${search}`
 }
 
 export function getConnectionActions(
   service: string,
   options: ConnectorReadOptions = {},
+  locale?: string,
 ): Promise<{ data: ConnectionActionCatalogItem[]; meta: unknown }> {
-  const search = new URLSearchParams({ service }).toString()
-  return getConnector<ConnectionActionCatalogItem[]>(`/v1/actions?${search}`, null, options)
+  const searchParams = new URLSearchParams({ service })
+  if (locale) searchParams.set("locale", locale)
+  return getConnector<ConnectionActionCatalogItem[]>(`/v1/actions?${searchParams.toString()}`, null, options)
 }
 
 export function getConnectionLingxingErpUsers(
@@ -490,8 +542,9 @@ export function getConnectionLingxingErpUsers(
 export async function getConnectionSummary(
   workspace: ConnectionWorkspace,
   options: ConnectorReadOptions = {},
+  locale?: string,
 ): Promise<ConnectionSummary> {
-  return getConnectionCatalogSummary(workspace, options)
+  return getConnectionCatalogSummary(workspace, options, locale)
 }
 
 export async function getActiveConnectionAppIdsForService(
@@ -505,9 +558,10 @@ export async function getActiveConnectionAppIdsForService(
     .filter((appId): appId is string => Boolean(appId))
 }
 
-export async function getConnectionProviderDetail(service: string): Promise<ConnectionProviderDetail> {
+export async function getConnectionProviderDetail(service: string, locale?: string): Promise<ConnectionProviderDetail> {
   // Provider 详情属于公共目录；账号状态已经由摘要提供，不再为打开详情重复读取整套摘要与 usage。
-  const providerResult = await getConnector<RawProvider>(`/v1/providers/${encodeURIComponent(service)}`, null)
+  const search = locale ? `?${new URLSearchParams({ locale }).toString()}` : ""
+  const providerResult = await getConnector<RawProvider>(`/v1/providers/${encodeURIComponent(service)}${search}`, null)
   const provider = normalizeProvider(providerResult.data, new Map())
   if (!provider) {
     throw new Error(`Provider ${service} is not available`)

@@ -8,7 +8,7 @@ import { AppDataContext } from "@/components/AppDataContext"
 import { useAuth } from "@/hooks/useAuth"
 import { clearBillingOverviewCache } from "@/hooks/useBillingOverview"
 import { clearAvatarImageCache } from "@/lib/avatar-image-cache"
-import { clearConnectorCache } from "@/lib/connections-client"
+import { clearConnectorAccountCache, clearConnectorCache } from "@/lib/connections-client"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { createResource } from "@/lib/resource-store"
 import { clearSkillCatalogCache } from "@/lib/skills-catalog-client"
@@ -83,11 +83,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     const previousAuthState = resources.authState.getSnapshot().data
     if (auth.state) {
-      if (previousAuthState && previousAuthState.updatedAt !== auth.state.updatedAt) {
-        clearConnectorCache()
+      const accountScopeChanged = authCacheScope(previousAuthState) !== authCacheScope(auth.state)
+      if (accountScopeChanged || (previousAuthState && previousAuthState.updatedAt !== auth.state.updatedAt)) {
+        clearConnectorAccountCache()
         clearSkillCatalogCache()
       }
-      if (authCacheScope(previousAuthState) !== authCacheScope(auth.state)) {
+      if (accountScopeChanged) {
         clearAvatarImageCache()
         clearBillingOverviewCache()
         clearTeamDetailsResources()

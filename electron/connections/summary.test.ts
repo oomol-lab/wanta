@@ -3,7 +3,13 @@ import { test } from "vitest"
 import { mergeConnectionSummary, normalizeConnectionAppDetail, normalizeFederatedCredentialConfig } from "./summary.ts"
 
 const providers = [
-  { service: "gmail", displayName: "Gmail", authTypes: ["oauth2" as const], categories: [{ displayName: "Email" }] },
+  {
+    service: "gmail",
+    displayName: "Gmail",
+    searchAliases: [" Google Mail ", "Gmail", "Google Mail", ""],
+    authTypes: ["oauth2" as const],
+    categories: [{ displayName: "电子邮件", id: "communication" }],
+  },
   { service: "quickchart", displayName: "QuickChart", authTypes: ["no_auth" as const] },
   { service: "ably", displayName: "Ably", authTypes: ["api_key" as const] },
 ]
@@ -19,7 +25,9 @@ test("merge marks connected providers and computes counts", () => {
   assert.equal(gmail?.status, "connected")
   assert.equal(gmail?.appStatus, "active")
   assert.equal(gmail?.canDisconnect, true)
-  assert.deepEqual(gmail?.categoryLabels, ["Email"])
+  assert.deepEqual(gmail?.categoryIds, ["communication"])
+  assert.deepEqual(gmail?.categoryLabels, ["电子邮件"])
+  assert.deepEqual(gmail?.searchAliases, ["Google Mail", "Gmail"])
   assert.equal(gmail?.appCount, 1)
 })
 
@@ -216,6 +224,23 @@ test("merge normalizes OAuth client config metadata for setup dialogs", () => {
           nextConnectSource: "unconfigured",
           tokenEndpointAuthMethod: "client_secret_basic",
           oauthScopes: ["tweet.read", "users.read"],
+          authorizationOptions: [
+            {
+              id: "tweet.read",
+              label: "Read posts",
+              description: "Read posts from the account.",
+              required: true,
+              defaultSelected: true,
+              risk: "sensitive",
+              requires: ["tweet.read", "users.read", "missing"],
+            },
+            {
+              id: "users.read",
+              label: "Read users",
+              description: "Read user profiles.",
+              risk: "unexpected",
+            },
+          ],
           clientConfigFields: [
             {
               key: "appBearerToken",
@@ -237,6 +262,26 @@ test("merge normalizes OAuth client config metadata for setup dialogs", () => {
   assert.equal(twitter?.oauthClientConfig?.clientConfigPolicy, "user_required")
   assert.equal(twitter?.oauthClientConfig?.tokenEndpointAuthMethod, "client_secret_basic")
   assert.deepEqual(twitter?.oauthClientConfig?.oauthScopes, ["tweet.read", "users.read"])
+  assert.deepEqual(twitter?.oauthClientConfig?.authorizationOptions, [
+    {
+      defaultSelected: true,
+      description: "Read posts from the account.",
+      id: "tweet.read",
+      label: "Read posts",
+      required: true,
+      requires: ["users.read"],
+      risk: "sensitive",
+    },
+    {
+      defaultSelected: false,
+      description: "Read user profiles.",
+      id: "users.read",
+      label: "Read users",
+      required: false,
+      requires: [],
+      risk: "standard",
+    },
+  ])
   assert.equal(twitter?.oauthClientConfig?.clientConfigFields[0]?.location, "secretExtra")
   assert.equal(twitter?.oauthClientConfig?.clientConfigFields[0]?.secret, true)
   assert.deepEqual(twitter?.oauthClientConfig?.clientConfigFields[0]?.defaultValue, ["keep", "safe"])
@@ -248,6 +293,7 @@ test("normalizes app credential detail without exposing unknown fields", () => {
     service: "aliyun_sts",
     authType: "federated",
     status: "active",
+    scopes: [" read ", "write", "read", ""],
     comment: "developer role",
     credentialFields: [
       { key: "roleArn", label: "Role ARN", displayValue: "acs:ram::123:role/dev", secret: false },
@@ -264,6 +310,7 @@ test("normalizes app credential detail without exposing unknown fields", () => {
   })
 
   assert.equal(app?.comment, "developer role")
+  assert.deepEqual(app?.scopes, ["read", "write"])
   assert.deepEqual(app?.credentialFields, [
     { key: "roleArn", label: "Role ARN", displayValue: "acs:ram::123:role/dev", secret: false },
     { key: "token", label: "Token", displayValue: "redacted", secret: true },

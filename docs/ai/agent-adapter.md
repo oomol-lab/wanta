@@ -85,7 +85,11 @@ External agents build on `electron/agent/external/`:
   `permissionModeMap` (Claude includes its classifier-backed `auto` mode).
   Enforcement is always agent-side. Applying a declared
   mode is fail-closed: a missing or rejected native mode blocks the turn rather
-  than silently continuing under a stale, potentially broader mode.
+  than silently continuing under a stale, potentially broader mode. The one
+  exact exception is `default` on a session that advertises no ACP modes at
+  all (Grok 1.0.5 omits `modes` from `session/new`): the agent already runs
+  its own default policy and `default` is the only live mode exposed, so the
+  projection is a no-op instead of an error.
 - **Native enforcement is agent-side; user-visible approval semantics are
   host-owned**: an external CLI keeps its sandbox and decides when it needs an
   interactive native permission response. Every such request is normalized and

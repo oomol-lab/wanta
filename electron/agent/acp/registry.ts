@@ -119,6 +119,9 @@ export const ACP_AGENT_REGISTRY = {
     catalogProbe: "grok-models",
     // Candidate ids are intersected with the modes returned by the live Grok
     // session, so an unavailable or renamed mode is never shown or applied.
+    // Verified against grok 1.0.5: an authenticated session/new response
+    // carries no `modes` at all, so only `default` is exposed and applying it
+    // is a no-op that keeps Grok's own default policy (see applyPermissionMode).
     permissionModeMap: {
       default: "default",
       accept_edits: "acceptEdits",
@@ -126,8 +129,6 @@ export const ACP_AGENT_REGISTRY = {
       auto: "auto",
       full_access: "bypassPermissions",
     },
-    // Permission modes are exposed only after an authenticated session; the
-    // live availableModes intersection above keeps the pre-login UI conservative.
     // Grok 1.0.5 exposes its account-scoped model and thought-level config
     // options over ACP. Both selections stay native to the local Grok runtime.
     selection: { model: true, effort: true },

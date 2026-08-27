@@ -94,6 +94,7 @@ function acpAgentProfiles(): Record<AcpAgentKind, AgentProfile> {
       auth: { kind: "agent-cli", loginCommand: registration.loginHint },
       inputs: {
         ...externalAgentInputs,
+        modes: Boolean(registration.workModeMap),
         setModel: registration.selection?.model ?? false,
         setEffort: registration.selection?.effort ?? false,
       },

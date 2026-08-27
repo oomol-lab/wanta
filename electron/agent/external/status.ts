@@ -1,3 +1,4 @@
+import type { AgentPermissionMode } from "../../chat/common.ts"
 import type { ExternalAgentKind } from "../contract/profile.ts"
 
 // Pure status vocabulary for external (BYOA) agent probing, shared with the
@@ -27,6 +28,8 @@ export interface ExternalAgentCatalogOption {
   id: string
   label: string
   description?: string
+  /** Native model context window, when the agent reports it. */
+  contextWindow?: number
 }
 
 /**
@@ -52,6 +55,8 @@ export interface ExternalAgentRuntimeStatus {
   loginCommand?: string
   /** Native methods advertised by the connected ACP runtime. */
   authMethods?: ExternalAgentAuthMethod[]
+  /** Wanta-normalized modes confirmed by a live native session. */
+  permissionModes?: AgentPermissionMode[]
   /** Model/effort options the adapter can currently offer. */
   catalog?: ExternalAgentCatalog
 }

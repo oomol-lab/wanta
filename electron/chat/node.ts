@@ -741,6 +741,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   /** Run one normalized agent event through the bridge pipeline (filtering, folding, watchdogs, broadcast). */
   private processAgentEvent(emit: (event: string, data: unknown) => Promise<void>, translated: ChatEmit): void {
+    if (translated.event === "permissionModeUpdated") {
+      this.setSessionPermissionModeValue(translated.data.sessionId, translated.data.permissionMode)
+      void Promise.resolve(
+        this.deps.onPermissionModeChanged?.(translated.data.sessionId, translated.data.permissionMode),
+      ).catch((error: unknown) => {
+        logDiagnostic(
+          "chat-service",
+          "failed to persist native permission mode update",
+          { error, sessionId: translated.data.sessionId },
+          "warn",
+        )
+      })
+      this.sendBestEffort(emit, translated.event, translated.data, { sessionId: translated.data.sessionId })
+      return
+    }
     if (translated.event === "usageUpdated") {
       // Already folded into the adapter transcript; the usage meter reads it
       // off messages on reload, mirroring the kernel history path.

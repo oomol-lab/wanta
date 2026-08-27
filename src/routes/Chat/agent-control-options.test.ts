@@ -47,7 +47,7 @@ describe("composerCapabilitiesForProfile", () => {
     // stay agent-owned.
     for (const kind of EXTERNAL_AGENT_KINDS) {
       expect(composerCapabilitiesForProfile(AGENT_PROFILES[kind])).toEqual({
-        agentModesEnabled: false,
+        agentModesEnabled: kind === "codex",
         attachmentsEnabled: true,
         modelRoutingEnabled: false,
       })

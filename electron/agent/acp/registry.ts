@@ -1,4 +1,5 @@
 import type { AgentPermissionMode } from "../../chat/common.ts"
+import type { WantaAgentMode } from "../mode.ts"
 
 // ACP agent registry (BYOA phase 2).
 //
@@ -32,6 +33,8 @@ export interface AcpAgentRegistration {
    * "thought_level"). Drives the profile's setModel/setEffort declarations.
    */
   selection?: { model: boolean; effort: boolean }
+  /** Map Wanta build/plan choices onto a native ACP select option. */
+  workModeMap?: Readonly<Partial<Record<WantaAgentMode, { category: "collaboration_mode"; value: string }>>>
   /** Config file (relative to $HOME) whose presence suggests a completed login. */
   loginMarkerPath?: string
   /** Optional native-runtime login probe when a marker alone cannot authoritatively establish auth state. */
@@ -94,6 +97,10 @@ export const ACP_AGENT_REGISTRY = {
     // config_option_update replaces it with family-level models (category
     // "model") plus a thought_level effort select — both axes are live.
     selection: { model: true, effort: true },
+    workModeMap: {
+      build: { category: "collaboration_mode", value: "default" },
+      plan: { category: "collaboration_mode", value: "plan" },
+    },
     loginMarkerPath: ".codex/auth.json",
     bundledBinName: "codex-acp",
     runtimeExecutable: { cliCommands: ["codex"], envVar: "CODEX_PATH" },
@@ -110,7 +117,17 @@ export const ACP_AGENT_REGISTRY = {
     loginCommand: "grok login",
     loginProbe: "grok-models",
     catalogProbe: "grok-models",
-    // grok advertises no ACP session modes; approvals round-trip per request.
+    // Candidate ids are intersected with the modes returned by the live Grok
+    // session, so an unavailable or renamed mode is never shown or applied.
+    permissionModeMap: {
+      default: "default",
+      accept_edits: "acceptEdits",
+      plan: "plan",
+      auto: "auto",
+      full_access: "bypassPermissions",
+    },
+    // Permission modes are exposed only after an authenticated session; the
+    // live availableModes intersection above keeps the pre-login UI conservative.
     // Grok 1.0.5 exposes its account-scoped model and thought-level config
     // options over ACP. Both selections stay native to the local Grok runtime.
     selection: { model: true, effort: true },

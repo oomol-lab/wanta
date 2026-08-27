@@ -37,7 +37,7 @@ import { pathToFileURL } from "node:url"
 import { detectCliExecutable } from "../../agents/catalog.ts"
 import { resolveUserCommandPath } from "../../command-path.ts"
 import { errorMessage, logDiagnostic } from "../../diagnostics-log.ts"
-import { AGENT_PROFILES } from "../contract/profile.ts"
+import { AGENT_PERMISSION_MODE_ORDER, AGENT_PROFILES } from "../contract/profile.ts"
 import { ExternalAgentAdapter } from "../external/adapter-base.ts"
 import { externalExecutableNeedsShell } from "../external/executable.ts"
 import { externalAgentPromptText } from "../external/prompt.ts"
@@ -176,11 +176,13 @@ interface AcpConfigSelect {
 interface AcpConfigSelects {
   model?: AcpConfigSelect
   effort?: AcpConfigSelect
+  workMode?: AcpConfigSelect
 }
 
 /**
- * Structural parse of ACP session config options into the two axes Wanta
- * surfaces. Categories follow the v1.3 vocabulary ("model", "thought_level");
+ * Structural parse of ACP session config options into the axes Wanta
+ * surfaces. Categories follow the v1.3 vocabulary (model, thought level, and
+ * collaboration mode);
  * grouped select options are flattened.
  */
 function parseConfigSelects(configOptions: unknown): AcpConfigSelects {
@@ -202,7 +204,14 @@ function parseConfigSelects(configOptions: unknown): AcpConfigSelects {
     if (option.type !== "select" || typeof option.id !== "string") {
       continue
     }
-    const axis = option.category === "model" ? "model" : option.category === "thought_level" ? "effort" : undefined
+    const axis =
+      option.category === "model"
+        ? "model"
+        : option.category === "thought_level"
+          ? "effort"
+          : option.category === "collaboration_mode"
+            ? "workMode"
+            : undefined
     if (!axis || selects[axis]) {
       continue
     }
@@ -300,6 +309,59 @@ function parseSessionSelects(response: unknown): AcpConfigSelects {
   return selects
 }
 
+/** Model metadata some native agents expose before authentication/session creation. */
+function parseInitializeModelCatalog(meta: unknown): ExternalAgentCatalog | undefined {
+  if (!meta || typeof meta !== "object") return undefined
+  const modelState = (meta as { modelState?: unknown }).modelState
+  if (!modelState || typeof modelState !== "object") return undefined
+  const shape = modelState as { availableModels?: unknown; currentModelId?: unknown }
+  if (!Array.isArray(shape.availableModels)) return undefined
+  const models: ExternalAgentCatalogOption[] = []
+  let efforts: ExternalAgentCatalogOption[] = []
+  for (const entry of shape.availableModels) {
+    if (!entry || typeof entry !== "object") continue
+    const item = entry as { modelId?: unknown; name?: unknown; description?: unknown; _meta?: unknown }
+    if (typeof item.modelId !== "string" || !item.modelId) continue
+    const modelMeta = item._meta && typeof item._meta === "object" ? item._meta : undefined
+    const contextWindow =
+      modelMeta && typeof (modelMeta as { totalContextTokens?: unknown }).totalContextTokens === "number"
+        ? (modelMeta as { totalContextTokens: number }).totalContextTokens
+        : undefined
+    models.push({
+      id: item.modelId,
+      label: typeof item.name === "string" && item.name ? item.name : item.modelId,
+      ...(typeof item.description === "string" && item.description ? { description: item.description } : {}),
+      ...(contextWindow !== undefined && contextWindow > 0 ? { contextWindow } : {}),
+    })
+    if (item.modelId === shape.currentModelId && modelMeta) {
+      const rawEfforts = (modelMeta as { reasoningEfforts?: unknown }).reasoningEfforts
+      if (Array.isArray(rawEfforts)) {
+        efforts = rawEfforts.flatMap((raw) => {
+          if (!raw || typeof raw !== "object") return []
+          const effort = raw as { id?: unknown; value?: unknown; label?: unknown; description?: unknown }
+          const id = typeof effort.value === "string" ? effort.value : typeof effort.id === "string" ? effort.id : ""
+          if (!id) return []
+          return [
+            {
+              id,
+              label: typeof effort.label === "string" && effort.label ? effort.label : id,
+              ...(typeof effort.description === "string" && effort.description
+                ? { description: effort.description }
+                : {}),
+            },
+          ]
+        })
+      }
+    }
+  }
+  if (models.length === 0) return undefined
+  return {
+    models,
+    efforts,
+    ...(typeof shape.currentModelId === "string" ? { defaultModelId: shape.currentModelId } : {}),
+  }
+}
+
 interface PendingAcpPermission {
   wantaSessionId: string
   options: readonly PermissionOption[]
@@ -368,12 +430,16 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   private readonly wantaIdByAcpId = new Map<string, string>()
   private readonly sessionCreationByWantaId = new Map<string, Promise<AcpSessionState>>()
   private readonly pendingAcpPermissions = new Map<string, PendingAcpPermission>()
+  /** Notifications that race session/new before Wanta learns the native id. */
+  private readonly unboundSessionUpdates = new Map<string, SessionNotification[]>()
   /** Model/effort choices made before the ACP session exists; applied on creation. */
-  private readonly desiredSelections = new Map<string, { model?: string; effort?: string }>()
+  private readonly desiredSelections = new Map<string, { model?: string; effort?: string; workMode?: string }>()
   /** Last projected Wanta permission mode per session, applied at creation. */
   private readonly desiredPermissionModes = new Map<string, AgentPermissionMode>()
   private catalog: ExternalAgentCatalog | undefined
+  private initializeCatalog: ExternalAgentCatalog | undefined
   private authMethods: ExternalAgentAuthMethod[] = []
+  private livePermissionModes: AgentPermissionMode[] | undefined
   private catalogWarmup: Promise<void> | undefined
   private permissionSeq = 0
   private probeCache: { at: number; promise: Promise<ExternalAgentRuntimeStatus> } | undefined
@@ -413,13 +479,14 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       ...status,
       loginCommand: this.options.registration.loginCommand,
       ...(this.authMethods.length > 0 ? { authMethods: this.authMethods } : {}),
+      ...(this.livePermissionModes ? { permissionModes: this.livePermissionModes } : {}),
       ...(this.catalog ? { catalog: this.catalog } : {}),
     }
   }
 
   /** Merge freshly reported selects into a session, preserving the creation-time reset target. */
   private mergeConfigSelects(session: AcpSessionState, updated: AcpConfigSelects): void {
-    if (!updated.model && !updated.effort) {
+    if (!updated.model && !updated.effort && !updated.workMode) {
       return
     }
     const preserve = (
@@ -435,6 +502,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     session.configSelects = {
       model: preserve(updated.model, session.configSelects.model),
       effort: preserve(updated.effort, session.configSelects.effort),
+      workMode: preserve(updated.workMode, session.configSelects.workMode),
     }
     this.updateCatalogFromSelects(session.configSelects)
   }
@@ -444,8 +512,13 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     if (!selects.model && !selects.effort) {
       return
     }
+    const previousModels = new Map((this.catalog?.models ?? []).map((model) => [model.id, model]))
+    const models = (selects.model?.options ?? this.catalog?.models ?? []).map((model) => {
+      const previous = previousModels.get(model.id)
+      return previous?.contextWindow ? { ...model, contextWindow: previous.contextWindow } : model
+    })
     this.catalog = {
-      models: selects.model?.options ?? this.catalog?.models ?? [],
+      models,
       efforts: selects.effort?.options ?? this.catalog?.efforts ?? [],
       ...(selects.model?.initialValue !== undefined
         ? { defaultModelId: selects.model.initialValue }
@@ -458,6 +531,60 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
           ? { defaultEffortId: this.catalog.defaultEffortId }
           : {}),
     }
+  }
+
+  private mergeInitializeCatalog(catalog: ExternalAgentCatalog | undefined): void {
+    if (!catalog) return
+    this.initializeCatalog = catalog
+    const current = this.catalog
+    this.catalog = {
+      models: catalog.models,
+      efforts: catalog.efforts.length > 0 ? catalog.efforts : (current?.efforts ?? []),
+      ...(catalog.defaultModelId ? { defaultModelId: catalog.defaultModelId } : {}),
+      ...(catalog.defaultEffortId ? { defaultEffortId: catalog.defaultEffortId } : {}),
+    }
+  }
+
+  private updateLivePermissionModes(modes: unknown): void {
+    if (!modes || typeof modes !== "object") return
+    const availableModes = (modes as { availableModes?: unknown }).availableModes
+    if (!Array.isArray(availableModes)) return
+    const availableIds = new Set(
+      availableModes.flatMap((mode) =>
+        mode && typeof mode === "object" && typeof (mode as { id?: unknown }).id === "string"
+          ? [(mode as { id: string }).id]
+          : [],
+      ),
+    )
+    const modeMap = this.options.registration.permissionModeMap
+    this.livePermissionModes = modeMap
+      ? AGENT_PERMISSION_MODE_ORDER.filter((mode) => {
+          const nativeId = modeMap[mode]
+          return nativeId !== undefined && availableIds.has(nativeId)
+        })
+      : ["default"]
+    if (this.livePermissionModes.length === 0) this.livePermissionModes = ["default"]
+  }
+
+  private permissionModeForNativeId(nativeId: string): AgentPermissionMode | undefined {
+    const modeMap = this.options.registration.permissionModeMap
+    if (!modeMap) return undefined
+    return AGENT_PERMISSION_MODE_ORDER.find((mode) => modeMap[mode] === nativeId)
+  }
+
+  private updateCatalogContextWindow(contextWindow: number): void {
+    if (!this.catalog || !Number.isFinite(contextWindow) || contextWindow <= 0) return
+    const selectedId = this.catalog.defaultModelId ?? this.catalog.models[0]?.id
+    this.catalog = {
+      ...this.catalog,
+      models: this.catalog.models.map((model) => (model.id === selectedId ? { ...model, contextWindow } : model)),
+    }
+  }
+
+  private takeUnboundSessionUpdates(acpSessionId: string): SessionNotification[] {
+    const updates = this.unboundSessionUpdates.get(acpSessionId) ?? []
+    this.unboundSessionUpdates.delete(acpSessionId)
+    return updates
   }
 
   protected async handleStart(): Promise<void> {
@@ -523,6 +650,12 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       if (input.agentEffortId !== undefined) {
         await this.applyConfigSelection(input.sessionId, "effort", input.agentEffortId)
         appliedSelections.effort = input.agentEffortId
+      }
+      if (input.mode !== undefined && this.options.registration.workModeMap) {
+        const nativeMode = this.options.registration.workModeMap[input.mode]?.value
+        if (!nativeMode) throw new Error(`${this.kind}: work mode "${input.mode}" is not supported`)
+        await this.applyConfigSelection(input.sessionId, "workMode", nativeMode)
+        appliedSelections.workMode = nativeMode
       }
       await this.dispatchPrompt(input, options, onCompletion)
     } catch (error) {
@@ -594,7 +727,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
 
   private async restorePromptSelections(
     sessionId: string,
-    previous: { model?: string; effort?: string },
+    previous: { model?: string; effort?: string; workMode?: string },
     applied: Partial<Record<keyof AcpConfigSelects, string>>,
   ): Promise<void> {
     const appliedAxes = (Object.keys(applied) as Array<keyof AcpConfigSelects>).reverse()
@@ -676,7 +809,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     await handle.connection.agent.request("authenticate", { methodId: input.methodId })
     // Authentication changes both the native model catalog and the read-only
     // login probe. Invalidate both before the renderer refreshes status.
-    this.catalog = undefined
+    this.catalog = this.initializeCatalog
     this.probeCache = undefined
     await this.warmCatalog()
   }
@@ -759,7 +892,21 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       const handle = await this.ensureConnection()
       const cwd = await this.ensureScratchDir(`warmup-${this.kind}`)
       const response = await handle.connection.agent.request("session/new", { cwd, mcpServers: [] })
+      this.updateLivePermissionModes(response.modes)
       this.updateCatalogFromSelects(parseSessionSelects(response))
+      // Some agents publish initial config/usage notifications before the
+      // session/new response reaches the client. Let those frames arrive, then
+      // fold them into the adapter-level warm catalog instead of discarding them.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      for (const notification of this.takeUnboundSessionUpdates(response.sessionId)) {
+        const update = notification.update as { sessionUpdate: string; [key: string]: unknown }
+        if (update.sessionUpdate === "usage_update") {
+          const size = typeof update["size"] === "number" ? update["size"] : 0
+          this.updateCatalogContextWindow(size)
+        } else if (update.sessionUpdate === "config_option_update") {
+          this.updateCatalogFromSelects(parseConfigSelects(update["configOptions"]))
+        }
+      }
       await handle.connection.agent
         .request("session/close" as never, { sessionId: response.sessionId } as never)
         .catch(() => undefined)
@@ -1018,6 +1165,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
         },
       ]
     })
+    this.mergeInitializeCatalog(parseInitializeModelCatalog(initialize._meta))
     // Loss handling is wired before initialize completes, so a subprocess that
     // dies mid-handshake already ran handleConnectionLost against a handle this
     // method had not stored yet. Storing it now would park a dead connection
@@ -1144,6 +1292,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
     this.sessionsByWantaId.clear()
     this.wantaIdByAcpId.clear()
+    this.unboundSessionUpdates.clear()
   }
 
   /**
@@ -1178,6 +1327,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     // prompt opens fresh sessions on the respawned process.
     this.sessionsByWantaId.clear()
     this.wantaIdByAcpId.clear()
+    this.unboundSessionUpdates.clear()
     logDiagnostic("acp-adapter", "ACP connection lost", { adapter: this.kind }, "warn")
   }
 
@@ -1221,6 +1371,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       )
     }
     const modes = response.modes ?? undefined
+    this.updateLivePermissionModes(modes)
     const configSelects = parseSessionSelects(response)
     this.updateCatalogFromSelects(configSelects)
     const session: AcpSessionState = {
@@ -1234,6 +1385,9 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
     this.sessionsByWantaId.set(input.sessionId, session)
     this.wantaIdByAcpId.set(response.sessionId, input.sessionId)
+    for (const notification of this.takeUnboundSessionUpdates(response.sessionId)) {
+      this.onAcpSessionUpdate(notification)
+    }
     try {
       // A rejected catalog choice must fail before the prompt is dispatched
       // so Wanta never persists or displays a model the agent did not accept.
@@ -1243,6 +1397,9 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       }
       if (desired?.effort !== undefined) {
         await this.applyDesiredSelectionAtCreation(handle, session, desired, "effort", desired.effort)
+      }
+      if (desired?.workMode !== undefined) {
+        await this.applyDesiredSelectionAtCreation(handle, session, desired, "workMode", desired.workMode)
       }
       const desiredMode = this.desiredPermissionModes.get(input.sessionId)
       if (desiredMode !== undefined) await this.applyPermissionMode(input.sessionId, desiredMode)
@@ -1281,7 +1438,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   private async applyDesiredSelectionAtCreation(
     handle: AcpConnectionHandle,
     session: AcpSessionState,
-    desired: { model?: string; effort?: string },
+    desired: { model?: string; effort?: string; workMode?: string },
     axis: keyof AcpConfigSelects,
     value: string,
   ): Promise<void> {
@@ -1346,12 +1503,13 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const wantaSessionId = this.wantaIdByAcpId.get(notification.sessionId)
     const session = wantaSessionId !== undefined ? this.sessionsByWantaId.get(wantaSessionId) : undefined
     if (!session) {
-      logDiagnostic(
-        "acp-adapter",
-        "session/update for unknown ACP session",
-        { adapter: this.kind, acpSessionId: notification.sessionId, update: notification.update.sessionUpdate },
-        "warn",
-      )
+      if (!this.unboundSessionUpdates.has(notification.sessionId) && this.unboundSessionUpdates.size >= 16) {
+        const oldest = this.unboundSessionUpdates.keys().next().value
+        if (oldest) this.unboundSessionUpdates.delete(oldest)
+      }
+      const pending = this.unboundSessionUpdates.get(notification.sessionId) ?? []
+      if (pending.length < 32) pending.push(notification)
+      this.unboundSessionUpdates.set(notification.sessionId, pending)
       return
     }
     // Session-state updates are adapter concerns, not chat-timeline events.
@@ -1373,6 +1531,18 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
               ...(size > 0 ? { contextWindow: size } : {}),
             },
           },
+        })
+      }
+      return
+    }
+    if (update.sessionUpdate === "current_mode_update") {
+      const nativeModeId = update["currentModeId"]
+      const permissionMode = typeof nativeModeId === "string" ? this.permissionModeForNativeId(nativeModeId) : undefined
+      if (permissionMode) {
+        this.desiredPermissionModes.set(session.wantaSessionId, permissionMode)
+        this.emit({
+          event: "permissionModeUpdated",
+          data: { sessionId: session.wantaSessionId, permissionMode },
         })
       }
       return

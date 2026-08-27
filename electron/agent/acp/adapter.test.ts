@@ -334,6 +334,39 @@ describe("AcpAgentAdapter", () => {
     expect(harness.fake.authenticateRequests).toEqual(["grok.com"])
   })
 
+  test("captures native initialize model context metadata before a session exists", async () => {
+    const harness = await createHarness(
+      {
+        initialize: {
+          _meta: {
+            modelState: {
+              currentModelId: "grok-4.6",
+              availableModels: [
+                {
+                  modelId: "grok-4.6",
+                  name: "Grok 4.6",
+                  _meta: {
+                    totalContextTokens: 500_000,
+                    reasoningEfforts: [{ value: "high", label: "High Effort" }],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+      "grok",
+    )
+
+    await harness.adapter.warmCatalog()
+    const status = await harness.adapter.runtimeStatus()
+    expect(status.catalog).toMatchObject({
+      defaultModelId: "grok-4.6",
+      efforts: [{ id: "high", label: "High Effort" }],
+      models: [{ id: "grok-4.6", label: "Grok 4.6", contextWindow: 500_000 }],
+    })
+  })
+
   test("rejects unavailable and terminal-only authentication methods", async () => {
     const harness = await createHarness(
       {

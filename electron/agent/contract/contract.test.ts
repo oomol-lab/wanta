@@ -1,5 +1,5 @@
 import type { AcpTransport } from "../acp/adapter.ts"
-import type { AcpAgentKind } from "../acp/registry.ts"
+import type { AcpAgentKind, AcpAgentRegistration } from "../acp/registry.ts"
 import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
 import type { AgentManager } from "../manager.ts"
 import type { AgentEvent } from "./event.ts"
@@ -175,11 +175,13 @@ function createOpencodeHarness(): Promise<AdapterContractHarness> {
 // ── ACP fixture: in-process fake agent over cross-wired streams ──
 
 async function createAcpHarness(kind: AcpAgentKind): Promise<AdapterContractHarness> {
+  const registration: AcpAgentRegistration = ACP_AGENT_REGISTRY[kind]
   const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-contract-acp-"))
   let promptCount = 0
   let cancelCount = 0
   let disposed = false
   let attachmentObserved = false
+  let modeObserved = false
   const permissionResponses: RequestPermissionResponse[] = []
   let bridge:
     | {
@@ -191,8 +193,31 @@ async function createAcpHarness(kind: AcpAgentKind): Promise<AdapterContractHarn
   const cancelResolvers: Array<() => void> = []
   const app = acpAgent({ name: "contract-fake-acp" })
     .onRequest("initialize", () => ({ protocolVersion: PROTOCOL_VERSION }))
-    .onRequest("session/new", () => ({ sessionId: "acp-session-1" }))
+    .onRequest("session/new", () => ({
+      sessionId: "acp-session-1",
+      ...(registration.workModeMap
+        ? {
+            configOptions: [
+              {
+                id: "collaboration_mode",
+                name: "Collaboration mode",
+                category: "collaboration_mode",
+                type: "select" as const,
+                currentValue: "default",
+                options: [
+                  { value: "default", name: "Default" },
+                  { value: "plan", name: "Plan" },
+                ],
+              },
+            ],
+          }
+        : {}),
+    }))
     .onRequest("session/set_mode", () => ({}))
+    .onRequest("session/set_config_option", ({ params }) => {
+      modeObserved ||= params.configId === "collaboration_mode" && params.value === "plan"
+      return { configOptions: [] }
+    })
     .onRequest("session/prompt", ({ params, client }) => {
       promptCount += 1
       attachmentObserved ||= JSON.stringify(params.prompt).includes("input.txt")
@@ -245,7 +270,7 @@ async function createAcpHarness(kind: AcpAgentKind): Promise<AdapterContractHarn
   }
   const adapter = new AcpAgentAdapter({
     kind,
-    registration: ACP_AGENT_REGISTRY[kind],
+    registration,
     probe: () =>
       Promise.resolve({
         kind,
@@ -308,7 +333,7 @@ async function createAcpHarness(kind: AcpAgentKind): Promise<AdapterContractHarn
     },
     effects: {
       attachmentObserved: () => attachmentObserved,
-      modeObserved: () => false,
+      modeObserved: () => modeObserved,
       promptCount: () => promptCount,
       cancelCount: () => cancelCount,
       permissionSettledCount: () => permissionResponses.length,

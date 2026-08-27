@@ -210,6 +210,10 @@ export interface PermissionResolvedEvent {
   sessionId: string
   requestId: string
 }
+export interface PermissionModeUpdatedEvent {
+  sessionId: string
+  permissionMode: AgentPermissionMode
+}
 export interface AnswerPermissionRequest {
   sessionId: string
   requestId: string
@@ -934,6 +938,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     questionRejected: QuestionResolvedEvent
     permissionAsked: PermissionAskedEvent
     permissionReplied: PermissionResolvedEvent
+    permissionModeUpdated: PermissionModeUpdatedEvent
     messageCompleted: MessageCompletedEvent
     turnOutcome: TurnOutcomeEvent
     messagePartRemoved: MessagePartRemovedEvent

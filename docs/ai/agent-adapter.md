@@ -154,6 +154,15 @@ External agents build on `electron/agent/external/`:
   success invalidates the probe and catalog caches before the renderer refreshes.
   Runtime readiness may disable prompt submission, but it must never disable
   the Agent configuration control used to authenticate or switch away.
+- **Live modes and context metadata**: permission pickers use the intersection
+  of registry-normalized semantics and the concrete session's `availableModes`;
+  unsupported candidates are never shown or applied. Native
+  `current_mode_update` notifications are normalized back into Wanta session
+  state. Agent-native work modes may map prompt `build`/`plan` onto a declared
+  config category (Codex uses `collaboration_mode`). Model metadata reported at
+  ACP initialize, including Grok's `totalContextTokens`, seeds the external
+  catalog so the context meter can render before the first turn. Live
+  `usage_update.size` remains authoritative once a turn runs.
 - **Attachments**: delivered as ACP `resource_link` blocks that the agent
   resolves with its own tools and permission model — never inlined into the payload.
   Display rides the kernel's `userAttachmentStore` record keyed by the

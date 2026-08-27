@@ -318,6 +318,9 @@ export function ChatComposer({
     [agentKind, externalAgentsState.agents],
   )
   const displayedAgentProfile = AGENT_PROFILES[agentKind]
+  const effectivePermissionModes = isExternalAgentKind(agentKind)
+    ? (displayedExternalAgent?.permissionModes ?? ["default"])
+    : displayedAgentProfile.permissionModes
   const [authenticatingAgent, setAuthenticatingAgent] = React.useState<AgentKind | null>(null)
   const [agentAuthError, setAgentAuthError] = React.useState<string | null>(null)
   const [loginCommandCopied, setLoginCommandCopied] = React.useState(false)
@@ -802,12 +805,18 @@ export function ChatComposer({
       : t("chat.questionComposerPlaceholder")
     : placeholder
   const hasInputAddons = command !== null || attachments.length > 0 || contextMentions.length > 0
-  // The context budget comes from Wanta's own model catalog, which is only
-  // authoritative when the agent routes models through Wanta; agents that bring
-  // their own model must not render a meter fabricated from unrelated limits.
+  // Built-in models use Wanta's budget. BYOA uses only context metadata reported
+  // by that native agent; live usage_update values remain authoritative.
+  const externalContextWindow = React.useMemo(() => {
+    if (modelRoutingEnabled) return undefined
+    const catalog = displayedExternalAgent?.catalog
+    if (!catalog) return undefined
+    const selectedId = agentModelId ?? catalog.defaultModelId
+    return catalog.models.find((model) => model.id === selectedId)?.contextWindow
+  }, [agentModelId, displayedExternalAgent?.catalog, modelRoutingEnabled])
   const contextUsage = React.useMemo(
-    () => buildContextUsageInfo(messages, modelRoutingEnabled ? modelCatalog : null),
-    [messages, modelCatalog, modelRoutingEnabled],
+    () => buildContextUsageInfo(messages, modelRoutingEnabled ? modelCatalog : null, externalContextWindow),
+    [externalContextWindow, messages, modelCatalog, modelRoutingEnabled],
   )
 
   const promptInput = (
@@ -921,7 +930,7 @@ export function ChatComposer({
           externalAgents={externalAgentsState.agents}
           modelRoutingEnabled={modelRoutingEnabled}
           permissionMode={permissionMode}
-          permissionModes={displayedAgentProfile.permissionModes}
+          permissionModes={effectivePermissionModes}
           reasoningLevel={reasoningLevel}
           voiceEnabled={voiceEnabled}
           voiceActive={voiceEnabled && voiceInput.active}

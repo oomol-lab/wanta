@@ -123,6 +123,40 @@ describe("chat context usage", () => {
     expect(buildContextUsageInfo(messages, customCatalog)).toEqual({ usedTokens: 1700 })
   })
 
+  it("shows an empty external-agent context budget before the first turn", () => {
+    expect(buildContextUsageInfo([], null, 500_000)).toEqual({
+      usedTokens: 0,
+      contextWindowTokens: 500_000,
+      limitTokens: 500_000,
+      limitKind: "context",
+      percent: 0,
+    })
+  })
+
+  it("lets a live external usage window override the preheated catalog value", () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [],
+        tokenUsage: {
+          total: 100_000,
+          input: 0,
+          output: 0,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+          contextWindow: 200_000,
+        },
+      },
+    ]
+    expect(buildContextUsageInfo(messages, null, 500_000)).toMatchObject({
+      contextWindowTokens: 200_000,
+      limitTokens: 200_000,
+      percent: 50,
+    })
+  })
+
   it("uses the custom model compaction threshold when a context window is configured", () => {
     const customCatalog: ModelCatalog = {
       ...catalog,

@@ -9,6 +9,7 @@ import type {
   MessagePartRemovedEvent,
   MessageReasoningDeltaEvent,
   MessageStartedEvent,
+  PermissionModeUpdatedEvent,
   QuestionResolvedEvent,
   ToolCallResultEvent,
   ToolCallStartedEvent,
@@ -69,6 +70,7 @@ export type AgentEvent =
   | { event: "questionRejected"; data: QuestionResolvedEvent }
   | { event: "permissionAsked"; data: { sessionId: string; request: ChatPermissionRequest } }
   | { event: "permissionReplied"; data: { sessionId: string; requestId: string } }
+  | { event: "permissionModeUpdated"; data: PermissionModeUpdatedEvent }
   | { event: "messageCompleted"; data: MessageCompletedEvent }
   | { event: "usageUpdated"; data: UsageUpdatedEvent }
   | { event: "messagePartRemoved"; data: MessagePartRemovedEvent }
@@ -246,6 +248,11 @@ const permissionResolvedSchema = z.object({
   requestId: z.string(),
 })
 
+const permissionModeUpdatedSchema = z.object({
+  sessionId: z.string(),
+  permissionMode: z.enum(["default", "read_only", "accept_edits", "plan", "auto", "full_access"]),
+})
+
 const messageCompletedSchema = z.object({
   sessionId: z.string(),
 })
@@ -311,6 +318,7 @@ export const agentEventSchema: z.ZodType<AgentEvent> = z.discriminatedUnion("eve
     data: z.object({ sessionId: z.string(), request: permissionRequestSchema }),
   }),
   z.object({ event: z.literal("permissionReplied"), data: permissionResolvedSchema }),
+  z.object({ event: z.literal("permissionModeUpdated"), data: permissionModeUpdatedSchema }),
   z.object({ event: z.literal("messageCompleted"), data: messageCompletedSchema }),
   z.object({ event: z.literal("usageUpdated"), data: usageUpdatedSchema }),
   z.object({ event: z.literal("messagePartRemoved"), data: messagePartRemovedSchema }),

@@ -202,13 +202,15 @@ async function createHarness(
   const fake = createFakeAgent(behavior)
   const registration = ACP_AGENT_REGISTRY[kind]
   const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "acp-selection-edge-"))
-  const probe = vi.fn(async (): Promise<ExternalAgentRuntimeStatus> => ({
-    kind,
-    displayName: registration.displayName,
-    binary: { status: "detected", path: "/fake/bin/agent", version: "1.0.0" },
-    login: { status: "unknown" },
-    loginHint: registration.loginHint,
-  }))
+  const probe = vi.fn(
+    async (): Promise<ExternalAgentRuntimeStatus> => ({
+      kind,
+      displayName: registration.displayName,
+      binary: { status: "detected", path: "/fake/bin/agent", version: "1.0.0" },
+      login: { status: "unknown" },
+      loginHint: registration.loginHint,
+    }),
+  )
   const adapter = new AcpAgentAdapter({ kind, registration, probe, scratchRootDir, connect: fake.connect })
   await adapter.start()
   startedAdapters.push(adapter)
@@ -770,6 +772,22 @@ describe("acp selection: permission-mode projection", () => {
       event: "permissionModeUpdated",
       data: { sessionId: WANTA_SESSION_ID, permissionMode: "auto" },
     })
+  })
+
+  test("Grok opens a session under its own default policy when session/new carries no modes", async () => {
+    // Real shape from grok 1.0.5: session/new returns sessionId + models only.
+    const harness = await createHarness(
+      { newSession: () => ({ ...modelsShape("grok-4.6", ["grok-4.6", "grok-4.5"]), sessionId: "acp-session-1" }) },
+      "grok",
+    )
+    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "default")
+    await harness.adapter.send(promptInput())
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    expect(harness.fake.setModeRequests).toEqual([])
+    expect((await harness.adapter.runtimeStatus()).permissionModes).toEqual(["default"])
+    await expect(harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "full_access")).rejects.toThrow(
+      /permission mode "full_access" is not available/u,
+    )
   })
 
   test("Grok exposes only permission modes confirmed by its live session", async () => {

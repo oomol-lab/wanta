@@ -547,9 +547,14 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   }
 
   private updateLivePermissionModes(modes: unknown): void {
-    if (!modes || typeof modes !== "object") return
-    const availableModes = (modes as { availableModes?: unknown }).availableModes
-    if (!Array.isArray(availableModes)) return
+    const availableModes =
+      modes && typeof modes === "object" ? (modes as { availableModes?: unknown }).availableModes : undefined
+    if (!Array.isArray(availableModes)) {
+      // No advertised modes (Grok 1.0.5 omits `modes` from session/new): the
+      // agent runs a single policy, so `default` is the only honest stance.
+      this.livePermissionModes = ["default"]
+      return
+    }
     const availableIds = new Set(
       availableModes.flatMap((mode) =>
         mode && typeof mode === "object" && typeof (mode as { id?: unknown }).id === "string"
@@ -949,8 +954,21 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     if (!session) {
       return
     }
+    if (mode === "default" && session.availableModeIds.length === 0) {
+      // The agent advertises no ACP session modes (Grok 1.0.5 omits `modes`
+      // from session/new entirely). There is nothing to switch and the session
+      // already runs under the agent's own default policy, which is the only
+      // mode the live profile exposes, so leaving it untouched is exact rather
+      // than a silent widening. Every other mode still fails closed below.
+      return
+    }
     const mapped = modeMap[mode]
-    const targetModeId = mapped ?? (mode === "default" ? session.initialModeId : undefined)
+    const targetModeId =
+      mapped !== undefined && session.availableModeIds.includes(mapped)
+        ? mapped
+        : mode === "default"
+          ? session.initialModeId
+          : undefined
     if (!targetModeId || !session.availableModeIds.includes(targetModeId)) {
       this.restoreDesiredPermissionMode(sessionId, previous, mode)
       throw new Error(`${this.kind}: permission mode "${mode}" is not available in this session`)

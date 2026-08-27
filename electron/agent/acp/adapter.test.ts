@@ -224,13 +224,15 @@ async function createHarness(
   const fake = createFakeAgent(behavior)
   const registration = ACP_AGENT_REGISTRY[kind]
   const scratchRootDir = await mkdtemp(path.join(os.tmpdir(), "acp-adapter-test-"))
-  const probe = vi.fn(async (): Promise<ExternalAgentRuntimeStatus> => ({
-    kind,
-    displayName: registration.displayName,
-    binary: { status: "detected", path: "/fake/bin/agent", version: "1.0.0" },
-    login: { status: "unknown" },
-    loginHint: registration.loginHint,
-  }))
+  const probe = vi.fn(
+    async (): Promise<ExternalAgentRuntimeStatus> => ({
+      kind,
+      displayName: registration.displayName,
+      binary: { status: "detected", path: "/fake/bin/agent", version: "1.0.0" },
+      login: { status: "unknown" },
+      loginHint: registration.loginHint,
+    }),
+  )
   const adapter = new AcpAgentAdapter({
     kind,
     registration,
@@ -951,6 +953,44 @@ describe("AcpAgentAdapter", () => {
       /permission mode "full_access" is not available/u,
     )
     expect(harness.fake.setModeRequests).toEqual([])
+  })
+
+  test("applyPermissionMode keeps the agent default when the session advertises no modes", async () => {
+    const harness = await createHarness()
+    // The chat layer projects `default` before the first prompt of every
+    // session; an agent that never advertises ACP modes must not block the turn.
+    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "default")
+    await harness.adapter.send(promptInput())
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    await expect(harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "default")).resolves.toBeUndefined()
+    expect(harness.fake.setModeRequests).toEqual([])
+    expect((await harness.adapter.runtimeStatus()).permissionModes).toEqual(["default"])
+  })
+
+  test("applyPermissionMode falls back to the initial mode for default when the mapped id is not advertised", async () => {
+    const harness = await createHarness({
+      newSession: () => ({
+        sessionId: "acp-session-1",
+        modes: {
+          currentModeId: "custom-default",
+          availableModes: [
+            { id: "custom-default", name: "Custom default" },
+            { id: "agent-full-access", name: "Full access" },
+          ],
+        },
+      }),
+    })
+    await harness.adapter.send(promptInput())
+    await harness.waitFor((event) => event.event === "messageCompleted")
+    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "full_access")
+    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "default")
+    expect(harness.fake.setModeRequests.map((request) => request.modeId)).toEqual([
+      "agent-full-access",
+      "custom-default",
+    ])
+    await expect(harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "read_only")).rejects.toThrow(
+      /permission mode "read_only" is not available/u,
+    )
   })
 
   test("forgetSession drops the ACP mapping so a new ACP session is opened", async () => {

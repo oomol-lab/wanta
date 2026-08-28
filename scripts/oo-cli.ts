@@ -135,15 +135,20 @@ export function extractFileFromTar(tar: Buffer, wantedPath: string): Buffer | nu
 }
 
 /** 版本标记内容：平台包名 + 版本，二者任一变化即触发重新下载。 */
-function versionTag(packageName: string): string {
-  return `${packageName}@${OO_CLI_VERSION}`
+function versionTag(packageName: string, version: string): string {
+  return `${packageName}@${version}`
 }
 
-async function isUpToDate(destPath: string, versionMarker: string, packageName: string): Promise<boolean> {
+async function isUpToDate(
+  destPath: string,
+  versionMarker: string,
+  packageName: string,
+  version: string,
+): Promise<boolean> {
   try {
     await stat(destPath)
     const marker = (await readFile(versionMarker, "utf-8")).trim()
-    return marker === versionTag(packageName)
+    return marker === versionTag(packageName, version)
   } catch {
     return false
   }
@@ -155,7 +160,7 @@ interface TarballMeta {
 }
 
 /** 查 registry packument，取指定版本的 tarball URL 与 integrity（SRI），用于下载与完整性校验。 */
-async function resolveTarballMeta(packageName: string): Promise<TarballMeta> {
+async function resolveTarballMeta(packageName: string, version: string): Promise<TarballMeta> {
   const response = await fetchWithRetry(`https://registry.npmjs.org/${packageName}`)
   if (!response.ok) {
     throw new Error(`fetch packument failed: HTTP ${response.status} ${packageName}`)
@@ -163,9 +168,9 @@ async function resolveTarballMeta(packageName: string): Promise<TarballMeta> {
   const packument = (await response.json()) as {
     versions?: Record<string, { dist?: { tarball?: string; integrity?: string } }>
   }
-  const dist = packument.versions?.[OO_CLI_VERSION]?.dist
+  const dist = packument.versions?.[version]?.dist
   if (!dist?.tarball || !dist?.integrity) {
-    throw new Error(`no dist info for ${packageName}@${OO_CLI_VERSION}`)
+    throw new Error(`no dist info for ${packageName}@${version}`)
   }
   return { tarball: dist.tarball, integrity: dist.integrity }
 }
@@ -193,16 +198,24 @@ export function verifyTarballIntegrity(tgz: Buffer, integrity: string, source: s
  * chmod 0o755 →原子 rename 落位。全程不依赖任何外部命令或 npm 包，macOS/Linux/Windows 一致可用。
  */
 export async function downloadOoBinary(): Promise<string> {
+  return downloadOoBinaryVersion(OO_CLI_VERSION, localOoBinDir)
+}
+
+/** Download one explicit candidate version into an isolated directory. */
+export async function downloadOoBinaryVersion(version: string, destinationDirectory: string): Promise<string> {
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version)) {
+    throw new Error(`invalid oo version: ${version}`)
+  }
   const target = resolvePlatformTarget()
   const exe = target.executableFileName
-  const destPath = localOoBinPath()
-  const versionMarker = path.join(localOoBinDir, ".version")
+  const destPath = path.join(destinationDirectory, exe)
+  const versionMarker = path.join(destinationDirectory, ".version")
 
-  if (await isUpToDate(destPath, versionMarker, target.packageName)) {
+  if (await isUpToDate(destPath, versionMarker, target.packageName, version)) {
     return destPath
   }
 
-  const meta = await resolveTarballMeta(target.packageName)
+  const meta = await resolveTarballMeta(target.packageName, version)
   const response = await fetchWithRetry(meta.tarball)
   if (!response.ok) {
     throw new Error(`download oo failed: HTTP ${response.status} ${meta.tarball}`)
@@ -216,7 +229,7 @@ export async function downloadOoBinary(): Promise<string> {
     throw new Error(`oo binary not found inside tarball: ${meta.tarball}`)
   }
 
-  await mkdir(localOoBinDir, { recursive: true })
+  await mkdir(destinationDirectory, { recursive: true })
   // 先写临时文件、补可执行位（上游 tarball 内是 0644），再原子 rename，避免中断留下半截可执行文件。
   const tmpPath = `${destPath}.download`
   try {
@@ -228,6 +241,6 @@ export async function downloadOoBinary(): Promise<string> {
     await rm(tmpPath, { force: true })
   }
 
-  await writeFile(versionMarker, `${versionTag(target.packageName)}\n`, "utf-8")
+  await writeFile(versionMarker, `${versionTag(target.packageName, version)}\n`, "utf-8")
   return destPath
 }

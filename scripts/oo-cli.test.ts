@@ -1,8 +1,12 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
-import { test } from "vitest"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { expect, test } from "vitest"
 import {
   detectLinuxLibc,
+  downloadOoBinaryVersion,
   extractFileFromTar,
   ooExecutableName,
   resolvePlatformTarget,
@@ -103,6 +107,20 @@ test("ooExecutableName 仅 Windows 带 .exe", () => {
   assert.equal(ooExecutableName("darwin"), "oo")
   assert.equal(ooExecutableName("linux"), "oo")
   assert.equal(ooExecutableName("win32"), "oo.exe")
+})
+
+test("downloadOoBinaryVersion reuses an isolated matching candidate without touching the pinned binary", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-oo-candidate-"))
+  try {
+    const target = resolvePlatformTarget()
+    const executable = path.join(root, target.executableFileName)
+    await writeFile(executable, "candidate")
+    await writeFile(path.join(root, ".version"), `${target.packageName}@9.9.9\n`)
+    await expect(downloadOoBinaryVersion("9.9.9", root)).resolves.toBe(executable)
+    await expect(downloadOoBinaryVersion("not-a-version", root)).rejects.toThrow(/invalid oo version/u)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
 })
 
 // ── libc 判别 ─────────────────────────────────────────────────────────────────────

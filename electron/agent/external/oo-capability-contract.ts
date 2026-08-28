@@ -52,6 +52,13 @@ export const EXTERNAL_OO_OPERATIONS = [
     workspace: "required",
   },
   {
+    id: "connector.proxy",
+    command: ["connector", "proxy"],
+    availability: "planned",
+    effect: "external_action",
+    workspace: "required",
+  },
+  {
     id: "file.upload",
     command: ["file", "upload"],
     availability: "planned",
@@ -73,6 +80,13 @@ export const EXTERNAL_OO_OPERATIONS = [
     workspace: "optional",
   },
   {
+    id: "skills.manage",
+    command: ["skills"],
+    availability: "denied",
+    effect: "local_state",
+    workspace: "optional",
+  },
+  {
     id: "flow",
     command: ["flow"],
     availability: "planned",
@@ -85,6 +99,27 @@ export const EXTERNAL_OO_OPERATIONS = [
     availability: "denied",
     effect: "local_state",
     workspace: "none",
+  },
+  {
+    id: "llm",
+    command: ["llm"],
+    availability: "planned",
+    effect: "local_state",
+    workspace: "optional",
+  },
+  {
+    id: "team.current",
+    command: ["team", "current"],
+    availability: "planned",
+    effect: "read_only",
+    workspace: "optional",
+  },
+  {
+    id: "variables",
+    command: ["variables"],
+    availability: "planned",
+    effect: "local_state",
+    workspace: "optional",
   },
   {
     id: "config",

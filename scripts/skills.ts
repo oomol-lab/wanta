@@ -70,6 +70,10 @@ export async function exportBundledSkills(
 
 async function installBundledOoSkills(outDir: string): Promise<string> {
   const ooBin = await downloadOoBinary()
+  return installBundledOoSkillsFromBinary(ooBin, outDir)
+}
+
+export async function installBundledOoSkillsFromBinary(ooBin: string, outDir: string): Promise<string> {
   const storeDir = path.join(os.tmpdir(), "wanta-oo-skill-export-store")
 
   const result = spawnSync(ooBin, ["skills", "install", `--out-dir=${outDir}`, "--agent-format=universal", "--json"], {

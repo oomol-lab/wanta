@@ -17,9 +17,14 @@
     "connector.search",
     "connector.schema",
     "connector.run",
+    "connector.proxy",
     "file.upload",
     "file.download",
     "skills.recommend",
-    "flow"
+    "skills.manage",
+    "flow",
+    "llm",
+    "team.current",
+    "variables"
   ]
 }

@@ -21,6 +21,7 @@ afterEach(async () => {
 async function fixture(
   scope: unknown,
   commandBody = '#!/bin/sh\nprintf "%s\\n" "$@"\n',
+  available?: () => boolean | Promise<boolean>,
 ): Promise<{ env: NodeJS.ProcessEnv; root: string; server: ExternalOoGuardServer }> {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "wanta-oo-guard-runtime-"))
   roots.push(temporaryRoot)
@@ -40,7 +41,7 @@ async function fixture(
         ),
       ),
   }
-  const server = new ExternalOoGuardServer({ command: realOo, scope: () => normalizedScope })
+  const server = new ExternalOoGuardServer({ available, command: realOo, scope: () => normalizedScope })
   servers.push(server)
   const descriptor = await server.descriptor()
   return {
@@ -156,6 +157,22 @@ describe("external OO guard runtime", () => {
 
     await expect(runGuard(["logout"], env)).rejects.toMatchObject({
       stderr: expect.stringContaining("Only managed capability discovery and connector action commands are allowed"),
+    })
+  })
+
+  test("fails closed before dispatch when packaged OO compatibility is unavailable", async () => {
+    const { env } = await fixture(
+      {
+        external: true,
+        runtime: "oomol",
+        sessionRuntimes: { "session-a": "oomol" },
+        sessionTeams: { "session-a": "Team A" },
+      },
+      undefined,
+      () => false,
+    )
+    await expect(runGuard(["search", "posthog"], env)).rejects.toMatchObject({
+      stderr: expect.stringContaining("Managed OO runtime compatibility is unavailable"),
     })
   })
 

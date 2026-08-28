@@ -25,6 +25,7 @@ export interface ExternalOoGuardDescriptor {
 }
 
 export interface ExternalOoGuardServerOptions {
+  available?: () => boolean | Promise<boolean>
   command: string
   env?: NodeJS.ProcessEnv
   scope: () => WorkspaceTeamScope
@@ -88,6 +89,10 @@ export class ExternalOoGuardServer {
     }
     if (request.method !== "POST" || request.url !== "/run") {
       respondJson(response, 404, { error: "Not found." })
+      return
+    }
+    if (this.options.available && !(await this.options.available())) {
+      respondJson(response, 503, { error: "Managed OO runtime compatibility is unavailable." })
       return
     }
     const body = await readRequest(request)

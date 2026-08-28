@@ -10,6 +10,8 @@ export interface ExternalOoOperation {
   workspace: ExternalOoWorkspace
 }
 
+export const EXTERNAL_OO_CONTRACT_VERSION = 1
+
 /**
  * Single source of truth for OO command domains exposed through the privileged
  * external-agent boundary. Guard dispatch, Skill guidance, and compatibility

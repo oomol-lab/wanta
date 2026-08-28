@@ -9,7 +9,7 @@
 
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { appendFile, cp, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
+import { appendFile, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -60,6 +60,7 @@ export async function exportBundledSkills(
 
   const stdout = await installOoSkills(outDir)
   assertSkillsExported(stdout, outDir)
+  await normalizeExportedSkillLineEndings(outDir)
   await applyBundledSkillOverrides(outDir)
   await Promise.all(
     wantaBundledSkillIds.map((skillId) =>
@@ -105,6 +106,29 @@ export async function installBundledOoSkillsFromBinary(ooBin: string, outDir: st
   } finally {
     await rm(storeDir, { force: true, recursive: true })
   }
+}
+
+// Text files the oo CLI emits into an exported Skill. Only these are rewritten to LF.
+const exportedSkillTextExtensions = new Set([".md", ".yaml", ".yml", ".json", ".txt"])
+
+/**
+ * Rewrite CRLF to LF in every exported text file. `oo skills install` writes CRLF on Windows, which
+ * would change the sha256 recorded in resources/skill-lock/oo.json and in bin/oo-runtime-integrity.json.
+ * Normalizing on disk keeps the lock, the packaged integrity descriptor and the runtime check byte-exact
+ * across platforms.
+ */
+export async function normalizeExportedSkillLineEndings(outDir: string): Promise<void> {
+  const files = await readdirFilesRecursive(outDir)
+  await Promise.all(
+    files
+      .filter((relativePath) => exportedSkillTextExtensions.has(path.extname(relativePath).toLowerCase()))
+      .map(async (relativePath) => {
+        const filePath = path.join(outDir, relativePath)
+        const content = await readFile(filePath, "utf8")
+        if (!content.includes("\r\n")) return
+        await writeFile(filePath, content.replaceAll("\r\n", "\n"), "utf8")
+      }),
+  )
 }
 
 export async function applyBundledSkillOverrides(

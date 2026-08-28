@@ -18,6 +18,7 @@ async function main(): Promise<void> {
     await verifyBundledOoSkillCompatibility(dest)
     console.log(`[wanta] bundled skills ready at ${dest}`)
   } catch (error) {
+    if (process.env.WANTA_STRICT_SKILL_EXPORT === "1") throw error
     console.warn("[wanta] download-skills postinstall failed (non-fatal):", error)
   }
 }

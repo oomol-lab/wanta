@@ -34,8 +34,14 @@ const operations = manifest.requiredOperations.map((id) => ({
   id,
   availability: knownOperations.get(id)?.availability ?? "missing",
 }))
+const missingOperations = operations.filter((operation) => operation.availability === "missing")
 const versionChanged = manifest.ooCliVersion !== OO_CLI_VERSION || manifest.agentFormat !== "universal"
-const compatible = !versionChanged && added.length === 0 && removed.length === 0 && changed.length === 0
+const compatible =
+  !versionChanged &&
+  added.length === 0 &&
+  removed.length === 0 &&
+  changed.length === 0 &&
+  missingOperations.length === 0
 const report = {
   compatible,
   expected: { agentFormat: manifest.agentFormat, ooCliVersion: manifest.ooCliVersion },
@@ -45,7 +51,6 @@ const report = {
 }
 
 if (accept) {
-  const missingOperations = operations.filter((operation) => operation.availability === "missing")
   if (missingOperations.length > 0) {
     throw new Error(`cannot accept unknown required operations: ${missingOperations.map((item) => item.id).join(", ")}`)
   }

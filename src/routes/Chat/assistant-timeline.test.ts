@@ -276,6 +276,31 @@ describe("assistantTimelineBlocks", () => {
     expect(committed[0]?.blocks.map(({ block }) => block.kind)).toEqual(["tools", "text", "tools"])
   })
 
+  it("keeps prior buffered text visible when a later empty assistant message becomes active", () => {
+    const messages = [
+      message("a1", [toolPart("tool-1")], "tool-calls"),
+      message("a2", [textPart("prior", "The tool result is ready.")]),
+      message("a3", []),
+    ]
+
+    const segments = segmentAssistantTimeline(messages, { activeAssistantMessageId: "a3" })
+    expect(segments.map(({ kind }) => kind)).toEqual(["process", "response"])
+    expect(textFromTimelineBlocks(segments[1]?.blocks ?? [])).toBe("The tool result is ready.")
+  })
+
+  it("keeps only the current assistant message pending after a process step", () => {
+    const messages = [
+      message("a1", [toolPart("tool-1")], "tool-calls"),
+      message("a2", [textPart("prior", "Previous assistant text.")]),
+      message("a3", [textPart("current", "Current assistant text.")]),
+    ]
+
+    const segments = segmentAssistantTimeline(messages, { activeAssistantMessageId: "a3" })
+    expect(segments.map(({ kind }) => kind)).toEqual(["process", "response", "pending"])
+    expect(textFromTimelineBlocks(segments[1]?.blocks ?? [])).toBe("Previous assistant text.")
+    expect(textFromTimelineBlocks(segments[2]?.blocks ?? [])).toBe("Current assistant text.")
+  })
+
   it("reconstructs process messages without unrelated response parts", () => {
     const source = message("a1", [textPart("progress", "Checking data."), toolPart("tool-1")], "tool-calls")
     const processBlocks = segmentAssistantTimeline([source])[1]?.blocks ?? []

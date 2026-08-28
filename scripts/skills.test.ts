@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
@@ -50,5 +50,26 @@ describe("Wanta bundled skills", () => {
     const knownOperations = new Set<string>(EXTERNAL_OO_OPERATIONS.map((operation) => operation.id))
     expect(manifest.requiredOperations.every((operation) => knownOperations.has(operation))).toBe(true)
     await expect(verifyBundledOoSkillCompatibility(bundledSkillsDir)).resolves.toBeUndefined()
+  })
+
+  it("rejects an unknown required operation before reading generated Skill files", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-compatibility-"))
+    const manifestPath = path.join(root, "oo.json")
+    try {
+      await writeFile(
+        manifestPath,
+        JSON.stringify({
+          agentFormat: "universal",
+          files: {},
+          ooCliVersion: OO_CLI_VERSION,
+          requiredOperations: ["unknown.operation"],
+        }),
+      )
+      await expect(verifyBundledOoSkillCompatibility(path.join(root, "missing-skills"), manifestPath)).rejects.toThrow(
+        /unknown operations: unknown\.operation/u,
+      )
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 })

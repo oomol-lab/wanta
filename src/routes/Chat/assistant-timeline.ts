@@ -110,7 +110,19 @@ export function segmentAssistantTimeline(
     append(kind, [item])
   }
   if (pendingText.length > 0) {
-    append(options.activeAssistantMessageId === undefined ? "response" : "pending", pendingText)
+    const activeMessageId = options.activeAssistantMessageId
+    if (activeMessageId === undefined) {
+      append("response", pendingText)
+    } else {
+      append(
+        "response",
+        pendingText.filter((item) => item.message.id !== activeMessageId),
+      )
+      append(
+        "pending",
+        pendingText.filter((item) => item.message.id === activeMessageId),
+      )
+    }
   }
   return segments
 }

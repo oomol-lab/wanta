@@ -13,6 +13,7 @@ import { appendFile, cp, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { EXTERNAL_OO_OPERATIONS } from "../electron/agent/external/oo-capability-contract.ts"
 import { downloadOoBinary, OO_CLI_VERSION } from "./oo-cli.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -117,6 +118,11 @@ export async function verifyBundledOoSkillCompatibility(
     throw new Error(
       `bundled oo Skill compatibility targets ${manifest.ooCliVersion}/${manifest.agentFormat}, expected ${OO_CLI_VERSION}/universal`,
     )
+  }
+  const knownOperations = new Set<string>(EXTERNAL_OO_OPERATIONS.map((operation) => operation.id))
+  const unknownOperations = manifest.requiredOperations.filter((operation) => !knownOperations.has(operation))
+  if (unknownOperations.length > 0) {
+    throw new Error(`bundled oo Skill compatibility contains unknown operations: ${unknownOperations.join(", ")}`)
   }
   const actualFiles = (await readdirFilesRecursive(path.join(skillsDir, "oo"))).sort()
   const expectedFiles = Object.keys(manifest.files).sort()

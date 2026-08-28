@@ -8,7 +8,9 @@ export interface AssistantTimelineBlock {
   block: RenderBlock
 }
 
-export type AssistantTimelineSegmentKind = "process" | "response"
+export type AssistantTimelineSegmentKind = "pending" | "process" | "response"
+
+type AssistantTimelinePhase = Exclude<AssistantTimelineSegmentKind, "pending">
 
 export interface AssistantTimelineSegment {
   kind: AssistantTimelineSegmentKind
@@ -34,10 +36,7 @@ function isToolCallFinishReason(reason: string | undefined): boolean {
   return reason === "tool-calls" || reason === "tool_calls" || reason === "tool-use" || reason === "tool_use"
 }
 
-function blockSegmentKind(
-  item: AssistantTimelineBlock,
-  phase: AssistantTimelineSegmentKind,
-): AssistantTimelineSegmentKind {
+function blockSegmentKind(item: AssistantTimelineBlock, phase: AssistantTimelinePhase): AssistantTimelinePhase {
   switch (item.block.kind) {
     case "tools":
       return "process"
@@ -66,35 +65,52 @@ export function segmentAssistantTimeline(
 ): AssistantTimelineSegment[] {
   const blocks = assistantTimelineBlocks(messages)
   const segments: AssistantTimelineSegment[] = []
-  let phase: AssistantTimelineSegmentKind = "response"
+  let phase: AssistantTimelinePhase = "response"
+  let pendingText: AssistantTimelineBlock[] = []
+  const append = (kind: AssistantTimelineSegmentKind, items: AssistantTimelineBlock[]): void => {
+    if (items.length === 0) return
+    const current = segments.at(-1)
+    if (current?.kind === kind) {
+      current.blocks.push(...items)
+      return
+    }
+    const first = items[0]
+    segments.push({ kind, key: first ? blockKey(first) : kind, blocks: items })
+  }
+  const flushPending = (kind: AssistantTimelinePhase): void => {
+    append(kind, pendingText)
+    pendingText = []
+  }
+
   for (const item of blocks) {
     const kind = blockSegmentKind(item, phase)
     if (item.block.kind === "tools" || (item.block.kind === "status" && kind === "process")) {
+      flushPending("process")
       phase = "process"
-    } else if (item.block.kind === "text" && kind === "response" && item.message.finishReason) {
+      append("process", [item])
+      continue
+    }
+    if (item.block.kind === "text" && kind === "process") {
+      pendingText.push(item)
+      continue
+    }
+    if (item.block.kind === "text" && kind === "response" && item.message.finishReason) {
+      flushPending("process")
       phase = "response"
+      append("response", [item])
+      continue
     }
-    const current = segments.at(-1)
-    if (current?.kind === kind) {
-      current.blocks.push(item)
-    } else {
-      segments.push({ kind, key: blockKey(item), blocks: [item] })
+    if (item.block.kind === "attachment") {
+      flushPending("response")
+      phase = "response"
+      append("response", [item])
+      continue
     }
+    flushPending("process")
+    append(kind, [item])
   }
-  const lastSegment = segments.at(-1)
-  if (options.activeAssistantMessageId === undefined && lastSegment?.kind === "process") {
-    const trailingText: AssistantTimelineBlock[] = []
-    while (lastSegment.blocks.at(-1)?.block.kind === "text") {
-      const item = lastSegment.blocks.pop()
-      if (item) trailingText.unshift(item)
-    }
-    if (trailingText.length > 0) {
-      const first = trailingText[0]
-      segments.push({ kind: "response", key: first ? blockKey(first) : "response", blocks: trailingText })
-    }
-    if (lastSegment.blocks.length === 0) {
-      segments.splice(-2, 1)
-    }
+  if (pendingText.length > 0) {
+    append(options.activeAssistantMessageId === undefined ? "response" : "pending", pendingText)
   }
   return segments
 }

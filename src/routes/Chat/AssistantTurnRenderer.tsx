@@ -93,6 +93,7 @@ export function TurnProcessActivity({
   blocks,
   process,
   live = false,
+  pendingResponse = false,
   billingCacheScope,
   providerByService,
   onAuthorize,
@@ -104,6 +105,7 @@ export function TurnProcessActivity({
   blocks: AssistantTimelineBlock[]
   process: ReturnType<typeof summarizeTurnProcess>
   live?: boolean
+  pendingResponse?: boolean
   billingCacheScope: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
@@ -203,7 +205,15 @@ export function TurnProcessActivity({
               onViewBilling={onViewBilling}
             />
           ))}
-          {showLiveStatus ? <LiveStatusBar process={process} live={live} /> : null}
+          {pendingResponse ? (
+            <div className="rounded-md text-muted-foreground">
+              <div className="flex min-h-6 min-w-0 items-center">
+                <LoadingShimmerText className="min-w-0 truncate">{t("chat.activityFinalizing")}</LoadingShimmerText>
+              </div>
+            </div>
+          ) : showLiveStatus ? (
+            <LiveStatusBar process={process} live={live} />
+          ) : null}
         </ProcessActivityViewport>
       </TaskContent>
     </Task>

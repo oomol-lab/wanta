@@ -177,6 +177,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
     timelineHasVisibleOutcome(timelineSegments) || hasRenderableArtifacts || hasRenderableTurnOutputs
   const process = summarizeTurnProcess(turn, activity, activeAssistantMessageId, { hasVisibleOutcome })
   const hasProcessSegment = timelineSegments.some((segment) => segment.kind === "process")
+  const hasPendingResponse = timelineSegments.some((segment) => segment.kind === "pending")
   const shouldShowProcess = shouldShowTurnProcess(process, hasProcessSegment)
   const shouldShowPlainActivity = shouldShowPlainTurnActivity(process)
   const turnIsActive = Boolean(activeAssistantMessageId)
@@ -243,6 +244,9 @@ const ChatTurnView = React.memo(function ChatTurnView({
       <>
         {shouldShowPlainActivity ? <PlainAssistantActivity activity={activity} /> : null}
         {renderSegments.map((segment, segmentIndex) => {
+          if (segment.kind === "pending") {
+            return null
+          }
           if (segment.kind === "response") {
             const ownsTurnActions = segmentIndex === lastResponseSegmentIndex && segmentIndex === lastSegmentIndex
             return (
@@ -290,6 +294,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
                   blocks={segment.blocks}
                   process={segmentProcess}
                   live={processLive}
+                  pendingResponse={isLastProcess && hasPendingResponse}
                   billingCacheScope={billingCacheScope}
                   providerByService={providerByService}
                   onAuthorize={handleAuthorize}

@@ -105,7 +105,9 @@ export class ExternalOoGuardServer {
     const sessionScope = externalGuardSessionScope(scope, binding.sessionId)
     const originalArgs = stripIdentityIndependentWorkspaceSelectors(rawArgs as string[])
     if (!isManagedExternalOoCommand(originalArgs)) {
-      respondJson(response, 403, { error: "Only managed connector discovery and action commands are allowed." })
+      respondJson(response, 403, {
+        error: "Only managed capability discovery and connector action commands are allowed.",
+      })
       return
     }
     const args = isConnectorBusinessCommand(originalArgs)

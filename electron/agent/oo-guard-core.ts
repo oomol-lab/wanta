@@ -72,7 +72,7 @@ export function redactConnectorOutput(output: string): string {
   }
 }
 
-function connectorCommandIndex(args: readonly string[]): number {
+function rootCommandIndex(args: readonly string[]): number {
   let index = 0
   while (index < args.length) {
     const arg = args[index] ?? ""
@@ -86,6 +86,11 @@ function connectorCommandIndex(args: readonly string[]): number {
     }
     break
   }
+  return index
+}
+
+function connectorCommandIndex(args: readonly string[]): number {
+  const index = rootCommandIndex(args)
   return args[index] === "connector" ? index : -1
 }
 
@@ -96,6 +101,8 @@ export function isConnectorBusinessCommand(args: readonly string[]): boolean {
 
 /** Commands exposed by the privileged external-agent OO execution boundary. */
 export function isManagedExternalOoCommand(args: readonly string[]): boolean {
+  const rootIndex = rootCommandIndex(args)
+  if (args[rootIndex] === "search") return true
   const connectorIndex = connectorCommandIndex(args)
   if (connectorIndex < 0) return false
   const command = args[connectorIndex + 1] ?? ""

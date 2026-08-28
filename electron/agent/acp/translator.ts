@@ -159,6 +159,12 @@ function normalizedAcpToolTitle(
   if (tool === "load_skill" && typeof input["skillId"] === "string") {
     return `Loaded skill: ${input["skillId"]}`
   }
+  if (tool === "read_skill_file" && typeof input["path"] === "string") {
+    return `Read skill reference: ${input["path"]}`
+  }
+  if (tool === "list_skills") {
+    return "List available skills"
+  }
   return fallback
 }
 

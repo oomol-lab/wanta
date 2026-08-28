@@ -134,6 +134,18 @@ describe("external OO guard runtime", () => {
     expect(output.trim().split("\n")).toEqual(["connector", "apps", "posthog", "--json"])
   })
 
+  test("allows top-level read-only capability discovery required by the bundled oo skill", async () => {
+    const { env } = await fixture({
+      external: true,
+      runtime: "oomol",
+      sessionRuntimes: { "session-a": "oomol" },
+      sessionTeams: { "session-a": "Team A" },
+    })
+
+    const output = await runGuard(["search", "generate an image with GPT Image 2", "--json"], env)
+    expect(output.trim().split("\n")).toEqual(["search", "generate an image with GPT Image 2", "--json"])
+  })
+
   test("rejects runtime-administration commands at the privileged boundary", async () => {
     const { env } = await fixture({
       external: true,
@@ -143,7 +155,7 @@ describe("external OO guard runtime", () => {
     })
 
     await expect(runGuard(["logout"], env)).rejects.toMatchObject({
-      stderr: expect.stringContaining("Only managed connector discovery and action commands are allowed"),
+      stderr: expect.stringContaining("Only managed capability discovery and connector action commands are allowed"),
     })
   })
 

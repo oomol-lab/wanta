@@ -40,7 +40,7 @@ jobs:
       - name: Export bundled OO skills
         run: node --experimental-strip-types ./scripts/download-skills.ts
         env:
-          # Compatibility tests verify the pinned binary's real exported Skill
+          # Bundle-lock tests verify the pinned binary's real exported Skill
           # tree, which is intentionally gitignored and skipped during install.
           OO_SKIP_BINARY_DOWNLOAD: "0"
           # Postinstall keeps Skill export best-effort for contributor setup;

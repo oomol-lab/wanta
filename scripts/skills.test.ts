@@ -7,8 +7,8 @@ import { OO_CLI_VERSION } from "./oo-cli.ts"
 import {
   bundledSkillsDir,
   exportBundledSkills,
-  skillCompatibilityDir,
-  verifyBundledOoSkillCompatibility,
+  skillLockDir,
+  verifyBundledOoSkillLock,
   wantaBundledSkillIds,
   wantaSkillsDir,
 } from "./skills.ts"
@@ -42,30 +42,31 @@ describe("Wanta bundled skills", () => {
   })
 
   it("pins the exported oo Skill and reviews every required command domain", async () => {
-    const manifest = JSON.parse(await readFile(path.join(skillCompatibilityDir, "oo.json"), "utf8")) as {
+    const lock = JSON.parse(await readFile(path.join(skillLockDir, "oo.json"), "utf8")) as {
       ooCliVersion: string
       requiredOperations: string[]
     }
-    expect(manifest.ooCliVersion).toBe(OO_CLI_VERSION)
+    expect(lock.ooCliVersion).toBe(OO_CLI_VERSION)
     const knownOperations = new Set<string>(EXTERNAL_OO_OPERATIONS.map((operation) => operation.id))
-    expect(manifest.requiredOperations.every((operation) => knownOperations.has(operation))).toBe(true)
-    await expect(verifyBundledOoSkillCompatibility(bundledSkillsDir)).resolves.toBeUndefined()
+    expect(lock.requiredOperations.every((operation) => knownOperations.has(operation))).toBe(true)
+    await expect(verifyBundledOoSkillLock(bundledSkillsDir)).resolves.toBeUndefined()
   })
 
   it("rejects an unknown required operation before reading generated Skill files", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-compatibility-"))
-    const manifestPath = path.join(root, "oo.json")
+    const root = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-lock-"))
+    const lockPath = path.join(root, "oo.json")
     try {
       await writeFile(
-        manifestPath,
+        lockPath,
         JSON.stringify({
           agentFormat: "universal",
           files: {},
+          lockVersion: 1,
           ooCliVersion: OO_CLI_VERSION,
           requiredOperations: ["unknown.operation"],
         }),
       )
-      await expect(verifyBundledOoSkillCompatibility(path.join(root, "missing-skills"), manifestPath)).rejects.toThrow(
+      await expect(verifyBundledOoSkillLock(path.join(root, "missing-skills"), lockPath)).rejects.toThrow(
         /unknown operations: unknown\.operation/u,
       )
     } finally {

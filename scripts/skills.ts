@@ -23,7 +23,7 @@ const repoRoot = path.join(dirname, "..")
 export const bundledSkillsDir = path.join(repoRoot, "resources", "skills")
 export const wantaSkillsDir = path.join(repoRoot, "resources", "wanta-skills")
 export const skillOverridesDir = path.join(repoRoot, "resources", "skill-overrides")
-export const skillCompatibilityDir = path.join(repoRoot, "resources", "skill-compatibility")
+export const skillLockDir = path.join(repoRoot, "resources", "skill-lock")
 
 const ooBundledSkillIds = ["oo", "oo-find-skills", "oo-create-skill", "oo-publish-skill"] as const
 export const wantaBundledSkillIds = ["browser", "wikigraph-knowledge"] as const
@@ -37,9 +37,10 @@ interface SkillsInstallExport {
   skills?: Array<{ skillId?: string; status?: string }>
 }
 
-interface SkillCompatibilityManifest {
+interface OoSkillLock {
   agentFormat: string
   files: Record<string, string>
+  lockVersion: number
   ooCliVersion: string
   requiredOperations: string[]
 }
@@ -120,33 +121,33 @@ export async function applyBundledSkillOverrides(
   )
 }
 
-export async function verifyBundledOoSkillCompatibility(
+export async function verifyBundledOoSkillLock(
   skillsDir: string = bundledSkillsDir,
-  manifestPath: string = path.join(skillCompatibilityDir, "oo.json"),
+  lockPath: string = path.join(skillLockDir, "oo.json"),
 ): Promise<void> {
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as SkillCompatibilityManifest
-  if (manifest.ooCliVersion !== OO_CLI_VERSION || manifest.agentFormat !== "universal") {
+  const lock = JSON.parse(await readFile(lockPath, "utf8")) as OoSkillLock
+  if (lock.lockVersion !== 1 || lock.ooCliVersion !== OO_CLI_VERSION || lock.agentFormat !== "universal") {
     throw new Error(
-      `bundled oo Skill compatibility targets ${manifest.ooCliVersion}/${manifest.agentFormat}, expected ${OO_CLI_VERSION}/universal`,
+      `bundled oo Skill lock targets ${lock.ooCliVersion}/${lock.agentFormat}, expected ${OO_CLI_VERSION}/universal`,
     )
   }
   const knownOperations = new Set<string>(EXTERNAL_OO_OPERATIONS.map((operation) => operation.id))
-  const unknownOperations = manifest.requiredOperations.filter((operation) => !knownOperations.has(operation))
+  const unknownOperations = lock.requiredOperations.filter((operation) => !knownOperations.has(operation))
   if (unknownOperations.length > 0) {
-    throw new Error(`bundled oo Skill compatibility contains unknown operations: ${unknownOperations.join(", ")}`)
+    throw new Error(`bundled oo Skill lock contains unknown operations: ${unknownOperations.join(", ")}`)
   }
   const actualFiles = (await readdirFilesRecursive(path.join(skillsDir, "oo"))).sort()
-  const expectedFiles = Object.keys(manifest.files).sort()
+  const expectedFiles = Object.keys(lock.files).sort()
   if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
     throw new Error(
       `bundled oo Skill file set changed: expected [${expectedFiles.join(", ")}], got [${actualFiles.join(", ")}]`,
     )
   }
-  for (const [relativePath, expected] of Object.entries(manifest.files)) {
+  for (const [relativePath, expected] of Object.entries(lock.files)) {
     const content = await readFile(path.join(skillsDir, "oo", relativePath))
     const actual = createHash("sha256").update(content).digest("hex")
     if (actual !== expected) {
-      throw new Error(`bundled oo Skill compatibility changed at ${relativePath}: expected ${expected}, got ${actual}`)
+      throw new Error(`bundled oo Skill lock changed at ${relativePath}: expected ${expected}, got ${actual}`)
     }
   }
 }

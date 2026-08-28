@@ -1,6 +1,6 @@
 import type {
   ConnectionAppSummary,
-  ConnectionAuthType,
+  ConnectionCredentialAuthType,
   ConnectionAppDetail,
   ConnectionConnectInput,
   ConnectionProviderDetail,
@@ -611,7 +611,7 @@ export function ConnectionsPanel({
   const connectProvider = React.useCallback(
     async (
       provider: ConnectionProviderSummary,
-      authType: Exclude<ConnectionAuthType, null>,
+      authType: ConnectionCredentialAuthType,
       appId?: string,
     ): Promise<void> => {
       if (provider.executionMode === "direct") {

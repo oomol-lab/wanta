@@ -1,7 +1,7 @@
 import type {
   ConnectionAppDetail,
-  ConnectionAuthType,
   ConnectionConnectInput,
+  ConnectionCredentialAuthType,
   ConnectionCredentialField,
   ConnectionOAuthClientConfigFieldDefinition,
   ConnectionProviderDetail,
@@ -200,11 +200,11 @@ function getCredentialFields(
   return { fields: detail.customCredentialConfig?.fields ?? [] }
 }
 
-function isCredentialMode(authType: ConnectionAuthType): authType is CredentialMode {
+function isCredentialMode(authType: ConnectionCredentialAuthType): authType is CredentialMode {
   return authType === "api_key" || authType === "custom_credential" || authType === "federated"
 }
 
-function isDialogAuthMode(authType: ConnectionAuthType): authType is DialogAuthMode {
+function isDialogAuthMode(authType: ConnectionCredentialAuthType): authType is DialogAuthMode {
   return authType === "oauth2" || isCredentialMode(authType)
 }
 

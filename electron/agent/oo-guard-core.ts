@@ -10,12 +10,14 @@ const sensitiveConnectorKeys = new Set([
   "client_secret",
   "cookie",
   "credential",
+  "download_url",
   "password",
   "personal_api_key",
   "refresh_token",
   "secret",
   "secret_api_token",
   "secret_api_token_backup",
+  "workbench_url",
 ])
 
 function normalizedKey(value: string): string {
@@ -33,9 +35,9 @@ export function isSensitiveConnectorKey(value: string): boolean {
   return [...sensitiveConnectorKeys].some((sensitiveKey) => key.endsWith(`_${sensitiveKey}`))
 }
 
-function redactConnectorValue(value: unknown): unknown {
+function redactConnectorValue(value: unknown, preserveKeys: ReadonlySet<string>): unknown {
   if (Array.isArray(value)) {
-    return value.map(redactConnectorValue)
+    return value.map((item) => redactConnectorValue(item, preserveKeys))
   }
   if (!value || typeof value !== "object") {
     return value
@@ -43,7 +45,9 @@ function redactConnectorValue(value: unknown): unknown {
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       key,
-      isSensitiveConnectorKey(key) ? "[redacted]" : redactConnectorValue(item),
+      isSensitiveConnectorKey(key) && !preserveKeys.has(normalizedKey(key))
+        ? "[redacted]"
+        : redactConnectorValue(item, preserveKeys),
     ]),
   )
 }
@@ -52,21 +56,21 @@ const jsonFieldPattern = /("((?:\\.|[^"\\])*)"\s*:\s*)("(?:\\.|[^"\\])*"|[^,}\]\
 const sensitiveAssignmentPattern =
   /([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)/gu
 
-export function redactConnectorOutput(output: string): string {
+export function redactConnectorOutput(output: string, preserveKeys: ReadonlySet<string> = new Set()): string {
   if (!output) return output
   const trailingNewline = output.endsWith("\n")
   try {
     const parsed = JSON.parse(output) as unknown
-    const redacted = redactConnectorValue(parsed)
+    const redacted = redactConnectorValue(parsed, preserveKeys)
     if (JSON.stringify(redacted) === JSON.stringify(parsed)) return output
     return `${JSON.stringify(redacted)}${trailingNewline ? "\n" : ""}`
   } catch {
     return output
       .replace(jsonFieldPattern, (match, prefix: string, key: string) =>
-        isSensitiveConnectorKey(key) ? `${prefix}"[redacted]"` : match,
+        isSensitiveConnectorKey(key) && !preserveKeys.has(normalizedKey(key)) ? `${prefix}"[redacted]"` : match,
       )
       .replace(sensitiveAssignmentPattern, (match, key: string) =>
-        isSensitiveConnectorKey(key) ? `${key}=[redacted]` : match,
+        isSensitiveConnectorKey(key) && !preserveKeys.has(normalizedKey(key)) ? `${key}=[redacted]` : match,
       )
   }
 }

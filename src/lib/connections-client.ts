@@ -807,3 +807,20 @@ export async function updateAlias(appId: string, alias: string, workspace: Conne
   })
   invalidateWorkspaceApps(workspace, appId)
 }
+
+export async function setDefaultConnection(
+  service: string,
+  appId: string,
+  workspace: ConnectionWorkspace,
+): Promise<void> {
+  requireConnectionManagement(workspace)
+  await requestConnector(
+    `${connectionAppsPath(workspace)}/services/${encodeURIComponent(service)}/default`,
+    workspace,
+    {
+      method: "PUT",
+      body: JSON.stringify({ appId }),
+    },
+  )
+  invalidateWorkspaceApps(workspace)
+}

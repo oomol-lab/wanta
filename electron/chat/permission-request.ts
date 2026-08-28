@@ -1,6 +1,6 @@
 import type { ChatPermissionRequest } from "./common.ts"
 
-import { openConnectorCommandPolicy } from "../agent/oo-command-permission.ts"
+import { managedOoCommandRequiresConfirmation, openConnectorCommandPolicy } from "../agent/oo-command-permission.ts"
 import {
   isManagedPythonExecutable,
   isManagedPythonPipExecutable,
@@ -185,6 +185,7 @@ export function isHighRiskPermissionRequest(request: ChatPermissionRequest): boo
   return (
     dependencyCommandRequiresConfirmation(shellControlText) ||
     commandRequiresConfirmation(shellControlText) ||
+    managedOoCommandRequiresConfirmation(shellControlText) ||
     HIGH_RISK_COMMAND_PATH_PATTERNS.some((pattern) => pattern.test(shellControlText))
   )
 }

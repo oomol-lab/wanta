@@ -6,6 +6,7 @@ import {
   normalizeServiceSlug,
   parseToolAuthorization,
   toolActionSummary,
+  toolDisplayInput,
   toolDisplayLine,
   toolServiceSlug,
 } from "./tool-display.ts"
@@ -196,6 +197,41 @@ describe("tool display", () => {
       detail: "posthog · run_query",
       detailKind: "text",
     })
+  })
+
+  it("renders managed File and Flow commands without exposing signed URLs", () => {
+    const t = (key: string, vars?: Record<string, string | number>) => `${key}:${vars?.detail ?? ""}`
+    const download = {
+      kind: "tool" as const,
+      partId: "download",
+      tool: "execute",
+      status: "completed" as const,
+      input: {
+        command: 'oo file download "https://signed.example.test/a?token=secret" ./artifacts --name "report" --ext pdf',
+      },
+    }
+    const publish = {
+      kind: "tool" as const,
+      partId: "publish",
+      tool: "execute",
+      status: "completed" as const,
+      input: { command: "oo flow publish demo --project project-a --json" },
+    }
+
+    expect(toolDisplayLine(t, download)).toEqual({
+      title: "chat.toolDownloadFile:",
+      detail: "report",
+      detailKind: "text",
+    })
+    expect(JSON.stringify(toolDisplayLine(t, download))).not.toContain("secret")
+    expect(toolDisplayInput(download)).toBeUndefined()
+    expect(toolDisplayInput({ ...download, input: { ...download.input, destination: "artifacts" } })).toEqual({
+      destination: "artifacts",
+    })
+    expect(toolDisplayInput(publish)).toEqual(publish.input)
+    expect(toolActionSummary(t, download)).toBe("chat.toolDownloadFile:")
+    expect(toolDisplayLine(t, publish)).toEqual({ title: "chat.toolPublishFlow:" })
+    expect(toolActionSummary(t, publish)).toBe("chat.toolPublishFlow:")
   })
 
   it("uses operation-specific knowledge query labels", () => {

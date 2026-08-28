@@ -56,6 +56,31 @@ test("OpenCode, Claude, and ACP agents auto-approve Link business CLI", () => {
   }
 })
 
+test("managed file upload and consequential Flow boundaries prompt in default mode", () => {
+  for (const command of [
+    'oo file upload "artifact.png" --json',
+    "oo flow run demo --project project-a --source draft --wait --json",
+    "oo flow publish demo --project project-a --json",
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
+        isExternalSession: true,
+        linkRuntime: "oomol",
+        permissionMode: "default",
+      }),
+      { type: "prompt", kind: "command", highRisk: true },
+      command,
+    )
+  }
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: "oo flow inspect demo --project project-a --json" } }),
+      { isExternalSession: true, linkRuntime: "oomol", permissionMode: "default" },
+    ),
+    { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
+  )
+})
+
 test("OOCLI parity preserves hard denials while allowing ordinary compound Link business commands", () => {
   for (const command of ["oo auth login", "oo connector logout", "oo connector apps --connector-token secret"]) {
     assert.equal(

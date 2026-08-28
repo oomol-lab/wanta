@@ -30,7 +30,12 @@ import * as React from "react"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { shouldShowRunningNoOutput } from "./tool-activity.ts"
 import { shouldHideToolDetailsImmediately } from "./tool-details-visibility.ts"
-import { isWikigraphKnowledgeActivityPart, parseToolAuthorization, toolDisplayLine } from "./tool-display.ts"
+import {
+  isWikigraphKnowledgeActivityPart,
+  parseToolAuthorization,
+  toolDisplayInput,
+  toolDisplayLine,
+} from "./tool-display.ts"
 import { formatToolOutputPreview, toolOutputPreviewLimitChars } from "./tool-output-preview.ts"
 import { isActiveToolPart, isToolCancellation } from "./tool-state.ts"
 import { Button } from "@/components/ui/button"
@@ -225,13 +230,14 @@ function hasToolDetails(
   part: ChatMessagePart,
   auth: AuthorizationInfo | null,
   answerSummary: string,
+  displayInput: Record<string, unknown> | undefined,
   stopped = false,
 ): boolean {
   if (part.tool === "question") {
     return Boolean(answerSummary)
   }
   return (
-    hasKeys(part.input) ||
+    hasKeys(displayInput) ||
     hasKeys(part.metadata) ||
     Boolean(part.output && !auth) ||
     Boolean(part.error && !stopped) ||
@@ -266,7 +272,8 @@ export function ToolActivityStep({
   const stopped = isToolCancellation(part) || (!live && activePart)
   const answerSummary = questionAnswerSummary(part)
   const hideDetails = isWikigraphKnowledgeActivityPart(part)
-  const details = !hideDetails && hasToolDetails(part, auth, answerSummary, stopped)
+  const displayInput = toolDisplayInput(part)
+  const details = !hideDetails && hasToolDetails(part, auth, answerSummary, displayInput, stopped)
   const [open, setOpen] = React.useState(false)
   const [detailsVisible, setDetailsVisible] = React.useState(false)
   const outputPreviewRef = React.useRef<{ output: string; text: string; truncated: boolean } | null>(null)
@@ -405,9 +412,9 @@ export function ToolActivityStep({
                 <ToolPre>{answerSummary}</ToolPre>
               </ToolDetailSection>
             ) : null}
-            {detailsVisible && part.tool !== "question" && hasKeys(part.input) && (
+            {detailsVisible && part.tool !== "question" && hasKeys(displayInput) && (
               <ToolDetailSection label={t("chat.toolParams")}>
-                <ToolPre>{formatJson(part.input ?? {})}</ToolPre>
+                <ToolPre>{formatJson(displayInput ?? {})}</ToolPre>
               </ToolDetailSection>
             )}
             {detailsVisible && !stopped && shouldShowRunningNoOutput(part) && (

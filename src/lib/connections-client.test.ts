@@ -12,6 +12,7 @@ import {
   getConnectionProviderDetail,
   getConnectionSummary,
   listOAuthClientConfigs,
+  setDefaultConnection,
   startOAuthConnect,
   upsertOAuthClientConfig,
 } from "./connections-client.ts"
@@ -83,6 +84,25 @@ describe("connections-client", () => {
     await expect(
       connectProvider({ authType: "no_auth", service: "github" }, { manageable: false, teamName: "team-name" }),
     ).rejects.toThrow("Connection management is not allowed")
+    await expect(
+      setDefaultConnection("tikhub", "marketplace:oomol:tikhub", {
+        manageable: false,
+        teamName: "team-name",
+      }),
+    ).rejects.toThrow("Connection management is not allowed")
+  })
+
+  it("sets a Marketplace virtual app as the service default", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ data: {} }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await setDefaultConnection("tikhub", "marketplace:oomol:tikhub", managementWorkspace)
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/connections/services/tikhub/default")
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("PUT")
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      appId: "marketplace:oomol:tikhub",
+    })
   })
 
   it("loads connection app details through the by-id endpoint", async () => {
@@ -226,6 +246,46 @@ describe("connections-client", () => {
     expect(String(providerRequest?.[0])).toContain("/v1/providers?locale=zh-CN")
     const providerHeaders = new Headers(providerRequest?.[1]?.headers)
     expect(providerHeaders.has("x-oo-organization-name")).toBe(false)
+  })
+
+  it("preserves a policy-visible Marketplace app for read-only team members", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/v1/apps")) {
+        return Response.json({
+          data: [
+            {
+              authType: "marketplace",
+              connectionName: "marketplace_oomol",
+              id: "marketplace:oomol:tikhub",
+              isDefault: true,
+              marketplace: { id: "oomol", pricing: "metered" },
+              service: "tikhub",
+              status: "active",
+            },
+          ],
+        })
+      }
+      if (url.includes("/v1/providers")) {
+        return Response.json({ data: [{ authTypes: ["api_key"], displayName: "TikHub", service: "tikhub" }] })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const summary = await getConnectionCatalogSummary({ manageable: false, teamName: "read-only-team" })
+
+    expect(summary.appsStatus).toBe("ready")
+    expect(summary.providers[0]).toMatchObject({
+      appAuthType: "marketplace",
+      appCount: 1,
+      canDisconnect: false,
+      status: "connected",
+    })
+    expect(summary.providers[0]?.apps[0]).toMatchObject({
+      connectionName: "marketplace_oomol",
+      marketplace: { id: "oomol", pricing: "metered" },
+    })
   })
 
   it("loads execution logs for one connection through the by-id endpoint", async () => {
@@ -572,9 +632,13 @@ describe("connections-client", () => {
 
     const first = getActiveConnectionAppIdsForService("gmail", { manageable: false, teamName: "team-name" })
     const second = getActiveConnectionAppIdsForService("gmail", { manageable: false, teamName: "team-name" })
-    resolveSecondApps(Response.json({ data: [{ id: "new-app", service: "gmail", status: "active" }] }))
+    resolveSecondApps(
+      Response.json({ data: [{ authType: "oauth2", id: "new-app", service: "gmail", status: "active" }] }),
+    )
     await expect(second).resolves.toEqual(["new-app"])
-    resolveFirstApps(Response.json({ data: [{ id: "old-app", service: "gmail", status: "active" }] }))
+    resolveFirstApps(
+      Response.json({ data: [{ authType: "oauth2", id: "old-app", service: "gmail", status: "active" }] }),
+    )
     await expect(first).resolves.toEqual(["old-app"])
 
     const summary = await getConnectionSummary({ manageable: false, teamName: "team-name" })

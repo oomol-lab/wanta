@@ -42,7 +42,7 @@ test("connected providers sort before available ones", () => {
 
 test("pure no_auth connected provider cannot be disconnected", () => {
   const summary = mergeConnectionSummary({
-    apps: [{ id: "app-1", service: "quickchart", status: "active" }],
+    apps: [{ authType: "no_auth", id: "app-1", service: "quickchart", status: "active" }],
     providers,
   })
   const quickchart = summary.providers.find((provider) => provider.service === "quickchart")
@@ -54,7 +54,7 @@ test("pure no_auth connected provider cannot be disconnected", () => {
 
 test("non-active app becomes needs_attention", () => {
   const summary = mergeConnectionSummary({
-    apps: [{ id: "app-1", service: "ably", status: "reauth_required" }],
+    apps: [{ authType: "api_key", id: "app-1", service: "ably", status: "reauth_required" }],
     providers,
   })
   const ably = summary.providers.find((provider) => provider.service === "ably")
@@ -172,6 +172,105 @@ test("merge preserves multiple apps for one provider", () => {
     gmail?.apps.map((app) => app.id),
     ["app-1", "app-2"],
   )
+})
+
+test("normalizes an OOMOL Marketplace virtual connection without exposing credential mutations", () => {
+  const summary = mergeConnectionSummary({
+    apps: [
+      {
+        accountLabel: "OOMOL Marketplace",
+        authType: "marketplace",
+        connectionName: "marketplace_oomol",
+        id: "marketplace:oomol:ably",
+        isDefault: true,
+        marketplace: { id: "oomol", pricing: "metered" },
+        service: "ably",
+        status: "active",
+        updatedAt: 0,
+      },
+    ],
+    meta: { summary: { connectedProviderCount: 1 } },
+    providers,
+  })
+  const ably = summary.providers.find((provider) => provider.service === "ably")
+
+  assert.equal(ably?.status, "connected")
+  assert.equal(ably?.appAuthType, "marketplace")
+  assert.equal(ably?.appCount, 1)
+  assert.equal(ably?.canDisconnect, false)
+  assert.equal(ably?.apps[0]?.connectionName, "marketplace_oomol")
+  assert.deepEqual(ably?.apps[0]?.marketplace, { id: "oomol", pricing: "metered" })
+  assert.equal(summary.connectedProviderCount, 1)
+})
+
+test("keeps Marketplace and user credentials as separate selectable connections", () => {
+  const summary = mergeConnectionSummary({
+    apps: [
+      {
+        authType: "marketplace",
+        id: "marketplace:oomol:ably",
+        isDefault: false,
+        marketplace: { id: "oomol", pricing: "metered" },
+        service: "ably",
+        status: "active",
+        updatedAt: 0,
+      },
+      {
+        accountLabel: "My key",
+        authType: "api_key",
+        id: "app-user-key",
+        isDefault: true,
+        service: "ably",
+        status: "active",
+        updatedAt: 20,
+      },
+      {
+        accountLabel: "Backup key",
+        authType: "api_key",
+        id: "app-backup-key",
+        isDefault: false,
+        service: "ably",
+        status: "active",
+        updatedAt: 10,
+      },
+    ],
+    providers,
+  })
+  const ably = summary.providers.find((provider) => provider.service === "ably")
+
+  assert.equal(ably?.appCount, 3)
+  assert.equal(ably?.appId, "app-user-key")
+  assert.equal(ably?.appAuthType, "api_key")
+  assert.equal(ably?.canDisconnect, true)
+  assert.deepEqual(
+    ably?.apps.map((app) => app.id),
+    ["marketplace:oomol:ably", "app-user-key", "app-backup-key"],
+  )
+})
+
+test("removes Marketplace availability when the virtual app disappears from the current catalog", () => {
+  const summary = mergeConnectionSummary({ apps: [], providers })
+  const ably = summary.providers.find((provider) => provider.service === "ably")
+
+  assert.equal(ably?.status, "available")
+  assert.equal(ably?.appCount, 0)
+  assert.equal(ably?.appAuthType, undefined)
+})
+
+test("fails closed on active apps with missing or unknown auth types", () => {
+  const summary = mergeConnectionSummary({
+    apps: [
+      { authType: "future_server_managed", id: "managed-unknown", service: "ably", status: "active" },
+      { id: "managed-missing", service: "ably", status: "active" },
+    ],
+    providers,
+  })
+  const ably = summary.providers.find((provider) => provider.service === "ably")
+
+  assert.deepEqual(summary.apps, [])
+  assert.equal(ably?.status, "available")
+  assert.equal(ably?.appCount, 0)
+  assert.equal(ably?.canDisconnect, false)
 })
 
 test("merge exposes connection account labels for UI distinction", () => {

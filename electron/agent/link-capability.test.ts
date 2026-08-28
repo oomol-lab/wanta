@@ -255,6 +255,106 @@ describe("LinkCapability", () => {
     expect(calls[0].args).toEqual(["connector", "apps", "posthog", "--team", "Analytics Team", "--json"])
   })
 
+  test("preserves an explicit OOMOL Marketplace connection selector", async () => {
+    const { calls, capability } = oomolHarness((args) =>
+      args[1] === "apps"
+        ? JSON.stringify({
+            apps: [
+              {
+                authType: "marketplace",
+                connectionName: "marketplace_oomol",
+                marketplace: { id: "oomol", pricing: "metered" },
+                status: "active",
+              },
+            ],
+          })
+        : JSON.stringify({ ok: true }),
+    )
+
+    await capability.callAction(
+      { sessionId: "session-1", teamName: "Analytics Team" },
+      { action: "invoke_endpoint", connectionName: "marketplace_oomol", service: "tikhub" },
+    )
+
+    expect(calls[0]?.args).toEqual(["connector", "apps", "tikhub", "--team", "Analytics Team", "--json"])
+    expect(calls[1]?.args).toEqual([
+      "connector",
+      "run",
+      "tikhub",
+      "--action",
+      "invoke_endpoint",
+      "--data",
+      "{}",
+      "--connection-name",
+      "marketplace_oomol",
+      "--team",
+      "Analytics Team",
+      "--json",
+    ])
+  })
+
+  test("leaves no-selector calls to the Connector's saved Marketplace default", async () => {
+    const { calls, capability } = oomolHarness(() => JSON.stringify({ ok: true }))
+
+    await capability.callAction(
+      { sessionId: "session-1", teamName: "Analytics Team" },
+      { action: "invoke_endpoint", service: "tikhub" },
+    )
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.args).toEqual([
+      "connector",
+      "run",
+      "tikhub",
+      "--action",
+      "invoke_endpoint",
+      "--data",
+      "{}",
+      "--team",
+      "Analytics Team",
+      "--json",
+    ])
+  })
+
+  test("does not turn Marketplace execution failures into credential setup prompts", async () => {
+    for (const [errorCode, expectedErrorCode] of [
+      ["app_not_found", "marketplace_action_unavailable"],
+      ["insufficient_credits", "insufficient_credits"],
+      ["rate_limited", "rate_limited"],
+      ["provider_error", "provider_error"],
+      ["POLICY_DENIED", "POLICY_DENIED"],
+    ] as const) {
+      const execute: LinkCommandExecutor = vi.fn(async (_command, args) => {
+        if (args[1] === "apps") {
+          return {
+            stdout: JSON.stringify({ apps: [{ connectionName: "marketplace_oomol", status: "active" }] }),
+            stderr: "",
+          }
+        }
+        throw Object.assign(new Error("connector failed"), {
+          stderr: `Connector action invoke_endpoint returned HTTP 400 (errorCode: ${errorCode}): failed`,
+        })
+      })
+      const capability = new LinkCapability({
+        execute,
+        ooBinPath: "/fake/oo",
+        runtime: () => ({ linkRuntime: { kind: "oomol", sessionToken: "secret-session-token" } }),
+        storeDir: "/private/wanta/link",
+      })
+
+      const result = JSON.parse(
+        await capability.callAction(
+          { sessionId: "session-1", teamName: "Analytics Team" },
+          { action: "invoke_endpoint", connectionName: "marketplace_oomol", service: "tikhub" },
+        ),
+      ) as Record<string, unknown>
+
+      expect(result).toMatchObject({ status: "error", errorCode: expectedErrorCode })
+      expect(result).not.toHaveProperty("authUrl")
+      expect(result).not.toHaveProperty("status", "authorization_required")
+    }
+  })
+
   test("returns a redacted, workspace-specific authorization result", async () => {
     const execute: LinkCommandExecutor = vi.fn(async () => {
       throw Object.assign(new Error("connector failed"), {

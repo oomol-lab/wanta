@@ -3,13 +3,21 @@ import type { UserFacingError } from "./user-facing-error.ts"
 
 import { errorMessage, resolveUserFacingError } from "./user-facing-error.ts"
 
-export type ConnectionErrorOperation = "connect" | "detail" | "disconnect" | "reconnect" | "summary" | "update_alias"
+export type ConnectionErrorOperation =
+  | "connect"
+  | "detail"
+  | "disconnect"
+  | "reconnect"
+  | "set_default"
+  | "summary"
+  | "update_alias"
 
 const permissionTitleKeys: Record<ConnectionErrorOperation, MessageKey> = {
   connect: "error.connections.permissionConnect.title",
   detail: "error.connections.permissionDetail.title",
   disconnect: "error.connections.permissionDisconnect.title",
   reconnect: "error.connections.permissionReconnect.title",
+  set_default: "error.connections.permissionSetDefault.title",
   summary: "error.connections.permissionSummary.title",
   update_alias: "error.connections.permissionUpdateAlias.title",
 }
@@ -19,6 +27,7 @@ const operationTitleKeys: Record<ConnectionErrorOperation, MessageKey> = {
   detail: "error.connections.detailFailed.title",
   disconnect: "error.connections.disconnectFailed.title",
   reconnect: "error.connections.reconnectFailed.title",
+  set_default: "error.connections.setDefaultFailed.title",
   summary: "error.connections.title",
   update_alias: "error.connections.updateAliasFailed.title",
 }

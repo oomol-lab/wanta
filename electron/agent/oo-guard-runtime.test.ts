@@ -110,6 +110,43 @@ describe("external OO guard runtime", () => {
     ])
   })
 
+  test("preserves an explicit Marketplace connection while binding the owning team", async () => {
+    const { env } = await fixture({
+      external: true,
+      runtime: "oomol",
+      sessionRuntimes: { "session-a": "oomol" },
+      sessionTeams: { "session-a": "OOMOL-Internal" },
+    })
+
+    const output = await runGuard(
+      [
+        "connector",
+        "run",
+        "tikhub",
+        "--action",
+        "invoke_endpoint",
+        "--connection-name",
+        "marketplace_oomol",
+        "--data",
+        "{}",
+      ],
+      env,
+    )
+    expect(output.trim().split("\n")).toEqual([
+      "connector",
+      "run",
+      "tikhub",
+      "--action",
+      "invoke_endpoint",
+      "--connection-name",
+      "marketplace_oomol",
+      "--data",
+      "{}",
+      "--team",
+      "OOMOL-Internal",
+    ])
+  })
+
   test("fails before the real CLI when a shared cwd could select different running turns", async () => {
     const { env } = await fixture({
       external: true,
@@ -147,6 +184,72 @@ describe("external OO guard runtime", () => {
     expect(output.trim().split("\n")).toEqual(["search", "generate an image with GPT Image 2", "--json"])
   })
 
+  test("allows bounded file transfer and Flow commands", async () => {
+    const { env, root } = await fixture({
+      external: true,
+      runtime: "oomol",
+      sessionRuntimes: { "session-a": "oomol" },
+      sessionTeams: { "session-a": "Team A" },
+    })
+    const upload = path.join(root, "artifact.txt")
+    const downloads = path.join(root, "downloads")
+    await writeFile(upload, "artifact")
+
+    const uploadOutput = await runGuard(["file", "upload", upload, "--json"], env)
+    expect(uploadOutput.trim().split("\n")).toEqual(["file", "upload", upload, "--json"])
+
+    const downloadOutput = await runGuard(
+      ["file", "download", "https://93.184.216.34/artifact", downloads, "--name", "artifact"],
+      env,
+    )
+    expect(downloadOutput.trim().split("\n")).toEqual([
+      "file",
+      "download",
+      "https://93.184.216.34/artifact",
+      downloads,
+      "--name",
+      "artifact",
+    ])
+
+    const flowOutput = await runGuard(["flow", "inspect", "demo", "--project", "project-a", "--json"], env)
+    expect(flowOutput.trim().split("\n")).toEqual(["flow", "inspect", "demo", "--project", "project-a", "--json"])
+  })
+
+  test("keeps a live upload URL usable by the agent while transcript redaction remains separate", async () => {
+    const { env, root } = await fixture(
+      {
+        external: true,
+        runtime: "oomol",
+        sessionRuntimes: { "session-a": "oomol" },
+        sessionTeams: { "session-a": "Team A" },
+      },
+      '#!/bin/sh\nprintf \'{"downloadUrl":"https://signed.example.test/file?token=secret","apiToken":"hidden"}\\n\'\n',
+    )
+    const upload = path.join(root, "artifact.txt")
+    await writeFile(upload, "artifact")
+
+    const output = JSON.parse(await runGuard(["file", "upload", upload, "--json"], env)) as Record<string, unknown>
+    expect(output).toEqual({
+      downloadUrl: "https://signed.example.test/file?token=secret",
+      apiToken: "[redacted]",
+    })
+  })
+
+  test("rejects unsafe file and Flow boundaries before spawning OOCLI", async () => {
+    const { env, root } = await fixture({
+      external: true,
+      runtime: "oomol",
+      sessionRuntimes: { "session-a": "oomol" },
+      sessionTeams: { "session-a": "Team A" },
+    })
+    await expect(runGuard(["file", "upload", path.dirname(root), "--json"], env)).rejects.toBeDefined()
+    await expect(runGuard(["file", "download", "http://127.0.0.1/private"], env)).rejects.toBeDefined()
+    await expect(runGuard(["flow", "inspect", "demo", "--json"], env)).rejects.toMatchObject({
+      stderr: expect.stringContaining("explicit --project"),
+    })
+    await expect(runGuard(["flow", "delete", "demo", "--project", "project-a", "--yes"], env)).rejects.toBeDefined()
+  })
+
   test("rejects runtime-administration commands at the privileged boundary", async () => {
     const { env } = await fixture({
       external: true,
@@ -156,7 +259,9 @@ describe("external OO guard runtime", () => {
     })
 
     await expect(runGuard(["logout"], env)).rejects.toMatchObject({
-      stderr: expect.stringContaining("Only managed capability discovery and connector action commands are allowed"),
+      stderr: expect.stringContaining(
+        "Only managed capability, connector, file-transfer, and Flow commands are allowed",
+      ),
     })
   })
 
@@ -172,7 +277,7 @@ describe("external OO guard runtime", () => {
       () => false,
     )
     await expect(runGuard(["search", "posthog"], env)).rejects.toMatchObject({
-      stderr: expect.stringContaining("Managed OO runtime compatibility is unavailable"),
+      stderr: expect.stringContaining("Managed OO runtime integrity verification failed"),
     })
   })
 

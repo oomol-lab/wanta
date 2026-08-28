@@ -10,12 +10,12 @@ export interface ExternalOoOperation {
   workspace: ExternalOoWorkspace
 }
 
-export const EXTERNAL_OO_CONTRACT_VERSION = 1
+export const EXTERNAL_OO_CONTRACT_VERSION = 2
 
 /**
  * Single source of truth for OO command domains exposed through the privileged
- * external-agent boundary. Guard dispatch, Skill guidance, and compatibility
- * tests must derive from this table rather than maintaining parallel lists.
+ * external-agent boundary. Guard dispatch, Skill guidance, and bundle-lock
+ * verification must derive from this table rather than maintaining parallel lists.
  */
 export const EXTERNAL_OO_OPERATIONS = [
   {
@@ -63,14 +63,14 @@ export const EXTERNAL_OO_OPERATIONS = [
   {
     id: "file.upload",
     command: ["file", "upload"],
-    availability: "planned",
+    availability: "enabled",
     effect: "local_read",
     workspace: "optional",
   },
   {
     id: "file.download",
     command: ["file", "download"],
-    availability: "planned",
+    availability: "enabled",
     effect: "local_write",
     workspace: "optional",
   },
@@ -88,6 +88,63 @@ export const EXTERNAL_OO_OPERATIONS = [
     effect: "local_state",
     workspace: "optional",
   },
+  ...[
+    ["project.current", ["flow", "project", "current"]],
+    ["project.list", ["flow", "project", "list"]],
+    ["project.show", ["flow", "project", "show"]],
+    ["list", ["flow", "list"]],
+    ["show", ["flow", "show"]],
+    ["inspect", ["flow", "inspect"]],
+    ["check", ["flow", "check"]],
+    ["node.list", ["flow", "node", "list"]],
+    ["node.show", ["flow", "node", "show"]],
+    ["code.list", ["flow", "code", "list"]],
+    ["code.show", ["flow", "code", "show"]],
+    ["connector.list", ["flow", "connector", "list"]],
+    ["connector.search", ["flow", "connector", "search"]],
+    ["connector.show", ["flow", "connector", "show"]],
+    ["connector.connections", ["flow", "connector", "connections"]],
+    ["trigger.search", ["flow", "trigger", "search"]],
+    ["trigger.show", ["flow", "trigger", "show"]],
+    ["trigger.list", ["flow", "trigger", "list"]],
+    ["runs.list", ["flow", "runs", "list"]],
+    ["runs.show", ["flow", "runs", "show"]],
+    ["runs.events", ["flow", "runs", "events"]],
+    ["runs.result", ["flow", "runs", "result"]],
+    ["publications.list", ["flow", "publications", "list"]],
+    ["publications.show", ["flow", "publications", "show"]],
+  ].map(([suffix, command]) => ({
+    id: `flow.${suffix as string}`,
+    command: command as string[],
+    availability: "enabled" as const,
+    effect: "read_only" as const,
+    workspace: "required" as const,
+  })),
+  ...[
+    ["create", ["flow", "create"]],
+    ["apply", ["flow", "apply"]],
+    ["rename", ["flow", "rename"]],
+    ["node.add", ["flow", "node", "add"]],
+    ["node.set", ["flow", "node", "set"]],
+    ["node.remove", ["flow", "node", "remove"]],
+    ["code.edit", ["flow", "code", "edit"]],
+    ["code.set", ["flow", "code", "set"]],
+    ["connector.add", ["flow", "connector", "add"]],
+    ["connector.set", ["flow", "connector", "set"]],
+    ["trigger.add", ["flow", "trigger", "add"]],
+    ["trigger.set", ["flow", "trigger", "set"]],
+    ["trigger.remove", ["flow", "trigger", "remove"]],
+    ["connect", ["flow", "connect"]],
+    ["disconnect", ["flow", "disconnect"]],
+    ["run", ["flow", "run"]],
+    ["publish", ["flow", "publish"]],
+  ].map(([suffix, command]) => ({
+    id: `flow.${suffix as string}`,
+    command: command as string[],
+    availability: "enabled" as const,
+    effect: "external_action" as const,
+    workspace: "required" as const,
+  })),
   {
     id: "flow",
     command: ["flow"],
@@ -158,11 +215,11 @@ export function externalOoRootCommandIndex(args: readonly string[]): number {
 
 export function resolveExternalOoOperation(args: readonly string[]): ExternalOoOperation | undefined {
   const commandArgs = args.slice(externalOoRootCommandIndex(args))
-  return EXTERNAL_OO_OPERATIONS.find(
+  return EXTERNAL_OO_OPERATIONS.filter(
     (operation) =>
       commandArgs.length >= operation.command.length &&
       operation.command.every((token, index) => commandArgs[index] === token),
-  )
+  ).sort((left, right) => right.command.length - left.command.length)[0]
 }
 
 export function externalOoExecutionPolicy(): string {
@@ -176,6 +233,10 @@ export function externalOoExecutionPolicy(): string {
     "This host execution profile overrides conflicting command examples or mandatory transport steps in the loaded Skill.",
     `The managed OO boundary supports these command domains: ${enabled}.`,
     `These domains are unavailable unless separately advertised: ${unavailable}.`,
+    "For oo file upload, use only a regular file inside the current turn's managed directories; the host asks for confirmation before bytes leave the machine.",
+    "For oo file download, use only an explicit HTTP(S) artifact URL and a destination inside the current turn's managed directories; omitted destinations are pinned to the managed cwd.",
+    "Flow commands require an OOMOL runtime and an explicit --project value after resolving oo flow project current; stdin, unmanaged @file references, project switching, deletion, rollback, cancellation, and browser-opening commands remain unavailable.",
+    "Flow run and publish are consequential boundaries and require the user's explicit requested scope plus host confirmation.",
     "Skip the Skill recommendation wrap-up; Wanta owns recommendation state and presentation.",
     "Do not replace an unavailable managed domain with an unmanaged OO executable.",
   ].join(" ")

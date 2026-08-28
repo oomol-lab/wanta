@@ -33,7 +33,7 @@ describe("connections client persistent hydration", () => {
       if (revalidate) return new Response(null, { status: 304 })
       if (url.includes("/v1/connections")) {
         return Response.json(
-          { data: [{ id: "app-1", service: "github", status: "active" }] },
+          { data: [{ authType: "oauth2", id: "app-1", service: "github", status: "active" }] },
           { headers: { etag: '"apps-v1"' } },
         )
       }

@@ -1,18 +1,20 @@
 import type {
   ConnectionAppSummary,
-  ConnectionAuthType,
+  ConnectionCredentialAuthType,
   ConnectionProviderSummary,
 } from "../../../electron/connections/common.ts"
 import type { DisconnectTarget } from "./connection-route-model.ts"
 import type { ConnectionAccessContext } from "./ConnectionAccessDialog.tsx"
 import type { UseConnections } from "@/hooks/useConnections"
 
-import { Edit, KeyRound, Save, ShieldCheck, Unplug, X } from "lucide-react"
+import { Edit, KeyRound, Save, ShieldCheck, Star, Unplug, X } from "lucide-react"
 import * as React from "react"
 import {
   accountActionButtonClassName,
+  canMutateConnectionApp,
   getConnectionAppDisplayLabel,
   isConnectionAuthType,
+  isMarketplaceApp,
   normalizeConnectionAliasInput,
   supportsManagedConnectionAccountActions,
 } from "./connection-route-model.ts"
@@ -45,7 +47,7 @@ export function ConnectionAccountsList({
   connections: UseConnections
   onConnect: (
     provider: ConnectionProviderSummary,
-    authType: Exclude<ConnectionAuthType, null>,
+    authType: ConnectionCredentialAuthType,
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
@@ -109,7 +111,7 @@ function ConnectionAccountItem({
   index: number
   onConnect: (
     provider: ConnectionProviderSummary,
-    authType: Exclude<ConnectionAuthType, null>,
+    authType: ConnectionCredentialAuthType,
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
@@ -121,11 +123,14 @@ function ConnectionAccountItem({
 }) {
   const t = useT()
   const supportsManagedAccount = supportsManagedConnectionAccountActions(provider)
-  const managedAccountActions = canManageConnections && supportsManagedAccount
+  const marketplaceApp = isMarketplaceApp(app)
+  const managedAccountActions = canManageConnections && supportsManagedAccount && canMutateConnectionApp(app)
+  const canSetDefault = canManageConnections && supportsManagedAccount && !app.isDefault
   const [aliasDraft, setAliasDraft] = React.useState(app.alias ?? "")
   const [aliasEditing, setAliasEditing] = React.useState(false)
   const [aliasBusy, setAliasBusy] = React.useState(false)
   const reconnectAuthType =
+    !marketplaceApp &&
     (provider.executionMode !== "direct" || provider.canReconnect === true) &&
     app.authType &&
     app.authType !== "no_auth" &&
@@ -141,9 +146,11 @@ function ConnectionAccountItem({
   const aliasDisabled = servicePolling || aliasBusy
   const accountPolling = isConnectionPollingTarget(polling, provider.service, app.id)
   const reconnectDisabled = accountPolling || servicePolling || reconnectBlocked || busy === "connect"
+  const defaultBusy = busy === "set_default"
   const secondaryItems = [
     connectedAccount && connectedAccount !== accountLabel ? connectedAccount : null,
     authLabel,
+    app.marketplace?.pricing === "metered" ? t("connections.marketplaceMetered") : null,
   ].filter((item): item is string => Boolean(item))
 
   React.useEffect(() => {
@@ -243,6 +250,7 @@ function ConnectionAccountItem({
             )}
             <span className="flex shrink-0 flex-wrap items-center gap-1.5">
               {app.isDefault ? <Badge variant="success">{t("connections.defaultConnection")}</Badge> : null}
+              {marketplaceApp ? <Badge variant="secondary">{t("connections.marketplaceManaged")}</Badge> : null}
               {app.status === "reauth_required" || app.status === "error" ? (
                 <Badge variant="warning">{t("connections.providerNeedsAttention")}</Badge>
               ) : null}
@@ -269,7 +277,20 @@ function ConnectionAccountItem({
               {t(canManageConnections ? "connections.manageAccess" : "connections.viewAccess")}
             </Button>
           ) : null}
-          {managedAccountActions ? (
+          {canSetDefault ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={accountActionButtonClassName}
+              disabled={defaultBusy || servicePolling}
+              onClick={() => void connections.setDefaultConnection(provider.service, app.id)}
+            >
+              {defaultBusy ? <Loader size={14} /> : <Star data-icon="inline-start" />}
+              {t("connections.setDefaultConnection")}
+            </Button>
+          ) : null}
+          {canManageConnections && supportsManagedAccount ? (
             <AccountExecutionLogsButton appId={app.id} connections={connections} name={accountLabel} />
           ) : null}
           {reconnectAuthType ? (
@@ -289,7 +310,7 @@ function ConnectionAccountItem({
                   : t("connections.reconnect")}
             </Button>
           ) : null}
-          {canManageConnections && provider.canDisconnect ? (
+          {managedAccountActions && provider.canDisconnect ? (
             <Button
               type="button"
               variant="outline"
@@ -316,9 +337,9 @@ export function AuthTypeToggleGroup({
   onChange,
   value,
 }: {
-  authTypes: Exclude<ConnectionAuthType, null>[]
-  onChange: (value: Exclude<ConnectionAuthType, null>) => void
-  value: Exclude<ConnectionAuthType, null> | null
+  authTypes: ConnectionCredentialAuthType[]
+  onChange: (value: ConnectionCredentialAuthType) => void
+  value: ConnectionCredentialAuthType | null
 }) {
   const t = useT()
 

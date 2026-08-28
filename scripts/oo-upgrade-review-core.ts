@@ -22,6 +22,22 @@ export function unknownRequiredOperations(
   return requiredOperations.filter((operation) => !knownOperationIds.has(operation))
 }
 
+export function requiredOperationsForCommands(commands: readonly OoUpgradeCommandFinding[]): string[] {
+  return [
+    ...new Set(commands.filter((finding) => finding.operation !== "unrecognized").map((finding) => finding.operation)),
+  ].sort()
+}
+
+export function updateOoCliVersionSource(source: string, currentVersion: string, candidateVersion: string): string {
+  if (candidateVersion === currentVersion) return source
+  const next = source.replace(
+    /export const OO_CLI_VERSION = "[^"]+"/u,
+    `export const OO_CLI_VERSION = "${candidateVersion}"`,
+  )
+  if (next === source) throw new Error("unable to update OO_CLI_VERSION")
+  return next
+}
+
 export async function detectOoSkillCommands(
   skillsRoot: string,
   relativePaths: string[],
@@ -36,11 +52,15 @@ export async function detectOoSkillCommands(
       ...[...content.matchAll(/`(oo\s+[^`\r\n]+)`/giu)].map((match) => match[1] ?? ""),
     ]
     for (const snippet of snippets) {
-      const match = snippet.trim().match(/^oo\s+([a-z][\w-]*)(?:\s+([a-z][\w-]*))?/iu)
-      if (!match) continue
-      const command = [match[1], match[2]].filter(Boolean) as string[]
+      const command = snippet
+        .trim()
+        .replace(/^oo\s+/iu, "")
+        .split(/\s+/u)
+        .slice(0, 4)
+        .filter((token) => /^[a-z][\w-]*$/iu.test(token))
+      if (command.length === 0) continue
       const operation = resolveExternalOoOperation(command)
-      const display = `oo ${command.join(" ")}`
+      const display = `oo ${(operation?.command ?? command.slice(0, 2)).join(" ")}`
       findings.set(display, {
         command: display,
         operation: operation?.id ?? "unrecognized",
@@ -53,7 +73,7 @@ export async function detectOoSkillCommands(
 
 export function renderOoUpgradeMarkdown(report: OoUpgradeReport): string {
   const lines = [
-    `# OOCLI ${report.actualVersion} → ${report.candidateVersion} compatibility report`,
+    `# OOCLI ${report.actualVersion} → ${report.candidateVersion} upgrade report`,
     "",
     "## Skill file changes",
     "",

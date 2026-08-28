@@ -38,4 +38,11 @@ describe("resolveConnectionError", () => {
       titleKey: "error.connections.detailFailed.title",
     })
   })
+
+  it("uses a dedicated title when changing the default connection fails", () => {
+    expect(resolveConnectionError("Connector default update failed", "set_default")).toMatchObject({
+      kind: "operation_failed",
+      titleKey: "error.connections.setDefaultFailed.title",
+    })
+  })
 })

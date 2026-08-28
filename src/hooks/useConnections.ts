@@ -27,6 +27,7 @@ import {
   getConnectionExecutionLogs,
   getConnectionProviderDetail,
   getConnectionSummary,
+  setDefaultConnection as setDefaultConnectionRequest,
   startOAuthConnect,
   updateAlias as updateAliasRequest,
 } from "../lib/connections-client.ts"
@@ -138,6 +139,7 @@ export interface UseConnections {
   getAppDetail: (appId: string) => Promise<ConnectionAppDetail>
   getExecutionLogs: (request: ConnectionExecutionLogRequest) => Promise<ConnectionExecutionLogSummary>
   openExternal: (url: string) => Promise<void>
+  setDefaultConnection: (service: string, appId: string) => Promise<boolean>
   updateAlias: (appId: string, alias: string) => Promise<boolean>
 }
 
@@ -704,6 +706,17 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     [runSummaryMutation],
   )
 
+  const setDefaultConnection = React.useCallback(
+    async (service: string, appId: string): Promise<boolean> =>
+      runSummaryMutation({
+        busy: "set_default",
+        operation: "set_default",
+        refreshLabel: "set-default",
+        mutate: (currentWorkspace) => setDefaultConnectionRequest(service, appId, currentWorkspace),
+      }),
+    [runSummaryMutation],
+  )
+
   const cancelPolling = React.useCallback(() => {
     actionSequence.current += 1
     oauthSequence.current += 1
@@ -769,6 +782,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       getAppDetail,
       getExecutionLogs,
       openExternal,
+      setDefaultConnection,
       updateAlias,
     }),
     [
@@ -789,6 +803,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       refresh,
       retryScopeSync,
       scopeSyncError,
+      setDefaultConnection,
       summary,
       summaryError,
       summaryWorkspaceKey,

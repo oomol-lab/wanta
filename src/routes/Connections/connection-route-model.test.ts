@@ -5,9 +5,12 @@ import { test } from "vitest"
 import {
   buildCredentialSummaryDisplayValues,
   buildFederatedCredentialDisplayValues,
+  canMutateConnectionApp,
   canMutateConnections,
   connectionDetailCacheKey,
   getConnectionAppNote,
+  getConnectionAppDisplayLabel,
+  getDefaultAuthType,
   getFittingCategoryFilterCount,
   getProviderAccountValue,
   getProviderActionLabel,
@@ -20,6 +23,7 @@ import {
   isConnected,
   isDirectlyAvailableProvider,
   isManagedConnection,
+  isMarketplaceApp,
   matchesConnectionDiscoveryCategory,
   matchesProviderFilter,
   matchesProviderQuery,
@@ -30,6 +34,7 @@ import {
   selectVisibleCategoryFilters,
   shouldShowConnectionState,
   shouldLoadProviderDetail,
+  shouldShowProviderUpdatedAt,
   supportsManagedConnectionAccountActions,
 } from "./connection-route-model.ts"
 import { translate } from "@/i18n/i18n"
@@ -112,6 +117,45 @@ test("providers needing attention show the reauthorization hint over their marke
 
 test("remote providers retain Connector-managed account actions", () => {
   assert.equal(supportsManagedConnectionAccountActions(provider({ service: "github" })), true)
+})
+
+test("Marketplace connections are selectable but not mutable credentials", () => {
+  const marketplaceApp = {
+    authType: "marketplace" as const,
+    createdAt: 0,
+    id: "marketplace:oomol:tikhub",
+    isDefault: true,
+    marketplace: { id: "oomol", pricing: "metered" as const },
+    service: "tikhub",
+    status: "active" as const,
+    updatedAt: 0,
+  }
+  const managed = provider({
+    actionKind: "api_key",
+    appAuthType: "marketplace",
+    appCount: 1,
+    appId: marketplaceApp.id,
+    apps: [marketplaceApp],
+    authTypes: ["api_key"],
+    status: "connected",
+  })
+  const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars)
+
+  assert.equal(isMarketplaceApp(marketplaceApp), true)
+  assert.equal(canMutateConnectionApp(marketplaceApp), false)
+  assert.equal(getDefaultAuthType(managed), "api_key")
+  assert.equal(getConnectionAppDisplayLabel(marketplaceApp, 0, t), "OOMOL built-in account")
+  assert.equal(getProviderAccountValue(managed, t), "OOMOL built-in account")
+  assert.equal(getProviderDescription(managed, t), "Official managed calls may consume OOMOL Credits.")
+  assert.equal(shouldShowProviderUpdatedAt(managed), false)
+  assert.equal(shouldShowProviderUpdatedAt(provider({ appAuthType: "api_key", status: "connected" })), true)
+
+  const metadataOnly = { ...marketplaceApp, authType: "api_key" as const, id: "managed-metadata-only" }
+  const prefixOnly = { ...marketplaceApp, authType: "api_key" as const, marketplace: undefined }
+  assert.equal(isMarketplaceApp(metadataOnly), true)
+  assert.equal(canMutateConnectionApp(metadataOnly), false)
+  assert.equal(isMarketplaceApp(prefixOnly), true)
+  assert.equal(canMutateConnectionApp(prefixOnly), false)
 })
 
 test("mixed direct and API key providers are directly available before configuration", () => {

@@ -4,7 +4,7 @@
 // 设 OO_SKIP_BINARY_DOWNLOAD=1 可跳过（与 oo 二进制下载共用同一开关；预演/打包会自行 ensure）。
 // 导出/校验逻辑见 scripts/skills.ts。
 
-import { exportBundledSkills, verifyBundledOoSkillCompatibility } from "./skills.ts"
+import { exportBundledSkills, verifyBundledOoSkillLock } from "./skills.ts"
 
 await main()
 
@@ -15,7 +15,7 @@ async function main(): Promise<void> {
       return
     }
     const dest = await exportBundledSkills()
-    await verifyBundledOoSkillCompatibility(dest)
+    await verifyBundledOoSkillLock(dest)
     console.log(`[wanta] bundled skills ready at ${dest}`)
   } catch (error) {
     if (process.env.WANTA_STRICT_SKILL_EXPORT === "1") throw error

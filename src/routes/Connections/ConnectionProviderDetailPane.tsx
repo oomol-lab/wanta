@@ -1,6 +1,6 @@
 import type {
   ConnectionAppSummary,
-  ConnectionAuthType,
+  ConnectionCredentialAuthType,
   ConnectionProviderDetail,
   ConnectionProviderSummary,
   ConnectionSummary,
@@ -21,10 +21,12 @@ import {
   getProviderAccountValue,
   getProviderCatalogLabel,
   getEmptyState,
+  getProviderMarketplaceApp,
   getProviderDescription,
   getProviderStatusTone,
   isConnected,
   isDirectlyAvailableProvider,
+  shouldShowProviderUpdatedAt,
 } from "./connection-route-model.ts"
 import { AuthTypeToggleGroup, ConnectionAccountsList } from "./ConnectionAccountsList.tsx"
 import { ProviderIcon } from "./ProviderIcon.tsx"
@@ -125,7 +127,7 @@ export function ProviderDetail({
   onClose: () => void
   onConnect: (
     provider: ConnectionProviderSummary,
-    authType: Exclude<ConnectionAuthType, null>,
+    authType: ConnectionCredentialAuthType,
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
@@ -142,6 +144,8 @@ export function ProviderDetail({
   const accountValue = getProviderAccountValue(provider, t)
   const directlyAvailable = isDirectlyAvailableProvider(provider)
   const direct = provider.executionMode === "direct"
+  const marketplaceApp = getProviderMarketplaceApp(provider)
+  const marketplaceSelected = provider.appAuthType === "marketplace"
 
   return (
     <div className="grid min-w-0 gap-3">
@@ -152,6 +156,7 @@ export function ProviderDetail({
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="oo-text-title truncate">{provider.displayName}</h2>
               {direct ? <Badge variant="secondary">{t("connections.directMode")}</Badge> : null}
+              {marketplaceApp ? <Badge variant="secondary">{t("connections.marketplaceManaged")}</Badge> : null}
               <ProviderStatusBadge canManageConnections={canManageConnections} provider={provider} />
             </div>
             <p className="oo-text-caption oo-text-muted mt-1 break-words">{getProviderDescription(provider, t)}</p>
@@ -233,16 +238,23 @@ export function ProviderDetail({
             {directlyAvailable ? null : <DetailRow label={t("connections.account")} value={accountValue} />}
             <DetailRow
               label={t("connections.auth")}
-              value={provider.connectionMethodLabel ?? formatAuthTypes(provider.authTypes, t)}
+              value={
+                marketplaceSelected
+                  ? t("connections.marketplaceManaged")
+                  : (provider.connectionMethodLabel ?? formatAuthTypes(provider.authTypes, t))
+              }
             />
+            {marketplaceApp?.marketplace?.pricing === "metered" ? (
+              <DetailRow label={t("connections.marketplaceBilling")} value={t("connections.marketplaceMetered")} />
+            ) : null}
             {provider.runtimeVersion ? (
               <DetailRow label={t("connections.runtimeVersion")} value={provider.runtimeVersion} mono />
             ) : null}
             <DetailRow label={t("connections.category")} value={formatProviderCategoryLabels(provider, t)} />
             <DetailRow label={t("connections.service")} value={provider.service} mono />
-            {directlyAvailable ? null : (
+            {shouldShowProviderUpdatedAt(provider) ? (
               <DetailRow label={t("connections.updatedAt")} value={formatDateTime(provider.connectedUpdatedAt, t)} />
-            )}
+            ) : null}
           </dl>
         )}
       </section>
@@ -329,13 +341,13 @@ function ConnectionPanel({
   authIntent?: ConnectionAuthIntent | null
   busy: UseConnections["busy"]
   connections: UseConnections
-  currentAuthType: Exclude<ConnectionAuthType, null> | null
+  currentAuthType: ConnectionCredentialAuthType | null
   detail: ConnectionProviderDetail | null
   detailLoading: boolean
   onCancelPolling: () => void
   onConnect: (
     provider: ConnectionProviderSummary,
-    authType: Exclude<ConnectionAuthType, null>,
+    authType: ConnectionCredentialAuthType,
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
@@ -347,9 +359,7 @@ function ConnectionPanel({
   provider: ConnectionProviderSummary
 }) {
   const t = useT()
-  const [selectedAuthType, setSelectedAuthType] = React.useState<Exclude<ConnectionAuthType, null> | null>(
-    currentAuthType,
-  )
+  const [selectedAuthType, setSelectedAuthType] = React.useState<ConnectionCredentialAuthType | null>(currentAuthType)
   const authTypes = detail?.authTypes.length ? detail.authTypes : provider.authTypes
   const usableAuthTypes = authTypes.length > 0 ? authTypes : currentAuthType ? [currentAuthType] : []
   const configurableAuthTypes = isDirectlyAvailableProvider(provider)

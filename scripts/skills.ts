@@ -9,7 +9,7 @@
 
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { appendFile, cp, mkdir, readFile, readdir, rm } from "node:fs/promises"
+import { appendFile, cp, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -74,29 +74,36 @@ async function installBundledOoSkills(outDir: string): Promise<string> {
 }
 
 export async function installBundledOoSkillsFromBinary(ooBin: string, outDir: string): Promise<string> {
-  const storeDir = path.join(os.tmpdir(), "wanta-oo-skill-export-store")
+  const storeDir = await mkdtemp(path.join(os.tmpdir(), "wanta-oo-skill-export-store-"))
+  try {
+    const result = spawnSync(
+      ooBin,
+      ["skills", "install", `--out-dir=${outDir}`, "--agent-format=universal", "--json"],
+      {
+        encoding: "utf-8",
+        maxBuffer: 8 * 1024 * 1024,
+        env: {
+          ...process.env,
+          OO_CONFIG_DIR: path.join(storeDir, "config"),
+          OO_DATA_DIR: path.join(storeDir, "data"),
+          OO_LOG_DIR: path.join(storeDir, "log"),
+          OO_SKILLS_SYNC_DISABLED: "1",
+          OO_NO_SELF_UPDATE: "1",
+          OO_TELEMETRY_DISABLED: "1",
+        },
+      },
+    )
 
-  const result = spawnSync(ooBin, ["skills", "install", `--out-dir=${outDir}`, "--agent-format=universal", "--json"], {
-    encoding: "utf-8",
-    maxBuffer: 8 * 1024 * 1024,
-    env: {
-      ...process.env,
-      OO_CONFIG_DIR: path.join(storeDir, "config"),
-      OO_DATA_DIR: path.join(storeDir, "data"),
-      OO_LOG_DIR: path.join(storeDir, "log"),
-      OO_SKILLS_SYNC_DISABLED: "1",
-      OO_NO_SELF_UPDATE: "1",
-      OO_TELEMETRY_DISABLED: "1",
-    },
-  })
-
-  if (result.error) {
-    throw new Error(`failed to spawn oo skills install: ${result.error.message}`)
+    if (result.error) {
+      throw new Error(`failed to spawn oo skills install: ${result.error.message}`)
+    }
+    if (result.status !== 0) {
+      throw new Error(`oo skills install --out-dir failed (code ${result.status}): ${result.stderr || result.stdout}`)
+    }
+    return result.stdout
+  } finally {
+    await rm(storeDir, { force: true, recursive: true })
   }
-  if (result.status !== 0) {
-    throw new Error(`oo skills install --out-dir failed (code ${result.status}): ${result.stderr || result.stdout}`)
-  }
-  return result.stdout
 }
 
 export async function applyBundledSkillOverrides(

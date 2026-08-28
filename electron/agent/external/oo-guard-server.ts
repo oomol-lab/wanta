@@ -27,6 +27,7 @@ export interface ExternalOoGuardDescriptor {
 export interface ExternalOoGuardServerOptions {
   available?: () => boolean | Promise<boolean>
   command: string
+  commandArgsPrefix?: readonly string[]
   env?: NodeJS.ProcessEnv
   scope: () => WorkspaceTeamScope
 }
@@ -130,10 +131,16 @@ export class ExternalOoGuardServer {
     request.once("aborted", abortOnDisconnect)
     response.once("close", abortOnDisconnect)
     try {
-      const result = await runOo(this.options.command, args, this.options.env ?? process.env, binding.cwd, {
-        activeChildren: this.activeChildren,
-        signal: controller.signal,
-      })
+      const result = await runOo(
+        this.options.command,
+        [...(this.options.commandArgsPrefix ?? []), ...args],
+        this.options.env ?? process.env,
+        binding.cwd,
+        {
+          activeChildren: this.activeChildren,
+          signal: controller.signal,
+        },
+      )
       respondJson(response, 200, result)
     } finally {
       request.off("aborted", abortOnDisconnect)

@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { expect, test } from "vitest"
+import { OO_CLI_VERSION } from "../oo-version.ts"
 import { EXTERNAL_OO_CONTRACT_VERSION } from "./oo-capability-contract.ts"
 import { verifyPackagedOoRuntime } from "./oo-runtime-compatibility.ts"
 
@@ -18,10 +19,30 @@ test("verifies the packaged OO descriptor and fails closed on drift", async () =
       JSON.stringify({
         contractVersion: EXTERNAL_OO_CONTRACT_VERSION,
         files: { "SKILL.md": createHash("sha256").update(content).digest("hex") },
-        ooCliVersion: "1.7.7",
+        ooCliVersion: OO_CLI_VERSION,
       }),
     )
     await expect(verifyPackagedOoRuntime(root)).resolves.toEqual({ compatible: true })
+    await writeFile(
+      path.join(root, "bin", "oo-runtime-compatibility.json"),
+      JSON.stringify({
+        contractVersion: EXTERNAL_OO_CONTRACT_VERSION,
+        files: { "SKILL.md": createHash("sha256").update(content).digest("hex") },
+        ooCliVersion: "0.0.0",
+      }),
+    )
+    await expect(verifyPackagedOoRuntime(root)).resolves.toEqual({
+      compatible: false,
+      reason: "oo_cli_version_mismatch",
+    })
+    await writeFile(
+      path.join(root, "bin", "oo-runtime-compatibility.json"),
+      JSON.stringify({
+        contractVersion: EXTERNAL_OO_CONTRACT_VERSION,
+        files: { "SKILL.md": createHash("sha256").update(content).digest("hex") },
+        ooCliVersion: OO_CLI_VERSION,
+      }),
+    )
     await writeFile(path.join(root, "skills", "oo", "SKILL.md"), "tampered")
     await expect(verifyPackagedOoRuntime(root)).resolves.toEqual({
       compatible: false,

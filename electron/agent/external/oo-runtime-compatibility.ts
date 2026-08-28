@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
+import { OO_CLI_VERSION } from "../oo-version.ts"
 import { EXTERNAL_OO_CONTRACT_VERSION } from "./oo-capability-contract.ts"
 
 export interface OoRuntimeCompatibilityDescriptor {
@@ -21,6 +22,9 @@ export async function verifyPackagedOoRuntime(resourcesPath: string): Promise<Oo
     ) as OoRuntimeCompatibilityDescriptor
     if (descriptor.contractVersion !== EXTERNAL_OO_CONTRACT_VERSION) {
       return { compatible: false, reason: "contract_version_mismatch" }
+    }
+    if (descriptor.ooCliVersion !== OO_CLI_VERSION) {
+      return { compatible: false, reason: "oo_cli_version_mismatch" }
     }
     for (const [relativePath, expected] of Object.entries(descriptor.files)) {
       const content = await readFile(path.join(resourcesPath, "skills", "oo", relativePath))

@@ -13,13 +13,13 @@ import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/pro
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
+import { OO_CLI_VERSION } from "../electron/agent/oo-version.ts"
 import { fetchWithRetry } from "./network-download.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
 
-// oo-cli 版本：原先经 package-lock 间接锁定，移除依赖后由此处单一锁定。升级 oo 改这里。
-export const OO_CLI_VERSION = "1.7.7"
+export { OO_CLI_VERSION }
 
 // 下载落地目录（gitignore）。dev 侧的同名路径解析见 electron/agent/binaries.ts resolveDevOoBin。
 const localOoBinDir = path.join(repoRoot, ".oo-bin")

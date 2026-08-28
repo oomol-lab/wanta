@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { expect, test } from "vitest"
-import { detectOoSkillCommands, renderOoUpgradeMarkdown } from "./oo-upgrade-review-core.ts"
+import { detectOoSkillCommands, renderOoUpgradeMarkdown, unknownRequiredOperations } from "./oo-upgrade-review-core.ts"
 
 test("detects reviewed and missing OO command domains from exported Skill text", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-oo-upgrade-review-"))
@@ -33,4 +33,10 @@ test("renders a reviewable Markdown report", () => {
   expect(markdown).toContain("OOCLI 1.7.7 → 1.7.8")
   expect(markdown).toContain("references/new.md")
   expect(markdown).toContain("`file.download`")
+})
+
+test("rejects retained required operations that no longer exist in the contract", () => {
+  expect(unknownRequiredOperations(["connector.run", "removed.operation"], new Set(["connector.run"]))).toEqual([
+    "removed.operation",
+  ])
 })

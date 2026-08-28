@@ -15,6 +15,13 @@ export interface OoUpgradeReport {
   files: { added: string[]; changed: string[]; removed: string[] }
 }
 
+export function unknownRequiredOperations(
+  requiredOperations: string[],
+  knownOperationIds: ReadonlySet<string>,
+): string[] {
+  return requiredOperations.filter((operation) => !knownOperationIds.has(operation))
+}
+
 export async function detectOoSkillCommands(
   skillsRoot: string,
   relativePaths: string[],

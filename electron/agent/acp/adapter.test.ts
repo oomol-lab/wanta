@@ -18,7 +18,7 @@ import type {
 
 import { agent, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk"
 import { execFile } from "node:child_process"
-import { chmod, mkdtemp, writeFile } from "node:fs/promises"
+import { mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
@@ -764,11 +764,11 @@ describe("AcpAgentAdapter", () => {
       async () => [{ name: "wanta_skills", url: "http://127.0.0.1:4321/mcp", headers: {} }],
     )
     guardCwd = harness.scratchRootDir
-    const fakeOo = path.join(harness.scratchRootDir, "fake-oo")
-    await writeFile(fakeOo, '#!/bin/sh\nprintf "%s\\n" "$@"\n', "utf8")
-    await chmod(fakeOo, 0o755)
+    const fakeOo = path.join(harness.scratchRootDir, "fake-oo.mjs")
+    await writeFile(fakeOo, "for (const arg of process.argv.slice(2)) process.stdout.write(`${arg}\\n`)\n", "utf8")
     const server = new ExternalOoGuardServer({
-      command: fakeOo,
+      command: process.execPath,
+      commandArgsPrefix: [fakeOo],
       scope: () => ({
         external: true,
         runtime: "oomol",

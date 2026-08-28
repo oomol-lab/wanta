@@ -2,8 +2,9 @@ import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { EXTERNAL_OO_OPERATIONS } from "../electron/agent/external/oo-capability-contract.ts"
 import { downloadOoBinary, downloadOoBinaryVersion, OO_CLI_VERSION } from "./oo-cli.ts"
-import { detectOoSkillCommands, renderOoUpgradeMarkdown } from "./oo-upgrade-review-core.ts"
+import { detectOoSkillCommands, renderOoUpgradeMarkdown, unknownRequiredOperations } from "./oo-upgrade-review-core.ts"
 import {
   bundledOoSkillHashes,
   bundledSkillsDir,
@@ -61,7 +62,7 @@ try {
     if (missing.length > 0) {
       throw new Error(`cannot accept unrecognized OO commands: ${missing.map((item) => item.command).join(", ")}`)
     }
-    const ooCliSourcePath = path.join(repoRoot, "scripts", "oo-cli.ts")
+    const ooCliSourcePath = path.join(repoRoot, "electron", "agent", "oo-version.ts")
     const ooCliSource = await readFile(ooCliSourcePath, "utf8")
     const nextSource = ooCliSource.replace(
       /export const OO_CLI_VERSION = "[^"]+"/u,
@@ -74,6 +75,11 @@ try {
         ...commands.filter((finding) => finding.operation !== "unrecognized").map((finding) => finding.operation),
       ]),
     ].sort()
+    const knownOperationIds = new Set<string>(EXTERNAL_OO_OPERATIONS.map((operation) => operation.id))
+    const unknownOperations = unknownRequiredOperations(requiredOperations, knownOperationIds)
+    if (unknownOperations.length > 0) {
+      throw new Error(`cannot accept unknown required operations: ${unknownOperations.join(", ")}`)
+    }
     const nextManifest: Manifest = {
       ooCliVersion: candidateVersion,
       agentFormat: "universal",

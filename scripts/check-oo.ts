@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 import { localOoBinPath, OO_CLI_VERSION, resolvePlatformTarget } from "./oo-cli.ts"
 import { localRipgrepBinPath } from "./ripgrep.ts"
-import { bundledSkillIds, bundledSkillsDir, exportBundledSkills } from "./skills.ts"
+import { bundledSkillIds, bundledSkillsDir, exportBundledSkills, verifyBundledOoSkillCompatibility } from "./skills.ts"
 
 if (!process.env.WANTA_OO_BIN) {
   const ooBin = localOoBinPath()
@@ -52,5 +52,13 @@ if (!bundledSkillsReady) {
     console.log(`[wanta] bundled skills ready at ${bundledSkillsDir}`)
   } catch (error) {
     console.warn("[wanta] failed to export bundled skills (non-fatal):", error)
+  }
+}
+if (bundledSkillIds.every((id) => existsSync(path.join(bundledSkillsDir, id, "SKILL.md")))) {
+  try {
+    await verifyBundledOoSkillCompatibility()
+  } catch (error) {
+    console.error("[wanta] bundled oo Skill compatibility check failed:", error)
+    process.exit(1)
   }
 }

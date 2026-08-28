@@ -62,8 +62,13 @@ test("skill host tools load complete instructions and keep referenced files insi
 
   const loadedSkill = (await kernel.execute("skills", "load_skill", context, { skillId: "alpha" })).text
   expect(loadedSkill).toContain("<wanta_execution_policy>")
-  expect(loadedSkill).toContain("follow the Skill's oo connector schema/run workflow")
+  expect(loadedSkill).toContain("The managed OO boundary supports these command domains")
+  expect(loadedSkill).toContain("oo search")
+  expect(loadedSkill).toContain("Skip the Skill recommendation wrap-up")
   expect(loadedSkill).toContain("Wanta's managed guard")
+  expect(loadedSkill).toContain(
+    '<wanta_skill_source>{"authoritative":true,"skillId":"alpha","source":{"id":"legacy-0","kind":"managed"}}</wanta_skill_source>',
+  )
   expect(loadedSkill).toContain("# Alpha")
   expect(
     (await kernel.execute("skills", "read_skill_file", context, { skillId: "alpha", path: "references/guide.md" }))

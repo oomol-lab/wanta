@@ -16,7 +16,7 @@ import { dingTalkCliBinaryName, downloadDingTalkCliBinary, exportDingTalkCliSkil
 import { downloadLarkCliBinary, exportLarkCliSkills, larkCliBinaryName } from "./lark-cli.ts"
 import { downloadOoBinary, ooExecutableName } from "./oo-cli.ts"
 import { downloadRipgrepBinary, ripgrepExecutableName } from "./ripgrep.ts"
-import { bundledSkillsDir, exportBundledSkills } from "./skills.ts"
+import { bundledSkillsDir, exportBundledSkills, verifyBundledOoSkillCompatibility } from "./skills.ts"
 import { downloadWecomCliBinary, exportWecomCliSkills, wecomCliBinaryName } from "./wecom-cli.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -77,6 +77,7 @@ console.log("[wanta] bundled DingTalk CLI skills")
 // 内置 4 个 oo skill：导出到 resources/skills/，由 electron-builder extraResources 打入 Resources/skills，
 // 运行时拷进 OpenCode workspace 的 .opencode/skill/（见 electron/agent/workspace.ts）。
 await exportBundledSkills()
+await verifyBundledOoSkillCompatibility()
 console.log(`[wanta] bundled skills: ${path.basename(bundledSkillsDir)}`)
 
 // 自定义工具的 tool helper + Zod 合并为单文件，随包发布，工具加载不依赖首次启动隐式联网安装 npm 包。

@@ -1,0 +1,25 @@
+{
+  "ooCliVersion": "1.7.7",
+  "agentFormat": "universal",
+  "files": {
+    "SKILL.md": "96d837855764c1b7623692c47ebf9705540ce049a3b586aeb905253ddad1f647",
+    "agents/openai.yaml": "50fa43d22512453554fecb66c37bd051bb1bb37d3daf6c25d4c362f9444c2202",
+    "references/auth-and-billing.md": "47141988bd8e94cfb6f335c37b25a47885b4a54b5f70f68faa2d23d38ce55878",
+    "references/connector-execution.md": "306485ad53eb86c9d3caac72767375cc41ecb5493909aa4430b15b4d83f1aacc",
+    "references/file-transfer.md": "1547f3c3811f0bc6038ea9e9987d2cb2c18688ad1b8382e723c0d41ea34c9e46",
+    "references/flow-authoring.md": "7480673ceebc54b50dcbe9f5e8baecf1f6b18c445f6506b72edacd4b89c14bf3",
+    "references/flow-n8n-conversion.md": "0cd42a2b69f640637ecb60c7d67bc6ffcb2fcf32da11979a362242cab96ef578",
+    "references/llm-client.md": "1e89085c9e936b4d3963894e52fe47d6afdf69b8b12c5fb702f9dc148bc97abf",
+    "references/search-and-selection.md": "605ee59ecdebc929c74589bbca4daf3683b708601ae881f6bdd8202d59eff50e"
+  },
+  "requiredOperations": [
+    "capability.search",
+    "connector.search",
+    "connector.schema",
+    "connector.run",
+    "file.upload",
+    "file.download",
+    "skills.recommend",
+    "flow"
+  ]
+}

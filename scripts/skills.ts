@@ -8,11 +8,12 @@
 // `--out-dir` 只写指定目录；仍隔离 OO_CONFIG/DATA/LOG 到临时目录并禁用 sync，避免污染开发机家目录。
 
 import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { appendFile, cp, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { downloadOoBinary } from "./oo-cli.ts"
+import { downloadOoBinary, OO_CLI_VERSION } from "./oo-cli.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
@@ -21,6 +22,7 @@ const repoRoot = path.join(dirname, "..")
 export const bundledSkillsDir = path.join(repoRoot, "resources", "skills")
 export const wantaSkillsDir = path.join(repoRoot, "resources", "wanta-skills")
 export const skillOverridesDir = path.join(repoRoot, "resources", "skill-overrides")
+export const skillCompatibilityDir = path.join(repoRoot, "resources", "skill-compatibility")
 
 const ooBundledSkillIds = ["oo", "oo-find-skills", "oo-create-skill", "oo-publish-skill"] as const
 export const wantaBundledSkillIds = ["browser", "wikigraph-knowledge"] as const
@@ -32,6 +34,13 @@ interface SkillsInstallExport {
   status?: string
   summary?: { requestedSkills?: number; exported?: number; failed?: number }
   skills?: Array<{ skillId?: string; status?: string }>
+}
+
+interface SkillCompatibilityManifest {
+  agentFormat: string
+  files: Record<string, string>
+  ooCliVersion: string
+  requiredOperations: string[]
 }
 
 export type BundledSkillsInstaller = (outDir: string) => Promise<string>
@@ -97,6 +106,56 @@ export async function applyBundledSkillOverrides(
       await appendFile(path.join(outDir, skillId, "SKILL.md"), `\n\n${supplement}\n`, "utf8")
     }),
   )
+}
+
+export async function verifyBundledOoSkillCompatibility(
+  skillsDir: string = bundledSkillsDir,
+  manifestPath: string = path.join(skillCompatibilityDir, "oo.json"),
+): Promise<void> {
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as SkillCompatibilityManifest
+  if (manifest.ooCliVersion !== OO_CLI_VERSION || manifest.agentFormat !== "universal") {
+    throw new Error(
+      `bundled oo Skill compatibility targets ${manifest.ooCliVersion}/${manifest.agentFormat}, expected ${OO_CLI_VERSION}/universal`,
+    )
+  }
+  const actualFiles = (await readdirFilesRecursive(path.join(skillsDir, "oo"))).sort()
+  const expectedFiles = Object.keys(manifest.files).sort()
+  if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
+    throw new Error(
+      `bundled oo Skill file set changed: expected [${expectedFiles.join(", ")}], got [${actualFiles.join(", ")}]`,
+    )
+  }
+  for (const [relativePath, expected] of Object.entries(manifest.files)) {
+    const content = await readFile(path.join(skillsDir, "oo", relativePath))
+    const actual = createHash("sha256").update(content).digest("hex")
+    if (actual !== expected) {
+      throw new Error(`bundled oo Skill compatibility changed at ${relativePath}: expected ${expected}, got ${actual}`)
+    }
+  }
+}
+
+export async function bundledOoSkillHashes(skillsDir: string = bundledSkillsDir): Promise<Record<string, string>> {
+  const root = path.join(skillsDir, "oo")
+  const files = (await readdirFilesRecursive(root)).sort()
+  return Object.fromEntries(
+    await Promise.all(
+      files.map(async (relativePath) => {
+        const content = await readFile(path.join(root, relativePath))
+        return [relativePath, createHash("sha256").update(content).digest("hex")] as const
+      }),
+    ),
+  )
+}
+
+async function readdirFilesRecursive(root: string, relativeDirectory = ""): Promise<string[]> {
+  const entries = await readdir(path.join(root, relativeDirectory), { withFileTypes: true })
+  const files: string[] = []
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const relativePath = path.join(relativeDirectory, entry.name)
+    if (entry.isDirectory()) files.push(...(await readdirFilesRecursive(root, relativePath)))
+    else if (entry.isFile()) files.push(relativePath.split(path.sep).join("/"))
+  }
+  return files
 }
 
 async function readdirMarkdownFiles(directory: string): Promise<string[]> {

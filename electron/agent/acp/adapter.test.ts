@@ -23,7 +23,7 @@ import path from "node:path"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { AGENT_PROFILES } from "../contract/profile.ts"
 import { AcpAgentAdapter } from "./adapter.ts"
-import { ACP_AGENT_REGISTRY } from "./registry.ts"
+import { ACP_AGENT_KINDS, ACP_AGENT_REGISTRY } from "./registry.ts"
 
 // Adapter tests against an IN-PROCESS fake ACP agent built with the SDK's
 // agent-side builder, wired to the adapter through an in-memory stream pair
@@ -665,6 +665,58 @@ describe("AcpAgentAdapter", () => {
         url: "http://127.0.0.1:4321/mcp",
         headers: [{ name: "Authorization", value: "Bearer opaque-token" }],
       },
+    ])
+  })
+
+  test.each(ACP_AGENT_KINDS)("%s receives the shared Skill and managed-command contract", async (kind) => {
+    const harness = await createHarness(
+      {
+        prompt: async (turn) => {
+          await turn.sendUpdate({
+            sessionUpdate: "tool_call",
+            toolCallId: `${kind}-load-skill`,
+            title: "mcp__wanta_skills__load_skill",
+            kind: "other",
+            status: "completed",
+            rawInput: { skillId: "oo" },
+          })
+          await turn.sendUpdate({
+            sessionUpdate: "tool_call",
+            toolCallId: `${kind}-read-reference`,
+            title: "mcp__wanta_skills__read_skill_file",
+            kind: "other",
+            status: "completed",
+            rawInput: { skillId: "oo", path: "references/search-and-selection.md" },
+          })
+          await turn.sendUpdate({
+            sessionUpdate: "tool_call",
+            toolCallId: `${kind}-execute-search`,
+            title: "Run command",
+            name: "bash",
+            kind: "execute",
+            status: "completed",
+            rawInput: { command: 'oo search "generate an image" --json' },
+          })
+          return { stopReason: "end_turn" }
+        },
+      },
+      kind,
+      async () => [{ name: "wanta_skills", url: "http://127.0.0.1:4321/mcp", headers: {} }],
+    )
+    await harness.adapter.send({ type: "prompt", sessionId: WANTA_SESSION_ID, text: "generate an image" })
+    await harness.waitFor((event) => event.event === "messageCompleted")
+
+    expect(harness.fake.newSessionRequests[0]?.mcpServers).toEqual([
+      { type: "http", name: "wanta_skills", url: "http://127.0.0.1:4321/mcp", headers: [] },
+    ])
+    expect(
+      harness.events
+        .filter((event) => event.event === "toolCallStarted")
+        .map((event) => ({ title: event.data.title, tool: event.data.tool })),
+    ).toEqual([
+      { title: "Loaded skill: oo", tool: "load_skill" },
+      { title: "Read skill reference: references/search-and-selection.md", tool: "read_skill_file" },
+      { title: "Run command", tool: "bash" },
     ])
   })
 

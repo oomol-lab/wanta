@@ -14,6 +14,7 @@ import {
   resolveExternalGuardCwdBinding,
   stripIdentityIndependentWorkspaceSelectors,
 } from "../oo-guard-core.ts"
+import { resolveExternalOoOperation } from "./oo-capability-contract.ts"
 
 const maxCapturedOutputBytes = 32 * 1024 * 1024
 const maxRequestBytes = 256 * 1024
@@ -105,8 +106,12 @@ export class ExternalOoGuardServer {
     const sessionScope = externalGuardSessionScope(scope, binding.sessionId)
     const originalArgs = stripIdentityIndependentWorkspaceSelectors(rawArgs as string[])
     if (!isManagedExternalOoCommand(originalArgs)) {
+      const operation = resolveExternalOoOperation(originalArgs)
       respondJson(response, 403, {
+        availability: operation?.availability ?? "unrecognized",
         error: "Only managed capability discovery and connector action commands are allowed.",
+        errorCode: operation ? "UNSUPPORTED_OO_OPERATION" : "UNRECOGNIZED_OO_OPERATION",
+        ...(operation ? { operation: operation.id } : {}),
       })
       return
     }

@@ -74,6 +74,7 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
     }
     lines.push(
       "The user explicitly selected these skills for this turn. If a selected skill matches the task, load and follow it before acting. If it is clearly unrelated, ignore it and proceed normally. Mention that you used it only when useful to the user.",
+      "The Wanta current-turn Skill snapshot is authoritative for every listed skill id. Do not substitute a same-id native, global, or home-directory Skill; native Skills are fallback only when the id is absent from Wanta's snapshot.",
     )
   }
   if (connections.length > 0) {
@@ -116,6 +117,7 @@ export function buildTeamSkillsSystem(skills: ChatTeamSkillContext[] | undefined
     "- Treat these skills as workspace guidance, not mandatory tool calls.",
     "- Use them only when they are relevant to the user's actual task.",
     "- If the user selected a different explicit context for this turn, prefer the explicit user selection.",
+    "- The Wanta current-turn Skill snapshot is authoritative for every listed skill id. Do not substitute a same-id native, global, or home-directory Skill; native Skills are fallback only when the id is absent from Wanta's snapshot.",
   ]
   for (const skill of enabledSkills) {
     const details = [

@@ -3,7 +3,8 @@ import type {
   ConnectionAppDetail,
   ConnectionAppStatus,
   ConnectionAppSummary,
-  ConnectionAuthType,
+  ConnectionAppAuthType,
+  ConnectionCredentialAuthType,
   ConnectionCredentialField,
   ConnectionCredentialSummary,
   ConnectionOAuthClientConfigFieldDefinition,
@@ -33,6 +34,7 @@ export interface RawApp {
   displayName?: unknown
   id?: unknown
   isDefault?: unknown
+  marketplace?: unknown
   providerAccountId?: unknown
   scopes?: unknown
   service?: unknown
@@ -146,6 +148,11 @@ interface RawCredentialSummary {
   fields?: unknown
 }
 
+interface RawMarketplaceSummary {
+  id?: unknown
+  pricing?: unknown
+}
+
 const appStatuses = new Set<ConnectionAppStatus>(["active", "reauth_required", "error", "disconnected"])
 const oauthClientConfigPolicies = new Set<ConnectionOAuthClientConfigPolicy>(["default_only", "user_required"])
 const oauthClientConfigNextConnectSources = new Set<ConnectionOAuthClientConfigNextConnectSource>([
@@ -164,13 +171,14 @@ const oauthClientConfigFieldInputTypes = new Set<ConnectionOAuthClientConfigFiel
   "text",
   "textarea",
 ])
-const authTypes = new Set<Exclude<ConnectionAuthType, null>>([
+const credentialAuthTypes = new Set<ConnectionCredentialAuthType>([
   "oauth2",
   "api_key",
   "custom_credential",
   "federated",
   "no_auth",
 ])
+const appAuthTypes = new Set<ConnectionAppAuthType>([...credentialAuthTypes, "marketplace"])
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
@@ -200,20 +208,28 @@ function normalizeAppStatus(value: unknown): ConnectionAppStatus {
     : "error"
 }
 
-function normalizeAuthType(value: unknown): ConnectionAuthType {
-  return typeof value === "string" && authTypes.has(value as Exclude<ConnectionAuthType, null>)
-    ? (value as Exclude<ConnectionAuthType, null>)
+function normalizeAppAuthType(value: unknown): ConnectionAppAuthType | null {
+  return typeof value === "string" && appAuthTypes.has(value as ConnectionAppAuthType)
+    ? (value as ConnectionAppAuthType)
     : null
 }
 
-function normalizeAuthTypes(value: unknown): Exclude<ConnectionAuthType, null>[] {
+function normalizeCredentialAuthTypes(value: unknown): ConnectionCredentialAuthType[] {
   if (!Array.isArray(value)) {
     return []
   }
 
-  return value.filter((item): item is Exclude<ConnectionAuthType, null> => {
-    return typeof item === "string" && authTypes.has(item as Exclude<ConnectionAuthType, null>)
+  return value.filter((item): item is ConnectionCredentialAuthType => {
+    return typeof item === "string" && credentialAuthTypes.has(item as ConnectionCredentialAuthType)
   })
+}
+
+function normalizeMarketplace(value: unknown): ConnectionAppSummary["marketplace"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const marketplace = value as RawMarketplaceSummary
+  const id = asString(marketplace.id)
+  const pricing = marketplace.pricing === "free" || marketplace.pricing === "metered" ? marketplace.pricing : undefined
+  return id && pricing ? { id, pricing } : undefined
 }
 
 function normalizeCategories(value: unknown): string[] {
@@ -378,12 +394,29 @@ function isVirtualNoAuthApp(app: Pick<ConnectionAppSummary, "id">): boolean {
   return app.id.startsWith("no_auth:")
 }
 
-function isManageableApp(app: ConnectionAppSummary): boolean {
-  return !isVirtualNoAuthApp(app) && app.status !== "disconnected"
+export function isMarketplaceConnection(
+  app: Pick<ConnectionAppSummary, "authType" | "id" | "marketplace"> | null | undefined,
+): boolean {
+  return Boolean(app && (app.authType === "marketplace" || app.marketplace || app.id.startsWith("marketplace:")))
 }
 
-function getManageableApps(apps: ConnectionAppSummary[]): ConnectionAppSummary[] {
-  return apps.filter(isManageableApp)
+export function isUserManagedCredentialApp(app: ConnectionAppSummary): boolean {
+  return (
+    app.authType !== null &&
+    app.authType !== "marketplace" &&
+    app.authType !== "no_auth" &&
+    !isVirtualNoAuthApp(app) &&
+    !isMarketplaceConnection(app) &&
+    app.status !== "disconnected"
+  )
+}
+
+function isVisibleConnectedApp(app: ConnectionAppSummary): boolean {
+  return app.authType !== null && !isVirtualNoAuthApp(app) && app.status !== "disconnected"
+}
+
+function getVisibleConnectedApps(apps: ConnectionAppSummary[]): ConnectionAppSummary[] {
+  return apps.filter(isVisibleConnectedApp)
 }
 
 export function connectionAppDisplayLabel(
@@ -393,12 +426,12 @@ export function connectionAppDisplayLabel(
 }
 
 function pickDefaultOrSingleApp(apps: ConnectionAppSummary[]): ConnectionAppSummary | undefined {
-  const candidates = getManageableApps(apps)
+  const candidates = getVisibleConnectedApps(apps)
   return candidates.find((app) => app.isDefault) ?? (candidates.length === 1 ? candidates[0] : undefined)
 }
 
 function pickStatusApp(apps: ConnectionAppSummary[]): ConnectionAppSummary | undefined {
-  const candidates = getManageableApps(apps)
+  const candidates = getVisibleConnectedApps(apps)
   return (
     pickDefaultOrSingleApp(candidates) ??
     candidates.find((app) => app.status === "active") ??
@@ -564,7 +597,7 @@ function normalizeCredentialSummary(value: unknown): ConnectionCredentialSummary
   }
 }
 
-function getProviderActionKind(authTypes: Exclude<ConnectionAuthType, null>[]): ConnectionProviderActionKind {
+function getProviderActionKind(authTypes: ConnectionCredentialAuthType[]): ConnectionProviderActionKind {
   if (authTypes.includes("oauth2")) {
     return "oauth2"
   }
@@ -602,11 +635,12 @@ export function normalizeApp(item: RawApp): ConnectionAppSummary | undefined {
     service,
     alias: asString(item.alias),
     accountLabel: asString(item.accountLabel),
-    authType: normalizeAuthType(item.authType),
+    authType: normalizeAppAuthType(item.authType),
     connectionName: asString(item.connectionName),
     createdAt: asNumber(item.createdAt) ?? 0,
     displayName: asString(item.displayName),
     isDefault: item.isDefault === true,
+    marketplace: normalizeMarketplace(item.marketplace),
     providerAccountId: asString(item.providerAccountId),
     scopes: normalizedStringList(item.scopes),
     status: normalizeAppStatus(item.status),
@@ -642,9 +676,9 @@ export function normalizeProvider(
   }
 
   const apps = appsByService.get(service) ?? []
-  const manageableApps = getManageableApps(apps)
-  const app = pickStatusApp(manageableApps)
-  const normalizedAuthTypes = normalizeAuthTypes(item.authTypes)
+  const connectedApps = getVisibleConnectedApps(apps)
+  const app = pickStatusApp(connectedApps)
+  const normalizedAuthTypes = normalizeCredentialAuthTypes(item.authTypes)
   const isPureNoAuthProvider = normalizedAuthTypes.length === 1 && normalizedAuthTypes[0] === "no_auth"
   const hasNoAuthReadyApp =
     apps.some((candidate) => isVirtualNoAuthApp(candidate) && candidate.status === "active") ||
@@ -653,7 +687,7 @@ export function normalizeProvider(
     (candidate) => candidate.status === "reauth_required" || candidate.status === "error",
   )
     ? "needs_attention"
-    : manageableApps.some((candidate) => candidate.status === "active") || hasNoAuthReadyApp
+    : connectedApps.some((candidate) => candidate.status === "active") || hasNoAuthReadyApp
       ? "connected"
       : "available"
 
@@ -664,14 +698,14 @@ export function normalizeProvider(
     appId: app?.id,
     appAuthType: app?.authType,
     appStatus: app?.status,
-    appCount: manageableApps.length,
-    apps: manageableApps,
+    appCount: connectedApps.length,
+    apps: connectedApps,
     actionKind: getProviderActionKind(normalizedAuthTypes),
     authTypes: normalizedAuthTypes,
-    canDisconnect: manageableApps.length > 0 && !isPureNoAuthProvider,
+    canDisconnect: connectedApps.some(isUserManagedCredentialApp) && !isPureNoAuthProvider,
     categoryIds: normalizeCategoryIds(item.categories),
     categoryLabels: normalizeCategories(item.categories),
-    connectedUpdatedAt: latestUpdatedAt(manageableApps),
+    connectedUpdatedAt: latestUpdatedAt(connectedApps),
     displayName: asString(item.displayName) ?? service,
     iconUrl: asString(item.iconUrl) ?? asString(item.icon),
     oauthClientConfig: normalizeOAuthClientConfig(item.oauthClientConfig, service),
@@ -691,7 +725,7 @@ export function mergeConnectionSummary({
   workspace?: ConnectionWorkspace
 }): ConnectionSummary {
   const apps = rawApps.map(normalizeApp).filter((app): app is ConnectionAppSummary => Boolean(app))
-  const visibleApps = apps.filter((app) => app.status !== "disconnected")
+  const visibleApps = apps.filter((app) => app.authType !== null && app.status !== "disconnected")
   const appsByService = new Map<string, ConnectionAppSummary[]>()
   for (const app of visibleApps) {
     const current = appsByService.get(app.service) ?? []

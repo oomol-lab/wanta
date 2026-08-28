@@ -258,6 +258,38 @@ export function isForbiddenOoMutationCommand(command: string): boolean {
   return connectorSubcommand === "login" || connectorSubcommand === "logout"
 }
 
+function directOoCommandRequiresConfirmation(command: string): boolean {
+  const tokens = ooSubcommandTokens(command)
+  if (!tokens?.length) return false
+  const root = tokens[0]
+  if (root === "file") {
+    return tokens[skipOoGlobalFlags(tokens, 1)] === "upload"
+  }
+  if (root !== "flow") return false
+  const subcommandIndex = skipOoGlobalFlags(tokens, 1)
+  const subcommand = tokens[subcommandIndex]
+  if (["delete", "publish", "rollback", "run"].includes(subcommand ?? "")) return true
+  if (subcommand === "runs") {
+    return tokens[skipOoGlobalFlags(tokens, subcommandIndex + 1)] === "cancel"
+  }
+  if (subcommand === "project") {
+    return ["create", "use"].includes(tokens[skipOoGlobalFlags(tokens, subcommandIndex + 1)] ?? "")
+  }
+  return false
+}
+
+/** Managed OO operations that must cross Wanta's consequential-action prompt. */
+export function managedOoCommandRequiresConfirmation(command: string): boolean {
+  let current = command.trim()
+  for (let depth = 0; depth < maxShellWrapperDepth; depth += 1) {
+    if (directOoCommandRequiresConfirmation(current)) return true
+    const wrapper = shellWrapperCommand(current)
+    if (wrapper.kind !== "command") return false
+    current = wrapper.command
+  }
+  return false
+}
+
 export function isPureOoCliCommand(command: string): boolean {
   const trimmed = command.trim()
   if (!trimmed || hasUnsafeShellSyntax(trimmed)) {

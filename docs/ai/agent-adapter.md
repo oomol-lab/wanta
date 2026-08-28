@@ -112,7 +112,13 @@ External agents build on `electron/agent/external/`:
   ambiguous or missing workspace identity fails closed. A single `oo` command
   from an external agent crosses an authenticated loopback execution boundary;
   Electron main retains the real CLI path and in-memory turn scope, and the
-  boundary accepts only connector apps/run/schema/search operations. The agent
+  boundary accepts only contract-declared capability discovery, connector,
+  bounded file-transfer, and Flow operations. File reads and writes are
+  canonicalized inside the active turn's managed roots; downloads reject local
+  or private-network targets. Flow is OOMOL-only, requires an explicit Project
+  on Project-scoped commands, and keeps project switching, deletion, rollback,
+  cancellation, and browser-opening commands unavailable. File upload plus
+  Flow run/publish cross the shared consequential-action confirmation policy. The agent
   never receives the real CLI path or a writable scope file. A single `oo` command
   receives a fast-path allow when it includes only the shared bounded output
   suffixes (`head`/`tail` or stderr descriptor duplication). Other ordinary
@@ -123,6 +129,9 @@ External agents build on `electron/agent/external/`:
   commands remain protected. Loaded Skills also receive a host execution
   policy: connected-service work follows the Skill's schema/run workflow through
   Wanta's managed `oo` command; MCP stays reserved for Wanta-native capabilities.
+  Marketplace virtual connections use the same Connector inventory and
+  `--connection-name` selector as user-managed connections; adapters must not
+  request, synthesize, or persist the server-owned provider credential.
   Explicit session grants still never cross sensitive-resource or high-risk
   boundaries. The shared defaults (`default_local` / `default_command`,
   trusted-project allows, and host-side `full_access`) apply to every adapter.

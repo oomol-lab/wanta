@@ -2,6 +2,7 @@ import type { ChatMessagePart } from "../../../electron/chat/common.ts"
 import type { MessageKey, TranslateFn } from "@/i18n/i18n"
 
 import { parseConnectorCliInvocation } from "./connector-cli.ts"
+import { parseManagedOoCliInvocation } from "./managed-oo-cli.ts"
 import { isActiveToolPart } from "./tool-state.ts"
 
 export type ToolCategory = "connector" | "shell" | "file" | "web" | "task" | "skill" | "custom" | "mixed"
@@ -130,6 +131,9 @@ export function toolActivityTitle(
 }
 
 export function classifyToolPart(part: ChatMessagePart): ToolCategory {
+  const managedOo = parseManagedOoCliInvocation(typeof part.input?.command === "string" ? part.input.command : "")
+  if (managedOo?.domain === "file") return "file"
+  if (managedOo?.domain === "flow") return "task"
   if (parseConnectorCliInvocation(typeof part.input?.command === "string" ? part.input.command : "")) {
     return "connector"
   }

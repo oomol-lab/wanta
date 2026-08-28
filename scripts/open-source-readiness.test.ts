@@ -71,7 +71,7 @@ describe("open-source installation contract", () => {
     expect(notices).toContain("@opencode-ai/sdk@1.18.21")
     expect(notices).toContain("@agentclientprotocol/codex-acp@1.6.2")
     expect(notices).toContain("@agentclientprotocol/claude-agent-acp@0.70.0")
-    expect(notices).toContain("@oomol-lab/oo-cli@1.7.7")
+    expect(notices).toContain("@oomol-lab/oo-cli@1.7.12")
     for (const fileName of ["LICENSE", "NOTICE", "TRADEMARKS.md", "THIRD_PARTY_NOTICES.md"]) {
       expect(existsSync(path.join(repoRoot, fileName))).toBe(true)
       expect(builderConfig).toContain(`from: "${fileName}"`)

@@ -53,7 +53,9 @@ describe("OOMOL connector workspace guard", () => {
     assert.equal(isManagedExternalOoCommand(["--lang=en", "search", "generate an image", "--json"]), true)
     assert.equal(isManagedExternalOoCommand(["connector", "search", "posthog"]), true)
     assert.equal(isManagedExternalOoCommand(["connector", "run", "posthog"]), true)
-    assert.equal(isManagedExternalOoCommand(["file", "download", "https://example.com/file"]), false)
+    assert.equal(isManagedExternalOoCommand(["file", "download", "https://example.com/file"]), true)
+    assert.equal(isManagedExternalOoCommand(["flow", "inspect", "demo", "--project", "project-a"]), true)
+    assert.equal(isManagedExternalOoCommand(["flow", "delete", "demo", "--yes"]), false)
     assert.equal(isManagedExternalOoCommand(["skills", "recommend", "plan", "posthog"]), false)
     assert.equal(isManagedExternalOoCommand(["logout"]), false)
   })
@@ -347,6 +349,18 @@ describe("connector output redaction", () => {
     assert.match(output, /password=\[redacted\]/u)
     assert.match(output, /posthog_api_key=\[redacted\]/u)
     assert.match(output, /x-api-key=\[redacted\]/u)
+  })
+
+  test("redacts signed transfer URLs from transcripts but can preserve them for the live upload result", () => {
+    const output = `${JSON.stringify({ downloadUrl: "https://signed.example.test/file?token=secret", fileName: "a.txt" })}\n`
+    assert.deepEqual(JSON.parse(redactConnectorOutput(output)), {
+      downloadUrl: "[redacted]",
+      fileName: "a.txt",
+    })
+    assert.deepEqual(JSON.parse(redactConnectorOutput(output, new Set(["download_url"]))), {
+      downloadUrl: "https://signed.example.test/file?token=secret",
+      fileName: "a.txt",
+    })
   })
 
   test("leaves output without credentials byte-for-byte unchanged", () => {

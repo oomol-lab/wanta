@@ -18,8 +18,16 @@ describe("external OO capability contract", () => {
       workspace: "required",
     })
     expect(resolveExternalOoOperation(["file", "download", "https://example.com/a"])).toMatchObject({
-      availability: "planned",
+      availability: "enabled",
       id: "file.download",
+    })
+    expect(resolveExternalOoOperation(["flow", "inspect", "demo", "--project", "project-a"])).toMatchObject({
+      availability: "enabled",
+      id: "flow.inspect",
+    })
+    expect(resolveExternalOoOperation(["flow", "delete", "demo", "--yes"])).toMatchObject({
+      availability: "planned",
+      id: "flow",
     })
     expect(resolveExternalOoOperation(["logout"])).toMatchObject({ availability: "denied", id: "logout" })
     expect(resolveExternalOoOperation(["unknown"])).toBeUndefined()

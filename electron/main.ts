@@ -53,7 +53,7 @@ import { createDirectCliHostCapability, DIRECT_CLI_CAPABILITY_ID } from "./agent
 import { memoizeExternalCommandEnvironment } from "./agent/external/command-environment.ts"
 import { createExternalAgents } from "./agent/external/create.ts"
 import { ExternalOoGuardServer } from "./agent/external/oo-guard-server.ts"
-import { verifyPackagedOoRuntime } from "./agent/external/oo-runtime-compatibility.ts"
+import { verifyPackagedOoRuntimeIntegrity } from "./agent/external/oo-runtime-integrity.ts"
 import { externalSessionScratchCwd, ExternalOoScopeStore } from "./agent/external/oo-scope-store.ts"
 import { externalAgentKindForSessionId } from "./agent/external/session-id.ts"
 import { HostCapabilityInvokeServer } from "./agent/host-capability-invoke-server.ts"
@@ -215,14 +215,19 @@ process.env.OO_CLI_PATH = ooBinPath
 const bundledSkillsDir = app.isPackaged
   ? resolveBundledSkillsDir(process.resourcesPath)
   : resolveDevBundledSkillsDir(appRoot)
-const externalOoRuntimeCompatibility = app.isPackaged
-  ? verifyPackagedOoRuntime(process.resourcesPath).then((result) => {
-      if (!result.compatible) {
-        logDiagnostic("external-oo-runtime", "packaged compatibility failed", { reason: result.reason }, "error")
+const externalOoRuntimeIntegrity = app.isPackaged
+  ? verifyPackagedOoRuntimeIntegrity(process.resourcesPath).then((result) => {
+      if (!result.available) {
+        logDiagnostic(
+          "external-oo-runtime",
+          "packaged integrity verification failed",
+          { reason: result.reason },
+          "error",
+        )
       }
       return result
     })
-  : Promise.resolve({ compatible: true } as const)
+  : Promise.resolve({ available: true } as const)
 const bundledLarkSkillsDir = app.isPackaged
   ? resolveBundledLarkSkillsDir(process.resourcesPath)
   : resolveDevBundledLarkSkillsDir(appRoot)
@@ -368,7 +373,7 @@ const directCliCapabilityServer = new HostCapabilityServer({
 const externalAgentRootDir = path.join(app.getPath("userData"), "agent-external")
 const externalOoScopeStore = new ExternalOoScopeStore()
 const externalOoGuardServer = new ExternalOoGuardServer({
-  available: async () => (await externalOoRuntimeCompatibility).compatible,
+  available: async () => (await externalOoRuntimeIntegrity).available,
   command: ooBinPath,
   scope: () => externalOoScopeStore.snapshot(),
 })
@@ -425,7 +430,7 @@ const externalHostMcpServers: HostMcpServerProvider = async (input) => {
   // External coding agents use Wanta's guarded OOCLI for Connector work.
   // MCP stays limited to stateful Wanta-native capabilities.
   const servers = [await knowledgeCapabilityServer.issue(context), await questionCapabilityServer.issue(context)]
-  if ((await externalOoRuntimeCompatibility).compatible) {
+  if ((await externalOoRuntimeIntegrity).available) {
     servers.unshift(
       await skillCapabilityServer.issue({
         ...context,

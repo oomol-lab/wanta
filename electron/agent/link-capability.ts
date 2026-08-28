@@ -13,6 +13,7 @@ const execFileAsync = promisify(execFile)
 const actionIdPattern = /^[a-z0-9][a-z0-9_-]*\.[A-Za-z0-9][A-Za-z0-9_-]*$/u
 const actionNamePattern = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u
 const servicePattern = /^[a-z0-9][a-z0-9_-]*$/u
+const marketplaceConnectionNamePattern = /^marketplace_[a-z0-9_]+$/u
 const ACTION_PROBE_CACHE_MS = 5_000
 const ACTION_SCHEMA_CACHE_MS = 5 * 60_000
 const ACTION_POLICY_BLOCK_MS = 10 * 60_000
@@ -233,6 +234,17 @@ export class LinkCapability {
         } catch (error) {
           const message = commandErrorMessage(error)
           const errorCode = parseConnectorErrorCode(message)
+          if (
+            connectionName &&
+            marketplaceConnectionNamePattern.test(connectionName) &&
+            errorCode === "app_not_found"
+          ) {
+            return errorResult(
+              "marketplace_action_unavailable",
+              "The selected OOMOL managed connection does not provide this Action. Choose a user-managed connection when available.",
+              { action, connectionName, service },
+            )
+          }
           if (errorCode && AUTH_BLOCKING_ERROR_CODES.has(errorCode)) {
             const authUrl = authorizationUrl(runtime.linkRuntime, service)
             return JSON.stringify({

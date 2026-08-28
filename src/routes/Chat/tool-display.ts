@@ -3,6 +3,7 @@ import type { TranslateFn } from "@/i18n/i18n"
 
 import { parseAuthorizationSignal } from "../../../electron/chat/authorization-signal.ts"
 import { parseConnectorCliInvocation } from "./connector-cli.ts"
+import { parseManagedOoCliInvocation } from "./managed-oo-cli.ts"
 import { compactPathDetail, compactToolDetail } from "./tool-activity.ts"
 import { isWgKnowledgeShellCommand } from "./wg-shell-detection.ts"
 
@@ -189,6 +190,23 @@ export function toolDisplayLine(t: TranslateFn, part: ChatMessagePart): ToolDisp
   if (isWikigraphKnowledgeActivityPart(part)) {
     return { title: t("chat.toolBashQueryKnowledge") }
   }
+  const managedOo = parseManagedOoCliInvocation(str(input.command))
+  if (managedOo) {
+    const title =
+      managedOo.domain === "file"
+        ? managedOo.operation === "upload"
+          ? t("chat.toolUploadFile")
+          : t("chat.toolDownloadFile")
+        : managedOo.operation.startsWith("run")
+          ? t("chat.toolRunFlow")
+          : managedOo.operation.startsWith("publish")
+            ? t("chat.toolPublishFlow")
+            : t("chat.toolManageFlow")
+    return {
+      title,
+      ...(managedOo.detail ? { detail: compactToolDetail(managedOo.detail), detailKind: "text" as const } : {}),
+    }
+  }
   const cli = parseConnectorCliInvocation(str(input.command))
   if (cli) {
     const detail = [cli.service, cli.action ?? cli.query].filter(Boolean).join(" · ")
@@ -317,12 +335,31 @@ export function toolDisplayLine(t: TranslateFn, part: ChatMessagePart): ToolDisp
 }
 
 /** 工具调用的一行人话动作摘要；原始命令只放在详情里。 */
+/** Remove live secrets that must not appear in expandable tool parameters. */
+export function toolDisplayInput(part: ChatMessagePart): Record<string, unknown> | undefined {
+  const input = part.input
+  if (!input) return undefined
+  const managedOo = parseManagedOoCliInvocation(str(input.command))
+  if (managedOo?.domain !== "file" || managedOo.operation !== "download") return input
+  const { command: _signedDownloadCommand, ...safeInput } = input
+  return Object.keys(safeInput).length > 0 ? safeInput : undefined
+}
+
 export function toolActionSummary(t: TranslateFn, part: ChatMessagePart): string {
   const input = part.input ?? {}
   const target = connectorTarget(input)
   const fallbackDetail = part.title || part.tool || "tool"
   if (isWikigraphKnowledgeActivityPart(part)) {
     return t("chat.toolBashQueryKnowledge")
+  }
+  const managedOo = parseManagedOoCliInvocation(str(input.command))
+  if (managedOo) {
+    if (managedOo.domain === "file") {
+      return managedOo.operation === "upload" ? t("chat.toolUploadFile") : t("chat.toolDownloadFile")
+    }
+    if (managedOo.operation.startsWith("run")) return t("chat.toolRunFlow")
+    if (managedOo.operation.startsWith("publish")) return t("chat.toolPublishFlow")
+    return t("chat.toolManageFlow")
   }
   const cli = parseConnectorCliInvocation(str(input.command))
   if (cli) {

@@ -8,6 +8,7 @@ import * as React from "react"
 import {
   getFilterValue,
   getProviderCatalogLabel,
+  getProviderMarketplaceApp,
   getProviderMeta,
   getProviderStatusTone,
   parseFilterValue,
@@ -681,6 +682,7 @@ const ProviderCard = React.memo(function ProviderCard({
 }) {
   const t = useT()
   const tone = getProviderStatusTone(provider)
+  const marketplaceApp = getProviderMarketplaceApp(provider)
   const statusLabel =
     showConnectionState || tone === "directly-available"
       ? getProviderCatalogLabel(provider, canManageConnections, t)
@@ -713,7 +715,14 @@ const ProviderCard = React.memo(function ProviderCard({
       <span className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
         <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} />
         <span className="grid min-w-0 gap-0.5">
-          <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
+            {marketplaceApp ? (
+              <Badge variant="secondary" className="shrink-0" title={t("connections.marketplaceManaged")}>
+                {t("connections.marketplaceManaged")}
+              </Badge>
+            ) : null}
+          </span>
           <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
         </span>
         {statusLabel && tone === "directly-available" ? (

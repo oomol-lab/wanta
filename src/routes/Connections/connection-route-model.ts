@@ -1,9 +1,9 @@
 import type {
   ConnectionAppsStatus,
   ConnectionAppDetail,
-  ConnectionAuthType,
   ConnectionAppSummary,
   ConnectionAppCredentialField,
+  ConnectionCredentialAuthType,
   ConnectionCredentialField,
   ConnectionCredentialSummary,
   ConnectionProviderSummary,
@@ -14,6 +14,8 @@ import type { MessageKey, TranslateFn } from "@/i18n/i18n"
 import {
   connectionAppDisplayLabel as connectionAppUiDisplayLabel,
   isConnectionlessNoAuthProvider,
+  isMarketplaceConnection,
+  isUserManagedCredentialApp,
 } from "../../../electron/connections/summary.ts"
 import { resolveConnectorBusinessCategory } from "./connection-provider-category.ts"
 import { authTypeLabel } from "./shared.ts"
@@ -155,7 +157,7 @@ export type ConnectionCatalogFilter =
   | { kind: "directly-available" }
   | { kind: "managed" }
 
-export type ConnectionAuthFilter = "all" | Exclude<ConnectionAuthType, null>
+export type ConnectionAuthFilter = "all" | ConnectionCredentialAuthType
 
 export interface ConnectionCategoryFilter {
   count: number
@@ -223,6 +225,28 @@ export function supportsManagedConnectionAccountActions(provider: ConnectionProv
   return provider.executionMode !== "direct"
 }
 
+export function isMarketplaceApp(
+  app: Pick<ConnectionAppSummary, "authType" | "id" | "marketplace"> | null | undefined,
+): boolean {
+  return isMarketplaceConnection(app)
+}
+
+export function canMutateConnectionApp(app: ConnectionAppSummary): boolean {
+  return isUserManagedCredentialApp(app)
+}
+
+export function getProviderMarketplaceApp(provider: ConnectionProviderSummary): ConnectionAppSummary | undefined {
+  return provider.apps.find(isMarketplaceApp)
+}
+
+export function shouldShowProviderUpdatedAt(provider: ConnectionProviderSummary): boolean {
+  return !isDirectlyAvailableProvider(provider) && provider.appAuthType !== "marketplace"
+}
+
+function getSelectedProviderApp(provider: ConnectionProviderSummary): ConnectionAppSummary | undefined {
+  return provider.apps.find((app) => app.id === provider.appId) ?? provider.apps.find((app) => app.isDefault)
+}
+
 export function getProviderStatusTone(
   provider: ConnectionProviderSummary,
 ): "attention" | "available" | "connected" | "directly-available" {
@@ -249,14 +273,18 @@ export function getProviderStatusLabel(provider: ConnectionProviderSummary, t: T
   }
 }
 
-export function getDefaultAuthType(provider: ConnectionProviderSummary): Exclude<ConnectionAuthType, null> | null {
-  if (provider.appAuthType && provider.authTypes.includes(provider.appAuthType)) {
+export function getDefaultAuthType(provider: ConnectionProviderSummary): ConnectionCredentialAuthType | null {
+  if (
+    provider.appAuthType &&
+    provider.appAuthType !== "marketplace" &&
+    provider.authTypes.includes(provider.appAuthType)
+  ) {
     return provider.appAuthType
   }
   return provider.authTypes[0] ?? null
 }
 
-export function formatAuthTypes(authTypes: Exclude<ConnectionAuthType, null>[], t: TranslateFn): string {
+export function formatAuthTypes(authTypes: ConnectionCredentialAuthType[], t: TranslateFn): string {
   if (authTypes.length === 0) {
     return t("connections.authUnknown")
   }
@@ -265,8 +293,8 @@ export function formatAuthTypes(authTypes: Exclude<ConnectionAuthType, null>[], 
 
 export function isConnectionAuthType(
   value: string,
-  authTypes: Exclude<ConnectionAuthType, null>[],
-): value is Exclude<ConnectionAuthType, null> {
+  authTypes: ConnectionCredentialAuthType[],
+): value is ConnectionCredentialAuthType {
   return authTypes.some((authType) => authType === value)
 }
 
@@ -309,6 +337,9 @@ export function getProviderDescription(provider: ConnectionProviderSummary, t: T
       if (isDirectlyAvailableProvider(provider)) {
         return t("connections.noAuthReadyDescription")
       }
+      if (getSelectedProviderApp(provider)?.marketplace?.pricing === "metered") {
+        return t("connections.marketplaceMeteredDescription")
+      }
       if (provider.appCount > 1) {
         return t("connections.connectionCount", { count: provider.appCount })
       }
@@ -322,6 +353,9 @@ export function getProviderDescription(provider: ConnectionProviderSummary, t: T
 export function getProviderAccountValue(provider: ConnectionProviderSummary, t: TranslateFn): string {
   if (isDirectlyAvailableProvider(provider)) {
     return t("connections.noAccountRequired")
+  }
+  if (getSelectedProviderApp(provider) && provider.appAuthType === "marketplace") {
+    return t("connections.marketplaceAccount")
   }
   if (provider.appCount === 1 && provider.accountLabel) {
     return provider.accountLabel
@@ -343,7 +377,7 @@ export function getEmptyState(
   return { title: t("connections.emptyTitle"), description: t("connections.readyEmptyDescription") }
 }
 
-export function authTypeNeedsDialog(authType: Exclude<ConnectionAuthType, null>): boolean {
+export function authTypeNeedsDialog(authType: ConnectionCredentialAuthType): boolean {
   return authType === "api_key" || authType === "custom_credential" || authType === "federated"
 }
 
@@ -447,7 +481,7 @@ export function getProviderMeta(provider: ConnectionProviderSummary, t: Translat
     return getProviderCategoryLabel(provider, t)
   }
   if (provider.status === "connected" && provider.appCount === 1 && provider.accountLabel) {
-    return provider.accountLabel
+    return provider.appAuthType === "marketplace" ? t("connections.marketplaceAccount") : provider.accountLabel
   }
   if (provider.status === "connected") {
     return t("connections.connectionCount", { count: provider.appCount })
@@ -461,6 +495,7 @@ export function getConnectionAppGeneratedLabel(app: ConnectionAppSummary, index:
 }
 
 export function getConnectionAppDisplayLabel(app: ConnectionAppSummary, index: number, t: TranslateFn): string {
+  if (isMarketplaceApp(app)) return t("connections.marketplaceAccount")
   return connectionAppUiDisplayLabel(app) ?? getConnectionAppGeneratedLabel(app, index, t)
 }
 

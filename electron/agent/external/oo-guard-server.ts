@@ -15,6 +15,7 @@ import {
   stripIdentityIndependentWorkspaceSelectors,
 } from "../oo-guard-core.ts"
 import { resolveExternalOoOperation } from "./oo-capability-contract.ts"
+import { prepareManagedExternalOoCommand } from "./oo-command-safety.ts"
 
 const maxCapturedOutputBytes = 32 * 1024 * 1024
 const maxRequestBytes = 256 * 1024
@@ -93,7 +94,7 @@ export class ExternalOoGuardServer {
       return
     }
     if (this.options.available && !(await this.options.available())) {
-      respondJson(response, 503, { error: "Managed OO runtime compatibility is unavailable." })
+      respondJson(response, 503, { error: "Managed OO runtime integrity verification failed." })
       return
     }
     const body = await readRequest(request)
@@ -115,15 +116,17 @@ export class ExternalOoGuardServer {
       const operation = resolveExternalOoOperation(originalArgs)
       respondJson(response, 403, {
         availability: operation?.availability ?? "unrecognized",
-        error: "Only managed capability discovery and connector action commands are allowed.",
+        error: "Only managed capability, connector, file-transfer, and Flow commands are allowed.",
         errorCode: operation ? "UNSUPPORTED_OO_OPERATION" : "UNRECOGNIZED_OO_OPERATION",
         ...(operation ? { operation: operation.id } : {}),
       })
       return
     }
-    const args = isConnectorBusinessCommand(originalArgs)
-      ? bindExternalConnectorWorkspace(originalArgs, sessionScope)
-      : originalArgs
+    const safeArgs = await prepareManagedExternalOoCommand(originalArgs, binding, sessionScope)
+    const operation = resolveExternalOoOperation(safeArgs)
+    const args = isConnectorBusinessCommand(safeArgs)
+      ? bindExternalConnectorWorkspace(safeArgs, sessionScope)
+      : safeArgs
     const controller = new AbortController()
     const abortOnDisconnect = (): void => {
       if (!response.writableEnded) controller.abort()
@@ -138,6 +141,7 @@ export class ExternalOoGuardServer {
         binding.cwd,
         {
           activeChildren: this.activeChildren,
+          preserveStdoutKeys: operation?.id === "file.upload" ? new Set(["download_url"]) : undefined,
           signal: controller.signal,
         },
       )
@@ -154,7 +158,7 @@ async function runOo(
   args: string[],
   env: NodeJS.ProcessEnv,
   cwd: string,
-  options: { activeChildren: Set<ChildProcess>; signal: AbortSignal },
+  options: { activeChildren: Set<ChildProcess>; preserveStdoutKeys?: ReadonlySet<string>; signal: AbortSignal },
 ): Promise<{ exitCode: number; stderr: string; stdout: string }> {
   const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
   options.activeChildren.add(child)
@@ -203,7 +207,7 @@ async function runOo(
   if (captureError) throw captureError
   return {
     exitCode,
-    stdout: redactConnectorOutput(Buffer.concat(stdout).toString("utf8")),
+    stdout: redactConnectorOutput(Buffer.concat(stdout).toString("utf8"), options.preserveStdoutKeys),
     stderr: redactConnectorOutput(Buffer.concat(stderr).toString("utf8")),
   }
 }

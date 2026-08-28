@@ -16,6 +16,8 @@ test("translate interpolates {var}", () => {
   assert.equal(translate("en", "chat.authNeeded", { name: "Slack" }), "Slack needs authorization to continue")
   assert.equal(translate("zh-CN", "chat.authNeeded", { name: "Slack" }), "需要授权 Slack 才能继续")
   assert.equal(translate("en", "connections.more", { count: 577 }), "Search to connect more (577 total)")
+  assert.equal(translate("zh-CN", "connections.marketplaceAccount"), "OOMOL 内置账号")
+  assert.equal(translate("en", "connections.authType.marketplace"), "OOMOL managed")
 })
 
 test("translate interpolates OO-style {{var}}", () => {

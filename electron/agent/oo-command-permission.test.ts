@@ -4,8 +4,27 @@ import {
   connectorBusinessCliTransport,
   isOoCliCommand,
   isPureOoCliCommand,
+  managedOoCommandRequiresConfirmation,
   openConnectorCommandPolicy,
 } from "./oo-command-permission.ts"
+
+test("managed OO consequential operations require confirmation", () => {
+  for (const command of [
+    'oo file upload "artifact.png" --json',
+    "oo flow run my-flow --project project-a --source draft --wait --json",
+    "oo flow publish my-flow --project project-a --json",
+    'bash -lc "oo flow rollback my-flow publication-a --project project-a"',
+  ]) {
+    assert.equal(managedOoCommandRequiresConfirmation(command), true, command)
+  }
+  for (const command of [
+    'oo file download "https://example.com/a" ./artifacts',
+    "oo flow inspect my-flow --project project-a --json",
+    "oo flow apply my-flow --project project-a --file request.json --json",
+  ]) {
+    assert.equal(managedOoCommandRequiresConfirmation(command), false, command)
+  }
+})
 
 test("isPureOoCliCommand allows single oo CLI invocations", () => {
   assert.equal(isPureOoCliCommand('oo search "秘塔搜索 metaso search" --json'), true)

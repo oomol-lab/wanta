@@ -71,7 +71,10 @@ rejects cross-workspace fallback, and redacts connector output.
 External agents receive only an authenticated loopback guard descriptor;
 Electron main retains the real OO executable path and the in-memory per-turn
 runtime/team scope. The boundary rejects runtime-administration commands and
-accepts only connector apps/run/schema/search operations.
+accepts only contract-declared capability search, Connector apps/run/schema/search,
+bounded file upload/download, and the explicitly enabled Open Flow read, Draft,
+run, and publish operations. Project switching, Flow deletion/rollback/cancel,
+browser-opening commands, and unrecognized OO operations remain unavailable.
 Loaded Skill instructions keep Connector work on that managed CLI. The shared
 permission classifier—not an adapter-specific rule—decides whether a command is
 safe to run without a redundant approval card.
@@ -143,6 +146,22 @@ External coding agents reach Connector through the guarded OOCLI rather than an
 eagerly injected `wanta_link` MCP server. OpenCode continues to use the
 in-process host Link implementation. Both paths preserve workspace identity,
 redact output, and fail closed instead of falling back to another identity.
+
+OOMOL Marketplace accounts remain ordinary Connector virtual connections at
+this boundary. Wanta preserves their `marketplace:oomol:<service>` app id,
+`marketplace_oomol` connection name, pricing metadata, Team visibility, and
+Action policy; it never receives the managed provider credential. OpenCode and
+external agents use the same default or explicit connection selection instead
+of a Marketplace-specific execution tool.
+
+The same authenticated boundary exposes bounded OO file transfer and Open Flow
+subcommands. Uploads can read only regular files under the active turn's
+managed roots. Downloads accept only public HTTP(S) artifact URLs and write
+only inside those roots. Flow requires an OOMOL runtime and explicit Project
+binding for Project-scoped work; read and Draft operations are enabled, while
+run and publish cross the consequential-action prompt. Project switching, Flow
+deletion or rollback, run cancellation, and browser-opening commands remain
+closed until they receive separate host semantics.
 
 ### Phase 4: Skill registry and task snapshots
 

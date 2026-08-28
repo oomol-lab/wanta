@@ -1,5 +1,6 @@
 export type ConnectionAppsStatus = "ready" | "forbidden" | "unavailable"
-export type ConnectionAuthType = "oauth2" | "api_key" | "custom_credential" | "federated" | "no_auth" | null
+export type ConnectionCredentialAuthType = "oauth2" | "api_key" | "custom_credential" | "federated" | "no_auth"
+export type ConnectionAppAuthType = ConnectionCredentialAuthType | "marketplace"
 export type ConnectionAppStatus = "active" | "reauth_required" | "error" | "disconnected"
 export type ConnectionProviderStatus = "available" | "connected" | "needs_attention"
 export interface ConnectionWorkspace {
@@ -18,17 +19,23 @@ export type ConnectionProviderActionKind =
 export interface ConnectionAppSummary {
   accountLabel?: string
   alias?: string
-  authType: ConnectionAuthType
+  authType: ConnectionAppAuthType | null
   connectionName?: string
   createdAt: number
   displayName?: string
   id: string
   isDefault: boolean
+  marketplace?: ConnectionMarketplaceSummary
   providerAccountId?: string
   scopes?: string[]
   service: string
   status: ConnectionAppStatus
   updatedAt: number
+}
+
+export interface ConnectionMarketplaceSummary {
+  id: string
+  pricing: "free" | "metered"
 }
 
 export interface ConnectionCredentialFieldSummary {
@@ -38,7 +45,7 @@ export interface ConnectionCredentialFieldSummary {
 }
 
 export interface ConnectionCredentialSummary {
-  authType: Extract<ConnectionAuthType, "api_key" | "custom_credential">
+  authType: Extract<ConnectionCredentialAuthType, "api_key" | "custom_credential">
   fields: Record<string, ConnectionCredentialFieldSummary>
 }
 
@@ -59,10 +66,10 @@ export interface ConnectionProviderSummary {
   accountLabel?: string
   appId?: string
   appStatus?: ConnectionAppStatus
-  appAuthType?: ConnectionAuthType
+  appAuthType?: ConnectionAppAuthType | null
   appCount: number
   apps: ConnectionAppSummary[]
-  authTypes: Exclude<ConnectionAuthType, null>[]
+  authTypes: ConnectionCredentialAuthType[]
   actionKind: ConnectionProviderActionKind
   canDisconnect: boolean
   /** Local Direct providers opt into reconnect only when their runtime can replace an existing identity. */
@@ -241,7 +248,7 @@ export interface ConnectionSummary {
   apps: ConnectionAppSummary[]
   /** 团队连接状态与 Provider 公共目录分开读取；失败时目录仍可只读浏览。 */
   appsStatus?: ConnectionAppsStatus
-  /** 用户实际配置或授权过的 Provider 种类数，不包含无需账号即可使用的免配置 Provider。 */
+  /** 当前拥有可选择连接的 Provider 种类数；包含 Marketplace，不包含 connectionless no-auth Provider。 */
   connectedProviderCount: number
   providerCount: number
   providers: ConnectionProviderSummary[]

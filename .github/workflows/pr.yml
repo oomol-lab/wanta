@@ -37,6 +37,13 @@ jobs:
           # 本 job 只做 lint/test/build:app，不打包，故无需下载 oo 二进制。
           OO_SKIP_BINARY_DOWNLOAD: "1"
 
+      - name: Export bundled OO skills
+        run: node --experimental-strip-types ./scripts/download-skills.ts
+        env:
+          # Compatibility tests verify the pinned binary's real exported Skill
+          # tree, which is intentionally gitignored and skipped during install.
+          OO_SKIP_BINARY_DOWNLOAD: "0"
+
       - name: Run lint
         run: corepack pnpm run lint
 

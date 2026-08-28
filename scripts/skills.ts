@@ -60,13 +60,13 @@ export async function exportBundledSkills(
 
   const stdout = await installOoSkills(outDir)
   assertSkillsExported(stdout, outDir)
-  await normalizeExportedSkillLineEndings(outDir)
   await applyBundledSkillOverrides(outDir)
   await Promise.all(
     wantaBundledSkillIds.map((skillId) =>
       cp(path.join(wantaSkillsDir, skillId), path.join(outDir, skillId), { recursive: true }),
     ),
   )
+  await normalizeExportedSkillLineEndings(outDir)
   return outDir
 }
 
@@ -108,14 +108,15 @@ export async function installBundledOoSkillsFromBinary(ooBin: string, outDir: st
   }
 }
 
-// Text files the oo CLI emits into an exported Skill. Only these are rewritten to LF.
+// Text files that end up in an exported Skill. Only these are rewritten to LF.
 const exportedSkillTextExtensions = new Set([".md", ".yaml", ".yml", ".json", ".txt"])
 
 /**
- * Rewrite CRLF to LF in every exported text file. `oo skills install` writes CRLF on Windows, which
- * would change the sha256 recorded in resources/skill-lock/oo.json and in bin/oo-runtime-integrity.json.
- * Normalizing on disk keeps the lock, the packaged integrity descriptor and the runtime check byte-exact
- * across platforms.
+ * Rewrite CRLF to LF in every text file under outDir. `oo skills install` writes CRLF on Windows, and a
+ * Windows checkout with core.autocrlf can do the same to the tracked overrides and Wanta skills, so this
+ * runs last, after overrides are appended and Wanta skills are copied. That keeps resources/skill-lock/oo.json,
+ * bin/oo-runtime-integrity.json and the runtime skill hashes (electron/skills/hash.ts) byte-exact across
+ * platforms.
  */
 export async function normalizeExportedSkillLineEndings(outDir: string): Promise<void> {
   const files = await readdirFilesRecursive(outDir)

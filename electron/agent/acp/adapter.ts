@@ -40,6 +40,7 @@ import { errorMessage, logDiagnostic } from "../../diagnostics-log.ts"
 import { AGENT_PERMISSION_MODE_ORDER, AGENT_PROFILES } from "../contract/profile.ts"
 import { ExternalAgentAdapter } from "../external/adapter-base.ts"
 import { externalExecutableNeedsShell } from "../external/executable.ts"
+import { nativeSkillSourceObservation } from "../external/native-skill-source.ts"
 import { externalAgentPromptText } from "../external/prompt.ts"
 import { externalSessionUuid } from "../external/session-id.ts"
 import { appendStderrTail, subprocessFailureSummary } from "../external/subprocess-diagnostics.ts"
@@ -423,6 +424,7 @@ function selectPermissionOptionId(
 }
 
 export class AcpAgentAdapter extends ExternalAgentAdapter {
+  private readonly observedNativeSkillSources = new Set<string>()
   private readonly options: AcpAdapterOptions
   private connectionHandle: AcpConnectionHandle | undefined
   private connectionPromise: Promise<AcpConnectionHandle> | undefined
@@ -625,6 +627,9 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   protected override handleForgetSession(sessionId: string): void {
     this.desiredSelections.delete(sessionId)
     this.desiredPermissionModes.delete(sessionId)
+    for (const key of this.observedNativeSkillSources) {
+      if (key.startsWith(`${sessionId}\0`)) this.observedNativeSkillSources.delete(key)
+    }
     const session = this.sessionsByWantaId.get(sessionId)
     if (session) {
       this.wantaIdByAcpId.delete(session.acpSessionId)
@@ -1595,6 +1600,19 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     }
     this.observeTurnEvents(session.activeTurn, events)
     for (const event of events) {
+      if (event.event === "toolCallStarted") {
+        const observation = nativeSkillSourceObservation(event.data.input)
+        const key = observation ? `${event.data.sessionId}\0${observation.skillId}` : undefined
+        if (observation && key && !this.observedNativeSkillSources.has(key)) {
+          this.observedNativeSkillSources.add(key)
+          logDiagnostic(
+            "acp-adapter",
+            "native Skill source observed",
+            { adapter: this.kind, skillId: observation.skillId, source: observation.source },
+            "warn",
+          )
+        }
+      }
       this.emit(event)
     }
   }

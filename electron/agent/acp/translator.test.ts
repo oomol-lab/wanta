@@ -416,6 +416,39 @@ describe("tool_call lifecycle", () => {
     })
   })
 
+  test("replaces native Wanta Skill MCP infrastructure names with readable labels", () => {
+    const translator = createAcpSessionTranslator(SESSION_ID, new Set(["wanta_skills"]))
+    translator.noteTurnStarted()
+    const readEvents = translator.translate({
+      sessionUpdate: "tool_call",
+      toolCallId: "read-skill-reference",
+      title: "mcp__wanta_skills__read_skill_file",
+      kind: "other",
+      status: "in_progress",
+      rawInput: { skillId: "oo", path: "references/search-and-selection.md" },
+    })
+    expect(readEvents.at(-1)).toMatchObject({
+      event: "toolCallStarted",
+      data: {
+        tool: "read_skill_file",
+        title: "Read skill reference: references/search-and-selection.md",
+      },
+    })
+
+    const listEvents = translator.translate({
+      sessionUpdate: "tool_call",
+      toolCallId: "list-skills",
+      title: "mcp__wanta_skills__list_skills",
+      kind: "other",
+      status: "in_progress",
+      rawInput: {},
+    })
+    expect(listEvents.at(-1)).toMatchObject({
+      event: "toolCallStarted",
+      data: { tool: "list_skills", title: "List available skills" },
+    })
+  })
+
   test("drops Wanta MCP startup probes instead of creating unfinished tool steps", () => {
     const translator = createAcpSessionTranslator(SESSION_ID, new Set(["wanta_browser"]))
     translator.noteTurnStarted()

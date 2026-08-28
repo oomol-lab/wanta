@@ -1,8 +1,7 @@
 import { realpathSync } from "node:fs"
 import path from "node:path"
+import { externalOoRootCommandIndex, resolveExternalOoOperation } from "./external/oo-capability-contract.ts"
 
-const connectorCommandsRequiringWorkspace = new Set(["apps", "run"])
-const connectorCommandsIgnoringWorkspace = new Set(["schema", "search"])
 const sensitiveConnectorKeys = new Set([
   "access_token",
   "api_key",
@@ -73,33 +72,18 @@ export function redactConnectorOutput(output: string): string {
 }
 
 function connectorCommandIndex(args: readonly string[]): number {
-  let index = 0
-  while (index < args.length) {
-    const arg = args[index] ?? ""
-    if (arg === "--lang") {
-      index += 2
-      continue
-    }
-    if (arg.startsWith("--lang=") || ["--debug", "-h", "--help", "-V", "--version"].includes(arg)) {
-      index += 1
-      continue
-    }
-    break
-  }
+  const index = externalOoRootCommandIndex(args)
   return args[index] === "connector" ? index : -1
 }
 
 export function isConnectorBusinessCommand(args: readonly string[]): boolean {
-  const connectorIndex = connectorCommandIndex(args)
-  return connectorIndex >= 0 && connectorCommandsRequiringWorkspace.has(args[connectorIndex + 1] ?? "")
+  const operation = resolveExternalOoOperation(args)
+  return operation?.id.startsWith("connector.") === true && operation.workspace === "required"
 }
 
 /** Commands exposed by the privileged external-agent OO execution boundary. */
 export function isManagedExternalOoCommand(args: readonly string[]): boolean {
-  const connectorIndex = connectorCommandIndex(args)
-  if (connectorIndex < 0) return false
-  const command = args[connectorIndex + 1] ?? ""
-  return connectorCommandsRequiringWorkspace.has(command) || connectorCommandsIgnoringWorkspace.has(command)
+  return resolveExternalOoOperation(args)?.availability === "enabled"
 }
 
 export function hasWorkspaceSelector(args: readonly string[]): boolean {
@@ -182,8 +166,9 @@ export function bindExternalConnectorWorkspace(args: readonly string[], scope: W
  * model recover from an avoidable parse error.
  */
 export function stripIdentityIndependentWorkspaceSelectors(args: readonly string[]): string[] {
+  const operation = resolveExternalOoOperation(args)
   const connectorIndex = connectorCommandIndex(args)
-  if (connectorIndex < 0 || !connectorCommandsIgnoringWorkspace.has(args[connectorIndex + 1] ?? "")) {
+  if (connectorIndex < 0 || operation?.workspace !== "none") {
     return [...args]
   }
   const commandArgsStart = connectorIndex + 2

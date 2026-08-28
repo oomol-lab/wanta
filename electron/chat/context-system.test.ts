@@ -6,6 +6,7 @@ import {
   buildLinkRuntimeSystem,
   buildPermissionModeSystem,
   buildResponseLanguageSystem,
+  buildTeamSkillsSystem,
 } from "./context-system.ts"
 
 test("buildLinkRuntimeSystem binds raw OOMOL calls to the exact team", () => {
@@ -67,6 +68,17 @@ test("buildContextMentionsSystem describes the global knowledge library", () => 
   assert.doesNotMatch(prompt, /wikg:\/\/lib\/arc\/wikg:\/\/lib/)
   assert.match(prompt, /Treat `wikg:\/\/lib` as the whole local WikiGraph library/)
   assert.match(prompt, /Use `wikg:\/\/lib` directly for a selected knowledge library/)
+})
+
+test("selected and team Skills make the Wanta snapshot authoritative over same-id native Skills", () => {
+  const selected = buildContextMentionsSystem([{ id: "oo", kind: "skill", name: "OO" }]) ?? ""
+  const team = buildTeamSkillsSystem([{ id: "oo", name: "OO" }]) ?? ""
+
+  for (const prompt of [selected, team]) {
+    assert.match(prompt, /Wanta current-turn Skill snapshot is authoritative/)
+    assert.match(prompt, /Do not substitute a same-id native, global, or home-directory Skill/)
+    assert.match(prompt, /native Skills are fallback only when the id is absent/)
+  }
 })
 
 test("buildContextMentionsSystem routes the Hua Rong Trail fixture through WikiGraph context", () => {

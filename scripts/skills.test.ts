@@ -1,8 +1,17 @@
-import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
-import { exportBundledSkills, wantaBundledSkillIds, wantaSkillsDir } from "./skills.ts"
+import { EXTERNAL_OO_OPERATIONS } from "../electron/agent/external/oo-capability-contract.ts"
+import { OO_CLI_VERSION } from "./oo-cli.ts"
+import {
+  bundledSkillsDir,
+  exportBundledSkills,
+  skillCompatibilityDir,
+  verifyBundledOoSkillCompatibility,
+  wantaBundledSkillIds,
+  wantaSkillsDir,
+} from "./skills.ts"
 
 describe("Wanta bundled skills", () => {
   it("keeps a tracked SKILL.md source for every bundled Wanta skill", async () => {
@@ -30,5 +39,37 @@ describe("Wanta bundled skills", () => {
     const content = await readFile(path.join(outDir, "oo-publish-skill", "SKILL.md"), "utf8")
     expect(content).toContain("## Wanta fast path for publishing a new version")
     expect(content).toContain("Do not search logs, shell history, SQLite databases")
+  })
+
+  it("pins the exported oo Skill and reviews every required command domain", async () => {
+    const manifest = JSON.parse(await readFile(path.join(skillCompatibilityDir, "oo.json"), "utf8")) as {
+      ooCliVersion: string
+      requiredOperations: string[]
+    }
+    expect(manifest.ooCliVersion).toBe(OO_CLI_VERSION)
+    const knownOperations = new Set<string>(EXTERNAL_OO_OPERATIONS.map((operation) => operation.id))
+    expect(manifest.requiredOperations.every((operation) => knownOperations.has(operation))).toBe(true)
+    await expect(verifyBundledOoSkillCompatibility(bundledSkillsDir)).resolves.toBeUndefined()
+  })
+
+  it("rejects an unknown required operation before reading generated Skill files", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-compatibility-"))
+    const manifestPath = path.join(root, "oo.json")
+    try {
+      await writeFile(
+        manifestPath,
+        JSON.stringify({
+          agentFormat: "universal",
+          files: {},
+          ooCliVersion: OO_CLI_VERSION,
+          requiredOperations: ["unknown.operation"],
+        }),
+      )
+      await expect(verifyBundledOoSkillCompatibility(path.join(root, "missing-skills"), manifestPath)).rejects.toThrow(
+        /unknown operations: unknown\.operation/u,
+      )
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 })

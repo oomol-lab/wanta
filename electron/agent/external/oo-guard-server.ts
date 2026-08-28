@@ -14,6 +14,7 @@ import {
   resolveExternalGuardCwdBinding,
   stripIdentityIndependentWorkspaceSelectors,
 } from "../oo-guard-core.ts"
+import { resolveExternalOoOperation } from "./oo-capability-contract.ts"
 
 const maxCapturedOutputBytes = 32 * 1024 * 1024
 const maxRequestBytes = 256 * 1024
@@ -24,7 +25,9 @@ export interface ExternalOoGuardDescriptor {
 }
 
 export interface ExternalOoGuardServerOptions {
+  available?: () => boolean | Promise<boolean>
   command: string
+  commandArgsPrefix?: readonly string[]
   env?: NodeJS.ProcessEnv
   scope: () => WorkspaceTeamScope
 }
@@ -89,6 +92,10 @@ export class ExternalOoGuardServer {
       respondJson(response, 404, { error: "Not found." })
       return
     }
+    if (this.options.available && !(await this.options.available())) {
+      respondJson(response, 503, { error: "Managed OO runtime compatibility is unavailable." })
+      return
+    }
     const body = await readRequest(request)
     if (!body || typeof body !== "object" || !Array.isArray((body as { args?: unknown }).args)) {
       respondJson(response, 400, { error: "Managed OO request is missing args." })
@@ -105,7 +112,13 @@ export class ExternalOoGuardServer {
     const sessionScope = externalGuardSessionScope(scope, binding.sessionId)
     const originalArgs = stripIdentityIndependentWorkspaceSelectors(rawArgs as string[])
     if (!isManagedExternalOoCommand(originalArgs)) {
-      respondJson(response, 403, { error: "Only managed connector discovery and action commands are allowed." })
+      const operation = resolveExternalOoOperation(originalArgs)
+      respondJson(response, 403, {
+        availability: operation?.availability ?? "unrecognized",
+        error: "Only managed capability discovery and connector action commands are allowed.",
+        errorCode: operation ? "UNSUPPORTED_OO_OPERATION" : "UNRECOGNIZED_OO_OPERATION",
+        ...(operation ? { operation: operation.id } : {}),
+      })
       return
     }
     const args = isConnectorBusinessCommand(originalArgs)
@@ -118,10 +131,16 @@ export class ExternalOoGuardServer {
     request.once("aborted", abortOnDisconnect)
     response.once("close", abortOnDisconnect)
     try {
-      const result = await runOo(this.options.command, args, this.options.env ?? process.env, binding.cwd, {
-        activeChildren: this.activeChildren,
-        signal: controller.signal,
-      })
+      const result = await runOo(
+        this.options.command,
+        [...(this.options.commandArgsPrefix ?? []), ...args],
+        this.options.env ?? process.env,
+        binding.cwd,
+        {
+          activeChildren: this.activeChildren,
+          signal: controller.signal,
+        },
+      )
       respondJson(response, 200, result)
     } finally {
       request.off("aborted", abortOnDisconnect)

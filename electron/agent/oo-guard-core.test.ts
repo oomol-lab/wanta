@@ -49,8 +49,12 @@ describe("OOMOL connector workspace guard", () => {
     ])
     assert.equal(hasWorkspaceSelector(["connector", "apps", "--personal"]), true)
     assert.equal(isConnectorBusinessCommand(["connector", "search", "posthog"]), false)
+    assert.equal(isManagedExternalOoCommand(["search", "analyze PostHog usage", "--json"]), true)
+    assert.equal(isManagedExternalOoCommand(["--lang=en", "search", "generate an image", "--json"]), true)
     assert.equal(isManagedExternalOoCommand(["connector", "search", "posthog"]), true)
     assert.equal(isManagedExternalOoCommand(["connector", "run", "posthog"]), true)
+    assert.equal(isManagedExternalOoCommand(["file", "download", "https://example.com/file"]), false)
+    assert.equal(isManagedExternalOoCommand(["skills", "recommend", "plan", "posthog"]), false)
     assert.equal(isManagedExternalOoCommand(["logout"]), false)
   })
 

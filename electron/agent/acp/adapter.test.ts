@@ -17,13 +17,16 @@ import type {
 } from "@agentclientprotocol/sdk"
 
 import { agent, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk"
+import { execFile } from "node:child_process"
 import { mkdtemp, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { promisify } from "node:util"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { AGENT_PROFILES } from "../contract/profile.ts"
+import { ExternalOoGuardServer } from "../external/oo-guard-server.ts"
 import { AcpAgentAdapter } from "./adapter.ts"
-import { ACP_AGENT_REGISTRY } from "./registry.ts"
+import { ACP_AGENT_KINDS, ACP_AGENT_REGISTRY } from "./registry.ts"
 
 // Adapter tests against an IN-PROCESS fake ACP agent built with the SDK's
 // agent-side builder, wired to the adapter through an in-memory stream pair
@@ -33,6 +36,7 @@ import { ACP_AGENT_REGISTRY } from "./registry.ts"
 
 const REGISTRATION = ACP_AGENT_REGISTRY["codex"]
 const WANTA_SESSION_ID = "wanta-session-1"
+const execFileAsync = promisify(execFile)
 
 interface FakePromptTurn {
   params: PromptRequest
@@ -666,6 +670,141 @@ describe("AcpAgentAdapter", () => {
         headers: [{ name: "Authorization", value: "Bearer opaque-token" }],
       },
     ])
+  })
+
+  test.each(ACP_AGENT_KINDS)("%s receives the shared Skill and managed-command contract", async (kind) => {
+    const harness = await createHarness(
+      {
+        prompt: async (turn) => {
+          await turn.sendUpdate({
+            sessionUpdate: "tool_call",
+            toolCallId: `${kind}-load-skill`,
+            title: "mcp__wanta_skills__load_skill",
+            kind: "other",
+            status: "completed",
+            rawInput: { skillId: "oo" },
+          })
+          await turn.sendUpdate({
+            sessionUpdate: "tool_call",
+            toolCallId: `${kind}-read-reference`,
+            title: "mcp__wanta_skills__read_skill_file",
+            kind: "other",
+            status: "completed",
+            rawInput: { skillId: "oo", path: "references/search-and-selection.md" },
+          })
+          await turn.sendUpdate({
+            sessionUpdate: "tool_call",
+            toolCallId: `${kind}-execute-search`,
+            title: "Run command",
+            name: "bash",
+            kind: "execute",
+            status: "completed",
+            rawInput: { command: 'oo search "generate an image" --json' },
+          })
+          return { stopReason: "end_turn" }
+        },
+      },
+      kind,
+      async () => [{ name: "wanta_skills", url: "http://127.0.0.1:4321/mcp", headers: {} }],
+    )
+    await harness.adapter.send({ type: "prompt", sessionId: WANTA_SESSION_ID, text: "generate an image" })
+    await harness.waitFor((event) => event.event === "messageCompleted")
+
+    expect(harness.fake.newSessionRequests[0]?.mcpServers).toEqual([
+      { type: "http", name: "wanta_skills", url: "http://127.0.0.1:4321/mcp", headers: [] },
+    ])
+    expect(
+      harness.events
+        .filter((event) => event.event === "toolCallStarted")
+        .map((event) => ({ title: event.data.title, tool: event.data.tool })),
+    ).toEqual([
+      { title: "Loaded skill: oo", tool: "load_skill" },
+      { title: "Read skill reference: references/search-and-selection.md", tool: "read_skill_file" },
+      { title: "Run command", tool: "bash" },
+    ])
+  })
+
+  test.each(ACP_AGENT_KINDS)("%s completes ACP to managed OO guard execution", async (kind) => {
+    let guardEnvironment: NodeJS.ProcessEnv | undefined
+    let guardCwd = ""
+    const harness = await createHarness(
+      {
+        prompt: async (turn) => {
+          if (!guardEnvironment) throw new Error("guard environment is not ready")
+          await turn.sendUpdate({
+            sessionUpdate: "tool_call",
+            toolCallId: `${kind}-guard-search`,
+            title: "Run command",
+            name: "bash",
+            kind: "execute",
+            status: "in_progress",
+            rawInput: { command: 'oo search "generate an image" --json' },
+          })
+          const result = await execFileAsync(
+            process.execPath,
+            [
+              "--experimental-strip-types",
+              path.resolve("electron/agent/oo-guard.ts"),
+              "search",
+              "generate an image",
+              "--json",
+            ],
+            { cwd: guardCwd, encoding: "utf8", env: guardEnvironment },
+          )
+          await turn.sendUpdate({
+            sessionUpdate: "tool_call_update",
+            toolCallId: `${kind}-guard-search`,
+            status: "completed",
+            rawOutput: result.stdout,
+          })
+          return { stopReason: "end_turn" }
+        },
+      },
+      kind,
+      async () => [{ name: "wanta_skills", url: "http://127.0.0.1:4321/mcp", headers: {} }],
+    )
+    guardCwd = harness.scratchRootDir
+    const fakeOo = path.join(harness.scratchRootDir, "fake-oo.mjs")
+    await writeFile(fakeOo, "for (const arg of process.argv.slice(2)) process.stdout.write(`${arg}\\n`)\n", "utf8")
+    const server = new ExternalOoGuardServer({
+      command: process.execPath,
+      commandArgsPrefix: [fakeOo],
+      scope: () => ({
+        external: true,
+        runtime: "oomol",
+        sessionCwdRoots: { [WANTA_SESSION_ID]: [harness.scratchRootDir] },
+        sessionRuntimes: { [WANTA_SESSION_ID]: "oomol" },
+        sessionTeams: { [WANTA_SESSION_ID]: "Team A" },
+      }),
+    })
+    try {
+      const descriptor = await server.descriptor()
+      guardEnvironment = {
+        ...process.env,
+        WANTA_OO_GUARD_TOKEN: descriptor.token,
+        WANTA_OO_GUARD_URL: descriptor.url,
+      }
+      await harness.adapter.send({
+        type: "prompt",
+        sessionId: WANTA_SESSION_ID,
+        text: "generate an image",
+        workingDirectory: harness.scratchRootDir,
+      })
+      await harness.waitFor((event) => event.event === "messageCompleted")
+      expect(harness.events).toContainEqual(
+        expect.objectContaining({
+          event: "toolCallResult",
+          data: expect.objectContaining({
+            callId: `${kind}-guard-search`,
+            output: expect.stringContaining("generate an image"),
+            status: "completed",
+            tool: "bash",
+          }),
+        }),
+      )
+    } finally {
+      await server.dispose()
+    }
   })
 
   test("Wanta host context precedes the user request without changing transcript text", async () => {

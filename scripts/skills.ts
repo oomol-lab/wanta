@@ -9,7 +9,7 @@
 
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { appendFile, cp, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises"
+import { appendFile, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -66,6 +66,7 @@ export async function exportBundledSkills(
       cp(path.join(wantaSkillsDir, skillId), path.join(outDir, skillId), { recursive: true }),
     ),
   )
+  await normalizeExportedSkillLineEndings(outDir)
   return outDir
 }
 
@@ -105,6 +106,30 @@ export async function installBundledOoSkillsFromBinary(ooBin: string, outDir: st
   } finally {
     await rm(storeDir, { force: true, recursive: true })
   }
+}
+
+// Text files that end up in an exported Skill. Only these are rewritten to LF.
+const exportedSkillTextExtensions = new Set([".md", ".yaml", ".yml", ".json", ".txt"])
+
+/**
+ * Rewrite CRLF to LF in every text file under outDir. `oo skills install` writes CRLF on Windows, and a
+ * Windows checkout with core.autocrlf can do the same to the tracked overrides and Wanta skills, so this
+ * runs last, after overrides are appended and Wanta skills are copied. That keeps resources/skill-lock/oo.json,
+ * bin/oo-runtime-integrity.json and the runtime skill hashes (electron/skills/hash.ts) byte-exact across
+ * platforms.
+ */
+export async function normalizeExportedSkillLineEndings(outDir: string): Promise<void> {
+  const files = await readdirFilesRecursive(outDir)
+  await Promise.all(
+    files
+      .filter((relativePath) => exportedSkillTextExtensions.has(path.extname(relativePath).toLowerCase()))
+      .map(async (relativePath) => {
+        const filePath = path.join(outDir, relativePath)
+        const content = await readFile(filePath, "utf8")
+        if (!content.includes("\r\n")) return
+        await writeFile(filePath, content.replaceAll("\r\n", "\n"), "utf8")
+      }),
+  )
 }
 
 export async function applyBundledSkillOverrides(

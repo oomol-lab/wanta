@@ -41,6 +41,35 @@ describe("Wanta bundled skills", () => {
     expect(content).toContain("Do not search logs, shell history, SQLite databases")
   })
 
+  it("normalizes CRLF from the oo CLI export so Skill hashes match on every platform", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-crlf-"))
+    const outDir = path.join(root, "skills")
+    try {
+      await exportBundledSkills(outDir, async (directory) => {
+        for (const skillId of ["oo", "oo-find-skills", "oo-create-skill", "oo-publish-skill"]) {
+          await mkdir(path.join(directory, skillId, "references"), { recursive: true })
+          await writeFile(path.join(directory, skillId, "SKILL.md"), "# Upstream\r\n\r\nline\r\n")
+          await writeFile(path.join(directory, skillId, "references", "guide.md"), "a\r\nb\r\n")
+        }
+        return JSON.stringify({
+          skills: ["oo", "oo-find-skills", "oo-create-skill", "oo-publish-skill"].map((skillId) => ({
+            skillId,
+            status: "exported",
+          })),
+          summary: { failed: 0 },
+        })
+      })
+
+      const skill = await readFile(path.join(outDir, "oo", "SKILL.md"), "utf8")
+      const reference = await readFile(path.join(outDir, "oo", "references", "guide.md"), "utf8")
+      expect(skill).toBe("# Upstream\n\nline\n")
+      expect(reference).toBe("a\nb\n")
+      expect(await readFile(path.join(outDir, "oo-publish-skill", "SKILL.md"), "utf8")).not.toContain("\r")
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("pins the exported oo Skill and reviews every required command domain", async () => {
     const lock = JSON.parse(await readFile(path.join(skillLockDir, "oo.json"), "utf8")) as {
       ooCliVersion: string

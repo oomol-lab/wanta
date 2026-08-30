@@ -6,10 +6,13 @@
 
 # Wanta
 
-**基于 OpenCode 构建桌面 AI Agent 的开源基础。**
+**一个开放的桌面 Agent Host：使用你的模型、你的 Agent、你的工作应用和你的团队权限。**
 
-从一个真正可用的产品开始，而不只是聊天界面演示。Wanta 将 Agent 运行时、本地工具、
-权限控制、连接服务、产物管理和完善的跨平台桌面界面整合在一起。
+使用 Wanta 托管模型或自己的 OpenAI-compatible API Key 运行内置 Agent，也可以直接接入本机
+已经登录的 Claude Code、Codex 和 Grok，继续使用它们原生的模型目录、账号和额度。Wanta 为不同
+Agent 提供统一的跨平台工作环境，包括本地工具、Skills、浏览器、知识库、受治理的应用连接、
+可见的执行过程和任务产物。Wanta 可连接 1,400+ 个常用 App，让你日常使用的服务都能进入同一套
+Agent 工作流。
 
 [网站](https://wanta.ai/) · [OpenConnector](https://github.com/oomol-lab/open-connector) ·
 [文档](docs/project-overview.md) · [开发指南](docs/development.md)
@@ -25,9 +28,26 @@
 
 <p align="center"><em>在同一个工作区中，从连接服务任务直接生成可复用、可交互的产物。</em></p>
 
-Wanta 由 [OOMOL](https://oomol.com/) 打造，面向希望创建实用桌面 Agent、又不想重建
-Agent 循环外围产品基础设施的开发者。你可以 Fork 它，替换模型、提示词、工具、连接器、
-界面和品牌，然后发布适合自己产品或工作流的 Agent。
+<p align="center"><strong>BYOK 模型 · BYOA Agent · 1,400+ 常用 App · 团队权限规则</strong></p>
+
+## 为什么选择 Wanta
+
+Wanta 由 [OOMOL](https://oomol.com/) 打造，面向希望掌握完整 Agent 技术栈的用户和开发者，
+而不是将模型、Agent Harness、应用集成和权限绑定在一个封闭产品里。
+
+| 你掌握的部分     | Wanta 提供的能力                                                                                                     |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **你的模型**     | 使用 Wanta 托管模型，或通过自己的 OpenAI-compatible API Key 运行内置 Agent。                                         |
+| **你的 Agent**   | 在同一个桌面 Host 中使用内置 Agent、Claude Code、Codex 或 Grok；外部 Agent 保留原生的本机账号、模型和额度。          |
+| **你的工作应用** | 连接覆盖日常工作场景的 1,400+ 个常用 App，并渐进式发现 10,000+ 个预构建 Action，无需将成千上万个工具塞进模型上下文。 |
+| **你的团队**     | 在个人和团队工作区间切换，共享 Connections 与 Skills，并通过具名权限规则控制成员可用的 Action。                      |
+
+Wanta 负责可移植的 Host 能力：项目、本地工具、Skills、浏览器、知识库、Connections、权限、
+可见的工具活动和任务产物。每个外部 Agent 则保留自身独特的原生能力。界面只展示 Agent 实际声明
+支持的控制项，不会假装所有 Agent 都具有相同能力。
+
+Wanta 同时也是可复用的开源桌面基础。你可以 Fork 它，替换提示词、工具、连接器、界面和品牌，
+然后发布适合自己产品或工作流的 Agent。
 
 你也可以直接使用 Wanta：通过自己的 OpenAI 兼容模型在本地运行，或者登录使用 OOMOL
 托管的模型、连接器、OAuth 授权和团队工作区。
@@ -41,7 +61,7 @@ Agent 循环外围产品基础设施的开发者。你可以 Fork 它，替换�
 开发者不应该在打造 Agent 独特能力之前，先把这些全部重做一遍。Wanta 开放了完整的桌面
 基础，使你能够：
 
-- 将 OpenCode 用作软件开发之外各种 Agent 的运行时；
+- 在同一个能力驱动的桌面体验中托管多种 Agent 运行时；
 - 构建特定领域的工具、Skills、提示词和工作流；
 - 将本地计算机操作与已授权的 SaaS 操作结合起来；
 - 分发带有自己品牌的桌面产品，而不只是开发者原型；
@@ -52,15 +72,15 @@ Agent 循环外围产品基础设施的开发者。你可以 Fork 它，替换�
 Wanta 目前是一个通用工作 Agent，但其架构从一开始就面向定制。它可以成为运营 Agent、
 研究 Agent、客服 Agent、电商 Agent、企业知识 Agent、内部工具，或其他垂直领域桌面产品。
 
-| 从这里开始                                          | 打造你的产品                              |
-| --------------------------------------------------- | ----------------------------------------- |
-| 以隔离本地 Sidecar 方式管理的 OpenCode Agent 运行时 | 替换 Agent 角色、指令、模式和权限         |
-| 本地文件、Shell、脚本、搜索和网络访问               | 为你的产品、行业或内部系统添加工具        |
-| OpenAI 兼容的自定义模型和 OOMOL 托管模型            | 引入自己的模型目录和默认提供商            |
-| 流式聊天、工具活动、审批、提问和附件                | 保留运行时集成，同时重新设计工作流        |
-| 生成内容的产物处理                                  | 添加产品特定的输出、预览和操作            |
-| 跨平台 Electron 打包和更新                          | 应用自己的名称、标识、分发和发布流程      |
-| 兼容 OpenConnector 的 SaaS 操作发现与执行           | 连接自己的 Provider，或使用托管连接器生态 |
+| 从这里开始                                             | 打造你的产品                              |
+| ------------------------------------------------------ | ----------------------------------------- |
+| 内置 OpenCode 运行时及 Claude Code、Codex、Grok 适配器 | 通过注册表式适配层增加其他 ACP Agent      |
+| 本地文件、Shell、脚本、搜索和网络访问                  | 为你的产品、行业或内部系统添加工具        |
+| OpenAI 兼容的自定义模型和 OOMOL 托管模型               | 引入自己的模型目录和默认提供商            |
+| 流式聊天、工具活动、审批、提问和附件                   | 保留运行时集成，同时重新设计工作流        |
+| 生成内容的产物处理                                     | 添加产品特定的输出、预览和操作            |
+| 跨平台 Electron 打包和更新                             | 应用自己的名称、标识、分发和发布流程      |
+| 兼容 OpenConnector 的 SaaS 操作发现与执行              | 连接自己的 Provider，或使用托管连接器生态 |
 
 ## 查看 Wanta 的实际表现
 
@@ -75,7 +95,44 @@ Build 和 Plan 模式提供不同的执行约定，用户可以为任务选择�
 代码、文本、图片、PDF、Word 文档和完整的交互式电子表格工作簿。
 
 可选的托管体验还提供受管理的账户连接和团队工作区，同时不会将已存储的 Provider 凭据交给 Agent。
-团队可以共享连接和 Skills、控制 Provider 访问权限并管理用量，而无需自行运营身份认证、OAuth 凭据和治理基础设施。
+团队可以共享 Connections 和 Skills、创建多个具名权限规则、分配成员、为每条规则限制 Action，
+并管理用量，而无需自行运营身份认证、OAuth 凭据和治理基础设施。
+
+## 带上你自己的 Agent
+
+Wanta 内置四种 Agent 选择：内置 Agent、Claude Code、Codex 和 Grok。内置 Agent 使用 Wanta 的
+模型目录并支持 BYOK；外部 Agent 通过自己的本机 CLI 认证，只使用各自原生的 Provider 路由、
+模型目录和用量额度。Wanta 不会将自己的账号 Token、BYOK Key、Base URL 或模型别名注入外部 Agent。
+
+| Agent       | 模型和账号归属                                   | Wanta Host 能力                                           |
+| ----------- | ------------------------------------------------ | --------------------------------------------------------- |
+| 内置 Agent  | Wanta 托管模型或你的 OpenAI-compatible BYOK 配置 | 完整的 Wanta 运行时与 Host 集成                           |
+| Claude Code | 你的本机 Claude Code 账号和原生模型目录          | 项目、Skills、Connections、浏览器、知识库、权限和任务产物 |
+| Codex       | 你的本机 Codex 账号和原生模型目录                | 项目、Skills、Connections、浏览器、知识库、权限和任务产物 |
+| Grok        | 你的本机 Grok 账号和原生模型目录                 | 项目、Skills、Connections、浏览器、知识库、权限和任务产物 |
+
+BYOA 层采用规范化、默认拒绝的适配器契约。新的 ACP 集成通过注册表接入，能力声明和契约测试则确保
+运行时行为与界面控制项始终真实一致。
+
+## 连接你的工作应用
+
+Wanta 通过 OpenConnector 共享生态连接 1,400+ 个常用 App，覆盖沟通协作、生产力、开发工具、
+数据分析、电商、存储等日常使用场景，并提供 10,000+ 个预构建 Action。它不会在每个 Prompt 中
+注册一整面 Provider 工具墙，而是让 Agent 渐进式列出可用应用、搜索 Action、检查 Schema、
+验证输入，并通过选定的 Connector 边界执行。
+
+Provider OAuth Token 和 API 凭据始终保留在 OOMOL Connector 或你的 OpenConnector 部署中。
+Agent 只接收完成任务所需的元数据和结果，不会获得已存储的 Provider 密钥。内置 Agent、
+Claude Code、Codex 和 Grok 都使用同一套受治理的工作流。
+
+## 以团队规则治理工作
+
+你可以在个人空间和多个团队工作区之间切换，而不会混用会话、Connections、Skills 或权限。
+团队创建者和管理员既可以把一个 Connection 共享给整个团队，也可以创建具名规则、分配成员、
+为每条规则限制允许使用的 Action，并配置受支持的 Provider 专属访问范围。普通成员只能看到
+策略允许的 Connections。
+
+异常权限策略会失败关闭；并发编辑采用版本保护写入，避免旧编辑器静默覆盖新的权限变更。
 
 ## 选择适合你的方案
 
@@ -91,11 +148,11 @@ Wanta 将开源桌面基础与可选托管服务分开。你可以根据自己�
 
 ### 运行模式
 
-| 模式                 | 是否需要账户       | 模型                     | 本地工具 | 连接器                   | 团队功能   |
-| -------------------- | ------------------ | ------------------------ | -------- | ------------------------ | ---------- |
-| Local BYOK           | 否                 | 自定义 OpenAI 兼容提供商 | 支持     | 不可用                   | 否         |
-| Wanta 托管           | 是                 | OOMOL 模型及自定义提供商 | 支持     | OOMOL/OpenConnector 生态 | 支持       |
-| 自托管 OpenConnector | 应用内支持尚在规划 | 由部署决定               | 支持     | 规划中                   | 由部署决定 |
+| 模式                 | 是否需要账户       | 模型                                                       | 本地工具 | 连接器               | 团队功能   |
+| -------------------- | ------------------ | ---------------------------------------------------------- | -------- | -------------------- | ---------- |
+| Local BYOK           | 否                 | 内置 Agent + OpenAI-compatible Provider                    | 支持     | 不可用               | 否         |
+| Wanta 托管           | 是                 | 内置 Agent 使用 OOMOL 模型或 BYOK；BYOA Agent 使用原生账号 | 支持     | OOMOL Connector 生态 | 支持       |
+| 自托管 OpenConnector | 应用内支持尚在规划 | 与模型和 Agent 选择相互独立                                | 支持     | 规划中               | 由部署决定 |
 
 退出登录或 OOMOL 会话过期后，本地会话、项目和模型设置仍然可用。Wanta 不会在未告知的
 情况下将本地会话上传到 OOMOL 团队工作区。
@@ -104,16 +161,15 @@ Wanta 将开源桌面基础与可选托管服务分开。你可以根据自己�
 选项。它决定的是完整的兼容服务环境，而不仅是连接器 Base URL。应用级 Base URL 和可选
 Runtime Token 的自托管 OpenConnector 流程目前只是即将推出的产品界面，尚未完成。
 
-## 构建你自己的 Agent
+## 定制并发布你自己的桌面 Agent
 
-Wanta 将 OpenCode 作为固定版本的本地运行时，无需维护 OpenCode 源码 Fork 即可对其定制。
-桌面主进程通过 HTTP 和 SSE 控制 Sidecar；Wanta 则提供 Agent 约定、模型、权限、工具、
-会话、产品 UI 和桌面集成。
+Wanta 将 OpenCode 作为内置 Agent 的固定版本运行时，并通过 BYOA 适配层支持外部 Agent。
+桌面主进程负责会话路由和可移植的 Host 能力；每个适配器则保留其确实支持的运行时原生能力。
 
 ### Agent 引擎：OpenCode
 
-应用会将固定版本的 `opencode-ai@1.18.10` 二进制文件作为仅监听回环地址的
-`opencode serve` Sidecar 启动，并通过 `@opencode-ai/sdk@1.18.10` 驱动它。OpenCode
+应用会将固定版本的 `opencode-ai@1.18.21` 二进制文件作为仅监听回环地址的
+`opencode serve` Sidecar 启动，并通过 `@opencode-ai/sdk@1.18.21` 驱动它。OpenCode
 软件包采用 MIT 许可证，详情见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 Wanta 将运行时、SDK 和插件固定为完全相同的版本，因为其 API 不被视为稳定接口。
 
@@ -138,9 +194,12 @@ Agent 能力是一套在三个位置表达的产品约定：已启用工具、�
 ```mermaid
 flowchart TB
   User["用户请求"] --> UI["Wanta 桌面体验"]
-  UI --> Agent["OpenCode Agent 运行时"]
-  Agent --> Local["本地文件、Shell、脚本和网络"]
-  Agent --> Link["连接器元工具"]
+  UI --> BuiltIn["内置 Agent<br/>OpenCode 运行时"]
+  UI --> BYOA["Claude Code · Codex · Grok<br/>BYOA 适配器"]
+  BuiltIn --> Host["Wanta Host 能力"]
+  BYOA --> Host
+  Host --> Local["本地文件、Shell、浏览器、Skills 和知识库"]
+  Host --> Link["受治理的 Connector Action"]
   Link --> Hosted["OOMOL 托管连接器"]
   Link -.-> SelfHosted["自托管 OpenConnector<br/>应用内设置尚在规划"]
   Local --> Result["任务结果和产物"]
@@ -160,8 +219,10 @@ Wanta 不会在模型上下文中注册数百个 Provider 专用工具，而是�
 
 ### OpenCode、OpenConnector、Wanta 与 OOMOL
 
-- **OpenCode** 是本地 Agent 运行时。Wanta 管理其生命周期，并提供 Agent 配置、权限、
-  提示词和自定义工具。
+- **OpenCode** 是 Wanta 内置 Agent 的固定版本运行时。Wanta 管理其生命周期，并提供模型、
+  配置、权限、提示词和自定义工具。
+- **Claude Code、Codex 和 Grok** 是 BYOA 运行时。它们保留原生的本机认证、模型目录、额度和
+  Agent 行为，同时获得可移植的 Wanta Host 能力。
 - **OpenConnector** 是用于构建和运行共享连接器生态中 Provider 的开源姊妹项目。
 - **Wanta** 是桌面 Agent 产品，也是此仓库中可复用的应用基础。
 - **OOMOL** 提供可选托管层，包括登录、模型、连接器凭据、OAuth、团队、Skills、用量、
@@ -175,13 +236,13 @@ Local BYOK 核心功能不需要 OOMOL 账户。登录会启用托管连接器�
 
 ## 从源码运行
 
-要求：Node.js 22.22.2 或更高版本，以及 npm。
+要求：Node.js 22.22.2 或更高版本，以及通过 Corepack 使用 pnpm。
 
 ```bash
 git clone https://github.com/oomol-lab/wanta.git
 cd wanta
-npm install
-npm run dev
+corepack pnpm install
+corepack pnpm run dev
 ```
 
 这是试用仓库的最短路径。环境配置、测试命令、运行时验证、打包、签名和发布工作流详见
@@ -192,6 +253,7 @@ npm run dev
 - OpenCode 仅监听回环地址，并使用随机的单进程服务器密码。
 - OOMOL 会话 Token 和自定义模型 API Key 分别存储，并拥有独立的生命周期。
 - 自定义模型密钥使用 Electron `safeStorage` 加密，且绝不会返回到渲染进程。
+- Claude Code、Codex 和 Grok 通过各自的本机 CLI 认证；Wanta 不读取或存储其原始凭据。
 - 连接器凭据保留在所选的托管或自运营连接器环境中；Agent 只接收操作结果，不会接收
   已存储的 Provider 凭据。
 - 高风险本地操作会触发 Wanta 的明确审批界面。

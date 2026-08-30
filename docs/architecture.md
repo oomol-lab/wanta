@@ -571,7 +571,7 @@ fan-out was triggered at high frequency by the 2s poll. The client uses `oomolFe
 auto-auth, **no `Authorization: Bearer` anymore**); the Apps and detail team resources attach
 the `x-oo-team-name` header per workspace, while the global `/v1/providers` public catalog
 attaches no team header. The two read kinds each keep an etag/`if-none-match` + 30s GET cache (saving
-a re-pull of the ~600-provider catalog on every poll), and a permission denial or transient failure
+a re-pull of the 1,400+-app catalog on every poll), and a permission denial or transient failure
 on the team Apps does not clear the public Provider catalog; the pure functions
 `summary.ts` / `executions.ts` / `federated.ts` / `domain.ts` are imported directly by
 the renderer (merging the role-selected App surface with `/v1/providers` → `ConnectionSummary`).

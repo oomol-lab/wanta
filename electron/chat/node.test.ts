@@ -120,6 +120,7 @@ function createBridgeAgent(): {
   const clearSessionKnowledgeBaseIds = vi.fn(async () => undefined)
   const setSessionKnowledgeBaseIds = vi.fn(async () => undefined)
   const setSessionTeamName = vi.fn(async () => undefined)
+  const scrubSessionSensitiveOoOutputs = vi.fn(async () => 0)
   const manager = {
     isReady: () => true,
     subscribe: (
@@ -141,6 +142,7 @@ function createBridgeAgent(): {
     rejectQuestion,
     setSessionTeamName,
     setSessionKnowledgeBaseIds,
+    scrubSessionSensitiveOoOutputs,
     promptStreaming,
     getMessages,
     getPendingPermissions,

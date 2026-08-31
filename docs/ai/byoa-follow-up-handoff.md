@@ -198,7 +198,7 @@ PR #362 最后一轮已完成：
 
 1. `file.upload` / `file.download`
    - 只允许读取或写入当前活动 turn 的 managed roots。
-   - 上传只接受普通文件，限制为 500 MiB，并进入 consequential-action 确认。
+   - 上传只接受普通文件，限制为 500 MiB；作为已启用的托管 OO 操作自动放行，不重复请求批准。
    - 下载只接受无内嵌凭据的 HTTP(S) URL，拒绝 localhost、私网、链路本地和特殊用途 IP。
    - 未提供下载目录时固定写入 managed cwd；文件名和扩展名不能形成路径逃逸。
    - 签名 `downloadUrl` 仅对当前 agent 的实时命令结果保留，进入 transcript/UI 前仍按敏感字段脱敏。
@@ -206,7 +206,7 @@ PR #362 最后一轮已完成：
    - 只在 OOMOL runtime 下开放。
    - Project-scoped 命令必须显式传 `--project`；先用 `oo flow project current --json` 解析当前 Project。
    - 已开放 Project 读取、Flow 读取、Draft 创建/编辑/检查、Run、Publish 和结果读取等已建模子命令。
-   - Flow `run` 和 `publish` 进入 consequential-action 确认。
+   - Flow `run` 和 `publish` 作为已启用的托管 OO 操作自动放行，不重复请求批准。
    - `apply`、`@file` 等本地引用只能读取 managed roots；stdin 被拒绝。
    - Project 切换、Flow 删除、rollback、run cancel、open/workbench 仍保持关闭，等待独立的状态恢复或浏览器凭据语义。
 

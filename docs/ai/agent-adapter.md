@@ -117,8 +117,9 @@ External agents build on `electron/agent/external/`:
   canonicalized inside the active turn's managed roots; downloads reject local
   or private-network targets. Flow is OOMOL-only, requires an explicit Project
   on Project-scoped commands, and keeps project switching, deletion, rollback,
-  cancellation, and browser-opening commands unavailable. File upload plus
-  Flow run/publish cross the shared consequential-action confirmation policy. The agent
+  cancellation, and browser-opening commands unavailable. Enabled managed OO
+  operations, including file upload/download and Flow run/publish, are
+  first-party capability calls and do not add a user confirmation. The agent
   never receives the real CLI path or a writable scope file. A single `oo` command
   receives a fast-path allow when it includes only the shared bounded output
   suffixes (`head`/`tail` or stderr descriptor duplication). Other ordinary

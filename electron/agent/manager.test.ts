@@ -8,7 +8,7 @@ import {
   buildAgentSidecarEnv,
   buildArtifactSystem,
   buildWorkspaceIdentitySystem,
-  isPersistedConnectorToolPart,
+  isPersistedSensitiveOoToolPart,
   isUserVisibleSession,
 } from "./manager.ts"
 
@@ -18,57 +18,69 @@ afterEach(() => {
 })
 
 describe("AgentManager", () => {
-  it("limits persisted redaction to connector executions", () => {
-    expect(isPersistedConnectorToolPart({ tool: "call_action" })).toBe(true)
+  it("limits persisted redaction to connector executions and signed OO uploads", () => {
+    expect(isPersistedSensitiveOoToolPart({ tool: "call_action" })).toBe(true)
     expect(
-      isPersistedConnectorToolPart({
+      isPersistedSensitiveOoToolPart({
         tool: "bash",
         state: { input: { command: "oo --lang zh connector run posthog --action list_projects --json" } },
       }),
     ).toBe(true)
     expect(
-      isPersistedConnectorToolPart({
+      isPersistedSensitiveOoToolPart({
         tool: "bash",
         state: { input: { command: "printf 'password = \"example\"\\n'" } },
       }),
     ).toBe(false)
     expect(
-      isPersistedConnectorToolPart({
+      isPersistedSensitiveOoToolPart({
         tool: "bash",
         state: { input: { command: "printf 'oo connector run demo'" } },
       }),
     ).toBe(false)
     expect(
-      isPersistedConnectorToolPart({
+      isPersistedSensitiveOoToolPart({
         tool: "bash",
         state: { input: { command: "bash -lc 'oo connector apps posthog --json'" } },
       }),
     ).toBe(true)
     expect(
-      isPersistedConnectorToolPart({
+      isPersistedSensitiveOoToolPart({
         tool: "bash",
         state: { input: { command: `printf '%s\\n' "$(oo connector run demo)"` } },
       }),
     ).toBe(true)
     expect(
-      isPersistedConnectorToolPart({
+      isPersistedSensitiveOoToolPart({
         tool: "bash",
         state: { input: { command: `printf '%s\\n' '$(oo connector run demo)'` } },
       }),
     ).toBe(false)
     expect(
-      isPersistedConnectorToolPart({
+      isPersistedSensitiveOoToolPart({
         tool: "bash",
         state: { input: { command: `connector_data="$(oo connector apps posthog --json)"` } },
       }),
     ).toBe(true)
     expect(
-      isPersistedConnectorToolPart({
+      isPersistedSensitiveOoToolPart({
         tool: "bash",
         state: { input: { command: "# $(oo connector run demo)" } },
       }),
     ).toBe(false)
-    expect(isPersistedConnectorToolPart({ tool: "read", state: { input: { filePath: "README.md" } } })).toBe(false)
+    expect(
+      isPersistedSensitiveOoToolPart({
+        tool: "bash",
+        state: { input: { command: 'BUN_BE_BUN=1 oo file upload "/managed/input.png" --json' } },
+      }),
+    ).toBe(true)
+    expect(
+      isPersistedSensitiveOoToolPart({
+        tool: "bash",
+        state: { input: { command: 'oo file download "https://example.com/a" ./out' } },
+      }),
+    ).toBe(false)
+    expect(isPersistedSensitiveOoToolPart({ tool: "read", state: { input: { filePath: "README.md" } } })).toBe(false)
   })
 
   it("pins raw connector CLI guidance to the current team", () => {

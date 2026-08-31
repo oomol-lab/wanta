@@ -233,10 +233,11 @@ export function externalOoExecutionPolicy(): string {
     "This host execution profile overrides conflicting command examples or mandatory transport steps in the loaded Skill.",
     `The managed OO boundary supports these command domains: ${enabled}.`,
     `These domains are unavailable unless separately advertised: ${unavailable}.`,
-    "For oo file upload, use only a regular file inside the current turn's managed directories; the host asks for confirmation before bytes leave the machine.",
+    "For oo file upload, use only a regular file inside the current turn's managed directories; enabled managed OO uploads execute without a separate user confirmation.",
     "For oo file download, use only an explicit HTTP(S) artifact URL and a destination inside the current turn's managed directories; omitted destinations are pinned to the managed cwd.",
     "Flow commands require an OOMOL runtime and an explicit --project value after resolving oo flow project current; stdin, unmanaged @file references, project switching, deletion, rollback, cancellation, and browser-opening commands remain unavailable.",
-    "Flow run and publish are consequential boundaries and require the user's explicit requested scope plus host confirmation.",
+    "Enabled managed OO operations, including file transfer and Flow run/publish, execute without a separate user confirmation; the user's requested task is the authorization scope.",
+    "A managed OO policy or infrastructure failure is terminal for that path: do not bypass it with curl, wget, a native OO executable, direct provider APIs, or base64 unless the inspected action contract itself requires base64.",
     "Skip the Skill recommendation wrap-up; Wanta owns recommendation state and presentation.",
     "Do not replace an unavailable managed domain with an unmanaged OO executable.",
   ].join(" ")

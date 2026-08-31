@@ -43,6 +43,16 @@ export class OpencodeAgentAdapter extends BaseAgentAdapter implements ChatAgentB
     }
     this.detachManagerEvents = this.manager.subscribe(
       (event) => {
+        if (event.type === "session.idle") {
+          const sessionId = (event.properties as { sessionID?: unknown } | undefined)?.sessionID
+          if (typeof sessionId === "string" && sessionId) {
+            void this.manager.scrubSessionSensitiveOoOutputs(sessionId).catch(() => {
+              // UI/history events are already redacted by the translator. The
+              // startup sweep retries persistence cleanup if this best-effort
+              // post-turn update loses a sidecar race.
+            })
+          }
+        }
         for (const translated of translateOpencodeEvent(event)) {
           this.emit(translated)
         }

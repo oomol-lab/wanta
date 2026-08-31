@@ -6,10 +6,13 @@
 
 # Wanta
 
-**An open-source foundation for building desktop AI agents with OpenCode.**
+**An open desktop host for your models, your agents, your work apps, and your teams.**
 
-Start with a working product—not a chat UI demo. Wanta brings together an Agent runtime, local tools,
-permission controls, connected services, artifacts, and a polished cross-platform desktop interface.
+Run the built-in Agent with Wanta-hosted models or your own OpenAI-compatible API key. Or bring
+Claude Code, Codex, and Grok with their existing local accounts, native model catalogs, and usage
+quotas. Wanta gives every supported Agent one cross-platform workspace for local tools, Skills,
+browser and knowledge access, governed connections to 1,400+ popular apps, visible execution, and
+artifacts—so the services you already use can become part of the same Agent workflow.
 
 [Website](https://wanta.ai/) · [OpenConnector](https://github.com/oomol-lab/open-connector) ·
 [Documentation](docs/project-overview.md) · [Development Guide](docs/development.md)
@@ -25,9 +28,27 @@ permission controls, connected services, artifacts, and a polished cross-platfor
 
 <p align="center"><em>From a connected-service task to a reusable, interactive artifact in one workspace.</em></p>
 
-Wanta is built by [OOMOL](https://oomol.com/) for developers who want to create useful desktop Agents
-without rebuilding the product infrastructure around the Agent loop. Fork it, replace the model,
-prompt, tools, connectors, interface, and brand, then ship an Agent for your own product or workflow.
+<p align="center"><strong>BYOK Models · BYOA Agents · 1,400+ Popular Apps · Team Permission Rules</strong></p>
+
+## Why Wanta
+
+Wanta is built by [OOMOL](https://oomol.com/) for people who want control over the full Agent stack—not
+another product that binds the model, Agent harness, integrations, and permissions together.
+
+| Keep control of    | What Wanta provides                                                                                                                                                                     |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Your models**    | Use Wanta-hosted models or run the built-in Agent with your own OpenAI-compatible API key.                                                                                              |
+| **Your Agents**    | Use the built-in Agent, Claude Code, Codex, or Grok in the same desktop host. External Agents keep their native local accounts, models, and quotas.                                     |
+| **Your work apps** | Connect 1,400+ popular apps across the services you use every day, with 10,000+ prebuilt Actions discovered progressively instead of loading thousands of tools into the model context. |
+| **Your teams**     | Switch between personal and team workspaces, share Connections and Skills, and assign named permission rules with Action-level access.                                                  |
+
+Wanta provides the portable host capabilities—projects, local tools, Skills, browser, knowledge,
+Connections, permissions, visible tool activity, and artifacts. Each external Agent keeps the native
+capabilities that make it distinct. The UI follows the capabilities an Agent actually declares instead
+of pretending every Agent supports the same controls.
+
+Wanta is also a reusable open-source desktop foundation. Fork it, replace the prompt, tools,
+connectors, interface, and brand, then ship an Agent for your own product or workflow.
 
 You can also use Wanta as it is: run locally with your own OpenAI-compatible model, or sign in to use
 OOMOL-hosted models, connectors, OAuth authorization, and team workspaces.
@@ -42,7 +63,7 @@ makes autonomous work understandable.
 Developers should not have to rebuild all of that before working on the capability that makes their
 Agent unique. Wanta opens up the complete desktop foundation so you can:
 
-- use OpenCode as the runtime for Agents beyond software development;
+- host multiple Agent runtimes behind one capability-driven desktop experience;
 - build domain-specific tools, Skills, prompts, and workflows;
 - combine local computer work with authenticated SaaS actions;
 - distribute a branded desktop product instead of a developer-only prototype;
@@ -56,7 +77,7 @@ tool, or another vertical desktop product.
 
 | Start with                                                           | Make it yours                                                    |
 | -------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| OpenCode Agent runtime managed as an isolated local sidecar          | Replace the Agent role, instructions, modes, and permissions     |
+| Built-in OpenCode runtime plus Claude Code, Codex, and Grok adapters | Add another ACP Agent through the registry-backed adapter layer  |
 | Local files, shell, scripts, search, and web access                  | Add tools for your product, industry, or internal systems        |
 | OpenAI-compatible custom models and OOMOL-hosted models              | Bring your own model catalog and provider defaults               |
 | Streaming chat, tool activity, approvals, questions, and attachments | Redesign the workflow while keeping the runtime integration      |
@@ -79,8 +100,48 @@ open and review code, text, images, PDFs, Word documents, and full interactive s
 the Artifacts panel.
 
 The optional hosted experience adds managed account connections and team workspaces without putting
-stored Provider credentials into the Agent. Teams can share connections and Skills, control Provider
-access, and manage usage without operating identity, OAuth credential, and governance infrastructure.
+stored Provider credentials into the Agent. Teams can share Connections and Skills, create multiple
+named permission rules, assign members, restrict Actions per rule, and manage usage without operating
+identity, OAuth credential, and governance infrastructure.
+
+## Bring Your Own Agent
+
+Wanta ships with four Agent choices: the built-in Agent, Claude Code, Codex, and Grok. The built-in
+Agent uses Wanta's model catalog and supports BYOK. External Agents authenticate through their own
+local CLI and use only their native provider route, model catalog, and usage quota; Wanta never injects
+its account token, BYOK key, base URL, or model alias into them.
+
+| Agent          | Model and account owner                                          | Wanta host capabilities                                                       |
+| -------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Built-in Agent | Wanta-hosted models or your OpenAI-compatible BYOK configuration | Full Wanta runtime and host integration                                       |
+| Claude Code    | Your local Claude Code account and native model catalog          | Projects, Skills, Connections, browser, knowledge, permissions, and artifacts |
+| Codex          | Your local Codex account and native model catalog                | Projects, Skills, Connections, browser, knowledge, permissions, and artifacts |
+| Grok           | Your local Grok account and native model catalog                 | Projects, Skills, Connections, browser, knowledge, permissions, and artifacts |
+
+The BYOA layer uses a normalized, default-deny adapter contract. New ACP integrations are registry-backed,
+while capability declarations and contract tests keep runtime behavior and UI controls honest.
+
+## Connect Your Work
+
+Wanta connects 1,400+ popular apps across communication, productivity, developer tools, analytics,
+commerce, storage, and more through the shared OpenConnector ecosystem, with 10,000+ prebuilt Actions.
+That covers the services most people already use without registering a Provider-sized wall of tools in
+every prompt. Instead, an Agent progressively lists available apps, searches for an Action, inspects its
+schema, validates the input, and executes it through the selected Connector boundary.
+
+Provider OAuth tokens and API credentials stay in OOMOL Connector or your OpenConnector deployment.
+Agents receive the metadata and results needed for the task, not the stored Provider secrets. The same
+governed workflow is available to the built-in Agent, Claude Code, Codex, and Grok.
+
+## Govern Work as a Team
+
+Move between personal and multiple team workspaces without mixing sessions, Connections, Skills, or
+permissions. Team creators and administrators can share a Connection with the team or create named
+rules, assign members, restrict the allowed Actions for each rule, and configure supported
+Provider-specific access scopes. Ordinary members see only the Connections allowed by policy.
+
+Malformed policies fail closed, and concurrent edits use version-protected writes so an older editor
+cannot silently overwrite a newer permission change.
 
 ## Choose Your Path
 
@@ -97,11 +158,11 @@ matches what you want to operate.
 
 ### Runtime modes
 
-| Mode                      | Account required | Models                             | Local tools | Connectors                    | Team features      |
-| ------------------------- | ---------------- | ---------------------------------- | ----------- | ----------------------------- | ------------------ |
-| Local BYOK                | No               | Custom OpenAI-compatible providers | Yes         | Unavailable                   | No                 |
-| Wanta hosted              | Yes              | OOMOL models and custom providers  | Yes         | OOMOL/OpenConnector ecosystem | Yes                |
-| Self-hosted OpenConnector | Planned in app   | Deployment-defined                 | Yes         | Planned                       | Deployment-defined |
+| Mode                      | Account required | Models                                                                    | Local tools | Connectors                | Team features      |
+| ------------------------- | ---------------- | ------------------------------------------------------------------------- | ----------- | ------------------------- | ------------------ |
+| Local BYOK                | No               | Built-in Agent with an OpenAI-compatible provider                         | Yes         | Unavailable               | No                 |
+| Wanta hosted              | Yes              | Built-in Agent with OOMOL models or BYOK; BYOA Agents use native accounts | Yes         | OOMOL Connector ecosystem | Yes                |
+| Self-hosted OpenConnector | Planned in app   | Independent from model and Agent selection                                | Yes         | Planned                   | Deployment-defined |
 
 Local sessions, projects, and model settings remain available after signing out or when an OOMOL
 session expires. Wanta does not silently upload local sessions into an OOMOL team workspace.
@@ -111,11 +172,11 @@ switch. It derives the complete compatible service environment, not only a Conne
 application-level Base URL and optional Runtime Token flow for self-hosted OpenConnector is visible as
 a coming-soon product surface and is not complete yet.
 
-## Build Your Own Agent
+## Customize and Ship Your Own Desktop Agent
 
-Wanta uses OpenCode as a pinned local runtime and customizes it without maintaining an OpenCode source
-fork. The desktop main process controls the sidecar over HTTP and SSE; Wanta supplies the Agent
-contract, models, permissions, tools, sessions, product UI, and desktop integration.
+Wanta uses OpenCode as the pinned runtime for the built-in Agent and supports external Agents through
+the BYOA adapter layer. The desktop main process owns session routing and portable host capabilities;
+each adapter preserves the runtime-native capabilities it can honestly support.
 
 ### Agent Engine: OpenCode
 
@@ -146,9 +207,12 @@ aligned. Read the [architecture guide](docs/architecture.md) and
 ```mermaid
 flowchart TB
   User["User request"] --> UI["Wanta desktop experience"]
-  UI --> Agent["OpenCode Agent runtime"]
-  Agent --> Local["Local files, shell, scripts, and web"]
-  Agent --> Link["Connector meta-tools"]
+  UI --> BuiltIn["Built-in Agent<br/>OpenCode runtime"]
+  UI --> BYOA["Claude Code · Codex · Grok<br/>BYOA adapters"]
+  BuiltIn --> Host["Wanta host capabilities"]
+  BYOA --> Host
+  Host --> Local["Local files, shell, browser, Skills, and knowledge"]
+  Host --> Link["Governed Connector actions"]
   Link --> Hosted["OOMOL-hosted Connector"]
   Link -.-> SelfHosted["Self-hosted OpenConnector<br/>in-app setup planned"]
   Local --> Result["Task results and artifacts"]
@@ -169,8 +233,10 @@ return as structured product states instead of free-form model text.
 
 ### OpenCode, OpenConnector, Wanta, and OOMOL
 
-- **OpenCode** is the local Agent runtime. Wanta manages its lifecycle and supplies the Agent
-  configuration, permissions, prompts, and custom tools.
+- **OpenCode** is the pinned runtime for Wanta's built-in Agent. Wanta manages its lifecycle and
+  supplies its models, configuration, permissions, prompts, and custom tools.
+- **Claude Code, Codex, and Grok** are BYOA runtimes. They keep their native local authentication,
+  model catalogs, quotas, and Agent behavior while receiving portable Wanta host capabilities.
 - **OpenConnector** is the open-source sibling for building and running Providers in the shared
   connector ecosystem.
 - **Wanta** is the desktop Agent product and the reusable application foundation in this repository.
@@ -185,7 +251,12 @@ For the complete process, trust-boundary, IPC, streaming, authentication, and st
 
 ## Run from Source
 
-Requirements: Node.js 22.22.2 or newer and pnpm through Corepack.
+Requirements: Node.js 22.22.2 or newer and pnpm through Corepack. Node.js 25 and newer no longer
+bundle Corepack, so install it first when `corepack` is unavailable:
+
+```bash
+npm install --global corepack@latest
+```
 
 ```bash
 git clone https://github.com/oomol-lab/wanta.git
@@ -203,6 +274,8 @@ verification, packaging, signing, and release workflows live in the
 - OpenCode listens only on loopback and uses a random per-process server password.
 - OOMOL session tokens and custom model API keys have separate storage and lifecycles.
 - Custom model keys are encrypted with Electron `safeStorage` and are never returned to the renderer.
+- Claude Code, Codex, and Grok authenticate through their own local CLIs; Wanta does not read or store
+  their raw credentials.
 - Connector credentials remain in the selected hosted or self-operated Connector environment; the
   Agent receives action results, not stored provider credentials.
 - High-risk local operations are connected to Wanta's explicit approval UI.

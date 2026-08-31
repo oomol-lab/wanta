@@ -30,7 +30,9 @@ function DialogTitle({ children, className, id }: { children: React.ReactNode; c
 
   return (
     <DialogPrimitive.Title asChild>
-      <div id={id}>{children}</div>
+      <div id={id} className={className}>
+        {children}
+      </div>
     </DialogPrimitive.Title>
   )
 }

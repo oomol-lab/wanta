@@ -62,6 +62,15 @@ describe("Dialog", () => {
     act(() => root.unmount())
   })
 
+  it("applies shared title styling to JSX titles", async () => {
+    const { root } = await renderDialog({ title: <span>Rich dialog title</span> })
+    const title = document.querySelector<HTMLElement>(".oo-text-dialog-title")
+
+    expect(title?.textContent).toBe("Rich dialog title")
+    expect(title?.classList.contains("truncate")).toBe(true)
+    act(() => root.unmount())
+  })
+
   it("honors the existing initialFocus callback", async () => {
     const inputRef = React.createRef<HTMLInputElement>()
     const { root } = await renderDialog({

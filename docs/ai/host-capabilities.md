@@ -159,9 +159,9 @@ subcommands. Uploads can read only regular files under the active turn's
 managed roots. Downloads accept only public HTTP(S) artifact URLs and write
 only inside those roots. Flow requires an OOMOL runtime and explicit Project
 binding for Project-scoped work; read and Draft operations are enabled, while
-run and publish cross the consequential-action prompt. Project switching, Flow
-deletion or rollback, run cancellation, and browser-opening commands remain
-closed until they receive separate host semantics.
+run and publish execute without a separate user confirmation. Project
+switching, Flow deletion or rollback, run cancellation, and browser-opening
+commands remain closed until they receive separate host semantics.
 
 ### Phase 4: Skill registry and task snapshots
 

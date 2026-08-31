@@ -56,29 +56,33 @@ test("OpenCode, Claude, and ACP agents auto-approve Link business CLI", () => {
   }
 })
 
-test("managed file upload and consequential Flow boundaries prompt in default mode", () => {
-  for (const command of [
-    'oo file upload "artifact.png" --json',
+test("OpenCode, Claude, and ACP agents auto-approve every pure managed OO operation", () => {
+  const commands = [
+    'BUN_BE_BUN=1 oo file upload "/Users/example/Library/Application Support/LarkShell/input.png" --json',
+    'oo file download "https://example.com/a" ./artifacts',
+    "oo flow inspect demo --project project-a --json",
+    "oo flow apply demo --project project-a --file request.json --json",
     "oo flow run demo --project project-a --source draft --wait --json",
     "oo flow publish demo --project project-a --json",
-  ]) {
-    assert.deepEqual(
-      evaluateLocalAccessRequest(permission({ metadata: { command } }), {
-        isExternalSession: true,
-        linkRuntime: "oomol",
-        permissionMode: "default",
-      }),
-      { type: "prompt", kind: "command", highRisk: true },
-      command,
-    )
+  ]
+  for (const command of commands) {
+    const requests = [
+      permission({ metadata: { command } }),
+      permission({ action: "Bash", metadata: { toolInput: { command } } }),
+      permission({ action: "Run command", metadata: { rawInput: { command } } }),
+    ]
+    for (const [index, request] of requests.entries()) {
+      assert.deepEqual(
+        evaluateLocalAccessRequest(request, {
+          isExternalSession: index > 0,
+          linkRuntime: "oomol",
+          permissionMode: "default",
+        }),
+        { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
+        `${index}:${command}`,
+      )
+    }
   }
-  assert.deepEqual(
-    evaluateLocalAccessRequest(
-      permission({ metadata: { command: "oo flow inspect demo --project project-a --json" } }),
-      { isExternalSession: true, linkRuntime: "oomol", permissionMode: "default" },
-    ),
-    { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
-  )
 })
 
 test("OOCLI parity preserves hard denials while allowing ordinary compound Link business commands", () => {
@@ -165,7 +169,7 @@ test("safe OOCLI classification is agent-independent even without an active Link
       }),
       { isExternalSession: true, linkRuntime: "oomol", permissionMode: "default" },
     ),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
   )
 })
 
@@ -227,7 +231,7 @@ test("local access policy allows direct and standard wrapped business oo command
         linkRuntime: "openconnector",
         permissionMode: "full_access",
       }),
-      { type: "allow", reason: "full_access", kind: "command", highRisk: false },
+      { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
       command,
     )
   }
@@ -282,7 +286,7 @@ test("full access auto-approves local oo commands even without an active Link ru
     evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector apps --json" } }), {
       permissionMode: "full_access",
     }),
-    { type: "allow", reason: "full_access", kind: "command", highRisk: false },
+    { type: "allow", reason: "oo_cli", kind: "command", highRisk: false },
   )
 })
 

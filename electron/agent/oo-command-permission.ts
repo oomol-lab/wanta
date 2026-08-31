@@ -176,6 +176,7 @@ function shellWrapperCommand(command: string): ShellWrapper {
 // can never smuggle a forbidden subcommand past forbiddenOoMutation.
 const ooGlobalFlagWithValue = "--lang"
 const ooGlobalBooleanFlags = new Set(["--debug", "-h", "--help", "-V", "--version"])
+const safeOoEnvironmentAssignments = new Set(["BUN_BE_BUN=1"])
 
 /** Advance past oo global flags (commander accepts them before AND between subcommands). */
 function skipOoGlobalFlags(tokens: readonly string[], start: number): number {
@@ -195,13 +196,21 @@ function skipOoGlobalFlags(tokens: readonly string[], start: number): number {
   return index
 }
 
+function ooExecutableIndex(words: readonly string[]): number {
+  let index = 0
+  while (safeOoEnvironmentAssignments.has(words[index] ?? "")) index += 1
+  return isOoExecutable(words[index] ?? "") ? index : -1
+}
+
 /** Tokens of a single `oo ...` command after skipping leading global flags, or null if not a bare oo call. */
 function ooSubcommandTokens(command: string): string[] | null {
   const words = shellWords(command.trim())
-  if (!words || !isOoExecutable(words[0] ?? "")) {
+  if (!words) {
     return null
   }
-  return words.slice(skipOoGlobalFlags(words, 1))
+  const executableIndex = ooExecutableIndex(words)
+  if (executableIndex < 0) return null
+  return words.slice(skipOoGlobalFlags(words, executableIndex + 1))
 }
 
 export type ConnectorBusinessCliTransport = "bare" | "managed"
@@ -258,38 +267,6 @@ export function isForbiddenOoMutationCommand(command: string): boolean {
   return connectorSubcommand === "login" || connectorSubcommand === "logout"
 }
 
-function directOoCommandRequiresConfirmation(command: string): boolean {
-  const tokens = ooSubcommandTokens(command)
-  if (!tokens?.length) return false
-  const root = tokens[0]
-  if (root === "file") {
-    return tokens[skipOoGlobalFlags(tokens, 1)] === "upload"
-  }
-  if (root !== "flow") return false
-  const subcommandIndex = skipOoGlobalFlags(tokens, 1)
-  const subcommand = tokens[subcommandIndex]
-  if (["delete", "publish", "rollback", "run"].includes(subcommand ?? "")) return true
-  if (subcommand === "runs") {
-    return tokens[skipOoGlobalFlags(tokens, subcommandIndex + 1)] === "cancel"
-  }
-  if (subcommand === "project") {
-    return ["create", "use"].includes(tokens[skipOoGlobalFlags(tokens, subcommandIndex + 1)] ?? "")
-  }
-  return false
-}
-
-/** Managed OO operations that must cross Wanta's consequential-action prompt. */
-export function managedOoCommandRequiresConfirmation(command: string): boolean {
-  let current = command.trim()
-  for (let depth = 0; depth < maxShellWrapperDepth; depth += 1) {
-    if (directOoCommandRequiresConfirmation(current)) return true
-    const wrapper = shellWrapperCommand(current)
-    if (wrapper.kind !== "command") return false
-    current = wrapper.command
-  }
-  return false
-}
-
 export function isPureOoCliCommand(command: string): boolean {
   const trimmed = command.trim()
   if (!trimmed || hasUnsafeShellSyntax(trimmed)) {
@@ -301,8 +278,10 @@ export function isPureOoCliCommand(command: string): boolean {
     return false
   }
 
-  // 不自动放行前置 env 赋值，避免 PATH / endpoint / 二进制路径被这一条命令改写。
-  return isOoExecutable(words[0] ?? "")
+  // The bundled Bun launcher may add this one inert runtime marker. Continue
+  // rejecting arbitrary environment assignments so PATH, endpoints, tokens,
+  // and executable resolution cannot be changed by an auto-approved command.
+  return ooExecutableIndex(words) >= 0
 }
 
 export function isOoCliCommand(command: string): boolean {

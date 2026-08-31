@@ -48,6 +48,7 @@ import { planAttachmentInputs } from "./attachment-input.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { ensureDirectCliCommandBin } from "./direct-cli-bin.ts"
 import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest } from "./event-translator.ts"
+import { resolveExternalOoOperation } from "./external/oo-capability-contract.ts"
 import { isImageUrlContentSchemaMismatch, understandAttachedImages } from "./image-understanding.ts"
 import { ManagedTurnDirectories } from "./managed-turn-directories.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
@@ -75,8 +76,8 @@ export interface AgentManagerOptions {
   opencodeBinPath: string
   /** The oo binary is resolved and injected only when a Link runtime is configured. */
   ooBinPath?: string
-  /** Electron-as-Node entrypoint that scopes and redacts Agent-side oo business calls. */
-  ooGuardCliPath?: string
+  /** Electron-as-Node entrypoint that scopes and redacts built-in OpenCode oo business calls. */
+  opencodeOoGuardCliPath?: string
   /** Wanta-owned WikiGraph CLI entrypoint used by the sidecar PATH `wg` shim. */
   wikiGraphCliPath?: string
   wikiGraphStateDir?: string
@@ -485,12 +486,16 @@ function executableCommandSubstitutions(command: string): string[] {
   return substitutions
 }
 
-function shellExecutesConnectorBusinessCommand(command: string, depth = 0): boolean {
+function managedOoOutputNeedsPersistedRedaction(args: readonly string[]): boolean {
+  return isConnectorBusinessCommand(args) || resolveExternalOoOperation(args)?.id === "file.upload"
+}
+
+function shellExecutesSensitiveManagedOoCommand(command: string, depth = 0): boolean {
   if (depth >= maxConnectorShellDepth) return false
   const executableCommand = shellWithoutComments(command)
   if (
     executableCommandSubstitutions(executableCommand).some((body) =>
-      shellExecutesConnectorBusinessCommand(body, depth + 1),
+      shellExecutesSensitiveManagedOoCommand(body, depth + 1),
     )
   ) {
     return true
@@ -499,20 +504,20 @@ function shellExecutesConnectorBusinessCommand(command: string, depth = 0): bool
     const parsed = shellWords(text)
     if (!parsed?.length) return false
     const words = effectiveShellCommandWords(parsed)
-    if (isOoCommandWord(words[0])) return isConnectorBusinessCommand(words.slice(1))
+    if (isOoCommandWord(words[0])) return managedOoOutputNeedsPersistedRedaction(words.slice(1))
     const nested = nestedShellCommand(words)
-    return nested ? shellExecutesConnectorBusinessCommand(nested, depth + 1) : false
+    return nested ? shellExecutesSensitiveManagedOoCommand(nested, depth + 1) : false
   })
 }
 
-export function isPersistedConnectorToolPart(part: { state?: { input?: unknown }; tool?: unknown }): boolean {
+export function isPersistedSensitiveOoToolPart(part: { state?: { input?: unknown }; tool?: unknown }): boolean {
   if (typeof part.tool !== "string") return false
   if (persistedConnectorToolNames.has(part.tool)) return true
   if (part.tool !== "bash" && part.tool !== "shell") return false
   const input = part.state?.input
   if (!input || typeof input !== "object") return false
   const command = (input as { command?: unknown }).command
-  return typeof command === "string" && shellExecutesConnectorBusinessCommand(command)
+  return typeof command === "string" && shellExecutesSensitiveManagedOoCommand(command)
 }
 
 /** Agent 内核管理器：编排 OpenCode sidecar + 非编码 agent + 自定义连接器工具。electron-free，便于 headless 测试。 */
@@ -673,16 +678,16 @@ export class AgentManager {
     this.disposed = false
     await this.prepareWorkspace()
     await this.startSidecar()
-    void this.scrubPersistedConnectorOutputs().catch((error: unknown) => {
-      console.warn("[wanta] failed to scrub persisted connector outputs:", error)
-      logDiagnostic("agent", "persisted connector output scrub failed", { error }, "warn")
+    void this.scrubPersistedSensitiveOoOutputs().catch((error: unknown) => {
+      console.warn("[wanta] failed to scrub persisted sensitive OO outputs:", error)
+      logDiagnostic("agent", "persisted sensitive OO output scrub failed", { error }, "warn")
     })
   }
 
-  /** One-time defense for tool outputs saved before the managed oo guard existed. */
-  private async scrubPersistedConnectorOutputs(): Promise<void> {
+  /** One-time defense for tool outputs saved before live per-turn redaction. */
+  private async scrubPersistedSensitiveOoOutputs(): Promise<void> {
     if (!this.sidecar || this.disposed) return
-    const markerPath = path.join(this.options.rootDir, ".connector-output-redaction-v1")
+    const markerPath = path.join(this.options.rootDir, ".sensitive-oo-output-redaction-v2")
     try {
       await readFile(markerPath, "utf8")
       return
@@ -691,33 +696,41 @@ export class AgentManager {
     }
 
     const sessionsResult = await this.client.session.list({ limit: 10_000, roots: false })
-    assertOpencodeSuccess(sessionsResult, "session.list for connector output scrub")
+    assertOpencodeSuccess(sessionsResult, "session.list for sensitive OO output scrub")
     let redactedPartCount = 0
     for (const session of sessionsResult.data ?? []) {
       if (this.disposed) return
-      const messagesResult = await this.client.session.messages({ sessionID: session.id, limit: 10_000 })
-      assertOpencodeSuccess(messagesResult, "session.messages for connector output scrub")
-      for (const message of messagesResult.data ?? []) {
-        for (const part of message.parts) {
-          if (part.type !== "tool" || part.state.status !== "completed") continue
-          if (!isPersistedConnectorToolPart(part)) continue
-          const output = redactConnectorOutput(part.state.output)
-          if (output === part.state.output) continue
-          const updatedPart: OpencodePart = { ...part, state: { ...part.state, output } }
-          const updateResult = await this.client.part.update({
-            sessionID: part.sessionID,
-            messageID: part.messageID,
-            partID: part.id,
-            part: updatedPart,
-          })
-          assertOpencodeSuccess(updateResult, "part.update for connector output scrub")
-          redactedPartCount += 1
-        }
-      }
+      redactedPartCount += await this.scrubSessionSensitiveOoOutputs(session.id)
     }
     if (this.disposed) return
-    await atomicWriteText(markerPath, JSON.stringify({ redactedPartCount, version: 1 }))
-    logDiagnostic("agent", "persisted connector output scrub completed", { redactedPartCount })
+    await atomicWriteText(markerPath, JSON.stringify({ redactedPartCount, version: 2 }))
+    logDiagnostic("agent", "persisted sensitive OO output scrub completed", { redactedPartCount })
+  }
+
+  /** Redact signed upload URLs and connector secrets after the active turn has consumed them. */
+  public async scrubSessionSensitiveOoOutputs(sessionId: string): Promise<number> {
+    if (!this.sidecar || this.disposed) return 0
+    const messagesResult = await this.client.session.messages({ sessionID: sessionId, limit: 10_000 })
+    assertOpencodeSuccess(messagesResult, "session.messages for sensitive OO output scrub")
+    let redactedPartCount = 0
+    for (const message of messagesResult.data ?? []) {
+      for (const part of message.parts) {
+        if (part.type !== "tool" || part.state.status !== "completed") continue
+        if (!isPersistedSensitiveOoToolPart(part)) continue
+        const output = redactConnectorOutput(part.state.output)
+        if (output === part.state.output) continue
+        const updatedPart: OpencodePart = { ...part, state: { ...part.state, output } }
+        const updateResult = await this.client.part.update({
+          sessionID: part.sessionID,
+          messageID: part.messageID,
+          partID: part.id,
+          part: updatedPart,
+        })
+        assertOpencodeSuccess(updateResult, "part.update for sensitive OO output scrub")
+        redactedPartCount += 1
+      }
+    }
+    return redactedPartCount
   }
 
   private async prepareWorkspace(): Promise<void> {
@@ -740,7 +753,7 @@ export class AgentManager {
       modelAccess,
       opencodeBinPath,
       ooBinPath,
-      ooGuardCliPath,
+      opencodeOoGuardCliPath,
       rootDir,
       disableServerAuth,
       customModels,
@@ -772,11 +785,11 @@ export class AgentManager {
       wecomCliBinPath,
     })
     let managedOoBinPath = ooBinPath
-    if (linkRuntime && ooBinPath && ooGuardCliPath) {
+    if (linkRuntime && ooBinPath && opencodeOoGuardCliPath) {
       managedOoBinPath = await ensureOoGuardCommandBin({
         binDir: commandBinDir,
         nodeBin: process.execPath,
-        ooGuardCliPath,
+        ooGuardCliPath: opencodeOoGuardCliPath,
       })
     }
     if (wikiGraphCliPath && wikiGraphStateDir) {

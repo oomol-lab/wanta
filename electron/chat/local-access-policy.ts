@@ -125,6 +125,14 @@ function evaluateBaselineLocalAccessRequest(
   const openConnectorPolicy =
     kind === "command" ? openConnectorCommandPolicy(command ?? request.resources.join(" ")) : null
   if (openConnectorPolicy === "deny") return { type: "deny", kind, highRisk }
+  // OO is a first-party Wanta capability channel. Once a request is proven to
+  // be a pure managed OO invocation, do not add a shell, upload, download, or
+  // execution confirmation in any adapter. The managed OO guard remains the
+  // authority for operation admission, workspace identity, paths, URLs, and
+  // runtime overrides; invalid calls fail there instead of becoming approvable.
+  if (isOoCliPermissionRequest(request)) {
+    return { type: "allow", reason: "oo_cli", kind, highRisk: false }
+  }
   if (context.permissionMode === "full_access") {
     return { type: "allow", reason: "full_access", kind, highRisk }
   }
@@ -146,7 +154,6 @@ function evaluateBaselineLocalAccessRequest(
   if (highRisk) {
     return { type: "prompt", kind, highRisk }
   }
-  if (isOoCliPermissionRequest(request)) return { type: "allow", reason: "oo_cli", kind, highRisk }
   // OOMOL's bundled `oo` CLI is a first-party working channel. A parser miss
   // must not make an otherwise ordinary command stricter than the baseline
   // local-command policy merely because the command contains `oo`. Compound

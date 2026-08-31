@@ -243,7 +243,12 @@ Local BYOK 핵심 기능은 OOMOL 계정이 필요하지 않습니다. 로그인
 
 ## 소스에서 실행
 
-요구 사항: Node.js 22.22.2 이상과 Corepack을 통한 pnpm.
+요구 사항: Node.js 22.22.2 이상과 Corepack을 통한 pnpm. Node.js 25 이상에는 Corepack이
+포함되지 않으므로 `corepack`이 없다면 먼저 설치하세요.
+
+```bash
+npm install --global corepack@latest
+```
 
 ```bash
 git clone https://github.com/oomol-lab/wanta.git

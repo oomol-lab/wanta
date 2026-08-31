@@ -236,7 +236,12 @@ Local BYOK 核心功能不需要 OOMOL 账户。登录会启用托管连接器�
 
 ## 从源码运行
 
-要求：Node.js 22.22.2 或更高版本，以及通过 Corepack 使用 pnpm。
+要求：Node.js 22.22.2 或更高版本，以及通过 Corepack 使用 pnpm。Node.js 25 及更高版本不再
+内置 Corepack；如果系统中没有 `corepack`，请先安装：
+
+```bash
+npm install --global corepack@latest
+```
 
 ```bash
 git clone https://github.com/oomol-lab/wanta.git

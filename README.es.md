@@ -255,7 +255,12 @@ límites de confianza, IPC, streaming, autenticación y almacenamiento.
 
 ## Ejecutar desde el código fuente
 
-Requisitos: Node.js 22.22.2 o posterior y pnpm mediante Corepack.
+Requisitos: Node.js 22.22.2 o posterior y pnpm mediante Corepack. Node.js 25 y las versiones
+posteriores ya no incluyen Corepack; si `corepack` no está disponible, instálalo primero:
+
+```bash
+npm install --global corepack@latest
+```
 
 ```bash
 git clone https://github.com/oomol-lab/wanta.git

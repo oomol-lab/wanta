@@ -251,7 +251,12 @@ For the complete process, trust-boundary, IPC, streaming, authentication, and st
 
 ## Run from Source
 
-Requirements: Node.js 22.22.2 or newer and pnpm through Corepack.
+Requirements: Node.js 22.22.2 or newer and pnpm through Corepack. Node.js 25 and newer no longer
+bundle Corepack, so install it first when `corepack` is unavailable:
+
+```bash
+npm install --global corepack@latest
+```
 
 ```bash
 git clone https://github.com/oomol-lab/wanta.git

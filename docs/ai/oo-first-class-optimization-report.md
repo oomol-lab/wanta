@@ -155,18 +155,18 @@ OO 作为一等公民能力，必须同时满足：
 
 把当前 `EXTERNAL_OO_OPERATIONS` 升级为 Agent-independent `OO_OPERATIONS`。每项至少声明：
 
-| 字段 | 含义 |
-|---|---|
-| `id` | 稳定 operation id，例如 `file.upload` |
-| `command` | OOCLI 命令前缀 |
-| `availability` | enabled / planned / denied |
-| `effect` | read / local-read / local-write / external-action / local-state |
-| `workspace` | none / optional / required |
-| `inputPolicy` | 路径、URL、stdin、`@file` 和大小限制 |
-| `timeoutPolicy` | discovery、action、异步查询、Flow 的不同 deadline |
-| `outputPolicy` | 哪些字段可实时返回、可展示、可持久化 |
-| `permissionPolicy` | 已启用托管 OO 自动放行；非法或未开放操作直接拒绝 |
-| `uiMetadata` | 工具名称、详情、安全展示信息 |
+| 字段               | 含义                                                            |
+| ------------------ | --------------------------------------------------------------- |
+| `id`               | 稳定 operation id，例如 `file.upload`                           |
+| `command`          | OOCLI 命令前缀                                                  |
+| `availability`     | enabled / planned / denied                                      |
+| `effect`           | read / local-read / local-write / external-action / local-state |
+| `workspace`        | none / optional / required                                      |
+| `inputPolicy`      | 路径、URL、stdin、`@file` 和大小限制                            |
+| `timeoutPolicy`    | discovery、action、异步查询、Flow 的不同 deadline               |
+| `outputPolicy`     | 哪些字段可实时返回、可展示、可持久化                            |
+| `permissionPolicy` | 已启用托管 OO 自动放行；非法或未开放操作直接拒绝                |
+| `uiMetadata`       | 工具名称、详情、安全展示信息                                    |
 
 OpenCode、BYOA guard、Skill guidance、权限分类器、工具展示、bundle lock 和测试全部从该契约派生，禁止维护平行清单。
 
@@ -228,16 +228,16 @@ interface OoExecutionResult {
 
 统一错误类型：
 
-| 类别 | 示例 | 恢复策略 |
-|---|---|---|
-| `transport_unavailable` | loopback/lease 不可达 | adapter 或 Host 原通道重试一次；禁止模型换通道 |
-| `runtime_integrity_failed` | OOCLI/Skill lock 不匹配 | fail closed，提示升级或重新安装 |
-| `workspace_unavailable` | turn 未绑定 team | 阻止执行；不猜 team、不切账号 |
-| `authorization_required` | Connector 未连接或 scope 失效 | 显示 Wanta 授权入口，停止当前外部步骤 |
-| `policy_denied` | operation 或 action 被禁止 | 不重试、不找非托管替代路径 |
-| `input_shape_unsupported` | schema 不接受 URI/file | 报告真实能力缺口 |
-| `remote_action_failed` | provider/action 运行失败 | 按 operation 的幂等性与错误码决定是否重试 |
-| `cancelled` | 用户取消或任务结束 | 终止真实 OOCLI 子进程并清理 lease |
+| 类别                       | 示例                          | 恢复策略                                       |
+| -------------------------- | ----------------------------- | ---------------------------------------------- |
+| `transport_unavailable`    | loopback/lease 不可达         | adapter 或 Host 原通道重试一次；禁止模型换通道 |
+| `runtime_integrity_failed` | OOCLI/Skill lock 不匹配       | fail closed，提示升级或重新安装                |
+| `workspace_unavailable`    | turn 未绑定 team              | 阻止执行；不猜 team、不切账号                  |
+| `authorization_required`   | Connector 未连接或 scope 失效 | 显示 Wanta 授权入口，停止当前外部步骤          |
+| `policy_denied`            | operation 或 action 被禁止    | 不重试、不找非托管替代路径                     |
+| `input_shape_unsupported`  | schema 不接受 URI/file        | 报告真实能力缺口                               |
+| `remote_action_failed`     | provider/action 运行失败      | 按 operation 的幂等性与错误码决定是否重试      |
+| `cancelled`                | 用户取消或任务结束            | 终止真实 OOCLI 子进程并清理 lease              |
 
 Skill 和系统提示应明确：托管 OO 基础设施错误不是“请尝试 curl/base64”的信号。
 
@@ -305,20 +305,20 @@ Skill 和系统提示应明确：托管 OO 基础设施错误不是“请尝试 
 
 每个 Agent 都必须通过同一份参数化测试矩阵：
 
-| 场景 | OpenCode | Claude | Codex | Grok | 预期 |
-|---|---:|---:|---:|---:|---|
-| capability search | 必测 | 必测 | 必测 | 必测 | 同一结果语义 |
-| connector schema | 必测 | 必测 | 必测 | 必测 | 不绑定错误 team |
-| connector read action | 必测 | 必测 | 必测 | 必测 | 同一 workspace、同一输出 |
-| authorization required | 必测 | 必测 | 必测 | 必测 | 同一 CTA、无重复请求 |
-| explicit connectionName | 必测 | 必测 | 必测 | 必测 | 严格校验，不静默换账号 |
-| file upload | 必测 | 必测 | 必测 | 必测 | Agent 可用 URL，UI/历史脱敏 |
-| file download | 必测 | 必测 | 必测 | 必测 | 只写 managed roots |
-| Flow read/run/publish | 必测 | 必测 | 必测 | 必测 | 同一项目且均自动放行 |
-| 多 team 并发 | 必测 | 必测 | 必测 | 必测 | 不串 workspace，也不互相阻塞 |
-| transport 中断 | 必测 | 必测 | 必测 | 必测 | 原通道一次重试，不绕路 |
-| task cancel/delete | 必测 | 必测 | 必测 | 必测 | OOCLI 子进程终止、lease 撤销 |
-| history restore | 必测 | 必测 | 必测 | 必测 | 无签名 URL/凭证泄漏 |
+| 场景                    | OpenCode | Claude | Codex | Grok | 预期                         |
+| ----------------------- | -------: | -----: | ----: | ---: | ---------------------------- |
+| capability search       |     必测 |   必测 |  必测 | 必测 | 同一结果语义                 |
+| connector schema        |     必测 |   必测 |  必测 | 必测 | 不绑定错误 team              |
+| connector read action   |     必测 |   必测 |  必测 | 必测 | 同一 workspace、同一输出     |
+| authorization required  |     必测 |   必测 |  必测 | 必测 | 同一 CTA、无重复请求         |
+| explicit connectionName |     必测 |   必测 |  必测 | 必测 | 严格校验，不静默换账号       |
+| file upload             |     必测 |   必测 |  必测 | 必测 | Agent 可用 URL，UI/历史脱敏  |
+| file download           |     必测 |   必测 |  必测 | 必测 | 只写 managed roots           |
+| Flow read/run/publish   |     必测 |   必测 |  必测 | 必测 | 同一项目且均自动放行         |
+| 多 team 并发            |     必测 |   必测 |  必测 | 必测 | 不串 workspace，也不互相阻塞 |
+| transport 中断          |     必测 |   必测 |  必测 | 必测 | 原通道一次重试，不绕路       |
+| task cancel/delete      |     必测 |   必测 |  必测 | 必测 | OOCLI 子进程终止、lease 撤销 |
+| history restore         |     必测 |   必测 |  必测 | 必测 | 无签名 URL/凭证泄漏          |
 
 测试层级：
 

@@ -55,18 +55,18 @@
 
 自动放行包括但不限于：
 
-| 域 | 操作示例 | 权限结果 |
-|---|---|---|
-| Capability | `oo search` | 自动放行 |
-| Connector discovery | `oo connector search/schema/apps` | 自动放行 |
-| Connector execution | `oo connector run` | 自动放行 |
-| File | `oo file upload` | 自动放行 |
-| File | `oo file download` | 自动放行 |
-| Flow read | list/show/inspect/check | 自动放行 |
-| Flow edit | create/apply/rename/node/code/connector/trigger 等已启用命令 | 自动放行 |
-| Flow execute | `oo flow run` | 自动放行 |
-| Flow publish | `oo flow publish` | 自动放行 |
-| Async AI | submit/result/poll action | 自动放行 |
+| 域                  | 操作示例                                                     | 权限结果 |
+| ------------------- | ------------------------------------------------------------ | -------- |
+| Capability          | `oo search`                                                  | 自动放行 |
+| Connector discovery | `oo connector search/schema/apps`                            | 自动放行 |
+| Connector execution | `oo connector run`                                           | 自动放行 |
+| File                | `oo file upload`                                             | 自动放行 |
+| File                | `oo file download`                                           | 自动放行 |
+| Flow read           | list/show/inspect/check                                      | 自动放行 |
+| Flow edit           | create/apply/rename/node/code/connector/trigger 等已启用命令 | 自动放行 |
+| Flow execute        | `oo flow run`                                                | 自动放行 |
+| Flow publish        | `oo flow publish`                                            | 自动放行 |
+| Async AI            | submit/result/poll action                                    | 自动放行 |
 
 用户表达任务本身就是授权，例如“编辑这张图片”“发布这个 Flow”“把结果上传并执行”。Wanta 不应再就底层 OO 上传或执行重复询问。
 
@@ -303,21 +303,21 @@ managed file upload and consequential Flow boundaries prompt in default mode
 
 ## 8. 验收矩阵
 
-| 场景 | 内置 OpenCode | BYOA | 预期 |
-|---|---:|---:|---|
-| `oo search` | 必测 | 必测 | 自动放行 |
-| connector schema/apps/run | 必测 | 必测 | 自动放行、同一 workspace |
-| file upload | 必测 | 必测 | 自动放行，无批准卡 |
-| file download | 必测 | 必测 | 自动放行，只写 managed roots |
-| Flow edit/run/publish | 必测 | 必测 | 自动放行，无批准卡 |
-| auth/config/runtime override | 必测 | 必测 | 直接拒绝，不弹批准 |
-| unmanaged upload path | 必测 | 必测 | 直接拒绝 |
-| private-network download | 必测 | 必测 | 直接拒绝 |
-| mixed dangerous shell | 必测 | 必测 | 不按 OO 白名单放行 |
-| authorization required | 必测 | 必测 | 同一授权 CTA，不是 shell 批准 |
-| 图片编辑完整链路 | 必测 | 必测 | 无绕路，1–2 分钟目标 |
-| task cancel | 必测 | 必测 | OO 子进程终止 |
-| history restore | 必测 | 必测 | 不含签名 URL/credential |
+| 场景                         | 内置 OpenCode | BYOA | 预期                          |
+| ---------------------------- | ------------: | ---: | ----------------------------- |
+| `oo search`                  |          必测 | 必测 | 自动放行                      |
+| connector schema/apps/run    |          必测 | 必测 | 自动放行、同一 workspace      |
+| file upload                  |          必测 | 必测 | 自动放行，无批准卡            |
+| file download                |          必测 | 必测 | 自动放行，只写 managed roots  |
+| Flow edit/run/publish        |          必测 | 必测 | 自动放行，无批准卡            |
+| auth/config/runtime override |          必测 | 必测 | 直接拒绝，不弹批准            |
+| unmanaged upload path        |          必测 | 必测 | 直接拒绝                      |
+| private-network download     |          必测 | 必测 | 直接拒绝                      |
+| mixed dangerous shell        |          必测 | 必测 | 不按 OO 白名单放行            |
+| authorization required       |          必测 | 必测 | 同一授权 CTA，不是 shell 批准 |
+| 图片编辑完整链路             |          必测 | 必测 | 无绕路，1–2 分钟目标          |
+| task cancel                  |          必测 | 必测 | OO 子进程终止                 |
+| history restore              |          必测 | 必测 | 不含签名 URL/credential       |
 
 ## 9. 完成标准
 

@@ -1,6 +1,5 @@
 import type { ChatPermissionRequest } from "./common.ts"
 
-import path from "node:path"
 import { openConnectorCommandPolicy } from "../agent/oo-command-permission.ts"
 import {
   isManagedPythonExecutable,
@@ -17,7 +16,6 @@ import {
   isDependencyMutationCommand,
   isPythonDependencyMutationCommand,
 } from "./dependency-policy.ts"
-import { projectPermissionResourceInsideRoot } from "./project-permission.ts"
 import {
   commandWithoutHereDocumentBodies,
   commandWithoutInertOutputSuffixes,
@@ -714,18 +712,63 @@ function isBroadResource(resource: string): boolean {
   return false
 }
 
+function isAbsoluteLocalPath(value: string): boolean {
+  return value.startsWith("/") || /^[A-Za-z]:\//u.test(value)
+}
+
+function collapsePathSegments(value: string): string | undefined {
+  const windowsRoot = /^[A-Za-z]:\//u.exec(value)?.[0]
+  const root = windowsRoot ?? (value.startsWith("/") ? "/" : "")
+  if (!root) {
+    return undefined
+  }
+  const rest = windowsRoot ? value.slice(windowsRoot.length) : value.slice(1)
+  const resolved: string[] = []
+  for (const segment of rest.split("/")) {
+    if (!segment || segment === ".") {
+      continue
+    }
+    if (segment === "..") {
+      if (resolved.length === 0) {
+        return undefined
+      }
+      resolved.pop()
+      continue
+    }
+    resolved.push(segment)
+  }
+  if (windowsRoot) {
+    return resolved.length === 0 ? windowsRoot.replace(/\/$/u, "") : `${windowsRoot}${resolved.join("/")}`
+  }
+  return `/${resolved.join("/")}`
+}
+
 function resolveScopedResourcePath(resource: string, workingDirectory?: string): string | undefined {
   const trimmed = normalizeResourceText(resource)
   if (!trimmed || trimmed === "~" || trimmed.startsWith("~/") || trimmed.startsWith("$home/") || trimmed === "$home") {
     return undefined
   }
-  if (path.isAbsolute(trimmed) || /^[A-Za-z]:[\\/]/u.test(trimmed)) {
-    return path.resolve(trimmed)
+  if (isAbsoluteLocalPath(trimmed)) {
+    return collapsePathSegments(trimmed)
   }
   if (!workingDirectory) {
     return undefined
   }
-  return path.resolve(workingDirectory, trimmed)
+  const base = collapsePathSegments(normalizeResourceText(workingDirectory))
+  if (!base) {
+    return undefined
+  }
+  return collapsePathSegments(`${base}/${trimmed}`)
+}
+
+function scopedResourceInsideProjectRoot(target: string, projectRoot: string): boolean {
+  const normalizedRoot = collapsePathSegments(normalizeResourceText(projectRoot))
+  const normalizedTarget = collapsePathSegments(normalizeResourceText(target))
+  return Boolean(
+    normalizedRoot &&
+    normalizedTarget &&
+    (normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`)),
+  )
 }
 
 export function isSelectedProjectEnvResource(resource: string, scope: PermissionScopeContext = {}): boolean {
@@ -737,7 +780,7 @@ export function isSelectedProjectEnvResource(resource: string, scope: Permission
     return false
   }
   const target = resolveScopedResourcePath(resource, scope.commandCwd)
-  return Boolean(target && projectPermissionResourceInsideRoot(target, projectRoot))
+  return Boolean(target && scopedResourceInsideProjectRoot(target, projectRoot))
 }
 
 function commandScopeWithLeadingCd(command: string, scope: PermissionScopeContext): PermissionScopeContext {

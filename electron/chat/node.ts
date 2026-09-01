@@ -1201,6 +1201,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     // Keyed off the session id's kind, so a malformed external id still fails
     // closed (prompt) instead of falling through to the kernel's defaults.
     const isExternalSession = externalAgentKindForSessionId(request.sessionId) !== undefined
+    const commandCwd = isExternalSession ? projectRoot : undefined
     const decision = evaluateLocalAccessRequest(request, {
       activeGenerationId,
       linkRuntime: this.activeLinkRuntime,
@@ -1208,6 +1209,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       sessionGrants: this.permissions.sessionGrants(request.sessionId),
       ...(taskProcessRoot ? { taskProcessRoot } : {}),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
+      ...(commandCwd ? { commandCwd } : {}),
       ...(isExternalSession ? { isExternalSession } : {}),
     })
     // External sessions answer through their own adapter; only a session with
@@ -1216,7 +1218,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return false
     }
     if (decision.type === "prompt") {
-      const promptReason = localAccessPromptReason(request)
+      const promptReason = localAccessPromptReason(request, {
+        ...(commandCwd ? { commandCwd } : {}),
+        ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
+      })
       this.permissionDiagnostics.recordPrompt(promptReason, `${request.sessionId}:${request.id}`)
       request.wanta = { ...request.wanta, promptReason }
       logDiagnostic(

@@ -3,7 +3,11 @@ import type { ChatPermissionRequest } from "./common.ts"
 import assert from "node:assert/strict"
 import path from "node:path"
 import { test } from "vitest"
-import { evaluateLocalAccessRequest, localAccessGrantForRequest } from "./local-access-policy.ts"
+import {
+  evaluateLocalAccessRequest,
+  localAccessGrantForRequest,
+  localAccessPromptReason,
+} from "./local-access-policy.ts"
 
 function permission(overrides: Partial<ChatPermissionRequest>): ChatPermissionRequest {
   return {
@@ -584,7 +588,6 @@ test("bounded Python bootstrap approval preserves the nearest protected boundari
   const promptCommands = [
     `python3 -m venv "${processRoot}/other" && "${environment}/bin/python" -m pip install python-docx`,
     `python3 -m venv "${environment}" && python3 -m pip install python-docx`,
-    `"${environment}/bin/python" -m pip install python-docx > /tmp/install.log`,
     `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && echo "$HOME"`,
     `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && echo OK &&`,
     `python3 -m venv "${environment}" && "${environment}/bin/python" -m pip install python-docx && ./echo OK`,
@@ -614,6 +617,155 @@ test("bounded Python bootstrap approval preserves the nearest protected boundari
     kind: "command",
     highRisk: true,
   })
+})
+
+test("default access treats log redirects as inert on bounded installs", () => {
+  const processRoot = "/tmp/wanta-process/task-1"
+  const environment = `${processRoot}/.wanta-python`
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: { command: `"${environment}/bin/python" -m pip install python-docx > /tmp/install.log` },
+      }),
+      { permissionMode: "default", taskProcessRoot: processRoot },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+})
+
+test("default access uses a proven command cwd as the bounded install target", () => {
+  const projectRoot = "/Users/example/code/customer-project"
+  const processRoot = "/tmp/wanta-process/task-1"
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "npm install report-tool", cwd: projectRoot } }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        metadata: { command: ".venv/bin/python -m pip install pandas", cwd: projectRoot },
+      }),
+      { permissionMode: "default", trustedProjectRoot: projectRoot },
+    ),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "npm install report-tool" } }), {
+      commandCwd: processRoot,
+      permissionMode: "default",
+      taskProcessRoot: processRoot,
+    }),
+    { type: "allow", reason: "trusted_dependency", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "npm install report-tool" } }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+})
+
+test("selected-project env files are readable and session-grantable to write", () => {
+  const projectRoot = "/Users/example/code/app"
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "external_directory", resources: [`${projectRoot}/.env`] }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "allow", reason: "trusted_project", kind: "path", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: `cat ${projectRoot}/.env` } }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+  )
+  const envEdit = permission({ action: "edit", resources: [`${projectRoot}/.env`] })
+  assert.deepEqual(evaluateLocalAccessRequest(envEdit, { permissionMode: "default", trustedProjectRoot: projectRoot }), {
+    type: "prompt",
+    kind: "edit",
+    highRisk: false,
+  })
+  assert.equal(localAccessPromptReason(envEdit, { trustedProjectRoot: projectRoot }), "unclassified_request")
+  const grant = localAccessGrantForRequest(envEdit)
+  assert.ok(grant)
+  assert.deepEqual(
+    evaluateLocalAccessRequest(envEdit, {
+      permissionMode: "default",
+      sessionGrants: [grant],
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "allow", reason: "session_grant", kind: "edit", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "edit", resources: ["/Users/example/.env"] }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "prompt", kind: "edit", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `printf 'FOO=1\\n' > ${projectRoot}/.env` } }),
+      { permissionMode: "default", trustedProjectRoot: projectRoot },
+    ),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "tee .env", cwd: projectRoot } }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `sed -i 's/FOO=1/FOO=2/' ${projectRoot}/.env` } }),
+      { permissionMode: "default", trustedProjectRoot: projectRoot },
+    ),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+})
+
+test("default access auto-approves local git restore, named docker rm, and /tmp cleanup", () => {
+  for (const command of [
+    "git restore -- src/index.ts",
+    "git checkout -- README.md",
+    "git checkout -b feature/local-restore",
+    "docker rm build-container",
+    "docker rmi stale-image",
+    "rm -rf /tmp/wanta-test",
+  ]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode: "default" }),
+      {
+        type: "allow",
+        reason: command.startsWith("rm") ? "bounded_cleanup" : "default_command",
+        kind: "command",
+        highRisk: command.startsWith("rm"),
+      },
+      command,
+    )
+  }
+  for (const command of [
+    "git push origin main",
+    "git reset --hard HEAD",
+    "git checkout -f main",
+    "docker system prune",
+    "rm -rf /tmp",
+    "rm -rf /tmp/wanta/process/turn-1",
+  ]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command } }), { permissionMode: "default" }).type,
+      "prompt",
+      command,
+    )
+  }
 })
 
 test("default access auto-approves standard registry Node dependencies in bounded task or project roots", () => {

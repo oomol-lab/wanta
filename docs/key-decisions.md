@@ -253,7 +253,9 @@
   filtering, ordinary file reads/writes, and specific non-sensitive paths; only fundamental
   security boundaries are pushed to the renderer for confirmation — credential/key paths, broad
   home/system edit scopes, destructive deletion, global/system or alternate-source dependency changes, privilege
-  escalation, `git push/reset/clean`, publish/deploy, infrastructure changes, and the like.
+  escalation, `git push` / `reset --hard` / `clean -f`, publish/deploy, infrastructure changes, and the like.
+  `git restore` of named files, named `docker rm`/`rmi`, and reading a selected-project `.env` stay
+  ordinary; writing that project `.env` still prompts and may be granted for the session.
   Sensitive-resource checks take precedence over generic directory session grants; a generic grant
   can never green-light a high-risk request. Full Access can still take over the session's
   permissions after a single confirmation. The renderer only displays the pending UI, syncs the
@@ -277,7 +279,7 @@
   non-sensitive reads stay smooth even across broad home/system scopes; broad edits and destructive
   operations still prompt. Unscoped, global/system, or alternate-source dependency changes, reading credentials/keys, browser login state,
   mail/messages/contacts/calendar data, recursive or destructive deletion outside managed scratch
-  or exact well-known generated project roots, storage overwrite,
+  or exact well-known generated project roots, direct `/tmp` children, storage overwrite,
   privilege escalation, push, deploy, remote repository deletion, and infrastructure or recursive
   cloud-storage destruction still require confirmation; such sensitive reads take precedence over
   generic directory session grants and cannot be silently waved through because the user once
@@ -286,8 +288,9 @@
   execution scope and explicit source overrides rather than a reviewed popularity list: direct
   Python requirements use the exact turn-private `.wanta-python` interpreter or an exact selected
   project's `.venv` / `venv` interpreter, directly or through `uv pip --python`; standard Node.js
-  install/ci/add/remove/update operations use npm/pnpm/yarn/bun commands explicitly targeted at the
-  turn process directory or selected project and may be lockfile-driven without package arguments.
+  install/ci/add/remove/update operations use npm/pnpm/yarn/bun commands targeted at the
+  turn process directory or selected project — either with an explicit `cd` / `--prefix` / `--dir`,
+  or when the permission request's proven cwd (metadata or ACP session cwd) is that root — and may be lockfile-driven without package arguments.
   Normal extras, version constraints, and unfamiliar ordinary flags are accepted
   without Wanta pinning a version. Node.js and Python package runners are ordinary local execution
   rather than a separate high-risk class. Package names, package size, and

@@ -4,6 +4,7 @@ import { commandRequiresConfirmation } from "./command-risk.ts"
 import {
   commandWithoutHereDocumentBodies,
   commandWithoutSafeDescriptorDuplication,
+  commandWithoutSafeOutputRedirection,
   explicitCdDirectory,
   shellWordsWithoutRedirections,
 } from "./shell-syntax.ts"
@@ -105,6 +106,21 @@ test("safe descriptor duplication is separated from named-file redirection", () 
   assert.equal(
     commandWithoutSafeDescriptorDuplication("python task.py 2> /tmp/task.log"),
     "python task.py 2> /tmp/task.log",
+  )
+})
+
+test("safe output redirections to ordinary log files are stripped", () => {
+  assert.equal(
+    commandWithoutSafeOutputRedirection("python -m pip install python-docx > /tmp/install.log"),
+    "python -m pip install python-docx",
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection("npm install marked >> /tmp/install.log 2>/dev/null"),
+    "npm install marked",
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection("python -m pip install python-docx > ~/.ssh/id_rsa"),
+    "python -m pip install python-docx > ~/.ssh/id_rsa",
   )
 })
 

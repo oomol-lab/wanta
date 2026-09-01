@@ -144,12 +144,18 @@ function mutatesGitRemoteOrWorkingTree(words: readonly string[]): boolean {
   if (verb === "reset") {
     return args.includes("--hard")
   }
-  if (verb === "checkout" || verb === "restore") {
-    const separator = args.indexOf("--")
-    return separator >= 0 && Boolean(args[separator + 1])
-  }
   if (verb === "clean") {
     return args.some((word) => word === "--force" || optionHasLetter(word, "f"))
+  }
+  if (verb === "checkout" || verb === "switch") {
+    for (const word of args) {
+      if (word === "--") {
+        break
+      }
+      if (word === "--force" || word === "--discard-changes" || optionHasLetter(word, "f")) {
+        return true
+      }
+    }
   }
   return false
 }
@@ -172,9 +178,6 @@ function mutatesDocker(words: readonly string[]): boolean {
     return false
   }
   const verb = command.value.toLowerCase()
-  if (verb === "rm" || verb === "rmi") {
-    return true
-  }
   const nested = nextOperand(words, command.index + 1)?.value.toLowerCase()
   return (verb === "system" && nested === "prune") || (verb === "volume" && nested === "rm")
 }

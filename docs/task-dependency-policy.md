@@ -31,16 +31,18 @@ Python installs qualify when all of these conditions hold:
 
 Node.js installs qualify when all of these conditions hold:
 
-- The command uses npm, pnpm, yarn, or bun and explicitly targets either the active turn process
-  directory or the user-selected project.
+- The command uses npm, pnpm, yarn, or bun and targets either the active turn process
+  directory or the user-selected project, either with an explicit directory (`cd`, `--prefix`,
+  `--dir`, `--cwd`) or because the permission request's proven working directory is that root.
 - The operation directly installs one or more standard-registry package specifiers.
 - Ordinary versions and package-manager flags are accepted. Wanta does not add or pin a version.
 - Package popularity is irrelevant: an unfamiliar registry package follows the same rule as `xlsx`,
   `marked`, or `pdf-lib`.
-- No-argument installs, global installs, alternative registries, user config, Git/URL/local sources,
-  and aliases do not enter the automatic direct-install path. Unfamiliar flags are accepted unless
-  they express one of those protected boundaries. A no-argument install in a selected project can
-  still receive a task-scoped approval.
+- Global installs, alternative registries, user config, Git/URL/local sources, and aliases do not
+  enter the automatic path. Unfamiliar flags are accepted unless they express one of those protected
+  boundaries. No-argument / lockfile-driven installs in a proven task or selected-project working
+  directory are ordinary; the same command without a proven cwd still requires confirmation. Inert
+  log redirects, descriptor duplication, and `echo ok` markers do not eject an in-scope install.
 
 Package runners such as `npx`, `npm exec` / `npm x`, `pnpm dlx`, `yarn dlx`, `bunx` / `bun x`,
 `uvx`, `uv tool run`, and `pipx run` are ordinary local execution under Default Access. Persistent
@@ -87,6 +89,13 @@ allowlist entry. For example, both of these are ordinary:
 ```bash
 cd <task-directory> && npm install marked
 ```
+
+```bash
+npm install
+```
+
+The no-argument form is ordinary only when the permission request's proven working directory is
+that task or selected-project root.
 
 ```bash
 SCRIPT_DIR="<task-directory>"

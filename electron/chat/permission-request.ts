@@ -786,7 +786,11 @@ export function isSelectedProjectEnvResource(resource: string, scope: Permission
 function commandScopeWithLeadingCd(command: string, scope: PermissionScopeContext): PermissionScopeContext {
   const leading = splitLeadingAnd(command)
   const directory = leading ? explicitCdDirectory(leading.left) : undefined
-  return directory ? { ...scope, commandCwd: directory } : scope
+  if (!directory) {
+    return scope
+  }
+  const resolved = resolveScopedResourcePath(directory, scope.commandCwd)
+  return resolved ? { ...scope, commandCwd: resolved } : scope
 }
 
 const attachedWriteRedirectPattern = /^(?:[0-9]*)(?:>>?|>\|)(.*)$/u

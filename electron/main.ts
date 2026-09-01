@@ -402,6 +402,20 @@ const externalAgentCommandEnvironment = memoizeExternalCommandEnvironment(async 
 // provider configuration, and model catalog. Host capabilities are issued per
 // Wanta session and keep Wanta identity and credentials in Electron main.
 const externalHostMcpServers: HostMcpServerProvider = async (input) => {
+  if (input.diagnostic) {
+    skillCapabilityServer.disableSession(input.sessionId)
+    knowledgeCapabilityServer.disableSession(input.sessionId)
+    questionCapabilityServer.disableSession(input.sessionId)
+    directCliCapabilityServer.disableSession(input.sessionId)
+    browserCapabilityServer.disableSession(input.sessionId)
+    logDiagnostic(
+      "host-capability",
+      "diagnostic manifest disabled",
+      { connectorTransport: "disabled", servers: [], sessionId: input.sessionId },
+      "trace",
+    )
+    return []
+  }
   const [larkRuntime, wecomRuntime, dingTalkRuntime] = await directRuntimes()
   const directSkillSources = [
     ...(larkRuntime ? [{ id: "direct-lark", kind: "connection" as const, root: larkRuntime.skillsDir }] : []),
@@ -511,8 +525,8 @@ const chatService = new ChatServiceImpl(null, {
     sessionService.setPermissionMode({ id: sessionId, permissionMode }),
   onExternalSessionSelectionChanged: (sessionId, patch) =>
     sessionService.setAgentSelection({ id: sessionId, ...patch }),
-  onExternalTurnScopeChanged: ({ active, cwdRoots, sessionId, teamName }) => {
-    if (!active) return externalOoScopeStore.deactivate(sessionId)
+  onExternalTurnScopeChanged: ({ active, cwdRoots, diagnostic, sessionId, teamName }) => {
+    if (!active || diagnostic) return externalOoScopeStore.deactivate(sessionId)
     // ACP creates a session with this stable per-session scratch directory as
     // its default cwd when no project root is selected. It is a Wanta-owned
     // directory, so include it in the guard scope rather than rejecting the

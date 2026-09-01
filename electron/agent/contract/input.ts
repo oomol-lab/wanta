@@ -35,6 +35,8 @@ export interface PromptAgentInput {
   teamName?: string
   /** Per-turn system prompt tail composed by the chat layer. */
   system?: string
+  /** Host-owned restricted diagnostic turn; adapters must isolate native scope and capabilities. */
+  diagnostic?: boolean
   /** Managed output directories assigned by the chat layer for this turn. */
   artifactDir?: string
   /** Host-selected project cwd. Kept separate from artifact placement. */
@@ -143,6 +145,7 @@ const promptInputSchema = z.object({
   reasoningLevel: reasoningLevelSchema.optional(),
   teamName: z.string().optional(),
   system: z.string().optional(),
+  diagnostic: z.boolean().optional(),
   artifactDir: z.string().optional(),
   workingDirectory: z.string().optional(),
   additionalDirectories: z.array(z.string().min(1)).optional(),

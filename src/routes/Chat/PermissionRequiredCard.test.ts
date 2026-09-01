@@ -107,6 +107,35 @@ describe("PermissionRequiredCard", () => {
     expect(html).not.toContain("需要确认高风险命令")
   })
 
+  it("treats selected-project env writes as ordinary edits, not private data", () => {
+    const html = renderPermissionCard({
+      action: "edit",
+      id: "permission-1",
+      resources: ["/Users/me/code/app/.env"],
+      sessionId: "session-1",
+      wanta: { promptReason: "unclassified_request" },
+    })
+
+    expect(html).toContain("需要修改文件")
+    expect(html).toContain("本会话内允许此路径")
+    expect(html).not.toContain("需要确认私密数据访问")
+  })
+
+  it("does not present a selected-project env shell write as high risk", () => {
+    const html = renderPermissionCard({
+      action: "bash",
+      id: "permission-1",
+      metadata: { command: "printf 'FOO=1\\n' > /Users/me/code/app/.env" },
+      resources: ["printf 'FOO=1\\n' > /Users/me/code/app/.env"],
+      sessionId: "session-1",
+      wanta: { promptReason: "unclassified_request" },
+    })
+
+    expect(html).toContain("需要运行本地命令")
+    expect(html).not.toContain("需要确认高风险命令")
+    expect(html).not.toContain("需要确认私密数据访问")
+  })
+
   it("explains an unbounded Node dependency operation as a policy boundary", () => {
     const html = renderPermissionCard({
       action: "bash",

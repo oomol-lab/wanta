@@ -282,6 +282,106 @@ export function commandWithoutSafeDescriptorDuplication(command: string): string
   return command.replace(/(?:\s+(?:[0-9]+)?[<>]&[0-9]+)+\s*$/u, "").trim()
 }
 
+const trailingOutputRedirection = /(?:\s+)(?:(?:[0-9]+)?>>?|&>>?)\s*(?:"([^"]*)"|'([^']*)'|(\S+))\s*$/u
+const protectedRedirectBasenames = new Set([
+  ".env",
+  ".netrc",
+  ".npmrc",
+  ".pypirc",
+  "credentials",
+  "cookies",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ed25519",
+  "id_rsa",
+  "login data",
+])
+const protectedRedirectSegments = new Set([".aws", ".azure", ".docker", ".gcloud", ".gnupg", ".kube", ".ssh"])
+
+function isSafeOutputRedirectDestination(destination: string): boolean {
+  if (!destination || destination.startsWith("&")) {
+    return false
+  }
+  if ([...destination].some((character) => character === "~" || shellExpansionCharacters.has(character))) {
+    return false
+  }
+  const normalized = destination.replace(/\\/g, "/").replace(/\/+$/u, "")
+  const lower = normalized.toLowerCase()
+  if (lower === "/dev/null" || lower === "nul") {
+    return true
+  }
+  if (lower.startsWith("/dev/") || lower.startsWith("/proc/") || lower.startsWith("/sys/")) {
+    return false
+  }
+  const basename = (lower.split("/").at(-1) ?? "").toLowerCase()
+  if (protectedRedirectBasenames.has(basename) || basename.startsWith(".env.")) {
+    return false
+  }
+  const segments = lower.split("/").filter(Boolean)
+  return !segments.some((segment) => protectedRedirectSegments.has(segment))
+}
+
+/**
+ * Removes trailing stdout/stderr file redirects that do not change what the command
+ * executes. Sensitive destinations stay visible so the ordinary risk policy can stop them.
+ */
+export function commandWithoutSafeOutputRedirection(command: string): string {
+  let current = command.trim()
+  for (let depth = 0; depth < 4; depth += 1) {
+    const match = trailingOutputRedirection.exec(current)
+    if (!match) {
+      break
+    }
+    const destination = (match[1] ?? match[2] ?? match[3] ?? "").trim()
+    if (!isSafeOutputRedirectDestination(destination)) {
+      break
+    }
+    current = current.slice(0, match.index).trim()
+  }
+  return current
+}
+
+/**
+ * A success marker is commonly appended so a caller can distinguish completion from
+ * command output. Variable expansion and any other trailing command stay visible.
+ */
+export function commandWithoutSafeSuccessMarker(command: string): string {
+  const segments = topLevelShellSegments(command)
+  if (
+    segments.length !== 2 ||
+    !segments[0]?.text ||
+    segments[0]?.operatorAfter !== "and" ||
+    segments[1]?.operatorAfter !== undefined ||
+    !isLiteralSuccessMarker(segments[1]?.text ?? "")
+  ) {
+    return command
+  }
+  return segments[0]?.text ?? command
+}
+
+function isLiteralSuccessMarker(command: string): boolean {
+  const words = shellWords(command)
+  if (!words || words[0] !== "echo" || words.length !== 2) {
+    return false
+  }
+  return ["ok", "done", "success"].includes((words[1] ?? "").toLowerCase())
+}
+
+/** Strips output caps, descriptor duplication, file log redirects, and `echo ok` markers. */
+export function commandWithoutInertOutputSuffixes(command: string): string {
+  let current = command
+  for (let depth = 0; depth < 8; depth += 1) {
+    const stripped = commandWithoutSafeOutputRedirection(
+      commandWithoutSafeDescriptorDuplication(commandWithoutSafeOutputFilter(commandWithoutSafeSuccessMarker(current))),
+    )
+    if (stripped === current) {
+      return current
+    }
+    current = stripped
+  }
+  return current
+}
+
 /**
  * Removes shell redirection syntax from parsed command operands while leaving source and
  * destination paths available in the original command for scope and sensitivity checks.

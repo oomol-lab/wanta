@@ -104,6 +104,12 @@ test("high risk command detection marks destructive commands for default access 
     isHighRiskPermissionRequest(permission({ metadata: { command: "oo connector apps posthog 2>&1 | head -80" } })),
     false,
   )
+  assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "docker rm container-1" } })), false)
+  assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "docker rm -v container-1" } })), true)
+  assert.equal(
+    isHighRiskPermissionRequest(permission({ metadata: { command: "docker rm --volumes container-1" } })),
+    true,
+  )
 })
 
 test("managed Python dependency installs are narrow enough for a task approval", () => {

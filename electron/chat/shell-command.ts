@@ -4,6 +4,7 @@ import { projectPermissionResourceInsideRoot } from "./project-permission.ts"
 export {
   commandBodyAfterBoundedCd,
   commandBodyAfterLikelyCd,
+  commandWithoutInertOutputSuffixes,
   commandWithoutSafeOutputFilter,
   explicitCdDirectory,
   hasUnsafeShellSyntax,

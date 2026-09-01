@@ -3,7 +3,9 @@ import { test } from "vitest"
 import { commandRequiresConfirmation } from "./command-risk.ts"
 import {
   commandWithoutHereDocumentBodies,
+  commandWithoutInertOutputSuffixes,
   commandWithoutSafeDescriptorDuplication,
+  commandWithoutSafeOutputRedirection,
   explicitCdDirectory,
   shellWordsWithoutRedirections,
 } from "./shell-syntax.ts"
@@ -105,6 +107,50 @@ test("safe descriptor duplication is separated from named-file redirection", () 
   assert.equal(
     commandWithoutSafeDescriptorDuplication("python task.py 2> /tmp/task.log"),
     "python task.py 2> /tmp/task.log",
+  )
+})
+
+test("safe output redirections to ordinary log files are stripped", () => {
+  assert.equal(
+    commandWithoutSafeOutputRedirection("python -m pip install python-docx > /tmp/install.log"),
+    "python -m pip install python-docx",
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection("npm install marked >> /tmp/install.log 2>/dev/null"),
+    "npm install marked",
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection("python -m pip install python-docx > ~/.ssh/id_rsa"),
+    "python -m pip install python-docx > ~/.ssh/id_rsa",
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection('npm install marked > "$(touch /tmp/pwn)"'),
+    'npm install marked > "$(touch /tmp/pwn)"',
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection("npm install marked > $(touch /tmp/pwn)"),
+    "npm install marked > $(touch /tmp/pwn)",
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection("npm install marked > /tmp/*.log"),
+    "npm install marked > /tmp/*.log",
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection("npm install marked > ~/install.log"),
+    "npm install marked > ~/install.log",
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection("npm install marked > /tmp/install.log;env"),
+    "npm install marked > /tmp/install.log;env",
+  )
+})
+
+test("inert suffix removal repeats until no safe suffix remains", () => {
+  assert.equal(commandWithoutInertOutputSuffixes("npm install marked 2>&1 >/tmp/install.log"), "npm install marked")
+  assert.equal(commandWithoutInertOutputSuffixes("npm install marked >/tmp/install.log 2>&1"), "npm install marked")
+  assert.equal(
+    commandWithoutInertOutputSuffixes("npm install marked > /tmp/install.log;env"),
+    "npm install marked > /tmp/install.log;env",
   )
 })
 

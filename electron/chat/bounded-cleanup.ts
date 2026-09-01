@@ -46,6 +46,23 @@ function strictChild(root: string, target: string): boolean {
   return Boolean(relative && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
 }
 
+function isTemporaryCleanupTarget(target: string): boolean {
+  const temporaryRoots = new Set(["/tmp", "/var/tmp", "/private/tmp"])
+  try {
+    temporaryRoots.add(path.resolve("/tmp"))
+    temporaryRoots.add(path.resolve("/var/tmp"))
+  } catch {
+    // Ignore platforms that cannot resolve these roots.
+  }
+  return [...temporaryRoots].some((root) => {
+    const resolvedRoot = normalizedRoot(root)
+    if (!resolvedRoot || !strictChild(resolvedRoot, target)) {
+      return false
+    }
+    return !path.relative(resolvedRoot, target).includes(path.sep)
+  })
+}
+
 function boundedCleanupTarget(
   target: string,
   cwd: string | undefined,
@@ -57,6 +74,7 @@ function boundedCleanupTarget(
 
   const processRoot = normalizedRoot(context.taskProcessRoot)
   if (processRoot && strictChild(processRoot, absoluteTarget)) return true
+  if (isTemporaryCleanupTarget(absoluteTarget)) return true
 
   const projectRoot = normalizedRoot(context.trustedProjectRoot)
   if (!projectRoot || !strictChild(projectRoot, absoluteTarget)) return false
@@ -68,8 +86,9 @@ function boundedCleanupTarget(
 
 /**
  * Recognizes a deliberately narrow subset of recursive cleanup that is cheap to recover:
- * direct children of Wanta's per-turn process directory and well-known generated project roots.
- * Any composition, wildcard, variable, broad root, or ordinary project directory stays protected.
+ * children of `/tmp` and `/var/tmp` (one path segment), direct children of Wanta's per-turn
+ * process directory, and well-known generated project roots. Any composition, wildcard, variable,
+ * home path, broad root, or ordinary project directory stays protected.
  */
 export function isLowConsequenceCleanupCommand(
   command: string,

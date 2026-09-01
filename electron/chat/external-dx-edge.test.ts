@@ -18,7 +18,7 @@ import type { UserAttachmentStore } from "./user-attachments.ts"
 
 import assert from "node:assert/strict"
 import { randomUUID } from "node:crypto"
-import { mkdtemp, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test, vi } from "vitest"
@@ -440,12 +440,136 @@ test("external plan turns keep the registered project read-only and use managed 
   await waitForCondition(() => adapter.prompts.length === 1, "external plan prompt")
 
   const prompt = adapter.prompts[0]
+  assert.equal(prompt?.mode, "plan")
   assert.equal(prompt?.outputProjectRoot, undefined)
   assert.equal(prompt?.workingDirectory, undefined)
   assert.ok(prompt?.artifactDir)
   assert.equal(prompt.artifactDir.startsWith(projectRoot), false)
 
   adapter.completeAssistantTurn(sessionId, "assistant-plan", "done")
+  await waitForTurnCompletion(service)
+})
+
+test("external /bug-report uses the host report contract and a Build artifact root", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "wanta-external-bug-report-"))
+  const attachment = await createProbeAttachment()
+  const scopeChanges = vi.fn(
+    async (_input: {
+      active: boolean
+      cwdRoots?: readonly string[]
+      diagnostic?: boolean
+      sessionId: string
+      teamName?: string
+    }) => undefined,
+  )
+  const { service, adapters } = createHarness(["claude-code"], {
+    bugReportRuntime: {
+      appCommit: "abc123",
+      appVersion: "1.2.3",
+      platform: "darwin",
+    },
+    trustedAttachmentPaths: new Set([attachment.path]),
+    onExternalTurnScopeChanged: scopeChanges,
+    projectStore: {
+      read: async () =>
+        new Map([
+          [
+            "project-1",
+            {
+              id: "project-1",
+              name: "Project",
+              path: projectRoot,
+              createdAt: 1,
+              updatedAt: 1,
+              scope: localScope,
+            },
+          ],
+        ]),
+    },
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+  service.setLinkRuntime("openconnector")
+  vi.spyOn(adapter, "getMessages").mockResolvedValueOnce([
+    {
+      id: "user-1",
+      role: "user",
+      createdAt: 1,
+      parts: [{ kind: "text", partId: "t1", text: "请帮我修好 Gmail 授权卡住。" }],
+    },
+    {
+      id: "assistant-1",
+      role: "assistant",
+      createdAt: 2,
+      finishReason: "stop",
+      parts: [
+        {
+          kind: "tool",
+          partId: "tool-1",
+          tool: "bash",
+          status: "error",
+          failureKind: "authorization",
+          error: "connector unauthorized",
+          authorization: { service: "gmail", displayName: "Gmail", errorCode: "unauthorized" },
+        },
+      ],
+    },
+  ])
+
+  await service.sendMessage(
+    sendRequest(sessionId, "/bug-report Focus on the loop.", {
+      agentModelId: "sonnet",
+      attachments: [attachment],
+      mode: "plan",
+      projectContext: { id: "project-1", name: "Project", path: projectRoot },
+      teamSkills: [{ id: "posthog", name: "PostHog", description: "Analyze product usage" }],
+    }),
+  )
+  await waitForCondition(() => adapter.prompts.length === 1, "external bug-report prompt")
+
+  const prompt = adapter.prompts[0]
+  assert.equal(prompt?.text, "/bug-report Focus on the loop.")
+  assert.equal(prompt?.mode, "build")
+  assert.equal(prompt?.diagnostic, true)
+  assert.equal(prompt?.attachments, undefined)
+  assert.equal(prompt?.outputProjectRoot, undefined)
+  assert.equal(prompt?.processDir, undefined)
+  assert.ok(prompt?.artifactDir)
+  const evidenceDir = prompt.workingDirectory
+  assert.ok(evidenceDir)
+  assert.equal(path.basename(evidenceDir), "bug-report")
+  assert.deepEqual(prompt.additionalDirectories, [prompt.artifactDir])
+  assert.equal((await realpath(prompt.artifactDir)).startsWith(await realpath(projectRoot)), true)
+  assert.deepEqual(scopeChanges.mock.calls[0]?.[0], {
+    active: true,
+    cwdRoots: [evidenceDir, prompt.artifactDir],
+    diagnostic: true,
+    sessionId,
+  })
+  assert.match(prompt.system ?? "", /built-in \/bug-report command/)
+  assert.match(prompt.system ?? "", /Focus on the loop/)
+  assert.match(prompt.system ?? "", /wanta-bug-report\.md/)
+  assert.match(prompt.system ?? "", /Wanta version: 1\.2\.3/)
+  assert.match(prompt.system ?? "", /Build commit: abc123/)
+  assert.match(prompt.system ?? "", /Model: claude-code:sonnet/)
+  assert.match(prompt.system ?? "", /Do not reproduce the report body in the assistant response/)
+  assert.match(prompt.system ?? "", /index\.json/)
+  assert.match(prompt.system ?? "", /## Wanta diagnosis/)
+  assert.match(prompt.system ?? "", /classified the latest user instruction as Simplified Chinese/)
+  assert.doesNotMatch(prompt.system ?? "", /Wanta-managed `oo connector/)
+  assert.doesNotMatch(prompt.system ?? "", /Team-configured skills/)
+  assert.doesNotMatch(prompt.system ?? "", /Use local tools normally/)
+  assert.doesNotMatch(prompt.system ?? "", /Current local project context/)
+
+  const index = JSON.parse(await readFile(path.join(evidenceDir, "index.json"), "utf8")) as {
+    friction: { toolFailures: Array<{ tool?: string }> }
+    userGoal?: string
+  }
+  assert.equal(index.userGoal, "请帮我修好 Gmail 授权卡住。")
+  assert.equal(index.friction.toolFailures[0]?.tool, "bash")
+
+  adapter.completeAssistantTurn(sessionId, "assistant-bug-report", "done")
   await waitForTurnCompletion(service)
 })
 
@@ -522,6 +646,34 @@ test("edge1b: a failed attachment send rolls the display record back", async () 
         (event.data as { kind?: string; reason?: string }).reason === "prompt_dispatch_failed",
     ),
   )
+})
+
+test("edge1b2: a failed permission-mode projection after attachment record rolls the display record back", async () => {
+  const record = vi.fn(async () => undefined)
+  const removeMessage = vi.fn(async () => undefined)
+  const attachmentStore = {
+    read: async () => new Map(),
+    record,
+    removeMessage,
+  } as unknown as UserAttachmentStore
+  const attachment = await createProbeAttachment()
+  const { service, adapters } = createHarness(["claude-code"], {
+    userAttachmentStore: attachmentStore,
+    trustedAttachmentPaths: new Set([attachment.path]),
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  adapter.failNextPermissionMode = new Error("mode refused")
+  const sessionId = mintExternalSessionId("claude-code")
+
+  await assert.rejects(
+    service.sendMessage(sendRequest(sessionId, "please read this", { attachments: [attachment] })),
+    /mode refused/,
+  )
+  assert.equal(record.mock.calls.length, 1)
+  assert.equal(removeMessage.mock.calls.length, 1)
+  assert.equal(adapter.prompts.length, 0)
+  assert.equal(service.hasActiveGeneration(), false)
 })
 
 test("edge1c: an attachment path the user never authorized is rejected at the IPC boundary", async () => {

@@ -4,6 +4,7 @@ const wrapperCommands = new Set(["builtin", "command", "exec", "nohup", "time"])
 const shellCommands = new Set(["bash", "sh", "zsh"])
 const scriptInterpreterCommands = new Set(["bun", "deno", "lua", "node", "perl", "php", "python", "python3", "ruby"])
 const gitOptionsWithValue = new Set(["-C", "-c", "--config-env", "--git-dir", "--namespace", "--work-tree"])
+const gitRestoreOptionsWithValue = new Set(["--source"])
 const containerOptionsWithValue = new Set(["--config", "--context", "--host", "-H"])
 const clusterOptionsWithValue = new Set([
   "--as",
@@ -128,6 +129,34 @@ function mutatesHomebrew(words: readonly string[]): boolean {
   return Boolean(verb && ["install", "remove", "uninstall", "upgrade"].includes(verb))
 }
 
+function gitRestorePathspecs(args: readonly string[]): string[] {
+  const separator = args.indexOf("--")
+  if (separator >= 0) {
+    return args.slice(separator + 1)
+  }
+  const pathspecs: string[] = []
+  for (let index = 0; index < args.length; index += 1) {
+    const word = args[index] ?? ""
+    if (word.startsWith("-")) {
+      const option = optionName(word)
+      if (gitRestoreOptionsWithValue.has(option) && !word.includes("=")) {
+        index += 1
+      }
+      continue
+    }
+    pathspecs.push(word)
+  }
+  return pathspecs
+}
+
+function isBroadGitRestorePathspec(pathspec: string): boolean {
+  const normalized = pathspec.trim().replace(/\\/gu, "/")
+  if (!normalized) return true
+  if ([".", "./", "..", "../", "/", ":/", ":."].includes(normalized)) return true
+  if (normalized.endsWith("/") || /[*?[]/u.test(normalized)) return true
+  return normalized.startsWith(":(") || normalized.startsWith(":!") || normalized.startsWith(":^")
+}
+
 function mutatesGitRemoteOrWorkingTree(words: readonly string[]): boolean {
   if (shellCommandName(words[0]) !== "git") {
     return false
@@ -144,12 +173,29 @@ function mutatesGitRemoteOrWorkingTree(words: readonly string[]): boolean {
   if (verb === "reset") {
     return args.includes("--hard")
   }
-  if (verb === "checkout" || verb === "restore") {
-    const separator = args.indexOf("--")
-    return separator >= 0 && Boolean(args[separator + 1])
-  }
   if (verb === "clean") {
     return args.some((word) => word === "--force" || optionHasLetter(word, "f"))
+  }
+  if (verb === "restore") {
+    if (args.some((word) => word === "--pathspec-from-file" || word.startsWith("--pathspec-from-file="))) {
+      return true
+    }
+    return gitRestorePathspecs(args).some(isBroadGitRestorePathspec)
+  }
+  if (verb === "checkout" || verb === "switch") {
+    for (const word of args) {
+      if (word === "--") {
+        break
+      }
+      if (word === "--force" || word === "--discard-changes" || optionHasLetter(word, "f")) {
+        return true
+      }
+    }
+    if (verb === "checkout") {
+      const separator = args.indexOf("--")
+      const pathspecs = separator >= 0 ? args.slice(separator + 1) : args.filter(isBroadGitRestorePathspec)
+      return pathspecs.some(isBroadGitRestorePathspec)
+    }
   }
   return false
 }
@@ -163,6 +209,21 @@ function mutatesCluster(words: readonly string[]): boolean {
   return Boolean(command && ["apply", "delete", "patch", "replace", "rollback", "upgrade"].includes(command))
 }
 
+function dockerRmRemovesAnonymousVolumes(words: readonly string[], startIndex: number): boolean {
+  for (const word of words.slice(startIndex)) {
+    if (word === "--") {
+      break
+    }
+    if (word === "--volumes" || word.startsWith("--volumes=")) {
+      return true
+    }
+    if (optionHasLetter(word, "v")) {
+      return true
+    }
+  }
+  return false
+}
+
 function mutatesDocker(words: readonly string[]): boolean {
   if (shellCommandName(words[0]) !== "docker") {
     return false
@@ -172,11 +233,18 @@ function mutatesDocker(words: readonly string[]): boolean {
     return false
   }
   const verb = command.value.toLowerCase()
-  if (verb === "rm" || verb === "rmi") {
+  const nested = nextOperand(words, command.index + 1)
+  const nestedVerb = nested?.value.toLowerCase()
+  if ((verb === "system" && nestedVerb === "prune") || (verb === "volume" && nestedVerb === "rm")) {
     return true
   }
-  const nested = nextOperand(words, command.index + 1)?.value.toLowerCase()
-  return (verb === "system" && nested === "prune") || (verb === "volume" && nested === "rm")
+  if (verb === "rm") {
+    return dockerRmRemovesAnonymousVolumes(words, command.index + 1)
+  }
+  if (verb === "container" && nestedVerb === "rm" && nested) {
+    return dockerRmRemovesAnonymousVolumes(words, nested.index + 1)
+  }
+  return false
 }
 
 function destroysInfrastructure(words: readonly string[]): boolean {

@@ -13,6 +13,7 @@ import type { RuntimeCapabilities } from "../runtime/common.ts"
 import type { SessionProjectStore } from "../session/project-store.ts"
 import type { ArtifactBundleStore, ArtifactBundles } from "./artifact-bundles.ts"
 import type { AuthorizationOverlayStore } from "./authorization.ts"
+import type { BugReportEvidencePack, ParsedBugReportCommand } from "./bug-report.ts"
 import type {
   AgentRuntimeStatus,
   AgentPermissionMode,
@@ -91,8 +92,10 @@ import { applyAuthorizationOverlays } from "./authorization.ts"
 import {
   BUG_REPORT_FILE_NAME,
   bugReportModelLabel,
+  bugReportModelLabelForExternal,
   buildBugReportSystemPrompt,
   parseBugReportCommand,
+  writeBugReportEvidencePack,
 } from "./bug-report.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 import {
@@ -202,6 +205,13 @@ function ensureExternalHttpUrl(rawUrl: string): string {
   return url.toString()
 }
 
+function attachmentsForAgentTurn(
+  bugReport: ParsedBugReportCommand | null,
+  attachments: ChatAttachment[] | undefined,
+): ChatAttachment[] | undefined {
+  return bugReport ? undefined : attachments ? [...attachments] : undefined
+}
+
 function createErrorPartId(): string {
   return `agent-error-${Date.now()}-${crypto.randomUUID()}`
 }
@@ -308,6 +318,7 @@ interface ChatServiceDeps {
   onExternalTurnScopeChanged?: (input: {
     active: boolean
     cwdRoots?: readonly string[]
+    diagnostic?: boolean
     sessionId: string
     teamName?: string
   }) => Promise<void> | void
@@ -1197,9 +1208,20 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
     const projectRoot = this.trustedAccess.projectRoot(request.sessionId)
     const activeGenerationId = this.generations.get(displaySessionId)?.id
-    const taskProcessRoot = activeGenerationId ? this.turnOutputs.get(activeGenerationId)?.processRoot : undefined
+    const activeTurn = activeGenerationId ? this.turnOutputs.get(activeGenerationId) : undefined
+    const taskProcessRoot = activeTurn?.processRoot
+    const diagnosticRoots =
+      activeTurn?.diagnosticTurn && activeTurn.processRoot && activeTurn.artifactRoot
+        ? {
+            artifactRoot: activeTurn.artifactRoot,
+            processRoot: activeTurn.diagnosticEvidenceRoot ?? activeTurn.processRoot,
+          }
+        : undefined
     // Keyed off the session id's kind, so a malformed external id still fails
     // closed (prompt) instead of falling through to the kernel's defaults.
+    // Proven cwd comes from request metadata (`cwd` / `workingDirectory`).
+    // Do not treat the selected project as commandCwd for BYOA: unscoped
+    // `npm install` with only trustedProjectRoot must still prompt.
     const isExternalSession = externalAgentKindForSessionId(request.sessionId) !== undefined
     const decision = evaluateLocalAccessRequest(request, {
       activeGenerationId,
@@ -1208,6 +1230,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       sessionGrants: this.permissions.sessionGrants(request.sessionId),
       ...(taskProcessRoot ? { taskProcessRoot } : {}),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
+      ...(diagnosticRoots ? { diagnosticRoots } : {}),
       ...(isExternalSession ? { isExternalSession } : {}),
     })
     // External sessions answer through their own adapter; only a session with
@@ -1216,7 +1239,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return false
     }
     if (decision.type === "prompt") {
-      const promptReason = localAccessPromptReason(request)
+      const promptReason = localAccessPromptReason(request, projectRoot ? { trustedProjectRoot: projectRoot } : {})
       this.permissionDiagnostics.recordPrompt(promptReason, `${request.sessionId}:${request.id}`)
       request.wanta = { ...request.wanta, promptReason }
       logDiagnostic(
@@ -1955,9 +1978,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!req.text.trim()) {
       throw new Error("Message text is empty.")
     }
+    const bugReport = parseBugReportCommand(req.text)
     const externalKind = externalAgentKindForSessionId(req.sessionId)
     if (externalKind) {
-      return this.sendExternalMessage(req, externalKind)
+      return this.sendExternalMessage(req, externalKind, bugReport)
     }
     if (isExternalSessionId(req.sessionId)) {
       throw new Error("Invalid or unsupported external agent session.")
@@ -1968,7 +1992,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (this.generations.has(req.sessionId)) {
       throw new Error("A generation is already active for this session.")
     }
-    await this.assertTrustedAttachments(req.attachments)
+    const turnAttachments = attachmentsForAgentTurn(bugReport, req.attachments)
+    await this.assertTrustedAttachments(turnAttachments)
     this.setSessionPermissionModeValue(
       req.sessionId,
       req.permissionMode ?? this.sessionPermissionMode(req.sessionId),
@@ -1976,15 +2001,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     )
     const userMessageId = createOpencodeMessageId()
     const teamName = teamNameFromRequest(req)
-    const bugReport = parseBugReportCommand(req.text)
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
     let processDir: string | undefined
     let attachmentsRecorded = false
     let submitted = false
     try {
-      if (req.attachments?.length) {
-        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments, req.text)
+      if (turnAttachments?.length) {
+        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, turnAttachments, req.text)
         attachmentsRecorded = true
         this.managedUserMessageIds.add(userMessageId)
         const sessionMessageIds = this.managedUserMessageIdsBySession.get(req.sessionId) ?? new Set<string>()
@@ -1993,7 +2017,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.internalAttachmentPathsByMessage.set(
           userMessageId,
           new Set(
-            req.attachments
+            turnAttachments
               .map((attachment) => attachment.agentPath?.trim())
               .filter((value): value is string => Boolean(value)),
           ),
@@ -2012,7 +2036,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
         await removeUnsubmittedTurnDirectories(artifactDir, processDir)
         if (attachmentsRecorded) {
-          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
         }
         return
       }
@@ -2036,7 +2060,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
         await removeUnsubmittedTurnDirectories(artifactDir, processDir)
         if (attachmentsRecorded) {
-          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
         }
         return
       }
@@ -2066,27 +2090,46 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(project.baseline ? { projectBaseline: project.baseline } : {}),
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
         ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
+        ...(bugReport ? { diagnosticTurn: true } : {}),
       })
       const promptGeneration = activeGeneration
-      const bugReportSystem = bugReport
-        ? buildBugReportSystemPrompt({
-            ...(bugReport.note ? { note: bugReport.note } : {}),
-            runtime: {
-              agentMode: "build",
-              appCommit: this.deps.bugReportRuntime?.appCommit ?? "unknown",
-              appVersion: this.deps.bugReportRuntime?.appVersion ?? "unknown",
-              generatedAt: new Date().toISOString(),
-              model: bugReportModelLabel(req.model),
-              permissionMode: this.sessionPermissionMode(req.sessionId),
-              permissionDiagnostics: this.permissionDiagnostics.snapshot(),
-              platform: this.deps.bugReportRuntime?.platform ?? process.platform,
-            },
-            targetFilePath: path.join(artifactDir, BUG_REPORT_FILE_NAME),
-          })
+      const generatedAt = new Date().toISOString()
+      const evidencePack = bugReport
+        ? await this.materializeBugReportEvidence(req.sessionId, processDir, bugReport, generatedAt)
         : undefined
+      if (!this.isCurrentGeneration(req.sessionId, promptGeneration.id) || promptGeneration.controller.signal.aborted) {
+        this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
+        this.turnOutputs.delete(req.sessionId, promptGeneration.id)
+        this.clearSessionGeneration(req.sessionId, promptGeneration.id)
+        await removeUnsubmittedTurnDirectories(artifactDir, processDir)
+        if (attachmentsRecorded) {
+          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
+        }
+        return
+      }
+      if (bugReport && evidencePack) {
+        const activeTurn = this.turnOutputs.get(promptGeneration.id)
+        if (activeTurn) {
+          this.turnOutputs.set(promptGeneration.id, {
+            ...activeTurn,
+            diagnosticEvidenceRoot: evidencePack.packDir,
+          })
+        }
+      }
+      const bugReportSystem = bugReport
+        ? this.buildBugReportTurnSystem(
+            bugReport,
+            artifactDir,
+            req,
+            bugReportModelLabel(req.model),
+            generatedAt,
+            evidencePack,
+          )
+        : undefined
+      const bugReportLanguageText = evidencePack?.userGoal ?? bugReport?.note
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
-      this.rememberTrustedAttachments(req.sessionId, req.attachments)
-      this.discardTrustedAttachmentPaths(req.attachments)
+      this.rememberTrustedAttachments(req.sessionId, turnAttachments)
+      this.discardTrustedAttachmentPaths(turnAttachments)
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
       submitted = true
       this.scheduleGenerationSubmitWatchdog(req.sessionId, promptGeneration.id)
@@ -2096,7 +2139,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             type: "prompt",
             sessionId: req.sessionId,
             text: req.text,
-            attachments: req.attachments,
+            attachments: turnAttachments,
             artifactDir,
             outputProjectRoot: artifactProjectRoot,
             processDir,
@@ -2106,12 +2149,18 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             teamName,
             reasoningLevel: req.reasoningLevel,
             system: mergeSystemPrompts(
-              buildTeamSkillsSystem(req.teamSkills),
-              buildContextMentionsSystemPrompt(req.contextMentions),
-              buildProjectContextSystem(req.projectContext),
-              buildPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
-              bugReportSystem,
-              buildResponseLanguageSystem(req.appLocale, detectResponseLanguage(req.text)),
+              ...(bugReport
+                ? [bugReportSystem]
+                : [
+                    buildTeamSkillsSystem(req.teamSkills),
+                    buildContextMentionsSystemPrompt(req.contextMentions),
+                    buildProjectContextSystem(req.projectContext),
+                    buildPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
+                  ]),
+              buildResponseLanguageSystem(
+                req.appLocale,
+                detectResponseLanguage(bugReport ? (bugReportLanguageText ?? "") : req.text),
+              ),
             ),
           },
           { signal: promptGeneration.controller.signal },
@@ -2156,10 +2205,64 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
       await removeUnsubmittedTurnDirectories(artifactDir, processDir)
       if (attachmentsRecorded && !submitted) {
-        await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+        await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
       }
       throw error
     }
+  }
+
+  private async materializeBugReportEvidence(
+    sessionId: string,
+    processDir: string,
+    bugReport: ParsedBugReportCommand,
+    generatedAt: string,
+  ): Promise<BugReportEvidencePack | undefined> {
+    let messages: ChatMessage[] = []
+    let historyError: string | undefined
+    try {
+      messages = await this.getMessages(sessionId)
+    } catch (error) {
+      historyError = errorMessage(error)
+      logDiagnostic("chat-service", "failed to load bug-report history", { error, sessionId }, "warn")
+    }
+    try {
+      return await writeBugReportEvidencePack({
+        generatedAt,
+        messages,
+        processDir,
+        sessionId,
+        ...(bugReport.note ? { focusNote: bugReport.note } : {}),
+        ...(historyError ? { historyError } : {}),
+      })
+    } catch (error) {
+      logDiagnostic("chat-service", "failed to write bug-report evidence pack", { error, sessionId }, "warn")
+      return undefined
+    }
+  }
+
+  private buildBugReportTurnSystem(
+    bugReport: ParsedBugReportCommand,
+    artifactDir: string,
+    req: SendMessageRequest,
+    modelLabel: string,
+    generatedAt: string,
+    evidencePack: BugReportEvidencePack | undefined,
+  ): string {
+    return buildBugReportSystemPrompt({
+      ...(bugReport.note ? { note: bugReport.note } : {}),
+      ...(evidencePack ? { evidencePack } : {}),
+      runtime: {
+        agentMode: "build",
+        appCommit: this.deps.bugReportRuntime?.appCommit ?? "unknown",
+        appVersion: this.deps.bugReportRuntime?.appVersion ?? "unknown",
+        generatedAt,
+        model: modelLabel,
+        permissionMode: this.sessionPermissionMode(req.sessionId),
+        permissionDiagnostics: this.permissionDiagnostics.snapshot(),
+        platform: this.deps.bugReportRuntime?.platform ?? process.platform,
+      },
+      targetFilePath: path.join(artifactDir, BUG_REPORT_FILE_NAME),
+    })
   }
 
   /**
@@ -2167,12 +2270,17 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
    * model, and local permission enforcement; Wanta still owns product context
    * such as Link identity, selected skills, project context, and language.
    */
-  private async sendExternalMessage(req: SendMessageRequest, kind: ExternalAgentKind): Promise<void> {
+  private async sendExternalMessage(
+    req: SendMessageRequest,
+    kind: ExternalAgentKind,
+    bugReport: ParsedBugReportCommand | null,
+  ): Promise<void> {
     const adapter = this.externalAgents.get(kind)
     if (!adapter) {
       throw new Error("This agent is not available.")
     }
-    if (req.attachments?.length && !adapter.profile.inputs.attachments) {
+    const turnAttachments = attachmentsForAgentTurn(bugReport, req.attachments)
+    if (turnAttachments?.length && !adapter.profile.inputs.attachments) {
       throw new Error("Attachments are not supported for this agent yet.")
     }
     // Same trust boundary as the kernel path: attachment paths cross the IPC
@@ -2180,7 +2288,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     // recorded and handed to the agent. Asserted BEFORE the single-generation
     // check: the await would otherwise open a same-tick window where two sends
     // both pass the check and spawn duplicate generations.
-    await this.assertTrustedAttachments(req.attachments)
+    await this.assertTrustedAttachments(turnAttachments)
     if (this.generations.has(req.sessionId)) {
       throw new Error("A generation is already active for this session.")
     }
@@ -2198,6 +2306,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const promptSelectionOwners: Partial<Record<"model" | "effort", number>> = {}
     let artifactDir: string | undefined
     let processDir: string | undefined
+    let attachmentsRecorded = false
     try {
       const teamName = teamNameFromRequest(req)
       const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
@@ -2211,6 +2320,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       const directories = this.deps.managedTurnDirectories
       if (!directories) throw new Error("Managed turn directories are not configured.")
       const execution = resolveChatTurnExecution({
+        ...(bugReport ? { forcedMode: "build" } : {}),
         requestedMode: req.mode,
         ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
       })
@@ -2224,23 +2334,41 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         },
       )
       if (!artifactDir || !processDir) throw new Error("Turn directory creation returned an empty path")
-      const additionalDirectories = [
-        directories.artifactSessionDir(req.sessionId, artifactProjectRoot),
-        directories.processSessionDir(req.sessionId),
-      ]
       if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, generation.id)
         await removeUnsubmittedTurnDirectories(artifactDir, processDir)
         return
       }
+      const generatedAt = new Date().toISOString()
+      const evidencePack = bugReport
+        ? await this.materializeBugReportEvidence(req.sessionId, processDir, bugReport, generatedAt)
+        : undefined
+      if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
+        this.clearSessionGeneration(req.sessionId, generation.id)
+        await removeUnsubmittedTurnDirectories(artifactDir, processDir)
+        return
+      }
+      const diagnosticWorkingDirectory = bugReport ? (evidencePack?.packDir ?? artifactDir) : undefined
+      const diagnosticScopeRoots = [diagnosticWorkingDirectory, artifactDir].filter((root): root is string =>
+        Boolean(root),
+      )
+      const additionalDirectories = bugReport
+        ? [artifactDir].filter((root) => root !== diagnosticWorkingDirectory)
+        : [
+            directories.artifactSessionDir(req.sessionId, artifactProjectRoot),
+            directories.processSessionDir(req.sessionId),
+          ]
       const project = await this.projectBaseline(req.projectContext)
       await this.deps.onExternalTurnScopeChanged?.({
         active: true,
         sessionId: req.sessionId,
-        ...(teamName ? { teamName } : {}),
-        cwdRoots: [artifactDir, processDir, artifactProjectRoot, project.projectRoot].filter((root): root is string =>
-          Boolean(root),
-        ),
+        ...(bugReport ? { diagnostic: true } : {}),
+        ...(!bugReport && teamName ? { teamName } : {}),
+        cwdRoots: bugReport
+          ? [...new Set(diagnosticScopeRoots)]
+          : [artifactDir, processDir, artifactProjectRoot, project.projectRoot].filter((root): root is string =>
+              Boolean(root),
+            ),
       })
       const artifactBaseline = await captureArtifactSessionBaseline(
         directories.artifactSessionDir(req.sessionId, artifactProjectRoot),
@@ -2260,16 +2388,25 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(project.baseline ? { projectBaseline: project.baseline } : {}),
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
         ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
+        ...(bugReport
+          ? {
+              diagnosticTurn: true,
+              diagnosticEvidenceRoot: diagnosticWorkingDirectory,
+            }
+          : {}),
       })
-      if (req.attachments?.length) {
+      if (turnAttachments?.length) {
         // Same display path as the kernel: the store record is what getMessages
         // folds back onto the synthesized user turn.
-        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments, req.text)
-        this.rememberTrustedAttachments(req.sessionId, req.attachments)
+        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, turnAttachments, req.text)
+        attachmentsRecorded = true
+        this.rememberTrustedAttachments(req.sessionId, turnAttachments)
         // One-shot picker authorization is consumed on submit, kernel-style.
-        this.discardTrustedAttachmentPaths(req.attachments)
+        this.discardTrustedAttachmentPaths(turnAttachments)
       }
-      await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
+      if (!bugReport) {
+        await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
+      }
       if (req.agentModelId) {
         promptSelectionOwners.model = await this.runExternalSelectionMutation(req.sessionId, "model", async () => {
           previousSelection.modelId = adapter.sessionSelection(req.sessionId).modelId
@@ -2283,6 +2420,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         })
       }
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
+      const bugReportLanguageText = evidencePack?.userGoal ?? bugReport?.note
       let dispatchAcknowledged = false
       void adapter
         .send(
@@ -2291,25 +2429,50 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             sessionId: req.sessionId,
             text: req.text,
             messageId: userMessageId,
-            ...(req.attachments?.length ? { attachments: req.attachments } : {}),
-            ...(artifactProjectRoot ? { workingDirectory: artifactProjectRoot } : {}),
+            ...(bugReport ? { diagnostic: true } : {}),
+            ...(turnAttachments?.length ? { attachments: turnAttachments } : {}),
+            ...(bugReport && diagnosticWorkingDirectory
+              ? { workingDirectory: diagnosticWorkingDirectory }
+              : artifactProjectRoot
+                ? { workingDirectory: artifactProjectRoot }
+                : {}),
             additionalDirectories,
-            ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
+            ...(!bugReport && artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
             artifactDir,
-            processDir,
+            ...(!bugReport ? { processDir } : {}),
             // BYOA owns its account, provider route, model catalog, and effort.
             // Never forward Wanta/BYOK model selections into a local agent,
             // even when an older renderer or stale draft includes them.
             ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
             ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
-            ...(teamName ? { teamName } : {}),
+            ...(!bugReport && teamName ? { teamName } : {}),
+            ...(execution.mode ? { mode: execution.mode } : {}),
             system: mergeSystemPrompts(
-              buildLinkRuntimeSystem(this.activeLinkRuntime, teamName),
-              buildTeamSkillsSystem(req.teamSkills),
-              buildContextMentionsSystemPrompt(req.contextMentions),
-              buildProjectContextSystem(req.projectContext),
-              buildExternalPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
-              buildResponseLanguageSystem(req.appLocale, detectResponseLanguage(req.text)),
+              ...(bugReport
+                ? [
+                    this.buildBugReportTurnSystem(
+                      bugReport,
+                      artifactDir,
+                      req,
+                      bugReportModelLabelForExternal(
+                        kind,
+                        req.agentModelId ?? adapter.sessionSelection(req.sessionId).modelId,
+                      ),
+                      generatedAt,
+                      evidencePack,
+                    ),
+                  ]
+                : [
+                    buildLinkRuntimeSystem(this.activeLinkRuntime, teamName),
+                    buildTeamSkillsSystem(req.teamSkills),
+                    buildContextMentionsSystemPrompt(req.contextMentions),
+                    buildProjectContextSystem(req.projectContext),
+                    buildExternalPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
+                  ]),
+              buildResponseLanguageSystem(
+                req.appLocale,
+                detectResponseLanguage(bugReport ? (bugReportLanguageText ?? "") : req.text),
+              ),
             ),
           },
           {
@@ -2338,10 +2501,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
           this.turnOutputs.delete(req.sessionId, generation.id)
           void removeUnsubmittedTurnDirectories(artifactDir, processDir)
-          if (req.attachments?.length) {
+          if (turnAttachments?.length) {
             // The prompt never reached the agent; a record without a user turn
             // would resurface as an orphaned attachment bubble on reload.
-            void this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+            void this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
           }
           if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
             this.clearSessionGeneration(req.sessionId, generation.id)
@@ -2361,6 +2524,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         })
     } catch (error) {
       await this.rollbackPromptSelectionPersistence(req.sessionId, promptSelectionOwners, previousSelection)
+      if (attachmentsRecorded) {
+        await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
+      }
       this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
       this.turnOutputs.delete(req.sessionId, generation.id)
       await removeUnsubmittedTurnDirectories(artifactDir, processDir)

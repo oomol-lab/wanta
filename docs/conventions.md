@@ -159,12 +159,23 @@
   or system Python. Standard Node.js install/ci/add/remove/update operations with no explicit source
   override are auto-approved when npm/pnpm/yarn/bun explicitly targets the turn process directory
   or the currently selected project; lockfile-driven operations do not need a package argument.
-  Node.js and Python package runners are ordinary local execution rather than a package-specific
+  When the permission request itself carries a proven working directory (metadata `cwd`, or the
+  ACP session cwd) that matches that task or project root, a direct `npm install` / `.venv` pip
+  command does not need a redundant `cd`. Inert log redirects, descriptor duplication, and `echo ok`
+  markers do not eject an in-scope install. Node.js and Python package runners are ordinary local execution rather than a package-specific
   risk class. Package names, package size, browser tooling, and unfamiliar ordinary flags are not
-  confirmation boundaries. Recursive cleanup is also auto-approved for direct children of Wanta's
-  per-turn process directory and for exact well-known generated project roots such as `dist`,
+  confirmation boundaries. Recursive cleanup is also auto-approved for direct children of `/tmp`
+  and `/var/tmp`, direct children of Wanta's
+  per-turn process directory, and exact well-known generated project roots such as `dist`,
   `coverage`, and `node_modules`; project roots, source directories, variables, wildcards, and
-  composed destructive commands remain protected. Global installs, custom registries, user config, Git/URL/local
+  composed destructive commands remain protected. A `.env` file inside the selected project is
+  readable automatically through recognized read-only commands; deletion, writing, and unknown
+  executable semantics still prompt and may be granted for the session. Home credentials, browser
+  login state, and private app data stay outside session grants. `git restore` of explicit narrow
+  file pathspecs and named `docker rm`/`rmi` are ordinary; syntactically broad Git restore pathspecs
+  such as `.`, `:/`, directory forms ending in `/`, pathspec magic, and globs still prompt, as do
+  `docker rm -v` / `--volumes`,
+  `git push`, `reset --hard`, `clean -f`, and `docker system prune` remain confirmation boundaries. Global installs, custom registries, user config, Git/URL/local
   package sources, and out-of-scope commands never qualify for automatic approval. Session
   grants may still cover non-sensitive requests the user has explicitly allowed; Full Access =
   session-level local YOLO — once confirmed, the main process auto-replies local permissions for the

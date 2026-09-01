@@ -172,6 +172,7 @@ function pathValue(value: string): string {
 function looksLikeLocalPath(value: string): boolean {
   const candidate = pathValue(value)
   return (
+    hasUnresolvedShellExpansion(candidate) ||
     isHomeReferencePath(candidate) ||
     /^[A-Za-z]:[\\/]/u.test(candidate) ||
     candidate.startsWith("/") ||
@@ -750,9 +751,13 @@ function isHomeReferencePath(value: string): boolean {
   return /^(?:~|\$HOME|\$\{HOME\})(?:\/|$)/iu.test(value)
 }
 
+function hasUnresolvedShellExpansion(value: string): boolean {
+  return value.startsWith("~") || /[$`]/u.test(value)
+}
+
 function resolveScopedResourcePath(resource: string, workingDirectory?: string): string | undefined {
   const trimmed = normalizeResourceText(resource)
-  if (!trimmed || isHomeReferencePath(trimmed)) {
+  if (!trimmed || isHomeReferencePath(trimmed) || hasUnresolvedShellExpansion(trimmed)) {
     return undefined
   }
   if (isAbsoluteLocalPath(trimmed)) {
@@ -797,7 +802,8 @@ function commandScopeWithLeadingCd(command: string, scope: PermissionScopeContex
     return scope
   }
   const resolved = resolveScopedResourcePath(directory, scope.commandCwd)
-  return resolved ? { ...scope, commandCwd: resolved } : scope
+  // An unexpanded `cd` target is not proof we stayed in the previous cwd.
+  return resolved ? { ...scope, commandCwd: resolved } : { ...scope, commandCwd: undefined }
 }
 
 const attachedWriteRedirectPattern = /^(?:[0-9]*)(?:>>?|>\|)(.*)$/u

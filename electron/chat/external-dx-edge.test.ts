@@ -628,6 +628,34 @@ test("edge1b: a failed attachment send rolls the display record back", async () 
   )
 })
 
+test("edge1b2: a failed permission-mode projection after attachment record rolls the display record back", async () => {
+  const record = vi.fn(async () => undefined)
+  const removeMessage = vi.fn(async () => undefined)
+  const attachmentStore = {
+    read: async () => new Map(),
+    record,
+    removeMessage,
+  } as unknown as UserAttachmentStore
+  const attachment = await createProbeAttachment()
+  const { service, adapters } = createHarness(["claude-code"], {
+    userAttachmentStore: attachmentStore,
+    trustedAttachmentPaths: new Set([attachment.path]),
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  adapter.failNextPermissionMode = new Error("mode refused")
+  const sessionId = mintExternalSessionId("claude-code")
+
+  await assert.rejects(
+    service.sendMessage(sendRequest(sessionId, "please read this", { attachments: [attachment] })),
+    /mode refused/,
+  )
+  assert.equal(record.mock.calls.length, 1)
+  assert.equal(removeMessage.mock.calls.length, 1)
+  assert.equal(adapter.prompts.length, 0)
+  assert.equal(service.hasActiveGeneration(), false)
+})
+
 test("edge1c: an attachment path the user never authorized is rejected at the IPC boundary", async () => {
   // Attachment paths are renderer-supplied; without picker authorization a
   // compromised renderer could hand the agent any local file. The external

@@ -209,7 +209,7 @@ function attachmentsForAgentTurn(
   bugReport: ParsedBugReportCommand | null,
   attachments: ChatAttachment[] | undefined,
 ): ChatAttachment[] | undefined {
-  return bugReport ? undefined : attachments
+  return bugReport ? undefined : attachments ? [...attachments] : undefined
 }
 
 function createErrorPartId(): string {
@@ -2283,6 +2283,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const promptSelectionOwners: Partial<Record<"model" | "effort", number>> = {}
     let artifactDir: string | undefined
     let processDir: string | undefined
+    let attachmentsRecorded = false
     try {
       const teamName = teamNameFromRequest(req)
       const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
@@ -2352,6 +2353,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         // Same display path as the kernel: the store record is what getMessages
         // folds back onto the synthesized user turn.
         await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, turnAttachments, req.text)
+        attachmentsRecorded = true
         this.rememberTrustedAttachments(req.sessionId, turnAttachments)
         // One-shot picker authorization is consumed on submit, kernel-style.
         this.discardTrustedAttachmentPaths(turnAttachments)
@@ -2473,6 +2475,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         })
     } catch (error) {
       await this.rollbackPromptSelectionPersistence(req.sessionId, promptSelectionOwners, previousSelection)
+      if (attachmentsRecorded) {
+        await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
+      }
       this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
       this.turnOutputs.delete(req.sessionId, generation.id)
       await removeUnsubmittedTurnDirectories(artifactDir, processDir)

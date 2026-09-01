@@ -784,6 +784,34 @@ test("home-prefixed env files stay high risk even with an in-project cwd", () =>
   }
 })
 
+test("unexpanded env and tilde paths are not treated as in-project .env files", () => {
+  const projectRoot = "/Users/example/code/app"
+  for (const command of ["cat $CONFIG/.env", "cat ${CONFIG}/.env", "cat ~root/.env"]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command, cwd: projectRoot } }), {
+        permissionMode: "default",
+        trustedProjectRoot: projectRoot,
+      }),
+      { type: "prompt", kind: "command", highRisk: false },
+      command,
+    )
+  }
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "cd $CONFIG && cat .env", cwd: projectRoot } }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "cat .env", cwd: projectRoot } }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+  )
+})
+
 test("compound redirects after a dependency install still prompt", () => {
   const processRoot = "/tmp/wanta/process/turn-1"
   assert.equal(

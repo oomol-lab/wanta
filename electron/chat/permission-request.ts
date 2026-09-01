@@ -172,14 +172,9 @@ function pathValue(value: string): string {
 function looksLikeLocalPath(value: string): boolean {
   const candidate = pathValue(value)
   return (
-    candidate === "~" ||
-    candidate === "$HOME" ||
-    candidate === "${HOME}" ||
+    isHomeReferencePath(candidate) ||
     /^[A-Za-z]:[\\/]/u.test(candidate) ||
     candidate.startsWith("/") ||
-    candidate.startsWith("~/") ||
-    candidate.startsWith("$HOME/") ||
-    candidate.startsWith("${HOME}/") ||
     candidate.startsWith("file://")
   )
 }
@@ -206,6 +201,14 @@ function commandAccessResources(command: string, depth = 0): string[] {
     const nested = depth < 2 ? nestedShellCommand(words) : undefined
     return nested ? [...direct, ...commandAccessResources(nested, depth + 1)] : direct
   })
+}
+
+export function permissionRequestAccessResources(request: ChatPermissionRequest): string[] {
+  const values = [...request.resources, ...(request.save ?? [])].map((value) => value.trim()).filter(Boolean)
+  if (permissionRequestKind(request) !== "command") {
+    return values
+  }
+  return [...new Set([...values, ...commandAccessResources(commandText(request))])]
 }
 
 function isShallowDirectoryListing(command: string): boolean {
@@ -743,9 +746,13 @@ function collapsePathSegments(value: string): string | undefined {
   return `/${resolved.join("/")}`
 }
 
+function isHomeReferencePath(value: string): boolean {
+  return /^(?:~|\$HOME|\$\{HOME\})(?:\/|$)/iu.test(value)
+}
+
 function resolveScopedResourcePath(resource: string, workingDirectory?: string): string | undefined {
   const trimmed = normalizeResourceText(resource)
-  if (!trimmed || trimmed === "~" || trimmed.startsWith("~/") || trimmed.startsWith("$home/") || trimmed === "$home") {
+  if (!trimmed || isHomeReferencePath(trimmed)) {
     return undefined
   }
   if (isAbsoluteLocalPath(trimmed)) {

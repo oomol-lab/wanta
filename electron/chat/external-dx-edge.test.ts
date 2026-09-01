@@ -452,12 +452,14 @@ test("external plan turns keep the registered project read-only and use managed 
 
 test("external /bug-report uses the host report contract and a Build artifact root", async () => {
   const projectRoot = await mkdtemp(path.join(os.tmpdir(), "wanta-external-bug-report-"))
+  const attachment = await createProbeAttachment()
   const { service, adapters } = createHarness(["claude-code"], {
     bugReportRuntime: {
       appCommit: "abc123",
       appVersion: "1.2.3",
       platform: "darwin",
     },
+    trustedAttachmentPaths: new Set([attachment.path]),
     projectStore: {
       read: async () =>
         new Map([
@@ -508,6 +510,7 @@ test("external /bug-report uses the host report contract and a Build artifact ro
   await service.sendMessage(
     sendRequest(sessionId, "/bug-report Focus on the loop.", {
       agentModelId: "sonnet",
+      attachments: [attachment],
       mode: "plan",
       projectContext: { id: "project-1", name: "Project", path: projectRoot },
       teamSkills: [{ id: "posthog", name: "PostHog", description: "Analyze product usage" }],
@@ -518,6 +521,7 @@ test("external /bug-report uses the host report contract and a Build artifact ro
   const prompt = adapter.prompts[0]
   assert.equal(prompt?.text, "/bug-report Focus on the loop.")
   assert.equal(prompt?.mode, "build")
+  assert.equal(prompt?.attachments, undefined)
   assert.equal(prompt?.outputProjectRoot, projectRoot)
   assert.ok(prompt?.artifactDir)
   const processDir = prompt.processDir

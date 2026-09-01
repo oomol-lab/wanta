@@ -205,6 +205,13 @@ function ensureExternalHttpUrl(rawUrl: string): string {
   return url.toString()
 }
 
+function attachmentsForAgentTurn(
+  bugReport: ParsedBugReportCommand | null,
+  attachments: readonly ChatAttachment[] | undefined,
+): readonly ChatAttachment[] | undefined {
+  return bugReport ? undefined : attachments
+}
+
 function createErrorPartId(): string {
   return `agent-error-${Date.now()}-${crypto.randomUUID()}`
 }
@@ -1200,7 +1207,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
     const projectRoot = this.trustedAccess.projectRoot(request.sessionId)
     const activeGenerationId = this.generations.get(displaySessionId)?.id
-    const taskProcessRoot = activeGenerationId ? this.turnOutputs.get(activeGenerationId)?.processRoot : undefined
+    const activeTurn = activeGenerationId ? this.turnOutputs.get(activeGenerationId) : undefined
+    const taskProcessRoot = activeTurn?.processRoot
+    const diagnosticRoots =
+      activeTurn?.diagnosticTurn && activeTurn.processRoot && activeTurn.artifactRoot
+        ? { artifactRoot: activeTurn.artifactRoot, processRoot: activeTurn.processRoot }
+        : undefined
     // Keyed off the session id's kind, so a malformed external id still fails
     // closed (prompt) instead of falling through to the kernel's defaults.
     // Proven cwd comes from request metadata (`cwd` / `workingDirectory`).
@@ -1214,6 +1226,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       sessionGrants: this.permissions.sessionGrants(request.sessionId),
       ...(taskProcessRoot ? { taskProcessRoot } : {}),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
+      ...(diagnosticRoots ? { diagnosticRoots } : {}),
       ...(isExternalSession ? { isExternalSession } : {}),
     })
     // External sessions answer through their own adapter; only a session with
@@ -1975,7 +1988,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (this.generations.has(req.sessionId)) {
       throw new Error("A generation is already active for this session.")
     }
-    await this.assertTrustedAttachments(req.attachments)
+    const turnAttachments = attachmentsForAgentTurn(bugReport, req.attachments)
+    await this.assertTrustedAttachments(turnAttachments)
     this.setSessionPermissionModeValue(
       req.sessionId,
       req.permissionMode ?? this.sessionPermissionMode(req.sessionId),
@@ -1989,8 +2003,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     let attachmentsRecorded = false
     let submitted = false
     try {
-      if (req.attachments?.length) {
-        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments, req.text)
+      if (turnAttachments?.length) {
+        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, turnAttachments, req.text)
         attachmentsRecorded = true
         this.managedUserMessageIds.add(userMessageId)
         const sessionMessageIds = this.managedUserMessageIdsBySession.get(req.sessionId) ?? new Set<string>()
@@ -1999,7 +2013,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.internalAttachmentPathsByMessage.set(
           userMessageId,
           new Set(
-            req.attachments
+            turnAttachments
               .map((attachment) => attachment.agentPath?.trim())
               .filter((value): value is string => Boolean(value)),
           ),
@@ -2018,7 +2032,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
         await removeUnsubmittedTurnDirectories(artifactDir, processDir)
         if (attachmentsRecorded) {
-          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
         }
         return
       }
@@ -2042,7 +2056,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
         await removeUnsubmittedTurnDirectories(artifactDir, processDir)
         if (attachmentsRecorded) {
-          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
         }
         return
       }
@@ -2072,6 +2086,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(project.baseline ? { projectBaseline: project.baseline } : {}),
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
         ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
+        ...(bugReport ? { diagnosticTurn: true } : {}),
       })
       const promptGeneration = activeGeneration
       const generatedAt = new Date().toISOString()
@@ -2090,8 +2105,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         : undefined
       const bugReportLanguageText = evidencePack?.userGoal ?? bugReport?.note
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
-      this.rememberTrustedAttachments(req.sessionId, req.attachments)
-      this.discardTrustedAttachmentPaths(req.attachments)
+      this.rememberTrustedAttachments(req.sessionId, turnAttachments)
+      this.discardTrustedAttachmentPaths(turnAttachments)
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
       submitted = true
       this.scheduleGenerationSubmitWatchdog(req.sessionId, promptGeneration.id)
@@ -2101,7 +2116,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             type: "prompt",
             sessionId: req.sessionId,
             text: req.text,
-            attachments: req.attachments,
+            attachments: turnAttachments,
             artifactDir,
             outputProjectRoot: artifactProjectRoot,
             processDir,
@@ -2167,7 +2182,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
       await removeUnsubmittedTurnDirectories(artifactDir, processDir)
       if (attachmentsRecorded && !submitted) {
-        await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+        await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
       }
       throw error
     }
@@ -2241,7 +2256,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!adapter) {
       throw new Error("This agent is not available.")
     }
-    if (req.attachments?.length && !adapter.profile.inputs.attachments) {
+    const turnAttachments = attachmentsForAgentTurn(bugReport, req.attachments)
+    if (turnAttachments?.length && !adapter.profile.inputs.attachments) {
       throw new Error("Attachments are not supported for this agent yet.")
     }
     // Same trust boundary as the kernel path: attachment paths cross the IPC
@@ -2249,7 +2265,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     // recorded and handed to the agent. Asserted BEFORE the single-generation
     // check: the await would otherwise open a same-tick window where two sends
     // both pass the check and spawn duplicate generations.
-    await this.assertTrustedAttachments(req.attachments)
+    await this.assertTrustedAttachments(turnAttachments)
     if (this.generations.has(req.sessionId)) {
       throw new Error("A generation is already active for this session.")
     }
@@ -2330,14 +2346,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(project.baseline ? { projectBaseline: project.baseline } : {}),
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
         ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
+        ...(bugReport ? { diagnosticTurn: true } : {}),
       })
-      if (req.attachments?.length) {
+      if (turnAttachments?.length) {
         // Same display path as the kernel: the store record is what getMessages
         // folds back onto the synthesized user turn.
-        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, req.attachments, req.text)
-        this.rememberTrustedAttachments(req.sessionId, req.attachments)
+        await this.deps.userAttachmentStore?.record(req.sessionId, userMessageId, turnAttachments, req.text)
+        this.rememberTrustedAttachments(req.sessionId, turnAttachments)
         // One-shot picker authorization is consumed on submit, kernel-style.
-        this.discardTrustedAttachmentPaths(req.attachments)
+        this.discardTrustedAttachmentPaths(turnAttachments)
       }
       await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
       if (req.agentModelId) {
@@ -2366,7 +2383,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             sessionId: req.sessionId,
             text: req.text,
             messageId: userMessageId,
-            ...(req.attachments?.length ? { attachments: req.attachments } : {}),
+            ...(turnAttachments?.length ? { attachments: turnAttachments } : {}),
             ...(artifactProjectRoot ? { workingDirectory: artifactProjectRoot } : {}),
             additionalDirectories,
             ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
@@ -2433,10 +2450,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
           this.turnOutputs.delete(req.sessionId, generation.id)
           void removeUnsubmittedTurnDirectories(artifactDir, processDir)
-          if (req.attachments?.length) {
+          if (turnAttachments?.length) {
             // The prompt never reached the agent; a record without a user turn
             // would resurface as an orphaned attachment bubble on reload.
-            void this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, req.attachments)
+            void this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
           }
           if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
             this.clearSessionGeneration(req.sessionId, generation.id)

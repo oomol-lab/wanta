@@ -514,6 +514,8 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /working directory that is already that root/)
   assert.match(WANTA_SYSTEM_PROMPT, /git push\/reset --hard\/clean/)
   assert.match(WANTA_SYSTEM_PROMPT, /git restore/)
+  assert.match(WANTA_SYSTEM_PROMPT, /deleting the `\/tmp` root itself/)
+  assert.match(WANTA_SYSTEM_PROMPT, /direct `\/tmp`\/`\/var\/tmp` children/)
   assert.match(WANTA_SYSTEM_PROMPT, /exact selected-project `.venv` \/ `venv` interpreter/)
   assert.match(WANTA_SYSTEM_PROMPT, /Package runners remain ordinary local execution/)
   assert.match(WANTA_SYSTEM_PROMPT, /Ask the user a narrow follow-up question only when/)

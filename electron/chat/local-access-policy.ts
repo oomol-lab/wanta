@@ -18,6 +18,7 @@ import {
   permissionRequestNeedsDefaultPrompt,
   permissionRequestKind,
   permissionRequestWorkingDirectory,
+  permissionRequestAccessResources,
   requestMatchesManagedPythonDependencyInstallGrant,
   requestMatchesSessionGrant,
 } from "./permission-request.ts"
@@ -73,6 +74,14 @@ export interface LocalAccessPolicyContext {
   sessionGrants?: readonly SessionPermissionGrant[]
   taskProcessRoot?: string
   trustedProjectRoot?: string
+  /**
+   * Host-owned `/bug-report` turn. Connector, network, and host MCP calls prompt,
+   * and local work auto-runs only inside the evidence pack / report artifact roots.
+   */
+  diagnosticRoots?: {
+    artifactRoot: string
+    processRoot: string
+  }
   /**
    * Proven shell cwd for this request. Prefer metadata.cwd; ChatService also
    * supplies the ACP session working directory. OpenCode's private workspace
@@ -144,6 +153,40 @@ function hasMatchingGenericSessionGrant(
   grants: readonly SessionPermissionGrant[] | undefined,
 ): boolean {
   return Boolean(grants?.some((grant) => requestMatchesSessionGrant(request, grant)))
+}
+
+function diagnosticRequestInsideRoots(
+  request: ChatPermissionRequest,
+  roots: NonNullable<LocalAccessPolicyContext["diagnosticRoots"]>,
+): boolean {
+  const resources = permissionRequestAccessResources(request)
+  if (resources.length === 0) {
+    return false
+  }
+  return resources.every(
+    (resource) =>
+      projectPermissionResourceInsideRoot(resource, roots.processRoot) ||
+      projectPermissionResourceInsideRoot(resource, roots.artifactRoot),
+  )
+}
+
+function evaluateDiagnosticTurnAccess(
+  request: ChatPermissionRequest,
+  context: LocalAccessPolicyContext,
+): LocalAccessDecision | undefined {
+  const roots = context.diagnosticRoots
+  if (!roots) {
+    return undefined
+  }
+  const kind = permissionRequestKind(request)
+  const highRisk = isHighRiskPermissionRequest(request, permissionScope(request, context))
+  if (kind === "network" || isWantaHostToolPermissionRequest(request) || isOoCliPermissionRequest(request)) {
+    return { type: "prompt", kind, highRisk }
+  }
+  if (!diagnosticRequestInsideRoots(request, roots)) {
+    return { type: "prompt", kind, highRisk }
+  }
+  return undefined
 }
 
 function evaluateBaselineLocalAccessRequest(
@@ -249,6 +292,10 @@ export function evaluateLocalAccessRequest(
 ): LocalAccessDecision {
   const kind = permissionRequestKind(request)
   const highRisk = isHighRiskPermissionRequest(request, permissionScope(request, context))
+  const diagnostic = evaluateDiagnosticTurnAccess(request, context)
+  if (diagnostic) {
+    return diagnostic
+  }
   // This is deliberately the only adapter-specific policy branch, and it can
   // only make an external-agent decision more permissive. All other requests
   // go through the baseline that powered the built-in OpenCode experience;

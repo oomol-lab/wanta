@@ -489,7 +489,10 @@ recognizes it before OpenCode / BYOA routing, forces Build, and writes a shared 
 under the turn's process directory (`bug-report/index.json` plus `transcript.json`) from
 `getMessages` before the command. The same pack-backed contract is injected for every current
 session; working tails such as skills, Link/CLI, project-edit, and "use bash" guidance are omitted
-for that turn. The agent may inspect only the evidence pack, then write `wanta-bug-report.md` as a
+for that turn. The host also strips this-turn attachments so they never reach the agent, and
+applies a diagnostic local-access fence: connector, network, and host MCP calls prompt, while
+ordinary file/shell work auto-runs only inside the evidence-pack and report artifact roots.
+The agent may inspect only the evidence pack, then write `wanta-bug-report.md` as a
 developer diagnosis (trajectory, friction, Wanta change hypotheses with message-index citations).
 OpenCode uses Build for `createArtifactDir`, `artifactSessionDir`, and `promptStreaming`; BYOA uses
 the same mode for managed artifact placement and, when the adapter has a work-mode map, native

@@ -770,6 +770,72 @@ test("selected-project env files are readable and session-grantable to write", (
   )
 })
 
+test("home-prefixed env files stay high risk even with an in-project cwd", () => {
+  const projectRoot = "/Users/example/code/app"
+  for (const command of ["cat $HOME/.env", "cat ${HOME}/.env", "cat $home/.env"]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command, cwd: projectRoot } }), {
+        permissionMode: "default",
+        trustedProjectRoot: projectRoot,
+      }),
+      { type: "prompt", kind: "command", highRisk: false },
+      command,
+    )
+  }
+})
+
+test("compound redirects after a dependency install still prompt", () => {
+  const processRoot = "/tmp/wanta/process/turn-1"
+  assert.equal(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "npm install marked > /tmp/install.log;env" } }), {
+      permissionMode: "default",
+      taskProcessRoot: processRoot,
+      commandCwd: processRoot,
+    }).type,
+    "prompt",
+  )
+})
+
+test("bug-report turns only auto-allow work inside the evidence pack and report roots", () => {
+  const processRoot = "/tmp/wanta/process/turn-1"
+  const artifactRoot = "/tmp/wanta/artifacts/turn-1"
+  const diagnosticRoots = { artifactRoot, processRoot }
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: `cat ${processRoot}/bug-report/index.json` } }), {
+      diagnosticRoots,
+      permissionMode: "default",
+    }),
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({
+        action: "edit",
+        resources: [`${artifactRoot}/wanta-bug-report.md`],
+      }),
+      { diagnosticRoots, permissionMode: "default" },
+    ),
+    { type: "allow", reason: "default_local", kind: "edit", highRisk: false },
+  )
+  assert.equal(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector apps posthog" } }), {
+      diagnosticRoots,
+      linkRuntime: "oomol",
+      permissionMode: "default",
+    }).type,
+    "prompt",
+  )
+  assert.equal(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "npm install marked" } }), {
+      diagnosticRoots,
+      permissionMode: "default",
+      taskProcessRoot: processRoot,
+      commandCwd: processRoot,
+    }).type,
+    "prompt",
+  )
+})
+
 test("default access auto-approves local git restore, named docker rm, and /tmp cleanup", () => {
   for (const command of [
     "git restore -- src/index.ts",

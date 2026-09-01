@@ -279,8 +279,9 @@
   `npm test`, `rg`, data-processing scripts, or ordinary Desktop/Downloads files one by one;
   non-sensitive reads stay smooth even across broad home/system scopes; broad edits and destructive
   operations still prompt. Unscoped, global/system, or alternate-source dependency changes, reading credentials/keys, browser login state,
-  mail/messages/contacts/calendar data, recursive or destructive deletion outside managed scratch
-  or exact well-known generated project roots, the `/tmp` root itself, storage overwrite,
+  mail/messages/contacts/calendar data, recursive or destructive deletion outside managed scratch,
+  exact well-known generated project roots, and direct `/tmp`/`/var/tmp` children; deleting the
+  `/tmp` root itself; storage overwrite,
   privilege escalation, push, deploy, remote repository deletion, and infrastructure or recursive
   cloud-storage destruction still require confirmation; such sensitive reads take precedence over
   generic directory session grants and cannot be silently waved through because the user once

@@ -2529,6 +2529,48 @@ test("sendMessage turns /bug-report into a pack-backed diagnostic artifact turn"
   }
 })
 
+test("sendMessage strips this-turn attachments from /bug-report agent prompts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-bug-report-attach-"))
+  const artifactDir = path.join(root, "artifacts")
+  const processDir = path.join(root, "process")
+  await mkdir(processDir, { recursive: true })
+  const originalPath = path.join(root, "notes.md")
+  await writeFile(originalPath, "secret notes", "utf8")
+  const bridge = createBridgeAgent()
+  bridge.createArtifactDir.mockResolvedValue(artifactDir)
+  bridge.createProcessDir.mockResolvedValue(processDir)
+  const store = new UserAttachmentStore(root)
+  const service = new ChatServiceImpl(bridge.agent, {
+    trustedAttachmentPaths: new Set([originalPath]),
+    userAttachmentStore: store,
+  })
+
+  try {
+    await service.sendMessage({
+      attachments: [
+        {
+          id: "attachment-1",
+          kind: "file",
+          mime: "text/markdown",
+          name: "notes.md",
+          path: originalPath,
+          size: 12,
+        },
+      ],
+      scope: testTeamScope,
+      sessionId: "session-1",
+      text: "/bug-report",
+    })
+
+    const options = bridge.promptStreaming.mock.calls[0]?.[2] as { attachments?: unknown } | undefined
+    assert.equal(options?.attachments, undefined)
+    const messageId = (bridge.promptStreaming.mock.calls[0]?.[2] as { messageId?: string } | undefined)?.messageId
+    assert.equal((await store.read()).get("session-1")?.get(messageId ?? ""), undefined)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
 test("plan mode bug report resolves a Build artifact root and bundle in memory", () => {
   const projectPath = "/projects/wanta"
   const artifactRoot = `${projectPath}/.wanta/artifacts/session-1/turn-1`

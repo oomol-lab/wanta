@@ -43,8 +43,10 @@ Every turn receives the same host-owned context before adapter translation:
 - response-language policy;
 - managed artifact/process locations when the adapter supports them;
 - built-in slash-command contracts such as `/bug-report` (forced Build artifact
-  placement, a host-written evidence pack in the process directory, and the
-  same diagnostic report prompt on OpenCode and BYOA).
+  placement, a host-written evidence pack in the process directory, stripped
+  this-turn attachments, a diagnostic local-access fence limited to that pack
+  and the report artifact, and the same diagnostic report prompt on OpenCode
+  and BYOA).
 
 OpenCode receives this context through its dynamic system tail, custom tools,
 and managed sidecar environment. External agents receive the shared

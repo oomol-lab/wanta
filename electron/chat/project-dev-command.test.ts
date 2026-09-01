@@ -169,6 +169,20 @@ test("standard registry Node dependency installs use scope and source instead of
     ),
     false,
   )
+  assert.equal(
+    isStandardRegistryNodeDependencyInstallRequest(
+      permission(`cd ${root} && npm install marked > /tmp/install.log;env`),
+      root,
+    ),
+    false,
+  )
+  assert.equal(
+    isStandardRegistryNodeDependencyInstallRequest(
+      permission(`cd ${root} && npm install marked 2>&1 >/tmp/install.log`),
+      root,
+    ),
+    true,
+  )
   for (const packageName of [
     "playwright",
     "playwright-core",

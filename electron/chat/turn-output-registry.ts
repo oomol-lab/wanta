@@ -12,6 +12,7 @@ export interface ActiveTurnOutput {
   projectRoot?: string
   outputProjectRoot?: string
   requestText: string
+  diagnosticTurn?: boolean
 }
 
 export class TurnOutputRegistry {

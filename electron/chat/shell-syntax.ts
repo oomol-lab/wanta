@@ -302,7 +302,7 @@ function isSafeOutputRedirectDestination(destination: string): boolean {
   if (!destination || destination.startsWith("&")) {
     return false
   }
-  if (/[$`*?[\]{}~]/u.test(destination)) {
+  if ([...destination].some((character) => character === "~" || shellExpansionCharacters.has(character))) {
     return false
   }
   const normalized = destination.replace(/\\/g, "/").replace(/\/+$/u, "")
@@ -369,9 +369,17 @@ function isLiteralSuccessMarker(command: string): boolean {
 
 /** Strips output caps, descriptor duplication, file log redirects, and `echo ok` markers. */
 export function commandWithoutInertOutputSuffixes(command: string): string {
-  return commandWithoutSafeOutputRedirection(
-    commandWithoutSafeDescriptorDuplication(commandWithoutSafeOutputFilter(commandWithoutSafeSuccessMarker(command))),
-  )
+  let current = command
+  for (let depth = 0; depth < 8; depth += 1) {
+    const stripped = commandWithoutSafeOutputRedirection(
+      commandWithoutSafeDescriptorDuplication(commandWithoutSafeOutputFilter(commandWithoutSafeSuccessMarker(current))),
+    )
+    if (stripped === current) {
+      return current
+    }
+    current = stripped
+  }
+  return current
 }
 
 /**

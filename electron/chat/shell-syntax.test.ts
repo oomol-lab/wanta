@@ -3,6 +3,7 @@ import { test } from "vitest"
 import { commandRequiresConfirmation } from "./command-risk.ts"
 import {
   commandWithoutHereDocumentBodies,
+  commandWithoutInertOutputSuffixes,
   commandWithoutSafeDescriptorDuplication,
   commandWithoutSafeOutputRedirection,
   explicitCdDirectory,
@@ -137,6 +138,19 @@ test("safe output redirections to ordinary log files are stripped", () => {
   assert.equal(
     commandWithoutSafeOutputRedirection("npm install marked > ~/install.log"),
     "npm install marked > ~/install.log",
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection("npm install marked > /tmp/install.log;env"),
+    "npm install marked > /tmp/install.log;env",
+  )
+})
+
+test("inert suffix removal repeats until no safe suffix remains", () => {
+  assert.equal(commandWithoutInertOutputSuffixes("npm install marked 2>&1 >/tmp/install.log"), "npm install marked")
+  assert.equal(commandWithoutInertOutputSuffixes("npm install marked >/tmp/install.log 2>&1"), "npm install marked")
+  assert.equal(
+    commandWithoutInertOutputSuffixes("npm install marked > /tmp/install.log;env"),
+    "npm install marked > /tmp/install.log;env",
   )
 })
 

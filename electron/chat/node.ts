@@ -1222,9 +1222,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return false
     }
     if (decision.type === "prompt") {
-      const promptReason = localAccessPromptReason(request, {
-        ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
-      })
+      const promptReason = localAccessPromptReason(request, projectRoot ? { trustedProjectRoot: projectRoot } : {})
       this.permissionDiagnostics.recordPrompt(promptReason, `${request.sessionId}:${request.id}`)
       request.wanta = { ...request.wanta, promptReason }
       logDiagnostic(

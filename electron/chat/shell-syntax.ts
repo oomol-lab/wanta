@@ -302,6 +302,9 @@ function isSafeOutputRedirectDestination(destination: string): boolean {
   if (!destination || destination.startsWith("&")) {
     return false
   }
+  if (/[$`*?[\]{}~]/u.test(destination)) {
+    return false
+  }
   const normalized = destination.replace(/\\/g, "/").replace(/\/+$/u, "")
   const lower = normalized.toLowerCase()
   if (lower === "/dev/null" || lower === "nul") {

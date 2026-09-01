@@ -1203,8 +1203,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const taskProcessRoot = activeGenerationId ? this.turnOutputs.get(activeGenerationId)?.processRoot : undefined
     // Keyed off the session id's kind, so a malformed external id still fails
     // closed (prompt) instead of falling through to the kernel's defaults.
+    // Proven cwd comes from request metadata (`cwd` / `workingDirectory`).
+    // Do not treat the selected project as commandCwd for BYOA: unscoped
+    // `npm install` with only trustedProjectRoot must still prompt.
     const isExternalSession = externalAgentKindForSessionId(request.sessionId) !== undefined
-    const commandCwd = isExternalSession ? projectRoot : undefined
     const decision = evaluateLocalAccessRequest(request, {
       activeGenerationId,
       linkRuntime: this.activeLinkRuntime,
@@ -1212,7 +1214,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       sessionGrants: this.permissions.sessionGrants(request.sessionId),
       ...(taskProcessRoot ? { taskProcessRoot } : {}),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
-      ...(commandCwd ? { commandCwd } : {}),
       ...(isExternalSession ? { isExternalSession } : {}),
     })
     // External sessions answer through their own adapter; only a session with
@@ -1222,7 +1223,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     if (decision.type === "prompt") {
       const promptReason = localAccessPromptReason(request, {
-        ...(commandCwd ? { commandCwd } : {}),
         ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
       })
       this.permissionDiagnostics.recordPrompt(promptReason, `${request.sessionId}:${request.id}`)
@@ -2380,7 +2380,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
             ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
             ...(teamName ? { teamName } : {}),
-            ...(bugReport && execution.mode ? { mode: execution.mode } : {}),
+            ...(execution.mode ? { mode: execution.mode } : {}),
             system: mergeSystemPrompts(
               ...(bugReport
                 ? [

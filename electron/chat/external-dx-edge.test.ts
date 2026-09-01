@@ -440,6 +440,7 @@ test("external plan turns keep the registered project read-only and use managed 
   await waitForCondition(() => adapter.prompts.length === 1, "external plan prompt")
 
   const prompt = adapter.prompts[0]
+  assert.equal(prompt?.mode, "plan")
   assert.equal(prompt?.outputProjectRoot, undefined)
   assert.equal(prompt?.workingDirectory, undefined)
   assert.ok(prompt?.artifactDir)

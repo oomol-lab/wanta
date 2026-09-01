@@ -255,7 +255,8 @@
   home/system edit scopes, destructive deletion, global/system or alternate-source dependency changes, privilege
   escalation, `git push` / `reset --hard` / `clean -f`, publish/deploy, infrastructure changes, and the like.
   `git restore` of named files, named `docker rm`/`rmi`, and reading a selected-project `.env` stay
-  ordinary; writing that project `.env` still prompts and may be granted for the session.
+  ordinary; `docker rm -v` / `--volumes` still prompt. Writing that project `.env` still prompts
+  and may be granted for the session.
   Sensitive-resource checks take precedence over generic directory session grants; a generic grant
   can never green-light a high-risk request. Full Access can still take over the session's
   permissions after a single confirmation. The renderer only displays the pending UI, syncs the
@@ -279,7 +280,7 @@
   non-sensitive reads stay smooth even across broad home/system scopes; broad edits and destructive
   operations still prompt. Unscoped, global/system, or alternate-source dependency changes, reading credentials/keys, browser login state,
   mail/messages/contacts/calendar data, recursive or destructive deletion outside managed scratch
-  or exact well-known generated project roots, direct `/tmp` children, storage overwrite,
+  or exact well-known generated project roots, the `/tmp` root itself, storage overwrite,
   privilege escalation, push, deploy, remote repository deletion, and infrastructure or recursive
   cloud-storage destruction still require confirmation; such sensitive reads take precedence over
   generic directory session grants and cannot be silently waved through because the user once

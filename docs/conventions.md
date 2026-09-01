@@ -171,8 +171,8 @@
   composed destructive commands remain protected. A `.env` file inside the selected project is
   readable automatically; writing it still prompts and may be granted for the session. Home
   credentials, browser login state, and private app data stay outside session grants. `git restore`
-  of named files and named `docker rm`/`rmi` are ordinary; `git push`, `reset --hard`, `clean -f`,
-  and `docker system prune` remain confirmation boundaries. Global installs, custom registries, user config, Git/URL/local
+  of named files and named `docker rm`/`rmi` are ordinary; `docker rm -v` / `--volumes`,
+  `git push`, `reset --hard`, `clean -f`, and `docker system prune` remain confirmation boundaries. Global installs, custom registries, user config, Git/URL/local
   package sources, and out-of-scope commands never qualify for automatic approval. Session
   grants may still cover non-sensitive requests the user has explicitly allowed; Full Access =
   session-level local YOLO — once confirmed, the main process auto-replies local permissions for the

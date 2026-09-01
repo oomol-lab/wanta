@@ -169,6 +169,21 @@ function mutatesCluster(words: readonly string[]): boolean {
   return Boolean(command && ["apply", "delete", "patch", "replace", "rollback", "upgrade"].includes(command))
 }
 
+function dockerRmRemovesAnonymousVolumes(words: readonly string[], startIndex: number): boolean {
+  for (const word of words.slice(startIndex)) {
+    if (word === "--") {
+      break
+    }
+    if (word === "--volumes" || word.startsWith("--volumes=")) {
+      return true
+    }
+    if (optionHasLetter(word, "v")) {
+      return true
+    }
+  }
+  return false
+}
+
 function mutatesDocker(words: readonly string[]): boolean {
   if (shellCommandName(words[0]) !== "docker") {
     return false
@@ -178,8 +193,18 @@ function mutatesDocker(words: readonly string[]): boolean {
     return false
   }
   const verb = command.value.toLowerCase()
-  const nested = nextOperand(words, command.index + 1)?.value.toLowerCase()
-  return (verb === "system" && nested === "prune") || (verb === "volume" && nested === "rm")
+  const nested = nextOperand(words, command.index + 1)
+  const nestedVerb = nested?.value.toLowerCase()
+  if ((verb === "system" && nestedVerb === "prune") || (verb === "volume" && nestedVerb === "rm")) {
+    return true
+  }
+  if (verb === "rm") {
+    return dockerRmRemovesAnonymousVolumes(words, command.index + 1)
+  }
+  if (verb === "container" && nestedVerb === "rm" && nested) {
+    return dockerRmRemovesAnonymousVolumes(words, nested.index + 1)
+  }
+  return false
 }
 
 function destroysInfrastructure(words: readonly string[]): boolean {

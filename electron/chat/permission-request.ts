@@ -896,7 +896,7 @@ function commandEnvAccessesAreSelectedProject(command: string, scope: Permission
   ]
   const unique = [...new Set(resources.map((resource) => resource.trim()).filter(Boolean))]
   if (unique.length === 0) {
-    return Boolean(commandScope.commandCwd && isSelectedProjectEnvResource(".env", commandScope))
+    return false
   }
   return unique.every((resource) => isSelectedProjectEnvResource(resource, commandScope))
 }

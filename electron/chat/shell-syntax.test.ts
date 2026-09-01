@@ -122,6 +122,22 @@ test("safe output redirections to ordinary log files are stripped", () => {
     commandWithoutSafeOutputRedirection("python -m pip install python-docx > ~/.ssh/id_rsa"),
     "python -m pip install python-docx > ~/.ssh/id_rsa",
   )
+  assert.equal(
+    commandWithoutSafeOutputRedirection('npm install marked > "$(touch /tmp/pwn)"'),
+    'npm install marked > "$(touch /tmp/pwn)"',
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection("npm install marked > $(touch /tmp/pwn)"),
+    "npm install marked > $(touch /tmp/pwn)",
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection("npm install marked > /tmp/*.log"),
+    "npm install marked > /tmp/*.log",
+  )
+  assert.equal(
+    commandWithoutSafeOutputRedirection("npm install marked > ~/install.log"),
+    "npm install marked > ~/install.log",
+  )
 })
 
 test("parsed command operands exclude redirection syntax and targets", () => {

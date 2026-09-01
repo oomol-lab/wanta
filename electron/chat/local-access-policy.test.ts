@@ -733,6 +733,20 @@ test("selected-project env files are readable and session-grantable to write", (
     }),
     { type: "prompt", kind: "command", highRisk: false },
   )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "cat .env", cwd: projectRoot } }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: 'cat ".env', cwd: projectRoot } }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
 })
 
 test("default access auto-approves local git restore, named docker rm, and /tmp cleanup", () => {
@@ -760,6 +774,8 @@ test("default access auto-approves local git restore, named docker rm, and /tmp 
     "git reset --hard HEAD",
     "git checkout -f main",
     "docker system prune",
+    "docker rm -v build-container",
+    "docker rm --volumes build-container",
     "rm -rf /tmp",
     "rm -rf /tmp/wanta/process/turn-1",
   ]) {

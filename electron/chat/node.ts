@@ -207,8 +207,8 @@ function ensureExternalHttpUrl(rawUrl: string): string {
 
 function attachmentsForAgentTurn(
   bugReport: ParsedBugReportCommand | null,
-  attachments: readonly ChatAttachment[] | undefined,
-): readonly ChatAttachment[] | undefined {
+  attachments: ChatAttachment[] | undefined,
+): ChatAttachment[] | undefined {
   return bugReport ? undefined : attachments
 }
 

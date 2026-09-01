@@ -13,6 +13,8 @@ export interface ActiveTurnOutput {
   outputProjectRoot?: string
   requestText: string
   diagnosticTurn?: boolean
+  /** Narrow evidence directory used instead of the broader turn process root. */
+  diagnosticEvidenceRoot?: string
 }
 
 export class TurnOutputRegistry {

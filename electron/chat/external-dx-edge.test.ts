@@ -453,6 +453,15 @@ test("external plan turns keep the registered project read-only and use managed 
 test("external /bug-report uses the host report contract and a Build artifact root", async () => {
   const projectRoot = await mkdtemp(path.join(os.tmpdir(), "wanta-external-bug-report-"))
   const attachment = await createProbeAttachment()
+  const scopeChanges = vi.fn(
+    async (_input: {
+      active: boolean
+      cwdRoots?: readonly string[]
+      diagnostic?: boolean
+      sessionId: string
+      teamName?: string
+    }) => undefined,
+  )
   const { service, adapters } = createHarness(["claude-code"], {
     bugReportRuntime: {
       appCommit: "abc123",
@@ -460,6 +469,7 @@ test("external /bug-report uses the host report contract and a Build artifact ro
       platform: "darwin",
     },
     trustedAttachmentPaths: new Set([attachment.path]),
+    onExternalTurnScopeChanged: scopeChanges,
     projectStore: {
       read: async () =>
         new Map([
@@ -521,12 +531,22 @@ test("external /bug-report uses the host report contract and a Build artifact ro
   const prompt = adapter.prompts[0]
   assert.equal(prompt?.text, "/bug-report Focus on the loop.")
   assert.equal(prompt?.mode, "build")
+  assert.equal(prompt?.diagnostic, true)
   assert.equal(prompt?.attachments, undefined)
-  assert.equal(prompt?.outputProjectRoot, projectRoot)
+  assert.equal(prompt?.outputProjectRoot, undefined)
+  assert.equal(prompt?.processDir, undefined)
   assert.ok(prompt?.artifactDir)
-  const processDir = prompt.processDir
-  assert.ok(processDir)
+  const evidenceDir = prompt.workingDirectory
+  assert.ok(evidenceDir)
+  assert.equal(path.basename(evidenceDir), "bug-report")
+  assert.deepEqual(prompt.additionalDirectories, [prompt.artifactDir])
   assert.equal((await realpath(prompt.artifactDir)).startsWith(await realpath(projectRoot)), true)
+  assert.deepEqual(scopeChanges.mock.calls[0]?.[0], {
+    active: true,
+    cwdRoots: [evidenceDir, prompt.artifactDir],
+    diagnostic: true,
+    sessionId,
+  })
   assert.match(prompt.system ?? "", /built-in \/bug-report command/)
   assert.match(prompt.system ?? "", /Focus on the loop/)
   assert.match(prompt.system ?? "", /wanta-bug-report\.md/)
@@ -542,7 +562,7 @@ test("external /bug-report uses the host report contract and a Build artifact ro
   assert.doesNotMatch(prompt.system ?? "", /Use local tools normally/)
   assert.doesNotMatch(prompt.system ?? "", /Current local project context/)
 
-  const index = JSON.parse(await readFile(path.join(processDir, "bug-report", "index.json"), "utf8")) as {
+  const index = JSON.parse(await readFile(path.join(evidenceDir, "index.json"), "utf8")) as {
     friction: { toolFailures: Array<{ tool?: string }> }
     userGoal?: string
   }

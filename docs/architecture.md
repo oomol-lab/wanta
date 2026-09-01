@@ -490,14 +490,18 @@ under the turn's process directory (`bug-report/index.json` plus `transcript.jso
 `getMessages` before the command. The same pack-backed contract is injected for every current
 session; working tails such as skills, Link/CLI, project-edit, and "use bash" guidance are omitted
 for that turn. The host also strips this-turn attachments so they never reach the agent, and
-applies a diagnostic local-access fence: connector, network, and host MCP calls prompt, while
+applies a diagnostic local-access fence: connector, network, and host MCP calls are denied, while
 ordinary file/shell work auto-runs only inside the evidence-pack and report artifact roots.
 The agent may inspect only the evidence pack, then write `wanta-bug-report.md` as a
 developer diagnosis (trajectory, friction, Wanta change hypotheses with message-index citations).
 OpenCode uses Build for `createArtifactDir`, `artifactSessionDir`, and `promptStreaming`; BYOA uses
 the same mode for managed artifact placement and, when the adapter has a work-mode map, native
-collaboration mode. The turn must not continue the original task, edit the user project, or call a
-connector. The report is shown as a single-file artifact via the `ArtifactBundle` chain above, and
+collaboration mode. BYOA replaces any ordinary project-backed ACP session with a diagnostic session
+whose cwd is the evidence pack, whose only additional directory is the exact report artifact root,
+and whose host MCP manifest is empty; the guarded OO scope is deactivated. A later ordinary turn
+recreates the normal project session and restores Wanta's persisted transcript context. The turn
+must not continue the original task, edit the user project, or call a connector. The report is shown
+as a single-file artifact via the `ArtifactBundle` chain above, and
 the assistant body gives only a short completion status, not the report content.
 
 An in-chat multi-file bundle shows a single collection card that uses the real file count as its

@@ -318,6 +318,7 @@ interface ChatServiceDeps {
   onExternalTurnScopeChanged?: (input: {
     active: boolean
     cwdRoots?: readonly string[]
+    diagnostic?: boolean
     sessionId: string
     teamName?: string
   }) => Promise<void> | void
@@ -1211,7 +1212,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const taskProcessRoot = activeTurn?.processRoot
     const diagnosticRoots =
       activeTurn?.diagnosticTurn && activeTurn.processRoot && activeTurn.artifactRoot
-        ? { artifactRoot: activeTurn.artifactRoot, processRoot: activeTurn.processRoot }
+        ? {
+            artifactRoot: activeTurn.artifactRoot,
+            processRoot: activeTurn.diagnosticEvidenceRoot ?? activeTurn.processRoot,
+          }
         : undefined
     // Keyed off the session id's kind, so a malformed external id still fails
     // closed (prompt) instead of falling through to the kernel's defaults.
@@ -2093,6 +2097,25 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       const evidencePack = bugReport
         ? await this.materializeBugReportEvidence(req.sessionId, processDir, bugReport, generatedAt)
         : undefined
+      if (!this.isCurrentGeneration(req.sessionId, promptGeneration.id) || promptGeneration.controller.signal.aborted) {
+        this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
+        this.turnOutputs.delete(req.sessionId, promptGeneration.id)
+        this.clearSessionGeneration(req.sessionId, promptGeneration.id)
+        await removeUnsubmittedTurnDirectories(artifactDir, processDir)
+        if (attachmentsRecorded) {
+          await this.rollbackUnsubmittedUserAttachments(req.sessionId, userMessageId, turnAttachments)
+        }
+        return
+      }
+      if (bugReport && evidencePack) {
+        const activeTurn = this.turnOutputs.get(promptGeneration.id)
+        if (activeTurn) {
+          this.turnOutputs.set(promptGeneration.id, {
+            ...activeTurn,
+            diagnosticEvidenceRoot: evidencePack.packDir,
+          })
+        }
+      }
       const bugReportSystem = bugReport
         ? this.buildBugReportTurnSystem(
             bugReport,
@@ -2311,23 +2334,41 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         },
       )
       if (!artifactDir || !processDir) throw new Error("Turn directory creation returned an empty path")
-      const additionalDirectories = [
-        directories.artifactSessionDir(req.sessionId, artifactProjectRoot),
-        directories.processSessionDir(req.sessionId),
-      ]
       if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, generation.id)
         await removeUnsubmittedTurnDirectories(artifactDir, processDir)
         return
       }
+      const generatedAt = new Date().toISOString()
+      const evidencePack = bugReport
+        ? await this.materializeBugReportEvidence(req.sessionId, processDir, bugReport, generatedAt)
+        : undefined
+      if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
+        this.clearSessionGeneration(req.sessionId, generation.id)
+        await removeUnsubmittedTurnDirectories(artifactDir, processDir)
+        return
+      }
+      const diagnosticWorkingDirectory = bugReport ? (evidencePack?.packDir ?? artifactDir) : undefined
+      const diagnosticScopeRoots = [diagnosticWorkingDirectory, artifactDir].filter((root): root is string =>
+        Boolean(root),
+      )
+      const additionalDirectories = bugReport
+        ? [artifactDir].filter((root) => root !== diagnosticWorkingDirectory)
+        : [
+            directories.artifactSessionDir(req.sessionId, artifactProjectRoot),
+            directories.processSessionDir(req.sessionId),
+          ]
       const project = await this.projectBaseline(req.projectContext)
       await this.deps.onExternalTurnScopeChanged?.({
         active: true,
         sessionId: req.sessionId,
-        ...(teamName ? { teamName } : {}),
-        cwdRoots: [artifactDir, processDir, artifactProjectRoot, project.projectRoot].filter((root): root is string =>
-          Boolean(root),
-        ),
+        ...(bugReport ? { diagnostic: true } : {}),
+        ...(!bugReport && teamName ? { teamName } : {}),
+        cwdRoots: bugReport
+          ? [...new Set(diagnosticScopeRoots)]
+          : [artifactDir, processDir, artifactProjectRoot, project.projectRoot].filter((root): root is string =>
+              Boolean(root),
+            ),
       })
       const artifactBaseline = await captureArtifactSessionBaseline(
         directories.artifactSessionDir(req.sessionId, artifactProjectRoot),
@@ -2347,7 +2388,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(project.baseline ? { projectBaseline: project.baseline } : {}),
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
         ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
-        ...(bugReport ? { diagnosticTurn: true } : {}),
+        ...(bugReport
+          ? {
+              diagnosticTurn: true,
+              diagnosticEvidenceRoot: diagnosticWorkingDirectory,
+            }
+          : {}),
       })
       if (turnAttachments?.length) {
         // Same display path as the kernel: the store record is what getMessages
@@ -2358,7 +2404,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         // One-shot picker authorization is consumed on submit, kernel-style.
         this.discardTrustedAttachmentPaths(turnAttachments)
       }
-      await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
+      if (!bugReport) {
+        await this.projectPermissionMode(req.sessionId, this.sessionPermissionMode(req.sessionId))
+      }
       if (req.agentModelId) {
         promptSelectionOwners.model = await this.runExternalSelectionMutation(req.sessionId, "model", async () => {
           previousSelection.modelId = adapter.sessionSelection(req.sessionId).modelId
@@ -2372,10 +2420,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         })
       }
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
-      const generatedAt = new Date().toISOString()
-      const evidencePack = bugReport
-        ? await this.materializeBugReportEvidence(req.sessionId, processDir, bugReport, generatedAt)
-        : undefined
       const bugReportLanguageText = evidencePack?.userGoal ?? bugReport?.note
       let dispatchAcknowledged = false
       void adapter
@@ -2385,18 +2429,23 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             sessionId: req.sessionId,
             text: req.text,
             messageId: userMessageId,
+            ...(bugReport ? { diagnostic: true } : {}),
             ...(turnAttachments?.length ? { attachments: turnAttachments } : {}),
-            ...(artifactProjectRoot ? { workingDirectory: artifactProjectRoot } : {}),
+            ...(bugReport && diagnosticWorkingDirectory
+              ? { workingDirectory: diagnosticWorkingDirectory }
+              : artifactProjectRoot
+                ? { workingDirectory: artifactProjectRoot }
+                : {}),
             additionalDirectories,
-            ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
+            ...(!bugReport && artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
             artifactDir,
-            processDir,
+            ...(!bugReport ? { processDir } : {}),
             // BYOA owns its account, provider route, model catalog, and effort.
             // Never forward Wanta/BYOK model selections into a local agent,
             // even when an older renderer or stale draft includes them.
             ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
             ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
-            ...(teamName ? { teamName } : {}),
+            ...(!bugReport && teamName ? { teamName } : {}),
             ...(execution.mode ? { mode: execution.mode } : {}),
             system: mergeSystemPrompts(
               ...(bugReport

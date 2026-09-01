@@ -181,10 +181,10 @@ function evaluateDiagnosticTurnAccess(
   const kind = permissionRequestKind(request)
   const highRisk = isHighRiskPermissionRequest(request, permissionScope(request, context))
   if (kind === "network" || isWantaHostToolPermissionRequest(request) || isOoCliPermissionRequest(request)) {
-    return { type: "prompt", kind, highRisk }
+    return { type: "deny", kind, highRisk }
   }
   if (!diagnosticRequestInsideRoots(request, roots)) {
-    return { type: "prompt", kind, highRisk }
+    return { type: "deny", kind, highRisk }
   }
   return undefined
 }

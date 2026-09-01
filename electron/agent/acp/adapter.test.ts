@@ -1,4 +1,5 @@
 import type { AgentEvent } from "../contract/event.ts"
+import type { PromptAgentInput } from "../contract/input.ts"
 import type { ExternalAgentRuntimeStatus } from "../external/probe.ts"
 import type { AcpAdapterOptions, AcpTransport } from "./adapter.ts"
 import type {
@@ -669,6 +670,86 @@ describe("AcpAgentAdapter", () => {
         url: "http://127.0.0.1:4321/mcp",
         headers: [{ name: "Authorization", value: "Bearer opaque-token" }],
       },
+    ])
+  })
+
+  test("recreates restricted diagnostic sessions without project cwd or host MCP", async () => {
+    let sessionSequence = 0
+    const hostMcpServers = vi.fn(async (input: PromptAgentInput) =>
+      input.diagnostic
+        ? []
+        : [
+            {
+              name: "wanta_skills",
+              url: "http://127.0.0.1:4321/mcp",
+              headers: { Authorization: "Bearer opaque-token" },
+            },
+          ],
+    )
+    const harness = await createHarness(
+      {
+        newSession: () => ({
+          sessionId: `acp-session-${++sessionSequence}`,
+          modes: {
+            currentModeId: "agent",
+            availableModes: [
+              { id: "agent", name: "Agent" },
+              { id: "agent-full-access", name: "Full access" },
+            ],
+          },
+        }),
+      },
+      "codex",
+      hostMcpServers,
+    )
+    const projectRoot = path.join(harness.scratchRootDir, "project")
+    const evidenceRoot = path.join(harness.scratchRootDir, "process", "bug-report")
+    const artifactRoot = path.join(harness.scratchRootDir, "artifacts", "turn-1")
+
+    await harness.adapter.applyPermissionMode(WANTA_SESSION_ID, "full_access")
+    await harness.adapter.send({
+      type: "prompt",
+      sessionId: WANTA_SESSION_ID,
+      text: "normal project turn",
+      workingDirectory: projectRoot,
+    })
+    await harness.waitFor((event) => event.event === "messageCompleted")
+
+    await harness.adapter.send({
+      type: "prompt",
+      sessionId: WANTA_SESSION_ID,
+      text: "/bug-report",
+      diagnostic: true,
+      workingDirectory: evidenceRoot,
+      additionalDirectories: [artifactRoot],
+      artifactDir: artifactRoot,
+    })
+    await harness.waitFor((event) => event.event === "messageCompleted" && harness.fake.promptRequests.length === 2)
+
+    await harness.adapter.send({
+      type: "prompt",
+      sessionId: WANTA_SESSION_ID,
+      text: "resume project work",
+      workingDirectory: projectRoot,
+    })
+    await harness.waitFor((event) => event.event === "messageCompleted" && harness.fake.promptRequests.length === 3)
+
+    expect(harness.fake.newSessionRequests.map((request) => request.cwd)).toEqual([
+      projectRoot,
+      evidenceRoot,
+      projectRoot,
+    ])
+    expect(harness.fake.newSessionRequests.map((request) => request.mcpServers.map((server) => server.name))).toEqual([
+      ["wanta_skills"],
+      [],
+      ["wanta_skills"],
+    ])
+    expect(harness.fake.newSessionRequests[1]?.additionalDirectories).toEqual([artifactRoot])
+    expect(harness.fake.closedSessionIds).toEqual(["acp-session-1", "acp-session-2"])
+    expect(harness.fake.setModeRequests.map((request) => request.modeId)).toEqual([
+      "agent-full-access",
+      "agent",
+      "agent-full-access",
     ])
   })
 

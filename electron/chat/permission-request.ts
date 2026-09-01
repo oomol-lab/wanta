@@ -950,23 +950,26 @@ function commandEnvAccessesAreReadOnlySelectedProject(command: string, scope: Pe
   }
   const commandScope = commandScopeWithLeadingCd(command, scope)
   let foundEnvResource = false
-  for (const { text } of topLevelShellSegments(commandWithoutHereDocumentBodies(command))) {
+  let envPipelineActive = false
+  const segments = topLevelShellSegments(commandWithoutHereDocumentBodies(command))
+  for (const { operatorAfter, text } of segments) {
     const parsed = shellWords(text)
     if (!parsed?.length) {
       return false
     }
     const words = effectiveShellCommandWords(parsed)
     const envResources = commandDotEnvResources(text)
-    if (envResources.length === 0) {
-      continue
+    const receivesEnvInput: boolean = envPipelineActive
+    if (envResources.length > 0) {
+      foundEnvResource = true
+      if (!envResources.every((resource) => isSelectedProjectEnvResource(resource, commandScope))) {
+        return false
+      }
     }
-    foundEnvResource = true
-    if (
-      !selectedProjectEnvCommandIsReadOnly(words) ||
-      !envResources.every((resource) => isSelectedProjectEnvResource(resource, commandScope))
-    ) {
+    if ((envResources.length > 0 || receivesEnvInput) && !selectedProjectEnvCommandIsReadOnly(words)) {
       return false
     }
+    envPipelineActive = operatorAfter === "pipe" && (envResources.length > 0 || receivesEnvInput)
   }
   return foundEnvResource
 }

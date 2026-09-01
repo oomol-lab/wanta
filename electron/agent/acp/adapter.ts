@@ -148,6 +148,8 @@ interface AcpTurn {
 interface AcpSessionState {
   wantaSessionId: string
   acpSessionId: string
+  /** Restricted one-purpose session used only for host-owned diagnostics. */
+  diagnostic: boolean
   translator: AcpSessionTranslator
   /** Mode the session started in; restored on permission mode "default". */
   initialModeId?: string
@@ -680,8 +682,10 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     options?: AgentSendOptions,
     onCompletion?: (completion: Promise<void>) => void,
   ): Promise<void> {
+    const existingSession = this.sessionsByWantaId.get(input.sessionId)
+    const needsFreshSession = !existingSession || existingSession.diagnostic !== Boolean(input.diagnostic)
     const restoreContext =
-      !this.sessionsByWantaId.has(input.sessionId) && this.hasPersistedHistory(input.sessionId)
+      !input.diagnostic && needsFreshSession && this.hasPersistedHistory(input.sessionId)
         ? this.restoredConversationContext(input.sessionId)
         : undefined
     const displayName = this.options.registration.displayName
@@ -1371,7 +1375,15 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
   private async ensureAcpSession(handle: AcpConnectionHandle, input: PromptAgentInput): Promise<AcpSessionState> {
     const existing = this.sessionsByWantaId.get(input.sessionId)
     if (existing) {
-      return existing
+      if (existing.diagnostic === Boolean(input.diagnostic)) {
+        return existing
+      }
+      if (existing.activeTurn && !existing.activeTurn.settled) {
+        throw new Error(`${this.kind}: cannot replace an ACP session while a prompt is in flight`)
+      }
+      await handle.connection.agent.request("session/close" as never, { sessionId: existing.acpSessionId } as never)
+      this.sessionsByWantaId.delete(input.sessionId)
+      this.wantaIdByAcpId.delete(existing.acpSessionId)
     }
     const pending = this.sessionCreationByWantaId.get(input.sessionId)
     if (pending) {
@@ -1414,6 +1426,7 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
     const session: AcpSessionState = {
       wantaSessionId: input.sessionId,
       acpSessionId: response.sessionId,
+      diagnostic: Boolean(input.diagnostic),
       translator: createAcpSessionTranslator(input.sessionId, new Set(mcpServers.map((server) => server.name))),
       initialModeId: modes?.currentModeId,
       availableModeIds: (modes?.availableModes ?? []).map((mode) => mode.id),
@@ -1438,8 +1451,18 @@ export class AcpAgentAdapter extends ExternalAgentAdapter {
       if (desired?.workMode !== undefined) {
         await this.applyDesiredSelectionAtCreation(handle, session, desired, "workMode", desired.workMode)
       }
-      const desiredMode = this.desiredPermissionModes.get(input.sessionId)
-      if (desiredMode !== undefined) await this.applyPermissionMode(input.sessionId, desiredMode)
+      if (input.diagnostic) {
+        const previousDesiredMode = this.desiredPermissionModes.get(input.sessionId)
+        try {
+          await this.applyPermissionMode(input.sessionId, "default")
+        } finally {
+          if (previousDesiredMode === undefined) this.desiredPermissionModes.delete(input.sessionId)
+          else this.desiredPermissionModes.set(input.sessionId, previousDesiredMode)
+        }
+      } else {
+        const desiredMode = this.desiredPermissionModes.get(input.sessionId)
+        if (desiredMode !== undefined) await this.applyPermissionMode(input.sessionId, desiredMode)
+      }
       // The one-shot guard above only covered the session/new round-trip. A forget
       // (or stop) can still land during the post-registration awaits above without
       // throwing; re-check so the catch below closes the native session instead of

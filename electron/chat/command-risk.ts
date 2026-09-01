@@ -4,6 +4,7 @@ const wrapperCommands = new Set(["builtin", "command", "exec", "nohup", "time"])
 const shellCommands = new Set(["bash", "sh", "zsh"])
 const scriptInterpreterCommands = new Set(["bun", "deno", "lua", "node", "perl", "php", "python", "python3", "ruby"])
 const gitOptionsWithValue = new Set(["-C", "-c", "--config-env", "--git-dir", "--namespace", "--work-tree"])
+const gitRestoreOptionsWithValue = new Set(["--source"])
 const containerOptionsWithValue = new Set(["--config", "--context", "--host", "-H"])
 const clusterOptionsWithValue = new Set([
   "--as",
@@ -128,6 +129,34 @@ function mutatesHomebrew(words: readonly string[]): boolean {
   return Boolean(verb && ["install", "remove", "uninstall", "upgrade"].includes(verb))
 }
 
+function gitRestorePathspecs(args: readonly string[]): string[] {
+  const separator = args.indexOf("--")
+  if (separator >= 0) {
+    return args.slice(separator + 1)
+  }
+  const pathspecs: string[] = []
+  for (let index = 0; index < args.length; index += 1) {
+    const word = args[index] ?? ""
+    if (word.startsWith("-")) {
+      const option = optionName(word)
+      if (gitRestoreOptionsWithValue.has(option) && !word.includes("=")) {
+        index += 1
+      }
+      continue
+    }
+    pathspecs.push(word)
+  }
+  return pathspecs
+}
+
+function isBroadGitRestorePathspec(pathspec: string): boolean {
+  const normalized = pathspec.trim().replace(/\\/gu, "/")
+  if (!normalized) return true
+  if ([".", "./", "..", "../", "/", ":/", ":."].includes(normalized)) return true
+  if (normalized.endsWith("/") || /[*?[]/u.test(normalized)) return true
+  return normalized.startsWith(":(") || normalized.startsWith(":!") || normalized.startsWith(":^")
+}
+
 function mutatesGitRemoteOrWorkingTree(words: readonly string[]): boolean {
   if (shellCommandName(words[0]) !== "git") {
     return false
@@ -147,6 +176,12 @@ function mutatesGitRemoteOrWorkingTree(words: readonly string[]): boolean {
   if (verb === "clean") {
     return args.some((word) => word === "--force" || optionHasLetter(word, "f"))
   }
+  if (verb === "restore") {
+    if (args.some((word) => word === "--pathspec-from-file" || word.startsWith("--pathspec-from-file="))) {
+      return true
+    }
+    return gitRestorePathspecs(args).some(isBroadGitRestorePathspec)
+  }
   if (verb === "checkout" || verb === "switch") {
     for (const word of args) {
       if (word === "--") {
@@ -155,6 +190,11 @@ function mutatesGitRemoteOrWorkingTree(words: readonly string[]): boolean {
       if (word === "--force" || word === "--discard-changes" || optionHasLetter(word, "f")) {
         return true
       }
+    }
+    if (verb === "checkout") {
+      const separator = args.indexOf("--")
+      const pathspecs = separator >= 0 ? args.slice(separator + 1) : args.filter(isBroadGitRestorePathspec)
+      return pathspecs.some(isBroadGitRestorePathspec)
     }
   }
   return false

@@ -254,9 +254,11 @@
   security boundaries are pushed to the renderer for confirmation — credential/key paths, broad
   home/system edit scopes, destructive deletion, global/system or alternate-source dependency changes, privilege
   escalation, `git push` / `reset --hard` / `clean -f`, publish/deploy, infrastructure changes, and the like.
-  `git restore` of named files, named `docker rm`/`rmi`, and reading a selected-project `.env` stay
-  ordinary; `docker rm -v` / `--volumes` still prompt. Writing that project `.env` still prompts
-  and may be granted for the session.
+  `git restore` of explicit narrow file pathspecs, named `docker rm`/`rmi`, and recognized read-only
+  access to a selected-project `.env` stay ordinary. Syntactically broad Git restore pathspecs such
+  as `.`, `:/`, directory forms ending in `/`, pathspec magic, and globs still prompt, as do
+  `docker rm -v` / `--volumes`. Deleting or writing that project `.env`, or passing it to an
+  executable whose read-only behavior is unknown, still prompts and may be granted for the session.
   Sensitive-resource checks take precedence over generic directory session grants; a generic grant
   can never green-light a high-risk request. Full Access can still take over the session's
   permissions after a single confirmation. The renderer only displays the pending UI, syncs the

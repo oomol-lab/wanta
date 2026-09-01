@@ -242,8 +242,9 @@ export function isHighRiskPermissionRequest(
     HIGH_RISK_COMMAND_PATH_PATTERNS.filter((pattern) => pattern !== HIGH_RISK_ENV_PATH_PATTERN).some((pattern) =>
       pattern.test(shellControlText),
     ) ||
-    (HIGH_RISK_ENV_PATH_PATTERN.test(shellControlText) &&
-      !commandEnvAccessesAreSelectedProject(shellControlText, scope))
+    ((HIGH_RISK_ENV_PATH_PATTERN.test(shellControlText) || commandHasLiteralDotEnvResource(shellControlText)) &&
+      !commandEnvAccessesAreReadOnlySelectedProject(shellControlText, scope) &&
+      !commandWritesSelectedProjectEnv(shellControlText, scope))
   )
 }
 
@@ -900,22 +901,74 @@ function commandWriteDestinations(command: string, depth = 0): string[] {
   })
 }
 
-function commandEnvAccessesAreSelectedProject(command: string, scope: PermissionScopeContext): boolean {
+const selectedProjectEnvReadCommands = new Set([
+  "cat",
+  "cmp",
+  "cut",
+  "diff",
+  "egrep",
+  "fgrep",
+  "file",
+  "grep",
+  "head",
+  "rg",
+  "stat",
+  "tail",
+  "uniq",
+  "wc",
+])
+
+function commandDotEnvResources(command: string): string[] {
+  const parsed = shellWords(command)
+  if (!parsed?.length) {
+    return []
+  }
+  const words = effectiveShellCommandWords(parsed)
+  return [...new Set([...commandAccessResources(command), ...words.map(pathValue)])]
+    .map((resource) => resource.trim())
+    .filter((resource) => resource && isDotEnvBasename(resourceBasename(resource)))
+}
+
+function commandHasLiteralDotEnvResource(command: string): boolean {
+  return topLevelShellSegments(command).some(({ text }) =>
+    commandDotEnvResources(text).some((resource) => !hasUnresolvedShellExpansion(resource)),
+  )
+}
+
+function selectedProjectEnvCommandIsReadOnly(words: readonly string[]): boolean {
+  const name = shellCommandName(words[0])
+  return Boolean(name && selectedProjectEnvReadCommands.has(name))
+}
+
+function commandEnvAccessesAreReadOnlySelectedProject(command: string, scope: PermissionScopeContext): boolean {
   if (!scope.trustedProjectRoot) {
     return false
   }
-  const commandScope = commandScopeWithLeadingCd(command, scope)
-  const resources = [
-    ...commandAccessResources(command),
-    ...(shellWords(commandWithoutHereDocumentBodies(command))?.filter((word) =>
-      isDotEnvBasename(resourceBasename(word)),
-    ) ?? []),
-  ]
-  const unique = [...new Set(resources.map((resource) => resource.trim()).filter(Boolean))]
-  if (unique.length === 0) {
+  const leading = splitLeadingAnd(command)
+  if (leading && shellCommandName(shellWords(leading.left)?.[0]) === "cd" && !explicitCdDirectory(leading.left)) {
     return false
   }
-  return unique.every((resource) => isSelectedProjectEnvResource(resource, commandScope))
+  const commandScope = commandScopeWithLeadingCd(command, scope)
+  let foundEnvResource = false
+  for (const { text } of topLevelShellSegments(commandWithoutHereDocumentBodies(command))) {
+    const parsed = shellWords(text)
+    if (!parsed?.length) {
+      return false
+    }
+    const words = effectiveShellCommandWords(parsed)
+    const envResources = commandDotEnvResources(text)
+    if (envResources.length === 0) {
+      continue
+    }
+    foundEnvResource = true
+    if (
+      !selectedProjectEnvCommandIsReadOnly(words) ||
+      !envResources.every((resource) => isSelectedProjectEnvResource(resource, commandScope))
+    ) {
+      return false
+    }
+  }
+  return foundEnvResource
 }
 
 function commandWritesSelectedProjectEnv(command: string, scope: PermissionScopeContext): boolean {

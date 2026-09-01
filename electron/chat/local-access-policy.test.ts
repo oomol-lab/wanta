@@ -740,6 +740,34 @@ test("selected-project env files are readable and session-grantable to write", (
     }),
     { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
+  for (const command of ["head -n 5 .env", "rg '^FOO=' .env", "wc -l .env"]) {
+    assert.deepEqual(
+      evaluateLocalAccessRequest(permission({ metadata: { command, cwd: projectRoot } }), {
+        permissionMode: "default",
+        trustedProjectRoot: projectRoot,
+      }),
+      { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+      command,
+    )
+  }
+  for (const command of [
+    "rm .env",
+    `rm ${projectRoot}/.env`,
+    "install source.env .env",
+    `install source.env ${projectRoot}/.env`,
+    "rsync source.env .env",
+    "ln -sf /tmp/source.env .env",
+    `node -e 'require("fs").writeFileSync(".env", "FOO=1")'`,
+  ]) {
+    assert.equal(
+      evaluateLocalAccessRequest(permission({ metadata: { command, cwd: projectRoot } }), {
+        permissionMode: "default",
+        trustedProjectRoot: projectRoot,
+      }).type,
+      "prompt",
+      command,
+    )
+  }
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: 'cat ".env', cwd: projectRoot } }), {
       permissionMode: "default",
@@ -888,6 +916,14 @@ test("default access auto-approves local git restore, named docker rm, and /tmp 
     "git push origin main",
     "git reset --hard HEAD",
     "git checkout -f main",
+    "git restore -- .",
+    "git restore :/",
+    "git restore --worktree --staged .",
+    "git restore --pathspec-from-file=paths.txt",
+    "git restore -- src/",
+    "git checkout -- .",
+    "git checkout -- :/",
+    "git checkout -- src/",
     "docker system prune",
     "docker rm -v build-container",
     "docker rm --volumes build-container",

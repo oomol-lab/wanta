@@ -169,9 +169,12 @@
   per-turn process directory, and exact well-known generated project roots such as `dist`,
   `coverage`, and `node_modules`; project roots, source directories, variables, wildcards, and
   composed destructive commands remain protected. A `.env` file inside the selected project is
-  readable automatically; writing it still prompts and may be granted for the session. Home
-  credentials, browser login state, and private app data stay outside session grants. `git restore`
-  of named files and named `docker rm`/`rmi` are ordinary; `docker rm -v` / `--volumes`,
+  readable automatically through recognized read-only commands; deletion, writing, and unknown
+  executable semantics still prompt and may be granted for the session. Home credentials, browser
+  login state, and private app data stay outside session grants. `git restore` of explicit narrow
+  file pathspecs and named `docker rm`/`rmi` are ordinary; syntactically broad Git restore pathspecs
+  such as `.`, `:/`, directory forms ending in `/`, pathspec magic, and globs still prompt, as do
+  `docker rm -v` / `--volumes`,
   `git push`, `reset --hard`, `clean -f`, and `docker system prune` remain confirmation boundaries. Global installs, custom registries, user config, Git/URL/local
   package sources, and out-of-scope commands never qualify for automatic approval. Session
   grants may still cover non-sensitive requests the user has explicitly allowed; Full Access =

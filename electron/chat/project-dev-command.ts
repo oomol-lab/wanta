@@ -261,9 +261,7 @@ function commandTargetsBoundedRoot(command: string, projectRoot: string, implici
   if (explicit !== undefined) {
     return explicit
   }
-  return Boolean(
-    implicitWorkingDirectory && projectPathAllowed(implicitWorkingDirectory, projectRoot),
-  )
+  return Boolean(implicitWorkingDirectory && projectPathAllowed(implicitWorkingDirectory, projectRoot))
 }
 
 function directDevCommandAllowed(words: readonly string[]): boolean {

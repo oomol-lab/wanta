@@ -282,8 +282,7 @@ export function commandWithoutSafeDescriptorDuplication(command: string): string
   return command.replace(/(?:\s+(?:[0-9]+)?[<>]&[0-9]+)+\s*$/u, "").trim()
 }
 
-const trailingOutputRedirection =
-  /(?:\s+)(?:(?:[0-9]+)?>>?|&>>?)\s*(?:"([^"]*)"|'([^']*)'|(\S+))\s*$/u
+const trailingOutputRedirection = /(?:\s+)(?:(?:[0-9]+)?>>?|&>>?)\s*(?:"([^"]*)"|'([^']*)'|(\S+))\s*$/u
 const protectedRedirectBasenames = new Set([
   ".env",
   ".netrc",
@@ -368,9 +367,7 @@ function isLiteralSuccessMarker(command: string): boolean {
 /** Strips output caps, descriptor duplication, file log redirects, and `echo ok` markers. */
 export function commandWithoutInertOutputSuffixes(command: string): string {
   return commandWithoutSafeOutputRedirection(
-    commandWithoutSafeDescriptorDuplication(
-      commandWithoutSafeOutputFilter(commandWithoutSafeSuccessMarker(command)),
-    ),
+    commandWithoutSafeDescriptorDuplication(commandWithoutSafeOutputFilter(commandWithoutSafeSuccessMarker(command))),
   )
 }
 

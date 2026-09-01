@@ -38,15 +38,13 @@ export function PermissionRequiredCard({
   const disabled = busy || submitting
   const kind = permissionRequestKind(request)
   const promptReason = request.wanta?.promptReason
-  const highRisk =
-    promptReason === "high_risk_command" || (!promptReason && isHighRiskPermissionRequest(request))
+  const highRisk = promptReason === "high_risk_command" || (!promptReason && isHighRiskPermissionRequest(request))
   const resource = kind === "command" ? permissionCommand(request) : permissionPrimaryResource(request)
   const projectDevCommand = kind === "command" && isLikelyProjectDevCommandRequest(request)
   const pythonDependencyInstall = managedPythonDependencyInstall(request)
   const pythonDependencyRequest = isPythonDependencyPermissionRequest(request)
   const sensitiveResource =
-    promptReason === "sensitive_resource" ||
-    (!promptReason && permissionRequestHasSensitiveResource(request))
+    promptReason === "sensitive_resource" || (!promptReason && permissionRequestHasSensitiveResource(request))
   const taskScopedDependencyInstall = Boolean(pythonDependencyInstall && !sensitiveResource)
   const canAllowForSession = Boolean(
     (!highRisk || taskScopedDependencyInstall) &&

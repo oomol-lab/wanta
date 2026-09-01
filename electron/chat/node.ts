@@ -13,6 +13,7 @@ import type { RuntimeCapabilities } from "../runtime/common.ts"
 import type { SessionProjectStore } from "../session/project-store.ts"
 import type { ArtifactBundleStore, ArtifactBundles } from "./artifact-bundles.ts"
 import type { AuthorizationOverlayStore } from "./authorization.ts"
+import type { BugReportEvidencePack, ParsedBugReportCommand } from "./bug-report.ts"
 import type {
   AgentRuntimeStatus,
   AgentPermissionMode,
@@ -88,7 +89,6 @@ import { ActiveRunRegistry } from "./active-run-registry.ts"
 import { captureArtifactSessionBaseline } from "./artifact-bundles.ts"
 import { normalizeLocalPathCandidate } from "./artifacts.ts"
 import { applyAuthorizationOverlays } from "./authorization.ts"
-import type { BugReportEvidencePack, ParsedBugReportCommand } from "./bug-report.ts"
 import {
   BUG_REPORT_FILE_NAME,
   bugReportModelLabel,

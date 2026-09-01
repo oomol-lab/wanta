@@ -686,11 +686,14 @@ test("selected-project env files are readable and session-grantable to write", (
     { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
   const envEdit = permission({ action: "edit", resources: [`${projectRoot}/.env`] })
-  assert.deepEqual(evaluateLocalAccessRequest(envEdit, { permissionMode: "default", trustedProjectRoot: projectRoot }), {
-    type: "prompt",
-    kind: "edit",
-    highRisk: false,
-  })
+  assert.deepEqual(
+    evaluateLocalAccessRequest(envEdit, { permissionMode: "default", trustedProjectRoot: projectRoot }),
+    {
+      type: "prompt",
+      kind: "edit",
+      highRisk: false,
+    },
+  )
   assert.equal(localAccessPromptReason(envEdit, { trustedProjectRoot: projectRoot }), "unclassified_request")
   const grant = localAccessGrantForRequest(envEdit)
   assert.ok(grant)
@@ -710,10 +713,10 @@ test("selected-project env files are readable and session-grantable to write", (
     { type: "prompt", kind: "edit", highRisk: false },
   )
   assert.deepEqual(
-    evaluateLocalAccessRequest(
-      permission({ metadata: { command: `printf 'FOO=1\\n' > ${projectRoot}/.env` } }),
-      { permissionMode: "default", trustedProjectRoot: projectRoot },
-    ),
+    evaluateLocalAccessRequest(permission({ metadata: { command: `printf 'FOO=1\\n' > ${projectRoot}/.env` } }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
     { type: "prompt", kind: "command", highRisk: false },
   )
   assert.deepEqual(
@@ -724,10 +727,10 @@ test("selected-project env files are readable and session-grantable to write", (
     { type: "prompt", kind: "command", highRisk: false },
   )
   assert.deepEqual(
-    evaluateLocalAccessRequest(
-      permission({ metadata: { command: `sed -i 's/FOO=1/FOO=2/' ${projectRoot}/.env` } }),
-      { permissionMode: "default", trustedProjectRoot: projectRoot },
-    ),
+    evaluateLocalAccessRequest(permission({ metadata: { command: `sed -i 's/FOO=1/FOO=2/' ${projectRoot}/.env` } }), {
+      permissionMode: "default",
+      trustedProjectRoot: projectRoot,
+    }),
     { type: "prompt", kind: "command", highRisk: false },
   )
 })

@@ -132,7 +132,9 @@ export function permissionRequestWorkingDirectory(request: ChatPermissionRequest
     return undefined
   }
   return (
-    cwdFromRecord(metadata) ?? cwdFromRecord(nestedRecord(metadata.toolInput)) ?? cwdFromRecord(nestedRecord(metadata.rawInput))
+    cwdFromRecord(metadata) ??
+    cwdFromRecord(nestedRecord(metadata.toolInput)) ??
+    cwdFromRecord(nestedRecord(metadata.rawInput))
   )
 }
 
@@ -238,7 +240,8 @@ export function isHighRiskPermissionRequest(
     HIGH_RISK_COMMAND_PATH_PATTERNS.filter((pattern) => pattern !== HIGH_RISK_ENV_PATH_PATTERN).some((pattern) =>
       pattern.test(shellControlText),
     ) ||
-    (HIGH_RISK_ENV_PATH_PATTERN.test(shellControlText) && !commandEnvAccessesAreSelectedProject(shellControlText, scope))
+    (HIGH_RISK_ENV_PATH_PATTERN.test(shellControlText) &&
+      !commandEnvAccessesAreSelectedProject(shellControlText, scope))
   )
 }
 
@@ -471,7 +474,11 @@ function boundedPythonInstallCommand(
     const environment = pythonEnvironmentBootstrapTarget(possibleBootstrap.left)
     if (
       !environment ||
-      !environmentTargetMatchesAllowedExecutable(environment, executableAllowed, directory ?? implicitWorkingDirectory) ||
+      !environmentTargetMatchesAllowedExecutable(
+        environment,
+        executableAllowed,
+        directory ?? implicitWorkingDirectory,
+      ) ||
       !possibleBootstrap.right
     ) {
       return undefined
@@ -721,10 +728,7 @@ function resolveScopedResourcePath(resource: string, workingDirectory?: string):
   return path.resolve(workingDirectory, trimmed)
 }
 
-export function isSelectedProjectEnvResource(
-  resource: string,
-  scope: PermissionScopeContext = {},
-): boolean {
+export function isSelectedProjectEnvResource(resource: string, scope: PermissionScopeContext = {}): boolean {
   if (!isDotEnvBasename(resourceBasename(resource))) {
     return false
   }
@@ -843,7 +847,9 @@ function commandEnvAccessesAreSelectedProject(command: string, scope: Permission
   const commandScope = commandScopeWithLeadingCd(command, scope)
   const resources = [
     ...commandAccessResources(command),
-    ...shellWords(commandWithoutHereDocumentBodies(command))?.filter((word) => isDotEnvBasename(resourceBasename(word))) ?? [],
+    ...(shellWords(commandWithoutHereDocumentBodies(command))?.filter((word) =>
+      isDotEnvBasename(resourceBasename(word)),
+    ) ?? []),
   ]
   const unique = [...new Set(resources.map((resource) => resource.trim()).filter(Boolean))]
   if (unique.length === 0) {

@@ -484,15 +484,18 @@ leaving the old bundle untouched. The scan is strictly limited to the current se
 root at that turn's real storage location, ignoring hidden items and symlinks; on an incomplete or
 out-of-bounds baseline it disables recovery outright rather than guessing.
 
-The built-in `/bug-report` slash command still sends to the current OpenCode session; `ChatServiceImpl`
-appends a dedicated system prompt for that turn and generates `wanta-bug-report.md` based only on the
-session evidence that existed before the command. The command forces the effective mode to Build
-before allocating the artifact directory, so `createArtifactDir`, `artifactSessionDir`, and
-`promptStreaming` all use the same mode, and writes this single UTF-8 Markdown report into the Build
-managed output directory; it must not investigate, retry, or fix the original problem, nor call a
-connector, the network, a shell, or read extra files. The report is shown as a single-file artifact
-via the `ArtifactBundle` chain above, and the assistant body gives only a short completion status,
-not the report content.
+The built-in `/bug-report` slash command is a host-owned diagnostic turn: `ChatServiceImpl`
+recognizes it before OpenCode / BYOA routing, forces Build, and writes a shared evidence pack
+under the turn's process directory (`bug-report/index.json` plus `transcript.json`) from
+`getMessages` before the command. The same pack-backed contract is injected for every current
+session; working tails such as skills, Link/CLI, project-edit, and "use bash" guidance are omitted
+for that turn. The agent may inspect only the evidence pack, then write `wanta-bug-report.md` as a
+developer diagnosis (trajectory, friction, Wanta change hypotheses with message-index citations).
+OpenCode uses Build for `createArtifactDir`, `artifactSessionDir`, and `promptStreaming`; BYOA uses
+the same mode for managed artifact placement and, when the adapter has a work-mode map, native
+collaboration mode. The turn must not continue the original task, edit the user project, or call a
+connector. The report is shown as a single-file artifact via the `ArtifactBundle` chain above, and
+the assistant body gives only a short completion status, not the report content.
 
 An in-chat multi-file bundle shows a single collection card that uses the real file count as its
 title, does not show the internal turn directory name, and no longer appends a behavior-identical

@@ -18,7 +18,7 @@ import type { UserAttachmentStore } from "./user-attachments.ts"
 
 import assert from "node:assert/strict"
 import { randomUUID } from "node:crypto"
-import { mkdtemp, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, realpath, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test, vi } from "vitest"
@@ -446,6 +446,105 @@ test("external plan turns keep the registered project read-only and use managed 
   assert.equal(prompt.artifactDir.startsWith(projectRoot), false)
 
   adapter.completeAssistantTurn(sessionId, "assistant-plan", "done")
+  await waitForTurnCompletion(service)
+})
+
+test("external /bug-report uses the host report contract and a Build artifact root", async () => {
+  const projectRoot = await mkdtemp(path.join(os.tmpdir(), "wanta-external-bug-report-"))
+  const { service, adapters } = createHarness(["claude-code"], {
+    bugReportRuntime: {
+      appCommit: "abc123",
+      appVersion: "1.2.3",
+      platform: "darwin",
+    },
+    projectStore: {
+      read: async () =>
+        new Map([
+          [
+            "project-1",
+            {
+              id: "project-1",
+              name: "Project",
+              path: projectRoot,
+              createdAt: 1,
+              updatedAt: 1,
+              scope: localScope,
+            },
+          ],
+        ]),
+    },
+  })
+  const adapter = adapters.get("claude-code")
+  assert.ok(adapter)
+  const sessionId = mintExternalSessionId("claude-code")
+  service.setLinkRuntime("openconnector")
+  vi.spyOn(adapter, "getMessages").mockResolvedValueOnce([
+    {
+      id: "user-1",
+      role: "user",
+      createdAt: 1,
+      parts: [{ kind: "text", partId: "t1", text: "请帮我修好 Gmail 授权卡住。" }],
+    },
+    {
+      id: "assistant-1",
+      role: "assistant",
+      createdAt: 2,
+      finishReason: "stop",
+      parts: [
+        {
+          kind: "tool",
+          partId: "tool-1",
+          tool: "bash",
+          status: "error",
+          failureKind: "authorization",
+          error: "connector unauthorized",
+          authorization: { service: "gmail", displayName: "Gmail", errorCode: "unauthorized" },
+        },
+      ],
+    },
+  ])
+
+  await service.sendMessage(
+    sendRequest(sessionId, "/bug-report Focus on the loop.", {
+      agentModelId: "sonnet",
+      mode: "plan",
+      projectContext: { id: "project-1", name: "Project", path: projectRoot },
+      teamSkills: [{ id: "posthog", name: "PostHog", description: "Analyze product usage" }],
+    }),
+  )
+  await waitForCondition(() => adapter.prompts.length === 1, "external bug-report prompt")
+
+  const prompt = adapter.prompts[0]
+  assert.equal(prompt?.text, "/bug-report Focus on the loop.")
+  assert.equal(prompt?.mode, "build")
+  assert.equal(prompt?.outputProjectRoot, projectRoot)
+  assert.ok(prompt?.artifactDir)
+  const processDir = prompt.processDir
+  assert.ok(processDir)
+  assert.equal((await realpath(prompt.artifactDir)).startsWith(await realpath(projectRoot)), true)
+  assert.match(prompt.system ?? "", /built-in \/bug-report command/)
+  assert.match(prompt.system ?? "", /Focus on the loop/)
+  assert.match(prompt.system ?? "", /wanta-bug-report\.md/)
+  assert.match(prompt.system ?? "", /Wanta version: 1\.2\.3/)
+  assert.match(prompt.system ?? "", /Build commit: abc123/)
+  assert.match(prompt.system ?? "", /Model: claude-code:sonnet/)
+  assert.match(prompt.system ?? "", /Do not reproduce the report body in the assistant response/)
+  assert.match(prompt.system ?? "", /index\.json/)
+  assert.match(prompt.system ?? "", /## Wanta diagnosis/)
+  assert.match(prompt.system ?? "", /classified the latest user instruction as Simplified Chinese/)
+  assert.doesNotMatch(prompt.system ?? "", /Wanta-managed `oo connector/)
+  assert.doesNotMatch(prompt.system ?? "", /Team-configured skills/)
+  assert.doesNotMatch(prompt.system ?? "", /Use local tools normally/)
+  assert.doesNotMatch(prompt.system ?? "", /Current local project context/)
+
+  const index = JSON.parse(await readFile(path.join(processDir, "bug-report", "index.json"), "utf8")) as {
+    friction: { toolFailures: Array<{ tool?: string }> }
+    userGoal?: string
+  }
+  assert.equal(index.userGoal, "请帮我修好 Gmail 授权卡住。")
+  assert.equal(index.friction.toolFailures[0]?.tool, "bash")
+
+  adapter.completeAssistantTurn(sessionId, "assistant-bug-report", "done")
   await waitForTurnCompletion(service)
 })
 

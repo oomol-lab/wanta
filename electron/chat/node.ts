@@ -88,11 +88,14 @@ import { ActiveRunRegistry } from "./active-run-registry.ts"
 import { captureArtifactSessionBaseline } from "./artifact-bundles.ts"
 import { normalizeLocalPathCandidate } from "./artifacts.ts"
 import { applyAuthorizationOverlays } from "./authorization.ts"
+import type { BugReportEvidencePack, ParsedBugReportCommand } from "./bug-report.ts"
 import {
   BUG_REPORT_FILE_NAME,
   bugReportModelLabel,
+  bugReportModelLabelForExternal,
   buildBugReportSystemPrompt,
   parseBugReportCommand,
+  writeBugReportEvidencePack,
 } from "./bug-report.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 import {
@@ -1960,9 +1963,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!req.text.trim()) {
       throw new Error("Message text is empty.")
     }
+    const bugReport = parseBugReportCommand(req.text)
     const externalKind = externalAgentKindForSessionId(req.sessionId)
     if (externalKind) {
-      return this.sendExternalMessage(req, externalKind)
+      return this.sendExternalMessage(req, externalKind, bugReport)
     }
     if (isExternalSessionId(req.sessionId)) {
       throw new Error("Invalid or unsupported external agent session.")
@@ -1981,7 +1985,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     )
     const userMessageId = createOpencodeMessageId()
     const teamName = teamNameFromRequest(req)
-    const bugReport = parseBugReportCommand(req.text)
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
     let processDir: string | undefined
@@ -2073,22 +2076,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(artifactProjectRoot ? { outputProjectRoot: artifactProjectRoot } : {}),
       })
       const promptGeneration = activeGeneration
-      const bugReportSystem = bugReport
-        ? buildBugReportSystemPrompt({
-            ...(bugReport.note ? { note: bugReport.note } : {}),
-            runtime: {
-              agentMode: "build",
-              appCommit: this.deps.bugReportRuntime?.appCommit ?? "unknown",
-              appVersion: this.deps.bugReportRuntime?.appVersion ?? "unknown",
-              generatedAt: new Date().toISOString(),
-              model: bugReportModelLabel(req.model),
-              permissionMode: this.sessionPermissionMode(req.sessionId),
-              permissionDiagnostics: this.permissionDiagnostics.snapshot(),
-              platform: this.deps.bugReportRuntime?.platform ?? process.platform,
-            },
-            targetFilePath: path.join(artifactDir, BUG_REPORT_FILE_NAME),
-          })
+      const generatedAt = new Date().toISOString()
+      const evidencePack = bugReport
+        ? await this.materializeBugReportEvidence(req.sessionId, processDir, bugReport, generatedAt)
         : undefined
+      const bugReportSystem = bugReport
+        ? this.buildBugReportTurnSystem(
+            bugReport,
+            artifactDir,
+            req,
+            bugReportModelLabel(req.model),
+            generatedAt,
+            evidencePack,
+          )
+        : undefined
+      const bugReportLanguageText = evidencePack?.userGoal ?? bugReport?.note
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
       this.rememberTrustedAttachments(req.sessionId, req.attachments)
       this.discardTrustedAttachmentPaths(req.attachments)
@@ -2111,12 +2113,18 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             teamName,
             reasoningLevel: req.reasoningLevel,
             system: mergeSystemPrompts(
-              buildTeamSkillsSystem(req.teamSkills),
-              buildContextMentionsSystemPrompt(req.contextMentions),
-              buildProjectContextSystem(req.projectContext),
-              buildPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
-              bugReportSystem,
-              buildResponseLanguageSystem(req.appLocale, detectResponseLanguage(req.text)),
+              ...(bugReport
+                ? [bugReportSystem]
+                : [
+                    buildTeamSkillsSystem(req.teamSkills),
+                    buildContextMentionsSystemPrompt(req.contextMentions),
+                    buildProjectContextSystem(req.projectContext),
+                    buildPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
+                  ]),
+              buildResponseLanguageSystem(
+                req.appLocale,
+                detectResponseLanguage(bugReport ? (bugReportLanguageText ?? "") : req.text),
+              ),
             ),
           },
           { signal: promptGeneration.controller.signal },
@@ -2167,12 +2175,70 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
   }
 
+  private async materializeBugReportEvidence(
+    sessionId: string,
+    processDir: string,
+    bugReport: ParsedBugReportCommand,
+    generatedAt: string,
+  ): Promise<BugReportEvidencePack | undefined> {
+    let messages: ChatMessage[] = []
+    let historyError: string | undefined
+    try {
+      messages = await this.getMessages(sessionId)
+    } catch (error) {
+      historyError = errorMessage(error)
+      logDiagnostic("chat-service", "failed to load bug-report history", { error, sessionId }, "warn")
+    }
+    try {
+      return await writeBugReportEvidencePack({
+        generatedAt,
+        messages,
+        processDir,
+        sessionId,
+        ...(bugReport.note ? { focusNote: bugReport.note } : {}),
+        ...(historyError ? { historyError } : {}),
+      })
+    } catch (error) {
+      logDiagnostic("chat-service", "failed to write bug-report evidence pack", { error, sessionId }, "warn")
+      return undefined
+    }
+  }
+
+  private buildBugReportTurnSystem(
+    bugReport: ParsedBugReportCommand,
+    artifactDir: string,
+    req: SendMessageRequest,
+    modelLabel: string,
+    generatedAt: string,
+    evidencePack: BugReportEvidencePack | undefined,
+  ): string {
+    return buildBugReportSystemPrompt({
+      ...(bugReport.note ? { note: bugReport.note } : {}),
+      ...(evidencePack ? { evidencePack } : {}),
+      runtime: {
+        agentMode: "build",
+        appCommit: this.deps.bugReportRuntime?.appCommit ?? "unknown",
+        appVersion: this.deps.bugReportRuntime?.appVersion ?? "unknown",
+        generatedAt,
+        model: modelLabel,
+        permissionMode: this.sessionPermissionMode(req.sessionId),
+        permissionDiagnostics: this.permissionDiagnostics.snapshot(),
+        platform: this.deps.bugReportRuntime?.platform ?? process.platform,
+      },
+      targetFilePath: path.join(artifactDir, BUG_REPORT_FILE_NAME),
+    })
+  }
+
   /**
    * External (BYOA) turn pipeline. The agent owns its reasoning loop, native
    * model, and local permission enforcement; Wanta still owns product context
    * such as Link identity, selected skills, project context, and language.
    */
-  private async sendExternalMessage(req: SendMessageRequest, kind: ExternalAgentKind): Promise<void> {
+  private async sendExternalMessage(
+    req: SendMessageRequest,
+    kind: ExternalAgentKind,
+    bugReport: ParsedBugReportCommand | null,
+  ): Promise<void> {
     const adapter = this.externalAgents.get(kind)
     if (!adapter) {
       throw new Error("This agent is not available.")
@@ -2216,6 +2282,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       const directories = this.deps.managedTurnDirectories
       if (!directories) throw new Error("Managed turn directories are not configured.")
       const execution = resolveChatTurnExecution({
+        ...(bugReport ? { forcedMode: "build" } : {}),
         requestedMode: req.mode,
         ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
       })
@@ -2288,6 +2355,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         })
       }
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
+      const generatedAt = new Date().toISOString()
+      const evidencePack = bugReport
+        ? await this.materializeBugReportEvidence(req.sessionId, processDir, bugReport, generatedAt)
+        : undefined
+      const bugReportLanguageText = evidencePack?.userGoal ?? bugReport?.note
       let dispatchAcknowledged = false
       void adapter
         .send(
@@ -2308,13 +2380,33 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             ...(req.agentModelId ? { agentModelId: req.agentModelId } : {}),
             ...(req.agentEffortId ? { agentEffortId: req.agentEffortId } : {}),
             ...(teamName ? { teamName } : {}),
+            ...(bugReport && execution.mode ? { mode: execution.mode } : {}),
             system: mergeSystemPrompts(
-              buildLinkRuntimeSystem(this.activeLinkRuntime, teamName),
-              buildTeamSkillsSystem(req.teamSkills),
-              buildContextMentionsSystemPrompt(req.contextMentions),
-              buildProjectContextSystem(req.projectContext),
-              buildExternalPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
-              buildResponseLanguageSystem(req.appLocale, detectResponseLanguage(req.text)),
+              ...(bugReport
+                ? [
+                    this.buildBugReportTurnSystem(
+                      bugReport,
+                      artifactDir,
+                      req,
+                      bugReportModelLabelForExternal(
+                        kind,
+                        req.agentModelId ?? adapter.sessionSelection(req.sessionId).modelId,
+                      ),
+                      generatedAt,
+                      evidencePack,
+                    ),
+                  ]
+                : [
+                    buildLinkRuntimeSystem(this.activeLinkRuntime, teamName),
+                    buildTeamSkillsSystem(req.teamSkills),
+                    buildContextMentionsSystemPrompt(req.contextMentions),
+                    buildProjectContextSystem(req.projectContext),
+                    buildExternalPermissionModeSystem(req.permissionMode, this.deps.browserAvailable?.() ?? false),
+                  ]),
+              buildResponseLanguageSystem(
+                req.appLocale,
+                detectResponseLanguage(bugReport ? (bugReportLanguageText ?? "") : req.text),
+              ),
             ),
           },
           {

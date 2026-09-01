@@ -47,7 +47,8 @@ A new kind of interaction is a new variant on `AgentInput` or `AgentEvent`.
    prompt controls derive from `AgentProfile` plus reflected events. Never
    write `if (agent === "...")` in UI or chat logic.
 7. **Host capabilities stay host-owned; deep adapter features stay concrete.**
-   Link workspace identity, selected context, response policy, redaction, and
+   Link workspace identity, selected context, response policy, redaction,
+   built-in slash-command contracts such as `/bug-report`, and
    business authorization semantics belong to Wanta and cross every adapter.
    Agent-native depth (server-side sessions, title generation, native history,
    and artifact/process support not declared by a profile) stays on the concrete

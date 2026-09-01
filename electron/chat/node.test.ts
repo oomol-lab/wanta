@@ -2440,11 +2440,39 @@ test("sendMessage passes selected context, team skills, and project as per-turn 
   assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", undefined]])
 })
 
-test("sendMessage turns /bug-report into a Markdown artifact-only turn", async () => {
+test("sendMessage turns /bug-report into a pack-backed diagnostic artifact turn", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-bug-report-"))
   const artifactDir = path.join(root, "artifacts")
+  const processDir = path.join(root, "process")
+  await mkdir(processDir, { recursive: true })
   const bridge = createBridgeAgent()
   bridge.createArtifactDir.mockResolvedValue(artifactDir)
+  bridge.createProcessDir.mockResolvedValue(processDir)
+  bridge.getMessages.mockResolvedValue([
+    {
+      id: "user-1",
+      role: "user",
+      createdAt: 1,
+      parts: [{ kind: "text", partId: "t1", text: "请帮我修好 Gmail 授权卡住。" }],
+    },
+    {
+      id: "assistant-1",
+      role: "assistant",
+      createdAt: 2,
+      finishReason: "stop",
+      parts: [
+        {
+          kind: "tool",
+          partId: "tool-1",
+          tool: "bash",
+          status: "error",
+          failureKind: "authorization",
+          error: "connector unauthorized",
+          authorization: { service: "gmail", displayName: "Gmail", errorCode: "unauthorized" },
+        },
+      ],
+    },
+  ])
   const service = new ChatServiceImpl(bridge.agent, {
     bugReportRuntime: {
       appCommit: "abc123",
@@ -2460,12 +2488,23 @@ test("sendMessage turns /bug-report into a Markdown artifact-only turn", async (
       permissionMode: "default",
       scope: { kind: "team", teamId: "team-id", teamName: "team-name" },
       sessionId: "session-1",
+      teamSkills: [
+        {
+          description: "Summarize inbound sales mail consistently",
+          id: "team:team-skill-1",
+          name: "Sales Mail Summary",
+          packageName: "@acme/sales-skills",
+          version: "1.2.3",
+        },
+      ],
       text: "/bug-report Focus on the authorization state mismatch.",
     })
 
     assert.equal(bridge.promptStreaming.mock.calls.length, 1)
     assert.equal(bridge.promptStreaming.mock.calls[0]?.[1], "/bug-report Focus on the authorization state mismatch.")
-    const options = bridge.promptStreaming.mock.calls[0]?.[2] as { mode?: string; system?: string } | undefined
+    const options = bridge.promptStreaming.mock.calls[0]?.[2] as
+      | { mode?: string; processDir?: string; system?: string }
+      | undefined
     assert.equal(options?.mode, "build")
     assert.match(options?.system ?? "", /built-in \/bug-report command/)
     assert.match(options?.system ?? "", /Focus on the authorization state mismatch/)
@@ -2473,6 +2512,18 @@ test("sendMessage turns /bug-report into a Markdown artifact-only turn", async (
     assert.match(options?.system ?? "", /Wanta version: 1\.2\.3/)
     assert.match(options?.system ?? "", /Build commit: abc123/)
     assert.match(options?.system ?? "", /Do not reproduce the report body in the assistant response/)
+    assert.match(options?.system ?? "", /index\.json/)
+    assert.match(options?.system ?? "", /## Wanta diagnosis/)
+    assert.match(options?.system ?? "", /classified the latest user instruction as Simplified Chinese/)
+    assert.doesNotMatch(options?.system ?? "", /Team-configured skills/)
+    assert.doesNotMatch(options?.system ?? "", /Use bash normally/)
+
+    const index = JSON.parse(await readFile(path.join(processDir, "bug-report", "index.json"), "utf8")) as {
+      friction: { toolFailures: Array<{ tool?: string }> }
+      userGoal?: string
+    }
+    assert.equal(index.userGoal, "请帮我修好 Gmail 授权卡住。")
+    assert.equal(index.friction.toolFailures[0]?.tool, "bash")
   } finally {
     await rm(root, { force: true, recursive: true })
   }

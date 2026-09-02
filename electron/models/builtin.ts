@@ -57,12 +57,7 @@ export const BUILTIN_MODEL_IDS = [
 export type BuiltinModelId = (typeof BUILTIN_MODEL_IDS)[number]
 
 export const DEFAULT_BUILTIN_MODEL_ID: BuiltinModelId = "oopilot"
-export const AUTO_PRIMARY_BUILTIN_MODEL_ID: BuiltinModelId = "deepseek-v4-flash"
 export const IMAGE_UNDERSTANDING_BUILTIN_MODEL_ID: BuiltinModelId = "qwen3.7-plus"
-
-export function resolveExecutionBuiltinModelId(modelID: BuiltinModelId): BuiltinModelId {
-  return modelID === DEFAULT_BUILTIN_MODEL_ID ? AUTO_PRIMARY_BUILTIN_MODEL_ID : modelID
-}
 
 export const BUILTIN_PROVIDER_DEFINITIONS: BuiltinProviderDefinition[] = [
   {

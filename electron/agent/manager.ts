@@ -41,7 +41,6 @@ import {
   IMAGE_UNDERSTANDING_BUILTIN_MODEL_ID,
   isBuiltinModelId,
   resolveBuiltinModel,
-  resolveExecutionBuiltinModelId,
 } from "../models/builtin.ts"
 import { buildArtifactSystem } from "./artifact-system.ts"
 import { planAttachmentInputs } from "./attachment-input.ts"
@@ -1513,7 +1512,7 @@ export class AgentManager {
     if (!effectiveChoice || effectiveChoice.kind === "builtin") {
       const modelID =
         effectiveChoice && isBuiltinModelId(effectiveChoice.id) ? effectiveChoice.id : DEFAULT_BUILTIN_MODEL_ID
-      return resolveBuiltinModel(resolveExecutionBuiltinModelId(modelID)).runtime
+      return resolveBuiltinModel(modelID).runtime
     }
     const model = this.options.customModels?.find((item) => item.id === effectiveChoice.id)
     if (!model) {
@@ -1541,7 +1540,7 @@ export class AgentManager {
     }
     const modelID =
       effectiveChoice && isBuiltinModelId(effectiveChoice.id) ? effectiveChoice.id : DEFAULT_BUILTIN_MODEL_ID
-    const model = resolveBuiltinModel(resolveExecutionBuiltinModelId(modelID))
+    const model = resolveBuiltinModel(modelID)
     return model.capabilities.reasoningVariants?.includes(variant) ? variant : undefined
   }
 
@@ -1557,7 +1556,7 @@ export class AgentManager {
     }
     const modelID =
       effectiveChoice && isBuiltinModelId(effectiveChoice.id) ? effectiveChoice.id : DEFAULT_BUILTIN_MODEL_ID
-    const capabilities = resolveBuiltinModel(resolveExecutionBuiltinModelId(modelID)).capabilities
+    const capabilities = resolveBuiltinModel(modelID).capabilities
     return { images: capabilities.supportsImages, pdf: capabilities.supportsPdf }
   }
 

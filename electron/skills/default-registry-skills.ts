@@ -6,10 +6,17 @@ export interface DefaultRegistrySkillSpec {
   skillId: string
 }
 
-export const defaultRegistrySkillSetVersion = 4
+export const defaultRegistrySkillSetVersion = 5
 
 // 默认安装清单：登录后后台补装，必须使用 registry 中稳定的 packageName + skillId。
 export const defaultRegistrySkills: readonly DefaultRegistrySkillSpec[] = [
+  {
+    category: "other",
+    enabled: true,
+    minimumVersion: "1.0.0",
+    packageName: "oo-oomol-console",
+    skillId: "oo-oomol-console",
+  },
   {
     category: "image-generation",
     enabled: true,

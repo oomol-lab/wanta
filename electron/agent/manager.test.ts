@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { IMAGE_UNDERSTANDING_BUILTIN_MODEL_ID, resolveBuiltinModel } from "../models/builtin.ts"
 import {
   AgentManager,
   buildAgentSidecarEnv,
@@ -888,20 +887,15 @@ describe("AgentManager", () => {
         type: "text",
         text: expect.stringContaining("A test photo"),
       })
-      expect(calls[1]?.[0]).toMatchObject({ model: { modelID: "deepseek-v4-flash", providerID: "oomol" } })
-      expect(calls[1]?.[0].parts[0]).toMatchObject({
-        metadata: { wantaPurpose: "attachment-reference", wantaVisibility: "internal" },
-        synthetic: true,
-        type: "text",
-      })
-      expect(calls[1]?.[0].parts[1]).toMatchObject({
-        metadata: { wantaPurpose: "image-understanding", wantaVisibility: "internal" },
-        synthetic: true,
-        type: "text",
-        text: expect.stringContaining(resolveBuiltinModel(IMAGE_UNDERSTANDING_BUILTIN_MODEL_ID).displayName),
-      })
+      expect(calls[1]?.[0]).toMatchObject({ model: { modelID: "oopilot", providerID: "oomol" } })
+      expect(calls[1]?.[0].parts[0]).toMatchObject({ mime: "image/png", type: "file" })
+      expect(calls[1]?.[0].parts).not.toContainEqual(
+        expect.objectContaining({
+          metadata: { wantaPurpose: "image-understanding", wantaVisibility: "internal" },
+        }),
+      )
       expect(calls[2]?.[0].parts[0]).toMatchObject({ mime: "image/png", type: "file" })
-      expect(imageUnderstandingFetch).toHaveBeenCalledTimes(2)
+      expect(imageUnderstandingFetch).toHaveBeenCalledTimes(1)
       const visionRequest = imageUnderstandingFetch.mock.calls[0]?.[1]
       expect(visionRequest?.headers).toMatchObject({ Authorization: "Bearer test" })
       expect(JSON.parse(String(visionRequest?.body))).toMatchObject({
@@ -936,7 +930,7 @@ describe("AgentManager", () => {
     try {
       await manager.promptStreaming("session-1", "what is shown?", {
         attachments: [{ id: "image-1", mime: "image/png", name: "photo.png", path: imagePath, size: 10 }],
-        model: { kind: "builtin", id: "oopilot" },
+        model: { kind: "builtin", id: "deepseek-v4-flash" },
         teamName: "acme",
       })
 
@@ -1035,7 +1029,7 @@ describe("AgentManager", () => {
     try {
       const prompting = manager.promptStreaming("session-1", "what is shown?", {
         attachments: [{ id: "image-1", mime: "image/png", name: "photo.png", path: imagePath, size: 10 }],
-        model: { kind: "builtin", id: "oopilot" },
+        model: { kind: "builtin", id: "deepseek-v4-flash" },
         signal: controller.signal,
         teamName: "acme",
       })
@@ -1325,6 +1319,32 @@ describe("AgentManager", () => {
       response_format: { type: "json_object" },
     })
     expect(request?.headers).toMatchObject({ Authorization: "Bearer test" })
+  })
+
+  it("keeps the oopilot gateway alias when Auto generates a session title", async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"动态路由标题"}' } }] }), {
+        status: 200,
+      })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const manager = new AgentManager({
+      linkRuntime: { kind: "oomol", sessionToken: "test" },
+      modelAccess: { kind: "oomol", sessionToken: "test" },
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+
+    const title = await manager.generateSessionTitle({
+      model: { kind: "builtin", id: "oopilot" },
+      text: "生成标题",
+    })
+
+    expect(title).toEqual({ generated: true, title: "动态路由标题" })
+    const request = fetchMock.mock.calls[0]?.[1]
+    expect(JSON.parse(String(request?.body))).toMatchObject({ model: "oopilot" })
   })
 
   it("disables thinking and requests structured output for DeepSeek session titles", async () => {

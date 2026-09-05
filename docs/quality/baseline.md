@@ -293,4 +293,6 @@ of defaults when the override is removed.
 
 The normal development app also passed a live smoke check with a heading, inline code,
 a fenced JSON block, the code-copy control, a two-item list, and the return to idle after
-completion. Full validation passed 2996 tests with four skips, TypeScript, lint and formatting.
+completion. The full test suite passed 2996 tests with four skips; TypeScript and lint also
+passed. Formatting validation was limited to the modified files with `oxfmt --check`;
+full-repository formatting validation and a production build were not run in this round.

@@ -211,3 +211,86 @@ Validation includes a React hook regression covering stable callbacks on unrelat
 dragging from a keyboard-updated width, Shift+Arrow/Home/End behavior, width persistence and
 collapsed-state guards. No changes were made to text batching, message identity, Markdown
 semantics or artifact presentation.
+
+## 2026-09-05: active Markdown renderer identity
+
+This round starts after the sidebar fix and isolates MessageResponse preprocessing,
+MessageStreamdown rendering, and Chromium layout/paint work. It uses the same 200-message,
+93,180-character history, 625 updates over 20 seconds, 10,000-character output and scripted
+input scenario described above. There are five runs per condition; run zero is warm-up.
+These are separate paired measurements, not percentages to multiply with the sidebar result.
+
+The instrumentation preserves each component's existing memoization behavior. In particular,
+ordinary function components are profiled without adding a memo boundary. Exploratory runs
+with additional wrapper memoization were discarded. Only `message-before-exact` and
+`message-after-exact` are used below. Chromium tracing covers the complete first valid
+before/stream/after window, instead of tracing the entire campaign and filling its buffer.
+React, frame and input records cover all runs.
+
+### Confirmed cause and minimal fix
+
+MessageResponse created a new `components` object on every render. Streamdown 2.5.0 derives
+an inline-code wrapper function from that object's identity; the generated function then
+changes the component map passed to its memoized Markdown blocks. Consequently, even
+finished paragraphs with unchanged content fail their renderer comparison and are parsed
+again. The installed Streamdown implementation and the runtime measurements both support
+this mechanism.
+
+The merged component map is now memoized on the caller's `components` override. It remains
+stable across text updates while explicit override changes still take effect. This does not
+change the smoothing timer/step, Markdown normalization, code-language routing, image policy,
+Mermaid safety controls, text batching or message identity. Preprocessing costs were small
+relative to Markdown rendering and did not justify a new text cache or worker in this round.
+
+### Measured results
+
+Cumulative durations below are medians of four valid 20-second streaming windows. Profiler
+subtree durations are inclusive; MessageResponse and MessageStreamdown must not be added to
+AppShell. Input is the scripted dispatch-to-next-frame proxy, not native keyboard INP.
+
+| Metric                                   |     Before |      After |
+| ---------------------------------------- | ---------: | ---------: |
+| MessageStreamdown subtree render time    |  2875.0 ms |   789.3 ms |
+| MessageResponse subtree render time      | 2999.45 ms |   942.1 ms |
+| AppShell subtree render time             | 4925.75 ms | 2890.25 ms |
+| Input-to-frame p95, median across runs   |   11.75 ms |     7.4 ms |
+| Frame-interval p95, median across runs   |     9.2 ms |    9.05 ms |
+| Historical-turn updates during streaming |          0 |          0 |
+| Long tasks over 50 ms during streaming   |          0 |          0 |
+
+The Markdown subtree's cumulative render time decreased by 72.5%; inclusive AppShell render
+work decreased by 41.3% in this development fixture. These are renderer-work measurements,
+not provider-response speedups or production-build guarantees. The amount and rate of input
+text remained unchanged.
+
+| Valid run | Markdown before | Markdown after | AppShell before | AppShell after |
+| --------- | --------------: | -------------: | --------------: | -------------: |
+| 1         |       2818.3 ms |       801.0 ms |       4916.2 ms |      2976.9 ms |
+| 2         |       3081.0 ms |       774.9 ms |       5145.8 ms |      2881.3 ms |
+| 3         |       2915.1 ms |       789.5 ms |       4935.3 ms |      2845.6 ms |
+| 4         |       2834.9 ms |       789.1 ms |       4859.0 ms |      2899.2 ms |
+
+The complete representative trace provides an important qualification:
+
+| First valid stream window        |          Before |           After |
+| -------------------------------- | --------------: | --------------: |
+| Layout count / cumulative time   | 416 / 174.24 ms | 571 / 322.69 ms |
+| Paint count / cumulative time    |  974 / 72.85 ms | 1346 / 122.0 ms |
+| Minor GC count / cumulative time | 109 / 191.34 ms |  59 / 133.27 ms |
+
+Smoothing updates became more frequent as rendering became cheaper. Layout and paint work
+increased rather than disappearing; the large reduction was in Markdown rendering. There
+are still roughly 600 invocations per run where the text passed to Markdown has not changed,
+and preprocessing continues to run. Their remaining cost needs measurement at larger input
+sizes before further restructuring. Native input, large code/tool results, manual scrolling,
+and production-build profiles remain follow-up scenarios.
+
+Evidence is local under `.wanta-dev/quality/message-perf/`: the accepted JSON samples, summaries,
+representative Chromium traces, full CPU profiles, archived baseline source, and fixture/collector.
+Raw artifacts are excluded from Git. A regression test verifies stable component identity across
+text changes, explicit inline-code overrides, default image-renderer retention, and restoration
+of defaults when the override is removed.
+
+The normal development app also passed a live smoke check with a heading, inline code,
+a fenced JSON block, the code-copy control, a two-item list, and the return to idle after
+completion. Full validation passed 2996 tests with four skips, TypeScript, lint and formatting.

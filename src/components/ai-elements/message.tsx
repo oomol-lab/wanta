@@ -593,17 +593,19 @@ export const MessageResponse = memo(
       () => messageResponseRenderers(typeof responseChildren === "string" ? responseChildren : ""),
       [responseChildren],
     )
+    // Streamdown derives an inline-code wrapper from this object. Keep it
+    // stable so unchanged Markdown blocks retain their memoized renderers.
+    const resolvedComponents = useMemo(
+      () => ({ ...messageResponseComponents, inlineCode: MarkdownInlineCode, ...components }),
+      [components],
+    )
     return (
       // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。
       <Suspense fallback={<div className={cn("w-full whitespace-pre-wrap", className)}>{responseChildren}</div>}>
         <>
           <Streamdown
             className={cn("oo-message-response w-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
-            components={{
-              ...messageResponseComponents,
-              inlineCode: MarkdownInlineCode,
-              ...components,
-            }}
+            components={resolvedComponents}
             controls={messageResponseControls(controls)}
             defaultRenderers={defaultRenderers}
             lineNumbers={lineNumbers ?? false}

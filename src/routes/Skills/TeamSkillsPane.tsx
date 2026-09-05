@@ -97,16 +97,32 @@ export function TeamSkillsPane({
 
   const normalizedQuery = teamQuery.trim().toLowerCase()
   const recommendationLookupLoading = providerRecommendationsLoading && teamFilter !== "configured"
-  const filteredTeamItems = React.useMemo(() => {
-    if (!selectedTeamSkills) return []
-    const recommendedPlan = planProviderSkillRecommendationBulkLinks(providerRecommendations, selectedTeamSkills.skills)
+  const configuredSkills = selectedTeamSkills?.skills
+  const includeConfigured = teamFilter !== "recommended"
+  const includeRecommended = teamFilter !== "configured"
+  const configuredItems = React.useMemo(() => {
+    if (!configuredSkills || !includeConfigured) return []
     return buildTeamSkillRecommendationItems({
-      filter: teamFilter,
+      filter: "configured",
+      normalizedQuery,
+      providerRecommendations: [],
+      skills: configuredSkills,
+    })
+  }, [configuredSkills, includeConfigured, normalizedQuery])
+  const recommendedItems = React.useMemo(() => {
+    if (!configuredSkills || !includeRecommended) return []
+    const recommendedPlan = planProviderSkillRecommendationBulkLinks(providerRecommendations, configuredSkills)
+    return buildTeamSkillRecommendationItems({
+      filter: "recommended",
       normalizedQuery,
       providerRecommendations: recommendedPlan.linkable,
-      skills: selectedTeamSkills.skills,
+      skills: configuredSkills,
     })
-  }, [selectedTeamSkills?.skills, normalizedQuery, teamFilter, providerRecommendations])
+  }, [configuredSkills, includeRecommended, normalizedQuery, providerRecommendations])
+  const filteredTeamItems = React.useMemo(
+    () => [...configuredItems, ...recommendedItems],
+    [configuredItems, recommendedItems],
+  )
   const selectedTeamItem = selectedItemId ? filteredTeamItems.find((item) => item.id === selectedItemId) : undefined
 
   return (
@@ -168,7 +184,13 @@ export function TeamSkillsPane({
                   key={item.id}
                   item={item}
                   groupById={groupById}
-                  busyAction={busyAction}
+                  busyAction={
+                    item.type === "recommended" ||
+                    busyAction === "installSkillBatch" ||
+                    busyAction === `installSkill:${item.skill.packageName}:${item.skill.skillName}`
+                      ? busyAction
+                      : null
+                  }
                   configBusy={item.type === "configured" && busyConfigId === item.skill.id}
                   selected={selectedItemId === item.id}
                   onSelect={setSelectedItemId}

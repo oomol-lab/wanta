@@ -6,6 +6,7 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { expect, test, vi } from "vitest"
 import { DiscoverSkillsPane } from "./DiscoverSkillsPane.tsx"
+import { TeamSkillsPane } from "./TeamSkillsPane.tsx"
 
 const { rowRender, translate } = vi.hoisted(() => ({
   rowRender: vi.fn(() => null),
@@ -64,6 +65,101 @@ test("a 500-package list skips unchanged rows and renders only the affected inst
       ),
     )
     expect(rowRender).toHaveBeenCalledTimes(1)
+  } finally {
+    await act(async () => root.unmount())
+    vi.unstubAllGlobals()
+  }
+})
+
+test("configured team rows ignore unrelated actions and recommendation updates", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
+  rowRender.mockClear()
+  const root = createRoot(document.createElement("div"))
+  type Props = React.ComponentProps<typeof TeamSkillsPane>
+  const configuredSkills: Props["teamSkills"]["skills"] = Array.from({ length: 100 }, (_, index) => ({
+    id: `configured-${index}`,
+    displayName: `Configured ${index}`,
+    enabled: true,
+    order: index,
+    packageName: `configured-${index}`,
+    skillName: `configured-${index}`,
+    version: "1.0.0",
+    versionPolicy: "pinned",
+    visibility: "public",
+  }))
+  const recommendation: Props["providerRecommendations"][number] = {
+    providerDisplayName: "Demo",
+    service: "demo",
+    packageName: "oo-demo",
+    skillId: "demo",
+    installState: "installable",
+    package: {
+      id: "oo-demo@1.0.0",
+      name: "oo-demo",
+      displayName: "Demo",
+      skills: [{ name: "demo", title: "Demo" }],
+      version: "1.0.0",
+      isTemplate: false,
+      maintainers: [],
+      visibility: "public",
+    },
+  }
+  const props: Props = {
+    busyAction: null,
+    groupById: new Map(),
+    teamFilter: "all",
+    teamQuery: "",
+    teamSkills: {
+      skills: configuredSkills,
+      teamId: "team",
+      teamName: "Team",
+      canManage: true,
+      apiEnabled: true,
+      loading: false,
+      hasLoaded: true,
+      error: null,
+      chatContextSkills: [],
+      addSkill: vi.fn(),
+      removePackage: vi.fn(),
+      refresh: vi.fn(),
+    },
+    workspace: { activeWorkspace: { teamId: "team", canManage: true } } as Props["workspace"],
+    providerRecommendations: [recommendation],
+    providerRecommendationsLoading: false,
+    providerRecommendationsPendingCount: 0,
+    providerRecommendationsTotalCount: 1,
+    onAddRecommendation: vi.fn(),
+    onInstallRuntimeSkill: vi.fn(),
+    onOpenManagedSkill: vi.fn(),
+  }
+  try {
+    await act(async () => root.render(<TeamSkillsPane {...props} />))
+    expect(rowRender).toHaveBeenCalledTimes(101)
+    rowRender.mockClear()
+    await act(async () => root.render(<TeamSkillsPane {...props} busyAction="addSkill:other:other" />))
+    expect(rowRender).toHaveBeenCalledTimes(1)
+    rowRender.mockClear()
+    const updated = [{ ...recommendation, package: { ...recommendation.package, displayName: "Updated" } }]
+    await act(async () =>
+      root.render(<TeamSkillsPane {...props} busyAction="addSkill:other:other" providerRecommendations={updated} />),
+    )
+    expect(rowRender).toHaveBeenCalledTimes(1)
+    rowRender.mockClear()
+    await act(async () =>
+      root.render(
+        <TeamSkillsPane
+          {...props}
+          busyAction="installSkill:configured-5:configured-5"
+          providerRecommendations={updated}
+        />,
+      ),
+    )
+    expect(rowRender).toHaveBeenCalledTimes(2)
+    rowRender.mockClear()
+    await act(async () =>
+      root.render(<TeamSkillsPane {...props} busyAction="installSkillBatch" providerRecommendations={updated} />),
+    )
+    expect(rowRender).toHaveBeenCalledTimes(101)
   } finally {
     await act(async () => root.unmount())
     vi.unstubAllGlobals()

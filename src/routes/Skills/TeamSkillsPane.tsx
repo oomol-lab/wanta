@@ -97,18 +97,16 @@ export function TeamSkillsPane({
 
   const normalizedQuery = teamQuery.trim().toLowerCase()
   const recommendationLookupLoading = providerRecommendationsLoading && teamFilter !== "configured"
-  const recommendedPlan = selectedTeamSkills
-    ? planProviderSkillRecommendationBulkLinks(providerRecommendations, selectedTeamSkills.skills)
-    : null
-  const recommendedTeamSkills = recommendedPlan?.linkable ?? []
-  const filteredTeamItems = selectedTeamSkills
-    ? buildTeamSkillRecommendationItems({
-        filter: teamFilter,
-        normalizedQuery,
-        providerRecommendations: recommendedTeamSkills,
-        skills: selectedTeamSkills.skills,
-      })
-    : []
+  const filteredTeamItems = React.useMemo(() => {
+    if (!selectedTeamSkills) return []
+    const recommendedPlan = planProviderSkillRecommendationBulkLinks(providerRecommendations, selectedTeamSkills.skills)
+    return buildTeamSkillRecommendationItems({
+      filter: teamFilter,
+      normalizedQuery,
+      providerRecommendations: recommendedPlan.linkable,
+      skills: selectedTeamSkills.skills,
+    })
+  }, [selectedTeamSkills?.skills, normalizedQuery, teamFilter, providerRecommendations])
   const selectedTeamItem = selectedItemId ? filteredTeamItems.find((item) => item.id === selectedItemId) : undefined
 
   return (
@@ -165,41 +163,19 @@ export function TeamSkillsPane({
             />
           ) : (
             <div className="overflow-hidden rounded-md border bg-background">
-              {filteredTeamItems.map((item) =>
-                item.type === "configured" ? (
-                  <TeamConfiguredSkillCard
-                    key={item.id}
-                    busy={busyConfigId === item.skill.id || busyAction === "installSkillBatch"}
-                    groupById={groupById}
-                    installBusy={
-                      busyAction === `installSkill:${item.skill.packageName}:${item.skill.skillName}` ||
-                      busyAction === "installSkillBatch"
-                    }
-                    selected={selectedItemId === item.id}
-                    skill={item.skill}
-                    onInstallRuntime={() =>
-                      onInstallRuntimeSkill({ packageName: item.skill.packageName, skillName: item.skill.skillName })
-                    }
-                    onOpenManagedSkill={() => openManagedSkill(item.skill.skillName)}
-                    onSelect={() => setSelectedItemId(item.id)}
-                  />
-                ) : (
-                  <TeamRecommendedSkillCard
-                    key={item.id}
-                    busyAction={busyAction}
-                    recommendation={item.recommendation}
-                    selected={selectedItemId === item.id}
-                    onInstallRuntime={() =>
-                      onInstallRuntimeSkill({
-                        packageName: item.recommendation.packageName,
-                        skillName: item.recommendation.skillId,
-                      })
-                    }
-                    onOpenManagedSkill={() => openManagedSkill(item.recommendation.skillId)}
-                    onSelect={() => setSelectedItemId(item.id)}
-                  />
-                ),
-              )}
+              {filteredTeamItems.map((item) => (
+                <TeamSkillItemRow
+                  key={item.id}
+                  item={item}
+                  groupById={groupById}
+                  busyAction={busyAction}
+                  configBusy={item.type === "configured" && busyConfigId === item.skill.id}
+                  selected={selectedItemId === item.id}
+                  onSelect={setSelectedItemId}
+                  onOpenManagedSkill={openManagedSkill}
+                  onInstallRuntimeSkill={onInstallRuntimeSkill}
+                />
+              ))}
               {recommendationLookupLoading ? (
                 <TeamSkillLookupLoadingRows
                   resolvedCount={Math.max(0, providerRecommendationsTotalCount - providerRecommendationsPendingCount)}
@@ -760,3 +736,57 @@ function TeamSkillMetaCard({
     </InspectorInsetCard>
   )
 }
+
+const TeamSkillItemRow = React.memo(function TeamSkillItemRow({
+  item,
+  groupById,
+  busyAction,
+  configBusy,
+  selected,
+  onSelect,
+  onOpenManagedSkill,
+  onInstallRuntimeSkill,
+}: {
+  item: TeamSkillRecommendationItem
+  groupById: ManagedSkillGroupById
+  busyAction: BusyAction | null
+  configBusy: boolean
+  selected: boolean
+  onSelect: (id: string) => void
+  onOpenManagedSkill: (name: string) => void
+  onInstallRuntimeSkill: TeamSkillsPaneProps["onInstallRuntimeSkill"]
+}) {
+  return item.type === "configured" ? (
+    <TeamConfiguredSkillCard
+      key={item.id}
+      busy={configBusy || busyAction === "installSkillBatch"}
+      groupById={groupById}
+      installBusy={
+        busyAction === `installSkill:${item.skill.packageName}:${item.skill.skillName}` ||
+        busyAction === "installSkillBatch"
+      }
+      selected={selected}
+      skill={item.skill}
+      onInstallRuntime={() =>
+        onInstallRuntimeSkill({ packageName: item.skill.packageName, skillName: item.skill.skillName })
+      }
+      onOpenManagedSkill={() => onOpenManagedSkill(item.skill.skillName)}
+      onSelect={() => onSelect(item.id)}
+    />
+  ) : (
+    <TeamRecommendedSkillCard
+      key={item.id}
+      busyAction={busyAction}
+      recommendation={item.recommendation}
+      selected={selected}
+      onInstallRuntime={() =>
+        onInstallRuntimeSkill({
+          packageName: item.recommendation.packageName,
+          skillName: item.recommendation.skillId,
+        })
+      }
+      onOpenManagedSkill={() => onOpenManagedSkill(item.recommendation.skillId)}
+      onSelect={() => onSelect(item.id)}
+    />
+  )
+})

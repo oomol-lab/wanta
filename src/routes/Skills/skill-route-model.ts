@@ -26,7 +26,7 @@ export type PublicSkillInstallState =
   | "installable"
   | "name-conflict"
   | "unavailable"
-export type PublicPackageCatalogStatus = "idle" | "load-error" | "loading" | "loading-more" | "refreshing"
+export type PublicPackageCatalogStatus = "idle" | "ready" | "load-error" | "loading" | "loading-more" | "refreshing"
 export type ManagedSkillGroupById = ReadonlyMap<string, ManagedSkillGroup>
 export type SkillVersionCheckByKey = ReadonlyMap<string, SkillVersionReport["skills"][number]>
 export type TeamSkillRuntimeState =
@@ -175,7 +175,7 @@ export function publicPackageCatalogReducer(
           : appendUniquePublicPackages([], action.catalog.items),
         next: action.catalog.next,
         selectedId: action.append ? state.selectedId : null,
-        status: "idle",
+        status: "ready",
       }
     case "load-error":
       if (action.requestId !== state.requestId) {

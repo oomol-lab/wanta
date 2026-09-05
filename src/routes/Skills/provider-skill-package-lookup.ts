@@ -1,7 +1,6 @@
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { ProviderSkillCandidate } from "./provider-skill-recommendations.ts"
-import type { SharedRequest } from "@/lib/shared-request"
 
 import * as React from "react"
 import {
@@ -13,16 +12,17 @@ import {
   selectProviderSkillPackage,
 } from "./provider-skill-recommendations.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
-import { createSharedRequest, waitForSharedRequest } from "@/lib/shared-request"
+import {
+  readCachedSkillCatalog,
+  readCachedSkillCatalogValue,
+  invalidateSkillCatalogKeys,
+  getSkillCatalogInvalidationRevision,
+  subscribeSkillCatalogInvalidation,
+} from "@/lib/skill-catalog-cache"
 import { readPublicSkillPackageByName, searchPublicSkillPackages } from "@/lib/skills-catalog-client"
 
 const providerSkillPackageCacheMs = 10 * 60_000
 const missingProviderSkillPackageCacheMs = 24 * 60 * 60_000
-
-interface ProviderSkillPackageCacheEntry {
-  expiresAt: number
-  package: PublicSkillPackage | null
-}
 
 export interface ProviderSkillPackageLookup {
   error: string | null
@@ -34,13 +34,11 @@ export interface ProviderSkillPackageLookup {
   totalCount: number
 }
 
-const providerSkillPackageCache = new Map<string, ProviderSkillPackageCacheEntry>()
-const providerSkillPackagePendingRequests = new Map<string, SharedRequest<PublicSkillPackage | null>>()
 const emptyProviderSkillPackages = new Map<string, PublicSkillPackage | null>()
 const providerSkillPackageLookupConcurrency = 4
 
 function providerSkillPackageCacheKey(candidate: ProviderSkillCandidate): string {
-  return `${candidate.service}:${candidate.providerDisplayName.trim().toLowerCase()}`
+  return `public:provider:${candidate.service}:${candidate.providerDisplayName.trim().toLowerCase()}`
 }
 
 function providerSkillPackageRequestKey(candidates: readonly ProviderSkillCandidate[]): string {
@@ -52,14 +50,6 @@ function providerSkillPackageRequestKey(candidates: readonly ProviderSkillCandid
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause)
-}
-
-function cachedProviderSkillPackage(
-  candidate: ProviderSkillCandidate,
-  now = Date.now(),
-): PublicSkillPackage | null | undefined {
-  const cached = providerSkillPackageCache.get(providerSkillPackageCacheKey(candidate))
-  return cached && now < cached.expiresAt ? cached.package : undefined
 }
 
 async function mapProviderSkillCandidatesWithConcurrency(
@@ -82,6 +72,7 @@ async function mapProviderSkillCandidatesWithConcurrency(
 }
 
 export function useProviderSkillPackageLookup(providers: readonly ConnectionProvider[]): ProviderSkillPackageLookup {
+  const revision = React.useSyncExternalStore(subscribeSkillCatalogInvalidation, getSkillCatalogInvalidationRevision)
   const candidates = React.useMemo(() => getConnectedProviderSkillCandidates(providers), [providers])
   const requestKey = React.useMemo(() => providerSkillPackageRequestKey(candidates), [candidates])
   const [packagesByService, setPackagesByService] = React.useState<ReadonlyMap<string, PublicSkillPackage | null>>(
@@ -106,29 +97,17 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
       }
     }
 
-    const now = Date.now()
-    const initialPackagesByService = new Map<string, PublicSkillPackage | null>()
-    const pendingCandidates: ProviderSkillCandidate[] = []
-    for (const candidate of candidates) {
-      const cached = cachedProviderSkillPackage(candidate, now)
-      if (cached === undefined) {
-        pendingCandidates.push(candidate)
-      } else {
-        initialPackagesByService.set(candidate.service, cached)
-      }
-    }
-
-    setPackagesByService(initialPackagesByService)
+    const initialPackages = new Map<string, PublicSkillPackage | null>()
+    const pendingCandidates = candidates.filter((candidate) => {
+      const cached = readCachedSkillCatalogValue<PublicSkillPackage | null>(providerSkillPackageCacheKey(candidate))
+      if (cached === undefined) return true
+      initialPackages.set(candidate.service, cached)
+      return false
+    })
+    setPackagesByService(initialPackages)
     setResolvedRequestKey(requestKey)
     setIsLoading(pendingCandidates.length > 0)
     setError(null)
-    if (pendingCandidates.length === 0) {
-      return () => {
-        cancelled = true
-        controller.abort()
-      }
-    }
-
     void (async () => {
       let firstFailure: unknown
 
@@ -182,7 +161,7 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
       cancelled = true
       controller.abort()
     }
-  }, [candidates, requestKey])
+  }, [candidates, requestKey, revision])
 
   const isStale = resolvedRequestKey !== requestKey
   const visiblePackagesByService = isStale ? emptyProviderSkillPackages : packagesByService
@@ -199,53 +178,20 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
 }
 
 export function clearProviderSkillPackageCache(): void {
-  providerSkillPackageCache.clear()
-  for (const request of providerSkillPackagePendingRequests.values()) {
-    request.controller.abort(new DOMException("Provider Skill package cache was cleared.", "AbortError"))
-  }
-  providerSkillPackagePendingRequests.clear()
+  invalidateSkillCatalogKeys((key) => key.startsWith("public:provider:"))
 }
 
 export async function readProviderSkillPackage(
   candidate: ProviderSkillCandidate,
   signal?: AbortSignal,
 ): Promise<PublicSkillPackage | null> {
-  signal?.throwIfAborted()
-  const cacheKey = providerSkillPackageCacheKey(candidate)
-  const cached = providerSkillPackageCache.get(cacheKey)
-  if (cached && Date.now() < cached.expiresAt) {
-    return cached.package
-  }
-  const pending = providerSkillPackagePendingRequests.get(cacheKey)
-  if (pending) {
-    return waitForSharedRequest(pending, signal)
-  }
-
-  const request = createSharedRequest((requestSignal) =>
-    searchProviderSkillPackage(candidate, requestSignal).then((pkg) => {
-      if (!requestSignal.aborted) {
-        providerSkillPackageCache.set(cacheKey, {
-          expiresAt: Date.now() + (pkg ? providerSkillPackageCacheMs : missingProviderSkillPackageCacheMs),
-          package: pkg,
-        })
-      }
-      return pkg
-    }),
+  return readCachedSkillCatalog(
+    providerSkillPackageCacheKey(candidate),
+    (pkg: PublicSkillPackage | null) => (pkg ? providerSkillPackageCacheMs : missingProviderSkillPackageCacheMs),
+    false,
+    (requestSignal) => searchProviderSkillPackage(candidate, requestSignal),
+    signal,
   )
-  providerSkillPackagePendingRequests.set(cacheKey, request)
-  void request.promise.then(
-    () => {
-      if (providerSkillPackagePendingRequests.get(cacheKey) === request) {
-        providerSkillPackagePendingRequests.delete(cacheKey)
-      }
-    },
-    () => {
-      if (providerSkillPackagePendingRequests.get(cacheKey) === request) {
-        providerSkillPackagePendingRequests.delete(cacheKey)
-      }
-    },
-  )
-  return waitForSharedRequest(request, signal)
 }
 
 async function searchProviderSkillPackage(

@@ -58,7 +58,6 @@ test("cancellable public Skill consumers still share one underlying request", as
 test("my published Skill pages cap registry detail fanout at 20 packages", async () => {
   const packages = Array.from({ length: 25 }, (_, index) => ({
     name: `@acme/package-${index}`,
-    skills: [{ name: `skill-${index}` }],
     version: "1.0.0",
   }))
   let registryReads = 0
@@ -219,4 +218,88 @@ test("searchPublicSkillPackages builds fallback package details from the search 
     `${packageAssetsBaseUrl}/packages/@acme/demo/1.0.0/files/package/assets/search-icon.svg`,
   )
   assert.equal(fetchMock.mock.calls.length, 1)
+})
+
+test("my published records with skill metadata skip all detail requests", async () => {
+  const fetchMock = vi.fn(async () =>
+    Response.json({
+      data: Array.from({ length: 20 }, (_, i) => ({
+        name: `@acme/skill-${i}`,
+        version: "2.0.0",
+        skills: [{ name: `skill-${i}` }],
+      })),
+    }),
+  )
+  vi.stubGlobal("fetch", fetchMock)
+  const result = await listMyPublishedSkillPackages({ account: { id: "a", name: "Alice" } })
+  assert.equal(result.items.length, 20)
+  assert.equal(fetchMock.mock.calls.length, 1)
+})
+
+test("failed supplemental details reject the page and are not cached as a successful empty list", async () => {
+  let failed = true
+  let listReads = 0
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input) => {
+      if (String(input).includes("/v1/packages/-/my")) {
+        listReads++
+        return Response.json({ data: [{ name: "@acme/demo", version: "1.0.0" }] })
+      }
+      return failed
+        ? new Response("unavailable", { status: 503 })
+        : Response.json({
+            packageName: "@acme/demo",
+            packageVersion: "1.0.0",
+            skills: [{ name: "demo" }],
+          })
+    }),
+  )
+  const account = { id: "a", name: "Alice" }
+  await assert.rejects(listMyPublishedSkillPackages({ account }), /503/)
+  failed = false
+  const recovered = await listMyPublishedSkillPackages({ account })
+  assert.equal(recovered.items.length, 1)
+  assert.equal(listReads, 2)
+})
+
+test("my published force refresh also refreshes supplemental detail at the listed version", async () => {
+  let details = 0
+  const detailUrls: string[] = []
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input) => {
+      if (String(input).includes("/v1/packages/-/my"))
+        return Response.json({ data: [{ name: "@acme/demo", version: "2.0.0" }] })
+      details++
+      detailUrls.push(String(input))
+      return Response.json({
+        packageName: "@acme/demo",
+        packageVersion: "2.0.0",
+        title: `Title ${details}`,
+        skills: [{ name: "demo" }],
+      })
+    }),
+  )
+  const account = { id: "a", name: "Alice" }
+  await listMyPublishedSkillPackages({ account })
+  const result = await listMyPublishedSkillPackages({ account, forceRefresh: true })
+  assert.equal(details, 2)
+  assert.equal(result.items[0]?.displayName, "Title 2")
+  assert.ok(detailUrls.every((url) => url.endsWith("/2.0.0")))
+})
+
+test("private details are isolated by account and legitimate non-skill packages are excluded", async () => {
+  let details = 0
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input) => {
+      if (String(input).includes("/v1/packages/-/my")) return Response.json({ data: [{ name: "@acme/demo" }] })
+      details++
+      return Response.json({ packageName: "@acme/demo", skills: details === 1 ? [] : [{ name: "demo" }] })
+    }),
+  )
+  assert.equal((await listMyPublishedSkillPackages({ account: { id: "a", name: "A" } })).items.length, 0)
+  assert.equal((await listMyPublishedSkillPackages({ account: { id: "b", name: "B" } })).items.length, 1)
+  assert.equal(details, 2)
 })

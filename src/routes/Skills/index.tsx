@@ -14,6 +14,7 @@ import type { BusyAction } from "./team-management-model.ts"
 import type { ProviderSkillRecommendationsState } from "@/hooks/useProviderSkillRecommendations"
 import type { UseTeamSkills } from "@/hooks/useTeamSkills"
 import type { UseTeamWorkspace } from "@/hooks/useTeamWorkspace"
+import type { ListPublicSkillPackagesInput } from "@/lib/skills-catalog-client"
 
 import * as React from "react"
 import { toast } from "sonner"
@@ -29,11 +30,9 @@ import {
   getSkillVersionCheck,
   getSkillVersionCheckKey,
   getSelectedManagedSkillGroup,
-  initialPublicPackageCatalogState,
   isInstalledSkillGroup,
   matchesInstalledSkillFilter,
   matchesPublicPackageQuery,
-  publicPackageCatalogReducer,
 } from "./skill-route-model.ts"
 import { SkillDetailContent } from "./SkillDetailContent.tsx"
 import { SkillPageHeader } from "./SkillPageHeader.tsx"
@@ -42,6 +41,7 @@ import { SkillManagementSheet } from "./SkillUiParts.tsx"
 import { TeamInstallMissingButton } from "./TeamSkillManageRows.tsx"
 import { TeamSkillsPane } from "./TeamSkillsPane.tsx"
 import { useRegistrySkillUpdate } from "./use-registry-skill-update.ts"
+import { useSkillCatalog } from "./use-skill-catalog.ts"
 import { useTeamSkillActions } from "./use-team-skill-actions.ts"
 import { useSkillService } from "@/components/AppContext"
 import {
@@ -102,7 +102,7 @@ export function SkillsRoute({
   const skillService = useSkillService()
   const authResource = useAuthStateResource()
   const inventoryResource = useSkillInventoryResource()
-  const versionResource = useSkillVersionReportResource()
+  const versionResource = useSkillVersionReportResource({ autoLoad: cloudEnabled })
   const inventory = inventoryResource.data
   const installedSkillGroupById = React.useMemo<ManagedSkillGroupById>(() => {
     return new Map((inventory?.groups ?? []).map((group) => [group.id, group]))
@@ -129,18 +129,6 @@ export function SkillsRoute({
   const deferredTeamQuery = React.useDeferredValue(teamQuery)
   const deferredDiscoveryQuery = React.useDeferredValue(discoveryQuery)
   const [debouncedDiscoveryQuery, setDebouncedDiscoveryQuery] = React.useState("")
-  const [publicPackageCatalog, dispatchPublicPackageCatalog] = React.useReducer(
-    publicPackageCatalogReducer,
-    initialPublicPackageCatalogState,
-  )
-  const [myPublishedPackageCatalog, dispatchMyPublishedPackageCatalog] = React.useReducer(
-    publicPackageCatalogReducer,
-    initialPublicPackageCatalogState,
-  )
-  const [publicPackageSearchCatalog, dispatchPublicPackageSearchCatalog] = React.useReducer(
-    publicPackageCatalogReducer,
-    initialPublicPackageCatalogState,
-  )
   const [installingRegistryResultId, setInstallingRegistryResultId] = React.useState<string | null>(null)
   const [planError, setPlanError] = React.useState<SkillOperationError | null>(null)
   const [cliUpdateError, setCliUpdateError] = React.useState<string | null>(null)
@@ -150,12 +138,6 @@ export function SkillsRoute({
   const [teamSkillBusyAction, setTeamSkillBusyAction] = React.useState<BusyAction | null>(null)
   const [isExecutingCliUpdate, setIsExecutingCliUpdate] = React.useState(false)
   const skillMutationInFlightRef = React.useRef(false)
-  const requestedVersionCheckRef = React.useRef(false)
-  const publicPackageRequestIdRef = React.useRef(0)
-  const myPublishedPackageRequestIdRef = React.useRef(0)
-  const myPublishedPackageControllerRef = React.useRef<AbortController | null>(null)
-  const publicPackageSearchRequestIdRef = React.useRef(0)
-  const publicPackageSearchControllerRef = React.useRef<AbortController | null>(null)
   const { copySkillPath, isRemovingSkill, openSkillFolder, removeSkill, removeTarget, setRemoveTarget } =
     useSkillObjectActions({
       onDeleted: () => {
@@ -223,21 +205,6 @@ export function SkillsRoute({
   }, [teamSkills.skills, selectedSkill?.packageName])
   const showSelectedSkillTeamLinkAction = Boolean(selectedSkill?.packageName?.trim() && managedTeamOptions.length > 0)
   React.useEffect(() => {
-    if (!cloudEnabled) {
-      requestedVersionCheckRef.current = false
-      return
-    }
-    if (requestedVersionCheckRef.current) {
-      return
-    }
-
-    requestedVersionCheckRef.current = true
-    void versionResource
-      .refresh({ silent: true })
-      .catch((error: unknown) => reportRendererHandledError("skills", "silent skill version refresh failed", error))
-  }, [cloudEnabled, versionResource])
-
-  React.useEffect(() => {
     if (versionResource.data?.cli?.status !== "update-available") {
       setCliUpdateError(null)
     }
@@ -277,171 +244,42 @@ export function SkillsRoute({
     setSelectedSkillId(skillId)
   }, [])
 
-  const loadPublicSkillPackages = React.useCallback(
-    async (options: { forceRefresh?: boolean; next?: string | null } = {}) => {
-      const next = options.next?.trim() || undefined
-      const append = Boolean(next && !options.forceRefresh)
-      const requestId = publicPackageRequestIdRef.current + 1
-      publicPackageRequestIdRef.current = requestId
-      dispatchPublicPackageCatalog({ append, requestId, type: "load-start" })
-
-      try {
-        const catalog = await listPublicSkillPackages({ forceRefresh: options.forceRefresh, next })
-        dispatchPublicPackageCatalog({ append, catalog, requestId, type: "load-success" })
-      } catch (cause) {
-        dispatchPublicPackageCatalog({
-          error: cause instanceof Error ? cause.message : String(cause),
-          requestId,
-          type: "load-error",
-        })
-      }
+  const account = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
+  const loadPublished = React.useCallback(
+    (input: ListPublicSkillPackagesInput) => {
+      if (!account) throw new Error("Sign in is required.")
+      return listMyPublishedSkillPackages({ ...input, account })
     },
-    [],
+    [account?.id, account?.name, account?.avatarUrl],
   )
-
-  const loadMyPublishedSkillPackages = React.useCallback(
-    async (options: { forceRefresh?: boolean; next?: string | null } = {}) => {
-      const account = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
-      if (!account) {
-        return
-      }
-      myPublishedPackageControllerRef.current?.abort()
-      const controller = new AbortController()
-      myPublishedPackageControllerRef.current = controller
-      const next = options.next?.trim() || undefined
-      const append = Boolean(next && !options.forceRefresh)
-      const requestId = myPublishedPackageRequestIdRef.current + 1
-      myPublishedPackageRequestIdRef.current = requestId
-      dispatchMyPublishedPackageCatalog({ append, requestId, type: "load-start" })
-
-      try {
-        const catalog = await listMyPublishedSkillPackages({
-          account: { avatarUrl: account.avatarUrl, id: account.id, name: account.name },
-          forceRefresh: options.forceRefresh,
-          next,
-          signal: controller.signal,
-        })
-        dispatchMyPublishedPackageCatalog({ append, catalog, requestId, type: "load-success" })
-      } catch (cause) {
-        if (controller.signal.aborted) {
-          return
-        }
-        dispatchMyPublishedPackageCatalog({
-          error: cause instanceof Error ? cause.message : String(cause),
-          requestId,
-          type: "load-error",
-        })
-      } finally {
-        if (myPublishedPackageControllerRef.current === controller) {
-          myPublishedPackageControllerRef.current = null
-        }
-      }
-    },
-    [authResource.data],
+  const loadSearch = React.useCallback(
+    (input: ListPublicSkillPackagesInput) => searchPublicSkillPackages({ ...input, query: debouncedDiscoveryQuery }),
+    [debouncedDiscoveryQuery],
   )
-
-  const loadPublicSkillSearch = React.useCallback(
-    async (query: string, options: { forceRefresh?: boolean; next?: string | null; replace?: boolean } = {}) => {
-      publicPackageSearchControllerRef.current?.abort()
-      const controller = new AbortController()
-      publicPackageSearchControllerRef.current = controller
-      const next = options.next?.trim() || undefined
-      const append = Boolean(next && !options.forceRefresh && !options.replace)
-      const requestId = publicPackageSearchRequestIdRef.current + 1
-      publicPackageSearchRequestIdRef.current = requestId
-      dispatchPublicPackageSearchCatalog({
-        append,
-        clearItems: options.replace,
-        requestId,
-        type: "load-start",
-      })
-
-      try {
-        const catalog = await searchPublicSkillPackages({
-          forceRefresh: options.forceRefresh,
-          next,
-          query,
-          signal: controller.signal,
-        })
-        dispatchPublicPackageSearchCatalog({ append, catalog, requestId, type: "load-success" })
-      } catch (cause) {
-        if (controller.signal.aborted) {
-          return
-        }
-        dispatchPublicPackageSearchCatalog({
-          error: cause instanceof Error ? cause.message : String(cause),
-          requestId,
-          type: "load-error",
-        })
-      } finally {
-        if (publicPackageSearchControllerRef.current === controller) {
-          publicPackageSearchControllerRef.current = null
-        }
-      }
-    },
-    [],
-  )
-
-  React.useEffect(
-    () => () => {
-      publicPackageSearchControllerRef.current?.abort()
-      myPublishedPackageControllerRef.current?.abort()
-    },
-    [],
-  )
-
-  React.useEffect(() => {
-    if (
-      activeTab !== "discover" ||
-      discoveryFilter !== "all" ||
-      publicPackageCatalog.items.length > 0 ||
-      publicPackageCatalog.status !== "idle"
-    ) {
-      return
-    }
-
-    void loadPublicSkillPackages().catch((error: unknown) => {
-      reportRendererHandledError("skills", "public skill package load failed", error)
-    })
-  }, [
-    activeTab,
-    discoveryFilter,
-    loadPublicSkillPackages,
-    publicPackageCatalog.items.length,
-    publicPackageCatalog.status,
-  ])
-
-  React.useEffect(() => {
-    if (
-      activeTab !== "discover" ||
-      discoveryFilter !== "mine" ||
-      authResource.data?.status !== "authenticated" ||
-      myPublishedPackageCatalog.items.length > 0 ||
-      myPublishedPackageCatalog.status !== "idle"
-    ) {
-      return
-    }
-
-    void loadMyPublishedSkillPackages().catch((error: unknown) => {
-      reportRendererHandledError("skills", "published skill package load failed", error)
-    })
-  }, [
-    activeTab,
-    authResource.data?.status,
-    discoveryFilter,
-    loadMyPublishedSkillPackages,
-    myPublishedPackageCatalog.items.length,
-    myPublishedPackageCatalog.status,
-  ])
-
-  React.useEffect(() => {
-    if (activeTab !== "discover" || discoveryFilter !== "all" || !debouncedDiscoveryQuery) {
-      return
-    }
-    void loadPublicSkillSearch(debouncedDiscoveryQuery, { replace: true }).catch((error: unknown) => {
-      reportRendererHandledError("skills", "public skill package search failed", error)
-    })
-  }, [activeTab, debouncedDiscoveryQuery, discoveryFilter, loadPublicSkillSearch])
+  const {
+    catalog: publicPackageCatalog,
+    dispatch: dispatchPublicPackageCatalog,
+    loadPage: loadPublicSkillPackages,
+  } = useSkillCatalog({
+    enabled: activeTab === "discover" && discoveryFilter === "all" && !debouncedDiscoveryQuery,
+    load: listPublicSkillPackages,
+  })
+  const {
+    catalog: myPublishedPackageCatalog,
+    dispatch: dispatchMyPublishedPackageCatalog,
+    loadPage: loadMyPublishedSkillPackages,
+  } = useSkillCatalog({
+    enabled: activeTab === "discover" && discoveryFilter === "mine" && Boolean(account),
+    load: loadPublished,
+  })
+  const {
+    catalog: publicPackageSearchCatalog,
+    dispatch: dispatchPublicPackageSearchCatalog,
+    loadPage: loadPublicSkillSearch,
+  } = useSkillCatalog({
+    enabled: activeTab === "discover" && discoveryFilter === "all" && Boolean(debouncedDiscoveryQuery),
+    load: loadSearch,
+  })
 
   const isPublicSearchActive = discoveryFilter === "all" && Boolean(debouncedDiscoveryQuery)
   const activePackageCatalog =
@@ -456,6 +294,10 @@ export function SkillsRoute({
       : isPublicSearchActive
         ? dispatchPublicPackageSearchCatalog
         : dispatchPublicPackageCatalog
+  const selectPublicPackage = React.useCallback(
+    (pkg: PublicSkillPackage) => activePackageDispatcher({ id: pkg.id, type: "select" }),
+    [activePackageDispatcher],
+  )
   const filteredPublicPackages = React.useMemo(() => {
     if (discoveryFilter === "all") {
       return activePackageCatalog.items
@@ -613,14 +455,6 @@ export function SkillsRoute({
             reportRendererHandledError("skills", "silent skill version refresh failed after publish", error),
           )
         toast.success(t("skills.publishDone", { name: skill.name }))
-        void loadMyPublishedSkillPackages({ forceRefresh: true }).catch((error: unknown) => {
-          reportRendererHandledError("skills", "published skill package refresh failed after publish", error)
-        })
-        if (publicPackageCatalog.items.length > 0) {
-          void loadPublicSkillPackages({ forceRefresh: true }).catch((error: unknown) => {
-            reportRendererHandledError("skills", "public skill package refresh failed after publish", error)
-          })
-        }
         return result
       } catch (cause) {
         setPlanError({
@@ -634,16 +468,7 @@ export function SkillsRoute({
         setPublishingSkillId(null)
       }
     },
-    [
-      authResource.data,
-      inventoryResource,
-      loadMyPublishedSkillPackages,
-      loadPublicSkillPackages,
-      publicPackageCatalog.items.length,
-      skillService,
-      t,
-      versionResource,
-    ],
+    [authResource.data, inventoryResource, skillService, t, versionResource],
   )
 
   const executeCliUpdate = React.useCallback(async () => {
@@ -776,7 +601,7 @@ export function SkillsRoute({
               void (discoveryFilter === "mine"
                 ? loadMyPublishedSkillPackages({ next: activePackageCatalog.next })
                 : isPublicSearchActive
-                  ? loadPublicSkillSearch(debouncedDiscoveryQuery, { next: activePackageCatalog.next })
+                  ? loadPublicSkillSearch({ next: activePackageCatalog.next })
                   : loadPublicSkillPackages({ next: activePackageCatalog.next }))
             }
             onOpenManagedSkill={openManagedPublicSkill}
@@ -789,10 +614,10 @@ export function SkillsRoute({
                 return
               }
               void (isPublicSearchActive
-                ? loadPublicSkillSearch(debouncedDiscoveryQuery, { forceRefresh: true, replace: true })
+                ? loadPublicSkillSearch({ forceRefresh: true, replace: true })
                 : loadPublicSkillPackages({ forceRefresh: true }))
             }}
-            onSelectPackage={(pkg) => activePackageDispatcher({ id: pkg.id, type: "select" })}
+            onSelectPackage={selectPublicPackage}
           />
         ) : (
           <InstalledSkillsPane

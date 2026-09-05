@@ -1,5 +1,6 @@
 import { apiBaseUrl, consoleBaseUrl, registryBaseUrl } from "@/lib/domain"
 import { oomolFetchJson } from "@/lib/oomol-http"
+import { readCachedSkillCatalog, invalidateSkillCatalogKeys } from "@/lib/skill-catalog-cache"
 
 export interface SkillPackageMaintainer {
   id: string
@@ -60,10 +61,14 @@ function normalizeMaintainers(value: unknown): SkillPackageMaintainer[] {
 }
 
 export async function getSkillPackageMaintainerDetail({
+  accountId,
+  forceRefresh,
   packageName,
   signal,
   version = "latest",
 }: {
+  accountId?: string
+  forceRefresh?: boolean
   packageName: string
   signal?: AbortSignal
   version?: string
@@ -76,8 +81,18 @@ export async function getSkillPackageMaintainerDetail({
     `/-/oomol/detail/${encodeSkillPackagePath(normalizedPackageName)}/${encodeURIComponent(version.trim() || "latest")}`,
     registryBaseUrl,
   )
-  const detail = await oomolFetchJson<RawSkillPackageDetail>(url, { signal })
-  return { maintainers: normalizeMaintainers(detail?.maintainers) }
+  const load = async (requestSignal?: AbortSignal) => {
+    const detail = await oomolFetchJson<RawSkillPackageDetail>(url, { signal: requestSignal })
+    return { maintainers: normalizeMaintainers(detail?.maintainers) }
+  }
+  if (!accountId) return load(signal)
+  return readCachedSkillCatalog(
+    `account:${accountId}:maintainers:${normalizedPackageName}:${version.trim() || "latest"}`,
+    30_000,
+    forceRefresh,
+    load,
+    signal,
+  )
 }
 
 export async function inviteSkillPackageMaintainer({
@@ -99,6 +114,7 @@ export async function inviteSkillPackageMaintainer({
     ),
     { method: "POST" },
   )
+  invalidateSkillCatalogKeys((key) => key.includes(`:maintainers:${normalizedPackageName}:`), { notify: false })
 }
 
 export function getSkillMaintainerInvitationUrl({

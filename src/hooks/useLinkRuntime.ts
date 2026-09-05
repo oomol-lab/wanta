@@ -17,8 +17,8 @@ export interface UseLinkRuntime {
   state: LinkRuntimeState | null
   status: OpenConnectorRuntimeStatus
   clearOpenConnectorToken: () => Promise<LinkRuntimeState>
-  listOpenConnectorApps: () => Promise<OpenConnectorAppSummary[]>
-  refreshStatus: () => Promise<OpenConnectorRuntimeStatus>
+  listOpenConnectorApps: (options?: { forceRefresh?: boolean }) => Promise<OpenConnectorAppSummary[]>
+  refreshStatus: (options?: { forceRefresh?: boolean }) => Promise<OpenConnectorRuntimeStatus>
   removeOpenConnector: () => Promise<LinkRuntimeState>
   saveOpenConnector: (input: {
     baseUrl: string
@@ -37,11 +37,14 @@ export function useLinkRuntime(): UseLinkRuntime {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<unknown>(null)
 
-  const refreshStatus = React.useCallback(async () => {
-    const next = await service.invoke("getOpenConnectorStatus")
-    setStatus(next)
-    return next
-  }, [service])
+  const refreshStatus = React.useCallback(
+    async (options?: { forceRefresh?: boolean }) => {
+      const next = await service.invoke("getOpenConnectorStatus", options)
+      setStatus(next)
+      return next
+    },
+    [service],
+  )
 
   React.useEffect(() => {
     let active = true
@@ -104,7 +107,7 @@ export function useLinkRuntime(): UseLinkRuntime {
     state,
     status,
     clearOpenConnectorToken: () => mutate(() => service.invoke("clearOpenConnectorToken")),
-    listOpenConnectorApps: () => service.invoke("listOpenConnectorApps"),
+    listOpenConnectorApps: (options?: { forceRefresh?: boolean }) => service.invoke("listOpenConnectorApps", options),
     refreshStatus,
     removeOpenConnector: () => mutate(() => service.invoke("removeOpenConnector")),
     saveOpenConnector: (input) => mutate(() => service.invoke("saveOpenConnector", input)),

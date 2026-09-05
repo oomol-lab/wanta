@@ -1242,6 +1242,9 @@ export const enMessages = {
     "Connection management stays in the OpenConnector Console. Wanta shows a sanitized, read-only inventory.",
   "connections.openConnector.connectedApps": "Configured connections",
   "connections.openConnector.loadFailed": "Couldn't load OpenConnector connections.",
+  "connections.openConnector.checkingHealth": "Checking connection status…",
+  "connections.openConnector.healthFailed": "Connection status check failed",
+  "connections.openConnector.retryHealth": "Retry status check",
   "connections.openConnector.loading": "Loading OpenConnector connections…",
   "connections.openConnector.empty": "No OpenConnector connections are configured.",
   "connections.openConnector.active": "Active",
@@ -1527,6 +1530,7 @@ export const enMessages = {
   "connections.readOnlyTitle": "Connections are read-only in this workspace",
   "connections.readOnlyDescription":
     "You can browse the connector catalog. Adding, editing, reconnecting, or disconnecting requires team administrator access.",
+  "connections.stateLoadingDescription": "Loading account connection status…",
   "connections.stateUnavailableTitle": "Team connection status unavailable",
   "connections.stateForbiddenDescription":
     "You cannot read this team's connection status, but you can still browse the connector catalog.",

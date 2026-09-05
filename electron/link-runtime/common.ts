@@ -107,8 +107,8 @@ export const LinkRuntimeService = serviceName("link-runtime-service") as Service
   }
   ClientInvokes: {
     getState(): Promise<LinkRuntimeState>
-    getOpenConnectorStatus(): Promise<OpenConnectorRuntimeStatus>
-    listOpenConnectorApps(): Promise<OpenConnectorAppSummary[]>
+    getOpenConnectorStatus(options?: { forceRefresh?: boolean }): Promise<OpenConnectorRuntimeStatus>
+    listOpenConnectorApps(options?: { forceRefresh?: boolean }): Promise<OpenConnectorAppSummary[]>
     saveOpenConnector(input: { baseUrl: string; consoleUrl?: string; runtimeToken?: string }): Promise<LinkRuntimeState>
     testOpenConnector(input: { baseUrl: string; runtimeToken?: string }): Promise<OpenConnectorTestResult>
     selectRuntime(kind: LinkRuntimeSelection): Promise<LinkRuntimeState>

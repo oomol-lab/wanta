@@ -106,7 +106,7 @@ export class LinkRuntimeManager {
     return this.stateFrom(await this.read())
   }
 
-  public async getOpenConnectorStatus(): Promise<OpenConnectorRuntimeStatus> {
+  public async getOpenConnectorStatus(options: { forceRefresh?: boolean } = {}): Promise<OpenConnectorRuntimeStatus> {
     const persisted = await this.read()
     const config = persisted.openConnector
     if (!config) return { kind: "unknown" }
@@ -115,7 +115,7 @@ export class LinkRuntimeManager {
     if (!credential.available) return { kind: "unknown" }
 
     const now = this.now()
-    if (this.statusCache && this.statusCache.expiresAt > now) {
+    if (!options.forceRefresh && this.statusCache && this.statusCache.expiresAt > now) {
       return this.statusCache.status
     }
     if (this.statusInFlight) return this.statusInFlight
@@ -137,7 +137,10 @@ export class LinkRuntimeManager {
     return request
   }
 
-  public async listOpenConnectorApps(signal?: AbortSignal): Promise<OpenConnectorAppSummary[]> {
+  public async listOpenConnectorApps(
+    signal?: AbortSignal,
+    options: { forceRefresh?: boolean } = {},
+  ): Promise<OpenConnectorAppSummary[]> {
     const persisted = await this.read()
     const config = persisted.openConnector
     if (persisted.selected !== "openconnector" || !config) return []
@@ -145,7 +148,8 @@ export class LinkRuntimeManager {
     if (!credential.available) throw new Error("The saved OpenConnector credential is unavailable.")
 
     const now = this.now()
-    if (this.inventoryCache && this.inventoryCache.expiresAt > now) return this.inventoryCache.apps
+    if (!options.forceRefresh && this.inventoryCache && this.inventoryCache.expiresAt > now)
+      return this.inventoryCache.apps
     if (this.inventoryInFlight) return this.inventoryInFlight
 
     const revision = this.inventoryRevision
@@ -494,12 +498,12 @@ export class LinkRuntimeServiceImpl
     return this.manager.getState()
   }
 
-  public getOpenConnectorStatus(): Promise<OpenConnectorRuntimeStatus> {
-    return this.manager.getOpenConnectorStatus()
+  public getOpenConnectorStatus(options?: { forceRefresh?: boolean }): Promise<OpenConnectorRuntimeStatus> {
+    return this.manager.getOpenConnectorStatus(options)
   }
 
-  public listOpenConnectorApps(): Promise<OpenConnectorAppSummary[]> {
-    return this.manager.listOpenConnectorApps()
+  public listOpenConnectorApps(options?: { forceRefresh?: boolean }): Promise<OpenConnectorAppSummary[]> {
+    return this.manager.listOpenConnectorApps(undefined, options)
   }
 
   public saveOpenConnector(input: {

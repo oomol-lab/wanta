@@ -317,34 +317,7 @@ export function ProviderListSkeleton() {
   )
 }
 
-export function ProviderCatalog({
-  canManageConnections,
-  providers,
-  scrollParentRef,
-  selectedService,
-  showConnectionState,
-  onSelect,
-}: {
-  canManageConnections: boolean
-  onSelect: (provider: ConnectionProviderSummary) => void
-  providers: ConnectionProviderSummary[]
-  scrollParentRef: React.RefObject<HTMLDivElement | null>
-  selectedService: string | null
-  showConnectionState: boolean
-}) {
-  return (
-    <ProviderGrid
-      canManageConnections={canManageConnections}
-      providers={providers}
-      scrollParentRef={scrollParentRef}
-      selectedService={selectedService}
-      showConnectionState={showConnectionState}
-      onSelect={onSelect}
-    />
-  )
-}
-
-function ProviderGrid({
+export const ProviderCatalog = React.memo(function ProviderCatalog({
   canManageConnections,
   providers,
   scrollParentRef,
@@ -599,19 +572,8 @@ function ProviderGrid({
               selected={provider.service === selectedService}
               showConnectionState={showConnectionState}
               tabIndex={index === focusedIndex ? 0 : -1}
-              onFocus={() => setFocusedIndex(index)}
-              onKeyDown={(event) => {
-                const targetIndex = getProviderGridKeyboardTargetIndex({
-                  columnCount,
-                  currentIndex: index,
-                  key: event.key,
-                  providerCount: itemCount,
-                })
-                if (targetIndex === null) return
-                event.preventDefault()
-                if (targetIndex === index) return
-                focusProviderIndex(targetIndex)
-              }}
+              onFocusIndex={setFocusedIndex}
+              onNavigate={focusProviderIndex}
               onSelect={onSelect}
             />
           ),
@@ -653,7 +615,7 @@ function ProviderGrid({
       </div>
     </div>
   )
-}
+})
 
 const ProviderCard = React.memo(function ProviderCard({
   canManageConnections,
@@ -664,16 +626,16 @@ const ProviderCard = React.memo(function ProviderCard({
   selected,
   showConnectionState,
   tabIndex,
-  onFocus,
-  onKeyDown,
+  onFocusIndex,
+  onNavigate,
   onSelect,
 }: {
   canManageConnections: boolean
   columnCount: number
   index: number
   itemCount: number
-  onFocus: () => void
-  onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
+  onFocusIndex: (index: number) => void
+  onNavigate: (index: number) => void
   provider: ConnectionProviderSummary
   selected: boolean
   showConnectionState: boolean
@@ -693,8 +655,18 @@ const ProviderCard = React.memo(function ProviderCard({
       data-provider-index={index}
       tabIndex={tabIndex}
       onClick={() => onSelect(provider)}
-      onFocus={onFocus}
-      onKeyDown={onKeyDown}
+      onFocus={() => onFocusIndex(index)}
+      onKeyDown={(event) => {
+        const targetIndex = getProviderGridKeyboardTargetIndex({
+          columnCount,
+          currentIndex: index,
+          key: event.key,
+          providerCount: itemCount,
+        })
+        if (targetIndex === null) return
+        event.preventDefault()
+        if (targetIndex !== index) onNavigate(targetIndex)
+      }}
       className={cn(
         "group/card relative grid min-w-0 cursor-pointer overflow-hidden border-r border-b bg-card px-4 py-3 text-left text-card-foreground transition-[background-color,box-shadow,transform] outline-none hover:bg-[var(--oo-row-hover)] focus-visible:z-10 focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px",
         index === 0 && "rounded-tl-[calc(var(--radius-lg)_-_1px)]",
